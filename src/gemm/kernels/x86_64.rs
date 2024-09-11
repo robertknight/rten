@@ -16,7 +16,6 @@ use super::Kernel;
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
-#[derive(Default)]
 pub struct FmaKernel {
     _private: (),
 }
@@ -132,7 +131,6 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
 
 /// Optimized kernel for x64 CPUs that support AVX 512 instructions.
 #[cfg(feature = "avx512")]
-#[derive(Default)]
 pub struct Avx512Kernel {
     _private: (),
 }

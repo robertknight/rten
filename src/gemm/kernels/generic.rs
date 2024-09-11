@@ -11,7 +11,6 @@ use crate::gemm::packing::{pack_a_block, pack_b_block};
 /// This is the base kernel that does not use architecture-specific intrinsics
 /// but is autovectorization-friendly. It is expected to perform the same as
 /// a kernel using SSE intrinsics (or equivalent).
-#[derive(Default)]
 pub struct GenericKernel {
     _private: (),
 }
