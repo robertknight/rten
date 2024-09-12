@@ -217,18 +217,20 @@ impl<'a, T> GemmInputB<'a, T> {
 /// This computes `output = alpha * (a @ b) + beta * output` where `@` is
 /// matrix multiplication.
 #[allow(unused)]
-pub fn gemm(
-    out_data: &mut [f32],
+pub fn gemm<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
+    out_data: &mut [OutT],
     out_row_stride: usize,
-    a: Matrix,
-    b: Matrix,
+    a: Matrix<LhsT>,
+    b: Matrix<RhsT>,
     alpha: f32,
-    beta: f32,
-) {
+    beta: OutT,
+) where
+    GemmExecutor<LhsT, RhsT, OutT>: Default,
+{
     // This heap-allocates a new kernel on each call. That's OK because this
     // is very cheap relative to the large matmuls we expect to be doing, but
     // would be good to avoid for small inputs.
-    GemmExecutor::new().gemm(
+    GemmExecutor::default().gemm(
         out_data,
         out_row_stride,
         GemmInputA::Unpacked(a),
@@ -240,7 +242,7 @@ pub fn gemm(
 
 /// Executes matrix multiplication operations.
 ///
-/// For simple use cases, the standalone [gemm] function can be used.
+/// For simple use cases, the standalone [`gemm`] function can be used.
 /// GemmExecutor provides a more advanced API that enables features such as
 /// performing matrix multiplications with pre-packed inputs.
 ///
@@ -566,6 +568,12 @@ impl GemmExecutor<f32, f32, f32> {
             kernel: Box::new(kernel),
             kernel_type: KernelType::Generic,
         }
+    }
+}
+
+impl Default for GemmExecutor<f32, f32, f32> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

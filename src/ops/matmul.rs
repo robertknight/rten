@@ -116,17 +116,26 @@ enum MatmulStrategy {
     Batch,
 }
 
-pub fn matmul(pool: &TensorPool, a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
-    matmul_impl(pool, &GemmExecutor::new(), a, b, MatmulStrategy::Auto)
+pub fn matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
+    pool: &TensorPool,
+    a: TensorView<LhsT>,
+    b: TensorView<RhsT>,
+) -> Result<Tensor<OutT>, OpError>
+where
+    GemmExecutor<LhsT, RhsT, OutT>: Default,
+{
+    matmul_impl(pool, a, b, MatmulStrategy::Auto)
 }
 
 fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
     pool: &TensorPool,
-    gemm: &GemmExecutor<LhsT, RhsT, OutT>,
     a: TensorView<LhsT>,
     b: TensorView<RhsT>,
     strategy: MatmulStrategy,
-) -> Result<Tensor<OutT>, OpError> {
+) -> Result<Tensor<OutT>, OpError>
+where
+    GemmExecutor<LhsT, RhsT, OutT>: Default,
+{
     if a.ndim() < 2 || b.ndim() < 2 {
         return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
     }
@@ -164,7 +173,7 @@ fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
         // nb. We assume `a` is likely already contiguous, so this will be cheap.
         let a_contig = a.to_contiguous_in(pool).auto_return(pool);
         let a_matrix = a_contig.reshaped([num_a_matrices * a_rows, a_cols].as_slice());
-        let mut output = matmul_impl(pool, gemm, a_matrix, b.clone(), strategy)?;
+        let mut output = matmul(pool, a_matrix, b.clone())?;
         output.reshape(out_shape);
         return Ok(output);
     }
@@ -187,6 +196,8 @@ fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
         .data_mut()
         .unwrap()
         .chunks_mut(out_row_stride * a_rows);
+
+    let gemm = GemmExecutor::default();
 
     // Prepack re-used inputs to amortize packing cost.
     //
@@ -248,7 +259,7 @@ impl Operator for MatMul {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
-        matmul(pool, a, b).into_op_result()
+        matmul::<f32, f32, f32>(pool, a, b).into_op_result()
     }
 }
 
@@ -262,7 +273,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
-    use crate::gemm::{gemm, GemmExecutor};
+    use crate::gemm::gemm;
     use crate::ops::tests::new_pool;
     use crate::tensor_pool::AutoReturn;
 
@@ -602,8 +613,7 @@ mod tests {
                 );
                 let pool = new_pool();
                 run_bench(trials, Some(&desc), || {
-                    let gemm = GemmExecutor::new();
-                    matmul_impl(&pool, &gemm, a.view(), b.view(), strategy)
+                    matmul_impl(&pool, a.view(), b.view(), strategy)
                         .unwrap()
                         .auto_return(&pool);
                 });
