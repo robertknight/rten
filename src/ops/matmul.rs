@@ -10,30 +10,25 @@ use crate::ops::layout::expand_to;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
-#[derive(Debug)]
-pub struct Gemm {
-    pub alpha: f32,
-    pub beta: f32,
-    pub transpose_a: bool,
-    pub transpose_b: bool,
-}
-
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
 ///
 /// If `transpose_a` or `transpose_b` are set, the `a` and `b` inputs
 /// respectively are transposed before multiplying them.
 ///
 /// nb. This is named `gemm_op` to avoid confusion with `gemm::gemm`.
-pub fn gemm_op(
+pub fn gemm_op<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     pool: &TensorPool,
-    a: TensorView,
-    b: TensorView,
-    c: Option<TensorView>,
+    a: TensorView<LhsT>,
+    b: TensorView<RhsT>,
+    c: Option<TensorView<OutT>>,
     alpha: f32,
-    beta: f32,
+    beta: OutT,
     transpose_a: bool,
     transpose_b: bool,
-) -> Result<Tensor, OpError> {
+) -> Result<Tensor<OutT>, OpError>
+where
+    GemmExecutor<LhsT, RhsT, OutT>: Default,
+{
     check_dims!(a, 2);
     check_dims!(b, 2);
 
@@ -41,10 +36,10 @@ pub fn gemm_op(
     let b = if transpose_b { b.transposed() } else { b };
 
     let out_shape = &[a.size(0), b.size(1)][..];
-    let gemm = GemmExecutor::new();
+    let gemm = GemmExecutor::<LhsT, RhsT, OutT>::default();
 
     let output = match c {
-        Some(c) if beta != 0. => {
+        Some(c) if beta != OutT::zero() => {
             if !c.can_broadcast_to(out_shape) {
                 return Err(OpError::IncompatibleInputShapes(
                     "Cannot broadcast c to output shape",
@@ -80,6 +75,14 @@ pub fn gemm_op(
     Ok(output)
 }
 
+#[derive(Debug)]
+pub struct Gemm {
+    pub alpha: f32,
+    pub beta: f32,
+    pub transpose_a: bool,
+    pub transpose_b: bool,
+}
+
 impl Operator for Gemm {
     fn name(&self) -> &str {
         "Gemm"
@@ -89,7 +92,7 @@ impl Operator for Gemm {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         let c = inputs.get_as(2)?;
-        gemm_op(
+        gemm_op::<f32, f32, f32>(
             pool,
             a,
             b,
