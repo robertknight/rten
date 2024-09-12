@@ -10,30 +10,25 @@ use crate::ops::layout::expand_to;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
-#[derive(Debug)]
-pub struct Gemm {
-    pub alpha: f32,
-    pub beta: f32,
-    pub transpose_a: bool,
-    pub transpose_b: bool,
-}
-
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
 ///
 /// If `transpose_a` or `transpose_b` are set, the `a` and `b` inputs
 /// respectively are transposed before multiplying them.
 ///
 /// nb. This is named `gemm_op` to avoid confusion with `gemm::gemm`.
-pub fn gemm_op(
+pub fn gemm_op<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     pool: &TensorPool,
-    a: TensorView,
-    b: TensorView,
-    c: Option<TensorView>,
+    a: TensorView<LhsT>,
+    b: TensorView<RhsT>,
+    c: Option<TensorView<OutT>>,
     alpha: f32,
-    beta: f32,
+    beta: OutT,
     transpose_a: bool,
     transpose_b: bool,
-) -> Result<Tensor, OpError> {
+) -> Result<Tensor<OutT>, OpError>
+where
+    GemmExecutor<LhsT, RhsT, OutT>: Default,
+{
     check_dims!(a, 2);
     check_dims!(b, 2);
 
@@ -41,10 +36,10 @@ pub fn gemm_op(
     let b = if transpose_b { b.transposed() } else { b };
 
     let out_shape = &[a.size(0), b.size(1)][..];
-    let gemm = GemmExecutor::new();
+    let gemm = GemmExecutor::<LhsT, RhsT, OutT>::default();
 
     let output = match c {
-        Some(c) if beta != 0. => {
+        Some(c) if beta != OutT::zero() => {
             if !c.can_broadcast_to(out_shape) {
                 return Err(OpError::IncompatibleInputShapes(
                     "Cannot broadcast c to output shape",
@@ -80,6 +75,14 @@ pub fn gemm_op(
     Ok(output)
 }
 
+#[derive(Debug)]
+pub struct Gemm {
+    pub alpha: f32,
+    pub beta: f32,
+    pub transpose_a: bool,
+    pub transpose_b: bool,
+}
+
 impl Operator for Gemm {
     fn name(&self) -> &str {
         "Gemm"
@@ -89,7 +92,7 @@ impl Operator for Gemm {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         let c = inputs.get_as(2)?;
-        gemm_op(
+        gemm_op::<f32, f32, f32>(
             pool,
             a,
             b,
@@ -116,17 +119,26 @@ enum MatmulStrategy {
     Batch,
 }
 
-pub fn matmul(pool: &TensorPool, a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
-    matmul_impl(pool, &GemmExecutor::new(), a, b, MatmulStrategy::Auto)
+pub fn matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
+    pool: &TensorPool,
+    a: TensorView<LhsT>,
+    b: TensorView<RhsT>,
+) -> Result<Tensor<OutT>, OpError>
+where
+    GemmExecutor<LhsT, RhsT, OutT>: Default,
+{
+    matmul_impl(pool, a, b, MatmulStrategy::Auto)
 }
 
 fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
     pool: &TensorPool,
-    gemm: &GemmExecutor<LhsT, RhsT, OutT>,
     a: TensorView<LhsT>,
     b: TensorView<RhsT>,
     strategy: MatmulStrategy,
-) -> Result<Tensor<OutT>, OpError> {
+) -> Result<Tensor<OutT>, OpError>
+where
+    GemmExecutor<LhsT, RhsT, OutT>: Default,
+{
     if a.ndim() < 2 || b.ndim() < 2 {
         return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
     }
@@ -164,7 +176,7 @@ fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
         // nb. We assume `a` is likely already contiguous, so this will be cheap.
         let a_contig = a.to_contiguous_in(pool).auto_return(pool);
         let a_matrix = a_contig.reshaped([num_a_matrices * a_rows, a_cols].as_slice());
-        let mut output = matmul_impl(pool, gemm, a_matrix, b.clone(), strategy)?;
+        let mut output = matmul(pool, a_matrix, b.clone())?;
         output.reshape(out_shape);
         return Ok(output);
     }
@@ -187,6 +199,8 @@ fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
         .data_mut()
         .unwrap()
         .chunks_mut(out_row_stride * a_rows);
+
+    let gemm = GemmExecutor::default();
 
     // Prepack re-used inputs to amortize packing cost.
     //
@@ -248,7 +262,7 @@ impl Operator for MatMul {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
-        matmul(pool, a, b).into_op_result()
+        matmul::<f32, f32, f32>(pool, a, b).into_op_result()
     }
 }
 
@@ -262,7 +276,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
-    use crate::gemm::{gemm, GemmExecutor};
+    use crate::gemm::gemm;
     use crate::ops::tests::new_pool;
     use crate::tensor_pool::AutoReturn;
 
@@ -602,8 +616,7 @@ mod tests {
                 );
                 let pool = new_pool();
                 run_bench(trials, Some(&desc), || {
-                    let gemm = GemmExecutor::new();
-                    matmul_impl(&pool, &gemm, a.view(), b.view(), strategy)
+                    matmul_impl(&pool, a.view(), b.view(), strategy)
                         .unwrap()
                         .auto_return(&pool);
                 });
