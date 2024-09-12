@@ -133,6 +133,7 @@ impl OpRegistry {
         register_op!(LogSoftmax);
         register_op!(LSTM);
         register_op!(MatMul);
+        register_op!(MatMulInteger);
         register_op!(Max);
         register_op!(MaxPool);
         register_op!(Mean);
@@ -610,6 +611,7 @@ impl_read_op!(LSTM, attrs_as_lstmattrs, |attrs: sg::LSTMAttrs| {
     })
 });
 impl_read_op!(MatMul);
+impl_read_op!(MatMulInteger);
 impl_read_op!(Max);
 impl_read_op!(
     MaxPool,
