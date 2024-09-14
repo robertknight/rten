@@ -123,6 +123,7 @@ enum OperatorType: ubyte {
   DynamicQuantizeLinear,
   MatMulInteger,
   DepthToSpace,
+  ConvInteger,
 }
 
 enum RNNDirection: ubyte {
@@ -177,7 +178,7 @@ union OperatorAttrs {
   CastAttrs,
   ConcatAttrs,
   ConstantOfShapeAttrs,
-  ConvAttrs,
+  ConvAttrs, // Also used for ConvInteger
   ConvTransposeAttrs,
   FlattenAttrs,
   GatherAttrs, // Also used for GatherElements

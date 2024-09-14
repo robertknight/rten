@@ -1249,6 +1249,7 @@ mod tests {
         let input_node = graph_builder.add_value("input", None, None);
         let input_2d = graph_builder.add_value("input.2d", None, None);
         let input_bool = graph_builder.add_value("input.bool", None, None);
+        let input_2d_u8 = graph_builder.add_value("input.2d.u8", None, None);
 
         // 4D shape used as the primary input to test most operators (eg. NCHW image). A few
         // require a different shape.
@@ -1256,6 +1257,9 @@ mod tests {
 
         let kernel_val = Tensor::from_data(&[1, 1, 1, 1], vec![0.5]);
         let kernel = graph_builder.add_constant(kernel_val.view());
+
+        let kernel_val_i8 = Tensor::from_data(&[1, 1, 1, 1], vec![0i8]);
+        let kernel_i8 = graph_builder.add_constant(kernel_val_i8.view());
 
         // Names of all operator output nodes.
         let mut op_outputs = Vec::new();
@@ -1340,7 +1344,12 @@ mod tests {
             padding: [1, 1, 1, 1].into(),
             strides: vec![1, 1],
         });
-
+        add_operator!(ConvInteger, [input_2d_u8, kernel_i8], {
+            dilations: vec![1, 1],
+            groups: 1,
+            padding: [1, 1, 1, 1].into(),
+            strides: vec![1, 1],
+        });
         add_operator!(ConvTranspose, [input_node, kernel], {
             strides: vec![2, 2],
             padding: [0, 0, 0, 0].into(),
@@ -1663,11 +1672,14 @@ mod tests {
         // Most ops are tested with one of several standard inputs:
         //
         //  - 4D float tensor (like an NCHW image)
+        //  - Int8 NCHW tensor
         //  - Bool-ish int tensor
         //
         // A few require different shapes are tested separately.
         let input = Tensor::from_data(&input_shape, vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
         let input_bool_data: Tensor<i32> = Tensor::from([0, 1, 1]);
+        let input_u8_data = input.map(|&x| x as u8);
+
         for output in op_outputs {
             if [
                 "Gemm_out",
@@ -1695,6 +1707,7 @@ mod tests {
                     vec![
                         (input_node, input.view().into()),
                         (input_bool, input_bool_data.view().into()),
+                        (input_2d_u8, input_u8_data.view().into()),
                     ],
                     &[output_id],
                     None,
@@ -1712,6 +1725,7 @@ mod tests {
                     vec![
                         (input_node, input.clone().into()),
                         (input_bool, input_bool_data.clone().into()),
+                        (input_2d_u8, input_u8_data.clone().into()),
                     ],
                     &[output_id],
                     None,
