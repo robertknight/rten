@@ -1,9 +1,16 @@
 use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
 
 impl SimdMask for bool {
+    type Array = [bool; 1];
+
     #[inline]
     unsafe fn and(self, rhs: Self) -> Self {
         self & rhs
+    }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        [self]
     }
 }
 
@@ -15,6 +22,7 @@ impl SimdVal for i32 {
 
 /// Treat an `i32` as a single-lane SIMD "vector".
 impl SimdInt for i32 {
+    type Array = [i32; 1];
     type Float = f32;
 
     #[inline]
@@ -89,6 +97,11 @@ impl SimdInt for i32 {
     #[inline]
     unsafe fn store(self, ptr: *mut i32) {
         *ptr = self;
+    }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        [self]
     }
 }
 

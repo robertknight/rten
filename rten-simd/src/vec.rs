@@ -68,8 +68,14 @@ pub const fn vec_count<S: SimdVal>(count: usize) -> usize {
 /// Trait implemented by SIMD masks.
 #[allow(clippy::missing_safety_doc)]
 pub trait SimdMask: Copy {
+    /// A representation of this mask as a bool array.
+    type Array: std::ops::Index<usize, Output = bool>;
+
     /// Return a bitwise AND of self and `rhs`.
     unsafe fn and(self, rhs: Self) -> Self;
+
+    /// Convert this SIMD mask to a boolean array.
+    unsafe fn to_array(self) -> Self::Array;
 }
 
 /// Trait for SIMD vectors containing 32-bit integers.
@@ -78,6 +84,9 @@ pub trait SimdInt: SimdVal {
     /// The type produced by an operation that converts each element in this
     /// vector to a float.
     type Float: SimdFloat<Int = Self, Mask = Self::Mask>;
+
+    /// The contents of a vector as an array.
+    type Array: std::ops::Index<usize, Output = i32>;
 
     /// Return a new vector with all elements set to zero.
     #[inline]
@@ -139,6 +148,9 @@ pub trait SimdInt: SimdVal {
     /// Safety: The caller must ensure `ptr` points to a buffer with space for
     /// at least `Self::LEN` values.
     unsafe fn store(self, ptr: *mut i32);
+
+    /// Return the contents of this vector as an array.
+    unsafe fn to_array(self) -> Self::Array;
 }
 
 /// Trait for SIMD vectors containing single-precision floats.
