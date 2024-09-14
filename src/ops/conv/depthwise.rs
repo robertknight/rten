@@ -57,17 +57,21 @@ fn min_max_out_x_coords(
 ///
 /// When this function returns, all elements of `output` will have been
 /// initialized.
-fn conv_2d_depthwise_block(
-    mut output: NdTensorViewMut<MaybeUninit<f32>, 3>, // C, H, W
+fn conv_2d_depthwise_block<X, W, Y>(
+    mut output: NdTensorViewMut<MaybeUninit<Y>, 3>, // C, H, W
     chan_range: Range<usize>,
-    input: NdTensorView<f32, 3>,  // C, H, W
-    kernel: NdTensorView<f32, 4>, // C, _, Kh, Kw
-    bias: Option<NdTensorView<f32, 1>>,
+    input: NdTensorView<X, 3>,  // C, H, W
+    kernel: NdTensorView<W, 4>, // C, _, Kh, Kw
+    bias: Option<NdTensorView<Y, 1>>,
     padding: [usize; 4],
     strides: [usize; 2],
     dilations: [usize; 2],
     col_range_for_kernel_x: &[(Range<usize>, Range<usize>)],
-) {
+) where
+    X: Copy + std::ops::Mul<W, Output = Y>,
+    W: Copy,
+    Y: Copy + Default + std::ops::AddAssign<Y>,
+{
     debug_assert_eq!(input.stride(2), 1, "last dim of input is not contiguous");
     debug_assert_eq!(output.stride(2), 1, "last dim of output is not contiguous");
 
@@ -93,7 +97,11 @@ fn conv_2d_depthwise_block(
         let in_row_len = in_chan.size(1);
         let in_chan_data = in_chan.data().unwrap();
 
-        let init_value = if let Some(bias) = bias { bias[[c]] } else { 0. };
+        let init_value = if let Some(bias) = bias {
+            bias[[c]]
+        } else {
+            Y::default()
+        };
 
         // The loops here are ordered so that the inner-most loop is as
         // efficient as possible and runs for as long as possible over a
@@ -105,7 +113,7 @@ fn conv_2d_depthwise_block(
             for x in out_row.iter_mut() {
                 x.write(init_value);
             }
-            let out_row: &mut [f32] = unsafe { std::mem::transmute(out_row) };
+            let out_row: &mut [Y] = unsafe { std::mem::transmute(out_row) };
 
             for k_y in 0..k_h {
                 let in_y = out_y * stride_h + k_y * dilation_y;
@@ -140,16 +148,21 @@ fn conv_2d_depthwise_block(
 /// Depthwise convolutions operate over a single input/output channel at
 /// a time and hence the transformation of convolution to matrix multiplication
 /// doesn't pay off. An optimized direct method works better.
-pub fn conv_2d_depthwise(
+pub fn conv_2d_depthwise<X, W, Y>(
     pool: &TensorPool,
-    input: &NdTensorView<f32, 4>,
-    kernel: &NdTensorView<f32, 4>,
-    bias: Option<NdTensorView<f32, 1>>,
+    input: &NdTensorView<X, 4>,
+    kernel: &NdTensorView<W, 4>,
+    bias: Option<NdTensorView<Y, 1>>,
     padding: [usize; 4],
     strides: [usize; 2],
     dilations: [usize; 2],
     out_hw: [usize; 2],
-) -> Tensor {
+) -> Tensor<Y>
+where
+    X: Copy + std::ops::Mul<W, Output = Y>,
+    W: Copy,
+    Y: Copy + Default + std::ops::AddAssign<Y>,
+{
     let [batch, _in_c, _in_h, in_w]: [usize; 4] = input.shape();
     let [out_c, _, _k_h, k_w]: [usize; 4] = kernel.shape();
     let [_pad_top, pad_left, _pad_bottom, _pad_right] = padding;
