@@ -97,7 +97,7 @@ pub fn conv<X, W, Y>(
     dilations: &[usize],
 ) -> Result<Tensor<Y>, OpError>
 where
-    X: std::ops::Mul<W, Output = Y> + GemmInT,
+    X: std::ops::Mul<W, Output = Y> + Default + GemmInT,
     W: GemmInT,
     Y: Default + std::ops::AddAssign<Y> + GemmOutT,
     GemmExecutor<W, X, Y>: Default,

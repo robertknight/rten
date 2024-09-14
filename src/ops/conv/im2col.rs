@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::{vec_count, SimdFloat, SimdInt, SimdMask};
+use rten_simd::{vec_count, SimdInt, SimdMask};
 
 #[cfg(feature = "avx512")]
 use rten_simd::isa_detection::is_avx512_supported;
@@ -69,7 +69,7 @@ pub struct VirtualIm2Col<'a, T> {
     gemm_kernel: KernelType,
 }
 
-impl<'a, T> VirtualIm2Col<'a, T> {
+impl<'a, T: Copy + Default> VirtualIm2Col<'a, T> {
     /// Create a virtual im2col matrix from a [C, H, W] input tensor and
     /// convolution parameters.
     pub fn new(
@@ -179,19 +179,17 @@ impl<'a, T> VirtualIm2Col<'a, T> {
             max_x_offset,
         }
     }
-}
 
-impl<'a> VirtualIm2Col<'a, f32> {
     /// Pack part of an image according to the requirements of
     /// [VirtualMatrix::pack_b].
     ///
-    /// `NR_REGS` specifies the width of each column panel in terms of the width
-    /// of vector registers (`S::LEN`). ie. `panel_width` must exactly equal
+    /// `NR_REGS` specifies the width of each column panel as a multiple of
+    /// `S::LEN` elements. In other words, `panel_width` must exactly equal
     /// `NR_REGS * S::LEN`.
     #[inline(always)]
-    unsafe fn pack_b_impl<S: SimdFloat, const NR_REGS: usize>(
+    unsafe fn pack_b_impl<S: SimdInt, const NR_REGS: usize>(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: &mut [MaybeUninit<T>],
         panel_width: usize,
         rows: Range<usize>,
         cols: Range<usize>,
@@ -216,23 +214,23 @@ impl<'a> VirtualIm2Col<'a, f32> {
         let mut out_offset = 0;
 
         for start_col in (0..col_y_offsets.len()).step_by(S::LEN * NR_REGS) {
-            let col_y_offset: [S::Int; NR_REGS] = std::array::from_fn(|i| {
-                S::Int::load(col_y_offsets.as_ptr().add(start_col + S::LEN * i))
+            let col_y_offset: [S; NR_REGS] = std::array::from_fn(|i| {
+                S::load(col_y_offsets.as_ptr().add(start_col + S::LEN * i))
             });
-            let col_x_offset: [S::Int; NR_REGS] = std::array::from_fn(|i| {
-                S::Int::load(col_x_offsets.as_ptr().add(start_col + S::LEN * i))
+            let col_x_offset: [S; NR_REGS] = std::array::from_fn(|i| {
+                S::load(col_x_offsets.as_ptr().add(start_col + S::LEN * i))
             });
-            let max_x_offset = S::Int::splat(self.max_x_offset);
-            let max_y_offset = S::Int::splat(self.max_y_offset);
+            let max_x_offset = S::splat(self.max_x_offset);
+            let max_y_offset = S::splat(self.max_y_offset);
 
             for ((&row_chan_offset, &row_y_offset), &row_x_offset) in row_chan_offsets
                 .iter()
                 .zip(row_y_offsets.iter())
                 .zip(row_x_offsets.iter())
             {
-                let row_chan_offset = S::Int::splat(row_chan_offset);
-                let row_y_offset = S::Int::splat(row_y_offset);
-                let row_x_offset = S::Int::splat(row_x_offset);
+                let row_chan_offset = S::splat(row_chan_offset);
+                let row_y_offset = S::splat(row_y_offset);
+                let row_x_offset = S::splat(row_x_offset);
 
                 for i in 0..NR_REGS {
                     let y_offset = col_y_offset[i].add(row_y_offset);
@@ -241,17 +239,33 @@ impl<'a> VirtualIm2Col<'a, f32> {
 
                     // Create mask to specify offsets which are valid. Others
                     // correspond to the padding region.
-                    let zero = S::Int::zero();
+                    let zero = S::zero();
                     let pad_mask = y_offset
                         .ge(zero)
                         .and(y_offset.le(max_y_offset))
                         .and(x_offset.ge(zero))
                         .and(x_offset.le(max_x_offset));
 
-                    let elts = S::gather_mask(img_ptr, offsets, pad_mask);
+                    // Set offsets to zero for padding elements. We require
+                    // this offset is always valid.
+                    let offsets_array = zero.blend(offsets, pad_mask).to_array();
+                    let pad_mask_array = pad_mask.to_array();
 
-                    let out_ptr: *mut f32 = std::mem::transmute(out_ptr.add(out_offset));
-                    elts.store(out_ptr);
+                    // Gather elements and store in packing buffer.
+                    for idx in 0..S::LEN {
+                        let out_ptr: *mut T = std::mem::transmute(out_ptr.add(out_offset + idx));
+                        let src_elem = *img_ptr.add(offsets_array[idx] as usize);
+
+                        // This should be compiled to a conditional move.
+                        let elem = if pad_mask_array[idx] {
+                            src_elem
+                        } else {
+                            T::default()
+                        };
+
+                        out_ptr.write(elem);
+                    }
+
                     out_offset += S::LEN;
                 }
             }
@@ -260,7 +274,9 @@ impl<'a> VirtualIm2Col<'a, f32> {
         // Check we initialized as many elements as used.
         assert_eq!(out_offset, used_size);
     }
+}
 
+impl<'a> VirtualIm2Col<'a, f32> {
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
@@ -271,9 +287,9 @@ impl<'a> VirtualIm2Col<'a, f32> {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        use std::arch::x86_64::__m256;
-        const NR_REGS: usize = vec_count::<__m256>(KERNEL_FMA_NR);
-        self.pack_b_impl::<__m256, NR_REGS>(out, panel_width, rows.clone(), cols.clone());
+        use std::arch::x86_64::__m256i;
+        const NR_REGS: usize = vec_count::<__m256i>(KERNEL_FMA_NR);
+        self.pack_b_impl::<__m256i, NR_REGS>(out, panel_width, rows.clone(), cols.clone());
     }
 
     #[cfg(feature = "avx512")]
@@ -287,9 +303,9 @@ impl<'a> VirtualIm2Col<'a, f32> {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        use std::arch::x86_64::__m512;
+        use std::arch::x86_64::__m512i;
         const NR_REGS: usize = vec_count::<__m512>(KERNEL_AVX512_NR);
-        self.pack_b_impl::<__m512, NR_REGS>(out, panel_width, rows.clone(), cols.clone());
+        self.pack_b_impl::<__m512i, NR_REGS>(out, panel_width, rows.clone(), cols.clone());
     }
 }
 
@@ -343,21 +359,21 @@ unsafe impl<'a> VirtualMatrix<f32> for VirtualIm2Col<'a, f32> {
             #[cfg(target_arch = "aarch64")]
             (KernelType::ArmNeon, KERNEL_ARM_NEON_NR) => unsafe {
                 // Safety: Neon is always available.
-                use std::arch::aarch64::float32x4_t;
-                const NR_REGS: usize = vec_count::<float32x4_t>(KERNEL_ARM_NEON_NR);
-                self.pack_b_impl::<float32x4_t, NR_REGS>(out, panel_width, rows, cols);
+                use std::arch::aarch64::int32x4_t;
+                const NR_REGS: usize = vec_count::<int32x4_t>(KERNEL_ARM_NEON_NR);
+                self.pack_b_impl::<int32x4_t, NR_REGS>(out, panel_width, rows, cols);
             },
             #[cfg(target_arch = "wasm32")]
             #[cfg(target_feature = "simd128")]
             (KernelType::Wasm, KERNEL_WASM_NR) => unsafe {
                 // Safety: SIMD support is checked when WASM binary is loaded.
-                use rten_simd::arch::wasm::v128f;
-                const NR_REGS: usize = vec_count::<v128f>(KERNEL_WASM_NR);
-                self.pack_b_impl::<v128f, NR_REGS>(out, panel_width, rows, cols);
+                use rten_simd::arch::wasm::v128i;
+                const NR_REGS: usize = vec_count::<v128i>(KERNEL_WASM_NR);
+                self.pack_b_impl::<v128i, NR_REGS>(out, panel_width, rows, cols);
             },
             (KernelType::Generic, KERNEL_BASE_NR) => unsafe {
                 const NR_REGS: usize = vec_count::<f32>(KERNEL_BASE_NR);
-                self.pack_b_impl::<f32, NR_REGS>(out, panel_width, rows, cols);
+                self.pack_b_impl::<i32, NR_REGS>(out, panel_width, rows, cols);
             },
             _ => {
                 panic!(

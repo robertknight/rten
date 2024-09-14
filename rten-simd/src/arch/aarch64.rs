@@ -3,15 +3,24 @@ use std::arch::aarch64::{
     vbslq_f32, vbslq_s32, vceqq_s32, vcgeq_f32, vcgeq_s32, vcgtq_s32, vcleq_f32, vcleq_s32,
     vcltq_f32, vcltq_s32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s32, vfmaq_f32, vld1q_f32,
     vld1q_s32, vmaxq_f32, vmulq_f32, vreinterpretq_f32_s32, vshlq_n_s32, vst1q_f32, vst1q_s32,
-    vsubq_f32, vsubq_s32,
+    vst1q_u32, vsubq_f32, vsubq_s32,
 };
 
 use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
 
 impl SimdMask for uint32x4_t {
+    type Array = [bool; 4];
+
     #[inline]
     unsafe fn and(self, other: Self) -> Self {
         vandq_u32(self, other)
+    }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0; 4];
+        vst1q_u32(array.as_mut_ptr(), self);
+        std::array::from_fn(|i| array[i] != 0)
     }
 }
 
@@ -22,6 +31,7 @@ impl SimdVal for int32x4_t {
 }
 
 impl SimdInt for int32x4_t {
+    type Array = [i32; 4];
     type Float = float32x4_t;
 
     #[inline]
@@ -92,6 +102,13 @@ impl SimdInt for int32x4_t {
     #[inline]
     unsafe fn store(self, ptr: *mut i32) {
         vst1q_s32(ptr, self)
+    }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
     }
 }
 

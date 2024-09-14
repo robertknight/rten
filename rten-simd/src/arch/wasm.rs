@@ -18,9 +18,18 @@ pub struct v128i(v128);
 pub struct v128f(v128);
 
 impl SimdMask for v128i {
+    type Array = [bool; 4];
+
     #[inline]
     unsafe fn and(self, other: Self) -> Self {
         Self(v128_and(self.0, other.0))
+    }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0; Self::LEN];
+        self.store(array.as_mut_ptr());
+        std::array::from_fn(|i| array[i] != 0)
     }
 }
 
@@ -31,6 +40,7 @@ impl SimdVal for v128i {
 }
 
 impl SimdInt for v128i {
+    type Array = [i32; 4];
     type Float = v128f;
 
     #[inline]
@@ -96,6 +106,13 @@ impl SimdInt for v128i {
     #[inline]
     unsafe fn store(self, ptr: *mut i32) {
         v128_store(ptr as *mut v128, self.0)
+    }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
     }
 }
 

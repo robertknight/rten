@@ -13,10 +13,19 @@ use std::mem::transmute;
 use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
 
 impl SimdMask for __m256i {
+    type Array = [bool; 8];
+
     #[inline]
     #[target_feature(enable = "avx2")]
     unsafe fn and(self, other: Self) -> Self {
         _mm256_and_si256(self, other)
+    }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0; Self::LEN];
+        self.store(array.as_mut_ptr());
+        std::array::from_fn(|i| array[i] != 0)
     }
 }
 
@@ -27,6 +36,7 @@ impl SimdVal for __m256i {
 }
 
 impl SimdInt for __m256i {
+    type Array = [i32; 8];
     type Float = __m256;
 
     #[inline]
@@ -113,6 +123,13 @@ impl SimdInt for __m256i {
     unsafe fn store(self, ptr: *mut i32) {
         // Cast is OK because instruction does not require alignment.
         _mm256_storeu_si256(ptr as *mut __m256i, self)
+    }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
     }
 }
 
@@ -273,10 +290,18 @@ use std::arch::x86_64::{
 
 #[cfg(feature = "avx512")]
 impl SimdMask for __mmask16 {
+    type Array = [bool; 16];
+
     #[inline]
     #[target_feature(enable = "avx512f")]
     unsafe fn and(self, other: Self) -> Self {
         self & other
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn to_array(self) -> Self::Array {
+        std::array::from_fn(|i| self & (1 << i) != 0)
     }
 }
 
@@ -289,6 +314,7 @@ impl SimdVal for __m512i {
 
 #[cfg(feature = "avx512")]
 impl SimdInt for __m512i {
+    type Array = [i32; 16];
     type Float = __m512;
 
     #[inline]
@@ -374,6 +400,14 @@ impl SimdInt for __m512i {
     #[target_feature(enable = "avx512f")]
     unsafe fn store(self, ptr: *mut i32) {
         _mm512_storeu_si512(ptr, self)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
     }
 }
 
