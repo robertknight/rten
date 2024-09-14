@@ -41,8 +41,8 @@ struct ColOffsets {
 /// The transform is virtual because the matrix is not actually materialized
 /// in memory. Instead blocks of it are produced on-demand during a matrix
 /// multiplication operation.
-pub struct VirtualIm2Col<'a> {
-    image: NdTensorView<'a, f32, 3>,
+pub struct VirtualIm2Col<'a, T> {
+    image: NdTensorView<'a, T, 3>,
 
     /// Map of im2col row index to input image coordinate, premultiplied with
     /// the corresponding stride.
@@ -69,18 +69,18 @@ pub struct VirtualIm2Col<'a> {
     gemm_kernel: KernelType,
 }
 
-impl<'a> VirtualIm2Col<'a> {
+impl<'a, T> VirtualIm2Col<'a, T> {
     /// Create a virtual im2col matrix from a [C, H, W] input tensor and
     /// convolution parameters.
     pub fn new(
         gemm_kernel: KernelType,
-        image: NdTensorView<'a, f32, 3>,
+        image: NdTensorView<'a, T, 3>,
         kernel: [usize; 2],
         padding: [usize; 4],
         strides: [usize; 2],
         dilations: [usize; 2],
         panel_width: usize,
-    ) -> VirtualIm2Col {
+    ) -> VirtualIm2Col<T> {
         // Ensure image has at least one cell.
         assert!(image.len() > 0);
 
@@ -179,7 +179,9 @@ impl<'a> VirtualIm2Col<'a> {
             max_x_offset,
         }
     }
+}
 
+impl<'a> VirtualIm2Col<'a, f32> {
     /// Pack part of an image according to the requirements of
     /// [VirtualMatrix::pack_b].
     ///
@@ -310,7 +312,7 @@ const KERNEL_FMA_NR: usize = 16;
 const KERNEL_WASM_NR: usize = 8;
 
 // Safety: `pack_b` initializes the entire buffer passed to it.
-unsafe impl<'a> VirtualMatrix<f32> for VirtualIm2Col<'a> {
+unsafe impl<'a> VirtualMatrix<f32> for VirtualIm2Col<'a, f32> {
     fn rows(&self) -> usize {
         self.row_offsets.chan.len()
     }

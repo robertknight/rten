@@ -8,7 +8,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::check_dims;
-use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
+use crate::gemm::{GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, VirtualMatrix};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
 use crate::tensor_pool::{AutoReturn, TensorPool};
@@ -21,12 +21,15 @@ use im2col::VirtualIm2Col;
 
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
-fn conv_2d_pointwise(
+fn conv_2d_pointwise<X: GemmInT, W: GemmInT, Y: GemmOutT>(
     pool: &TensorPool,
-    input: &NdTensorView<f32, 4>,
-    kernel: &NdTensorView<f32, 4>,
-    bias: Option<NdTensorView<f32, 1>>,
-) -> Tensor {
+    input: &NdTensorView<X, 4>,
+    kernel: &NdTensorView<W, 4>,
+    bias: Option<NdTensorView<Y, 1>>,
+) -> Tensor<Y>
+where
+    GemmExecutor<W, X, Y>: Default,
+{
     let [batch, _, in_h, in_w]: [usize; 4] = input.shape();
     let [out_c, in_c, _, _]: [usize; 4] = kernel.shape();
     let mut output = Tensor::uninit_in(pool, &[batch, out_c, in_h * in_w]);
@@ -40,7 +43,7 @@ fn conv_2d_pointwise(
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.as_ref().map(|b| b.to_contiguous());
 
-    let gemm = GemmExecutor::new();
+    let gemm = GemmExecutor::<W, X, Y>::default();
     let mut n_init = 0;
 
     for n in 0..batch {
@@ -83,16 +86,23 @@ fn conv_2d_pointwise(
 ///   A value equal to the input channel count convolves each input channel
 ///   separately with `output_channels / groups` outputs. This is known as
 ///   depthwise convolution.
-pub fn conv(
+pub fn conv<X, W, Y>(
     pool: &TensorPool,
-    input: TensorView,
-    kernel: TensorView,
-    bias: Option<TensorView>,
+    input: TensorView<X>,
+    kernel: TensorView<W>,
+    bias: Option<TensorView<Y>>,
     padding: Padding,
     groups: usize,
     strides: &[usize],
     dilations: &[usize],
-) -> Result<Tensor, OpError> {
+) -> Result<Tensor<Y>, OpError>
+where
+    X: std::ops::Mul<W, Output = Y> + GemmInT,
+    W: GemmInT,
+    Y: Default + std::ops::AddAssign<Y> + GemmOutT,
+    GemmExecutor<W, X, Y>: Default,
+    for<'a> VirtualIm2Col<'a, X>: VirtualMatrix<X>,
+{
     // Handle 1D convolution by expanding to 2D and then removing the extra
     // dimension from the result.
     if let &[_n, _c, _w] = input.shape() {
@@ -211,7 +221,7 @@ pub fn conv(
 
     let n_patches = out_h * out_w;
     let mut output = NdTensor::uninit_in(pool, [batch, out_c, n_patches]);
-    let gemm = GemmExecutor::new();
+    let gemm = GemmExecutor::<W, X, Y>::default();
 
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.map(|b| b.to_contiguous());
@@ -597,15 +607,20 @@ mod tests {
     /// Un-optimized reference implementation of convolution.
     ///
     /// This has the same interface as [conv].
-    fn reference_conv(
-        input: TensorView,
-        kernel: TensorView,
-        bias: Option<TensorView>,
+    fn reference_conv<X, W, Y>(
+        input: TensorView<X>,
+        kernel: TensorView<W>,
+        bias: Option<TensorView<Y>>,
         padding: Padding,
         groups: usize,
         strides: &[usize],
         dilations: &[usize],
-    ) -> Tensor {
+    ) -> Tensor<Y>
+    where
+        X: Copy + std::ops::Mul<W, Output = Y>,
+        W: Copy,
+        Y: Copy + Default + std::ops::Add<Y, Output = Y> + std::ops::AddAssign<Y>,
+    {
         // If this is a 1D conv, insert a dummy H axis, perform a 2D convolution
         // and then remove the H axis from the result.
         if input.ndim() == 3 {
@@ -666,11 +681,11 @@ mod tests {
                     let chan_bias = if let Some(ref bias) = bias {
                         bias[[out_chan]]
                     } else {
-                        0.0
+                        Y::default()
                     };
                     for out_y in 0..out_h {
                         for out_x in 0..out_w {
-                            let mut accum = 0.0;
+                            let mut accum = Y::default();
                             for in_chan in in_chan_start..in_chan_end {
                                 for k_y in 0..k_h {
                                     for k_x in 0..k_w {
