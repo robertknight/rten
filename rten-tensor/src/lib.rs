@@ -49,7 +49,7 @@ mod slice_range;
 mod storage;
 mod tensor;
 
-/// Trait for sources of random data for tensors, for use with [Tensor::rand].
+/// Trait for sources of random data for tensors, for use with [`Tensor::rand`].
 pub trait RandomSource<T> {
     /// Generate the next random value.
     fn next(&mut self) -> T;

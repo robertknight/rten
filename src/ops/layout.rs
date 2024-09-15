@@ -924,7 +924,7 @@ mod tests {
         let pool = new_pool();
 
         let mut rng = XorShiftRng::new(5678);
-        let input = Tensor::rand(&[1, 5, 5, 1], &mut rng);
+        let input = Tensor::<f32>::rand(&[1, 5, 5, 1], &mut rng);
         let mut expected = input.clone();
 
         // Remove all 1-size axes.
@@ -950,14 +950,14 @@ mod tests {
         let mut rng = XorShiftRng::new(5678);
 
         // Contiguous tensor
-        let mut input = Tensor::rand(&[1, 1, 5, 5], &mut rng);
+        let mut input = Tensor::<f32>::rand(&[1, 1, 5, 5], &mut rng);
         let expected = input.clone().into_shape([5, 5].as_slice());
 
         squeeze_in_place(&mut input, None).unwrap();
         expect_equal(&input, &expected)?;
 
         // Non-contiguous tensor
-        let mut input = Tensor::rand(&[1, 5, 2, 5], &mut rng);
+        let mut input = Tensor::<f32>::rand(&[1, 5, 2, 5], &mut rng);
         input.permute(&[3, 2, 1, 0]);
         let expected = input.clone().into_shape([5, 2, 5].as_slice());
 
@@ -970,7 +970,7 @@ mod tests {
     #[test]
     fn test_squeeze_invalid_inputs() {
         let mut rng = XorShiftRng::new(5678);
-        let input = Tensor::rand(&[1, 5, 5, 1], &mut rng);
+        let input = Tensor::<f32>::rand(&[1, 5, 5, 1], &mut rng);
 
         let pool = new_pool();
         let result = squeeze(&pool, input.view(), Some(NdTensor::from([1]).view()));
@@ -987,7 +987,7 @@ mod tests {
     fn test_transpose() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
-        let input = Tensor::rand(&[10, 20], &mut rng);
+        let input = Tensor::<f32>::rand(&[10, 20], &mut rng);
 
         let mut reversed = input.clone();
         reversed.permute(&[1, 0]);
@@ -1011,7 +1011,7 @@ mod tests {
     fn test_transpose_invalid_inputs() {
         let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
-        let input = Tensor::rand(&[10, 20], &mut rng);
+        let input = Tensor::<f32>::rand(&[10, 20], &mut rng);
 
         // Too many dims
         let result = transpose(&pool, input.view(), Some(&[0, 1, 1]));
@@ -1046,7 +1046,7 @@ mod tests {
     fn test_unsqueeze() {
         let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
-        let input = Tensor::rand(&[3, 4, 5], &mut rng);
+        let input = Tensor::<f32>::rand(&[3, 4, 5], &mut rng);
 
         // Unsqueeze with axes in increasing order
         let output = unsqueeze(&pool, input.view(), &NdTensor::from([0, 4]).view()).unwrap();
@@ -1067,7 +1067,7 @@ mod tests {
     fn test_unsqueeze_invalid_inputs() {
         let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
-        let input = Tensor::rand(&[10, 20], &mut rng);
+        let input = Tensor::<f32>::rand(&[10, 20], &mut rng);
 
         // Invalid dimension index
         let result = unsqueeze(&pool, input.view(), &NdTensor::from([3]).view());
@@ -1193,7 +1193,7 @@ mod tests {
         ];
 
         for Case { shape, perm } in cases {
-            let tensor = Tensor::rand(shape, &mut rng);
+            let tensor = Tensor::<f32>::rand(shape, &mut rng);
             let mut dest = Tensor::zeros(shape);
 
             // Do a simple copy. This provides a lower-bound on how fast

@@ -477,7 +477,7 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         for ndim in 0..5 {
             let shape: Vec<_> = (0..ndim).map(|d| d + 1).collect();
-            let src = Tensor::rand(&shape, &mut rng);
+            let src = Tensor::<f32>::rand(&shape, &mut rng);
             let src = src.transposed();
 
             let mut dest = Tensor::zeros(src.shape());
@@ -492,7 +492,7 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         for ndim in 0..5 {
             let shape: Vec<_> = (0..ndim).map(|d| d + 1).collect();
-            let src = Tensor::rand(&shape, &mut rng);
+            let src = Tensor::<f32>::rand(&shape, &mut rng);
             let src = src.transposed();
 
             let mut dest = Tensor::uninit(src.shape());

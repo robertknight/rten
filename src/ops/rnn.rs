@@ -673,13 +673,13 @@ mod tests {
                 Op::Lstm => 4,
             };
 
-            let input = Tensor::rand(&[seq_len, batch, features], &mut rng).map(|x| x - 0.5);
-            let weights = Tensor::rand(
+            let input = Tensor::<f32>::rand(&[seq_len, batch, features], &mut rng).map(|x| x - 0.5);
+            let weights = Tensor::<f32>::rand(
                 &[dir.num_directions(), num_gates * hidden_size, features],
                 &mut rng,
             )
             .map(|x| x - 0.5);
-            let recurrent_weights = Tensor::rand(
+            let recurrent_weights = Tensor::<f32>::rand(
                 &[dir.num_directions(), num_gates * hidden_size, hidden_size],
                 &mut rng,
             )

@@ -195,7 +195,7 @@ mod tests {
     fn test_slice_in_place() {
         // Slice with +ve and in-bounds endpoints.
         let mut rng = XorShiftRng::new(5678);
-        let mut input = Tensor::rand(&[2, 2, 5, 3], &mut rng);
+        let mut input = Tensor::<f32>::rand(&[2, 2, 5, 3], &mut rng);
 
         let starts = &[2];
         let ends = &[4];
@@ -234,7 +234,7 @@ mod tests {
     fn test_slice_first_dim() {
         let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
-        let input = Tensor::rand(&[5, 2, 5, 3], &mut rng);
+        let input = Tensor::<f32>::rand(&[5, 2, 5, 3], &mut rng);
 
         let starts = &[2];
         let ends = &[4];
@@ -272,7 +272,7 @@ mod tests {
     fn test_slice_inner_dim() {
         let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
-        let input = Tensor::rand(&[2, 2, 5, 3], &mut rng);
+        let input = Tensor::<f32>::rand(&[2, 2, 5, 3], &mut rng);
 
         let starts = &[2];
         let ends = &[4];
@@ -313,7 +313,7 @@ mod tests {
     fn test_slice_noop() {
         let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
-        let input = Tensor::rand(&[5, 2, 5, 3], &mut rng);
+        let input = Tensor::<f32>::rand(&[5, 2, 5, 3], &mut rng);
 
         for dim in 0..input.shape().len() {
             let dim_size = input.size(dim) as i32;
@@ -435,7 +435,7 @@ mod tests {
     fn test_slice_clamps_starts_and_ends() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
-        let input = Tensor::rand(&[20, 20], &mut rng);
+        let input = Tensor::<f32>::rand(&[20, 20], &mut rng);
 
         // Simulate how a range without a start/end may be given in a model.
         //

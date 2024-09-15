@@ -741,7 +741,7 @@ mod tests {
 
     impl RandomSource<f32> for RandomFloat {
         fn next(&mut self) -> f32 {
-            let x = self.rng.next();
+            let x: f32 = self.rng.next();
             self.min + (self.max - self.min) * x
         }
     }
