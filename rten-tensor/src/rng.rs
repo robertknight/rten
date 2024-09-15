@@ -70,6 +70,27 @@ mod tests {
     use super::XorShiftRng;
 
     #[test]
+    fn test_f32() {
+        let mut rng = XorShiftRng::new(1234);
+        let x: Vec<f32> = rng.iter().take(10).collect();
+        assert_eq!(
+            x,
+            &[
+                7.2381226e-8,
+                0.12971127,
+                0.44675463,
+                6.69676e-5,
+                0.44387037,
+                0.24518594,
+                0.84056354,
+                0.9960614,
+                0.32433507,
+                0.9239961
+            ]
+        );
+    }
+
+    #[test]
     fn test_i8() {
         let mut rng = XorShiftRng::new(1234);
         let x: Vec<i8> = rng.iter().take(10).collect();
