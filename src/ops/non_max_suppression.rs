@@ -93,7 +93,7 @@ pub fn non_max_suppression(
     for n in 0..batch {
         for b in 0..n_boxes {
             let (max_score_cls, max_score) = scores
-                .slice::<1, _>((n, .., b))
+                .slice_with((n, .., b))
                 .iter()
                 .copied()
                 .enumerate()

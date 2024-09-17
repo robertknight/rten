@@ -7,11 +7,11 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
-use crate::check_dims;
 use crate::gemm::{GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, VirtualMatrix};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
 use crate::tensor_pool::{AutoReturn, TensorPool};
+use crate::{check_dims, static_dims};
 
 mod depthwise;
 mod im2col;
@@ -50,7 +50,7 @@ where
         let mut out_item = output.slice_mut::<2, _>([n]);
         let out_row_stride = out_item.stride(0);
 
-        let in_mat = input.slice::<3, _>([n]).reshaped([in_c, in_h * in_w]);
+        let in_mat = input.slice_with([n]).reshaped([in_c, in_h * in_w]);
 
         gemm.gemm_uninit_bias(
             out_item.data_mut().unwrap(),
@@ -148,8 +148,11 @@ where
         });
     }
 
-    let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
-    let [out_c, k_in_c, k_h, k_w] = check_dims!(kernel, 4, "OCHW");
+    let input = static_dims!(input, 4, "NCHW")?;
+    let [batch, in_c, in_h, in_w] = input.shape();
+
+    let kernel = static_dims!(kernel, 4, "OCHW")?;
+    let [out_c, k_in_c, k_h, k_w] = kernel.shape();
     check_dims!(bias?, 1);
 
     let input = input.view();
@@ -235,12 +238,12 @@ where
         let out_chan_start = group * out_channels_per_group;
         let out_chans = out_chan_start..out_chan_start + out_channels_per_group;
 
-        let in_group = input.slice::<4, _>((.., in_chan_start..in_chan_end));
-        let mut out_group = output.slice_mut::<3, _>((.., out_chans.clone()));
+        let in_group = input.slice_with((.., in_chan_start..in_chan_end));
+        let mut out_group = output.slice_with_mut((.., out_chans.clone()));
 
         let kernel = kernel.to_contiguous_in(pool);
         let kernel_mat = kernel
-            .slice::<4, _>([out_chans.clone()])
+            .slice_with([out_chans.clone()])
             .reshaped([out_channels_per_group, in_channels_per_group * k_h * k_w]);
 
         // Prepack kernel if we'll be able to reuse packed weights.
@@ -491,8 +494,10 @@ pub fn conv_transpose(
         });
     }
 
-    let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
-    let [k_in_c, out_c, k_h, k_w] = check_dims!(kernel, 4, "OCHW");
+    let input = static_dims!(input, 4, "NCHW")?;
+    let [batch, in_c, in_h, in_w] = input.shape();
+    let kernel = static_dims!(kernel, 4, "OCHW")?;
+    let [k_in_c, out_c, k_h, k_w] = kernel.shape();
     check_dims!(bias?, 1);
 
     let bias = bias.map(|b| b.nd_view());
@@ -530,7 +535,7 @@ pub fn conv_transpose(
     // The implementation here is the inverse of the im2col-based convolution.
     let mut n_init = 0;
     for n in 0..batch {
-        let input_mat = input.slice::<3, _>([n]).reshaped([in_c, in_h * in_w]);
+        let input_mat = input.slice_with([n]).reshaped([in_c, in_h * in_w]);
 
         let col2im_row_stride = col2im_mat.stride(0);
         gemm.gemm_uninit(

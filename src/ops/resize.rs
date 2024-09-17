@@ -276,7 +276,8 @@ pub fn resize(
 
     // The current implementation only supports NCHW tensors with scale factors
     // other than 1.0 for the H and W dims.
-    let [batch, _chans, _height, _width] = check_dims!(input, 4, "NCHW");
+    let input = static_dims!(input, 4, "NCHW")?;
+    let [batch, _chans, _height, _width] = input.shape();
     let sizes_valid = zip(0..input.ndim(), input.shape().iter()).all(|(dim, &in_size)| {
         dim == input.ndim() - 1 || dim == input.ndim() - 2 || sizes[[dim]] == in_size as i32
     });
@@ -297,8 +298,9 @@ pub fn resize(
 
     let n_init = AtomicUsize::new(0);
     for n in 0..batch {
-        let in_image = input.slice::<3, _>([n]);
-        let mut out_image = output.slice_mut::<3, _>([n]);
+        let in_image = input.slice_with([n]);
+        let mut out_batch = output.nd_view_mut::<4>();
+        let mut out_image = out_batch.slice_with_mut([n]);
 
         out_image
             .axis_chunks_mut(0, CHAN_GROUP_SIZE)

@@ -3657,8 +3657,8 @@ mod tests {
     #[test]
     fn test_to_array() {
         let tensor = NdTensor::arange(1., 5., None).into_shape([2, 2]);
-        let col0: [f32; 2] = tensor.view().transposed().slice::<1, _>(0).to_array();
-        let col1: [f32; 2] = tensor.view().transposed().slice::<1, _>(1).to_array();
+        let col0: [f32; 2] = tensor.view().transposed().slice_with(0).to_array();
+        let col1: [f32; 2] = tensor.view().transposed().slice_with(1).to_array();
         assert_eq!(col0, [1., 3.]);
         assert_eq!(col1, [2., 4.]);
     }

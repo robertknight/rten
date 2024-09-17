@@ -7,8 +7,8 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, TensorViewMut};
 
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
+use crate::static_dims;
 use crate::tensor_pool::TensorPool;
-use crate::{check_dims, static_dims};
 
 /// Calculate the output size and padding for a convolution or pooling operation.
 ///
@@ -292,7 +292,8 @@ impl Operator for AveragePool {
 }
 
 pub fn global_average_pool(pool: &TensorPool, input: TensorView) -> Result<Tensor, OpError> {
-    let [batch, chans, in_h, in_w] = check_dims!(input, 4, "NCHW");
+    let input = static_dims!(input, 4, "NCHW")?;
+    let [batch, chans, in_h, in_w] = input.shape();
 
     let mut output = NdTensor::uninit_in(pool, [batch, chans, 1, 1]);
     let mut n_init = 0;
@@ -301,10 +302,8 @@ pub fn global_average_pool(pool: &TensorPool, input: TensorView) -> Result<Tenso
         const N: usize = 4;
 
         for (chan_group, mut out_group) in zip(
-            input.slice::<3, _>(n).axis_chunks(0, N),
-            output
-                .slice_mut::<1, _>((n, .., 0, 0))
-                .axis_chunks_mut(0, N),
+            input.slice_with(n).axis_chunks(0, N),
+            output.slice_with_mut((n, .., 0, 0)).axis_chunks_mut(0, N),
         ) {
             if chan_group.size(0) == N {
                 // Compute average over batch of N channels in parallel.
@@ -327,7 +326,7 @@ pub fn global_average_pool(pool: &TensorPool, input: TensorView) -> Result<Tenso
             } else {
                 // Compute average over remaining channels.
                 for i in 0..chan_group.size(0) {
-                    let sum: f32 = chan_group.slice::<2, _>([i]).iter().sum();
+                    let sum: f32 = chan_group.slice_with([i]).iter().sum();
                     out_group[[i]].write(sum / (in_h * in_w) as f32);
                     n_init += 1;
                 }
