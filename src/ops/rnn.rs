@@ -595,7 +595,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::Tensor;
+    use rten_tensor::{NdTensor, Tensor};
     use serde_json::Value;
 
     use crate::ops::tests::new_pool;
@@ -695,45 +695,46 @@ mod tests {
                 Op::Lstm => 4,
             };
 
-            let input = Tensor::<f32>::rand(&[seq_len, batch, features], &mut rng).map(|x| x - 0.5);
-            let weights = Tensor::<f32>::rand(
-                &[dir.num_directions(), num_gates * hidden_size, features],
+            let input =
+                NdTensor::<f32, 3>::rand([seq_len, batch, features], &mut rng).map(|x| x - 0.5);
+            let weights = NdTensor::<f32, 3>::rand(
+                [dir.num_directions(), num_gates * hidden_size, features],
                 &mut rng,
             )
             .map(|x| x - 0.5);
-            let recurrent_weights = Tensor::<f32>::rand(
-                &[dir.num_directions(), num_gates * hidden_size, hidden_size],
+            let recurrent_weights = NdTensor::<f32, 3>::rand(
+                [dir.num_directions(), num_gates * hidden_size, hidden_size],
                 &mut rng,
             )
             .map(|x| x - 0.5);
-            let bias = Tensor::rand(
-                &[dir.num_directions(), 2 * num_gates * hidden_size],
+            let bias = NdTensor::rand(
+                [dir.num_directions(), 2 * num_gates * hidden_size],
                 &mut rng,
             );
             let initial_hidden =
-                Tensor::rand(&[dir.num_directions(), batch, hidden_size], &mut rng);
-            let initial_cell = Tensor::rand(&[dir.num_directions(), batch, hidden_size], &mut rng);
+                NdTensor::rand([dir.num_directions(), batch, hidden_size], &mut rng);
+            let initial_cell = NdTensor::rand([dir.num_directions(), batch, hidden_size], &mut rng);
 
             let result = match case.op {
                 Op::Lstm => lstm(
                     &pool,
                     dir,
-                    input.view(),
-                    weights.view(),
-                    recurrent_weights.view(),
-                    case.with_bias.then_some(bias.view()),
-                    case.with_hidden_init.then_some(initial_hidden.view()),
-                    case.with_initial_cell.then_some(initial_cell.view()),
+                    input.as_dyn(),
+                    weights.as_dyn(),
+                    recurrent_weights.as_dyn(),
+                    case.with_bias.then_some(bias.as_dyn()),
+                    case.with_hidden_init.then_some(initial_hidden.as_dyn()),
+                    case.with_initial_cell.then_some(initial_cell.as_dyn()),
                 )
                 .expect("lstm op failed"),
                 Op::Gru => gru(
                     &pool,
                     dir,
-                    input.view(),
-                    weights.view(),
-                    recurrent_weights.view(),
-                    case.with_bias.then_some(bias.view()),
-                    case.with_hidden_init.then_some(initial_hidden.view()),
+                    input.as_dyn(),
+                    weights.as_dyn(),
+                    recurrent_weights.as_dyn(),
+                    case.with_bias.then_some(bias.as_dyn()),
+                    case.with_hidden_init.then_some(initial_hidden.as_dyn()),
                     true, /* linear_before_reset */
                 )
                 .expect("gru op failed"),
@@ -770,18 +771,18 @@ mod tests {
             // The last hidden state should match the end of the hidden sequence
             // for the forwards direction, and the start of the hidden sequence
             // for the reverse direction.
-            let hidden_seq_fwd = hidden_seq.slice::<2, _>((
+            let hidden_seq_fwd = hidden_seq.slice_with((
                 -1, // seq
                 0,  // direction
             ));
-            let last_hidden_fwd = last_hidden.slice::<2, _>(0);
+            let last_hidden_fwd = last_hidden.slice_with(0);
             assert_eq!(hidden_seq_fwd, last_hidden_fwd);
 
-            let hidden_seq_rev = hidden_seq.slice::<2, _>((
+            let hidden_seq_rev = hidden_seq.slice_with((
                 0, // seq
                 1, // direction
             ));
-            let last_hidden_rev = last_hidden.slice::<2, _>(1);
+            let last_hidden_rev = last_hidden.slice_with(1);
             assert_eq!(hidden_seq_rev, last_hidden_rev);
         }
     }

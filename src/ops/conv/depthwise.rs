@@ -83,11 +83,11 @@ fn conv_2d_depthwise_block<X, W, Y>(
     let [dilation_y, _dilation_x] = dilations;
 
     for c in chan_range.clone() {
-        let kernel_view = kernel.slice([c, 0]).weakly_checked_view();
+        let kernel_view = kernel.slice_with([c, 0]).weakly_checked_view();
 
         // For efficiency, use manual slicing in the inner loops to extract
         // input/output rows.
-        let mut out_chan = output.slice_mut::<2, _>([c - chan_range.start]);
+        let mut out_chan = output.slice_with_mut([c - chan_range.start]);
         let out_row_stride = out_chan.stride(0);
         let out_row_len = out_chan.size(1);
         let out_chan_data = out_chan.data_mut().unwrap();

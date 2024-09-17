@@ -32,7 +32,7 @@ pub fn normalize_image<const C: usize>(
 
     for chan in 0..n_chans {
         let inv_std_dev = 1. / std_dev[chan];
-        img.slice_mut::<2, _>(chan)
+        img.slice_with_mut(chan)
             .apply(|x| (x - mean[chan]) * inv_std_dev);
     }
 }

@@ -32,7 +32,7 @@ where
 {
     let [batch, _, in_h, in_w]: [usize; 4] = input.shape();
     let [out_c, in_c, _, _]: [usize; 4] = kernel.shape();
-    let mut output = Tensor::uninit_in(pool, &[batch, out_c, in_h * in_w]);
+    let mut output = NdTensor::uninit_in(pool, [batch, out_c, in_h * in_w]);
 
     // Get input and kernel as contiguous tensors so we can create reshaped
     // views.
@@ -47,7 +47,7 @@ where
     let mut n_init = 0;
 
     for n in 0..batch {
-        let mut out_item = output.slice_mut::<2, _>([n]);
+        let mut out_item = output.slice_with_mut([n]);
         let out_row_stride = out_item.stride(0);
 
         let in_mat = input.slice_with([n]).reshaped([in_c, in_h * in_w]);
@@ -63,11 +63,11 @@ where
         n_init += out_item.len();
     }
 
-    output.reshape(&[batch, out_c, in_h, in_w]);
+    let output = output.into_shape([batch, out_c, in_h, in_w]);
 
     // Safety: We used `gemm_uninit_bias` to initialize all elements.
     assert!(n_init == output.len());
-    unsafe { output.assume_init() }
+    unsafe { output.assume_init().into_dyn() }
 }
 
 /// Perform a convolution of `input` with `kernel`.
@@ -355,7 +355,7 @@ fn col2im(
 
     for out_c in 0..out_chans {
         // Initialize each output channel just before we accumulate into it.
-        let mut out_img = output.slice_mut([out_c]);
+        let mut out_img = output.slice_with_mut([out_c]);
         out_img.fill(MaybeUninit::new(bias.map(|b| b[[out_c]]).unwrap_or(0.)));
 
         // Safety: We just initialized all elements of `out_img`.
@@ -363,7 +363,7 @@ fn col2im(
 
         for k_y in 0..kernel_h {
             for k_x in 0..kernel_w {
-                let in_img = columns.slice([out_c, k_y, k_x]);
+                let in_img = columns.slice_with([out_c, k_y, k_x]);
                 let [img_h, img_w] = in_img.shape();
 
                 for y in 0..img_h {
@@ -521,7 +521,7 @@ pub fn conv_transpose(
     let [out_h, out_w] = out_shape;
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
 
-    let mut output = Tensor::uninit_in(pool, [batch, out_c, out_h, out_w].as_slice());
+    let mut output = NdTensor::uninit_in(pool, [batch, out_c, out_h, out_w]);
 
     // Ensure input and kernel are contiguous to support reshaping.
     let input = input.to_contiguous_in(pool).auto_return(pool);
@@ -548,7 +548,7 @@ pub fn conv_transpose(
 
         // Safety: `gemm_uninit` initialized col2im_mat.
         let col2im_mat = unsafe { col2im_mat.view().assume_init() };
-        let mut out_img = output.slice_mut(n);
+        let mut out_img = output.slice_with_mut(n);
 
         col2im(
             &mut out_img,
@@ -562,7 +562,7 @@ pub fn conv_transpose(
 
     assert!(n_init == output.len());
     let output = unsafe { output.assume_init() };
-    Ok(output)
+    Ok(output.into_dyn())
 }
 
 #[derive(Debug)]
@@ -1634,7 +1634,7 @@ mod tests {
         // With padding.
         run_bench(100, Some("col2im"), || {
             col2im(
-                &mut output.slice_mut((.., 2.., 2..)),
+                &mut output.slice_with_mut((.., 2.., 2..)),
                 &columns.view(),
                 [1, 1, 1, 1], // Padding
                 [stride_y, stride_x],
