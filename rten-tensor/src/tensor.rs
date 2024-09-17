@@ -12,10 +12,11 @@ use crate::iterators::{
 };
 use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
-    OverlapPolicy, RemoveDim, ResizeLayout,
+    OverlapPolicy, RemoveDim, ResizeLayout, SliceWith,
 };
 use crate::overlap::may_have_internal_overlap;
 use crate::storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
+use crate::type_num::IndexCount;
 use crate::{Alloc, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
 
 /// The base type for multi-dimensional arrays. This consists of storage for
@@ -287,6 +288,35 @@ pub trait AsView: Layout {
     /// Slice this tensor and return a dynamic-rank view.
     fn slice_dyn<R: IntoSliceItems>(&self, range: R) -> TensorView<Self::Elem> {
         self.view().slice_dyn(range)
+    }
+
+    /// Slice this tensor and return a view.
+    ///
+    /// This is an alternative to [`slice`](Self::slice) and
+    /// [`slice_dyn`](Self::slice_dyn) that determines the dimension count of
+    /// the returned view automatically at compile time. If both this tensor's
+    /// layout and the range have a statically-known number of index terms,
+    /// the result will have a static rank. Otherwise it will have a dynamic
+    /// rank.
+    ///
+    /// ```
+    /// use rten_tensor::prelude::*;
+    /// use rten_tensor::NdTensor;
+    ///
+    /// let x = NdTensor::from([[1, 2], [3, 4]]);
+    /// let col = x.slice_with((.., 1)); // `col` is an `NdTensorView<i32, 1>`
+    /// assert_eq!(col.shape(), [2usize]);
+    /// assert_eq!(col.to_vec(), [2, 4]);
+    /// ```
+    #[allow(clippy::type_complexity)]
+    fn slice_with<R: IntoSliceItems + IndexCount>(
+        &self,
+        range: R,
+    ) -> TensorBase<ViewData<Self::Elem>, <Self::Layout as SliceWith<R, R::Count>>::Layout>
+    where
+        Self::Layout: SliceWith<R, R::Count, Layout: MutLayout>,
+    {
+        self.view().slice_with(range)
     }
 
     /// Return a slice of this tensor as an owned tensor.
@@ -763,6 +793,24 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         let range = range.into_slice_items();
         let (offset_range, sliced_layout) = self.layout.slice_dyn(range.as_ref());
         TensorViewMut {
+            data: self.data.slice_mut(offset_range),
+            layout: sliced_layout,
+        }
+    }
+
+    /// Slice this tensor and return a mutable view.
+    ///
+    /// See [`slice_with`](AsView::slice_with) for notes on the layout of
+    /// the returned view.
+    pub fn slice_with_mut<R: IntoSliceItems + IndexCount>(
+        &mut self,
+        range: R,
+    ) -> TensorBase<ViewMutData<S::Elem>, <L as SliceWith<R, R::Count>>::Layout>
+    where
+        L: SliceWith<R, R::Count, Layout: MutLayout>,
+    {
+        let (offset_range, sliced_layout) = self.layout.slice_with(range);
+        TensorBase {
             data: self.data.slice_mut(offset_range),
             layout: sliced_layout,
         }
@@ -1451,6 +1499,21 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         let range = range.into_slice_items();
         let (offset_range, sliced_layout) = self.layout.slice_dyn(range.as_ref());
         TensorView {
+            data: self.data.slice(offset_range),
+            layout: sliced_layout,
+        }
+    }
+
+    /// Slice this tensor and return a view. See [`AsView::slice_with`].
+    pub fn slice_with<R: IntoSliceItems + IndexCount>(
+        &self,
+        range: R,
+    ) -> TensorBase<ViewData<'a, T>, <L as SliceWith<R, R::Count>>::Layout>
+    where
+        L: SliceWith<R, R::Count, Layout: MutLayout>,
+    {
+        let (offset_range, sliced_layout) = self.layout.slice_with(range);
+        TensorBase {
             data: self.data.slice(offset_range),
             layout: sliced_layout,
         }
@@ -3370,7 +3433,7 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_with_ndlayout() {
+    fn test_slice_on_ndlayout() {
         let data = vec![1., 2., 3., 4.];
         let tensor = NdTensor::from_data([2, 2], data);
 
@@ -3389,7 +3452,7 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_dyn_with_ndlayout() {
+    fn test_slice_dyn_on_ndlayout() {
         let data = vec![1., 2., 3., 4.];
         let tensor = NdTensor::from_data([2, 2], data);
 
@@ -3403,7 +3466,7 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_with_dynlayout() {
+    fn test_slice_on_dynlayout() {
         let data = vec![1., 2., 3., 4.];
         let tensor = Tensor::from_data(&[2, 2], data);
 
@@ -3417,7 +3480,7 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_dyn_with_dynlayout() {
+    fn test_slice_dyn_on_dynlayout() {
         let data = vec![1., 2., 3., 4.];
         let tensor = Tensor::from_data(&[2, 2], data);
 
@@ -3452,6 +3515,38 @@ mod tests {
         row[[1]] = 9.;
 
         assert_eq!(tensor.to_vec(), &[1., 2., 8., 9.]);
+    }
+
+    #[test]
+    fn test_slice_with() {
+        // Slice static-rank array. The rank of the slice is inferred.
+        let data = NdTensor::from([[[1, 2, 3], [4, 5, 6]]]);
+        let row = data.slice_with((0, 0));
+        assert_eq!(row.shape(), [3usize]);
+        assert_eq!(row.data().unwrap(), &[1, 2, 3]);
+
+        // Slice dynamic-rank array. The rank of the slice is dynamic.
+        let data = Tensor::from([[[1, 2, 3], [4, 5, 6]]]);
+        let row = data.slice_with((0, 0));
+        assert_eq!(row.shape(), [3usize]);
+        assert_eq!(row.data().unwrap(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_slice_with_mut() {
+        // Slice static-rank array. The rank of the slice is inferred.
+        let mut data = NdTensor::from([[[1, 2, 3], [4, 5, 6]]]);
+        let mut row = data.slice_with_mut((0, 0));
+        row[[0usize]] = 5;
+        assert_eq!(row.shape(), [3usize]);
+        assert_eq!(row.data().unwrap(), &[5, 2, 3]);
+
+        // Slice dynamic-rank array. The rank of the slice is dynamic.
+        let mut data = Tensor::from([[[1, 2, 3], [4, 5, 6]]]);
+        let mut row = data.slice_with_mut((0, 0));
+        row[[0]] = 10;
+        assert_eq!(row.shape(), [3usize]);
+        assert_eq!(row.data().unwrap(), &[10, 2, 3]);
     }
 
     #[test]
