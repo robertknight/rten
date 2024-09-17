@@ -2,15 +2,15 @@ use std::iter::{zip, Rev};
 use std::ops::Range;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{Tensor, TensorView};
+use rten_tensor::{NdTensor, Tensor, TensorView};
 
-use crate::check_dims;
 use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::{
     add_in_place, mul_in_place, sigmoid, tanh, InputList, IntoOpResult, OpError, Operator,
     OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
+use crate::{check_dims, static_dims};
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -141,18 +141,22 @@ pub fn gru(
         ));
     }
 
-    let [seq_len, batch, _input_size] = check_dims!(input, 3, "seq, batch, input");
-    let [_directions, hidden_x3, _input_size] = check_dims!(weights, 3, "dir, hidden x 3, input");
-    check_dims!(recurrent_weights, 3);
-    check_dims!(initial_hidden?, 3);
+    let input = static_dims!(input, 3, "seq, batch, input")?;
+    let weights = static_dims!(weights, 3, "dir, hidden x 3, input")?;
+    let recurrent_weights = static_dims!(recurrent_weights, 3)?;
+
+    let [seq_len, batch, _input_size] = input.shape();
+    let [_directions, hidden_x3, _input_size] = weights.shape();
+
+    let initial_hidden = initial_hidden.map(|ih| static_dims!(ih, 3)).transpose()?;
 
     let num_directions = direction.num_directions();
     let hidden_size = hidden_x3 / 3;
 
     let mut hidden = initial_hidden
         .map(|t| t.to_tensor_in(pool))
-        .unwrap_or_else(|| Tensor::zeros_in(pool, &[num_directions, batch, hidden_size]));
-    let mut hidden_seq = Tensor::zeros_in(pool, &[seq_len, num_directions, batch, hidden_size]);
+        .unwrap_or_else(|| NdTensor::zeros_in(pool, [num_directions, batch, hidden_size]));
+    let mut hidden_seq = NdTensor::zeros_in(pool, [seq_len, num_directions, batch, hidden_size]);
 
     // Indices of gates in the concatenated weight and bias tensors.
     const UPDATE_GATE: usize = 0;
@@ -171,7 +175,7 @@ pub fn gru(
     for dir in 0..num_directions {
         let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
 
-        let input_weights = weights.slice::<2, _>(dir).transposed();
+        let input_weights = weights.slice_with(dir).transposed();
         let packed_input_weights =
             prepack.then(|| gemm.prepack_b_in(pool, input_weights).auto_return(pool));
         let input_weights = packed_input_weights
@@ -179,7 +183,7 @@ pub fn gru(
             .map(|packed| GemmInputB::Packed(packed))
             .unwrap_or(GemmInputB::Unpacked(input_weights));
 
-        let hidden_weights = recurrent_weights.slice::<2, _>(dir).transposed();
+        let hidden_weights = recurrent_weights.slice_with(dir).transposed();
         let packed_hidden_weights =
             prepack.then(|| gemm.prepack_b_in(pool, hidden_weights).auto_return(pool));
         let hidden_weights = packed_hidden_weights
@@ -195,8 +199,8 @@ pub fn gru(
             .map(|b| b.slice::<1, _>((dir, (n_gates * hidden_size)..)));
 
         for seq in sequence_for_dir(direction, dir, seq_len) {
-            let in_item = input.slice::<2, _>([seq]);
-            let hidden_item = hidden.slice::<2, _>([dir]);
+            let in_item = input.slice_with([seq]);
+            let hidden_item = hidden.slice_with([dir]);
 
             // From the ONNX spec, the intermediate values are computed as:
             //
@@ -305,7 +309,7 @@ pub fn gru(
         }
     }
 
-    Ok([hidden_seq, hidden].into())
+    Ok([hidden_seq.into_dyn(), hidden.into_dyn()].into())
 }
 
 impl Operator for GRU {

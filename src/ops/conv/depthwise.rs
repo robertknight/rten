@@ -92,7 +92,7 @@ fn conv_2d_depthwise_block<X, W, Y>(
         let out_row_len = out_chan.size(1);
         let out_chan_data = out_chan.data_mut().unwrap();
 
-        let in_chan = input.slice::<2, _>([c]);
+        let in_chan = input.slice_with([c]);
         let in_row_stride = in_chan.stride(0);
         let in_row_len = in_chan.size(1);
         let in_chan_data = in_chan.data().unwrap();
@@ -204,8 +204,8 @@ where
 
     let n_init = AtomicUsize::new(0);
     for n in 0..batch {
-        let mut out_chans = output.slice_mut::<3, _>(n);
-        let input = input.slice::<3, _>(n);
+        let mut out_chans = output.slice_with_mut(n);
+        let input = input.slice_with(n);
 
         out_chans
             .axis_chunks_mut(0, channel_chunk_size)

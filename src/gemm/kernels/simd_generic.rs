@@ -148,7 +148,7 @@ unsafe fn simd_gemv_transposed<S: SimdFloat>(
         simd_gemv_fallback(
             &mut out[last_col_tile.clone()],
             a,
-            b.slice::<2, _>((.., last_col_tile)),
+            b.slice_with((.., last_col_tile)),
             alpha,
             beta,
         );

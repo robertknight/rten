@@ -7,6 +7,7 @@ use crate::errors::{DimensionError, FromDataError, ReshapeError, SliceError};
 use crate::index_iterator::{DynIndices, NdIndices};
 use crate::overlap::{is_contiguous, may_have_internal_overlap};
 use crate::slice_range::{IntoSliceItems, SliceItem};
+use crate::type_num::{ConstUInt, U0, U1, U2, U3, U4, U5};
 
 /// Return true if `permutation` is a valid permutation of dimensions for
 /// a tensor of rank `ndim`.
@@ -1366,6 +1367,66 @@ impl_remove_dim!(2, 1);
 impl_remove_dim!(3, 2);
 impl_remove_dim!(4, 3);
 impl_remove_dim!(5, 4);
+
+/// Trait for slicing a layout with a range.
+///
+/// `R` is the type of the slice range. `IdxCount` is a marker type indicating
+/// the number of items in `R` that are indices, as opposed to ranges.
+pub trait SliceWith<R: IntoSliceItems, IdxCount: ConstUInt> {
+    /// The layout produced after slicing.
+    type Layout: Layout;
+
+    /// Slice the layout with a range.
+    ///
+    /// Returns a tuple of `(offset_range, sliced_layout)` where `offset_range`
+    /// is the range of data from the original view that is used by the slice
+    /// and `sliced_layout` is the layout of the sliced view.
+    fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout);
+}
+
+impl<R: IntoSliceItems, I: ConstUInt> SliceWith<R, I> for DynLayout {
+    type Layout = DynLayout;
+
+    fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout) {
+        self.slice_dyn(range.into_slice_items().as_ref())
+    }
+}
+
+impl<R: IntoSliceItems, const N: usize> SliceWith<R, U0> for NdLayout<N> {
+    type Layout = NdLayout<N>;
+
+    fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout) {
+        self.slice(range.into_slice_items().as_ref())
+    }
+}
+
+macro_rules! impl_slice_with {
+    ($ndim:literal, $range_ndim:ty, $out_ndim:literal) => {
+        impl<R: IntoSliceItems> SliceWith<R, $range_ndim> for NdLayout<$ndim> {
+            type Layout = NdLayout<$out_ndim>;
+
+            fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout) {
+                self.slice(range.into_slice_items().as_ref())
+            }
+        }
+    };
+}
+
+impl_slice_with!(1, U1, 0);
+impl_slice_with!(2, U1, 1);
+impl_slice_with!(2, U2, 0);
+impl_slice_with!(3, U1, 2);
+impl_slice_with!(3, U2, 1);
+impl_slice_with!(3, U3, 0);
+impl_slice_with!(4, U1, 3);
+impl_slice_with!(4, U2, 2);
+impl_slice_with!(4, U3, 1);
+impl_slice_with!(4, U4, 0);
+impl_slice_with!(5, U1, 4);
+impl_slice_with!(5, U2, 3);
+impl_slice_with!(5, U3, 2);
+impl_slice_with!(5, U4, 1);
+impl_slice_with!(5, U5, 0);
 
 #[cfg(test)]
 mod tests {
