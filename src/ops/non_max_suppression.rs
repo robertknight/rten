@@ -104,7 +104,7 @@ pub fn non_max_suppression(
                 continue;
             }
 
-            let [c0, c1, c2, c3] = boxes.slice((n, b)).to_array();
+            let [c0, c1, c2, c3] = boxes.slice_with((n, b)).to_array();
             let [top, left, bottom, right] = match box_order {
                 BoxOrder::TopLeftBottomRight => [c0, c1, c2, c3],
                 BoxOrder::CenterWidthHeight => {
@@ -172,7 +172,7 @@ pub fn non_max_suppression(
 
     let mut selected_indices = NdTensor::zeros_in(pool, [selected.len(), 3]);
     for (i, nms_box) in selected.into_iter().enumerate() {
-        selected_indices.slice_mut(i).assign_array([
+        selected_indices.slice_with_mut(i).assign_array([
             nms_box.batch_index as i32,
             nms_box.class as i32,
             nms_box.box_index as i32,
@@ -255,7 +255,7 @@ mod tests {
                     [cx, cy, w, h]
                 }
             };
-            out_boxes.slice_mut((0, i)).assign_array(coords);
+            out_boxes.slice_with_mut((0, i)).assign_array(coords);
             out_scores[[0, nms_box.class, i]] = nms_box.score;
         }
 
@@ -309,10 +309,10 @@ mod tests {
 
         assert_eq!(selected.size(0), 2);
 
-        let [batch, class, box_idx] = selected.slice(0).to_array();
+        let [batch, class, box_idx] = selected.slice_with(0).to_array();
         assert_eq!([batch, class, box_idx], [0, 0, 0]);
 
-        let [batch, class, box_idx] = selected.slice(1).to_array();
+        let [batch, class, box_idx] = selected.slice_with(1).to_array();
         assert_eq!([batch, class, box_idx], [0, 1, 2]);
     }
 
@@ -371,10 +371,10 @@ mod tests {
         // returned.
         assert_eq!(selected.size(0), 3);
 
-        let [batch, class, box_idx] = selected.slice(0).to_array();
+        let [batch, class, box_idx] = selected.slice_with(0).to_array();
         assert_eq!([batch, class, box_idx], [0, 0, 0]);
 
-        let [batch, class, box_idx] = selected.slice(1).to_array();
+        let [batch, class, box_idx] = selected.slice_with(1).to_array();
         assert_eq!([batch, class, box_idx], [0, 0, 1]);
     }
 
@@ -400,10 +400,10 @@ mod tests {
         // be returned from each class.
         assert!(selected.size(0) == 2);
 
-        let [batch, class, box_idx] = selected.slice(0).to_array();
+        let [batch, class, box_idx] = selected.slice_with(0).to_array();
         assert_eq!([batch, class, box_idx], [0, 0, 0]);
 
-        let [batch, class, box_idx] = selected.slice(1).to_array();
+        let [batch, class, box_idx] = selected.slice_with(1).to_array();
         assert_eq!([batch, class, box_idx], [0, 1, 2]);
     }
 
@@ -428,7 +428,7 @@ mod tests {
         // Only the box with score exceeding `score_threshold` will be returned.
         assert!(selected.size(0) == 1);
 
-        let [batch, class, box_idx] = selected.slice(0).to_array();
+        let [batch, class, box_idx] = selected.slice_with(0).to_array();
         assert_eq!([batch, class, box_idx], [0, 0, 0]);
     }
 

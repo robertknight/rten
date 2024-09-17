@@ -2434,8 +2434,8 @@ mod tests {
         let mut transposed = tensor.view_mut();
 
         transposed.permute([1, 0]);
-        transposed.slice_mut(0).assign_array([1, 2]);
-        transposed.slice_mut(1).assign_array([3, 4]);
+        transposed.slice_with_mut(0).assign_array([1, 2]);
+        transposed.slice_with_mut(1).assign_array([3, 4]);
 
         assert_eq!(tensor.iter().copied().collect::<Vec<_>>(), [1, 3, 2, 4]);
     }
