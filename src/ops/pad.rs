@@ -57,7 +57,7 @@ pub fn pad<T: Copy>(
 
             let mut output = Tensor::full_in(pool, &out_shape, const_val);
             output
-                .slice_mut_dyn(non_pad_region.as_slice())
+                .slice_mut(non_pad_region.as_slice())
                 .copy_from(&input);
             output
         }

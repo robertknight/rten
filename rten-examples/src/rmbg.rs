@@ -119,7 +119,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let bg_color = [0., 1., 0.]; // RGB
     fill_mask(
         image.view_mut(),
-        background_mask.slice::<2, _>([0, 0]), // Extract first mask and channel
+        background_mask.slice([0, 0]), // Extract first mask and channel
         bg_color,
     );
 

@@ -1,8 +1,8 @@
 //! Traits and types for compile-time arithmetic.
 //!
 //! These types are used in various tensor methods, such as
-//! [`slice_with`](crate::TensorBase::slice_with), as part of computing the
-//! layout of the result at compile time.
+//! [`slice`](crate::TensorBase::slice), as part of computing the layout of the
+//! result at compile time.
 
 use std::ops::{Range, RangeFrom, RangeFull, RangeTo};
 

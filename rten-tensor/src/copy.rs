@@ -205,8 +205,8 @@ pub fn copy_into_slice<'a, T: Clone>(
         let mut dest = NdTensorViewMut::from_data(src.shape(), dest);
         for i0 in 0..src.size(0) {
             for i1 in 0..src.size(1) {
-                let src = src.slice_with([i0, i1]);
-                let dest = dest.slice_with_mut([i0, i1]);
+                let src = src.slice([i0, i1]);
+                let dest = dest.slice_mut([i0, i1]);
                 copy_blocked(src, dest);
             }
         }
@@ -437,7 +437,7 @@ fn copy_range_into_slice_inner<T: Clone>(
     } else {
         // Iterate over views of outermost dimension and recurse.
         for i0 in ranges[0] {
-            let src_slice = src.slice_dyn(i0);
+            let src_slice = src.slice(i0);
             let (dest_slice, dest_tail) = dest.split_at_mut(src_slice.len());
 
             copy_range_into_slice_inner(src_slice, dest_slice, &ranges[1..]);

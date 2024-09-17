@@ -300,9 +300,9 @@ pub fn resize(
 
     let n_init = AtomicUsize::new(0);
     for n in 0..batch {
-        let in_image = input.slice_with([n]);
+        let in_image = input.slice([n]);
         let mut out_batch = output.nd_view_mut::<4>();
-        let mut out_image = out_batch.slice_with_mut([n]);
+        let mut out_image = out_batch.slice_mut([n]);
 
         out_image
             .axis_chunks_mut(0, CHAN_GROUP_SIZE)

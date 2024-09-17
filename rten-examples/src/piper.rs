@@ -223,7 +223,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Convert audio samples from float to 16-bit ints and write to output .wav
     // file.
-    let int_samples = audio_float_to_int16(samples.slice::<1, _>((0, 0, 0)), None);
+    let int_samples = audio_float_to_int16(samples.slice((0, 0, 0)), None);
     let wav_file = BufWriter::new(File::create("output.wav")?);
 
     let mut wav_writer = WavWriter::new(

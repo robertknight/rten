@@ -779,7 +779,7 @@ impl<'a, T, L: MutLayout> Iterator for InnerIterDyn<'a, T, L> {
     fn next(&mut self) -> Option<Self::Item> {
         self.outer_indices.next().map(|idx| {
             let slice_items = to_slice_items(&idx);
-            self.view.slice_with(slice_items.as_slice())
+            self.view.slice(slice_items.as_slice())
         })
     }
 
@@ -855,7 +855,7 @@ impl<'a, T, L: MutLayout> Iterator for InnerIterDynMut<'a, T, L> {
     fn next(&mut self) -> Option<Self::Item> {
         self.outer_indices.next().map(|idx| {
             let slice_items = to_slice_items(&idx);
-            let view: TensorViewMut<'_, T> = self.view.slice_mut_dyn(slice_items.as_slice());
+            let view: TensorViewMut<'_, T> = self.view.slice_mut(slice_items.as_slice());
             unsafe {
                 // Safety: Outer view is non-broadcasting, and we increment the
                 // outer index each time, so returned views will not overlap.

@@ -722,7 +722,7 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
             for (k_block, a_block) in
                 range_chunks(0..a_cols, k_block_size).zip(a_data.chunks(k_block_size))
             {
-                let b_block = b.slice_with((k_block, col_block.clone()));
+                let b_block = b.slice((k_block, col_block.clone()));
                 kernel.gemv_kernel(out_chunk, a_block, b_block, alpha, effective_beta);
 
                 // Reset `beta` so that subsequent updates for each column
@@ -815,7 +815,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     if let (1, GemmInputA::Unpacked(a), GemmInputB::Unpacked(b)) = (a.rows(), a, b) {
         gemv(
             kernel,
-            a.slice_with(0),
+            a.slice(0),
             b,
             output_mat.view_mut(),
             alpha,

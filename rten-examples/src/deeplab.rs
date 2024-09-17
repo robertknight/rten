@@ -131,7 +131,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     output.permute(&[0, 2, 3, 1]); // (N,class,H,W) => (N,H,W,class)
 
     let seg_classes: NdTensor<i32, 2> = output
-        .slice_dyn(0)
+        .slice(0)
         .arg_max(-1, false /* keep_dims */)?
         .try_into()?;
     let [out_height, out_width] = seg_classes.shape();

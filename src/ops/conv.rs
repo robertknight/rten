@@ -46,10 +46,10 @@ where
     let mut n_init = 0;
 
     for n in 0..batch {
-        let mut out_item = output.slice_with_mut([n]);
+        let mut out_item = output.slice_mut([n]);
         let out_row_stride = out_item.stride(0);
 
-        let in_mat = input.slice_with([n]).reshaped([in_c, in_h * in_w]);
+        let in_mat = input.slice([n]).reshaped([in_c, in_h * in_w]);
 
         gemm.gemm_uninit_bias(
             out_item.data_mut().unwrap(),
@@ -237,12 +237,12 @@ where
         let out_chan_start = group * out_channels_per_group;
         let out_chans = out_chan_start..out_chan_start + out_channels_per_group;
 
-        let in_group = input.slice_with((.., in_chan_start..in_chan_end));
-        let mut out_group = output.slice_with_mut((.., out_chans.clone()));
+        let in_group = input.slice((.., in_chan_start..in_chan_end));
+        let mut out_group = output.slice_mut((.., out_chans.clone()));
 
         let kernel = kernel.to_contiguous_in(pool);
         let kernel_mat = kernel
-            .slice_with([out_chans.clone()])
+            .slice([out_chans.clone()])
             .reshaped([out_channels_per_group, in_channels_per_group * k_h * k_w]);
 
         // Prepack kernel if we'll be able to reuse packed weights.
@@ -356,7 +356,7 @@ fn col2im(
 
     for out_c in 0..out_chans {
         // Initialize each output channel just before we accumulate into it.
-        let mut out_img = output.slice_with_mut([out_c]);
+        let mut out_img = output.slice_mut([out_c]);
         out_img.fill(MaybeUninit::new(bias.map(|b| b[[out_c]]).unwrap_or(0.)));
 
         // Safety: We just initialized all elements of `out_img`.
@@ -364,7 +364,7 @@ fn col2im(
 
         for k_y in 0..kernel_h {
             for k_x in 0..kernel_w {
-                let in_img = columns.slice_with([out_c, k_y, k_x]);
+                let in_img = columns.slice([out_c, k_y, k_x]);
                 let [img_h, img_w] = in_img.shape();
 
                 for y in 0..img_h {
@@ -536,7 +536,7 @@ pub fn conv_transpose(
     // The implementation here is the inverse of the im2col-based convolution.
     let mut n_init = 0;
     for n in 0..batch {
-        let input_mat = input.slice_with([n]).reshaped([in_c, in_h * in_w]);
+        let input_mat = input.slice([n]).reshaped([in_c, in_h * in_w]);
 
         let col2im_row_stride = col2im_mat.stride(0);
         gemm.gemm_uninit(
@@ -549,7 +549,7 @@ pub fn conv_transpose(
 
         // Safety: `gemm_uninit` initialized col2im_mat.
         let col2im_mat = unsafe { col2im_mat.view().assume_init() };
-        let mut out_img = output.slice_with_mut(n);
+        let mut out_img = output.slice_mut(n);
 
         col2im(
             &mut out_img,
@@ -1635,7 +1635,7 @@ mod tests {
         // With padding.
         run_bench(100, Some("col2im"), || {
             col2im(
-                &mut output.slice_with_mut((.., 2.., 2..)),
+                &mut output.slice_mut((.., 2.., 2..)),
                 &columns.view(),
                 [1, 1, 1, 1], // Padding
                 [stride_y, stride_x],

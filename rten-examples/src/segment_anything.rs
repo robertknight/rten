@@ -207,11 +207,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Resize the output mask to match the original image and save to disk.
     let pred_masks: NdTensor<f32, 5> = pred_masks.try_into()?;
     let [_batch, _point_batch, _mask, mask_h, mask_w] = pred_masks.shape();
-    let best_mask = pred_masks
-        .slice::<2, _>((0, 0, 0))
-        .reshaped([1, 1, mask_h, mask_w]);
+    let best_mask = pred_masks.slice((0, 0, 0)).reshaped([1, 1, mask_h, mask_w]);
     let resized_mask = best_mask.resize_image([image_h, image_w])?;
-    write_image("segmented.png", resized_mask.slice::<3, _>(0).nd_view())?;
+    write_image("segmented.png", resized_mask.nd_view::<4>().slice(0))?;
 
     Ok(())
 }

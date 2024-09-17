@@ -262,68 +262,36 @@ pub trait AsView: Layout {
         self.view().transposed()
     }
 
-    /// Slice this tensor and return a dynamic-rank view.
-    ///
-    /// Fails if the range has more dimensions than the view or is out of bounds
-    /// for any dimension.
-    fn try_slice_dyn<R: IntoSliceItems>(
-        &self,
-        range: R,
-    ) -> Result<TensorView<Self::Elem>, SliceError> {
-        self.view().try_slice_dyn(range)
-    }
-
-    /// Slice this tensor and return a static-rank view with `M` dimensions.
-    ///
-    /// Use [AsView::slice_dyn] instead if the number of dimensions in the
-    /// returned view is unknown at compile time.
-    ///
-    /// This method is cheap as it does not copy the data, but does not support
-    /// ranges with negative steps. For that use [`slice_copy`](AsView::slice_copy).
-    ///
-    /// Panics if the dimension count of the result is not `M`.
-    fn slice<const M: usize, R: IntoSliceItems>(&self, range: R) -> NdTensorView<Self::Elem, M> {
-        self.view().slice(range)
-    }
-
-    /// Slice this tensor and return a dynamic-rank view.
-    fn slice_dyn<R: IntoSliceItems>(&self, range: R) -> TensorView<Self::Elem> {
-        self.view().slice_dyn(range)
-    }
-
     /// Slice this tensor and return a view.
     ///
-    /// This is an alternative to [`slice`](Self::slice) and
-    /// [`slice_dyn`](Self::slice_dyn) that determines the dimension count of
-    /// the returned view automatically at compile time. If both this tensor's
-    /// layout and the range have a statically-known number of index terms,
-    /// the result will have a static rank. Otherwise it will have a dynamic
-    /// rank.
+    /// If both this tensor's layout and the range have a statically-known
+    /// number of index terms, the result will have a static rank. Otherwise it
+    /// will have a dynamic rank.
     ///
     /// ```
     /// use rten_tensor::prelude::*;
     /// use rten_tensor::NdTensor;
     ///
     /// let x = NdTensor::from([[1, 2], [3, 4]]);
-    /// let col = x.slice_with((.., 1)); // `col` is an `NdTensorView<i32, 1>`
+    /// let col = x.slice((.., 1)); // `col` is an `NdTensorView<i32, 1>`
     /// assert_eq!(col.shape(), [2usize]);
     /// assert_eq!(col.to_vec(), [2, 4]);
     /// ```
     #[allow(clippy::type_complexity)]
-    fn slice_with<R: IntoSliceItems + IndexCount>(
+    fn slice<R: IntoSliceItems + IndexCount>(
         &self,
         range: R,
     ) -> TensorBase<ViewData<Self::Elem>, <Self::Layout as SliceWith<R, R::Count>>::Layout>
     where
         Self::Layout: SliceWith<R, R::Count>,
     {
-        self.view().slice_with(range)
+        self.view().slice(range)
     }
 
-    /// A variant of [`slice_with`](Self::slice_with) that returns a result
+    /// A variant of [`slice`](Self::slice) that returns a result
     /// instead of panicking.
     #[allow(clippy::type_complexity)]
-    fn try_slice_with<R: IntoSliceItems + IndexCount>(
+    fn try_slice<R: IntoSliceItems + IndexCount>(
         &self,
         range: R,
     ) -> Result<
@@ -333,7 +301,7 @@ pub trait AsView: Layout {
     where
         Self::Layout: SliceWith<R, R::Count>,
     {
-        self.view().try_slice_with(range)
+        self.view().try_slice(range)
     }
 
     /// Return a slice of this tensor as an owned tensor.
@@ -375,7 +343,7 @@ pub trait AsView: Layout {
         // all ranges except those with a negative step. This benefits from
         // optimizations that `Tensor::to_tensor` has for slices that are already
         // contiguous or have a small number of dims.
-        if let Ok(slice_view) = self.try_slice_with(range.clone()) {
+        if let Ok(slice_view) = self.try_slice(range.clone()) {
             return slice_view.to_tensor_in(pool);
         }
 
@@ -804,69 +772,24 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         }
     }
 
-    /// Slice this tensor and return a static-rank view with `M` dimensions.
-    ///
-    /// Use [AsView::slice_dyn] instead if the number of dimensions in the
-    /// returned view is unknown at compile time.
-    ///
-    /// Panics if the dimension count is not `M`.
-    pub fn slice_mut<const M: usize, R: IntoSliceItems>(
-        &mut self,
-        range: R,
-    ) -> NdTensorViewMut<S::Elem, M> {
-        let range = range.into_slice_items();
-        let (offset_range, sliced_layout) =
-            self.layout.slice(range.as_ref()).expect("slice failed");
-        NdTensorViewMut {
-            data: self.data.slice_mut(offset_range),
-            layout: sliced_layout,
-        }
-    }
-
-    /// Slice this tensor and return a dynamic-rank view.
-    pub fn slice_mut_dyn<R: IntoSliceItems>(&mut self, range: R) -> TensorViewMut<S::Elem> {
-        let range = range.into_slice_items();
-        let (offset_range, sliced_layout) =
-            self.layout.slice_dyn(range.as_ref()).expect("slice failed");
-        TensorViewMut {
-            data: self.data.slice_mut(offset_range),
-            layout: sliced_layout,
-        }
-    }
-
     /// Slice this tensor and return a mutable view.
     ///
-    /// See [`slice_with`](AsView::slice_with) for notes on the layout of
-    /// the returned view.
-    pub fn slice_with_mut<R: IntoSliceItems + IndexCount>(
+    /// See [`slice`](AsView::slice) for notes on the layout of the returned
+    /// view.
+    pub fn slice_mut<R: IntoSliceItems + IndexCount>(
         &mut self,
         range: R,
     ) -> TensorBase<ViewMutData<S::Elem>, <L as SliceWith<R, R::Count>>::Layout>
     where
         L: SliceWith<R, R::Count>,
     {
-        self.try_slice_with_mut(range).expect("slice failed")
+        self.try_slice_mut(range).expect("slice failed")
     }
 
-    /// Slice this tensor and return a dynamic-rank view.
-    ///
-    /// Fails if the range has more dimensions than the view or is out of bounds
-    /// for any dimension.
-    pub fn try_slice_mut<R: IntoSliceItems>(
-        &mut self,
-        range: R,
-    ) -> Result<TensorViewMut<S::Elem>, SliceError> {
-        let (offset_range, layout) = self.layout.slice_dyn(range.into_slice_items().as_ref())?;
-        Ok(TensorBase {
-            data: self.data.slice_mut(offset_range),
-            layout,
-        })
-    }
-
-    /// A variant of [`slice_with_mut`](Self::slice_with_mut) that returns a
+    /// A variant of [`slice_mut`](Self::slice_mut) that returns a
     /// result instead of panicking.
     #[allow(clippy::type_complexity)]
-    pub fn try_slice_with_mut<R: IntoSliceItems + IndexCount>(
+    pub fn try_slice_mut<R: IntoSliceItems + IndexCount>(
         &mut self,
         range: R,
     ) -> Result<TensorBase<ViewMutData<S::Elem>, <L as SliceWith<R, R::Count>>::Layout>, SliceError>
@@ -1533,41 +1456,21 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         }
     }
 
-    /// Slice this tensor and return a static-rank view. See [AsView::slice].
-    pub fn slice<const M: usize, R: IntoSliceItems>(&self, range: R) -> NdTensorView<'a, T, M> {
-        let range = range.into_slice_items();
-        let (offset_range, sliced_layout) = self.layout.slice(range.as_ref()).unwrap();
-        NdTensorView {
-            data: self.data.slice(offset_range),
-            layout: sliced_layout,
-        }
-    }
-
-    /// Slice this tensor and return a dynamic-rank view. See [AsView::slice_dyn].
-    pub fn slice_dyn<R: IntoSliceItems>(&self, range: R) -> TensorView<'a, T> {
-        let range = range.into_slice_items();
-        let (offset_range, sliced_layout) = self.layout.slice_dyn(range.as_ref()).unwrap();
-        TensorView {
-            data: self.data.slice(offset_range),
-            layout: sliced_layout,
-        }
-    }
-
-    /// Slice this tensor and return a view. See [`AsView::slice_with`].
-    pub fn slice_with<R: IntoSliceItems + IndexCount>(
+    /// Slice this tensor and return a view. See [`AsView::slice`].
+    pub fn slice<R: IntoSliceItems + IndexCount>(
         &self,
         range: R,
     ) -> TensorBase<ViewData<'a, T>, <L as SliceWith<R, R::Count>>::Layout>
     where
         L: SliceWith<R, R::Count>,
     {
-        self.try_slice_with(range).expect("slice failed")
+        self.try_slice(range).expect("slice failed")
     }
 
-    /// A variant of [`slice_with`](Self::slice_with) that returns a result
+    /// A variant of [`slice`](Self::slice) that returns a result
     /// instead of panicking.
     #[allow(clippy::type_complexity)]
-    pub fn try_slice_with<R: IntoSliceItems + IndexCount>(
+    pub fn try_slice<R: IntoSliceItems + IndexCount>(
         &self,
         range: R,
     ) -> Result<TensorBase<ViewData<'a, T>, <L as SliceWith<R, R::Count>>::Layout>, SliceError>
@@ -2496,8 +2399,8 @@ mod tests {
         let mut transposed = tensor.view_mut();
 
         transposed.permute([1, 0]);
-        transposed.slice_with_mut(0).assign_array([1, 2]);
-        transposed.slice_with_mut(1).assign_array([3, 4]);
+        transposed.slice_mut(0).assign_array([1, 2]);
+        transposed.slice_mut(1).assign_array([3, 4]);
 
         assert_eq!(tensor.iter().copied().collect::<Vec<_>>(), [1, 3, 2, 4]);
     }
@@ -3495,117 +3398,32 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_on_ndlayout() {
-        let data = vec![1., 2., 3., 4.];
-        let tensor = NdTensor::from_data([2, 2], data);
-
-        let row_one = tensor.slice(0);
-        assert_eq!(row_one[[0]], 1.);
-        assert_eq!(row_one[[1]], 2.);
-
-        let row_two = tensor.slice(1);
-        assert_eq!(row_two[[0]], 3.);
-        assert_eq!(row_two[[1]], 4.);
-
-        // Slice empty tensor
-        let empty = NdTensor::<f32, 2>::zeros([0, 10]);
-        let col_one = empty.slice((.., 2..3));
-        assert_eq!(col_one.shape(), [0, 1]);
-    }
-
-    #[test]
-    fn test_slice_dyn_on_ndlayout() {
-        let data = vec![1., 2., 3., 4.];
-        let tensor = NdTensor::from_data([2, 2], data);
-
-        let row_one = tensor.slice_dyn(0);
-        assert_eq!(row_one[[0]], 1.);
-        assert_eq!(row_one[[1]], 2.);
-
-        let row_two = tensor.slice_dyn(1);
-        assert_eq!(row_two[[0]], 3.);
-        assert_eq!(row_two[[1]], 4.);
-    }
-
-    #[test]
-    fn test_slice_on_dynlayout() {
-        let data = vec![1., 2., 3., 4.];
-        let tensor = Tensor::from_data(&[2, 2], data);
-
-        let row_one = tensor.slice(0);
-        assert_eq!(row_one[[0]], 1.);
-        assert_eq!(row_one[[1]], 2.);
-
-        let row_two = tensor.slice(1);
-        assert_eq!(row_two[[0]], 3.);
-        assert_eq!(row_two[[1]], 4.);
-    }
-
-    #[test]
-    fn test_slice_dyn_on_dynlayout() {
-        let data = vec![1., 2., 3., 4.];
-        let tensor = Tensor::from_data(&[2, 2], data);
-
-        let row_one = tensor.slice_dyn(0);
-        assert_eq!(row_one[[0]], 1.);
-        assert_eq!(row_one[[1]], 2.);
-
-        let row_two = tensor.slice_dyn(1);
-        assert_eq!(row_two[[0]], 3.);
-        assert_eq!(row_two[[1]], 4.);
-    }
-
-    #[test]
-    fn test_slice_mut() {
-        let data = vec![1., 2., 3., 4.];
-        let mut tensor = NdTensor::from_data([2, 2], data);
-
-        let mut row = tensor.slice_mut(1);
-        row[[0]] = 8.;
-        row[[1]] = 9.;
-
-        assert_eq!(tensor.to_vec(), &[1., 2., 8., 9.]);
-    }
-
-    #[test]
-    fn test_slice_mut_dyn() {
-        let data = vec![1., 2., 3., 4.];
-        let mut tensor = NdTensor::from_data([2, 2], data);
-
-        let mut row = tensor.slice_mut_dyn(1);
-        row[[0]] = 8.;
-        row[[1]] = 9.;
-
-        assert_eq!(tensor.to_vec(), &[1., 2., 8., 9.]);
-    }
-
-    #[test]
-    fn test_slice_with() {
+    fn test_slice() {
         // Slice static-rank array. The rank of the slice is inferred.
         let data = NdTensor::from([[[1, 2, 3], [4, 5, 6]]]);
-        let row = data.slice_with((0, 0));
+        let row = data.slice((0, 0));
         assert_eq!(row.shape(), [3usize]);
         assert_eq!(row.data().unwrap(), &[1, 2, 3]);
 
         // Slice dynamic-rank array. The rank of the slice is dynamic.
         let data = Tensor::from([[[1, 2, 3], [4, 5, 6]]]);
-        let row = data.slice_with((0, 0));
+        let row = data.slice((0, 0));
         assert_eq!(row.shape(), [3usize]);
         assert_eq!(row.data().unwrap(), &[1, 2, 3]);
     }
 
     #[test]
-    fn test_slice_with_mut() {
+    fn test_slice_mut() {
         // Slice static-rank array. The rank of the slice is inferred.
         let mut data = NdTensor::from([[[1, 2, 3], [4, 5, 6]]]);
-        let mut row = data.slice_with_mut((0, 0));
+        let mut row = data.slice_mut((0, 0));
         row[[0usize]] = 5;
         assert_eq!(row.shape(), [3usize]);
         assert_eq!(row.data().unwrap(), &[5, 2, 3]);
 
         // Slice dynamic-rank array. The rank of the slice is dynamic.
         let mut data = Tensor::from([[[1, 2, 3], [4, 5, 6]]]);
-        let mut row = data.slice_with_mut((0, 0));
+        let mut row = data.slice_mut((0, 0));
         row[[0usize]] = 10;
         assert_eq!(row.shape(), [3usize]);
         assert_eq!(row.data().unwrap(), &[10, 2, 3]);
@@ -3719,8 +3537,8 @@ mod tests {
     #[test]
     fn test_to_array() {
         let tensor = NdTensor::arange(1., 5., None).into_shape([2, 2]);
-        let col0: [f32; 2] = tensor.view().transposed().slice_with(0).to_array();
-        let col1: [f32; 2] = tensor.view().transposed().slice_with(1).to_array();
+        let col0: [f32; 2] = tensor.view().transposed().slice(0).to_array();
+        let col1: [f32; 2] = tensor.view().transposed().slice(1).to_array();
         assert_eq!(col0, [1., 3.]);
         assert_eq!(col1, [2., 4.]);
     }
@@ -3857,30 +3675,14 @@ mod tests {
         let data = vec![1., 2., 3., 4.];
         let tensor = Tensor::from_data(&[2, 2], data);
 
-        let row = tensor.try_slice_dyn(0);
+        let row = tensor.try_slice(0);
         assert!(row.is_ok());
         assert_eq!(row.unwrap().data(), Some([1., 2.].as_slice()));
 
-        let row = tensor.try_slice_dyn(1);
+        let row = tensor.try_slice(1);
         assert!(row.is_ok());
 
-        let row = tensor.try_slice_dyn(2);
-        assert!(row.is_err());
-    }
-
-    #[test]
-    fn test_try_slice_with() {
-        let data = vec![1., 2., 3., 4.];
-        let tensor = Tensor::from_data(&[2, 2], data);
-
-        let row = tensor.try_slice_with(0);
-        assert!(row.is_ok());
-        assert_eq!(row.unwrap().data(), Some([1., 2.].as_slice()));
-
-        let row = tensor.try_slice_with(1);
-        assert!(row.is_ok());
-
-        let row = tensor.try_slice_with(2);
+        let row = tensor.try_slice(2);
         assert!(row.is_err());
     }
 
@@ -3897,24 +3699,7 @@ mod tests {
         let row = tensor.try_slice_mut(1);
         assert!(row.is_ok());
 
-        let row = tensor.try_slice_dyn(2);
-        assert!(row.is_err());
-    }
-
-    #[test]
-    fn test_try_slice_with_mut() {
-        let data = vec![1., 2., 3., 4.];
-        let mut tensor = Tensor::from_data(&[2, 2], data);
-
-        let mut row = tensor.try_slice_with_mut(0).unwrap();
-        row[[0]] += 1.;
-        row[[1]] += 1.;
-        assert_eq!(row.data(), Some([2., 3.].as_slice()));
-
-        let row = tensor.try_slice_with_mut(1);
-        assert!(row.is_ok());
-
-        let row = tensor.try_slice_with(2);
+        let row = tensor.try_slice(2);
         assert!(row.is_err());
     }
 

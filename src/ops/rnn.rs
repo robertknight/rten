@@ -180,7 +180,7 @@ pub fn gru(
     for dir in 0..num_directions {
         let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
 
-        let input_weights = weights.slice_with(dir).transposed();
+        let input_weights = weights.slice(dir).transposed();
         let packed_input_weights =
             prepack.then(|| gemm.prepack_b_in(pool, input_weights).auto_return(pool));
         let input_weights = packed_input_weights
@@ -188,7 +188,7 @@ pub fn gru(
             .map(|packed| GemmInputB::Packed(packed))
             .unwrap_or(GemmInputB::Unpacked(input_weights));
 
-        let hidden_weights = recurrent_weights.slice_with(dir).transposed();
+        let hidden_weights = recurrent_weights.slice(dir).transposed();
         let packed_hidden_weights =
             prepack.then(|| gemm.prepack_b_in(pool, hidden_weights).auto_return(pool));
         let hidden_weights = packed_hidden_weights
@@ -198,14 +198,14 @@ pub fn gru(
 
         let input_bias = bias
             .as_ref()
-            .map(|b| b.slice_with((dir, ..(n_gates * hidden_size))));
+            .map(|b| b.slice((dir, ..(n_gates * hidden_size))));
         let hidden_bias = bias
             .as_ref()
-            .map(|b| b.slice_with((dir, (n_gates * hidden_size)..)));
+            .map(|b| b.slice((dir, (n_gates * hidden_size)..)));
 
         for seq in sequence_for_dir(direction, dir, seq_len) {
-            let in_item = input.slice_with([seq]);
-            let hidden_item = hidden.slice_with([dir]);
+            let in_item = input.slice([seq]);
+            let hidden_item = hidden.slice([dir]);
 
             // From the ONNX spec, the intermediate values are computed as:
             //
@@ -261,11 +261,11 @@ pub fn gru(
             }
 
             // Combine inputs for reset and update gates and apply activation.
-            let mut update_reset_gates = gates.slice_with_mut((
+            let mut update_reset_gates = gates.slice_mut((
                 ..,
                 gate_range(UPDATE_GATE).start..gate_range(RESET_GATE).end,
             ));
-            let hidden_scratch_reset_update_gates = hidden_scratch.slice_with((
+            let hidden_scratch_reset_update_gates = hidden_scratch.slice((
                 ..,
                 gate_range(UPDATE_GATE).start..gate_range(RESET_GATE).end,
             ));
@@ -284,22 +284,21 @@ pub fn gru(
             // as `gates`.
             let update_reset_gates = sigmoid(pool, update_reset_gates.as_dyn()).auto_return(pool);
             let update_reset_gates = update_reset_gates.nd_view::<2>();
-            let update_gate = update_reset_gates.slice_with((.., gate_range(UPDATE_GATE)));
-            let reset_gate = update_reset_gates.slice_with((.., gate_range(RESET_GATE)));
+            let update_gate = update_reset_gates.slice((.., gate_range(UPDATE_GATE)));
+            let reset_gate = update_reset_gates.slice((.., gate_range(RESET_GATE)));
 
             // Combine inputs for hidden gate and apply activation.
-            let mut hidden_gate_recurrent =
-                hidden_scratch.slice_with_mut((.., gate_range(HIDDEN_GATE)));
+            let mut hidden_gate_recurrent = hidden_scratch.slice_mut((.., gate_range(HIDDEN_GATE)));
             mul_in_place(hidden_gate_recurrent.as_dyn_mut(), reset_gate.as_dyn());
 
-            let mut hidden_gate = gates.slice_with_mut((.., gate_range(HIDDEN_GATE)));
+            let mut hidden_gate = gates.slice_mut((.., gate_range(HIDDEN_GATE)));
             add_in_place(hidden_gate.as_dyn_mut(), hidden_gate_recurrent.as_dyn());
 
             // See note above about `sigmoid_in_place`.
             let hidden_gate = tanh(pool, hidden_gate.as_dyn()).auto_return(pool);
 
             // Compute next hidden state
-            let mut hidden_item = hidden.slice_with_mut([dir]);
+            let mut hidden_item = hidden.slice_mut([dir]);
 
             for (hidden, update, hidden_gate) in zip3(
                 hidden_item.iter_mut(),
@@ -309,9 +308,7 @@ pub fn gru(
                 *hidden = (1. - update) * hidden_gate + update * (*hidden);
             }
 
-            hidden_seq
-                .slice_with_mut([seq, dir])
-                .copy_from(&hidden_item);
+            hidden_seq.slice_mut([seq, dir]).copy_from(&hidden_item);
         }
     }
 
@@ -442,7 +439,7 @@ pub fn lstm(
     for dir in 0..num_directions {
         let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
 
-        let input_weights = weights.slice_with(dir).transposed();
+        let input_weights = weights.slice(dir).transposed();
         let packed_input_weights =
             prepack.then(|| gemm.prepack_b_in(pool, input_weights).auto_return(pool));
         let input_weights = packed_input_weights
@@ -450,7 +447,7 @@ pub fn lstm(
             .map(|packed| GemmInputB::Packed(packed))
             .unwrap_or(GemmInputB::Unpacked(input_weights));
 
-        let hidden_weights = recurrent_weights.slice_with(dir).transposed();
+        let hidden_weights = recurrent_weights.slice(dir).transposed();
         let packed_hidden_weights =
             prepack.then(|| gemm.prepack_b_in(pool, hidden_weights).auto_return(pool));
         let hidden_weights = packed_hidden_weights
@@ -460,10 +457,10 @@ pub fn lstm(
 
         let input_bias = bias
             .as_ref()
-            .map(|b| b.slice_with((dir, ..(n_gates * hidden_size))));
+            .map(|b| b.slice((dir, ..(n_gates * hidden_size))));
         let hidden_bias = bias
             .as_ref()
-            .map(|b| b.slice_with((dir, (n_gates * hidden_size)..)));
+            .map(|b| b.slice((dir, (n_gates * hidden_size)..)));
 
         for seq in sequence_for_dir(direction, dir, seq_len) {
             // From the ONNX spec, the intermediate values are computed as:
@@ -485,8 +482,8 @@ pub fn lstm(
             //    supported.
             //  - `f`, `g` and `h` are activations. `f`=sigmoid, `g` and `h`
             //    are tanh.
-            let in_item = input.slice_with([seq]);
-            let hidden_item = hidden.slice_with([dir]);
+            let in_item = input.slice([seq]);
+            let hidden_item = hidden.slice([dir]);
 
             // Update input, output, forget and cell gates.
             let gates_row_stride = gates.stride(gates.ndim() - 2);
@@ -516,22 +513,22 @@ pub fn lstm(
 
             // Copy gates to work around `tanh_in_place` and `sigmoid_in_place`
             // being slow for non-contiguous inputs. See notes in GRU op.
-            let iof_gates = gates.slice_with((
+            let iof_gates = gates.slice((
                 ..,
                 gate_range(INPUT_GATE).start..gate_range(FORGET_GATE).end,
             ));
             let iof_gates = sigmoid(pool, iof_gates.as_dyn()).auto_return(pool);
             let iof_gates = iof_gates.nd_view::<2>();
 
-            let input_gate = iof_gates.slice_with((.., gate_range(INPUT_GATE)));
-            let out_gate = iof_gates.slice_with((.., gate_range(OUTPUT_GATE)));
-            let forget_gate = iof_gates.slice_with((.., gate_range(FORGET_GATE)));
+            let input_gate = iof_gates.slice((.., gate_range(INPUT_GATE)));
+            let out_gate = iof_gates.slice((.., gate_range(OUTPUT_GATE)));
+            let forget_gate = iof_gates.slice((.., gate_range(FORGET_GATE)));
 
-            let cell_gate = gates.slice_with((.., gate_range(CELL_GATE)));
+            let cell_gate = gates.slice((.., gate_range(CELL_GATE)));
             let cell_gate = tanh(pool, cell_gate.as_dyn()).auto_return(pool);
 
             // Update cell and hidden state
-            let mut cell_item = cell.slice_with_mut([dir]);
+            let mut cell_item = cell.slice_mut([dir]);
 
             for (cell, forget_gate, input_gate, cell_gate) in zip4(
                 cell_item.iter_mut(),
@@ -542,16 +539,14 @@ pub fn lstm(
                 *cell = forget_gate * *cell + input_gate * cell_gate;
             }
 
-            let mut hidden_item = hidden.slice_with_mut([dir]);
+            let mut hidden_item = hidden.slice_mut([dir]);
             for (hidden, out_gate, cell) in
                 zip3(hidden_item.iter_mut(), out_gate.iter(), cell_item.iter())
             {
                 *hidden = out_gate * cell.tanh()
             }
 
-            hidden_seq
-                .slice_with_mut([seq, dir])
-                .copy_from(&hidden_item);
+            hidden_seq.slice_mut([seq, dir]).copy_from(&hidden_item);
         }
     }
 
@@ -771,18 +766,18 @@ mod tests {
             // The last hidden state should match the end of the hidden sequence
             // for the forwards direction, and the start of the hidden sequence
             // for the reverse direction.
-            let hidden_seq_fwd = hidden_seq.slice_with((
+            let hidden_seq_fwd = hidden_seq.slice((
                 -1, // seq
                 0,  // direction
             ));
-            let last_hidden_fwd = last_hidden.slice_with(0);
+            let last_hidden_fwd = last_hidden.slice(0);
             assert_eq!(hidden_seq_fwd, last_hidden_fwd);
 
-            let hidden_seq_rev = hidden_seq.slice_with((
+            let hidden_seq_rev = hidden_seq.slice((
                 0, // seq
                 1, // direction
             ));
-            let last_hidden_rev = last_hidden.slice_with(1);
+            let last_hidden_rev = last_hidden.slice(1);
             assert_eq!(hidden_seq_rev, last_hidden_rev);
         }
     }

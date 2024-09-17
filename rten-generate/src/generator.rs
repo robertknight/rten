@@ -602,7 +602,7 @@ impl<'a> Generator<'a> {
 
         // Sample output token.
         let logits: NdTensor<f32, 3> = outputs.remove(0).try_into().map_err(wrap_error)?;
-        let next_id = self.sampler.sample(logits.slice_with((0, -1)));
+        let next_id = self.sampler.sample(logits.slice((0, -1)));
 
         // Update the self-attention key-value cache.
         //

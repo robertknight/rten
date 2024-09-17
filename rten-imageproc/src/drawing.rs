@@ -465,7 +465,7 @@ impl<'a, T: Copy + Default> Painter<'a, T> {
     pub fn draw_polygon(&mut self, points: &[Point]) {
         for i in 0..3 {
             draw_polygon(
-                self.surface.slice_with_mut([i]),
+                self.surface.slice_mut([i]),
                 points,
                 self.state.stroke[i],
                 self.state.stroke_width,
@@ -600,9 +600,9 @@ mod tests {
         let expected_g = expected_r.map(|&x| if x == r { g } else { 0 });
         let expected_b = expected_r.map(|&x| if x == r { b } else { 0 });
 
-        compare_images(img.slice_with([0]), expected_r.view());
-        compare_images(img.slice_with([1]), expected_g.view());
-        compare_images(img.slice_with([2]), expected_b.view());
+        compare_images(img.slice([0]), expected_r.view());
+        compare_images(img.slice([1]), expected_g.view());
+        compare_images(img.slice([2]), expected_b.view());
     }
 
     #[test]
