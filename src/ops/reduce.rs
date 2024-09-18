@@ -352,7 +352,7 @@ fn reduce<T: Copy, R: Reducer<T>>(
                             SliceItem::Index(idx as isize)
                         }
                     }));
-                    let slice = input.slice_dyn(inner_range.as_slice());
+                    let slice = input.slice_with(inner_range.as_slice());
                     let reduced = reducer.reduce(slice.iter().copied());
                     reduced_data.push(reduced);
                 }

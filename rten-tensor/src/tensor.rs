@@ -3544,7 +3544,7 @@ mod tests {
         // Slice dynamic-rank array. The rank of the slice is dynamic.
         let mut data = Tensor::from([[[1, 2, 3], [4, 5, 6]]]);
         let mut row = data.slice_with_mut((0, 0));
-        row[[0]] = 10;
+        row[[0usize]] = 10;
         assert_eq!(row.shape(), [3usize]);
         assert_eq!(row.data().unwrap(), &[10, 2, 3]);
     }

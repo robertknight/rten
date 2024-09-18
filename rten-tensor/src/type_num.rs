@@ -6,6 +6,9 @@
 
 use std::ops::{Range, RangeFrom, RangeFull, RangeTo};
 
+/// Type representing an integer whose value is unknown at compile time.
+pub struct Unknown {}
+
 /// Type representing the integer value 0.
 pub struct U0 {}
 
@@ -25,29 +28,34 @@ pub struct U4 {}
 pub struct U5 {}
 
 /// Trait providing the integer value of a `U<N>` type (eg. [`U0`]).
-pub trait ConstUInt {
-    const VALUE: usize;
+///
+/// The value can be unknown to represent numbers that are known only at
+/// runtime.
+pub trait OptionalUInt {
+    const VALUE: Option<usize>;
 }
 
 macro_rules! impl_const_int {
-    ($type:ty, $val:literal) => {
-        impl ConstUInt for $type {
-            const VALUE: usize = $val;
+    ($type:ty, $val:expr) => {
+        impl OptionalUInt for $type {
+            const VALUE: Option<usize> = $val;
         }
     };
 }
-impl_const_int!(U0, 0);
-impl_const_int!(U1, 1);
-impl_const_int!(U2, 2);
-impl_const_int!(U3, 3);
-impl_const_int!(U4, 4);
-impl_const_int!(U5, 5);
 
-/// Trait that computes the sum of [`ConstUInt`] types.
+impl_const_int!(Unknown, None);
+impl_const_int!(U0, Some(0));
+impl_const_int!(U1, Some(1));
+impl_const_int!(U2, Some(2));
+impl_const_int!(U3, Some(3));
+impl_const_int!(U4, Some(4));
+impl_const_int!(U5, Some(5));
+
+/// Trait that computes the sum of [`OptionalUInt`] types.
 ///
 /// It is implemented for 2-tuples, as well as arrays of either `U0` or `U1`.
 pub trait Add {
-    type Result: ConstUInt;
+    type Result: OptionalUInt;
 }
 
 macro_rules! impl_add {
@@ -105,7 +113,10 @@ impl_add_ones!(5, U5);
 pub trait IsIndex {
     /// Associated type that is either [`U0`] or [`U1`] indicating whether this
     /// type is an index.
-    type IsIndex: ConstUInt;
+    ///
+    /// The value can also be [`Unknown`] to indicate a value that may be either
+    /// an index or a range.
+    type IsIndex: OptionalUInt;
 }
 
 macro_rules! impl_is_index {
@@ -147,16 +158,17 @@ impl<T> IsIndex for RangeFrom<T> {
 ///
 /// ```
 /// use rten_tensor::type_num::IndexCount;
-/// assert_eq!((.., 1..2).index_count(), 0);
-/// assert_eq!((0, 1..2).index_count(), 1);
-/// assert_eq!((0, 1).index_count(), 2);
+/// assert_eq!((.., 1..2).index_count(), Some(0));
+/// assert_eq!((0, 1..2).index_count(), Some(1));
+/// assert_eq!((0, 1).index_count(), Some(2));
+/// assert_eq!([0, 1].as_slice().index_count(), None);
 /// ```
 pub trait IndexCount {
     /// Type representing the count value.
-    type Count: ConstUInt;
+    type Count: OptionalUInt;
 
     /// Returns [`Count`](IndexCount::Count) as a numeric value.
-    fn index_count(&self) -> usize {
+    fn index_count(&self) -> Option<usize> {
         Self::Count::VALUE
     }
 }
@@ -224,6 +236,10 @@ where
     type Count = <[T::IsIndex; N] as Add>::Result;
 }
 
+impl<'a, T> IndexCount for &'a [T] {
+    type Count = Unknown;
+}
+
 #[cfg(test)]
 mod tests {
     use super::IndexCount;
@@ -231,20 +247,23 @@ mod tests {
     #[test]
     fn test_index_count() {
         // Single values
-        assert_eq!((0).index_count(), 1);
-        assert_eq!((..).index_count(), 0);
-        assert_eq!((..1).index_count(), 0);
-        assert_eq!((1..).index_count(), 0);
-        assert_eq!((1..2).index_count(), 0);
+        assert_eq!((0).index_count(), Some(1));
+        assert_eq!((..).index_count(), Some(0));
+        assert_eq!((..1).index_count(), Some(0));
+        assert_eq!((1..).index_count(), Some(0));
+        assert_eq!((1..2).index_count(), Some(0));
 
         // Tuples
-        assert_eq!((0,).index_count(), 1);
-        assert_eq!((0, ..).index_count(), 1);
-        assert_eq!((0, .., 2).index_count(), 2);
-        assert_eq!((0, .., 2, ..).index_count(), 2);
-        assert_eq!((0, .., 2, .., 3).index_count(), 3);
+        assert_eq!((0,).index_count(), Some(1));
+        assert_eq!((0, ..).index_count(), Some(1));
+        assert_eq!((0, .., 2).index_count(), Some(2));
+        assert_eq!((0, .., 2, ..).index_count(), Some(2));
+        assert_eq!((0, .., 2, .., 3).index_count(), Some(3));
 
         // Arrays
-        assert_eq!([1, 2, 3].index_count(), 3);
+        assert_eq!([1, 2, 3].index_count(), Some(3));
+
+        // Slices
+        assert_eq!([1, 2, 3].as_slice().index_count(), None);
     }
 }

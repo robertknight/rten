@@ -7,7 +7,7 @@ use crate::errors::{DimensionError, FromDataError, ReshapeError, SliceError};
 use crate::index_iterator::{DynIndices, NdIndices};
 use crate::overlap::{is_contiguous, may_have_internal_overlap};
 use crate::slice_range::{IntoSliceItems, SliceItem};
-use crate::type_num::{ConstUInt, U0, U1, U2, U3, U4, U5};
+use crate::type_num::{OptionalUInt, Unknown, U0, U1, U2, U3, U4, U5};
 
 /// Return true if `permutation` is a valid permutation of dimensions for
 /// a tensor of rank `ndim`.
@@ -1372,7 +1372,7 @@ impl_remove_dim!(5, 4);
 ///
 /// `R` is the type of the slice range. `IdxCount` is a marker type indicating
 /// the number of items in `R` that are indices, as opposed to ranges.
-pub trait SliceWith<R: IntoSliceItems, IdxCount: ConstUInt> {
+pub trait SliceWith<R: IntoSliceItems, IdxCount: OptionalUInt> {
     /// The layout produced after slicing.
     type Layout: Layout;
 
@@ -1384,7 +1384,7 @@ pub trait SliceWith<R: IntoSliceItems, IdxCount: ConstUInt> {
     fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout);
 }
 
-impl<R: IntoSliceItems, I: ConstUInt> SliceWith<R, I> for DynLayout {
+impl<R: IntoSliceItems, L: MutLayout> SliceWith<R, Unknown> for L {
     type Layout = DynLayout;
 
     fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout) {
@@ -1399,6 +1399,25 @@ impl<R: IntoSliceItems, const N: usize> SliceWith<R, U0> for NdLayout<N> {
         self.slice(range.into_slice_items().as_ref())
     }
 }
+
+macro_rules! impl_slice_with_dynlayout {
+    ($range_ndim:ty) => {
+        impl<R: IntoSliceItems> SliceWith<R, $range_ndim> for DynLayout {
+            type Layout = DynLayout;
+
+            fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout) {
+                self.slice_dyn(range.into_slice_items().as_ref())
+            }
+        }
+    };
+}
+
+impl_slice_with_dynlayout!(U0);
+impl_slice_with_dynlayout!(U1);
+impl_slice_with_dynlayout!(U2);
+impl_slice_with_dynlayout!(U3);
+impl_slice_with_dynlayout!(U4);
+impl_slice_with_dynlayout!(U5);
 
 macro_rules! impl_slice_with {
     ($ndim:literal, $range_ndim:ty, $out_ndim:literal) => {

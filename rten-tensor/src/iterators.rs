@@ -779,7 +779,7 @@ impl<'a, T, L: MutLayout> Iterator for InnerIterDyn<'a, T, L> {
     fn next(&mut self) -> Option<Self::Item> {
         self.outer_indices.next().map(|idx| {
             let slice_items = to_slice_items(&idx);
-            self.view.slice_dyn(slice_items.as_slice())
+            self.view.slice_with(slice_items.as_slice())
         })
     }
 
