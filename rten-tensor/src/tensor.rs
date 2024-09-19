@@ -314,9 +314,25 @@ pub trait AsView: Layout {
         range: R,
     ) -> TensorBase<ViewData<Self::Elem>, <Self::Layout as SliceWith<R, R::Count>>::Layout>
     where
-        Self::Layout: SliceWith<R, R::Count, Layout: MutLayout>,
+        Self::Layout: SliceWith<R, R::Count>,
     {
         self.view().slice_with(range)
+    }
+
+    /// A variant of [`slice_with`](Self::slice_with) that returns a result
+    /// instead of panicking.
+    #[allow(clippy::type_complexity)]
+    fn try_slice_with<R: IntoSliceItems + IndexCount>(
+        &self,
+        range: R,
+    ) -> Result<
+        TensorBase<ViewData<Self::Elem>, <Self::Layout as SliceWith<R, R::Count>>::Layout>,
+        SliceError,
+    >
+    where
+        Self::Layout: SliceWith<R, R::Count>,
+    {
+        self.view().try_slice_with(range)
     }
 
     /// Return a slice of this tensor as an owned tensor.
@@ -781,7 +797,8 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         range: R,
     ) -> NdTensorViewMut<S::Elem, M> {
         let range = range.into_slice_items();
-        let (offset_range, sliced_layout) = self.layout.slice(range.as_ref());
+        let (offset_range, sliced_layout) =
+            self.layout.slice(range.as_ref()).expect("slice failed");
         NdTensorViewMut {
             data: self.data.slice_mut(offset_range),
             layout: sliced_layout,
@@ -791,7 +808,8 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
     /// Slice this tensor and return a dynamic-rank view.
     pub fn slice_mut_dyn<R: IntoSliceItems>(&mut self, range: R) -> TensorViewMut<S::Elem> {
         let range = range.into_slice_items();
-        let (offset_range, sliced_layout) = self.layout.slice_dyn(range.as_ref());
+        let (offset_range, sliced_layout) =
+            self.layout.slice_dyn(range.as_ref()).expect("slice failed");
         TensorViewMut {
             data: self.data.slice_mut(offset_range),
             layout: sliced_layout,
@@ -807,13 +825,9 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         range: R,
     ) -> TensorBase<ViewMutData<S::Elem>, <L as SliceWith<R, R::Count>>::Layout>
     where
-        L: SliceWith<R, R::Count, Layout: MutLayout>,
+        L: SliceWith<R, R::Count>,
     {
-        let (offset_range, sliced_layout) = self.layout.slice_with(range);
-        TensorBase {
-            data: self.data.slice_mut(offset_range),
-            layout: sliced_layout,
-        }
+        self.try_slice_with_mut(range).expect("slice failed")
     }
 
     /// Slice this tensor and return a dynamic-rank view.
@@ -824,10 +838,27 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         &mut self,
         range: R,
     ) -> Result<TensorViewMut<S::Elem>, SliceError> {
-        let (offset_range, layout) = self.layout.try_slice(range)?;
+        let (offset_range, layout) = self.layout.slice_dyn(range.into_slice_items().as_ref())?;
         Ok(TensorBase {
             data: self.data.slice_mut(offset_range),
             layout,
+        })
+    }
+
+    /// A variant of [`slice_with_mut`](Self::slice_with_mut) that returns a
+    /// result instead of panicking.
+    #[allow(clippy::type_complexity)]
+    pub fn try_slice_with_mut<R: IntoSliceItems + IndexCount>(
+        &mut self,
+        range: R,
+    ) -> Result<TensorBase<ViewMutData<S::Elem>, <L as SliceWith<R, R::Count>>::Layout>, SliceError>
+    where
+        L: SliceWith<R, R::Count>,
+    {
+        let (offset_range, sliced_layout) = self.layout.slice_with(range)?;
+        Ok(TensorBase {
+            data: self.data.slice_mut(offset_range),
+            layout: sliced_layout,
         })
     }
 
@@ -1487,7 +1518,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     /// Slice this tensor and return a static-rank view. See [AsView::slice].
     pub fn slice<const M: usize, R: IntoSliceItems>(&self, range: R) -> NdTensorView<'a, T, M> {
         let range = range.into_slice_items();
-        let (offset_range, sliced_layout) = self.layout.slice(range.as_ref());
+        let (offset_range, sliced_layout) = self.layout.slice(range.as_ref()).unwrap();
         NdTensorView {
             data: self.data.slice(offset_range),
             layout: sliced_layout,
@@ -1497,7 +1528,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     /// Slice this tensor and return a dynamic-rank view. See [AsView::slice_dyn].
     pub fn slice_dyn<R: IntoSliceItems>(&self, range: R) -> TensorView<'a, T> {
         let range = range.into_slice_items();
-        let (offset_range, sliced_layout) = self.layout.slice_dyn(range.as_ref());
+        let (offset_range, sliced_layout) = self.layout.slice_dyn(range.as_ref()).unwrap();
         TensorView {
             data: self.data.slice(offset_range),
             layout: sliced_layout,
@@ -1510,13 +1541,26 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         range: R,
     ) -> TensorBase<ViewData<'a, T>, <L as SliceWith<R, R::Count>>::Layout>
     where
-        L: SliceWith<R, R::Count, Layout: MutLayout>,
+        L: SliceWith<R, R::Count>,
     {
-        let (offset_range, sliced_layout) = self.layout.slice_with(range);
-        TensorBase {
+        self.try_slice_with(range).expect("slice failed")
+    }
+
+    /// A variant of [`slice_with`](Self::slice_with) that returns a result
+    /// instead of panicking.
+    #[allow(clippy::type_complexity)]
+    pub fn try_slice_with<R: IntoSliceItems + IndexCount>(
+        &self,
+        range: R,
+    ) -> Result<TensorBase<ViewData<'a, T>, <L as SliceWith<R, R::Count>>::Layout>, SliceError>
+    where
+        L: SliceWith<R, R::Count>,
+    {
+        let (offset_range, sliced_layout) = self.layout.slice_with(range)?;
+        Ok(TensorBase {
             data: self.data.slice(offset_range),
             layout: sliced_layout,
-        }
+        })
     }
 
     /// Remove all size-one dimensions from this tensor.
@@ -1620,7 +1664,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         &self,
         range: R,
     ) -> Result<TensorView<'a, T>, SliceError> {
-        let (offset_range, layout) = self.layout.try_slice(range)?;
+        let (offset_range, layout) = self.layout.slice_dyn(range.into_slice_items().as_ref())?;
         Ok(TensorBase {
             data: self.data.slice(offset_range),
             layout,
@@ -3807,6 +3851,22 @@ mod tests {
     }
 
     #[test]
+    fn test_try_slice_with() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = Tensor::from_data(&[2, 2], data);
+
+        let row = tensor.try_slice_with(0);
+        assert!(row.is_ok());
+        assert_eq!(row.unwrap().data(), Some([1., 2.].as_slice()));
+
+        let row = tensor.try_slice_with(1);
+        assert!(row.is_ok());
+
+        let row = tensor.try_slice_with(2);
+        assert!(row.is_err());
+    }
+
+    #[test]
     fn test_try_slice_mut() {
         let data = vec![1., 2., 3., 4.];
         let mut tensor = Tensor::from_data(&[2, 2], data);
@@ -3820,6 +3880,23 @@ mod tests {
         assert!(row.is_ok());
 
         let row = tensor.try_slice_dyn(2);
+        assert!(row.is_err());
+    }
+
+    #[test]
+    fn test_try_slice_with_mut() {
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor = Tensor::from_data(&[2, 2], data);
+
+        let mut row = tensor.try_slice_with_mut(0).unwrap();
+        row[[0]] += 1.;
+        row[[1]] += 1.;
+        assert_eq!(row.data(), Some([2., 3.].as_slice()));
+
+        let row = tensor.try_slice_with_mut(1);
+        assert!(row.is_ok());
+
+        let row = tensor.try_slice_with(2);
         assert!(row.is_err());
     }
 

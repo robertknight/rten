@@ -300,19 +300,29 @@ fn slice_layout<I: AsRef<[usize]>, O: AsMut<[usize]>>(
     for (in_dim, (&size, &stride)) in in_shape.iter().zip(in_strides.iter()).enumerate() {
         let (offset_adjust, new_size_stride) = match range.get(in_dim) {
             Some(&SliceItem::Index(idx)) => {
-                let size = size as isize;
-                let pos_idx = if idx >= 0 { idx } else { idx + size };
-                if pos_idx < 0 || pos_idx >= size {
-                    return Err(SliceError::InvalidIndex);
+                let pos_idx = if idx >= 0 { idx } else { idx + size as isize };
+                if pos_idx < 0 || pos_idx >= size as isize {
+                    return Err(SliceError::InvalidIndex {
+                        axis: in_dim,
+                        index: idx,
+                        size,
+                    });
                 }
                 (stride * pos_idx as usize, None)
             }
             Some(SliceItem::Range(range)) => {
-                let resolved = range.resolve(size).ok_or(SliceError::InvalidRange)?;
+                let resolved = range.resolve(size).ok_or(SliceError::InvalidRange {
+                    axis: in_dim,
+                    range: *range,
+                    size,
+                })?;
                 let step: usize = range
                     .step()
                     .try_into()
-                    .map_err(|_| SliceError::InvalidStep)?;
+                    .map_err(|_| SliceError::InvalidStep {
+                        axis: in_dim,
+                        step: range.step(),
+                    })?;
                 let new_size = if step == 1 {
                     // Fast path when no custom step is used.
                     resolved.end - resolved.start
@@ -472,22 +482,32 @@ impl<const N: usize> NdLayout<N> {
     /// an existing tensor view.
     ///
     /// Returns a tuple of (offset_range, layout) for the sliced view.
-    pub fn slice<const M: usize>(&self, range: &[SliceItem]) -> (Range<usize>, NdLayout<M>) {
-        assert!(
-            self.ndim() >= range.len(),
-            "Slice dims must be <= current dims"
-        );
+    pub fn slice<const M: usize>(
+        &self,
+        range: &[SliceItem],
+    ) -> Result<(Range<usize>, NdLayout<M>), SliceError> {
+        if self.ndim() < range.len() {
+            return Err(SliceError::TooManyDims {
+                ndim: self.ndim(),
+                range_ndim: range.len(),
+            });
+        }
 
         let mut shape: [usize; M] = [0; M];
         let mut strides: [usize; M] = [0; M];
 
         let (ndim, offset) =
-            slice_layout(&self.shape, &self.strides, &mut shape, &mut strides, range).unwrap();
+            slice_layout(&self.shape, &self.strides, &mut shape, &mut strides, range)?;
 
-        assert!(ndim == M, "sliced dims != {}", M);
+        if ndim != M {
+            return Err(SliceError::OutputDimsMismatch {
+                actual: ndim,
+                expected: M,
+            });
+        }
 
         let layout = NdLayout { shape, strides };
-        (offset..offset + layout.min_data_len(), layout)
+        Ok((offset..offset + layout.min_data_len(), layout))
     }
 
     pub fn resize_dim(&mut self, dim: usize, new_size: usize) {
@@ -687,30 +707,14 @@ impl DynLayout {
     /// Compute the new layout and offset of the first element for a slice into
     /// an existing tensor view.
     ///
-    /// Returns a tuple of (offset_range, layout) for the sliced view.
-    ///
-    /// Panics if the range is invalid for the current layout.
-    pub fn slice(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout) {
-        match self.try_slice(range) {
-            Ok(result) => result,
-
-            // These error conversions preserve existing error messages in
-            // various tests.
-            Err(SliceError::InvalidRange) => panic!("Slice range is invalid for tensor shape"),
-            Err(SliceError::InvalidIndex) => panic!("Slice index is invalid for tensor shape"),
-            Err(SliceError::InvalidStep) => panic!("Cannot slice with negative step"),
-            Err(err) => panic!("{:?}", err),
-        }
-    }
-
-    /// Compute the new layout and offset of the first element for a slice into
-    /// an existing tensor view.
-    ///
     /// Returns a tuple of (offset_range, layout) for the sliced view, or an
     /// error if the range is invalid.
-    pub fn try_slice(&self, range: &[SliceItem]) -> Result<(Range<usize>, DynLayout), SliceError> {
+    pub fn slice(&self, range: &[SliceItem]) -> Result<(Range<usize>, DynLayout), SliceError> {
         if self.ndim() < range.len() {
-            return Err(SliceError::TooManyDims);
+            return Err(SliceError::TooManyDims {
+                ndim: self.ndim(),
+                range_ndim: range.len(),
+            });
         }
 
         let out_dims = self.ndim()
@@ -930,10 +934,18 @@ pub trait MutLayout: Layout + Clone {
     /// `self.permuted([N-1, N-2, ... 0])`.
     fn transposed(&self) -> Self;
 
-    /// Slice the layout.
+    /// Slice the layout and return a static-rank layout.
     ///
     /// Returns a tuple of `(offset_range, sliced_layout)`.
-    fn slice<const M: usize>(&self, range: &[SliceItem]) -> (Range<usize>, NdLayout<M>);
+    fn slice<const M: usize>(
+        &self,
+        range: &[SliceItem],
+    ) -> Result<(Range<usize>, NdLayout<M>), SliceError>;
+
+    /// Slice the layout and return a dynamic rank layout.
+    ///
+    /// Returns a tuple of `(offset_range, sliced_layout)`.
+    fn slice_dyn(&self, range: &[SliceItem]) -> Result<(Range<usize>, DynLayout), SliceError>;
 
     /// Slice the layout along a given axis.
     ///
@@ -953,11 +965,6 @@ pub trait MutLayout: Layout + Clone {
         (range, sliced_layout)
     }
 
-    /// Slice the layout and return a dynamic rank layout.
-    ///
-    /// Returns a tuple of `(offset_range, sliced_layout)`.
-    fn slice_dyn(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout);
-
     /// Return a layout with all size-one dimensions removed.
     fn squeezed(&self) -> DynLayout;
 
@@ -966,13 +973,6 @@ pub trait MutLayout: Layout + Clone {
     /// Returns a tuple of `(left, right)` where each item is an `(offset_range,
     /// layout)` tuple.
     fn split(&self, axis: usize, mid: usize) -> ((Range<usize>, Self), (Range<usize>, Self));
-
-    /// Attempt to slice the layout or return an error if the range is invalid
-    /// for the layout's shape.
-    fn try_slice<R: IntoSliceItems>(
-        &self,
-        range: R,
-    ) -> Result<(Range<usize>, DynLayout), SliceError>;
 }
 
 /// Trait for broadcasting a layout from one shape to another.
@@ -1040,11 +1040,14 @@ impl<const N: usize> MutLayout for NdLayout<N> {
         self.transposed()
     }
 
-    fn slice<const M: usize>(&self, range: &[SliceItem]) -> (Range<usize>, NdLayout<M>) {
+    fn slice<const M: usize>(
+        &self,
+        range: &[SliceItem],
+    ) -> Result<(Range<usize>, NdLayout<M>), SliceError> {
         self.slice(range)
     }
 
-    fn slice_dyn(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout) {
+    fn slice_dyn(&self, range: &[SliceItem]) -> Result<(Range<usize>, DynLayout), SliceError> {
         self.as_dyn().slice(range)
     }
 
@@ -1086,14 +1089,6 @@ impl<const N: usize> MutLayout for NdLayout<N> {
 
         ((left_offsets, left), (right_offsets, right))
     }
-
-    fn try_slice<R: IntoSliceItems>(
-        &self,
-        range: R,
-    ) -> Result<(Range<usize>, DynLayout), SliceError> {
-        let items = range.into_slice_items();
-        self.as_dyn().try_slice(items.as_ref())
-    }
 }
 
 impl MutLayout for DynLayout {
@@ -1125,19 +1120,20 @@ impl MutLayout for DynLayout {
         self.transposed()
     }
 
-    fn slice<const M: usize>(&self, range: &[SliceItem]) -> (Range<usize>, NdLayout<M>) {
-        let (offset_range, dyn_layout) = self.slice(range);
-        let nd_layout = NdLayout::try_from(&dyn_layout).unwrap_or_else(|_| {
-            panic!(
-                "expected sliced tensor to have {} dims but it has {}",
-                M,
-                dyn_layout.ndim()
-            );
-        });
-        (offset_range, nd_layout)
+    fn slice<const M: usize>(
+        &self,
+        range: &[SliceItem],
+    ) -> Result<(Range<usize>, NdLayout<M>), SliceError> {
+        let (offset_range, dyn_layout) = self.slice(range)?;
+        let nd_layout =
+            NdLayout::try_from(&dyn_layout).map_err(|_| SliceError::OutputDimsMismatch {
+                actual: dyn_layout.ndim(),
+                expected: M,
+            })?;
+        Ok((offset_range, nd_layout))
     }
 
-    fn slice_dyn(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout) {
+    fn slice_dyn(&self, range: &[SliceItem]) -> Result<(Range<usize>, DynLayout), SliceError> {
         self.slice(range)
     }
 
@@ -1183,14 +1179,6 @@ impl MutLayout for DynLayout {
         };
 
         ((left_offsets, left), (right_offsets, right))
-    }
-
-    fn try_slice<R: IntoSliceItems>(
-        &self,
-        range: R,
-    ) -> Result<(Range<usize>, DynLayout), SliceError> {
-        let items = range.into_slice_items();
-        self.try_slice(items.as_ref())
     }
 }
 
@@ -1386,20 +1374,20 @@ impl_remove_dim!(5, 4);
 /// the number of items in `R` that are indices, as opposed to ranges.
 pub trait SliceWith<R: IntoSliceItems, IdxCount: OptionalUInt> {
     /// The layout produced after slicing.
-    type Layout: Layout;
+    type Layout: MutLayout;
 
     /// Slice the layout with a range.
     ///
     /// Returns a tuple of `(offset_range, sliced_layout)` where `offset_range`
     /// is the range of data from the original view that is used by the slice
     /// and `sliced_layout` is the layout of the sliced view.
-    fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout);
+    fn slice_with(&self, range: R) -> Result<(Range<usize>, Self::Layout), SliceError>;
 }
 
 impl<R: IntoSliceItems, L: MutLayout> SliceWith<R, Unknown> for L {
     type Layout = DynLayout;
 
-    fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout) {
+    fn slice_with(&self, range: R) -> Result<(Range<usize>, Self::Layout), SliceError> {
         self.slice_dyn(range.into_slice_items().as_ref())
     }
 }
@@ -1407,7 +1395,7 @@ impl<R: IntoSliceItems, L: MutLayout> SliceWith<R, Unknown> for L {
 impl<R: IntoSliceItems, const N: usize> SliceWith<R, U0> for NdLayout<N> {
     type Layout = NdLayout<N>;
 
-    fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout) {
+    fn slice_with(&self, range: R) -> Result<(Range<usize>, Self::Layout), SliceError> {
         self.slice(range.into_slice_items().as_ref())
     }
 }
@@ -1417,7 +1405,7 @@ macro_rules! impl_slice_with_dynlayout {
         impl<R: IntoSliceItems> SliceWith<R, $range_ndim> for DynLayout {
             type Layout = DynLayout;
 
-            fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout) {
+            fn slice_with(&self, range: R) -> Result<(Range<usize>, Self::Layout), SliceError> {
                 self.slice_dyn(range.into_slice_items().as_ref())
             }
         }
@@ -1436,7 +1424,7 @@ macro_rules! impl_slice_with {
         impl<R: IntoSliceItems> SliceWith<R, $range_ndim> for NdLayout<$ndim> {
             type Layout = NdLayout<$out_ndim>;
 
-            fn slice_with(&self, range: R) -> (Range<usize>, Self::Layout) {
+            fn slice_with(&self, range: R) -> Result<(Range<usize>, Self::Layout), SliceError> {
                 self.slice(range.into_slice_items().as_ref())
             }
         }
@@ -1464,7 +1452,7 @@ mod tests {
     use std::ops::Range;
 
     use super::OverlapPolicy;
-    use crate::errors::ReshapeError;
+    use crate::errors::{ReshapeError, SliceError};
     use crate::layout::{DynLayout, Layout, MutLayout, NdLayout, ResizeLayout};
     use crate::SliceItem;
 
@@ -1736,38 +1724,66 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Slice index is invalid for tensor shape")]
-    fn test_slice_invalid_index() {
-        let layout = DynLayout::from_shape(&[3, 5]);
-        layout.slice(&[SliceItem::Index(4), SliceItem::Index(0)]);
-    }
+    fn test_slice_invalid() {
+        struct Case<'a> {
+            layout: DynLayout,
+            ranges: &'a [SliceItem],
+            expected: SliceError,
+        }
 
-    #[test]
-    #[should_panic(expected = "Slice index is invalid for tensor shape")]
-    fn test_slice_invalid_negative_index() {
-        let layout = DynLayout::from_shape(&[3, 5]);
-        layout.slice(&[SliceItem::Index(-4)]);
-    }
+        let cases = [
+            Case {
+                layout: DynLayout::from_shape(&[3, 5]),
+                ranges: &[SliceItem::Index(4), SliceItem::Index(0)],
+                expected: SliceError::InvalidIndex {
+                    axis: 0,
+                    index: 4,
+                    size: 3,
+                },
+            },
+            Case {
+                layout: DynLayout::from_shape(&[3, 5]),
+                ranges: &[SliceItem::Range((1..4).into()), SliceItem::Index(0)],
+                expected: SliceError::InvalidRange {
+                    axis: 0,
+                    range: (1..4).into(),
+                    size: 3,
+                },
+            },
+            Case {
+                layout: DynLayout::from_shape(&[3, 5]),
+                ranges: &[SliceItem::Index(-4)],
+                expected: SliceError::InvalidIndex {
+                    axis: 0,
+                    index: -4,
+                    size: 3,
+                },
+            },
+            Case {
+                layout: DynLayout::from_shape(&[3, 5]),
+                ranges: &[SliceItem::Range((4..).into()), SliceItem::Index(0)],
+                expected: SliceError::InvalidRange {
+                    axis: 0,
+                    range: (4..).into(),
+                    size: 3,
+                },
+            },
+            Case {
+                layout: DynLayout::from_shape(&[3, 5]),
+                ranges: &[SliceItem::full_range(), SliceItem::range(0, None, -1)],
+                expected: SliceError::InvalidStep { axis: 1, step: -1 },
+            },
+        ];
 
-    #[test]
-    #[should_panic(expected = "Slice range is invalid for tensor shape")]
-    fn test_slice_invalid_range() {
-        let layout = DynLayout::from_shape(&[3, 5]);
-        layout.slice(&[SliceItem::Range((1..4).into()), SliceItem::Index(0)]);
-    }
-
-    #[test]
-    #[should_panic(expected = "Slice range is invalid for tensor shape")]
-    fn test_slice_invalid_from_range() {
-        let layout = DynLayout::from_shape(&[3, 5]);
-        layout.slice(&[SliceItem::Range((4..).into()), SliceItem::Index(0)]);
-    }
-
-    #[test]
-    #[should_panic(expected = "Cannot slice with negative step")]
-    fn test_slice_negative_step() {
-        let layout = DynLayout::from_shape(&[3, 5]);
-        layout.slice(&[SliceItem::full_range(), SliceItem::range(0, None, -1)]);
+        for Case {
+            layout,
+            ranges,
+            expected,
+        } in cases
+        {
+            let result = layout.slice(ranges);
+            assert_eq!(result, Err(expected));
+        }
     }
 
     #[test]
