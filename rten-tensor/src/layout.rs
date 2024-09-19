@@ -1374,7 +1374,7 @@ impl_remove_dim!(5, 4);
 /// the number of items in `R` that are indices, as opposed to ranges.
 pub trait SliceWith<R: IntoSliceItems, IdxCount: OptionalUInt> {
     /// The layout produced after slicing.
-    type Layout: Layout;
+    type Layout: MutLayout;
 
     /// Slice the layout with a range.
     ///

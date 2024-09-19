@@ -314,7 +314,7 @@ pub trait AsView: Layout {
         range: R,
     ) -> TensorBase<ViewData<Self::Elem>, <Self::Layout as SliceWith<R, R::Count>>::Layout>
     where
-        Self::Layout: SliceWith<R, R::Count, Layout: MutLayout>,
+        Self::Layout: SliceWith<R, R::Count>,
     {
         self.view().slice_with(range)
     }
@@ -330,7 +330,7 @@ pub trait AsView: Layout {
         SliceError,
     >
     where
-        Self::Layout: SliceWith<R, R::Count, Layout: MutLayout>,
+        Self::Layout: SliceWith<R, R::Count>,
     {
         self.view().try_slice_with(range)
     }
@@ -825,7 +825,7 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         range: R,
     ) -> TensorBase<ViewMutData<S::Elem>, <L as SliceWith<R, R::Count>>::Layout>
     where
-        L: SliceWith<R, R::Count, Layout: MutLayout>,
+        L: SliceWith<R, R::Count>,
     {
         self.try_slice_with_mut(range).expect("slice failed")
     }
@@ -853,7 +853,7 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         range: R,
     ) -> Result<TensorBase<ViewMutData<S::Elem>, <L as SliceWith<R, R::Count>>::Layout>, SliceError>
     where
-        L: SliceWith<R, R::Count, Layout: MutLayout>,
+        L: SliceWith<R, R::Count>,
     {
         let (offset_range, sliced_layout) = self.layout.slice_with(range)?;
         Ok(TensorBase {
@@ -1541,7 +1541,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         range: R,
     ) -> TensorBase<ViewData<'a, T>, <L as SliceWith<R, R::Count>>::Layout>
     where
-        L: SliceWith<R, R::Count, Layout: MutLayout>,
+        L: SliceWith<R, R::Count>,
     {
         self.try_slice_with(range).expect("slice failed")
     }
@@ -1554,7 +1554,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         range: R,
     ) -> Result<TensorBase<ViewData<'a, T>, <L as SliceWith<R, R::Count>>::Layout>, SliceError>
     where
-        L: SliceWith<R, R::Count, Layout: MutLayout>,
+        L: SliceWith<R, R::Count>,
     {
         let (offset_range, sliced_layout) = self.layout.slice_with(range)?;
         Ok(TensorBase {
