@@ -1,4 +1,3 @@
-use std::iter::zip;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -190,7 +189,9 @@ where
     let accum_init_val = || fold_init;
 
     let n_init = AtomicUsize::new(0);
-    zip(output.axis_iter_mut(0), input.axis_iter(0))
+    output
+        .axis_iter_mut(0)
+        .zip(input.axis_iter(0))
         .par_bridge()
         .for_each(|(mut out_item, in_item)| {
             let [_, out_h, out_w] = out_item.shape();
@@ -301,10 +302,11 @@ pub fn global_average_pool(pool: &TensorPool, input: TensorView) -> Result<Tenso
     for n in 0..batch {
         const N: usize = 4;
 
-        for (chan_group, mut out_group) in zip(
-            input.slice_with(n).axis_chunks(0, N),
-            output.slice_with_mut((n, .., 0, 0)).axis_chunks_mut(0, N),
-        ) {
+        for (chan_group, mut out_group) in input
+            .slice_with(n)
+            .axis_chunks(0, N)
+            .zip(output.slice_with_mut((n, .., 0, 0)).axis_chunks_mut(0, N))
+        {
             if chan_group.size(0) == N {
                 // Compute average over batch of N channels in parallel.
                 let chan_group = chan_group.nd_view();

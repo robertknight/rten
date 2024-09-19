@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 use std::fmt::Debug;
-use std::iter::{repeat, zip};
+use std::iter::repeat;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
@@ -28,7 +28,7 @@ pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<SmallVec<[usize; 4]>
     let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
 
     let mut result = SmallVec::with_capacity(a.len().max(b.len()));
-    for (a, b) in zip(a_iter, b_iter) {
+    for (a, b) in a_iter.zip(b_iter) {
         if a == b {
             result.push(a);
         } else if a == 1 {

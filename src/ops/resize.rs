@@ -1,4 +1,3 @@
-use std::iter::zip;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -249,7 +248,10 @@ pub fn resize(
     nearest_mode: NearestMode,
 ) -> Result<Tensor, OpError> {
     let sizes: NdTensor<i32, 1> = match target {
-        ResizeTarget::Scales(scales) => zip(input.shape().iter(), scales.iter())
+        ResizeTarget::Scales(scales) => input
+            .shape()
+            .iter()
+            .zip(scales.iter())
             .map(|(&in_size, scale)| ((in_size as f32) * scale).floor() as i32)
             .collect(),
         ResizeTarget::Sizes(sizes) => sizes.to_tensor(),
@@ -278,7 +280,7 @@ pub fn resize(
     // other than 1.0 for the H and W dims.
     let input = static_dims!(input, 4, "NCHW")?;
     let [batch, _chans, _height, _width] = input.shape();
-    let sizes_valid = zip(0..input.ndim(), input.shape().iter()).all(|(dim, &in_size)| {
+    let sizes_valid = (0..input.ndim()).zip(input.shape()).all(|(dim, in_size)| {
         dim == input.ndim() - 1 || dim == input.ndim() - 2 || sizes[[dim]] == in_size as i32
     });
     if !sizes_valid {

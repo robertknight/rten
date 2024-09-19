@@ -1,5 +1,4 @@
 use std::borrow::Borrow;
-use std::iter::zip;
 use std::rc::Rc;
 
 use rten_tensor::prelude::*;
@@ -67,11 +66,11 @@ impl Model {
         input: Vec<Tensor>,
         output_ids: &[usize],
     ) -> Result<Vec<Tensor>, String> {
-        let inputs: Vec<(usize, InputOrOutput)> = zip(
-            input_ids.iter().copied(),
-            input.iter().map(|tensor| tensor.data.as_input().into()),
-        )
-        .collect();
+        let inputs: Vec<(usize, InputOrOutput)> = input_ids
+            .iter()
+            .copied()
+            .zip(input.iter().map(|tensor| tensor.data.as_input().into()))
+            .collect();
         let result = self.model.run(inputs, output_ids, None);
         match result {
             Ok(outputs) => {

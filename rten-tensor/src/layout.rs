@@ -1,4 +1,4 @@
-use std::iter::{repeat, zip};
+use std::iter::repeat;
 use std::ops::Range;
 
 use smallvec::{smallvec, SmallVec};
@@ -125,7 +125,12 @@ pub trait Layout {
             .iter()
             .copied();
 
-        zip(self.shape().as_ref().iter().copied(), target_dims).all(|(a, b)| a == b || a == 1)
+        self.shape()
+            .as_ref()
+            .iter()
+            .copied()
+            .zip(target_dims)
+            .all(|(a, b)| a == b || a == 1)
     }
 
     /// Return true if the tensor/view can be broadcast with another tensor or
@@ -158,7 +163,7 @@ pub trait Layout {
         let a_iter = a.iter().copied().rev().chain(repeat(1).take(a_pad));
         let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
 
-        zip(a_iter, b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
+        a_iter.zip(b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
     }
 
     /// Return the minimum length required for the element data buffer used
@@ -167,7 +172,11 @@ pub trait Layout {
         if self.shape().as_ref().iter().any(|&size| size == 0) {
             return 0;
         }
-        let max_offset: usize = zip(self.shape().as_ref().iter(), self.strides().as_ref().iter())
+        let max_offset: usize = self
+            .shape()
+            .as_ref()
+            .iter()
+            .zip(self.strides().as_ref())
             .map(|(size, stride)| (size - 1) * stride)
             .sum();
         max_offset + 1
@@ -288,7 +297,7 @@ fn slice_layout<I: AsRef<[usize]>, O: AsMut<[usize]>>(
     let mut ndim = 0;
     let mut offset = 0;
 
-    for (in_dim, (&size, &stride)) in zip(in_shape.iter(), in_strides.iter()).enumerate() {
+    for (in_dim, (&size, &stride)) in in_shape.iter().zip(in_strides.iter()).enumerate() {
         let (offset_adjust, new_size_stride) = match range.get(in_dim) {
             Some(&SliceItem::Index(idx)) => {
                 let size = size as isize;
@@ -808,8 +817,11 @@ impl DynLayout {
     /// Return a copy of this layout with dimensions of size 1 removed.
     pub fn squeezed(&self) -> DynLayout {
         let shape = self.shape().iter().copied().filter(|&size| size != 1);
-        let strides = zip(self.shape().iter().copied(), self.strides().iter().copied())
-            .filter_map(|(size, stride)| if size != 1 { Some(stride) } else { None });
+        let strides = self
+            .shape()
+            .iter()
+            .zip(self.strides())
+            .filter_map(|(&size, &stride)| if size != 1 { Some(stride) } else { None });
         DynLayout {
             shape_and_strides: shape.chain(strides).collect(),
         }
@@ -1449,7 +1461,6 @@ impl_slice_with!(5, U5, 0);
 
 #[cfg(test)]
 mod tests {
-    use std::iter::zip;
     use std::ops::Range;
 
     use super::OverlapPolicy;
@@ -1762,9 +1773,7 @@ mod tests {
     #[test]
     fn test_size_stride() {
         let layout = DynLayout::from_shape(&[10, 20, 30]);
-        for (dim, (&size, &stride)) in
-            zip(layout.shape().iter(), layout.strides().iter()).enumerate()
-        {
+        for (dim, (&size, &stride)) in layout.shape().iter().zip(layout.strides()).enumerate() {
             assert_eq!(layout.size(dim), size);
             assert_eq!(layout.stride(dim), stride);
         }

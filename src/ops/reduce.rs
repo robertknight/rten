@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::iter::zip;
 
 use rten_tensor;
 use rten_tensor::prelude::*;
@@ -167,11 +166,12 @@ pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
 
     let mut n_init = 0;
     if !input.is_empty() {
-        for (in_slice, out_slice) in
-            zip(input.lanes(resolved_axis), output.lanes_mut(resolved_axis))
+        for (in_slice, out_slice) in input
+            .lanes(resolved_axis)
+            .zip(output.lanes_mut(resolved_axis))
         {
             let mut cum_sum = T::zero();
-            for (x, y) in zip(in_slice, out_slice) {
+            for (x, y) in in_slice.zip(out_slice) {
                 cum_sum += *x;
                 y.write(cum_sum);
                 n_init += 1;
@@ -212,7 +212,9 @@ pub fn nonzero<T: Default + PartialEq>(pool: &TensorPool, input: TensorView<T>) 
     }
 
     // Build up concatenated sequence of indices of non-zero entries.
-    let nonzeros: Vec<i32> = zip(input.indices(), input.iter())
+    let nonzeros: Vec<i32> = input
+        .indices()
+        .zip(input.iter())
         .filter(|(_index, value)| **value != T::default())
         .flat_map(|(index, _value)| {
             index.into_iter().map(|dim_idx| {
@@ -764,12 +766,12 @@ pub fn topk<T: Copy + Default + PartialOrd>(
     // Temporary array of (value, index).
     let mut tmp: Vec<(T, usize)> = Vec::with_capacity(axis_size);
 
-    for (values, (out_values, indices)) in zip(
-        values.lanes(axis),
-        zip(out_values.lanes_mut(axis), indices.lanes_mut(axis)),
-    ) {
+    for (values, (out_values, indices)) in values
+        .lanes(axis)
+        .zip(out_values.lanes_mut(axis).zip(indices.lanes_mut(axis)))
+    {
         tmp.clear();
-        tmp.extend(zip(values.copied(), 0..axis_size));
+        tmp.extend(values.copied().zip(0..axis_size));
         tmp.select_nth_unstable_by(k - 1, topk_cmp);
         tmp.truncate(k);
 
@@ -777,7 +779,7 @@ pub fn topk<T: Copy + Default + PartialOrd>(
             tmp.sort_unstable_by(topk_cmp);
         }
 
-        for ((out_val, out_idx), (val, idx)) in zip(zip(out_values, indices), tmp.iter()) {
+        for ((out_val, out_idx), (val, idx)) in out_values.zip(indices).zip(tmp.iter()) {
             *out_val = *val;
             *out_idx = *idx as i32;
         }
