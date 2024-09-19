@@ -300,19 +300,29 @@ fn slice_layout<I: AsRef<[usize]>, O: AsMut<[usize]>>(
     for (in_dim, (&size, &stride)) in in_shape.iter().zip(in_strides.iter()).enumerate() {
         let (offset_adjust, new_size_stride) = match range.get(in_dim) {
             Some(&SliceItem::Index(idx)) => {
-                let size = size as isize;
-                let pos_idx = if idx >= 0 { idx } else { idx + size };
-                if pos_idx < 0 || pos_idx >= size {
-                    return Err(SliceError::InvalidIndex);
+                let pos_idx = if idx >= 0 { idx } else { idx + size as isize };
+                if pos_idx < 0 || pos_idx >= size as isize {
+                    return Err(SliceError::InvalidIndex {
+                        axis: in_dim,
+                        index: idx,
+                        size,
+                    });
                 }
                 (stride * pos_idx as usize, None)
             }
             Some(SliceItem::Range(range)) => {
-                let resolved = range.resolve(size).ok_or(SliceError::InvalidRange)?;
+                let resolved = range.resolve(size).ok_or(SliceError::InvalidRange {
+                    axis: in_dim,
+                    range: *range,
+                    size,
+                })?;
                 let step: usize = range
                     .step()
                     .try_into()
-                    .map_err(|_| SliceError::InvalidStep)?;
+                    .map_err(|_| SliceError::InvalidStep {
+                        axis: in_dim,
+                        step: range.step(),
+                    })?;
                 let new_size = if step == 1 {
                     // Fast path when no custom step is used.
                     resolved.end - resolved.start
@@ -477,7 +487,10 @@ impl<const N: usize> NdLayout<N> {
         range: &[SliceItem],
     ) -> Result<(Range<usize>, NdLayout<M>), SliceError> {
         if self.ndim() < range.len() {
-            return Err(SliceError::TooManyDims);
+            return Err(SliceError::TooManyDims {
+                ndim: self.ndim(),
+                range_ndim: range.len(),
+            });
         }
 
         let mut shape: [usize; M] = [0; M];
@@ -487,7 +500,10 @@ impl<const N: usize> NdLayout<N> {
             slice_layout(&self.shape, &self.strides, &mut shape, &mut strides, range)?;
 
         if ndim != M {
-            return Err(SliceError::OutputDimsMismatch);
+            return Err(SliceError::OutputDimsMismatch {
+                actual: ndim,
+                expected: M,
+            });
         }
 
         let layout = NdLayout { shape, strides };
@@ -695,7 +711,10 @@ impl DynLayout {
     /// error if the range is invalid.
     pub fn slice(&self, range: &[SliceItem]) -> Result<(Range<usize>, DynLayout), SliceError> {
         if self.ndim() < range.len() {
-            return Err(SliceError::TooManyDims);
+            return Err(SliceError::TooManyDims {
+                ndim: self.ndim(),
+                range_ndim: range.len(),
+            });
         }
 
         let out_dims = self.ndim()
@@ -1107,7 +1126,10 @@ impl MutLayout for DynLayout {
     ) -> Result<(Range<usize>, NdLayout<M>), SliceError> {
         let (offset_range, dyn_layout) = self.slice(range)?;
         let nd_layout =
-            NdLayout::try_from(&dyn_layout).map_err(|_| SliceError::OutputDimsMismatch)?;
+            NdLayout::try_from(&dyn_layout).map_err(|_| SliceError::OutputDimsMismatch {
+                actual: dyn_layout.ndim(),
+                expected: M,
+            })?;
         Ok((offset_range, nd_layout))
     }
 
@@ -1713,27 +1735,43 @@ mod tests {
             Case {
                 layout: DynLayout::from_shape(&[3, 5]),
                 ranges: &[SliceItem::Index(4), SliceItem::Index(0)],
-                expected: SliceError::InvalidIndex,
+                expected: SliceError::InvalidIndex {
+                    axis: 0,
+                    index: 4,
+                    size: 3,
+                },
             },
             Case {
                 layout: DynLayout::from_shape(&[3, 5]),
                 ranges: &[SliceItem::Range((1..4).into()), SliceItem::Index(0)],
-                expected: SliceError::InvalidRange,
+                expected: SliceError::InvalidRange {
+                    axis: 0,
+                    range: (1..4).into(),
+                    size: 3,
+                },
             },
             Case {
                 layout: DynLayout::from_shape(&[3, 5]),
                 ranges: &[SliceItem::Index(-4)],
-                expected: SliceError::InvalidIndex,
+                expected: SliceError::InvalidIndex {
+                    axis: 0,
+                    index: -4,
+                    size: 3,
+                },
             },
             Case {
                 layout: DynLayout::from_shape(&[3, 5]),
                 ranges: &[SliceItem::Range((4..).into()), SliceItem::Index(0)],
-                expected: SliceError::InvalidRange,
+                expected: SliceError::InvalidRange {
+                    axis: 0,
+                    range: (4..).into(),
+                    size: 3,
+                },
             },
             Case {
                 layout: DynLayout::from_shape(&[3, 5]),
                 ranges: &[SliceItem::full_range(), SliceItem::range(0, None, -1)],
-                expected: SliceError::InvalidStep,
+                expected: SliceError::InvalidStep { axis: 1, step: -1 },
             },
         ];
 
