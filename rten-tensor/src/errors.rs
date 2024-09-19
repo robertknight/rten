@@ -60,6 +60,10 @@ pub enum SliceError {
     /// The step in a slice range is negative, in a context where this is not
     /// supported.
     InvalidStep,
+
+    /// There is a mismatch between the actual and expected number of axes
+    /// in the output slice.
+    OutputDimsMismatch,
 }
 
 impl Display for SliceError {
@@ -69,6 +73,9 @@ impl Display for SliceError {
             SliceError::InvalidIndex => write!(f, "slice index is invalid"),
             SliceError::InvalidRange => write!(f, "slice range is invalid"),
             SliceError::InvalidStep => write!(f, "slice step is invalid"),
+            SliceError::OutputDimsMismatch => {
+                write!(f, "slice output dims does not match expected dims")
+            }
         }
     }
 }

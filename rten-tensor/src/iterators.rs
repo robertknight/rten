@@ -470,7 +470,7 @@ impl LaneRanges {
                 (0..end).into()
             })
             .collect();
-        let (_range, sliced) = layout.slice_dyn(&slice_starts);
+        let (_range, sliced) = layout.slice_dyn(&slice_starts).unwrap();
         let offsets = Offsets::new(&sliced);
         LaneRanges {
             offsets,
