@@ -1,5 +1,3 @@
-use std::iter::zip;
-
 use smallvec::SmallVec;
 
 /// Return true if a given shape and strides describe a contiguous layout in
@@ -56,7 +54,7 @@ pub fn may_have_internal_overlap(shape: &[usize], strides: &[usize]) -> bool {
 
     // Sort dimensions in order of increasing stride.
     let mut stride_shape: SmallVec<[(usize, usize); 8]> =
-        zip(strides.iter().copied(), shape.iter().copied()).collect();
+        strides.iter().copied().zip(shape.iter().copied()).collect();
     stride_shape.sort_unstable();
 
     // Verify that the stride for each dimension fully "steps over" the

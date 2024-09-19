@@ -1,6 +1,5 @@
 //! Operators which query or change the shape of a tensor, or copy/move/reorder
 //! elements.
-use std::iter::zip;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{is_valid_permutation, NdTensorView, Tensor, TensorView};
@@ -537,7 +536,10 @@ pub fn unsqueeze_in_place<T: Clone>(
         let mut sorted_axes = resolve_axes(input.ndim() + axes.len(), axes.iter())?;
         sorted_axes.sort_unstable();
 
-        let axes_unique = zip(sorted_axes.iter().skip(1), sorted_axes.iter())
+        let axes_unique = sorted_axes
+            .iter()
+            .skip(1)
+            .zip(sorted_axes.iter())
             .all(|(prev, current)| prev != current);
         if !axes_unique {
             return Err(OpError::InvalidValue("Axes must be unique"));

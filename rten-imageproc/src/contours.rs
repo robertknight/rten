@@ -233,8 +233,6 @@ pub fn find_contours(mask: NdTensorView<bool, 2>, mode: RetrievalMode) -> Polygo
 
 #[cfg(test)]
 mod tests {
-    use std::iter::zip;
-
     use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
 
@@ -369,8 +367,8 @@ mod tests {
         let contours = find_contours(mask.view(), RetrievalMode::List);
         assert_eq!(contours.len(), rects.len());
 
-        for (border, rect) in zip(contours.iter(), rects.iter()) {
-            assert_eq!(border, border_points(*rect, false /* omit_corners */));
+        for (border, rect) in contours.iter().zip(rects) {
+            assert_eq!(border, border_points(rect, false /* omit_corners */));
         }
     }
 
@@ -386,8 +384,8 @@ mod tests {
         let contours = find_contours(mask.view(), RetrievalMode::List);
         assert_eq!(contours.len(), rects.len());
 
-        for (border, rect) in zip(contours.iter(), rects.iter()) {
-            assert_eq!(border, border_points(*rect, false /* omit_corners */));
+        for (border, rect) in contours.iter().zip(rects) {
+            assert_eq!(border, border_points(rect, false /* omit_corners */));
         }
     }
 

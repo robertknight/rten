@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
-use std::iter::zip;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -1192,7 +1191,7 @@ impl Graph {
             op_node.operator.name(),
             op_node.name.as_ref().unwrap_or(&String::new())
         );
-        for (index, (id, shape)) in zip(op_node.inputs.iter(), input_shapes.iter()).enumerate() {
+        for (index, (id, shape)) in op_node.inputs.iter().zip(input_shapes).enumerate() {
             if let (Some(id), Some(shape)) = (id, shape) {
                 let name = self.node_name(*id);
                 println!("  input {}: {} ({:?})", index, name, shape);
@@ -1200,7 +1199,7 @@ impl Graph {
         }
 
         if let Ok(outputs) = op_result.as_ref() {
-            for (index, (id, output)) in zip(op_node.outputs.iter(), outputs.iter()).enumerate() {
+            for (index, (id, output)) in op_node.outputs.iter().zip(outputs).enumerate() {
                 let name = id.map(|id| self.node_name(id)).unwrap_or(String::new());
                 println!("  output {}: {} ({:?})", index, name, output.shape());
             }

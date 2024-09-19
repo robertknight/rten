@@ -1,4 +1,3 @@
-use std::iter::zip;
 use std::mem::MaybeUninit;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -254,7 +253,9 @@ where
         };
         let prepacked_kernel = prepacked_kernel.as_deref();
 
-        zip(out_group.axis_iter_mut(0), in_group.axis_iter(0))
+        out_group
+            .axis_iter_mut(0)
+            .zip(in_group.axis_iter(0))
             .par_bridge()
             .for_each(|(mut out_item, in_item)| {
                 let mut out_mat = out_item.reshaped_mut([out_channels_per_group, out_h * out_w]);

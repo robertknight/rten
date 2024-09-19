@@ -1,5 +1,3 @@
-use std::iter::zip;
-
 use crate::{BoundingRect, Line, PointF, Polygon, RotatedRect, Vec2};
 
 /// Return the sorted subset of points from `poly` that form a convex hull
@@ -175,7 +173,7 @@ pub fn min_area_rect(points: &[PointF]) -> Option<RotatedRect> {
     // Iterate over each edge of the polygon and find the smallest bounding
     // rect where one of the rect's edges aligns with the polygon edge. Keep
     // the rect that has the smallest area over all edges.
-    for (&edge_start, &edge_end) in zip(hull.iter(), hull.iter().cycle().skip(1)) {
+    for (&edge_start, &edge_end) in hull.iter().zip(hull.iter().cycle().skip(1)) {
         debug_assert!(
             edge_start != edge_end,
             "hull edges should have non-zero length"

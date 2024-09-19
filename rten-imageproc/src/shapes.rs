@@ -1,5 +1,4 @@
 use std::fmt;
-use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::slice::Iter;
@@ -940,11 +939,11 @@ impl<T: Coord, S: AsRef<[Point<T>]>> Polygon<T, S> {
 
     /// Return an iterator over the edges of this polygon.
     pub fn edges(&self) -> impl Iterator<Item = Line<T>> + '_ {
-        zip(
-            self.points.as_ref().iter(),
-            self.points.as_ref().iter().cycle().skip(1),
-        )
-        .map(|(p0, p1)| Line::from_endpoints(*p0, *p1))
+        self.points
+            .as_ref()
+            .iter()
+            .zip(self.points.as_ref().iter().cycle().skip(1))
+            .map(|(p0, p1)| Line::from_endpoints(*p0, *p1))
     }
 
     /// Return a slice of the endpoints of the polygon's edges.

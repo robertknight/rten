@@ -1,4 +1,3 @@
-use std::iter::zip;
 use std::ops;
 
 use rten_tensor::prelude::*;
@@ -60,7 +59,7 @@ pub fn onehot<T: Copy + Default + PartialEq>(
     data.resize(len, off_value);
     let mut output = Tensor::from_data(&out_shape, data);
 
-    for (mut index, class) in zip(indices.indices(), indices.iter()) {
+    for (mut index, class) in indices.indices().zip(indices.iter()) {
         if let Some(class) = resolve_index(depth, *class as isize) {
             index.insert(onehot_axis, class);
             output[&index] = on_value;

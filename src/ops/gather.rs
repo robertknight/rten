@@ -1,5 +1,3 @@
-use std::iter::zip;
-
 use rten_tensor::prelude::*;
 use rten_tensor::{to_slice_items, NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
@@ -60,7 +58,7 @@ pub fn gather<T: Copy + Default>(
     let mut in_range = full_range(input.ndim());
     let mut out_range = full_range(output.ndim());
 
-    for (index_idx, index) in zip(indices.indices(), indices.iter()) {
+    for (index_idx, index) in indices.indices().zip(indices.iter()) {
         in_range[axis] = SliceItem::Index(*index as isize);
         for (i, index_val) in index_idx.into_iter().enumerate() {
             out_range[axis + i] = SliceItem::Index(index_val as isize);
@@ -406,7 +404,7 @@ pub fn scatter_elements<
     let axis = resolve_axis(data.ndim(), axis)?;
 
     let mut output = data.to_tensor_in(pool);
-    for (index, update) in zip(updates.indices(), updates.iter()) {
+    for (index, update) in updates.indices().zip(updates.iter()) {
         let target_index: SmallVec<[usize; 5]> = index
             .iter()
             .enumerate()

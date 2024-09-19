@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::iter::zip;
 
 use crate::{AsView, Layout, TensorView};
 
@@ -152,7 +151,9 @@ where
         )));
     }
 
-    let mismatches: Vec<_> = zip(x.iter(), y.iter())
+    let mismatches: Vec<_> = x
+        .iter()
+        .zip(y.iter())
         .enumerate()
         .filter_map(|(i, (xi, yi))| {
             if !xi.approx_eq_with_atol_rtol(yi, atol.clone(), rtol.clone()) {
@@ -187,7 +188,9 @@ pub fn eq_with_nans(a: TensorView, b: TensorView) -> bool {
     if a.shape() != b.shape() {
         false
     } else {
-        zip(a.iter(), b.iter()).all(|(a, b)| (a.is_nan() && b.is_nan()) || a == b)
+        a.iter()
+            .zip(b.iter())
+            .all(|(a, b)| (a.is_nan() && b.is_nan()) || a == b)
     }
 }
 

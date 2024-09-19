@@ -1,5 +1,3 @@
-use std::iter::zip;
-
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 
@@ -37,7 +35,7 @@ fn slice_ranges(
         .iter()
         .map(|dim_size| SliceRange::new(0, Some(*dim_size as isize), 1))
         .collect();
-    for (i, (start, end)) in zip(starts.iter(), ends.iter()).enumerate() {
+    for (i, (start, end)) in starts.iter().zip(ends.iter()).enumerate() {
         let axis = if let Some(axes) = axes {
             resolve_axis(input_shape.len(), axes[[i]] as isize)?
         } else {

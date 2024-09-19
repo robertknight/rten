@@ -1,4 +1,4 @@
-use std::iter::{zip, Rev};
+use std::iter::Rev;
 use std::ops::Range;
 
 use rten_tensor::prelude::*;
@@ -63,23 +63,23 @@ fn sequence_for_dir(op_dirs: Direction, dir: usize, seq_len: usize) -> Sequence 
     }
 }
 
-/// Like [std::iter::zip], but combines 3 iterators.
+/// Like [`std::iter::zip`], but combines 3 iterators.
 fn zip3<T1, T2, T3>(
     a: impl Iterator<Item = T1>,
     b: impl Iterator<Item = T2>,
     c: impl Iterator<Item = T3>,
 ) -> impl Iterator<Item = (T1, T2, T3)> {
-    zip(a, zip(b, c)).map(|(a, (b, c))| (a, b, c))
+    a.zip(b.zip(c)).map(|(a, (b, c))| (a, b, c))
 }
 
-/// Like [std::iter::zip], but combines 4 iterators.
+/// Like [`std::iter::zip`], but combines 4 iterators.
 fn zip4<T1, T2, T3, T4>(
     a: impl Iterator<Item = T1>,
     b: impl Iterator<Item = T2>,
     c: impl Iterator<Item = T3>,
     d: impl Iterator<Item = T4>,
 ) -> impl Iterator<Item = (T1, T2, T3, T4)> {
-    zip3(a, b, zip(c, d)).map(|(a, b, (c, d))| (a, b, c, d))
+    zip3(a, b, c.zip(d)).map(|(a, b, (c, d))| (a, b, c, d))
 }
 
 /// Sequence length threshold for prepacking weights.
