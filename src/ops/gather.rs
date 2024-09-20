@@ -40,7 +40,7 @@ pub fn gather<T: Copy + Default>(
             let mut slice_range = full_range(input.ndim());
             slice_range[axis] = SliceItem::Index(*index as isize);
             let slice = input
-                .try_slice_with(slice_range.as_slice())
+                .try_slice(slice_range.as_slice())
                 .map_err(|_| INVALID_INDEX_ERR)?;
             slice.to_tensor_in(pool)
         };
@@ -64,9 +64,9 @@ pub fn gather<T: Copy + Default>(
             out_range[axis + i] = SliceItem::Index(index_val as isize);
         }
         let in_slice = input
-            .try_slice_with(in_range.as_slice())
+            .try_slice(in_range.as_slice())
             .map_err(|_| INVALID_INDEX_ERR)?;
-        let mut out_slice = output.slice_mut_dyn(out_range.as_slice());
+        let mut out_slice = output.slice_mut(out_range.as_slice());
         out_slice.copy_from(&in_slice);
     }
 
@@ -304,7 +304,7 @@ pub fn gather_nd<T: Clone + Default>(
         for (out_slice, idx) in out_slices.zip(idx_slices) {
             let slice_items = to_slice_items(idx);
             let in_slice = input
-                .try_slice_with(slice_items.as_slice())
+                .try_slice(slice_items.as_slice())
                 .map_err(|_| OpError::InvalidValue("Invalid index"))?;
 
             for (out, x) in out_slice.iter_mut().zip(in_slice.iter()) {

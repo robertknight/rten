@@ -97,7 +97,7 @@ impl Sampler for TopKSampler {
         let topk_index = multinomial(&mut self.rng.borrow_mut(), probs.nd_view())
             .expect("probs should be non-empty and sum to 1");
 
-        let token_id = topk_indices.slice_with(topk_index).item().copied().unwrap();
+        let token_id = topk_indices.slice(topk_index).item().copied().unwrap();
         token_id as TokenId
     }
 }

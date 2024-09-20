@@ -102,7 +102,7 @@ fn embed_sentence_batch(
         let token_ids = encoded.token_ids();
         for (tid, input_id) in token_ids
             .iter()
-            .zip(input_ids.slice_mut_dyn((i, ..token_ids.len())).iter_mut())
+            .zip(input_ids.slice_mut((i, ..token_ids.len())).iter_mut())
         {
             *input_id = *tid as i32;
         }
@@ -110,10 +110,10 @@ fn embed_sentence_batch(
 
     // Generate attention mask, set to 1 for non-padding tokens and 0 for
     // padding tokens.
-    let mut attention_mask = Tensor::zeros(&[batch, max_sequence_len]);
+    let mut attention_mask = NdTensor::zeros([batch, max_sequence_len]);
     for (i, encoded) in encoded.iter().enumerate() {
         attention_mask
-            .slice_mut::<1, _>((i, ..encoded.token_ids().len()))
+            .slice_mut((i, ..encoded.token_ids().len()))
             .fill(1i32);
     }
 
@@ -127,9 +127,9 @@ fn embed_sentence_batch(
 
     // Generate token type IDs if this model needs them. These are all zeros
     // since each item has just one sequence.
-    let type_ids: Tensor<i32>;
+    let type_ids: NdTensor<i32, 2>;
     if let Some(type_ids_id) = model.find_node("token_type_ids") {
-        type_ids = Tensor::zeros(&[batch, max_sequence_len]);
+        type_ids = NdTensor::zeros([batch, max_sequence_len]);
         inputs.push((type_ids_id, type_ids.view().into()));
     }
 
@@ -146,7 +146,7 @@ fn embed_sentence_batch(
             // Take the mean of the non-padding elements along the sequence
             // dimension.
             let seq_len = input.token_ids().len();
-            item.slice_dyn(..seq_len)
+            item.slice(..seq_len)
                 .reduce_mean(Some(&[0]), false /* keep_dims */)
                 .unwrap()
         })
@@ -231,7 +231,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // (1, embed) @ (embed, batch) => (1, batch)
     let similarities = embeddings
-        .slice::<2, _>(..1)
+        .slice(..1)
         .matmul(embeddings.transposed().into())?;
 
     // Sort results by similarity to the query.
@@ -240,7 +240,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // all be "high" values (close to 1.0). They should be used only for
     // comparison with other scores.
     let mut scores: Vec<(usize, f32)> = similarities
-        .slice_dyn(0)
+        .slice(0)
         .iter()
         .copied()
         .enumerate()

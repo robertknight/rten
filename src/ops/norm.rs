@@ -45,7 +45,7 @@ pub fn batch_norm_in_place(
             let scaled_std_dev_reciprocal = chan_scale / (chan_var + epsilon).sqrt();
 
             input
-                .slice_mut_dyn([n, c])
+                .slice_mut([n, c])
                 .apply(|el| (*el - chan_mean) * scaled_std_dev_reciprocal + chan_bias);
         }
     }
@@ -169,7 +169,7 @@ pub fn instance_normalization_in_place(
 
     for n in 0..batch {
         for c in 0..chans {
-            let mut slice = input.slice_mut_dyn([n, c]);
+            let mut slice = input.slice_mut([n, c]);
             let chan_scale = scale[[c]];
             let chan_bias = bias[[c]];
             let chan_mean = slice_sum(slice.data().unwrap()) / slice.len() as f32;

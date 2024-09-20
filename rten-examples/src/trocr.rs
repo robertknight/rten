@@ -97,7 +97,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     image.insert_axis(0); // Add batch dim
 
     // From `image_size` in config.json.
-    let mut image = image.resize_image([384, 384])?;
+    let mut image: NdTensor<_, 4> = image.resize_image([384, 384])?.try_into()?;
 
     // Values taken from `preprocessor_config.json`.
     let mean = [0.5, 0.5, 0.5];

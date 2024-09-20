@@ -159,13 +159,13 @@ fn extract_nbest_answers<'a>(
     let min_start = 1; // Ignore [CLS] token at start.
     let max_end = end_probs.size(1) - 1; // Ignore [SEP] token at end.
     let mut span_scores: Vec<(usize, usize, f32)> = start_probs
-        .slice::<1, _>((0, min_start..max_end))
+        .slice((0, min_start..max_end))
         .iter()
         .enumerate()
         .map(|(start_pos, start_score)| {
             let start_pos = start_pos + min_start;
             let (relative_end_pos, end_score) = end_probs
-                .slice::<1, _>((0, start_pos..(start_pos + max_answer_len).min(max_end)))
+                .slice((0, start_pos..(start_pos + max_answer_len).min(max_end)))
                 .iter()
                 .enumerate()
                 .max_by(|(_pos_a, score_a), (_pos_b, score_b)| score_a.total_cmp(score_b))

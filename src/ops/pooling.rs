@@ -303,9 +303,9 @@ pub fn global_average_pool(pool: &TensorPool, input: TensorView) -> Result<Tenso
         const N: usize = 4;
 
         for (chan_group, mut out_group) in input
-            .slice_with(n)
+            .slice(n)
             .axis_chunks(0, N)
-            .zip(output.slice_with_mut((n, .., 0, 0)).axis_chunks_mut(0, N))
+            .zip(output.slice_mut((n, .., 0, 0)).axis_chunks_mut(0, N))
         {
             if chan_group.size(0) == N {
                 // Compute average over batch of N channels in parallel.
@@ -328,7 +328,7 @@ pub fn global_average_pool(pool: &TensorPool, input: TensorView) -> Result<Tenso
             } else {
                 // Compute average over remaining channels.
                 for i in 0..chan_group.size(0) {
-                    let sum: f32 = chan_group.slice_with([i]).iter().sum();
+                    let sum: f32 = chan_group.slice([i]).iter().sum();
                     out_group[[i]].write(sum / (in_h * in_w) as f32);
                     n_init += 1;
                 }

@@ -866,16 +866,16 @@ mod tests {
             // Matrix-vector product
             Case {
                 equation: "ij,j->i",
-                inputs: vec![mat_a.view(), mat_b.slice_dyn((.., 0))],
-                expected: Ok(matmul(&pool, mat_a.view(), mat_b.slice_dyn((.., ..1)))
+                inputs: vec![mat_a.view(), mat_b.slice((.., 0))],
+                expected: Ok(matmul(&pool, mat_a.view(), mat_b.slice((.., ..1)))
                     .unwrap()
                     .into_shape([mat_a.size(0)].as_slice())),
             },
             // Vector-matrix product
             Case {
                 equation: "j,jk->k",
-                inputs: vec![mat_a.slice_dyn(0), mat_b.view()],
-                expected: Ok(matmul(&pool, mat_a.slice_dyn((..1, ..)), mat_b.view())
+                inputs: vec![mat_a.slice(0), mat_b.view()],
+                expected: Ok(matmul(&pool, mat_a.slice((..1, ..)), mat_b.view())
                     .unwrap()
                     .into_shape([mat_b.size(1)].as_slice())),
             },
@@ -895,11 +895,11 @@ mod tests {
             // are not present in all tensors.
             Case {
                 equation: "ij,j->",
-                inputs: vec![mat_a.view(), mat_b.slice_dyn((.., 0))],
+                inputs: vec![mat_a.view(), mat_b.slice((.., 0))],
                 expected: Ok(Tensor::from(
                     mat_a
                         .iter()
-                        .zip(mat_b.slice_dyn((.., 0)).broadcast(mat_a.shape()).iter())
+                        .zip(mat_b.slice((.., 0)).broadcast(mat_a.shape()).iter())
                         .map(|(x, y)| x * y)
                         .sum::<f32>(),
                 )),

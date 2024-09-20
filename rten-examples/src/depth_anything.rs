@@ -105,7 +105,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Resize output map back to original input size and write to file.
     let resized = output.resize_image([orig_height, orig_width])?;
-    let resized = resized.slice::<3, _>(0);
+    let resized = resized.nd_view::<4>().slice(0);
     write_image(&args.output, resized)?;
 
     Ok(())

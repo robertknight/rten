@@ -146,11 +146,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let scale_x = image_width as f32 / model_in_w as f32;
 
     // [batch, n_boxes, coord]
-    let boxes = output.slice::<3, _>((.., ..4, ..)).permuted([0, 2, 1]);
+    let boxes = output.slice((.., ..4, ..)).permuted([0, 2, 1]);
 
     // [batch, n_classes, n_boxes]. The `n_boxes` coord is last because that
     // is what `non_max_suppression` requires.
-    let scores = output.slice::<3, _>((.., 4.., ..));
+    let scores = output.slice((.., 4.., ..));
 
     let iou_threshold = 0.3;
     let score_threshold = 0.25;
