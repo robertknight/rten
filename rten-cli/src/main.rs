@@ -2,13 +2,18 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::time::Instant;
 
-use rten::{Dimension, InputOrOutput, Model, ModelMetadata, NodeId, Output, RunOptions};
+use rten::{
+    Dimension, InputOrOutput, Model, ModelMetadata, ModelOptions, NodeId, Output, RunOptions,
+};
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
 
 struct Args {
     /// Model file to load.
     model: String,
+
+    /// Whether to enable graph optimizations
+    optimize: bool,
 
     /// Run model and don't produce other output
     quiet: bool,
@@ -108,6 +113,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut timing = false;
     let mut verbose = false;
     let mut input_sizes = Vec::new();
+    let mut optimize = true;
 
     let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
@@ -120,6 +126,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                     .parse()
                     .map_err(|_| "Unable to parse `n_iters`".to_string())?;
             }
+            Long("no-optimize") => optimize = false,
             Short('q') | Long("quiet") => quiet = true,
             Short('v') | Long("verbose") => verbose = true,
             Short('V') | Long("version") => {
@@ -151,6 +158,8 @@ Options:
   -n, --n_iters <n>
                  Number of times to evaluate model
 
+  --no-optimize  Disable graph optimizations
+
   -q, --quiet    Run model and don't produce other output
 
   -t, --timing   Output timing info
@@ -176,6 +185,7 @@ Options:
         model,
         n_iters,
         mmap,
+        optimize,
         quiet,
         timing,
         verbose,
@@ -404,10 +414,14 @@ fn print_input_output_list(model: &Model, node_ids: &[NodeId]) {
 /// running. See `docs/profiling.md`.
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
+
+    let mut model_opts = ModelOptions::with_all_ops();
+    model_opts.enable_optimization(args.optimize);
+
     let model = if args.mmap {
-        unsafe { Model::load_mmap(args.model)? }
+        unsafe { model_opts.load_mmap(args.model)? }
     } else {
-        Model::load_file(args.model)?
+        model_opts.load_file(args.model)?
     };
 
     if !args.quiet {
