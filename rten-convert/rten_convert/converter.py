@@ -436,15 +436,25 @@ def constant_node_from_onnx_initializer(
 ) -> ConstantNode:
     dims = list(tensor.dims)
     data = numpy_helper.to_array(tensor)
+    dtype_name = data.dtype.name
 
-    match data.dtype.name:
+    match dtype_name:
         # Types that don't need to change
         case "float32" | "int8" | "int32" | "uint8":
             pass
 
-        # Int types that can be widened to int32
+        # Int types that are not supported natively, but can be widened to
+        # int32.
         case "bool" | "int16":
             data = data.astype(np.int32)
+
+        # Float types that are not supported natively, but can be widened to
+        # float32.
+        case "float16":
+            warn_once(
+                f"Converting {dtype_name} weights to float32 because {dtype_name} is not supported natively yet. This will increase model size."
+            )
+            data = data.astype(np.float32)
 
         # Types that need to be narrowed
         case "int64":
