@@ -576,7 +576,7 @@ unary_float_op!(Relu, relu, relu_in_place, |val: f32| val.max(0.));
 
 /// Round float values to the nearest integer. Values with a fractional part
 /// of 0.5 are rounded to the nearest even number, like `round` in Python and
-/// unlike `f32::round` in Rust.
+/// unlike [`f32::round`] in Rust.
 #[derive(Debug)]
 pub struct Round {}
 impl UnaryFloatOp for Round {
@@ -585,8 +585,7 @@ impl UnaryFloatOp for Round {
     }
 
     fn map_element(&self, val: f32) -> f32 {
-        // Replace this with `f32::round_ties_even` when that is stabilized.
-        libm::rintf(val)
+        val.round_ties_even()
     }
 }
 
