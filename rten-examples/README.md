@@ -59,7 +59,7 @@ The examples have been chosen to cover common tasks and popular models.
 - **rmbg** - Background removal using [BRIA Background Removal](https://huggingface.co/briaai/RMBG-1.4)
 - **segment_anything** - Image segmentation using [Segment Anything](https://segment-anything.com)
 - **trocr** - Recognize text using [TrOCR](https://arxiv.org/abs/2109.10282)
-- **yolo** - Object detection using [YOLO v8](https://github.com/ultralytics/ultralytics)
+- **yolo** - Object detection using [Ultralytics YOLO](https://github.com/ultralytics/ultralytics)
 
 ### Text
 

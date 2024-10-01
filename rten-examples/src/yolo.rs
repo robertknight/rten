@@ -44,7 +44,7 @@ Options:
 
     Print only a summary of the objects found
 ",
-                    bin_name = parser.bin_name().unwrap_or("detr")
+                    bin_name = parser.bin_name().unwrap_or("yolo")
                 );
                 std::process::exit(0);
             }
@@ -76,25 +76,28 @@ fn resource_path(path: &str) -> PathBuf {
     abs_path
 }
 
-/// Detect objects in images using the YOLO v8 model.
+/// Detect objects in images using Ultralytics YOLO models.
+///
+/// This example has been tested with YOLO v8 and YOLO v11. The steps are the
+/// same for both versions.
 ///
 /// See <https://docs.ultralytics.com/modes/export/> for current instructions on
-/// how to get YOLO v8 models in ONNX format.
+/// how to get YOLO v11 models in ONNX format.
 ///
-/// Note that this model is AGPL-licensed. If you need an object detection model
-/// for commercial purposes, you can either buy a license from Ultralytics, or
-/// use an alternate model such as DETR.
+/// Note that these models are AGPL-licensed. If you need an object detection
+/// model for commercial purposes, you can either buy a license from
+/// Ultralytics, or use an alternate model such as DETR.
 ///
 /// ```
 /// pip install ultralytics
-/// yolo mode=export model=yolov8s.pt format=onnx
-/// rten-convert yolov8s.onnx yolov8.rten
+/// yolo mode=export model=yolov11s.pt format=onnx
+/// rten-convert yolov11s.onnx yolov11.rten
 /// ```
 ///
 /// Run this program on an image:
 ///
 /// ```
-/// cargo run --release --bin yolo yolov8.rten image.jpg
+/// cargo run --release --bin yolo yolov11.rten image.jpg
 /// ```
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
