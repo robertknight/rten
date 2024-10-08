@@ -304,7 +304,7 @@ impl<'a> VirtualIm2Col<'a, f32> {
         cols: Range<usize>,
     ) {
         use std::arch::x86_64::__m512i;
-        const NR_REGS: usize = vec_count::<__m512>(KERNEL_AVX512_NR);
+        const NR_REGS: usize = vec_count::<__m512i>(KERNEL_AVX512_NR);
         self.pack_b_impl::<__m512i, NR_REGS>(out, panel_width, rows.clone(), cols.clone());
     }
 }
