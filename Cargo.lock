@@ -406,6 +406,7 @@ dependencies = [
  "rten-text",
  "serde",
  "serde_json",
+ "smallvec",
 ]
 
 [[package]]
