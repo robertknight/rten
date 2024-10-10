@@ -33,7 +33,7 @@ planned for the future:
 - Supports CPU inference only. There is currently no support for running models
   on GPUs or other accelerators.
 - Not all ONNX operators are currently supported. See `OperatorType` in
-  [src/schema.fbs](src/schema.fbs) for currently supported operators. For
+  [src/schema.fbs](src/schema.fbs) and [this issue](https://github.com/robertknight/rten/issues/14) for currently supported operators. For
   implemented operators, some attributes or input shapes may not be supported.
 - A limited set of data types are supported: float32 and int32 tensors. int64
   and boolean tensors are converted to int32.
