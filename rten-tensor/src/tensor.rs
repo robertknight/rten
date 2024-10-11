@@ -29,7 +29,6 @@ use crate::{Alloc, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
 /// mutably borrowed (like `&mut [T]`). The layout can have a dimension count
 /// that is determined statically (ie. forms part of the tensor's type), see
 /// [NdLayout] or is only known at runtime, see [DynLayout].
-#[derive(Debug)]
 pub struct TensorBase<S: Storage, L: MutLayout> {
     data: S,
 
