@@ -47,8 +47,10 @@ mod macros;
 mod overlap;
 mod slice_range;
 mod storage;
-mod tensor;
 pub mod type_num;
+
+mod impl_debug;
+mod tensor;
 
 /// Trait for sources of random data for tensors, for use with [`Tensor::rand`].
 pub trait RandomSource<T> {

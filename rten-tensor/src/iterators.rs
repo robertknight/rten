@@ -184,20 +184,27 @@ impl IndexingIterBase {
     }
 }
 
-/// Iterator over elements of a tensor, in their logical order.
-#[derive(Clone)]
-pub struct Iter<'a, T> {
-    iter: IterKind<'a, T>,
-}
-
-/// Alternate implementations of `Elements`.
+/// Alternate implementations of [`Iter`].
 ///
 /// When the tensor has a contiguous layout, this iterator is just a thin
 /// wrapper around a slice iterator.
-#[derive(Clone)]
 enum IterKind<'a, T> {
     Direct(slice::Iter<'a, T>),
     Indexing(IndexingIter<'a, T>),
+}
+
+impl<'a, T> Clone for IterKind<'a, T> {
+    fn clone(&self) -> Self {
+        match self {
+            IterKind::Direct(slice_iter) => IterKind::Direct(slice_iter.clone()),
+            IterKind::Indexing(iter) => IterKind::Indexing((*iter).clone()),
+        }
+    }
+}
+
+/// Iterator over elements of a tensor, in their logical order.
+pub struct Iter<'a, T> {
+    iter: IterKind<'a, T>,
 }
 
 impl<'a, T> Iter<'a, T> {
@@ -210,6 +217,14 @@ impl<'a, T> Iter<'a, T> {
             Iter {
                 iter: IterKind::Indexing(IndexingIter::new(view)),
             }
+        }
+    }
+}
+
+impl<'a, T> Clone for Iter<'a, T> {
+    fn clone(&self) -> Self {
+        Iter {
+            iter: self.iter.clone(),
         }
     }
 }
@@ -247,7 +262,6 @@ impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
 impl<'a, T> FusedIterator for Iter<'a, T> {}
 
-#[derive(Clone)]
 struct IndexingIter<'a, T> {
     base: IndexingIterBase,
 
@@ -260,6 +274,15 @@ impl<'a, T> IndexingIter<'a, T> {
         IndexingIter {
             base: IndexingIterBase::new(view.layout),
             data: view.data,
+        }
+    }
+}
+
+impl<'a, T> Clone for IndexingIter<'a, T> {
+    fn clone(&self) -> Self {
+        IndexingIter {
+            base: self.base.clone(),
+            data: self.data,
         }
     }
 }
