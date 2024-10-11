@@ -414,7 +414,6 @@ version = "0.13.1"
 dependencies = [
  "fastrand",
  "rten",
- "rten-generate",
  "rten-tensor",
  "rten-text",
 ]
