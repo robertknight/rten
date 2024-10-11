@@ -31,9 +31,11 @@ miri:
 	#   require changes to prevent tests taking too long to run.
 	cargo +nightly miri test -p rten-tensor
 
+# Run tests for all crates with all features enabled that do not require
+# nightly Rust.
 .PHONY: test
 test:
-	cargo test --workspace
+	cargo test --workspace --features mmap,random,text-decoder
 
 .PHONY: wasm
 wasm:

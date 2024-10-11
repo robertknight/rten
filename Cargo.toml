@@ -55,7 +55,6 @@ num_cpus = "1.16.0"
 
 [dev-dependencies]
 libm = "0.2.6"
-rten = { path = ".", features = ["mmap", "random"] }
 rten-bench = { path = "./rten-bench" }
 serde_json = { workspace = true }
 
