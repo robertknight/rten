@@ -365,7 +365,6 @@ dependencies = [
  "memmap2",
  "num_cpus",
  "rayon",
- "rten",
  "rten-bench",
  "rten-simd",
  "rten-tensor",
