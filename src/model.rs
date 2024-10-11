@@ -1421,28 +1421,31 @@ mod tests {
         add_operator!(Pad, [input_node, pads]);
         add_operator!(Pow, [input_node, input_node]);
 
-        add_operator!(RandomNormal, [], {
-            shape: vec![50, 50],
-            mean: 0.,
-            scale: 1.,
-            seed: None,
-        });
-        add_operator!(RandomNormalLike, [input_node], {
-            mean: 0.,
-            scale: 1.,
-            seed: None,
-        });
-        add_operator!(RandomUniform, [], {
-            shape: vec![50, 50],
-            low: 0.,
-            high: 1.,
-            seed: None,
-        });
-        add_operator!(RandomUniformLike, [input_node], {
-            low: 0.,
-            high: 1.,
-            seed: None,
-        });
+        #[cfg(feature = "random")]
+        {
+            add_operator!(RandomNormal, [], {
+                shape: vec![50, 50],
+                mean: 0.,
+                scale: 1.,
+                seed: None,
+            });
+            add_operator!(RandomNormalLike, [input_node], {
+                mean: 0.,
+                scale: 1.,
+                seed: None,
+            });
+            add_operator!(RandomUniform, [], {
+                shape: vec![50, 50],
+                low: 0.,
+                high: 1.,
+                seed: None,
+            });
+            add_operator!(RandomUniformLike, [input_node], {
+                low: 0.,
+                high: 1.,
+                seed: None,
+            });
+        }
 
         let range_start_node = graph_builder.add_value("range_start", None);
         let range_limit_node = graph_builder.add_value("range_limit", None);
