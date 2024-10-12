@@ -17,7 +17,7 @@ rten-tensor = { path = "../rten-tensor", version = "0.13.1" }
 
 [features]
 # Enable text decoding using tokenizers from rten-text
-text-decoder = ["rten-text"]
+text-decoder = ["dep:rten-text"]
 
 [package.metadata.docs.rs]
 features = ["text-decoder"]
