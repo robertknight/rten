@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt;
 use std::ops::Range;
 
-use rten::{Dimension, Input, InputOrOutput, NodeId, Output};
+use rten::{Dimension, Input, InputOrOutput, NodeId, Output, RunOptions};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
@@ -235,6 +235,8 @@ impl<'a> Default for ModelInputsConfig<'a> {
 pub struct Generator<'a> {
     model: &'a dyn Model,
 
+    run_options: Option<RunOptions>,
+
     /// Additional constant model inputs (eg. encoder outputs) passed to the
     /// model at each step.
     constant_inputs: Vec<(NodeId, InputOrOutput<'a>)>,
@@ -411,6 +413,8 @@ impl<'a> Generator<'a> {
 
         let mut generator = Generator {
             model,
+            run_options: None,
+
             constant_inputs: Vec::new(),
             varying_inputs: Vec::new(),
 
@@ -507,6 +511,12 @@ impl<'a> Generator<'a> {
         self
     }
 
+    /// Set execution options used when running model inference.
+    pub fn with_run_options(mut self, opts: Option<RunOptions>) -> Self {
+        self.run_options = opts;
+        self
+    }
+
     /// Run the model and generate the next token.
     fn generate_next_token(&mut self) -> Result<TokenId, GeneratorError> {
         fn wrap_error<E>(e: E) -> GeneratorError
@@ -531,10 +541,11 @@ impl<'a> Generator<'a> {
 
         // Propagate constants on the first run.
         if self.constant_prop_inputs.is_none() {
-            let inputs = match self
-                .model
-                .partial_run(self.constant_inputs.clone(), &[self.logits_output])
-            {
+            let inputs = match self.model.partial_run(
+                self.constant_inputs.clone(),
+                &[self.logits_output],
+                self.run_options.clone(),
+            ) {
                 Ok(inputs) => inputs,
                 Err(err) => {
                     return Err(wrap_error(err));
@@ -597,7 +608,7 @@ impl<'a> Generator<'a> {
 
         let mut outputs = self
             .model
-            .run(model_inputs, &model_outputs)
+            .run(model_inputs, &model_outputs, self.run_options.clone())
             .map_err(wrap_error)?;
 
         // Sample output token.
@@ -723,7 +734,7 @@ mod tests {
     use std::collections::HashMap;
     use std::error::Error;
 
-    use rten::{Dimension, InputOrOutput, NodeId, Output};
+    use rten::{Dimension, InputOrOutput, NodeId, Output, RunOptions};
     use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
 
@@ -744,6 +755,9 @@ mod tests {
 
         // Inference inputs for each step
         inputs: RefCell<Vec<HashMap<NodeId, Output>>>,
+
+        // Run options for most recent inference
+        run_opts: Cell<Option<RunOptions>>,
     }
 
     impl FakeModel {
@@ -760,6 +774,7 @@ mod tests {
                 step: Cell::new(0),
                 inputs: RefCell::new(vec![]),
                 outputs: vec![],
+                run_opts: Cell::new(None),
             }
         }
 
@@ -796,6 +811,7 @@ mod tests {
             &self,
             inputs: Vec<(NodeId, InputOrOutput)>,
             outputs: &[NodeId],
+            opts: Option<RunOptions>,
         ) -> Result<Vec<Output>, Box<dyn Error>> {
             if let Some((input_id, _)) = inputs.iter().find(|(id, _)| !self.input_ids.contains(id))
             {
@@ -834,6 +850,7 @@ mod tests {
                 .collect();
 
             self.step.set(self.step.get() + 1);
+            self.run_opts.set(opts);
 
             Ok(result)
         }
@@ -842,6 +859,7 @@ mod tests {
             &self,
             _inputs: Vec<(NodeId, InputOrOutput)>,
             _outputs: &[NodeId],
+            _opts: Option<RunOptions>,
         ) -> Result<Vec<(NodeId, Output)>, Box<dyn Error>> {
             Ok(Vec::new())
         }
@@ -1234,6 +1252,37 @@ mod tests {
         assert_eq!(output_token_ids, expected_token_ids);
         assert!(metrics.warmup_duration().is_some());
         assert_eq!(metrics.step_durations().len(), output_token_ids.len() - 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_run_options() -> Result<(), Box<dyn Error>> {
+        let params = TransformerParams::default();
+        let expected_token_ids = [0, 1, 2, 3, 4];
+        let prompt = [1, 2, 3, 1, 2, 3];
+        let model = fake_transformer_model(
+            params,
+            Some(KvCacheType::Decoder),
+            prompt.len(),
+            &expected_token_ids,
+        );
+
+        let generator = Generator::from_model(&model)?;
+
+        let run_opts = RunOptions {
+            verbose: true,
+            ..Default::default()
+        };
+        let output_token_ids: Vec<_> = generator
+            .with_prompt(&prompt)
+            .with_run_options(Some(run_opts.clone()))
+            .take(expected_token_ids.len())
+            .map(|id| id.expect("generation failed"))
+            .collect();
+
+        assert_eq!(output_token_ids, expected_token_ids);
+        assert_eq!(model.run_opts.take(), Some(run_opts));
 
         Ok(())
     }
