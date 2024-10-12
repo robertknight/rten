@@ -65,11 +65,11 @@ crate-type = ["lib", "cdylib"]
 # Use AVX-512 instructions if available. Requires nightly Rust for AVX-512 intrinsics.
 avx512 = ["rten-simd/avx512", "rten-vecmath/avx512"]
 # Enable loading models using memory mapping
-mmap = ["memmap2"]
+mmap = ["dep:memmap2"]
 # Generate WebAssembly API using wasm-bindgen.
 wasm_api = []
 # Enable operators that generate random numbers.
-random = ["fastrand", "fastrand-contrib"]
+random = ["dep:fastrand", "dep:fastrand-contrib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.83"
