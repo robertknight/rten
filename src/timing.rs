@@ -399,7 +399,7 @@ pub struct TimingRecord<'a> {
 }
 
 /// Specifies sort order for graph run timings.
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum TimingSort {
     /// Sort timings by operator name
     ByName,

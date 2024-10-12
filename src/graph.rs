@@ -534,7 +534,7 @@ impl<'a> CaptureEnv<'a> {
 
 /// Options that control logging and other behaviors when executing a
 /// [Model](crate::Model).
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct RunOptions {
     /// Whether to log times spent in different operators when run completes.
     pub timing: bool,
