@@ -5,7 +5,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::rng::XorShiftRng;
 use wasm_bindgen::prelude::*;
 
-use crate::graph::Dimension;
+use crate::graph::{Dimension, NodeId};
 use crate::model;
 use crate::ops::{matmul, InputOrOutput, Output};
 use crate::tensor_pool::TensorPool;
@@ -26,35 +26,45 @@ impl Model {
 
     /// Find the ID of a node in the graph from its name.
     #[wasm_bindgen(js_name = findNode)]
-    pub fn find_node(&self, name: &str) -> Option<usize> {
-        self.model.find_node(name)
+    pub fn find_node(&self, name: &str) -> Option<u32> {
+        self.model.find_node(name).map(|id| id.as_u32())
     }
 
     /// Get metadata about the node with a given ID.
     ///
     /// This is useful for getting the input tensor shape expected by the model.
     #[wasm_bindgen(js_name = nodeInfo)]
-    pub fn node_info(&self, id: usize) -> Option<NodeInfo> {
-        self.model.node_info(id).map(|ni| NodeInfo {
-            name: ni.name().map(|n| n.to_string()),
-            shape: ni.shape(),
-        })
+    pub fn node_info(&self, id: u32) -> Option<NodeInfo> {
+        self.model
+            .node_info(NodeId::from_u32(id))
+            .map(|ni| NodeInfo {
+                name: ni.name().map(|n| n.to_string()),
+                shape: ni.shape(),
+            })
     }
 
     /// Return the IDs of input nodes.
     ///
     /// Additional details about the nodes can be obtained using `node_info`.
     #[wasm_bindgen(js_name = inputIds)]
-    pub fn input_ids(&self) -> Vec<usize> {
-        self.model.input_ids().into()
+    pub fn input_ids(&self) -> Vec<u32> {
+        self.model
+            .input_ids()
+            .iter()
+            .map(|id| id.as_u32())
+            .collect()
     }
 
     /// Return the IDs of output nodes.
     ///
     /// Additional details about the nodes can be obtained using `node_info`.
     #[wasm_bindgen(js_name = outputIds)]
-    pub fn output_ids(&self) -> Vec<usize> {
-        self.model.output_ids().into()
+    pub fn output_ids(&self) -> Vec<u32> {
+        self.model
+            .output_ids()
+            .iter()
+            .map(|id| id.as_u32())
+            .collect()
     }
 
     /// Execute the model, passing `input` as the tensor values for the node
@@ -62,16 +72,18 @@ impl Model {
     /// specified by `output_ids`.
     pub fn run(
         &self,
-        input_ids: &[usize],
+        input_ids: &[u32],
         input: Vec<Tensor>,
-        output_ids: &[usize],
+        output_ids: &[u32],
     ) -> Result<Vec<Tensor>, String> {
-        let inputs: Vec<(usize, InputOrOutput)> = input_ids
+        let inputs: Vec<(NodeId, InputOrOutput)> = input_ids
             .iter()
             .copied()
+            .map(NodeId::from_u32)
             .zip(input.iter().map(|tensor| tensor.data.as_input().into()))
             .collect();
-        let result = self.model.run(inputs, output_ids, None);
+        let output_ids: Vec<NodeId> = output_ids.iter().copied().map(NodeId::from_u32).collect();
+        let result = self.model.run(inputs, &output_ids, None);
         match result {
             Ok(outputs) => {
                 let mut list = Vec::new();

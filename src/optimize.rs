@@ -611,7 +611,7 @@ mod tests {
     use super::{GraphOptimizer, OptimizeError};
     use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
     use crate::downcast::DowncastDyn;
-    use crate::graph::{CaptureEnv, Constant, Graph, Node};
+    use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
     use crate::ops::{
         Add, Div, Erf, LayerNormalization, MatMul, Mul, Pow, ReduceMean, Sigmoid, Sqrt, Sub,
         Transpose,
@@ -871,7 +871,7 @@ mod tests {
     fn test_optimize_error() {
         let mut graph = Graph::new();
         let optimizer = GraphOptimizer::new();
-        let invalid_id = 123;
+        let invalid_id = NodeId::from_u32(123);
         graph.set_input_ids(&[invalid_id]);
         graph.set_output_ids(&[invalid_id]);
         let result = optimizer.optimize(graph, None);

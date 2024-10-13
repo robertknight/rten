@@ -356,12 +356,12 @@ impl Model {
 
         let input_ids: Vec<NodeId> = serialized_graph
             .inputs()
-            .map(|ids| ids.iter().map(|id| id as NodeId).collect())
+            .map(|ids| ids.iter().map(NodeId::from_u32).collect())
             .unwrap_or_default();
 
         let output_ids: Vec<NodeId> = serialized_graph
             .outputs()
-            .map(|ids| ids.iter().map(|id| id as NodeId).collect())
+            .map(|ids| ids.iter().map(NodeId::from_u32).collect())
             .unwrap_or_default();
 
         let mut graph = Graph::with_capacity(node_count);
@@ -369,7 +369,7 @@ impl Model {
         graph.set_output_ids(&output_ids);
 
         if let Some(captures) = serialized_graph.captures() {
-            let captures: Vec<NodeId> = captures.iter().map(|id| id as NodeId).collect();
+            let captures: Vec<NodeId> = captures.iter().map(NodeId::from_u32).collect();
             graph.set_captures(&captures);
         }
 
@@ -839,7 +839,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
 
-    use crate::graph::{Dimension, RunError};
+    use crate::graph::{Dimension, NodeId, RunError};
     use crate::model::{Model, ModelOptions};
     use crate::model_builder::{
         GraphBuilder, IfArgs, MetadataArgs, ModelBuilder, ModelFormat, OpType,
@@ -1147,7 +1147,7 @@ mod tests {
             .load(buffer)
             .unwrap();
 
-        let result = model.run(vec![], &[output_node as usize], None);
+        let result = model.run(vec![], &[output_node], None);
 
         assert_eq!(
             result.err(),
@@ -1181,7 +1181,7 @@ mod tests {
         let mut op_outputs = Vec::new();
 
         let mut add_operator =
-            |builder: &mut GraphBuilder, name: &str, op: OpType, input_nodes: &[Option<u32>]| {
+            |builder: &mut GraphBuilder, name: &str, op: OpType, input_nodes: &[Option<NodeId>]| {
                 let output_name = format!("{}_out", name);
                 let op_output_node = builder.add_value(&output_name, None);
                 builder.add_operator(name, op, input_nodes, &[op_output_node]);
@@ -1605,8 +1605,8 @@ mod tests {
             let result = model
                 .run(
                     vec![
-                        (input_node as usize, input.view().into()),
-                        (input_bool as usize, input_bool_data.view().into()),
+                        (input_node, input.view().into()),
+                        (input_bool, input_bool_data.view().into()),
                     ],
                     &[output_id],
                     None,
@@ -1629,11 +1629,7 @@ mod tests {
         for output in outputs {
             let output_id = model.find_node(output).unwrap();
             let result = model
-                .run(
-                    vec![(input_2d as usize, input.view().into())],
-                    &[output_id],
-                    None,
-                )
+                .run(vec![(input_2d, input.view().into())], &[output_id], None)
                 .unwrap();
             assert_eq!(result.len(), 1);
         }
@@ -1645,11 +1641,11 @@ mod tests {
         let result = model
             .run(
                 vec![
-                    (range_start_node as usize, start.into()),
-                    (range_limit_node as usize, limit.into()),
-                    (range_delta_node as usize, delta.into()),
+                    (range_start_node, start.into()),
+                    (range_limit_node, limit.into()),
+                    (range_delta_node, delta.into()),
                 ],
-                &[range_out as usize],
+                &[range_out],
                 None,
             )
             .unwrap();
@@ -1662,11 +1658,11 @@ mod tests {
         let result = model
             .run(
                 vec![
-                    (where_cond as usize, cond.into()),
-                    (where_x as usize, x.into()),
-                    (where_y as usize, y.into()),
+                    (where_cond, cond.into()),
+                    (where_x, x.into()),
+                    (where_y, y.into()),
                 ],
-                &[where_out as usize],
+                &[where_out],
                 None,
             )
             .unwrap();

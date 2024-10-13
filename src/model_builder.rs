@@ -2,7 +2,7 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 use rten_tensor::prelude::*;
 use rten_tensor::TensorView;
 
-use crate::graph::Dimension;
+use crate::graph::{Dimension, NodeId};
 use crate::header::Header;
 use crate::number::LeBytes;
 use crate::ops::{
@@ -229,8 +229,8 @@ pub struct GraphBuilder<'mb, 'a> {
     tensor_data_builder: Option<&'mb mut TensorDataBuilder>,
 
     nodes: Vec<WIPOffset<sg::Node<'a>>>,
-    input_ids: Vec<u32>,
-    output_ids: Vec<u32>,
+    input_ids: Vec<NodeId>,
+    output_ids: Vec<NodeId>,
 }
 
 impl<'mb, 'a> GraphBuilder<'mb, 'a> {
@@ -248,7 +248,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
         }
     }
 
-    fn add_node(&mut self, name: Option<&str>, data: NodeData) -> u32 {
+    fn add_node(&mut self, name: Option<&str>, data: NodeData) -> NodeId {
         let (data_type, union_val) = match data {
             NodeData::Constant(offset) => (sg::NodeKind::ConstantNode, offset.as_union_value()),
             NodeData::Value(offset) => (sg::NodeKind::ValueNode, offset.as_union_value()),
@@ -261,7 +261,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
         };
         let node = sg::Node::create(self.builder, &args);
         self.nodes.push(node);
-        (self.nodes.len() - 1) as u32
+        NodeId::from_u32((self.nodes.len() - 1) as u32)
     }
 
     /// Return a graph builder for a subgraph.
@@ -280,7 +280,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
     pub fn add_constant<T: Copy + LeBytes + ToConstantData>(
         &mut self,
         input: TensorView<T>,
-    ) -> u32 {
+    ) -> NodeId {
         let shape: Vec<u32> = input.shape().iter().map(|&x| x as u32).collect();
         let shape_vec = self.builder.create_vector(&shape[..]);
         let dtype = <T as ToConstantData>::dtype();
@@ -314,7 +314,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
     }
 
     /// Add a value node to the model
-    pub fn add_value(&mut self, id: &str, shape: Option<&[Dimension]>) -> u32 {
+    pub fn add_value(&mut self, id: &str, shape: Option<&[Dimension]>) -> NodeId {
         let shape = shape.map(|shape| {
             let dim_vec: Vec<_> = shape
                 .iter()
@@ -349,9 +349,9 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
         &mut self,
         id: &str,
         op_info: OpType,
-        inputs: &[Option<u32>],
-        outputs: &[u32],
-    ) -> u32 {
+        inputs: &[Option<NodeId>],
+        outputs: &[NodeId],
+    ) -> NodeId {
         // Generate an (op_type, attr_type, attrs) tuple for an operator with
         // no attributes.
         macro_rules! op {
@@ -832,11 +832,11 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
         let input_ids: Vec<i32> = inputs
             .iter()
             .map(|&id| match id {
-                Some(id) => id as i32,
+                Some(id) => id.as_u32() as i32,
                 None => -1,
             })
             .collect();
-        let output_ids: Vec<i32> = outputs.iter().map(|&id| id as i32).collect();
+        let output_ids: Vec<i32> = outputs.iter().map(|&id| id.as_u32() as i32).collect();
 
         let input_vec = self.builder.create_vector(&input_ids);
         let output_vec = self.builder.create_vector(&output_ids);
@@ -854,12 +854,12 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
     }
 
     /// Mark a node in the graph as an input.
-    pub fn add_input(&mut self, node_id: u32) {
+    pub fn add_input(&mut self, node_id: NodeId) {
         self.input_ids.push(node_id);
     }
 
     /// Mark a node in the graph as an output.
-    pub fn add_output(&mut self, node_id: u32) {
+    pub fn add_output(&mut self, node_id: NodeId) {
         self.output_ids.push(node_id);
     }
 
@@ -877,8 +877,11 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
 
     /// Finish writing this graph to the FlatBuffers buffer.
     pub fn finish(self) -> WIPOffset<sg::Graph<'a>> {
-        let inputs_vec = self.builder.create_vector(&self.input_ids[..]);
-        let outputs_vec = self.builder.create_vector(&self.output_ids[..]);
+        let input_ids: Vec<_> = self.input_ids.iter().map(|id| id.as_u32()).collect();
+        let output_ids: Vec<_> = self.output_ids.iter().map(|id| id.as_u32()).collect();
+
+        let inputs_vec = self.builder.create_vector(&input_ids);
+        let outputs_vec = self.builder.create_vector(&output_ids);
         let nodes_vec = self.builder.create_vector(&self.nodes[..]);
 
         sg::Graph::create(

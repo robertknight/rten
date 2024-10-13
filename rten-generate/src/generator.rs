@@ -764,8 +764,12 @@ mod tests {
         /// Return a model with a given set of inputs and outputs.
         fn with_inputs_and_outputs(inputs: &[NodeInfo], outputs: &[NodeInfo]) -> FakeModel {
             let node_infos = [inputs, outputs].concat();
-            let input_ids = (0..inputs.len()).collect();
-            let output_ids = (inputs.len()..(inputs.len() + outputs.len())).collect();
+            let input_ids = (0..inputs.len())
+                .map(|id| NodeId::from_u32(id as u32))
+                .collect();
+            let output_ids = (inputs.len()..(inputs.len() + outputs.len()))
+                .map(|id| NodeId::from_u32(id as u32))
+                .collect();
 
             FakeModel {
                 input_ids,
@@ -796,11 +800,14 @@ mod tests {
 
     impl Model for FakeModel {
         fn find_node(&self, name: &str) -> Option<NodeId> {
-            self.nodes.iter().position(|info| info.name() == name)
+            self.nodes
+                .iter()
+                .position(|info| info.name() == name)
+                .map(|pos| NodeId::from_u32(pos as u32))
         }
 
         fn node_info(&self, id: NodeId) -> Option<NodeInfo> {
-            self.nodes.get(id).cloned()
+            self.nodes.get(id.as_u32() as usize).cloned()
         }
 
         fn input_ids(&self) -> &[NodeId] {
