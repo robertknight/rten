@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
+use std::num::NonZero;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -281,8 +282,45 @@ impl Node {
     }
 }
 
-/// ID of a node in a [Model](crate::Model) graph.
-pub type NodeId = usize;
+/// ID of a node in a [`Model`](crate::Model) graph.
+///
+/// This is used to identify input and output values as well as internal nodes.
+///
+/// Node IDs are u32 values <= `i32::MAX`.
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct NodeId(NonZero<u32>);
+
+impl NodeId {
+    /// Return the underlying u32 value of the ID.
+    pub fn as_u32(self) -> u32 {
+        self.0.get() - 1
+    }
+
+    /// Construct a node ID from a u32 value.
+    ///
+    /// Panics if the value exceeds `i32::MAX`.
+    pub fn from_u32(value: u32) -> NodeId {
+        // Node IDs are limited to `i32::MAX` because the `OperatorNode` type
+        // in the FlatBuffers schema represents operator input and output IDs
+        // as `i32`. Negative values are used as a niche to represent missing
+        // optional inputs.
+        assert!(value <= i32::MAX as u32);
+
+        // Valid node IDs are in the range `[0, i32::MAX]`, so we store them as
+        // values in `[1, i32::MAX + 1]` internally and reserve 0 as a niche to
+        // make `Option<NodeId>` the same size as `NodeId`.
+        NodeId(unsafe {
+            // Safety: `value + 1` cannot be zero
+            NonZero::new_unchecked(value + 1)
+        })
+    }
+}
+
+impl std::fmt::Display for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_u32().fmt(f)
+    }
+}
 
 /// Reasons why a graph execution failed
 #[derive(Eq, PartialEq, Debug)]
@@ -368,14 +406,14 @@ impl NodeRefCount {
     /// Increment ref count of node. If the refcount reaches `u8::MAX` it
     /// will become "sticky" and never decrement.
     fn inc(&mut self, id: NodeId) {
-        let rc = &mut self.rc[id];
+        let rc = &mut self.rc[id.as_u32() as usize];
         *rc = rc.saturating_add(1);
     }
 
     /// Decrement ref count of node and return new count, or `None` if the
     /// ref count was already zero.
     fn dec(&mut self, id: NodeId) -> Option<usize> {
-        let rc = &mut self.rc[id];
+        let rc = &mut self.rc[id.as_u32() as usize];
 
         // If the refcount reaches the max value, it becomes sticky.
         if *rc == u8::MAX {
@@ -389,7 +427,7 @@ impl NodeRefCount {
     }
 
     fn count(&self, id: NodeId) -> usize {
-        self.rc[id] as usize
+        self.rc[id.as_u32() as usize] as usize
     }
 }
 
@@ -674,10 +712,10 @@ impl Graph {
     }
 
     pub fn add_node(&mut self, node: Node) -> NodeId {
+        let node_id = NodeId::from_u32(self.nodes.len() as u32);
         self.nodes.push(node);
-        let node_id = self.nodes.len() - 1;
 
-        if let Some(name) = self.nodes[node_id].name() {
+        if let Some(name) = self.nodes[node_id.as_u32() as usize].name() {
             self.node_id_from_name.insert(name.to_string(), node_id);
         }
 
@@ -775,7 +813,10 @@ impl Graph {
 
     /// Return an iterator over nodes in the graph.
     pub fn iter(&self) -> impl Iterator<Item = (NodeId, &Node)> {
-        self.nodes.iter().enumerate()
+        self.nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| (NodeId::from_u32(i as u32), node))
     }
 
     /// Return the debug name for a node.
@@ -788,7 +829,7 @@ impl Graph {
 
     /// Retrieve a node by ID
     pub fn get_node(&self, id: NodeId) -> Option<&Node> {
-        self.nodes.get(id)
+        self.nodes.get(id.as_u32() as usize)
     }
 
     /// Look up a node ID given its unique name
@@ -808,7 +849,7 @@ impl Graph {
 
     /// Retrieve a node by ID
     pub fn get_node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
-        self.nodes.get_mut(id)
+        self.nodes.get_mut(id.as_u32() as usize)
     }
 
     /// Return the total number of parameters in all constant nodes in this
@@ -928,7 +969,7 @@ impl Graph {
 
         let inputs_by_id: FxHashMap<NodeId, InputOrOutput> = inputs.iter().cloned().collect();
         let get_value_from_constant_or_input = |node_id: NodeId| -> Option<Input> {
-            match self.nodes.get(node_id) {
+            match self.nodes.get(node_id.as_u32() as usize) {
                 Some(Node::Constant(constant)) => Some(constant.as_input()),
                 Some(Node::Value(_)) => inputs_by_id.get(&node_id).map(|input| input.as_input()),
                 _ => {
@@ -938,7 +979,10 @@ impl Graph {
         };
 
         let get_value_from_capture = |node_id: NodeId| -> Option<Input> {
-            let name = self.nodes.get(node_id).and_then(|n| n.name())?;
+            let name = self
+                .nodes
+                .get(node_id.as_u32() as usize)
+                .and_then(|n| n.name())?;
             captures.as_ref().and_then(|cap| cap.get_input(name))
         };
 
@@ -946,13 +990,13 @@ impl Graph {
         // when no longer needed.
         let mut temp_value_refcount = NodeRefCount::with_capacity(self.nodes.len());
         for &op_node_id in plan.iter() {
-            let Some(Node::Operator(op_node)) = self.nodes.get(op_node_id) else {
+            let Some(Node::Operator(op_node)) = self.nodes.get(op_node_id.as_u32() as usize) else {
                 return Err(RunError::PlanningError(
                     "operator node not found".to_string(),
                 ));
             };
             for node_id in self.operator_dependencies(op_node) {
-                if let Some(Node::Value(_)) = self.nodes.get(node_id) {
+                if let Some(Node::Value(_)) = self.nodes.get(node_id.as_u32() as usize) {
                     temp_value_refcount.inc(node_id);
                 }
             }
@@ -984,7 +1028,7 @@ impl Graph {
         let mut op_start = Instant::now();
 
         for (step, &op_node_id) in plan.iter().enumerate() {
-            let Some(Node::Operator(op_node)) = self.nodes.get(op_node_id) else {
+            let Some(Node::Operator(op_node)) = self.nodes.get(op_node_id.as_u32() as usize) else {
                 return Err(RunError::PlanningError(
                     "operator node not found".to_string(),
                 ));
@@ -1305,7 +1349,7 @@ impl Graph {
         // Walk forwards through the plan and prune away steps that cannot be
         // computed due to missing inputs.
         for &node_id in plan {
-            let Some(Node::Operator(op_node)) = self.nodes.get(node_id) else {
+            let Some(Node::Operator(op_node)) = self.nodes.get(node_id.as_u32() as usize) else {
                 continue;
             };
 
@@ -1354,12 +1398,11 @@ impl Graph {
         inputs: I,
         include_captures: bool,
     ) -> FxHashSet<NodeId> {
-        let mut resolved: FxHashSet<NodeId> =
-            inputs
-                .chain(self.nodes.iter().enumerate().filter_map(|(node_id, node)| {
-                    matches!(node, Node::Constant(_)).then_some(node_id)
-                }))
-                .collect();
+        let mut resolved: FxHashSet<NodeId> = inputs
+            .chain(self.nodes.iter().enumerate().filter_map(|(node_id, node)| {
+                matches!(node, Node::Constant(_)).then_some(NodeId::from_u32(node_id as u32))
+            }))
+            .collect();
 
         if include_captures {
             resolved.extend(self.captures().iter().copied());
@@ -1514,7 +1557,7 @@ mod tests {
     use smallvec::{smallvec, SmallVec};
 
     use super::{CachedPlan, CaptureEnv};
-    use crate::graph::{Dimension, Graph, Node, RunError, RunOptions, TypedConstant};
+    use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TypedConstant};
     use crate::ops::{
         Add, Concat, Conv, Identity, If, InputList, IntoOpResult, Mul, OpError, Operator, Output,
         OutputList, Relu, Shape,
@@ -1943,7 +1986,7 @@ mod tests {
     #[test]
     fn test_err_if_invalid_output() {
         let g = Graph::new();
-        let result = g.run(vec![], &[123], None);
+        let result = g.run(vec![], &[NodeId::from_u32(123)], None);
         assert_eq!(
             result.err(),
             Some(RunError::PlanningError("Missing output 123".to_string()))
@@ -1953,7 +1996,7 @@ mod tests {
     #[test]
     fn test_err_if_missing_operator_input() {
         let mut g = Graph::new();
-        let (_, output) = g.add_simple_op("op", Relu {}, &[42]);
+        let (_, output) = g.add_simple_op("op", Relu {}, &[NodeId::from_u32(42)]);
         let result = g.run(vec![], &[output], None);
         assert_eq!(
             result.err(),
@@ -2268,21 +2311,27 @@ mod tests {
 
     #[test]
     fn test_cached_plan_matches() {
-        let input_ids = &[3, 1, 2];
-        let output_ids = &[6, 4, 5];
-        let op_ids = &[10, 11, 12];
+        let input_ids = &[3, 1, 2].map(NodeId::from_u32);
+        let output_ids = &[6, 4, 5].map(NodeId::from_u32);
+        let op_ids = &[10, 11, 12].map(NodeId::from_u32);
 
         let plan = CachedPlan::new(input_ids, output_ids, op_ids.to_vec());
 
         assert!(plan.matches(input_ids, output_ids));
 
         // Same input and output IDs, different orders.
-        assert!(plan.matches(&[1, 2, 3], &[4, 5, 6]));
-        assert!(plan.matches(&[3, 2, 1], &[6, 5, 4]));
+        assert!(plan.matches(
+            &[1, 2, 3].map(NodeId::from_u32),
+            &[4, 5, 6].map(NodeId::from_u32)
+        ));
+        assert!(plan.matches(
+            &[3, 2, 1].map(NodeId::from_u32),
+            &[6, 5, 4].map(NodeId::from_u32)
+        ));
 
         // Different input and output IDs
-        assert!(!plan.matches(&[20, 21, 22], output_ids));
-        assert!(!plan.matches(input_ids, &[20, 21, 22]));
+        assert!(!plan.matches(&[20, 21, 22].map(NodeId::from_u32), output_ids));
+        assert!(!plan.matches(input_ids, &[20, 21, 22].map(NodeId::from_u32)));
     }
 
     /// A trivial control flow operator which just forwards inputs to a subgraph
