@@ -178,6 +178,51 @@ pub enum DataType {
     UInt8,
 }
 
+/// Generate the body of a [`Layout`] impl for a type which wraps an
+/// underlying layout.
+macro_rules! impl_proxy_layout {
+    () => {
+        type Index<'b> = <DynLayout as Layout>::Index<'b>;
+        type Indices = <DynLayout as Layout>::Indices;
+
+        fn ndim(&self) -> usize {
+            self.layout().ndim()
+        }
+
+        fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+            self.layout().try_offset(index)
+        }
+
+        fn len(&self) -> usize {
+            self.layout().len()
+        }
+
+        fn is_empty(&self) -> bool {
+            self.layout().is_empty()
+        }
+
+        fn shape(&self) -> Self::Index<'_> {
+            self.layout().shape()
+        }
+
+        fn size(&self, dim: usize) -> usize {
+            self.layout().size(dim)
+        }
+
+        fn strides(&self) -> Self::Index<'_> {
+            self.layout().strides()
+        }
+
+        fn stride(&self, dim: usize) -> usize {
+            self.layout().stride(dim)
+        }
+
+        fn indices(&self) -> Self::Indices {
+            self.layout().indices()
+        }
+    };
+}
+
 /// Enum of the different types of tensor view that can be used as a model or
 /// operator input.
 #[derive(Clone)]
@@ -209,44 +254,7 @@ impl<'a> Input<'a> {
 }
 
 impl<'a> Layout for Input<'a> {
-    type Index<'b> = <DynLayout as Layout>::Index<'b>;
-    type Indices = <DynLayout as Layout>::Indices;
-
-    fn ndim(&self) -> usize {
-        self.layout().ndim()
-    }
-
-    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
-        self.layout().try_offset(index)
-    }
-
-    fn len(&self) -> usize {
-        self.layout().len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.layout().is_empty()
-    }
-
-    fn shape(&self) -> Self::Index<'_> {
-        self.layout().shape()
-    }
-
-    fn size(&self, dim: usize) -> usize {
-        self.layout().size(dim)
-    }
-
-    fn strides(&self) -> Self::Index<'_> {
-        self.layout().strides()
-    }
-
-    fn stride(&self, dim: usize) -> usize {
-        self.layout().stride(dim)
-    }
-
-    fn indices(&self) -> Self::Indices {
-        self.layout().indices()
-    }
+    impl_proxy_layout!();
 }
 
 macro_rules! impl_input_conversions {
@@ -372,44 +380,7 @@ impl Output {
 }
 
 impl Layout for Output {
-    type Index<'a> = <DynLayout as Layout>::Index<'a>;
-    type Indices = <DynLayout as Layout>::Indices;
-
-    fn ndim(&self) -> usize {
-        self.layout().ndim()
-    }
-
-    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
-        self.layout().try_offset(index)
-    }
-
-    fn len(&self) -> usize {
-        self.layout().len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.layout().is_empty()
-    }
-
-    fn shape(&self) -> Self::Index<'_> {
-        self.layout().shape()
-    }
-
-    fn size(&self, dim: usize) -> usize {
-        self.layout().size(dim)
-    }
-
-    fn strides(&self) -> Self::Index<'_> {
-        self.layout().strides()
-    }
-
-    fn stride(&self, dim: usize) -> usize {
-        self.layout().stride(dim)
-    }
-
-    fn indices(&self) -> Self::Indices {
-        self.layout().indices()
-    }
+    impl_proxy_layout!();
 }
 
 /// Declare conversions between `Output` and `Tensor<T>` / `NdTensor<T, N>`.
@@ -558,44 +529,7 @@ impl<'a> From<&'a Output> for InputOrOutput<'a> {
 }
 
 impl<'a> Layout for InputOrOutput<'a> {
-    type Index<'b> = <DynLayout as Layout>::Index<'b>;
-    type Indices = <DynLayout as Layout>::Indices;
-
-    fn ndim(&self) -> usize {
-        self.layout().ndim()
-    }
-
-    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
-        self.layout().try_offset(index)
-    }
-
-    fn len(&self) -> usize {
-        self.layout().len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.layout().is_empty()
-    }
-
-    fn shape(&self) -> Self::Index<'_> {
-        self.layout().shape()
-    }
-
-    fn size(&self, dim: usize) -> usize {
-        self.layout().size(dim)
-    }
-
-    fn strides(&self) -> Self::Index<'_> {
-        self.layout().strides()
-    }
-
-    fn stride(&self, dim: usize) -> usize {
-        self.layout().stride(dim)
-    }
-
-    fn indices(&self) -> Self::Indices {
-        self.layout().indices()
-    }
+    impl_proxy_layout!();
 }
 
 /// Trait for values that can be converted into the result type used by
