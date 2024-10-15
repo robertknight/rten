@@ -897,7 +897,7 @@ mod tests {
     fn check_output(mut result: Vec<Output>) -> Tensor<f32> {
         assert_eq!(result.len(), 1);
 
-        let tensor: Tensor<f32> = result.remove(0).into_float().unwrap();
+        let tensor: Tensor<f32> = result.remove(0).into_tensor::<f32>().unwrap();
         assert_eq!(tensor.shape(), &[2, 2, 2]);
         assert_eq!(tensor.to_vec(), &[0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
 

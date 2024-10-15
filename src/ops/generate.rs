@@ -184,7 +184,7 @@ mod tests {
             .run(&pool, (&shape).into())
             .unwrap()
             .remove(0)
-            .into_int()
+            .into_tensor::<i32>()
             .unwrap();
 
         assert_eq!(result.shape(), &[1, 5, 10]);

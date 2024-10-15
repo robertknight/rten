@@ -818,8 +818,7 @@ mod tests {
             let result = op.run(&pool, InputList::from_optional(&inputs));
             match (case.expected, result) {
                 (CaseOutput::Shape(shape), Ok(out)) => {
-                    let tensor = out[0].as_float_ref().unwrap();
-                    assert_eq!(tensor.shape(), &shape);
+                    assert_eq!(out[0].shape(), &shape);
                 }
                 (CaseOutput::Error(expected_err), Err(err)) => {
                     assert_eq!(err, expected_err);

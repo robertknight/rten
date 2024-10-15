@@ -795,7 +795,9 @@ impl Operator for Pow {
         input: Output,
         other: InputList,
     ) -> Result<Output, OpError> {
-        let mut a = input.into_float().ok_or(OpError::IncorrectInputType)?;
+        let mut a = input
+            .into_tensor::<f32>()
+            .ok_or(OpError::IncorrectInputType)?;
         let b = other.require_as(0)?;
 
         if can_run_binary_op_in_place(&a, &b) {
@@ -1151,7 +1153,7 @@ mod tests {
         let result = op
             .run_in_place(&pool, Output::FloatTensor(a_copy), (&b).into())
             .unwrap();
-        expect_equal(result.as_float_ref().unwrap(), &expected)?;
+        expect_equal(&result.as_tensor_view().unwrap(), &expected.view())?;
 
         // Run `Add` operator in-place with inputs that don't support in-place
         // addition. The operator should fall back to creating a new output tensor.
@@ -1160,7 +1162,7 @@ mod tests {
         let result = op
             .run_in_place(&pool, Output::FloatTensor(scalar), (&b).into())
             .unwrap();
-        expect_equal(result.as_float_ref().unwrap(), &expected)?;
+        expect_equal(&result.as_tensor_view().unwrap(), &expected.view())?;
 
         // In-place addition where the second input must be broadcast to the
         // shape of the first.
