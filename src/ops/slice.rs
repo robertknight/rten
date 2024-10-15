@@ -4,9 +4,9 @@ use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::ops::{
-    resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+    resolve_axis, static_dims, Input, InputList, IntoOpResult, OpError, Operator, Output,
+    OutputList,
 };
-use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
 /// Compute the effective starts, ends and steps for each input dimension in

@@ -5,8 +5,7 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, TensorViewMut};
 
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
-use crate::static_dims;
+use crate::ops::{static_dims, InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
 use crate::tensor_pool::TensorPool;
 
 /// Calculate the output size and padding for a convolution or pooling operation.

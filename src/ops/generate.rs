@@ -4,10 +4,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::ops::{
-    resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
-    Scalar,
+    resolve_axis, resolve_index, static_dims, Input, InputList, IntoOpResult, OpError, Operator,
+    OutputList, Scalar,
 };
-use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
 pub fn constant_of_shape<T: Copy>(

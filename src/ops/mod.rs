@@ -706,71 +706,12 @@ impl Display for OpError {
 
 impl Error for OpError {}
 
-/// Check that a tensor has an expected number of dimensions, or return an
-/// `OpError::InvalidValue`.
+/// Convert a tensor with dynamic dimension count to a view with a static
+/// dimension count.
 ///
-/// Can be used with `check_dims!(input, expected_rank)` if `input` is a
-/// `Tensor<T>` or `check_dims!(input?, expected_rank)` if `input` is an
-/// `Option<Tensor<T>>`.
-///
-/// If `$ndim` is a literal, the macro returns an array of `$ndim` sizes for
-/// each dimension. This conveniently allows checking the rank of a tensor
-/// and extracting the sizes of dimension in one call. For example:
-/// `let [rows, cols] = check_dims!(matrix, 2)`. When `$ndim` is a literal,
-/// a third argument can also be passed to specify the names of the dimensions,
-/// eg. "NCHW" or "dir, batch, seq". This can produce more helpful errors if
-/// the input does not match the expected shape.
-#[doc(hidden)]
-#[macro_export]
-macro_rules! check_dims {
-    ($tensor:ident, $ndim:literal, $dim_names:literal) => {{
-        let shape: [usize; $ndim] = $tensor.shape().try_into().map_err(|_| {
-            OpError::InvalidValue(concat!(
-                stringify!($tensor),
-                " must have ",
-                stringify!($ndim),
-                " dims (",
-                $dim_names,
-                ")"
-            ))
-        })?;
-        shape
-    }};
-
-    ($tensor:ident, $ndim:literal) => {{
-        let shape: [usize; $ndim] = $tensor.shape().try_into().map_err(|_| {
-            OpError::InvalidValue(concat!(
-                stringify!($tensor),
-                " must have ",
-                stringify!($ndim),
-                " dims"
-            ))
-        })?;
-        shape
-    }};
-
-    ($tensor:ident, $ndim:expr) => {
-        if $tensor.ndim() != $ndim {
-            return Err(OpError::InvalidValue(concat!(
-                stringify!($tensor),
-                " must have ",
-                stringify!($ndim),
-                " dims"
-            )));
-        }
-    };
-
-    ($tensor:ident?, $ndim: expr) => {
-        if let Some($tensor) = $tensor.as_ref() {
-            check_dims!($tensor, $ndim);
-        }
-    };
-}
-
-/// Convert a tensor with dynamic dimension count to an `NdTensorView`, or
-/// return an `OpError::InvalidValue` if the dimension count is incorrect.
-#[doc(hidden)]
-#[macro_export]
+/// If the conversion fails an `OpError::InvalidValue` error will be returned
+/// with a message that includes the name of the tensor and, optionally, the
+/// names of the expected dimensions (eg. "NCHW").
 macro_rules! static_dims {
     ($tensor:ident, $ndim:literal, $dim_names:literal) => {{
         use rten_tensor::prelude::*;
@@ -803,7 +744,17 @@ macro_rules! static_dims {
             Ok($tensor.nd_view::<$ndim>())
         }
     }};
+
+    ($tensor:ident?, $ndim: expr) => {
+        if let Some($tensor) = $tensor.as_ref() {
+            Some(static_dims!($tensor, $ndim))
+        } else {
+            None
+        }
+    };
 }
+
+pub(crate) use static_dims;
 
 /// Outputs from an operator.
 ///
