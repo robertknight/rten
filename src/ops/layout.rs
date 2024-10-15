@@ -870,7 +870,7 @@ mod tests {
             .run(&pool, (&input, &shape).into())
             .unwrap()
             .remove(0)
-            .into_float()
+            .into_tensor::<f32>()
             .unwrap();
 
         expect_equal(&result, &expected)?;
@@ -889,7 +889,7 @@ mod tests {
             .run(&pool, (&input).into())
             .unwrap()
             .remove(0)
-            .into_int()
+            .into_tensor::<i32>()
             .unwrap();
         assert_eq!(result.shape(), &[4]);
         assert_eq!(result.to_vec(), &[1, 1, 2, 2]);
@@ -900,7 +900,7 @@ mod tests {
             .run(&pool, (&input).into())
             .unwrap()
             .remove(0)
-            .into_int()
+            .into_tensor::<i32>()
             .unwrap();
         assert_eq!(result.shape(), &[4]);
         assert_eq!(result.to_vec(), &[1, 1, 2, 2]);
@@ -915,7 +915,7 @@ mod tests {
             .run(&pool, (&input).into())
             .unwrap()
             .remove(0)
-            .into_int()
+            .into_tensor::<i32>()
             .unwrap();
         assert_eq!(result.ndim(), 0);
         assert_eq!(result.item(), Some(&4));

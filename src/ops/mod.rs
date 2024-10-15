@@ -340,36 +340,25 @@ impl Output {
         };
     }
 
-    pub fn into_int(self) -> Option<Tensor<i32>> {
-        if let Output::Int32Tensor(t) = self {
-            Some(t)
-        } else {
-            None
-        }
+    /// Convert this output into a tensor with a given element type.
+    ///
+    /// Returns `None` if the element type does not match `T`.
+    pub fn into_tensor<T>(self) -> Option<Tensor<T>>
+    where
+        Tensor<T>: TryFrom<Self>,
+    {
+        self.try_into().ok()
     }
 
-    pub fn as_int_ref(&self) -> Option<&Tensor<i32>> {
-        if let Output::Int32Tensor(t) = self {
-            Some(t)
-        } else {
-            None
-        }
-    }
-
-    pub fn into_float(self) -> Option<Tensor<f32>> {
-        if let Output::FloatTensor(t) = self {
-            Some(t)
-        } else {
-            None
-        }
-    }
-
-    pub fn as_float_ref(&self) -> Option<&Tensor<f32>> {
-        if let Output::FloatTensor(t) = self {
-            Some(t)
-        } else {
-            None
-        }
+    /// Convert a reference to this output into a tensor view with a given
+    /// element type.
+    ///
+    /// Returns `None` if the element type does not match `T`.
+    pub fn as_tensor_view<'a, T>(&'a self) -> Option<TensorView<'a, T>>
+    where
+        TensorView<'a, T>: TryFrom<&'a Self>,
+    {
+        self.try_into().ok()
     }
 
     fn layout(&self) -> &DynLayout {

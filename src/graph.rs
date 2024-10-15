@@ -1673,7 +1673,12 @@ mod tests {
             ],
         );
         assert_eq!(results.len(), 1);
-        expect_equal_with_tolerance(results[0].as_float_ref().unwrap(), &expected, 1e-4, 0.)?;
+        expect_equal_with_tolerance(
+            &results[0].as_tensor_view().unwrap(),
+            &expected.view(),
+            1e-4,
+            0.,
+        )?;
 
         Ok(())
     }
@@ -1793,13 +1798,13 @@ mod tests {
             .run(vec![(input_id, input.view().into())], &[op_c_out], None)
             .unwrap();
         let expected = Tensor::from_data(&[2], vec![2., 3.]);
-        expect_equal(results[0].as_float_ref().unwrap(), &expected)?;
+        expect_equal(&results[0].as_tensor_view().unwrap(), &expected.view())?;
 
         let results = g
             .run(vec![(input_id, input.into())], &[op_d_out], None)
             .unwrap();
         let expected = Tensor::from_data(&[2], vec![3., 2.]);
-        expect_equal(results[0].as_float_ref().unwrap(), &expected)?;
+        expect_equal(&results[0].as_tensor_view().unwrap(), &expected.view())?;
 
         Ok(())
     }
@@ -1818,8 +1823,14 @@ mod tests {
         let results = g
             .run(vec![(input_id, input.into())], &[op_a_out, op_b_out], None)
             .unwrap();
-        assert_eq!(results[0].as_float_ref().unwrap(), &Tensor::from(1.));
-        assert_eq!(results[1].as_float_ref().unwrap(), &Tensor::from(2.));
+        assert_eq!(
+            &results[0].as_tensor_view().unwrap(),
+            &Tensor::from(1.).view()
+        );
+        assert_eq!(
+            &results[1].as_tensor_view().unwrap(),
+            &Tensor::from(2.).view()
+        );
     }
 
     #[test]
@@ -1846,7 +1857,7 @@ mod tests {
             .unwrap();
 
         let expected = Tensor::from_data(&[5], vec![101., 102., 103., 104., 105.]);
-        expect_equal(results[0].as_float_ref().unwrap(), &expected)?;
+        expect_equal(&results[0].as_tensor_view().unwrap(), &expected.view())?;
 
         Ok(())
     }
@@ -1862,7 +1873,7 @@ mod tests {
             .run(vec![(input_id, input.view().into())], &[input_id], None)
             .unwrap();
 
-        expect_equal(results[0].as_float_ref().unwrap(), &input)?;
+        expect_equal(&results[0].as_tensor_view().unwrap(), &input.view())?;
 
         Ok(())
     }
@@ -1876,7 +1887,7 @@ mod tests {
 
         let results = g.run(vec![], &[const_id], None).unwrap();
 
-        expect_equal(results[0].as_float_ref().unwrap(), &value)?;
+        expect_equal(&results[0].as_tensor_view().unwrap(), &value.view())?;
 
         Ok(())
     }
@@ -2031,7 +2042,7 @@ mod tests {
             input: Output,
             _other: InputList,
         ) -> Result<Output, OpError> {
-            let mut output = input.into_float().unwrap();
+            let mut output = input.into_tensor::<f32>().unwrap();
             for x in output.iter_mut() {
                 *x = *x + 1.0;
             }
@@ -2055,14 +2066,14 @@ mod tests {
         let results = g
             .run(vec![(input_id, input.view().into())], &[op1_out], None)
             .unwrap();
-        assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 0.0);
+        assert_eq!(results[0].as_tensor_view::<f32>().unwrap()[[0, 0]], 0.0);
 
         // Second operator should be run in-place, as it meets all the
         // requirements for this optimization.
         let results = g
             .run(vec![(input_id, input.view().into())], &[op2_out], None)
             .unwrap();
-        assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
+        assert_eq!(results[0].as_tensor_view::<f32>().unwrap()[[0, 0]], 1.0);
 
         // Third op should not be run in place, because its input is re-used
         // for fourth op. Fourth op can run in place as by then, it is the
@@ -2074,8 +2085,8 @@ mod tests {
                 None,
             )
             .unwrap();
-        assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
-        assert_eq!(results[1].as_float_ref().unwrap()[[0, 0]], 2.0);
+        assert_eq!(results[0].as_tensor_view::<f32>().unwrap()[[0, 0]], 1.0);
+        assert_eq!(results[1].as_tensor_view::<f32>().unwrap()[[0, 0]], 2.0);
     }
 
     // Test that the graph executor will swap inputs to commutative ops if
@@ -2117,7 +2128,7 @@ mod tests {
         // Bias value should be added twice to every input.
         assert_eq!(
             results[0]
-                .as_float_ref()
+                .as_tensor_view::<f32>()
                 .unwrap()
                 .iter()
                 .copied()
@@ -2199,8 +2210,8 @@ mod tests {
         assert_eq!(*run_count.lock().unwrap(), 1);
 
         assert_eq!(results.len(), 2);
-        let left_split = results.remove(0).into_float().unwrap();
-        let right_split = results.remove(0).into_float().unwrap();
+        let left_split = results.remove(0).into_tensor::<f32>().unwrap();
+        let right_split = results.remove(0).into_tensor::<f32>().unwrap();
         assert_eq!(left_split.to_vec(), &[1.0, 2.0]);
         assert_eq!(right_split.to_vec(), &[3.0, 4.0, 5.0]);
     }

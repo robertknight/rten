@@ -842,7 +842,7 @@ mod tests {
             .run(&pool, (&input, &kernel).into())
             .unwrap()
             .remove(0)
-            .into_float()
+            .into_tensor::<f32>()
             .unwrap();
         let reference_result = reference_conv(
             input.view(),

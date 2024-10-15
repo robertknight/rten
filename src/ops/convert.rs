@@ -80,7 +80,7 @@ mod tests {
             .run(&pool, (&int_input).into())
             .unwrap()
             .remove(0)
-            .into_int()
+            .into_tensor::<i32>()
             .unwrap();
 
         // Flooring cast from float => int32
@@ -89,7 +89,7 @@ mod tests {
             .run(&pool, (&float_input).into())
             .unwrap()
             .remove(0)
-            .into_int()
+            .into_tensor::<i32>()
             .unwrap();
         assert_eq!(&result, &int_input);
 
@@ -101,7 +101,7 @@ mod tests {
             .run(&pool, (&float_input).into())
             .unwrap()
             .remove(0)
-            .into_float()
+            .into_tensor::<f32>()
             .unwrap();
         expect_equal(&result, &float_input)?;
 
@@ -110,7 +110,7 @@ mod tests {
             .run(&pool, (&int_input).into())
             .unwrap()
             .remove(0)
-            .into_float()
+            .into_tensor::<f32>()
             .unwrap();
         expect_equal(&result, &float_input)?;
 
@@ -131,7 +131,7 @@ mod tests {
             .run(&pool, (&int_input).into())
             .unwrap()
             .remove(0)
-            .into_float()
+            .into_tensor::<f32>()
             .unwrap();
         expect_equal(&result, &Tensor::from([-2147483600.0, 2147483600.0]))?;
 
@@ -144,7 +144,7 @@ mod tests {
             .run(&pool, (&float_input).into())
             .unwrap()
             .remove(0)
-            .into_int()
+            .into_tensor::<i32>()
             .unwrap();
         assert_eq!(&result, &Tensor::from([i32::MIN, i32::MAX]));
 

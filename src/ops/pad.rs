@@ -417,7 +417,7 @@ mod tests {
             .run(&pool, (&input, &pads).into())
             .unwrap()
             .remove(0)
-            .into_float()
+            .into_tensor::<f32>()
             .unwrap();
         expect_equal(&result, &expected)?;
 

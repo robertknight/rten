@@ -108,7 +108,9 @@ impl Operator for BatchNormalization {
         input: Output,
         other: InputList,
     ) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
+        let mut output = input
+            .into_tensor::<f32>()
+            .ok_or(OpError::IncorrectInputType)?;
         let scale = other.require_as(0)?;
         let scale = static_dims!(scale, 1)?;
 
@@ -228,7 +230,9 @@ impl Operator for InstanceNormalization {
         output: Output,
         inputs: InputList,
     ) -> Result<Output, OpError> {
-        let mut output = output.into_float().ok_or(OpError::IncorrectInputType)?;
+        let mut output = output
+            .into_tensor::<f32>()
+            .ok_or(OpError::IncorrectInputType)?;
 
         let scale = inputs.require_as(0)?;
         let scale = static_dims!(scale, 1)?;
@@ -433,7 +437,9 @@ impl Operator for LogSoftmax {
         input: Output,
         _other: InputList,
     ) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
+        let mut output = input
+            .into_tensor::<f32>()
+            .ok_or(OpError::IncorrectInputType)?;
         log_softmax_in_place(&mut output, self.axis)?;
         Ok(output.into())
     }
@@ -475,7 +481,9 @@ impl Operator for Softmax {
         input: Output,
         _other: InputList,
     ) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
+        let mut output = input
+            .into_tensor::<f32>()
+            .ok_or(OpError::IncorrectInputType)?;
         softmax_in_place(&mut output, self.axis)?;
         Ok(output.into())
     }

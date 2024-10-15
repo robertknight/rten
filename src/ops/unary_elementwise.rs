@@ -56,7 +56,9 @@ impl<Op: Any + Debug + UnaryFloatOp> Operator for Op {
         input: Output,
         _: InputList,
     ) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
+        let mut output = input
+            .into_tensor::<f32>()
+            .ok_or(OpError::IncorrectInputType)?;
         self.apply(output.view_mut());
         Ok(output.into())
     }
@@ -214,7 +216,9 @@ macro_rules! parallel_unary_float_op {
                 input: Output,
                 _: InputList,
             ) -> Result<Output, OpError> {
-                let mut tensor = input.into_float().ok_or(OpError::IncorrectInputType)?;
+                let mut tensor = input
+                    .into_tensor::<f32>()
+                    .ok_or(OpError::IncorrectInputType)?;
                 $in_place_func_name(tensor.view_mut());
                 Ok(tensor.into())
             }
@@ -564,7 +568,9 @@ impl Operator for Not {
         input: Output,
         _: InputList,
     ) -> Result<Output, OpError> {
-        let mut output = input.into_int().ok_or(OpError::IncorrectInputType)?;
+        let mut output = input
+            .into_tensor::<i32>()
+            .ok_or(OpError::IncorrectInputType)?;
         not_in_place(output.view_mut());
         Ok(output.into())
     }
