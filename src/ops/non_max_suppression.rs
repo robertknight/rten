@@ -1,8 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList};
-use crate::static_dims;
+use crate::ops::{static_dims, InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
 
 #[derive(Copy, Clone, Debug, PartialEq)]

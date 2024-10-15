@@ -6,10 +6,9 @@ use rten_tensor::{NdTensor, Tensor, TensorView};
 
 use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::{
-    add_in_place, mul_in_place, sigmoid, tanh, InputList, IntoOpResult, OpError, Operator,
-    OutputList,
+    add_in_place, mul_in_place, sigmoid, static_dims, tanh, InputList, IntoOpResult, OpError,
+    Operator, OutputList,
 };
-use crate::static_dims;
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Direction that an RNN operator will traverse the input sequence in.

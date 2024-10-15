@@ -7,10 +7,9 @@ use smallvec::SmallVec;
 
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{
-    resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
-    OutputList,
+    resolve_axes, resolve_axis, static_dims, Input, InputList, IntoOpResult, OpError, Operator,
+    Output, OutputList,
 };
-use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
 /// Return the tensor shape resulting from broadcasting `input_shape` with `shape`.

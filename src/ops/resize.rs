@@ -6,9 +6,8 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::iter_util::range_chunks;
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, OutputList};
+use crate::ops::{static_dims, Input, InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
-use crate::{check_dims, static_dims};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
@@ -226,7 +225,7 @@ fn bilinear_resize(
 ///
 /// This is a simplified API for [resize].
 pub fn resize_image(input: TensorView, size: [usize; 2]) -> Result<Tensor, OpError> {
-    let [batch, chans, _height, _width] = check_dims!(input, 4);
+    let [batch, chans, _height, _width] = static_dims!(input, 4)?.shape();
     let [out_height, out_width] = size;
     let out_shape = [batch, chans, out_height, out_width].map(|x| x as i32);
     resize(

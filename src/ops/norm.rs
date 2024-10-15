@@ -6,10 +6,9 @@ use rten_vecmath::vec_softmax_in_place;
 use smallvec::SmallVec;
 
 use crate::ops::reduce::reduce_inverse_rms;
-use crate::ops::{add_in_place, mul_in_place, reduce_mean, sub};
+use crate::ops::{add_in_place, mul_in_place, reduce_mean, static_dims, sub};
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::slice_reductions::{slice_max, slice_sum};
-use crate::static_dims;
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Perform in-place batch normalization on the `NC*` tensor `out`.

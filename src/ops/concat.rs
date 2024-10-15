@@ -5,10 +5,10 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
+use crate::ops::static_dims;
 use crate::ops::{
     resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
 };
-use crate::static_dims;
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Return the shape formed by concatenating all tensors along a given axis.

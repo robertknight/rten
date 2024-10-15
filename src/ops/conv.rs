@@ -8,9 +8,8 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::gemm::{GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, VirtualMatrix};
 use crate::ops::pooling::calc_output_size_and_padding;
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
+use crate::ops::{static_dims, InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
 use crate::tensor_pool::{AutoReturn, TensorPool};
-use crate::{check_dims, static_dims};
 
 mod depthwise;
 mod im2col;
@@ -105,7 +104,7 @@ where
     // Handle 1D convolution by expanding to 2D and then removing the extra
     // dimension from the result.
     if let &[_n, _c, _w] = input.shape() {
-        let [_out_c, _k_in_c, _k_w] = check_dims!(kernel, 3, "OCW");
+        let [_out_c, _k_in_c, _k_w] = static_dims!(kernel, 3, "OCW")?.shape();
 
         let mut input_2d = input.clone();
         input_2d.insert_axis(2);
@@ -152,7 +151,7 @@ where
 
     let kernel = static_dims!(kernel, 4, "OCHW")?;
     let [out_c, k_in_c, k_h, k_w] = kernel.shape();
-    check_dims!(bias?, 1);
+    static_dims!(bias?, 1).transpose()?;
 
     let input = input.view();
     let kernel = kernel.view();
@@ -469,7 +468,7 @@ pub fn conv_transpose(
     // Handle 1D transposed convolution by expanding to 2D and then removing
     // the extra dimension from the result.
     if let &[n, c, w] = input.shape() {
-        let [out_c, k_in_c, k_w] = check_dims!(kernel, 3, "OCW");
+        let [out_c, k_in_c, k_w] = static_dims!(kernel, 3, "OCW")?.shape();
 
         let mut input_2d = input.clone();
         input_2d.reshape(&[n, c, 1, w]);
@@ -499,7 +498,7 @@ pub fn conv_transpose(
     let [batch, in_c, in_h, in_w] = input.shape();
     let kernel = static_dims!(kernel, 4, "OCHW")?;
     let [k_in_c, out_c, k_h, k_w] = kernel.shape();
-    check_dims!(bias?, 1);
+    static_dims!(bias?, 1).transpose()?;
 
     let bias = bias.map(|b| b.nd_view());
 

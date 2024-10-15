@@ -3,12 +3,11 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
-use crate::check_dims;
 use crate::gemm::{GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT};
 use crate::iter_util::range_chunks;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList};
+use crate::ops::{static_dims, InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
@@ -30,8 +29,8 @@ pub fn gemm_op<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
 where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
 {
-    check_dims!(a, 2);
-    check_dims!(b, 2);
+    let a = static_dims!(a, 2)?;
+    let b = static_dims!(b, 2)?;
 
     let a = if transpose_a { a.transposed() } else { a };
     let b = if transpose_b { b.transposed() } else { b };
