@@ -422,6 +422,13 @@ macro_rules! impl_output_conversions {
             }
         }
 
+        // NdTensor<T> => Output
+        impl<const N: usize> From<NdTensor<$element_type, N>> for Output {
+            fn from(t: NdTensor<$element_type, N>) -> Output {
+                Output::$variant(t.into_dyn())
+            }
+        }
+
         // Output => Tensor<T>
         impl TryFrom<Output> for Tensor<$element_type> {
             type Error = OpError;
@@ -599,7 +606,7 @@ impl<'a> Layout for InputOrOutput<'a> {
 }
 
 /// Trait for values that can be converted into the result type used by
-/// `Operator::run`.
+/// [`Operator::run`].
 pub trait IntoOpResult {
     fn into_op_result(self) -> Result<OutputList, OpError>;
 }
@@ -616,9 +623,9 @@ impl IntoOpResult for Output {
     }
 }
 
-impl<T> IntoOpResult for Tensor<T>
+impl<S: Storage, L: MutLayout> IntoOpResult for TensorBase<S, L>
 where
-    Output: From<Tensor<T>>,
+    Output: From<TensorBase<S, L>>,
 {
     fn into_op_result(self) -> Result<OutputList, OpError> {
         let output: Output = self.into();
@@ -626,28 +633,18 @@ where
     }
 }
 
-impl<T, const N: usize> IntoOpResult for NdTensor<T, N>
+impl<S: Storage, L: MutLayout> IntoOpResult for Result<TensorBase<S, L>, OpError>
 where
-    Output: From<Tensor<T>>,
-{
-    fn into_op_result(self) -> Result<OutputList, OpError> {
-        let output: Output = self.into_dyn().into();
-        Ok([output].into())
-    }
-}
-
-impl<T> IntoOpResult for Result<Tensor<T>, OpError>
-where
-    Output: From<Tensor<T>>,
+    Output: From<TensorBase<S, L>>,
 {
     fn into_op_result(self) -> Result<OutputList, OpError> {
         self.map(|tensor| [tensor.into()].into())
     }
 }
 
-impl<T> IntoOpResult for Result<Vec<Tensor<T>>, OpError>
+impl<T> IntoOpResult for Result<Vec<T>, OpError>
 where
-    Output: From<Tensor<T>>,
+    Output: From<T>,
 {
     fn into_op_result(self) -> Result<OutputList, OpError> {
         self.map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
