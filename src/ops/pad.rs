@@ -192,11 +192,18 @@ impl Operator for Pad {
                 let const_val = inputs.get_as_scalar::<i32>(2)?.unwrap_or(0);
                 pad(pool, t, &pads, self.mode, const_val).into_op_result()
             }
+            Input::Int8Tensor(t) => {
+                let const_val = inputs.get_as_scalar::<i8>(2)?.unwrap_or(0);
+                pad(pool, t, &pads, self.mode, const_val).into_op_result()
+            }
+            Input::UInt8Tensor(t) => {
+                let const_val = inputs.get_as_scalar::<u8>(2)?.unwrap_or(0);
+                pad(pool, t, &pads, self.mode, const_val).into_op_result()
+            }
             Input::FloatTensor(t) => {
                 let const_val = inputs.get_as_scalar::<f32>(2)?.unwrap_or(0.);
                 pad(pool, t, &pads, self.mode, const_val).into_op_result()
             }
-            _ => Err(OpError::UnsupportedType),
         }
     }
 }

@@ -112,7 +112,12 @@ impl Operator for Slice {
             Input::Int32Tensor(input) => {
                 slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
             }
-            _ => Err(OpError::UnsupportedType),
+            Input::Int8Tensor(input) => {
+                slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
+            }
+            Input::UInt8Tensor(input) => {
+                slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
+            }
         };
         result.into_op_result()
     }
@@ -168,7 +173,14 @@ impl Operator for Slice {
                 slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
                 Ok(output.into())
             }
-            _ => Err(OpError::UnsupportedType),
+            Output::Int8Tensor(mut output) => {
+                slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
+                Ok(output.into())
+            }
+            Output::UInt8Tensor(mut output) => {
+                slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
+                Ok(output.into())
+            }
         }
     }
 }
