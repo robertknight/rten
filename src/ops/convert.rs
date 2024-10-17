@@ -60,6 +60,8 @@ impl Operator for Cast {
         match (input, self.to) {
             (Output::Int32Tensor(t), DataType::Int32) => Ok(t.into()),
             (Output::FloatTensor(t), DataType::Float) => Ok(t.into()),
+            (Output::Int8Tensor(t), DataType::Int8) => Ok(t.into()),
+            (Output::UInt8Tensor(t), DataType::UInt8) => Ok(t.into()),
             (input, _) => {
                 let converted = cast(pool, input.as_input(), self.to)?;
                 input.add_to_pool(pool);
