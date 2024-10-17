@@ -6,13 +6,13 @@ use crate::tensor_pool::TensorPool;
 fn cast(pool: &TensorPool, input: Input, dtype: DataType) -> Result<Output, OpError> {
     match dtype {
         DataType::Int32 => match input {
-            Input::Int32Tensor(t) => Ok(t.map_in(pool, |x| *x).into()),
+            Input::Int32Tensor(t) => Ok(t.to_tensor_in(pool).into()),
             Input::FloatTensor(t) => Ok(t.map_in(pool, |x| *x as i32).into()),
             Input::Int8Tensor(t) => Ok(t.map_in(pool, |x| *x as i32).into()),
             Input::UInt8Tensor(t) => Ok(t.map_in(pool, |x| *x as i32).into()),
         },
         DataType::Float => match input {
-            Input::FloatTensor(t) => Ok(t.map_in(pool, |x| *x).into()),
+            Input::FloatTensor(t) => Ok(t.to_tensor_in(pool).into()),
             Input::Int32Tensor(t) => Ok(t.map_in(pool, |x| *x as f32).into()),
             Input::Int8Tensor(t) => Ok(t.map_in(pool, |x| *x as f32).into()),
             Input::UInt8Tensor(t) => Ok(t.map_in(pool, |x| *x as f32).into()),
@@ -20,14 +20,14 @@ fn cast(pool: &TensorPool, input: Input, dtype: DataType) -> Result<Output, OpEr
         DataType::Int8 => match input {
             Input::FloatTensor(t) => Ok(t.map_in(pool, |x| *x as i8).into()),
             Input::Int32Tensor(t) => Ok(t.map_in(pool, |x| *x as i8).into()),
-            Input::Int8Tensor(t) => Ok(t.map_in(pool, |x| *x).into()),
+            Input::Int8Tensor(t) => Ok(t.to_tensor_in(pool).into()),
             Input::UInt8Tensor(t) => Ok(t.map_in(pool, |x| *x as i8).into()),
         },
         DataType::UInt8 => match input {
             Input::FloatTensor(t) => Ok(t.map_in(pool, |x| *x as u8).into()),
             Input::Int32Tensor(t) => Ok(t.map_in(pool, |x| *x as u8).into()),
             Input::Int8Tensor(t) => Ok(t.map_in(pool, |x| *x as u8).into()),
-            Input::UInt8Tensor(t) => Ok(t.map_in(pool, |x| *x).into()),
+            Input::UInt8Tensor(t) => Ok(t.to_tensor_in(pool).into()),
         },
     }
 }
