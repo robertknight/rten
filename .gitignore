@@ -12,5 +12,3 @@ dist/
 # Converted rten ML models
 *.rten
 models/
-
-*.DS_Store
