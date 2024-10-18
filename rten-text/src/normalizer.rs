@@ -73,10 +73,10 @@ pub struct Normalizer {
     strip_accents: bool,
 }
 
-/// Configuration for a [Normalizer].
+/// Configuration for a [`Normalizer`].
 #[derive(Clone, Debug, Default)]
 pub struct NormalizerOptions {
-    /// If true, convert all text to lowercase using [char::to_lowercase].
+    /// If true, convert all text to lowercase using [`char::to_lowercase`].
     pub lowercase: bool,
 
     /// Whether to strip accents when tokenizing. An "accent" is defined as

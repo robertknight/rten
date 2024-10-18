@@ -223,7 +223,7 @@ fn bilinear_resize(
 
 /// Resize an NCHW image tensor to a given `[height, width]`.
 ///
-/// This is a simplified API for [resize].
+/// This is a simplified API for [`resize`].
 pub fn resize_image(input: TensorView, size: [usize; 2]) -> Result<Tensor, OpError> {
     let [batch, chans, _height, _width] = static_dims!(input, 4)?.shape();
     let [out_height, out_width] = size;

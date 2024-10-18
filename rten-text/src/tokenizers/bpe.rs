@@ -7,7 +7,7 @@ use fancy_regex::Regex;
 
 use crate::tokenizers::{Encoder, TokenId, TokenizerError};
 
-/// Errors that can occur when building a [Bpe] tokenizer or encoding or
+/// Errors that can occur when building a [`Bpe`] tokenizer or encoding or
 /// decoding text using it.
 #[derive(Debug)]
 pub enum BpeError {
@@ -49,7 +49,7 @@ type Rank = u32;
 /// a character.
 type EncodedByteSlice<'a> = &'a str;
 
-/// Like [EncodedByteSlice], but owned.
+/// Like [`EncodedByteSlice`], but owned.
 type EncodedBytes = String;
 
 /// Return true if `c` is considered a printable character.
@@ -138,7 +138,7 @@ fn bpe_merge(tokens: &mut Vec<Rank>, ranks: &HashMap<(Rank, Rank), Rank>) -> usi
 }
 
 struct BpeBuilder {
-    /// See [ByteLevelBpe::merges].
+    /// See [`ByteLevelBpe::merges`].
     ranks: HashMap<(Rank, Rank), Rank>,
 
     /// Mapping between encoded tokens and their rank in the BPE merge list. In

@@ -25,7 +25,7 @@ pub struct WordPiece {
     max_word_len: usize,
 }
 
-/// Configuration for a [WordPiece] tokenizer.
+/// Configuration for a [`WordPiece`] tokenizer.
 #[derive(Debug, Default, Clone)]
 pub struct WordPieceOptions {
     /// The normalizer that handles Unicode normalization, lower-casing the

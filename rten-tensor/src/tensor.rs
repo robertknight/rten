@@ -28,7 +28,7 @@ use crate::{Alloc, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
 /// The storage can be owned (like a `Vec<T>`), borrowed (like `&[T]`) or
 /// mutably borrowed (like `&mut [T]`). The layout can have a dimension count
 /// that is determined statically (ie. forms part of the tensor's type), see
-/// [NdLayout] or is only known at runtime, see [DynLayout].
+/// [`NdLayout`] or is only known at runtime, see [`DynLayout`].
 pub struct TensorBase<S: Storage, L: MutLayout> {
     data: S,
 
@@ -44,7 +44,7 @@ pub struct TensorBase<S: Storage, L: MutLayout> {
     layout: L,
 }
 
-/// Trait implemented by all variants of [TensorBase], which provides a
+/// Trait implemented by all variants of [`TensorBase`], which provides a
 /// `view` method to get an immutable view of the tensor, plus methods which
 /// forward to such a view.
 ///
@@ -55,7 +55,7 @@ pub struct TensorBase<S: Storage, L: MutLayout> {
 /// `tensor.slice(...).transpose()`) without needing to separate each step
 /// into separate statements.
 ///
-/// This trait is conceptually similar to the way [std::ops::Deref] in the Rust
+/// This trait is conceptually similar to the way [`std::ops::Deref`] in the Rust
 /// standard library allows a `Vec<T>` to have all the methods of an `&[T]`.
 ///
 /// If stable Rust gains support for specialization or a `Deref` trait that can
@@ -75,7 +75,7 @@ pub trait AsView: Layout {
     /// Return the layout of this tensor.
     fn layout(&self) -> &Self::Layout;
 
-    /// Return a view of this tensor using a borrowed [CowData] for storage.
+    /// Return a view of this tensor using a borrowed [`CowData`] for storage.
     ///
     /// Together with [`into_cow`](TensorBase::into_cow), this is useful where
     /// code needs to conditionally copy or create a new tensor, and get either
@@ -451,7 +451,7 @@ pub trait AsView: Layout {
     }
 
     /// Return a view which performs "weak" checking when indexing via
-    /// `view[<index>]`. See [WeaklyCheckedView] for an explanation.
+    /// `view[<index>]`. See [`WeaklyCheckedView`] for an explanation.
     fn weakly_checked_view(&self) -> WeaklyCheckedView<ViewData<Self::Elem>, Self::Layout> {
         self.view().weakly_checked_view()
     }
@@ -502,8 +502,8 @@ impl<S: Storage, L: MutLayout> TensorBase<S, L> {
     /// strides.
     ///
     /// This will fail if the data length is incorrect for the shape and stride
-    /// combination, or if the strides lead to overlap (see [OverlapPolicy]).
-    /// See also [TensorBase::from_slice_with_strides] which is a similar method
+    /// combination, or if the strides lead to overlap (see [`OverlapPolicy`]).
+    /// See also [`TensorBase::from_slice_with_strides`] which is a similar method
     /// for immutable views that does allow overlapping strides.
     pub fn from_data_with_strides<D: IntoStorage<Output = S>>(
         shape: L::Index<'_>,
@@ -732,7 +732,7 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
 
     /// Permute the order of dimensions according to the given order.
     ///
-    /// See [AsView::permuted].
+    /// See [`AsView::permuted`].
     pub fn permuted_mut(&mut self, order: L::Index<'_>) -> TensorBase<ViewMutData<S::Elem>, L> {
         TensorBase {
             layout: self.layout.permuted(order),
@@ -742,7 +742,7 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
 
     /// Change the layout of the tensor without moving any data.
     ///
-    /// See [AsView::reshaped].
+    /// See [`AsView::reshaped`].
     pub fn reshaped_mut<SH: IntoLayout>(
         &mut self,
         shape: SH,
@@ -814,7 +814,7 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
     }
 
     /// Return a mutable view that performs only "weak" checking when indexing,
-    /// this is faster but can hide bugs. See [WeaklyCheckedView].
+    /// this is faster but can hide bugs. See [`WeaklyCheckedView`].
     pub fn weakly_checked_view_mut(&mut self) -> WeaklyCheckedView<ViewMutData<S::Elem>, L> {
         WeaklyCheckedView {
             base: self.view_mut(),
@@ -942,10 +942,10 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         has_capacity.then_some(new_layout)
     }
 
-    /// Convert the storage of this tensor into an owned [CowData].
+    /// Convert the storage of this tensor into an owned [`CowData`].
     ///
     /// This is useful in contexts where code needs to conditionally copy or
-    /// create a new tensor. See [AsView::as_cow].
+    /// create a new tensor. See [`AsView::as_cow`].
     pub fn into_cow(self) -> TensorBase<CowData<'static, T>, L> {
         let TensorBase { data, layout } = self;
         TensorBase {
@@ -956,7 +956,7 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
 
     /// Consume self and return the underlying data as a contiguous tensor.
     ///
-    /// See also [TensorBase::to_vec].
+    /// See also [`TensorBase::to_vec`].
     pub fn into_data(self) -> Vec<T>
     where
         T: Clone,
@@ -995,7 +995,7 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
     ///
     /// Each call to `f` will receive an element index and should return the
     /// corresponding value. If the function does not need this index, use
-    /// [from_simple_fn](TensorBase::from_simple_fn) instead, as it is faster.
+    /// [`from_simple_fn`](TensorBase::from_simple_fn) instead, as it is faster.
     pub fn from_fn<F: FnMut(L::Index<'_>) -> T, Idx>(
         shape: L::Index<'_>,
         mut f: F,
@@ -1104,7 +1104,7 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
     /// Return a new tensor containing uninitialized elements.
     ///
     /// The caller must initialize elements and then call
-    /// [assume_init](TensorBase::assume_init) to convert to an initialized
+    /// [`assume_init`](TensorBase::assume_init) to convert to an initialized
     /// `Tensor<T>`.
     pub fn uninit(shape: L::Index<'_>) -> TensorBase<Vec<MaybeUninit<T>>, L>
     where
@@ -1216,7 +1216,7 @@ where
     /// Convert a tensor of potentially uninitialized elements to one of
     /// initialized elements.
     ///
-    /// See also [MaybeUninit::assume_init].
+    /// See also [`MaybeUninit::assume_init`].
     ///
     /// # Safety
     ///
@@ -1276,7 +1276,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
 
     /// Return a view of this tensor with a dynamic dimension count.
     ///
-    /// See [AsView::as_dyn].
+    /// See [`AsView::as_dyn`].
     pub fn as_dyn(&self) -> TensorBase<ViewData<'a, T>, DynLayout> {
         TensorBase {
             data: self.data,
@@ -1284,9 +1284,9 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         }
     }
 
-    /// Convert the storage of this view to a borrowed [CowData].
+    /// Convert the storage of this view to a borrowed [`CowData`].
     ///
-    /// See [AsView::as_cow].
+    /// See [`AsView::as_cow`].
     pub fn as_cow(&self) -> TensorBase<CowData<'a, T>, L> {
         TensorBase {
             layout: self.layout.clone(),
@@ -1296,7 +1296,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
 
     /// Broadcast this view to another shape.
     ///
-    /// See [AsView::broadcast].
+    /// See [`AsView::broadcast`].
     pub fn broadcast<S: IntoLayout>(&self, shape: S) -> TensorBase<ViewData<'a, T>, S::Layout>
     where
         L: BroadcastLayout<S::Layout>,
@@ -1332,9 +1332,9 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
 
     /// Create a new view with a given shape and data slice, and custom strides.
     ///
-    /// If you do not need to specify custom strides, use [TensorBase::from_data]
-    /// instead. This method is similar to [TensorBase::from_data_with_strides],
-    /// but allows strides that lead to internal overlap (see [OverlapPolicy]).
+    /// If you do not need to specify custom strides, use [`TensorBase::from_data`]
+    /// instead. This method is similar to [`TensorBase::from_data_with_strides`],
+    /// but allows strides that lead to internal overlap (see [`OverlapPolicy`]).
     pub fn from_slice_with_strides(
         shape: L::Index<'_>,
         data: &'a [T],
@@ -1383,14 +1383,14 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
 
     /// Return an iterator over the inner `N` dimensions of this tensor.
     ///
-    /// See [AsView::inner_iter].
+    /// See [`AsView::inner_iter`].
     pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, N> {
         InnerIter::new(self.view())
     }
 
     /// Return an iterator over the inner `n` dimensions of this tensor.
     ///
-    /// See [AsView::inner_iter_dyn].
+    /// See [`AsView::inner_iter_dyn`].
     pub fn inner_iter_dyn(&self, n: usize) -> InnerIterDyn<'a, T, L> {
         InnerIterDyn::new(self.view(), n)
     }
@@ -1409,14 +1409,14 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
 
     /// Return an iterator over elements of this tensor in their logical order.
     ///
-    /// See [AsView::iter].
+    /// See [`AsView::iter`].
     pub fn iter(&self) -> Iter<'a, T> {
         Iter::new(self.view_ref())
     }
 
     /// Return an iterator over 1D slices of this tensor along a given dimension.
     ///
-    /// See [AsView::lanes].
+    /// See [`AsView::lanes`].
     pub fn lanes(&self, dim: usize) -> Lanes<'a, T> {
         Lanes::new(self.view_ref(), dim)
     }
@@ -1434,7 +1434,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
 
     /// Permute the axes of this tensor according to `order`.
     ///
-    /// See [AsView::permuted].
+    /// See [`AsView::permuted`].
     pub fn permuted(&self, order: L::Index<'_>) -> TensorBase<ViewData<'a, T>, L> {
         TensorBase {
             data: self.data,
@@ -1444,7 +1444,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
 
     /// Change the shape of this tensor without copying data.
     ///
-    /// See [AsView::reshaped].
+    /// See [`AsView::reshaped`].
     pub fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<ViewData<'a, T>, S::Layout> {
         TensorBase {
             data: self.data,
@@ -1485,7 +1485,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
 
     /// Remove all size-one dimensions from this tensor.
     ///
-    /// See [AsView::squeezed].
+    /// See [`AsView::squeezed`].
     pub fn squeezed(&self) -> TensorView<'a, T> {
         TensorBase {
             data: self.data.view(),
@@ -1562,7 +1562,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     /// Return the underlying data as a flat slice if the tensor is contiguous,
     /// or a copy of the data as a flat slice otherwise.
     ///
-    /// See [AsView::to_slice].
+    /// See [`AsView::to_slice`].
     pub fn to_slice(&self) -> Cow<'a, [T]>
     where
         T: Clone,
@@ -1572,7 +1572,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
             .unwrap_or_else(|| Cow::Owned(self.to_vec()))
     }
 
-    /// Reverse the order of dimensions in this tensor. See [AsView::transposed].
+    /// Reverse the order of dimensions in this tensor. See [`AsView::transposed`].
     pub fn transposed(&self) -> TensorBase<ViewData<'a, T>, L> {
         TensorBase {
             data: self.data,
@@ -1591,7 +1591,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         })
     }
 
-    /// Return a read-only view of this tensor. See [AsView::view].
+    /// Return a read-only view of this tensor. See [`AsView::view`].
     pub fn view(&self) -> TensorBase<ViewData<'a, T>, L> {
         TensorBase {
             data: self.data,
@@ -1989,7 +1989,7 @@ impl<T, S: StorageMut<Elem = T>, const N: usize> TensorBase<S, NdLayout<N>> {
     /// Store an array of `M` elements into successive entries of a tensor along
     /// the `dim` axis.
     ///
-    /// See [TensorBase::get_array] for more details.
+    /// See [`TensorBase::get_array`] for more details.
     #[inline]
     pub fn set_array<const M: usize>(&mut self, base: [usize; N], dim: usize, values: [T; M])
     where

@@ -46,7 +46,7 @@ pub struct RandomUniformLike {
     pub low: f32,
     pub high: f32,
 
-    /// Random seed. See [RandomUniform::seed].
+    /// Random seed. See [`RandomUniform::seed`].
     pub seed: Option<f32>,
 }
 
@@ -112,7 +112,7 @@ pub struct RandomNormalLike {
     pub mean: f32,
     pub scale: f32,
 
-    /// Random seed. See [RandomUniform::seed].
+    /// Random seed. See [`RandomUniform::seed`].
     pub seed: Option<f32>,
 }
 

@@ -15,7 +15,7 @@ use crate::threading::thread_pool;
 /// Trait which exposes ONNX operators as methods of tensors.
 ///
 /// This trait provides methods which are available on all tensor types. See
-/// [FloatOperators] for additional operators which are only available on float
+/// [`FloatOperators`] for additional operators which are only available on float
 /// tensors.
 pub trait Operators {
     type Elem;

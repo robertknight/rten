@@ -163,7 +163,7 @@ impl Padding {
     }
 }
 
-/// Construct a [Padding::Fixed] from a slice of paddings for each size.
+/// Construct a [`Padding::Fixed`] from a slice of paddings for each size.
 impl<S: AsRef<[usize]>> From<S> for Padding {
     fn from(val: S) -> Padding {
         Padding::Fixed(val.as_ref().into())
@@ -724,7 +724,7 @@ pub trait Operator: Any + Debug {
     /// can be re-ordered without affecting the result.
     ///
     /// If true, the graph executor may swap inputs before calling the
-    /// [Operator::run_in_place] implementation.
+    /// [`Operator::run_in_place`] implementation.
     fn is_commutative(&self) -> bool {
         false
     }
@@ -1022,7 +1022,7 @@ mod tests {
         expect_equal_with_tolerance(result, expected, 1e-4, 0.)
     }
 
-    /// Utility to simplify running a single-output [Operator] with a list of
+    /// Utility to simplify running a single-output [`Operator`] with a list of
     /// typed inputs.
     ///
     /// Usage is:

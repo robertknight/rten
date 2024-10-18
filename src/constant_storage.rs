@@ -19,9 +19,9 @@ fn slice_address_range<T>(slice: &[T]) -> Range<usize> {
 /// usually be a model data/weights file (eg. in FlatBuffers format) read in
 /// or memory-mapped from disk.
 ///
-/// This can be used as the storage for tensor views by creating [ArcSlice]
+/// This can be used as the storage for tensor views by creating [`ArcSlice`]
 /// instances which reference a region of this buffer, and then using that
-/// slice as the storage for an [ArcTensorView].
+/// slice as the storage for an [`ArcTensorView`].
 #[derive(Debug)]
 pub enum ConstantStorage {
     /// Storage that references a memory-mapped file.
@@ -125,7 +125,7 @@ unsafe impl<T> Storage for ArcSlice<T> {
     }
 }
 
-/// Tensor view whose data is a slice of a buffer owned by a [ConstantStorage].
+/// Tensor view whose data is a slice of a buffer owned by a [`ConstantStorage`].
 pub type ArcTensorView<T> = TensorBase<ArcSlice<T>, DynLayout>;
 
 #[cfg(test)]

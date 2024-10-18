@@ -94,7 +94,7 @@ impl ValueNode {
     }
 }
 
-/// Data for a constant node (ie. model weights) in a [Graph].
+/// Data for a constant node (ie. model weights) in a [`Graph`].
 pub enum ConstantNodeData<T> {
     Owned(Tensor<T>),
     Arc(ArcTensorView<T>),
@@ -571,7 +571,7 @@ impl<'a> CaptureEnv<'a> {
 }
 
 /// Options that control logging and other behaviors when executing a
-/// [Model](crate::Model).
+/// [`Model`](crate::Model).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RunOptions {
     /// Whether to log times spent in different operators when run completes.

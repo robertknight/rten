@@ -133,7 +133,7 @@ where
 /// Check that the shapes of two tensors are equal and that their contents
 /// are approximately equal.
 ///
-/// This is like [expect_equal] but allows a custom absolute tolerance value.
+/// This is like [`expect_equal`] but allows a custom absolute tolerance value.
 pub fn expect_equal_with_tolerance<V: AsView>(
     x: &V,
     y: &V,

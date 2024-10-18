@@ -982,10 +982,10 @@ impl<S: AsRef<[Point]>> Polygon<i32, S> {
 
     /// Return true if the pixel with coordinates `p` lies inside the polygon.
     ///
-    /// The intent of this function is to align with [Polygon::fill_iter] such
+    /// The intent of this function is to align with [`Polygon::fill_iter`] such
     /// that `polygon.contains_pixel(p)` is equivalent to
     /// `polygon.fill_iter().any(|fp| fp == p)` but faster because it doesn't
-    /// iterate over every pixel inside the polygon. See [Polygon::fill_iter]
+    /// iterate over every pixel inside the polygon. See [`Polygon::fill_iter`]
     /// for notes on how the inside/outisde status of a pixel is determined.
     pub fn contains_pixel(&self, p: Point) -> bool {
         let mut edge_crossings = 0;
@@ -1126,7 +1126,7 @@ impl Default for Polygons {
     }
 }
 
-/// Iterator over polygons in a [Polygons] collection.
+/// Iterator over polygons in a [`Polygons`] collection.
 pub struct PolygonsIter<'a> {
     points: &'a [Point],
     polygons: Iter<'a, Range<usize>>,

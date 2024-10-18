@@ -88,7 +88,7 @@ where
 ///  - `[SliceItem]` slices
 ///
 /// Ranges can be specified using regular Rust ranges (eg. `start..end`,
-/// `start..`, `..end`, `..`) or a [SliceRange], which extends regular Rust
+/// `start..`, `..end`, `..`) or a [`SliceRange`], which extends regular Rust
 /// ranges with support for steps and specifying endpoints using negative
 /// values, which behaves similarly to using negative values in NumPy.
 pub trait IntoSliceItems {
@@ -157,22 +157,22 @@ impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>, T4: Into<Sli
     }
 }
 
-/// Dynamically sized array of [SliceItem]s, which avoids allocating in the
+/// Dynamically sized array of [`SliceItem`]s, which avoids allocating in the
 /// common case where the length is small.
 pub type DynSliceItems = SmallVec<[SliceItem; 5]>;
 
-/// Convert a slice of indices into [SliceItem]s.
+/// Convert a slice of indices into [`SliceItem`]s.
 ///
-/// To convert indices of a statically known length to [SliceItem]s, use
-/// [IntoSliceItems] instead. This function is for the case when the length
+/// To convert indices of a statically known length to [`SliceItem`]s, use
+/// [`IntoSliceItems`] instead. This function is for the case when the length
 /// is not statically known, but is assumed to likely be small.
 pub fn to_slice_items<T: Clone + Into<SliceItem>>(index: &[T]) -> DynSliceItems {
     index.iter().map(|x| x.clone().into()).collect()
 }
 
-/// A range for slicing a [Tensor](crate::Tensor) or [NdTensor](crate::NdTensor).
+/// A range for slicing a [`Tensor`](crate::Tensor) or [`NdTensor`](crate::NdTensor).
 ///
-/// This has two main differences from [Range].
+/// This has two main differences from [`Range`].
 ///
 /// - A non-zero step between indices can be specified. The step can be negative,
 ///   which means that the dimension should be traversed in reverse order.
@@ -468,7 +468,7 @@ impl IntoIterator for IndexRange {
     }
 }
 
-/// An iterator over the indices in an [IndexRange].
+/// An iterator over the indices in an [`IndexRange`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct IndexRangeIter {
     /// Next index. This is in the range [-1, N] where `N` is the size of

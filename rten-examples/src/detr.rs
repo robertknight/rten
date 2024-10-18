@@ -83,7 +83,7 @@ Options:
     Ok(args)
 }
 
-/// Resolve the min/max size to use as inputs for [rescaled_size] based on
+/// Resolve the min/max size to use as inputs for [`rescaled_size`] based on
 /// the min/max CLI args and defaults for the model configuration.
 fn resolve_min_max_size(
     min: Option<u32>,

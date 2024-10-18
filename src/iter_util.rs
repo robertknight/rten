@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use rayon::prelude::*;
 
-/// Iterator returned by [range_chunks].
+/// Iterator returned by [`range_chunks`].
 pub struct RangeChunks {
     remainder: Range<usize>,
     chunk_size: usize,
@@ -82,7 +82,7 @@ impl std::iter::FusedIterator for RangeChunksExact {}
 
 /// Return an iterator over sub-ranges of `range`. If `range.len()` is not a
 /// multiple of `chunk_size` then there will be a remainder after iteration
-/// completes, available via [RangeChunksExact::remainder].
+/// completes, available via [`RangeChunksExact::remainder`].
 #[allow(dead_code)]
 pub fn range_chunks_exact(range: Range<usize>, chunk_size: usize) -> RangeChunksExact {
     RangeChunksExact {
@@ -92,7 +92,7 @@ pub fn range_chunks_exact(range: Range<usize>, chunk_size: usize) -> RangeChunks
 }
 
 /// Wrapper around either a serial or parallel iterator, returned by
-/// [MaybeParIter::maybe_par_iter].
+/// [`MaybeParIter::maybe_par_iter`].
 pub enum MaybeParallel<PI: ParallelIterator, SI: Iterator<Item = PI::Item>> {
     Serial(SI),
     Parallel(PI),

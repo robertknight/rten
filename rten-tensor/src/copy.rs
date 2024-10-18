@@ -9,7 +9,7 @@ use crate::{
     Matrix, MatrixLayout, MatrixMut, NdTensorView, NdTensorViewMut, TensorView, TensorViewMut,
 };
 
-/// Iterator returned by [range_chunks].
+/// Iterator returned by [`range_chunks`].
 pub struct RangeChunks {
     remainder: Range<usize>,
     chunk_size: usize,
@@ -91,7 +91,7 @@ impl std::iter::FusedIterator for RangeChunksExact {}
 
 /// Return an iterator over sub-ranges of `range`. If `range.len()` is not a
 /// multiple of `chunk_size` then there will be a remainder after iteration
-/// completes, available via [RangeChunksExact::remainder].
+/// completes, available via [`RangeChunksExact::remainder`].
 pub fn range_chunks_exact(range: Range<usize>, chunk_size: usize) -> RangeChunksExact {
     RangeChunksExact {
         remainder: range,

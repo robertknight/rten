@@ -99,7 +99,7 @@ pub enum GemmInputA<'a, T> {
     /// A standard unpacked matrix.
     Unpacked(Matrix<'a, T>),
 
-    /// A matrix which has been pre-packed by [GemmExecutor::prepack_a].
+    /// A matrix which has been pre-packed by [`GemmExecutor::prepack_a`].
     Packed(&'a PackedAMatrix<T>),
     // TODO - Support virtual "A" inputs, like `GemmInputB::Virtual`.
 }
@@ -140,7 +140,7 @@ impl GemmOutT for f32 {}
 
 /// A virtual matrix which has a known size, but may not actually be
 /// materialized in memory. The GEMM implementation will call
-/// [VirtualMatrix::pack_b] to pack blocks of this matrix into a buffer as it
+/// [`VirtualMatrix::pack_b`] to pack blocks of this matrix into a buffer as it
 /// needs them.
 ///
 /// This is useful for operations such as im2col-based convolution, which
@@ -186,11 +186,11 @@ pub enum GemmInputB<'a, T> {
     /// A standard unpacked matrix.
     Unpacked(Matrix<'a, T>),
 
-    /// A matrix which has been pre-packed by [GemmExecutor::prepack_b].
+    /// A matrix which has been pre-packed by [`GemmExecutor::prepack_b`].
     Packed(&'a PackedBMatrix<T>),
 
     /// A virtual matrix, blocks of which will be materialized on-demand
-    /// during GEMM execution. See [VirtualMatrix].
+    /// during GEMM execution. See [`VirtualMatrix`].
     Virtual(&'a dyn VirtualMatrix<T>),
 }
 
@@ -257,7 +257,7 @@ pub struct GemmExecutor<LhsT: GemmInT = f32, RhsT: GemmInT = f32, OutT: GemmOutT
     kernel_type: KernelType,
 }
 
-/// Arguments for [GemmExecutor::with_kernel] specifying which kernel to use.
+/// Arguments for [`GemmExecutor::with_kernel`] specifying which kernel to use.
 #[derive(Clone, Copy, Debug)]
 pub enum KernelType {
     /// Use the fallback/generic kernel. Always available.
@@ -347,7 +347,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
 
     /// Return the panel width used when packing the "B" matrix.
     ///
-    /// This information is useful for implementations of [VirtualMatrix].
+    /// This information is useful for implementations of [`VirtualMatrix`].
     pub fn b_panel_width(&self) -> usize {
         self.kernel.nr()
     }
@@ -435,7 +435,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
 
     /// Perform a General Matrix Multiplication ("gemm").
     ///
-    /// This is the same as [GemmExecutor::gemm] but takes an uninitialized
+    /// This is the same as [`GemmExecutor::gemm`] but takes an uninitialized
     /// output slice. The `beta` value is implicitly set to zero.
     pub fn gemm_uninit(
         &self,
@@ -510,7 +510,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
 }
 
 impl GemmExecutor<f32, f32, f32> {
-    /// Create a [GemmExecutor] using the preferred kernel for the current system.
+    /// Create a [`GemmExecutor`] using the preferred kernel for the current system.
     pub fn new() -> GemmExecutor {
         #[cfg(feature = "avx512")]
         #[cfg(target_arch = "x86_64")]
@@ -533,7 +533,7 @@ impl GemmExecutor<f32, f32, f32> {
         Self::with_generic_kernel()
     }
 
-    /// Create a [GemmExecutor] using the given kernel. Returns `None` if the
+    /// Create a [`GemmExecutor`] using the given kernel. Returns `None` if the
     /// kernel is not supported.
     #[allow(dead_code)] // Currently only used in tests
     pub fn with_kernel(hint: KernelType) -> Option<Self> {
@@ -613,10 +613,10 @@ struct OutputTile<T> {
     /// Stride between rows of this tile. Note the column stride is always 1.
     row_stride: usize,
 
-    /// Number of rows in this tile. Will be <= the [Kernel]'s `MR` constant.
+    /// Number of rows in this tile. Will be <= the [`Kernel`]'s `MR` constant.
     used_rows: usize,
 
-    /// Number of columns in this tile. Will be <= the [Kernel]'s `NR` constant.
+    /// Number of columns in this tile. Will be <= the [`Kernel`]'s `NR` constant.
     used_cols: usize,
 }
 

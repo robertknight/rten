@@ -92,7 +92,7 @@ use crate::timing::TimingSort;
 /// loop. If such models have inputs which are constant in each iteration of the
 /// loop, execution can be sped up by using partial evaluation. This involves
 /// evaluating the part of the graph that depends only on the constant inputs
-/// once, outside the loop. To do this use [Model::partial_run].
+/// once, outside the loop. To do this use [`Model::partial_run`].
 ///
 /// ## Custom operator registries
 ///
@@ -601,7 +601,7 @@ impl Model {
 
     /// Find a node in the model's graph given its string name.
     ///
-    /// This is a convenience method which is like [Model::find_node] but
+    /// This is a convenience method which is like [`Model::find_node`] but
     /// returns an error that includes the node's name if the node is not found.
     pub fn node_id(&self, id: &str) -> Result<NodeId, RunError> {
         self.find_node(id)
@@ -681,7 +681,7 @@ impl Model {
 
     /// Run a model with a single input and output.
     ///
-    /// This is a simplified version of [Model::run] for the common case of
+    /// This is a simplified version of [`Model::run`] for the common case of
     /// executing a model with a single input and output.
     pub fn run_one(
         &self,
@@ -719,7 +719,7 @@ impl Model {
     }
 }
 
-/// Errors reported by [Model::load].
+/// Errors reported by [`Model::load`].
 #[derive(Debug)]
 pub enum ModelLoadError {
     /// The FlatBuffers data describing the model is not supported by this

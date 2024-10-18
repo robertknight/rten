@@ -67,14 +67,14 @@ impl SimdUnaryOp for SimdErf {
 
 /// Vectorized error function.
 ///
-/// This is a vectorized version of [erf] that computes the function for each
+/// This is a vectorized version of [`erf`] that computes the function for each
 /// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
 /// in length.
 pub fn vec_erf(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
     dispatch_map_op(xs, out, SimdErf {});
 }
 
-/// Variant of [vec_erf] that modifies elements in-place.
+/// Variant of [`vec_erf`] that modifies elements in-place.
 pub fn vec_erf_in_place(xs: &mut [f32]) {
     dispatch_map_op_in_place(xs, SimdErf {});
 }
@@ -106,7 +106,7 @@ pub fn vec_gelu(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
     dispatch_map_op(xs, out, SimdGelu {});
 }
 
-/// Variant of [vec_gelu] that modifies elements in-place.
+/// Variant of [`vec_gelu`] that modifies elements in-place.
 pub fn vec_gelu_in_place(xs: &mut [f32]) {
     dispatch_map_op_in_place(xs, SimdGelu {});
 }
