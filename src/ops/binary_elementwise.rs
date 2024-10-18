@@ -135,7 +135,7 @@ pub fn fast_broadcast_cycles_repeats(
 /// Check if a tensor of shape `from_shape` can be broadcast to `to_shape`
 /// just by cycling the whole sequence. If so, returns the number of cycles.
 ///
-/// This is a more restricted variant of [fast_broadcast_cycles_repeats].
+/// This is a more restricted variant of [`fast_broadcast_cycles_repeats`].
 fn fast_broadcast_cycles(from_shape: &[usize], to_shape: &[usize]) -> Option<usize> {
     // `fast_broadcast_params` handles this case by returning `(1, n)` (ie.
     // 1 cycle, n repeats) but here we want to use the equivalent n cycles,
@@ -610,7 +610,7 @@ boolean_cmp_op!(Less, less);
 boolean_cmp_op!(LessOrEqual, less_or_equal);
 
 /// Calculate the remainder of `x / y` using floored division. See
-/// [DivMode] for an explanation.
+/// [`DivMode`] for an explanation.
 fn rem_floor<
     T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Rem<Output = T>,
 >(
@@ -663,8 +663,8 @@ pub fn mod_op<
 
 #[derive(Debug)]
 pub struct Mod {
-    /// If true, use truncated division (see [DivMode::TruncDiv], otherwise
-    /// use flooring division (see [DivMode::FloorDiv]).
+    /// If true, use truncated division (see [`DivMode::TruncDiv`], otherwise
+    /// use flooring division (see [`DivMode::FloorDiv`]).
     pub fmod: bool,
 }
 
@@ -742,7 +742,7 @@ impl Operator for Mul {
     }
 }
 
-/// Like [f32::powf] but with fast paths for common values.
+/// Like [`f32::powf`] but with fast paths for common values.
 fn powf(x: f32, y: f32) -> f32 {
     if y == 2. {
         x * x

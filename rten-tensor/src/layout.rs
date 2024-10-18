@@ -20,8 +20,8 @@ pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
 /// size of each, and the mapping between indices and offsets in the data
 /// storage.
 ///
-/// The main implementations are [NdLayout], where the dimension count is known
-/// statically, and [DynLayout], where the dimension count is only known at
+/// The main implementations are [`NdLayout`], where the dimension count is known
+/// statically, and [`DynLayout`], where the dimension count is only known at
 /// runtime.
 pub trait Layout {
     /// Type used to represent indices.
@@ -866,7 +866,7 @@ impl<const N: usize> From<NdLayout<N>> for DynLayout {
     }
 }
 
-/// MutLayout extends [Layout] with methods for creating, modifying and
+/// MutLayout extends [`Layout`] with methods for creating, modifying and
 /// transforming layouts.
 pub trait MutLayout: Layout + Clone {
     /// Create a new contiguous layout with a given shape.
@@ -1212,10 +1212,10 @@ impl<'a> IntoLayout for &'a [usize] {
     }
 }
 
-/// Trait which extends [MutLayout] with support for changing the number of
+/// Trait which extends [`MutLayout`] with support for changing the number of
 /// dimensions in-place.
 ///
-/// This is only implemented for [DynLayout], since layouts that have a static
+/// This is only implemented for [`DynLayout`], since layouts that have a static
 /// rank cannot change their dimension count at runtime.
 pub trait ResizeLayout: MutLayout {
     /// Insert a size-one axis at the given index in the shape. This will have

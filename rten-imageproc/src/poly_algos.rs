@@ -136,7 +136,7 @@ pub fn simplify_polyline(points: &[PointF], epsilon: f32) -> Vec<PointF> {
 
 /// Return a simplified version of the polygon defined by `points`.
 ///
-/// This is very similar to [simplify_polyline] except that the input is
+/// This is very similar to [`simplify_polyline`] except that the input is
 /// treated as a polygon where the last point implicitly connects to the first
 /// point to close the shape.
 pub fn simplify_polygon(points: &[PointF], epsilon: f32) -> Vec<PointF> {

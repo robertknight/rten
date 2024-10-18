@@ -64,7 +64,7 @@ fn find_nonzero_neighbor<
     None
 }
 
-/// Specifies which contours to extract from a mask in [find_contours].
+/// Specifies which contours to extract from a mask in [`find_contours`].
 pub enum RetrievalMode {
     /// Get only the outer-most contours.
     External,

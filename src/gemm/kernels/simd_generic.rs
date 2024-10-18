@@ -6,7 +6,7 @@ use crate::iter_util::{range_chunks_exact, unroll_loop};
 /// Compute an output block of a vector-matrix product ("gemv" in BLAS APIs).
 ///
 /// Multiple output columns are computed at a time, using `NR_REGS` SIMD
-/// registers of type `S`. See [Kernel::gemv_kernel].
+/// registers of type `S`. See [`Kernel::gemv_kernel`].
 ///
 /// Safety: The `SimdFloat` type must be supported on the current system.
 #[inline(always)]
@@ -89,7 +89,7 @@ pub unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
     }
 }
 
-/// Variant of [simd_gemv] which handles the case where `b` has unit row stride.
+/// Variant of [`simd_gemv`] which handles the case where `b` has unit row stride.
 #[inline(always)]
 unsafe fn simd_gemv_transposed<S: SimdFloat>(
     out: &mut [f32],
@@ -155,7 +155,7 @@ unsafe fn simd_gemv_transposed<S: SimdFloat>(
     }
 }
 
-/// Variant of [simd_gemv] which handles the case where `b` has non-unit strides
+/// Variant of [`simd_gemv`] which handles the case where `b` has non-unit strides
 /// for rows and columns.
 ///
 /// This doesn't benefit from SIMD operations. It is at least inlined so it
@@ -186,7 +186,7 @@ fn simd_gemv_fallback(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f
 /// and `NR_REGS` specifies the number of columns in the tile as a multiple of
 /// the SIMD register width.
 ///
-/// See [Kernel::kernel].
+/// See [`Kernel::kernel`].
 ///
 /// Safety: The `SimdFloat` type must be supported on the current system.
 #[inline(always)]

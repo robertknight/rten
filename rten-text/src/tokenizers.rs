@@ -25,7 +25,7 @@ mod wordpiece;
 pub use bpe::{patterns, Bpe, BpeError};
 pub use wordpiece::{WordPiece, WordPieceOptions};
 
-/// Input sequences for [Tokenizer::encode].
+/// Input sequences for [`Tokenizer::encode`].
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum EncoderInput<'a> {
     /// Encoder input with a single sequence.
@@ -53,10 +53,10 @@ impl<'a> From<(&'a str, &'a str)> for EncoderInput<'a> {
 /// Integer type used to represent token IDs.
 pub type TokenId = u32;
 
-/// Output produced by a [Tokenizer::encode] implementation.
+/// Output produced by a [`Tokenizer::encode`] implementation.
 ///
-/// Use [Encoded::token_ids] to get the token IDs to feed to a model, and
-/// [Encoded::text_for_token_range] to map token ID ranges back to the
+/// Use [`Encoded::token_ids`] to get the token IDs to feed to a model, and
+/// [`Encoded::text_for_token_range`] to map token ID ranges back to the
 /// corresponding input text.
 #[derive(Debug)]
 pub struct Encoded<'a> {
@@ -140,8 +140,8 @@ impl<'a> Encoded<'a> {
     }
 }
 
-/// Options that control chunking and truncation by [Tokenizer::encode] and
-/// [Tokenizer::encode_chunks].
+/// Options that control chunking and truncation by [`Tokenizer::encode`] and
+/// [`Tokenizer::encode_chunks`].
 #[derive(Clone, Default)]
 pub struct EncodeOptions {
     /// Maximum number of tokens in each chunk, including any special tokens
@@ -156,7 +156,7 @@ pub struct EncodeOptions {
 /// using a pre-computed model.
 ///
 /// Encoders are not generally used directly but instead via a wrapping
-/// [Tokenizer].
+/// [`Tokenizer`].
 pub trait Encoder {
     /// Look up the numeric ID for a token given its canonical string
     /// representation. This is used eg. for looking up the IDs of special
@@ -222,7 +222,7 @@ pub trait Encoder {
     fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError>;
 }
 
-/// Errors returned by [Tokenizer::from_json].
+/// Errors returned by [`Tokenizer::from_json`].
 #[derive(Debug)]
 pub enum FromJsonError {
     /// There was an error loading a BPE tokenizer.
@@ -248,7 +248,7 @@ impl Error for FromJsonError {}
 /// Tokenizes text inputs into sequences of token IDs that can be fed to a
 /// machine learning model.
 ///
-/// `Tokenizer` wraps an [Encoder] which handles specific methods of encoding of
+/// `Tokenizer` wraps an [`Encoder`] which handles specific methods of encoding of
 /// individual sequences (eg. WordPiece, Byte Pair Encoding, Unigram) and adds
 /// common functionality such as injecting special tokens, splitting sequences
 /// into overlapping chunks and truncating long sequences.
@@ -262,7 +262,7 @@ pub struct Tokenizer {
     sep_token: Option<String>,
 }
 
-/// Configuration for a [Tokenizer].
+/// Configuration for a [`Tokenizer`].
 #[derive(Clone, Default)]
 pub struct TokenizerOptions<'a> {
     /// Token added at the start of the output. For BERT models, this is the
@@ -420,7 +420,7 @@ impl Tokenizer {
     /// Encode one or two sequences into a sequence of tokens.
     ///
     /// The output is split into chunks such that the number of tokens in
-    /// each chunk is less than the limit specified in [EncodeOptions].
+    /// each chunk is less than the limit specified in [`EncodeOptions`].
     pub fn encode_chunks<'a>(
         &self,
         input: EncoderInput<'a>,
@@ -599,7 +599,7 @@ pub enum TokenizerError {
 
     /// There was an error parsing a byte sequence as a UTF-8 string.
     ///
-    /// This can arise when working with tokenizers like [Bpe] where
+    /// This can arise when working with tokenizers like [`Bpe`] where
     /// individual tokens do not always represent whole characters.
     InvalidUtf8,
 }

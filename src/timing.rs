@@ -52,8 +52,8 @@ impl Sub<Instant> for Instant {
 
 /// Trait for text data table sources.
 ///
-/// Tables can be formatted using [Table::display] to get a wrapper that
-/// implements [Display].
+/// Tables can be formatted using [`Table::display`] to get a wrapper that
+/// implements [`Display`].
 trait Table {
     /// Return the number of rows in this table.
     fn rows(&self) -> usize;
@@ -74,7 +74,7 @@ trait Table {
             .unwrap_or(0)
     }
 
-    /// Return a wrapper around this table which implements [Display].
+    /// Return a wrapper around this table which implements [`Display`].
     fn display(&self, indent: usize) -> DisplayTable<Self>
     where
         Self: Sized,
@@ -163,7 +163,7 @@ impl<'a> RunTiming<'a> {
 }
 
 impl<'a> fmt::Display for RunTiming<'a> {
-    /// Format timings with the default sort order (see [TimingSort]).
+    /// Format timings with the default sort order (see [`TimingSort`]).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         self.display(TimingSort::ByTime, false /* include_shapes */)
             .fmt(f)
@@ -197,7 +197,7 @@ struct TimingByShapeRecord {
     node_name: String,
 }
 
-/// [Display]-able table containing a breakdown of operator execution time
+/// [`Display`]-able table containing a breakdown of operator execution time
 /// by input shape.
 struct TimingByShapeTable {
     rows: Vec<TimingByShapeRecord>,

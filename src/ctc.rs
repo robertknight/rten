@@ -15,8 +15,8 @@ use crate::Operators;
 /// output class labels. The label 0 is reserved for the CTC blank label.
 ///
 /// Different decoding methods are available. Greedy decoding with
-/// [CtcDecoder::decode_greedy] is very fast, but considers only the most likely
-/// label at each time step. Beam searches with [CtcDecoder::decode_beam]
+/// [`CtcDecoder::decode_greedy`] is very fast, but considers only the most likely
+/// label at each time step. Beam searches with [`CtcDecoder::decode_beam`]
 /// consider the N most probable paths through the matrix. This may produce more
 /// accurate results, but is significantly slower.
 ///
@@ -25,7 +25,7 @@ use crate::Operators;
 /// [^2]: <https://distill.pub/2017/ctc/>
 pub struct CtcDecoder {}
 
-/// Item in an output sequence produced by [CtcDecoder].
+/// Item in an output sequence produced by [`CtcDecoder`].
 #[derive(Clone, Copy, Debug)]
 pub struct DecodeStep {
     /// Class label.
@@ -40,7 +40,7 @@ pub struct DecodeStep {
     pub pos: u32,
 }
 
-/// A search state for beam decoding by [CtcDecoder]. This consists of a
+/// A search state for beam decoding by [`CtcDecoder`]. This consists of a
 /// decoded sequence and associated probabilities.
 #[derive(Debug)]
 struct BeamState {
@@ -82,7 +82,7 @@ fn log_sum_exp<const N: usize>(log_probs: [f32; N]) -> f32 {
     }
 }
 
-/// Result of decoding a sequence using [CtcDecoder].
+/// Result of decoding a sequence using [`CtcDecoder`].
 ///
 /// This consists of a sequence of class labels and a score.
 #[derive(Clone, Debug)]
@@ -144,7 +144,7 @@ impl CtcDecoder {
     ///
     /// This method chooses the label with the highest probability at each
     /// time step. This method is very fast, but may return less accurate
-    /// results than [CtcDecoder::decode_beam].
+    /// results than [`CtcDecoder::decode_beam`].
     ///
     /// `prob_seq` is a `[sequence, n_labels]` matrix of log probabilities of
     /// labels at each time step, where the label value 0 is reserved for the
@@ -179,7 +179,7 @@ impl CtcDecoder {
 
     /// Decode sequence using a beam search and return the N best hypotheses.
     ///
-    /// See also [CtcDecoder::decode_beam].
+    /// See also [`CtcDecoder::decode_beam`].
     pub fn decode_beam_nbest(
         &self,
         prob_seq: NdTensorView<f32, 2>,

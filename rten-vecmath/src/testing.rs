@@ -102,7 +102,7 @@ impl<I: Iterator> Iterator for Progress<I> {
     }
 }
 
-/// Iterator over an arithmetic range. See [arange].
+/// Iterator over an arithmetic range. See [`arange`].
 pub struct ARange<T: Copy + PartialOrd + std::ops::Add<Output = T>> {
     next: T,
     end: T,

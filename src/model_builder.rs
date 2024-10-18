@@ -200,7 +200,7 @@ enum NodeData<'a> {
     Operator(WIPOffset<sg::OperatorNode<'a>>),
 }
 
-/// Arguments for [ModelBuilder::add_metadata].
+/// Arguments for [`ModelBuilder::add_metadata`].
 pub struct MetadataArgs {
     pub onnx_hash: Option<String>,
 }

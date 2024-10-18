@@ -60,7 +60,7 @@ pub trait RandomSource<T> {
 
 /// Storage allocation trait.
 ///
-/// This is used by various methods on [TensorBase] with an `_in` suffix,
+/// This is used by various methods on [`TensorBase`] with an `_in` suffix,
 /// which allow the caller to control the allocation of the data buffer for
 /// the returned owned tensor.
 pub trait Alloc {
@@ -76,7 +76,7 @@ impl<A: Alloc> Alloc for &A {
     }
 }
 
-/// Implementation of [Alloc] which wraps the global allocator.
+/// Implementation of [`Alloc`] which wraps the global allocator.
 pub struct GlobalAlloc {}
 
 impl GlobalAlloc {

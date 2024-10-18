@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 use rten_tensor::{Alloc, CowData, MutLayout, TensorBase};
 
 /// A memory buffer that can be used to satisfy a future allocation from
-/// a [TensorPool].
+/// a [`TensorPool`].
 struct Buffer {
     /// Pointer and capacity extracted from the `Vec`. The length is always
     /// zero.
@@ -20,7 +20,7 @@ struct Buffer {
 }
 
 impl Buffer {
-    /// Clear `vec` using [Vec::clear] and convert it into a buffer.
+    /// Clear `vec` using [`Vec::clear`] and convert it into a buffer.
     fn from_vec<T>(mut vec: Vec<T>) -> Buffer {
         let layout = std::alloc::Layout::array::<T>(vec.capacity()).unwrap();
 
@@ -87,7 +87,7 @@ impl Drop for Buffer {
 /// buffer from the global allocator and freeing it when no longer needed,
 /// can provide a significant performance improvement.
 ///
-/// [TensorPool] implements the [Alloc] trait, enabling tensors to be allocated
+/// [`TensorPool`] implements the [`Alloc`] trait, enabling tensors to be allocated
 /// from the pool using the various `Tensor::*_in` methods, eg.
 /// [`Tensor::zeros_in`](rten_tensor::Tensor::zeros_in). Allocation requests
 /// will be satisfied from the pool if there is a suitable buffer available, or
@@ -95,11 +95,11 @@ impl Drop for Buffer {
 ///
 /// When a tensor is no longer needed, it's buffer can be added to the pool
 /// using `pool.add(tensor.extract_buffer())`, making it available for future
-/// allocations. A more convenient method is to wrap the tensor in a [PoolRef]
+/// allocations. A more convenient method is to wrap the tensor in a [`PoolRef`]
 /// smart pointer which will auto-return the tensor to the pool when dropped. A
-/// tensor can be wrapped using `tensor.auto_return(pool)`. The [PoolRef] smart
+/// tensor can be wrapped using `tensor.auto_return(pool)`. The [`PoolRef`] smart
 /// pointer can also be used with other container types, by implementing the
-/// [ExtractBuffer] trait for them.
+/// [`ExtractBuffer`] trait for them.
 pub struct TensorPool {
     /// List of buffers currently in the pool.
     buffers: RefCell<Vec<Buffer>>,
@@ -164,7 +164,7 @@ impl TensorPool {
 
     /// Add a data buffer to the pool.
     ///
-    /// The buffer will be cleared using [Vec::clear] and then made available
+    /// The buffer will be cleared using [`Vec::clear`] and then made available
     /// to fulfill future allocation requests.
     pub fn add<T>(&self, vec: Vec<T>) {
         self.buffers.borrow_mut().push(Buffer::from_vec(vec));
@@ -207,7 +207,7 @@ impl Default for TensorPool {
 /// Trait for extracting the data buffer from a tensor or other container.
 ///
 /// This is used to extract the buffer from a container that is no longer
-/// needed, in order to return it to a [TensorPool].
+/// needed, in order to return it to a [`TensorPool`].
 pub trait ExtractBuffer {
     type Elem;
 
@@ -252,9 +252,9 @@ impl<EB: ExtractBuffer> AutoReturn for EB {
 /// A smart pointer which wraps a tensor or other container and returns it to
 /// a pool when dropped.
 ///
-/// [PoolRef] is not currently [Sync], so if you want to wrap a container and
+/// [`PoolRef`] is not currently [`Sync`], so if you want to wrap a container and
 /// then reference it inside a parallel block, you will need to deref the
-/// [PoolRef] outside the parallel block.
+/// [`PoolRef`] outside the parallel block.
 pub struct PoolRef<'a, T: ExtractBuffer> {
     pool: &'a TensorPool,
     container: Option<T>,

@@ -611,7 +611,7 @@ mod tests {
 
     /// Un-optimized reference implementation of convolution.
     ///
-    /// This has the same interface as [conv].
+    /// This has the same interface as [`conv`].
     fn reference_conv<X, W, Y>(
         input: TensorView<X>,
         kernel: TensorView<W>,

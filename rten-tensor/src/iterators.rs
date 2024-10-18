@@ -15,7 +15,7 @@ use super::{
 };
 
 /// Borrowed reference to a tensor's data and layout. This differs from
-/// [TensorView] in that it borrows the layout rather than having its own.
+/// [`TensorView`] in that it borrows the layout rather than having its own.
 ///
 /// `'d` is the lifetime of the data and `'l` the lifetime of the layout.
 pub(crate) struct ViewRef<'d, 'l, T, L: Layout> {
@@ -46,7 +46,7 @@ impl<'d, 'l, T, L: Layout> Clone for ViewRef<'d, 'l, T, L> {
 }
 
 /// Mutably borrowed reference to a tensor's data and layout. This differs from
-/// [TensorViewMut] in that it borrows the layout rather than having its own.
+/// [`TensorViewMut`] in that it borrows the layout rather than having its own.
 pub(crate) struct MutViewRef<'d, 'l, T, L: Layout> {
     data: ViewMutData<'d, T>,
     layout: &'l L,
@@ -603,9 +603,9 @@ impl<'a, T> ExactSizeIterator for Lanes<'a, T> {}
 
 impl<'a, T> FusedIterator for Lanes<'a, T> {}
 
-/// Mutable version of [Lanes].
+/// Mutable version of [`Lanes`].
 ///
-/// Unlike [Lanes], this does not implement [Iterator] due to complications
+/// Unlike [`Lanes`], this does not implement [`Iterator`] due to complications
 /// in implementing this for an iterator that returns mutable references, but
 /// it has a similar interface.
 pub struct LanesMut<'a, T> {
@@ -894,7 +894,7 @@ impl<'a, T, L: MutLayout> Iterator for InnerIterDynMut<'a, T, L> {
 
 impl<'a, T, L: MutLayout> ExactSizeIterator for InnerIterDynMut<'a, T, L> {}
 
-/// Iterator over slices of a tensor along an axis. See [TensorView::axis_iter].
+/// Iterator over slices of a tensor along an axis. See [`TensorView::axis_iter`].
 pub struct AxisIter<'a, T, L: MutLayout + RemoveDim> {
     view: TensorBase<ViewData<'a, T>, L>,
     axis: usize,
@@ -926,7 +926,7 @@ impl<'a, T, L: MutLayout + RemoveDim> Iterator for AxisIter<'a, T, L> {
     }
 }
 
-/// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_iter_mut].
+/// Iterator over mutable slices of a tensor along an axis. See [`TensorViewMut::axis_iter_mut`].
 pub struct AxisIterMut<'a, T, L: MutLayout + RemoveDim> {
     view: TensorBase<ViewMutData<'a, T>, L>,
     axis: usize,
@@ -975,7 +975,7 @@ impl<'a, T, L: MutLayout + RemoveDim> Iterator for AxisIterMut<'a, T, L> {
     }
 }
 
-/// Iterator over slices of a tensor along an axis. See [TensorView::axis_chunks].
+/// Iterator over slices of a tensor along an axis. See [`TensorView::axis_chunks`].
 pub struct AxisChunks<'a, T, L: MutLayout> {
     remainder: Option<TensorBase<ViewData<'a, T>, L>>,
     axis: usize,
@@ -1017,7 +1017,7 @@ impl<'a, T, L: MutLayout> Iterator for AxisChunks<'a, T, L> {
     }
 }
 
-/// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_chunks_mut].
+/// Iterator over mutable slices of a tensor along an axis. See [`TensorViewMut::axis_chunks_mut`].
 pub struct AxisChunksMut<'a, T, L: MutLayout> {
     remainder: Option<TensorBase<ViewMutData<'a, T>, L>>,
     axis: usize,

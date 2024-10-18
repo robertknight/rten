@@ -4,7 +4,7 @@ use std::ops::Range;
 
 /// Trait for backing storage used by tensors and views.
 ///
-/// Mutable tensors have storage which also implement [StorageMut].
+/// Mutable tensors have storage which also implement [`StorageMut`].
 ///
 /// This specifies a contiguous array of elements in memory, as a pointer and a
 /// length. The storage may be owned or borrowed. For borrowed storage, there
@@ -166,7 +166,7 @@ fn assert_storage_range_valid<S: Storage + ?Sized>(storage: &S, range: Range<usi
 
 /// Trait for backing storage used by mutable tensors and views.
 ///
-/// This extends [Storage] with methods to get mutable pointers and references
+/// This extends [`Storage`] with methods to get mutable pointers and references
 /// to elements in the storage.
 ///
 /// # Safety
@@ -178,7 +178,7 @@ pub unsafe trait StorageMut: Storage {
     /// Return a mutable pointer to the first element in storage.
     fn as_mut_ptr(&mut self) -> *mut Self::Elem;
 
-    /// Mutable version of [Storage::get].
+    /// Mutable version of [`Storage::get`].
     ///
     /// # Safety
     ///
@@ -191,7 +191,7 @@ pub unsafe trait StorageMut: Storage {
         }
     }
 
-    /// Mutable version of [Storage::get_unchecked].
+    /// Mutable version of [`Storage::get_unchecked`].
     ///
     /// # Safety
     ///
@@ -276,11 +276,11 @@ impl<'a, T> Clone for ViewData<'a, T> {
 impl<'a, T> Copy for ViewData<'a, T> {}
 
 impl<'a, T> ViewData<'a, T> {
-    /// Variant of [Storage::get] which preserves lifetimes.
+    /// Variant of [`Storage::get`] which preserves lifetimes.
     ///
     /// # Safety
     ///
-    /// See [Storage::get].
+    /// See [`Storage::get`].
     pub unsafe fn get(&self, offset: usize) -> Option<&'a T> {
         if offset < self.len {
             Some(unsafe { &*self.ptr.add(offset) })
@@ -289,17 +289,17 @@ impl<'a, T> ViewData<'a, T> {
         }
     }
 
-    /// Variant of [Storage::get_unchecked] which preserves lifetimes.
+    /// Variant of [`Storage::get_unchecked`] which preserves lifetimes.
     ///
     /// # Safety
     ///
-    /// See [Storage::get_unchecked].
+    /// See [`Storage::get_unchecked`].
     pub unsafe fn get_unchecked(&self, offset: usize) -> &'a T {
         debug_assert!(offset < self.len);
         &*self.ptr.add(offset)
     }
 
-    /// Variant of [Storage::slice] which preserves lifetimes.
+    /// Variant of [`Storage::slice`] which preserves lifetimes.
     pub fn slice(&self, range: Range<usize>) -> ViewData<'a, T> {
         assert_storage_range_valid(self, range.clone());
         ViewData {
@@ -311,7 +311,7 @@ impl<'a, T> ViewData<'a, T> {
         }
     }
 
-    /// Variant of [Storage::view] which preserves lifetimes.
+    /// Variant of [`Storage::view`] which preserves lifetimes.
     pub fn view(&self) -> ViewData<'a, T> {
         self.slice(0..self.len())
     }
@@ -356,12 +356,12 @@ pub struct ViewMutData<'a, T> {
 unsafe impl<'a, T> Send for ViewMutData<'a, T> {}
 
 impl<'a, T> ViewMutData<'a, T> {
-    /// Variant of [StorageMut::as_slice_mut] which preserves the underlying
+    /// Variant of [`StorageMut::as_slice_mut`] which preserves the underlying
     /// lifetime in the result.
     ///
     /// # Safety
     ///
-    /// See [StorageMut::as_slice_mut].
+    /// See [`StorageMut::as_slice_mut`].
     pub unsafe fn to_slice_mut(mut self) -> &'a mut [T] {
         std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.len())
     }
@@ -414,12 +414,12 @@ unsafe impl<'a, T> StorageMut for ViewMutData<'a, T> {
 
 /// Tensor storage which may be either owned or borrowed.
 ///
-/// The name is taken from [std::borrow::Cow] in the standard library,
+/// The name is taken from [`std::borrow::Cow`] in the standard library,
 /// which is conceptually similar.
 pub enum CowData<'a, T> {
-    /// A [CowData] that owns its data.
+    /// A [`CowData`] that owns its data.
     Owned(Vec<T>),
-    /// A [CowData] that borrows data.
+    /// A [`CowData`] that borrows data.
     Borrowed(ViewData<'a, T>),
 }
 

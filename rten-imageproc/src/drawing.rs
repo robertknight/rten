@@ -214,7 +214,7 @@ pub fn draw_polygon<T: Copy>(
     }
 }
 
-/// Tracks data about an edge in a polygon being traversed by [FillIter].
+/// Tracks data about an edge in a polygon being traversed by [`FillIter`].
 #[derive(Clone, Copy, Debug)]
 struct Edge {
     /// Y coordinate where this edge starts
@@ -244,7 +244,7 @@ struct Edge {
 }
 
 /// Iterator over coordinates of pixels that fill a polygon. See
-/// [Polygon::fill_iter] for notes on how this iterator determines which
+/// [`Polygon::fill_iter`] for notes on how this iterator determines which
 /// pixels are inside the polygon.
 ///
 /// The implementation follows <https://www.jagregory.com/abrash-black-book/#filling-arbitrary-polygons>.
@@ -434,7 +434,7 @@ impl<'a, T: Copy + Default> Painter<'a, T> {
         self.saved_states.push(self.state);
     }
 
-    /// Pop and apply a drawing style from the stack created with [Painter::save].
+    /// Pop and apply a drawing style from the stack created with [`Painter::save`].
     pub fn restore(&mut self) {
         if let Some(state) = self.saved_states.pop() {
             self.state = state;
@@ -445,7 +445,7 @@ impl<'a, T: Copy + Default> Painter<'a, T> {
     /// style.
     ///
     /// This avoids the need to manually save and restore state with
-    /// [Painter::save] and [Painter::restore].
+    /// [`Painter::save`] and [`Painter::restore`].
     pub fn with_save<F: Fn(&mut Self)>(&mut self, f: F) {
         self.save();
         f(self);

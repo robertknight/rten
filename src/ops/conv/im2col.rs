@@ -181,7 +181,7 @@ impl<'a, T: Copy + Default> VirtualIm2Col<'a, T> {
     }
 
     /// Pack part of an image according to the requirements of
-    /// [VirtualMatrix::pack_b].
+    /// [`VirtualMatrix::pack_b`].
     ///
     /// `NR_REGS` specifies the width of each column panel as a multiple of
     /// `S::LEN` elements. In other words, `panel_width` must exactly equal

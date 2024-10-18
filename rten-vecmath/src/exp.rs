@@ -26,10 +26,10 @@ const EXP_POLY_4: f32 = 4.16695364e-2; // ~ 1/4! or 1/24
 const EXP_POLY_5: f32 = 8.37312452e-3; // ~ 1/5! or 1/120
 const EXP_POLY_6: f32 = 1.37805939e-3; // ~ 1/6! or 1/720
 
-/// Computes e^val. Functionally equivalent to [f32::exp].
+/// Computes e^val. Functionally equivalent to [`f32::exp`].
 ///
-/// This is scalar variant of [vec_exp] that uses exactly the same algorithm.
-/// It has no performance or correctness advantage over [f32::exp] on most systems.
+/// This is scalar variant of [`vec_exp`] that uses exactly the same algorithm.
+/// It has no performance or correctness advantage over [`f32::exp`] on most systems.
 pub fn exp(val: f32) -> f32 {
     // Safety: f32 is available on all systems.
     unsafe { simd_exp(val) }
@@ -150,7 +150,7 @@ unsafe fn simd_sigmoid<S: SimdFloat>(x: S) -> S {
 /// Computes the [sigmoid function][sigmoid], aka. the standard logistic function, `1. /
 /// (1. + (-x).exp())`.
 ///
-/// This is a scalar variant of [vec_sigmoid] that uses the same algorithm.
+/// This is a scalar variant of [`vec_sigmoid`] that uses the same algorithm.
 ///
 /// [sigmoid]: https://en.wikipedia.org/wiki/Logistic_function#Mathematical_properties
 pub fn sigmoid(x: f32) -> f32 {
@@ -168,7 +168,7 @@ impl SimdUnaryOp for SimdSigmoid {
 
 /// Vectorized sigmoid function.
 ///
-/// This is a vectorized version of [sigmoid] that computes the function for
+/// This is a vectorized version of [`sigmoid`] that computes the function for
 /// each element in `xs` and writes the result to `out`. `xs` and `out` must be
 /// equal in length.
 ///
@@ -177,7 +177,7 @@ pub fn vec_sigmoid(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
     dispatch_map_op(xs, out, SimdSigmoid {});
 }
 
-/// Variant of [vec_sigmoid] that modifies elements in-place.
+/// Variant of [`vec_sigmoid`] that modifies elements in-place.
 pub fn vec_sigmoid_in_place(xs: &mut [f32]) {
     dispatch_map_op_in_place(xs, SimdSigmoid {});
 }
@@ -228,7 +228,7 @@ impl SimdUnaryOp for SimdExp {
 
 /// Vectorized exponential function.
 ///
-/// This is a vectorized version of [exp] that computes the function for each
+/// This is a vectorized version of [`exp`] that computes the function for each
 /// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
 /// in length.
 ///
@@ -237,7 +237,7 @@ pub fn vec_exp(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
     dispatch_map_op(xs, out, SimdExp {});
 }
 
-/// Variant of [vec_exp] that modifies elements in-place.
+/// Variant of [`vec_exp`] that modifies elements in-place.
 pub fn vec_exp_in_place(xs: &mut [f32]) {
     dispatch_map_op_in_place(xs, SimdExp {});
 }

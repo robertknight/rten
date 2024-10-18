@@ -11,7 +11,7 @@ impl<const N: usize> IndexArray for [usize; N] {}
 pub type DynIndex = SmallVec<[usize; 5]>;
 
 /// Iterator over a range of N-dimensional indices, where N may be known at
-/// compile time (see [NdIndices]) or only at runtime ([DynIndices]).
+/// compile time (see [`NdIndices`]) or only at runtime ([`DynIndices`]).
 ///
 /// The number of dimensions may be zero, in which case the iterator will yield
 /// a single empty index. This is consistent with eg. `ndindex` in NumPy.
@@ -175,7 +175,7 @@ impl<const N: usize> Iterator for NdIndices<N> {
 impl<const N: usize> ExactSizeIterator for NdIndices<N> {}
 impl<const N: usize> FusedIterator for NdIndices<N> {}
 
-/// Max tensor rank supported by the variant of [DynIndices] that is optimized
+/// Max tensor rank supported by the variant of [`DynIndices`] that is optimized
 /// for small-rank tensors.
 const DYN_SMALL_LEN: usize = 4;
 
