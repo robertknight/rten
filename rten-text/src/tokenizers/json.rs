@@ -33,13 +33,22 @@ pub(crate) struct WordPieceModel {
     pub vocab: HashMap<String, TokenId>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum MergeList {
+    /// Pairs represented as a JSON array.
+    Tuple(Vec<(String, String)>),
+    /// Pairs represented as `<token_a> [SPACE] <token_b>`.
+    Legacy(Vec<String>),
+}
+
 #[derive(Deserialize)]
 pub(crate) struct BpeModel {
     /// Mapping from token text to token ID.
     pub vocab: HashMap<String, TokenId>,
 
-    /// List of `<token_a> [SPACE] <token_b>` containing tokens to merge.
-    pub merges: Vec<String>,
+    /// List of pairs of tokens to merge.
+    pub merges: MergeList,
 }
 
 #[derive(Deserialize)]
