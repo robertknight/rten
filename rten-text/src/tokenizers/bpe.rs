@@ -177,19 +177,17 @@ impl BpeBuilder {
     /// `merges` contains entries of the BPE merge table. Each entry is a
     /// space-separated pair of tokens. Each token is a sequence of byte values
     /// encoded using the scheme described in [`char_to_byte`].
-    fn add_merges(&mut self, merges: &[EncodedByteSlice]) -> Result<(), BpeError> {
+    fn add_merges(
+        &mut self,
+        merges: &[(EncodedByteSlice, EncodedByteSlice)],
+    ) -> Result<(), BpeError> {
         // The first 256 ranks are assigned to individual byte values.
         let mut rank = 256 + self.ranks.len() as u32;
         self.ranks.reserve(merges.len());
         self.token_ranks.reserve(merges.len());
 
-        for entry in merges.iter() {
-            if entry.starts_with("#version") || entry.trim().is_empty() {
-                continue;
-            }
-
-            let invalid_entry = || BpeError::InvalidMergeEntry(entry.to_string());
-            let (a, b) = entry.split_once(' ').ok_or_else(invalid_entry)?;
+        for (a, b) in merges.iter().copied() {
+            let invalid_entry = || BpeError::InvalidMergeEntry(format!("{} {}", a, b));
             let a_rank = self.get_token_rank(a).ok_or_else(invalid_entry)?;
             let b_rank = self.get_token_rank(b).ok_or_else(invalid_entry)?;
             self.ranks.insert((a_rank, b_rank), rank);
@@ -213,6 +211,25 @@ pub mod patterns {
     /// See <https://github.com/openai/tiktoken/blob/main/tiktoken_ext/openai_public.py>.
     pub const GPT2: &str =
         r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
+}
+
+/// Parse a list of space-separated BPE merge entries into pairs of tokens.
+///
+/// Lines that are empty or contain only a `#version` marker are ignored.
+pub fn merge_pairs_from_lines(
+    lines: &[impl AsRef<str>],
+) -> Vec<(EncodedByteSlice, EncodedByteSlice)> {
+    lines
+        .iter()
+        .filter_map(|line| {
+            let line = line.as_ref();
+            if line.starts_with("#version") || line.trim().is_empty() {
+                None
+            } else {
+                line.split_once(' ')
+            }
+        })
+        .collect()
 }
 
 /// Byte Pair Encoding tokenizer used by GPT-2 [^1] and subsequently used by
@@ -267,7 +284,9 @@ impl Bpe {
     /// Create a new Byte Pair Encoding tokenizer.
     ///
     /// `merges` are the ordered entries of the merge list. Each entry is a
-    /// space-separated pair of strings representing byte sequences.
+    /// pair of strings representing byte sequences. See also
+    /// [`merge_pairs_from_lines`] which can be used to extract pairs from
+    /// the space-separated format used in eg. `merges.txt` files.
     ///
     /// `pattern` is a regex used to split input text into pieces before BPE
     /// encoding is applied. The supported syntax is that supported by the
@@ -284,7 +303,7 @@ impl Bpe {
     /// do have a mapping in `vocab`. These are used for special purposes such
     /// as representing the end of output.
     pub fn new(
-        merges: &[EncodedByteSlice],
+        merges: &[(EncodedByteSlice, EncodedByteSlice)],
         pattern: &str,
         vocab: Option<HashMap<EncodedBytes, TokenId>>,
         added_tokens: HashMap<TokenId, String>,
@@ -473,7 +492,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::patterns::GPT2 as GPT2_SPLIT_PATTERN;
-    use super::{Bpe, EncodedBytes};
+    use super::{merge_pairs_from_lines, Bpe, EncodedBytes};
     use crate::tokenizers::{TokenId, Tokenizer};
 
     // The first ~25 lines of the merge list from GPT 2.
@@ -573,7 +592,8 @@ in g";
         } in cases
         {
             let merges: Vec<&str> = merges.lines().collect();
-            let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, HashMap::new()).unwrap();
+            let merge_pairs = merge_pairs_from_lines(&merges);
+            let encoder = Bpe::new(&merge_pairs, GPT2_SPLIT_PATTERN, None, HashMap::new()).unwrap();
             let tokenizer = Tokenizer::new(encoder, Default::default());
             let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();
             assert_eq!(
@@ -610,7 +630,8 @@ in g";
         ];
 
         let merges: Vec<&str> = MINI_GPT2.lines().collect();
-        let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, added_tokens()).unwrap();
+        let merge_pairs = merge_pairs_from_lines(&merges);
+        let encoder = Bpe::new(&merge_pairs, GPT2_SPLIT_PATTERN, None, added_tokens()).unwrap();
         let tokenizer = Tokenizer::new(encoder, Default::default());
 
         for Case { input, encoded_str } in cases {
@@ -666,7 +687,9 @@ in g";
         } in cases
         {
             let merges: Vec<&str> = MINI_GPT2.lines().collect();
-            let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, vocab, added_tokens()).unwrap();
+            let merge_pairs = merge_pairs_from_lines(&merges);
+            let encoder =
+                Bpe::new(&merge_pairs, GPT2_SPLIT_PATTERN, vocab, added_tokens()).unwrap();
             let tokenizer = Tokenizer::new(encoder, Default::default());
 
             let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();

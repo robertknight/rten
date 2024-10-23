@@ -22,7 +22,7 @@ use crate::split::SliceExt;
 mod bpe;
 mod json;
 mod wordpiece;
-pub use bpe::{patterns, Bpe, BpeError};
+pub use bpe::{merge_pairs_from_lines, patterns, Bpe, BpeError};
 pub use wordpiece::{WordPiece, WordPieceOptions};
 
 /// Input sequences for [`Tokenizer::encode`].
@@ -317,7 +317,13 @@ impl Tokenizer {
                             .collect()
                     })
                     .unwrap_or_default();
-                let merges: Vec<_> = model.merges.iter().map(|s| s.as_str()).collect();
+                let merges: Vec<(&str, &str)> = match &model.merges {
+                    json::MergeList::Legacy(lines) => bpe::merge_pairs_from_lines(lines),
+                    json::MergeList::Tuple(pairs) => pairs
+                        .iter()
+                        .map(|(a, b)| (a.as_str(), b.as_str()))
+                        .collect(),
+                };
                 let encoder = Bpe::new(
                     &merges,
                     bpe::patterns::GPT2,
@@ -325,6 +331,7 @@ impl Tokenizer {
                     added_tokens,
                 )
                 .map_err(FromJsonError::BpeError)?;
+
                 let tokenizer = Tokenizer::new(
                     encoder,
                     TokenizerOptions {
