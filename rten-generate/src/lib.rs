@@ -7,6 +7,7 @@
 //! [rten]: https://github.com/robertknight/rten
 //! [rten-examples]: https://github.com/robertknight/rten/tree/main/rten-examples
 
+pub mod filter;
 pub mod generator;
 pub mod metrics;
 pub mod model;
