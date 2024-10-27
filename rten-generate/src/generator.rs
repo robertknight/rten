@@ -19,6 +19,9 @@ use crate::sampler::{ArgMaxSampler, Sampler};
 #[cfg(feature = "text-decoder")]
 use crate::text_decoder::TextDecoder;
 
+/// Integer type used to represent token IDs.
+pub type TokenId = u32;
+
 /// Errors that occur when creating or running a [`Generator`].
 #[derive(Debug)]
 pub enum GeneratorError {
@@ -39,9 +42,6 @@ pub enum GeneratorError {
     DecodeError(TokenizerError),
 }
 
-/// Integer type used to represent token IDs.
-pub type TokenId = u32;
-
 impl fmt::Display for GeneratorError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -56,6 +56,25 @@ impl fmt::Display for GeneratorError {
 }
 
 impl Error for GeneratorError {}
+
+/// Wraps an error with associated context for debugging.
+#[derive(Debug)]
+struct ErrorContext {
+    error: Box<dyn Error>,
+    context: String,
+}
+
+impl Error for ErrorContext {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.error.as_ref())
+    }
+}
+
+impl std::fmt::Display for ErrorContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.context, self.error)
+    }
+}
 
 enum KvCacheData {
     /// Key-value cache with shape `[batch, seq_len, channels]`.
@@ -573,11 +592,15 @@ impl<'a> Generator<'a> {
 
     /// Run the model and generate the next token.
     fn generate_next_token(&mut self) -> Result<TokenId, GeneratorError> {
-        fn wrap_error<E>(e: E) -> GeneratorError
+        fn wrap_error<E>(error: E, context: &str) -> GeneratorError
         where
             E: Into<Box<dyn Error>>,
         {
-            GeneratorError::GenerateError(e.into())
+            let error_ctx = ErrorContext {
+                error: error.into(),
+                context: context.to_string(),
+            };
+            GeneratorError::GenerateError(error_ctx.into())
         }
 
         let batch_size = 1;
@@ -602,7 +625,10 @@ impl<'a> Generator<'a> {
             ) {
                 Ok(inputs) => inputs,
                 Err(err) => {
-                    return Err(wrap_error(err));
+                    return Err(wrap_error(
+                        err,
+                        "failed to partially evaluate model with constant inputs",
+                    ));
                 }
             };
             self.constant_prop_inputs = Some(inputs);
@@ -661,13 +687,16 @@ impl<'a> Generator<'a> {
         let mut outputs = self
             .model
             .run(model_inputs, &model_outputs, self.run_options.clone())
-            .map_err(wrap_error)?;
+            .map_err(|e| wrap_error(e, "failed to run model"))?;
 
         // Apply filtering to model outputs.
         if self.prev_tokens.is_empty() {
             self.prev_tokens.extend(self.input_ids.iter());
         }
-        let logits: NdTensor<f32, 3> = outputs.remove(0).try_into().map_err(wrap_error)?;
+        let logits: NdTensor<f32, 3> = outputs
+            .remove(0)
+            .try_into()
+            .map_err(|e| wrap_error(e, "failed to extract logits from model outputs"))?;
         let last_logits = logits.slice((0, -1));
         let filtered_logits = self
             .logits_filter
@@ -687,11 +716,19 @@ impl<'a> Generator<'a> {
         for cache_entry in self.kv_cache.iter_mut() {
             let output = outputs.remove(0);
 
+            let err_context = "failed to save self-attention KV-cache";
             let kv_cache = match output.ndim() {
-                3 => KvCacheData::BatchSeqChans(output.try_into().map_err(wrap_error)?),
-                4 => KvCacheData::BatchHeadSeqChans(output.try_into().map_err(wrap_error)?),
-                _ => {
-                    return Err(wrap_error("expected KV cache output to have 3 or 4 dims"));
+                3 => KvCacheData::BatchSeqChans(
+                    output.try_into().map_err(|e| wrap_error(e, err_context))?,
+                ),
+                4 => KvCacheData::BatchHeadSeqChans(
+                    output.try_into().map_err(|e| wrap_error(e, err_context))?,
+                ),
+                ndim => {
+                    return Err(wrap_error(
+                        format!("KV cache has {} dims, expected 3 or 4", ndim),
+                        err_context,
+                    ));
                 }
             };
             cache_entry.cache = Some(kv_cache);
@@ -707,11 +744,19 @@ impl<'a> Generator<'a> {
                 continue;
             }
 
+            let err_context = "failed to save cross-attention KV-cache";
             let kv_cache = match output.ndim() {
-                3 => KvCacheData::BatchSeqChans(output.try_into().map_err(wrap_error)?),
-                4 => KvCacheData::BatchHeadSeqChans(output.try_into().map_err(wrap_error)?),
-                _ => {
-                    return Err(wrap_error("expected KV cache output to have 3 or 4 dims"));
+                3 => KvCacheData::BatchSeqChans(
+                    output.try_into().map_err(|e| wrap_error(e, err_context))?,
+                ),
+                4 => KvCacheData::BatchHeadSeqChans(
+                    output.try_into().map_err(|e| wrap_error(e, err_context))?,
+                ),
+                ndim => {
+                    return Err(wrap_error(
+                        format!("KV cache has {} dims, expected 3 or 4", ndim),
+                        err_context,
+                    ));
                 }
             };
             cache_entry.cache = Some(kv_cache);
