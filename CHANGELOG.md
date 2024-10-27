@@ -5,6 +5,96 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Breaking changes
+
+- The `NodeId` type used to identify model inputs and outputs is now an opaque
+  `u32`-sized type instead of a `usize`
+  (https://github.com/robertknight/rten/pull/381)
+
+- The tensor slicing APIs (`TensorBase::slice` etc.) now infer the rank of the
+  output automatically, instead of requiring the caller to specify. See
+  https://github.com/robertknight/rten/pull/367.
+
+### rten
+
+#### New features
+
+- Added Whisper speech recognition example (https://github.com/robertknight/rten/pull/397)
+
+- Added background removal example using RMBG (https://github.com/robertknight/rten/pull/344)
+
+- Support i8 and u8 tensors in operator inputs, outputs and model weights
+  (https://github.com/robertknight/rten/pull/345).
+
+- Support 8-bit int tensors in Cast, Gather, GatherElements, GatherND,
+  ScatterElements, ScatterND, Expand, Flatten, Reshape, Squeeze, Transpose,
+  Pad, Unsqueeze ops (https://github.com/robertknight/rten/pull/387)
+
+- Implement `QuantizeLinear`, `DequantizeLinear` and `DynamicQuantizeLinear`
+  ops (https://github.com/robertknight/rten/pull/346)
+
+- Added reference implementation of `MatMulInteger`. Quantized models using this
+  operator will now run, but very slowly. Optimized execution for quantized
+  models will come in future releases (https://github.com/robertknight/rten/pull/356).
+
+- Support f16 models in model converter by widening to f32 (https://github.com/robertknight/rten/pull/372).
+  This is an interim measure until f16 tensors are properly supported in RTen.
+
+- Added YOLOv11 support to YOLO example (https://github.com/robertknight/rten/pull/374)
+
+#### Bug fixes
+
+- Fixed AVX-512 build (https://github.com/robertknight/rten/pull/376)
+
+- Fixed graph optimizations not being applied correctly when a fused operation
+  feeds directly into a subsequent fused operation (https://github.com/robertknight/rten/pull/369)
+
+- Fixed errors when running WebAssembly builds compiled without SIMD support (https://github.com/robertknight/rten/pull/348)
+
+#### Performance improvements
+
+- Made `NodeId` a u32-sized type with a niche, reducing the size of various
+  internal data structures (https://github.com/robertknight/rten/pull/381)
+
+- Optimized `Cast` op when source and dest types are the same (https://github.com/robertknight/rten/pull/388)
+
+- Avoid unnecessary copying in `Squeeze` and `Unsqueeze` ops (https://github.com/robertknight/rten/pull/339,
+  https://github.com/robertknight/rten/pull/340)
+
+### rten-cli
+
+- Added `--no-optimize` flag to enable testing impact of graph optimizations
+  (https://github.com/robertknight/rten/pull/368)
+
+### rten-generate
+
+- Added more context to token generation errors (https://github.com/robertknight/rten/pull/396)
+
+- Support `cache_position` input in models exported from Optimum
+  (https://github.com/robertknight/rten/pull/395)
+
+- Added API for modifying model outputs ("logits") before sampling
+  (https://github.com/robertknight/rten/pull/393,
+  https://github.com/robertknight/rten/pull/394)
+
+- Support the new `merges` format in tokenizer.json files exported by
+  current versions of HuggingFace Transformers
+  (https://github.com/robertknight/rten/pull/392)
+
+### rten-imageproc
+
+- Added `normalize_image` utility (https://github.com/robertknight/rten/pull/343)
+
+### rten-tensor
+
+- Improved debug formatting of tensors (https://github.com/robertknight/rten/pull/377)
+
+- Changed `TensorBase::slice` to infer the rank of the output based on the
+  rank of the input and the number of index entries in the slice arguments
+  (https://github.com/robertknight/rten/pull/367).
+
 ## [0.13.1] - 2024-08-30
 
 ### rten
