@@ -284,10 +284,10 @@ pub struct Generator<'a> {
     logits_output: NodeId,
 
     /// Filter used to modify logits before sampling.
-    logits_filter: Option<Box<dyn LogitsFilter>>,
+    logits_filter: Option<Box<dyn LogitsFilter + 'a>>,
 
     /// Sampler used to get the next token ID from the output logits.
-    sampler: Box<dyn Sampler>,
+    sampler: Box<dyn Sampler + 'a>,
 
     /// Previously sampled tokens. These are retained for conditional filtering
     /// and sampling.
@@ -536,13 +536,13 @@ impl<'a> Generator<'a> {
 
     /// Set the filter used to process model output logits before passing them
     /// to the sampler to select a token ID.
-    pub fn with_logits_filter<F: LogitsFilter + 'static>(mut self, filter: F) -> Self {
+    pub fn with_logits_filter<F: LogitsFilter + 'a>(mut self, filter: F) -> Self {
         self.logits_filter = Some(Box::new(filter));
         self
     }
 
     /// Set the sampler used to sample the next token ID from the output logits.
-    pub fn with_sampler<S: Sampler + 'static>(mut self, sampler: S) -> Self {
+    pub fn with_sampler<S: Sampler + 'a>(mut self, sampler: S) -> Self {
         self.sampler = Box::new(sampler);
         self
     }
