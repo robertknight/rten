@@ -13,6 +13,7 @@ fastrand = "2.0.2"
 hound = "3.5.1"
 image = { workspace = true }
 lexopt = "0.3.0"
+microfft = { version = "0.6.0", default-features = false, features = ["size-512"] }
 png = "0.17.6"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -22,6 +23,7 @@ rten-imageio = { path = "../rten-imageio" }
 rten-imageproc = { path = "../rten-imageproc" }
 rten-tensor = { path = "../rten-tensor" }
 rten-text = { path = "../rten-text" }
+smallvec = "1.13.2"
 
 [features]
 # Use AVX-512 instructions if available. Requires nightly Rust for AVX-512 intrinsics.
@@ -101,3 +103,7 @@ path = "src/silero.rs"
 [[bin]]
 name = "wav2vec2"
 path = "src/wav2vec2.rs"
+
+[[bin]]
+name = "whisper"
+path = "src/whisper.rs"
