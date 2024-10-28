@@ -10,7 +10,11 @@ repository = "https://github.com/robertknight/rten"
 include = ["/src", "/README.md"]
 
 [dependencies]
+serde = { workspace = true, optional = true }
 smallvec = { version = "1.10.0", features=["union", "const_generics", "const_new"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [lib]
 crate-type = ["lib"]
@@ -19,3 +23,6 @@ crate-type = ["lib"]
 # See comments about `needless_range_loop` in root Cargo.toml.
 needless_range_loop = "allow"
 manual_memcpy = "allow"
+
+[features]
+serde = ["dep:serde"]

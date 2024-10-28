@@ -415,7 +415,7 @@ fn copy_range_into_slice_inner<T: Clone>(
         let ranges: [IndexRange; 4] = ranges.try_into().unwrap();
 
         // Check output length is correct.
-        let sliced_len = ranges.iter().map(|s| s.steps()).product();
+        let sliced_len: usize = ranges.iter().map(|s| s.steps()).product();
         assert_eq!(dest.len(), sliced_len, "output too short");
 
         let mut dest_offset = 0;

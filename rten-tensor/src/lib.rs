@@ -37,6 +37,20 @@
 //! let transposed_elems: Vec<_> = tensor.transposed().iter().copied().collect();
 //! assert_eq!(transposed_elems, [1, 3, 2, 4]);
 //! ```
+//!
+//! # Serialization
+//!
+//! Tensors can be serialized and deserialized using [serde](https://serde.rs)
+//! if the `serde` feature is enabled. The serialized representation of a
+//! tensor includes its shape and elements in row-major (C) order. The JSON
+//! serialization of a matrix (`NdTensor<f32, 2>`) looks like this for example:
+//!
+//! ```json
+//! {
+//!   "shape": [2, 2],
+//!   "data": [0.5, 1.0, 1.5, 2.0]
+//! }
+//! ```
 
 mod copy;
 pub mod errors;
@@ -50,6 +64,8 @@ mod storage;
 pub mod type_num;
 
 mod impl_debug;
+#[cfg(feature = "serde")]
+mod impl_serialize;
 mod tensor;
 
 /// Trait for sources of random data for tensors, for use with [`Tensor::rand`].
