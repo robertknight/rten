@@ -272,7 +272,7 @@ pub fn layer_normalization(
         .map(|axis| axis as i32)
         .collect();
 
-    // First step: standardize input elements to have unit mean and variance.
+    // First step: standardize input elements to have zero mean and unit variance.
     let mean = reduce_mean(
         pool,
         input.view(),

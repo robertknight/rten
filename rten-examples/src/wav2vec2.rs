@@ -9,22 +9,28 @@ use rten_tensor::{NdTensor, Tensor};
 struct Args {
     model: String,
     wav_file: String,
+    raw_text: bool,
 }
 
 fn parse_args() -> Result<Args, lexopt::Error> {
     use lexopt::prelude::*;
 
     let mut values = VecDeque::new();
+    let mut raw_text = false;
 
     let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
         match arg {
             Value(val) => values.push_back(val.string()?),
+            Short('r') | Long("raw") => raw_text = true,
             Long("help") => {
                 println!(
                     "Recognize speech in .wav files.
 
 Usage: {bin_name} <model_path> <wav_file>
+
+Options:
+  -r, --raw    Output the characters predicted by the model without any cleanup
 ",
                     bin_name = parser.bin_name().unwrap_or("wav2vec2")
                 );
@@ -37,20 +43,35 @@ Usage: {bin_name} <model_path> <wav_file>
     let model = values.pop_front().ok_or("missing `model` arg")?;
     let wav_file = values.pop_front().ok_or("missing `wav_file` arg")?;
 
-    let args = Args { model, wav_file };
+    let args = Args {
+        model,
+        wav_file,
+        raw_text,
+    };
 
     Ok(args)
 }
 
-/// Read a .wav audio file into a sequence of samples with values in [1, -1].
+/// Normalize values in `data` to have zero mean and unit variance.
+fn normalize_mean_variance(data: &mut [f32]) {
+    let mean = data.iter().sum::<f32>() / data.len() as f32;
+    let variance = data.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / data.len() as f32;
+    let std_dev = variance.sqrt();
+    for x in data {
+        *x = (*x - mean) / std_dev;
+    }
+}
+
+/// Read a .wav audio file into a sequence of normalized samples.
 ///
-/// nb. The wav2vec2 model expects the sample rate to be 16 kHz.
-fn read_wav_file(path: &str) -> Result<Vec<f32>, hound::Error> {
+/// The samples are normalized to have zero mean and unit variance. See section
+/// 2 of https://arxiv.org/pdf/2006.11477 ("The raw waveform input to the
+/// encoder is normalized to zero mean and unit variance") and
+/// https://github.com/facebookresearch/fairseq/issues/3277.
+fn read_wav_file(path: &str, expected_sample_rate: u32) -> Result<Vec<f32>, hound::Error> {
     let mut reader = hound::WavReader::open(path)?;
 
     let spec = reader.spec();
-    let expected_sample_rate = 16_000;
-
     if spec.sample_rate != expected_sample_rate {
         println!(
             "WARNING: Sample rate is {} kHz, this model expects {} kHz.",
@@ -59,14 +80,11 @@ fn read_wav_file(path: &str) -> Result<Vec<f32>, hound::Error> {
         );
     }
 
-    let mut samples = Vec::new();
-    for sample in reader.samples::<i16>() {
-        samples.push(sample?);
-    }
-    let float_samples: Vec<f32> = samples
-        .into_iter()
-        .map(|x| (x as f32) / i16::MAX as f32)
-        .collect();
+    let samples = reader.samples::<i16>().collect::<Result<Vec<_>, _>>()?;
+    let mut float_samples: Vec<f32> = samples.into_iter().map(|x| x as f32).collect();
+
+    normalize_mean_variance(&mut float_samples);
+
     Ok(float_samples)
 }
 
@@ -79,6 +97,9 @@ fn read_wav_file(path: &str) -> Result<Vec<f32>, hound::Error> {
 /// optimum-cli export onnx --model facebook/wav2vec2-base-960h wav2vec2
 /// rten-convert wav2vec2/model.onnx wav2vec2.rten
 /// ```
+///
+/// For better accuracy at the cost of slower transcription, you can use larger
+/// models such as "facebook/wav2vec2-large-960h-lv60-self".
 ///
 /// To record a .wav file and test this app:
 ///
@@ -110,21 +131,36 @@ fn main() -> Result<(), Box<dyn Error>> {
     // with index 0 is omitted, as that is used for a CTC blank.
     let vocab = "???|ETAONIHSRDLUMWCFGYPBVK'XJQZ";
 
+    let sample_rate = 16_000;
+    let chunk_length = 10;
+
     let model = Model::load_file(args.model)?;
-    let samples = read_wav_file(&args.wav_file)?;
+    let samples = read_wav_file(&args.wav_file, sample_rate)?;
 
-    let mut sample_batch = Tensor::from(samples);
-    sample_batch.insert_axis(0);
+    // Chunk the audio into fixed-length chunks to support transcription of
+    // longer audio clips. This approach to chunking is very simple, but there
+    // are better approaches. See https://huggingface.co/blog/asr-chunking.
+    for sample_chunk in samples.chunks(sample_rate as usize * chunk_length) {
+        let mut sample_batch = Tensor::from(sample_chunk.to_vec());
+        sample_batch.insert_axis(0);
 
-    let result: NdTensor<f32, 3> = model
-        .run_one(sample_batch.view().into(), None)?
-        .try_into()?;
+        let result: NdTensor<f32, 3> = model
+            .run_one(sample_batch.view().into(), None)?
+            .try_into()?;
 
-    let decoder = CtcDecoder::new();
-    let hypothesis = decoder.decode_beam(result.slice([0]), 10 /* beam_size */);
-    let text = hypothesis.to_string(vocab);
+        let decoder = CtcDecoder::new();
+        let hypothesis = decoder.decode_beam(result.slice(0), 10 /* beam_size */);
+        let raw_text = hypothesis.to_string(vocab);
 
-    println!("{}", text);
+        // Lower-case output for readibility.
+        let text = raw_text.replace("|", " ").to_lowercase();
+
+        if args.raw_text {
+            println!("{}", raw_text);
+        } else {
+            println!("{}", text);
+        }
+    }
 
     Ok(())
 }
