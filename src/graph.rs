@@ -711,7 +711,11 @@ impl Graph {
         captures
     }
 
-    pub fn add_node(&mut self, node: Node) -> NodeId {
+    /// Add a node to the graph and return its ID.
+    ///
+    /// This contains the common logic for adding different types of node to
+    /// the graph.
+    fn add_node(&mut self, node: Node) -> NodeId {
         let node_id = NodeId::from_u32(self.nodes.len() as u32);
         self.nodes.push(node);
 
@@ -790,7 +794,7 @@ impl Graph {
         (op_node_id, op_out_id)
     }
 
-    /// Add a constant node to the graph.
+    /// Convert `value` to a constant node and add it to the graph.
     ///
     /// `name` is an identifier for this node that is used in debug messages etc.
     ///
@@ -800,12 +804,20 @@ impl Graph {
         V: Into<ConstantNodeData<T>>,
         ConstantNode<T>: Into<Constant>,
     {
-        let node = ConstantNode {
-            name: name.map(|s| s.to_owned()),
-            data: value.into(),
-        };
+        self.add_constant_node(
+            ConstantNode {
+                name: name.map(|s| s.to_owned()),
+                data: value.into(),
+            }
+            .into(),
+        )
+    }
 
-        self.add_node(Node::Constant(node.into()))
+    /// Add a constant node to the graph.
+    ///
+    /// Returns the ID of the added node.
+    pub fn add_constant_node(&mut self, node: Constant) -> NodeId {
+        self.add_node(Node::Constant(node))
     }
 
     /// Add a value node to the graph.

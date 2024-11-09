@@ -78,6 +78,11 @@ impl GraphMutator {
         self.graph.add_constant(name, value)
     }
 
+    /// Add a new constant value to the graph.
+    fn add_constant_node(&mut self, const_node: Constant) -> NodeId {
+        self.graph.add_constant_node(const_node)
+    }
+
     /// Add a new operator to the graph with a single output node.
     ///
     /// `op_output_id` specifies the ID of the output node. If not specified,
@@ -103,11 +108,6 @@ impl GraphMutator {
         }
 
         op_output_id
-    }
-
-    /// Add a new node to the graph.
-    fn add_node(&mut self, node: Node) -> NodeId {
-        self.graph.add_node(node)
     }
 
     /// Return a reference to the graph.
@@ -330,7 +330,7 @@ impl GraphOptimizer {
         let mut new_captures: FxHashSet<_> = graph.graph().captures().iter().copied().collect();
 
         for (capture_id, local_const) in captured_constants {
-            let const_id = graph.add_node(Node::Constant(local_const));
+            let const_id = graph.add_constant_node(local_const);
             new_captures.remove(&capture_id);
             graph.replace_value(capture_id, const_id);
         }
