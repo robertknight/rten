@@ -722,6 +722,13 @@ impl Graph {
         node_id
     }
 
+    /// Invalidate cached execution plans.
+    fn clear_cached_plan(&mut self) {
+        if let Ok(plan) = self.cached_plan.get_mut() {
+            plan.take();
+        }
+    }
+
     /// Add an operator node to the graph.
     ///
     /// `name` is an identifier for this node that is used in debug messages etc.
@@ -732,7 +739,10 @@ impl Graph {
     /// operators.
     ///
     /// `outputs` specifies which value nodes the operator's outputs should be
-    /// written to.
+    /// written to. If there is already an existing operator which uses the
+    /// same output, the new operator will become the source for this output
+    /// value. This enables replacing an operator while preserving metadata
+    /// of the output value (name, shape etc.).
     ///
     /// Returns the ID of the operator node.
     pub fn add_op(
@@ -752,6 +762,10 @@ impl Graph {
         for output_id in outputs.iter().flatten() {
             self.source_ids.insert(*output_id, op_id);
         }
+
+        // Clear cached plan in case we just replaced the source operator for
+        // one of the output IDs.
+        self.clear_cached_plan();
 
         op_id
     }
