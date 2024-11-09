@@ -563,7 +563,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    println!("Decoding took {:.3}s", start.elapsed().as_secs_f64());
+    let decode_duration = start.elapsed().as_secs_f64();
+    let audio_duration: f64 = audio.len() as f64 / sample_rate as f64;
+    let real_time_factor = audio_duration / decode_duration;
+    println!(
+        "Transcribed {:.0}s of audio in {:.2}s, {:.1}x real-time",
+        audio_duration, decode_duration, real_time_factor
+    );
 
     Ok(())
 }
