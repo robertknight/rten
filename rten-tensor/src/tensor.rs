@@ -2593,7 +2593,7 @@ mod tests {
     fn test_from_nested_array() {
         // Scalar
         let x = NdTensor::from(5);
-        assert_eq!(x.shape(), []);
+        assert!(x.shape().is_empty());
         assert_eq!(x.data(), Some([5].as_slice()));
 
         // 1D

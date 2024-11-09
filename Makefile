@@ -35,7 +35,7 @@ miri:
 # nightly Rust.
 .PHONY: test
 test:
-	cargo test --workspace --features mmap,random,text-decoder
+	cargo test --workspace --features mmap,random,text-decoder,serde
 
 .PHONY: wasm
 wasm:

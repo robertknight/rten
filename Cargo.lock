@@ -466,6 +466,8 @@ version = "0.14.0"
 name = "rten-tensor"
 version = "0.14.0"
 dependencies = [
+ "serde",
+ "serde_json",
  "smallvec",
 ]
 

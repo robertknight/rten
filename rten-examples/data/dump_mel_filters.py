@@ -5,7 +5,11 @@ import librosa.filters
 
 
 def ndarray_to_dict(array):
-    """Return a JSON-serializable representation of an ndarray."""
+    """
+    Return a JSON-serializable representation of an ndarray.
+
+    This representation is compatible with rten-tensor's serde deserialization.
+    """
     return {
         "shape": array.shape,
         "data": array.flatten().tolist(),
