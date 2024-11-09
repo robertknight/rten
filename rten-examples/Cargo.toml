@@ -21,7 +21,7 @@ rten = { path = "../", features = ["mmap", "random"] }
 rten-generate = { path = "../rten-generate", features=["text-decoder"] }
 rten-imageio = { path = "../rten-imageio" }
 rten-imageproc = { path = "../rten-imageproc" }
-rten-tensor = { path = "../rten-tensor" }
+rten-tensor = { path = "../rten-tensor", features=["serde"] }
 rten-text = { path = "../rten-text" }
 smallvec = "1.13.2"
 

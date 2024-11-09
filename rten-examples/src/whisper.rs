@@ -8,9 +8,9 @@ use rten::{Dimension, FloatOperators, Model};
 use rten_generate::filter::{token_id_filter, LogitsFilter};
 use rten_generate::{Generator, GeneratorUtils};
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, Tensor};
+use rten_tensor::{NdTensor, NdTensorView};
 use rten_text::tokenizers::Tokenizer;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 struct Args {
     /// Path to Whisper encoder model.
@@ -145,25 +145,13 @@ fn stft(
     output
 }
 
-#[derive(Deserialize, Serialize)]
-struct TensorData {
-    shape: Vec<usize>,
-    data: Vec<f32>,
-}
-
-impl TensorData {
-    fn to_tensor(&self) -> Tensor {
-        Tensor::from_data(&self.shape, self.data.clone())
-    }
-}
-
 /// JSON-serialized mel filter bank.
 ///
 /// See `data/dump_mel_filters.py`.
 #[derive(Deserialize)]
 struct MelFilters {
-    mel_80: TensorData,
-    mel_128: TensorData,
+    mel_80: NdTensor<f32, 2>,
+    mel_128: NdTensor<f32, 2>,
 }
 
 fn resource_path(path: &str) -> PathBuf {
@@ -203,13 +191,11 @@ fn log_mel_spectrogram(
     // Get power spectrum of input.
     let magnitudes: NdTensor<f32, 2> = audio_fft.map(|&x| x.norm_sqr());
 
-    let mel_filters: NdTensor<f32, 2> = match (n_mels, sample_rate, n_fft) {
-        (80, 16_000, 400) => mel_filter_map.mel_80.to_tensor(),
-        (128, 16_000, 400) => mel_filter_map.mel_128.to_tensor(),
+    let mel_filters: NdTensorView<f32, 2> = match (n_mels, sample_rate, n_fft) {
+        (80, 16_000, 400) => mel_filter_map.mel_80.view(),
+        (128, 16_000, 400) => mel_filter_map.mel_128.view(),
         _ => return Err("unsupported mel filter parameters".into()),
-    }
-    .to_tensor()
-    .try_into()?;
+    };
 
     // Convert from hz to mels.
     let mels = mel_filters.matmul(magnitudes.as_dyn()).unwrap();
