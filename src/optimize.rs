@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -79,7 +78,15 @@ impl GraphMutator {
         self.graph.add_constant(name, value)
     }
 
+    /// Add a new constant value to the graph.
+    fn add_constant_node(&mut self, const_node: Constant) -> NodeId {
+        self.graph.add_constant_node(const_node)
+    }
+
     /// Add a new operator to the graph with a single output node.
+    ///
+    /// `op_output_id` specifies the ID of the output node. If not specified,
+    /// a new value node is created.
     ///
     /// Returns the ID of the output node.
     fn add_operator(
@@ -87,8 +94,9 @@ impl GraphMutator {
         name: Option<&str>,
         op: Box<dyn Operator + Send + Sync>,
         inputs: &[Option<NodeId>],
+        op_output_id: Option<NodeId>,
     ) -> NodeId {
-        let op_output_id = self.graph.add_value(None, None);
+        let op_output_id = op_output_id.unwrap_or(self.graph.add_value(None, None));
         let op_id = self.graph.add_op(name, op, inputs, &[Some(op_output_id)]);
 
         for input_id in inputs.iter().filter_map(|id| *id) {
@@ -100,11 +108,6 @@ impl GraphMutator {
         }
 
         op_output_id
-    }
-
-    /// Add a new node to the graph.
-    fn add_node(&mut self, node: Node) -> NodeId {
-        self.graph.add_node(node)
     }
 
     /// Return a reference to the graph.
@@ -135,30 +138,19 @@ impl GraphMutator {
         &mut self,
         create_fusion: F,
     ) {
-        let mut fusions = Vec::new();
+        let fusions: Vec<_> = self
+            .iter_operators()
+            .filter_map(|(op_node_id, op_node)| create_fusion(self, op_node_id, op_node))
+            .collect();
 
-        for (op_node_id, op_node) in self.iter_operators() {
-            if let Some(fusion) = create_fusion(self, op_node_id, op_node) {
-                fusions.push(fusion);
-            }
-        }
-
-        // Map of old_output_id => new_output_id for subgraphs that have been
-        // replaced by fusions.
-        let mut replaced_ids = HashMap::<NodeId, NodeId>::new();
-
-        for mut fusion in fusions {
-            // Replace input IDs which match output IDs of previously applied
-            // fusions.
-            for input_id in fusion.input_ids.iter_mut().flatten() {
-                if let Some(replacement_id) = replaced_ids.get(input_id) {
-                    *input_id = *replacement_id;
-                }
-            }
-
-            let (old_output_id, new_output_id) = fusion.apply(self);
-
-            replaced_ids.insert(old_output_id, new_output_id);
+        for Fusion {
+            name,
+            fused_op,
+            input_ids,
+            output_id,
+        } in fusions
+        {
+            self.add_operator(name.as_deref(), fused_op, &input_ids, Some(output_id));
         }
     }
 
@@ -219,45 +211,26 @@ struct Fusion {
     name: Option<String>,
     fused_op: Box<dyn Operator + Send + Sync>,
     input_ids: Vec<Option<NodeId>>,
-    old_output_id: NodeId,
+    output_id: NodeId,
 }
 
 impl Fusion {
     /// Create a fusion with a given operator, name and input nodes.
     ///
-    /// `old_output_id` specifies the output ID of the subgraph that this fusion
+    /// `output_id` specifies the output ID of the subgraph that this fusion
     /// replaces.
     fn from_op<Op: Operator + Send + Sync>(
         name: Option<&str>,
         op: Op,
         input_ids: Vec<Option<NodeId>>,
-        old_output_id: NodeId,
+        output_id: NodeId,
     ) -> Fusion {
         Fusion {
             name: name.map(|s| s.to_string()),
             fused_op: Box::new(op),
             input_ids,
-            old_output_id,
+            output_id,
         }
-    }
-
-    /// Apply the fusion to the graph.
-    ///
-    /// This adds the fused operator to the graph and replaces references to
-    /// the original output nodes with the fused operator's outputs.
-    ///
-    /// Returns a tuple of `(old_output_id, new_output_id)`.
-    fn apply(self, graph: &mut GraphMutator) -> (NodeId, NodeId) {
-        let Fusion {
-            name,
-            fused_op,
-            input_ids,
-            old_output_id,
-        } = self;
-
-        let fused_op_output_id = graph.add_operator(name.as_deref(), fused_op, &input_ids);
-        graph.replace_value(old_output_id, fused_op_output_id);
-        (old_output_id, fused_op_output_id)
     }
 }
 
@@ -304,12 +277,11 @@ impl GraphOptimizer {
 
     /// Apply optimizations to a graph.
     ///
-    /// The input and output nodes specified by `input_ids` and `output_ids`
-    /// will be preserved, but their IDs may change. Other nodes in the graph
-    /// may be modified, removed or replaced by optimization.
+    /// The graph's input and output nodes, identified by
+    /// [`input_ids`](Graph::input_ids) and [`output_ids`](Graph::output_ids)
+    /// will be preserved. Other nodes may be modified, removed or replaced.
     ///
-    /// This method returns the new graph along with the node IDs in the new
-    /// graph that correspond to `input_ids` and `output_ids`.
+    /// Returns the optimized graph.
     pub fn optimize(
         &self,
         graph: Graph,
@@ -358,7 +330,7 @@ impl GraphOptimizer {
         let mut new_captures: FxHashSet<_> = graph.graph().captures().iter().copied().collect();
 
         for (capture_id, local_const) in captured_constants {
-            let const_id = graph.add_node(Node::Constant(local_const));
+            let const_id = graph.add_constant_node(local_const);
             new_captures.remove(&capture_id);
             graph.replace_value(capture_id, const_id);
         }
@@ -865,6 +837,37 @@ mod tests {
 
         let layer_norm = op.operator().downcast_ref::<LayerNormalization>().unwrap();
         assert_eq!(layer_norm.epsilon, Some(1e-6));
+    }
+
+    #[test]
+    fn test_optimize_preserves_input_output_nodes() {
+        let mut graph = Graph::new();
+
+        let input_1 = graph.add_value(None, None);
+        let input_2 = graph.add_value(None, None);
+
+        // Add fuse-able Transpose + MatMul
+        let (_, transpose_out) =
+            graph.add_simple_op("transpose", Transpose { perm: None }, &[input_1]);
+        let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[transpose_out, input_2]);
+        graph.set_input_ids(&[input_1, input_2]);
+        graph.set_output_ids(&[matmul_out]);
+
+        let graph = optimize_graph(graph).unwrap();
+
+        // Verify that optimizer did change the graph
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(op.operator().name(), "FusedTranspose(MatMul)");
+
+        // The IDs of the input and output nodes should be the same after
+        // optimization.
+        //
+        // The optimizer could have created new output nodes instead, but it
+        // would need to ensure that the new outputs preserved value node
+        // metadata (name, shape) from the original outputs.
+        assert_eq!(graph.input_ids(), &[input_1, input_2]);
+        assert_eq!(graph.output_ids(), &[matmul_out]);
+        assert_eq!(graph.node_name(matmul_out), "matmul_out");
     }
 
     #[test]
