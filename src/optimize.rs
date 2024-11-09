@@ -277,12 +277,11 @@ impl GraphOptimizer {
 
     /// Apply optimizations to a graph.
     ///
-    /// The input and output nodes specified by `input_ids` and `output_ids`
-    /// will be preserved, but their IDs may change. Other nodes in the graph
-    /// may be modified, removed or replaced by optimization.
+    /// The graph's input and output nodes, identified by
+    /// [`input_ids`](Graph::input_ids) and [`output_ids`](Graph::output_ids)
+    /// will be preserved. Other nodes may be modified, removed or replaced.
     ///
-    /// This method returns the new graph along with the node IDs in the new
-    /// graph that correspond to `input_ids` and `output_ids`.
+    /// Returns the optimized graph.
     pub fn optimize(
         &self,
         graph: Graph,
