@@ -919,7 +919,7 @@ mod tests {
         }
 
         fn node_info(&self, id: NodeId) -> Option<NodeInfo> {
-            self.nodes.get(id.as_u32() as usize).cloned()
+            self.nodes.get(id.as_usize()).cloned()
         }
 
         fn input_ids(&self) -> &[NodeId] {
