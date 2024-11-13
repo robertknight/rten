@@ -2921,7 +2921,7 @@ mod tests {
 
     #[test]
     fn test_into_data() {
-        let tensor = NdTensor::from_data([2], vec![2., 3.]);
+        let tensor = NdTensor::from([2., 3.]);
         assert_eq!(tensor.into_data(), vec![2., 3.]);
 
         let mut tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
@@ -3043,18 +3043,18 @@ mod tests {
 
     #[test]
     fn test_item() {
-        let tensor = NdTensor::from_data([], vec![5.]);
+        let tensor = NdTensor::from(5.);
         assert_eq!(tensor.item(), Some(&5.));
-        let tensor = NdTensor::from_data([1], vec![6.]);
+        let tensor = NdTensor::from([6.]);
         assert_eq!(tensor.item(), Some(&6.));
-        let tensor = NdTensor::from_data([2], vec![2., 3.]);
+        let tensor = NdTensor::from([2., 3.]);
         assert_eq!(tensor.item(), None);
 
-        let tensor = Tensor::from_data(&[], vec![5.]);
+        let tensor = Tensor::from(5.);
         assert_eq!(tensor.item(), Some(&5.));
-        let tensor = Tensor::from_data(&[1], vec![6.]);
+        let tensor = Tensor::from([6.]);
         assert_eq!(tensor.item(), Some(&6.));
-        let tensor = Tensor::from_data(&[2], vec![2., 3.]);
+        let tensor = Tensor::from([2., 3.]);
         assert_eq!(tensor.item(), None);
     }
 

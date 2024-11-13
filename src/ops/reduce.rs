@@ -48,7 +48,7 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
 
     if !keep_dims {
         let axes = &[resolved_axis as i32];
-        let axes = NdTensorView::from_data([1], axes);
+        let axes = NdTensorView::from(axes);
         squeeze_in_place(&mut reduced, Some(axes)).expect("Invalid axis");
     }
 

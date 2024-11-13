@@ -1085,7 +1085,7 @@ mod tests {
         // Simple case where comparing ordering of tensor shapes tells us
         // target shape.
         let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let b = Tensor::from_data(&[1], vec![10.]);
+        let b = Tensor::from([10.]);
         let expected = Tensor::from_data(&[2, 2], vec![11., 12., 13., 14.]);
         let result = add(&pool, a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
@@ -1096,7 +1096,7 @@ mod tests {
 
         // Case where the length of tensor shapes needs to be compared before
         // the ordering, since ([5] > [1,5]).
-        let a = Tensor::from_data(&[5], vec![1., 2., 3., 4., 5.]);
+        let a = Tensor::from([1., 2., 3., 4., 5.]);
         let b = Tensor::from_data(&[1, 5], vec![1., 2., 3., 4., 5.]);
         let expected = Tensor::from_data(&[1, 5], vec![2., 4., 6., 8., 10.]);
 
