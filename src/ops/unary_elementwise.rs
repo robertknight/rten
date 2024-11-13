@@ -1141,10 +1141,8 @@ mod tests {
     #[test]
     fn test_sigmoid() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
-        let input: Tensor<f32> = Tensor::from_data(
-            &[9],
-            vec![-500.0, -3.0, -1.0, -0.5, 0.0, 0.5, 1.0, 3.0, 500.0],
-        );
+        let input: Tensor<f32> =
+            Tensor::from([-500.0, -3.0, -1.0, -0.5, 0.0, 0.5, 1.0, 3.0, 500.0]);
         let expected = input.map(|x| reference_sigmoid(*x));
 
         let result = sigmoid(&pool, input.view());

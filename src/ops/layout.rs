@@ -778,7 +778,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         // Case where copied input dim is also zero.
-        let input = Tensor::<f32>::from_data(&[0], vec![]);
+        let input = Tensor::from([0.; 0]);
         let shape = NdTensor::from([0]);
         let expected = input.to_shape([0].as_slice());
         let result = reshape(
@@ -791,7 +791,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         // Case where there is no corresponding input dim.
-        let input = Tensor::from_data(&[1], vec![5.]);
+        let input = Tensor::from([5.]);
         let shape = NdTensor::from([1, 0]);
         let result = reshape(
             &pool,
@@ -859,7 +859,7 @@ mod tests {
         assert_eq!(result.err(), expected_err);
 
         // Case when allow_zero is true
-        let input = Tensor::from_data(&[1], vec![1]);
+        let input = Tensor::from([1]);
         let shape = NdTensor::from([0, -1]);
         let result = reshape(
             &pool,
@@ -890,7 +890,7 @@ mod tests {
     fn test_reshape_op() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = Tensor::from_data(&[1], vec![4]);
+        let shape = Tensor::from([4]);
         let expected = input.to_shape([4].as_slice());
 
         let op = Reshape { allow_zero: false };

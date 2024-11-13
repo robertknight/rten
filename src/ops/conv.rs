@@ -799,7 +799,7 @@ mod tests {
         expect_eq_1e4(&result, &expected_with_no_padding)?;
 
         let expected_with_bias = Tensor::from_data(&[1, 1, 1, 1], vec![3.6358]);
-        let bias = Tensor::from_data(&[1], vec![1.0]);
+        let bias = Tensor::from([1.0]);
         let result = check_conv(
             input.view(),
             kernel.view(),
@@ -981,7 +981,7 @@ mod tests {
                 0.4273, 0.4180, 0.4338,
             ],
         );
-        let bias = Tensor::from_data(&[3], vec![0.1, 0.2, 0.3]);
+        let bias = Tensor::from([0.1, 0.2, 0.3]);
         let expected = Tensor::from_data(
             &[1, 3, 1, 1],
             vec![
@@ -1341,7 +1341,7 @@ mod tests {
         for eb in expected_with_bias.iter_mut() {
             *eb += 1.234;
         }
-        let bias = Tensor::from_data(&[1], vec![1.234]);
+        let bias = Tensor::from([1.234]);
         let result = conv_transpose(
             &pool,
             input.view(),

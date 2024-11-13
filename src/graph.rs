@@ -1715,7 +1715,7 @@ mod tests {
     fn test_graph_node_debug_names() {
         let mut g = Graph::new();
 
-        let weights = Tensor::from_data(&[1], vec![0.3230]);
+        let weights = Tensor::from([0.3230]);
         let weights_id = g.add_constant(Some("weights"), weights.clone());
         let input_id = g.add_value(Some("input"), None);
         let relu_out_id = g.add_value(Some("relu_out"), None);
@@ -1820,18 +1820,18 @@ mod tests {
         // op_d is the same as op_c, but input order is reversed
         let (_, op_d_out) = g.add_simple_op("op_d", Concat { axis: 0 }, &[op_b_out, op_a_out]);
 
-        let input = Tensor::from_data(&[1], vec![1.]);
+        let input = Tensor::from([1.]);
 
         let results = g
             .run(vec![(input_id, input.view().into())], &[op_c_out], None)
             .unwrap();
-        let expected = Tensor::from_data(&[2], vec![2., 3.]);
+        let expected = Tensor::from([2., 3.]);
         expect_equal(&results[0].as_tensor_view().unwrap(), &expected.view())?;
 
         let results = g
             .run(vec![(input_id, input.into())], &[op_d_out], None)
             .unwrap();
-        let expected = Tensor::from_data(&[2], vec![3., 2.]);
+        let expected = Tensor::from([3., 2.]);
         expect_equal(&results[0].as_tensor_view().unwrap(), &expected.view())?;
 
         Ok(())
@@ -1865,7 +1865,7 @@ mod tests {
     fn test_graph_many_steps() -> Result<(), Box<dyn Error>> {
         let mut g = Graph::new();
 
-        let input = Tensor::from_data(&[5], vec![1., 2., 3., 4., 5.]);
+        let input = Tensor::from([1., 2., 3., 4., 5.]);
         let input_id = g.add_value(Some("input"), None);
 
         let mut prev_output = input_id;
@@ -1884,7 +1884,7 @@ mod tests {
             .run(vec![(input_id, input.into())], &[prev_output], None)
             .unwrap();
 
-        let expected = Tensor::from_data(&[5], vec![101., 102., 103., 104., 105.]);
+        let expected = Tensor::from([101., 102., 103., 104., 105.]);
         expect_equal(&results[0].as_tensor_view().unwrap(), &expected.view())?;
 
         Ok(())
@@ -1894,7 +1894,7 @@ mod tests {
     fn test_noop_graph() -> Result<(), Box<dyn Error>> {
         let mut g = Graph::new();
 
-        let input = Tensor::from_data(&[5], vec![1., 2., 3., 4., 5.]);
+        let input = Tensor::from([1., 2., 3., 4., 5.]);
         let input_id = g.add_value(Some("input"), None);
 
         let results = g
@@ -1910,7 +1910,7 @@ mod tests {
     fn test_constant_graph() -> Result<(), Box<dyn Error>> {
         let mut g = Graph::new();
 
-        let value = Tensor::from_data(&[5], vec![1., 2., 3., 4., 5.]);
+        let value = Tensor::from([1., 2., 3., 4., 5.]);
         let const_id = g.add_constant(Some("weight"), value.clone());
 
         let results = g.run(vec![], &[const_id], None).unwrap();
