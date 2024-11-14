@@ -46,7 +46,7 @@ impl Operator for If {
         &self,
         pool: &TensorPool,
         inputs: InputList,
-        captures: &CaptureEnv,
+        captures: CaptureEnv,
         run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
         let cond: TensorView<i32> = inputs.require_as(0).map_err(run_error_from_op_error)?;

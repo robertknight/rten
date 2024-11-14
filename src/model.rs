@@ -431,7 +431,7 @@ impl Model {
                 optimize,
                 capture_env,
             } = &subgraph_opts;
-            let capture_env = CaptureEnv::new(*capture_env, graph, None, None);
+            let capture_env = CaptureEnv::new(*capture_env, graph, None, None, None);
             Self::load_graph(
                 g,
                 registry,

@@ -788,7 +788,7 @@ pub trait Operator: Any + Debug {
         &self,
         pool: &TensorPool,
         input: InputList,
-        #[allow(unused)] captures: &CaptureEnv,
+        #[allow(unused)] captures: CaptureEnv,
         #[allow(unused)] run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
         self.run(pool, input)

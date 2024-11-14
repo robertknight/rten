@@ -629,7 +629,7 @@ mod tests {
         // Run optimizations on the subgraph. This should replace the captured
         // value with a local constant that references the same data.
         let optimizer = GraphOptimizer::new();
-        let capture_env = CaptureEnv::new(None, &graph, None, None);
+        let capture_env = CaptureEnv::new(None, &graph, None, None, None);
         let optimized_subgraph = optimizer.optimize(subgraph, Some(&capture_env))?;
 
         let outputs = optimized_subgraph.output_ids();
