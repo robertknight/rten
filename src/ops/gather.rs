@@ -2,6 +2,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{to_slice_items, NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
 
+use crate::number::IsNaN;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
     resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
@@ -392,7 +393,9 @@ pub enum ScatterReduction {
     Max,
 }
 
-fn scatter_reduce<T: Copy + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>>(
+fn scatter_reduce<
+    T: Copy + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T> + IsNaN,
+>(
     current: T,
     update: T,
     reduction: Option<ScatterReduction>,
@@ -416,7 +419,7 @@ fn scatter_reduce<T: Copy + PartialOrd + std::ops::Add<Output = T> + std::ops::M
 }
 
 pub fn scatter_elements<
-    T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
+    T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T> + IsNaN,
 >(
     pool: &TensorPool,
     data: TensorView<T>,
@@ -499,7 +502,7 @@ impl Operator for ScatterElements {
 }
 
 pub fn scatter_nd<
-    T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
+    T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T> + IsNaN,
 >(
     pool: &TensorPool,
     data: TensorView<T>,

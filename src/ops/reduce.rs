@@ -5,7 +5,7 @@ use rten_tensor;
 use rten_tensor::prelude::*;
 use rten_tensor::{DynIndices, NdTensor, NdTensorView, SliceItem, Tensor, TensorView};
 
-use crate::number::Identities;
+use crate::number::{Identities, IsNaN};
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
@@ -46,15 +46,15 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
     }
 
     if !input.is_empty() {
-        for lane in input.lanes(resolved_axis) {
+        reduced_data.extend(input.lanes(resolved_axis).map(|lane| {
             let index = if let Some(slice) = lane.as_slice() {
                 // Fast path for contiguous lanes.
                 max_position_by(slice.iter(), &compare)
             } else {
                 max_position_by(lane, &compare)
             };
-            reduced_data.push(index as i32);
-        }
+            index as i32
+        }));
     }
 
     let mut reduced = Tensor::<i32>::from_data(&reduced_shape, reduced_data);
@@ -109,7 +109,7 @@ macro_rules! dispatch_single_axis_reduce_op {
 /// Return the index of the maximum value along a given axis.
 ///
 /// NaN values are propagated by treating NaNs as greater than other values.
-pub fn arg_max<T: Copy + PartialOrd>(
+pub fn arg_max<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     input: TensorView<T>,
     axis: isize,
@@ -138,7 +138,7 @@ impl Operator for ArgMax {
 /// Return the index of the minimum value along a given axis.
 ///
 /// NaN values are propagated by treating NaNs as smaller than other values.
-pub fn arg_min<T: Copy + PartialOrd>(
+pub fn arg_min<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     input: TensorView<T>,
     axis: isize,
@@ -147,7 +147,7 @@ pub fn arg_min<T: Copy + PartialOrd>(
     select_max_index(pool, input, axis, keep_dims, |a, b| {
         match a.partial_cmp(b) {
             Some(ordering) => ordering.reverse(),
-            None => cmp_nan_greater(a, b),
+            None => cmp_nan_greater(*a, *b),
         }
     })
 }
@@ -506,16 +506,12 @@ impl Operator for ReduceL2 {
     }
 }
 
-fn is_nan<T: PartialOrd>(a: &T) -> bool {
-    a.partial_cmp(a).is_none()
-}
-
 /// Compare `a` and `b`, treating all NaN values as greater than non-NaN values.
-pub fn cmp_nan_greater<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
+pub fn cmp_nan_greater<T: PartialOrd + IsNaN>(a: T, b: T) -> std::cmp::Ordering {
     match a.partial_cmp(&b) {
         Some(ordering) => ordering,
         None => {
-            if is_nan(&a) {
+            if a.is_nan() {
                 std::cmp::Ordering::Greater
             } else {
                 std::cmp::Ordering::Less
@@ -525,11 +521,11 @@ pub fn cmp_nan_greater<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
 }
 
 /// Compare `a` and `b`, treating all NaN values as less than non-NaN values.
-pub fn cmp_nan_less<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
+pub fn cmp_nan_less<T: PartialOrd + IsNaN>(a: T, b: T) -> std::cmp::Ordering {
     match a.partial_cmp(&b) {
         Some(ordering) => ordering,
         None => {
-            if is_nan(&a) {
+            if a.is_nan() {
                 std::cmp::Ordering::Less
             } else {
                 std::cmp::Ordering::Greater
@@ -538,7 +534,7 @@ pub fn cmp_nan_less<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
     }
 }
 
-fn reduce_min_max<T: Copy + PartialOrd>(
+fn reduce_min_max<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -548,7 +544,7 @@ fn reduce_min_max<T: Copy + PartialOrd>(
     struct MinMaxReducer {
         max: bool,
     }
-    impl<T: Copy + PartialOrd> Reducer<T> for MinMaxReducer {
+    impl<T: Copy + PartialOrd + IsNaN> Reducer<T> for MinMaxReducer {
         fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
             let reduced = if self.max {
                 iter.max_by(|a, b| cmp_nan_greater(*a, *b))
@@ -576,7 +572,7 @@ fn get_axes<'a>(
     Ok(axes)
 }
 
-pub fn reduce_min<T: Copy + PartialOrd>(
+pub fn reduce_min<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -603,7 +599,7 @@ impl Operator for ReduceMin {
     }
 }
 
-pub fn reduce_max<T: Copy + PartialOrd>(
+pub fn reduce_max<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -729,7 +725,7 @@ impl Operator for ReduceSumSquare {
     }
 }
 
-pub fn topk<T: Copy + Default + PartialOrd>(
+pub fn topk<T: Copy + Default + PartialOrd + IsNaN>(
     pool: &TensorPool,
     values: TensorView<T>,
     k: usize,

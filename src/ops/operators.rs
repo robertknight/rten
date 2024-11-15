@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use rten_tensor::prelude::*;
 use rten_tensor::{MutLayout, NdTensorView, Storage, Tensor, TensorBase, TensorView};
 
-use crate::number::{Identities, IsInt};
+use crate::number::{Identities, IsInt, IsNaN};
 use crate::ops::OpError;
 use crate::ops::{
     arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min, reduce_sum,
@@ -22,7 +22,7 @@ pub trait Operators {
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
     where
-        Self::Elem: Copy + PartialOrd;
+        Self::Elem: Copy + PartialOrd + IsNaN;
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
     where
@@ -44,7 +44,7 @@ pub trait Operators {
         keep_dims: bool,
     ) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy + PartialOrd;
+        Self::Elem: Copy + PartialOrd + IsNaN;
 
     fn reduce_min(
         &self,
@@ -52,7 +52,7 @@ pub trait Operators {
         keep_dims: bool,
     ) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy + PartialOrd;
+        Self::Elem: Copy + PartialOrd + IsNaN;
 
     fn reduce_sum(
         &self,
@@ -78,7 +78,7 @@ pub trait Operators {
         sorted: bool,
     ) -> Result<(Tensor<Self::Elem>, Tensor<i32>), OpError>
     where
-        Self::Elem: Copy + Default + PartialOrd;
+        Self::Elem: Copy + Default + PartialOrd + IsNaN;
 }
 
 /// Trait which exposes ONNX operators as methods of tensors.
@@ -112,7 +112,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
     where
-        T: Copy + PartialOrd,
+        T: Copy + PartialOrd + IsNaN,
     {
         let view = self.as_dyn();
         use_thread_pool(|| arg_max(&TensorPool::new(), view, axis, keep_dims))
@@ -142,7 +142,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
 
     fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor<T>, OpError>
     where
-        T: Copy + PartialOrd,
+        T: Copy + PartialOrd + IsNaN,
     {
         let view = self.as_dyn();
         use_thread_pool(|| reduce_max(&TensorPool::new(), view, axes, keep_dims))
@@ -150,7 +150,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
 
     fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor<T>, OpError>
     where
-        T: Copy + PartialOrd,
+        T: Copy + PartialOrd + IsNaN,
     {
         let view = self.as_dyn();
         use_thread_pool(|| reduce_min(&TensorPool::new(), view, axes, keep_dims))
@@ -184,7 +184,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
         sorted: bool,
     ) -> Result<(Tensor<Self::Elem>, Tensor<i32>), OpError>
     where
-        T: Copy + Default + PartialOrd,
+        T: Copy + Default + PartialOrd + IsNaN,
     {
         let view = self.as_dyn();
         use_thread_pool(|| topk(&TensorPool::new(), view, k, axis, largest, sorted))
