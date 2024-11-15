@@ -1418,6 +1418,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     ///
     /// See [`AsView::lanes`].
     pub fn lanes(&self, dim: usize) -> Lanes<'a, T> {
+        assert!(dim < self.ndim());
         Lanes::new(self.view_ref(), dim)
     }
 
