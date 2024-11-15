@@ -182,9 +182,14 @@ pub fn copy_into_slice<'a, T: Clone>(
     src.merge_axes();
 
     if src.ndim() > 4 {
-        for (dst, src) in dest.iter_mut().zip(src.iter()) {
-            dst.write(src.clone());
+        let chunk_size = src.shape()[src.ndim() - 4..].iter().product();
+        let mut n_init = 0;
+        for (src, dest) in src.inner_iter::<4>().zip(dest.chunks_mut(chunk_size)) {
+            copy_into_slice(src.as_dyn(), dest);
+            n_init += chunk_size;
         }
+        assert!(n_init == dest.len());
+
         // Safety: Loop above initialized all elements of `dest`.
         return unsafe { transmute::<&mut [MaybeUninit<T>], &[T]>(dest) };
     }
