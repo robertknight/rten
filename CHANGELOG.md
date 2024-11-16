@@ -27,9 +27,8 @@ allow the Whisper example to run significantly faster.
 ### Bug fixes
 
 - Fixed an issue where metadata associated with output value nodes was lost
-  after a graph fusion. In the Whisper example this prevented several Transpose
-  + MatMul fusions from being used
-  (https://github.com/robertknight/rten/pull/401).
+  after a graph fusion. In the Whisper example this prevented several Transpose-MatMul
+  fusions from being used (https://github.com/robertknight/rten/pull/401).
 
 ### Performance improvements
 
