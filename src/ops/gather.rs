@@ -288,7 +288,7 @@ pub fn gather_nd<T: Clone + Default>(
     let out_slice_len = out_shape[out_shape.len() - out_slice_ndim..]
         .iter()
         .product();
-    let mut output = Tensor::<T>::zeros_in(pool, &out_shape);
+    let mut output = Tensor::<T>::uninit_in(pool, &out_shape);
 
     let output_non_batch_dims = output.ndim() - batch_dims;
     let input_non_batch_dims = input.ndim() - batch_dims;
@@ -297,6 +297,7 @@ pub fn gather_nd<T: Clone + Default>(
     // This allows the loop below to rely on index tuples being contiguous.
     let indices = indices.to_contiguous_in(pool).auto_return(pool);
 
+    let mut n_init = 0;
     for (mut output, (input, indices)) in output.inner_iter_dyn_mut(output_non_batch_dims).zip(
         input
             .inner_iter_dyn(input_non_batch_dims)
@@ -306,19 +307,42 @@ pub fn gather_nd<T: Clone + Default>(
         let out_slices = output.data_mut().unwrap().chunks_mut(out_slice_len);
         let idx_slices = indices.data().unwrap().chunks(idx_tuple_size);
 
-        for (out_slice, idx) in out_slices.zip(idx_slices) {
-            let slice_items = to_slice_items(idx);
-            let in_slice = input
-                .try_slice(slice_items.as_slice())
-                .map_err(|_| OpError::InvalidValue("Invalid index"))?;
+        if let Some(input_data) = input.data() {
+            // Fast path for when the gathered data is contiguous. In that case
+            // the gather just amounts to copying chunks of the input to the
+            // output.
+            for (out_slice, idx) in out_slices.zip(idx_slices) {
+                let offset = idx
+                    .iter()
+                    .zip(input.strides())
+                    .map(|(idx, stride)| *idx as usize * stride)
+                    .sum();
+                let in_slice = input_data
+                    .get(offset..offset + out_slice.len())
+                    .ok_or(OpError::InvalidValue("Invalid index"))?;
+                for (out, x) in out_slice.iter_mut().zip(in_slice) {
+                    out.write(x.clone());
+                }
+                n_init += out_slice.len();
+            }
+        } else {
+            for (out_slice, idx) in out_slices.zip(idx_slices) {
+                let slice_items = to_slice_items(idx);
+                let in_slice = input
+                    .try_slice(slice_items.as_slice())
+                    .map_err(|_| OpError::InvalidValue("Invalid index"))?;
 
-            for (out, x) in out_slice.iter_mut().zip(in_slice.iter()) {
-                *out = x.clone();
+                for (out, x) in out_slice.iter_mut().zip(in_slice.iter()) {
+                    out.write(x.clone());
+                }
+                n_init += out_slice.len();
             }
         }
     }
 
-    Ok(output)
+    // Safety: All elements of `output` are initialized.
+    assert!(n_init == output.len());
+    Ok(unsafe { output.assume_init() })
 }
 
 #[derive(Debug)]
@@ -784,6 +808,7 @@ mod tests {
         struct Case {
             batch_dims: usize,
             data: Tensor<i32>,
+            transpose: bool,
             indices: Tensor<i32>,
             expected: Result<Tensor<i32>, OpError>,
         }
@@ -793,43 +818,75 @@ mod tests {
             Case {
                 batch_dims: 0,
                 data: [[0, 1], [2, 3]].into(),
+                transpose: false,
                 indices: [[0, 0], [1, 1]].into(),
                 expected: Ok([0, 3].into()),
             },
             Case {
                 batch_dims: 0,
                 data: [[0, 1], [2, 3]].into(),
+                transpose: false,
                 indices: [[1], [0]].into(),
                 expected: Ok([[2, 3], [0, 1]].into()),
             },
             Case {
                 batch_dims: 0,
                 data: [[[0, 1], [2, 3]], [[4, 5], [6, 7]]].into(),
+                transpose: false,
                 indices: [[0, 1], [1, 0]].into(),
                 expected: Ok([[2, 3], [4, 5]].into()),
             },
             Case {
                 batch_dims: 0,
                 data: [[[0, 1], [2, 3]], [[4, 5], [6, 7]]].into(),
+                transpose: false,
                 indices: [[[0, 1]], [[1, 0]]].into(),
                 expected: Ok([[[2, 3]], [[4, 5]]].into()),
             },
             Case {
                 batch_dims: 1,
                 data: [[[0, 1], [2, 3]], [[4, 5], [6, 7]]].into(),
+                transpose: false,
                 indices: [[1], [0]].into(),
                 expected: Ok([[2, 3], [4, 5]].into()),
+            },
+            // Invalid indexes
+            Case {
+                batch_dims: 0,
+                data: [[0, 1], [2, 3]].into(),
+                transpose: false,
+                indices: [[0, 0], [1, 2]].into(),
+                expected: Err(OpError::InvalidValue("Invalid index")),
+            },
+            // Transposed input
+            Case {
+                batch_dims: 0,
+                data: [[0, 1], [2, 3]].into(),
+                transpose: true,
+                indices: [[0, 1], [1, 0]].into(),
+                expected: Ok([2, 1].into()),
+            },
+            Case {
+                batch_dims: 0,
+                data: [[0, 1], [2, 3]].into(),
+                transpose: true,
+                indices: [[0, 1], [1, 2]].into(),
+                expected: Err(OpError::InvalidValue("Invalid index")),
             },
         ];
 
         let pool = new_pool();
         for Case {
             batch_dims,
-            data,
+            mut data,
+            transpose,
             indices,
             expected,
         } in cases
         {
+            if transpose {
+                data.transpose();
+            }
             let result = gather_nd(&pool, data.view(), indices.view(), batch_dims);
             assert_eq!(result, expected);
         }
