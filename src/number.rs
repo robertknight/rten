@@ -62,6 +62,39 @@ impl Identities for i32 {
     }
 }
 
+/// Test if a number is a float NaN ("Not a number") value.
+pub trait IsNaN {
+    /// Return true if the current value is a NaN. See [`f32::is_nan`].
+    ///
+    /// This is always false for integer types.
+    #[allow(clippy::wrong_self_convention)] // Match `f32::is_nan` etc.
+    fn is_nan(self) -> bool;
+}
+
+macro_rules! impl_isnan_float {
+    ($type:ty) => {
+        impl IsNaN for $type {
+            fn is_nan(self) -> bool {
+                <$type>::is_nan(self)
+            }
+        }
+    };
+}
+macro_rules! impl_isnan_int {
+    ($type:ty) => {
+        impl IsNaN for $type {
+            fn is_nan(self) -> bool {
+                false
+            }
+        }
+    };
+}
+
+impl_isnan_float!(f32);
+impl_isnan_int!(i32);
+impl_isnan_int!(i8);
+impl_isnan_int!(u8);
+
 /// Convert between a primitive type and an array of bytes in little-endian
 /// order.
 pub trait LeBytes {

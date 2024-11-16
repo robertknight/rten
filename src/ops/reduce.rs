@@ -5,7 +5,7 @@ use rten_tensor;
 use rten_tensor::prelude::*;
 use rten_tensor::{DynIndices, NdTensor, NdTensorView, SliceItem, Tensor, TensorView};
 
-use crate::number::Identities;
+use crate::number::{Identities, IsNaN};
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
@@ -37,11 +37,24 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
         .collect();
     let mut reduced_data = pool.alloc(reduced_shape.iter().product());
 
+    fn max_position_by<'a, T: 'a>(
+        iter: impl Iterator<Item = &'a T>,
+        compare: impl Fn(&'a T, &'a T) -> std::cmp::Ordering,
+    ) -> usize {
+        let (index, _) = iter.enumerate().max_by(|a, b| compare(a.1, b.1)).unwrap(); // Ok because we checked tensor is not empty.
+        index
+    }
+
     if !input.is_empty() {
-        for slice in input.lanes(resolved_axis) {
-            let (index, _) = slice.enumerate().max_by(|a, b| compare(a.1, b.1)).unwrap(); // Ok because we checked tensor is not empty.
-            reduced_data.push(index as i32);
-        }
+        reduced_data.extend(input.lanes(resolved_axis).map(|lane| {
+            let index = if let Some(slice) = lane.as_slice() {
+                // Fast path for contiguous lanes.
+                max_position_by(slice.iter(), &compare)
+            } else {
+                max_position_by(lane, &compare)
+            };
+            index as i32
+        }));
     }
 
     let mut reduced = Tensor::<i32>::from_data(&reduced_shape, reduced_data);
@@ -96,7 +109,7 @@ macro_rules! dispatch_single_axis_reduce_op {
 /// Return the index of the maximum value along a given axis.
 ///
 /// NaN values are propagated by treating NaNs as greater than other values.
-pub fn arg_max<T: Copy + PartialOrd>(
+pub fn arg_max<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     input: TensorView<T>,
     axis: isize,
@@ -125,7 +138,7 @@ impl Operator for ArgMax {
 /// Return the index of the minimum value along a given axis.
 ///
 /// NaN values are propagated by treating NaNs as smaller than other values.
-pub fn arg_min<T: Copy + PartialOrd>(
+pub fn arg_min<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     input: TensorView<T>,
     axis: isize,
@@ -134,7 +147,7 @@ pub fn arg_min<T: Copy + PartialOrd>(
     select_max_index(pool, input, axis, keep_dims, |a, b| {
         match a.partial_cmp(b) {
             Some(ordering) => ordering.reverse(),
-            None => cmp_nan_greater(a, b),
+            None => cmp_nan_greater(*a, *b),
         }
     })
 }
@@ -493,16 +506,12 @@ impl Operator for ReduceL2 {
     }
 }
 
-fn is_nan<T: PartialOrd>(a: &T) -> bool {
-    a.partial_cmp(a).is_none()
-}
-
 /// Compare `a` and `b`, treating all NaN values as greater than non-NaN values.
-pub fn cmp_nan_greater<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
+pub fn cmp_nan_greater<T: PartialOrd + IsNaN>(a: T, b: T) -> std::cmp::Ordering {
     match a.partial_cmp(&b) {
         Some(ordering) => ordering,
         None => {
-            if is_nan(&a) {
+            if a.is_nan() {
                 std::cmp::Ordering::Greater
             } else {
                 std::cmp::Ordering::Less
@@ -512,11 +521,11 @@ pub fn cmp_nan_greater<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
 }
 
 /// Compare `a` and `b`, treating all NaN values as less than non-NaN values.
-pub fn cmp_nan_less<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
+pub fn cmp_nan_less<T: PartialOrd + IsNaN>(a: T, b: T) -> std::cmp::Ordering {
     match a.partial_cmp(&b) {
         Some(ordering) => ordering,
         None => {
-            if is_nan(&a) {
+            if a.is_nan() {
                 std::cmp::Ordering::Less
             } else {
                 std::cmp::Ordering::Greater
@@ -525,7 +534,7 @@ pub fn cmp_nan_less<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
     }
 }
 
-fn reduce_min_max<T: Copy + PartialOrd>(
+fn reduce_min_max<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -535,7 +544,7 @@ fn reduce_min_max<T: Copy + PartialOrd>(
     struct MinMaxReducer {
         max: bool,
     }
-    impl<T: Copy + PartialOrd> Reducer<T> for MinMaxReducer {
+    impl<T: Copy + PartialOrd + IsNaN> Reducer<T> for MinMaxReducer {
         fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
             let reduced = if self.max {
                 iter.max_by(|a, b| cmp_nan_greater(*a, *b))
@@ -563,7 +572,7 @@ fn get_axes<'a>(
     Ok(axes)
 }
 
-pub fn reduce_min<T: Copy + PartialOrd>(
+pub fn reduce_min<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -590,7 +599,7 @@ impl Operator for ReduceMin {
     }
 }
 
-pub fn reduce_max<T: Copy + PartialOrd>(
+pub fn reduce_max<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -716,7 +725,7 @@ impl Operator for ReduceSumSquare {
     }
 }
 
-pub fn topk<T: Copy + Default + PartialOrd>(
+pub fn topk<T: Copy + Default + PartialOrd + IsNaN>(
     pool: &TensorPool,
     values: TensorView<T>,
     k: usize,
@@ -858,15 +867,12 @@ mod tests {
         // Common use case of a tensor of (batch, item, prob) where
         // `item` is eg. a token index in a sequence or box ID for object
         // detection.
-        let seq_probs = Tensor::from_data(
-            &[1, 4, 3],
-            vec![
-                0.1, 0.2, 0.9, // First item
-                0.9, 0.1, 0.2, // Second item
-                0.3, 0.8, 0.4, // Third item
-                0.1, 0.01, 0.2, // Fourth item
-            ],
-        );
+        let seq_probs = Tensor::from([[
+            [0.1, 0.2, 0.9],
+            [0.9, 0.1, 0.2],
+            [0.3, 0.8, 0.4],
+            [0.1, 0.01, 0.2],
+        ]]);
         let seq_classes = arg_max(&pool, seq_probs.view(), 2, false /* keep_dims */).unwrap();
         assert_eq!(seq_classes.shape(), &[1, 4]);
         assert_eq!(seq_classes.to_vec(), &[2, 0, 1, 2]);
@@ -891,6 +897,11 @@ mod tests {
                 "Cannot select index from empty sequence"
             ))
         );
+
+        // Non-contiguous lanes
+        let mat = Tensor::from([[1, 2], [4, 8], [5, 6]]);
+        let col_max = arg_max(&pool, mat.view(), 0, false /* keep_dims */).unwrap();
+        assert_eq!(col_max, NdTensor::from([2, 1]));
     }
 
     // We only have basic tests for ArgMin since most of the implementation is

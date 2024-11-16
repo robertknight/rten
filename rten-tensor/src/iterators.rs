@@ -543,6 +543,20 @@ pub struct Lane<'a, T> {
     size: usize,
 }
 
+impl<'a, T> Lane<'a, T> {
+    /// Return the remaining part of the lane as a slice, if it is contiguous.
+    pub fn as_slice(&self) -> Option<&'a [T]> {
+        match self.stride {
+            1 => {
+                let remainder = self.data.slice(self.index..self.size);
+                // Safety: The stride is 1, so we know the lane is contiguous.
+                Some(unsafe { remainder.as_slice() })
+            }
+            _ => None,
+        }
+    }
+}
+
 impl<'a, T> Iterator for Lane<'a, T> {
     type Item = &'a T;
 
@@ -1094,7 +1108,7 @@ pub fn for_each_mut<T, F: Fn(&mut T)>(mut view: TensorViewMut<T>, f: F) {
 // tests on tensor methods.
 #[cfg(test)]
 mod tests {
-    use crate::{AsView, AxisChunks, AxisChunksMut, Lanes, LanesMut, Tensor};
+    use crate::{AsView, AxisChunks, AxisChunksMut, Lanes, LanesMut, NdTensor, Tensor};
 
     #[test]
     fn test_axis_chunks_empty() {
@@ -1127,6 +1141,26 @@ mod tests {
         let x = Tensor::<i32>::zeros(&[5, 0]);
         assert!(Lanes::new(x.view().view_ref(), 0).next().is_none());
         assert!(Lanes::new(x.view().view_ref(), 1).next().is_none());
+    }
+
+    #[test]
+    fn test_lane_as_slice() {
+        // Contiguous lane
+        let x = NdTensor::from([0, 1, 2]);
+        let mut lane = x.lanes(0).next().unwrap();
+        assert_eq!(lane.as_slice(), Some([0, 1, 2].as_slice()));
+        lane.next();
+        assert_eq!(lane.as_slice(), Some([1, 2].as_slice()));
+        lane.next();
+        lane.next();
+        assert_eq!(lane.as_slice(), Some([0i32; 0].as_slice()));
+        lane.next();
+        assert_eq!(lane.as_slice(), Some([0i32; 0].as_slice()));
+
+        // Non-contiguous lane
+        let x = NdTensor::from([[1i32, 2], [3, 4]]);
+        let lane = x.lanes(0).next().unwrap();
+        assert_eq!(lane.as_slice(), None);
     }
 
     #[test]

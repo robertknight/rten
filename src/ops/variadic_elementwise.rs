@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
+use crate::number::IsNaN;
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, OutputList};
@@ -42,7 +43,7 @@ where
     })
 }
 
-pub fn max<T: Copy + PartialOrd>(
+pub fn max<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
@@ -102,7 +103,7 @@ impl Operator for Mean {
     }
 }
 
-pub fn min<T: Copy + PartialOrd>(
+pub fn min<T: Copy + PartialOrd + IsNaN>(
     pool: &TensorPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
