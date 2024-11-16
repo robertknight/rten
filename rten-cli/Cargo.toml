@@ -1,6 +1,6 @@
 [package]
 name = "rten-cli"
-version = "0.14.0"
+version = "0.14.1"
 edition = "2021"
 authors = ["Robert Knight"]
 description = "CLI tool for inspecting and running RTen models"
@@ -11,8 +11,8 @@ include = ["/src", "/README.md"]
 
 [dependencies]
 fastrand = "2.0.2"
-rten = { path = "../", version = "0.14.0", features=["mmap", "random"] }
-rten-tensor = { path = "../rten-tensor", version = "0.14.0" }
+rten = { path = "../", version = "0.14.1", features=["mmap", "random"] }
+rten-tensor = { path = "../rten-tensor", version = "0.14.1" }
 lexopt = "0.3.0"
 
 [features]
