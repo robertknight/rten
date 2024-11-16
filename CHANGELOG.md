@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] - 2024-11-16
+
+This release adds Serde support for rten tensors and several optimizations which
+allow the Whisper example to run significantly faster.
+
+### rten-tensor
+
+- Support (de-)serializing tensors using Serde (https://github.com/robertknight/rten/pull/402)
+
+### rten
+
+### Examples
+
+- Output transcription speed as a multiple of real-time in Whisper example
+  (https://github.com/robertknight/rten/pull/403)
+
+- Support longer audio inputs and normalize inputs in wav2vec2 speech
+  recognition example (https://github.com/robertknight/rten/pull/400)
+
+### Bug fixes
+
+- Fixed an issue where metadata associated with output value nodes was lost
+  after a graph fusion. In the Whisper example this prevented several Transpose
+  + MatMul fusions from being used
+  (https://github.com/robertknight/rten/pull/401).
+
+### Performance improvements
+
+- Added fast path for ArgMin / ArgMax for case when axis has unit stride
+  (https://github.com/robertknight/rten/pull/411)
+
+- Optimized GatherND by avoiding redundant zeroing of output and adding fast
+  path for contiguous inputs (https://github.com/robertknight/rten/pull/410)
+
+- Optimized copying of tensors with 5+ dimensions (https://github.com/robertknight/rten/pull/409)
+
+- Operators in subgraphs which capture their first input from a parent graph can
+  now run in-place (https://github.com/robertknight/rten/pull/407)
+
+- After the initial execution plan is created, it is now re-ordered to enable
+  more operations to run in-place
+  (https://github.com/robertknight/rten/pull/405)
+
+### rten-generate
+
+- The strategy for reserving capacity for KV-cache growth has been modified to
+  work with models that don't append to KV-cache inputs on the first run.
+  This benefits Hugging Face "merged" transformer models with "past" and "no-past"
+  branches (https://github.com/robertknight/rten/pull/408)
+
 ## [0.14.0] - 2024-10-27
 
 ### Breaking changes
