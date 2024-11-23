@@ -840,7 +840,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     // Buffers for packed blocks of the matrix.
     //
     // These use `u64` rather than LhsT / RhsT because statics cannot be generic.
-    // `u64` is used to ensure alignment is a m
+    // `u64` is assumed to have an alignment that is greater or equal to the
+    // alignment of any LhsT / RhsT.
     thread_local!(static PACKED_A: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) });
     thread_local!(static PACKED_B: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) });
     assert!(align_of::<LhsT>() <= align_of::<u64>());
@@ -993,7 +994,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
 /// `packed_a` and `packed_b` are the corresponding packed inputs. `panel_length`
 /// is the size of panels along the depth/K dimension.
 ///
-/// `is_first` indicates whether this is the first write to the output tiles
+/// `first_update` indicates whether this is the first write to the output tiles
 /// in this block during the current GEMM operation.
 fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
