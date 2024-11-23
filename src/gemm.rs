@@ -1009,13 +1009,12 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     beta: OutT,
     bias: Option<&[OutT]>,
 ) {
-    // Maximum tile size of all supported kernels.
-    const MAX_MR: usize = 8;
-    const MAX_NR: usize = 32;
+    // Maximum tile size supported. This is used when allocating space on the
+    // stack for a temporary output tile.
+    const MAX_TILE_ELEMENTS: usize = 256;
 
     let (mr, nr) = (kernel.mr(), kernel.nr());
-
-    assert!(nr <= MAX_NR && mr <= MAX_MR);
+    assert!(nr * mr <= MAX_TILE_ELEMENTS);
 
     let b_panel_size = panel_length * nr;
     let a_panel_size = mr * panel_length;
@@ -1059,10 +1058,10 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                     // copy the results back to the output. This allows the same
                     // kernel implementation to be used whether the tile is
                     // full-sized or not.
-                    let mut tmp_out_tile = [MaybeUninit::<OutT>::uninit(); MAX_MR * MAX_NR];
+                    let mut tmp_out_tile = [MaybeUninit::<OutT>::uninit(); MAX_TILE_ELEMENTS];
 
                     // Safety:
-                    //  - Tile size is <= MAX_MR * MAX_NR
+                    //  - Tile size is <= MAX_TILE_ELEMENTS
                     unsafe {
                         kernel.kernel(
                             transmute::<*mut MaybeUninit<OutT>, *mut OutT>(
