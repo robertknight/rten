@@ -283,19 +283,19 @@ macro_rules! impl_input_conversions {
         }
 
         impl<'a> From<&'a Tensor<$element_type>> for Input<'a> {
-            fn from(t: &'a Tensor<$element_type>) -> Input {
+            fn from(t: &'a Tensor<$element_type>) -> Input<'a> {
                 Input::$variant(t.view())
             }
         }
 
         impl<'a> From<TensorView<'a, $element_type>> for Input<'a> {
-            fn from(t: TensorView<'a, $element_type>) -> Input {
+            fn from(t: TensorView<'a, $element_type>) -> Input<'a> {
                 Input::$variant(t)
             }
         }
 
         impl<'a, const N: usize> From<NdTensorView<'a, $element_type, N>> for Input<'a> {
-            fn from(t: NdTensorView<'a, $element_type, N>) -> Input {
+            fn from(t: NdTensorView<'a, $element_type, N>) -> Input<'a> {
                 Input::$variant(t.as_dyn())
             }
         }
@@ -308,7 +308,7 @@ impl_input_conversions!(Int8Tensor, i8);
 impl_input_conversions!(UInt8Tensor, u8);
 
 impl<'a> From<&'a Output> for Input<'a> {
-    fn from(output: &'a Output) -> Input {
+    fn from(output: &'a Output) -> Input<'a> {
         match output {
             Output::FloatTensor(t) => Input::FloatTensor(t.view()),
             Output::Int32Tensor(t) => Input::Int32Tensor(t.view()),
