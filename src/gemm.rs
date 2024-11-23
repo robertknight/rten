@@ -840,7 +840,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     // Buffers for packed blocks of the matrix.
     //
     // These use `u64` rather than LhsT / RhsT because statics cannot be generic.
-    // `u64` is used to ensure alignment is a m
+    // `u64` is assumed to have an alignment that is greater or equal to the
+    // alignment of any LhsT / RhsT.
     thread_local!(static PACKED_A: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) });
     thread_local!(static PACKED_B: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) });
     assert!(align_of::<LhsT>() <= align_of::<u64>());
@@ -993,7 +994,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
 /// `packed_a` and `packed_b` are the corresponding packed inputs. `panel_length`
 /// is the size of panels along the depth/K dimension.
 ///
-/// `is_first` indicates whether this is the first write to the output tiles
+/// `first_update` indicates whether this is the first write to the output tiles
 /// in this block during the current GEMM operation.
 fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
@@ -1008,13 +1009,12 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     beta: OutT,
     bias: Option<&[OutT]>,
 ) {
-    // Maximum tile size of all supported kernels.
-    const MAX_MR: usize = 8;
-    const MAX_NR: usize = 32;
+    // Maximum tile size supported. This is used when allocating space on the
+    // stack for a temporary output tile.
+    const MAX_TILE_ELEMENTS: usize = 256;
 
     let (mr, nr) = (kernel.mr(), kernel.nr());
-
-    assert!(nr <= MAX_NR && mr <= MAX_MR);
+    assert!(nr * mr <= MAX_TILE_ELEMENTS);
 
     let b_panel_size = panel_length * nr;
     let a_panel_size = mr * panel_length;
@@ -1058,10 +1058,10 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                     // copy the results back to the output. This allows the same
                     // kernel implementation to be used whether the tile is
                     // full-sized or not.
-                    let mut tmp_out_tile = [MaybeUninit::<OutT>::uninit(); MAX_MR * MAX_NR];
+                    let mut tmp_out_tile = [MaybeUninit::<OutT>::uninit(); MAX_TILE_ELEMENTS];
 
                     // Safety:
-                    //  - Tile size is <= MAX_MR * MAX_NR
+                    //  - Tile size is <= MAX_TILE_ELEMENTS
                     unsafe {
                         kernel.kernel(
                             transmute::<*mut MaybeUninit<OutT>, *mut OutT>(

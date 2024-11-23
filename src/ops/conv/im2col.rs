@@ -80,7 +80,7 @@ impl<'a, T: Copy + Default> VirtualIm2Col<'a, T> {
         strides: [usize; 2],
         dilations: [usize; 2],
         panel_width: usize,
-    ) -> VirtualIm2Col<T> {
+    ) -> VirtualIm2Col<'a, T> {
         // Ensure image has at least one cell.
         assert!(image.len() > 0);
 
