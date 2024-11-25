@@ -41,69 +41,86 @@ release = false
 [[bin]]
 name = "deeplab"
 path = "src/deeplab.rs"
+test = false
 
 [[bin]]
 name = "detr"
 path = "src/detr.rs"
+test = false
 
 [[bin]]
 name = "distilvit"
 path = "src/distilvit.rs"
+test = false
 
 [[bin]]
 name = "imagenet"
 path = "src/imagenet.rs"
+test = false
 
 [[bin]]
 name = "yolo"
 path = "src/yolo.rs"
+test = false
 
 [[bin]]
 name = "depth_anything"
 path = "src/depth_anything.rs"
+test = false
 
 [[bin]]
 name = "rmbg"
 path = "src/rmbg.rs"
+test = false
 
 [[bin]]
 name = "segment_anything"
 path = "src/segment_anything.rs"
+test = false
 
 [[bin]]
 name = "trocr"
 path = "src/trocr.rs"
+test = false
 
 # Text
 [[bin]]
 name = "bert_qa"
 path = "src/bert_qa.rs"
+test = false
 
 [[bin]]
 name = "gpt2"
 path = "src/gpt2.rs"
+test = false
 
 [[bin]]
 name = "jina_similarity"
 path = "src/jina_similarity.rs"
+test = false
 
 [[bin]]
 name = "qwen2_chat"
 path = "src/qwen2_chat.rs"
+test = false
 
 # Audio
 [[bin]]
 name = "piper"
 path = "src/piper.rs"
+test = false
 
 [[bin]]
 name = "silero"
 path = "src/silero.rs"
+test = false
 
 [[bin]]
 name = "wav2vec2"
 path = "src/wav2vec2.rs"
+test = false
 
 [[bin]]
 name = "whisper"
 path = "src/whisper.rs"
+test = false
