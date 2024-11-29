@@ -91,7 +91,7 @@ struct DisplayTable<'a, T: Table> {
     indent: usize,
 }
 
-impl<'a, T: Table> fmt::Display for DisplayTable<'a, T> {
+impl<T: Table> fmt::Display for DisplayTable<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         let col_widths: Vec<_> = self
             .table
@@ -151,7 +151,7 @@ pub struct RunTiming<'a> {
     pub total_time: Duration,
 }
 
-impl<'a> RunTiming<'a> {
+impl RunTiming<'_> {
     /// Return a struct that formats output with the given options.
     pub fn display(&self, sort: TimingSort, include_shapes: bool) -> impl fmt::Display + '_ {
         FormattedRunTiming {
@@ -162,7 +162,7 @@ impl<'a> RunTiming<'a> {
     }
 }
 
-impl<'a> fmt::Display for RunTiming<'a> {
+impl fmt::Display for RunTiming<'_> {
     /// Format timings with the default sort order (see [`TimingSort`]).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         self.display(TimingSort::ByTime, false /* include_shapes */)
@@ -271,7 +271,7 @@ struct FormattedRunTiming<'a> {
     include_shapes: bool,
 }
 
-impl<'a> FormattedRunTiming<'a> {
+impl FormattedRunTiming<'_> {
     /// Create a table that breaks down execution times for all runs of `op_name`
     /// by input shape.
     fn timing_by_shape_table(&self, op_name: &str) -> impl Table {
@@ -322,7 +322,7 @@ impl<'a> FormattedRunTiming<'a> {
     }
 }
 
-impl<'a> fmt::Display for FormattedRunTiming<'a> {
+impl fmt::Display for FormattedRunTiming<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
         let mut op_timings: Vec<_> = self
             .timing

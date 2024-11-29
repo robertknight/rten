@@ -193,7 +193,7 @@ enum IterKind<'a, T> {
     Indexing(IndexingIter<'a, T>),
 }
 
-impl<'a, T> Clone for IterKind<'a, T> {
+impl<T> Clone for IterKind<'_, T> {
     fn clone(&self) -> Self {
         match self {
             IterKind::Direct(slice_iter) => IterKind::Direct(slice_iter.clone()),
@@ -221,7 +221,7 @@ impl<'a, T> Iter<'a, T> {
     }
 }
 
-impl<'a, T> Clone for Iter<'a, T> {
+impl<T> Clone for Iter<'_, T> {
     fn clone(&self) -> Self {
         Iter {
             iter: self.iter.clone(),
@@ -258,9 +258,9 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
+impl<T> ExactSizeIterator for Iter<'_, T> {}
 
-impl<'a, T> FusedIterator for Iter<'a, T> {}
+impl<T> FusedIterator for Iter<'_, T> {}
 
 struct IndexingIter<'a, T> {
     base: IndexingIterBase,
@@ -278,7 +278,7 @@ impl<'a, T> IndexingIter<'a, T> {
     }
 }
 
-impl<'a, T> Clone for IndexingIter<'a, T> {
+impl<T> Clone for IndexingIter<'_, T> {
     fn clone(&self) -> Self {
         IndexingIter {
             base: self.base.clone(),
@@ -308,9 +308,9 @@ impl<'a, T> Iterator for IndexingIter<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for IndexingIter<'a, T> {}
+impl<T> ExactSizeIterator for IndexingIter<'_, T> {}
 
-impl<'a, T> FusedIterator for IndexingIter<'a, T> {}
+impl<T> FusedIterator for IndexingIter<'_, T> {}
 
 /// Mutable iterator over elements of a tensor.
 pub struct IterMut<'a, T> {
@@ -372,9 +372,9 @@ impl<'a, T> Iterator for IterMut<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for IterMut<'a, T> {}
+impl<T> ExactSizeIterator for IterMut<'_, T> {}
 
-impl<'a, T> FusedIterator for IterMut<'a, T> {}
+impl<T> FusedIterator for IterMut<'_, T> {}
 
 struct IndexingIterMut<'a, T> {
     base: IndexingIterBase,
@@ -422,9 +422,9 @@ impl<'a, T> Iterator for IndexingIterMut<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for IndexingIterMut<'a, T> {}
+impl<T> ExactSizeIterator for IndexingIterMut<'_, T> {}
 
-impl<'a, T> FusedIterator for IndexingIterMut<'a, T> {}
+impl<T> FusedIterator for IndexingIterMut<'_, T> {}
 
 /// Iterator over element offsets of a tensor.
 ///
@@ -578,9 +578,9 @@ impl<'a, T> Iterator for Lane<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for Lane<'a, T> {}
+impl<T> ExactSizeIterator for Lane<'_, T> {}
 
-impl<'a, T> FusedIterator for Lane<'a, T> {}
+impl<T> FusedIterator for Lane<'_, T> {}
 
 impl<'a, T> Lanes<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
@@ -613,9 +613,9 @@ impl<'a, T> Iterator for Lanes<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for Lanes<'a, T> {}
+impl<T> ExactSizeIterator for Lanes<'_, T> {}
 
-impl<'a, T> FusedIterator for Lanes<'a, T> {}
+impl<T> FusedIterator for Lanes<'_, T> {}
 
 /// Mutable version of [`Lanes`].
 ///
@@ -681,7 +681,7 @@ impl<'a, T> Iterator for LaneMut<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for LaneMut<'a, T> {}
+impl<T> ExactSizeIterator for LaneMut<'_, T> {}
 
 impl<'a, T> Iterator for LanesMut<'a, T> {
     type Item = LaneMut<'a, T>;
@@ -789,7 +789,7 @@ impl<'a, T, const N: usize> Iterator for InnerIter<'a, T, N> {
     }
 }
 
-impl<'a, T, const N: usize> ExactSizeIterator for InnerIter<'a, T, N> {}
+impl<T, const N: usize> ExactSizeIterator for InnerIter<'_, T, N> {}
 
 /// Iterator over views of the N innermost dimensions of a tensor with element
 /// type `T` and layout `L`, where `N` is determined at runtime.
@@ -825,7 +825,7 @@ impl<'a, T, L: MutLayout> Iterator for InnerIterDyn<'a, T, L> {
     }
 }
 
-impl<'a, T, L: MutLayout> ExactSizeIterator for InnerIterDyn<'a, T, L> {}
+impl<T, L: MutLayout> ExactSizeIterator for InnerIterDyn<'_, T, L> {}
 
 /// Iterator over mutable views of the N innermost dimensions of a tensor.
 pub struct InnerIterMut<'a, T, const N: usize> {
@@ -865,7 +865,7 @@ impl<'a, T, const N: usize> Iterator for InnerIterMut<'a, T, N> {
     }
 }
 
-impl<'a, T, const N: usize> ExactSizeIterator for InnerIterMut<'a, T, N> {}
+impl<T, const N: usize> ExactSizeIterator for InnerIterMut<'_, T, N> {}
 
 /// Iterator over mutable views of the N innermost dimensions of a tensor,
 /// where N is determined at runtime.
@@ -906,7 +906,7 @@ impl<'a, T, L: MutLayout> Iterator for InnerIterDynMut<'a, T, L> {
     }
 }
 
-impl<'a, T, L: MutLayout> ExactSizeIterator for InnerIterDynMut<'a, T, L> {}
+impl<T, L: MutLayout> ExactSizeIterator for InnerIterDynMut<'_, T, L> {}
 
 /// Iterator over slices of a tensor along an axis. See [`TensorView::axis_iter`].
 pub struct AxisIter<'a, T, L: MutLayout + RemoveDim> {

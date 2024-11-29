@@ -27,7 +27,7 @@ where
     }
 }
 
-impl<'a, G: Iterator<Item = GeneratorItem>> Iterator for TextDecoder<'a, G> {
+impl<G: Iterator<Item = GeneratorItem>> Iterator for TextDecoder<'_, G> {
     /// The decoded string, or the error that occurred during generation.
     type Item = Result<String, GeneratorError>;
 

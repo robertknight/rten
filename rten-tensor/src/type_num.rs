@@ -236,7 +236,7 @@ where
     type Count = <[T::IsIndex; N] as Add>::Result;
 }
 
-impl<'a, T> IndexCount for &'a [T] {
+impl<T> IndexCount for &[T] {
     type Count = Unknown;
 }
 

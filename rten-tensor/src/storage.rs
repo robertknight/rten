@@ -265,15 +265,15 @@ pub struct ViewData<'a, T> {
 
 // Safety: `ViewData` does not provide mutable access to its elements, so it
 // is `Send` and `Sync`.
-unsafe impl<'a, T> Send for ViewData<'a, T> {}
-unsafe impl<'a, T> Sync for ViewData<'a, T> {}
+unsafe impl<T> Send for ViewData<'_, T> {}
+unsafe impl<T> Sync for ViewData<'_, T> {}
 
-impl<'a, T> Clone for ViewData<'a, T> {
+impl<T> Clone for ViewData<'_, T> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<'a, T> Copy for ViewData<'a, T> {}
+impl<T> Copy for ViewData<'_, T> {}
 
 impl<'a, T> ViewData<'a, T> {
     /// Variant of [`Storage::get`] which preserves lifetimes.
@@ -327,7 +327,7 @@ impl<'a, T> ViewData<'a, T> {
     }
 }
 
-unsafe impl<'a, T> Storage for ViewData<'a, T> {
+unsafe impl<T> Storage for ViewData<'_, T> {
     type Elem = T;
 
     const MUTABLE: bool = false;
@@ -353,7 +353,7 @@ pub struct ViewMutData<'a, T> {
     len: usize,
     _marker: PhantomData<&'a mut T>,
 }
-unsafe impl<'a, T> Send for ViewMutData<'a, T> {}
+unsafe impl<T> Send for ViewMutData<'_, T> {}
 
 impl<'a, T> ViewMutData<'a, T> {
     /// Variant of [`StorageMut::as_slice_mut`] which preserves the underlying
@@ -392,7 +392,7 @@ impl<'a, T> ViewMutData<'a, T> {
     }
 }
 
-unsafe impl<'a, T> Storage for ViewMutData<'a, T> {
+unsafe impl<T> Storage for ViewMutData<'_, T> {
     type Elem = T;
 
     const MUTABLE: bool = true;
@@ -406,7 +406,7 @@ unsafe impl<'a, T> Storage for ViewMutData<'a, T> {
     }
 }
 
-unsafe impl<'a, T> StorageMut for ViewMutData<'a, T> {
+unsafe impl<T> StorageMut for ViewMutData<'_, T> {
     fn as_mut_ptr(&mut self) -> *mut T {
         self.ptr
     }
@@ -423,7 +423,7 @@ pub enum CowData<'a, T> {
     Borrowed(ViewData<'a, T>),
 }
 
-unsafe impl<'a, T> Storage for CowData<'a, T> {
+unsafe impl<T> Storage for CowData<'_, T> {
     type Elem = T;
 
     const MUTABLE: bool = false;

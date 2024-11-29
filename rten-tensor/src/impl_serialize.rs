@@ -10,7 +10,7 @@ struct TensorData<'a, T> {
     iter: Iter<'a, T>,
 }
 
-impl<'a, T> Serialize for TensorData<'a, T>
+impl<T> Serialize for TensorData<'_, T>
 where
     T: Serialize,
 {

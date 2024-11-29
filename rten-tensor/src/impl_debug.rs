@@ -102,7 +102,7 @@ impl<'a, S: Storage, L: MutLayout> FormatTensor<'a, S, L> {
     }
 }
 
-impl<'a, S: Storage, L: MutLayout> Debug for FormatTensor<'a, S, L>
+impl<S: Storage, L: MutLayout> Debug for FormatTensor<'_, S, L>
 where
     S::Elem: Debug,
 {

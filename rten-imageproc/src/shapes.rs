@@ -1148,7 +1148,7 @@ impl<'a> Iterator for PolygonsIter<'a> {
     }
 }
 
-impl<'a> ExactSizeIterator for PolygonsIter<'a> {}
+impl ExactSizeIterator for PolygonsIter<'_> {}
 
 #[cfg(test)]
 mod tests {
