@@ -109,7 +109,7 @@ pub struct NodeInfo<'a> {
     node: &'a Node,
 }
 
-impl<'a> NodeInfo<'a> {
+impl NodeInfo<'_> {
     /// Return the unique name associated with the node, if present.
     pub fn name(&self) -> Option<&str> {
         self.node.name()
@@ -446,7 +446,7 @@ impl Model {
             load_graph: &'a dyn Fn(sg::Graph) -> Result<Graph, ModelLoadError>,
         }
 
-        impl<'a> OpLoadContext for LoadContext<'a> {
+        impl OpLoadContext for LoadContext<'_> {
             fn load_graph(&self, graph: sg::Graph) -> Result<Graph, ReadOpError> {
                 (self.load_graph)(graph).map_err(|err| ReadOpError::SubgraphError(err.into()))
             }

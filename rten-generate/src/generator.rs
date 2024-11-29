@@ -245,7 +245,7 @@ pub struct GeneratorConfig<'a> {
     pub model_inputs: ModelInputsConfig<'a>,
 }
 
-impl<'a> Default for ModelInputsConfig<'a> {
+impl Default for ModelInputsConfig<'_> {
     /// Return default model input names.
     ///
     /// These are based on [Hugging Face's
@@ -863,7 +863,7 @@ impl<'a> Generator<'a> {
 /// Output items from a [`Generator`].
 pub type GeneratorItem = Result<TokenId, GeneratorError>;
 
-impl<'a> Iterator for Generator<'a> {
+impl Iterator for Generator<'_> {
     type Item = Result<TokenId, GeneratorError>;
 
     /// Run the model and generate the next output token.
@@ -912,7 +912,7 @@ impl<'a, G: Iterator> Profiler<'a, G> {
     }
 }
 
-impl<'a, G: Iterator> Iterator for Profiler<'a, G> {
+impl<G: Iterator> Iterator for Profiler<'_, G> {
     type Item = G::Item;
 
     fn next(&mut self) -> Option<Self::Item> {

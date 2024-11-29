@@ -276,7 +276,7 @@ impl<'a, T: Copy + Default> VirtualIm2Col<'a, T> {
     }
 }
 
-impl<'a> VirtualIm2Col<'a, f32> {
+impl VirtualIm2Col<'_, f32> {
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
@@ -328,7 +328,7 @@ const KERNEL_FMA_NR: usize = 16;
 const KERNEL_WASM_NR: usize = 8;
 
 // Safety: `pack_b` initializes the entire buffer passed to it.
-unsafe impl<'a> VirtualMatrix<f32> for VirtualIm2Col<'a, f32> {
+unsafe impl VirtualMatrix<f32> for VirtualIm2Col<'_, f32> {
     fn rows(&self) -> usize {
         self.row_offsets.chan.len()
     }

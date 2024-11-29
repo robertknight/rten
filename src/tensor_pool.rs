@@ -224,7 +224,7 @@ impl<T, L: MutLayout> ExtractBuffer for TensorBase<Vec<T>, L> {
     }
 }
 
-impl<'a, T, L: MutLayout> ExtractBuffer for TensorBase<CowData<'a, T>, L> {
+impl<T, L: MutLayout> ExtractBuffer for TensorBase<CowData<'_, T>, L> {
     type Elem = T;
 
     fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
@@ -277,7 +277,7 @@ impl<'a, T: ExtractBuffer> PoolRef<'a, T> {
     }
 }
 
-impl<'a, T: ExtractBuffer> Deref for PoolRef<'a, T> {
+impl<T: ExtractBuffer> Deref for PoolRef<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -285,13 +285,13 @@ impl<'a, T: ExtractBuffer> Deref for PoolRef<'a, T> {
     }
 }
 
-impl<'a, T: ExtractBuffer> DerefMut for PoolRef<'a, T> {
+impl<T: ExtractBuffer> DerefMut for PoolRef<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.container.as_mut().unwrap()
     }
 }
 
-impl<'a, T: ExtractBuffer> Drop for PoolRef<'a, T> {
+impl<T: ExtractBuffer> Drop for PoolRef<'_, T> {
     fn drop(&mut self) {
         if let Some(container) = self.container.take() {
             if let Some(buffer) = container.extract_buffer() {

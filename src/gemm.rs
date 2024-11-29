@@ -104,7 +104,7 @@ pub enum GemmInputA<'a, T> {
     // TODO - Support virtual "A" inputs, like `GemmInputB::Virtual`.
 }
 
-impl<'a, T> GemmInputA<'a, T> {
+impl<T> GemmInputA<'_, T> {
     pub fn rows(&self) -> usize {
         match self {
             Self::Unpacked(m) => m.rows(),
@@ -194,7 +194,7 @@ pub enum GemmInputB<'a, T> {
     Virtual(&'a dyn VirtualMatrix<T>),
 }
 
-impl<'a, T> GemmInputB<'a, T> {
+impl<T> GemmInputB<'_, T> {
     pub fn rows(&self) -> usize {
         match self {
             Self::Unpacked(m) => m.rows(),

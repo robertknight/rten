@@ -989,7 +989,7 @@ impl<'a> ModelBuilder<'a> {
     }
 }
 
-impl<'a> Default for ModelBuilder<'a> {
+impl Default for ModelBuilder<'_> {
     fn default() -> Self {
         Self::new(ModelFormat::V2)
     }

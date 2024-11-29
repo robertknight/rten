@@ -1203,7 +1203,7 @@ impl<const N: usize> IntoLayout for [usize; N] {
     }
 }
 
-impl<'a> IntoLayout for &'a [usize] {
+impl IntoLayout for &[usize] {
     type Layout = DynLayout;
 
     #[inline]

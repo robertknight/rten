@@ -233,7 +233,7 @@ pub enum Input<'a> {
     UInt8Tensor(TensorView<'a, u8>),
 }
 
-impl<'a> Input<'a> {
+impl Input<'_> {
     pub fn to_output(&self) -> Output {
         match self {
             Input::FloatTensor(t) => t.to_tensor().into(),
@@ -253,7 +253,7 @@ impl<'a> Input<'a> {
     }
 }
 
-impl<'a> Layout for Input<'a> {
+impl Layout for Input<'_> {
     impl_proxy_layout!();
 }
 
@@ -462,7 +462,7 @@ pub enum InputOrOutput<'a> {
     Output(Output),
 }
 
-impl<'a> InputOrOutput<'a> {
+impl InputOrOutput<'_> {
     /// Convert this value to a tensor view.
     pub fn as_input(&self) -> Input {
         match self {
@@ -535,7 +535,7 @@ impl<'a> From<&'a Output> for InputOrOutput<'a> {
     }
 }
 
-impl<'a> Layout for InputOrOutput<'a> {
+impl Layout for InputOrOutput<'_> {
     impl_proxy_layout!();
 }
 
@@ -920,7 +920,7 @@ impl<'a> InputList<'a> {
     }
 }
 
-impl<'a> Default for InputList<'a> {
+impl Default for InputList<'_> {
     fn default() -> Self {
         Self::new()
     }

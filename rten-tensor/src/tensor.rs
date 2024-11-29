@@ -1159,7 +1159,7 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
     }
 }
 
-impl<'a, T, L: MutLayout> TensorBase<CowData<'a, T>, L> {
+impl<T, L: MutLayout> TensorBase<CowData<'_, T>, L> {
     /// Consume self and return the underlying data in whatever order the
     /// elements are currently stored, if the storage is owned, or `None` if
     /// it is borrowed.
@@ -1855,7 +1855,7 @@ impl<T> TensorBase<Vec<T>, DynLayout> {
     }
 }
 
-impl<'a, T> TensorBase<ViewData<'a, T>, DynLayout> {
+impl<T> TensorBase<ViewData<'_, T>, DynLayout> {
     /// Reshape this view.
     ///
     /// Panics if the view is not contiguous.
@@ -1906,7 +1906,7 @@ impl<'a, T, L: MutLayout> TensorBase<ViewMutData<'a, T>, L> {
     }
 }
 
-impl<'a, T> TensorBase<ViewMutData<'a, T>, DynLayout> {
+impl<T> TensorBase<ViewMutData<'_, T>, DynLayout> {
     /// Reshape this view.
     ///
     /// Panics if the view is not contiguous.
