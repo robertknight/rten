@@ -96,7 +96,7 @@ impl GraphMutator {
         inputs: &[Option<NodeId>],
         op_output_id: Option<NodeId>,
     ) -> NodeId {
-        let op_output_id = op_output_id.unwrap_or(self.graph.add_value(None, None));
+        let op_output_id = op_output_id.unwrap_or(self.graph.add_value(None, None, None));
         let op_id = self.graph.add_op(name, op, inputs, &[Some(op_output_id)]);
 
         for input_id in inputs.iter().filter_map(|id| *id) {
@@ -622,7 +622,7 @@ mod tests {
 
         // Capture the constant in the subgraph as a value.
         let mut subgraph = Graph::new();
-        let sg_val = subgraph.add_value(Some("const_a"), None);
+        let sg_val = subgraph.add_value(Some("const_a"), None, None);
         subgraph.set_captures(&[sg_val]);
         subgraph.set_output_ids(&[sg_val]);
 
@@ -652,7 +652,7 @@ mod tests {
         let (_, add_out) = graph.add_simple_op("add_1", Add {}, &[const_a, const_b]);
 
         // Add an operator with a dynamic input and the output of the previous operator.
-        let input = graph.add_value(Some("input"), None);
+        let input = graph.add_value(Some("input"), None, None);
         let (add_op_2, add_2_out) = graph.add_simple_op("add_2", Add {}, &[add_out, input]);
         graph.set_input_ids(&[input]);
         graph.set_output_ids(&[add_out, add_2_out]);
@@ -703,8 +703,8 @@ mod tests {
     fn test_fuse_transpose() {
         let mut graph = Graph::new();
 
-        let input_1 = graph.add_value(None, None);
-        let input_2 = graph.add_value(None, None);
+        let input_1 = graph.add_value(None, None, None);
+        let input_2 = graph.add_value(None, None, None);
 
         let (_, transpose_out) =
             graph.add_simple_op("transpose", Transpose { perm: None }, &[input_1]);
@@ -723,7 +723,7 @@ mod tests {
     fn test_fuse_silu() {
         let mut graph = Graph::new();
 
-        let input = graph.add_value(None, None);
+        let input = graph.add_value(None, None, None);
         let (_, sigmoid_out) = graph.add_simple_op("sigmoid", Sigmoid {}, &[input]);
         let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[input, sigmoid_out]);
         graph.set_input_ids(&[input]);
@@ -741,7 +741,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // Add two consecutive decomposed Silu operations
-        let input = graph.add_value(None, None);
+        let input = graph.add_value(None, None, None);
         let (_, sigmoid_out) = graph.add_simple_op("sigmoid", Sigmoid {}, &[input]);
         let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[input, sigmoid_out]);
         let (_, sigmoid_2_out) = graph.add_simple_op("sigmoid", Sigmoid {}, &[mul_out]);
@@ -769,7 +769,7 @@ mod tests {
         let one = graph.add_constant(None, Tensor::from(1.0));
         let half = graph.add_constant(None, Tensor::from(0.5));
 
-        let input = graph.add_value(None, None);
+        let input = graph.add_value(None, None, None);
         let (_, div_out) = graph.add_simple_op("div", Div {}, &[input, sqrt_2]);
         let (_, erf_out) = graph.add_simple_op("erf", Erf {}, &[div_out]);
         let (_, add_out) = graph.add_simple_op("add", Add {}, &[erf_out, one]);
@@ -786,7 +786,7 @@ mod tests {
 
     fn layer_norm_graph() -> Graph {
         let mut graph = Graph::new();
-        let input = graph.add_value(None, None);
+        let input = graph.add_value(None, None, None);
 
         // Center values
         let (_, mean_out) = graph.add_simple_op(
@@ -843,8 +843,8 @@ mod tests {
     fn test_optimize_preserves_input_output_nodes() {
         let mut graph = Graph::new();
 
-        let input_1 = graph.add_value(None, None);
-        let input_2 = graph.add_value(None, None);
+        let input_1 = graph.add_value(None, None, None);
+        let input_2 = graph.add_value(None, None, None);
 
         // Add fuse-able Transpose + MatMul
         let (_, transpose_out) =

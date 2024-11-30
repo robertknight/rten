@@ -223,6 +223,15 @@ fn pad_args_from_padding(padding: Padding) -> PadArgs {
     }
 }
 
+fn convert_dtype(dtype: DataType) -> sg::DataType {
+    match dtype {
+        DataType::Int32 => sg::DataType::Int32,
+        DataType::Float => sg::DataType::Float,
+        DataType::Int8 => sg::DataType::Int8,
+        DataType::UInt8 => sg::DataType::UInt8,
+    }
+}
+
 /// Builder for serializing a graph or subgraph to FlatBuffers.
 pub struct GraphBuilder<'mb, 'a> {
     builder: &'mb mut FlatBufferBuilder<'a>,
@@ -314,7 +323,12 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
     }
 
     /// Add a value node to the model
-    pub fn add_value(&mut self, id: &str, shape: Option<&[Dimension]>) -> NodeId {
+    pub fn add_value(
+        &mut self,
+        id: &str,
+        shape: Option<&[Dimension]>,
+        dtype: Option<DataType>,
+    ) -> NodeId {
         let shape = shape.map(|shape| {
             let dim_vec: Vec<_> = shape
                 .iter()
@@ -340,7 +354,8 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 .collect();
             self.builder.create_vector(&dim_vec[..])
         });
-        let value_node = sg::ValueNode::create(self.builder, &sg::ValueNodeArgs { shape });
+        let dtype = dtype.map(convert_dtype);
+        let value_node = sg::ValueNode::create(self.builder, &sg::ValueNodeArgs { shape, dtype });
         self.add_node(Some(id), NodeData::Value(value_node))
     }
 
@@ -429,12 +444,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 Cast,
                 CastAttrs,
                 sg::CastAttrsArgs {
-                    to: match args.to {
-                        DataType::Int32 => sg::DataType::Int32,
-                        DataType::Float => sg::DataType::Float,
-                        DataType::Int8 => sg::DataType::Int8,
-                        DataType::UInt8 => sg::DataType::UInt8,
-                    },
+                    to: convert_dtype(args.to),
                 }
             ),
             OpType::Ceil => op!(Ceil),

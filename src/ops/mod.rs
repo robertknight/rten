@@ -170,12 +170,30 @@ impl<S: AsRef<[usize]>> From<S> for Padding {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+/// Enum specifying the data type of a tensor.
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DataType {
     Int32,
     Float,
     Int8,
     UInt8,
+}
+
+impl std::fmt::Display for DataType {
+    /// Format this enum value in the style of the corresponding Rust type (eg.
+    /// "i32" for `DataType::Int32`).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                DataType::Float => "f32",
+                DataType::Int32 => "i32",
+                DataType::Int8 => "i8",
+                DataType::UInt8 => "u8",
+            }
+        )
+    }
 }
 
 /// Generate the body of a [`Layout`] impl for a type which wraps an

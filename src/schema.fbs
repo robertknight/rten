@@ -550,6 +550,8 @@ table Dim {
 table ValueNode {
   // Expected shape of the tensor at runtime.
   shape:[Dim];
+  // Expected data type of the tensor at runtime.
+  dtype:DataType = null;
 }
 
 table Node {

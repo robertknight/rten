@@ -3,7 +3,8 @@ use std::error::Error;
 use std::time::Instant;
 
 use rten::{
-    Dimension, InputOrOutput, Model, ModelMetadata, ModelOptions, NodeId, Output, RunOptions,
+    DataType, Dimension, InputOrOutput, Model, ModelMetadata, ModelOptions, NodeId, Output,
+    RunOptions,
 };
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
@@ -242,6 +243,7 @@ fn run_with_random_input(
             let shape = info
                 .shape()
                 .ok_or(format!("Unable to get shape for input {}", name))?;
+            let dtype = info.dtype();
 
             let resolved_shape: Vec<usize> = shape
                 .iter()
@@ -264,6 +266,10 @@ fn run_with_random_input(
                 })
                 .collect();
 
+            fn random_ints<T, F: FnMut() -> T>(shape: &[usize], gen: F) -> Output where Output: From<Tensor<T>> {
+                Tensor::from_simple_fn(shape, gen).into()
+            }
+
             // Guess suitable content for the input based on its name.
             let tensor = match name {
                 // If this is a mask, use all ones on the assumption that we
@@ -283,12 +289,17 @@ fn run_with_random_input(
                 // cached outputs from a previous run.
                 "use_cache_branch" => Output::from(Tensor::from(0i32)),
 
-                // For anything else, random floats in [0, 1].
-                //
-                // TODO - Value nodes in the model should include data types,
-                // so we can at least be sure to generate values of the correct
-                // type.
-                _ => Output::from(Tensor::from_simple_fn(&resolved_shape, || rng.f32())),
+                // For anything else, random values.
+                _ => match dtype {
+                    // Generate floats in [0, 1]
+                    Some(DataType::Float) | None => Output::from(Tensor::from_simple_fn(&resolved_shape, || rng.f32())),
+                    // Generate random values for int types. The default ranges
+                    // are intended to be suitable for many models, but there
+                    // ought to be a way to override them.
+                    Some(DataType::Int32) => random_ints(&resolved_shape, || rng.i32(0..256)),
+                    Some(DataType::Int8) => random_ints(&resolved_shape, || rng.i8(0..=127)),
+                    Some(DataType::UInt8) => random_ints(&resolved_shape, || rng.u8(0..=255)),
+                }
             };
 
             inputs.push((id, tensor));
@@ -393,8 +404,11 @@ fn print_input_output_list(model: &Model, node_ids: &[NodeId]) {
             continue;
         };
         println!(
-            "  {}: {}",
+            "  {}: {} {}",
             info.name().unwrap_or("(unnamed)"),
+            info.dtype()
+                .map(|dt| dt.to_string())
+                .unwrap_or("(unknown dtype)".to_string()),
             info.shape()
                 .map(|dims| format_shape(&dims))
                 .unwrap_or("(unknown shape)".to_string())

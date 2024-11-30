@@ -226,7 +226,7 @@ impl Display for ReadOpError {
 
 impl Error for ReadOpError {}
 
-fn convert_dtype(dtype: sg::DataType) -> Result<DataType, ReadOpError> {
+pub fn convert_dtype(dtype: sg::DataType) -> Result<DataType, ReadOpError> {
     match dtype {
         sg::DataType::Int32 => Ok(DataType::Int32),
         sg::DataType::Float => Ok(DataType::Float),

@@ -129,10 +129,18 @@ class ValueNode(Node):
     export time) sizes.
     """
 
-    def __init__(self, name: str, shape: list[int | str] | None):
+    def __init__(self, name: str, shape: list[int | str] | None, dtype: int | None):
+        """
+        Initialize a value node.
+
+        :param name: Unique name of the value
+        :param shape: Expected shape of tensor at runtime
+        :param dtype: Expected data type of tensor at runtime. Value from `sg.DataType`.
+        """
         super().__init__(name)
 
         self.shape = shape
+        self.dtype = dtype
 
 
 class Graph:
@@ -503,11 +511,17 @@ def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> Constant
 
 
 def value_node_from_onnx_value(value: onnx.ValueInfoProto) -> ValueNode:
+    if value.type.tensor_type.HasField("elem_type"):
+        dtype = convert_data_type(value.type.tensor_type.elem_type)
+    else:
+        dtype = None
+
     if value.type.tensor_type.HasField("shape"):
         dims = [d.dim_param or d.dim_value for d in value.type.tensor_type.shape.dim]
     else:
         dims = None
-    return ValueNode(name=value.name, shape=dims)
+
+    return ValueNode(name=value.name, shape=dims, dtype=dtype)
 
 
 class PadAttrs(Protocol):
@@ -678,7 +692,11 @@ def op_node_from_onnx_operator(
 
         case "Cast":
             attrs = sg.CastAttrsT()
-            to = op_reader.get_attr("to", "int", TensorProto.DataType.FLOAT)  # type:ignore[attr-defined]
+            to = op_reader.get_attr(
+                "to",
+                "int",
+                TensorProto.DataType.FLOAT,  # type:ignore[attr-defined]
+            )
             attrs.to = convert_data_type(to)
 
         case "Clip":
@@ -1121,7 +1139,9 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
         if capture_ids is not None:
             for input_name in operator.input:
                 if input_name not in value_name_to_index:
-                    capture_id = add_node(ValueNode(name=input_name, shape=None))
+                    capture_id = add_node(
+                        ValueNode(name=input_name, shape=None, dtype=None)
+                    )
                     capture_ids.append(capture_id)
 
         for output_name in operator.output:
@@ -1129,7 +1149,7 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
             # registered already.
             if output_name in value_name_to_index:
                 continue
-            value_node = ValueNode(output_name, shape=None)
+            value_node = ValueNode(output_name, shape=None, dtype=None)
             add_node(value_node)
 
         try:
@@ -1194,7 +1214,9 @@ def build_constant_node(
             inline_data_type = sg.ConstantData.UInt8Data
             dtype = sg.ConstantDataType.UInt8
         case _:
-            raise ValueError(f"Unsupported data array type {constant.data.dtype.name}")  # type:ignore[union-attr]
+            raise ValueError(
+                f"Unsupported data array type {constant.data.dtype.name}"  # type:ignore[union-attr]
+            )
 
     # Store inline if we're generating the V1 format, or the tensor is small.
     # Small values are mostly parameters such as axes, slice ranges etc.
@@ -1347,6 +1369,8 @@ def build_value_node(builder: flatbuffers.Builder, value: ValueNode):
     sg.ValueNodeStart(builder)
     if shape_vec:
         sg.ValueNodeAddShape(builder, shape_vec)
+    if value.dtype is not None:
+        sg.ValueNodeAddDtype(builder, value.dtype)
     return sg.ValueNodeEnd(builder)
 
 
