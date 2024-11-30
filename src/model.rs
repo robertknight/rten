@@ -22,7 +22,7 @@ use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
 use crate::number::{LeBytes, Pod};
 use crate::op_registry::{convert_dtype, OpLoadContext, OpRegistry, ReadOpError};
-use crate::ops::{InputOrOutput, Output};
+use crate::ops::{DataType, InputOrOutput, Output};
 use crate::optimize::GraphOptimizer;
 use crate::schema_generated as sg;
 use crate::schema_generated::root_as_model;
@@ -120,6 +120,14 @@ impl NodeInfo<'_> {
     /// The shape can be a combination of fixed values and symbolic names.
     pub fn shape(&self) -> Option<Vec<Dimension>> {
         self.node.shape()
+    }
+
+    /// Return the expected data type for this node at runtime.
+    ///
+    /// For constants the data type is always known. For values the data type
+    /// may be specified. For operators this always returns `None`.
+    pub fn dtype(&self) -> Option<DataType> {
+        self.node.dtype()
     }
 }
 
@@ -851,7 +859,7 @@ mod tests {
     };
     use crate::ops;
     use crate::ops::{
-        BoxOrder, CoordTransformMode, NearestMode, OpError, Output, ResizeMode, Scalar,
+        BoxOrder, CoordTransformMode, DataType, NearestMode, OpError, Output, ResizeMode, Scalar,
     };
     use crate::{ModelLoadError, OpRegistry, ReadOpError};
 
@@ -868,8 +876,9 @@ mod tests {
             .copied()
             .map(Dimension::Fixed)
             .collect();
-        let input_node = graph_builder.add_value("input", Some(&input_shape), None);
-        let output_node = graph_builder.add_value("output", None, None);
+        let input_node =
+            graph_builder.add_value("input", Some(&input_shape), Some(DataType::Float));
+        let output_node = graph_builder.add_value("output", None, Some(DataType::Float));
 
         graph_builder.add_input(input_node);
         graph_builder.add_output(output_node);
@@ -962,6 +971,19 @@ mod tests {
             .and_then(|ni| ni.shape())
             .expect("input shape missing");
         assert_eq!(shape, &[1, 2, 2].map(Dimension::Fixed));
+    }
+
+    #[test]
+    fn test_value_dtype_info() {
+        let buffer = generate_model_buffer(ModelFormat::V2);
+        let model = Model::load(buffer).unwrap();
+        let input_id = model.input_ids()[0];
+
+        let dtype = model
+            .node_info(input_id)
+            .and_then(|ni| ni.dtype())
+            .expect("input dtype missing");
+        assert_eq!(dtype, DataType::Float);
     }
 
     #[test]
@@ -1171,9 +1193,9 @@ mod tests {
         let mut builder = ModelBuilder::new(ModelFormat::V2);
         let mut graph_builder = builder.graph_builder();
 
-        let input_node = graph_builder.add_value("input", None);
-        let input_2d = graph_builder.add_value("input.2d", None);
-        let input_bool = graph_builder.add_value("input.bool", None);
+        let input_node = graph_builder.add_value("input", None, None);
+        let input_2d = graph_builder.add_value("input.2d", None, None);
+        let input_bool = graph_builder.add_value("input.bool", None, None);
 
         // 4D shape used as the primary input to test most operators (eg. NCHW image). A few
         // require a different shape.
@@ -1188,7 +1210,7 @@ mod tests {
         let mut add_operator =
             |builder: &mut GraphBuilder, name: &str, op: OpType, input_nodes: &[Option<NodeId>]| {
                 let output_name = format!("{}_out", name);
-                let op_output_node = builder.add_value(&output_name, None);
+                let op_output_node = builder.add_value(&output_name, None, None);
                 builder.add_operator(name, op, input_nodes, &[op_output_node]);
                 op_outputs.push(output_name);
                 op_output_node
@@ -1452,9 +1474,9 @@ mod tests {
             });
         }
 
-        let range_start_node = graph_builder.add_value("range_start", None);
-        let range_limit_node = graph_builder.add_value("range_limit", None);
-        let range_delta_node = graph_builder.add_value("range_delta", None);
+        let range_start_node = graph_builder.add_value("range_start", None, None);
+        let range_limit_node = graph_builder.add_value("range_limit", None, None);
+        let range_delta_node = graph_builder.add_value("range_delta", None, None);
         let range_out = add_operator!(
             Range,
             [range_start_node, range_limit_node, range_delta_node]
@@ -1530,8 +1552,8 @@ mod tests {
         add_operator!(Squeeze, [input_node]);
 
         let split_splits = graph_builder.add_constant(Tensor::from([1, 2]).view());
-        let split_out_1 = graph_builder.add_value("Split_out_1", None);
-        let split_out_2 = graph_builder.add_value("Split_out_2", None);
+        let split_out_1 = graph_builder.add_value("Split_out_1", None, None);
+        let split_out_2 = graph_builder.add_value("Split_out_2", None, None);
         graph_builder.add_operator(
             "Split",
             OpType::Split(ops::Split { axis: 1 }),
@@ -1548,8 +1570,8 @@ mod tests {
         add_operator!(Tile, [input_node, tile_repeats]);
 
         let topk_k = graph_builder.add_constant(Tensor::from(3).view());
-        let topk_out_values = graph_builder.add_value("TopK_out_values", None);
-        let topk_out_indices = graph_builder.add_value("TopK_out_indices", None);
+        let topk_out_values = graph_builder.add_value("TopK_out_values", None, None);
+        let topk_out_indices = graph_builder.add_value("TopK_out_indices", None, None);
         graph_builder.add_operator(
             "TopK",
             OpType::TopK(ops::TopK {
@@ -1568,9 +1590,9 @@ mod tests {
         let unsqueeze_axes = graph_builder.add_constant(Tensor::from([0, 4]).view());
         add_operator!(Unsqueeze, [input_node, unsqueeze_axes]);
 
-        let where_cond = graph_builder.add_value("where_cond", None);
-        let where_x = graph_builder.add_value("where_x", None);
-        let where_y = graph_builder.add_value("where_y", None);
+        let where_cond = graph_builder.add_value("where_cond", None, None);
+        let where_x = graph_builder.add_value("where_x", None, None);
+        let where_y = graph_builder.add_value("where_y", None, None);
         let where_out = add_operator!(Where, [where_cond, where_x, where_y]);
 
         add_operator!(Xor, [input_bool, input_bool]);

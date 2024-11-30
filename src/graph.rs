@@ -199,6 +199,15 @@ impl Constant {
             Constant::UInt8(i) => Input::UInt8Tensor(i.view()),
         }
     }
+
+    fn dtype(&self) -> DataType {
+        match self {
+            Constant::Float(_) => DataType::Float,
+            Constant::Int32(_) => DataType::Int32,
+            Constant::Int8(_) => DataType::Int8,
+            Constant::UInt8(_) => DataType::UInt8,
+        }
+    }
 }
 
 macro_rules! impl_constant_node {
@@ -281,6 +290,20 @@ impl Node {
             Node::Operator(_) => None,
             Node::Constant(node) => Some(dims_from_fixed_shape(node.layout().shape())),
             Node::Value(node) => node.shape.clone(),
+        }
+    }
+
+    /// Return the data type associated with this node.
+    ///
+    /// - For constants this returns the element type of the tensor
+    /// - For values this returns the expected element type of the tensor at
+    ///   runtime, if known
+    /// - For operators this always returns `None`.
+    pub fn dtype(&self) -> Option<DataType> {
+        match self {
+            Node::Value(node) => node.dtype,
+            Node::Constant(constant) => Some(constant.dtype()),
+            Node::Operator(_) => None,
         }
     }
 }
