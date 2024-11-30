@@ -727,9 +727,9 @@ impl Graph {
             nodes: Vec::with_capacity(n_nodes),
             cached_plan: Mutex::new(None),
             source_ids: FxHashMap::default(),
-            input_ids: Vec::with_capacity(n_nodes),
-            output_ids: Vec::with_capacity(n_nodes),
-            captures: Vec::with_capacity(n_nodes),
+            input_ids: Vec::new(),
+            output_ids: Vec::new(),
+            captures: Vec::new(),
             node_id_from_name: HashMap::with_capacity(n_nodes),
         }
     }
