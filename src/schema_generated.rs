@@ -9987,6 +9987,7 @@ impl<'a> flatbuffers::Follow<'a> for ValueNode<'a> {
 
 impl<'a> ValueNode<'a> {
     pub const VT_SHAPE: flatbuffers::VOffsetT = 4;
+    pub const VT_DTYPE: flatbuffers::VOffsetT = 6;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -10000,6 +10001,9 @@ impl<'a> ValueNode<'a> {
         let mut builder = ValueNodeBuilder::new(_fbb);
         if let Some(x) = args.shape {
             builder.add_shape(x);
+        }
+        if let Some(x) = args.dtype {
+            builder.add_dtype(x);
         }
         builder.finish()
     }
@@ -10015,6 +10019,13 @@ impl<'a> ValueNode<'a> {
             >>(ValueNode::VT_SHAPE, None)
         }
     }
+    #[inline]
+    pub fn dtype(&self) -> Option<DataType> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<DataType>(ValueNode::VT_DTYPE, None) }
+    }
 }
 
 impl flatbuffers::Verifiable for ValueNode<'_> {
@@ -10028,6 +10039,7 @@ impl flatbuffers::Verifiable for ValueNode<'_> {
             .visit_field::<flatbuffers::ForwardsUOffset<
                 flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Dim>>,
             >>("shape", Self::VT_SHAPE, false)?
+            .visit_field::<DataType>("dtype", Self::VT_DTYPE, false)?
             .finish();
         Ok(())
     }
@@ -10036,11 +10048,15 @@ pub struct ValueNodeArgs<'a> {
     pub shape: Option<
         flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Dim<'a>>>>,
     >,
+    pub dtype: Option<DataType>,
 }
 impl<'a> Default for ValueNodeArgs<'a> {
     #[inline]
     fn default() -> Self {
-        ValueNodeArgs { shape: None }
+        ValueNodeArgs {
+            shape: None,
+            dtype: None,
+        }
     }
 }
 
@@ -10058,6 +10074,11 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ValueNodeBuilder<'a, 'b, A> {
     ) {
         self.fbb_
             .push_slot_always::<flatbuffers::WIPOffset<_>>(ValueNode::VT_SHAPE, shape);
+    }
+    #[inline]
+    pub fn add_dtype(&mut self, dtype: DataType) {
+        self.fbb_
+            .push_slot_always::<DataType>(ValueNode::VT_DTYPE, dtype);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ValueNodeBuilder<'a, 'b, A> {
@@ -10078,6 +10099,7 @@ impl core::fmt::Debug for ValueNode<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ValueNode");
         ds.field("shape", &self.shape());
+        ds.field("dtype", &self.dtype());
         ds.finish()
     }
 }

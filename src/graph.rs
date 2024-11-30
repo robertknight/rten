@@ -17,7 +17,9 @@ use smallvec::SmallVec;
 
 use crate::constant_storage::ArcTensorView;
 use crate::env::env_flag;
-use crate::ops::{Input, InputList, InputOrOutput, OpError, Operator, Output, OutputList};
+use crate::ops::{
+    DataType, Input, InputList, InputOrOutput, OpError, Operator, Output, OutputList,
+};
 use crate::tensor_pool::TensorPool;
 use crate::threading;
 use crate::timing::{InputShape, Instant, RunTiming, TimingRecord, TimingSort};
@@ -86,6 +88,7 @@ impl OperatorNode {
 pub struct ValueNode {
     name: Option<String>,
     shape: Option<Vec<Dimension>>,
+    dtype: Option<DataType>,
 }
 
 impl ValueNode {
@@ -840,7 +843,7 @@ impl Graph {
         input_ids: &[NodeId],
     ) -> (NodeId, NodeId) {
         let op_out_name = format!("{}_out", name);
-        let op_out_id = self.add_value(Some(&op_out_name), None);
+        let op_out_id = self.add_value(Some(&op_out_name), None, None);
         let input_ids: Vec<_> = input_ids.iter().copied().map(Some).collect();
         let op_node_id = self.add_op(Some(name), Box::new(op), &input_ids, &[op_out_id].map(Some));
         (op_node_id, op_out_id)
@@ -882,10 +885,16 @@ impl Graph {
     /// the graph is executed, such as an input or operator output.
     ///
     /// Returns the ID of the added node.
-    pub fn add_value(&mut self, name: Option<&str>, shape: Option<Vec<Dimension>>) -> NodeId {
+    pub fn add_value(
+        &mut self,
+        name: Option<&str>,
+        shape: Option<Vec<Dimension>>,
+        dtype: Option<DataType>,
+    ) -> NodeId {
         self.add_node(Node::Value(ValueNode {
             name: name.map(|s| s.to_owned()),
             shape,
+            dtype,
         }))
     }
 
@@ -1788,8 +1797,8 @@ mod tests {
     use super::{CachedPlan, CaptureEnv};
     use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TypedConstant};
     use crate::ops::{
-        Add, Concat, Conv, Identity, If, InputList, IntoOpResult, Mul, OpError, Operator, Output,
-        OutputList, Relu, Shape,
+        Add, Concat, Conv, DataType, Identity, If, InputList, IntoOpResult, Mul, OpError, Operator,
+        Output, OutputList, Relu, Shape,
     };
     use crate::tensor_pool::TensorPool;
 
@@ -1870,7 +1879,7 @@ mod tests {
             ],
         );
         let weights_id = g.add_constant(Some("weight"), weights);
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
 
         let (_, conv_out) = g.add_simple_op(
             "conv",
@@ -1918,8 +1927,8 @@ mod tests {
 
         let weights = Tensor::from([0.3230]);
         let weights_id = g.add_constant(Some("weights"), weights.clone());
-        let input_id = g.add_value(Some("input"), None);
-        let relu_out_id = g.add_value(Some("relu_out"), None);
+        let input_id = g.add_value(Some("input"), None, None);
+        let relu_out_id = g.add_value(Some("relu_out"), None, None);
         let relu_op_id = g.add_op(
             Some("relu"),
             Box::new(Relu {}),
@@ -1932,8 +1941,8 @@ mod tests {
         assert_eq!(g.node_name(relu_op_id), "relu");
 
         let anon_weights_id = g.add_constant(None, weights);
-        let anon_input_id = g.add_value(None, None);
-        let anon_out_id = g.add_value(None, None);
+        let anon_input_id = g.add_value(None, None, None);
+        let anon_out_id = g.add_value(None, None, None);
         let anon_op_id = g.add_op(
             None,
             Box::new(Relu {}),
@@ -1969,6 +1978,7 @@ mod tests {
                 ]
                 .to_vec(),
             ),
+            None,
         );
         let (relu_op_id, _) = g.add_simple_op("relu", Relu {}, &[input_id]);
 
@@ -1991,6 +2001,21 @@ mod tests {
         assert_eq!(g.get_node(relu_op_id).and_then(|n| n.shape()), None);
     }
 
+    #[test]
+    fn test_graph_value_dtype() {
+        let mut g = Graph::new();
+        for dtype in [
+            DataType::Float,
+            DataType::Int32,
+            DataType::UInt8,
+            DataType::Int8,
+        ] {
+            let input_id = g.add_value(None, None, Some(dtype));
+            let input_dtype = g.get_node(input_id).and_then(|n| n.dtype());
+            assert_eq!(input_dtype, Some(dtype));
+        }
+    }
+
     #[derive(Debug)]
     struct AddOne {}
     impl Operator for AddOne {
@@ -2009,7 +2034,7 @@ mod tests {
     fn test_graph_planning_order() -> Result<(), Box<dyn Error>> {
         let mut g = Graph::new();
 
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
 
         let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]);
         let (_, op_b_out) = g.add_simple_op("op_b", AddOne {}, &[op_a_out]);
@@ -2042,8 +2067,8 @@ mod tests {
     fn test_runs_non_in_place_ops_first() -> Result<(), Box<dyn Error>> {
         let mut g = Graph::new();
 
-        let input_a_id = g.add_value(Some("input_a"), None);
-        let input_b_id = g.add_value(Some("input_b"), None);
+        let input_a_id = g.add_value(Some("input_a"), None, None);
+        let input_b_id = g.add_value(Some("input_b"), None, None);
 
         let (add_op, add_out) = g.add_simple_op("add", Add {}, &[input_a_id, input_b_id]);
         let (shape_op, shape_out) = g.add_simple_op("shape", Shape {}, &[input_a_id]);
@@ -2069,7 +2094,7 @@ mod tests {
     fn test_graph_intermediate_output() {
         let mut g = Graph::new();
 
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
         let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]);
         let (_, op_b_out) = g.add_simple_op("op_b", AddOne {}, &[op_a_out]);
 
@@ -2092,11 +2117,11 @@ mod tests {
         let mut g = Graph::new();
 
         let input = Tensor::from([1., 2., 3., 4., 5.]);
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
 
         let mut prev_output = input_id;
         for _ in 0..100 {
-            let next_output = g.add_value(None, None);
+            let next_output = g.add_value(None, None, None);
             g.add_op(
                 None,
                 Box::new(AddOne {}),
@@ -2121,7 +2146,7 @@ mod tests {
         let mut g = Graph::new();
 
         let input = Tensor::from([1., 2., 3., 4., 5.]);
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
 
         let results = g
             .run(vec![(input_id, input.view().into())], &[input_id], None)
@@ -2194,7 +2219,7 @@ mod tests {
     #[test]
     fn test_duplicate_inputs() {
         let mut g = Graph::new();
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
         let input = Tensor::from([1.]);
         let result = g.run(
             vec![
@@ -2214,7 +2239,7 @@ mod tests {
     fn test_duplicate_outputs() {
         let mut g = Graph::new();
 
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
         let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]);
 
         let input = Tensor::from([1.]);
@@ -2234,7 +2259,7 @@ mod tests {
         // Call an operator with an input omitted by setting it to `None`,
         // as opposed to passing a shorter input list. This enables omitting
         // an input but still providing subsequent ones.
-        let output = g.add_value(None, None);
+        let output = g.add_value(None, None, None);
         g.add_op(Some("shape"), Box::new(Shape {}), &[None], &[Some(output)]);
 
         let results = g.run(vec![], &[output], None);
@@ -2307,7 +2332,7 @@ mod tests {
     #[test]
     fn test_runs_op_in_place() {
         let mut g = Graph::new();
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
 
         let (_, op1_out) = g.add_simple_op("op1", AddOneInPlace {}, &[input_id]);
         let (_, op2_out) = g.add_simple_op("op2", AddOneInPlace {}, &[op1_out]);
@@ -2350,8 +2375,8 @@ mod tests {
         use crate::ops::Add; // A commutative operator
 
         let mut g = Graph::new();
-        let input_id = g.add_value(Some("input"), None);
-        let bias_id = g.add_value(Some("bias"), None);
+        let input_id = g.add_value(Some("input"), None, None);
+        let bias_id = g.add_value(Some("bias"), None, None);
 
         let op1 = TrackUsage::new(Add {});
         let op1_metrics = op1.metrics();
@@ -2438,9 +2463,9 @@ mod tests {
     #[test]
     fn test_multiple_outputs() {
         let mut g = Graph::new();
-        let input_id = g.add_value(Some("input"), None);
-        let left_split_out = g.add_value(Some("left_split"), None);
-        let right_split_out = g.add_value(Some("right_split"), None);
+        let input_id = g.add_value(Some("input"), None, None);
+        let left_split_out = g.add_value(Some("left_split"), None, None);
+        let right_split_out = g.add_value(Some("right_split"), None, None);
 
         let split_op = Box::new(Split::new());
         let run_count = split_op.run_count.clone();
@@ -2481,9 +2506,9 @@ mod tests {
         // operators.
         let mut g = Graph::new();
         let const_0 = g.add_constant(Some("c0"), Tensor::from(3.));
-        let val_0 = g.add_value(Some("i0"), None);
+        let val_0 = g.add_value(Some("i0"), None, None);
         let const_1 = g.add_constant(Some("c1"), Tensor::from(4.));
-        let val_1 = g.add_value(Some("i1"), None);
+        let val_1 = g.add_value(Some("i1"), None, None);
 
         let (_, op_0_out) = g.add_simple_op("Add_0", Add {}, &[const_0, val_0]);
         let (_, op_1_out) = g.add_simple_op("Add_1", Add {}, &[const_1, val_1]);
@@ -2655,25 +2680,25 @@ mod tests {
     #[test]
     fn test_subgraph() {
         let mut g = Graph::new();
-        let input = g.add_value(Some("input"), None);
+        let input = g.add_value(Some("input"), None, None);
 
         // Add subgraphs for `If` operation. These capture `input`.
         let mut then_branch = Graph::new();
-        let tb_input = then_branch.add_value(Some("input"), None);
+        let tb_input = then_branch.add_value(Some("input"), None, None);
         let two = then_branch.add_constant(None, Tensor::from(2.));
         let (_, tb_output) = then_branch.add_simple_op("Mul", Mul {}, &[tb_input, two]);
         then_branch.set_captures(&[tb_input]);
         then_branch.set_output_ids(&[tb_output]);
 
         let mut else_branch = Graph::new();
-        let eb_input = else_branch.add_value(Some("input"), None);
+        let eb_input = else_branch.add_value(Some("input"), None, None);
         let three = else_branch.add_constant(None, Tensor::from(3.));
         let (_, eb_output) = else_branch.add_simple_op("Mul", Mul {}, &[eb_input, three]);
         else_branch.set_captures(&[eb_input]);
         else_branch.set_output_ids(&[eb_output]);
 
         // Add `If` operator that runs one of two subgraphs.
-        let cond = g.add_value(Some("cond"), None);
+        let cond = g.add_value(Some("cond"), None, None);
         let branch = If {
             then_branch,
             else_branch,
@@ -2712,12 +2737,12 @@ mod tests {
     #[test]
     fn test_nested_subgraph() {
         let mut g = Graph::new();
-        let input = g.add_value(Some("input"), None);
+        let input = g.add_value(Some("input"), None, None);
 
         let mut subgraph = Graph::new();
 
         let mut nested_subgraph = Graph::new();
-        let ns_input = nested_subgraph.add_value(Some("input"), None);
+        let ns_input = nested_subgraph.add_value(Some("input"), None, None);
         nested_subgraph.set_captures(&[ns_input]);
         nested_subgraph.set_output_ids(&[ns_input]);
 
@@ -2742,7 +2767,7 @@ mod tests {
     #[test]
     fn test_captures_not_available_when_subgraph_is_run_directly() {
         let mut subgraph = Graph::new();
-        let sg_input = subgraph.add_value(Some("input"), None);
+        let sg_input = subgraph.add_value(Some("input"), None, None);
         subgraph.set_captures(&[sg_input]);
         let (_, sg_add) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
         subgraph.set_output_ids(&[sg_add]);
@@ -2769,10 +2794,10 @@ mod tests {
     #[test]
     fn test_partial_run_considers_subgraph_captures() {
         let mut g = Graph::new();
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
 
         let mut subgraph = Graph::new();
-        let sg_input = subgraph.add_value(Some("input"), None);
+        let sg_input = subgraph.add_value(Some("input"), None, None);
         subgraph.set_captures(&[sg_input]);
         let (_, sg_add) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
         subgraph.set_output_ids(&[sg_add]);
@@ -2795,14 +2820,14 @@ mod tests {
     #[test]
     fn test_plan_considers_capture_dependencies() {
         let mut g = Graph::new();
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
 
         let (_, _) = g.add_simple_op("Add", Add {}, &[input_id, input_id]);
 
         // Add a subgraph with a captured value that is the output of an
         // operation in the parent graph.
         let mut subgraph = Graph::new();
-        let sg_input = subgraph.add_value(Some("Add_out"), None);
+        let sg_input = subgraph.add_value(Some("Add_out"), None, None);
         subgraph.set_captures(&[sg_input]);
         let (_, sg_out) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
         subgraph.set_output_ids(&[sg_out]);
@@ -2820,7 +2845,7 @@ mod tests {
     #[test]
     fn test_plan_considers_transitive_capture_dependencies() {
         let mut g = Graph::new();
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
 
         let (_, _) = g.add_simple_op("Add", Add {}, &[input_id, input_id]);
 
@@ -2828,7 +2853,7 @@ mod tests {
         // a dependency on an operator output in the top-level graph.
         let mut subgraph = Graph::new();
         let mut nested_subgraph = Graph::new();
-        let ns_input = nested_subgraph.add_value(Some("Add_out"), None);
+        let ns_input = nested_subgraph.add_value(Some("Add_out"), None, None);
         nested_subgraph.set_captures(&[ns_input]);
         let (_, ns_out) = nested_subgraph.add_simple_op("Id", Identity {}, &[ns_input]);
         nested_subgraph.set_output_ids(&[ns_out]);
@@ -2855,7 +2880,7 @@ mod tests {
     #[test]
     fn test_keeps_temp_value_needed_as_subgraph_capture() {
         let mut g = Graph::new();
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
 
         // Compute a temporary `id_out` value and use it in the main graph.
         let (_, id_out) = g.add_simple_op("Id", Identity {}, &[input_id]);
@@ -2865,7 +2890,7 @@ mod tests {
         // capture. Graph execution must keep the `id_out` value around until
         // this has run, even though no ops in the main graph need it as inputs.
         let mut subgraph = Graph::new();
-        let sg_input = subgraph.add_value(Some("Id_out"), None);
+        let sg_input = subgraph.add_value(Some("Id_out"), None, None);
         subgraph.set_captures(&[sg_input]);
         let (_, sg_out) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
         subgraph.set_output_ids(&[sg_out]);
@@ -2885,10 +2910,10 @@ mod tests {
         // Set up a graph that runs a subgraph and passes captures by value,
         // if the value is passed to the graph as an owned value.
         let mut g = Graph::new();
-        let input_id = g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None, None);
 
         let mut subgraph = Graph::new();
-        let sg_input = subgraph.add_value(Some("input"), None);
+        let sg_input = subgraph.add_value(Some("input"), None, None);
         subgraph.set_captures(&[sg_input]);
 
         let id_op = TrackUsage::new(Identity {});

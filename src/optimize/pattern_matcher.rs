@@ -350,7 +350,7 @@ mod tests {
     /// Create a graph that implements the softsign function `x / 1 + |x|`.
     fn softsign_graph() -> (Graph, NodeId, NodeId) {
         let mut graph = Graph::new();
-        let input_id = graph.add_value(Some("x"), None);
+        let input_id = graph.add_value(Some("x"), None, None);
 
         let (_, abs_out) = graph.add_simple_op("abs", Abs {}, &[input_id]);
         let one = graph.add_constant(None, Tensor::from(1.0));

@@ -5921,14 +5921,24 @@ class ValueNode(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         return o == 0
 
+    # ValueNode
+    def Dtype(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
+        return None
+
 def ValueNodeStart(builder):
-    builder.StartObject(1)
+    builder.StartObject(2)
 
 def ValueNodeAddShape(builder, shape):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(shape), 0)
 
 def ValueNodeStartShapeVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
+
+def ValueNodeAddDtype(builder, dtype):
+    builder.PrependUint8Slot(1, dtype, None)
 
 def ValueNodeEnd(builder):
     return builder.EndObject()
@@ -5944,6 +5954,7 @@ class ValueNodeT(object):
     # ValueNodeT
     def __init__(self):
         self.shape = None  # type: List[DimT]
+        self.dtype = None  # type: Optional[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5974,6 +5985,7 @@ class ValueNodeT(object):
                 else:
                     dim_ = DimT.InitFromObj(valueNode.Shape(i))
                     self.shape.append(dim_)
+        self.dtype = valueNode.Dtype()
 
     # ValueNodeT
     def Pack(self, builder):
@@ -5988,6 +6000,7 @@ class ValueNodeT(object):
         ValueNodeStart(builder)
         if self.shape is not None:
             ValueNodeAddShape(builder, shape)
+        ValueNodeAddDtype(builder, self.dtype)
         valueNode = ValueNodeEnd(builder)
         return valueNode
 

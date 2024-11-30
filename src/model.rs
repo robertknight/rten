@@ -21,7 +21,7 @@ use crate::graph::{
 use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
 use crate::number::{LeBytes, Pod};
-use crate::op_registry::{OpLoadContext, OpRegistry, ReadOpError};
+use crate::op_registry::{convert_dtype, OpLoadContext, OpRegistry, ReadOpError};
 use crate::ops::{InputOrOutput, Output};
 use crate::optimize::GraphOptimizer;
 use crate::schema_generated as sg;
@@ -516,7 +516,12 @@ impl Model {
                 })
                 .collect()
         });
-        let graph_node = graph.add_value(name, shape);
+        let dtype = value
+            .dtype()
+            .map(convert_dtype)
+            .transpose()
+            .map_err(ModelLoadError::OperatorInvalid)?;
+        let graph_node = graph.add_value(name, shape, dtype);
         Ok(graph_node)
     }
 
@@ -863,13 +868,13 @@ mod tests {
             .copied()
             .map(Dimension::Fixed)
             .collect();
-        let input_node = graph_builder.add_value("input", Some(&input_shape));
-        let output_node = graph_builder.add_value("output", None);
+        let input_node = graph_builder.add_value("input", Some(&input_shape), None);
+        let output_node = graph_builder.add_value("output", None, None);
 
         graph_builder.add_input(input_node);
         graph_builder.add_output(output_node);
 
-        let concat_out = graph_builder.add_value("concat_out", None);
+        let concat_out = graph_builder.add_value("concat_out", None, None);
         graph_builder.add_operator(
             "concat",
             OpType::Concat(ops::Concat { axis: 0 }),
@@ -1132,7 +1137,7 @@ mod tests {
         let mut builder = ModelBuilder::new(ModelFormat::V2);
         let mut graph_builder = builder.graph_builder();
 
-        let output_node = graph_builder.add_value("output", None);
+        let output_node = graph_builder.add_value("output", None, None);
         graph_builder.add_output(output_node);
         graph_builder.add_operator("shape", OpType::Shape, &[None], &[output_node]);
 
