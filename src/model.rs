@@ -1628,12 +1628,33 @@ mod tests {
                 continue;
             }
 
+            // Run with inputs as views.
+            //
+            // This will run the non-in-place implementation of the operator
+            // (`Operator::run`).
             let output_id = model.find_node(&output).unwrap();
             let result = model
                 .run(
                     vec![
                         (input_node, input.view().into()),
                         (input_bool, input_bool_data.view().into()),
+                    ],
+                    &[output_id],
+                    None,
+                )
+                .unwrap();
+            assert_eq!(result.len(), 1);
+
+            // Run with inputs as owned tensors.
+            //
+            // This will run the in-place implementation of the operator if
+            // supported (`Operator::run_in_place`).
+            let output_id = model.find_node(&output).unwrap();
+            let result = model
+                .run(
+                    vec![
+                        (input_node, input.clone().into()),
+                        (input_bool, input_bool_data.clone().into()),
                     ],
                     &[output_id],
                     None,
