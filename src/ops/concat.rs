@@ -85,6 +85,7 @@ pub fn concat_in_place<T: Copy>(
     let axis = resolve_axis(output.ndim(), axis)?;
     let out_shape = concatenated_shape(output.shape(), inputs, axis)?;
     if !output.has_capacity(axis, out_shape[axis]) {
+        let output = output.auto_return(pool);
         return concat_impl(pool, &out_shape, axis, &output.view(), inputs);
     }
 
