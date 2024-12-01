@@ -161,7 +161,13 @@ fn test_bpe_gpt2() -> Result<(), Box<dyn Error>> {
     let merges = read_test_file("models/gpt2/merges.txt")?;
     let merge_lines: Vec<_> = merges.lines().collect();
     let merge_pairs = merge_pairs_from_lines(&merge_lines);
-    let encoder = Bpe::new(&merge_pairs, GPT2_SPLIT_PATTERN, None, Default::default())?;
+    let encoder = Bpe::new(
+        &merge_pairs,
+        GPT2_SPLIT_PATTERN,
+        None,
+        Default::default(),
+        None,
+    )?;
     let tokenizer = Tokenizer::new(encoder, Default::default());
 
     // Create tokenizer from a `tokenizers.json` file.

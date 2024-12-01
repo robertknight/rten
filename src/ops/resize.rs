@@ -307,7 +307,7 @@ fn resize_impl(
         ));
     }
 
-    let mut output = Tensor::uninit_in(pool, &output_size);
+    let mut output = Tensor::uninit_in(pool, output_size);
 
     if output.is_empty() {
         // Safety: Empty output is already initialized.

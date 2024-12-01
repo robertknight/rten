@@ -329,6 +329,7 @@ impl Tokenizer {
                     bpe::patterns::GPT2,
                     Some(model.vocab),
                     added_tokens,
+                    model.end_of_word_suffix,
                 )
                 .map_err(FromJsonError::BpeError)?;
 

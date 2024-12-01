@@ -148,21 +148,41 @@ struct BpeBuilder {
 
     /// Ranks assigned to individual bytes.
     byte_to_rank: [Rank; 256],
+
+    /// True if different tokens are generated depending on whether a token
+    /// appears at the end of a word or not, where a "word" is a string piece
+    /// produced after initial splitting of the input (eg. using a regex).
+    end_of_word_suffix: bool,
+}
+
+struct BpeBuilderOptions<'a> {
+    end_of_word_suffix: Option<&'a str>,
 }
 
 impl BpeBuilder {
-    fn new() -> BpeBuilder {
+    fn new(options: BpeBuilderOptions) -> BpeBuilder {
         let char_to_byte = char_to_byte();
         let byte_to_rank = byte_to_rank();
-        let token_ranks: HashMap<EncodedBytes, u32> = char_to_byte
+        let mut token_ranks: HashMap<EncodedBytes, u32> = char_to_byte
             .iter()
             .map(|(ch, byte)| (ch.to_string(), byte_to_rank[*byte as usize]))
             .collect();
+
+        if let Some(suffix) = options.end_of_word_suffix {
+            let end_of_word_start = token_ranks.len() as u32;
+            token_ranks.extend(char_to_byte.iter().map(|(ch, byte)| {
+                (
+                    format!("{}{}", ch, suffix),
+                    byte_to_rank[*byte as usize] + end_of_word_start,
+                )
+            }));
+        }
 
         BpeBuilder {
             ranks: HashMap::new(),
             byte_to_rank,
             token_ranks,
+            end_of_word_suffix: options.end_of_word_suffix.is_some(),
         }
     }
 
@@ -183,6 +203,13 @@ impl BpeBuilder {
     ) -> Result<(), BpeError> {
         // The first 256 ranks are assigned to individual byte values.
         let mut rank = 256 + self.ranks.len() as u32;
+
+        // If using an EOW suffix, the next 256 ranks are assigned to bytes
+        // occurring at the end of a word.
+        if self.end_of_word_suffix {
+            rank += 256;
+        }
+
         self.ranks.reserve(merges.len());
         self.token_ranks.reserve(merges.len());
 
@@ -278,6 +305,13 @@ pub struct Bpe {
 
     /// Map from token ID to content for special tokens (eg. end-of-string).
     added_tokens: HashMap<TokenId, String>,
+
+    /// A suffix which is implicitly appended to each string piece to be
+    /// tokenized.
+    ///
+    /// This was originally introduced for CLIP's tokenizer.
+    /// See https://github.com/openai/CLIP/blob/main/clip/simple_tokenizer.py.
+    end_of_word_suffix: Option<String>,
 }
 
 impl Bpe {
@@ -302,15 +336,25 @@ impl Bpe {
     /// `added_tokens` is a set of tokens which don't appear in `merges` but
     /// do have a mapping in `vocab`. These are used for special purposes such
     /// as representing the end of output.
+    ///
+    /// `end_of_word_suffix` is a string which is implicitly appended to each
+    /// substring that is tokenized, after initial splitting.
     pub fn new(
         merges: &[(EncodedByteSlice, EncodedByteSlice)],
         pattern: &str,
         vocab: Option<HashMap<EncodedBytes, TokenId>>,
         added_tokens: HashMap<TokenId, String>,
+        mut end_of_word_suffix: Option<String>,
     ) -> Result<Bpe, BpeError> {
+        // Normalize empty end-of-word suffix to `None`.
+        end_of_word_suffix.take_if(|suffix| suffix.is_empty());
+
         let splitter = Regex::new(pattern).map_err(|err| BpeError::InvalidPattern(err.into()))?;
 
-        let mut builder = BpeBuilder::new();
+        let bb_opts = BpeBuilderOptions {
+            end_of_word_suffix: end_of_word_suffix.as_deref(),
+        };
+        let mut builder = BpeBuilder::new(bb_opts);
         builder.add_merges(merges)?;
 
         let (rank_to_token_id, token_id_to_encoded_bytes) = if let Some(vocab) = vocab {
@@ -335,6 +379,7 @@ impl Bpe {
             splitter,
             added_tokens,
             token_id_to_encoded_bytes,
+            end_of_word_suffix,
         })
     }
 
@@ -352,6 +397,14 @@ impl Bpe {
             return Some(vec![byte as u8]);
         }
 
+        if let Some(eow_suffix) = self.end_of_word_suffix.as_deref() {
+            if id < 512 {
+                let mut bytes = self.get_token_bytes(id - 256)?;
+                bytes.extend(eow_suffix.as_bytes());
+                return Some(bytes);
+            }
+        }
+
         let (first, second) = self
             .merges
             .iter()
@@ -364,13 +417,24 @@ impl Bpe {
     }
 
     /// Encode a string as a sequence of tokens.
-    fn encode_piece(&self, piece: &str) -> Vec<TokenId> {
+    ///
+    /// `end_of_word` specifies whether to apply end-of-word processing rules
+    /// to the initial tokenization of piece.
+    fn encode_piece(&self, piece: &str, end_of_word: bool) -> Vec<TokenId> {
         // Start with one token per byte.
         let mut tokens: Vec<Rank> = piece
             .as_bytes()
             .iter()
             .map(|&b| self.byte_to_rank[b as usize])
             .collect();
+
+        // If the end-of-word suffix is enabled, replace the last byte's token
+        // with the one that corresponds to "{byte}{end_of_word_suffix}".
+        if self.end_of_word_suffix.is_some() && end_of_word {
+            if let Some(last) = tokens.pop() {
+                tokens.push(last + 256);
+            }
+        }
 
         // Iteratively merge tokens together until no more are possible.
         bpe_merge(&mut tokens, &self.merges);
@@ -426,12 +490,23 @@ impl Encoder for Bpe {
         Ok(token_str)
     }
 
-    fn get_token_id(&self, text: &str) -> Result<TokenId, TokenizerError> {
+    fn get_token_id(&self, mut text: &str) -> Result<TokenId, TokenizerError> {
         if let Some((&id, _str)) = self.added_tokens.iter().find(|(_id, str)| *str == text) {
             return Ok(id);
         }
 
-        let tokens = self.encode_piece(text);
+        // Determine the end-of-word context. eg. In CLIP's tokenizer, the
+        // trailing "</w>" in "from</w>" indicates that it should be treated as
+        // occurring at the end of a piece from the initial split.
+        let mut end_of_word = false;
+        if let Some(suffix) = self.end_of_word_suffix.as_deref() {
+            if text.ends_with(suffix) {
+                text = &text[..text.len() - suffix.len()];
+                end_of_word = true;
+            }
+        }
+
+        let tokens = self.encode_piece(text, end_of_word);
         if tokens.len() == 1 {
             Ok(tokens[0])
         } else {
@@ -451,7 +526,7 @@ impl Encoder for Bpe {
             }
 
             let piece_str = piece.as_str();
-            for token in self.encode_piece(piece_str) {
+            for token in self.encode_piece(piece_str, true /* end_of_word */) {
                 on_token(piece.start(), token)
             }
         }
@@ -559,41 +634,80 @@ in g";
     fn test_encode() {
         struct Case<'a> {
             text: &'a str,
-            tokens: &'a [&'a str],
+            expected_tokens: &'a [&'a str],
             merges: &'a str,
+            vocab: Option<HashMap<EncodedBytes, TokenId>>,
+            end_of_word_suffix: Option<String>,
         }
 
         let cases = [
             // Minimal test using a snippet of the GPT-2 merge list.
             Case {
                 text: "the cat is in the bed",
-                tokens: &[
+                expected_tokens: &[
                     "t", "he", "Ġc", "at", "Ġ", "is", "Ġ", "in", "Ġthe", "Ġb", "ed",
                 ],
                 merges: MINI_GPT2,
+                vocab: None,
+                end_of_word_suffix: None,
             },
             // Test several levels of merging.
             Case {
                 text: "--------",
-                tokens: &["--------"],
+                expected_tokens: &["--------"],
                 merges: "
 - -
 -- --
 ---- ----
 -------- --------
 ",
+                vocab: None,
+                end_of_word_suffix: None,
+            },
+            // End-of-word suffix
+            Case {
+                text: "barbar",
+                expected_tokens: &["bar", "bar</w>"],
+                merges: "
+b a
+ba r
+ba r</w>
+",
+                vocab: None,
+                end_of_word_suffix: Some("</w>".to_string()),
+            },
+            // Empty end-of-word suffix. Treated as `None` for compatibility
+            // with some tokenizer.json files which represent the EOW suffix
+            // using `""` instead of `null`.
+            Case {
+                text: "barbar",
+                expected_tokens: &["bar", "bar"],
+                merges: "
+b a
+ba r",
+                vocab: None,
+                end_of_word_suffix: Some("".to_string()),
             },
         ];
 
         for Case {
             text,
-            tokens,
+            expected_tokens: tokens,
             merges,
+            vocab,
+            end_of_word_suffix,
         } in cases
         {
             let merges: Vec<&str> = merges.lines().collect();
             let merge_pairs = merge_pairs_from_lines(&merges);
-            let encoder = Bpe::new(&merge_pairs, GPT2_SPLIT_PATTERN, None, HashMap::new()).unwrap();
+            let encoder = Bpe::new(
+                &merge_pairs,
+                GPT2_SPLIT_PATTERN,
+                vocab,
+                HashMap::new(),
+                end_of_word_suffix,
+            )
+            .unwrap();
             let tokenizer = Tokenizer::new(encoder, Default::default());
             let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();
             assert_eq!(
@@ -631,7 +745,8 @@ in g";
 
         let merges: Vec<&str> = MINI_GPT2.lines().collect();
         let merge_pairs = merge_pairs_from_lines(&merges);
-        let encoder = Bpe::new(&merge_pairs, GPT2_SPLIT_PATTERN, None, added_tokens()).unwrap();
+        let encoder =
+            Bpe::new(&merge_pairs, GPT2_SPLIT_PATTERN, None, added_tokens(), None).unwrap();
         let tokenizer = Tokenizer::new(encoder, Default::default());
 
         for Case { input, encoded_str } in cases {
@@ -688,8 +803,14 @@ in g";
         {
             let merges: Vec<&str> = MINI_GPT2.lines().collect();
             let merge_pairs = merge_pairs_from_lines(&merges);
-            let encoder =
-                Bpe::new(&merge_pairs, GPT2_SPLIT_PATTERN, vocab, added_tokens()).unwrap();
+            let encoder = Bpe::new(
+                &merge_pairs,
+                GPT2_SPLIT_PATTERN,
+                vocab,
+                added_tokens(),
+                None,
+            )
+            .unwrap();
             let tokenizer = Tokenizer::new(encoder, Default::default());
 
             let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();

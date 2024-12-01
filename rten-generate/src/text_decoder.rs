@@ -91,7 +91,7 @@ mod tests {
     /// Create a BPE tokenizer with an empty vocab. This can encode and decode
     /// arbitrary Unicode characters, by using one token per UTF-8 byte.
     fn create_bpe_tokenizer() -> Tokenizer {
-        let encoder = Bpe::new(&[], GPT2, None, Default::default()).unwrap();
+        let encoder = Bpe::new(&[], GPT2, None, Default::default(), None).unwrap();
         Tokenizer::new(encoder, Default::default())
     }
 
