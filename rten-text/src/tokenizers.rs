@@ -95,6 +95,14 @@ impl<'a> Encoded<'a> {
         &self.token_ids
     }
 
+    /// Consume `self` and return a list of token IDs.
+    ///
+    /// This is a convenient way to discard other information from the encoded
+    /// output and get the token IDs as an owned vector.
+    pub fn into_token_ids(self) -> Vec<TokenId> {
+        self.token_ids
+    }
+
     /// Return the byte offsets of the start of each token in the input
     /// sequence. If the input contained two sequences, the offsets are assigned
     /// as if the two sequences were concatenated.
@@ -389,11 +397,19 @@ impl Tokenizer {
     }
 
     /// Encode one or two sequences into a sequence of tokens.
-    pub fn encode<'a>(
+    ///
+    /// The input can be an `&str` or tuple of `(&str, &str)`.
+    ///
+    /// In addition to token IDs, the result also includes information about
+    /// the corresponding offsets in the source text.
+    pub fn encode<'a, I: Into<EncoderInput<'a>>>(
         &self,
-        input: EncoderInput<'a>,
-        options: EncodeOptions,
+        input: I,
+        options: Option<EncodeOptions>,
     ) -> Result<Encoded<'a>, TokenizerError> {
+        let options = options.unwrap_or_default();
+        let input: EncoderInput = input.into();
+
         let cls_token = self.cls_token()?;
         let sep_token = self.sep_token()?;
 
@@ -597,6 +613,19 @@ impl Tokenizer {
 
         Ok(chunks)
     }
+
+    /// Decode a sequence of token IDs to a text string.
+    ///
+    /// For tokenizers which operate on byte sequences (eg. [`Bpe`]) this can
+    /// fail if the token IDs don't correspond to a complete UTF-8 sequence.
+    /// In that case the solution is to accumulate more token IDs and then
+    /// retry decoding.
+    ///
+    /// Special tokens are decoded into their canonical string representations
+    /// as returned by [`Encoder::get_token_str`](Encoder::get_token_str).
+    pub fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError> {
+        self.encoder.decode(ids)
+    }
 }
 
 /// Error type returned when tokenizing a string.
@@ -670,10 +699,7 @@ mod tests {
 
         // Two sequences, no subwords.
         let encoded = tokenizer
-            .encode(
-                ("This is", "a test sequence").into(),
-                EncodeOptions::default(),
-            )
+            .encode(("This is", "a test sequence"), None)
             .unwrap();
         assert_eq!(
             tokenizer.encoder().get_tokens(encoded.token_ids()).unwrap(),
@@ -775,7 +801,7 @@ mod tests {
             expected,
         } in cases
         {
-            let encoded = tokenizer.encode(input, EncodeOptions::default()).unwrap();
+            let encoded = tokenizer.encode(input, None).unwrap();
             let text = encoded.text_for_token_range(range.clone());
             assert_eq!(
                 text, expected,
@@ -1109,9 +1135,7 @@ mod tests {
 
             let tokenizer = Tokenizer::from_parsed_json(config.tokenizer).unwrap();
             for case in config.cases {
-                let encoded = tokenizer
-                    .encode(case.text.as_str().into(), Default::default())
-                    .unwrap();
+                let encoded = tokenizer.encode(case.text.as_str(), None).unwrap();
                 assert_eq!(encoded.token_ids(), case.token_ids);
             }
         }

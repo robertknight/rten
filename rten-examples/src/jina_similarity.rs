@@ -82,11 +82,11 @@ fn embed_sentence_batch(
     let mut encoded = Vec::new();
     for &sentence in sentences {
         encoded.push(tokenizer.encode(
-            sentence.into(),
-            EncodeOptions {
+            sentence,
+            Some(EncodeOptions {
                 max_chunk_len: Some(max_seq_len),
                 ..Default::default()
-            },
+            }),
         )?);
     }
 

@@ -709,7 +709,7 @@ ba r",
             )
             .unwrap();
             let tokenizer = Tokenizer::new(encoder, Default::default());
-            let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();
+            let encoded = tokenizer.encode(text, None).unwrap();
             assert_eq!(
                 tokenizer.encoder().get_tokens(encoded.token_ids()).unwrap(),
                 tokens
@@ -813,13 +813,13 @@ ba r",
             .unwrap();
             let tokenizer = Tokenizer::new(encoder, Default::default());
 
-            let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();
+            let encoded = tokenizer.encode(text, None).unwrap();
             let mut token_ids = encoded.token_ids().to_vec();
             if add_eos {
                 // The `<|endoftext|>` token ID from GPT-2.
                 token_ids.push(50256);
             }
-            let decoded = tokenizer.encoder().decode(&token_ids).unwrap();
+            let decoded = tokenizer.decode(&token_ids).unwrap();
             assert_eq!(decoded, expected);
         }
     }

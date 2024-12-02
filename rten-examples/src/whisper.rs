@@ -526,7 +526,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     transcript_chunks.push(TranscriptChunk {
                         start_ms: start_timestamp,
                         end_ms: timestamp_token_id_to_ms(token),
-                        caption: tokenizer.encoder().decode(&curr_chunk_tokens)?,
+                        caption: tokenizer.decode(&curr_chunk_tokens)?,
                     });
                     curr_chunk_start = None;
                     curr_chunk_tokens.clear();
