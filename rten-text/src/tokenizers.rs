@@ -15,8 +15,9 @@ use std::error::Error;
 use std::fmt;
 use std::iter::repeat;
 use std::ops::Range;
+use std::rc::Rc;
 
-use crate::normalizer::{Normalizer, NormalizerOptions};
+use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
 use crate::split::SliceExt;
 
 mod bpe;
@@ -292,17 +293,22 @@ impl Tokenizer {
     }
 
     fn from_parsed_json(json: json::TokenizerJson) -> Result<Tokenizer, FromJsonError> {
-        let normalizer = json.normalizer.map(|normalizer| match normalizer {
-            json::Normalizer::Bert(bert_norm) => Normalizer::new(NormalizerOptions {
-                lowercase: bert_norm.lowercase,
-                strip_accents: bert_norm.strip_accents.unwrap_or(bert_norm.lowercase),
-            }),
+        let normalizer: Option<Rc<dyn Normalizer>> = json.normalizer.map(|normalizer| {
+            let normalizer: Rc<dyn Normalizer> = match normalizer {
+                json::Normalizer::Bert(bert_norm) => {
+                    Rc::new(BertNormalizer::new(BertNormalizerOptions {
+                        lowercase: bert_norm.lowercase,
+                        strip_accents: bert_norm.strip_accents.unwrap_or(bert_norm.lowercase),
+                    }))
+                }
 
-            // Dummy implementation of NFC normalization.
-            json::Normalizer::Nfc => Normalizer::new(NormalizerOptions {
-                lowercase: false,
-                strip_accents: false,
-            }),
+                // Dummy implementation of NFC normalization.
+                json::Normalizer::Nfc => Rc::new(BertNormalizer::new(BertNormalizerOptions {
+                    lowercase: false,
+                    strip_accents: false,
+                })),
+            };
+            normalizer
         });
 
         match json.model {
