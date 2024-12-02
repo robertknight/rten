@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tokenizer = Tokenizer::from_json(&tokenizer_config)?;
 
     let prompt = args.prompt.as_str();
-    let encoded_prompt = tokenizer.encode(prompt.into(), Default::default())?;
+    let encoded_prompt = tokenizer.encode(prompt, None)?;
 
     // The output starts with the user's prompt.
     print!("{}", prompt);

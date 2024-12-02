@@ -50,7 +50,7 @@ impl<G: Iterator<Item = GeneratorItem>> Iterator for TextDecoder<'_, G> {
 
             token_buf.push(token);
 
-            let text = self.tokenizer.encoder().decode(&token_buf);
+            let text = self.tokenizer.decode(&token_buf);
             match text {
                 Ok(text) => return Some(Ok(text)),
                 Err(TokenizerError::InvalidUtf8) => {
@@ -113,7 +113,7 @@ mod tests {
         // Encode a character which will require multiple token IDs. This means
         // the text decoder will need to loop until accumulated tokens decode
         // to a valid UTF-8 sequence.
-        let token_ids = tokenizer.encoder().encode("😊").unwrap();
+        let token_ids = tokenizer.encode("😊", None).unwrap().into_token_ids();
         assert!(token_ids.len() > 1);
         let generator = token_ids.into_iter().map(|tok_id| Ok(tok_id as u32));
 

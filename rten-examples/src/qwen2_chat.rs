@@ -90,7 +90,7 @@ fn encode_message(
         match chunk {
             MessageChunk::Token(tok_id) => token_ids.push(*tok_id),
             MessageChunk::Text(text) => {
-                let encoded = tokenizer.encode((*text).into(), Default::default())?;
+                let encoded = tokenizer.encode(*text, None)?;
                 token_ids.extend(encoded.token_ids());
             }
         }

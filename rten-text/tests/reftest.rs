@@ -87,7 +87,7 @@ fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
 
     let encoder = WordPiece::from_vocab(vocab, Default::default());
     let tokenizer = Tokenizer::new(encoder, wordpiece_tokenizer_opts());
-    let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
+    let encoded = tokenizer.encode(text.as_str(), None)?;
 
     compare_tokens(encoded.token_ids(), &expected.token_ids)?;
 
@@ -138,7 +138,7 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
     for Case { text, reference } in cases {
         let text = read_test_file(text)?;
         let expected = ReferenceTokenization::from_file(reference)?;
-        let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
+        let encoded = tokenizer.encode(text.as_str(), None)?;
 
         compare_tokens(encoded.token_ids(), &expected.token_ids)?;
     }
@@ -179,10 +179,10 @@ fn test_bpe_gpt2() -> Result<(), Box<dyn Error>> {
         let text = read_test_file(text)?;
         let expected = ReferenceTokenization::from_file(reference)?;
 
-        let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
+        let encoded = tokenizer.encode(text.as_str(), None)?;
         compare_tokens(encoded.token_ids(), &expected.token_ids)?;
 
-        let encoded = tokenizer_from_json.encode(text.as_str().into(), Default::default())?;
+        let encoded = tokenizer_from_json.encode(text.as_str(), None)?;
         compare_tokens(encoded.token_ids(), &expected.token_ids)?;
     }
 

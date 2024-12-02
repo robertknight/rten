@@ -176,9 +176,7 @@ mod tests {
     use std::rc::Rc;
 
     use crate::normalizer::{BertNormalizer, BertNormalizerOptions};
-    use crate::tokenizers::{
-        EncodeOptions, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
-    };
+    use crate::tokenizers::{Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions};
 
     fn create_tokenizer(vocab: &[&str], options: WordPieceOptions) -> Tokenizer {
         let vocab: HashMap<_, _> = vocab
@@ -254,9 +252,7 @@ mod tests {
         ];
 
         for Case { text, tokens } in cases {
-            let encoded = tokenizer
-                .encode(text.into(), EncodeOptions::default())
-                .unwrap();
+            let encoded = tokenizer.encode(text, None).unwrap();
             assert_eq!(
                 tokenizer.encoder().get_tokens(encoded.token_ids()).unwrap(),
                 tokens
@@ -277,9 +273,7 @@ mod tests {
         // The third word should be tokenized to `[UNK]` because it exceeds
         // `max_word_len`.
         let text = "foobar foofoo foobarfoo";
-        let encoded = tokenizer
-            .encode(text.into(), EncodeOptions::default())
-            .unwrap();
+        let encoded = tokenizer.encode(text, None).unwrap();
 
         assert_eq!(
             tokenizer.encoder().get_tokens(encoded.token_ids()).unwrap(),
@@ -321,9 +315,7 @@ mod tests {
         ];
 
         for Case { text, tokens } in cases {
-            let encoded = tokenizer
-                .encode(text.into(), EncodeOptions::default())
-                .unwrap();
+            let encoded = tokenizer.encode(text, None).unwrap();
             assert_eq!(
                 tokenizer.encoder().get_tokens(encoded.token_ids()).unwrap(),
                 tokens
@@ -369,8 +361,8 @@ mod tests {
         );
 
         for Case { input, expected } in cases {
-            let encoded = tokenizer.encode(input.into(), Default::default()).unwrap();
-            let decoded = tokenizer.encoder().decode(encoded.token_ids()).unwrap();
+            let encoded = tokenizer.encode(input, None).unwrap();
+            let decoded = tokenizer.decode(encoded.token_ids()).unwrap();
             assert_eq!(decoded, expected);
         }
     }
