@@ -3,8 +3,9 @@ use std::error::Error;
 use std::fs::read_to_string;
 use std::io;
 use std::path::PathBuf;
+use std::rc::Rc;
 
-use rten_text::normalizer::{Normalizer, NormalizerOptions};
+use rten_text::normalizer::{BertNormalizer, BertNormalizerOptions};
 use rten_text::tokenizers::patterns::GPT2 as GPT2_SPLIT_PATTERN;
 use rten_text::tokenizers::{
     merge_pairs_from_lines, Bpe, TokenId, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
@@ -120,7 +121,7 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
 
     let vocab = read_vocab_text_file("models/bert-base-uncased/vocab.txt")?;
 
-    let normalizer = Normalizer::new(NormalizerOptions {
+    let normalizer = BertNormalizer::new(BertNormalizerOptions {
         lowercase: true,
         strip_accents: true,
         ..Default::default()
@@ -128,7 +129,7 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
     let encoder = WordPiece::from_vocab(
         vocab,
         WordPieceOptions {
-            normalizer: Some(normalizer),
+            normalizer: Some(Rc::new(normalizer)),
             ..Default::default()
         },
     );

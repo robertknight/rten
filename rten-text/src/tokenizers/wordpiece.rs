@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use super::{Encoder, TokenId, TokenizerError};
 use crate::normalizer::Normalizer;
@@ -18,7 +19,7 @@ use unicode_categories::UnicodeCategories;
 ///       (2018). <https://arxiv.org/abs/1810.04805>
 #[derive(Clone)]
 pub struct WordPiece {
-    normalizer: Option<Normalizer>,
+    normalizer: Option<Rc<dyn Normalizer>>,
     token_to_id: HashMap<String, TokenId>,
     id_to_token: HashMap<TokenId, String>,
     subword_prefix: String,
@@ -30,7 +31,7 @@ pub struct WordPiece {
 pub struct WordPieceOptions {
     /// The normalizer that handles Unicode normalization, lower-casing the
     /// input etc.
-    pub normalizer: Option<Normalizer>,
+    pub normalizer: Option<Rc<dyn Normalizer>>,
 
     /// The maximum length of words that can be tokenized. Any words longer than
     /// this are tokenized as `[UNK]`.
@@ -172,8 +173,9 @@ impl Encoder for WordPiece {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::rc::Rc;
 
-    use crate::normalizer::{Normalizer, NormalizerOptions};
+    use crate::normalizer::{BertNormalizer, BertNormalizerOptions};
     use crate::tokenizers::{
         EncodeOptions, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
     };
@@ -298,10 +300,10 @@ mod tests {
         let tokenizer = create_tokenizer(
             vocab,
             WordPieceOptions {
-                normalizer: Some(Normalizer::new(NormalizerOptions {
+                normalizer: Some(Rc::new(BertNormalizer::new(BertNormalizerOptions {
                     lowercase: true,
                     ..Default::default()
-                })),
+                }))),
                 ..Default::default()
             },
         );
@@ -358,10 +360,10 @@ mod tests {
         let tokenizer = create_tokenizer(
             vocab,
             WordPieceOptions {
-                normalizer: Some(Normalizer::new(NormalizerOptions {
+                normalizer: Some(Rc::new(BertNormalizer::new(BertNormalizerOptions {
                     lowercase: true,
                     ..Default::default()
-                })),
+                }))),
                 ..Default::default()
             },
         );

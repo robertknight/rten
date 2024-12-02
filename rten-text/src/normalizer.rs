@@ -60,22 +60,33 @@ impl CharNormalizer {
     }
 }
 
-/// Normalizer applies normalization such as Unicode normalization and
+/// A normalizer applies normalization such as Unicode normalization and
 /// lower-casing to strings.
 ///
 /// In addition to the normalized text, Normalizer methods also return mappings
 /// from positions in the normalized string back to the original string. This
 /// is useful for post-processing in NLP tasks to map machine learning model
 /// outputs back to the location in the original text.
+pub trait Normalizer: std::fmt::Debug {
+    /// Apply normalization to a string.
+    ///
+    /// Returns a tuple of `(normalized_string, offset_map)` where `offset_map`
+    /// is a mapping from byte offsets in the normalized string to corresponding
+    /// offsets in the original string.
+    fn normalize(&self, text: &str) -> (String, Vec<usize>);
+}
+
+/// A [`Normalizer`] that implements normalization used by BERT and BERT-derived
+/// models.
 #[derive(Clone, Debug)]
-pub struct Normalizer {
+pub struct BertNormalizer {
     lowercase: bool,
     strip_accents: bool,
 }
 
-/// Configuration for a [`Normalizer`].
+/// Configuration for a [`BertNormalizer`].
 #[derive(Clone, Debug, Default)]
-pub struct NormalizerOptions {
+pub struct BertNormalizerOptions {
     /// If true, convert all text to lowercase using [`char::to_lowercase`].
     pub lowercase: bool,
 
@@ -84,20 +95,22 @@ pub struct NormalizerOptions {
     pub strip_accents: bool,
 }
 
-impl Normalizer {
-    pub fn new(opts: NormalizerOptions) -> Normalizer {
-        Normalizer {
+impl BertNormalizer {
+    pub fn new(opts: BertNormalizerOptions) -> BertNormalizer {
+        BertNormalizer {
             lowercase: opts.lowercase,
             strip_accents: opts.strip_accents,
         }
     }
 
-    /// Apply normalization to a string.
-    ///
-    /// Returns a tuple of `(normalized_string, offset_map)` where `offset_map`
-    /// is a mapping from byte offsets in the normalized string to corresponding
-    /// offsets in the original string.
-    pub fn normalize(&self, text: &str) -> (String, Vec<usize>) {
+    /// Return true if this normalizer doesn't alter its input.
+    fn is_noop(&self) -> bool {
+        !self.lowercase && !self.strip_accents
+    }
+}
+
+impl Normalizer for BertNormalizer {
+    fn normalize(&self, text: &str) -> (String, Vec<usize>) {
         if self.is_noop() {
             let offsets = (0..text.len()).collect();
             return (text.to_string(), offsets);
@@ -128,20 +141,15 @@ impl Normalizer {
 
         (normalized, offsets)
     }
-
-    /// Return true if this normalizer doesn't alter its input.
-    fn is_noop(&self) -> bool {
-        !self.lowercase && !self.strip_accents
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Normalizer, NormalizerOptions};
+    use super::{BertNormalizer, BertNormalizerOptions, Normalizer};
 
     #[test]
-    fn test_normalizer_noop() {
-        let normalizer = Normalizer::new(NormalizerOptions::default());
+    fn test_bert_normalizer_noop() {
+        let normalizer = BertNormalizer::new(BertNormalizerOptions::default());
         let inputs = [
             "Hello world!", // Mixed case
             "Motörhead",    // Accented
@@ -155,8 +163,8 @@ mod tests {
     }
 
     #[test]
-    fn test_normalizer_lowercase() {
-        let normalizer = Normalizer::new(NormalizerOptions {
+    fn test_bert_normalizer_lowercase() {
+        let normalizer = BertNormalizer::new(BertNormalizerOptions {
             lowercase: true,
             ..Default::default()
         });
@@ -200,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn test_normalizer_strip_accepts() {
+    fn test_bert_normalizer_strip_accepts() {
         struct Case<'a> {
             input: &'a str,
             lowercase: bool,
@@ -236,7 +244,7 @@ mod tests {
             expected_offsets,
         } in cases
         {
-            let normalizer = Normalizer::new(NormalizerOptions {
+            let normalizer = BertNormalizer::new(BertNormalizerOptions {
                 lowercase,
                 strip_accents: true,
                 ..Default::default()
