@@ -2,13 +2,13 @@
 //!
 //! There are two ways to construct a tokenizer:
 //!
-//! 1. Load a preconfigured tokenizer from JSON, using [Tokenizer::from_json].
+//! 1. Load a preconfigured tokenizer from JSON, using [`Tokenizer::from_json`].
 //!    This crate supports a subset of the `tokenizer.json` format that
 //!    Hugging Face Tokenizers generates.
 //!
-//! 2. Manually configure a [Tokenizer] by creating an [Encoder] implementation,
-//!    such as [WordPiece] and then wrap it with a tokenizer using
-//!    [Tokenizer::new].
+//! 2. Manually configure a [`Tokenizer`] by creating an [`Model`] implementation,
+//!    such as [`WordPiece`] and then wrap it with a tokenizer using
+//!    [`Tokenizer::new`].
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -17,22 +17,19 @@ use std::iter::repeat;
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::models::{merge_pairs_from_lines, patterns, Bpe, BpeError, WordPiece, WordPieceOptions};
 use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
 use crate::split::SliceExt;
 
-mod bpe;
 mod json;
-mod wordpiece;
-pub use bpe::{merge_pairs_from_lines, patterns, Bpe, BpeError};
-pub use wordpiece::{WordPiece, WordPieceOptions};
 
 /// Input sequences for [`Tokenizer::encode`].
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum EncoderInput<'a> {
-    /// Encoder input with a single sequence.
+    /// Input with a single sequence.
     Item(&'a str),
 
-    /// Encoder input with a pair of sequences. Used in tasks such as extractive
+    /// Input with a pair of sequences. Used in tasks such as extractive
     /// question answering, where the sequence is `(query, context)`.
     Pair((&'a str, &'a str)),
 }
@@ -161,12 +158,12 @@ pub struct EncodeOptions {
     pub overlap: usize,
 }
 
-/// An Encoder implements a specific method of converting strings into token IDs
-/// using a pre-computed model.
+/// Trait for tokenization models which convert words (or other string pieces)
+/// into tokens with numeric IDs.
 ///
-/// Encoders are not generally used directly but instead via a wrapping
+/// Models are not generally used directly but instead via a wrapping
 /// [`Tokenizer`].
-pub trait Encoder {
+pub trait Model {
     /// Look up the numeric ID for a token given its canonical string
     /// representation. This is used eg. for looking up the IDs of special
     /// tokens.
@@ -257,12 +254,12 @@ impl Error for FromJsonError {}
 /// Tokenizes text inputs into sequences of token IDs that can be fed to a
 /// machine learning model.
 ///
-/// `Tokenizer` wraps an [`Encoder`] which handles specific methods of encoding of
+/// `Tokenizer` wraps a [`Model`] which handles specific methods of encoding of
 /// individual sequences (eg. WordPiece, Byte Pair Encoding, Unigram) and adds
 /// common functionality such as injecting special tokens, splitting sequences
 /// into overlapping chunks and truncating long sequences.
 pub struct Tokenizer {
-    encoder: Box<dyn Encoder>,
+    model: Box<dyn Model>,
 
     /// Token added at start of output.
     cls_token: Option<String>,
@@ -284,10 +281,10 @@ pub struct TokenizerOptions<'a> {
 }
 
 impl Tokenizer {
-    /// Create a new tokenizer which wraps the given encoder.
-    pub fn new<E: Encoder + 'static>(encoder: E, options: TokenizerOptions) -> Tokenizer {
+    /// Create a new tokenizer which wraps the given model.
+    pub fn new<M: Model + 'static>(model: M, options: TokenizerOptions) -> Tokenizer {
         Tokenizer {
-            encoder: Box::new(encoder),
+            model: Box::new(model),
             cls_token: options.cls_token.map(|t| t.to_string()),
             sep_token: options.sep_token.map(|t| t.to_string()),
         }
@@ -332,15 +329,15 @@ impl Tokenizer {
                     })
                     .unwrap_or_default();
                 let merges: Vec<(&str, &str)> = match &model.merges {
-                    json::MergeList::Legacy(lines) => bpe::merge_pairs_from_lines(lines),
+                    json::MergeList::Legacy(lines) => merge_pairs_from_lines(lines),
                     json::MergeList::Tuple(pairs) => pairs
                         .iter()
                         .map(|(a, b)| (a.as_str(), b.as_str()))
                         .collect(),
                 };
-                let encoder = Bpe::new(
+                let model = Bpe::new(
                     &merges,
-                    bpe::patterns::GPT2,
+                    patterns::GPT2,
                     Some(model.vocab),
                     added_tokens,
                     model.end_of_word_suffix,
@@ -348,7 +345,7 @@ impl Tokenizer {
                 .map_err(FromJsonError::BpeError)?;
 
                 let tokenizer = Tokenizer::new(
-                    encoder,
+                    model,
                     TokenizerOptions {
                         cls_token: None,
                         sep_token: None,
@@ -358,14 +355,14 @@ impl Tokenizer {
                 Ok(tokenizer)
             }
             json::Model::WordPiece(model) => {
-                let encoder_opts = WordPieceOptions {
+                let wordpiece_opts = WordPieceOptions {
                     normalizer,
                     ..Default::default()
                 };
 
-                let encoder = WordPiece::from_vocab(model.vocab, encoder_opts);
+                let model = WordPiece::from_vocab(model.vocab, wordpiece_opts);
                 let tokenizer = Tokenizer::new(
-                    encoder,
+                    model,
                     TokenizerOptions {
                         cls_token: Some("[CLS]"),
                         sep_token: Some("[SEP]"),
@@ -377,22 +374,27 @@ impl Tokenizer {
         }
     }
 
-    /// Return the wrapped encoder.
-    pub fn encoder(&self) -> &dyn Encoder {
-        self.encoder.as_ref()
+    #[deprecated = "`encoder` was renamed to `model`"]
+    pub fn encoder(&self) -> &dyn Model {
+        self.model()
+    }
+
+    /// Return the model used to convert string pieces to token IDs.
+    pub fn model(&self) -> &dyn Model {
+        self.model.as_ref()
     }
 
     fn cls_token(&self) -> Result<Option<TokenId>, TokenizerError> {
         self.cls_token
             .as_ref()
-            .map(|cls| self.encoder.get_token_id(cls.as_str()))
+            .map(|cls| self.model.get_token_id(cls.as_str()))
             .transpose()
     }
 
     fn sep_token(&self) -> Result<Option<TokenId>, TokenizerError> {
         self.sep_token
             .as_ref()
-            .map(|sep| self.encoder.get_token_id(sep.as_str()))
+            .map(|sep| self.model.get_token_id(sep.as_str()))
             .transpose()
     }
 
@@ -477,7 +479,7 @@ impl Tokenizer {
             EncoderInput::Pair((first, second)) => (first, Some(second)),
         };
 
-        self.encoder
+        self.model
             .encode_with_offsets(first_seq, &mut |offset, token| {
                 offsets.push(offset);
                 tokens.push(token);
@@ -485,7 +487,7 @@ impl Tokenizer {
         let first_seq_tokens = tokens.len();
 
         if let Some(second_seq) = second_seq {
-            self.encoder
+            self.model
                 .encode_with_offsets(second_seq, &mut |offset, token| {
                     offsets.push(offset + first_seq.len());
                     tokens.push(token);
@@ -622,9 +624,9 @@ impl Tokenizer {
     /// retry decoding.
     ///
     /// Special tokens are decoded into their canonical string representations
-    /// as returned by [`Encoder::get_token_str`](Encoder::get_token_str).
+    /// as returned by [`Model::get_token_str`].
     pub fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError> {
-        self.encoder.decode(ids)
+        self.model.decode(ids)
     }
 }
 
@@ -680,7 +682,7 @@ mod tests {
         WordPiece::from_vocab(vocab, Default::default())
     }
 
-    // The tests below use the WordPiece encoder to exercise common Tokenizer
+    // The tests below use the WordPiece model to exercise common Tokenizer
     // functionality. This is convenient as WordPiece is simple.
 
     #[test]
@@ -688,9 +690,9 @@ mod tests {
         let vocab = &[
             "[CLS]", "[SEP]", "[UNK]", "This", "is", "a", "test", "sequence",
         ];
-        let encoder = make_wordpiece(vocab);
+        let model = make_wordpiece(vocab);
         let tokenizer = Tokenizer::new(
-            encoder,
+            model,
             TokenizerOptions {
                 cls_token: Some("[CLS]"),
                 sep_token: Some("[SEP]"),
@@ -702,7 +704,7 @@ mod tests {
             .encode(("This is", "a test sequence"), None)
             .unwrap();
         assert_eq!(
-            tokenizer.encoder().get_tokens(encoded.token_ids()).unwrap(),
+            tokenizer.model().get_tokens(encoded.token_ids()).unwrap(),
             &["[CLS]", "This", "is", "[SEP]", "a", "test", "sequence", "[SEP]"]
         );
 
@@ -786,9 +788,9 @@ mod tests {
             },
         ];
 
-        let encoder = make_wordpiece(vocab);
+        let model = make_wordpiece(vocab);
         let tokenizer = Tokenizer::new(
-            encoder,
+            model,
             TokenizerOptions {
                 cls_token: Some("[CLS]"),
                 sep_token: Some("[SEP]"),
@@ -888,7 +890,7 @@ mod tests {
             },
         ];
 
-        let encoder = make_wordpiece(vocab);
+        let model = make_wordpiece(vocab);
 
         for Case {
             text,
@@ -899,7 +901,7 @@ mod tests {
         } in cases
         {
             let tokenizer = Tokenizer::new(
-                encoder.clone(),
+                model.clone(),
                 TokenizerOptions {
                     cls_token: use_cls_sep.then_some("[CLS]"),
                     sep_token: use_cls_sep.then_some("[SEP]"),
@@ -912,7 +914,7 @@ mod tests {
             let chunks = tokenizer.encode_chunks(text.into(), options).unwrap();
             let chunk_tokens: Vec<_> = chunks
                 .into_iter()
-                .map(|c| tokenizer.encoder().get_tokens(c.token_ids()).unwrap())
+                .map(|c| tokenizer.model().get_tokens(c.token_ids()).unwrap())
                 .collect();
             assert_eq!(chunk_tokens, tokens);
         }
@@ -938,7 +940,7 @@ mod tests {
             "Ferris",
         ];
 
-        let encoder = make_wordpiece(vocab);
+        let model = make_wordpiece(vocab);
 
         struct Case<'a> {
             query: &'a str,
@@ -1070,7 +1072,7 @@ mod tests {
         } in cases
         {
             let tokenizer = Tokenizer::new(
-                encoder.clone(),
+                model.clone(),
                 TokenizerOptions {
                     cls_token: use_sep_cls.then_some("[CLS]"),
                     sep_token: use_sep_cls.then_some("[SEP]"),
@@ -1086,7 +1088,7 @@ mod tests {
                 .unwrap();
             let chunk_tokens: Vec<_> = chunks
                 .iter()
-                .map(|c| tokenizer.encoder().get_tokens(c.token_ids()).unwrap())
+                .map(|c| tokenizer.model().get_tokens(c.token_ids()).unwrap())
                 .collect();
             assert_eq!(chunk_tokens, tokens);
 

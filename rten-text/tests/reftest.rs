@@ -5,11 +5,11 @@ use std::io;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use rten_text::normalizer::{BertNormalizer, BertNormalizerOptions};
-use rten_text::tokenizers::patterns::GPT2 as GPT2_SPLIT_PATTERN;
-use rten_text::tokenizers::{
-    merge_pairs_from_lines, Bpe, TokenId, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
+use rten_text::models::{
+    merge_pairs_from_lines, patterns::GPT2 as GPT2_SPLIT_PATTERN, Bpe, WordPiece, WordPieceOptions,
 };
+use rten_text::normalizer::{BertNormalizer, BertNormalizerOptions};
+use rten_text::tokenizers::{TokenId, Tokenizer, TokenizerOptions};
 use serde::Deserialize;
 
 /// Load a vocabulary from a text file with one token per line (ie. the
@@ -85,8 +85,8 @@ fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
     let expected =
         ReferenceTokenization::from_file("Rust_(programming_language)-bert-base-cased.json")?;
 
-    let encoder = WordPiece::from_vocab(vocab, Default::default());
-    let tokenizer = Tokenizer::new(encoder, wordpiece_tokenizer_opts());
+    let model = WordPiece::from_vocab(vocab, Default::default());
+    let tokenizer = Tokenizer::new(model, wordpiece_tokenizer_opts());
     let encoded = tokenizer.encode(text.as_str(), None)?;
 
     compare_tokens(encoded.token_ids(), &expected.token_ids)?;
@@ -126,14 +126,14 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
         strip_accents: true,
         ..Default::default()
     });
-    let encoder = WordPiece::from_vocab(
+    let model = WordPiece::from_vocab(
         vocab,
         WordPieceOptions {
             normalizer: Some(Rc::new(normalizer)),
             ..Default::default()
         },
     );
-    let tokenizer = Tokenizer::new(encoder, wordpiece_tokenizer_opts());
+    let tokenizer = Tokenizer::new(model, wordpiece_tokenizer_opts());
 
     for Case { text, reference } in cases {
         let text = read_test_file(text)?;
@@ -162,14 +162,14 @@ fn test_bpe_gpt2() -> Result<(), Box<dyn Error>> {
     let merges = read_test_file("models/gpt2/merges.txt")?;
     let merge_lines: Vec<_> = merges.lines().collect();
     let merge_pairs = merge_pairs_from_lines(&merge_lines);
-    let encoder = Bpe::new(
+    let model = Bpe::new(
         &merge_pairs,
         GPT2_SPLIT_PATTERN,
         None,
         Default::default(),
         None,
     )?;
-    let tokenizer = Tokenizer::new(encoder, Default::default());
+    let tokenizer = Tokenizer::new(model, Default::default());
 
     // Create tokenizer from a `tokenizers.json` file.
     let tokenizer_json = read_test_file("models/gpt2/tokenizer.json")?;

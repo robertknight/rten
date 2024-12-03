@@ -435,8 +435,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         )?;
         let encoded_audio: NdTensor<f32, 3> = encoded_audio.try_into()?;
 
-        let encoder = tokenizer.encoder();
-        let start_of_transcript = encoder.get_token_id("<|startoftranscript|>")?;
+        let tokenizer_model = tokenizer.model();
+        let start_of_transcript = tokenizer_model.get_token_id("<|startoftranscript|>")?;
         let encoder_hidden_states_id = decoder_model.node_id("encoder_hidden_states")?;
 
         // Get the language ID token (eg. "<|en|>").
@@ -445,8 +445,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         let lang_id_token = match lang_id_token {
             Some(token) => token,
             None => {
-                let lang_id_min = encoder.get_token_id("<|en|>")?;
-                let lang_id_max = encoder.get_token_id("<|su|>")?;
+                let lang_id_min = tokenizer_model.get_token_id("<|en|>")?;
+                let lang_id_max = tokenizer_model.get_token_id("<|su|>")?;
                 let prompt = [start_of_transcript];
                 let mut generator = Generator::from_model(&decoder_model)?
                     .with_prompt(&prompt)
@@ -459,7 +459,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let token = generator.next().unwrap()?;
 
                 // Get language ID token and strip special-token markers.
-                let token_str = encoder.get_token_str(token)?;
+                let token_str = tokenizer_model.get_token_str(token)?;
                 let lang_id_str = token_str.trim_start_matches("<|").trim_end_matches("|>");
                 println!("Detected language: {}", lang_id_str);
 
@@ -472,12 +472,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         //
         // See https://github.com/openai/whisper/discussions/117#discussioncomment-3727051
         // for details.
-        let eos_token = encoder.get_token_id("<|endoftext|>")?;
-        let start_of_prev = encoder.get_token_id("<|startofprev|>")?;
-        let transcribe = encoder.get_token_id("<|transcribe|>")?;
-        let timestamp_min = encoder.get_token_id("<|0.00|>")?;
-        let timestamp_max = encoder.get_token_id("<|30.00|>")?;
-        let no_timestamps = encoder.get_token_id("<|notimestamps|>")?;
+        let eos_token = tokenizer_model.get_token_id("<|endoftext|>")?;
+        let start_of_prev = tokenizer_model.get_token_id("<|startofprev|>")?;
+        let transcribe = tokenizer_model.get_token_id("<|transcribe|>")?;
+        let timestamp_min = tokenizer_model.get_token_id("<|0.00|>")?;
+        let timestamp_max = tokenizer_model.get_token_id("<|30.00|>")?;
+        let no_timestamps = tokenizer_model.get_token_id("<|notimestamps|>")?;
 
         let mut prompt = Vec::new();
         if !prev_chunk_tokens.is_empty() {

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::{Encoder, TokenId, TokenizerError};
 use crate::normalizer::Normalizer;
 use crate::split::SplitExt;
+use crate::tokenizers::{Model, TokenId, TokenizerError};
 
 use unicode_categories::UnicodeCategories;
 
@@ -60,7 +60,7 @@ impl WordPiece {
     }
 }
 
-impl Encoder for WordPiece {
+impl Model for WordPiece {
     fn encode_with_offsets(
         &self,
         text: &str,
@@ -175,8 +175,9 @@ mod tests {
     use std::collections::HashMap;
     use std::rc::Rc;
 
+    use crate::models::{WordPiece, WordPieceOptions};
     use crate::normalizer::{BertNormalizer, BertNormalizerOptions};
-    use crate::tokenizers::{Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions};
+    use crate::tokenizers::{Tokenizer, TokenizerOptions};
 
     fn create_tokenizer(vocab: &[&str], options: WordPieceOptions) -> Tokenizer {
         let vocab: HashMap<_, _> = vocab
@@ -184,9 +185,9 @@ mod tests {
             .enumerate()
             .map(|(i, token)| (token.to_string(), i as u32))
             .collect();
-        let encoder = WordPiece::from_vocab(vocab, options);
+        let model = WordPiece::from_vocab(vocab, options);
         Tokenizer::new(
-            encoder,
+            model,
             TokenizerOptions {
                 cls_token: Some("[CLS]"),
                 sep_token: Some("[SEP]"),
@@ -195,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wordpiece_encoder() {
+    fn test_wordpiece_model() {
         struct Case<'a> {
             text: &'a str,
             tokens: &'a [&'a str],
@@ -254,7 +255,7 @@ mod tests {
         for Case { text, tokens } in cases {
             let encoded = tokenizer.encode(text, None).unwrap();
             assert_eq!(
-                tokenizer.encoder().get_tokens(encoded.token_ids()).unwrap(),
+                tokenizer.model().get_tokens(encoded.token_ids()).unwrap(),
                 tokens
             );
             assert!(encoded.token_type_ids().all(|ttid| ttid == 0));
@@ -276,13 +277,13 @@ mod tests {
         let encoded = tokenizer.encode(text, None).unwrap();
 
         assert_eq!(
-            tokenizer.encoder().get_tokens(encoded.token_ids()).unwrap(),
+            tokenizer.model().get_tokens(encoded.token_ids()).unwrap(),
             &["[CLS]", "foo", "##bar", "foo", "##foo", "[UNK]", "[SEP]"]
         );
     }
 
     #[test]
-    fn test_wordpiece_encoder_lowercase() {
+    fn test_wordpiece_model_lowercase() {
         struct Case<'a> {
             text: &'a str,
             tokens: &'a [&'a str],
@@ -317,7 +318,7 @@ mod tests {
         for Case { text, tokens } in cases {
             let encoded = tokenizer.encode(text, None).unwrap();
             assert_eq!(
-                tokenizer.encoder().get_tokens(encoded.token_ids()).unwrap(),
+                tokenizer.model().get_tokens(encoded.token_ids()).unwrap(),
                 tokens
             );
             assert!(encoded.token_type_ids().all(|ttid| ttid == 0));
