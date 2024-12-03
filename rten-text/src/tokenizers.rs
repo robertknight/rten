@@ -17,14 +17,11 @@ use std::iter::repeat;
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::models::{merge_pairs_from_lines, patterns, Bpe, BpeError, WordPiece, WordPieceOptions};
 use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
 use crate::split::SliceExt;
 
-mod bpe;
 mod json;
-mod wordpiece;
-pub use bpe::{merge_pairs_from_lines, patterns, Bpe, BpeError};
-pub use wordpiece::{WordPiece, WordPieceOptions};
 
 /// Input sequences for [`Tokenizer::encode`].
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -332,7 +329,7 @@ impl Tokenizer {
                     })
                     .unwrap_or_default();
                 let merges: Vec<(&str, &str)> = match &model.merges {
-                    json::MergeList::Legacy(lines) => bpe::merge_pairs_from_lines(lines),
+                    json::MergeList::Legacy(lines) => merge_pairs_from_lines(lines),
                     json::MergeList::Tuple(pairs) => pairs
                         .iter()
                         .map(|(a, b)| (a.as_str(), b.as_str()))
@@ -340,7 +337,7 @@ impl Tokenizer {
                 };
                 let model = Bpe::new(
                     &merges,
-                    bpe::patterns::GPT2,
+                    patterns::GPT2,
                     Some(model.vocab),
                     added_tokens,
                     model.end_of_word_suffix,
@@ -358,12 +355,12 @@ impl Tokenizer {
                 Ok(tokenizer)
             }
             json::Model::WordPiece(model) => {
-                let encoder_opts = WordPieceOptions {
+                let wordpiece_opts = WordPieceOptions {
                     normalizer,
                     ..Default::default()
                 };
 
-                let model = WordPiece::from_vocab(model.vocab, encoder_opts);
+                let model = WordPiece::from_vocab(model.vocab, wordpiece_opts);
                 let tokenizer = Tokenizer::new(
                     model,
                     TokenizerOptions {

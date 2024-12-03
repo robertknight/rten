@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::{Model, TokenId, TokenizerError};
 use crate::normalizer::Normalizer;
 use crate::split::SplitExt;
+use crate::tokenizers::{Model, TokenId, TokenizerError};
 
 use unicode_categories::UnicodeCategories;
 
@@ -175,8 +175,9 @@ mod tests {
     use std::collections::HashMap;
     use std::rc::Rc;
 
+    use crate::models::{WordPiece, WordPieceOptions};
     use crate::normalizer::{BertNormalizer, BertNormalizerOptions};
-    use crate::tokenizers::{Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions};
+    use crate::tokenizers::{Tokenizer, TokenizerOptions};
 
     fn create_tokenizer(vocab: &[&str], options: WordPieceOptions) -> Tokenizer {
         let vocab: HashMap<_, _> = vocab

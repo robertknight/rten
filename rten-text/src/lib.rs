@@ -8,6 +8,7 @@
 //! with more complete functionality, see
 //! [HuggingFace tokenizers](https://github.com/huggingface/tokenizers).
 
+pub mod models;
 pub mod normalizer;
 pub mod tokenizers;
 

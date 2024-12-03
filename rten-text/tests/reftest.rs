@@ -5,11 +5,11 @@ use std::io;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use rten_text::normalizer::{BertNormalizer, BertNormalizerOptions};
-use rten_text::tokenizers::patterns::GPT2 as GPT2_SPLIT_PATTERN;
-use rten_text::tokenizers::{
-    merge_pairs_from_lines, Bpe, TokenId, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
+use rten_text::models::{
+    merge_pairs_from_lines, patterns::GPT2 as GPT2_SPLIT_PATTERN, Bpe, WordPiece, WordPieceOptions,
 };
+use rten_text::normalizer::{BertNormalizer, BertNormalizerOptions};
+use rten_text::tokenizers::{TokenId, Tokenizer, TokenizerOptions};
 use serde::Deserialize;
 
 /// Load a vocabulary from a text file with one token per line (ie. the
