@@ -624,7 +624,7 @@ impl Tokenizer {
     /// retry decoding.
     ///
     /// Special tokens are decoded into their canonical string representations
-    /// as returned by [`Model::get_token_str`](Model::get_token_str).
+    /// as returned by [`Model::get_token_str`].
     pub fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError> {
         self.model.decode(ids)
     }

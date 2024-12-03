@@ -310,7 +310,7 @@ pub struct Bpe {
     /// tokenized.
     ///
     /// This was originally introduced for CLIP's tokenizer.
-    /// See https://github.com/openai/CLIP/blob/main/clip/simple_tokenizer.py.
+    /// See <https://github.com/openai/CLIP/blob/main/clip/simple_tokenizer.py>.
     end_of_word_suffix: Option<String>,
 }
 
