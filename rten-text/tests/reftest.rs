@@ -3,10 +3,9 @@ use std::error::Error;
 use std::fs::read_to_string;
 use std::io;
 use std::path::PathBuf;
-use std::rc::Rc;
 
 use rten_text::models::{
-    merge_pairs_from_lines, patterns::GPT2 as GPT2_SPLIT_PATTERN, Bpe, WordPiece, WordPieceOptions,
+    merge_pairs_from_lines, patterns::GPT2 as GPT2_SPLIT_PATTERN, Bpe, WordPiece,
 };
 use rten_text::normalizer::{BertNormalizer, BertNormalizerOptions};
 use rten_text::tokenizers::{TokenId, Tokenizer, TokenizerOptions};
@@ -126,14 +125,9 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
         strip_accents: true,
         ..Default::default()
     });
-    let model = WordPiece::from_vocab(
-        vocab,
-        WordPieceOptions {
-            normalizer: Some(Rc::new(normalizer)),
-            ..Default::default()
-        },
-    );
-    let tokenizer = Tokenizer::new(model, wordpiece_tokenizer_opts());
+    let model = WordPiece::from_vocab(vocab, Default::default());
+    let tokenizer =
+        Tokenizer::new(model, wordpiece_tokenizer_opts()).with_normalizer(Box::new(normalizer));
 
     for Case { text, reference } in cases {
         let text = read_test_file(text)?;

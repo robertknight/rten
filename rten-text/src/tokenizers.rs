@@ -15,9 +15,8 @@ use std::error::Error;
 use std::fmt;
 use std::iter::repeat;
 use std::ops::Range;
-use std::rc::Rc;
 
-use crate::models::{merge_pairs_from_lines, patterns, Bpe, BpeError, WordPiece, WordPieceOptions};
+use crate::models::{merge_pairs_from_lines, patterns, Bpe, BpeError, WordPiece};
 use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
 use crate::split::SliceExt;
 
@@ -251,23 +250,6 @@ impl fmt::Display for FromJsonError {
 
 impl Error for FromJsonError {}
 
-/// Tokenizes text inputs into sequences of token IDs that can be fed to a
-/// machine learning model.
-///
-/// `Tokenizer` wraps a [`Model`] which handles specific methods of encoding of
-/// individual sequences (eg. WordPiece, Byte Pair Encoding, Unigram) and adds
-/// common functionality such as injecting special tokens, splitting sequences
-/// into overlapping chunks and truncating long sequences.
-pub struct Tokenizer {
-    model: Box<dyn Model>,
-
-    /// Token added at start of output.
-    cls_token: Option<String>,
-
-    /// Token added after end of each sequence.
-    sep_token: Option<String>,
-}
-
 /// Configuration for a [`Tokenizer`].
 #[derive(Clone, Default)]
 pub struct TokenizerOptions<'a> {
@@ -280,14 +262,39 @@ pub struct TokenizerOptions<'a> {
     pub sep_token: Option<&'a str>,
 }
 
+/// Tokenizes text inputs into sequences of token IDs that can be fed to a
+/// machine learning model.
+///
+/// `Tokenizer` wraps a [`Model`] which handles specific methods of encoding of
+/// individual sequences (eg. WordPiece, Byte Pair Encoding, Unigram) and adds
+/// common functionality such as injecting special tokens, splitting sequences
+/// into overlapping chunks and truncating long sequences.
+pub struct Tokenizer {
+    normalizer: Option<Box<dyn Normalizer>>,
+    model: Box<dyn Model>,
+
+    /// Token added at start of output.
+    cls_token: Option<String>,
+
+    /// Token added after end of each sequence.
+    sep_token: Option<String>,
+}
+
 impl Tokenizer {
     /// Create a new tokenizer which wraps the given model.
     pub fn new<M: Model + 'static>(model: M, options: TokenizerOptions) -> Tokenizer {
         Tokenizer {
             model: Box::new(model),
+            normalizer: None,
             cls_token: options.cls_token.map(|t| t.to_string()),
             sep_token: options.sep_token.map(|t| t.to_string()),
         }
+    }
+
+    /// Configure the normalizer used by this tokenizer.
+    pub fn with_normalizer(mut self, normalizer: Box<dyn Normalizer>) -> Self {
+        self.normalizer = Some(normalizer);
+        self
     }
 
     /// Load a tokenizer from the contents of a Hugging Face `tokenizer.json`
@@ -298,17 +305,17 @@ impl Tokenizer {
     }
 
     fn from_parsed_json(json: json::TokenizerJson) -> Result<Tokenizer, FromJsonError> {
-        let normalizer: Option<Rc<dyn Normalizer>> = json.normalizer.map(|normalizer| {
-            let normalizer: Rc<dyn Normalizer> = match normalizer {
+        let normalizer: Option<Box<dyn Normalizer>> = json.normalizer.map(|normalizer| {
+            let normalizer: Box<dyn Normalizer> = match normalizer {
                 json::Normalizer::Bert(bert_norm) => {
-                    Rc::new(BertNormalizer::new(BertNormalizerOptions {
+                    Box::new(BertNormalizer::new(BertNormalizerOptions {
                         lowercase: bert_norm.lowercase,
                         strip_accents: bert_norm.strip_accents.unwrap_or(bert_norm.lowercase),
                     }))
                 }
 
                 // Dummy implementation of NFC normalization.
-                json::Normalizer::Nfc => Rc::new(BertNormalizer::new(BertNormalizerOptions {
+                json::Normalizer::Nfc => Box::new(BertNormalizer::new(BertNormalizerOptions {
                     lowercase: false,
                     strip_accents: false,
                 })),
@@ -316,7 +323,7 @@ impl Tokenizer {
             normalizer
         });
 
-        match json.model {
+        let mut tokenizer = match json.model {
             json::Model::Bpe(model) => {
                 let added_tokens: HashMap<TokenId, String> = json
                     .added_tokens
@@ -355,12 +362,7 @@ impl Tokenizer {
                 Ok(tokenizer)
             }
             json::Model::WordPiece(model) => {
-                let wordpiece_opts = WordPieceOptions {
-                    normalizer,
-                    ..Default::default()
-                };
-
-                let model = WordPiece::from_vocab(model.vocab, wordpiece_opts);
+                let model = WordPiece::from_vocab(model.vocab, Default::default());
                 let tokenizer = Tokenizer::new(
                     model,
                     TokenizerOptions {
@@ -371,7 +373,13 @@ impl Tokenizer {
 
                 Ok(tokenizer)
             }
+        }?;
+
+        if let Some(normalizer) = normalizer {
+            tokenizer = tokenizer.with_normalizer(normalizer)
         }
+
+        Ok(tokenizer)
     }
 
     #[deprecated = "`encoder` was renamed to `model`"]
@@ -479,17 +487,42 @@ impl Tokenizer {
             EncoderInput::Pair((first, second)) => (first, Some(second)),
         };
 
+        // Normalize text and return a (normalized_text, offset_mapping) pair.
+        let normalize_text = |text: &str| match &self.normalizer {
+            None => (text.to_string(), None),
+            Some(normalizer) => {
+                let (normalized_text, offsets) = normalizer.normalize(text);
+                (normalized_text, Some(offsets))
+            }
+        };
+
+        // Map an offset into the normalized string into an offset in the source
+        // string.
+        let map_offset = |offset: usize, mapping: Option<&[usize]>| {
+            if let Some(mappings) = &mapping {
+                mappings
+                    .get(offset)
+                    .copied()
+                    .expect("invalid normalized offset")
+            } else {
+                offset
+            }
+        };
+
+        // Apply normalization to the input text.
+        let (normalized, offset_map) = normalize_text(first_seq);
         self.model
-            .encode_with_offsets(first_seq, &mut |offset, token| {
-                offsets.push(offset);
+            .encode_with_offsets(&normalized, &mut |offset, token| {
+                offsets.push(map_offset(offset, offset_map.as_deref()));
                 tokens.push(token);
             })?;
         let first_seq_tokens = tokens.len();
 
         if let Some(second_seq) = second_seq {
+            let (normalized, offset_map) = normalize_text(second_seq);
             self.model
-                .encode_with_offsets(second_seq, &mut |offset, token| {
-                    offsets.push(offset + first_seq.len());
+                .encode_with_offsets(&normalized, &mut |offset, token| {
+                    offsets.push(first_seq.len() + map_offset(offset, offset_map.as_deref()));
                     tokens.push(token);
                 })?;
         }
@@ -671,6 +704,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{EncodeOptions, EncoderInput, TokenId, Tokenizer, TokenizerOptions, WordPiece};
+    use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
     use serde::Deserialize;
 
     fn make_wordpiece(vocab: &[&str]) -> WordPiece {
@@ -680,6 +714,13 @@ mod tests {
             .map(|(i, token)| (token.to_string(), i as u32))
             .collect();
         WordPiece::from_vocab(vocab, Default::default())
+    }
+
+    fn lowercase_normalizer() -> Box<dyn Normalizer> {
+        Box::new(BertNormalizer::new(BertNormalizerOptions {
+            lowercase: true,
+            ..Default::default()
+        }))
     }
 
     // The tests below use the WordPiece model to exercise common Tokenizer
@@ -825,6 +866,7 @@ mod tests {
             overlap: usize,
             tokens: Vec<&'a [&'a str]>,
             use_cls_sep: bool,
+            lowercase: bool,
         }
 
         let cases = [
@@ -835,6 +877,16 @@ mod tests {
                 overlap: 0,
                 tokens: vec![&["[CLS]", "This", "is", "a", "test", "sequence", "[SEP]"]],
                 use_cls_sep: true,
+                lowercase: false,
+            },
+            // Encode with a normalizer
+            Case {
+                text: "A TEST SEQUENCE",
+                max_chunk_len: None,
+                overlap: 0,
+                tokens: vec![&["[CLS]", "a", "test", "sequence", "[SEP]"]],
+                use_cls_sep: true,
+                lowercase: true,
             },
             // Two chunks
             Case {
@@ -846,6 +898,7 @@ mod tests {
                     &["[CLS]", "test", "sequence", "[SEP]"],
                 ],
                 use_cls_sep: true,
+                lowercase: false,
             },
             // Three chunks
             Case {
@@ -858,6 +911,7 @@ mod tests {
                     &["[CLS]", "sequence", "[SEP]"],
                 ],
                 use_cls_sep: true,
+                lowercase: false,
             },
             // Chunk size that is small enough that there is no room for
             // any content tokens in each chunk.
@@ -867,6 +921,7 @@ mod tests {
                 overlap: 0,
                 tokens: vec![],
                 use_cls_sep: true,
+                lowercase: false,
             },
             // Overlap between chunks
             Case {
@@ -879,6 +934,7 @@ mod tests {
                     &["[CLS]", "a", "test", "sequence", "[SEP]"],
                 ],
                 use_cls_sep: true,
+                lowercase: false,
             },
             // No special tokens
             Case {
@@ -887,6 +943,7 @@ mod tests {
                 overlap: 0,
                 tokens: vec![&["This", "is", "a", "test", "sequence"]],
                 use_cls_sep: false,
+                lowercase: false,
             },
         ];
 
@@ -898,15 +955,21 @@ mod tests {
             overlap,
             tokens,
             use_cls_sep,
+            lowercase,
         } in cases
         {
-            let tokenizer = Tokenizer::new(
+            let mut tokenizer = Tokenizer::new(
                 model.clone(),
                 TokenizerOptions {
                     cls_token: use_cls_sep.then_some("[CLS]"),
                     sep_token: use_cls_sep.then_some("[SEP]"),
                 },
             );
+
+            if lowercase {
+                tokenizer = tokenizer.with_normalizer(lowercase_normalizer());
+            }
+
             let options = EncodeOptions {
                 max_chunk_len,
                 overlap,
@@ -949,6 +1012,7 @@ mod tests {
             overlap: usize,
             tokens: Vec<&'a [&'a str]>,
             use_sep_cls: bool,
+            lowercase: bool,
         }
 
         let cases = [
@@ -973,6 +1037,17 @@ mod tests {
                     "language",
                     "[SEP]",
                 ]],
+                lowercase: false,
+            },
+            // Apply normalization to both sequences
+            Case {
+                query: "PROGRAMMING",
+                context: "LANGUAGE",
+                max_chunk_len: None,
+                overlap: 0,
+                use_sep_cls: true,
+                tokens: vec![&["[CLS]", "programming", "[SEP]", "language", "[SEP]"]],
+                lowercase: true,
             },
             // Multiple chunks, no overlap
             Case {
@@ -1002,6 +1077,7 @@ mod tests {
                         "Ferris", ".", "[SEP]",
                     ],
                 ],
+                lowercase: false,
             },
             // Multiple chunks with overlap
             Case {
@@ -1031,6 +1107,7 @@ mod tests {
                         "mascot", "is", "Ferris", "[SEP]",
                     ],
                 ],
+                lowercase: false,
             },
             // Chunk size too small for any tokens from the second sequence
             Case {
@@ -1040,6 +1117,7 @@ mod tests {
                 overlap: 0,
                 use_sep_cls: true,
                 tokens: vec![],
+                lowercase: false,
             },
             // No special tokens
             Case {
@@ -1059,6 +1137,7 @@ mod tests {
                     "programming",
                     "language",
                 ]],
+                lowercase: false,
             },
         ];
 
@@ -1069,15 +1148,21 @@ mod tests {
             overlap,
             tokens,
             use_sep_cls,
+            lowercase,
         } in cases
         {
-            let tokenizer = Tokenizer::new(
+            let mut tokenizer = Tokenizer::new(
                 model.clone(),
                 TokenizerOptions {
                     cls_token: use_sep_cls.then_some("[CLS]"),
                     sep_token: use_sep_cls.then_some("[SEP]"),
                 },
             );
+
+            if lowercase {
+                tokenizer = tokenizer.with_normalizer(lowercase_normalizer());
+            }
+
             let options = EncodeOptions {
                 max_chunk_len,
                 overlap,
@@ -1099,8 +1184,16 @@ mod tests {
             for (chunk, chunk_tokens) in chunks.iter().zip(chunk_tokens.into_iter()) {
                 for (i, token) in chunk_tokens.into_iter().enumerate() {
                     if !token.starts_with("[") {
-                        let text = chunk.text_for_token_range(i..i + 1).map(|t| t.trim());
-                        assert_eq!(text, Some(token).as_deref());
+                        let text = chunk
+                            .text_for_token_range(i..i + 1)
+                            .map(|t| t.trim())
+                            .unwrap();
+                        let text = if lowercase {
+                            text.to_lowercase()
+                        } else {
+                            text.to_string()
+                        };
+                        assert_eq!(text, token);
                     }
                 }
             }
