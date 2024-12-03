@@ -5,7 +5,7 @@ use std::fmt::{Debug, Display};
 
 use fancy_regex::Regex;
 
-use crate::tokenizers::{Encoder, TokenId, TokenizerError};
+use crate::tokenizers::{Model, TokenId, TokenizerError};
 
 /// Errors that can occur when building a [`Bpe`] tokenizer or encoding or
 /// decoding text using it.
@@ -452,7 +452,7 @@ impl Bpe {
     }
 }
 
-impl Encoder for Bpe {
+impl Model for Bpe {
     fn get_token_str(&self, id: TokenId) -> Result<String, TokenizerError> {
         if let Some(tok_str) = self.added_tokens.get(&id) {
             return Ok(tok_str.to_string());
@@ -700,7 +700,7 @@ ba r",
         {
             let merges: Vec<&str> = merges.lines().collect();
             let merge_pairs = merge_pairs_from_lines(&merges);
-            let encoder = Bpe::new(
+            let model = Bpe::new(
                 &merge_pairs,
                 GPT2_SPLIT_PATTERN,
                 vocab,
@@ -708,10 +708,10 @@ ba r",
                 end_of_word_suffix,
             )
             .unwrap();
-            let tokenizer = Tokenizer::new(encoder, Default::default());
+            let tokenizer = Tokenizer::new(model, Default::default());
             let encoded = tokenizer.encode(text, None).unwrap();
             assert_eq!(
-                tokenizer.encoder().get_tokens(encoded.token_ids()).unwrap(),
+                tokenizer.model().get_tokens(encoded.token_ids()).unwrap(),
                 tokens
             );
         }
@@ -745,13 +745,12 @@ ba r",
 
         let merges: Vec<&str> = MINI_GPT2.lines().collect();
         let merge_pairs = merge_pairs_from_lines(&merges);
-        let encoder =
-            Bpe::new(&merge_pairs, GPT2_SPLIT_PATTERN, None, added_tokens(), None).unwrap();
-        let tokenizer = Tokenizer::new(encoder, Default::default());
+        let model = Bpe::new(&merge_pairs, GPT2_SPLIT_PATTERN, None, added_tokens(), None).unwrap();
+        let tokenizer = Tokenizer::new(model, Default::default());
 
         for Case { input, encoded_str } in cases {
-            let tok_id = tokenizer.encoder().get_token_id(input).unwrap();
-            let token_str = tokenizer.encoder().get_token_str(tok_id).unwrap();
+            let tok_id = tokenizer.model().get_token_id(input).unwrap();
+            let token_str = tokenizer.model().get_token_str(tok_id).unwrap();
             assert_eq!(token_str, encoded_str);
         }
     }
@@ -803,7 +802,7 @@ ba r",
         {
             let merges: Vec<&str> = MINI_GPT2.lines().collect();
             let merge_pairs = merge_pairs_from_lines(&merges);
-            let encoder = Bpe::new(
+            let model = Bpe::new(
                 &merge_pairs,
                 GPT2_SPLIT_PATTERN,
                 vocab,
@@ -811,7 +810,7 @@ ba r",
                 None,
             )
             .unwrap();
-            let tokenizer = Tokenizer::new(encoder, Default::default());
+            let tokenizer = Tokenizer::new(model, Default::default());
 
             let encoded = tokenizer.encode(text, None).unwrap();
             let mut token_ids = encoded.token_ids().to_vec();
