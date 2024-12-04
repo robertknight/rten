@@ -466,6 +466,61 @@ impl Tokenizer {
         Ok(chunk)
     }
 
+    /// Encode a single string into tokens and return a `(tokens, offsets)`
+    /// tuple.
+    fn encode_str(
+        &self,
+        text: &str,
+        start_offset: usize,
+    ) -> Result<(Vec<TokenId>, Vec<usize>), TokenizerError> {
+        let (normalized, offset_map) = match &self.normalizer {
+            None => (text.to_string(), None),
+            Some(normalizer) => {
+                let (normalized_text, offsets) = normalizer.normalize(text);
+                (normalized_text, Some(offsets))
+            }
+        };
+
+        let chunks = self
+            .pretokenizer
+            .as_ref()
+            .map(|pt| pt.pretokenize(&normalized))
+            .transpose()
+            .map_err(TokenizerError::PreTokenizeError)?
+            .unwrap_or(Vec::from([normalized.as_str()]));
+
+        // Map an offset into the normalized string into an offset in the source
+        // string.
+        let map_offset = |offset: usize| {
+            if let Some(mappings) = &offset_map {
+                mappings
+                    .get(offset)
+                    .copied()
+                    .expect("invalid normalized offset")
+            } else {
+                offset
+            }
+        };
+
+        let mut tokens = Vec::new();
+        let mut offsets = Vec::new();
+
+        for chunk in chunks {
+            let base_offset = normalized
+                .as_bytes()
+                .subslice_offsets(chunk.as_bytes())
+                .expect("should be a subslice")
+                .start;
+            self.model
+                .encode_with_offsets(chunk, &mut |offset, token| {
+                    offsets.push(start_offset + base_offset + map_offset(offset));
+                    tokens.push(token);
+                })?;
+        }
+
+        Ok((tokens, offsets))
+    }
+
     /// Encode one or two sequences into a sequence of tokens.
     ///
     /// The output is split into chunks such that the number of tokens in
@@ -496,77 +551,16 @@ impl Tokenizer {
             EncoderInput::Pair((first, second)) => (first, Some(second)),
         };
 
-        // Normalize text and return a (normalized_text, offset_mapping) pair.
-        let normalize_text = |text: &str| match &self.normalizer {
-            None => (text.to_string(), None),
-            Some(normalizer) => {
-                let (normalized_text, offsets) = normalizer.normalize(text);
-                (normalized_text, Some(offsets))
-            }
-        };
-
-        // Map an offset into the normalized string into an offset in the source
-        // string.
-        let map_offset = |offset: usize, mapping: Option<&[usize]>| {
-            if let Some(mappings) = &mapping {
-                mappings
-                    .get(offset)
-                    .copied()
-                    .expect("invalid normalized offset")
-            } else {
-                offset
-            }
-        };
-
-        let (normalized, offset_map) = normalize_text(first_seq);
-        let chunks = self
-            .pretokenizer
-            .as_ref()
-            .map(|pt| pt.pretokenize(&normalized))
-            .transpose()
-            .map_err(TokenizerError::PreTokenizeError)?
-            .unwrap_or(Vec::from([normalized.as_str()]));
-
-        for chunk in chunks {
-            let base_offset = normalized
-                .as_bytes()
-                .subslice_offsets(chunk.as_bytes())
-                .expect("should be a subslice")
-                .start;
-            self.model
-                .encode_with_offsets(chunk, &mut |offset, token| {
-                    offsets.push(base_offset + map_offset(offset, offset_map.as_deref()));
-                    tokens.push(token);
-                })?;
-        }
-
+        let (first_seq_tokens, first_seq_offsets) = self.encode_str(first_seq, 0)?;
+        tokens.extend(first_seq_tokens);
+        offsets.extend(first_seq_offsets);
         let first_seq_tokens = tokens.len();
 
         if let Some(second_seq) = second_seq {
-            let (normalized, offset_map) = normalize_text(second_seq);
-            let chunks = self
-                .pretokenizer
-                .as_ref()
-                .map(|pt| pt.pretokenize(&normalized))
-                .transpose()
-                .map_err(TokenizerError::PreTokenizeError)?
-                .unwrap_or(Vec::from([normalized.as_str()]));
-            for chunk in chunks {
-                let base_offset = normalized
-                    .as_bytes()
-                    .subslice_offsets(chunk.as_bytes())
-                    .expect("should be a subslice")
-                    .start;
-                self.model
-                    .encode_with_offsets(chunk, &mut |offset, token| {
-                        offsets.push(
-                            first_seq.len()
-                                + base_offset
-                                + map_offset(offset, offset_map.as_deref()),
-                        );
-                        tokens.push(token);
-                    })?;
-            }
+            let (second_seq_tokens, second_seq_offsets) =
+                self.encode_str(second_seq, first_seq.len())?;
+            tokens.extend(second_seq_tokens);
+            offsets.extend(second_seq_offsets);
         }
 
         let max_tokens_per_chunk = options
