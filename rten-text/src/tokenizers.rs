@@ -18,7 +18,9 @@ use std::ops::Range;
 
 use crate::models::{merge_pairs_from_lines, Bpe, BpeError, WordPiece};
 use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
-use crate::pretokenizers::{ByteLevelPreTokenizer, PreTokenizeError, PreTokenizer};
+use crate::pretokenizers::{
+    BertPreTokenizer, ByteLevelPreTokenizer, PreTokenizeError, PreTokenizer,
+};
 use crate::split::SliceExt;
 
 mod json;
@@ -332,6 +334,14 @@ impl Tokenizer {
             normalizer
         });
 
+        let pretokenizer: Option<Box<dyn PreTokenizer>> = json.pre_tokenizer.map(|pretokenizer| {
+            let pretokenizer: Box<dyn PreTokenizer> = match pretokenizer {
+                json::PreTokenizer::Bert => Box::new(BertPreTokenizer::new()),
+                json::PreTokenizer::ByteLevel => Box::new(ByteLevelPreTokenizer::gpt2()),
+            };
+            pretokenizer
+        });
+
         let mut tokenizer = match json.model {
             json::Model::Bpe(model) => {
                 let added_tokens: HashMap<TokenId, String> = json
@@ -365,8 +375,7 @@ impl Tokenizer {
                         cls_token: None,
                         sep_token: None,
                     },
-                )
-                .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()));
+                );
 
                 Ok(tokenizer)
             }
@@ -385,7 +394,11 @@ impl Tokenizer {
         }?;
 
         if let Some(normalizer) = normalizer {
-            tokenizer = tokenizer.with_normalizer(normalizer)
+            tokenizer = tokenizer.with_normalizer(normalizer);
+        }
+
+        if let Some(pretokenizer) = pretokenizer {
+            tokenizer = tokenizer.with_pre_tokenizer(pretokenizer);
         }
 
         Ok(tokenizer)
