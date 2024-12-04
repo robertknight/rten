@@ -3,8 +3,6 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
-use fancy_regex::Regex;
-
 use crate::tokenizers::{Model, TokenId, TokenizerError};
 
 /// Errors that can occur when building a [`Bpe`] tokenizer or encoding or
@@ -17,9 +15,6 @@ pub enum BpeError {
     /// of another pair in the merge list.
     InvalidMergeEntry(String),
 
-    /// The regex for splitting tokens is invalid.
-    InvalidPattern(Box<fancy_regex::Error>),
-
     /// An entry in the vocab (token string to ID map) is not either a known
     /// special token or an entry in the merge list.
     InvalidVocabEntry(String),
@@ -29,7 +24,6 @@ impl Display for BpeError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BpeError::InvalidMergeEntry(entry) => write!(fmt, "invalid merge entry: {}", entry),
-            BpeError::InvalidPattern(err) => write!(fmt, "invalid regex: {}", err),
             BpeError::InvalidVocabEntry(entry) => write!(fmt, "invalid vocab entry: {}", entry),
         }
     }
@@ -299,10 +293,6 @@ pub struct Bpe {
     /// that each represent single byte values.
     token_id_to_encoded_bytes: Option<HashMap<TokenId, EncodedBytes>>,
 
-    /// Pattern used to split the text into pieces prior to applying BPE
-    /// tokenization.
-    splitter: Regex,
-
     /// Map from token ID to content for special tokens (eg. end-of-string).
     added_tokens: HashMap<TokenId, String>,
 
@@ -341,15 +331,12 @@ impl Bpe {
     /// substring that is tokenized, after initial splitting.
     pub fn new(
         merges: &[(EncodedByteSlice, EncodedByteSlice)],
-        pattern: &str,
         vocab: Option<HashMap<EncodedBytes, TokenId>>,
         added_tokens: HashMap<TokenId, String>,
         mut end_of_word_suffix: Option<String>,
     ) -> Result<Bpe, BpeError> {
         // Normalize empty end-of-word suffix to `None`.
         end_of_word_suffix.take_if(|suffix| suffix.is_empty());
-
-        let splitter = Regex::new(pattern).map_err(|err| BpeError::InvalidPattern(err.into()))?;
 
         let bb_opts = BpeBuilderOptions {
             end_of_word_suffix: end_of_word_suffix.as_deref(),
@@ -376,7 +363,6 @@ impl Bpe {
             merges: builder.ranks,
             byte_to_rank: builder.byte_to_rank,
             rank_to_token_id,
-            splitter,
             added_tokens,
             token_id_to_encoded_bytes,
             end_of_word_suffix,
@@ -516,21 +502,15 @@ impl Model for Bpe {
 
     fn encode_with_offsets(
         &self,
-        text: &str,
+        piece: &str,
         on_token: &mut dyn FnMut(usize, TokenId),
     ) -> Result<(), TokenizerError> {
-        for piece in self.splitter.find_iter(text) {
-            let piece = piece.map_err(|err| TokenizerError::RegexSplitFailed(err.into()))?;
-            if piece.range().is_empty() {
-                continue;
-            }
-
-            let piece_str = piece.as_str();
-            for token in self.encode_piece(piece_str, true /* end_of_word */) {
-                on_token(piece.start(), token)
-            }
+        if piece.is_empty() {
+            return Ok(());
         }
-
+        for token in self.encode_piece(piece, true /* end_of_word */) {
+            on_token(0, token)
+        }
         Ok(())
     }
 
@@ -566,8 +546,8 @@ impl Model for Bpe {
 mod tests {
     use std::collections::HashMap;
 
-    use super::patterns::GPT2 as GPT2_SPLIT_PATTERN;
     use super::{merge_pairs_from_lines, Bpe, EncodedBytes};
+    use crate::pretokenizers::ByteLevelPreTokenizer;
     use crate::tokenizers::{TokenId, Tokenizer};
 
     // The first ~25 lines of the merge list from GPT 2.
@@ -700,15 +680,9 @@ ba r",
         {
             let merges: Vec<&str> = merges.lines().collect();
             let merge_pairs = merge_pairs_from_lines(&merges);
-            let model = Bpe::new(
-                &merge_pairs,
-                GPT2_SPLIT_PATTERN,
-                vocab,
-                HashMap::new(),
-                end_of_word_suffix,
-            )
-            .unwrap();
-            let tokenizer = Tokenizer::new(model, Default::default());
+            let model = Bpe::new(&merge_pairs, vocab, HashMap::new(), end_of_word_suffix).unwrap();
+            let tokenizer = Tokenizer::new(model, Default::default())
+                .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()));
             let encoded = tokenizer.encode(text, None).unwrap();
             assert_eq!(
                 tokenizer.model().get_tokens(encoded.token_ids()).unwrap(),
@@ -745,8 +719,9 @@ ba r",
 
         let merges: Vec<&str> = MINI_GPT2.lines().collect();
         let merge_pairs = merge_pairs_from_lines(&merges);
-        let model = Bpe::new(&merge_pairs, GPT2_SPLIT_PATTERN, None, added_tokens(), None).unwrap();
-        let tokenizer = Tokenizer::new(model, Default::default());
+        let model = Bpe::new(&merge_pairs, None, added_tokens(), None).unwrap();
+        let tokenizer = Tokenizer::new(model, Default::default())
+            .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()));
 
         for Case { input, encoded_str } in cases {
             let tok_id = tokenizer.model().get_token_id(input).unwrap();
@@ -802,15 +777,9 @@ ba r",
         {
             let merges: Vec<&str> = MINI_GPT2.lines().collect();
             let merge_pairs = merge_pairs_from_lines(&merges);
-            let model = Bpe::new(
-                &merge_pairs,
-                GPT2_SPLIT_PATTERN,
-                vocab,
-                added_tokens(),
-                None,
-            )
-            .unwrap();
-            let tokenizer = Tokenizer::new(model, Default::default());
+            let model = Bpe::new(&merge_pairs, vocab, added_tokens(), None).unwrap();
+            let tokenizer = Tokenizer::new(model, Default::default())
+                .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()));
 
             let encoded = tokenizer.encode(text, None).unwrap();
             let mut token_ids = encoded.token_ids().to_vec();

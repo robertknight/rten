@@ -4,10 +4,9 @@ use std::fs::read_to_string;
 use std::io;
 use std::path::PathBuf;
 
-use rten_text::models::{
-    merge_pairs_from_lines, patterns::GPT2 as GPT2_SPLIT_PATTERN, Bpe, WordPiece,
-};
+use rten_text::models::{merge_pairs_from_lines, Bpe, WordPiece};
 use rten_text::normalizer::{BertNormalizer, BertNormalizerOptions};
+use rten_text::pretokenizers::ByteLevelPreTokenizer;
 use rten_text::tokenizers::{TokenId, Tokenizer, TokenizerOptions};
 use serde::Deserialize;
 
@@ -156,14 +155,9 @@ fn test_bpe_gpt2() -> Result<(), Box<dyn Error>> {
     let merges = read_test_file("models/gpt2/merges.txt")?;
     let merge_lines: Vec<_> = merges.lines().collect();
     let merge_pairs = merge_pairs_from_lines(&merge_lines);
-    let model = Bpe::new(
-        &merge_pairs,
-        GPT2_SPLIT_PATTERN,
-        None,
-        Default::default(),
-        None,
-    )?;
-    let tokenizer = Tokenizer::new(model, Default::default());
+    let model = Bpe::new(&merge_pairs, None, Default::default(), None)?;
+    let tokenizer = Tokenizer::new(model, Default::default())
+        .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()));
 
     // Create tokenizer from a `tokenizers.json` file.
     let tokenizer_json = read_test_file("models/gpt2/tokenizer.json")?;

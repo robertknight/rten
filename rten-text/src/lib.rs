@@ -10,6 +10,7 @@
 
 pub mod models;
 pub mod normalizer;
+pub mod pretokenizers;
 pub mod tokenizers;
 
 mod split;

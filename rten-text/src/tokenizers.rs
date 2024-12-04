@@ -16,8 +16,9 @@ use std::fmt;
 use std::iter::repeat;
 use std::ops::Range;
 
-use crate::models::{merge_pairs_from_lines, patterns, Bpe, BpeError, WordPiece};
+use crate::models::{merge_pairs_from_lines, Bpe, BpeError, WordPiece};
 use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
+use crate::pretokenizers::{ByteLevelPreTokenizer, PreTokenizeError, PreTokenizer};
 use crate::split::SliceExt;
 
 mod json;
@@ -271,6 +272,7 @@ pub struct TokenizerOptions<'a> {
 /// into overlapping chunks and truncating long sequences.
 pub struct Tokenizer {
     normalizer: Option<Box<dyn Normalizer>>,
+    pretokenizer: Option<Box<dyn PreTokenizer>>,
     model: Box<dyn Model>,
 
     /// Token added at start of output.
@@ -285,6 +287,7 @@ impl Tokenizer {
     pub fn new<M: Model + 'static>(model: M, options: TokenizerOptions) -> Tokenizer {
         Tokenizer {
             model: Box::new(model),
+            pretokenizer: None,
             normalizer: None,
             cls_token: options.cls_token.map(|t| t.to_string()),
             sep_token: options.sep_token.map(|t| t.to_string()),
@@ -294,6 +297,12 @@ impl Tokenizer {
     /// Configure the normalizer used by this tokenizer.
     pub fn with_normalizer(mut self, normalizer: Box<dyn Normalizer>) -> Self {
         self.normalizer = Some(normalizer);
+        self
+    }
+
+    /// Configure the pre-tokenizer used by this tokenizer.
+    pub fn with_pre_tokenizer(mut self, pre_tokenizer: Box<dyn PreTokenizer>) -> Self {
+        self.pretokenizer = Some(pre_tokenizer);
         self
     }
 
@@ -344,7 +353,6 @@ impl Tokenizer {
                 };
                 let model = Bpe::new(
                     &merges,
-                    patterns::GPT2,
                     Some(model.vocab),
                     added_tokens,
                     model.end_of_word_suffix,
@@ -357,7 +365,8 @@ impl Tokenizer {
                         cls_token: None,
                         sep_token: None,
                     },
-                );
+                )
+                .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()));
 
                 Ok(tokenizer)
             }
@@ -509,22 +518,55 @@ impl Tokenizer {
             }
         };
 
-        // Apply normalization to the input text.
         let (normalized, offset_map) = normalize_text(first_seq);
-        self.model
-            .encode_with_offsets(&normalized, &mut |offset, token| {
-                offsets.push(map_offset(offset, offset_map.as_deref()));
-                tokens.push(token);
-            })?;
+        let chunks = self
+            .pretokenizer
+            .as_ref()
+            .map(|pt| pt.pretokenize(&normalized))
+            .transpose()
+            .map_err(TokenizerError::PreTokenizeError)?
+            .unwrap_or(Vec::from([normalized.as_str()]));
+
+        for chunk in chunks {
+            let base_offset = normalized
+                .as_bytes()
+                .subslice_offsets(chunk.as_bytes())
+                .expect("should be a subslice")
+                .start;
+            self.model
+                .encode_with_offsets(chunk, &mut |offset, token| {
+                    offsets.push(base_offset + map_offset(offset, offset_map.as_deref()));
+                    tokens.push(token);
+                })?;
+        }
+
         let first_seq_tokens = tokens.len();
 
         if let Some(second_seq) = second_seq {
             let (normalized, offset_map) = normalize_text(second_seq);
-            self.model
-                .encode_with_offsets(&normalized, &mut |offset, token| {
-                    offsets.push(first_seq.len() + map_offset(offset, offset_map.as_deref()));
-                    tokens.push(token);
-                })?;
+            let chunks = self
+                .pretokenizer
+                .as_ref()
+                .map(|pt| pt.pretokenize(&normalized))
+                .transpose()
+                .map_err(TokenizerError::PreTokenizeError)?
+                .unwrap_or(Vec::from([normalized.as_str()]));
+            for chunk in chunks {
+                let base_offset = normalized
+                    .as_bytes()
+                    .subslice_offsets(chunk.as_bytes())
+                    .expect("should be a subslice")
+                    .start;
+                self.model
+                    .encode_with_offsets(chunk, &mut |offset, token| {
+                        offsets.push(
+                            first_seq.len()
+                                + base_offset
+                                + map_offset(offset, offset_map.as_deref()),
+                        );
+                        tokens.push(token);
+                    })?;
+            }
         }
 
         let max_tokens_per_chunk = options
@@ -672,6 +714,9 @@ pub enum TokenizerError {
     /// No token with a given ID exists in the vocabulary.
     InvalidTokenId(TokenId),
 
+    /// An error occurred while performing pre-tokenization to split the input.
+    PreTokenizeError(PreTokenizeError),
+
     /// Splitting the input with a regex failed.
     RegexSplitFailed(Box<fancy_regex::Error>),
 
@@ -688,6 +733,7 @@ impl fmt::Display for TokenizerError {
             Self::MissingToken(ref token) => write!(f, "missing vocab token {}", token),
             Self::InvalidTokenId(id) => write!(f, "unknown token id {}", id),
             Self::RegexSplitFailed(err) => write!(f, "regex failed {}", err),
+            Self::PreTokenizeError(err) => write!(f, "pretokenization error: {}", err),
             Self::InvalidUtf8 => write!(f, "UTF-8 decode failed"),
         }
     }
