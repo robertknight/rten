@@ -136,7 +136,7 @@ mod tests {
 
     use crate::models::{WordPiece, WordPieceOptions};
     use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
-    use crate::pretokenizers::BertPreTokenizer;
+    use crate::pre_tokenizers::BertPreTokenizer;
     use crate::tokenizers::{Tokenizer, TokenizerOptions};
 
     fn create_tokenizer(

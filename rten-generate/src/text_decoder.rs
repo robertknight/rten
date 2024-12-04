@@ -73,7 +73,7 @@ mod tests {
     use std::collections::HashMap;
 
     use rten_text::models::{Bpe, WordPiece};
-    use rten_text::pretokenizers::ByteLevelPreTokenizer;
+    use rten_text::pre_tokenizers::ByteLevelPreTokenizer;
     use rten_text::tokenizers::{TokenId, Tokenizer};
 
     use crate::{GeneratorError, GeneratorUtils};

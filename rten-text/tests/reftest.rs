@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use rten_text::models::{merge_pairs_from_lines, Bpe, WordPiece};
 use rten_text::normalizer::{BertNormalizer, BertNormalizerOptions};
-use rten_text::pretokenizers::{BertPreTokenizer, ByteLevelPreTokenizer};
+use rten_text::pre_tokenizers::{BertPreTokenizer, ByteLevelPreTokenizer};
 use rten_text::tokenizers::{TokenId, Tokenizer, TokenizerOptions};
 use serde::Deserialize;
 

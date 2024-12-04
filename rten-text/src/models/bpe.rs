@@ -547,7 +547,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::{merge_pairs_from_lines, Bpe, EncodedBytes};
-    use crate::pretokenizers::ByteLevelPreTokenizer;
+    use crate::pre_tokenizers::ByteLevelPreTokenizer;
     use crate::tokenizers::{TokenId, Tokenizer};
 
     // The first ~25 lines of the merge list from GPT 2.

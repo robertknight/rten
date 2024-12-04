@@ -18,7 +18,7 @@ use std::ops::Range;
 
 use crate::models::{merge_pairs_from_lines, Bpe, BpeError, WordPiece};
 use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
-use crate::pretokenizers::{
+use crate::pre_tokenizers::{
     BertPreTokenizer, ByteLevelPreTokenizer, PreTokenizeError, PreTokenizer,
 };
 use crate::split::SliceExt;
@@ -274,7 +274,7 @@ pub struct TokenizerOptions<'a> {
 /// into overlapping chunks and truncating long sequences.
 pub struct Tokenizer {
     normalizer: Option<Box<dyn Normalizer>>,
-    pretokenizer: Option<Box<dyn PreTokenizer>>,
+    pre_tokenizer: Option<Box<dyn PreTokenizer>>,
     model: Box<dyn Model>,
 
     /// Token added at start of output.
@@ -289,7 +289,7 @@ impl Tokenizer {
     pub fn new<M: Model + 'static>(model: M, options: TokenizerOptions) -> Tokenizer {
         Tokenizer {
             model: Box::new(model),
-            pretokenizer: None,
+            pre_tokenizer: None,
             normalizer: None,
             cls_token: options.cls_token.map(|t| t.to_string()),
             sep_token: options.sep_token.map(|t| t.to_string()),
@@ -304,7 +304,7 @@ impl Tokenizer {
 
     /// Configure the pre-tokenizer used by this tokenizer.
     pub fn with_pre_tokenizer(mut self, pre_tokenizer: Box<dyn PreTokenizer>) -> Self {
-        self.pretokenizer = Some(pre_tokenizer);
+        self.pre_tokenizer = Some(pre_tokenizer);
         self
     }
 
@@ -334,13 +334,14 @@ impl Tokenizer {
             normalizer
         });
 
-        let pretokenizer: Option<Box<dyn PreTokenizer>> = json.pre_tokenizer.map(|pretokenizer| {
-            let pretokenizer: Box<dyn PreTokenizer> = match pretokenizer {
-                json::PreTokenizer::Bert => Box::new(BertPreTokenizer::new()),
-                json::PreTokenizer::ByteLevel => Box::new(ByteLevelPreTokenizer::gpt2()),
-            };
-            pretokenizer
-        });
+        let pre_tokenizer: Option<Box<dyn PreTokenizer>> =
+            json.pre_tokenizer.map(|pre_tokenizer| {
+                let pre_tokenizer: Box<dyn PreTokenizer> = match pre_tokenizer {
+                    json::PreTokenizer::Bert => Box::new(BertPreTokenizer::new()),
+                    json::PreTokenizer::ByteLevel => Box::new(ByteLevelPreTokenizer::gpt2()),
+                };
+                pre_tokenizer
+            });
 
         let mut tokenizer = match json.model {
             json::Model::Bpe(model) => {
@@ -397,8 +398,8 @@ impl Tokenizer {
             tokenizer = tokenizer.with_normalizer(normalizer);
         }
 
-        if let Some(pretokenizer) = pretokenizer {
-            tokenizer = tokenizer.with_pre_tokenizer(pretokenizer);
+        if let Some(pre_tokenizer) = pre_tokenizer {
+            tokenizer = tokenizer.with_pre_tokenizer(pre_tokenizer);
         }
 
         Ok(tokenizer)
@@ -495,9 +496,9 @@ impl Tokenizer {
         };
 
         let chunks = self
-            .pretokenizer
+            .pre_tokenizer
             .as_ref()
-            .map(|pt| pt.pretokenize(&normalized))
+            .map(|pt| pt.pre_tokenize(&normalized))
             .transpose()
             .map_err(TokenizerError::PreTokenizeError)?
             .unwrap_or(Vec::from([normalized.as_str()]));
@@ -758,7 +759,7 @@ mod tests {
 
     use super::{EncodeOptions, EncoderInput, TokenId, Tokenizer, TokenizerOptions, WordPiece};
     use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
-    use crate::pretokenizers::BertPreTokenizer;
+    use crate::pre_tokenizers::BertPreTokenizer;
     use serde::Deserialize;
 
     fn make_wordpiece(vocab: &[&str]) -> WordPiece {

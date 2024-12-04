@@ -26,7 +26,7 @@ impl fmt::Display for PreTokenizeError {
 /// tokenized by a [`Model`](crate::tokenizers::Model) individually.
 pub trait PreTokenizer {
     /// Split `text` into chunks and return a vector of sub-slices.
-    fn pretokenize<'a>(&self, text: &'a str) -> Result<Vec<&'a str>, PreTokenizeError>;
+    fn pre_tokenize<'a>(&self, text: &'a str) -> Result<Vec<&'a str>, PreTokenizeError>;
 }
 
 /// Tokenization regex used by GPT-2.
@@ -59,7 +59,7 @@ impl ByteLevelPreTokenizer {
 }
 
 impl PreTokenizer for ByteLevelPreTokenizer {
-    fn pretokenize<'a>(&self, text: &'a str) -> Result<Vec<&'a str>, PreTokenizeError> {
+    fn pre_tokenize<'a>(&self, text: &'a str) -> Result<Vec<&'a str>, PreTokenizeError> {
         self.splitter
             .find_iter(text)
             .filter_map(|piece| match piece {
@@ -91,7 +91,7 @@ impl Default for BertPreTokenizer {
 }
 
 impl PreTokenizer for BertPreTokenizer {
-    fn pretokenize<'a>(&self, text: &'a str) -> Result<Vec<&'a str>, PreTokenizeError> {
+    fn pre_tokenize<'a>(&self, text: &'a str) -> Result<Vec<&'a str>, PreTokenizeError> {
         let is_punc_or_space =
             |ch: char| ch.is_ascii_punctuation() || ch.is_punctuation() || ch.is_whitespace();
         let words = text.split_keep_delimeters(is_punc_or_space).collect();
