@@ -1,4 +1,5 @@
 use std::iter::StepBy;
+use std::ops::Range;
 use std::slice::Windows;
 
 /// Iterator over chunks of a slice, with an overlap between each chunk and
@@ -22,18 +23,26 @@ impl<'a, T> Iterator for OverlappingChunks<'a, T> {
 pub trait SliceExt {
     type Elem;
 
+    /// Split a slice into chunks with an overlap of `overlap` elements between
+    /// successive chunks.
     fn chunks_with_overlap(
         &self,
         chunk_size: usize,
         overlap: usize,
     ) -> OverlappingChunks<'_, Self::Elem>;
+
+    /// Return the offset range occupied by a subslice within this slice.
+    ///
+    /// This is a backport of `subslice_range` from nightly Rust, renamed
+    /// to avoid a conflict when that method is stabilized.
+    ///
+    /// See https://doc.rust-lang.org/std/primitive.slice.html#method.subslice_range.
+    fn subslice_offsets(&self, subslice: &[Self::Elem]) -> Option<Range<usize>>;
 }
 
 impl<T> SliceExt for [T] {
     type Elem = T;
 
-    /// Split a slice into chunks with an overlap of `overlap` elements between
-    /// successive chunks.
     fn chunks_with_overlap(&self, chunk_size: usize, overlap: usize) -> OverlappingChunks<'_, T> {
         // Iterator cannot make progress unless each chunk contains at least
         // one new element.
@@ -53,6 +62,31 @@ impl<T> SliceExt for [T] {
             } else {
                 None
             },
+        }
+    }
+
+    fn subslice_offsets(&self, subslice: &[T]) -> Option<Range<usize>> {
+        // Implementation copied from `subslice_range` in nightly Rust.
+        if size_of::<T>() == 0 {
+            panic!("elements are zero-sized");
+        }
+
+        let self_start = self.as_ptr() as usize;
+        let subslice_start = subslice.as_ptr() as usize;
+
+        let byte_start = subslice_start.wrapping_sub(self_start);
+
+        if byte_start % core::mem::size_of::<T>() != 0 {
+            return None;
+        }
+
+        let start = byte_start / core::mem::size_of::<T>();
+        let end = start.wrapping_add(subslice.len());
+
+        if start <= self.len() && end <= self.len() {
+            Some(start..end)
+        } else {
+            None
         }
     }
 }
