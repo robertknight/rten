@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use crate::split::SplitExt;
 use crate::tokenizers::{Model, TokenId, TokenizerError};
-
-use unicode_categories::UnicodeCategories;
 
 /// WordPiece tokenizer [^1] used by BERT [^2] models.
 ///
@@ -55,14 +52,10 @@ impl WordPiece {
 impl Model for WordPiece {
     fn encode_with_offsets(
         &self,
-        text: &str,
+        word: &str,
         on_token: &mut dyn FnMut(usize, TokenId),
     ) -> Result<(), TokenizerError> {
         let mut tmp_buf = String::with_capacity(self.max_word_len);
-
-        let is_punc_or_space =
-            |ch: char| ch.is_ascii_punctuation() || ch.is_punctuation() || ch.is_whitespace();
-        let words = text.split_keep_delimeters(is_punc_or_space);
         let mut offset = 0;
 
         macro_rules! add_unknown_token {
@@ -72,51 +65,48 @@ impl Model for WordPiece {
             };
         }
 
-        for word in words {
-            if word.trim().is_empty() {
-                offset += word.len();
-                continue;
-            }
-
-            if word.chars().count() > self.max_word_len {
-                add_unknown_token!();
-                continue;
-            }
-
-            let mut remainder = word;
-            let mut word_tokens = 0;
-            while !remainder.is_empty() {
-                // Find longest prefix of `remainder` that is in the vocab.
-                let mut len = remainder.len();
-                while len > 0 {
-                    let prefix = if word_tokens > 0 {
-                        tmp_buf.clear();
-                        tmp_buf.push_str(&self.subword_prefix);
-                        tmp_buf.push_str(&remainder[..len]);
-                        &tmp_buf[..]
-                    } else {
-                        &remainder[..len]
-                    };
-
-                    if let Some(id) = self.token_to_id.get(prefix) {
-                        on_token(offset, *id);
-                        remainder = remainder.split_at(len).1;
-                        word_tokens += 1;
-                        break;
-                    } else {
-                        let last_char_bytes = prefix.chars().next_back().unwrap().len_utf8();
-                        len -= last_char_bytes;
-                    }
-                }
-
-                if len == 0 {
-                    add_unknown_token!();
-                    break;
-                }
-            }
-
-            offset += word.len();
+        if word.trim().is_empty() {
+            return Ok(());
         }
+
+        if word.chars().count() > self.max_word_len {
+            add_unknown_token!();
+            return Ok(());
+        }
+
+        let mut remainder = word;
+        let mut word_tokens = 0;
+        while !remainder.is_empty() {
+            // Find longest prefix of `remainder` that is in the vocab.
+            let mut len = remainder.len();
+            while len > 0 {
+                let prefix = if word_tokens > 0 {
+                    tmp_buf.clear();
+                    tmp_buf.push_str(&self.subword_prefix);
+                    tmp_buf.push_str(&remainder[..len]);
+                    &tmp_buf[..]
+                } else {
+                    &remainder[..len]
+                };
+
+                if let Some(id) = self.token_to_id.get(prefix) {
+                    on_token(offset, *id);
+                    offset += prefix.len();
+                    remainder = remainder.split_at(len).1;
+                    word_tokens += 1;
+                    break;
+                } else {
+                    let last_char_bytes = prefix.chars().next_back().unwrap().len_utf8();
+                    len -= last_char_bytes;
+                }
+            }
+
+            if len == 0 {
+                add_unknown_token!();
+                break;
+            }
+        }
+
         Ok(())
     }
 
@@ -146,6 +136,7 @@ mod tests {
 
     use crate::models::{WordPiece, WordPieceOptions};
     use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
+    use crate::pretokenizers::BertPreTokenizer;
     use crate::tokenizers::{Tokenizer, TokenizerOptions};
 
     fn create_tokenizer(
@@ -165,7 +156,8 @@ mod tests {
                 cls_token: Some("[CLS]"),
                 sep_token: Some("[SEP]"),
             },
-        );
+        )
+        .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
 
         if let Some(normalizer) = normalizer {
             tokenizer = tokenizer.with_normalizer(normalizer);

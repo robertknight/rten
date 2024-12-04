@@ -1,6 +1,9 @@
 use std::fmt;
 
 use fancy_regex::Regex;
+use unicode_categories::UnicodeCategories;
+
+use crate::split::SplitExt;
 
 /// Errors occuring while constructing a [`PreTokenizer`] or splitting input
 /// using one.
@@ -70,5 +73,28 @@ impl PreTokenizer for ByteLevelPreTokenizer {
                 Err(err) => Some(Err(PreTokenizeError::RegexError(Box::new(err)))),
             })
             .collect()
+    }
+}
+
+pub struct BertPreTokenizer {}
+
+impl BertPreTokenizer {
+    pub fn new() -> Self {
+        BertPreTokenizer {}
+    }
+}
+
+impl Default for BertPreTokenizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PreTokenizer for BertPreTokenizer {
+    fn pretokenize<'a>(&self, text: &'a str) -> Result<Vec<&'a str>, PreTokenizeError> {
+        let is_punc_or_space =
+            |ch: char| ch.is_ascii_punctuation() || ch.is_punctuation() || ch.is_whitespace();
+        let words = text.split_keep_delimeters(is_punc_or_space).collect();
+        Ok(words)
     }
 }

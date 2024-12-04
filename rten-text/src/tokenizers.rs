@@ -751,6 +751,7 @@ mod tests {
 
     use super::{EncodeOptions, EncoderInput, TokenId, Tokenizer, TokenizerOptions, WordPiece};
     use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
+    use crate::pretokenizers::BertPreTokenizer;
     use serde::Deserialize;
 
     fn make_wordpiece(vocab: &[&str]) -> WordPiece {
@@ -784,7 +785,8 @@ mod tests {
                 cls_token: Some("[CLS]"),
                 sep_token: Some("[SEP]"),
             },
-        );
+        )
+        .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
 
         // Two sequences, no subwords.
         let encoded = tokenizer
@@ -882,7 +884,8 @@ mod tests {
                 cls_token: Some("[CLS]"),
                 sep_token: Some("[SEP]"),
             },
-        );
+        )
+        .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
 
         for Case {
             input,
@@ -1010,7 +1013,8 @@ mod tests {
                     cls_token: use_cls_sep.then_some("[CLS]"),
                     sep_token: use_cls_sep.then_some("[SEP]"),
                 },
-            );
+            )
+            .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
 
             if lowercase {
                 tokenizer = tokenizer.with_normalizer(lowercase_normalizer());
@@ -1203,7 +1207,8 @@ mod tests {
                     cls_token: use_sep_cls.then_some("[CLS]"),
                     sep_token: use_sep_cls.then_some("[SEP]"),
                 },
-            );
+            )
+            .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
 
             if lowercase {
                 tokenizer = tokenizer.with_normalizer(lowercase_normalizer());
