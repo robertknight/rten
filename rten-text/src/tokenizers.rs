@@ -725,9 +725,6 @@ pub enum TokenizerError {
     /// An error occurred while performing pre-tokenization to split the input.
     PreTokenizeError(PreTokenizeError),
 
-    /// Splitting the input with a regex failed.
-    RegexSplitFailed(Box<fancy_regex::Error>),
-
     /// There was an error parsing a byte sequence as a UTF-8 string.
     ///
     /// This can arise when working with tokenizers like [`Bpe`] where
@@ -740,7 +737,6 @@ impl fmt::Display for TokenizerError {
         match self {
             Self::MissingToken(ref token) => write!(f, "missing vocab token {}", token),
             Self::InvalidTokenId(id) => write!(f, "unknown token id {}", id),
-            Self::RegexSplitFailed(err) => write!(f, "regex failed {}", err),
             Self::PreTokenizeError(err) => write!(f, "pretokenization error: {}", err),
             Self::InvalidUtf8 => write!(f, "UTF-8 decode failed"),
         }
