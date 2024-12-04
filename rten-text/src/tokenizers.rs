@@ -16,8 +16,11 @@ use std::fmt;
 use std::iter::repeat;
 use std::ops::Range;
 
-use crate::models::{merge_pairs_from_lines, patterns, Bpe, BpeError, WordPiece};
+use crate::models::{merge_pairs_from_lines, Bpe, BpeError, WordPiece};
 use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
+use crate::pre_tokenizers::{
+    BertPreTokenizer, ByteLevelPreTokenizer, PreTokenizeError, PreTokenizer,
+};
 use crate::split::SliceExt;
 
 mod json;
@@ -271,6 +274,7 @@ pub struct TokenizerOptions<'a> {
 /// into overlapping chunks and truncating long sequences.
 pub struct Tokenizer {
     normalizer: Option<Box<dyn Normalizer>>,
+    pre_tokenizer: Option<Box<dyn PreTokenizer>>,
     model: Box<dyn Model>,
 
     /// Token added at start of output.
@@ -285,6 +289,7 @@ impl Tokenizer {
     pub fn new<M: Model + 'static>(model: M, options: TokenizerOptions) -> Tokenizer {
         Tokenizer {
             model: Box::new(model),
+            pre_tokenizer: None,
             normalizer: None,
             cls_token: options.cls_token.map(|t| t.to_string()),
             sep_token: options.sep_token.map(|t| t.to_string()),
@@ -294,6 +299,12 @@ impl Tokenizer {
     /// Configure the normalizer used by this tokenizer.
     pub fn with_normalizer(mut self, normalizer: Box<dyn Normalizer>) -> Self {
         self.normalizer = Some(normalizer);
+        self
+    }
+
+    /// Configure the pre-tokenizer used by this tokenizer.
+    pub fn with_pre_tokenizer(mut self, pre_tokenizer: Box<dyn PreTokenizer>) -> Self {
+        self.pre_tokenizer = Some(pre_tokenizer);
         self
     }
 
@@ -323,6 +334,15 @@ impl Tokenizer {
             normalizer
         });
 
+        let pre_tokenizer: Option<Box<dyn PreTokenizer>> =
+            json.pre_tokenizer.map(|pre_tokenizer| {
+                let pre_tokenizer: Box<dyn PreTokenizer> = match pre_tokenizer {
+                    json::PreTokenizer::Bert => Box::new(BertPreTokenizer::new()),
+                    json::PreTokenizer::ByteLevel => Box::new(ByteLevelPreTokenizer::gpt2()),
+                };
+                pre_tokenizer
+            });
+
         let mut tokenizer = match json.model {
             json::Model::Bpe(model) => {
                 let added_tokens: HashMap<TokenId, String> = json
@@ -344,7 +364,6 @@ impl Tokenizer {
                 };
                 let model = Bpe::new(
                     &merges,
-                    patterns::GPT2,
                     Some(model.vocab),
                     added_tokens,
                     model.end_of_word_suffix,
@@ -376,7 +395,11 @@ impl Tokenizer {
         }?;
 
         if let Some(normalizer) = normalizer {
-            tokenizer = tokenizer.with_normalizer(normalizer)
+            tokenizer = tokenizer.with_normalizer(normalizer);
+        }
+
+        if let Some(pre_tokenizer) = pre_tokenizer {
+            tokenizer = tokenizer.with_pre_tokenizer(pre_tokenizer);
         }
 
         Ok(tokenizer)
@@ -457,6 +480,61 @@ impl Tokenizer {
         Ok(chunk)
     }
 
+    /// Encode a single string into tokens and return a `(tokens, offsets)`
+    /// tuple.
+    fn encode_str(
+        &self,
+        text: &str,
+        start_offset: usize,
+    ) -> Result<(Vec<TokenId>, Vec<usize>), TokenizerError> {
+        let (normalized, offset_map) = match &self.normalizer {
+            None => (text.to_string(), None),
+            Some(normalizer) => {
+                let (normalized_text, offsets) = normalizer.normalize(text);
+                (normalized_text, Some(offsets))
+            }
+        };
+
+        let chunks = self
+            .pre_tokenizer
+            .as_ref()
+            .map(|pt| pt.pre_tokenize(&normalized))
+            .transpose()
+            .map_err(TokenizerError::PreTokenizeError)?
+            .unwrap_or(Vec::from([normalized.as_str()]));
+
+        // Map an offset into the normalized string into an offset in the source
+        // string.
+        let map_offset = |offset: usize| {
+            if let Some(mappings) = &offset_map {
+                mappings
+                    .get(offset)
+                    .copied()
+                    .expect("invalid normalized offset")
+            } else {
+                offset
+            }
+        };
+
+        let mut tokens = Vec::new();
+        let mut offsets = Vec::new();
+
+        for chunk in chunks {
+            let base_offset = normalized
+                .as_bytes()
+                .subslice_offsets(chunk.as_bytes())
+                .expect("should be a subslice")
+                .start;
+            self.model
+                .encode_with_offsets(chunk, &mut |offset, token| {
+                    offsets.push(start_offset + base_offset + map_offset(offset));
+                    tokens.push(token);
+                })?;
+        }
+
+        Ok((tokens, offsets))
+    }
+
     /// Encode one or two sequences into a sequence of tokens.
     ///
     /// The output is split into chunks such that the number of tokens in
@@ -487,44 +565,16 @@ impl Tokenizer {
             EncoderInput::Pair((first, second)) => (first, Some(second)),
         };
 
-        // Normalize text and return a (normalized_text, offset_mapping) pair.
-        let normalize_text = |text: &str| match &self.normalizer {
-            None => (text.to_string(), None),
-            Some(normalizer) => {
-                let (normalized_text, offsets) = normalizer.normalize(text);
-                (normalized_text, Some(offsets))
-            }
-        };
-
-        // Map an offset into the normalized string into an offset in the source
-        // string.
-        let map_offset = |offset: usize, mapping: Option<&[usize]>| {
-            if let Some(mappings) = &mapping {
-                mappings
-                    .get(offset)
-                    .copied()
-                    .expect("invalid normalized offset")
-            } else {
-                offset
-            }
-        };
-
-        // Apply normalization to the input text.
-        let (normalized, offset_map) = normalize_text(first_seq);
-        self.model
-            .encode_with_offsets(&normalized, &mut |offset, token| {
-                offsets.push(map_offset(offset, offset_map.as_deref()));
-                tokens.push(token);
-            })?;
+        let (first_seq_tokens, first_seq_offsets) = self.encode_str(first_seq, 0)?;
+        tokens.extend(first_seq_tokens);
+        offsets.extend(first_seq_offsets);
         let first_seq_tokens = tokens.len();
 
         if let Some(second_seq) = second_seq {
-            let (normalized, offset_map) = normalize_text(second_seq);
-            self.model
-                .encode_with_offsets(&normalized, &mut |offset, token| {
-                    offsets.push(first_seq.len() + map_offset(offset, offset_map.as_deref()));
-                    tokens.push(token);
-                })?;
+            let (second_seq_tokens, second_seq_offsets) =
+                self.encode_str(second_seq, first_seq.len())?;
+            tokens.extend(second_seq_tokens);
+            offsets.extend(second_seq_offsets);
         }
 
         let max_tokens_per_chunk = options
@@ -672,8 +722,8 @@ pub enum TokenizerError {
     /// No token with a given ID exists in the vocabulary.
     InvalidTokenId(TokenId),
 
-    /// Splitting the input with a regex failed.
-    RegexSplitFailed(Box<fancy_regex::Error>),
+    /// An error occurred while performing pre-tokenization to split the input.
+    PreTokenizeError(PreTokenizeError),
 
     /// There was an error parsing a byte sequence as a UTF-8 string.
     ///
@@ -687,7 +737,7 @@ impl fmt::Display for TokenizerError {
         match self {
             Self::MissingToken(ref token) => write!(f, "missing vocab token {}", token),
             Self::InvalidTokenId(id) => write!(f, "unknown token id {}", id),
-            Self::RegexSplitFailed(err) => write!(f, "regex failed {}", err),
+            Self::PreTokenizeError(err) => write!(f, "pretokenization error: {}", err),
             Self::InvalidUtf8 => write!(f, "UTF-8 decode failed"),
         }
     }
@@ -705,6 +755,7 @@ mod tests {
 
     use super::{EncodeOptions, EncoderInput, TokenId, Tokenizer, TokenizerOptions, WordPiece};
     use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
+    use crate::pre_tokenizers::BertPreTokenizer;
     use serde::Deserialize;
 
     fn make_wordpiece(vocab: &[&str]) -> WordPiece {
@@ -738,7 +789,8 @@ mod tests {
                 cls_token: Some("[CLS]"),
                 sep_token: Some("[SEP]"),
             },
-        );
+        )
+        .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
 
         // Two sequences, no subwords.
         let encoded = tokenizer
@@ -836,7 +888,8 @@ mod tests {
                 cls_token: Some("[CLS]"),
                 sep_token: Some("[SEP]"),
             },
-        );
+        )
+        .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
 
         for Case {
             input,
@@ -964,7 +1017,8 @@ mod tests {
                     cls_token: use_cls_sep.then_some("[CLS]"),
                     sep_token: use_cls_sep.then_some("[SEP]"),
                 },
-            );
+            )
+            .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
 
             if lowercase {
                 tokenizer = tokenizer.with_normalizer(lowercase_normalizer());
@@ -1157,7 +1211,8 @@ mod tests {
                     cls_token: use_sep_cls.then_some("[CLS]"),
                     sep_token: use_sep_cls.then_some("[SEP]"),
                 },
-            );
+            )
+            .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
 
             if lowercase {
                 tokenizer = tokenizer.with_normalizer(lowercase_normalizer());

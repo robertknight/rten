@@ -72,8 +72,8 @@ impl<G: Iterator<Item = GeneratorItem>> Iterator for TextDecoder<'_, G> {
 mod tests {
     use std::collections::HashMap;
 
-    use rten_text::models::patterns::GPT2;
     use rten_text::models::{Bpe, WordPiece};
+    use rten_text::pre_tokenizers::ByteLevelPreTokenizer;
     use rten_text::tokenizers::{TokenId, Tokenizer};
 
     use crate::{GeneratorError, GeneratorUtils};
@@ -92,8 +92,9 @@ mod tests {
     /// Create a BPE tokenizer with an empty vocab. This can encode and decode
     /// arbitrary Unicode characters, by using one token per UTF-8 byte.
     fn create_bpe_tokenizer() -> Tokenizer {
-        let model = Bpe::new(&[], GPT2, None, Default::default(), None).unwrap();
+        let model = Bpe::new(&[], None, Default::default(), None).unwrap();
         Tokenizer::new(model, Default::default())
+            .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()))
     }
 
     #[test]

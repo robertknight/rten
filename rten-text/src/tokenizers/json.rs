@@ -28,6 +28,15 @@ pub(crate) enum Normalizer {
 }
 
 #[derive(Deserialize)]
+#[serde(tag = "type")]
+pub(crate) enum PreTokenizer {
+    #[serde(rename = "BertPreTokenizer")]
+    Bert,
+    #[serde(rename = "ByteLevel")]
+    ByteLevel,
+}
+
+#[derive(Deserialize)]
 pub(crate) struct WordPieceModel {
     /// Mapping from token text to token ID.
     pub vocab: HashMap<String, TokenId>,
@@ -74,6 +83,7 @@ pub(crate) enum Model {
 pub(crate) struct TokenizerJson {
     pub added_tokens: Option<Vec<AddedToken>>,
     pub normalizer: Option<Normalizer>,
+    pub pre_tokenizer: Option<PreTokenizer>,
     pub model: Model,
 }
 
