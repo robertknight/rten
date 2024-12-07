@@ -16,7 +16,9 @@ use std::fmt;
 use std::iter::repeat;
 use std::ops::Range;
 
-use crate::models::{merge_pairs_from_lines, Bpe, BpeError, Model, WordPiece};
+use crate::models::{
+    merge_pairs_from_lines, Bpe, BpeError, DecodeError, EncodeError, Model, WordPiece,
+};
 use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
 use crate::pre_tokenizers::{
     BertPreTokenizer, ByteLevelPreTokenizer, PreTokenizeError, PreTokenizer,
@@ -345,17 +347,31 @@ impl Tokenizer {
         self.model.as_ref()
     }
 
+    /// Return the ID of a token given its canonical string representation.
+    ///
+    /// This is usually used for looking up the IDs of special/added tokens.
+    ///
+    /// This wraps [`Model::get_token_id`] but returns a `Result` rather than
+    /// an `Option`, assuming the token is expected to be valid.
+    pub fn get_token_id(&self, text: &str) -> Result<TokenId, TokenizerError> {
+        self.model
+            .get_token_id(text)
+            .ok_or(TokenizerError::EncodeError(EncodeError::TokenIdNotFound(
+                text.to_string(),
+            )))
+    }
+
     fn cls_token(&self) -> Result<Option<TokenId>, TokenizerError> {
         self.cls_token
-            .as_ref()
-            .map(|cls| self.model.get_token_id(cls.as_str()))
+            .as_deref()
+            .map(|cls| self.get_token_id(cls))
             .transpose()
     }
 
     fn sep_token(&self) -> Result<Option<TokenId>, TokenizerError> {
         self.sep_token
-            .as_ref()
-            .map(|sep| self.model.get_token_id(sep.as_str()))
+            .as_deref()
+            .map(|sep| self.get_token_id(sep))
             .transpose()
     }
 
@@ -639,41 +655,48 @@ impl Tokenizer {
     /// Special tokens are decoded into their canonical string representations
     /// as returned by [`Model::get_token_str`].
     pub fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError> {
-        self.model.decode(ids)
+        self.model.decode(ids).map_err(TokenizerError::DecodeError)
     }
 }
 
 /// Error type returned when tokenizing a string.
 #[derive(Clone, Debug)]
 pub enum TokenizerError {
-    /// A token was not found in the vocabulary.
-    MissingToken(String),
-
-    /// No token with a given ID exists in the vocabulary.
-    InvalidTokenId(TokenId),
-
     /// An error occurred while performing pre-tokenization to split the input.
     PreTokenizeError(PreTokenizeError),
 
-    /// There was an error parsing a byte sequence as a UTF-8 string.
-    ///
-    /// This can arise when working with tokenizers like [`Bpe`] where
-    /// individual tokens do not always represent whole characters.
-    InvalidUtf8,
+    /// Encoding of text pieces after pre-tokenization failed.
+    EncodeError(EncodeError),
+
+    /// Decoding token IDs into text failed.
+    DecodeError(DecodeError),
 }
 
 impl fmt::Display for TokenizerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingToken(ref token) => write!(f, "missing vocab token {}", token),
-            Self::InvalidTokenId(id) => write!(f, "unknown token id {}", id),
             Self::PreTokenizeError(err) => write!(f, "pretokenization error: {}", err),
-            Self::InvalidUtf8 => write!(f, "UTF-8 decode failed"),
+            Self::EncodeError(err) => write!(f, "encoding with model failed: {}", err),
+            Self::DecodeError(err) => write!(f, "decoding failed: {}", err),
         }
     }
 }
 
-impl Error for TokenizerError {}
+impl From<EncodeError> for TokenizerError {
+    fn from(err: EncodeError) -> Self {
+        TokenizerError::EncodeError(err)
+    }
+}
+
+impl Error for TokenizerError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::PreTokenizeError(e) => Some(e),
+            Self::EncodeError(e) => Some(e),
+            Self::DecodeError(e) => Some(e),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

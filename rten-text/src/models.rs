@@ -3,13 +3,61 @@
 //! - WordPiece
 //! - Byte Pair Encoding or BPE
 
+use std::error::Error;
+use std::fmt;
+
 mod bpe;
 mod wordpiece;
 
 pub use bpe::{merge_pairs_from_lines, patterns, Bpe, BpeError};
 pub use wordpiece::{WordPiece, WordPieceOptions};
 
-use crate::tokenizers::{TokenId, TokenizerError};
+use crate::tokenizers::TokenId;
+
+/// Errors that occur while encoding text pieces into token IDs, after
+/// normalization and pre-tokenization.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EncodeError {
+    /// Encoding a string as a single token failed because no matching ID was
+    /// found in the vocabulary.
+    TokenIdNotFound(String),
+}
+
+impl fmt::Display for EncodeError {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Ok(())
+    }
+}
+
+impl Error for EncodeError {}
+
+/// Errors that occur while decoding token IDs into text.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DecodeError {
+    /// The decoded byte sequence does not form a valid UTF-8 string.
+    ///
+    /// This can arise when working with tokenizers like [`Bpe`] where
+    /// individual tokens do not always represent whole Unicode characters.
+    ///
+    /// If this error is encountered in the middle of a process that generates
+    /// tokens, the solution is to accumulate more tokens and then try decoding
+    /// again.
+    InvalidUtf8,
+
+    /// No token with a given ID exists in the vocabulary.
+    InvalidTokenId(TokenId),
+}
+
+impl fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidTokenId(id) => write!(f, "cannot decode unknown token ID {}", id),
+            Self::InvalidUtf8 => write!(f, "decoded tokens do not form valid UTF-8 text"),
+        }
+    }
+}
+
+impl Error for DecodeError {}
 
 /// Trait for tokenization models which convert words (or other string pieces)
 /// into tokens with numeric IDs.
@@ -20,9 +68,10 @@ pub trait Model {
     /// Look up the numeric ID for a token given its canonical string
     /// representation. This is used eg. for looking up the IDs of special
     /// tokens.
-    fn get_token_id(&self, token: &str) -> Result<TokenId, TokenizerError>;
+    fn get_token_id(&self, token: &str) -> Option<TokenId>;
 
-    /// Convert a token ID to its canonical string representation.
+    /// Return the canonical string representation for a token or `None` if
+    /// the token ID does not exist in the model's vocabulary.
     ///
     /// This is the representation of the token used in text-based
     /// representations of the vocabulary, such as the `tokenizer.json` file
@@ -33,16 +82,18 @@ pub trait Model {
     /// encoding of the _bytes_, not the text string that the token logically
     /// corresponds to. To get text strings, pass a sequence of token IDs to
     /// [`decode`](Self::decode) instead.
-    fn get_token_str(&self, id: TokenId) -> Result<String, TokenizerError>;
+    fn get_token_str(&self, id: TokenId) -> Option<String>;
 
     /// Return the canonical strings that correspond to a sequence of token IDs.
     ///
     /// See [`get_token_str`](Self::get_token_str) for notes on what the
     /// "canonical string" is.
-    fn get_tokens(&self, ids: &[TokenId]) -> Result<Vec<String>, TokenizerError> {
+    fn get_tokens(&self, ids: &[TokenId]) -> Result<Vec<String>, DecodeError> {
         let mut tokens = Vec::with_capacity(ids.len());
         for &id in ids {
-            let token = self.get_token_str(id)?;
+            let token = self
+                .get_token_str(id)
+                .ok_or(DecodeError::InvalidTokenId(id))?;
             tokens.push(token);
         }
         Ok(tokens)
@@ -56,14 +107,14 @@ pub trait Model {
         &self,
         text: &str,
         on_token: &mut dyn FnMut(usize, TokenId),
-    ) -> Result<(), TokenizerError>;
+    ) -> Result<(), EncodeError>;
 
     /// Encode a string into a sequence of token IDs.
     ///
     /// This is a convenience wrapper around
     /// [`encode_with_offsets`](Self::encode_with_offsets) for cases when the
     /// source offsets are not needed.
-    fn encode(&self, text: &str) -> Result<Vec<TokenId>, TokenizerError> {
+    fn encode(&self, text: &str) -> Result<Vec<TokenId>, EncodeError> {
         let mut token_ids = Vec::new();
         self.encode_with_offsets(text, &mut |_offset, token_id| token_ids.push(token_id))?;
         Ok(token_ids)
@@ -78,5 +129,5 @@ pub trait Model {
     ///
     /// Special tokens are decoded into their canonical string representations
     /// as returned by [`get_token_str`](Self::get_token_str).
-    fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError>;
+    fn decode(&self, ids: &[TokenId]) -> Result<String, DecodeError>;
 }

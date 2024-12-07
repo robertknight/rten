@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::fmt;
 
 use fancy_regex::Regex;
@@ -21,6 +22,8 @@ impl fmt::Display for PreTokenizeError {
         }
     }
 }
+
+impl Error for PreTokenizeError {}
 
 /// A pre-tokenizer splits input text into chunks ("words") which are then
 /// tokenized by a [`Model`](crate::models::Model) individually.

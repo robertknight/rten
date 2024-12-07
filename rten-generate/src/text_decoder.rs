@@ -1,5 +1,6 @@
 //! Iterator adapters to decode token IDs into text using `rten-text`.
 
+use rten_text::models::DecodeError;
 use rten_text::tokenizers::{Tokenizer, TokenizerError};
 
 use crate::generator::{GeneratorError, GeneratorItem};
@@ -53,7 +54,7 @@ impl<G: Iterator<Item = GeneratorItem>> Iterator for TextDecoder<'_, G> {
             let text = self.tokenizer.decode(&token_buf);
             match text {
                 Ok(text) => return Some(Ok(text)),
-                Err(TokenizerError::InvalidUtf8) => {
+                Err(TokenizerError::DecodeError(DecodeError::InvalidUtf8)) => {
                     // If the current token sequence doesn't correspond to a
                     // complete UTF-8 sequence, add more tokens until it does.
                     continue;
@@ -166,7 +167,7 @@ mod tests {
             tokens,
             [
                 Ok("one".to_string()),
-                Err("decode error: unknown token id 5".to_string()),
+                Err("decode error: decoding failed: cannot decode unknown token ID 5".to_string()),
                 Ok("three".to_string())
             ]
         );

@@ -3,8 +3,8 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
-use super::Model;
-use crate::tokenizers::{TokenId, TokenizerError};
+use super::{DecodeError, EncodeError, Model};
+use crate::tokenizers::TokenId;
 
 /// Errors that can occur when building a [`Bpe`] tokenizer or encoding or
 /// decoding text using it.
@@ -440,9 +440,9 @@ impl Bpe {
 }
 
 impl Model for Bpe {
-    fn get_token_str(&self, id: TokenId) -> Result<String, TokenizerError> {
+    fn get_token_str(&self, id: TokenId) -> Option<String> {
         if let Some(tok_str) = self.added_tokens.get(&id) {
-            return Ok(tok_str.to_string());
+            return Some(tok_str.to_string());
         }
 
         if let Some(tok_str) = self
@@ -450,16 +450,14 @@ impl Model for Bpe {
             .as_ref()
             .and_then(|map| map.get(&id))
         {
-            return Ok(tok_str.clone());
+            return Some(tok_str.clone());
         }
 
         // nb. The current implementation is inefficient as it does recursive
         // calls to `get_token_bytes` and creates the byte-to-char lookup table
         // on every call.
 
-        let bytes = self
-            .get_token_bytes(id)
-            .ok_or(TokenizerError::InvalidTokenId(id))?;
+        let bytes = self.get_token_bytes(id)?;
 
         let byte_to_char: HashMap<u8, char> = char_to_byte()
             .into_iter()
@@ -474,12 +472,12 @@ impl Model for Bpe {
                     .expect("should have char for all bytes")
             })
             .collect();
-        Ok(token_str)
+        Some(token_str)
     }
 
-    fn get_token_id(&self, mut text: &str) -> Result<TokenId, TokenizerError> {
+    fn get_token_id(&self, mut text: &str) -> Option<TokenId> {
         if let Some((&id, _str)) = self.added_tokens.iter().find(|(_id, str)| *str == text) {
-            return Ok(id);
+            return Some(id);
         }
 
         // Determine the end-of-word context. eg. In CLIP's tokenizer, the
@@ -495,9 +493,9 @@ impl Model for Bpe {
 
         let tokens = self.encode_piece(text, end_of_word);
         if tokens.len() == 1 {
-            Ok(tokens[0])
+            Some(tokens[0])
         } else {
-            Err(TokenizerError::MissingToken(text.to_string()))
+            None
         }
     }
 
@@ -505,7 +503,7 @@ impl Model for Bpe {
         &self,
         piece: &str,
         on_token: &mut dyn FnMut(usize, TokenId),
-    ) -> Result<(), TokenizerError> {
+    ) -> Result<(), EncodeError> {
         if piece.is_empty() {
             return Ok(());
         }
@@ -515,7 +513,7 @@ impl Model for Bpe {
         Ok(())
     }
 
-    fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError> {
+    fn decode(&self, ids: &[TokenId]) -> Result<String, DecodeError> {
         let char_to_byte = char_to_byte();
 
         let mut bytes = Vec::new();
@@ -535,11 +533,11 @@ impl Model for Bpe {
             } else {
                 let token_bytes = self
                     .get_token_bytes(id)
-                    .ok_or(TokenizerError::InvalidTokenId(id))?;
+                    .ok_or(DecodeError::InvalidTokenId(id))?;
                 bytes.extend(token_bytes);
             }
         }
-        String::from_utf8(bytes).map_err(|_| TokenizerError::InvalidUtf8)
+        String::from_utf8(bytes).map_err(|_| DecodeError::InvalidUtf8)
     }
 }
 

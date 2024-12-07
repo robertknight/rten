@@ -129,9 +129,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tokenizer_config = fs::read_to_string(&args.tokenizer_config)?;
     let tokenizer = Tokenizer::from_json(&tokenizer_config)?;
 
-    let im_start_token = tokenizer.model().get_token_id("<|im_start|>")?;
-    let im_end_token = tokenizer.model().get_token_id("<|im_end|>")?;
-    let end_of_text_token = tokenizer.model().get_token_id("<|endoftext|>")?;
+    let im_start_token = tokenizer.get_token_id("<|im_start|>")?;
+    let im_end_token = tokenizer.get_token_id("<|im_end|>")?;
+    let end_of_text_token = tokenizer.get_token_id("<|endoftext|>")?;
 
     // From `chat_template` in tokenizer_config.json.
     let prompt_tokens = encode_message(
