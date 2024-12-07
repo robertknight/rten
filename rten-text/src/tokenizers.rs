@@ -16,8 +16,10 @@ use std::fmt;
 use std::iter::repeat;
 use std::ops::Range;
 
-use crate::models::{merge_pairs_from_lines, Bpe, BpeError, WordPiece};
-use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
+use crate::models::{
+    merge_pairs_from_lines, Bpe, BpeError, DecodeError, EncodeError, Model, WordPiece,
+};
+use crate::normalizer::{BertNormalizer, BertNormalizerOptions, NormalizeError, Normalizer};
 use crate::pre_tokenizers::{
     BertPreTokenizer, ByteLevelPreTokenizer, PreTokenizeError, PreTokenizer,
 };
@@ -158,76 +160,6 @@ pub struct EncodeOptions {
 
     /// The number of tokens that a chunk will overlap with the previous chunk.
     pub overlap: usize,
-}
-
-/// Trait for tokenization models which convert words (or other string pieces)
-/// into tokens with numeric IDs.
-///
-/// Models are not generally used directly but instead via a wrapping
-/// [`Tokenizer`].
-pub trait Model {
-    /// Look up the numeric ID for a token given its canonical string
-    /// representation. This is used eg. for looking up the IDs of special
-    /// tokens.
-    fn get_token_id(&self, token: &str) -> Result<TokenId, TokenizerError>;
-
-    /// Convert a token ID to its canonical string representation.
-    ///
-    /// This is the representation of the token used in text-based
-    /// representations of the vocabulary, such as the `tokenizer.json` file
-    /// for Hugging Face tokenizers.
-    ///
-    /// For tokenizers such as [`Bpe`] where tokens correspond to sequences of
-    /// bytes rather than strings, the canonical string representation is an
-    /// encoding of the _bytes_, not the text string that the token logically
-    /// corresponds to. To get text strings, pass a sequence of token IDs to
-    /// [`decode`](Self::decode) instead.
-    fn get_token_str(&self, id: TokenId) -> Result<String, TokenizerError>;
-
-    /// Return the canonical strings that correspond to a sequence of token IDs.
-    ///
-    /// See [`get_token_str`](Self::get_token_str) for notes on what the
-    /// "canonical string" is.
-    fn get_tokens(&self, ids: &[TokenId]) -> Result<Vec<String>, TokenizerError> {
-        let mut tokens = Vec::with_capacity(ids.len());
-        for &id in ids {
-            let token = self.get_token_str(id)?;
-            tokens.push(token);
-        }
-        Ok(tokens)
-    }
-
-    /// Encode a string into a sequence of token IDs with source offsets.
-    ///
-    /// `on_token` is a callback with `(offset, token_id)` arguments that should
-    /// be invoked for each token produced.
-    fn encode_with_offsets(
-        &self,
-        text: &str,
-        on_token: &mut dyn FnMut(usize, TokenId),
-    ) -> Result<(), TokenizerError>;
-
-    /// Encode a string into a sequence of token IDs.
-    ///
-    /// This is a convenience wrapper around
-    /// [`encode_with_offsets`](Self::encode_with_offsets) for cases when the
-    /// source offsets are not needed.
-    fn encode(&self, text: &str) -> Result<Vec<TokenId>, TokenizerError> {
-        let mut token_ids = Vec::new();
-        self.encode_with_offsets(text, &mut |_offset, token_id| token_ids.push(token_id))?;
-        Ok(token_ids)
-    }
-
-    /// Decode a sequence of token IDs to a text string.
-    ///
-    /// For tokenizers which operate on byte sequences (eg. [`Bpe`]) this can
-    /// fail if the token IDs don't correspond to a complete UTF-8 sequence.
-    /// In that case the solution is to accumulate more token IDs and then
-    /// retry decoding.
-    ///
-    /// Special tokens are decoded into their canonical string representations
-    /// as returned by [`get_token_str`](Self::get_token_str).
-    fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError>;
 }
 
 /// Errors returned by [`Tokenizer::from_json`].
@@ -415,17 +347,31 @@ impl Tokenizer {
         self.model.as_ref()
     }
 
+    /// Return the ID of a token given its canonical string representation.
+    ///
+    /// This is usually used for looking up the IDs of special/added tokens.
+    ///
+    /// This wraps [`Model::get_token_id`] but returns a `Result` rather than
+    /// an `Option`, assuming the token is expected to be valid.
+    pub fn get_token_id(&self, text: &str) -> Result<TokenId, TokenizerError> {
+        self.model
+            .get_token_id(text)
+            .ok_or(TokenizerError::EncodeError(EncodeError::TokenIdNotFound(
+                text.to_string(),
+            )))
+    }
+
     fn cls_token(&self) -> Result<Option<TokenId>, TokenizerError> {
         self.cls_token
-            .as_ref()
-            .map(|cls| self.model.get_token_id(cls.as_str()))
+            .as_deref()
+            .map(|cls| self.get_token_id(cls))
             .transpose()
     }
 
     fn sep_token(&self) -> Result<Option<TokenId>, TokenizerError> {
         self.sep_token
-            .as_ref()
-            .map(|sep| self.model.get_token_id(sep.as_str()))
+            .as_deref()
+            .map(|sep| self.get_token_id(sep))
             .transpose()
     }
 
@@ -490,7 +436,7 @@ impl Tokenizer {
         let (normalized, offset_map) = match &self.normalizer {
             None => (text.to_string(), None),
             Some(normalizer) => {
-                let (normalized_text, offsets) = normalizer.normalize(text);
+                let (normalized_text, offsets) = normalizer.normalize(text)?;
                 (normalized_text, Some(offsets))
             }
         };
@@ -709,41 +655,58 @@ impl Tokenizer {
     /// Special tokens are decoded into their canonical string representations
     /// as returned by [`Model::get_token_str`].
     pub fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError> {
-        self.model.decode(ids)
+        self.model.decode(ids).map_err(TokenizerError::DecodeError)
     }
 }
 
 /// Error type returned when tokenizing a string.
 #[derive(Clone, Debug)]
 pub enum TokenizerError {
-    /// A token was not found in the vocabulary.
-    MissingToken(String),
-
-    /// No token with a given ID exists in the vocabulary.
-    InvalidTokenId(TokenId),
+    NormalizeError(NormalizeError),
 
     /// An error occurred while performing pre-tokenization to split the input.
     PreTokenizeError(PreTokenizeError),
 
-    /// There was an error parsing a byte sequence as a UTF-8 string.
-    ///
-    /// This can arise when working with tokenizers like [`Bpe`] where
-    /// individual tokens do not always represent whole characters.
-    InvalidUtf8,
+    /// Encoding of text pieces after pre-tokenization failed.
+    EncodeError(EncodeError),
+
+    /// Decoding token IDs into text failed.
+    DecodeError(DecodeError),
 }
 
 impl fmt::Display for TokenizerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingToken(ref token) => write!(f, "missing vocab token {}", token),
-            Self::InvalidTokenId(id) => write!(f, "unknown token id {}", id),
+            Self::NormalizeError(err) => write!(f, "normalization error: {}", err),
             Self::PreTokenizeError(err) => write!(f, "pretokenization error: {}", err),
-            Self::InvalidUtf8 => write!(f, "UTF-8 decode failed"),
+            Self::EncodeError(err) => write!(f, "encoding with model failed: {}", err),
+            Self::DecodeError(err) => write!(f, "decoding failed: {}", err),
         }
     }
 }
 
-impl Error for TokenizerError {}
+impl From<NormalizeError> for TokenizerError {
+    fn from(err: NormalizeError) -> Self {
+        TokenizerError::NormalizeError(err)
+    }
+}
+
+impl From<EncodeError> for TokenizerError {
+    fn from(err: EncodeError) -> Self {
+        TokenizerError::EncodeError(err)
+    }
+}
+
+impl Error for TokenizerError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::NormalizeError(e) => Some(e),
+            Self::PreTokenizeError(e) => Some(e),
+            Self::EncodeError(e) => Some(e),
+            Self::DecodeError(e) => Some(e),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

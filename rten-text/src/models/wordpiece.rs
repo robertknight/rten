@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::tokenizers::{Model, TokenId, TokenizerError};
+use super::{DecodeError, EncodeError, Model};
+use crate::tokenizers::TokenId;
 
 /// WordPiece tokenizer [^1] used by BERT [^2] models.
 ///
@@ -54,14 +55,17 @@ impl Model for WordPiece {
         &self,
         word: &str,
         on_token: &mut dyn FnMut(usize, TokenId),
-    ) -> Result<(), TokenizerError> {
+    ) -> Result<(), EncodeError> {
         let mut tmp_buf = String::with_capacity(self.max_word_len);
         let mut offset = 0;
 
         macro_rules! add_unknown_token {
             () => {
-                let unknown_token = self.get_token_id("[UNK]")?;
-                on_token(offset, unknown_token);
+                let unknown_token = "[UNK]";
+                let unknown_token_id = self
+                    .get_token_id(unknown_token)
+                    .ok_or_else(|| EncodeError::TokenIdNotFound(unknown_token.to_string()))?;
+                on_token(offset, unknown_token_id);
             };
         }
 
@@ -110,21 +114,15 @@ impl Model for WordPiece {
         Ok(())
     }
 
-    fn get_token_str(&self, id: TokenId) -> Result<String, TokenizerError> {
-        self.id_to_token
-            .get(&id)
-            .cloned()
-            .ok_or(TokenizerError::InvalidTokenId(id))
+    fn get_token_str(&self, id: TokenId) -> Option<String> {
+        self.id_to_token.get(&id).cloned()
     }
 
-    fn get_token_id(&self, tok: &str) -> Result<TokenId, TokenizerError> {
-        self.token_to_id
-            .get(tok)
-            .copied()
-            .ok_or(TokenizerError::MissingToken(tok.to_string()))
+    fn get_token_id(&self, tok: &str) -> Option<TokenId> {
+        self.token_to_id.get(tok).copied()
     }
 
-    fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError> {
+    fn decode(&self, ids: &[TokenId]) -> Result<String, DecodeError> {
         let token_strings = self.get_tokens(ids)?;
         Ok(token_strings.join(" "))
     }
