@@ -1,7 +1,5 @@
-//! Popular tokenization models, including:
-//!
-//! - WordPiece
-//! - Byte Pair Encoding or BPE
+//! Implementations of popular tokenization models including WordPiece and
+//! Byte Pair Encoding (BPE).
 
 use std::error::Error;
 use std::fmt;

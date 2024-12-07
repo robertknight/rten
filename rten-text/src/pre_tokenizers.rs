@@ -1,3 +1,6 @@
+//! Pre-tokenizers which split text after normalization and before encoding
+//! into token IDs by models.
+
 use std::error::Error;
 use std::fmt;
 

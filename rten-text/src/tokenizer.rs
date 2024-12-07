@@ -1,4 +1,4 @@
-//! Tokenizers for converting text into sequences of token IDs.
+//! Defines the [`Tokenizer`] type that implements the tokenization pipeline.
 //!
 //! There are two ways to construct a tokenizer:
 //!
