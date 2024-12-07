@@ -134,7 +134,7 @@ mod tests {
 
     use crate::models::{WordPiece, WordPieceOptions};
     use crate::normalizers::{BertNormalizer, BertNormalizerOptions, Normalizer};
-    use crate::pre_tokenizers::BertPreTokenizer;
+    use crate::pre_tokenizers::Bert;
     use crate::tokenizer::{Tokenizer, TokenizerOptions};
 
     fn create_tokenizer(
@@ -155,7 +155,7 @@ mod tests {
                 sep_token: Some("[SEP]"),
             },
         )
-        .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
+        .with_pre_tokenizer(Box::new(Bert::new()));
 
         if let Some(normalizer) = normalizer {
             tokenizer = tokenizer.with_normalizer(normalizer);

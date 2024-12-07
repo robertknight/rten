@@ -74,7 +74,7 @@ mod tests {
     use std::collections::HashMap;
 
     use rten_text::models::{Bpe, WordPiece};
-    use rten_text::pre_tokenizers::ByteLevelPreTokenizer;
+    use rten_text::pre_tokenizers::Split;
     use rten_text::{TokenId, Tokenizer};
 
     use crate::{GeneratorError, GeneratorUtils};
@@ -94,8 +94,7 @@ mod tests {
     /// arbitrary Unicode characters, by using one token per UTF-8 byte.
     fn create_bpe_tokenizer() -> Tokenizer {
         let model = Bpe::new(&[], None, Default::default(), None).unwrap();
-        Tokenizer::new(model, Default::default())
-            .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()))
+        Tokenizer::new(model, Default::default()).with_pre_tokenizer(Box::new(Split::gpt2()))
     }
 
     #[test]

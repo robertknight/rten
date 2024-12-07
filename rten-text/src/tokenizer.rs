@@ -10,6 +10,7 @@
 //!    such as [`WordPiece`] and then wrap it with a tokenizer using
 //!    [`Tokenizer::new`].
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
@@ -21,9 +22,8 @@ use crate::models::{
     merge_pairs_from_lines, Bpe, BpeError, DecodeError, EncodeError, Model, WordPiece,
 };
 use crate::normalizers::{BertNormalizer, BertNormalizerOptions, NormalizeError, Normalizer};
-use crate::pre_tokenizers::{
-    BertPreTokenizer, ByteLevelPreTokenizer, PreTokenizeError, PreTokenizer,
-};
+use crate::pre_tokenizers;
+use crate::pre_tokenizers::{PreTokenizeError, PreTokenizer};
 use crate::split::SliceExt;
 
 mod json;
@@ -166,12 +166,14 @@ pub struct EncodeOptions {
 /// Errors returned by [`Tokenizer::from_json`].
 #[derive(Debug)]
 pub enum FromJsonError {
-    /// There was an error loading a BPE tokenizer.
-    BpeError(BpeError),
     /// There was an error reading the JSON data from a file.
     IoError(std::io::Error),
     /// There was an error decoding the JSON data.
     JsonError(serde_json::Error),
+    /// There was an error instantiating the pre-tokenizer.
+    PreTokenizerError(PreTokenizeError),
+    /// There was an error loading a BPE tokenizer.
+    BpeError(BpeError),
     /// The model type isn't supported by this crate.
     UnsupportedModel,
 }
@@ -179,15 +181,32 @@ pub enum FromJsonError {
 impl fmt::Display for FromJsonError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::BpeError(err) => write!(f, "BPE tokenizer error: {}", err),
             Self::IoError(err) => fmt::Display::fmt(err, f),
             Self::JsonError(err) => write!(f, "JSON error {}", err),
+            Self::PreTokenizerError(err) => write!(f, "failed to construct pre-tokenizer: {}", err),
+            Self::BpeError(err) => write!(f, "BPE tokenizer error: {}", err),
             Self::UnsupportedModel => write!(f, "unsupported model type"),
         }
     }
 }
 
-impl Error for FromJsonError {}
+impl From<PreTokenizeError> for FromJsonError {
+    fn from(val: PreTokenizeError) -> Self {
+        FromJsonError::PreTokenizerError(val)
+    }
+}
+
+impl Error for FromJsonError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::IoError(err) => Some(err),
+            Self::JsonError(err) => Some(err),
+            Self::PreTokenizerError(err) => Some(err),
+            Self::BpeError(err) => Some(err),
+            Self::UnsupportedModel => None,
+        }
+    }
+}
 
 /// Configuration for a [`Tokenizer`].
 #[derive(Clone, Default)]
@@ -277,14 +296,64 @@ impl Tokenizer {
             normalizer
         });
 
+        fn create_pre_tokenizer(
+            config: json::PreTokenizer,
+        ) -> Result<Box<dyn PreTokenizer>, FromJsonError> {
+            let pre_tokenizer: Box<dyn PreTokenizer> = match config {
+                json::PreTokenizer::Bert => Box::new(pre_tokenizers::Bert::new()),
+                json::PreTokenizer::ByteLevel(byte_level) => {
+                    if byte_level.use_regex {
+                        Box::new(pre_tokenizers::Split::gpt2())
+                    } else {
+                        let noop_split = pre_tokenizers::SplitOptions {
+                            pattern: r".*",
+                            invert: true,
+                            ..Default::default()
+                        };
+                        Box::new(pre_tokenizers::Split::new(noop_split)?)
+                    }
+                }
+                json::PreTokenizer::Digits(digits) => {
+                    Box::new(pre_tokenizers::Digits::new(digits.individual_digits))
+                }
+                json::PreTokenizer::Sequence(seq) => {
+                    let pre_tokenizers = seq
+                        .pretokenizers
+                        .into_iter()
+                        .map(create_pre_tokenizer)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Box::new(pre_tokenizers::Sequence::from_vec(pre_tokenizers))
+                }
+                json::PreTokenizer::Split(split) => {
+                    let pattern = match &split.pattern {
+                        json::pre_tokenizers::SplitPattern::Regex(pat) => {
+                            Cow::Borrowed(pat.as_str())
+                        }
+                        json::pre_tokenizers::SplitPattern::String(delim) => {
+                            fancy_regex::escape(delim)
+                        }
+                    };
+
+                    let opts = pre_tokenizers::SplitOptions {
+                        pattern: &pattern,
+                        invert: split.invert,
+                        delimiter: match split.behavior {
+                            json::pre_tokenizers::SplitDelimiter::Isolated => {
+                                pre_tokenizers::SplitDelimiterBehavior::Isolate
+                            }
+                            json::pre_tokenizers::SplitDelimiter::Removed => {
+                                pre_tokenizers::SplitDelimiterBehavior::Remove
+                            }
+                        },
+                    };
+                    Box::new(pre_tokenizers::Split::new(opts)?)
+                }
+            };
+            Ok(pre_tokenizer)
+        }
+
         let pre_tokenizer: Option<Box<dyn PreTokenizer>> =
-            json.pre_tokenizer.map(|pre_tokenizer| {
-                let pre_tokenizer: Box<dyn PreTokenizer> = match pre_tokenizer {
-                    json::PreTokenizer::Bert => Box::new(BertPreTokenizer::new()),
-                    json::PreTokenizer::ByteLevel => Box::new(ByteLevelPreTokenizer::gpt2()),
-                };
-                pre_tokenizer
-            });
+            json.pre_tokenizer.map(create_pre_tokenizer).transpose()?;
 
         let mut tokenizer = match json.model {
             json::Model::Bpe(model) => {
@@ -321,7 +390,7 @@ impl Tokenizer {
                     },
                 );
 
-                Ok(tokenizer)
+                Ok::<_, FromJsonError>(tokenizer)
             }
             json::Model::WordPiece(model) => {
                 let model = WordPiece::from_vocab(model.vocab, Default::default());
@@ -333,7 +402,7 @@ impl Tokenizer {
                     },
                 );
 
-                Ok(tokenizer)
+                Ok::<_, FromJsonError>(tokenizer)
             }
         }?;
 
@@ -729,7 +798,7 @@ mod tests {
 
     use super::{EncodeOptions, EncoderInput, TokenId, Tokenizer, TokenizerOptions, WordPiece};
     use crate::normalizers::{BertNormalizer, BertNormalizerOptions, Normalizer};
-    use crate::pre_tokenizers::BertPreTokenizer;
+    use crate::pre_tokenizers::Bert;
     use serde::Deserialize;
 
     fn make_wordpiece(vocab: &[&str]) -> WordPiece {
@@ -764,7 +833,7 @@ mod tests {
                 sep_token: Some("[SEP]"),
             },
         )
-        .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
+        .with_pre_tokenizer(Box::new(Bert::new()));
 
         // Two sequences, no subwords.
         let encoded = tokenizer
@@ -863,7 +932,7 @@ mod tests {
                 sep_token: Some("[SEP]"),
             },
         )
-        .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
+        .with_pre_tokenizer(Box::new(Bert::new()));
 
         for Case {
             input,
@@ -992,7 +1061,7 @@ mod tests {
                     sep_token: use_cls_sep.then_some("[SEP]"),
                 },
             )
-            .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
+            .with_pre_tokenizer(Box::new(Bert::new()));
 
             if lowercase {
                 tokenizer = tokenizer.with_normalizer(lowercase_normalizer());
@@ -1186,7 +1255,7 @@ mod tests {
                     sep_token: use_sep_cls.then_some("[SEP]"),
                 },
             )
-            .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
+            .with_pre_tokenizer(Box::new(Bert::new()));
 
             if lowercase {
                 tokenizer = tokenizer.with_normalizer(lowercase_normalizer());
