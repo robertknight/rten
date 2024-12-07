@@ -15,6 +15,7 @@ use std::error::Error;
 use std::fmt;
 use std::iter::repeat;
 use std::ops::Range;
+use std::path::Path;
 
 use crate::models::{
     merge_pairs_from_lines, Bpe, BpeError, DecodeError, EncodeError, Model, WordPiece,
@@ -167,6 +168,8 @@ pub struct EncodeOptions {
 pub enum FromJsonError {
     /// There was an error loading a BPE tokenizer.
     BpeError(BpeError),
+    /// There was an error reading the JSON data from a file.
+    IoError(std::io::Error),
     /// There was an error decoding the JSON data.
     JsonError(serde_json::Error),
     /// The model type isn't supported by this crate.
@@ -177,6 +180,7 @@ impl fmt::Display for FromJsonError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BpeError(err) => write!(f, "BPE tokenizer error: {}", err),
+            Self::IoError(err) => fmt::Display::fmt(err, f),
             Self::JsonError(err) => write!(f, "JSON error {}", err),
             Self::UnsupportedModel => write!(f, "unsupported model type"),
         }
@@ -238,6 +242,13 @@ impl Tokenizer {
     pub fn with_pre_tokenizer(mut self, pre_tokenizer: Box<dyn PreTokenizer>) -> Self {
         self.pre_tokenizer = Some(pre_tokenizer);
         self
+    }
+
+    /// Load a tokenizer from the contents of a Hugging Face `tokenizer.json`
+    /// file.
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Tokenizer, FromJsonError> {
+        let content = std::fs::read_to_string(path).map_err(FromJsonError::IoError)?;
+        Self::from_json(&content)
     }
 
     /// Load a tokenizer from the contents of a Hugging Face `tokenizer.json`

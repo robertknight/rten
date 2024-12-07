@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::error::Error;
-use std::fs;
 use std::io::prelude::*;
 
 use rten::Model;
@@ -97,9 +96,7 @@ Options:
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
     let model = Model::load_file(args.model)?;
-
-    let tokenizer_config = fs::read_to_string(&args.tokenizer_config)?;
-    let tokenizer = Tokenizer::from_json(&tokenizer_config)?;
+    let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
 
     let prompt = args.prompt.as_str();
     let encoded_prompt = tokenizer.encode(prompt, None)?;

@@ -224,11 +224,8 @@ fn extract_nbest_answers<'a>(
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
     let model = Model::load_file(args.model)?;
-
+    let tokenizer = Tokenizer::from_file(&args.tokenizer)?;
     let context = fs::read_to_string(args.context_doc)?;
-
-    let tokenizer_json = fs::read_to_string(args.tokenizer)?;
-    let tokenizer = Tokenizer::from_json(&tokenizer_json)?;
 
     // Tokenize the query and context, breaking the context up into chunks to
     // fit the model's context length.

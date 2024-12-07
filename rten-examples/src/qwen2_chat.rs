@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::error::Error;
-use std::fs;
 use std::io;
 use std::io::prelude::*;
 
@@ -125,9 +124,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // `load_mmap` reduces model load/free time and process memory usage, at the
     // cost of making the first execution slower.
     let model = unsafe { Model::load_mmap(args.model) }?;
-
-    let tokenizer_config = fs::read_to_string(&args.tokenizer_config)?;
-    let tokenizer = Tokenizer::from_json(&tokenizer_config)?;
+    let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
 
     let im_start_token = tokenizer.get_token_id("<|im_start|>")?;
     let im_end_token = tokenizer.get_token_id("<|im_end|>")?;

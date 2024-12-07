@@ -36,11 +36,15 @@ impl ReferenceTokenization {
     }
 }
 
-fn read_test_file(path: &str) -> Result<String, io::Error> {
+fn test_file_path(relative_path: &str) -> PathBuf {
     let mut abs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     abs_path.push("test-data/reftests/");
-    abs_path.push(path);
-    read_to_string(abs_path)
+    abs_path.push(relative_path);
+    abs_path
+}
+
+fn read_test_file(path: &str) -> Result<String, io::Error> {
+    read_to_string(test_file_path(path))
 }
 
 /// Compare two slices of token IDs and return an error if there are any
@@ -162,8 +166,8 @@ fn test_bpe_gpt2() -> Result<(), Box<dyn Error>> {
         .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()));
 
     // Create tokenizer from a `tokenizers.json` file.
-    let tokenizer_json = read_test_file("models/gpt2/tokenizer.json")?;
-    let tokenizer_from_json = Tokenizer::from_json(&tokenizer_json)?;
+    let tokenizer_path = test_file_path("models/gpt2/tokenizer.json");
+    let tokenizer_from_json = Tokenizer::from_file(&tokenizer_path)?;
 
     for Case { text, reference } in cases {
         let text = read_test_file(text)?;
