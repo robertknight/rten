@@ -3,7 +3,8 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
-use crate::tokenizers::{Model, TokenId, TokenizerError};
+use super::Model;
+use crate::tokenizers::{TokenId, TokenizerError};
 
 /// Errors that can occur when building a [`Bpe`] tokenizer or encoding or
 /// decoding text using it.

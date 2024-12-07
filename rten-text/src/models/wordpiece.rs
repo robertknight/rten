@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::tokenizers::{Model, TokenId, TokenizerError};
+use super::Model;
+use crate::tokenizers::{TokenId, TokenizerError};
 
 /// WordPiece tokenizer [^1] used by BERT [^2] models.
 ///

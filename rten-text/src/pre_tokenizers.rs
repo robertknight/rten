@@ -23,7 +23,7 @@ impl fmt::Display for PreTokenizeError {
 }
 
 /// A pre-tokenizer splits input text into chunks ("words") which are then
-/// tokenized by a [`Model`](crate::tokenizers::Model) individually.
+/// tokenized by a [`Model`](crate::models::Model) individually.
 pub trait PreTokenizer {
     /// Split `text` into chunks and return a vector of sub-slices.
     fn pre_tokenize<'a>(&self, text: &'a str) -> Result<Vec<&'a str>, PreTokenizeError>;
