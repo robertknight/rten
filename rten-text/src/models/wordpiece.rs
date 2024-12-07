@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::{DecodeError, EncodeError, Model};
-use crate::tokenizers::TokenId;
+use crate::tokenizer::TokenId;
 
 /// WordPiece tokenizer [^1] used by BERT [^2] models.
 ///
@@ -133,9 +133,9 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::models::{WordPiece, WordPieceOptions};
-    use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
+    use crate::normalizers::{BertNormalizer, BertNormalizerOptions, Normalizer};
     use crate::pre_tokenizers::BertPreTokenizer;
-    use crate::tokenizers::{Tokenizer, TokenizerOptions};
+    use crate::tokenizer::{Tokenizer, TokenizerOptions};
 
     fn create_tokenizer(
         vocab: &[&str],

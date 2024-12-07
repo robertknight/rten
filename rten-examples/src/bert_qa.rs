@@ -6,7 +6,7 @@ use rten::ops::FloatOperators;
 use rten::{InputOrOutput, Model, NodeId};
 use rten_tensor::prelude::*;
 use rten_tensor::*;
-use rten_text::tokenizers::{EncodeOptions, Encoded, Tokenizer};
+use rten_text::tokenizer::{EncodeOptions, Encoded, Tokenizer};
 
 struct Args {
     model: String,

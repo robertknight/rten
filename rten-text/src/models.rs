@@ -12,7 +12,7 @@ mod wordpiece;
 pub use bpe::{merge_pairs_from_lines, patterns, Bpe, BpeError};
 pub use wordpiece::{WordPiece, WordPieceOptions};
 
-use crate::tokenizers::TokenId;
+use crate::tokenizer::TokenId;
 
 /// Errors that occur while encoding text pieces into token IDs, after
 /// normalization and pre-tokenization.
@@ -63,7 +63,7 @@ impl Error for DecodeError {}
 /// into tokens with numeric IDs.
 ///
 /// Models are not generally used directly but instead via a wrapping
-/// [`Tokenizer`](crate::tokenizers::Tokenizer).
+/// [`Tokenizer`](crate::tokenizer::Tokenizer).
 pub trait Model {
     /// Look up the numeric ID for a token given its canonical string
     /// representation. This is used eg. for looking up the IDs of special

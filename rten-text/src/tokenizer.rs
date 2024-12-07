@@ -19,7 +19,7 @@ use std::ops::Range;
 use crate::models::{
     merge_pairs_from_lines, Bpe, BpeError, DecodeError, EncodeError, Model, WordPiece,
 };
-use crate::normalizer::{BertNormalizer, BertNormalizerOptions, NormalizeError, Normalizer};
+use crate::normalizers::{BertNormalizer, BertNormalizerOptions, NormalizeError, Normalizer};
 use crate::pre_tokenizers::{
     BertPreTokenizer, ByteLevelPreTokenizer, PreTokenizeError, PreTokenizer,
 };
@@ -717,7 +717,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{EncodeOptions, EncoderInput, TokenId, Tokenizer, TokenizerOptions, WordPiece};
-    use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
+    use crate::normalizers::{BertNormalizer, BertNormalizerOptions, Normalizer};
     use crate::pre_tokenizers::BertPreTokenizer;
     use serde::Deserialize;
 
