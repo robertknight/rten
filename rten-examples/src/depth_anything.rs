@@ -5,7 +5,7 @@ use rten::{FloatOperators, Model, Operators};
 use rten_imageio::{read_image, write_image};
 use rten_imageproc::{normalize_image, IMAGENET_MEAN, IMAGENET_STD_DEV};
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, Tensor};
+use rten_tensor::Tensor;
 
 struct Args {
     model: String,
@@ -87,8 +87,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let image = image.resize_image([input_h, input_w])?;
 
     // Run model to estimate depth for each pixel.
-    // Generates a (batch, depth, height, width) tensor, where `depth` == 1.
-    let mut output: NdTensor<f32, 4> = model.run_one(image.view().into(), None)?.try_into()?;
+    //
+    // Depending on the model variant used, the output will be either
+    // 3D (batch, height, width) or 4D (batch, 1, height, width).
+    let mut output: Tensor<f32> = model.run_one(image.view().into(), None)?.try_into()?;
+    if output.ndim() == 3 {
+        output.insert_axis(1); // Add channel dim
+    }
 
     // Normalize depth values to be in the range [0, 1].
     let min = output
