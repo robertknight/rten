@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::error::Error;
-use std::fs;
 use std::io::prelude::*;
 
 use rten::{FloatOperators, Model};
@@ -91,8 +90,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
     let encoder_model = unsafe { Model::load_mmap(args.encoder_model)? };
     let decoder_model = unsafe { Model::load_mmap(args.decoder_model)? };
-    let tokenizer_config = fs::read_to_string(&args.tokenizer_config)?;
-    let tokenizer = Tokenizer::from_json(&tokenizer_config)?;
+    let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
     let mut image = read_image(args.image_path)?.into_dyn();
     image.insert_axis(0); // Add batch dim
 

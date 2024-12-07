@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::error::Error;
-use std::fs;
 use std::path::PathBuf;
 
 use microfft::Complex32;
@@ -363,8 +362,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let encoder_model = unsafe { Model::load_mmap(args.encoder_model)? };
     let decoder_model = unsafe { Model::load_mmap(args.decoder_model)? };
-    let tokenizer_config = fs::read_to_string(&args.tokenizer_config)?;
-    let tokenizer = Tokenizer::from_json(&tokenizer_config)?;
+    let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
 
     // Length of audio chunks expected by model, in seconds.
     let chunk_length = 30;

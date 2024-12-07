@@ -202,9 +202,7 @@ fn embed_sentence_batch(
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
     let model = Model::load_file(args.model)?;
-
-    let tokenizer_json = std::fs::read_to_string(&args.tokenizer)?;
-    let tokenizer = Tokenizer::from_json(&tokenizer_json)?;
+    let tokenizer = Tokenizer::from_file(&args.tokenizer)?;
 
     let mut sentences: Vec<&str> = vec![&args.query];
 
