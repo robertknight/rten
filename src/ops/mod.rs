@@ -436,7 +436,11 @@ macro_rules! impl_output_conversions {
 
             fn try_from(o: Output) -> Result<NdTensor<$element_type, N>, OpError> {
                 let tensor: Tensor<_> = o.try_into()?;
-                tensor.try_into().map_err(|_| OpError::IncorrectOutputType)
+                let ndim = tensor.ndim();
+                tensor.try_into().map_err(|_| OpError::IncorrectOutputRank {
+                    actual: ndim,
+                    expected: N,
+                })
             }
         }
 
@@ -458,7 +462,11 @@ macro_rules! impl_output_conversions {
 
             fn try_from(o: &'a Output) -> Result<NdTensorView<'a, $element_type, N>, OpError> {
                 let view: TensorView<'a, _> = o.try_into()?;
-                view.try_into().map_err(|_| OpError::IncorrectOutputType)
+                let ndim = view.ndim();
+                view.try_into().map_err(|_| OpError::IncorrectOutputRank {
+                    actual: ndim,
+                    expected: N,
+                })
             }
         }
     };
@@ -613,6 +621,9 @@ pub enum OpError {
     /// Could not convert operator output to the expected type.
     IncorrectOutputType,
 
+    /// Could not convert operator output to the expected static rank.
+    IncorrectOutputRank { actual: usize, expected: usize },
+
     /// Input tensor shapes are not compatible with each other or operator
     /// attributes.
     IncompatibleInputShapes(&'static str),
@@ -635,6 +646,13 @@ impl Display for OpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             OpError::IncorrectInputType => write!(f, "incorrect or unsupported input type"),
+            OpError::IncorrectOutputRank { actual, expected } => {
+                write!(
+                    f,
+                    "expected output to have {} dims but it has {}",
+                    expected, actual
+                )
+            }
             OpError::IncorrectOutputType => write!(f, "output type mismatch"),
             OpError::IncompatibleInputShapes(details) => {
                 write!(f, "incompatible input shapes: {}", details)
@@ -1013,7 +1031,7 @@ pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
-    use rten_tensor::NdTensor;
+    use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
     use super::{Input, InputList, OpError, Operator, Output};
     use crate::downcast::DowncastDyn;
@@ -1067,6 +1085,54 @@ mod tests {
         let input: Input = tensor.view().into();
         assert!(matches!(input, Input::FloatTensor(_)));
         assert_eq!(input.shape(), &[5, 5]);
+    }
+
+    #[test]
+    fn test_tensor_from_output() {
+        let original = NdTensor::from([[1., 2.], [3., 4.]]);
+        let output: Output = original.clone().into();
+
+        let mat_dyn: Tensor<f32> = output.clone().try_into().unwrap();
+        assert_eq!(mat_dyn, original);
+
+        let mat: NdTensor<f32, 2> = output.clone().try_into().unwrap();
+        assert_eq!(mat, original);
+
+        let err: Result<NdTensor<i32, 2>, _> = output.clone().try_into();
+        assert_eq!(err, Err(OpError::IncorrectOutputType));
+
+        let err: Result<NdTensor<f32, 3>, _> = output.clone().try_into();
+        assert_eq!(
+            err,
+            Err(OpError::IncorrectOutputRank {
+                actual: 2,
+                expected: 3
+            })
+        );
+    }
+
+    #[test]
+    fn test_tensor_view_from_output() {
+        let original = NdTensor::from([[1., 2.], [3., 4.]]);
+        let output: Output = original.clone().into();
+
+        let mat_dyn: TensorView<f32> = (&output).try_into().unwrap();
+        assert_eq!(mat_dyn, original);
+
+        let mat: NdTensorView<f32, 2> = (&output).try_into().unwrap();
+        assert_eq!(mat, original);
+
+        let err: Result<NdTensorView<i32, 2>, _> = (&output).try_into();
+        assert_eq!(err, Err(OpError::IncorrectOutputType));
+
+        let err: Result<NdTensorView<f32, 3>, _> = (&output).try_into();
+        assert_eq!(
+            err,
+            Err(OpError::IncorrectOutputRank {
+                actual: 2,
+                expected: 3
+            })
+        );
     }
 
     #[test]
