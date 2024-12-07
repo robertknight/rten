@@ -19,7 +19,7 @@ use std::ops::Range;
 use crate::models::{
     merge_pairs_from_lines, Bpe, BpeError, DecodeError, EncodeError, Model, WordPiece,
 };
-use crate::normalizer::{BertNormalizer, BertNormalizerOptions, Normalizer};
+use crate::normalizer::{BertNormalizer, BertNormalizerOptions, NormalizeError, Normalizer};
 use crate::pre_tokenizers::{
     BertPreTokenizer, ByteLevelPreTokenizer, PreTokenizeError, PreTokenizer,
 };
@@ -436,7 +436,7 @@ impl Tokenizer {
         let (normalized, offset_map) = match &self.normalizer {
             None => (text.to_string(), None),
             Some(normalizer) => {
-                let (normalized_text, offsets) = normalizer.normalize(text);
+                let (normalized_text, offsets) = normalizer.normalize(text)?;
                 (normalized_text, Some(offsets))
             }
         };
@@ -662,6 +662,8 @@ impl Tokenizer {
 /// Error type returned when tokenizing a string.
 #[derive(Clone, Debug)]
 pub enum TokenizerError {
+    NormalizeError(NormalizeError),
+
     /// An error occurred while performing pre-tokenization to split the input.
     PreTokenizeError(PreTokenizeError),
 
@@ -675,10 +677,17 @@ pub enum TokenizerError {
 impl fmt::Display for TokenizerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NormalizeError(err) => write!(f, "normalization error: {}", err),
             Self::PreTokenizeError(err) => write!(f, "pretokenization error: {}", err),
             Self::EncodeError(err) => write!(f, "encoding with model failed: {}", err),
             Self::DecodeError(err) => write!(f, "decoding failed: {}", err),
         }
+    }
+}
+
+impl From<NormalizeError> for TokenizerError {
+    fn from(err: NormalizeError) -> Self {
+        TokenizerError::NormalizeError(err)
     }
 }
 
@@ -691,6 +700,7 @@ impl From<EncodeError> for TokenizerError {
 impl Error for TokenizerError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::NormalizeError(e) => Some(e),
             Self::PreTokenizeError(e) => Some(e),
             Self::EncodeError(e) => Some(e),
             Self::DecodeError(e) => Some(e),

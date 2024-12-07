@@ -1,5 +1,8 @@
 //! Tools for performing string normalization prior to tokenization.
 
+use std::error::Error;
+use std::fmt;
+
 use unicode_categories::UnicodeCategories;
 use unicode_normalization::char::decompose_canonical;
 
@@ -60,6 +63,19 @@ impl CharNormalizer {
     }
 }
 
+/// Errors occuring while normalizing text during the first phase of
+/// tokenization.
+#[derive(Clone, Debug)]
+pub enum NormalizeError {}
+
+impl fmt::Display for NormalizeError {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Ok(())
+    }
+}
+
+impl Error for NormalizeError {}
+
 /// A normalizer applies normalization such as Unicode normalization and
 /// lower-casing to strings.
 ///
@@ -73,7 +89,7 @@ pub trait Normalizer: std::fmt::Debug {
     /// Returns a tuple of `(normalized_string, offset_map)` where `offset_map`
     /// is a mapping from byte offsets in the normalized string to corresponding
     /// offsets in the original string.
-    fn normalize(&self, text: &str) -> (String, Vec<usize>);
+    fn normalize(&self, text: &str) -> Result<(String, Vec<usize>), NormalizeError>;
 }
 
 /// A [`Normalizer`] that implements normalization used by BERT and BERT-derived
@@ -110,10 +126,10 @@ impl BertNormalizer {
 }
 
 impl Normalizer for BertNormalizer {
-    fn normalize(&self, text: &str) -> (String, Vec<usize>) {
+    fn normalize(&self, text: &str) -> Result<(String, Vec<usize>), NormalizeError> {
         if self.is_noop() {
             let offsets = (0..text.len()).collect();
-            return (text.to_string(), offsets);
+            return Ok((text.to_string(), offsets));
         }
 
         let mut normalized = String::with_capacity(text.len());
@@ -139,7 +155,7 @@ impl Normalizer for BertNormalizer {
             }
         }
 
-        (normalized, offsets)
+        Ok((normalized, offsets))
     }
 }
 
@@ -156,7 +172,7 @@ mod tests {
             "lowercase",
         ];
         for input in inputs {
-            let (normalized, offsets) = normalizer.normalize(input);
+            let (normalized, offsets) = normalizer.normalize(input).unwrap();
             assert_eq!(normalized, input);
             assert_eq!(offsets, (0..input.len()).collect::<Vec<_>>());
         }
@@ -201,7 +217,7 @@ mod tests {
             expected_offsets,
         } in cases
         {
-            let (normalized, offsets) = normalizer.normalize(input);
+            let (normalized, offsets) = normalizer.normalize(input).unwrap();
             assert_eq!(normalized, expected);
             assert_eq!(offsets, expected_offsets);
         }
@@ -250,7 +266,7 @@ mod tests {
                 ..Default::default()
             });
 
-            let (normalized, offsets) = normalizer.normalize(input);
+            let (normalized, offsets) = normalizer.normalize(input).unwrap();
             assert_eq!(normalized, expected);
             assert_eq!(offsets, expected_offsets);
         }
