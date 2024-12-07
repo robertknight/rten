@@ -7,7 +7,7 @@ use rten::Model;
 use rten_generate::metrics::Metrics;
 use rten_generate::sampler::TopKSampler;
 use rten_generate::{Generator, GeneratorUtils};
-use rten_text::tokenizers::Tokenizer;
+use rten_text::Tokenizer;
 
 struct Args {
     model: String,

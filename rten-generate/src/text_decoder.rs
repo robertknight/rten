@@ -1,7 +1,7 @@
 //! Iterator adapters to decode token IDs into text using `rten-text`.
 
 use rten_text::models::DecodeError;
-use rten_text::tokenizers::{Tokenizer, TokenizerError};
+use rten_text::{Tokenizer, TokenizerError};
 
 use crate::generator::{GeneratorError, GeneratorItem};
 
@@ -75,7 +75,7 @@ mod tests {
 
     use rten_text::models::{Bpe, WordPiece};
     use rten_text::pre_tokenizers::ByteLevelPreTokenizer;
-    use rten_text::tokenizers::{TokenId, Tokenizer};
+    use rten_text::{TokenId, Tokenizer};
 
     use crate::{GeneratorError, GeneratorUtils};
 

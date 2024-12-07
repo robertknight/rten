@@ -9,8 +9,10 @@
 //! [HuggingFace tokenizers](https://github.com/huggingface/tokenizers).
 
 pub mod models;
-pub mod normalizer;
+pub mod normalizers;
 pub mod pre_tokenizers;
-pub mod tokenizers;
+pub mod tokenizer;
 
 mod split;
+
+pub use tokenizer::{TokenId, Tokenizer, TokenizerError};

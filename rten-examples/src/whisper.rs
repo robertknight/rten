@@ -9,7 +9,7 @@ use rten_generate::filter::{token_id_filter, LogitsFilter};
 use rten_generate::{Generator, GeneratorUtils};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
-use rten_text::tokenizers::Tokenizer;
+use rten_text::Tokenizer;
 use serde::Deserialize;
 
 struct Args {

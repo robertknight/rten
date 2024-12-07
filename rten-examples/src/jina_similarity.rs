@@ -5,7 +5,7 @@ use rten::ops::concat;
 use rten::{FloatOperators, InputOrOutput, Model, NodeId, Operators, TensorPool};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
-use rten_text::tokenizers::{EncodeOptions, Tokenizer};
+use rten_text::tokenizer::{EncodeOptions, Tokenizer};
 
 struct Args {
     model: String,

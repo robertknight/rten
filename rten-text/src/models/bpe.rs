@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::{Debug, Display};
 
 use super::{DecodeError, EncodeError, Model};
-use crate::tokenizers::TokenId;
+use crate::tokenizer::TokenId;
 
 /// Errors that can occur when building a [`Bpe`] tokenizer or encoding or
 /// decoding text using it.
@@ -547,7 +547,7 @@ mod tests {
 
     use super::{merge_pairs_from_lines, Bpe, EncodedBytes};
     use crate::pre_tokenizers::ByteLevelPreTokenizer;
-    use crate::tokenizers::{TokenId, Tokenizer};
+    use crate::tokenizer::{TokenId, Tokenizer};
 
     // The first ~25 lines of the merge list from GPT 2.
     const MINI_GPT2: &str = "

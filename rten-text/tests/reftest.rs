@@ -5,9 +5,9 @@ use std::io;
 use std::path::PathBuf;
 
 use rten_text::models::{merge_pairs_from_lines, Bpe, WordPiece};
-use rten_text::normalizer::{BertNormalizer, BertNormalizerOptions};
+use rten_text::normalizers::{BertNormalizer, BertNormalizerOptions};
 use rten_text::pre_tokenizers::{BertPreTokenizer, ByteLevelPreTokenizer};
-use rten_text::tokenizers::{TokenId, Tokenizer, TokenizerOptions};
+use rten_text::tokenizer::{TokenId, Tokenizer, TokenizerOptions};
 use serde::Deserialize;
 
 /// Load a vocabulary from a text file with one token per line (ie. the
