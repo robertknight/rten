@@ -89,14 +89,12 @@ pub trait Model {
     /// See [`get_token_str`](Self::get_token_str) for notes on what the
     /// "canonical string" is.
     fn get_tokens(&self, ids: &[TokenId]) -> Result<Vec<String>, DecodeError> {
-        let mut tokens = Vec::with_capacity(ids.len());
-        for &id in ids {
-            let token = self
-                .get_token_str(id)
-                .ok_or(DecodeError::InvalidTokenId(id))?;
-            tokens.push(token);
-        }
-        Ok(tokens)
+        ids.iter()
+            .map(|&id| {
+                self.get_token_str(id)
+                    .ok_or(DecodeError::InvalidTokenId(id))
+            })
+            .collect()
     }
 
     /// Encode a string into a sequence of token IDs with source offsets.
