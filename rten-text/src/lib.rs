@@ -14,3 +14,5 @@ pub mod pre_tokenizers;
 pub mod tokenizer;
 
 mod split;
+
+pub use tokenizer::{TokenId, Tokenizer, TokenizerError};

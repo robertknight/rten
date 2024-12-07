@@ -7,7 +7,7 @@ use std::io::prelude::*;
 use rten::Model;
 use rten_generate::sampler::TopKSampler;
 use rten_generate::{Generator, GeneratorUtils};
-use rten_text::tokenizer::{Tokenizer, TokenizerError};
+use rten_text::{Tokenizer, TokenizerError};
 
 struct Args {
     model: String,

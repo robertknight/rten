@@ -9,7 +9,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
 #[cfg(feature = "text-decoder")]
-use rten_text::tokenizer::{Tokenizer, TokenizerError};
+use rten_text::{Tokenizer, TokenizerError};
 
 use crate::filter::LogitsFilter;
 use crate::metrics::Metrics;
