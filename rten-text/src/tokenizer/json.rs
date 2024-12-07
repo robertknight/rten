@@ -25,6 +25,8 @@ pub(crate) enum Normalizer {
     Bert(BertNormalizer),
     #[serde(rename = "NFC")]
     Nfc,
+    #[serde(rename = "NFKC")]
+    Nfkc,
 }
 
 pub mod pre_tokenizers {

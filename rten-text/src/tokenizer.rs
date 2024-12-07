@@ -288,10 +288,12 @@ impl Tokenizer {
                 }
 
                 // Dummy implementation of NFC normalization.
-                json::Normalizer::Nfc => Box::new(BertNormalizer::new(BertNormalizerOptions {
-                    lowercase: false,
-                    strip_accents: false,
-                })),
+                json::Normalizer::Nfc | json::Normalizer::Nfkc => {
+                    Box::new(BertNormalizer::new(BertNormalizerOptions {
+                        lowercase: false,
+                        strip_accents: false,
+                    }))
+                }
             };
             normalizer
         });
