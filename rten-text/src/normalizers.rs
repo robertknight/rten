@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::fmt;
 
+use fancy_regex::Regex;
 use unicode_categories::UnicodeCategories;
 use unicode_normalization::char::{compose, decompose_canonical, decompose_compatible};
 
@@ -66,15 +67,31 @@ impl CharNormalizer {
 /// Errors occuring while normalizing text during the first phase of
 /// tokenization.
 #[derive(Clone, Debug)]
-pub enum NormalizeError {}
+pub enum NormalizeError {
+    RegexError(Box<fancy_regex::Error>),
+}
 
 impl fmt::Display for NormalizeError {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Ok(())
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RegexError(err) => write!(f, "regex failed {}", err),
+        }
     }
 }
 
-impl Error for NormalizeError {}
+impl Error for NormalizeError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::RegexError(err) => Some(err),
+        }
+    }
+}
+
+impl From<fancy_regex::Error> for NormalizeError {
+    fn from(val: fancy_regex::Error) -> Self {
+        Self::RegexError(Box::new(val))
+    }
+}
 
 /// A normalizer applies normalization such as Unicode normalization and
 /// lower-casing to strings.
@@ -153,6 +170,82 @@ impl Normalizer for Bert {
                     offsets.push(offset);
                 }
             }
+        }
+
+        Ok((normalized, offsets))
+    }
+}
+
+/// Replaces occurrences of a pattern with a given string.
+#[derive(Clone, Debug)]
+pub struct Replace {
+    regex: Regex,
+    content: String,
+}
+
+impl Replace {
+    /// Replaces occurrences of `pattern` with `content`.
+    ///
+    /// `pattern` is a regex pattern. See the
+    /// [fancy-regex](https://docs.rs/fancy-regex/) docs for supported syntax.
+    pub fn new(pattern: &str, content: String) -> Result<Replace, NormalizeError> {
+        Ok(Replace {
+            regex: Regex::new(pattern)?,
+            content,
+        })
+    }
+}
+
+impl Normalizer for Replace {
+    fn normalize(&self, text: &str) -> Result<(String, Vec<usize>), NormalizeError> {
+        let mut normalized = String::with_capacity(text.len());
+        let mut offsets = Vec::with_capacity(text.len());
+
+        let mut last_match_end = 0;
+        for match_ in self.regex.find_iter(text) {
+            let match_ = match_?;
+
+            let before_match = &text[last_match_end..match_.range().start];
+            normalized.push_str(before_match);
+            offsets.extend(last_match_end..match_.range().start);
+
+            normalized.push_str(&self.content);
+            offsets.extend(std::iter::repeat(match_.range().start).take(self.content.len()));
+
+            last_match_end = match_.range().end;
+        }
+
+        normalized.push_str(&text[last_match_end..]);
+        offsets.extend(last_match_end..text.len());
+
+        Ok((normalized, offsets))
+    }
+}
+
+/// Run a series of normalizers in sequence.
+#[derive(Debug)]
+pub struct Sequence {
+    normalizers: Vec<Box<dyn Normalizer>>,
+}
+
+impl Sequence {
+    pub fn from_vec(normalizers: Vec<Box<dyn Normalizer>>) -> Self {
+        Sequence { normalizers }
+    }
+}
+
+impl Normalizer for Sequence {
+    fn normalize(&self, text: &str) -> Result<(String, Vec<usize>), NormalizeError> {
+        let mut normalized = text.to_string();
+        let mut offsets: Vec<usize> = (0..text.len()).collect();
+
+        for normalizer in &self.normalizers {
+            let (next_normalized, mut next_offsets) = normalizer.normalize(&normalized)?;
+            for offset in next_offsets.iter_mut() {
+                *offset = offsets[*offset];
+            }
+            normalized = next_normalized;
+            offsets = next_offsets;
         }
 
         Ok((normalized, offsets))
@@ -263,10 +356,10 @@ impl Normalizer for Unicode {
 
 #[cfg(test)]
 mod tests {
-    use super::{Bert, BertOptions, Normalizer, Unicode};
+    use super::{Bert, BertOptions, Normalizer, Replace, Sequence, Unicode};
 
     #[test]
-    fn test_bert_normalizer_noop() {
+    fn test_bert_noop() {
         let normalizer = Bert::new(BertOptions::default());
         let inputs = [
             "Hello world!", // Mixed case
@@ -281,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bert_normalizer_lowercase() {
+    fn test_bert_lowercase() {
         let normalizer = Bert::new(BertOptions {
             lowercase: true,
             ..Default::default()
@@ -326,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bert_normalizer_strip_accepts() {
+    fn test_bert_strip_accepts() {
         struct Case<'a> {
             input: &'a str,
             lowercase: bool,
@@ -369,6 +462,133 @@ mod tests {
             });
 
             let (normalized, offsets) = normalizer.normalize(input).unwrap();
+            assert_eq!(normalized, expected);
+            assert_eq!(offsets, expected_offsets);
+        }
+    }
+
+    #[test]
+    fn test_replace() {
+        struct Case<'a> {
+            input: &'a str,
+            pattern: &'a str,
+            content: &'a str,
+            expected: &'a str,
+            expected_offsets: Vec<usize>,
+        }
+
+        let cases = [
+            // No-op replacement
+            Case {
+                input: "nothing to do here",
+                pattern: "does-not-match",
+                content: "replacement",
+                expected: "nothing to do here",
+                expected_offsets: (0.."nothing to do here".len()).collect(),
+            },
+            // Whitespace simplification
+            Case {
+                input: "foo  bar  baz",
+                pattern: r"\s+",
+                content: " ",
+                expected: "foo bar baz",
+                expected_offsets: [0, 1, 2, 3, 5, 6, 7, 8, 10, 11, 12].into(),
+            },
+            // Pattern with overlapping matches
+            Case {
+                input: "foo   bar   baz",
+                pattern: r"  ",
+                content: " ",
+                expected: "foo  bar  baz",
+                expected_offsets: [0, 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14].into(),
+            },
+        ];
+
+        for Case {
+            input,
+            pattern,
+            content,
+            expected,
+            expected_offsets,
+        } in cases
+        {
+            let normalizer = Replace::new(pattern, content.to_string()).unwrap();
+            let (normalized, offsets) = normalizer.normalize(input).unwrap();
+            assert_eq!(offsets.len(), normalized.len());
+            assert_eq!(normalized, expected);
+            assert_eq!(offsets, expected_offsets);
+        }
+    }
+
+    fn lowercase_normalizer() -> Box<dyn Normalizer> {
+        Box::new(Bert::new(BertOptions {
+            lowercase: true,
+            strip_accents: false,
+        }))
+    }
+
+    fn nfc_normalizer() -> Box<dyn Normalizer> {
+        Box::new(Unicode::Nfc)
+    }
+
+    fn replace_normalizer(pattern: &str, content: &str) -> Box<dyn Normalizer> {
+        Box::new(Replace::new(pattern, content.to_string()).unwrap())
+    }
+
+    #[test]
+    fn test_sequence() {
+        struct Case<'a> {
+            input: &'a str,
+            normalizers: Vec<Box<dyn Normalizer>>,
+            expected: &'a str,
+            expected_offsets: Vec<usize>,
+        }
+
+        let cases = [
+            // NFC + Lowercase + whitespace simplification.
+            //
+            // This is the sequence used by CLIP.
+            Case {
+                input: "FOO  BAR  BAZ",
+                normalizers: [
+                    nfc_normalizer(),
+                    lowercase_normalizer(),
+                    replace_normalizer(r"\s+", " "),
+                ]
+                .into(),
+                expected: "foo bar baz",
+                expected_offsets: [0, 1, 2, 3, 5, 6, 7, 8, 10, 11, 12].into(),
+            },
+            // Multiple normalizers that modify offsets.
+            Case {
+                input: "FOO BAR BAZ",
+                normalizers: [
+                    replace_normalizer(" ", "--"),
+                    replace_normalizer("--", "_"),
+                    lowercase_normalizer(),
+                ]
+                .into(),
+                expected: "foo_bar_baz",
+                expected_offsets: (0.."foo bar baz".len()).collect(),
+            },
+            // Empty sequence
+            Case {
+                input: "foo bar baz",
+                normalizers: Vec::new(),
+                expected: "foo bar baz",
+                expected_offsets: (0.."foo bar baz".len()).collect(),
+            },
+        ];
+
+        for Case {
+            input,
+            normalizers,
+            expected,
+            expected_offsets,
+        } in cases
+        {
+            let seq = Sequence::from_vec(normalizers);
+            let (normalized, offsets) = seq.normalize(input).unwrap();
             assert_eq!(normalized, expected);
             assert_eq!(offsets, expected_offsets);
         }
