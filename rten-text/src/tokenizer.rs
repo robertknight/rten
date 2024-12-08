@@ -286,14 +286,10 @@ impl Tokenizer {
                         strip_accents: bert_norm.strip_accents.unwrap_or(bert_norm.lowercase),
                     }))
                 }
-
-                // Dummy implementation of NFC normalization.
-                json::Normalizer::Nfc | json::Normalizer::Nfkc => {
-                    Box::new(normalizers::Bert::new(normalizers::BertOptions {
-                        lowercase: false,
-                        strip_accents: false,
-                    }))
-                }
+                json::Normalizer::Nfc => Box::new(normalizers::Unicode::Nfc),
+                json::Normalizer::Nfd => Box::new(normalizers::Unicode::Nfd),
+                json::Normalizer::Nfkc => Box::new(normalizers::Unicode::Nfkc),
+                json::Normalizer::Nfkd => Box::new(normalizers::Unicode::Nfkd),
             };
             normalizer
         });
