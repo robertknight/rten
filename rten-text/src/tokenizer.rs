@@ -170,7 +170,9 @@ pub enum FromJsonError {
     IoError(std::io::Error),
     /// There was an error decoding the JSON data.
     JsonError(serde_json::Error),
-    /// There was an error instantiating the pre-tokenizer.
+    /// Could not instantiate a normalizer.
+    NormalizerError(NormalizeError),
+    /// Could not instantiate a pre-tokenizer.
     PreTokenizerError(PreTokenizeError),
     /// There was an error loading a BPE tokenizer.
     BpeError(BpeError),
@@ -183,10 +185,17 @@ impl fmt::Display for FromJsonError {
         match self {
             Self::IoError(err) => fmt::Display::fmt(err, f),
             Self::JsonError(err) => write!(f, "JSON error {}", err),
+            Self::NormalizerError(err) => write!(f, "failed to construct normalizer: {}", err),
             Self::PreTokenizerError(err) => write!(f, "failed to construct pre-tokenizer: {}", err),
             Self::BpeError(err) => write!(f, "BPE tokenizer error: {}", err),
             Self::UnsupportedModel => write!(f, "unsupported model type"),
         }
+    }
+}
+
+impl From<NormalizeError> for FromJsonError {
+    fn from(val: NormalizeError) -> Self {
+        FromJsonError::NormalizerError(val)
     }
 }
 
@@ -201,6 +210,7 @@ impl Error for FromJsonError {
         match self {
             Self::IoError(err) => Some(err),
             Self::JsonError(err) => Some(err),
+            Self::NormalizerError(err) => Some(err),
             Self::PreTokenizerError(err) => Some(err),
             Self::BpeError(err) => Some(err),
             Self::UnsupportedModel => None,
@@ -278,21 +288,51 @@ impl Tokenizer {
     }
 
     fn from_parsed_json(json: json::TokenizerJson) -> Result<Tokenizer, FromJsonError> {
-        let normalizer: Option<Box<dyn Normalizer>> = json.normalizer.map(|normalizer| {
-            let normalizer: Box<dyn Normalizer> = match normalizer {
+        fn regex_pattern(pattern: &json::Pattern) -> Cow<'_, str> {
+            match pattern {
+                json::Pattern::Regex(pat) => Cow::Borrowed(pat.as_str()),
+                json::Pattern::String(delim) => fancy_regex::escape(delim),
+            }
+        }
+
+        fn create_normalizer(
+            config: json::Normalizer,
+        ) -> Result<Box<dyn Normalizer>, FromJsonError> {
+            let normalizer: Box<dyn Normalizer> = match config {
                 json::Normalizer::Bert(bert_norm) => {
                     Box::new(normalizers::Bert::new(normalizers::BertOptions {
                         lowercase: bert_norm.lowercase,
                         strip_accents: bert_norm.strip_accents.unwrap_or(bert_norm.lowercase),
                     }))
                 }
+                json::Normalizer::Lowercase => {
+                    Box::new(normalizers::Bert::new(normalizers::BertOptions {
+                        lowercase: true,
+                        strip_accents: false,
+                    }))
+                }
                 json::Normalizer::Nfc => Box::new(normalizers::Unicode::Nfc),
                 json::Normalizer::Nfd => Box::new(normalizers::Unicode::Nfd),
                 json::Normalizer::Nfkc => Box::new(normalizers::Unicode::Nfkc),
                 json::Normalizer::Nfkd => Box::new(normalizers::Unicode::Nfkd),
+                json::Normalizer::Replace(replace) => {
+                    let pattern = regex_pattern(&replace.pattern);
+                    Box::new(normalizers::Replace::new(&pattern, replace.content)?)
+                }
+                json::Normalizer::Sequence(seq) => {
+                    let normalizers = seq
+                        .normalizers
+                        .into_iter()
+                        .map(create_normalizer)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Box::new(normalizers::Sequence::from_vec(normalizers))
+                }
             };
-            normalizer
-        });
+            Ok(normalizer)
+        }
+
+        let normalizer: Option<Box<dyn Normalizer>> =
+            json.normalizer.map(create_normalizer).transpose()?;
 
         fn create_pre_tokenizer(
             config: json::PreTokenizer,
@@ -323,15 +363,7 @@ impl Tokenizer {
                     Box::new(pre_tokenizers::Sequence::from_vec(pre_tokenizers))
                 }
                 json::PreTokenizer::Split(split) => {
-                    let pattern = match &split.pattern {
-                        json::pre_tokenizers::SplitPattern::Regex(pat) => {
-                            Cow::Borrowed(pat.as_str())
-                        }
-                        json::pre_tokenizers::SplitPattern::String(delim) => {
-                            fancy_regex::escape(delim)
-                        }
-                    };
-
+                    let pattern = regex_pattern(&split.pattern);
                     let opts = pre_tokenizers::SplitOptions {
                         pattern: &pattern,
                         invert: split.invert,

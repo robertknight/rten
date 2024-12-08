@@ -13,16 +13,40 @@ pub(crate) struct AddedToken {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct BertNormalizer {
-    pub lowercase: bool,
-    pub strip_accents: Option<bool>,
+pub(crate) enum Pattern {
+    Regex(String),
+    String(String),
+}
+
+pub mod normalizers {
+    use serde::Deserialize;
+
+    use super::{Normalizer, Pattern};
+
+    #[derive(Deserialize)]
+    pub(crate) struct Bert {
+        pub lowercase: bool,
+        pub strip_accents: Option<bool>,
+    }
+
+    #[derive(Deserialize)]
+    pub(crate) struct Replace {
+        pub pattern: Pattern,
+        pub content: String,
+    }
+
+    #[derive(Deserialize)]
+    pub(crate) struct Sequence {
+        pub normalizers: Vec<Normalizer>,
+    }
 }
 
 #[derive(Deserialize)]
 #[serde(tag = "type")]
 pub(crate) enum Normalizer {
     #[serde(rename = "BertNormalizer")]
-    Bert(BertNormalizer),
+    Bert(normalizers::Bert),
+    Lowercase,
     #[serde(rename = "NFC")]
     Nfc,
     #[serde(rename = "NFD")]
@@ -31,11 +55,14 @@ pub(crate) enum Normalizer {
     Nfkc,
     #[serde(rename = "NFKD")]
     Nfkd,
+    Replace(normalizers::Replace),
+    Sequence(normalizers::Sequence),
 }
 
 pub mod pre_tokenizers {
-    use super::PreTokenizer;
     use serde::Deserialize;
+
+    use super::{Pattern, PreTokenizer};
 
     #[derive(Deserialize)]
     pub(crate) struct ByteLevel {
@@ -53,12 +80,6 @@ pub mod pre_tokenizers {
     }
 
     #[derive(Deserialize)]
-    pub(crate) enum SplitPattern {
-        Regex(String),
-        String(String),
-    }
-
-    #[derive(Deserialize)]
     pub(crate) enum SplitDelimiter {
         Removed,
         Isolated,
@@ -66,7 +87,7 @@ pub mod pre_tokenizers {
 
     #[derive(Deserialize)]
     pub(crate) struct Split {
-        pub pattern: SplitPattern,
+        pub pattern: Pattern,
         pub behavior: SplitDelimiter,
         pub invert: bool,
     }

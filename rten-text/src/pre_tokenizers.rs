@@ -87,8 +87,7 @@ impl PreTokenizer for Digits {
 pub const GPT2_REGEX: &str =
     r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
 
-/// Specifies how a [`SplitPreTokenizer`] should handle delimiters between
-/// chunks.
+/// Specifies how [`Split`] should handle delimiters between chunks.
 #[derive(Copy, Clone, Default, PartialEq)]
 pub enum SplitDelimiterBehavior {
     /// Exclude the delimiter from the output.
