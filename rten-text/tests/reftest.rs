@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use rten_text::models::{merge_pairs_from_lines, Bpe, WordPiece};
 use rten_text::normalizers::{BertNormalizer, BertNormalizerOptions};
-use rten_text::pre_tokenizers::{BertPreTokenizer, ByteLevelPreTokenizer};
+use rten_text::pre_tokenizers::{Bert, Split};
 use rten_text::tokenizer::{TokenId, Tokenizer, TokenizerOptions};
 use serde::Deserialize;
 
@@ -88,8 +88,8 @@ fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
         ReferenceTokenization::from_file("Rust_(programming_language)-bert-base-cased.json")?;
 
     let model = WordPiece::from_vocab(vocab, Default::default());
-    let tokenizer = Tokenizer::new(model, wordpiece_tokenizer_opts())
-        .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
+    let tokenizer =
+        Tokenizer::new(model, wordpiece_tokenizer_opts()).with_pre_tokenizer(Box::new(Bert::new()));
     let encoded = tokenizer.encode(text.as_str(), None)?;
 
     compare_tokens(encoded.token_ids(), &expected.token_ids)?;
@@ -132,7 +132,7 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
     let model = WordPiece::from_vocab(vocab, Default::default());
     let tokenizer = Tokenizer::new(model, wordpiece_tokenizer_opts())
         .with_normalizer(Box::new(normalizer))
-        .with_pre_tokenizer(Box::new(BertPreTokenizer::new()));
+        .with_pre_tokenizer(Box::new(Bert::new()));
 
     for Case { text, reference } in cases {
         let text = read_test_file(text)?;
@@ -162,8 +162,8 @@ fn test_bpe_gpt2() -> Result<(), Box<dyn Error>> {
     let merge_lines: Vec<_> = merges.lines().collect();
     let merge_pairs = merge_pairs_from_lines(&merge_lines);
     let model = Bpe::new(&merge_pairs, None, Default::default(), None)?;
-    let tokenizer = Tokenizer::new(model, Default::default())
-        .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()));
+    let tokenizer =
+        Tokenizer::new(model, Default::default()).with_pre_tokenizer(Box::new(Split::gpt2()));
 
     // Create tokenizer from a `tokenizers.json` file.
     let tokenizer_path = test_file_path("models/gpt2/tokenizer.json");

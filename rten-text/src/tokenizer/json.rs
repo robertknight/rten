@@ -27,13 +27,58 @@ pub(crate) enum Normalizer {
     Nfc,
 }
 
+pub mod pre_tokenizers {
+    use super::PreTokenizer;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    pub(crate) struct ByteLevel {
+        pub use_regex: bool,
+    }
+
+    #[derive(Deserialize)]
+    pub(crate) struct Digits {
+        pub individual_digits: bool,
+    }
+
+    #[derive(Deserialize)]
+    pub(crate) struct Sequence {
+        pub pretokenizers: Vec<PreTokenizer>,
+    }
+
+    #[derive(Deserialize)]
+    pub(crate) enum SplitPattern {
+        Regex(String),
+        String(String),
+    }
+
+    #[derive(Deserialize)]
+    pub(crate) enum SplitDelimiter {
+        Removed,
+        Isolated,
+    }
+
+    #[derive(Deserialize)]
+    pub(crate) struct Split {
+        pub pattern: SplitPattern,
+        pub behavior: SplitDelimiter,
+        pub invert: bool,
+    }
+}
+
+/// Configuration for pre-tokenization.
+///
+/// See https://huggingface.co/docs/tokenizers/en/api/pre-tokenizers.
 #[derive(Deserialize)]
 #[serde(tag = "type")]
 pub(crate) enum PreTokenizer {
     #[serde(rename = "BertPreTokenizer")]
     Bert,
     #[serde(rename = "ByteLevel")]
-    ByteLevel,
+    ByteLevel(pre_tokenizers::ByteLevel),
+    Digits(pre_tokenizers::Digits),
+    Sequence(pre_tokenizers::Sequence),
+    Split(pre_tokenizers::Split),
 }
 
 #[derive(Deserialize)]

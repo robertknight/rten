@@ -546,7 +546,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::{merge_pairs_from_lines, Bpe, EncodedBytes};
-    use crate::pre_tokenizers::ByteLevelPreTokenizer;
+    use crate::pre_tokenizers::Split;
     use crate::tokenizer::{TokenId, Tokenizer};
 
     // The first ~25 lines of the merge list from GPT 2.
@@ -681,7 +681,7 @@ ba r",
             let merge_pairs = merge_pairs_from_lines(&merges);
             let model = Bpe::new(&merge_pairs, vocab, HashMap::new(), end_of_word_suffix).unwrap();
             let tokenizer = Tokenizer::new(model, Default::default())
-                .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()));
+                .with_pre_tokenizer(Box::new(Split::gpt2()));
             let encoded = tokenizer.encode(text, None).unwrap();
             assert_eq!(
                 tokenizer.model().get_tokens(encoded.token_ids()).unwrap(),
@@ -719,8 +719,8 @@ ba r",
         let merges: Vec<&str> = MINI_GPT2.lines().collect();
         let merge_pairs = merge_pairs_from_lines(&merges);
         let model = Bpe::new(&merge_pairs, None, added_tokens(), None).unwrap();
-        let tokenizer = Tokenizer::new(model, Default::default())
-            .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()));
+        let tokenizer =
+            Tokenizer::new(model, Default::default()).with_pre_tokenizer(Box::new(Split::gpt2()));
 
         for Case { input, encoded_str } in cases {
             let tok_id = tokenizer.model().get_token_id(input).unwrap();
@@ -778,7 +778,7 @@ ba r",
             let merge_pairs = merge_pairs_from_lines(&merges);
             let model = Bpe::new(&merge_pairs, vocab, added_tokens(), None).unwrap();
             let tokenizer = Tokenizer::new(model, Default::default())
-                .with_pre_tokenizer(Box::new(ByteLevelPreTokenizer::gpt2()));
+                .with_pre_tokenizer(Box::new(Split::gpt2()));
 
             let encoded = tokenizer.encode(text, None).unwrap();
             let mut token_ids = encoded.token_ids().to_vec();
