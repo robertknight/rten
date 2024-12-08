@@ -21,10 +21,10 @@ use std::path::Path;
 use crate::models::{
     merge_pairs_from_lines, Bpe, BpeError, DecodeError, EncodeError, Model, WordPiece,
 };
-use crate::normalizers::{BertNormalizer, BertNormalizerOptions, NormalizeError, Normalizer};
-use crate::pre_tokenizers;
+use crate::normalizers::{NormalizeError, Normalizer};
 use crate::pre_tokenizers::{PreTokenizeError, PreTokenizer};
 use crate::split::SliceExt;
+use crate::{normalizers, pre_tokenizers};
 
 mod json;
 
@@ -281,7 +281,7 @@ impl Tokenizer {
         let normalizer: Option<Box<dyn Normalizer>> = json.normalizer.map(|normalizer| {
             let normalizer: Box<dyn Normalizer> = match normalizer {
                 json::Normalizer::Bert(bert_norm) => {
-                    Box::new(BertNormalizer::new(BertNormalizerOptions {
+                    Box::new(normalizers::Bert::new(normalizers::BertOptions {
                         lowercase: bert_norm.lowercase,
                         strip_accents: bert_norm.strip_accents.unwrap_or(bert_norm.lowercase),
                     }))
@@ -289,7 +289,7 @@ impl Tokenizer {
 
                 // Dummy implementation of NFC normalization.
                 json::Normalizer::Nfc | json::Normalizer::Nfkc => {
-                    Box::new(BertNormalizer::new(BertNormalizerOptions {
+                    Box::new(normalizers::Bert::new(normalizers::BertOptions {
                         lowercase: false,
                         strip_accents: false,
                     }))
@@ -799,8 +799,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{EncodeOptions, EncoderInput, TokenId, Tokenizer, TokenizerOptions, WordPiece};
-    use crate::normalizers::{BertNormalizer, BertNormalizerOptions, Normalizer};
-    use crate::pre_tokenizers::Bert;
+    use crate::normalizers::Normalizer;
+    use crate::{normalizers, pre_tokenizers};
     use serde::Deserialize;
 
     fn make_wordpiece(vocab: &[&str]) -> WordPiece {
@@ -813,7 +813,7 @@ mod tests {
     }
 
     fn lowercase_normalizer() -> Box<dyn Normalizer> {
-        Box::new(BertNormalizer::new(BertNormalizerOptions {
+        Box::new(normalizers::Bert::new(normalizers::BertOptions {
             lowercase: true,
             ..Default::default()
         }))
@@ -835,7 +835,7 @@ mod tests {
                 sep_token: Some("[SEP]"),
             },
         )
-        .with_pre_tokenizer(Box::new(Bert::new()));
+        .with_pre_tokenizer(Box::new(pre_tokenizers::Bert::new()));
 
         // Two sequences, no subwords.
         let encoded = tokenizer
@@ -934,7 +934,7 @@ mod tests {
                 sep_token: Some("[SEP]"),
             },
         )
-        .with_pre_tokenizer(Box::new(Bert::new()));
+        .with_pre_tokenizer(Box::new(pre_tokenizers::Bert::new()));
 
         for Case {
             input,
@@ -1063,7 +1063,7 @@ mod tests {
                     sep_token: use_cls_sep.then_some("[SEP]"),
                 },
             )
-            .with_pre_tokenizer(Box::new(Bert::new()));
+            .with_pre_tokenizer(Box::new(pre_tokenizers::Bert::new()));
 
             if lowercase {
                 tokenizer = tokenizer.with_normalizer(lowercase_normalizer());
@@ -1257,7 +1257,7 @@ mod tests {
                     sep_token: use_sep_cls.then_some("[SEP]"),
                 },
             )
-            .with_pre_tokenizer(Box::new(Bert::new()));
+            .with_pre_tokenizer(Box::new(pre_tokenizers::Bert::new()));
 
             if lowercase {
                 tokenizer = tokenizer.with_normalizer(lowercase_normalizer());

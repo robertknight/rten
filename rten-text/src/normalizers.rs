@@ -95,14 +95,14 @@ pub trait Normalizer: std::fmt::Debug {
 /// A [`Normalizer`] that implements normalization used by BERT and BERT-derived
 /// models.
 #[derive(Clone, Debug)]
-pub struct BertNormalizer {
+pub struct Bert {
     lowercase: bool,
     strip_accents: bool,
 }
 
-/// Configuration for a [`BertNormalizer`].
+/// Configuration for a [`Bert`] normalizer.
 #[derive(Clone, Debug, Default)]
-pub struct BertNormalizerOptions {
+pub struct BertOptions {
     /// If true, convert all text to lowercase using [`char::to_lowercase`].
     pub lowercase: bool,
 
@@ -111,9 +111,9 @@ pub struct BertNormalizerOptions {
     pub strip_accents: bool,
 }
 
-impl BertNormalizer {
-    pub fn new(opts: BertNormalizerOptions) -> BertNormalizer {
-        BertNormalizer {
+impl Bert {
+    pub fn new(opts: BertOptions) -> Bert {
+        Bert {
             lowercase: opts.lowercase,
             strip_accents: opts.strip_accents,
         }
@@ -125,7 +125,7 @@ impl BertNormalizer {
     }
 }
 
-impl Normalizer for BertNormalizer {
+impl Normalizer for Bert {
     fn normalize(&self, text: &str) -> Result<(String, Vec<usize>), NormalizeError> {
         if self.is_noop() {
             let offsets = (0..text.len()).collect();
@@ -161,11 +161,11 @@ impl Normalizer for BertNormalizer {
 
 #[cfg(test)]
 mod tests {
-    use super::{BertNormalizer, BertNormalizerOptions, Normalizer};
+    use super::{Bert, BertOptions, Normalizer};
 
     #[test]
     fn test_bert_normalizer_noop() {
-        let normalizer = BertNormalizer::new(BertNormalizerOptions::default());
+        let normalizer = Bert::new(BertOptions::default());
         let inputs = [
             "Hello world!", // Mixed case
             "Motörhead",    // Accented
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_bert_normalizer_lowercase() {
-        let normalizer = BertNormalizer::new(BertNormalizerOptions {
+        let normalizer = Bert::new(BertOptions {
             lowercase: true,
             ..Default::default()
         });
@@ -260,7 +260,7 @@ mod tests {
             expected_offsets,
         } in cases
         {
-            let normalizer = BertNormalizer::new(BertNormalizerOptions {
+            let normalizer = Bert::new(BertOptions {
                 lowercase,
                 strip_accents: true,
                 ..Default::default()

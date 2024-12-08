@@ -133,9 +133,9 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::models::{WordPiece, WordPieceOptions};
-    use crate::normalizers::{BertNormalizer, BertNormalizerOptions, Normalizer};
-    use crate::pre_tokenizers::Bert;
+    use crate::normalizers::Normalizer;
     use crate::tokenizer::{Tokenizer, TokenizerOptions};
+    use crate::{normalizers, pre_tokenizers};
 
     fn create_tokenizer(
         vocab: &[&str],
@@ -155,7 +155,7 @@ mod tests {
                 sep_token: Some("[SEP]"),
             },
         )
-        .with_pre_tokenizer(Box::new(Bert::new()));
+        .with_pre_tokenizer(Box::new(pre_tokenizers::Bert::new()));
 
         if let Some(normalizer) = normalizer {
             tokenizer = tokenizer.with_normalizer(normalizer);
@@ -262,7 +262,7 @@ mod tests {
             "[CLS]", "[SEP]", "[UNK]", "this", "is", "a", "test", "sequence",
         ];
 
-        let normalizer = BertNormalizer::new(BertNormalizerOptions {
+        let normalizer = normalizers::Bert::new(normalizers::BertOptions {
             lowercase: true,
             ..Default::default()
         });
@@ -316,7 +316,7 @@ mod tests {
             "[CLS]", "[SEP]", "[UNK]", "this", "is", "a", "test", "sequence",
         ];
 
-        let normalizer = BertNormalizer::new(BertNormalizerOptions {
+        let normalizer = normalizers::Bert::new(normalizers::BertOptions {
             lowercase: true,
             ..Default::default()
         });
