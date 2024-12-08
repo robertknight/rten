@@ -720,11 +720,11 @@ def op_node_from_onnx_operator(
             if const_node.data.dtype == np.float32:
                 scalar_type = sg.Scalar.FloatScalar
                 scalar = sg.FloatScalarT()
-                scalar.value = const_node.data.item()
+                scalar.value = const_node.data.item()  # type:ignore[assignment]
             elif const_node.data.dtype == np.int32:
                 scalar_type = sg.Scalar.IntScalar
                 scalar = sg.IntScalarT()
-                scalar.value = const_node.data.item()
+                scalar.value = const_node.data.item()  # type:ignore[assignment]
             else:
                 raise ValueError(
                     f"Unsupported value type {const_node.data.dtype.name} for ConstantOfShape"
