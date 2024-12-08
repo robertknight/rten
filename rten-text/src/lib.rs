@@ -19,7 +19,7 @@
 //!   This means it is easy to build for WebAssembly and other targets where
 //!   non-Rust dependencies may cause difficulties.
 //! - rten-text is integrated with the
-//! [rten-generate](https://docs.rs/rten-generate/) library which handles
+//!   [rten-generate](https://docs.rs/rten-generate/) library which handles
 //!   running the complete inference loop for auto-regressive transformer
 //!   models. Note that you can use rten-generate's outputs with other tokenizer
 //!   libraries if rten-text is not suitable.
