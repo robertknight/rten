@@ -287,7 +287,7 @@ impl Tokenizer {
         Self::from_parsed_json(tokenizer_json)
     }
 
-    fn from_parsed_json(json: json::TokenizerJson) -> Result<Tokenizer, FromJsonError> {
+    fn from_parsed_json(json: json::Tokenizer) -> Result<Tokenizer, FromJsonError> {
         fn regex_pattern(pattern: &json::Pattern) -> Cow<'_, str> {
             match pattern {
                 json::Pattern::Regex(pat) => Cow::Borrowed(pat.as_str()),
@@ -398,8 +398,8 @@ impl Tokenizer {
                     })
                     .unwrap_or_default();
                 let merges: Vec<(&str, &str)> = match &model.merges {
-                    json::MergeList::Legacy(lines) => merge_pairs_from_lines(lines),
-                    json::MergeList::Tuple(pairs) => pairs
+                    json::models::MergeList::Legacy(lines) => merge_pairs_from_lines(lines),
+                    json::models::MergeList::Tuple(pairs) => pairs
                         .iter()
                         .map(|(a, b)| (a.as_str(), b.as_str()))
                         .collect(),
@@ -1336,7 +1336,7 @@ mod tests {
 
     #[derive(Deserialize)]
     struct TokenizerJsonTest {
-        tokenizer: super::json::TokenizerJson,
+        tokenizer: super::json::Tokenizer,
         cases: Vec<TokenizerJsonCase>,
     }
 
