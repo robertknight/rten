@@ -7,7 +7,7 @@ use std::fmt;
 mod bpe;
 mod wordpiece;
 
-pub use bpe::{merge_pairs_from_lines, patterns, Bpe, BpeError};
+pub use bpe::{merge_pairs_from_lines, Bpe, BpeError};
 pub use wordpiece::{WordPiece, WordPieceOptions};
 
 use crate::tokenizer::TokenId;

@@ -36,7 +36,7 @@ impl Error for BpeError {}
 /// smaller tokens, or a single byte.
 type Rank = u32;
 
-/// A sequence of UTF-8 bytes, encoded as a string of characters.
+/// A sequence of UTF-8 bytes, encoded as a string of printable characters.
 /// [`char_to_byte`] provides the mapping between characters and bytes.
 ///
 /// Unlike a Rust `str`, the sequence of bytes do not necessarily form a
@@ -189,9 +189,9 @@ impl BpeBuilder {
 
     /// Build the BPE merge map that assigns a rank to pairs of tokens.
     ///
-    /// `merges` contains entries of the BPE merge table. Each entry is a
-    /// space-separated pair of tokens. Each token is a sequence of byte values
-    /// encoded using the scheme described in [`char_to_byte`].
+    /// `merges` contains entries of the BPE merge table. Each entry is a pair
+    /// of tokens. Each token is a sequence of byte values encoded using the
+    /// scheme described in [`char_to_byte`].
     fn add_merges(
         &mut self,
         merges: &[(EncodedByteSlice, EncodedByteSlice)],
@@ -220,19 +220,6 @@ impl BpeBuilder {
 
         Ok(())
     }
-}
-
-/// Regex patterns used by popular tokenizer models.
-///
-/// Some models (eg. GPT-2) use a regex to split input text into pieces prior
-/// to applying the trained tokenizer model. This module contains some widely
-/// used patterns.
-pub mod patterns {
-    /// Tokenization regex used by GPT-2.
-    ///
-    /// See <https://github.com/openai/tiktoken/blob/main/tiktoken_ext/openai_public.py>.
-    pub const GPT2: &str =
-        r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
 }
 
 /// Parse a list of space-separated BPE merge entries into pairs of tokens.
@@ -312,11 +299,6 @@ impl Bpe {
     /// pair of strings representing byte sequences. See also
     /// [`merge_pairs_from_lines`] which can be used to extract pairs from
     /// the space-separated format used in eg. `merges.txt` files.
-    ///
-    /// `pattern` is a regex used to split input text into pieces before BPE
-    /// encoding is applied. The supported syntax is that supported by the
-    /// [fancy_regex](https://crates.io/crates/fancy-regex) crate. The
-    /// [patterns] module contains patterns used by popular models.
     ///
     /// `vocab` is a mapping between token strings and IDs. If not provided, the
     /// ID of a token is 256 + the index of the pair in the merge list which
