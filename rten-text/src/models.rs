@@ -7,7 +7,9 @@ use std::fmt;
 mod bpe;
 mod wordpiece;
 
-pub use bpe::{merge_pairs_from_lines, Bpe, BpeError};
+pub use bpe::{
+    char_to_byte, merge_pairs_from_lines, Bpe, BpeError, BpeOptions, EncodedByteSlice, EncodedBytes,
+};
 pub use wordpiece::{WordPiece, WordPieceOptions};
 
 use crate::tokenizer::TokenId;
