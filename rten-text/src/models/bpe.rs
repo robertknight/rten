@@ -36,16 +36,16 @@ impl Error for BpeError {}
 /// smaller tokens, or a single byte.
 type Rank = u32;
 
-/// A sequence of UTF-8 bytes, encoded as a string of characters.
+/// A sequence of UTF-8 bytes, encoded as a string of printable characters.
 /// [`char_to_byte`] provides the mapping between characters and bytes.
 ///
 /// Unlike a Rust `str`, the sequence of bytes do not necessarily form a
 /// complete sequence of Unicode characters. The bytes may end in the middle of
 /// a character.
-type EncodedByteSlice<'a> = &'a str;
+pub type EncodedByteSlice<'a> = &'a str;
 
 /// Like [`EncodedByteSlice`], but owned.
-type EncodedBytes = String;
+pub type EncodedBytes = String;
 
 /// Return true if `c` is considered a printable character.
 ///
@@ -77,12 +77,12 @@ fn byte_to_rank() -> [Rank; 256] {
     ranks
 }
 
-/// Return a mapping between the characters used in the GPT 2 merge list
-/// and vocabulary, and the byte values they represent.
+/// Return a mapping between the printable characters used in the GPT 2 merge
+/// list and vocabulary, and the byte values they represent.
 ///
 /// Based on the `bytes_to_unicode` function in the original GPT-2 encoder -
-/// https://github.com/openai/gpt-2/blob/master/src/encoder.py.
-fn char_to_byte() -> HashMap<char, u8> {
+/// <https://github.com/openai/gpt-2/blob/master/src/encoder.py>.
+pub fn char_to_byte() -> HashMap<char, u8> {
     let mut n = 0;
     (0..=255u8)
         .map(|b| {
@@ -189,9 +189,9 @@ impl BpeBuilder {
 
     /// Build the BPE merge map that assigns a rank to pairs of tokens.
     ///
-    /// `merges` contains entries of the BPE merge table. Each entry is a
-    /// space-separated pair of tokens. Each token is a sequence of byte values
-    /// encoded using the scheme described in [`char_to_byte`].
+    /// `merges` contains entries of the BPE merge table. Each entry is a pair
+    /// of tokens. Each token is a sequence of byte values encoded using the
+    /// scheme described in [`char_to_byte`].
     fn add_merges(
         &mut self,
         merges: &[(EncodedByteSlice, EncodedByteSlice)],
@@ -222,19 +222,6 @@ impl BpeBuilder {
     }
 }
 
-/// Regex patterns used by popular tokenizer models.
-///
-/// Some models (eg. GPT-2) use a regex to split input text into pieces prior
-/// to applying the trained tokenizer model. This module contains some widely
-/// used patterns.
-pub mod patterns {
-    /// Tokenization regex used by GPT-2.
-    ///
-    /// See <https://github.com/openai/tiktoken/blob/main/tiktoken_ext/openai_public.py>.
-    pub const GPT2: &str =
-        r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
-}
-
 /// Parse a list of space-separated BPE merge entries into pairs of tokens.
 ///
 /// Lines that are empty or contain only a `#version` marker are ignored.
@@ -252,6 +239,32 @@ pub fn merge_pairs_from_lines(
             }
         })
         .collect()
+}
+
+/// Configuration for a [`Bpe`] tokenization model.
+#[derive(Default)]
+pub struct BpeOptions<'a> {
+    /// Ordered entries of the merge list. Each entry is a pair of strings
+    /// representing byte sequences. See also [`merge_pairs_from_lines`] which
+    /// can be used to extract pairs from the space-separated format used in eg.
+    /// `merges.txt` files.
+    pub merges: &'a [(EncodedByteSlice<'a>, EncodedByteSlice<'a>)],
+
+    /// Mapping between token strings and IDs. If not provided, the
+    /// ID of a token is 256 + the index of the pair in the merge list which
+    /// form the token string when concatenated. For example, if index 10 in the
+    /// merge list is "foo bar", then the token ID of "foobar" would be 266.
+    /// Token IDs below 256 are reserved for individual bytes.
+    pub vocab: Option<HashMap<EncodedBytes, TokenId>>,
+
+    /// Set of tokens which don't appear in `merges` but do have a mapping in
+    /// `vocab`. These are used for special purposes such as representing the
+    /// end of output.
+    pub added_tokens: HashMap<TokenId, String>,
+
+    /// A string which is implicitly appended to each substring that is
+    /// tokenized, after initial splitting.
+    pub end_of_word_suffix: Option<String>,
 }
 
 /// Byte Pair Encoding tokenizer used by GPT-2 [^1] and subsequently used by
@@ -306,36 +319,15 @@ pub struct Bpe {
 }
 
 impl Bpe {
-    /// Create a new Byte Pair Encoding tokenizer.
-    ///
-    /// `merges` are the ordered entries of the merge list. Each entry is a
-    /// pair of strings representing byte sequences. See also
-    /// [`merge_pairs_from_lines`] which can be used to extract pairs from
-    /// the space-separated format used in eg. `merges.txt` files.
-    ///
-    /// `pattern` is a regex used to split input text into pieces before BPE
-    /// encoding is applied. The supported syntax is that supported by the
-    /// [fancy_regex](https://crates.io/crates/fancy-regex) crate. The
-    /// [patterns] module contains patterns used by popular models.
-    ///
-    /// `vocab` is a mapping between token strings and IDs. If not provided, the
-    /// ID of a token is 256 + the index of the pair in the merge list which
-    /// form the token string when concatenated. For example, if index 10 in the
-    /// merge list is "foo bar", then the token ID of "foobar" would be 266.
-    /// Token IDs below 256 are reserved for individual bytes.
-    ///
-    /// `added_tokens` is a set of tokens which don't appear in `merges` but
-    /// do have a mapping in `vocab`. These are used for special purposes such
-    /// as representing the end of output.
-    ///
-    /// `end_of_word_suffix` is a string which is implicitly appended to each
-    /// substring that is tokenized, after initial splitting.
-    pub fn new(
-        merges: &[(EncodedByteSlice, EncodedByteSlice)],
-        vocab: Option<HashMap<EncodedBytes, TokenId>>,
-        added_tokens: HashMap<TokenId, String>,
-        mut end_of_word_suffix: Option<String>,
-    ) -> Result<Bpe, BpeError> {
+    /// Create a new Byte Pair Encoding tokenizer using the given configuration.
+    pub fn new(config: BpeOptions) -> Result<Bpe, BpeError> {
+        let BpeOptions {
+            merges,
+            vocab,
+            added_tokens,
+            mut end_of_word_suffix,
+        } = config;
+
         // Normalize empty end-of-word suffix to `None`.
         end_of_word_suffix.take_if(|suffix| suffix.is_empty());
 
@@ -545,7 +537,7 @@ impl Model for Bpe {
 mod tests {
     use std::collections::HashMap;
 
-    use super::{merge_pairs_from_lines, Bpe, EncodedBytes};
+    use super::{merge_pairs_from_lines, Bpe, BpeOptions, EncodedBytes};
     use crate::pre_tokenizers::Split;
     use crate::tokenizer::{TokenId, Tokenizer};
 
@@ -679,7 +671,13 @@ ba r",
         {
             let merges: Vec<&str> = merges.lines().collect();
             let merge_pairs = merge_pairs_from_lines(&merges);
-            let model = Bpe::new(&merge_pairs, vocab, HashMap::new(), end_of_word_suffix).unwrap();
+            let bpe_opts = BpeOptions {
+                merges: &merge_pairs,
+                vocab,
+                end_of_word_suffix,
+                ..Default::default()
+            };
+            let model = Bpe::new(bpe_opts).unwrap();
             let tokenizer = Tokenizer::new(model, Default::default())
                 .with_pre_tokenizer(Box::new(Split::gpt2()));
             let encoded = tokenizer.encode(text, None).unwrap();
@@ -718,7 +716,12 @@ ba r",
 
         let merges: Vec<&str> = MINI_GPT2.lines().collect();
         let merge_pairs = merge_pairs_from_lines(&merges);
-        let model = Bpe::new(&merge_pairs, None, added_tokens(), None).unwrap();
+        let bpe_opts = BpeOptions {
+            merges: &merge_pairs,
+            added_tokens: added_tokens(),
+            ..Default::default()
+        };
+        let model = Bpe::new(bpe_opts).unwrap();
         let tokenizer =
             Tokenizer::new(model, Default::default()).with_pre_tokenizer(Box::new(Split::gpt2()));
 
@@ -776,7 +779,13 @@ ba r",
         {
             let merges: Vec<&str> = MINI_GPT2.lines().collect();
             let merge_pairs = merge_pairs_from_lines(&merges);
-            let model = Bpe::new(&merge_pairs, vocab, added_tokens(), None).unwrap();
+            let bpe_opts = BpeOptions {
+                merges: &merge_pairs,
+                vocab,
+                added_tokens: added_tokens(),
+                ..Default::default()
+            };
+            let model = Bpe::new(bpe_opts).unwrap();
             let tokenizer = Tokenizer::new(model, Default::default())
                 .with_pre_tokenizer(Box::new(Split::gpt2()));
 

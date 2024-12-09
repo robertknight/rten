@@ -19,7 +19,7 @@ use std::ops::Range;
 use std::path::Path;
 
 use crate::models::{
-    merge_pairs_from_lines, Bpe, BpeError, DecodeError, EncodeError, Model, WordPiece,
+    merge_pairs_from_lines, Bpe, BpeError, BpeOptions, DecodeError, EncodeError, Model, WordPiece,
 };
 use crate::normalizers::{NormalizeError, Normalizer};
 use crate::pre_tokenizers::{PreTokenizeError, PreTokenizer};
@@ -404,13 +404,13 @@ impl Tokenizer {
                         .map(|(a, b)| (a.as_str(), b.as_str()))
                         .collect(),
                 };
-                let model = Bpe::new(
-                    &merges,
-                    Some(model.vocab),
+                let bpe_opts = BpeOptions {
+                    merges: &merges,
+                    vocab: Some(model.vocab),
                     added_tokens,
-                    model.end_of_word_suffix,
-                )
-                .map_err(FromJsonError::BpeError)?;
+                    end_of_word_suffix: model.end_of_word_suffix,
+                };
+                let model = Bpe::new(bpe_opts).map_err(FromJsonError::BpeError)?;
 
                 let tokenizer = Tokenizer::new(
                     model,

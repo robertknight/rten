@@ -4,7 +4,7 @@ use std::fs::read_to_string;
 use std::io;
 use std::path::PathBuf;
 
-use rten_text::models::{merge_pairs_from_lines, Bpe, WordPiece};
+use rten_text::models::{merge_pairs_from_lines, Bpe, BpeOptions, WordPiece};
 use rten_text::tokenizer::{TokenId, Tokenizer, TokenizerOptions};
 use rten_text::{normalizers, pre_tokenizers};
 use serde::Deserialize;
@@ -160,7 +160,11 @@ fn test_bpe_gpt2() -> Result<(), Box<dyn Error>> {
     let merges = read_test_file("models/gpt2/merges.txt")?;
     let merge_lines: Vec<_> = merges.lines().collect();
     let merge_pairs = merge_pairs_from_lines(&merge_lines);
-    let model = Bpe::new(&merge_pairs, None, Default::default(), None)?;
+    let bpe_opts = BpeOptions {
+        merges: &merge_pairs,
+        ..Default::default()
+    };
+    let model = Bpe::new(bpe_opts)?;
     let tokenizer = Tokenizer::new(model, Default::default())
         .with_pre_tokenizer(Box::new(pre_tokenizers::Split::gpt2()));
 
