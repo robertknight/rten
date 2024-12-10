@@ -37,20 +37,31 @@ pub fn slice_max<T: Copy + MinMax>(xs: &[T]) -> T {
 
 /// Return the sum of a slice of numbers.
 pub fn slice_sum<T: Copy + Default + std::ops::Add<Output = T>>(xs: &[T]) -> T {
+    slice_map_sum(xs, |x| x)
+}
+
+/// Apply `map` to each element in `xs` and sum the results.
+pub fn slice_map_sum<T: Copy + Default + std::ops::Add<Output = T>, M: Fn(T) -> T>(
+    xs: &[T],
+    map: M,
+) -> T {
     const CHUNK_SIZE: usize = 8;
     xs.chunks(CHUNK_SIZE)
         .map(|chunk| {
             if chunk.len() == CHUNK_SIZE {
                 // Writing the code this way encourages better autovectorization.
-                let x = [chunk[0], chunk[1], chunk[2], chunk[3]];
-                let y = [chunk[4], chunk[5], chunk[6], chunk[7]];
+                let x = [chunk[0], chunk[1], chunk[2], chunk[3]].map(&map);
+                let y = [chunk[4], chunk[5], chunk[6], chunk[7]].map(&map);
                 let z = [x[0] + y[0], x[1] + y[1], x[2] + y[2], x[3] + y[3]];
                 z[0] + z[1] + z[2] + z[3]
             } else {
-                chunk.iter().copied().fold(T::default(), |x, y| x + y)
+                chunk
+                    .iter()
+                    .copied()
+                    .fold(T::default(), |acc, x| acc + map(x))
             }
         })
-        .fold(T::default(), |x, y| x + y)
+        .fold(T::default(), |acc, x| acc + x)
 }
 
 /// Return the sum of an iterator of numbers.
