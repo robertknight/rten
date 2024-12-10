@@ -69,6 +69,11 @@ impl SimdDispatcher {
     }
 }
 
+/// Run `op` using the default SIMD dispatch configuration.
+pub fn dispatch<Op: SimdOp>(op: Op) -> Op::Output {
+    SimdDispatcher::default().dispatch(op)
+}
+
 /// Trait for SIMD operations which can be evaluated using different SIMD
 /// vector types.
 ///
@@ -101,16 +106,14 @@ pub trait SimdUnaryOp {
 /// Apply a vectorized unary function to elements of `input` using [`simd_map`].
 pub fn dispatch_map_op<Op: SimdUnaryOp>(input: &[f32], out: &mut [MaybeUninit<f32>], op: Op) {
     let wrapped_op = SimdMapOp::wrap(input.into(), out.into(), op, 0. /* pad */);
-    let dispatcher = SimdDispatcher::default();
-    dispatcher.dispatch(wrapped_op);
+    dispatch(wrapped_op)
 }
 
 /// Apply a vectorized unary function in-place to elements of `input`.
 pub fn dispatch_map_op_in_place<Op: SimdUnaryOp>(input: &mut [f32], op: Op) {
     let out: MutPtrLen<f32> = input.into();
     let wrapped_op = SimdMapOp::wrap(input.into(), out.as_uninit(), op, 0. /* pad */);
-    let dispatcher = SimdDispatcher::default();
-    dispatcher.dispatch(wrapped_op);
+    dispatch(wrapped_op)
 }
 
 /// SIMD operation which applies a unary operator `Op` to all elements in

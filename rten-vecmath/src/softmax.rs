@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::dispatch::{SimdDispatcher, SimdOp};
+use rten_simd::dispatch::{dispatch, SimdOp};
 use rten_simd::functional::{simd_fold, simd_map};
 use rten_simd::span::{MutPtrLen, PtrLen};
 use rten_simd::SimdFloat;
@@ -74,8 +74,7 @@ pub fn vec_softmax(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
         input: xs.into(),
         output: out.into(),
     };
-    let dispatcher = SimdDispatcher::default();
-    dispatcher.dispatch(op);
+    dispatch(op)
 }
 
 /// Computes the [softmax][softmax] function over a slice of floats.
@@ -87,8 +86,7 @@ pub fn vec_softmax_in_place(xs: &mut [f32]) {
         input: xs.into(),
         output: out.as_uninit(),
     };
-    let dispatcher = SimdDispatcher::default();
-    dispatcher.dispatch(op);
+    dispatch(op)
 }
 
 #[cfg(test)]
