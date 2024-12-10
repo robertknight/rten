@@ -56,8 +56,10 @@ struct SimdSoftmax {
 }
 
 impl SimdOp for SimdSoftmax {
+    type Output = ();
+
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(&self) {
+    unsafe fn eval<S: SimdFloat>(&self) -> Self::Output {
         simd_softmax::<S>(self.input, self.output)
     }
 }
