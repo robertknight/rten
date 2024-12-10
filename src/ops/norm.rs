@@ -2,13 +2,13 @@ use rayon::prelude::*;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
-use rten_vecmath::vec_softmax_in_place;
+use rten_vecmath::{vec_softmax_in_place, vec_sum};
 use smallvec::SmallVec;
 
 use crate::ops::reduce::reduce_inverse_rms;
 use crate::ops::{add_in_place, mul_in_place, reduce_mean, static_dims, sub};
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
-use crate::slice_reductions::{slice_max, slice_sum};
+use crate::slice_reductions::slice_max;
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Perform in-place batch normalization on the `NC*` tensor `out`.
@@ -173,7 +173,7 @@ pub fn instance_normalization_in_place(
             let mut slice = input.slice_mut([n, c]);
             let chan_scale = scale[[c]];
             let chan_bias = bias[[c]];
-            let chan_mean = slice_sum(slice.data().unwrap()) / slice.len() as f32;
+            let chan_mean = vec_sum(slice.data().unwrap()) / slice.len() as f32;
             let chan_variance = slice
                 .iter()
                 .map(|x| {
