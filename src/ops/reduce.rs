@@ -10,7 +10,7 @@ use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
 };
-use crate::slice_reductions::{iter_sum, slice_sum};
+use crate::slice_reductions::{iter_sum, slice_map_sum, slice_sum};
 use crate::tensor_pool::TensorPool;
 
 /// Compute the indices of the max elements along an axis, according to a
@@ -434,7 +434,8 @@ pub fn reduce_inverse_rms(
         }
 
         fn reduce_slice(&self, slice: &[f32]) -> f32 {
-            self.reduce(slice.iter().copied())
+            let mean_square = slice_map_sum(slice, |x| x * x) / slice.len() as f32;
+            1. / (mean_square + self.epsilon).sqrt()
         }
     }
 
