@@ -20,6 +20,7 @@
 mod erf;
 mod exp;
 mod softmax;
+mod sum;
 mod tanh;
 
 #[cfg(test)]
@@ -34,4 +35,5 @@ pub use exp::{
     vec_silu_in_place,
 };
 pub use softmax::{vec_softmax, vec_softmax_in_place};
+pub use sum::{vec_sum, vec_sum_square};
 pub use tanh::{tanh, vec_tanh, vec_tanh_in_place};
