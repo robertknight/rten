@@ -89,7 +89,7 @@ pub trait SimdOp {
     ///
     /// The caller must ensure that the `S` is a supported SIMD vector type
     /// on the current system.
-    unsafe fn eval<S: SimdFloat>(&self) -> Self::Output;
+    unsafe fn eval<S: SimdFloat>(self) -> Self::Output;
 }
 
 /// Trait for evaluating a unary function on a SIMD vector.
@@ -145,7 +145,7 @@ impl<Op: SimdUnaryOp> SimdOp for SimdMapOp<Op> {
     type Output = ();
 
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(&self) {
+    unsafe fn eval<S: SimdFloat>(self) {
         simd_map(
             self.input,
             self.output,
