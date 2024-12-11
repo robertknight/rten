@@ -40,6 +40,8 @@
 //! implemented as functions in this trait rather than using the standard trait
 //! from `std::ops`.
 
+use std::mem::MaybeUninit;
+
 /// Maximum number of 32-bit lanes in a vector register across all supported
 /// architectures.
 pub const MAX_LEN: usize = 16;
@@ -252,6 +254,20 @@ pub trait SimdFloat: SimdVal {
     /// floats.
     unsafe fn load(ptr: *const f32) -> Self;
 
+    /// Load `len` floats from `ptr` into a vector and pad the remainder with
+    /// `pad`.
+    ///
+    /// Panics if `len > Self::LEN`.
+    #[inline]
+    unsafe fn load_partial(ptr: *const f32, len: usize, pad: f32) -> Self {
+        assert!(len <= Self::LEN);
+        let mut remainder = [pad; MAX_LEN];
+        for i in 0..len {
+            remainder[i] = *ptr.add(i);
+        }
+        Self::load(remainder.as_ptr())
+    }
+
     /// Load `Self::LEN` values from the base memory address at `ptr` plus
     /// offsets in `offsets`, excluding elements where `mask` is off.
     ///
@@ -272,6 +288,19 @@ pub trait SimdFloat: SimdVal {
     /// Safety: The caller must ensure `ptr` points to a buffer with space for
     /// at least `Self::LEN` floats.
     unsafe fn store(self, ptr: *mut f32);
+
+    /// Store the first `len` lanes from `self` into `dest`.
+    ///
+    /// Panics if `len > Self::LEN`.
+    #[inline]
+    unsafe fn store_partial(self, dest: *mut f32, len: usize) {
+        assert!(len <= Self::LEN);
+        let mut remainder = [MaybeUninit::uninit(); MAX_LEN];
+        self.store(remainder.as_mut_ptr() as *mut f32);
+        for i in 0..len {
+            dest.add(i).write(remainder[i].assume_init());
+        }
+    }
 
     /// Reduce the elements in this vector to a single value using `f`, then
     /// return a new vector with the accumulated value broadcast to each lane.

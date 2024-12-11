@@ -3,7 +3,6 @@
 use std::mem::MaybeUninit;
 
 use crate::span::{MutPtrLen, PtrLen};
-use crate::vec::MAX_LEN;
 use crate::SimdFloat;
 
 /// Apply a unary operation to each element in `input` and store the results
@@ -33,12 +32,6 @@ pub unsafe fn simd_map<S: SimdFloat, Op: FnMut(S) -> S>(
     let mut in_ptr = input.ptr();
     let mut out_ptr = output.ptr();
 
-    // S::LEN can't be used as the array size due to const generics limitations.
-    const MAX_LEN: usize = 16;
-    assert!(S::LEN <= MAX_LEN);
-    let mut remainder = [pad; MAX_LEN];
-
-    // Main loop over full vectors.
     while n >= S::LEN {
         let x = S::load(in_ptr);
         let y = op(x);
@@ -49,19 +42,10 @@ pub unsafe fn simd_map<S: SimdFloat, Op: FnMut(S) -> S>(
         out_ptr = out_ptr.add(S::LEN);
     }
 
-    // Handler remainder with a padded vector.
     if n > 0 {
-        for i in 0..n {
-            remainder[i] = *in_ptr.add(i);
-        }
-
-        let x = S::load(remainder.as_ptr());
+        let x = S::load_partial(in_ptr, n, pad);
         let y = op(x);
-        y.store(remainder.as_mut_ptr());
-
-        for i in 0..n {
-            out_ptr.add(i).write(MaybeUninit::new(remainder[i]));
-        }
+        y.store_partial(out_ptr as *mut f32, n);
     }
 }
 
@@ -83,11 +67,6 @@ pub unsafe fn simd_fold<S: SimdFloat, Op: Fn(S, S) -> S>(
     let mut n = xs.len();
     let mut x_ptr = xs.ptr();
 
-    // S::LEN can't be used as the array size due to const generics limitations.
-    assert!(S::LEN <= MAX_LEN);
-    let mut remainder = [pad; MAX_LEN];
-
-    // Main loop over full vectors.
     while n >= S::LEN {
         let x = S::load(x_ptr);
         accum = simd_op(accum, x);
@@ -95,12 +74,8 @@ pub unsafe fn simd_fold<S: SimdFloat, Op: Fn(S, S) -> S>(
         x_ptr = x_ptr.add(S::LEN);
     }
 
-    // Handler remainder with a padded vector.
     if n > 0 {
-        for i in 0..n {
-            remainder[i] = *x_ptr.add(i);
-        }
-        let x = S::load(remainder.as_ptr());
+        let x = S::load_partial(x_ptr, n, pad);
         accum = simd_op(accum, x);
     }
 
