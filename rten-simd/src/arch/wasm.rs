@@ -5,7 +5,7 @@ use std::arch::wasm32::{
     v128_bitselect, v128_load, v128_store,
 };
 
-use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
+use crate::{Simd, SimdFloat, SimdInt, SimdMask};
 
 /// Wrapper around a WASM v128 type that marks it as containing integers.
 #[allow(non_camel_case_types)]
@@ -33,20 +33,36 @@ impl SimdMask for v128i {
     }
 }
 
-impl SimdVal for v128i {
+impl Simd for v128i {
     const LEN: usize = 4;
 
-    type Mask = v128i;
-}
-
-impl SimdInt for v128i {
     type Array = [i32; 4];
-    type Float = v128f;
+    type Elem = i32;
+    type Mask = v128i;
 
     #[inline]
     unsafe fn splat(val: i32) -> Self {
         Self(i32x4_splat(val))
     }
+
+    #[inline]
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
+        Self(v128_bitselect(other.0, self.0, mask.0))
+    }
+
+    #[inline]
+    unsafe fn load(ptr: *const i32) -> Self {
+        Self(v128_load(ptr as *const v128))
+    }
+
+    #[inline]
+    unsafe fn store(self, ptr: *mut i32) {
+        v128_store(ptr as *mut v128, self.0)
+    }
+}
+
+impl SimdInt for v128i {
+    type Float = v128f;
 
     #[inline]
     unsafe fn gt(self, other: Self) -> Self::Mask {
@@ -74,11 +90,6 @@ impl SimdInt for v128i {
     }
 
     #[inline]
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-        Self(v128_bitselect(other.0, self.0, mask.0))
-    }
-
-    #[inline]
     unsafe fn add(self, rhs: Self) -> Self {
         Self(i32x4_add(self.0, rhs.0))
     }
@@ -99,16 +110,6 @@ impl SimdInt for v128i {
     }
 
     #[inline]
-    unsafe fn load(ptr: *const i32) -> Self {
-        Self(v128_load(ptr as *const v128))
-    }
-
-    #[inline]
-    unsafe fn store(self, ptr: *mut i32) {
-        v128_store(ptr as *mut v128, self.0)
-    }
-
-    #[inline]
     unsafe fn to_array(self) -> Self::Array {
         let mut array = [0; Self::LEN];
         self.store(array.as_mut_ptr());
@@ -116,19 +117,36 @@ impl SimdInt for v128i {
     }
 }
 
-impl SimdVal for v128f {
+impl Simd for v128f {
     const LEN: usize = 4;
 
+    type Array = [f32; 4];
+    type Elem = f32;
     type Mask = v128i;
-}
-
-impl SimdFloat for v128f {
-    type Int = v128i;
 
     #[inline]
     unsafe fn splat(val: f32) -> Self {
         Self(f32x4_splat(val))
     }
+
+    #[inline]
+    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
+        Self(v128_bitselect(rhs.0, self.0, mask.0))
+    }
+
+    #[inline]
+    unsafe fn load(ptr: *const f32) -> Self {
+        Self(v128_load(ptr as *const v128))
+    }
+
+    #[inline]
+    unsafe fn store(self, ptr: *mut f32) {
+        v128_store(ptr as *mut v128, self.0)
+    }
+}
+
+impl SimdFloat for v128f {
+    type Int = v128i;
 
     #[inline]
     unsafe fn abs(self) -> Self {
@@ -186,23 +204,8 @@ impl SimdFloat for v128f {
     }
 
     #[inline]
-    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
-        Self(v128_bitselect(rhs.0, self.0, mask.0))
-    }
-
-    #[inline]
-    unsafe fn load(ptr: *const f32) -> Self {
-        Self(v128_load(ptr as *const v128))
-    }
-
-    #[inline]
-    unsafe fn store(self, ptr: *mut f32) {
-        v128_store(ptr as *mut v128, self.0)
-    }
-
-    #[inline]
     unsafe fn gather_mask(src: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
-        super::simd_gather_mask::<Self, { Self::LEN }>(src, offsets, mask)
+        super::simd_gather_mask::<_, _, _, { Self::LEN }>(src, offsets, mask)
     }
 
     #[inline]

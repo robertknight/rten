@@ -6,7 +6,7 @@ use std::arch::aarch64::{
     vst1q_u32, vsubq_f32, vsubq_s32,
 };
 
-use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
+use crate::{Simd, SimdFloat, SimdInt, SimdMask};
 
 impl SimdMask for uint32x4_t {
     type Array = [bool; 4];
@@ -24,15 +24,12 @@ impl SimdMask for uint32x4_t {
     }
 }
 
-impl SimdVal for int32x4_t {
+impl Simd for int32x4_t {
     const LEN: usize = 4;
 
-    type Mask = uint32x4_t;
-}
-
-impl SimdInt for int32x4_t {
     type Array = [i32; 4];
-    type Float = float32x4_t;
+    type Elem = i32;
+    type Mask = uint32x4_t;
 
     #[inline]
     unsafe fn zero() -> Self {
@@ -43,6 +40,25 @@ impl SimdInt for int32x4_t {
     unsafe fn splat(val: i32) -> Self {
         vdupq_n_s32(val)
     }
+
+    #[inline]
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
+        vbslq_s32(mask, other, self)
+    }
+
+    #[inline]
+    unsafe fn load(ptr: *const i32) -> Self {
+        vld1q_s32(ptr)
+    }
+
+    #[inline]
+    unsafe fn store(self, ptr: *mut i32) {
+        vst1q_s32(ptr, self)
+    }
+}
+
+impl SimdInt for int32x4_t {
+    type Float = float32x4_t;
 
     #[inline]
     unsafe fn eq(self, other: Self) -> Self::Mask {
@@ -70,11 +86,6 @@ impl SimdInt for int32x4_t {
     }
 
     #[inline]
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-        vbslq_s32(mask, other, self)
-    }
-
-    #[inline]
     unsafe fn add(self, rhs: Self) -> Self {
         vaddq_s32(self, rhs)
     }
@@ -95,16 +106,6 @@ impl SimdInt for int32x4_t {
     }
 
     #[inline]
-    unsafe fn load(ptr: *const i32) -> Self {
-        vld1q_s32(ptr)
-    }
-
-    #[inline]
-    unsafe fn store(self, ptr: *mut i32) {
-        vst1q_s32(ptr, self)
-    }
-
-    #[inline]
     unsafe fn to_array(self) -> Self::Array {
         let mut array = [0; Self::LEN];
         self.store(array.as_mut_ptr());
@@ -112,19 +113,36 @@ impl SimdInt for int32x4_t {
     }
 }
 
-impl SimdVal for float32x4_t {
+impl Simd for float32x4_t {
     const LEN: usize = 4;
 
+    type Array = [f32; 4];
+    type Elem = f32;
     type Mask = uint32x4_t;
-}
-
-impl SimdFloat for float32x4_t {
-    type Int = int32x4_t;
 
     #[inline]
     unsafe fn splat(val: f32) -> Self {
         vdupq_n_f32(val)
     }
+
+    #[inline]
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
+        vbslq_f32(mask, other, self)
+    }
+
+    #[inline]
+    unsafe fn load(ptr: *const f32) -> Self {
+        vld1q_f32(ptr)
+    }
+
+    #[inline]
+    unsafe fn store(self, ptr: *mut f32) {
+        vst1q_f32(ptr, self)
+    }
+}
+
+impl SimdFloat for float32x4_t {
+    type Int = int32x4_t;
 
     #[inline]
     unsafe fn abs(self) -> Self {
@@ -182,23 +200,8 @@ impl SimdFloat for float32x4_t {
     }
 
     #[inline]
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-        vbslq_f32(mask, other, self)
-    }
-
-    #[inline]
-    unsafe fn load(ptr: *const f32) -> Self {
-        vld1q_f32(ptr)
-    }
-
-    #[inline]
     unsafe fn gather_mask(src: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
-        super::simd_gather_mask::<Self, { Self::LEN }>(src, offsets, mask)
-    }
-
-    #[inline]
-    unsafe fn store(self, ptr: *mut f32) {
-        vst1q_f32(ptr, self)
+        super::simd_gather_mask::<_, _, _, { Self::LEN }>(src, offsets, mask)
     }
 
     #[inline]

@@ -51,7 +51,9 @@ pub const MAX_LEN: usize = 16;
 /// This provides common associated types and methods that are applicable for
 /// all SIMD vectors.
 #[allow(clippy::missing_safety_doc)]
-pub trait SimdVal: Copy + Sized {
+pub trait Simd: Copy + Sized {
+    type Elem: Copy + Default;
+
     /// The number of elements in the SIMD vector.
     const LEN: usize;
 
@@ -60,10 +62,89 @@ pub trait SimdVal: Copy + Sized {
     /// This should be the same for all vector types with a given number of
     /// lanes in a particular architecture.
     type Mask: SimdMask;
+
+    /// The contents of a vector as an array.
+    type Array: std::ops::Index<usize, Output = Self::Elem>;
+
+    /// Combine elements of `self` and `rhs` according to a mask.
+    ///
+    /// For each lane, if the mask value is zero, return the element from
+    /// `self`, otherwise return the value from `other`.
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self;
+
+    /// Broadcast `val` to all elements in a new vector.
+    ///
+    /// # Safety
+    /// The caller must ensure SIMD operations on this type are supported.
+    unsafe fn splat(val: Self::Elem) -> Self;
+
+    /// Load `Self::LEN` values from the memory address at `ptr`.
+    ///
+    /// Implementations must not require `ptr` to be aligned.
+    ///
+    /// Safety: The caller must ensure `ptr` points to at least `Self::LEN`
+    /// values.
+    unsafe fn load(ptr: *const Self::Elem) -> Self;
+
+    /// Load `len` values from `ptr` into a vector and pad the remainder with
+    /// `pad`.
+    ///
+    /// Panics if `len > Self::LEN`.
+    #[inline]
+    unsafe fn load_partial(ptr: *const Self::Elem, len: usize, pad: Self::Elem) -> Self {
+        assert!(len <= Self::LEN);
+        let mut remainder = [pad; MAX_LEN];
+        for i in 0..len {
+            remainder[i] = *ptr.add(i);
+        }
+        Self::load(remainder.as_ptr())
+    }
+
+    /// Prefetch the cache line containing `data`, for reading.
+    #[inline]
+    unsafe fn prefetch(_data: *const Self::Elem) {
+        // Noop
+    }
+
+    /// Prefetch the cache line containing `data`, for writing.
+    #[inline]
+    unsafe fn prefetch_write(_data: *mut Self::Elem) {
+        // Noop
+    }
+
+    /// Store `Self::LEN` values to the memory address at `ptr`.
+    ///
+    /// Implementations must not require `ptr` to be aligned.
+    ///
+    /// Safety: The caller must ensure `ptr` points to a buffer with space for
+    /// at least `Self::LEN` values.
+    unsafe fn store(self, ptr: *mut Self::Elem);
+
+    /// Store the first `len` lanes from `self` into `dest`.
+    ///
+    /// Panics if `len > Self::LEN`.
+    #[inline]
+    unsafe fn store_partial(self, dest: *mut Self::Elem, len: usize) {
+        assert!(len <= Self::LEN);
+        let mut remainder = [MaybeUninit::uninit(); MAX_LEN];
+        self.store(remainder.as_mut_ptr() as *mut Self::Elem);
+        for i in 0..len {
+            dest.add(i).write(remainder[i].assume_init());
+        }
+    }
+
+    /// Return a new vector with all elements set to zero.
+    #[inline]
+    unsafe fn zero() -> Self
+    where
+        Self::Elem: Default,
+    {
+        Self::splat(Self::Elem::default())
+    }
 }
 
 /// Return the number of SIMD vectors required to hold `count` elements.
-pub const fn vec_count<S: SimdVal>(count: usize) -> usize {
+pub const fn vec_count<S: Simd>(count: usize) -> usize {
     count.div_ceil(S::LEN)
 }
 
@@ -82,25 +163,10 @@ pub trait SimdMask: Copy {
 
 /// Trait for SIMD vectors containing 32-bit integers.
 #[allow(clippy::missing_safety_doc)]
-pub trait SimdInt: SimdVal {
+pub trait SimdInt: Simd<Elem = i32> {
     /// The type produced by an operation that converts each element in this
     /// vector to a float.
     type Float: SimdFloat<Int = Self, Mask = Self::Mask>;
-
-    /// The contents of a vector as an array.
-    type Array: std::ops::Index<usize, Output = i32>;
-
-    /// Return a new vector with all elements set to zero.
-    #[inline]
-    unsafe fn zero() -> Self {
-        Self::splat(0)
-    }
-
-    /// Broadcast `val` to all elements in a new vector.
-    ///
-    /// # Safety
-    /// The caller must ensure SIMD operations on this type are supported.
-    unsafe fn splat(val: i32) -> Self;
 
     /// Return a mask indicating whether `self > other`.
     unsafe fn gt(self, other: Self) -> Self::Mask;
@@ -117,12 +183,6 @@ pub trait SimdInt: SimdVal {
     /// Return a mask indicating where `self == other`.
     unsafe fn eq(self, other: Self) -> Self::Mask;
 
-    /// Select elements from this vector or `other` according to a mask.
-    ///
-    /// For each lane, if the mask value is zero, return the element from
-    /// `self`, otherwise return the value from `other`.
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self;
-
     /// Compute `self + rhs`.
     unsafe fn add(self, rhs: Self) -> Self;
 
@@ -135,29 +195,13 @@ pub trait SimdInt: SimdVal {
     /// Reinterpret the bits of each element as a float.
     unsafe fn reinterpret_as_float(self) -> Self::Float;
 
-    /// Load `Self::LEN` values from the memory address at `ptr`.
-    ///
-    /// Implementations must not require `ptr` to be aligned.
-    ///
-    /// Safety: The caller must ensure `ptr` points to at least `Self::LEN`
-    /// values.
-    unsafe fn load(ptr: *const i32) -> Self;
-
-    /// Store `Self::LEN` values to the memory address at `ptr`.
-    ///
-    /// Implementations must not require `ptr` to be aligned.
-    ///
-    /// Safety: The caller must ensure `ptr` points to a buffer with space for
-    /// at least `Self::LEN` values.
-    unsafe fn store(self, ptr: *mut i32);
-
     /// Return the contents of this vector as an array.
     unsafe fn to_array(self) -> Self::Array;
 }
 
 /// Trait for SIMD vectors containing single-precision floats.
 #[allow(clippy::missing_safety_doc)]
-pub trait SimdFloat: SimdVal {
+pub trait SimdFloat: Simd<Elem = f32> {
     /// The type of vector produced by operations that convert this vector
     /// to a vector of ints.
     type Int: SimdInt<Float = Self, Mask = Self::Mask>;
@@ -166,12 +210,6 @@ pub trait SimdFloat: SimdVal {
     #[inline]
     unsafe fn one() -> Self {
         Self::splat(1.0)
-    }
-
-    /// Shorthand for `Self::splat(0.0)`.
-    #[inline]
-    unsafe fn zero() -> Self {
-        Self::splat(0.0)
     }
 
     /// Compute `-self`.
@@ -188,9 +226,6 @@ pub trait SimdFloat: SimdVal {
 
     /// Return the absolute value of `self`.
     unsafe fn abs(self) -> Self;
-
-    /// Broadcast `val` to all elements in a new vector.
-    unsafe fn splat(val: f32) -> Self;
 
     /// Compute `self * a + b` as a single operation.
     unsafe fn mul_add(self, a: Self, b: Self) -> Self;
@@ -222,12 +257,6 @@ pub trait SimdFloat: SimdVal {
     /// Compute the maximum of `self` and `rhs`.
     unsafe fn max(self, rhs: Self) -> Self;
 
-    /// Combine elements of `self` and `rhs` according to a mask.
-    ///
-    /// For each lane, if the mask value is zero, return the element from
-    /// `self`, otherwise return the value from `other`.
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self;
-
     /// Evaluate a polynomial using Horner's method.
     ///
     /// Computes `self * coeffs[0] + self^2 * coeffs[1] ... self^n * coeffs[N]`
@@ -246,28 +275,6 @@ pub trait SimdFloat: SimdVal {
     /// differences in results depending on the architecture.
     unsafe fn sum(self) -> f32;
 
-    /// Load `Self::LEN` floats from the memory address at `ptr`.
-    ///
-    /// Implementations must not require `ptr` to be aligned.
-    ///
-    /// Safety: The caller must ensure `ptr` points to at least `Self::LEN`
-    /// floats.
-    unsafe fn load(ptr: *const f32) -> Self;
-
-    /// Load `len` floats from `ptr` into a vector and pad the remainder with
-    /// `pad`.
-    ///
-    /// Panics if `len > Self::LEN`.
-    #[inline]
-    unsafe fn load_partial(ptr: *const f32, len: usize, pad: f32) -> Self {
-        assert!(len <= Self::LEN);
-        let mut remainder = [pad; MAX_LEN];
-        for i in 0..len {
-            remainder[i] = *ptr.add(i);
-        }
-        Self::load(remainder.as_ptr())
-    }
-
     /// Load `Self::LEN` values from the base memory address at `ptr` plus
     /// offsets in `offsets`, excluding elements where `mask` is off.
     ///
@@ -281,27 +288,6 @@ pub trait SimdFloat: SimdVal {
     /// architectures which do not have a gather instruction.
     unsafe fn gather_mask(ptr: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self;
 
-    /// Store `Self::LEN` floats to the memory address at `ptr`.
-    ///
-    /// Implementations must not require `ptr` to be aligned.
-    ///
-    /// Safety: The caller must ensure `ptr` points to a buffer with space for
-    /// at least `Self::LEN` floats.
-    unsafe fn store(self, ptr: *mut f32);
-
-    /// Store the first `len` lanes from `self` into `dest`.
-    ///
-    /// Panics if `len > Self::LEN`.
-    #[inline]
-    unsafe fn store_partial(self, dest: *mut f32, len: usize) {
-        assert!(len <= Self::LEN);
-        let mut remainder = [MaybeUninit::uninit(); MAX_LEN];
-        self.store(remainder.as_mut_ptr() as *mut f32);
-        for i in 0..len {
-            dest.add(i).write(remainder[i].assume_init());
-        }
-    }
-
     /// Reduce the elements in this vector to a single value using `f`, then
     /// return a new vector with the accumulated value broadcast to each lane.
     #[inline]
@@ -310,17 +296,5 @@ pub trait SimdFloat: SimdVal {
         self.store(elements.as_mut_ptr());
         let reduced = elements.into_iter().fold(accum, f);
         Self::splat(reduced)
-    }
-
-    /// Prefetch the cache line containing `data`, for reading.
-    #[inline]
-    unsafe fn prefetch(_data: *const f32) {
-        // Noop
-    }
-
-    /// Prefetch the cache line containing `data`, for writing.
-    #[inline]
-    unsafe fn prefetch_write(_data: *mut f32) {
-        // Noop
     }
 }

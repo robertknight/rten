@@ -35,7 +35,7 @@ pub mod isa_detection;
 pub mod span;
 mod vec;
 
-pub use vec::{vec_count, SimdFloat, SimdInt, SimdMask, SimdVal};
+pub use vec::{vec_count, Simd, SimdFloat, SimdInt, SimdMask};
 
 #[cfg(feature = "avx512")]
 #[cfg(target_arch = "x86_64")]

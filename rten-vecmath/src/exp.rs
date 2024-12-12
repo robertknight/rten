@@ -5,7 +5,7 @@
 use std::mem::MaybeUninit;
 
 use rten_simd::dispatch::{dispatch_map_op, dispatch_map_op_in_place, SimdUnaryOp};
-use rten_simd::{SimdFloat, SimdInt};
+use rten_simd::{Simd, SimdFloat, SimdInt};
 
 const INV_LOG2: f32 = std::f32::consts::LOG2_E; // aka. 1 / ln2
 const ROUNDING_MAGIC: f32 = 12582912.; // 0x3 << 22
