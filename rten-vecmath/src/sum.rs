@@ -10,7 +10,7 @@ impl SimdOp for SimdSum<'_> {
     type Output = f32;
 
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(&self) -> Self::Output {
+    unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
         let vec_sum = simd_fold(
             self.input.into(),
             S::zero(),
@@ -36,7 +36,7 @@ impl SimdOp for SimdSumSquare<'_> {
     type Output = f32;
 
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(&self) -> Self::Output {
+    unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
         let vec_sum = simd_fold(
             self.input.into(),
             S::zero(),
