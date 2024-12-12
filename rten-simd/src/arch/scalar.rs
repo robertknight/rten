@@ -1,4 +1,4 @@
-use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
+use crate::{Simd, SimdFloat, SimdInt, SimdMask};
 
 impl SimdMask for bool {
     type Array = [bool; 1];
@@ -14,26 +14,48 @@ impl SimdMask for bool {
     }
 }
 
-impl SimdVal for i32 {
-    const LEN: usize = 1;
+macro_rules! impl_simd {
+    ($type:ty) => {
+        impl Simd for $type {
+            const LEN: usize = 1;
 
-    type Mask = bool;
+            type Array = [$type; 1];
+            type Elem = $type;
+            type Mask = bool;
+
+            #[inline]
+            unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
+                if !mask {
+                    self
+                } else {
+                    other
+                }
+            }
+
+            #[inline]
+            unsafe fn splat(val: $type) -> Self {
+                val
+            }
+
+            #[inline]
+            unsafe fn load(ptr: *const $type) -> Self {
+                *ptr
+            }
+
+            #[inline]
+            unsafe fn store(self, ptr: *mut $type) {
+                *ptr = self;
+            }
+        }
+    };
 }
+
+impl_simd!(i32);
+impl_simd!(f32);
 
 /// Treat an `i32` as a single-lane SIMD "vector".
 impl SimdInt for i32 {
-    type Array = [i32; 1];
     type Float = f32;
-
-    #[inline]
-    unsafe fn zero() -> Self {
-        0
-    }
-
-    #[inline]
-    unsafe fn splat(val: i32) -> Self {
-        val
-    }
 
     #[inline]
     unsafe fn ge(self, other: Self) -> Self::Mask {
@@ -61,15 +83,6 @@ impl SimdInt for i32 {
     }
 
     #[inline]
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-        if !mask {
-            self
-        } else {
-            other
-        }
-    }
-
-    #[inline]
     unsafe fn add(self, rhs: Self) -> Self {
         self + rhs
     }
@@ -90,25 +103,9 @@ impl SimdInt for i32 {
     }
 
     #[inline]
-    unsafe fn load(ptr: *const i32) -> Self {
-        *ptr
-    }
-
-    #[inline]
-    unsafe fn store(self, ptr: *mut i32) {
-        *ptr = self;
-    }
-
-    #[inline]
     unsafe fn to_array(self) -> Self::Array {
         [self]
     }
-}
-
-impl SimdVal for f32 {
-    const LEN: usize = 1;
-
-    type Mask = bool;
 }
 
 /// Treat an `f32` as a single-lane SIMD "vector".
@@ -118,16 +115,6 @@ impl SimdFloat for f32 {
     #[inline]
     unsafe fn one() -> Self {
         1.
-    }
-
-    #[inline]
-    unsafe fn zero() -> Self {
-        0.
-    }
-
-    #[inline]
-    unsafe fn splat(val: f32) -> Self {
-        val
     }
 
     #[inline]
@@ -186,31 +173,12 @@ impl SimdFloat for f32 {
     }
 
     #[inline]
-    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
-        if !mask {
-            self
-        } else {
-            rhs
-        }
-    }
-
-    #[inline]
-    unsafe fn load(ptr: *const f32) -> Self {
-        *ptr
-    }
-
-    #[inline]
     unsafe fn gather_mask(ptr: *const f32, offset: i32, mask: Self::Mask) -> Self {
         if mask {
             *ptr.add(offset as usize)
         } else {
             0.
         }
-    }
-
-    #[inline]
-    unsafe fn store(self, ptr: *mut f32) {
-        *ptr = self;
     }
 
     #[inline]

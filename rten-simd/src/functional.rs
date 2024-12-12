@@ -3,7 +3,7 @@
 use std::mem::MaybeUninit;
 
 use crate::span::{MutPtrLen, PtrLen};
-use crate::SimdFloat;
+use crate::Simd;
 
 /// Apply a unary operation to each element in `input` and store the results
 /// in `output`.
@@ -20,11 +20,11 @@ use crate::SimdFloat;
 /// The caller must ensure that `S` is a supported SIMD vector type on the
 /// current system.
 #[inline(always)]
-pub unsafe fn simd_map<S: SimdFloat, Op: FnMut(S) -> S>(
-    input: PtrLen<f32>,
-    output: MutPtrLen<MaybeUninit<f32>>,
+pub unsafe fn simd_map<S: Simd, Op: FnMut(S) -> S>(
+    input: PtrLen<S::Elem>,
+    output: MutPtrLen<MaybeUninit<S::Elem>>,
     mut op: Op,
-    pad: f32,
+    pad: S::Elem,
 ) {
     assert!(input.len() == output.len());
 
@@ -35,7 +35,7 @@ pub unsafe fn simd_map<S: SimdFloat, Op: FnMut(S) -> S>(
     while n >= S::LEN {
         let x = S::load(in_ptr);
         let y = op(x);
-        y.store(out_ptr as *mut f32);
+        y.store(out_ptr as *mut S::Elem);
 
         n -= S::LEN;
         in_ptr = in_ptr.add(S::LEN);
@@ -45,7 +45,7 @@ pub unsafe fn simd_map<S: SimdFloat, Op: FnMut(S) -> S>(
     if n > 0 {
         let x = S::load_partial(in_ptr, n, pad);
         let y = op(x);
-        y.store_partial(out_ptr as *mut f32, n);
+        y.store_partial(out_ptr as *mut S::Elem, n);
     }
 }
 
@@ -58,11 +58,11 @@ pub unsafe fn simd_map<S: SimdFloat, Op: FnMut(S) -> S>(
 /// The caller must ensure that `S` is a supported SIMD vector type on the
 /// current system.
 #[inline(always)]
-pub unsafe fn simd_fold<S: SimdFloat, Op: Fn(S, S) -> S>(
-    xs: PtrLen<f32>,
+pub unsafe fn simd_fold<S: Simd, Op: Fn(S, S) -> S>(
+    xs: PtrLen<S::Elem>,
     mut accum: S,
     simd_op: Op,
-    pad: f32,
+    pad: S::Elem,
 ) -> S {
     let mut n = xs.len();
     let mut x_ptr = xs.ptr();

@@ -3,14 +3,14 @@ use std::arch::x86_64::{
     _mm256_blendv_epi8, _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_castsi256_ps,
     _mm256_cmp_ps, _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
     _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_ps,
-    _mm256_mul_ps, _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setzero_si256,
-    _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps,
-    _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ,
-    _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_mul_ps, _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_slli_epi32,
+    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps, _mm_add_ps,
+    _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ,
+    _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::mem::transmute;
 
-use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
+use crate::{Simd, SimdFloat, SimdInt, SimdMask};
 
 impl SimdMask for __m256i {
     type Array = [bool; 8];
@@ -29,20 +29,34 @@ impl SimdMask for __m256i {
     }
 }
 
-impl SimdVal for __m256i {
+impl Simd for __m256i {
     const LEN: usize = 8;
 
-    type Mask = __m256i;
-}
-
-impl SimdInt for __m256i {
     type Array = [i32; 8];
-    type Float = __m256;
+    type Elem = i32;
+    type Mask = __m256i;
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn zero() -> Self {
-        _mm256_setzero_si256()
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
+        _mm256_blendv_epi8(self, other, mask)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    unsafe fn load(ptr: *const i32) -> Self {
+        // Cast is OK because instruction does not require alignment.
+        _mm256_loadu_si256(ptr as *const __m256i)
+    }
+
+    #[inline]
+    unsafe fn prefetch(data: *const i32) {
+        _mm_prefetch(data as *const i8, _MM_HINT_T0);
+    }
+
+    #[inline]
+    unsafe fn prefetch_write(data: *mut i32) {
+        _mm_prefetch(data as *const i8, _MM_HINT_ET0);
     }
 
     #[inline]
@@ -50,6 +64,17 @@ impl SimdInt for __m256i {
     unsafe fn splat(val: i32) -> Self {
         _mm256_set1_epi32(val)
     }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    unsafe fn store(self, ptr: *mut i32) {
+        // Cast is OK because instruction does not require alignment.
+        _mm256_storeu_si256(ptr as *mut __m256i, self)
+    }
+}
+
+impl SimdInt for __m256i {
+    type Float = __m256;
 
     #[inline]
     #[target_feature(enable = "avx2")]
@@ -83,12 +108,6 @@ impl SimdInt for __m256i {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-        _mm256_blendv_epi8(self, other, mask)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
     unsafe fn add(self, rhs: Self) -> Self {
         _mm256_add_epi32(self, rhs)
     }
@@ -112,20 +131,6 @@ impl SimdInt for __m256i {
     }
 
     #[inline]
-    #[target_feature(enable = "avx2")]
-    unsafe fn load(ptr: *const i32) -> Self {
-        // Cast is OK because instruction does not require alignment.
-        _mm256_loadu_si256(ptr as *const __m256i)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
-    unsafe fn store(self, ptr: *mut i32) {
-        // Cast is OK because instruction does not require alignment.
-        _mm256_storeu_si256(ptr as *mut __m256i, self)
-    }
-
-    #[inline]
     unsafe fn to_array(self) -> Self::Array {
         let mut array = [0; Self::LEN];
         self.store(array.as_mut_ptr());
@@ -133,20 +138,50 @@ impl SimdInt for __m256i {
     }
 }
 
-impl SimdVal for __m256 {
+impl Simd for __m256 {
     const LEN: usize = 8;
 
+    type Array = [f32; 8];
+    type Elem = f32;
     type Mask = __m256i;
-}
 
-impl SimdFloat for __m256 {
-    type Int = __m256i;
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
+        _mm256_blendv_ps(self, rhs, transmute::<__m256i, __m256>(mask))
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    unsafe fn load(ptr: *const f32) -> Self {
+        _mm256_loadu_ps(ptr)
+    }
+
+    #[inline]
+    unsafe fn prefetch(data: *const f32) {
+        _mm_prefetch(data as *const i8, _MM_HINT_T0);
+    }
+
+    #[inline]
+    unsafe fn prefetch_write(data: *mut f32) {
+        _mm_prefetch(data as *const i8, _MM_HINT_ET0);
+    }
 
     #[inline]
     #[target_feature(enable = "avx2")]
     unsafe fn splat(val: f32) -> Self {
         _mm256_set1_ps(val)
     }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    unsafe fn store(self, ptr: *mut f32) {
+        _mm256_storeu_ps(ptr, self)
+    }
+}
+
+impl SimdFloat for __m256 {
+    type Int = __m256i;
 
     #[inline]
     #[target_feature(enable = "avx2")]
@@ -218,18 +253,6 @@ impl SimdFloat for __m256 {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
-        _mm256_blendv_ps(self, rhs, transmute::<__m256i, __m256>(mask))
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
-    unsafe fn load(ptr: *const f32) -> Self {
-        _mm256_loadu_ps(ptr)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
     unsafe fn gather_mask(src: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
         // AVX2 has a gather instruction, but we don't use it because on some
         // Intel CPUs it is slower than regular loads due to a mitigation for
@@ -239,13 +262,7 @@ impl SimdFloat for __m256 {
         // same extent, so using an emulated gather may not pay off there.
         //
         // See https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/gather-data-sampling.html
-        super::simd_gather_mask::<Self, { Self::LEN }>(src, offsets, mask)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
-    unsafe fn store(self, ptr: *mut f32) {
-        _mm256_storeu_ps(ptr, self)
+        super::simd_gather_mask::<_, _, _, { Self::LEN }>(src, offsets, mask)
     }
 
     #[inline]
@@ -262,18 +279,6 @@ impl SimdFloat for __m256 {
         let hi = _mm_shuffle_ps(sum_2, sum_2, 0x1);
         let sum = _mm_add_ps(lo, hi);
         _mm_cvtss_f32(sum)
-    }
-
-    /// Prefetch the cache line containing `data`, for reading.
-    #[inline]
-    unsafe fn prefetch(data: *const f32) {
-        _mm_prefetch(data as *const i8, _MM_HINT_T0);
-    }
-
-    /// Prefetch the cache line containing `data`, for writing.
-    #[inline]
-    unsafe fn prefetch_write(data: *mut f32) {
-        _mm_prefetch(data as *const i8, _MM_HINT_ET0);
     }
 }
 
@@ -306,16 +311,12 @@ impl SimdMask for __mmask16 {
 }
 
 #[cfg(feature = "avx512")]
-impl SimdVal for __m512i {
+impl Simd for __m512i {
     const LEN: usize = 16;
 
-    type Mask = __mmask16;
-}
-
-#[cfg(feature = "avx512")]
-impl SimdInt for __m512i {
     type Array = [i32; 16];
-    type Float = __m512;
+    type Elem = i32;
+    type Mask = __mmask16;
 
     #[inline]
     #[target_feature(enable = "avx512f")]
@@ -328,6 +329,29 @@ impl SimdInt for __m512i {
     unsafe fn splat(val: i32) -> Self {
         _mm512_set1_epi32(val)
     }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
+        _mm512_mask_blend_epi32(mask, self, other)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn load(ptr: *const i32) -> Self {
+        _mm512_loadu_si512(ptr)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn store(self, ptr: *mut i32) {
+        _mm512_storeu_si512(ptr, self)
+    }
+}
+
+#[cfg(feature = "avx512")]
+impl SimdInt for __m512i {
+    type Float = __m512;
 
     #[inline]
     #[target_feature(enable = "avx512f")]
@@ -361,12 +385,6 @@ impl SimdInt for __m512i {
 
     #[inline]
     #[target_feature(enable = "avx512f")]
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-        _mm512_mask_blend_epi32(mask, self, other)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
     unsafe fn add(self, rhs: Self) -> Self {
         _mm512_add_epi32(self, rhs)
     }
@@ -392,18 +410,6 @@ impl SimdInt for __m512i {
 
     #[inline]
     #[target_feature(enable = "avx512f")]
-    unsafe fn load(ptr: *const i32) -> Self {
-        _mm512_loadu_si512(ptr)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
-    unsafe fn store(self, ptr: *mut i32) {
-        _mm512_storeu_si512(ptr, self)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
     unsafe fn to_array(self) -> Self::Array {
         let mut array = [0; Self::LEN];
         self.store(array.as_mut_ptr());
@@ -412,21 +418,51 @@ impl SimdInt for __m512i {
 }
 
 #[cfg(feature = "avx512")]
-impl SimdVal for __m512 {
+impl Simd for __m512 {
     const LEN: usize = 16;
 
+    type Array = [f32; 16];
+    type Elem = f32;
     type Mask = __mmask16;
-}
-
-#[cfg(feature = "avx512")]
-impl SimdFloat for __m512 {
-    type Int = __m512i;
 
     #[inline]
     #[target_feature(enable = "avx512f")]
     unsafe fn splat(val: f32) -> Self {
         _mm512_set1_ps(val)
     }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
+        _mm512_mask_blend_ps(mask, self, rhs)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn load(ptr: *const f32) -> Self {
+        _mm512_loadu_ps(ptr)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn store(self, ptr: *mut f32) {
+        _mm512_storeu_ps(ptr, self)
+    }
+
+    #[inline]
+    unsafe fn prefetch(data: *const f32) {
+        _mm_prefetch(data as *const i8, _MM_HINT_T0);
+    }
+
+    #[inline]
+    unsafe fn prefetch_write(data: *mut f32) {
+        _mm_prefetch(data as *const i8, _MM_HINT_ET0);
+    }
+}
+
+#[cfg(feature = "avx512")]
+impl SimdFloat for __m512 {
+    type Int = __m512i;
 
     #[inline]
     #[target_feature(enable = "avx512f")]
@@ -496,36 +532,8 @@ impl SimdFloat for __m512 {
 
     #[inline]
     #[target_feature(enable = "avx512f")]
-    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
-        _mm512_mask_blend_ps(mask, self, rhs)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
-    unsafe fn load(ptr: *const f32) -> Self {
-        _mm512_loadu_ps(ptr)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
-    unsafe fn store(self, ptr: *mut f32) {
-        _mm512_storeu_ps(ptr, self)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
     unsafe fn gather_mask(ptr: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
         _mm512_mask_i32gather_ps::<4>(Self::zero(), mask, offsets, ptr as *const u8)
-    }
-
-    #[inline]
-    unsafe fn prefetch(data: *const f32) {
-        _mm_prefetch(data as *const i8, _MM_HINT_T0);
-    }
-
-    #[inline]
-    unsafe fn prefetch_write(data: *mut f32) {
-        _mm_prefetch(data as *const i8, _MM_HINT_ET0);
     }
 
     #[inline]
