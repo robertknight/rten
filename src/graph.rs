@@ -170,6 +170,10 @@ impl Constant {
         }
     }
 
+    pub fn shape(&self) -> &[usize] {
+        self.layout().shape()
+    }
+
     /// Clone this constant, but only if it can be done so cheaply by
     /// incrementing a ref count on the underlying data.
     pub fn clone_ref(&self) -> Option<Constant> {

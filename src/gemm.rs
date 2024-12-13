@@ -212,9 +212,15 @@ impl<T> GemmInputB<'_, T> {
     }
 }
 
+/// A bias to add to the output of a matrix multiplication.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum BiasVector<'a, T> {
+    /// Slice of values treated as a column vector. The length must match the
+    /// number of rows in the LHS / A input.
     Column(&'a [T]),
+
+    /// Slice of values treated as a column vector. The length must match the
+    /// number of columns in the RHS / B input.
     Row(&'a [T]),
 }
 

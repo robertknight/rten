@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
-use crate::gemm::{GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT};
+use crate::gemm::{BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT};
 use crate::iter_util::range_chunks;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
@@ -127,7 +127,7 @@ pub fn matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
 where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
 {
-    matmul_impl(pool, a, b, MatmulStrategy::Auto)
+    matmul_impl(pool, a, b, MatmulStrategy::Auto, None)
 }
 
 fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
@@ -135,6 +135,7 @@ fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
     mut a: TensorView<LhsT>,
     mut b: TensorView<RhsT>,
     strategy: MatmulStrategy,
+    bias: Option<BiasVector<OutT>>,
 ) -> Result<Tensor<OutT>, OpError>
 where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
@@ -187,7 +188,7 @@ where
         // nb. We assume `a` is likely already contiguous, so this will be cheap.
         let a_contig = a.to_contiguous_in(pool).auto_return(pool);
         let a_matrix = a_contig.reshaped([num_a_matrices * a_rows, a_cols].as_slice());
-        let mut output = matmul(pool, a_matrix, b.clone())?;
+        let mut output = matmul_impl(pool, a_matrix, b.clone(), strategy, bias)?;
         output.reshape(out_shape);
         return Ok(output);
     }
@@ -247,12 +248,13 @@ where
                 GemmInputB::Unpacked(b_mat)
             };
 
-            gemm.gemm_uninit(
+            gemm.gemm_uninit_bias(
                 out_mat,
                 out_row_stride,
                 a_input,
                 b_input,
                 1., // alpha
+                bias,
             );
         });
 
@@ -281,6 +283,38 @@ impl Operator for MatMul {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         matmul::<f32, f32, f32>(pool, a, b).into_op_result()
+    }
+}
+
+pub fn matmul_add<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
+    pool: &TensorPool,
+    a: TensorView<LhsT>,
+    b: TensorView<RhsT>,
+    bias: BiasVector<OutT>,
+) -> Result<Tensor<OutT>, OpError>
+where
+    GemmExecutor<LhsT, RhsT, OutT>: Default,
+{
+    matmul_impl(pool, a, b, MatmulStrategy::Auto, Some(bias))
+}
+
+/// Fusion for `Add(MatMul(a, b), bias)` subgraphs, where `bias` is a vector.
+#[derive(Clone, Debug)]
+pub struct MatMulAdd {}
+
+impl Operator for MatMulAdd {
+    fn name(&self) -> &str {
+        "MatMulAdd"
+    }
+
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+        let a = inputs.require_as(0)?;
+        let b = inputs.require_as(1)?;
+
+        let bias = inputs.require_as(2)?;
+        let bias = static_dims!(bias, 1, "N")?.to_contiguous_in(pool);
+
+        matmul_add(pool, a, b, BiasVector::Row(bias.data().unwrap())).into_op_result()
     }
 }
 
@@ -414,12 +448,14 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
-    use crate::gemm::gemm;
+    use crate::gemm::{gemm, BiasVector, GemmExecutor, GemmInputA, GemmInputB};
     use crate::ops::binary_elementwise::broadcast_shapes;
     use crate::ops::tests::new_pool;
     use crate::tensor_pool::AutoReturn;
 
-    use super::{gemm_op, matmul, matmul_impl, matmul_integer, MatmulStrategy, OpError};
+    use super::{
+        gemm_op, matmul, matmul_add, matmul_impl, matmul_integer, MatmulStrategy, OpError,
+    };
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
         c.make_contiguous();
@@ -437,7 +473,12 @@ mod tests {
     /// Multiply matrices in `a` by corresponding matrices in `b` and write to
     /// `c`. The shapes of `a` and `b` are broadcast so that their first N-2
     /// dims match `c`.
-    fn reference_matmul(mut c: TensorViewMut, mut a: TensorView, mut b: TensorView) {
+    fn reference_matmul(
+        mut c: TensorViewMut,
+        mut a: TensorView,
+        mut b: TensorView,
+        bias: Option<BiasVector<f32>>,
+    ) {
         // Expand vector inputs to matrices. This follows the rules of
         // `numpy.matmul`.
         let a_is_vec = a.ndim() == 1;
@@ -468,19 +509,21 @@ mod tests {
         let a_bcast = [out_prefix, &a.shape()[a_batch_dims..]].concat();
         let b_bcast = [out_prefix, &b.shape()[b_batch_dims..]].concat();
 
+        let gemm = GemmExecutor::<f32, f32, f32>::default();
         a.broadcast(a_bcast.as_slice())
             .inner_iter::<2>()
             .zip(b.broadcast(b_bcast.as_slice()).inner_iter::<2>())
             .zip(c.inner_iter_mut::<2>())
             .for_each(|((a, b), mut c)| {
                 let c_row_stride = c.stride(0);
-                gemm(
+                gemm.gemm_bias(
                     c.data_mut().unwrap(),
                     c_row_stride,
-                    a,
-                    b,
+                    GemmInputA::Unpacked(a),
+                    GemmInputB::Unpacked(b),
                     1., /* alpha */
                     0., /* beta */
+                    bias,
                 )
             });
 
@@ -721,12 +764,30 @@ mod tests {
             let mut rng = XorShiftRng::new(1234);
             let a = Tensor::rand(a_shape, &mut rng);
             let b = Tensor::rand(b_shape, &mut rng);
+
             let mut expected = Tensor::zeros(out_shape);
 
-            reference_matmul(expected.view_mut(), a.view(), b.view());
+            reference_matmul(expected.view_mut(), a.view(), b.view(), None);
             let result = matmul(&pool, a.view(), b.view()).unwrap();
             expect_equal(&result, &expected)?;
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_add() -> Result<(), Box<dyn Error>> {
+        let mut rng = XorShiftRng::new(1234);
+        let a = Tensor::rand(&[10, 15], &mut rng);
+        let b = Tensor::rand(&[15, 5], &mut rng);
+        let bias_data: Vec<f32> = (0..b.size(b.ndim() - 1)).map(|_| rng.next_f32()).collect();
+        let bias = Some(BiasVector::Row(&bias_data));
+
+        let pool = new_pool();
+        let mut expected = Tensor::zeros(&[10, 5]);
+        reference_matmul(expected.view_mut(), a.view(), b.view(), bias.clone());
+        let result = matmul_add(&pool, a.view(), b.view(), bias.unwrap()).unwrap();
+        expect_equal(&result, &expected)?;
 
         Ok(())
     }
@@ -977,7 +1038,7 @@ mod tests {
                 );
                 let pool = new_pool();
                 run_bench(trials, Some(&desc), || {
-                    matmul_impl(&pool, a.view(), b.view(), strategy)
+                    matmul_impl(&pool, a.view(), b.view(), strategy, None)
                         .unwrap()
                         .auto_return(&pool);
                 });
