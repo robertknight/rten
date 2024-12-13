@@ -132,26 +132,6 @@ pub fn fast_broadcast_cycles_repeats(
     Some((cycles, repeats))
 }
 
-/// Check if a tensor of shape `from_shape` can be broadcast to `to_shape`
-/// just by cycling the whole sequence. If so, returns the number of cycles.
-///
-/// This is a more restricted variant of [`fast_broadcast_cycles_repeats`].
-fn fast_broadcast_cycles(from_shape: &[usize], to_shape: &[usize]) -> Option<usize> {
-    // `fast_broadcast_params` handles this case by returning `(1, n)` (ie.
-    // 1 cycle, n repeats) but here we want to use the equivalent n cycles,
-    // 1 repeat.
-    if from_shape.iter().product::<usize>() == 1 {
-        return Some(to_shape.iter().product());
-    }
-
-    fast_broadcast_cycles_repeats(from_shape, to_shape).and_then(|(cycles, repeats)| {
-        match (cycles, repeats) {
-            (n, 1) => Some(n),
-            _ => None,
-        }
-    })
-}
-
 /// Compute the result of applying the binary operation `op` to corresponding
 /// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
 /// matching shape if necessary.
@@ -863,71 +843,51 @@ pub fn where_op<T: Copy>(
     let result_shape = broadcast_shapes(cond.shape(), &broadcast_xy_shape)
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
 
-    let cond_cycles = fast_broadcast_cycles(cond.shape(), &result_shape);
-    let x_cycles = fast_broadcast_cycles(x.shape(), &result_shape);
-    let y_cycles = fast_broadcast_cycles(y.shape(), &result_shape);
-    let can_cycle = cond_cycles.is_some() && x_cycles.is_some() && y_cycles.is_some();
-
     let out_len = result_shape.iter().product();
     let mut out_data = pool.alloc(out_len);
 
-    if let (true, Some(cond_data), Some(x_data), Some(y_data)) =
-        (can_cycle, cond.data(), x.data(), y.data())
-    {
-        // Fast path for when we can cycle the underlying iterators.
-        out_data.extend(
-            cond_data
-                .iter()
-                .cycle()
-                .zip(x_data.iter().cycle())
-                .zip(y_data.iter().cycle())
-                .take(out_len)
-                .map(|((&cond, &x), &y)| if cond != 0 { x } else { y }),
-        );
-    } else {
-        let mut cond = cond.broadcast(result_shape.as_slice());
-        let mut x = x.broadcast(result_shape.as_slice());
-        let mut y = y.broadcast(result_shape.as_slice());
+    let mut cond = cond.broadcast(result_shape.as_slice());
+    let mut x = x.broadcast(result_shape.as_slice());
+    let mut y = y.broadcast(result_shape.as_slice());
 
-        // Loop over a statically known number of inner dims for efficiency.
-        while cond.ndim() <= 4 {
-            cond.insert_axis(0);
-            x.insert_axis(0);
-            y.insert_axis(0);
-        }
+    // Loop over a statically known number of inner dims for efficiency.
+    while cond.ndim() <= 4 {
+        cond.insert_axis(0);
+        x.insert_axis(0);
+        y.insert_axis(0);
+    }
 
-        let out_uninit = &mut out_data.spare_capacity_mut()[..cond.len()];
-        let mut out_offset = 0;
+    let out_uninit = &mut out_data.spare_capacity_mut()[..cond.len()];
+    let mut out_offset = 0;
 
-        cond.inner_iter::<4>()
-            .zip(x.inner_iter::<4>().zip(y.inner_iter::<4>()))
-            .for_each(|(cond, (x, y))| {
-                for i0 in 0..cond.size(0) {
-                    for i1 in 0..cond.size(1) {
-                        for i2 in 0..cond.size(2) {
-                            for i3 in 0..cond.size(3) {
-                                // Safety:
-                                // - `cond`, `x` and `y` have the same shape, and i0..i3 are in `[0, cond.size(i))`.
-                                // - The length of `out_uninit` is the same as `cond.len()`.
-                                unsafe {
-                                    let cond_elt = *cond.get_unchecked([i0, i1, i2, i3]);
-                                    let x_elt = *x.get_unchecked([i0, i1, i2, i3]);
-                                    let y_elt = *y.get_unchecked([i0, i1, i2, i3]);
-                                    let out_elt = if cond_elt != 0 { x_elt } else { y_elt };
-                                    out_uninit.get_unchecked_mut(out_offset).write(out_elt);
-                                    out_offset += 1;
-                                }
+    cond.inner_iter::<4>()
+        .zip(x.inner_iter::<4>().zip(y.inner_iter::<4>()))
+        .for_each(|(cond, (x, y))| {
+            for i0 in 0..cond.size(0) {
+                for i1 in 0..cond.size(1) {
+                    for i2 in 0..cond.size(2) {
+                        for i3 in 0..cond.size(3) {
+                            // Safety:
+                            // - `cond`, `x` and `y` have the same shape, and i0..i3 are in `[0, cond.size(i))`.
+                            // - The length of `out_uninit` is the same as `cond.len()`.
+                            unsafe {
+                                let cond_elt = *cond.get_unchecked([i0, i1, i2, i3]);
+                                let x_elt = *x.get_unchecked([i0, i1, i2, i3]);
+                                let y_elt = *y.get_unchecked([i0, i1, i2, i3]);
+                                let out_elt = if cond_elt != 0 { x_elt } else { y_elt };
+                                out_uninit.get_unchecked_mut(out_offset).write(out_elt);
+                                out_offset += 1;
                             }
                         }
                     }
                 }
-            });
+            }
+        });
 
-        // Safety: We just initialized `cond.len` elements.
-        assert!(out_offset == cond.len());
-        unsafe {
-            out_data.set_len(cond.len());
-        }
+    // Safety: We just initialized `cond.len` elements.
+    assert!(out_offset == cond.len());
+    unsafe {
+        out_data.set_len(cond.len());
     }
 
     Ok(Tensor::from_data(&result_shape, out_data))
@@ -967,7 +927,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
 
-    use super::{fast_broadcast_cycles, fast_broadcast_cycles_repeats};
+    use super::fast_broadcast_cycles_repeats;
     use crate::ops::tests::new_pool;
     use crate::ops::{
         add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
@@ -1011,44 +971,6 @@ mod tests {
         // Implicit padding
         let params = fast_broadcast_cycles_repeats(&[10], &[5, 3, 10]);
         assert_eq!(params, Some((15, 1)));
-    }
-
-    #[test]
-    fn test_fast_broadcast_cycles() {
-        // Scalar
-        let params = fast_broadcast_cycles(&[], &[1, 2, 3]);
-        assert_eq!(params, Some(6));
-
-        // All dims broadcast
-        let params = fast_broadcast_cycles(&[1, 1, 1], &[5, 6, 2]);
-        assert_eq!(params, Some(60));
-
-        // Same from/to shapes.
-        let params = fast_broadcast_cycles(&[3, 4, 5], &[3, 4, 5]);
-        assert_eq!(params, Some(1));
-
-        // Cycle only
-        let params = fast_broadcast_cycles(&[1, 1, 10], &[5, 2, 10]);
-        assert_eq!(params, Some(10));
-
-        // Repeat only
-        let params = fast_broadcast_cycles(&[10, 1, 1], &[10, 5, 6]);
-        assert_eq!(params, None);
-
-        // Cycle + repeat
-        let params = fast_broadcast_cycles(&[1, 10, 1], &[5, 10, 6]);
-        assert_eq!(params, None);
-
-        // Non-fast broadcast
-        let params = fast_broadcast_cycles(&[5, 1, 5], &[5, 6, 5]);
-        assert_eq!(params, None);
-
-        let params = fast_broadcast_cycles(&[1, 5, 1, 5, 1], &[2, 5, 6, 5, 2]);
-        assert_eq!(params, None);
-
-        // Implicit padding
-        let params = fast_broadcast_cycles(&[10], &[5, 3, 10]);
-        assert_eq!(params, Some(15));
     }
 
     #[test]
