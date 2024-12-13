@@ -212,6 +212,12 @@ impl<T> GemmInputB<'_, T> {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum BiasVector<'a, T> {
+    Column(&'a [T]),
+    Row(&'a [T]),
+}
+
 /// Perform a General Matrix Multiplication ("gemm").
 ///
 /// This computes `output = alpha * (a @ b) + beta * output` where `@` is
@@ -464,7 +470,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         b: GemmInputB<RhsT>,
         alpha: f32,
         beta: OutT,
-        bias: Option<&[OutT]>,
+        bias: Option<BiasVector<OutT>>,
     ) {
         gemm_impl(
             &*self.kernel,
@@ -492,7 +498,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         a: GemmInputA<LhsT>,
         b: GemmInputB<RhsT>,
         alpha: f32,
-        bias: Option<&[OutT]>,
+        bias: Option<BiasVector<OutT>>,
     ) {
         gemm_impl(
             &*self.kernel,
@@ -690,7 +696,7 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     mut output_mat: MatrixMut<OutT>,
     alpha: f32,
     beta: OutT,
-    bias: Option<OutT>,
+    bias: Option<BiasVector<OutT>>,
 ) {
     assert!(output_mat.is_contiguous());
 
@@ -730,10 +736,20 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 effective_beta = OutT::one();
             }
 
-            if let Some(bias) = bias {
-                for x in out_chunk {
-                    *x = *x + bias;
+            match bias {
+                Some(BiasVector::Column(bias)) => {
+                    let bias = bias[0];
+                    for x in out_chunk {
+                        *x = *x + bias;
+                    }
                 }
+                Some(BiasVector::Row(bias)) => {
+                    let bias_block = &bias[col_block.clone()];
+                    for (x, bias) in out_chunk.iter_mut().zip(bias_block) {
+                        *x = *x + *bias;
+                    }
+                }
+                None => {}
             }
         });
 }
@@ -773,33 +789,29 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     b: GemmInputB<RhsT>,
     alpha: f32,
     beta: OutT,
-    bias: Option<&[OutT]>,
+    bias: Option<BiasVector<OutT>>,
 ) {
     assert!(
         a.cols() == b.rows(),
         "Columns of matrix `a` must match rows of matrix `b`"
     );
-    assert!(
-        bias.map(|b| b.len()).unwrap_or(a.rows()) == a.rows(),
-        "Bias vector length must match rows of matrix `a`"
-    );
+
+    match bias {
+        Some(BiasVector::Row(bias)) => assert_eq!(
+            bias.len(),
+            b.cols(),
+            "Bias row vector length must match columns of `b`"
+        ),
+        Some(BiasVector::Column(bias)) => assert_eq!(
+            bias.len(),
+            a.rows(),
+            "Bias column vector length must match rows of `a`"
+        ),
+        None => {}
+    }
 
     // Handle case where output is empty.
     if a.rows() == 0 || b.cols() == 0 {
-        return;
-    }
-
-    // Handle case where depth is zero. We still need to initialize the output
-    // in this case.
-    if a.cols() == 0 {
-        for x in out_data {
-            let tmp = if beta == OutT::zero() {
-                OutT::zero()
-            } else {
-                *x
-            };
-            *x = beta * tmp;
-        }
         return;
     }
 
@@ -811,6 +823,34 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     )
     .expect("Output buffer should be large enough");
 
+    // Handle case where depth is zero. We still need to initialize the output
+    // in this case.
+    if a.cols() == 0 {
+        if beta == OutT::zero() {
+            output_mat.fill(OutT::zero());
+        } else {
+            output_mat.apply(|x| *x * beta);
+        }
+
+        if let Some(bias) = bias {
+            let bias_mat = match bias {
+                BiasVector::Column(bias) => {
+                    NdTensorView::from_data([a.rows()], bias).broadcast([a.rows(), b.cols()])
+                }
+                BiasVector::Row(bias) => {
+                    NdTensorView::from_data([1, b.cols()], bias).broadcast([a.rows(), b.cols()])
+                }
+            };
+            for r in 0..a.rows() {
+                for c in 0..b.cols() {
+                    let out_el = &mut output_mat[[r, c]];
+                    *out_el = *out_el + bias_mat[[r, c]];
+                }
+            }
+        }
+        return;
+    }
+
     // Use optimized path for vector-matrix products.
     if let (1, GemmInputA::Unpacked(a), GemmInputB::Unpacked(b)) = (a.rows(), a, b) {
         gemv(
@@ -820,8 +860,9 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
             output_mat.view_mut(),
             alpha,
             beta,
-            // nb. We checked above that, if present, the bias length matches `a.rows()`.
-            bias.map(|b| b[0]),
+            // nb. We checked above that, if present, the bias length matches
+            // `a.rows()` or `b.cols()` as appropriate.
+            bias,
         );
         return;
     }
@@ -1007,7 +1048,7 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     panel_length: usize,
     alpha: f32,
     beta: OutT,
-    bias: Option<&[OutT]>,
+    bias: Option<BiasVector<OutT>>,
 ) {
     // Maximum tile size supported. This is used when allocating space on the
     // stack for a temporary output tile.
@@ -1095,17 +1136,39 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                 }
 
                 // Add bias vector on first write to an output tile.
-                if let (Some(bias), true) = (bias, first_update) {
-                    for row in 0..out_tile.used_rows {
-                        for col in 0..out_tile.used_cols {
-                            // Safety:
-                            //  - Row and column indices are valid for current tile
-                            //  - Bias length was checked at start of `gemm_impl`
-                            unsafe {
-                                let out_el = out_tile.ptr.add(row * out_tile.row_stride + col);
-                                *out_el = *out_el + *bias.get_unchecked(row_tile * mr + row);
+                if first_update {
+                    match bias {
+                        Some(BiasVector::Column(bias)) => {
+                            for row in 0..out_tile.used_rows {
+                                for col in 0..out_tile.used_cols {
+                                    // Safety:
+                                    //  - Row and column indices are valid for current tile
+                                    //  - Bias length was checked at start of `gemm_impl`
+                                    unsafe {
+                                        let out_el =
+                                            out_tile.ptr.add(row * out_tile.row_stride + col);
+                                        *out_el =
+                                            *out_el + *bias.get_unchecked(row_tile * mr + row);
+                                    }
+                                }
                             }
                         }
+                        Some(BiasVector::Row(bias)) => {
+                            for row in 0..out_tile.used_rows {
+                                for col in 0..out_tile.used_cols {
+                                    // Safety:
+                                    //  - Row and column indices are valid for current tile
+                                    //  - Bias length was checked at start of `gemm_impl`
+                                    unsafe {
+                                        let out_el =
+                                            out_tile.ptr.add(row * out_tile.row_stride + col);
+                                        *out_el =
+                                            *out_el + *bias.get_unchecked(col_tile * nr + col);
+                                    }
+                                }
+                            }
+                        }
+                        None => {}
                     }
                 }
             }
@@ -1125,7 +1188,9 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Matrix, MatrixLayout, NdTensor, Tensor};
 
-    use super::{gemm, GemmExecutor, GemmInputA, GemmInputB, KernelType, VirtualMatrix};
+    use super::{
+        gemm, BiasVector, GemmExecutor, GemmInputA, GemmInputB, KernelType, VirtualMatrix,
+    };
 
     fn reference_matmul_alpha_beta(a: &Tensor, b: &Tensor, alpha: f32, beta: f32) -> Tensor {
         let [a_rows, _a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");
@@ -1161,7 +1226,7 @@ mod tests {
         b: &Tensor,
         alpha: f32,
         beta: f32,
-        bias: Option<&[f32]>,
+        bias: Option<BiasVector<f32>>,
         kernel: Option<KernelType>,
     ) {
         let out_row_stride = output.stride(0);
@@ -1192,7 +1257,7 @@ mod tests {
         b: &Tensor,
         alpha: f32,
         beta: f32,
-        bias: Option<&[f32]>,
+        bias: Option<BiasVector<f32>>,
     ) {
         let [a_rows, a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");
         let [_b_rows, b_cols]: [usize; 2] = b.shape().try_into().expect("input should be a matrix");
@@ -1203,8 +1268,12 @@ mod tests {
                 for k in 0..a_cols {
                     accum += a[[r, k]] * b[[k, c]];
                 }
-                output[[r, c]] =
-                    alpha * accum + beta * output[[r, c]] + bias.map(|b| b[r]).unwrap_or(0.);
+                let bias = match bias {
+                    Some(BiasVector::Row(b)) => b[c],
+                    Some(BiasVector::Column(b)) => b[r],
+                    None => 0.,
+                };
+                output[[r, c]] = alpha * accum + beta * output[[r, c]] + bias;
             }
         }
     }
@@ -1453,19 +1522,65 @@ mod tests {
     fn test_gemm_bias() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
 
-        let a = Tensor::rand(&[10, 5], &mut rng);
-        let b = Tensor::rand(&[5, 15], &mut rng);
-        let bias: Vec<f32> = (0..a.shape()[0]).map(|b| b as f32).collect();
-
-        let mut result = Tensor::zeros(&[10, 15]);
-        let mut expected = result.clone();
-
-        for kernel in [None, Some(KernelType::Generic)] {
-            run_gemm(&mut result, &a, &b, 1., 0., Some(&bias), kernel);
-            reference_gemm(&mut expected, &a, &b, 1., 0., Some(&bias));
+        struct Case {
+            m: usize,
+            n: usize,
+            k: usize,
         }
 
-        expect_equal(&result, &expected)?;
+        let cases = [
+            // Matrix-matrix
+            Case { m: 10, n: 15, k: 5 },
+            // Vector-matrix
+            Case { m: 1, n: 15, k: 5 },
+            // Vector-matrix, where n > minimum block size
+            Case { m: 1, n: 129, k: 1 },
+            // Case where k == 0
+            Case { m: 5, n: 5, k: 0 },
+        ];
+
+        for Case { m, n, k } in cases {
+            let a = Tensor::rand(&[m, k], &mut rng);
+            let b = Tensor::rand(&[k, n], &mut rng);
+
+            let mut result = Tensor::zeros(&[m, n]);
+            let mut expected = result.clone();
+
+            // Column vector bias
+            let bias: Vec<f32> = (0..a.shape()[0]).map(|b| b as f32).collect();
+            run_gemm(
+                &mut result,
+                &a,
+                &b,
+                1.,
+                0.,
+                Some(BiasVector::Column(&bias)),
+                None,
+            );
+            reference_gemm(
+                &mut expected,
+                &a,
+                &b,
+                1.,
+                0.,
+                Some(BiasVector::Column(&bias)),
+            );
+
+            // Row vector bias
+            let bias: Vec<f32> = (0..b.shape()[1]).map(|b| b as f32).collect();
+            run_gemm(
+                &mut result,
+                &a,
+                &b,
+                1.,
+                0.,
+                Some(BiasVector::Row(&bias)),
+                None,
+            );
+            reference_gemm(&mut expected, &a, &b, 1., 0., Some(BiasVector::Row(&bias)));
+
+            expect_equal(&result, &expected)?;
+        }
 
         Ok(())
     }
@@ -1827,7 +1942,9 @@ mod tests {
                 &b,
                 alpha,
                 beta,
-                bias_array.as_ref().map(|b| b.as_slice()),
+                bias_array
+                    .as_ref()
+                    .map(|b| BiasVector::Column(b.as_slice())),
                 None,
             );
 
