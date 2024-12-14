@@ -9,7 +9,7 @@ use crate::graph::{
     CaptureEnv, Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError, TypedConstant,
 };
 use crate::ops::fused::FusedTranspose;
-use crate::ops::{Gelu, LayerNormalization, Operator, ReduceMean, Silu, Transpose};
+use crate::ops::{Gelu, LayerNormalization, MatMulAdd, Operator, ReduceMean, Silu, Transpose};
 use crate::Output;
 
 mod pattern_matcher;
@@ -298,6 +298,7 @@ impl GraphOptimizer {
         self.fuse_silu(&mut graph_mut)?;
         self.fuse_gelu(&mut graph_mut)?;
         self.fuse_layer_norm(&mut graph_mut)?;
+        self.fuse_matmul_add(&mut graph_mut)?;
 
         Ok(graph_mut.finalize_graph())
     }
@@ -439,6 +440,45 @@ impl GraphOptimizer {
                 op_node.name(),
                 Silu {},
                 vec![Some(silu_input)],
+                op_output,
+            ))
+        });
+
+        Ok(())
+    }
+
+    /// Fuse `Add(MatMul(a, b), bias)` into `MatMulAdd(a, b, bias)`.
+    fn fuse_matmul_add(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
+        let a = symbol("a");
+        let b = symbol("b");
+        let bias = const_symbol("bias");
+        let matmul_add_pat = binary_op(
+            "Add",
+            binary_op("MatMul", a.clone(), b.clone()),
+            bias.clone(),
+        );
+
+        graph.apply_fusion(|graph, op_node_id, op_node| {
+            let matmul_add_match = matmul_add_pat.test(op_node_id, graph.graph())?;
+
+            let a_input = matmul_add_match.resolved_symbol("a").unwrap();
+            let b_input = matmul_add_match.resolved_symbol("b").unwrap();
+            let bias_input = matmul_add_match.resolved_symbol("bias").unwrap();
+            let op_output = op_node.output_id()?;
+
+            let is_bias_a_vector = match graph.graph().get_node(bias_input) {
+                Some(Node::Constant(const_node)) => const_node.shape().len() == 1,
+                _ => false,
+            };
+
+            if !is_bias_a_vector {
+                return None;
+            }
+
+            Some(Fusion::from_op(
+                op_node.name(),
+                MatMulAdd {},
+                vec![Some(a_input), Some(b_input), Some(bias_input)],
                 op_output,
             ))
         });
@@ -734,6 +774,26 @@ mod tests {
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "Silu");
         assert_eq!(op.name(), Some("mul"));
+    }
+
+    #[test]
+    fn test_fuse_matmul_add() {
+        let mut graph = Graph::new();
+
+        let a = graph.add_value(None, None, None);
+        let b = graph.add_value(None, None, None);
+        let bias = graph.add_constant(None, Tensor::from([1., 2., 3.]));
+
+        let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[a, b]);
+        let (_, add_out) = graph.add_simple_op("add", Add {}, &[matmul_out, bias]);
+        graph.set_input_ids(&[a, b]);
+        graph.set_output_ids(&[add_out]);
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(op.operator().name(), "MatMulAdd");
+        assert_eq!(op.name(), Some("add"));
     }
 
     #[test]

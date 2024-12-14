@@ -6,7 +6,9 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
-use crate::gemm::{GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, VirtualMatrix};
+use crate::gemm::{
+    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, VirtualMatrix,
+};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{static_dims, InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
 use crate::tensor_pool::{AutoReturn, TensorPool};
@@ -40,6 +42,7 @@ where
 
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.as_ref().map(|b| b.to_contiguous());
+    let bias_vec = bias.as_ref().map(|b| BiasVector::Column(b.data().unwrap()));
 
     let gemm = GemmExecutor::<W, X, Y>::default();
     let mut n_init = 0;
@@ -56,7 +59,7 @@ where
             GemmInputA::Unpacked(kernel_mat),
             GemmInputB::Unpacked(in_mat),
             1., // alpha
-            bias.as_ref().map(|b| b.data().unwrap()),
+            bias_vec,
         );
         n_init += out_item.len();
     }
@@ -270,6 +273,9 @@ where
                     gemm.b_panel_width(),
                 );
 
+                let bias_vec = bias
+                    .as_ref()
+                    .map(|b| BiasVector::Column(&b.data().unwrap()[out_chans.clone()]));
                 gemm.gemm_uninit_bias(
                     out_mat.data_mut().unwrap(),
                     out_row_stride,
@@ -278,7 +284,7 @@ where
                         .unwrap_or(GemmInputA::Unpacked(kernel_mat)),
                     GemmInputB::Virtual(&im2col),
                     1., // alpha
-                    bias.as_ref().map(|b| &b.data().unwrap()[out_chans.clone()]),
+                    bias_vec,
                 );
                 n_init.fetch_add(out_mat.len(), Ordering::SeqCst);
             });
