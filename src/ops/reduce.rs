@@ -360,9 +360,15 @@ fn reduce<T: Copy>(
                 let permuted = input.permuted(&perm);
 
                 for slice in permuted.inner_iter_dyn(resolved_axes.len()) {
-                    tmp_buf.clear();
-                    tmp_buf.extend(slice.iter().copied());
-                    let reduced = reducer.reduce_slice(&tmp_buf);
+                    // The reduced dimensions may be contiguous even if the
+                    // tensor is not.
+                    let reduced = if let Some(data) = slice.data() {
+                        reducer.reduce_slice(data)
+                    } else {
+                        tmp_buf.clear();
+                        tmp_buf.extend(slice.iter().copied());
+                        reducer.reduce_slice(&tmp_buf)
+                    };
                     reduced_data.push(reduced);
                 }
             }
