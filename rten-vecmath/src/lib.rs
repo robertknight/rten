@@ -19,6 +19,7 @@
 
 mod erf;
 mod exp;
+mod shift_scale;
 mod softmax;
 mod sum;
 mod tanh;
@@ -34,6 +35,7 @@ pub use exp::{
     exp, sigmoid, silu, vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place, vec_silu,
     vec_silu_in_place,
 };
+pub use shift_scale::vec_shift_scale_in_place;
 pub use softmax::{vec_softmax, vec_softmax_in_place};
 pub use sum::{vec_sum, vec_sum_square};
 pub use tanh::{tanh, vec_tanh, vec_tanh_in_place};
