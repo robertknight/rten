@@ -420,22 +420,28 @@ mod tests {
         let pool = TensorPool::new();
         assert_eq!(pool.len(), 0);
 
-        {
-            // Owned tensor. This will auto-return to the pool.
-            let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]).auto_return(&pool);
-            assert_eq!(tensor.shape(), [2, 2]);
+        // Owned tensor. This will auto-return to the pool.
+        let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]).auto_return(&pool);
+        assert_eq!(tensor.shape(), [2, 2]);
+        assert_eq!(pool.alloc_count(), 1);
+        assert_eq!(pool.len(), 0);
 
-            // Conditional copy which doesn't copy. This will not return to the pool.
-            tensor.to_contiguous_in(&pool).auto_return(&pool);
+        // Conditional copy which doesn't copy. This will not return to the pool.
+        let copy = tensor.to_contiguous_in(&pool).auto_return(&pool);
+        std::mem::drop(copy);
+        assert_eq!(pool.alloc_count(), 1);
+        assert_eq!(pool.len(), 0);
 
-            // Conditional copy which does copy. This will return to the pool.
-            tensor
-                .transposed()
-                .to_contiguous_in(&pool)
-                .auto_return(&pool);
-        }
-
+        // Conditional copy which does copy. This will return to the pool.
+        let copy = tensor
+            .transposed()
+            .to_contiguous_in(&pool)
+            .auto_return(&pool);
+        std::mem::drop(copy);
         assert_eq!(pool.alloc_count(), 2);
+        assert_eq!(pool.len(), 1);
+
+        std::mem::drop(tensor);
         assert_eq!(pool.len(), 2);
     }
 
