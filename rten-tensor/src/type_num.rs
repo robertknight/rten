@@ -6,6 +6,8 @@
 
 use std::ops::{Range, RangeFrom, RangeFull, RangeTo};
 
+use crate::SliceRange;
+
 /// Type representing an integer whose value is unknown at compile time.
 pub struct Unknown {}
 
@@ -147,6 +149,10 @@ impl<T> IsIndex for RangeFrom<T> {
     type IsIndex = U0;
 }
 
+impl IsIndex for SliceRange {
+    type IsIndex = U0;
+}
+
 /// Trait that counts the number of items in a sequence which are indices, as
 /// opposed to ranges.
 ///
@@ -175,6 +181,10 @@ pub trait IndexCount {
 
 impl IndexCount for usize {
     type Count = U1;
+}
+
+impl IndexCount for SliceRange {
+    type Count = U0;
 }
 
 impl<T> IndexCount for Range<T> {
@@ -243,6 +253,7 @@ impl<T> IndexCount for &[T] {
 #[cfg(test)]
 mod tests {
     use super::IndexCount;
+    use crate::SliceRange;
 
     #[test]
     fn test_index_count() {
@@ -252,6 +263,7 @@ mod tests {
         assert_eq!((..1).index_count(), Some(0));
         assert_eq!((1..).index_count(), Some(0));
         assert_eq!((1..2).index_count(), Some(0));
+        assert_eq!(SliceRange::new(0, None, 1).index_count(), Some(0));
 
         // Tuples
         assert_eq!((0,).index_count(), Some(1));
@@ -259,6 +271,7 @@ mod tests {
         assert_eq!((0, .., 2).index_count(), Some(2));
         assert_eq!((0, .., 2, ..).index_count(), Some(2));
         assert_eq!((0, .., 2, .., 3).index_count(), Some(3));
+        assert_eq!((0, SliceRange::new(0, None, 1)).index_count(), Some(1));
 
         // Arrays
         assert_eq!([1, 2, 3].index_count(), Some(3));
