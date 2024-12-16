@@ -117,6 +117,14 @@ pub trait AsView: Layout {
         self.view().broadcast(shape)
     }
 
+    /// Copy elements from this tensor into `dest` in logical order.
+    ///
+    /// Returns the initialized slice. Panics if the length of `dest` does
+    /// not match the number of elements in `self`.
+    fn copy_into_slice<'a>(&self, dest: &'a mut [MaybeUninit<Self::Elem>]) -> &'a [Self::Elem]
+    where
+        Self::Elem: Copy;
+
     /// Return the layout of this tensor as a slice, if it is contiguous.
     fn data(&self) -> Option<&[Self::Elem]>;
 
@@ -1676,6 +1684,22 @@ impl<T, S: Storage<Elem = T>, L: MutLayout + Clone> AsView for TensorBase<S, L> 
         self.view().iter()
     }
 
+    fn copy_into_slice<'a>(&self, dest: &'a mut [MaybeUninit<T>]) -> &'a [T]
+    where
+        T: Copy,
+    {
+        if let Some(data) = self.data() {
+            // Safety: `[T]` and `[MaybeUninit<T>]` have same layout.
+            let src_uninit = unsafe { std::mem::transmute::<&[T], &[MaybeUninit<T>]>(data) };
+            dest.copy_from_slice(src_uninit);
+            // Safety: `copy_from_slice` initializes the whole slice or panics
+            // if there is a length mismatch.
+            unsafe { std::mem::transmute::<&[MaybeUninit<T>], &[T]>(dest) }
+        } else {
+            copy_into_slice(self.as_dyn(), dest)
+        }
+    }
+
     fn data(&self) -> Option<&[Self::Elem]> {
         self.view().data()
     }
@@ -2538,6 +2562,21 @@ mod tests {
         let src = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         dest.copy_from(&src);
         assert_eq!(dest.to_vec(), &[1., 2., 3., 4.]);
+    }
+
+    #[test]
+    fn test_copy_into_slice() {
+        let src = NdTensor::from([[1, 2], [3, 4], [5, 6]]);
+        let mut buf = Vec::with_capacity(src.len());
+        let buf_uninit = &mut buf.spare_capacity_mut()[..src.len()];
+
+        // Contiguous case.
+        let elts = src.copy_into_slice(buf_uninit);
+        assert_eq!(elts, &[1, 2, 3, 4, 5, 6]);
+
+        // Non-contiguous case.
+        let transposed_elts = src.transposed().copy_into_slice(buf_uninit);
+        assert_eq!(transposed_elts, &[1, 3, 5, 2, 4, 6]);
     }
 
     #[test]
