@@ -11,8 +11,8 @@ use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
 };
-use crate::slice_reductions::{iter_sum, slice_sum};
-use crate::tensor_pool::TensorPool;
+use crate::slice_reductions::slice_sum;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
@@ -263,27 +263,17 @@ impl Operator for NonZero {
 }
 
 /// Trait for reducing a subset of elements from a tensor to a single value.
-///
-/// This is a trait rather than a closure to support being invoked with
-/// dynamically chosen iterator types.
 trait Reducer<T> {
-    fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T;
-
     /// Reduce a contiguous slice of values to a single value.
-    fn reduce_slice(&self, slice: &[T]) -> T
-    where
-        T: Copy,
-    {
-        self.reduce(slice.iter().copied())
-    }
+    fn reduce_slice(&self, slice: &[T]) -> T;
 }
 
-fn reduce<T: Copy, R: Reducer<T>>(
+fn reduce<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
-    reducer: R,
+    reducer: &dyn Reducer<T>,
 ) -> Result<Tensor<T>, OpError> {
     let mut resolved_axes = match axes {
         Some(axes) if !axes.is_empty() => resolve_axes(input.ndim(), axes.iter())?,
@@ -291,8 +281,19 @@ fn reduce<T: Copy, R: Reducer<T>>(
     };
     resolved_axes.sort();
 
+    // Allocate temporary buffer where slices of the input to be reduced are
+    // packed first if non-contiguous.
+    let mut tmp_buf = if !input.is_contiguous() {
+        let reduced_slice_len = resolved_axes.iter().map(|&dim| input.size(dim)).product();
+        pool.alloc(reduced_slice_len)
+    } else {
+        Vec::new()
+    }
+    .auto_return(pool);
+
     if input.ndim() == 0 {
-        return Ok(Tensor::from_scalar(reducer.reduce(input.iter().copied())));
+        let item = input.item().unwrap();
+        return Ok(Tensor::from_scalar(reducer.reduce_slice(&[*item])));
     }
 
     // nb. Some reduce operations cannot produce a meaningful result with
@@ -342,11 +343,15 @@ fn reduce<T: Copy, R: Reducer<T>>(
             if resolved_axes.len() == 1 {
                 // Fast path for reducing a single axis.
                 let resolved_axis = resolved_axes[0];
-                reduced_data.extend(
-                    input
-                        .lanes(resolved_axis)
-                        .map(|lane| reducer.reduce(lane.copied())),
-                );
+                reduced_data.extend(input.lanes(resolved_axis).map(|lane| {
+                    if let Some(lane_slice) = lane.as_slice() {
+                        reducer.reduce_slice(lane_slice)
+                    } else {
+                        tmp_buf.clear();
+                        tmp_buf.extend(lane.copied());
+                        reducer.reduce_slice(&tmp_buf)
+                    }
+                }));
             } else {
                 // Slow case when we have to step through each index
                 let outer_range: Vec<_> = (0..input.ndim())
@@ -369,7 +374,10 @@ fn reduce<T: Copy, R: Reducer<T>>(
                         }
                     }));
                     let slice = input.slice(inner_range.as_slice());
-                    let reduced = reducer.reduce(slice.iter().copied());
+
+                    tmp_buf.clear();
+                    tmp_buf.extend(slice.iter().copied());
+                    let reduced = reducer.reduce_slice(&tmp_buf);
                     reduced_data.push(reduced);
                 }
             }
@@ -395,17 +403,12 @@ pub fn reduce_mean(
 ) -> Result<Tensor, OpError> {
     struct MeanReducer {}
     impl Reducer<f32> for MeanReducer {
-        fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
-            let len = iter.len();
-            iter_sum(iter) / len as f32
-        }
-
         fn reduce_slice(&self, slice: &[f32]) -> f32 {
             vec_sum(slice) / slice.len() as f32
         }
     }
 
-    reduce(pool, input, axes, keep_dims, MeanReducer {})
+    reduce(pool, input, axes, keep_dims, &MeanReducer {})
 }
 
 /// Reduces axes of a tensor using an inverse Root Mean Squared (RMS)
@@ -428,19 +431,13 @@ pub fn reduce_inverse_rms(
     }
 
     impl Reducer<f32> for InverseRmsReducer {
-        fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
-            let len = iter.len();
-            let mean_square = iter_sum(iter.map(|x| x * x)) / len as f32;
-            1. / (mean_square + self.epsilon).sqrt()
-        }
-
         fn reduce_slice(&self, slice: &[f32]) -> f32 {
             let mean_square = vec_sum_square(slice) / slice.len() as f32;
             1. / (mean_square + self.epsilon).sqrt()
         }
     }
 
-    reduce(pool, input, axes, keep_dims, InverseRmsReducer { epsilon })
+    reduce(pool, input, axes, keep_dims, &InverseRmsReducer { epsilon })
 }
 
 #[derive(Debug)]
@@ -475,17 +472,12 @@ pub fn reduce_l2(
 ) -> Result<Tensor, OpError> {
     struct L2Reducer {}
     impl Reducer<f32> for L2Reducer {
-        fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
-            let sum_of_squares: f32 = iter.map(|val| val * val).sum();
-            sum_of_squares.sqrt()
-        }
-
         fn reduce_slice(&self, slice: &[f32]) -> f32 {
             vec_sum_square(slice).sqrt()
         }
     }
 
-    reduce(pool, input, axes, keep_dims, L2Reducer {})
+    reduce(pool, input, axes, keep_dims, &L2Reducer {})
 }
 
 #[derive(Debug)]
@@ -551,16 +543,16 @@ fn reduce_min_max<T: Copy + PartialOrd + IsNaN>(
         max: bool,
     }
     impl<T: Copy + PartialOrd + IsNaN> Reducer<T> for MinMaxReducer {
-        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
+        fn reduce_slice(&self, slice: &[T]) -> T {
             let reduced = if self.max {
-                iter.max_by(|a, b| cmp_nan_greater(*a, *b))
+                slice.iter().copied().max_by(|a, b| cmp_nan_greater(*a, *b))
             } else {
-                iter.min_by(|a, b| cmp_nan_less(*a, *b))
+                slice.iter().copied().min_by(|a, b| cmp_nan_less(*a, *b))
             };
             reduced.expect("attempted to get min/max of empty axis")
         }
     }
-    reduce(pool, input, axes, keep_dims, MinMaxReducer { max })
+    reduce(pool, input, axes, keep_dims, &MinMaxReducer { max })
 }
 
 /// Extract axes from input 1 in `inputs` or `attr`.
@@ -639,12 +631,12 @@ pub fn reduce_prod<T: Copy + std::iter::Product>(
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
     struct ProdReducer {}
-    impl<T: std::iter::Product> Reducer<T> for ProdReducer {
-        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
-            iter.product()
+    impl<T: Copy + std::iter::Product> Reducer<T> for ProdReducer {
+        fn reduce_slice(&self, slice: &[T]) -> T {
+            slice.iter().copied().product()
         }
     }
-    reduce(pool, input, axes, keep_dims, ProdReducer {})
+    reduce(pool, input, axes, keep_dims, &ProdReducer {})
 }
 
 #[derive(Debug)]
@@ -673,15 +665,11 @@ pub fn reduce_sum<T: Copy + Default + std::ops::Add<T, Output = T>>(
 ) -> Result<Tensor<T>, OpError> {
     struct SumReducer {}
     impl<T: Copy + Default + std::ops::Add<T, Output = T>> Reducer<T> for SumReducer {
-        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
-            iter_sum(iter)
-        }
-
         fn reduce_slice(&self, slice: &[T]) -> T {
             slice_sum(slice)
         }
     }
-    reduce(pool, input, axes, keep_dims, SumReducer {})
+    reduce(pool, input, axes, keep_dims, &SumReducer {})
 }
 
 #[derive(Debug)]
@@ -710,11 +698,11 @@ pub fn reduce_sum_square<T: Copy + std::ops::Mul<T, Output = T> + std::iter::Sum
 ) -> Result<Tensor<T>, OpError> {
     struct SumSquareReducer {}
     impl<T: Copy + std::iter::Sum + std::ops::Mul<Output = T>> Reducer<T> for SumSquareReducer {
-        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
-            iter.map(|x| x * x).sum()
+        fn reduce_slice(&self, slice: &[T]) -> T {
+            slice.iter().copied().map(|x| x * x).sum()
         }
     }
-    reduce(pool, input, axes, keep_dims, SumSquareReducer {})
+    reduce(pool, input, axes, keep_dims, &SumSquareReducer {})
 }
 
 #[derive(Debug)]

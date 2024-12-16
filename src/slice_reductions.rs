@@ -64,36 +64,6 @@ pub fn slice_map_sum<T: Copy + Default + std::ops::Add<Output = T>, M: Fn(T) -> 
         .fold(T::default(), |acc, x| acc + x)
 }
 
-/// Return the sum of an iterator of numbers.
-pub fn iter_sum<T: Copy + Default + std::ops::Add<Output = T>, I: ExactSizeIterator<Item = T>>(
-    mut iter: I,
-) -> T {
-    let zero = T::default();
-    let len = iter.len();
-    let mut sum = zero;
-    let mut n = len;
-
-    while n > 4 {
-        n -= 4;
-
-        let a = iter.next().unwrap_or(zero);
-        let b = iter.next().unwrap_or(zero);
-        let c = iter.next().unwrap_or(zero);
-        let d = iter.next().unwrap_or(zero);
-
-        let ab = a + b;
-        let cd = c + d;
-        let abcd = ab + cd;
-        sum = sum + abcd;
-    }
-
-    for x in iter {
-        sum = sum + x;
-    }
-
-    sum
-}
-
 #[cfg(test)]
 mod tests {
     use rten_tensor::rng::XorShiftRng;
