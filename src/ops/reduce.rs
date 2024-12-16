@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 
 use rten_tensor;
 use rten_tensor::prelude::*;
-use rten_tensor::{DynIndices, NdTensor, NdTensorView, SliceItem, Tensor, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath::{vec_sum, vec_sum_square};
 
 use crate::number::{Identities, IsNaN};
@@ -353,28 +353,13 @@ fn reduce<T: Copy>(
                     }
                 }));
             } else {
-                // Slow case when we have to step through each index
-                let outer_range: Vec<_> = (0..input.ndim())
-                    .map(|dim| {
-                        if resolved_axes.contains(&dim) {
-                            1
-                        } else {
-                            input.size(dim)
-                        }
-                    })
-                    .collect();
-                let mut inner_range = Vec::with_capacity(input.ndim());
-                for index in DynIndices::from_shape(&outer_range) {
-                    inner_range.clear();
-                    inner_range.extend(index.iter().enumerate().map(|(dim, &idx)| {
-                        if resolved_axes.contains(&dim) {
-                            SliceItem::range(0, Some(input.size(dim) as isize), 1)
-                        } else {
-                            SliceItem::Index(idx as isize)
-                        }
-                    }));
-                    let slice = input.slice(inner_range.as_slice());
+                // Permute input so the N reduced dims are last, then iterate
+                // over slices of the inner N dims.
+                let mut perm: Vec<usize> = (0..input.ndim()).collect();
+                perm.sort_by_key(|&dim| (resolved_axes.contains(&dim), dim));
+                let permuted = input.permuted(&perm);
 
+                for slice in permuted.inner_iter_dyn(resolved_axes.len()) {
                     tmp_buf.clear();
                     tmp_buf.extend(slice.iter().copied());
                     let reduced = reducer.reduce_slice(&tmp_buf);
