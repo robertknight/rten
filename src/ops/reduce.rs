@@ -366,8 +366,9 @@ fn reduce<T: Copy>(
                         reducer.reduce_slice(data)
                     } else {
                         tmp_buf.clear();
-                        tmp_buf.extend(slice.iter().copied());
-                        reducer.reduce_slice(&tmp_buf)
+                        let tmp_uninit = &mut tmp_buf.spare_capacity_mut()[..slice.len()];
+                        let tmp = slice.copy_into_slice(tmp_uninit);
+                        reducer.reduce_slice(tmp)
                     };
                     reduced_data.push(reduced);
                 }
