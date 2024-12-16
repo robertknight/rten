@@ -216,6 +216,18 @@ pub trait ExtractBuffer {
     fn extract_buffer(self) -> Option<Vec<Self::Elem>>;
 }
 
+impl<T> ExtractBuffer for Vec<T> {
+    type Elem = T;
+
+    fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
+        if self.capacity() > 0 {
+            Some(self)
+        } else {
+            None
+        }
+    }
+}
+
 impl<T, L: MutLayout> ExtractBuffer for TensorBase<Vec<T>, L> {
     type Elem = T;
 
@@ -443,6 +455,16 @@ mod tests {
 
         std::mem::drop(tensor);
         assert_eq!(pool.len(), 2);
+
+        // Non-empty vector. This will return to the pool.
+        let non_empty = Vec::<f32>::with_capacity(16).auto_return(&pool);
+        std::mem::drop(non_empty);
+        assert_eq!(pool.len(), 3);
+
+        // Empty vector. This will not return to the pool.
+        let empty = Vec::<f32>::new().auto_return(&pool);
+        std::mem::drop(empty);
+        assert_eq!(pool.len(), 3);
     }
 
     #[test]
