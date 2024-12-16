@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 
 use rten_tensor;
 use rten_tensor::prelude::*;
-use rten_tensor::{DynIndices, NdTensor, NdTensorView, SliceItem, Tensor, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath::{vec_sum, vec_sum_square};
 
 use crate::number::{Identities, IsNaN};
@@ -11,8 +11,8 @@ use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
 };
-use crate::slice_reductions::{iter_sum, slice_sum};
-use crate::tensor_pool::TensorPool;
+use crate::slice_reductions::slice_sum;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
@@ -262,28 +262,23 @@ impl Operator for NonZero {
     }
 }
 
-/// Trait for reducing a subset of elements from a tensor to a single value.
-///
-/// This is a trait rather than a closure to support being invoked with
-/// dynamically chosen iterator types.
-trait Reducer<T> {
-    fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T;
-
+/// Kernel that handles reducing a single slice of the input.
+trait ReduceKernel<T> {
     /// Reduce a contiguous slice of values to a single value.
-    fn reduce_slice(&self, slice: &[T]) -> T
-    where
-        T: Copy,
-    {
-        self.reduce(slice.iter().copied())
-    }
+    fn reduce_slice(&self, slice: &[T]) -> T;
 }
 
-fn reduce<T: Copy, R: Reducer<T>>(
+/// Outer loop of reduction operations.
+///
+/// This iterates over slices of the input that are reduced independently and
+/// invokes the kernel on that slice. If the input is not contiguous, the slice
+/// is packed before calling the kernel.
+fn reduce<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
-    reducer: R,
+    kernel: &dyn ReduceKernel<T>,
 ) -> Result<Tensor<T>, OpError> {
     let mut resolved_axes = match axes {
         Some(axes) if !axes.is_empty() => resolve_axes(input.ndim(), axes.iter())?,
@@ -291,8 +286,19 @@ fn reduce<T: Copy, R: Reducer<T>>(
     };
     resolved_axes.sort();
 
+    // Allocate temporary buffer where slices of the input to be reduced are
+    // packed first if non-contiguous.
+    let mut tmp_buf = if !input.is_contiguous() {
+        let reduced_slice_len = resolved_axes.iter().map(|&dim| input.size(dim)).product();
+        pool.alloc(reduced_slice_len)
+    } else {
+        Vec::new()
+    }
+    .auto_return(pool);
+
     if input.ndim() == 0 {
-        return Ok(Tensor::from_scalar(reducer.reduce(input.iter().copied())));
+        let item = input.item().unwrap();
+        return Ok(Tensor::from_scalar(kernel.reduce_slice(&[*item])));
     }
 
     // nb. Some reduce operations cannot produce a meaningful result with
@@ -335,41 +341,40 @@ fn reduce<T: Copy, R: Reducer<T>>(
             reduced_data.extend(
                 input_data
                     .chunks(slice_len)
-                    .map(|chunk| reducer.reduce_slice(chunk)),
+                    .map(|chunk| kernel.reduce_slice(chunk)),
             );
         }
         _ => {
             if resolved_axes.len() == 1 {
                 // Fast path for reducing a single axis.
                 let resolved_axis = resolved_axes[0];
-                reduced_data.extend(
-                    input
-                        .lanes(resolved_axis)
-                        .map(|lane| reducer.reduce(lane.copied())),
-                );
+                reduced_data.extend(input.lanes(resolved_axis).map(|lane| {
+                    if let Some(lane_slice) = lane.as_slice() {
+                        kernel.reduce_slice(lane_slice)
+                    } else {
+                        tmp_buf.clear();
+                        tmp_buf.extend(lane.copied());
+                        kernel.reduce_slice(&tmp_buf)
+                    }
+                }));
             } else {
-                // Slow case when we have to step through each index
-                let outer_range: Vec<_> = (0..input.ndim())
-                    .map(|dim| {
-                        if resolved_axes.contains(&dim) {
-                            1
-                        } else {
-                            input.size(dim)
-                        }
-                    })
-                    .collect();
-                let mut inner_range = Vec::with_capacity(input.ndim());
-                for index in DynIndices::from_shape(&outer_range) {
-                    inner_range.clear();
-                    inner_range.extend(index.iter().enumerate().map(|(dim, &idx)| {
-                        if resolved_axes.contains(&dim) {
-                            SliceItem::range(0, Some(input.size(dim) as isize), 1)
-                        } else {
-                            SliceItem::Index(idx as isize)
-                        }
-                    }));
-                    let slice = input.slice(inner_range.as_slice());
-                    let reduced = reducer.reduce(slice.iter().copied());
+                // Permute input so the N reduced dims are last, then iterate
+                // over slices of the inner N dims.
+                let mut perm: Vec<usize> = (0..input.ndim()).collect();
+                perm.sort_by_key(|&dim| (resolved_axes.contains(&dim), dim));
+                let permuted = input.permuted(&perm);
+
+                for slice in permuted.inner_iter_dyn(resolved_axes.len()) {
+                    // The reduced dimensions may be contiguous even if the
+                    // tensor is not.
+                    let reduced = if let Some(data) = slice.data() {
+                        kernel.reduce_slice(data)
+                    } else {
+                        tmp_buf.clear();
+                        let tmp_uninit = &mut tmp_buf.spare_capacity_mut()[..slice.len()];
+                        let tmp = slice.copy_into_slice(tmp_uninit);
+                        kernel.reduce_slice(tmp)
+                    };
                     reduced_data.push(reduced);
                 }
             }
@@ -393,19 +398,14 @@ pub fn reduce_mean(
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor, OpError> {
-    struct MeanReducer {}
-    impl Reducer<f32> for MeanReducer {
-        fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
-            let len = iter.len();
-            iter_sum(iter) / len as f32
-        }
-
+    struct MeanKernel {}
+    impl ReduceKernel<f32> for MeanKernel {
         fn reduce_slice(&self, slice: &[f32]) -> f32 {
             vec_sum(slice) / slice.len() as f32
         }
     }
 
-    reduce(pool, input, axes, keep_dims, MeanReducer {})
+    reduce(pool, input, axes, keep_dims, &MeanKernel {})
 }
 
 /// Reduces axes of a tensor using an inverse Root Mean Squared (RMS)
@@ -423,24 +423,18 @@ pub fn reduce_inverse_rms(
     keep_dims: bool,
     epsilon: f32,
 ) -> Result<Tensor, OpError> {
-    struct InverseRmsReducer {
+    struct InverseRmsKernel {
         epsilon: f32,
     }
 
-    impl Reducer<f32> for InverseRmsReducer {
-        fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
-            let len = iter.len();
-            let mean_square = iter_sum(iter.map(|x| x * x)) / len as f32;
-            1. / (mean_square + self.epsilon).sqrt()
-        }
-
+    impl ReduceKernel<f32> for InverseRmsKernel {
         fn reduce_slice(&self, slice: &[f32]) -> f32 {
             let mean_square = vec_sum_square(slice) / slice.len() as f32;
             1. / (mean_square + self.epsilon).sqrt()
         }
     }
 
-    reduce(pool, input, axes, keep_dims, InverseRmsReducer { epsilon })
+    reduce(pool, input, axes, keep_dims, &InverseRmsKernel { epsilon })
 }
 
 #[derive(Debug)]
@@ -473,19 +467,14 @@ pub fn reduce_l2(
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor, OpError> {
-    struct L2Reducer {}
-    impl Reducer<f32> for L2Reducer {
-        fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
-            let sum_of_squares: f32 = iter.map(|val| val * val).sum();
-            sum_of_squares.sqrt()
-        }
-
+    struct L2ReduceKernel {}
+    impl ReduceKernel<f32> for L2ReduceKernel {
         fn reduce_slice(&self, slice: &[f32]) -> f32 {
             vec_sum_square(slice).sqrt()
         }
     }
 
-    reduce(pool, input, axes, keep_dims, L2Reducer {})
+    reduce(pool, input, axes, keep_dims, &L2ReduceKernel {})
 }
 
 #[derive(Debug)]
@@ -550,17 +539,17 @@ fn reduce_min_max<T: Copy + PartialOrd + IsNaN>(
     struct MinMaxReducer {
         max: bool,
     }
-    impl<T: Copy + PartialOrd + IsNaN> Reducer<T> for MinMaxReducer {
-        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
+    impl<T: Copy + PartialOrd + IsNaN> ReduceKernel<T> for MinMaxReducer {
+        fn reduce_slice(&self, slice: &[T]) -> T {
             let reduced = if self.max {
-                iter.max_by(|a, b| cmp_nan_greater(*a, *b))
+                slice.iter().copied().max_by(|a, b| cmp_nan_greater(*a, *b))
             } else {
-                iter.min_by(|a, b| cmp_nan_less(*a, *b))
+                slice.iter().copied().min_by(|a, b| cmp_nan_less(*a, *b))
             };
             reduced.expect("attempted to get min/max of empty axis")
         }
     }
-    reduce(pool, input, axes, keep_dims, MinMaxReducer { max })
+    reduce(pool, input, axes, keep_dims, &MinMaxReducer { max })
 }
 
 /// Extract axes from input 1 in `inputs` or `attr`.
@@ -638,13 +627,13 @@ pub fn reduce_prod<T: Copy + std::iter::Product>(
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
-    struct ProdReducer {}
-    impl<T: std::iter::Product> Reducer<T> for ProdReducer {
-        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
-            iter.product()
+    struct ProdKernel {}
+    impl<T: Copy + std::iter::Product> ReduceKernel<T> for ProdKernel {
+        fn reduce_slice(&self, slice: &[T]) -> T {
+            slice.iter().copied().product()
         }
     }
-    reduce(pool, input, axes, keep_dims, ProdReducer {})
+    reduce(pool, input, axes, keep_dims, &ProdKernel {})
 }
 
 #[derive(Debug)]
@@ -671,17 +660,13 @@ pub fn reduce_sum<T: Copy + Default + std::ops::Add<T, Output = T>>(
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
-    struct SumReducer {}
-    impl<T: Copy + Default + std::ops::Add<T, Output = T>> Reducer<T> for SumReducer {
-        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
-            iter_sum(iter)
-        }
-
+    struct SumKernel {}
+    impl<T: Copy + Default + std::ops::Add<T, Output = T>> ReduceKernel<T> for SumKernel {
         fn reduce_slice(&self, slice: &[T]) -> T {
             slice_sum(slice)
         }
     }
-    reduce(pool, input, axes, keep_dims, SumReducer {})
+    reduce(pool, input, axes, keep_dims, &SumKernel {})
 }
 
 #[derive(Debug)]
@@ -708,13 +693,13 @@ pub fn reduce_sum_square<T: Copy + std::ops::Mul<T, Output = T> + std::iter::Sum
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
-    struct SumSquareReducer {}
-    impl<T: Copy + std::iter::Sum + std::ops::Mul<Output = T>> Reducer<T> for SumSquareReducer {
-        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
-            iter.map(|x| x * x).sum()
+    struct SumSquareKernel {}
+    impl<T: Copy + std::iter::Sum + std::ops::Mul<Output = T>> ReduceKernel<T> for SumSquareKernel {
+        fn reduce_slice(&self, slice: &[T]) -> T {
+            slice.iter().copied().map(|x| x * x).sum()
         }
     }
-    reduce(pool, input, axes, keep_dims, SumSquareReducer {})
+    reduce(pool, input, axes, keep_dims, &SumSquareKernel {})
 }
 
 #[derive(Debug)]
@@ -851,7 +836,7 @@ mod tests {
 
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{eq_with_nans, expect_equal};
-    use rten_tensor::{NdTensor, Tensor};
+    use rten_tensor::{NdTensor, SliceRange, Tensor};
 
     use crate::ops::tests::{new_pool, run_op};
     use crate::ops::{
@@ -1069,6 +1054,8 @@ mod tests {
         Ok(())
     }
 
+    // Tests for ReduceMean specifically that also cover common functionality
+    // across the different reductions.
     #[test]
     fn test_reduce_mean() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
@@ -1127,6 +1114,44 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.to_vec(), &[5.0]);
+
+        // Reduce non-contiguous lane
+        let tensor = Tensor::from([0., 1., 2., 3., 4., 5., 6.]);
+        let slice = tensor.slice(SliceRange::new(0, None, 2));
+        let expected_mean = slice.iter().sum::<f32>() / slice.len() as f32;
+        let result = reduce_mean(&pool, slice.view(), Some(&[0]), false /* keep_dims */).unwrap();
+        assert_eq!(result.to_vec(), &[expected_mean]);
+
+        // Reduce contiguous lanes in non-contiguous tensor
+        let tensor = Tensor::from([[0., 1.], [2., 3.], [4., 5.]]);
+        let slice = tensor.slice(SliceRange::new(0, None, 2));
+        let result = reduce_mean(&pool, slice.view(), Some(&[1]), false /* keep_dims */).unwrap();
+        assert_eq!(result.to_vec(), &[0.5, 4.5]);
+
+        // Reduce multiple non-contiguous dimensions
+        let tensor = Tensor::from([[0., 1.], [2., 3.], [4., 5.]]);
+        let slice = tensor.slice((SliceRange::new(0, None, 2), SliceRange::new(0, None, 2)));
+        let expected_mean = slice.iter().sum::<f32>() / slice.len() as f32;
+        let result = reduce_mean(
+            &pool,
+            slice.view(),
+            Some(&[0, 1]),
+            false, /* keep_dims */
+        )
+        .unwrap();
+        assert_eq!(result.to_vec(), &[expected_mean]);
+
+        // Reduce multiple contiguous dimensions in non-contiguous tensor
+        let tensor = Tensor::from([[[0.], [1.]], [[2.], [3.]], [[4.], [5.]]]);
+        let slice = tensor.slice(SliceRange::new(0, None, 2));
+        let result = reduce_mean(
+            &pool,
+            slice.view(),
+            Some(&[1, 2]),
+            false, /* keep_dims */
+        )
+        .unwrap();
+        assert_eq!(result.to_vec(), &[0.5, 4.5]);
 
         Ok(())
     }

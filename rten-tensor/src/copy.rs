@@ -171,14 +171,13 @@ fn copy_blocked<T: Clone>(src: Matrix<T>, mut dest: MatrixMut<MaybeUninit<T>>) {
 ///
 /// Returns `dest` as an initialized slice.
 pub fn copy_into_slice<'a, T: Clone>(
-    src: TensorView<T>,
+    mut src: TensorView<T>,
     dest: &'a mut [MaybeUninit<T>],
 ) -> &'a [T] {
     assert!(dest.len() == src.len());
 
     // Merge axes to increase the chance that we can use the fast path and
     // also maximize the iteration count of the innermost loops.
-    let mut src = src.clone();
     src.merge_axes();
 
     if src.ndim() > 4 {
