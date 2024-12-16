@@ -1,15 +1,14 @@
-use rayon::prelude::*;
+use std::mem::MaybeUninit;
 
+use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
-use rten_vecmath::{vec_softmax_in_place, vec_sum};
-use smallvec::SmallVec;
+use rten_vecmath::{vec_shift_scale_in_place, vec_softmax_in_place, vec_sum, vec_sum_square};
 
-use crate::ops::reduce::reduce_inverse_rms;
-use crate::ops::{add_in_place, mul_in_place, reduce_mean, static_dims, sub};
+use crate::ops::static_dims;
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::slice_reductions::slice_max;
-use crate::tensor_pool::{AutoReturn, TensorPool};
+use crate::tensor_pool::TensorPool;
 
 /// Perform in-place batch normalization on the `NC*` tensor `out`.
 ///
@@ -253,52 +252,83 @@ pub fn layer_normalization(
     axis: isize,
     epsilon: Option<f32>,
 ) -> Result<Tensor, OpError> {
+    let epsilon = epsilon.unwrap_or(1e-5);
+    let resolved_axis = resolve_axis(input.ndim(), axis)?;
+    let normalized_slice_shape = &input.shape()[resolved_axis..];
+
     if !scale.can_broadcast_to(input.shape()) {
         return Err(OpError::IncompatibleInputShapes(
             "`scale` cannot be broadcast to input shape",
         ));
     }
+    if scale.shape() != normalized_slice_shape {
+        return Err(OpError::UnsupportedValue(
+            "`scale` shape does not match normalized axes of input",
+        ));
+    }
+
     if let Some(bias) = bias.as_ref() {
         if !bias.can_broadcast_to(input.shape()) {
             return Err(OpError::IncompatibleInputShapes(
                 "`bias` cannot be broadcast to input shape",
             ));
         }
+        if bias.shape() != normalized_slice_shape {
+            return Err(OpError::UnsupportedValue(
+                "`bias` shape does not match normalized axes of input",
+            ));
+        }
     }
 
-    let epsilon = epsilon.unwrap_or(1e-5);
-    let resolved_axis = resolve_axis(input.ndim(), axis)?;
-    let normalized_axes: SmallVec<[i32; 5]> = (resolved_axis..input.ndim())
-        .map(|axis| axis as i32)
-        .collect();
+    let input = input.to_contiguous_in(pool);
 
-    // First step: standardize input elements to have zero mean and unit variance.
-    let mean = reduce_mean(
-        pool,
-        input.view(),
-        Some(normalized_axes.as_slice()),
-        true, /* keep_dims */
-    )?
-    .auto_return(pool);
-    let mut normalized = sub(pool, input, mean.view())?.auto_return(pool);
+    let mut output = pool.alloc(input.len());
+    let chunk_size = input.shape()[resolved_axis..].iter().product();
 
-    let inverse_std_dev = reduce_inverse_rms(
-        pool,
-        normalized.view(),
-        Some(normalized_axes.as_slice()),
-        true, /* keep_dims */
-        epsilon,
-    )?
-    .auto_return(pool);
-    mul_in_place(normalized.view_mut(), inverse_std_dev.view());
+    let bias = bias.map(|b| b.to_contiguous_in(pool));
+    let bias_data = bias.as_ref().map(|b| b.data().unwrap());
 
-    // Second step: Shift and scale input.
-    mul_in_place(normalized.view_mut(), scale);
-    if let Some(bias) = bias {
-        add_in_place(normalized.view_mut(), bias);
+    let scale = scale.to_contiguous_in(pool);
+    let scale_data = scale.data().unwrap();
+
+    let mut n_init = 0;
+    for (in_chunk, out_chunk) in input
+        .data()
+        .unwrap()
+        .chunks(chunk_size)
+        .zip(output.spare_capacity_mut().chunks_mut(chunk_size))
+    {
+        // Subtract mean
+        let sum = vec_sum(in_chunk);
+        let mean = sum / in_chunk.len() as f32;
+        for (x, y) in in_chunk.iter().zip(out_chunk.iter_mut()) {
+            y.write(x - mean);
+        }
+
+        // Safety: We have initialized all elements of `out_chunk`.
+        let out_chunk =
+            unsafe { std::mem::transmute::<&mut [MaybeUninit<f32>], &mut [f32]>(out_chunk) };
+
+        // Compute inverse Root Mean Square
+        let sum_square = vec_sum_square(out_chunk);
+        let mean_squared = sum_square / out_chunk.len() as f32;
+        let inverse_rms = 1. / (mean_squared + epsilon).sqrt();
+
+        // Scale output by inverse RMS so that it has zero mean and unit
+        // variance, then apply per-element scale and bias.
+        //
+        // For efficiency these steps are fused into one pass over the data.
+        vec_shift_scale_in_place(out_chunk, inverse_rms, scale_data, bias_data);
+
+        n_init += out_chunk.len();
     }
 
-    Ok(normalized.take())
+    // Safety: We initialized `n_init` elements.
+    unsafe {
+        output.set_len(n_init);
+    }
+
+    Ok(Tensor::from_data(input.shape(), output))
 }
 
 #[derive(Debug)]
@@ -645,35 +675,80 @@ mod tests {
     fn test_layer_normalization() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
 
-        // Sample values generated using `torch.rand`.
-        let input = Tensor::from([[
-            [0.9562, 0.0572],
-            [0.4366, 0.5655],
-            [0.2017, 0.0230],
-            [0.7941, 0.1554],
-            [0.3226, 0.120],
-        ]]);
-        let scale = Tensor::from([0.0751, 0.6952]);
-        let bias = Tensor::from([0.9993, 0.7632]);
+        struct Case {
+            input: Tensor,
+            scale: Tensor,
+            bias: Option<Tensor>,
+            axis: isize,
+            expected: Result<Tensor, OpError>,
+        }
 
-        let result = layer_normalization(
-            &pool,
-            input.view(),
-            scale.view(),
-            Some(bias.view()),
-            -1,   /* axis */
-            None, /* epsilon */
-        )
-        .unwrap();
+        let cases = [
+            // Normalize last axis
+            Case {
+                // Sample values generated using `torch.rand`.
+                input: Tensor::from([[
+                    [0.9562, 0.0572],
+                    [0.4366, 0.5655],
+                    [0.2017, 0.0230],
+                    [0.7941, 0.1554],
+                    [0.3226, 0.120],
+                ]]),
+                scale: Tensor::from([0.0751, 0.6952]),
+                bias: Some(Tensor::from([0.9993, 0.7632])),
+                axis: -1,
+                expected: Ok(Tensor::from([[
+                    [1.0744, 0.0680],
+                    [0.9243, 1.4576],
+                    [1.0744, 0.0684],
+                    [1.0744, 0.0680],
+                    [1.0744, 0.0683],
+                ]])),
+            },
+            // Unsupported scale shape
+            Case {
+                input: Tensor::from([[1., 2., 3.], [4., 5., 6.]]),
+                scale: Tensor::full(&[2, 3], 1.0),
+                bias: None,
+                axis: -1,
+                expected: Err(OpError::UnsupportedValue(
+                    "`scale` shape does not match normalized axes of input",
+                )),
+            },
+            // Unsupported bias shape
+            Case {
+                input: Tensor::from([[1., 2., 3.], [4., 5., 6.]]),
+                scale: Tensor::from([1., 1., 1.]),
+                bias: Some(Tensor::full(&[2, 3], 1.0)),
+                axis: -1,
+                expected: Err(OpError::UnsupportedValue(
+                    "`bias` shape does not match normalized axes of input",
+                )),
+            },
+        ];
 
-        let expected = Tensor::from([[
-            [1.0744, 0.0680],
-            [0.9243, 1.4576],
-            [1.0744, 0.0684],
-            [1.0744, 0.0680],
-            [1.0744, 0.0683],
-        ]]);
-        expect_eq_1e4(&result, &expected)?;
+        for Case {
+            input,
+            scale,
+            bias,
+            axis,
+            expected,
+        } in cases
+        {
+            let result = layer_normalization(
+                &pool,
+                input.view(),
+                scale.view(),
+                bias.as_ref().map(|b| b.view()),
+                axis,
+                None, /* epsilon */
+            );
+
+            match (result, expected) {
+                (Ok(result), Ok(expected)) => expect_eq_1e4(&result, &expected)?,
+                (result, expected) => assert_eq!(result, expected),
+            }
+        }
 
         Ok(())
     }

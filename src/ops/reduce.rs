@@ -408,35 +408,6 @@ pub fn reduce_mean(
     reduce(pool, input, axes, keep_dims, &MeanKernel {})
 }
 
-/// Reduces axes of a tensor using an inverse Root Mean Squared (RMS)
-/// operation.
-///
-/// This reduces axes according to the formula:
-///
-/// ```text
-/// 1. / (mean(x^2) + epsilon).sqrt()
-/// ```
-pub fn reduce_inverse_rms(
-    pool: &TensorPool,
-    input: TensorView,
-    axes: Option<&[i32]>,
-    keep_dims: bool,
-    epsilon: f32,
-) -> Result<Tensor, OpError> {
-    struct InverseRmsKernel {
-        epsilon: f32,
-    }
-
-    impl ReduceKernel<f32> for InverseRmsKernel {
-        fn reduce_slice(&self, slice: &[f32]) -> f32 {
-            let mean_square = vec_sum_square(slice) / slice.len() as f32;
-            1. / (mean_square + self.epsilon).sqrt()
-        }
-    }
-
-    reduce(pool, input, axes, keep_dims, &InverseRmsKernel { epsilon })
-}
-
 #[derive(Debug)]
 pub struct ReduceMean {
     pub axes: Option<Vec<i32>>,
