@@ -59,6 +59,13 @@ impl Simd for v128i {
     unsafe fn store(self, ptr: *mut i32) {
         v128_store(ptr as *mut v128, self.0)
     }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
+    }
 }
 
 impl SimdInt for v128i {
@@ -108,13 +115,6 @@ impl SimdInt for v128i {
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         v128f(self.0)
     }
-
-    #[inline]
-    unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
-    }
 }
 
 impl Simd for v128f {
@@ -142,6 +142,13 @@ impl Simd for v128f {
     #[inline]
     unsafe fn store(self, ptr: *mut f32) {
         v128_store(ptr as *mut v128, self.0)
+    }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0.; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
     }
 }
 

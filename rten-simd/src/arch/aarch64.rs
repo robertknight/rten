@@ -55,6 +55,13 @@ impl Simd for int32x4_t {
     unsafe fn store(self, ptr: *mut i32) {
         vst1q_s32(ptr, self)
     }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
+    }
 }
 
 impl SimdInt for int32x4_t {
@@ -104,13 +111,6 @@ impl SimdInt for int32x4_t {
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         vreinterpretq_f32_s32(self)
     }
-
-    #[inline]
-    unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
-    }
 }
 
 impl Simd for float32x4_t {
@@ -138,6 +138,13 @@ impl Simd for float32x4_t {
     #[inline]
     unsafe fn store(self, ptr: *mut f32) {
         vst1q_f32(ptr, self)
+    }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0.; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
     }
 }
 
