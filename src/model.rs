@@ -1387,9 +1387,9 @@ mod tests {
             input_node, instance_norm_scale, instance_norm_bias
         ], { epsilon: Some(1e-5) });
 
-        let layer_norm_scale_val = Tensor::from([1.0]);
+        let layer_norm_scale_val = Tensor::full(&[input_shape[input_shape.len() - 1]], 1.);
         let layer_norm_scale = graph_builder.add_constant(layer_norm_scale_val.view());
-        let layer_norm_bias_val = Tensor::from([1.0]);
+        let layer_norm_bias_val = layer_norm_scale_val.clone();
         let layer_norm_bias = graph_builder.add_constant(layer_norm_bias_val.view());
         add_operator!(LayerNormalization, [
             input_node, layer_norm_scale, layer_norm_bias
