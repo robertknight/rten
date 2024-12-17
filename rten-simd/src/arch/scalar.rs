@@ -46,6 +46,11 @@ macro_rules! impl_simd {
             unsafe fn store(self, ptr: *mut $type) {
                 *ptr = self;
             }
+
+            #[inline]
+            unsafe fn to_array(self) -> Self::Array {
+                [self]
+            }
         }
     };
 }
@@ -100,11 +105,6 @@ impl SimdInt for i32 {
     #[inline]
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         f32::from_bits(self as u32)
-    }
-
-    #[inline]
-    unsafe fn to_array(self) -> Self::Array {
-        [self]
     }
 }
 

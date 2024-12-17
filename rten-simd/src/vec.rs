@@ -133,6 +133,9 @@ pub trait Simd: Copy + Sized {
         }
     }
 
+    /// Return the contents of this vector as an array.
+    unsafe fn to_array(self) -> Self::Array;
+
     /// Return a new vector with all elements set to zero.
     #[inline]
     unsafe fn zero() -> Self
@@ -194,9 +197,6 @@ pub trait SimdInt: Simd<Elem = i32> {
 
     /// Reinterpret the bits of each element as a float.
     unsafe fn reinterpret_as_float(self) -> Self::Float;
-
-    /// Return the contents of this vector as an array.
-    unsafe fn to_array(self) -> Self::Array;
 }
 
 /// Trait for SIMD vectors containing single-precision floats.

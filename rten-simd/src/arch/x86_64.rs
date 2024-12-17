@@ -71,6 +71,13 @@ impl Simd for __m256i {
         // Cast is OK because instruction does not require alignment.
         _mm256_storeu_si256(ptr as *mut __m256i, self)
     }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
+    }
 }
 
 impl SimdInt for __m256i {
@@ -129,13 +136,6 @@ impl SimdInt for __m256i {
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         _mm256_castsi256_ps(self)
     }
-
-    #[inline]
-    unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
-    }
 }
 
 impl Simd for __m256 {
@@ -177,6 +177,13 @@ impl Simd for __m256 {
     #[target_feature(enable = "avx2")]
     unsafe fn store(self, ptr: *mut f32) {
         _mm256_storeu_ps(ptr, self)
+    }
+
+    #[inline]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0.; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
     }
 }
 
@@ -347,6 +354,14 @@ impl Simd for __m512i {
     unsafe fn store(self, ptr: *mut i32) {
         _mm512_storeu_si512(ptr, self)
     }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
+    }
 }
 
 #[cfg(feature = "avx512")]
@@ -407,14 +422,6 @@ impl SimdInt for __m512i {
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         _mm512_castsi512_ps(self)
     }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
-    unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
-    }
 }
 
 #[cfg(feature = "avx512")]
@@ -457,6 +464,14 @@ impl Simd for __m512 {
     #[inline]
     unsafe fn prefetch_write(data: *mut f32) {
         _mm_prefetch(data as *const i8, _MM_HINT_ET0);
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn to_array(self) -> Self::Array {
+        let mut array = [0.; Self::LEN];
+        self.store(array.as_mut_ptr());
+        array
     }
 }
 
