@@ -7,6 +7,7 @@ use rten_simd::SimdFloat;
 
 use crate::exp::simd_exp;
 
+/// Compute `x.tanh()` using the same algorithm as [`vec_tanh`].
 pub fn tanh(x: f32) -> f32 {
     unsafe { simd_tanh(x) }
 }
@@ -81,6 +82,7 @@ pub fn vec_tanh(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
     dispatch_map_op(xs, out, SimdTanh {});
 }
 
+/// Variant of [`vec_tanh`] which modifies elements in-place.
 pub fn vec_tanh_in_place(xs: &mut [f32]) {
     dispatch_map_op_in_place(xs, SimdTanh {});
 }

@@ -22,7 +22,12 @@ impl SimdOp for SimdSum<'_> {
     }
 }
 
-/// Return the sum of a slice of floats.
+/// Compute the sum of a slice of floats.
+///
+/// This is more efficient than `xs.iter().sum()` as it computes multiple
+/// partial sums in parallel using SIMD and then sums across the SIMD lanes at
+/// the end. This will produce very slightly different results because the
+/// additions are happening in a different order.
 pub fn vec_sum(xs: &[f32]) -> f32 {
     let op = SimdSum { input: xs };
     dispatch(op)
@@ -48,7 +53,12 @@ impl SimdOp for SimdSumSquare<'_> {
     }
 }
 
-/// Return the sum of the squares of elements in `xs`.
+/// Compute the sum of the squares of elements in `xs`.
+///
+/// Conceptually this is like `xs.iter().map(|&x| x * x).sum()` but more
+/// efficient as it computes multiple partial sums in parallel and then sums
+/// across SIMD lanes at the end. The results will also be slightly different
+/// because the additions are happening in a different order.
 pub fn vec_sum_square(xs: &[f32]) -> f32 {
     let op = SimdSumSquare { input: xs };
     dispatch(op)
