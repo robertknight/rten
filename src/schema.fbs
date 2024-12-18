@@ -122,6 +122,7 @@ enum OperatorType: ubyte {
   QuantizeLinear,
   DynamicQuantizeLinear,
   MatMulInteger,
+  DepthToSpace,
 }
 
 enum RNNDirection: ubyte {
@@ -215,6 +216,7 @@ union OperatorAttrs {
   PadAttrs,
   DequantizeLinearAttrs,
   QuantizeLinearAttrs,
+  DepthToSpaceAttrs,
 }
 
 table ArgMaxAttrs {
@@ -244,6 +246,18 @@ table CastAttrs {
 
 table ConcatAttrs {
   axis:int;
+}
+
+enum DepthToSpaceMode: ubyte {
+  // Depth-column-row
+  DCR,
+  // Column-row-depth
+  CRD,
+}
+
+table DepthToSpaceAttrs {
+  mode:DepthToSpaceMode;
+  block_size:uint;
 }
 
 union Scalar {

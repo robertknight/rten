@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 108;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 109;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 109] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 110] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -134,6 +134,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 109] = [
     OperatorType::QuantizeLinear,
     OperatorType::DynamicQuantizeLinear,
     OperatorType::MatMulInteger,
+    OperatorType::DepthToSpace,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -250,9 +251,10 @@ impl OperatorType {
     pub const QuantizeLinear: Self = Self(106);
     pub const DynamicQuantizeLinear: Self = Self(107);
     pub const MatMulInteger: Self = Self(108);
+    pub const DepthToSpace: Self = Self(109);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 108;
+    pub const ENUM_MAX: u8 = 109;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -363,6 +365,7 @@ impl OperatorType {
         Self::QuantizeLinear,
         Self::DynamicQuantizeLinear,
         Self::MatMulInteger,
+        Self::DepthToSpace,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -476,6 +479,7 @@ impl OperatorType {
             Self::QuantizeLinear => Some("QuantizeLinear"),
             Self::DynamicQuantizeLinear => Some("DynamicQuantizeLinear"),
             Self::MatMulInteger => Some("MatMulInteger"),
+            Self::DepthToSpace => Some("DepthToSpace"),
             _ => None,
         }
     }
@@ -1111,13 +1115,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 42;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 43;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 43] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 44] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1161,6 +1165,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 43] = [
     OperatorAttrs::PadAttrs,
     OperatorAttrs::DequantizeLinearAttrs,
     OperatorAttrs::QuantizeLinearAttrs,
+    OperatorAttrs::DepthToSpaceAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1211,9 +1216,10 @@ impl OperatorAttrs {
     pub const PadAttrs: Self = Self(40);
     pub const DequantizeLinearAttrs: Self = Self(41);
     pub const QuantizeLinearAttrs: Self = Self(42);
+    pub const DepthToSpaceAttrs: Self = Self(43);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 42;
+    pub const ENUM_MAX: u8 = 43;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1258,6 +1264,7 @@ impl OperatorAttrs {
         Self::PadAttrs,
         Self::DequantizeLinearAttrs,
         Self::QuantizeLinearAttrs,
+        Self::DepthToSpaceAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1305,6 +1312,7 @@ impl OperatorAttrs {
             Self::PadAttrs => Some("PadAttrs"),
             Self::DequantizeLinearAttrs => Some("DequantizeLinearAttrs"),
             Self::QuantizeLinearAttrs => Some("QuantizeLinearAttrs"),
+            Self::DepthToSpaceAttrs => Some("DepthToSpaceAttrs"),
             _ => None,
         }
     }
@@ -1363,6 +1371,96 @@ impl<'a> flatbuffers::Verifiable for OperatorAttrs {
 impl flatbuffers::SimpleToVerifyInSlice for OperatorAttrs {}
 pub struct OperatorAttrsUnionTableOffset {}
 
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MIN_DEPTH_TO_SPACE_MODE: u8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_DEPTH_TO_SPACE_MODE: u8 = 1;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_DEPTH_TO_SPACE_MODE: [DepthToSpaceMode; 2] =
+    [DepthToSpaceMode::DCR, DepthToSpaceMode::CRD];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct DepthToSpaceMode(pub u8);
+#[allow(non_upper_case_globals)]
+impl DepthToSpaceMode {
+    pub const DCR: Self = Self(0);
+    pub const CRD: Self = Self(1);
+
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 1;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::DCR, Self::CRD];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::DCR => Some("DCR"),
+            Self::CRD => Some("CRD"),
+            _ => None,
+        }
+    }
+}
+impl core::fmt::Debug for DepthToSpaceMode {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for DepthToSpaceMode {
+    type Inner = Self;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
+        Self(b)
+    }
+}
+
+impl flatbuffers::Push for DepthToSpaceMode {
+    type Output = DepthToSpaceMode;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for DepthToSpaceMode {
+    type Scalar = u8;
+    #[inline]
+    fn to_little_endian(self) -> u8 {
+        self.0.to_le()
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
+        Self(b)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for DepthToSpaceMode {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        u8::run_verifier(v, pos)
+    }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for DepthToSpaceMode {}
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -2707,6 +2805,137 @@ impl core::fmt::Debug for ConcatAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConcatAttrs");
         ds.field("axis", &self.axis());
+        ds.finish()
+    }
+}
+pub enum DepthToSpaceAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct DepthToSpaceAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for DepthToSpaceAttrs<'a> {
+    type Inner = DepthToSpaceAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> DepthToSpaceAttrs<'a> {
+    pub const VT_MODE: flatbuffers::VOffsetT = 4;
+    pub const VT_BLOCK_SIZE: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        DepthToSpaceAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args DepthToSpaceAttrsArgs,
+    ) -> flatbuffers::WIPOffset<DepthToSpaceAttrs<'bldr>> {
+        let mut builder = DepthToSpaceAttrsBuilder::new(_fbb);
+        builder.add_block_size(args.block_size);
+        builder.add_mode(args.mode);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn mode(&self) -> DepthToSpaceMode {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<DepthToSpaceMode>(DepthToSpaceAttrs::VT_MODE, Some(DepthToSpaceMode::DCR))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn block_size(&self) -> u32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(DepthToSpaceAttrs::VT_BLOCK_SIZE, Some(0))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for DepthToSpaceAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<DepthToSpaceMode>("mode", Self::VT_MODE, false)?
+            .visit_field::<u32>("block_size", Self::VT_BLOCK_SIZE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct DepthToSpaceAttrsArgs {
+    pub mode: DepthToSpaceMode,
+    pub block_size: u32,
+}
+impl<'a> Default for DepthToSpaceAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        DepthToSpaceAttrsArgs {
+            mode: DepthToSpaceMode::DCR,
+            block_size: 0,
+        }
+    }
+}
+
+pub struct DepthToSpaceAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> DepthToSpaceAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_mode(&mut self, mode: DepthToSpaceMode) {
+        self.fbb_.push_slot::<DepthToSpaceMode>(
+            DepthToSpaceAttrs::VT_MODE,
+            mode,
+            DepthToSpaceMode::DCR,
+        );
+    }
+    #[inline]
+    pub fn add_block_size(&mut self, block_size: u32) {
+        self.fbb_
+            .push_slot::<u32>(DepthToSpaceAttrs::VT_BLOCK_SIZE, block_size, 0);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> DepthToSpaceAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        DepthToSpaceAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<DepthToSpaceAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for DepthToSpaceAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("DepthToSpaceAttrs");
+        ds.field("mode", &self.mode());
+        ds.field("block_size", &self.block_size());
         ds.finish()
     }
 }
@@ -8478,6 +8707,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_depth_to_space_attrs(&self) -> Option<DepthToSpaceAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::DepthToSpaceAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { DepthToSpaceAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -8533,6 +8777,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::PadAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PadAttrs>>("OperatorAttrs::PadAttrs", pos),
           OperatorAttrs::DequantizeLinearAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DequantizeLinearAttrs>>("OperatorAttrs::DequantizeLinearAttrs", pos),
           OperatorAttrs::QuantizeLinearAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<QuantizeLinearAttrs>>("OperatorAttrs::QuantizeLinearAttrs", pos),
+          OperatorAttrs::DepthToSpaceAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DepthToSpaceAttrs>>("OperatorAttrs::DepthToSpaceAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -9030,6 +9275,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::QuantizeLinearAttrs => {
                 if let Some(x) = self.attrs_as_quantize_linear_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::DepthToSpaceAttrs => {
+                if let Some(x) = self.attrs_as_depth_to_space_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

@@ -7,12 +7,12 @@ use crate::header::Header;
 use crate::number::LeBytes;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, Concat, ConstantOfShape, Conv,
-    ConvTranspose, CoordTransformMode, DataType, DequantizeLinear, Einsum, Elu, Flatten, Gather,
-    GatherElements, GatherND, Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization,
-    LeakyRelu, LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding,
-    QuantizeLinear, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare,
-    Reshape, Resize, ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax, Split, TopK,
-    Transpose, Trilu,
+    ConvTranspose, CoordTransformMode, DataType, DepthToSpace, DepthToSpaceMode, DequantizeLinear,
+    Einsum, Elu, Flatten, Gather, GatherElements, GatherND, Gelu, Gemm, HardSigmoid,
+    InstanceNormalization, LayerNormalization, LeakyRelu, LogSoftmax, MaxPool, Mod, NearestMode,
+    NonMaxSuppression, OneHot, Padding, QuantizeLinear, ReduceMax, ReduceMean, ReduceMin,
+    ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode, Scalar, ScatterElements,
+    ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
 };
 use crate::schema_generated as sg;
 
@@ -47,6 +47,7 @@ pub enum OpType<'a> {
     ConvTranspose(ConvTranspose),
     Cos,
     DequantizeLinear(DequantizeLinear),
+    DepthToSpace(DepthToSpace),
     Div,
     DynamicQuantizeLinear,
     Einsum(Einsum),
@@ -512,6 +513,17 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 DequantizeLinearAttrs,
                 sg::DequantizeLinearAttrsArgs {
                     axis: args.axis as i32,
+                }
+            ),
+            OpType::DepthToSpace(args) => op_with_attrs!(
+                DepthToSpace,
+                DepthToSpaceAttrs,
+                sg::DepthToSpaceAttrsArgs {
+                    block_size: args.block_size,
+                    mode: match args.mode {
+                        DepthToSpaceMode::DepthColumnRow => sg::DepthToSpaceMode::DCR,
+                        DepthToSpaceMode::ColumnRowDepth => sg::DepthToSpaceMode::CRD,
+                    }
                 }
             ),
             OpType::Div => op!(Div),

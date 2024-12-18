@@ -12,6 +12,69 @@ use crate::ops::{
 };
 use crate::tensor_pool::TensorPool;
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum DepthToSpaceMode {
+    DepthColumnRow,
+    ColumnRowDepth,
+}
+
+pub fn depth_to_space<T: Clone>(
+    pool: &TensorPool,
+    input: TensorView<T>,
+    block_size: u32,
+    mode: DepthToSpaceMode,
+) -> Result<Tensor<T>, OpError> {
+    if block_size == 0 {
+        return Err(OpError::InvalidValue("`block_size` must be > 0"));
+    }
+
+    let input = static_dims!(input, 4, "NCHW")?;
+    let [n, c, h, w] = input.shape();
+    let block_size = block_size as usize;
+
+    if c % (block_size * block_size) != 0 {
+        return Err(OpError::InvalidValue(
+            "input channels must be a multiple of `block_size` squared",
+        ));
+    }
+
+    let new_c = c / (block_size * block_size);
+    let new_shape = [n, new_c, h * block_size, w * block_size];
+
+    // Reshape following steps in `DepthToSpace` ONNX spec.
+    // See https://onnx.ai/onnx/operators/onnx__DepthToSpace.html#summary
+    let tmp = input.to_contiguous_in(pool);
+    let tmp = match mode {
+        DepthToSpaceMode::DepthColumnRow => tmp
+            .reshaped([n, block_size, block_size, new_c, h, w])
+            .permuted([0, 3, 4, 1, 5, 2]),
+        DepthToSpaceMode::ColumnRowDepth => tmp
+            .reshaped([n, new_c, block_size, block_size, h, w])
+            .permuted([0, 1, 4, 2, 5, 3]),
+    };
+    let mut tmp = tmp.to_tensor_in(pool).into_dyn();
+    tmp.reshape(&new_shape);
+
+    Ok(tmp)
+}
+
+#[derive(Debug)]
+pub struct DepthToSpace {
+    pub block_size: u32,
+    pub mode: DepthToSpaceMode,
+}
+
+impl Operator for DepthToSpace {
+    fn name(&self) -> &str {
+        "DepthToSpace"
+    }
+
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+        let input = inputs.require_as(0)?;
+        depth_to_space::<f32>(pool, input, self.block_size, self.mode).into_op_result()
+    }
+}
+
 /// Return the tensor shape resulting from broadcasting `input_shape` with `shape`.
 fn expand_output_shape(
     input_shape: &[usize],
@@ -641,12 +704,86 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{NdTensor, Tensor};
 
+    use super::{depth_to_space, DepthToSpaceMode};
     use crate::ops::layout::{
         expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
         unsqueeze, Reshape, Shape, Size,
     };
     use crate::ops::tests::new_pool;
     use crate::ops::{OpError, Operator};
+
+    #[test]
+    fn test_depth_to_space() {
+        struct Case {
+            input: NdTensor<f32, 4>,
+            block_size: u32,
+            mode: DepthToSpaceMode,
+            expected: Result<Tensor, OpError>,
+        }
+
+        let input = NdTensor::from([
+            [[1.0]],
+            [[2.0]],
+            [[3.0]],
+            [[4.0]],
+            [[5.0]],
+            [[6.0]],
+            [[7.0]],
+            [[8.0]],
+        ])
+        .into_shape([1, 8, 1, 1]);
+
+        let cases = [
+            // DepthColumnRow (DCR) mode
+            Case {
+                input: input.clone(),
+                block_size: 2,
+                mode: DepthToSpaceMode::DepthColumnRow,
+                expected: Ok(
+                    NdTensor::from([[[1.0, 3.0], [5.0, 7.0]], [[2.0, 4.0], [6.0, 8.0]]])
+                        .into_shape([1, 2, 2, 2].as_slice()),
+                ),
+            },
+            // ColumnRowDepth (CRD) mode
+            Case {
+                input: input.clone(),
+                block_size: 2,
+                mode: DepthToSpaceMode::ColumnRowDepth,
+                expected: Ok(
+                    NdTensor::from([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]])
+                        .into_shape([1, 2, 2, 2].as_slice()),
+                ),
+            },
+            // C % block_size^2 != 0
+            Case {
+                input: NdTensor::full([1, 16, 2, 2], 1.0),
+                block_size: 3,
+                mode: DepthToSpaceMode::ColumnRowDepth,
+                expected: Err(OpError::InvalidValue(
+                    "input channels must be a multiple of `block_size` squared",
+                )),
+            },
+            // block_size == 0
+            Case {
+                input: NdTensor::full([1, 16, 2, 2], 1.0),
+                block_size: 0,
+                mode: DepthToSpaceMode::ColumnRowDepth,
+                expected: Err(OpError::InvalidValue("`block_size` must be > 0")),
+            },
+        ];
+
+        let pool = new_pool();
+        for Case {
+            input,
+            block_size,
+            mode,
+            expected,
+        } in cases
+        {
+            let result = depth_to_space(&pool, input.as_dyn(), block_size, mode);
+            assert_eq!(result, expected);
+        }
+    }
 
     #[test]
     fn test_expand() {
