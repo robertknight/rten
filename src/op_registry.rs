@@ -7,8 +7,8 @@ use smallvec::smallvec;
 use crate::graph::Graph;
 use crate::ops;
 use crate::ops::{
-    BoxOrder, CoordTransformMode, DataType, Direction, NearestMode, Operator, PadMode, Padding,
-    ResizeMode, Scalar, ScatterReduction,
+    BoxOrder, CoordTransformMode, DataType, DepthToSpaceMode, Direction, NearestMode, Operator,
+    PadMode, Padding, ResizeMode, Scalar, ScatterReduction,
 };
 use crate::schema_generated as sg;
 use crate::schema_generated::{AutoPad, OperatorNode, OperatorType};
@@ -101,6 +101,7 @@ impl OpRegistry {
         register_op!(Cos);
         register_op!(CumSum);
         register_op!(DequantizeLinear);
+        register_op!(DepthToSpace);
         register_op!(Div);
         register_op!(DynamicQuantizeLinear);
         register_op!(Einsum);
@@ -477,6 +478,19 @@ impl_read_op!(
 impl_read_op!(Cos);
 impl_read_op!(CumSum);
 impl_read_op!(DequantizeLinear, attrs_as_dequantize_linear_attrs, axis);
+impl_read_op!(
+    DepthToSpace,
+    attrs_as_depth_to_space_attrs,
+    |attrs: sg::DepthToSpaceAttrs| {
+        let mode = match attrs.mode() {
+            sg::DepthToSpaceMode::DCR => DepthToSpaceMode::DepthColumnRow,
+            sg::DepthToSpaceMode::CRD => DepthToSpaceMode::ColumnRowDepth,
+            _ => return Err(ReadOpError::AttrError)?,
+        };
+        let block_size = attrs.block_size();
+        Ok(ops::DepthToSpace { mode, block_size })
+    }
+);
 impl_read_op!(Div);
 impl_read_op!(DynamicQuantizeLinear);
 impl_read_op!(Einsum, attrs_as_einsum_attrs, |attrs: sg::EinsumAttrs| {

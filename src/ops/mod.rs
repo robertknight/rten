@@ -79,8 +79,8 @@ pub use gather::{
 pub use generate::{constant_of_shape, onehot, range, ConstantOfShape, OneHot, Range};
 pub use identity::Identity;
 pub use layout::{
-    expand, flatten, reshape, squeeze, squeeze_in_place, Expand, Flatten, Reshape, Shape, Size,
-    Squeeze, Transpose, Unsqueeze,
+    depth_to_space, expand, flatten, reshape, squeeze, squeeze_in_place, DepthToSpace,
+    DepthToSpaceMode, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
 };
 pub use matmul::{gemm_op, matmul, Gemm, MatMul, MatMulAdd, MatMulInteger};
 pub use non_max_suppression::{non_max_suppression, BoxOrder, NonMaxSuppression};

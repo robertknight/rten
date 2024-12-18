@@ -859,7 +859,8 @@ mod tests {
     };
     use crate::ops;
     use crate::ops::{
-        BoxOrder, CoordTransformMode, DataType, NearestMode, OpError, Output, ResizeMode, Scalar,
+        BoxOrder, CoordTransformMode, DataType, DepthToSpaceMode, NearestMode, OpError, Output,
+        ResizeMode, Scalar,
     };
     use crate::{ModelLoadError, OpRegistry, ReadOpError};
 
@@ -1306,6 +1307,10 @@ mod tests {
         let zero_point = graph_builder.add_constant(zero_point_val.view());
         add_operator!(DequantizeLinear, [const_u8, scale, zero_point], {
             axis: 0,
+        });
+        add_operator!(DepthToSpace, [input_node], {
+            mode: DepthToSpaceMode::DepthColumnRow,
+            block_size: 1,
         });
         add_operator!(QuantizeLinear, [const_f32, scale, zero_point], {
             axis: 0,

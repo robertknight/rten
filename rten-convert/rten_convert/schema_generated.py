@@ -116,6 +116,7 @@ class OperatorType(object):
     QuantizeLinear = 106
     DynamicQuantizeLinear = 107
     MatMulInteger = 108
+    DepthToSpace = 109
 
 
 class RNNDirection(object):
@@ -198,6 +199,7 @@ class OperatorAttrs(object):
     PadAttrs = 40
     DequantizeLinearAttrs = 41
     QuantizeLinearAttrs = 42
+    DepthToSpaceAttrs = 43
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -287,7 +289,14 @@ def OperatorAttrsCreator(unionType, table):
         return DequantizeLinearAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().QuantizeLinearAttrs:
         return QuantizeLinearAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().DepthToSpaceAttrs:
+        return DepthToSpaceAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
+
+
+class DepthToSpaceMode(object):
+    DCR = 0
+    CRD = 1
 
 
 class Scalar(object):
@@ -938,6 +947,96 @@ class ConcatAttrsT(object):
         ConcatAttrsAddAxis(builder, self.axis)
         concatAttrs = ConcatAttrsEnd(builder)
         return concatAttrs
+
+
+class DepthToSpaceAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = DepthToSpaceAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsDepthToSpaceAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def DepthToSpaceAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # DepthToSpaceAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # DepthToSpaceAttrs
+    def Mode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
+        return 0
+
+    # DepthToSpaceAttrs
+    def BlockSize(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+def DepthToSpaceAttrsStart(builder):
+    builder.StartObject(2)
+
+def DepthToSpaceAttrsAddMode(builder, mode):
+    builder.PrependUint8Slot(0, mode, 0)
+
+def DepthToSpaceAttrsAddBlockSize(builder, blockSize):
+    builder.PrependUint32Slot(1, blockSize, 0)
+
+def DepthToSpaceAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class DepthToSpaceAttrsT(object):
+
+    # DepthToSpaceAttrsT
+    def __init__(self):
+        self.mode = 0  # type: int
+        self.blockSize = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        depthToSpaceAttrs = DepthToSpaceAttrs()
+        depthToSpaceAttrs.Init(buf, pos)
+        return cls.InitFromObj(depthToSpaceAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, depthToSpaceAttrs):
+        x = DepthToSpaceAttrsT()
+        x._UnPack(depthToSpaceAttrs)
+        return x
+
+    # DepthToSpaceAttrsT
+    def _UnPack(self, depthToSpaceAttrs):
+        if depthToSpaceAttrs is None:
+            return
+        self.mode = depthToSpaceAttrs.Mode()
+        self.blockSize = depthToSpaceAttrs.BlockSize()
+
+    # DepthToSpaceAttrsT
+    def Pack(self, builder):
+        DepthToSpaceAttrsStart(builder)
+        DepthToSpaceAttrsAddMode(builder, self.mode)
+        DepthToSpaceAttrsAddBlockSize(builder, self.blockSize)
+        depthToSpaceAttrs = DepthToSpaceAttrsEnd(builder)
+        return depthToSpaceAttrs
 
 
 class IntScalar(object):
@@ -5053,7 +5152,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

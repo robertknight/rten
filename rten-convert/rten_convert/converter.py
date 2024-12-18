@@ -765,6 +765,11 @@ def op_node_from_onnx_operator(
             attrs = sg.DequantizeLinearAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", 1)
 
+        case "DepthToSpace":
+            attrs = sg.DepthToSpaceAttrsT()
+            attrs.blockSize = op_reader.require_attr("blocksize", "int")
+            attrs.mode = op_reader.get_enum_attr("mode", sg.DepthToSpaceMode, "dcr")
+
         case "Einsum":
             attrs = sg.EinsumAttrsT()
             attrs.equation = op_reader.require_attr("equation", "string")
