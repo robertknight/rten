@@ -20,6 +20,11 @@ impl<'a> SimdOp for SimdShiftScale<'a> {
             const_scale,
         } = self;
 
+        assert_eq!(scale.len(), data.len());
+        if let Some(bias) = bias {
+            assert_eq!(bias.len(), data.len());
+        }
+
         let mut out_ptr = data.as_mut_ptr();
         let mut scale_ptr = scale.as_ptr();
         let mut bias_ptr = bias.map(|b| b.as_ptr());
@@ -54,16 +59,20 @@ impl<'a> SimdOp for SimdShiftScale<'a> {
 
 /// Shift and scale each element in the input.
 ///
-/// This scales and shifts each element using `y[i] = y[i] * const_scale *
-/// scale[i] + bias[i]`.
+/// This updates each element in `xs` according to the formula
+/// `xs[i] = xs[i] * const_scale * scale[i] + bias[i]`.
+///
+/// # Panics
+///
+/// Panics if the length of `scale` or `bias` does not match `xs`.
 pub fn vec_shift_scale_in_place(
-    data: &mut [f32],
+    xs: &mut [f32],
     const_scale: f32,
     scale: &[f32],
     bias: Option<&[f32]>,
 ) {
     let simd_op = SimdShiftScale {
-        data,
+        data: xs,
         bias,
         scale,
         const_scale,
