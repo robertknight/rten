@@ -64,13 +64,55 @@ pub fn vec_sum_square(xs: &[f32]) -> f32 {
     dispatch(op)
 }
 
+struct SimdSumSquareSub<'a> {
+    input: &'a [f32],
+    offset: f32,
+}
+
+impl SimdOp for SimdSumSquareSub<'_> {
+    type Output = f32;
+
+    #[inline(always)]
+    unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
+        let offset_vec = S::splat(self.offset);
+        let vec_sum = simd_fold(
+            self.input.into(),
+            S::zero(),
+            #[inline(always)]
+            |sum, x| {
+                let x_offset = x.sub(offset_vec);
+                x_offset.mul_add(x_offset, sum)
+            },
+            // Padding value chosen so that `x - offset` is zero for unused
+            // positions in the final update, and thus the accumulator is not
+            // modified in those positions.
+            self.offset,
+        );
+        vec_sum.sum()
+    }
+}
+
+/// Compute the sum of squares of `xs - offset`.
+///
+/// This is a variant of [`vec_sum_square`] which subtracts a constant value
+/// from each element before squaring it. A typical use case is to compute the
+/// variance of a sequence, which is defined as `mean((X - x_mean)^2)`.
+pub fn vec_sum_square_sub(xs: &[f32], offset: f32) -> f32 {
+    let op = SimdSumSquareSub { input: xs, offset };
+    dispatch(op)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{vec_sum, vec_sum_square};
+    use super::{vec_sum, vec_sum_square, vec_sum_square_sub};
+
+    // Chosen to not be a multiple of vector size, so that tail handling is
+    // exercised.
+    const LEN: usize = 100;
 
     #[test]
     fn test_vec_sum() {
-        let xs: Vec<f32> = (0..100).map(|i| i as f32 * 0.1).collect();
+        let xs: Vec<f32> = (0..LEN).map(|i| i as f32 * 0.1).collect();
         let expected_sum: f32 = xs.iter().sum();
         let sum = vec_sum(&xs);
         assert_eq!(sum, expected_sum);
@@ -78,9 +120,18 @@ mod tests {
 
     #[test]
     fn test_vec_sum_square() {
-        let xs: Vec<f32> = (0..100).map(|i| i as f32 * 0.1).collect();
+        let xs: Vec<f32> = (0..LEN).map(|i| i as f32 * 0.1).collect();
         let expected_sum: f32 = xs.iter().copied().map(|x| x * x).sum();
         let sum = vec_sum_square(&xs);
+        assert_eq!(sum, expected_sum);
+    }
+
+    #[test]
+    fn test_vec_sum_square_sub() {
+        let xs: Vec<f32> = (0..LEN).map(|i| i as f32 * 0.1).collect();
+        let mean = xs.iter().sum::<f32>() / xs.len() as f32;
+        let expected_sum: f32 = xs.iter().copied().map(|x| (x - mean) * (x - mean)).sum();
+        let sum = vec_sum_square_sub(&xs, mean);
         assert_eq!(sum, expected_sum);
     }
 }
