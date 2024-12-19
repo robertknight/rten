@@ -64,7 +64,11 @@ pub trait Simd: Copy + Sized {
     type Mask: SimdMask;
 
     /// The contents of a vector as an array.
-    type Array: std::ops::Index<usize, Output = Self::Elem>;
+    ///
+    /// This type should always be `[Self::ELEM; Self::LEN]`. The `to_array`
+    /// method returns this associated type rather than a concrete array due to
+    /// const generics limitations.
+    type Array: Copy + std::fmt::Debug + std::ops::Index<usize, Output = Self::Elem>;
 
     /// Combine elements of `self` and `rhs` according to a mask.
     ///
