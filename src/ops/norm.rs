@@ -4,8 +4,7 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath::{
-    vec_shift_scale_bias, vec_shift_scale_in_place, vec_softmax_in_place, vec_sum, vec_sum_square,
-    vec_sum_square_sub,
+    vec_normalize, vec_normalize_in_place, vec_softmax_in_place, vec_sum, vec_sum_square_sub,
 };
 
 use crate::ops::static_dims;
@@ -13,12 +12,14 @@ use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Outpu
 use crate::slice_reductions::slice_max;
 use crate::tensor_pool::TensorPool;
 
-struct NormalizeOptions {
-    /// Pre-computed mean of the input data.
-    mean: f32,
+struct NormalizeOptions<'a> {
+    /// Pre-computed mean of the input data. If not specified, the mean will
+    /// be computed from the input.
+    mean: Option<f32>,
 
-    /// Pre-computed variance of the input data.
-    variance: f32,
+    /// Pre-computed variance of the input data. If not specified, the variance
+    /// will be computed from the input.
+    variance: Option<f32>,
 
     /// Epsilon value used to avoid divide-by-zero in sqrt.
     epsilon: f32,
@@ -28,37 +29,113 @@ struct NormalizeOptions {
 
     /// Constant bias to add to normalized value.
     bias: f32,
+
+    /// Per-element scale to multiply normalized value by.
+    element_scale: Option<&'a [f32]>,
+
+    /// Per-element bias to add to normalized value.
+    element_bias: Option<&'a [f32]>,
 }
 
-/// Normalize the mean and variance of elements in `data` and apply a constant
-/// scale and bias to the result.
+impl Default for NormalizeOptions<'_> {
+    fn default() -> Self {
+        NormalizeOptions {
+            mean: None,
+            variance: None,
+
+            // Default value for ONNX BatchNormalization, InstanceNormalization
+            // and LayerNormalization operators.
+            epsilon: 1e-05,
+
+            scale: 1.0,
+            bias: 0.,
+            element_scale: None,
+            element_bias: None,
+        }
+    }
+}
+
+enum NormalizeData<'a> {
+    /// Read from a source slice and write normalized data to an output slice
+    /// of the same length.
+    SrcDest((&'a [f32], &'a mut [MaybeUninit<f32>])),
+
+    /// Normalize elements of a slice in place.
+    InPlace(&'a mut [f32]),
+}
+
+impl<'a> From<&'a mut [f32]> for NormalizeData<'a> {
+    fn from(val: &'a mut [f32]) -> Self {
+        NormalizeData::InPlace(val)
+    }
+}
+
+impl<'a> From<(&'a [f32], &'a mut [MaybeUninit<f32>])> for NormalizeData<'a> {
+    fn from(val: (&'a [f32], &'a mut [MaybeUninit<f32>])) -> Self {
+        NormalizeData::SrcDest(val)
+    }
+}
+
+/// Normalize the mean and variance of elements in `data` and apply a scale
+/// and bias to the result.
 ///
 /// ```text
-/// Y = (X - input_mean) / sqrt(input_var + epsilon) * scale + bias
+/// Y = (X - mean) / sqrt(variance + epsilon) * scale + bias
 /// ```
-fn normalize_slice(data: &mut [f32], opts: NormalizeOptions) {
+fn normalize_slice(data: NormalizeData, opts: NormalizeOptions) {
     let NormalizeOptions {
         mean,
         variance,
         epsilon,
         scale,
         bias,
+        element_bias,
+        element_scale,
     } = opts;
+
+    let input = match &data {
+        NormalizeData::InPlace(data) => *data,
+        NormalizeData::SrcDest((src, _dest)) => *src,
+    };
+
+    let mean = mean.unwrap_or_else(|| vec_sum(input) / input.len() as f32);
+    let variance = variance.unwrap_or_else(|| vec_sum_square_sub(input, mean) / input.len() as f32);
 
     // To avoid divisions in the vectorized loop, we re-arrange:
     //
     // ```
-    // Y = (X - input_mean) / sqrt(input_var + epsilon) * scale + bias
+    // Y = (X - mean) / sqrt(variance + epsilon) * scale + bias
     // ```
     //
     // As:
     //
     // ```
-    // scaled_std_dev_reciprocal = scale / (input_var + epsilon).sqrt()
-    // Y = (X - input_mean) * scaled_std_dev_reciprocal + bias
+    // scaled_std_dev_reciprocal = scale / (variance + epsilon).sqrt()
+    // Y = (X - mean) * scaled_std_dev_reciprocal + bias
     // ```
     let scaled_std_dev_reciprocal = scale / (variance + epsilon).sqrt();
-    vec_shift_scale_bias(data, mean, scaled_std_dev_reciprocal, bias);
+
+    match data {
+        NormalizeData::InPlace(data) => vec_normalize_in_place(
+            data,
+            mean,
+            scaled_std_dev_reciprocal,
+            element_scale,
+            bias,
+            element_bias,
+        ),
+        NormalizeData::SrcDest((src, dest)) => {
+            vec_normalize(
+                src,
+                dest,
+                mean,
+                scaled_std_dev_reciprocal,
+                element_scale,
+                bias,
+                element_bias,
+            );
+        }
+    }
 }
 
 /// Perform in-place batch normalization on the `NC*` tensor `out`.
@@ -89,14 +166,16 @@ pub fn batch_norm_in_place(
             let chan_bias = bias[[c]];
             let mut chan = input.slice_mut([n, c]);
             let chan_data = chan.data_mut().unwrap();
+
             normalize_slice(
-                chan_data,
+                chan_data.into(),
                 NormalizeOptions {
-                    mean: chan_mean,
-                    variance: chan_var,
+                    mean: Some(chan_mean),
+                    variance: Some(chan_var),
                     epsilon,
                     scale: chan_scale,
                     bias: chan_bias,
+                    ..Default::default()
                 },
             );
         }
@@ -226,19 +305,13 @@ pub fn instance_normalization_in_place(
             let mut slice = input.slice_mut([n, c]);
             let chan_data = slice.data_mut().unwrap();
 
-            let chan_scale = scale[[c]];
-            let chan_bias = bias[[c]];
-            let chan_mean = vec_sum(chan_data) / chan_data.len() as f32;
-            let chan_variance = vec_sum_square_sub(chan_data, chan_mean) / chan_data.len() as f32;
-
             normalize_slice(
-                chan_data,
+                chan_data.into(),
                 NormalizeOptions {
-                    mean: chan_mean,
-                    variance: chan_variance,
                     epsilon,
-                    scale: chan_scale,
-                    bias: chan_bias,
+                    scale: scale[[c]],
+                    bias: bias[[c]],
+                    ..Default::default()
                 },
             );
         }
@@ -349,29 +422,16 @@ pub fn layer_normalization(
         .chunks(chunk_size)
         .zip(output.spare_capacity_mut().chunks_mut(chunk_size))
     {
-        // Subtract mean
-        let sum = vec_sum(in_chunk);
-        let mean = sum / in_chunk.len() as f32;
-        for (x, y) in in_chunk.iter().zip(out_chunk.iter_mut()) {
-            y.write(x - mean);
-        }
-
-        // Safety: We have initialized all elements of `out_chunk`.
-        let out_chunk =
-            unsafe { std::mem::transmute::<&mut [MaybeUninit<f32>], &mut [f32]>(out_chunk) };
-
-        // Compute inverse Root Mean Square
-        let sum_square = vec_sum_square(out_chunk);
-        let mean_squared = sum_square / out_chunk.len() as f32;
-        let inverse_rms = 1. / (mean_squared + epsilon).sqrt();
-
-        // Scale output by inverse RMS so that it has zero mean and unit
-        // variance, then apply per-element scale and bias.
-        //
-        // For efficiency these steps are fused into one pass over the data.
-        vec_shift_scale_in_place(out_chunk, inverse_rms, scale_data, bias_data);
-
-        n_init += out_chunk.len();
+        normalize_slice(
+            (in_chunk, out_chunk).into(),
+            NormalizeOptions {
+                epsilon,
+                element_scale: Some(scale_data),
+                element_bias: bias_data,
+                ..Default::default()
+            },
+        );
+        n_init += in_chunk.len();
     }
 
     // Safety: We initialized `n_init` elements.
