@@ -80,9 +80,69 @@ pub fn vec_shift_scale_in_place(
     dispatch(simd_op);
 }
 
+struct SimdShiftScaleBias<'a> {
+    data: &'a mut [f32],
+    x_bias: f32,
+    scale: f32,
+    bias: f32,
+}
+
+impl<'a> SimdOp for SimdShiftScaleBias<'a> {
+    type Output = &'a mut [f32];
+
+    #[inline(always)]
+    unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
+        let Self {
+            data,
+            x_bias,
+            scale,
+            bias,
+        } = self;
+
+        let mut out_ptr = data.as_mut_ptr();
+        let mut n = data.len();
+
+        let x_bias_vec = S::splat(x_bias);
+        let scale_vec = S::splat(scale);
+        let bias_vec = S::splat(bias);
+
+        while n >= S::LEN {
+            let y = S::load(out_ptr)
+                .sub(x_bias_vec)
+                .mul_add(scale_vec, bias_vec);
+            y.store(out_ptr);
+
+            out_ptr = out_ptr.add(S::LEN);
+            n -= S::LEN;
+        }
+
+        if n > 0 {
+            let y = S::load_partial(out_ptr, n, 0.)
+                .sub(x_bias_vec)
+                .mul_add(scale_vec, bias_vec);
+            y.store_partial(out_ptr, n);
+        }
+
+        data
+    }
+}
+
+/// Shift and scale each element in the input.
+///
+/// This updates `xs` as `xs[i] = (xs[i] - x_bias) * scale + bias`.
+pub fn vec_shift_scale_bias(xs: &mut [f32], x_bias: f32, scale: f32, bias: f32) {
+    let op = SimdShiftScaleBias {
+        data: xs,
+        x_bias,
+        scale,
+        bias,
+    };
+    dispatch(op);
+}
+
 #[cfg(test)]
 mod tests {
-    use super::vec_shift_scale_in_place;
+    use super::{vec_shift_scale_bias, vec_shift_scale_in_place};
 
     fn reference_shift_scale(
         data: &mut [f32],
@@ -92,6 +152,12 @@ mod tests {
     ) {
         for i in 0..data.len() {
             data[i] = data[i].mul_add(const_scale * scale[i], bias.map(|b| b[i]).unwrap_or(0.));
+        }
+    }
+
+    fn reference_shift_scale_bias(data: &mut [f32], x_bias: f32, scale: f32, bias: f32) {
+        for i in 0..data.len() {
+            data[i] = (data[i] - x_bias).mul_add(scale, bias);
         }
     }
 
@@ -117,6 +183,22 @@ mod tests {
 
         let mut actual = data.clone();
         vec_shift_scale_in_place(&mut actual[..], const_scale, &scale, None);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_vec_shift_scale_bias() {
+        let data: Vec<_> = (0..10).map(|i| i as f32 * 0.1).collect();
+        let x_bias = 0.123;
+        let scale = 0.456;
+        let bias = 0.89;
+
+        let mut expected = data.clone();
+        reference_shift_scale_bias(&mut expected, x_bias, scale, bias);
+
+        let mut actual = data.clone();
+        vec_shift_scale_bias(&mut actual, x_bias, scale, bias);
 
         assert_eq!(actual, expected);
     }
