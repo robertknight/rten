@@ -257,7 +257,13 @@ pub trait AsView: Layout {
     /// a dynamic rank if it is a slice.
     ///
     /// Panics if the tensor is not contiguous.
-    fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<ViewData<'_, Self::Elem>, S::Layout> {
+    fn reshaped<S: Copy + IntoLayout>(
+        &self,
+        shape: S,
+    ) -> TensorBase<CowData<'_, Self::Elem>, S::Layout>
+    where
+        Self::Elem: Clone,
+    {
         self.view().reshaped(shape)
     }
 
@@ -1454,13 +1460,24 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     /// Change the shape of this tensor without copying data.
     ///
     /// See [`AsView::reshaped`].
-    pub fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<ViewData<'a, T>, S::Layout> {
-        TensorBase {
-            data: self.data,
-            layout: self
+    pub fn reshaped<S: Copy + IntoLayout>(&self, shape: S) -> TensorBase<CowData<'a, T>, S::Layout>
+    where
+        T: Clone,
+    {
+        if let Ok(layout) = self.layout.reshaped_for_view(shape) {
+            TensorBase {
+                data: CowData::Borrowed(self.data),
+                layout,
+            }
+        } else {
+            let layout = self
                 .layout
-                .reshaped_for_view(shape)
-                .expect("reshape failed"),
+                .reshaped_for_copy(shape)
+                .expect("invalid target shape for `reshape`");
+            TensorBase {
+                data: CowData::Owned(self.to_vec()),
+                layout,
+            }
         }
     }
 
@@ -3342,19 +3359,36 @@ mod tests {
     #[test]
     fn test_reshaped() {
         let data = &[1., 2., 3., 4., 5., 6.];
-        let tensor = NdTensorView::from_data([1, 1, 2, 1, 3], data);
+        let tensor = NdTensorView::from_data([2, 3], data);
 
-        // Reshape to static dim count
+        // Non-copying reshape to static dim count
         let reshaped = tensor.reshaped([6]);
         assert_eq!(reshaped.shape(), [6]);
+        assert_eq!(
+            reshaped.view().storage().as_ptr(),
+            tensor.view().storage().as_ptr()
+        );
 
-        // Reshape to dynamic dim count
+        // Copying reshape to static dim count
+        let reshaped = tensor.transposed().reshaped([6]);
+        assert_eq!(reshaped.shape(), [6]);
+        assert_ne!(
+            reshaped.view().storage().as_ptr(),
+            tensor.view().storage().as_ptr()
+        );
+        assert_eq!(reshaped.to_vec(), &[1., 4., 2., 5., 3., 6.]);
+
+        // Non-copying reshape to dynamic dim count
         let reshaped = tensor.reshaped([6].as_slice());
         assert_eq!(reshaped.shape(), &[6]);
+        assert_eq!(
+            reshaped.view().storage().as_ptr(),
+            tensor.view().storage().as_ptr()
+        );
     }
 
     #[test]
-    #[should_panic(expected = "reshape failed")]
+    #[should_panic(expected = "invalid target shape for `reshape`: LengthMismatch")]
     fn test_reshaped_invalid() {
         let tensor = NdTensor::arange(0, 16, None);
         tensor.reshaped([2, 2]);

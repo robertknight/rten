@@ -56,8 +56,8 @@ where
         gemm.gemm_uninit_bias(
             out_item.data_mut().unwrap(),
             out_row_stride,
-            GemmInputA::Unpacked(kernel_mat),
-            GemmInputB::Unpacked(in_mat),
+            GemmInputA::Unpacked(kernel_mat.view()),
+            GemmInputB::Unpacked(in_mat.view()),
             1., // alpha
             bias_vec,
         );
@@ -249,7 +249,7 @@ where
 
         // Prepack kernel if we'll be able to reuse packed weights.
         let prepacked_kernel = if in_group.size(0) > 1 {
-            Some(gemm.prepack_a_in(pool, kernel_mat).auto_return(pool))
+            Some(gemm.prepack_a_in(pool, kernel_mat.view()).auto_return(pool))
         } else {
             None
         };
@@ -281,7 +281,7 @@ where
                     out_row_stride,
                     prepacked_kernel
                         .map(GemmInputA::Packed)
-                        .unwrap_or(GemmInputA::Unpacked(kernel_mat)),
+                        .unwrap_or(GemmInputA::Unpacked(kernel_mat.view())),
                     GemmInputB::Virtual(&im2col),
                     1., // alpha
                     bias_vec,
@@ -535,7 +535,8 @@ pub fn conv_transpose(
 
     let mut col2im_mat =
         NdTensor::uninit_in(pool, [out_c * k_h * k_w, in_h * in_w]).auto_return(pool);
-    let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]).transposed();
+    let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]);
+    let kernel_mat = kernel_mat.transposed();
     let gemm = GemmExecutor::new();
 
     // The implementation here is the inverse of the im2col-based convolution.
@@ -548,7 +549,7 @@ pub fn conv_transpose(
             col2im_mat.data_mut().unwrap(),
             col2im_row_stride,
             GemmInputA::Unpacked(kernel_mat),
-            GemmInputB::Unpacked(input_mat),
+            GemmInputB::Unpacked(input_mat.view()),
             1., /* alpha */
         );
 
@@ -558,7 +559,7 @@ pub fn conv_transpose(
 
         col2im(
             &mut out_img,
-            &col2im_mat.reshaped([out_c, k_h, k_w, in_h, in_w]),
+            &col2im_mat.reshaped([out_c, k_h, k_w, in_h, in_w]).view(),
             [pad_top, pad_left, pad_right, pad_bottom],
             [stride_h, stride_w],
             bias,

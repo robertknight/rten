@@ -45,12 +45,12 @@ pub fn depth_to_space<T: Clone>(
     // See https://onnx.ai/onnx/operators/onnx__DepthToSpace.html#summary
     let tmp = input.to_contiguous_in(pool);
     let tmp = match mode {
-        DepthToSpaceMode::DepthColumnRow => tmp
-            .reshaped([n, block_size, block_size, new_c, h, w])
-            .permuted([0, 3, 4, 1, 5, 2]),
-        DepthToSpaceMode::ColumnRowDepth => tmp
-            .reshaped([n, new_c, block_size, block_size, h, w])
-            .permuted([0, 1, 4, 2, 5, 3]),
+        DepthToSpaceMode::DepthColumnRow => tmp.reshaped([n, block_size, block_size, new_c, h, w]),
+        DepthToSpaceMode::ColumnRowDepth => tmp.reshaped([n, new_c, block_size, block_size, h, w]),
+    };
+    let tmp = match mode {
+        DepthToSpaceMode::DepthColumnRow => tmp.permuted([0, 3, 4, 1, 5, 2]),
+        DepthToSpaceMode::ColumnRowDepth => tmp.permuted([0, 1, 4, 2, 5, 3]),
     };
     let mut tmp = tmp.to_tensor_in(pool).into_dyn();
     tmp.reshape(&new_shape);
