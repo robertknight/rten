@@ -1372,7 +1372,10 @@ mod tests {
 
             let reference_transpose_stats = run_bench(100, None, || {
                 let transposed = tensor.permuted(perm);
-                reference_transpose_into(transposed.view(), dest.reshaped_mut(transposed.shape()));
+                reference_transpose_into(
+                    transposed.view(),
+                    dest.reshaped_mut(transposed.shape()).unwrap(),
+                );
             });
 
             let transpose_stats = run_bench(100, None, || {

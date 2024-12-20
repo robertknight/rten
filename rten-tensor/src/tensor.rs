@@ -6,7 +6,7 @@ use std::ops::{Index, IndexMut, Range};
 use crate::copy::{
     copy_into, copy_into_slice, copy_into_uninit, copy_range_into_slice, map_into_slice,
 };
-use crate::errors::{DimensionError, ExpandError, FromDataError, SliceError};
+use crate::errors::{DimensionError, ExpandError, FromDataError, ReshapeError, SliceError};
 use crate::iterators::{
     for_each_mut, AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterDyn,
     InnerIterDynMut, InnerIterMut, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
@@ -769,18 +769,18 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
 
     /// Change the layout of the tensor without moving any data.
     ///
-    /// See [`AsView::reshaped`].
+    /// This will return an error if the view is not contiguous.
+    ///
+    /// See also [`AsView::reshaped`].
     pub fn reshaped_mut<SH: IntoLayout>(
         &mut self,
         shape: SH,
-    ) -> TensorBase<ViewMutData<S::Elem>, SH::Layout> {
-        TensorBase {
-            layout: self
-                .layout
-                .reshaped_for_view(shape)
-                .expect("reshape failed"),
+    ) -> Result<TensorBase<ViewMutData<S::Elem>, SH::Layout>, ReshapeError> {
+        let layout = self.layout.reshaped_for_view(shape)?;
+        Ok(TensorBase {
+            layout,
             data: self.data.view_mut(),
-        }
+        })
     }
 
     /// Slice this tensor along a given axis.
@@ -3389,7 +3389,7 @@ mod tests {
         let data = vec![1., 2., 3., 4., 5., 6.];
         let mut tensor = NdTensor::from_data([1, 1, 2, 1, 3], data);
 
-        let mut reshaped = tensor.reshaped_mut([6]);
+        let mut reshaped = tensor.reshaped_mut([6]).unwrap();
         reshaped[[0]] = 0.;
         reshaped[[5]] = 0.;
 
