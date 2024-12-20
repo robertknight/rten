@@ -267,6 +267,19 @@ pub trait AsView: Layout {
         self.view().reshaped(shape)
     }
 
+    /// A variant of [`reshaped`](Self::reshaped) that allows specifying the
+    /// allocator to use if a copy is needed.
+    fn reshaped_in<A: Alloc, S: Copy + IntoLayout>(
+        &self,
+        alloc: A,
+        shape: S,
+    ) -> TensorBase<CowData<'_, Self::Elem>, S::Layout>
+    where
+        Self::Elem: Clone,
+    {
+        self.view().reshaped_in(alloc, shape)
+    }
+
     /// Reverse the order of dimensions in this tensor.
     fn transpose(&mut self);
 
@@ -1457,10 +1470,24 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         }
     }
 
-    /// Change the shape of this tensor without copying data.
+    /// Reshape this tensor, copying the data only if necessary.
     ///
     /// See [`AsView::reshaped`].
     pub fn reshaped<S: Copy + IntoLayout>(&self, shape: S) -> TensorBase<CowData<'a, T>, S::Layout>
+    where
+        T: Clone,
+    {
+        self.reshaped_in(GlobalAlloc::new(), shape)
+    }
+
+    /// Reshape this tensor, copying the data only if necessary.
+    ///
+    /// See [`AsView::reshaped_in`].
+    pub fn reshaped_in<A: Alloc, S: Copy + IntoLayout>(
+        &self,
+        alloc: A,
+        shape: S,
+    ) -> TensorBase<CowData<'a, T>, S::Layout>
     where
         T: Clone,
     {
@@ -1475,7 +1502,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
                 .reshaped_for_copy(shape)
                 .expect("invalid target shape for `reshape`");
             TensorBase {
-                data: CowData::Owned(self.to_vec()),
+                data: CowData::Owned(self.to_vec_in(alloc)),
                 layout,
             }
         }
