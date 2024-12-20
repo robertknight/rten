@@ -475,11 +475,12 @@ pub fn conv_transpose(
     if let &[n, c, w] = input.shape() {
         let [out_c, k_in_c, k_w] = static_dims!(kernel, 3, "OCW")?.shape();
 
-        let mut input_2d = input.clone();
-        input_2d.reshape(&[n, c, 1, w]);
-
-        let mut kernel_2d = kernel.clone();
-        kernel_2d.reshape(&[out_c, k_in_c, 1, k_w]);
+        let input_2d = input
+            .reshaped_in(pool, [n, c, 1, w].as_slice())
+            .auto_return(pool);
+        let kernel_2d = kernel
+            .reshaped_in(pool, [out_c, k_in_c, 1, k_w].as_slice())
+            .auto_return(pool);
 
         let padding_2d = padding.expand_1d_to_2d()?;
 
@@ -490,7 +491,14 @@ pub fn conv_transpose(
             }
         };
 
-        let result_2d = conv_transpose(pool, input_2d, kernel_2d, bias, padding_2d, &strides_2d);
+        let result_2d = conv_transpose(
+            pool,
+            input_2d.view(),
+            kernel_2d.view(),
+            bias,
+            padding_2d,
+            &strides_2d,
+        );
 
         return result_2d.map(|mut t| {
             let [n, c, _h, w]: [usize; 4] = t.shape().try_into().expect("expected 4D output");
