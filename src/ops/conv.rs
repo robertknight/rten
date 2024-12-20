@@ -34,11 +34,7 @@ where
     let [out_c, in_c, _, _]: [usize; 4] = kernel.shape();
     let mut output = NdTensor::uninit_in(pool, [batch, out_c, in_h * in_w]);
 
-    // Get input and kernel as contiguous tensors so we can create reshaped
-    // views.
-    let input = input.to_contiguous_in(pool).auto_return(pool);
-    let kernel = kernel.to_contiguous_in(pool).auto_return(pool);
-    let kernel_mat = kernel.reshaped([out_c, in_c]);
+    let kernel_mat = kernel.reshaped_in(pool, [out_c, in_c]).auto_return(pool);
 
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.as_ref().map(|b| b.to_contiguous());
@@ -51,13 +47,16 @@ where
         let mut out_item = output.slice_mut([n]);
         let out_row_stride = out_item.stride(0);
 
-        let in_mat = input.slice([n]).reshaped([in_c, in_h * in_w]);
+        let in_mat = input
+            .slice([n])
+            .reshaped_in(pool, [in_c, in_h * in_w])
+            .auto_return(pool);
 
         gemm.gemm_uninit_bias(
             out_item.data_mut().unwrap(),
             out_row_stride,
-            GemmInputA::Unpacked(kernel_mat),
-            GemmInputB::Unpacked(in_mat),
+            GemmInputA::Unpacked(kernel_mat.view()),
+            GemmInputB::Unpacked(in_mat.view()),
             1., // alpha
             bias_vec,
         );
@@ -242,14 +241,14 @@ where
         let in_group = input.slice((.., in_chan_start..in_chan_end));
         let mut out_group = output.slice_mut((.., out_chans.clone()));
 
-        let kernel = kernel.to_contiguous_in(pool);
-        let kernel_mat = kernel
-            .slice([out_chans.clone()])
-            .reshaped([out_channels_per_group, in_channels_per_group * k_h * k_w]);
+        let kernel_mat = kernel.slice([out_chans.clone()]).reshaped_in(
+            pool,
+            [out_channels_per_group, in_channels_per_group * k_h * k_w],
+        );
 
         // Prepack kernel if we'll be able to reuse packed weights.
         let prepacked_kernel = if in_group.size(0) > 1 {
-            Some(gemm.prepack_a_in(pool, kernel_mat).auto_return(pool))
+            Some(gemm.prepack_a_in(pool, kernel_mat.view()).auto_return(pool))
         } else {
             None
         };
@@ -260,7 +259,9 @@ where
             .zip(in_group.axis_iter(0))
             .par_bridge()
             .for_each(|(mut out_item, in_item)| {
-                let mut out_mat = out_item.reshaped_mut([out_channels_per_group, out_h * out_w]);
+                let mut out_mat = out_item
+                    .reshaped_mut([out_channels_per_group, out_h * out_w])
+                    .unwrap();
                 let out_row_stride = out_mat.stride(0);
 
                 let im2col = VirtualIm2Col::new(
@@ -281,7 +282,7 @@ where
                     out_row_stride,
                     prepacked_kernel
                         .map(GemmInputA::Packed)
-                        .unwrap_or(GemmInputA::Unpacked(kernel_mat)),
+                        .unwrap_or(GemmInputA::Unpacked(kernel_mat.view())),
                     GemmInputB::Virtual(&im2col),
                     1., // alpha
                     bias_vec,
@@ -476,11 +477,12 @@ pub fn conv_transpose(
     if let &[n, c, w] = input.shape() {
         let [out_c, k_in_c, k_w] = static_dims!(kernel, 3, "OCW")?.shape();
 
-        let mut input_2d = input.clone();
-        input_2d.reshape(&[n, c, 1, w]);
-
-        let mut kernel_2d = kernel.clone();
-        kernel_2d.reshape(&[out_c, k_in_c, 1, k_w]);
+        let input_2d = input
+            .reshaped_in(pool, [n, c, 1, w].as_slice())
+            .auto_return(pool);
+        let kernel_2d = kernel
+            .reshaped_in(pool, [out_c, k_in_c, 1, k_w].as_slice())
+            .auto_return(pool);
 
         let padding_2d = padding.expand_1d_to_2d()?;
 
@@ -491,7 +493,14 @@ pub fn conv_transpose(
             }
         };
 
-        let result_2d = conv_transpose(pool, input_2d, kernel_2d, bias, padding_2d, &strides_2d);
+        let result_2d = conv_transpose(
+            pool,
+            input_2d.view(),
+            kernel_2d.view(),
+            bias,
+            padding_2d,
+            &strides_2d,
+        );
 
         return result_2d.map(|mut t| {
             let [n, c, _h, w]: [usize; 4] = t.shape().try_into().expect("expected 4D output");
@@ -529,26 +538,28 @@ pub fn conv_transpose(
 
     let mut output = NdTensor::uninit_in(pool, [batch, out_c, out_h, out_w]);
 
-    // Ensure input and kernel are contiguous to support reshaping.
-    let input = input.to_contiguous_in(pool).auto_return(pool);
-    let kernel = kernel.to_contiguous_in(pool).auto_return(pool);
-
     let mut col2im_mat =
         NdTensor::uninit_in(pool, [out_c * k_h * k_w, in_h * in_w]).auto_return(pool);
-    let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]).transposed();
+    let kernel_mat = kernel
+        .reshaped_in(pool, [k_in_c, out_c * k_h * k_w])
+        .auto_return(pool);
+    let kernel_mat = kernel_mat.transposed();
     let gemm = GemmExecutor::new();
 
     // The implementation here is the inverse of the im2col-based convolution.
     let mut n_init = 0;
     for n in 0..batch {
-        let input_mat = input.slice([n]).reshaped([in_c, in_h * in_w]);
+        let input_mat = input
+            .slice([n])
+            .reshaped_in(pool, [in_c, in_h * in_w])
+            .auto_return(pool);
 
         let col2im_row_stride = col2im_mat.stride(0);
         gemm.gemm_uninit(
             col2im_mat.data_mut().unwrap(),
             col2im_row_stride,
             GemmInputA::Unpacked(kernel_mat),
-            GemmInputB::Unpacked(input_mat),
+            GemmInputB::Unpacked(input_mat.view()),
             1., /* alpha */
         );
 
@@ -558,7 +569,7 @@ pub fn conv_transpose(
 
         col2im(
             &mut out_img,
-            &col2im_mat.reshaped([out_c, k_h, k_w, in_h, in_w]),
+            &col2im_mat.reshaped([out_c, k_h, k_w, in_h, in_w]).view(),
             [pad_top, pad_left, pad_right, pad_bottom],
             [stride_h, stride_w],
             bias,

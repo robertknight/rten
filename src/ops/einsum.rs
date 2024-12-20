@@ -379,8 +379,8 @@ fn einsum_step(
             .collect();
         einsum_matmul(
             pool,
-            &x,
-            &y,
+            &x.view(),
+            &y.view(),
             &term_simplified,
             &term_simplified,
             &step.output,

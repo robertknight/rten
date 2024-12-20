@@ -188,7 +188,7 @@ where
         // nb. We assume `a` is likely already contiguous, so this will be cheap.
         let a_contig = a.to_contiguous_in(pool).auto_return(pool);
         let a_matrix = a_contig.reshaped([num_a_matrices * a_rows, a_cols].as_slice());
-        let mut output = matmul_impl(pool, a_matrix, b.clone(), strategy, bias)?;
+        let mut output = matmul_impl(pool, a_matrix.view(), b.clone(), strategy, bias)?;
         output.reshape(out_shape);
         return Ok(output);
     }

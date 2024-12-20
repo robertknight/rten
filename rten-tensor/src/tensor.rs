@@ -6,7 +6,7 @@ use std::ops::{Index, IndexMut, Range};
 use crate::copy::{
     copy_into, copy_into_slice, copy_into_uninit, copy_range_into_slice, map_into_slice,
 };
-use crate::errors::{DimensionError, ExpandError, FromDataError, SliceError};
+use crate::errors::{DimensionError, ExpandError, FromDataError, ReshapeError, SliceError};
 use crate::iterators::{
     for_each_mut, AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterDyn,
     InnerIterDynMut, InnerIterMut, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
@@ -249,16 +249,41 @@ pub trait AsView: Layout {
         self.view().permuted(order)
     }
 
-    /// Return a view with a given shape, without copying any data. This
-    /// requires that the tensor is contiguous.
+    /// Return either a view or a copy of `self` with the given shape.
     ///
     /// The new shape must have the same number of elments as the current
     /// shape. The result will have a static rank if `shape` is an array or
     /// a dynamic rank if it is a slice.
     ///
-    /// Panics if the tensor is not contiguous.
-    fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<ViewData<'_, Self::Elem>, S::Layout> {
+    /// If `self` is contiguous this will return a view, as changing the shape
+    /// can be done without moving data. Otherwise it will copy elements into
+    /// a new tensor.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of elements in the new shape does not match the
+    /// current shape.
+    fn reshaped<S: Copy + IntoLayout>(
+        &self,
+        shape: S,
+    ) -> TensorBase<CowData<'_, Self::Elem>, S::Layout>
+    where
+        Self::Elem: Clone,
+    {
         self.view().reshaped(shape)
+    }
+
+    /// A variant of [`reshaped`](AsView::reshaped) that allows specifying the
+    /// allocator to use if a copy is needed.
+    fn reshaped_in<A: Alloc, S: Copy + IntoLayout>(
+        &self,
+        alloc: A,
+        shape: S,
+    ) -> TensorBase<CowData<'_, Self::Elem>, S::Layout>
+    where
+        Self::Elem: Clone,
+    {
+        self.view().reshaped_in(alloc, shape)
     }
 
     /// Reverse the order of dimensions in this tensor.
@@ -750,18 +775,18 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
 
     /// Change the layout of the tensor without moving any data.
     ///
-    /// See [`AsView::reshaped`].
+    /// This will return an error if the view is not contiguous.
+    ///
+    /// See also [`AsView::reshaped`].
     pub fn reshaped_mut<SH: IntoLayout>(
         &mut self,
         shape: SH,
-    ) -> TensorBase<ViewMutData<S::Elem>, SH::Layout> {
-        TensorBase {
-            layout: self
-                .layout
-                .reshaped_for_view(shape)
-                .expect("reshape failed"),
+    ) -> Result<TensorBase<ViewMutData<S::Elem>, SH::Layout>, ReshapeError> {
+        let layout = self.layout.reshaped_for_view(shape)?;
+        Ok(TensorBase {
+            layout,
             data: self.data.view_mut(),
-        }
+        })
     }
 
     /// Slice this tensor along a given axis.
@@ -1451,16 +1476,39 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         }
     }
 
-    /// Change the shape of this tensor without copying data.
+    /// Return a view or owned tensor that has the given shape.
     ///
     /// See [`AsView::reshaped`].
-    pub fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<ViewData<'a, T>, S::Layout> {
-        TensorBase {
-            data: self.data,
-            layout: self
+    pub fn reshaped<S: Copy + IntoLayout>(&self, shape: S) -> TensorBase<CowData<'a, T>, S::Layout>
+    where
+        T: Clone,
+    {
+        self.reshaped_in(GlobalAlloc::new(), shape)
+    }
+
+    /// Variant of [`reshaped`](Self::reshaped) that takes an allocator.
+    pub fn reshaped_in<A: Alloc, S: Copy + IntoLayout>(
+        &self,
+        alloc: A,
+        shape: S,
+    ) -> TensorBase<CowData<'a, T>, S::Layout>
+    where
+        T: Clone,
+    {
+        if let Ok(layout) = self.layout.reshaped_for_view(shape) {
+            TensorBase {
+                data: CowData::Borrowed(self.data),
+                layout,
+            }
+        } else {
+            let layout = self
                 .layout
-                .reshaped_for_view(shape)
-                .expect("reshape failed"),
+                .reshaped_for_copy(shape)
+                .expect("invalid target shape for `reshape`");
+            TensorBase {
+                data: CowData::Owned(self.to_vec_in(alloc)),
+                layout,
+            }
         }
     }
 
@@ -1879,19 +1927,6 @@ impl<T> TensorBase<Vec<T>, DynLayout> {
     }
 }
 
-impl<T> TensorBase<ViewData<'_, T>, DynLayout> {
-    /// Reshape this view.
-    ///
-    /// Panics if the view is not contiguous.
-    pub fn reshape(&mut self, shape: &[usize])
-    where
-        T: Clone,
-    {
-        assert!(self.is_contiguous(), "can only reshape contiguous views");
-        self.layout = DynLayout::from_shape(shape);
-    }
-}
-
 impl<'a, T, L: MutLayout> TensorBase<ViewMutData<'a, T>, L> {
     /// Divide this tensor into two mutable views along a given axis.
     ///
@@ -1927,19 +1962,6 @@ impl<'a, T, L: MutLayout> TensorBase<ViewMutData<'a, T>, L> {
         };
 
         (left_view, right_view)
-    }
-}
-
-impl<T> TensorBase<ViewMutData<'_, T>, DynLayout> {
-    /// Reshape this view.
-    ///
-    /// Panics if the view is not contiguous.
-    pub fn reshape(&mut self, shape: &[usize])
-    where
-        T: Clone,
-    {
-        assert!(self.is_contiguous(), "can only reshape contiguous views");
-        self.layout = DynLayout::from_shape(shape);
     }
 }
 
@@ -3314,22 +3336,11 @@ mod tests {
 
     #[test]
     fn test_reshape() {
-        // Owned tensor
         let mut tensor = Tensor::<f32>::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         tensor.transpose();
         tensor.reshape(&[4]);
         assert_eq!(tensor.shape(), &[4]);
         assert_eq!(tensor.to_vec(), &[1., 3., 2., 4.]);
-
-        // View
-        let mut view = tensor.view();
-        view.reshape(&[2, 2]);
-        assert_eq!(view.shape(), &[2, 2]);
-
-        // Mut view
-        let mut view_mut = tensor.view_mut();
-        view_mut.reshape(&[2, 2]);
-        assert_eq!(view_mut.shape(), &[2, 2]);
     }
 
     #[test]
@@ -3342,19 +3353,36 @@ mod tests {
     #[test]
     fn test_reshaped() {
         let data = &[1., 2., 3., 4., 5., 6.];
-        let tensor = NdTensorView::from_data([1, 1, 2, 1, 3], data);
+        let tensor = NdTensorView::from_data([2, 3], data);
 
-        // Reshape to static dim count
+        // Non-copying reshape to static dim count
         let reshaped = tensor.reshaped([6]);
         assert_eq!(reshaped.shape(), [6]);
+        assert_eq!(
+            reshaped.view().storage().as_ptr(),
+            tensor.view().storage().as_ptr()
+        );
 
-        // Reshape to dynamic dim count
+        // Copying reshape to static dim count
+        let reshaped = tensor.transposed().reshaped([6]);
+        assert_eq!(reshaped.shape(), [6]);
+        assert_ne!(
+            reshaped.view().storage().as_ptr(),
+            tensor.view().storage().as_ptr()
+        );
+        assert_eq!(reshaped.to_vec(), &[1., 4., 2., 5., 3., 6.]);
+
+        // Non-copying reshape to dynamic dim count
         let reshaped = tensor.reshaped([6].as_slice());
         assert_eq!(reshaped.shape(), &[6]);
+        assert_eq!(
+            reshaped.view().storage().as_ptr(),
+            tensor.view().storage().as_ptr()
+        );
     }
 
     #[test]
-    #[should_panic(expected = "reshape failed")]
+    #[should_panic(expected = "invalid target shape for `reshape`: LengthMismatch")]
     fn test_reshaped_invalid() {
         let tensor = NdTensor::arange(0, 16, None);
         tensor.reshaped([2, 2]);
@@ -3365,7 +3393,7 @@ mod tests {
         let data = vec![1., 2., 3., 4., 5., 6.];
         let mut tensor = NdTensor::from_data([1, 1, 2, 1, 3], data);
 
-        let mut reshaped = tensor.reshaped_mut([6]);
+        let mut reshaped = tensor.reshaped_mut([6]).unwrap();
         reshaped[[0]] = 0.;
         reshaped[[5]] = 0.;
 
