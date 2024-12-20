@@ -1923,19 +1923,6 @@ impl<T> TensorBase<Vec<T>, DynLayout> {
     }
 }
 
-impl<T> TensorBase<ViewData<'_, T>, DynLayout> {
-    /// Reshape this view.
-    ///
-    /// Panics if the view is not contiguous.
-    pub fn reshape(&mut self, shape: &[usize])
-    where
-        T: Clone,
-    {
-        assert!(self.is_contiguous(), "can only reshape contiguous views");
-        self.layout = DynLayout::from_shape(shape);
-    }
-}
-
 impl<'a, T, L: MutLayout> TensorBase<ViewMutData<'a, T>, L> {
     /// Divide this tensor into two mutable views along a given axis.
     ///
@@ -1971,19 +1958,6 @@ impl<'a, T, L: MutLayout> TensorBase<ViewMutData<'a, T>, L> {
         };
 
         (left_view, right_view)
-    }
-}
-
-impl<T> TensorBase<ViewMutData<'_, T>, DynLayout> {
-    /// Reshape this view.
-    ///
-    /// Panics if the view is not contiguous.
-    pub fn reshape(&mut self, shape: &[usize])
-    where
-        T: Clone,
-    {
-        assert!(self.is_contiguous(), "can only reshape contiguous views");
-        self.layout = DynLayout::from_shape(shape);
     }
 }
 
@@ -3358,22 +3332,11 @@ mod tests {
 
     #[test]
     fn test_reshape() {
-        // Owned tensor
         let mut tensor = Tensor::<f32>::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         tensor.transpose();
         tensor.reshape(&[4]);
         assert_eq!(tensor.shape(), &[4]);
         assert_eq!(tensor.to_vec(), &[1., 3., 2., 4.]);
-
-        // View
-        let mut view = tensor.view();
-        view.reshape(&[2, 2]);
-        assert_eq!(view.shape(), &[2, 2]);
-
-        // Mut view
-        let mut view_mut = tensor.view_mut();
-        view_mut.reshape(&[2, 2]);
-        assert_eq!(view_mut.shape(), &[2, 2]);
     }
 
     #[test]
