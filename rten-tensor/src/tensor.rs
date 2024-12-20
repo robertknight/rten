@@ -249,14 +249,20 @@ pub trait AsView: Layout {
         self.view().permuted(order)
     }
 
-    /// Return a view with a given shape, without copying any data. This
-    /// requires that the tensor is contiguous.
+    /// Return either a view or a copy of `self` with the given shape.
     ///
     /// The new shape must have the same number of elments as the current
     /// shape. The result will have a static rank if `shape` is an array or
     /// a dynamic rank if it is a slice.
     ///
-    /// Panics if the tensor is not contiguous.
+    /// If `self` is contiguous this will return a view, as changing the shape
+    /// can be done without moving data. Otherwise it will copy elements into
+    /// a new tensor.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of elements in the new shape does not match the
+    /// current shape.
     fn reshaped<S: Copy + IntoLayout>(
         &self,
         shape: S,
@@ -267,7 +273,7 @@ pub trait AsView: Layout {
         self.view().reshaped(shape)
     }
 
-    /// A variant of [`reshaped`](Self::reshaped) that allows specifying the
+    /// A variant of [`reshaped`](AsView::reshaped) that allows specifying the
     /// allocator to use if a copy is needed.
     fn reshaped_in<A: Alloc, S: Copy + IntoLayout>(
         &self,
@@ -1470,7 +1476,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         }
     }
 
-    /// Reshape this tensor, copying the data only if necessary.
+    /// Return a view or owned tensor that has the given shape.
     ///
     /// See [`AsView::reshaped`].
     pub fn reshaped<S: Copy + IntoLayout>(&self, shape: S) -> TensorBase<CowData<'a, T>, S::Layout>
@@ -1480,9 +1486,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         self.reshaped_in(GlobalAlloc::new(), shape)
     }
 
-    /// Reshape this tensor, copying the data only if necessary.
-    ///
-    /// See [`AsView::reshaped_in`].
+    /// Variant of [`reshaped`](Self::reshaped) that takes an allocator.
     pub fn reshaped_in<A: Alloc, S: Copy + IntoLayout>(
         &self,
         alloc: A,
