@@ -34,11 +34,7 @@ where
     let [out_c, in_c, _, _]: [usize; 4] = kernel.shape();
     let mut output = NdTensor::uninit_in(pool, [batch, out_c, in_h * in_w]);
 
-    // Get input and kernel as contiguous tensors so we can create reshaped
-    // views.
-    let input = input.to_contiguous_in(pool).auto_return(pool);
-    let kernel = kernel.to_contiguous_in(pool).auto_return(pool);
-    let kernel_mat = kernel.reshaped([out_c, in_c]);
+    let kernel_mat = kernel.reshaped_in(pool, [out_c, in_c]).auto_return(pool);
 
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.as_ref().map(|b| b.to_contiguous());
@@ -51,7 +47,10 @@ where
         let mut out_item = output.slice_mut([n]);
         let out_row_stride = out_item.stride(0);
 
-        let in_mat = input.slice([n]).reshaped([in_c, in_h * in_w]);
+        let in_mat = input
+            .slice([n])
+            .reshaped_in(pool, [in_c, in_h * in_w])
+            .auto_return(pool);
 
         gemm.gemm_uninit_bias(
             out_item.data_mut().unwrap(),
@@ -242,10 +241,10 @@ where
         let in_group = input.slice((.., in_chan_start..in_chan_end));
         let mut out_group = output.slice_mut((.., out_chans.clone()));
 
-        let kernel = kernel.to_contiguous_in(pool);
-        let kernel_mat = kernel
-            .slice([out_chans.clone()])
-            .reshaped([out_channels_per_group, in_channels_per_group * k_h * k_w]);
+        let kernel_mat = kernel.slice([out_chans.clone()]).reshaped_in(
+            pool,
+            [out_channels_per_group, in_channels_per_group * k_h * k_w],
+        );
 
         // Prepack kernel if we'll be able to reuse packed weights.
         let prepacked_kernel = if in_group.size(0) > 1 {
@@ -529,20 +528,21 @@ pub fn conv_transpose(
 
     let mut output = NdTensor::uninit_in(pool, [batch, out_c, out_h, out_w]);
 
-    // Ensure input and kernel are contiguous to support reshaping.
-    let input = input.to_contiguous_in(pool).auto_return(pool);
-    let kernel = kernel.to_contiguous_in(pool).auto_return(pool);
-
     let mut col2im_mat =
         NdTensor::uninit_in(pool, [out_c * k_h * k_w, in_h * in_w]).auto_return(pool);
-    let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]);
+    let kernel_mat = kernel
+        .reshaped_in(pool, [k_in_c, out_c * k_h * k_w])
+        .auto_return(pool);
     let kernel_mat = kernel_mat.transposed();
     let gemm = GemmExecutor::new();
 
     // The implementation here is the inverse of the im2col-based convolution.
     let mut n_init = 0;
     for n in 0..batch {
-        let input_mat = input.slice([n]).reshaped([in_c, in_h * in_w]);
+        let input_mat = input
+            .slice([n])
+            .reshaped_in(pool, [in_c, in_h * in_w])
+            .auto_return(pool);
 
         let col2im_row_stride = col2im_mat.stride(0);
         gemm.gemm_uninit(
