@@ -2,8 +2,8 @@ use std::arch::aarch64::{
     float32x4_t, int32x4_t, uint32x4_t, vabsq_f32, vaddq_f32, vaddq_s32, vaddvq_f32, vandq_u32,
     vbslq_f32, vbslq_s32, vceqq_s32, vcgeq_f32, vcgeq_s32, vcgtq_s32, vcleq_f32, vcleq_s32,
     vcltq_f32, vcltq_s32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s32, vfmaq_f32, vld1q_f32,
-    vld1q_s32, vmaxq_f32, vmulq_f32, vreinterpretq_f32_s32, vshlq_n_s32, vst1q_f32, vst1q_s32,
-    vst1q_u32, vsubq_f32, vsubq_s32,
+    vld1q_s32, vld1q_u32, vmaxq_f32, vmulq_f32, vreinterpretq_f32_s32, vshlq_n_s32, vst1q_f32,
+    vst1q_s32, vst1q_u32, vsubq_f32, vsubq_s32,
 };
 
 use crate::{Simd, SimdFloat, SimdInt, SimdMask};
@@ -14,6 +14,12 @@ impl SimdMask for uint32x4_t {
     #[inline]
     unsafe fn and(self, other: Self) -> Self {
         vandq_u32(self, other)
+    }
+
+    #[inline]
+    unsafe fn from_array(array: [bool; 4]) -> Self {
+        let u32_array = array.map(|b| if b { u32::MAX } else { 0 });
+        vld1q_u32(u32_array.as_ptr())
     }
 
     #[inline]

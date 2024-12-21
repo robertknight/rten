@@ -81,14 +81,14 @@ impl SimdOp for SimdNormalize<'_> {
 
         if n > 0 {
             let scale_vec = scale_ptr
-                .map(|s| S::load_partial(s, n, 0.))
+                .map(|s| S::load_partial(s, n))
                 .unwrap_or(one)
                 .mul(const_scale_vec);
             let bias_vec = bias_ptr
-                .map(|b| S::load_partial(b, n, 0.))
+                .map(|b| S::load_partial(b, n))
                 .unwrap_or(zero)
                 .add(const_bias_vec);
-            let y = S::load_partial(in_ptr, n, 0.)
+            let y = S::load_partial(in_ptr, n)
                 .sub(pre_scale_bias_vec)
                 .mul_add(scale_vec, bias_vec);
             y.store_partial(out_ptr as *mut f32, n);

@@ -12,6 +12,11 @@ impl SimdMask for bool {
     unsafe fn to_array(self) -> Self::Array {
         [self]
     }
+
+    #[inline]
+    unsafe fn from_array(mask: Self::Array) -> Self {
+        mask[0]
+    }
 }
 
 macro_rules! impl_simd {

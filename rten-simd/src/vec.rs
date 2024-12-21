@@ -90,14 +90,13 @@ pub trait Simd: Copy + Sized {
     /// values.
     unsafe fn load(ptr: *const Self::Elem) -> Self;
 
-    /// Load `len` values from `ptr` into a vector and pad the remainder with
-    /// `pad`.
+    /// Load `len` values from `ptr` into a vector and zero the unused lanes.
     ///
     /// Panics if `len > Self::LEN`.
     #[inline]
-    unsafe fn load_partial(ptr: *const Self::Elem, len: usize, pad: Self::Elem) -> Self {
+    unsafe fn load_partial(ptr: *const Self::Elem, len: usize) -> Self {
         assert!(len <= Self::LEN);
-        let mut remainder = [pad; MAX_LEN];
+        let mut remainder = [Self::Elem::default(); MAX_LEN];
         for i in 0..len {
             remainder[i] = *ptr.add(i);
         }
@@ -159,13 +158,25 @@ pub const fn vec_count<S: Simd>(count: usize) -> usize {
 #[allow(clippy::missing_safety_doc)]
 pub trait SimdMask: Copy {
     /// A representation of this mask as a bool array.
-    type Array: std::ops::Index<usize, Output = bool>;
+    type Array: Copy + Default + std::ops::Index<usize, Output = bool> + std::ops::IndexMut<usize>;
 
     /// Return a bitwise AND of self and `rhs`.
     unsafe fn and(self, rhs: Self) -> Self;
 
+    /// Return a mask with the first `n` lanes set.
+    unsafe fn first_n(n: usize) -> Self {
+        let mut array = Self::Array::default();
+        for i in 0..n {
+            array[i] = true;
+        }
+        Self::from_array(array)
+    }
+
     /// Convert this SIMD mask to a boolean array.
     unsafe fn to_array(self) -> Self::Array;
+
+    /// Create a SIMD mask from a boolean array.
+    unsafe fn from_array(mask: Self::Array) -> Self;
 }
 
 /// Trait for SIMD vectors containing 32-bit integers.

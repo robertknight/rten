@@ -3,10 +3,10 @@ use std::arch::x86_64::{
     _mm256_blendv_epi8, _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_castsi256_ps,
     _mm256_cmp_ps, _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
     _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_ps,
-    _mm256_mul_ps, _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_slli_epi32,
-    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps, _mm_add_ps,
-    _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ,
-    _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_mul_ps, _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setr_epi32,
+    _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps,
+    _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ,
+    _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::mem::transmute;
 
@@ -19,6 +19,21 @@ impl SimdMask for __m256i {
     #[target_feature(enable = "avx2")]
     unsafe fn and(self, other: Self) -> Self {
         _mm256_and_si256(self, other)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    unsafe fn from_array(array: [bool; 8]) -> Self {
+        _mm256_setr_epi32(
+            if array[0] { -1 } else { 0 },
+            if array[1] { -1 } else { 0 },
+            if array[2] { -1 } else { 0 },
+            if array[3] { -1 } else { 0 },
+            if array[4] { -1 } else { 0 },
+            if array[5] { -1 } else { 0 },
+            if array[6] { -1 } else { 0 },
+            if array[7] { -1 } else { 0 },
+        )
     }
 
     #[inline]
@@ -308,6 +323,18 @@ impl SimdMask for __mmask16 {
     #[target_feature(enable = "avx512f")]
     unsafe fn and(self, other: Self) -> Self {
         self & other
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn from_array(array: [bool; 16]) -> Self {
+        let mut mask = 0;
+        for i in 0..16 {
+            if array[i] {
+                mask |= 1 << i;
+            }
+        }
+        mask
     }
 
     #[inline]
