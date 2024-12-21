@@ -1,8 +1,8 @@
 use std::arch::wasm32::{
     f32x4_abs, f32x4_add, f32x4_div, f32x4_extract_lane, f32x4_ge, f32x4_le, f32x4_lt, f32x4_max,
-    f32x4_mul, f32x4_splat, f32x4_sub, i32x4_add, i32x4_eq, i32x4_ge, i32x4_gt, i32x4_le, i32x4_lt,
-    i32x4_shl, i32x4_shuffle, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_and,
-    v128_bitselect, v128_load, v128_store,
+    f32x4_mul, f32x4_splat, f32x4_sub, i32x4, i32x4_add, i32x4_eq, i32x4_ge, i32x4_gt, i32x4_le,
+    i32x4_lt, i32x4_shl, i32x4_shuffle, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128,
+    v128_and, v128_bitselect, v128_load, v128_store,
 };
 
 use crate::{Simd, SimdFloat, SimdInt, SimdMask};
@@ -23,6 +23,16 @@ impl SimdMask for v128i {
     #[inline]
     unsafe fn and(self, other: Self) -> Self {
         Self(v128_and(self.0, other.0))
+    }
+
+    #[inline]
+    unsafe fn from_array(array: [bool; 4]) -> Self {
+        Self(i32x4(
+            if array[0] { -1 } else { 0 },
+            if array[1] { -1 } else { 0 },
+            if array[2] { -1 } else { 0 },
+            if array[3] { -1 } else { 0 },
+        ))
     }
 
     #[inline]

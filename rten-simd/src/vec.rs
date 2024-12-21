@@ -159,13 +159,25 @@ pub const fn vec_count<S: Simd>(count: usize) -> usize {
 #[allow(clippy::missing_safety_doc)]
 pub trait SimdMask: Copy {
     /// A representation of this mask as a bool array.
-    type Array: std::ops::Index<usize, Output = bool>;
+    type Array: Copy + Default + std::ops::Index<usize, Output = bool> + std::ops::IndexMut<usize>;
 
     /// Return a bitwise AND of self and `rhs`.
     unsafe fn and(self, rhs: Self) -> Self;
 
+    /// Return a mask with the first `n` lanes set.
+    unsafe fn first_n(n: usize) -> Self {
+        let mut array = Self::Array::default();
+        for i in 0..n {
+            array[i] = true;
+        }
+        Self::from_array(array)
+    }
+
     /// Convert this SIMD mask to a boolean array.
     unsafe fn to_array(self) -> Self::Array;
+
+    /// Create a SIMD mask from a boolean array.
+    unsafe fn from_array(mask: Self::Array) -> Self;
 }
 
 /// Trait for SIMD vectors containing 32-bit integers.
