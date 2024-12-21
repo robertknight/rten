@@ -1,6 +1,7 @@
 use rten_simd::SimdFloat;
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
+use super::Lhs;
 use crate::iter_util::{range_chunks_exact, unroll_loop};
 
 /// Compute an output block of a vector-matrix product ("gemv" in BLAS APIs).
@@ -193,25 +194,55 @@ fn simd_gemv_fallback(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f
 pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
     tile_ptr: *mut f32,
     tile_row_stride: usize,
-    a: &[f32],
+    a: Lhs<f32>,
+    used_rows: usize,
     b: &[f32],
     depth: usize,
     alpha: f32,
     beta: f32,
 ) {
-    // Check that buffer accesses below are going to be valid.
-    assert!(a.len() >= depth * MR);
+    if used_rows < MR {
+        simd_gemm_tail::<S, MR, NR_REGS>(
+            tile_ptr,
+            tile_row_stride,
+            a,
+            used_rows,
+            b,
+            depth,
+            alpha,
+            beta,
+        );
+        return;
+    };
+
     assert!(b.len() >= depth * NR_REGS * S::LEN);
     assert!(depth > 0);
-
-    let a_ptr = a.as_ptr();
+    let (a_ptr, a_row_stride) = match a {
+        Lhs::Packed(data) => {
+            assert!(data.len() >= depth * MR);
+            (data.as_ptr(), 1)
+        }
+        Lhs::Unpacked {
+            data,
+            len,
+            row_stride,
+        } => {
+            // Offset 1 past last element we'll access.
+            let end_offset = (MR - 1) * row_stride + depth;
+            assert!(len >= end_offset);
+            (data, row_stride)
+        }
+    };
     let b_ptr = b.as_ptr();
 
     let mut tmp = [[S::zero(); NR_REGS]; MR];
     let mut b_rows = [S::zero(); NR_REGS];
 
     unroll_loop!(0..depth - 1, k, 4, {
-        let a_off = k * MR;
+        let a_off = match a {
+            Lhs::Packed(_) => k * MR,
+            Lhs::Unpacked { .. } => k,
+        };
         let b_off = k * NR_REGS * S::LEN;
 
         // Prefetch B for the next iteration
@@ -222,7 +253,7 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
         }
 
         for i in 0..MR {
-            let a_val = *a_ptr.add(a_off + i);
+            let a_val = *a_ptr.add(a_off + i * a_row_stride);
             let a_broadcast = S::splat(a_val);
 
             for j in 0..NR_REGS {
@@ -238,7 +269,10 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
 
     // Perform final outer product update.
     let k = depth - 1;
-    let a_off = k * MR;
+    let a_off = match a {
+        Lhs::Packed(_) => k * MR,
+        Lhs::Unpacked { .. } => k,
+    };
     let b_off = k * NR_REGS * S::LEN;
 
     for i in 0..NR_REGS {
@@ -246,7 +280,7 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
     }
 
     for i in 0..MR {
-        let a_val = *a_ptr.add(a_off + i);
+        let a_val = *a_ptr.add(a_off + i * a_row_stride);
         let a_broadcast = S::splat(a_val);
 
         for j in 0..NR_REGS {
@@ -292,6 +326,141 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
         let beta_broadcast = S::splat(beta);
 
         for i in 0..MR {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                let out_val = S::load(out_ptr).mul(beta_broadcast);
+                let out_val = tmp[i][j].mul_add(alpha_broadcast, out_val);
+                out_val.store(out_ptr);
+            }
+        }
+    }
+}
+
+/// Variant of [`simd_gemm`] that handles the case where the output has fewer
+/// than MR rows (ie. `used_rows` < MR).
+#[inline(always)]
+pub unsafe fn simd_gemm_tail<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
+    tile_ptr: *mut f32,
+    tile_row_stride: usize,
+    a: Lhs<f32>,
+    used_rows: usize,
+    b: &[f32],
+    depth: usize,
+    alpha: f32,
+    beta: f32,
+) {
+    assert!(b.len() >= depth * NR_REGS * S::LEN);
+    assert!(depth > 0);
+    let (a_ptr, a_row_stride) = match a {
+        Lhs::Packed(data) => {
+            assert!(data.len() >= depth * MR);
+            (data.as_ptr(), 1)
+        }
+        Lhs::Unpacked {
+            data,
+            len,
+            row_stride,
+        } => {
+            // Offset 1 past last element we'll access.
+            let end_offset = (used_rows - 1) * row_stride + depth;
+            assert!(len >= end_offset);
+            (data, row_stride)
+        }
+    };
+    let b_ptr = b.as_ptr();
+
+    // `MR` is the maximum number of rows we could have here.
+    let mut tmp = [[S::zero(); NR_REGS]; MR];
+    let mut b_rows = [S::zero(); NR_REGS];
+
+    unroll_loop!(0..depth - 1, k, 4, {
+        let a_off = match a {
+            Lhs::Packed(_) => k * MR,
+            Lhs::Unpacked { .. } => k,
+        };
+        let b_off = k * NR_REGS * S::LEN;
+
+        // Prefetch B for the next iteration
+        S::prefetch(b_ptr.add((k + 1) * NR_REGS * S::LEN));
+
+        for i in 0..NR_REGS {
+            b_rows[i] = S::load(b_ptr.add(b_off + i * S::LEN));
+        }
+
+        for i in 0..used_rows {
+            let a_val = *a_ptr.add(a_off + i * a_row_stride);
+            let a_broadcast = S::splat(a_val);
+
+            for j in 0..NR_REGS {
+                tmp[i][j] = a_broadcast.mul_add(b_rows[j], tmp[i][j]);
+            }
+        }
+    });
+
+    // Prefetch output before the final computation loop
+    for i in 0..used_rows {
+        S::prefetch_write(tile_ptr.add(tile_row_stride * i));
+    }
+
+    // Perform final outer product update.
+    let k = depth - 1;
+    let a_off = match a {
+        Lhs::Packed(_) => k * MR,
+        Lhs::Unpacked { .. } => k,
+    };
+    let b_off = k * NR_REGS * S::LEN;
+
+    for i in 0..NR_REGS {
+        b_rows[i] = S::load(b_ptr.add(b_off + i * S::LEN));
+    }
+
+    for i in 0..used_rows {
+        let a_val = *a_ptr.add(a_off + i * a_row_stride);
+        let a_broadcast = S::splat(a_val);
+
+        for j in 0..NR_REGS {
+            tmp[i][j] = a_broadcast.mul_add(b_rows[j], tmp[i][j]);
+        }
+    }
+
+    let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j * S::LEN);
+
+    // Write to output tile.
+    //
+    // We have special cases for zero/one values of alpha and beta, both for
+    // performance in the common cases where (alpha, beta) are (0, 1) or (1, 1)
+    // and because when beta is zero, the destination may be uninitialized and
+    // must not be read.
+    if beta == 0. && alpha == 1. {
+        for i in 0..used_rows {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                tmp[i][j].store(out_ptr);
+            }
+        }
+    } else if beta == 1. && alpha == 1. {
+        for i in 0..used_rows {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                let out_val = S::load(out_ptr).add(tmp[i][j]);
+                out_val.store(out_ptr);
+            }
+        }
+    } else if beta == 0. {
+        let alpha_broadcast = S::splat(alpha);
+
+        for i in 0..used_rows {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                let out_val = tmp[i][j].mul(alpha_broadcast);
+                out_val.store(out_ptr);
+            }
+        }
+    } else {
+        let alpha_broadcast = S::splat(alpha);
+        let beta_broadcast = S::splat(beta);
+
+        for i in 0..used_rows {
             for j in 0..NR_REGS {
                 let out_ptr = get_out_ptr(i, j);
                 let out_val = S::load(out_ptr).mul(beta_broadcast);
