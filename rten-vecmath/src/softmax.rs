@@ -116,6 +116,7 @@ mod tests {
 
     #[test]
     fn test_vec_softmax() {
+        // Test against reference values.
         let input = vec![0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2304];
         let expected = &([
             0.11715934, 0.23623686, 0.18871443, 0.2273828, 0.10522857, 0.12527795,
@@ -123,8 +124,18 @@ mod tests {
         let mut actual = vec![0.; input.len()];
 
         vec_softmax(&input, actual.as_mut_slice().as_uninit());
-
         check_f32s_are_equal_ulps(triples(&input, &actual, expected), 0. /* max ULPs */);
+
+        // Test against reference implementation for various lengths.
+        for len in 1..20 {
+            let input: Vec<f32> = (0..len).map(|x| x as f32 + 0.1).collect();
+            let mut expected = vec![0.; input.len()];
+            reference_softmax(&input, &mut expected);
+
+            let mut actual = vec![0.; input.len()];
+            vec_softmax(&input, actual.as_mut_slice().as_uninit());
+            check_f32s_are_equal_ulps(triples(&input, &actual, &expected), 2. /* max ULPs */);
+        }
     }
 
     #[test]
