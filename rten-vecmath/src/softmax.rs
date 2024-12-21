@@ -3,7 +3,7 @@ use std::mem::MaybeUninit;
 use rten_simd::dispatch::{dispatch, SimdOp};
 use rten_simd::functional::{simd_fold, simd_map};
 use rten_simd::span::{MutPtrLen, PtrLen};
-use rten_simd::SimdFloat;
+use rten_simd::{SimdFloat, SimdMask};
 
 use crate::exp::simd_exp;
 
@@ -20,24 +20,30 @@ unsafe fn simd_softmax<S: SimdFloat>(input: PtrLen<f32>, out: MutPtrLen<MaybeUni
         S::splat(f32::MIN),
         #[inline(always)]
         |max, x| max.max(x),
-        f32::MIN, /* pad */
     );
     let max_val = max_val.fold_splat(f32::MIN, |max: f32, x: f32| max.max(x));
 
     // *x = (*x - max_val).exp()
+    let mut prev_exp_sum = S::zero();
     let mut exp_sum = S::zero();
-    let exp_pad = f32::NEG_INFINITY; // exp(-inf) = 0, so won't affect `exp_sum`
     simd_map(
         input,
         out,
         #[inline(always)]
         |x: S| {
             let y = simd_exp(x.sub(max_val));
+            prev_exp_sum = exp_sum;
             exp_sum = exp_sum.add(y);
             y
         },
-        exp_pad,
     );
+
+    // Undo the last update to `exp_sum` for unused lanes.
+    let remainder = input.len() % S::LEN;
+    if remainder != 0 {
+        let remainder_mask = S::Mask::first_n(remainder);
+        exp_sum = prev_exp_sum.blend(exp_sum, remainder_mask);
+    }
 
     // *x /= exp_sum
     let exp_sum = exp_sum.fold_splat(0., |sum, x| sum + x);
@@ -46,7 +52,6 @@ unsafe fn simd_softmax<S: SimdFloat>(input: PtrLen<f32>, out: MutPtrLen<MaybeUni
         out,
         #[inline(always)]
         |x: S| x.div(exp_sum),
-        1., /* pad */
     );
 }
 

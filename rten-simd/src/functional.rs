@@ -3,7 +3,7 @@
 use std::mem::MaybeUninit;
 
 use crate::span::{MutPtrLen, PtrLen};
-use crate::Simd;
+use crate::{Simd, SimdMask};
 
 /// Apply a unary operation to each element in `input` and store the results
 /// in `output`.
@@ -24,7 +24,6 @@ pub unsafe fn simd_map<S: Simd, Op: FnMut(S) -> S>(
     input: PtrLen<S::Elem>,
     output: MutPtrLen<MaybeUninit<S::Elem>>,
     mut op: Op,
-    pad: S::Elem,
 ) {
     assert!(input.len() == output.len());
 
@@ -43,15 +42,15 @@ pub unsafe fn simd_map<S: Simd, Op: FnMut(S) -> S>(
     }
 
     if n > 0 {
-        let x = S::load_partial(in_ptr, n, pad);
+        let x = S::load_partial(in_ptr, n);
         let y = op(x);
         y.store_partial(out_ptr as *mut S::Elem, n);
     }
 }
 
 /// Apply a vectorized fold operation over `xs`. If the length of `xs` is not
-/// a multiple of `S::LEN` then the final update will use a vector padded
-/// with `pad`.
+/// a multiple of `S::LEN` then the accumulator is left unchanged for unused
+/// lanes in the final update.
 ///
 /// # Safety
 ///
@@ -62,7 +61,6 @@ pub unsafe fn simd_fold<S: Simd, Op: Fn(S, S) -> S>(
     xs: PtrLen<S::Elem>,
     mut accum: S,
     simd_op: Op,
-    pad: S::Elem,
 ) -> S {
     let mut n = xs.len();
     let mut x_ptr = xs.ptr();
@@ -74,9 +72,12 @@ pub unsafe fn simd_fold<S: Simd, Op: Fn(S, S) -> S>(
         x_ptr = x_ptr.add(S::LEN);
     }
 
+    let n_mask = S::Mask::first_n(n);
     if n > 0 {
-        let x = S::load_partial(x_ptr, n, pad);
-        accum = simd_op(accum, x);
+        let x = S::load_partial(x_ptr, n);
+        let prev_accum = accum;
+        let new_accum = simd_op(accum, x);
+        accum = prev_accum.blend(new_accum, n_mask);
     }
 
     accum

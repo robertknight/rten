@@ -90,14 +90,13 @@ pub trait Simd: Copy + Sized {
     /// values.
     unsafe fn load(ptr: *const Self::Elem) -> Self;
 
-    /// Load `len` values from `ptr` into a vector and pad the remainder with
-    /// `pad`.
+    /// Load `len` values from `ptr` into a vector and zero the unused lanes.
     ///
     /// Panics if `len > Self::LEN`.
     #[inline]
-    unsafe fn load_partial(ptr: *const Self::Elem, len: usize, pad: Self::Elem) -> Self {
+    unsafe fn load_partial(ptr: *const Self::Elem, len: usize) -> Self {
         assert!(len <= Self::LEN);
-        let mut remainder = [pad; MAX_LEN];
+        let mut remainder = [Self::Elem::default(); MAX_LEN];
         for i in 0..len {
             remainder[i] = *ptr.add(i);
         }

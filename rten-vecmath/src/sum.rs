@@ -16,7 +16,6 @@ impl SimdOp for SimdSum<'_> {
             S::zero(),
             #[inline(always)]
             |sum, x| sum.add(x),
-            0., /* pad */
         );
         vec_sum.sum()
     }
@@ -47,7 +46,6 @@ impl SimdOp for SimdSumSquare<'_> {
             S::zero(),
             #[inline(always)]
             |sum, x| x.mul_add(x, sum),
-            0., /* pad */
         );
         vec_sum.sum()
     }
@@ -83,10 +81,6 @@ impl SimdOp for SimdSumSquareSub<'_> {
                 let x_offset = x.sub(offset_vec);
                 x_offset.mul_add(x_offset, sum)
             },
-            // Padding value chosen so that `x - offset` is zero for unused
-            // positions in the final update, and thus the accumulator is not
-            // modified in those positions.
-            self.offset,
         );
         vec_sum.sum()
     }
