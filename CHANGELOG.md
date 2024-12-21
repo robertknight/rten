@@ -5,6 +5,98 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - Unreleased
+
+### rten
+
+- Support fusing LayerNormalization operator variants that don't use a bias,
+  such as found in ModernBERT and other models.
+
+- Support `DepthToSpace` operator (https://github.com/robertknight/rten/pull/468)
+
+- Support fusing `Add(MatMul(a, b), bias)` subgraphs (https://github.com/robertknight/rten/pull/462)
+
+- Improved Where operator performance by removing an old "fast" path that is
+  now slower than the standard path (https://github.com/robertknight/rten/pull/460)
+
+- Optimized ReduceMean, ReduceL2 operators using SIMD (
+  https://github.com/robertknight/rten/pull/457)
+
+- Unified and optimized implementation of normalization operators (BatchNormalization,
+  InstanceNormalization, LayerNormalization) using SIMD (
+  https://github.com/robertknight/rten/pull/456, https://github.com/robertknight/rten/pull/457,
+  https://github.com/robertknight/rten/pull/465, https://github.com/robertknight/rten/pull/469,
+  https://github.com/robertknight/rten/pull/471).
+
+- Added Nougat PDF-to-Markdown OCR example (https://github.com/robertknight/rten/pull/448).
+
+- Make Depth Anything example support variants with 3D (instead of 4D) outputs
+  (https://github.com/robertknight/rten/pull/447).
+
+- Make error message more helpful if converting a model `Output` into an
+  `NdTensor` fails due to a rank (dimension count) mismatch
+  (https://github.com/robertknight/rten/pull/446)
+
+- Release buffer back to memory pool in Concat op if in-place concatenation
+  is not possible (https://github.com/robertknight/rten/pull/426)
+
+- Enable Resize operations to be very cheap if the target size is the same as
+  the input size (https://github.com/robertknight/rten/pull/423)
+
+- Reduced some unnecessary memory reservation when constructing model graph
+  (https://github.com/robertknight/rten/pull/422).
+
+- Added CLIP example (https://github.com/robertknight/rten/pull/421). This
+  computes similarity between images and text labels.
+
+- Added data type information to model inputs and outputs
+  (https://github.com/robertknight/rten/pull/420)
+
+- Support vector inputs in MatMul operator (https://github.com/robertknight/rten/pull/418)
+
+- Support additional DETR-based models in the DETR example, such as
+  Table Transformer (https://github.com/robertknight/rten/pull/413)
+
+### rten-tensor
+
+**Breaking changes:** The result of `TensorBase::reshaped` now has a shorter
+lifetime as it may be an owned tensor instead of a view. Method call chains that
+used `reshaped` in the middle may need to be split into separate statements.
+
+- Support using slice ranges with steps in `TensorBase::slice`
+  (https://github.com/robertknight/rten/pull/464)
+
+- `TensorBase::reshaped` now copies its input instead of panicking if non
+  contiguous. As a result it returns a copy-on-write (maybe owned) tensor with a
+  shorter lifetime.
+
+### rten-text
+
+- Support `Lowercase`, `Replace`, `Sequence` normalizers
+  (https://github.com/robertknight/rten/pull/451)
+
+- Support all the Unicode normalization normalizers (NFC, NFD, NFKC, NFKD)
+  (https://github.com/robertknight/rten/pull/450)
+
+- Support `Digits`, `Sequence`, `Split` pre-tokenizers
+  (https://github.com/robertknight/rten/pull/449)
+
+- Add `Tokenizer::from_file` convenience method
+  (https://github.com/robertknight/rten/pull/445)
+
+- Added `Tokenizer::{encode, decode}` methods for more ergonomic tokenization
+  and de-tokenization of text (https://github.com/robertknight/rten/pull/429)
+
+- Started to revise tokenization pipeline to follow the one used by HuggingFace
+  Tokenizers (https://github.com/robertknight/rten/pull/428,
+  https://github.com/robertknight/rten/pull/429, https://github.com/robertknight/rten/pull/430,
+  https://github.com/robertknight/rten/pull/440, https://github.com/robertknight/rten/pull/441,
+  https://github.com/robertknight/rten/pull/443, https://github.com/robertknight/rten/pull/444,
+  https://github.com/robertknight/rten/pull/452)
+
+- Support `end_of_word_suffix` in BPE model
+  (https://github.com/robertknight/rten/pull/425)
+
 ## [0.14.1] - 2024-11-16
 
 This release adds Serde support for rten tensors and several optimizations which
