@@ -90,7 +90,11 @@ pub unsafe trait Storage {
 
     /// Return an immutable view of this storage.
     fn view(&self) -> ViewData<Self::Elem> {
-        self.slice(0..self.len())
+        ViewData {
+            ptr: self.as_ptr(),
+            len: self.len(),
+            _marker: PhantomData,
+        }
     }
 
     /// Return the contents of the storage as a slice.
@@ -215,7 +219,11 @@ pub unsafe trait StorageMut: Storage {
 
     /// Return a mutable view of this storage.
     fn view_mut(&mut self) -> ViewMutData<Self::Elem> {
-        self.slice_mut(0..self.len())
+        ViewMutData {
+            ptr: self.as_mut_ptr(),
+            len: self.len(),
+            _marker: PhantomData,
+        }
     }
 
     /// Return the stored elements as a mutable slice.
@@ -313,7 +321,7 @@ impl<'a, T> ViewData<'a, T> {
 
     /// Variant of [`Storage::view`] which preserves lifetimes.
     pub fn view(&self) -> ViewData<'a, T> {
-        self.slice(0..self.len())
+        *self
     }
 
     /// Return the contents of the storage as a slice.
