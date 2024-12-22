@@ -4,6 +4,7 @@ use smallvec::SmallVec;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::ops::{InputList, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::TensorPool;
+use crate::weight_cache::WeightCache;
 
 fn output_list_from_vec(xs: Vec<Output>) -> OutputList {
     xs.into_iter().collect()
@@ -47,6 +48,7 @@ impl Operator for If {
         pool: &TensorPool,
         inputs: InputList,
         captures: CaptureEnv,
+        weight_caches: Option<&[WeightCache]>,
         run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
         let cond: TensorView<i32> = inputs.require_as(0).map_err(run_error_from_op_error)?;
@@ -63,6 +65,7 @@ impl Operator for If {
                     self.then_branch.output_ids(),
                     captures,
                     Some(pool),
+                    weight_caches.map(|wcs| &wcs[0]),
                     run_opts,
                 )
                 .map(output_list_from_vec)
@@ -73,6 +76,7 @@ impl Operator for If {
                     self.else_branch.output_ids(),
                     captures,
                     Some(pool),
+                    weight_caches.map(|wcs| &wcs[1]),
                     run_opts,
                 )
                 .map(output_list_from_vec)
