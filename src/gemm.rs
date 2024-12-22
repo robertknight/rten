@@ -108,6 +108,16 @@ impl<T> PackedBMatrix<T> {
     fn panel_len(&self) -> usize {
         self.panel_width * self.rows
     }
+
+    /// Number of rows in the unpacked matrix.
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    /// Number of columns in the unpacked matrix.
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
 }
 
 impl<T> ExtractBuffer for PackedBMatrix<T> {

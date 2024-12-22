@@ -27,6 +27,7 @@ use crate::optimize::GraphOptimizer;
 use crate::schema_generated as sg;
 use crate::schema_generated::root_as_model;
 use crate::timing::TimingSort;
+use crate::weight_cache::WeightCache;
 
 /// The central type used to execute RTen machine learning models.
 ///
@@ -86,6 +87,19 @@ use crate::timing::TimingSort;
 /// the model's inputs and outputs, but other nodes may be replaced or
 /// eliminated. To configure or disable optimizations, use [`ModelOptions`].
 ///
+/// ## Weight prepacking
+///
+/// In addition to optimizing the structure of the graph, RTen can create copies
+/// of the weights with an optimized ("packed") data layout at model load time.
+/// Enabling this will increase model load time and memory usage but reduce the
+/// time taken per inference. When this option is disabled, weights are packed
+/// temporarily on-demand just before they are used for computation.
+///
+/// For generative transformer models (aka. "transformer decoders") prepacking
+/// is generally only useful when processing multiple input tokens at a time.
+///
+/// Prepacking is disabled by default but can be enabled using [`ModelOptions`].
+///
 /// ## Partial evaluation
 ///
 /// Some models, such as transformer decoders, are evaluated repeatedly in a
@@ -102,6 +116,7 @@ use crate::timing::TimingSort;
 pub struct Model {
     graph: Graph,
     metadata: ModelMetadata,
+    weight_cache: WeightCache,
 }
 
 /// Provides access to metadata about a graph node.
@@ -181,6 +196,7 @@ struct SubgraphOptions<'a> {
 pub struct ModelOptions {
     registry: OpRegistry,
     optimize: bool,
+    prepack_weights: bool,
 }
 
 impl ModelOptions {
@@ -197,12 +213,23 @@ impl ModelOptions {
         ModelOptions {
             registry: ops,
             optimize: true,
+            prepack_weights: false,
         }
     }
 
     /// Set whether graph optimizations are enabled.
     pub fn enable_optimization(&mut self, enable: bool) -> &mut Self {
         self.optimize = enable;
+        self
+    }
+
+    /// Set whether weights are prepacked.
+    ///
+    /// Prepacking creates copies of the weights with an optimized data layout.
+    /// Enabling this will increase model load time and memory usage but allow
+    /// for faster inference.
+    pub fn prepack_weights(&mut self, prepack: bool) -> &mut Self {
+        self.prepack_weights = prepack;
         self
     }
 
@@ -340,12 +367,21 @@ impl Model {
             None, /* capture_env */
         )?;
 
+        let mut weight_cache = WeightCache::new();
+        if options.prepack_weights {
+            graph.prepack_weights(&mut weight_cache);
+        }
+
         let metadata = model
             .metadata()
             .map(ModelMetadata::deserialize)
             .unwrap_or_default();
 
-        let model = Model { graph, metadata };
+        let model = Model {
+            graph,
+            metadata,
+            weight_cache,
+        };
         Ok(model)
     }
 
@@ -674,7 +710,8 @@ impl Model {
             let timing_var = timing_var.to_string_lossy();
             parse_timing_config(&timing_var, &mut opts);
         }
-        self.graph.run(inputs, outputs, Some(opts))
+        self.graph
+            .run(inputs, outputs, Some(&self.weight_cache), Some(opts))
     }
 
     /// Run a model and retrieve `N` outputs.
@@ -1013,21 +1050,46 @@ mod tests {
     fn test_load_and_run_model() {
         struct Case {
             format: ModelFormat,
+            opts: Option<ModelOptions>,
         }
 
         let cases = [
             Case {
                 format: ModelFormat::V1,
+                opts: None,
             },
             Case {
                 format: ModelFormat::V2,
+                opts: None,
+            },
+            // Graph optimizations disabled
+            Case {
+                format: ModelFormat::V2,
+                opts: Some({
+                    let mut opts = ModelOptions::with_all_ops();
+                    opts.enable_optimization(false);
+                    opts
+                }),
+            },
+            // Prepacking enabled
+            Case {
+                format: ModelFormat::V2,
+                opts: Some({
+                    let mut opts = ModelOptions::with_all_ops();
+                    opts.prepack_weights(true);
+                    opts
+                }),
             },
         ];
 
-        for Case { format } in cases {
+        for Case { format, opts } in cases {
             let buffer = generate_model_buffer(format);
 
-            let model = Model::load(buffer).unwrap();
+            let model = if let Some(opts) = opts {
+                opts.load(buffer).unwrap()
+            } else {
+                Model::load(buffer).unwrap()
+            };
             let input_id = model.input_ids()[0];
             let output_id = model.output_ids()[0];
 
