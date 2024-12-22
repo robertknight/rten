@@ -329,8 +329,12 @@ fn run_with_random_input(
     if !quiet {
         println!();
     }
-    let mut remaining_iters = n_iters.max(1);
+
+    let n_iters = n_iters.max(1);
+    let mut remaining_iters = n_iters;
     let mut outputs;
+    let mut durations = Vec::new();
+
     loop {
         let start = Instant::now();
         outputs = model.run(inputs.clone(), model.output_ids(), Some(run_opts.clone()))?;
@@ -343,6 +347,7 @@ fn run_with_random_input(
                 elapsed
             );
         }
+        durations.push(elapsed);
 
         remaining_iters -= 1;
         if remaining_iters == 0 {
@@ -350,6 +355,31 @@ fn run_with_random_input(
         }
     }
     if !quiet {
+        if n_iters > 1 {
+            let n_iters_float = n_iters as f32;
+            let duration_floats: Vec<_> = durations.into_iter().map(|dur| dur as f32).collect();
+            let mean = duration_floats.iter().sum::<f32>() / n_iters_float;
+            let variance = duration_floats
+                .iter()
+                .map(|dur| (dur - mean) * (dur - mean))
+                .sum::<f32>()
+                / n_iters_float;
+            let std_dev = variance.sqrt();
+            let min = duration_floats
+                .iter()
+                .min_by(|a, b| f32::total_cmp(a, b))
+                .unwrap();
+            let max = duration_floats
+                .iter()
+                .max_by(|a, b| f32::total_cmp(a, b))
+                .unwrap();
+
+            println!();
+            println!(
+                "  Duration stats: mean {:.2}ms, min {:.2}ms, max {:.2}ms, std dev {:.2}ms",
+                mean, min, max, std_dev
+            );
+        }
         println!();
     }
 
