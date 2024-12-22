@@ -40,6 +40,9 @@ pub struct PackedAMatrix<T> {
 
     /// Number of columns in the unpacked matrix.
     cols: usize,
+
+    /// Name of the kernel that packed this buffer. See [`Kernel::name`].
+    kernel_name: &'static str,
 }
 
 impl<T> PackedAMatrix<T> {
@@ -75,6 +78,9 @@ pub struct PackedBMatrix<T> {
 
     /// Number of columns in the unpacked matrix.
     cols: usize,
+
+    /// Name of the kernel that packed this buffer. See [`Kernel::name`].
+    kernel_name: &'static str,
 }
 
 impl<T> PackedBMatrix<T> {
@@ -354,6 +360,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             cols: a.cols(),
             panel_len,
             row_blocks,
+            kernel_name: self.kernel.name(),
         }
     }
 
@@ -413,6 +420,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             cols: b.cols(),
             depth_blocks,
             panel_len,
+            kernel_name: self.kernel.name(),
         }
     }
 
@@ -883,6 +891,19 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     let nc = col_block_size(b.cols(), kernel.nr());
     let mc = row_block_size(a.rows(), kernel.mr());
     let kc = depth_block_size(a.cols());
+
+    // If using prepacked inputs, make sure they were packed with the same
+    // configuration we are using now.
+    if let GemmInputA::Packed(packed) = &a {
+        assert_eq!(packed.kernel_name, kernel.name());
+        assert_eq!(packed.row_blocks, a.rows().div_ceil(mc));
+        assert_eq!(packed.panel_len, kc * mc);
+    }
+    if let GemmInputB::Packed(packed) = &b {
+        assert_eq!(packed.kernel_name, kernel.name());
+        assert_eq!(packed.depth_blocks, b.rows().div_ceil(kc));
+        assert_eq!(packed.panel_len, nc * kc);
+    }
 
     // Buffers for packed blocks of the matrix.
     //
