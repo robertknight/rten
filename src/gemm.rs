@@ -1962,16 +1962,110 @@ mod tests {
         Ok(())
     }
 
-    // Run with `cargo test --release bench_gemm -- --nocapture --ignored`
+    struct BenchCase {
+        m: usize,
+        n: usize,
+        k: usize,
+        transpose_b: bool,
+    }
+
+    enum Format {
+        Pretty,
+        Csv,
+    }
+
+    fn run_gemm_bench(cases: &[BenchCase], format: Format) {
+        println!("Testing kernel {}", GemmExecutor::new().kernel_name());
+
+        // Print header
+        match format {
+            Format::Csv => {
+                println!("m,n,k,duration_ms,gflops");
+            }
+            Format::Pretty => {}
+        }
+
+        for &BenchCase {
+            m,
+            n,
+            k,
+            transpose_b,
+        } in cases
+        {
+            // Adjust number of iterations based on a target amount of work,
+            // so that each case takes roughly the same amount of time, assuming
+            // equal efficiency.
+            let target_iters = 512;
+            let target_ops: u64 = 512 * 512 * 512 * target_iters;
+            let iters = target_ops / (m * n * k) as u64;
+
+            // Cap the number of iterations, for cases where the equal-efficiency
+            // assumption is untrue.
+            let iters = iters.min(target_iters);
+
+            let mut rng = XorShiftRng::new(1234);
+            let mut result = Tensor::zeros(&[m, n]);
+            let a = Tensor::rand(&[m, k], &mut rng);
+            let b = if transpose_b {
+                let mut b = Tensor::rand(&[n, k], &mut rng);
+                b.transpose();
+                b
+            } else {
+                Tensor::rand(&[k, n], &mut rng)
+            };
+
+            let start = Instant::now();
+            for _i in 0..iters {
+                run_gemm(&mut result, &a, &b, 1., 0., None, None);
+            }
+            let duration = start.elapsed();
+
+            // Calculate throughput. For comparison, the theoretical maximum
+            // GFLOPS for a single core (`RAYON_NUM_THREADS=1`) can be computed
+            // as:
+            //
+            //     frequency * simd_width * fma_throughput * fma_units
+            //
+            // Where:
+            //  - `frequency` is the max frequency in Ghz
+            //  - `simd_width` is the # of f32 values in a vector register
+            //  - `fma_throughput` is the number of ops/cycle
+            //  - `fma_units` is the number of execution units
+            //
+            // On an Intel Skylake CPU for example, `simd_width` will be
+            // 8 (256-bit AVX 2 / 32-bit float), `fma_throughput` is 2,
+            //   `fma_units` is 2. For a 3.4Ghz CPU this would give a max
+            //   theoretical peak of 3.4 * 8 * 2 * 2 = 108.8 GFLOPS.
+
+            let flops = (2 * m * n * k * iters as usize) as f32 / duration.as_secs_f32();
+            let gflops = flops / (10f32).powi(9);
+            let duration_ms = duration.as_secs_f64() * 1000.0;
+
+            match format {
+                Format::Pretty => {
+                    println!(
+                        "m {} n {} k {} iters {}. Duration {:.3}ms ({:.3}ms/iter). GFLOPS {:.1}",
+                        m,
+                        n,
+                        k,
+                        iters,
+                        duration_ms,
+                        duration_ms / iters as f64,
+                        gflops,
+                    );
+                }
+                Format::Csv => {
+                    println!("{},{},{},{:.3},{:.1}", m, n, k, duration_ms, gflops);
+                }
+            }
+        }
+    }
+
+    // Run with `cargo test --release bench_gemm_mix -- --nocapture --ignored`
     #[test]
     #[ignore]
-    fn bench_gemm() {
-        struct Case {
-            m: usize,
-            n: usize,
-            k: usize,
-            transpose_b: bool,
-        }
+    fn bench_gemm_mix() {
+        type Case = BenchCase;
 
         let cases = [
             // Square output matrix
@@ -2017,75 +2111,21 @@ mod tests {
             },
         ];
 
-        println!("Testing kernel {}", GemmExecutor::new().kernel_name());
+        run_gemm_bench(&cases, Format::Pretty);
+    }
 
-        for case in cases {
-            let Case {
-                m,
-                n,
-                k,
-                transpose_b,
-            } = case;
-
-            // Adjust number of iterations based on a target amount of work,
-            // so that each case takes roughly the same amount of time, assuming
-            // equal efficiency.
-            let target_ops: u64 = 512 * 512 * 512 * 1000;
-            let iters = target_ops / (m * n * k) as u64;
-
-            // Cap the number of iterations, for cases where the equal-efficiency
-            // assumption is untrue.
-            let iters = iters.min(1000);
-
-            let mut rng = XorShiftRng::new(1234);
-            let mut result = Tensor::zeros(&[m, n]);
-            let a = Tensor::rand(&[m, k], &mut rng);
-            let b = if transpose_b {
-                let mut b = Tensor::rand(&[n, k], &mut rng);
-                b.transpose();
-                b
-            } else {
-                Tensor::rand(&[k, n], &mut rng)
-            };
-
-            let start = Instant::now();
-            for _i in 0..iters {
-                run_gemm(&mut result, &a, &b, 1., 0., None, None);
-            }
-            let duration = start.elapsed();
-
-            // Calculate throughput. For comparison, the theoretical maximum
-            // GFLOPS for a single core (`RAYON_NUM_THREADS=1`) can be computed
-            // as:
-            //
-            //     frequency * simd_width * fma_throughput * fma_units
-            //
-            // Where:
-            //  - `frequency` is the max frequency in Ghz
-            //  - `simd_width` is the # of f32 values in a vector register
-            //  - `fma_throughput` is the number of ops/cycle
-            //  - `fma_units` is the number of execution units
-            //
-            // On an Intel Skylake CPU for example, `simd_width` will be
-            // 8 (256-bit AVX 2 / 32-bit float), `fma_throughput` is 2,
-            //   `fma_units` is 2. For a 3.4Ghz CPU this would give a max
-            //   theoretical peak of 3.4 * 8 * 2 * 2 = 108.8 GFLOPS.
-
-            let flops = (2 * m * n * k * iters as usize) as f32 / duration.as_secs_f32();
-            let gflops = flops / (10f32).powi(9);
-            let duration_ms = duration.as_secs_f64() * 1000.0;
-
-            println!(
-                "m {} n {} k {} iters {}. Duration {}ms ({}ms/iter). GFLOPS {}",
-                m,
-                n,
-                k,
-                iters,
-                duration_ms,
-                duration_ms / iters as f64,
-                gflops,
-            );
-        }
+    #[test]
+    #[ignore]
+    fn bench_gemm_size_range() {
+        let cases: Vec<_> = (1..512)
+            .map(|size| BenchCase {
+                m: size,
+                n: size,
+                k: size,
+                transpose_b: false,
+            })
+            .collect();
+        run_gemm_bench(&cases, Format::Csv);
     }
 
     // Like `bench_pack_a`, but this does include allocation costs, so is
