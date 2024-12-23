@@ -98,7 +98,7 @@ fn conv_2d_depthwise_block<X, W, Y>(
         let in_chan_data = in_chan.data().unwrap();
 
         let init_value = if let Some(bias) = bias {
-            bias[[c]]
+            bias[c]
         } else {
             Y::default()
         };

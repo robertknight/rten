@@ -160,10 +160,10 @@ pub fn batch_norm_in_place(
 
     for n in 0..batch {
         for c in 0..chans {
-            let chan_mean = mean[[c]];
-            let chan_var = var[[c]];
-            let chan_scale = scale[[c]];
-            let chan_bias = bias[[c]];
+            let chan_mean = mean[c];
+            let chan_var = var[c];
+            let chan_scale = scale[c];
+            let chan_bias = bias[c];
             let mut chan = input.slice_mut([n, c]);
             let chan_data = chan.data_mut().unwrap();
 
@@ -309,8 +309,8 @@ pub fn instance_normalization_in_place(
                 chan_data.into(),
                 NormalizeOptions {
                     epsilon,
-                    scale: scale[[c]],
-                    bias: bias[[c]],
+                    scale: scale[c],
+                    bias: bias[c],
                     ..Default::default()
                 },
             );
@@ -674,8 +674,8 @@ mod tests {
 
             let flattened = input.reshaped([input.len()]);
 
-            let y1 = (flattened[[0]] - mean[0]) / (var[0] + epsilon).sqrt() * scale[0] + bias[0];
-            let y2 = (flattened[[1]] - mean[1]) / (var[1] + epsilon).sqrt() * scale[1] + bias[1];
+            let y1 = (flattened[0] - mean[0]) / (var[0] + epsilon).sqrt() * scale[0] + bias[0];
+            let y2 = (flattened[1] - mean[1]) / (var[1] + epsilon).sqrt() * scale[1] + bias[1];
             let expected = Tensor::from_data(input.shape(), vec![y1, y2]);
             let result = batch_norm(
                 &pool,
