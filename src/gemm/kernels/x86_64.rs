@@ -12,7 +12,7 @@ use rten_tensor::Matrix;
 use rten_simd::isa_detection::is_avx512_supported;
 
 use super::simd_generic::{simd_gemm, simd_gemv};
-use super::Kernel;
+use super::{Kernel, Lhs};
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
@@ -103,7 +103,8 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         &self,
         tile_ptr: *mut f32,
         tile_row_stride: usize,
-        a: &[f32],
+        a: Lhs<f32>,
+        used_rows: usize,
         b: &[f32],
         depth: usize,
         alpha: f32,
@@ -113,7 +114,16 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         const NR: usize = FmaKernel::NR;
         const NR_REGS: usize = vec_count::<__m256>(NR);
 
-        simd_gemm::<__m256, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
+        simd_gemm::<__m256, MR, NR_REGS>(
+            tile_ptr,
+            tile_row_stride,
+            a,
+            used_rows,
+            b,
+            depth,
+            alpha,
+            beta,
+        );
     }
 
     fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
@@ -199,7 +209,8 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         &self,
         tile_ptr: *mut f32,
         tile_row_stride: usize,
-        a: &[f32],
+        a: Lhs<f32>,
+        used_rows: usize,
         b: &[f32],
         depth: usize,
         alpha: f32,
@@ -209,7 +220,16 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         const NR: usize = Avx512Kernel::NR;
         const NR_REGS: usize = vec_count::<__m512>(NR);
 
-        simd_gemm::<__m512, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta)
+        simd_gemm::<__m512, MR, NR_REGS>(
+            tile_ptr,
+            tile_row_stride,
+            a,
+            used_rows,
+            b,
+            depth,
+            alpha,
+            beta,
+        )
     }
 
     fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {

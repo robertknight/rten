@@ -11,7 +11,7 @@ use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView};
+use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView, Storage};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
 use crate::number::{cast_pod_mut_slice, cast_pod_slice, Identities, Pod};
@@ -999,7 +999,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                         // the GEMM block is computed.
                         let mut thread_local_packed_a: Option<Vec<u64>> = None;
 
-                        let packed_a = match a {
+                        let block_lhs = match a {
+                            GemmInputA::Unpacked(a) if a.col_stride() == 1 => LhsBlock::Unpacked(a),
                             GemmInputA::Unpacked(a) => PACKED_A.with(|cell| {
                                 let mut packed_a = cell.take();
                                 packed_a.clear();
@@ -1023,10 +1024,15 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                     packed_a.set_len(packed_a_size);
                                 }
                                 thread_local_packed_a = Some(packed_a);
-                                cast_pod_slice::<_, LhsT>(thread_local_packed_a.as_deref().unwrap())
-                                    .unwrap()
+                                let packed_a = cast_pod_slice::<_, LhsT>(
+                                    thread_local_packed_a.as_deref().unwrap(),
+                                )
+                                .unwrap();
+                                LhsBlock::Packed(packed_a)
                             }),
-                            GemmInputA::Packed(pm) => pm.block(row_idx, depth_idx),
+                            GemmInputA::Packed(pm) => {
+                                LhsBlock::Packed(pm.block(row_idx, depth_idx))
+                            }
                         };
 
                         gemm_block(
@@ -1034,8 +1040,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                             &output_tiles,
                             col_start / nr..col_end.div_ceil(nr),
                             row_start / mr..row_end.div_ceil(mr),
-                            depth_range.start == 0,
-                            packed_a,
+                            depth_range.clone(),
+                            block_lhs,
                             packed_b,
                             panel_length,
                             alpha,
@@ -1055,6 +1061,15 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         });
 }
 
+/// LHS / A input for a call to [`gemm_block`].
+enum LhsBlock<'a, T> {
+    /// Packed panel of A
+    Packed(&'a [T]),
+
+    /// Unpacked A matrix. This must have a column stride of 1.
+    Unpacked(Matrix<'a, T>),
+}
+
 /// Process a single block (ie. a slice along each of the M/N/K dimensions) of a
 /// matrix multiplication.
 ///
@@ -1069,8 +1084,8 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     output: &OutputTiles<OutT>,
     col_tiles: Range<usize>,
     row_tiles: Range<usize>,
-    first_update: bool,
-    packed_a: &[LhsT],
+    depth_range: Range<usize>,
+    a: LhsBlock<LhsT>,
     packed_b: &[RhsT],
     panel_length: usize,
     alpha: f32,
@@ -1087,6 +1102,12 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     let b_panel_size = panel_length * nr;
     let a_panel_size = mr * panel_length;
 
+    // Sanity check input length here rather than inner loop.
+    if let LhsBlock::Unpacked(mat) = &a {
+        assert!(mat.rows().div_ceil(mr) >= row_tiles.end);
+        assert!(mat.cols() >= depth_range.end);
+    }
+
     // Loop over column tiles.
     //
     // TODO - This should be parallel, but threading overhead needs to be reduced.
@@ -1098,22 +1119,40 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
 
             // Loop over row tiles.
             for (block_row_tile, row_tile) in row_tiles.clone().enumerate() {
-                let a_panel_offset = block_row_tile * a_panel_size;
-                let a_panel = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
-
                 // Safety:
                 //  - The loops in this function and its caller are set up so that
                 //    every output tile is processed by one thread at a time.
                 let out_tile = unsafe { output.tile(row_tile, col_tile) };
 
-                if out_tile.used_rows == mr && out_tile.used_cols == nr {
+                let kernel_lhs = match a {
+                    LhsBlock::Packed(packed_a) => {
+                        let a_panel_offset = block_row_tile * a_panel_size;
+                        let a_panel = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
+                        kernels::Lhs::Packed(a_panel)
+                    }
+                    LhsBlock::Unpacked(mat) => {
+                        let storage = mat.storage();
+                        let offset =
+                            row_tile * mr * mat.row_stride() + depth_range.start * mat.col_stride();
+                        kernels::Lhs::Unpacked {
+                            // Safety:
+                            //  - `offset` is a valid storage offset within `mat`
+                            data: unsafe { storage.as_ptr().add(offset) },
+                            len: storage.len().saturating_sub(offset),
+                            row_stride: mat.row_stride(),
+                        }
+                    }
+                };
+
+                if out_tile.used_cols == nr {
                     // Safety:
-                    //  - Tile size is MR * NR
+                    //  - Tile has NR columns
                     unsafe {
                         kernel.kernel(
                             out_tile.ptr,
                             out_tile.row_stride,
-                            a_panel,
+                            kernel_lhs,
+                            out_tile.used_rows,
                             b_panel,
                             panel_length,
                             alpha,
@@ -1136,7 +1175,8 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                                 tmp_out_tile.as_mut_ptr(),
                             ),
                             nr,
-                            a_panel,
+                            kernel_lhs,
+                            out_tile.used_rows,
                             b_panel,
                             panel_length,
                             alpha,
@@ -1163,7 +1203,7 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                 }
 
                 // Add bias vector on first write to an output tile.
-                if first_update {
+                if depth_range.start == 0 {
                     match bias {
                         Some(BiasVector::Column(bias)) => {
                             for row in 0..out_tile.used_rows {

@@ -5,7 +5,7 @@ use rten_simd::vec_count;
 use rten_tensor::Matrix;
 
 use super::simd_generic::{simd_gemm, simd_gemv};
-use super::Kernel;
+use super::{Kernel, Lhs};
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 
 /// This is the base kernel that does not use architecture-specific intrinsics
@@ -66,7 +66,8 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         &self,
         tile_ptr: *mut f32,
         tile_row_stride: usize,
-        a: &[f32],
+        a: Lhs<f32>,
+        used_rows: usize,
         b: &[f32],
         depth: usize,
         alpha: f32,
@@ -75,7 +76,16 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         const MR: usize = GenericKernel::MR;
         const NR: usize = GenericKernel::NR;
         const NR_REGS: usize = vec_count::<f32>(NR);
-        simd_gemm::<f32, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
+        simd_gemm::<f32, MR, NR_REGS>(
+            tile_ptr,
+            tile_row_stride,
+            a,
+            used_rows,
+            b,
+            depth,
+            alpha,
+            beta,
+        );
     }
 
     fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {

@@ -16,6 +16,25 @@ pub mod x86_64;
 #[cfg(target_feature = "simd128")]
 pub mod wasm;
 
+/// LHS / A input to a GEMM kernel.
+#[derive(Clone, Copy)]
+pub enum Lhs<'a, T> {
+    /// Input packed into a contiguous buffer in column major order.
+    Packed(&'a [T]),
+
+    /// Unpacked input with a column stride of 1 and row stride of `row_stride`.
+    ///
+    /// `data` is a pointer to the first element needed to compute the output
+    /// tile. `(data, len)` is not passed as a slice because it is a pointer to
+    /// part of a larger tensor and there may be mutable references in existence
+    /// to other parts of that tensor.
+    Unpacked {
+        data: *const T,
+        len: usize,
+        row_stride: usize,
+    },
+}
+
 /// Kernel that computes a small tile of a general matrix multiplication (GEMM)
 /// or general matrix-vector multiplication (GEMV).
 ///
@@ -67,12 +86,16 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
 
     /// Compute a tile of the output matrix.
     ///
-    /// The output is stored in row-major order with `MR` rows and `NR` columns,
-    /// a row stride of `tile_row_stride` and column stride of 1.
+    /// The output is stored in row-major order with `used_rows` rows and `NR`
+    /// columns, a row stride of `tile_row_stride` and column stride of 1. The
+    /// maximum size of the tile will be `MR` rows and `NR` columns.
     ///
-    /// The `a` and `b` inputs are the input matrices packed by the
-    /// `pack_a_block` and `pack_b_block` methods. The `depth` input specifies
-    /// the number of columns of A and rows of B that are in the packed inputs.
+    /// The `a` input is either an unpacked matrix with a column stride of 1 or
+    /// a buffer packed with `pack_a_block`. The `b` input is the RHS matrix
+    /// packed with `pack_b_block`.
+    ///
+    /// `depth` specifies the number of columns of A and rows B that should be
+    /// summed over to compute the output tile.
     ///
     /// # Safety
     ///
@@ -84,7 +107,8 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         &self,
         tile_ptr: *mut OutT,
         tile_row_stride: usize,
-        a: &[LhsT],
+        a: Lhs<LhsT>,
+        used_rows: usize,
         b: &[RhsT],
         depth: usize,
         alpha: f32,
