@@ -37,12 +37,12 @@ fn slice_ranges(
         .collect();
     for (i, (start, end)) in starts.iter().zip(ends.iter()).enumerate() {
         let axis = if let Some(axes) = axes {
-            resolve_axis(input_shape.len(), axes[[i]] as isize)?
+            resolve_axis(input_shape.len(), axes[i] as isize)?
         } else {
             i
         };
 
-        let step = steps.map(|s| s[[i]]).unwrap_or(1);
+        let step = steps.map(|s| s[i]).unwrap_or(1);
         ranges[axis] = SliceRange::new(*start as isize, Some(*end as isize), step as isize);
     }
     Ok(ranges)

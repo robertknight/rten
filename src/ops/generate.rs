@@ -70,7 +70,7 @@ pub fn onehot<T: Copy + Default + PartialEq>(
 
 fn extract_on_off_values<T: Copy>(values: NdTensorView<T, 1>) -> Result<(T, T), OpError> {
     if values.len() == 2 {
-        Ok((values[[0]], values[[1]]))
+        Ok((values[0], values[1]))
     } else {
         Err(OpError::InvalidValue("Expected size-2 vector"))
     }

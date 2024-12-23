@@ -619,7 +619,7 @@ pub fn unsqueeze_in_place<T: Clone>(
     axes: &NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {
     let sorted_axes = if axes.len() == 1 {
-        let axis = resolve_axis(input.ndim() + 1, axes[[0]] as isize)?;
+        let axis = resolve_axis(input.ndim() + 1, axes[0] as isize)?;
         SmallVec::from_slice(&[axis])
     } else {
         let mut sorted_axes = resolve_axes(input.ndim() + axes.len(), axes.iter())?;

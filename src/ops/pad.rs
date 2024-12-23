@@ -31,7 +31,7 @@ pub fn pad<T: Copy>(
         .iter()
         .enumerate()
         .map(|(i, size)| {
-            let start_pad = padding[[i]] as usize;
+            let start_pad = padding[i] as usize;
             let end_pad = padding[[input.ndim() + i]] as usize;
             start_pad + size + end_pad
         })
@@ -49,7 +49,7 @@ pub fn pad<T: Copy>(
                 .iter()
                 .enumerate()
                 .map(|(i, size)| {
-                    let start_pad = padding[[i]] as usize;
+                    let start_pad = padding[i] as usize;
                     (start_pad..start_pad + size).into()
                 })
                 .collect();

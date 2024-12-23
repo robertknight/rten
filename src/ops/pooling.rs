@@ -321,14 +321,14 @@ pub fn global_average_pool(pool: &TensorPool, input: TensorView) -> Result<Tenso
                 }
 
                 for i in 0..N {
-                    out_group[[i]].write(sums[i] / (in_h * in_w) as f32);
+                    out_group[i].write(sums[i] / (in_h * in_w) as f32);
                 }
                 n_init += N;
             } else {
                 // Compute average over remaining channels.
                 for i in 0..chan_group.size(0) {
                     let sum: f32 = chan_group.slice([i]).iter().sum();
-                    out_group[[i]].write(sum / (in_h * in_w) as f32);
+                    out_group[i].write(sum / (in_h * in_w) as f32);
                     n_init += 1;
                 }
             }
