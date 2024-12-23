@@ -1301,6 +1301,12 @@ impl<const N: usize> AsIndex<NdLayout<N>> for [usize; N] {
     }
 }
 
+impl AsIndex<NdLayout<1>> for usize {
+    fn as_index(&self) -> [usize; 1] {
+        [*self]
+    }
+}
+
 /// Trait that removes one dimension from a layout.
 pub trait RemoveDim {
     type Output: MutLayout;
