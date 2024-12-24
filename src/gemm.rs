@@ -30,11 +30,9 @@ pub struct PackedAMatrix<T> {
     /// Sequence of packed row panels.
     data: Vec<T>,
 
-    /// Number of elements in each row panel.
-    panel_len: usize,
-
-    /// Number of blocks that the matrix was divided into along the M dimension.
-    row_blocks: usize,
+    /// Height of row panel. This should match the kernel's [`mr`](Kernel::mr)
+    /// value.
+    panel_height: usize,
 
     /// Number of rows in the unpacked matrix.
     rows: usize,
@@ -47,10 +45,21 @@ pub struct PackedAMatrix<T> {
 }
 
 impl<T> PackedAMatrix<T> {
-    fn block(&self, row_block_idx: usize, depth_block_idx: usize) -> &[T] {
-        let panel_idx = depth_block_idx * self.row_blocks + row_block_idx;
-        let offset = panel_idx * self.panel_len;
-        &self.data[offset..offset + self.panel_len]
+    /// Return the packed data for a given range along the M (`rows`) and K
+    /// (`depth`) dimensions.
+    fn block(&self, rows: Range<usize>, depth: Range<usize>) -> LhsBlock<T> {
+        assert_eq!(rows.start % self.panel_height, 0);
+
+        let panel_stride = self.panel_len();
+        let panel_range = rows.start / self.panel_height..rows.end.div_ceil(self.panel_height);
+        let start = panel_range.start * panel_stride + depth.start * self.panel_height;
+        let end = (panel_range.end - 1) * panel_stride + depth.end * self.panel_height;
+        let data = &self.data[start..end];
+        LhsBlock::Packed { data, panel_stride }
+    }
+
+    fn panel_len(&self) -> usize {
+        self.panel_height * self.cols
     }
 }
 
@@ -68,11 +77,9 @@ pub struct PackedBMatrix<T> {
     /// Sequence of packed column panels.
     data: Vec<T>,
 
-    /// Number of elements in each column panel.
-    panel_len: usize,
-
-    /// Number of blocks that the matrix was divided into along the K dimension.
-    depth_blocks: usize,
+    /// Width of column panel. This should match the kernel's [`nr`](Kernel::nr)
+    /// value.
+    panel_width: usize,
 
     /// Number of rows in the unpacked matrix.
     rows: usize,
@@ -85,10 +92,21 @@ pub struct PackedBMatrix<T> {
 }
 
 impl<T> PackedBMatrix<T> {
-    fn block(&self, col_block_idx: usize, depth_block_idx: usize) -> &[T] {
-        let panel_idx = col_block_idx * self.depth_blocks + depth_block_idx;
-        let offset = panel_idx * self.panel_len;
-        &self.data[offset..offset + self.panel_len]
+    /// Return the packed data for a given range along the N (`cols`) and K
+    /// (`depth`) dimensions.
+    fn block(&self, cols: Range<usize>, depth: Range<usize>) -> RhsBlock<T> {
+        assert_eq!(cols.start % self.panel_width, 0);
+
+        let panel_stride = self.panel_len();
+        let panel_range = cols.start / self.panel_width..cols.end.div_ceil(self.panel_width);
+        let start = panel_range.start * panel_stride + depth.start * self.panel_width;
+        let end = (panel_range.end - 1) * panel_stride + depth.end * self.panel_width;
+        let data = &self.data[start..end];
+        RhsBlock { data, panel_stride }
+    }
+
+    fn panel_len(&self) -> usize {
+        self.panel_width * self.rows
     }
 }
 
@@ -321,36 +339,27 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     /// Variant of [`prepack_a`](GemmExecutor::prepack_a) which takes an
     /// allocator.
     pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix<LhsT>) -> PackedAMatrix<LhsT> {
-        let kc = depth_block_size(a.cols());
         let mr = self.kernel.mr();
-        let mc = row_block_size(a.rows(), mr);
-        let panel_len = kc * mc;
-        let row_blocks = a.rows().div_ceil(mc);
-        let depth_blocks = a.cols().div_ceil(kc);
-
-        let packed_len = depth_blocks * row_blocks * panel_len;
+        let panel_len = mr * a.cols();
+        let packed_len = a.rows().next_multiple_of(mr) * a.cols();
         let mut data = alloc.alloc(packed_len);
 
-        // Pack blocks in the order they will be accessed by the GEMM
-        // implementation.
+        // Pack input as a sequence of row panels.
         let mut out_panels = data.spare_capacity_mut()[..packed_len].chunks_exact_mut(panel_len);
         let mut n_init = 0;
-        for depth_range in range_chunks(0..a.cols(), kc) {
-            for row_range in range_chunks(0..a.rows(), mc) {
-                let out_panel = out_panels.next().unwrap();
-                let used_size = row_range.len().next_multiple_of(mr) * depth_range.len();
-                let (used, unused) = out_panel.split_at_mut(used_size);
+        for panel_rows in range_chunks(0..a.rows(), mr) {
+            let out_panel = out_panels.next().unwrap();
+            let used_size = panel_rows.len().next_multiple_of(mr) * a.cols();
+            let (used, unused) = out_panel.split_at_mut(used_size);
 
-                self.kernel
-                    .pack_a_block(used, a, row_range, depth_range.clone());
+            self.kernel.pack_a_block(used, a, panel_rows, 0..a.cols());
 
-                unused.fill(MaybeUninit::new(LhsT::zero()));
-                n_init += out_panel.len();
-            }
+            unused.fill(MaybeUninit::new(LhsT::zero()));
+            n_init += out_panel.len();
         }
 
         // Safety: We used `pack_a_block` to initialize `packed_len` elements.
-        assert!(n_init == packed_len);
+        assert_eq!(n_init, packed_len);
         unsafe {
             data.set_len(packed_len);
         }
@@ -359,8 +368,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             data,
             rows: a.rows(),
             cols: a.cols(),
-            panel_len,
-            row_blocks,
+            panel_height: self.kernel.mr(),
             kernel_name: self.kernel.name(),
         }
     }
@@ -382,35 +390,27 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     /// allocator.
     pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix<RhsT>) -> PackedBMatrix<RhsT> {
         let nr = self.kernel.nr();
-        let nc = col_block_size(b.cols(), nr);
-        let kc = depth_block_size(b.rows());
-        let panel_len = nc * kc;
-        let depth_blocks = b.rows().div_ceil(kc);
-        let col_blocks = b.cols().div_ceil(nc);
-
-        let packed_len = col_blocks * depth_blocks * panel_len;
+        let packed_len = b.cols().next_multiple_of(nr) * b.rows();
+        let panel_len = nr * b.rows();
         let mut out = alloc.alloc(packed_len);
 
-        // Pack blocks in the order they will be accessed by the GEMM
-        // implementation.
+        // Pack input as a sequence of column panels.
         let mut out_panels = out.spare_capacity_mut()[..packed_len].chunks_exact_mut(panel_len);
         let mut n_init = 0;
-        for col_range in range_chunks(0..b.cols(), nc) {
-            for depth_range in range_chunks(0..b.rows(), kc) {
-                let out_panel = out_panels.next().unwrap();
-                let used_size = col_range.len().next_multiple_of(nr) * depth_range.len();
-                let (used, unused) = out_panel.split_at_mut(used_size);
+        for panel_cols in range_chunks(0..b.cols(), nr) {
+            let out_panel = out_panels.next().unwrap();
+            let used_size = panel_cols.len().next_multiple_of(nr) * b.rows();
+            let (used, unused) = out_panel.split_at_mut(used_size);
 
-                self.kernel
-                    .pack_b_block(used, b, depth_range, col_range.clone());
+            self.kernel
+                .pack_b_block(used, b, 0..b.rows(), panel_cols.clone());
 
-                unused.fill(MaybeUninit::new(RhsT::zero()));
-                n_init += out_panel.len();
-            }
+            unused.fill(MaybeUninit::new(RhsT::zero()));
+            n_init += out_panel.len();
         }
 
         // Safety: We used `pack_b_block` to initialize `packed_len` elements.
-        assert!(n_init == packed_len);
+        assert_eq!(n_init, packed_len);
         unsafe {
             out.set_len(packed_len);
         }
@@ -419,8 +419,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             data: out,
             rows: b.rows(),
             cols: b.cols(),
-            depth_blocks,
-            panel_len,
+            panel_width: nr,
             kernel_name: self.kernel.name(),
         }
     }
@@ -912,13 +911,15 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     // configuration we are using now.
     if let GemmInputA::Packed(packed) = &a {
         assert_eq!(packed.kernel_name, kernel.name());
-        assert_eq!(packed.row_blocks, a.rows().div_ceil(mc));
-        assert_eq!(packed.panel_len, kc * mc);
+        assert_eq!(packed.panel_height, kernel.mr());
+        assert_eq!(packed.rows, a.rows());
+        assert_eq!(packed.cols, a.cols());
     }
     if let GemmInputB::Packed(packed) = &b {
         assert_eq!(packed.kernel_name, kernel.name());
-        assert_eq!(packed.depth_blocks, b.rows().div_ceil(kc));
-        assert_eq!(packed.panel_len, nc * kc);
+        assert_eq!(packed.panel_width, kernel.nr());
+        assert_eq!(packed.rows, b.rows());
+        assert_eq!(packed.cols, b.cols());
     }
 
     // Buffers for packed blocks of the matrix.
@@ -946,17 +947,18 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         .for_each(|col_idx| {
             let col_start = col_idx * nc;
             let col_end = (col_start + nc).min(b.cols());
+            let col_range = col_start..col_end;
 
             // Loop over depth blocks. This is not parallelized because output
             // tiles are shared across iterations.
-            for (depth_idx, depth_range) in range_chunks(0..a.cols(), kc).enumerate() {
+            for depth_range in range_chunks(0..a.cols(), kc) {
                 // Borrowed packing buffer for current thread. Returned after
                 // the GEMM block is computed.
                 let mut thread_local_packed_b: Option<Vec<u64>> = None;
                 let panel_length = depth_range.len();
                 let packed_b_size = (col_end - col_start).next_multiple_of(nr) * panel_length;
 
-                let packed_b = match b {
+                let rhs_block = match b {
                     GemmInputB::Unpacked(_) | GemmInputB::Virtual(_) => PACKED_B.with(|cell| {
                         let mut packed_b = cell.take();
                         packed_b.clear();
@@ -988,10 +990,15 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                             packed_b.set_len(packed_b_size);
                         }
                         thread_local_packed_b = Some(packed_b);
-                        cast_pod_slice::<_, RhsT>(thread_local_packed_b.as_deref().unwrap())
-                            .unwrap()
+                        let packed_b_data =
+                            cast_pod_slice::<_, RhsT>(thread_local_packed_b.as_deref().unwrap())
+                                .unwrap();
+                        RhsBlock {
+                            data: packed_b_data,
+                            panel_stride: kernel.nr() * depth_range.len(),
+                        }
                     }),
-                    GemmInputB::Packed(pm) => pm.block(col_idx, depth_idx),
+                    GemmInputB::Packed(pm) => pm.block(col_range.clone(), depth_range.clone()),
                 };
 
                 // Only use provided `beta` on the first write to this output
@@ -1008,6 +1015,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                     .for_each(|row_idx| {
                         let row_start = row_idx * mc;
                         let row_end = (row_start + mc).min(a.rows());
+                        let row_range = row_start..row_end;
                         let packed_a_size =
                             (row_end - row_start).next_multiple_of(mr) * depth_range.len();
 
@@ -1015,7 +1023,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                         // the GEMM block is computed.
                         let mut thread_local_packed_a: Option<Vec<u64>> = None;
 
-                        let block_lhs = match a {
+                        let lhs_block = match a {
                             GemmInputA::Unpacked(a) if a.col_stride() == 1 => LhsBlock::Unpacked(a),
                             GemmInputA::Unpacked(a) => PACKED_A.with(|cell| {
                                 let mut packed_a = cell.take();
@@ -1044,10 +1052,13 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                     thread_local_packed_a.as_deref().unwrap(),
                                 )
                                 .unwrap();
-                                LhsBlock::Packed(packed_a)
+                                LhsBlock::Packed {
+                                    data: packed_a,
+                                    panel_stride: mr * depth_range.len(),
+                                }
                             }),
                             GemmInputA::Packed(pm) => {
-                                LhsBlock::Packed(pm.block(row_idx, depth_idx))
+                                pm.block(row_range.clone(), depth_range.clone())
                             }
                         };
 
@@ -1057,9 +1068,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                             col_start / nr..col_end.div_ceil(nr),
                             row_start / mr..row_end.div_ceil(mr),
                             depth_range.clone(),
-                            block_lhs,
-                            packed_b,
-                            panel_length,
+                            lhs_block,
+                            rhs_block,
                             alpha,
                             effective_beta,
                             bias,
@@ -1078,20 +1088,36 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
 }
 
 /// LHS / A input for a call to [`gemm_block`].
+#[derive(Copy, Clone)]
 enum LhsBlock<'a, T> {
-    /// Packed panel of A
-    Packed(&'a [T]),
+    /// Packed block of A matrix, arranged as a sequence of row panels.
+    Packed {
+        data: &'a [T],
+
+        /// Stride between each row panel.
+        panel_stride: usize,
+    },
 
     /// Unpacked A matrix. This must have a column stride of 1.
     Unpacked(Matrix<'a, T>),
 }
 
+/// LHS / B input for a call to [`gemm_block`]. Currently always packed as
+/// a sequence of column panels.
+#[derive(Copy, Clone)]
+struct RhsBlock<'a, T> {
+    data: &'a [T],
+
+    /// Stride between each column panel.
+    panel_stride: usize,
+}
+
 /// Process a single block (ie. a slice along each of the M/N/K dimensions) of a
 /// matrix multiplication.
 ///
-/// `col_tiles` and `row_tiles` specifies the range of output tiles to update,
-/// `packed_a` and `packed_b` are the corresponding packed inputs. `panel_length`
-/// is the size of panels along the depth/K dimension.
+/// `col_tiles` and `row_tiles` specifies the range of output tiles to update.
+/// `packed_a` and `packed_b` are the corresponding packed inputs. `depth_range`
+/// specifies the range along the K dimension.
 ///
 /// `first_update` indicates whether this is the first write to the output tiles
 /// in this block during the current GEMM operation.
@@ -1102,8 +1128,7 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     row_tiles: Range<usize>,
     depth_range: Range<usize>,
     a: LhsBlock<LhsT>,
-    packed_b: &[RhsT],
-    panel_length: usize,
+    b: RhsBlock<RhsT>,
     alpha: f32,
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
@@ -1114,9 +1139,6 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
 
     let (mr, nr) = (kernel.mr(), kernel.nr());
     assert!(nr * mr <= MAX_TILE_ELEMENTS);
-
-    let b_panel_size = panel_length * nr;
-    let a_panel_size = mr * panel_length;
 
     // Sanity check input length here rather than inner loop.
     if let LhsBlock::Unpacked(mat) = &a {
@@ -1130,8 +1152,8 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     col_tiles
         .enumerate()
         .for_each(|(block_col_tile, col_tile)| {
-            let b_panel_offset = block_col_tile * b_panel_size;
-            let b_panel = &packed_b[b_panel_offset..b_panel_offset + b_panel_size];
+            let b_panel_offset = block_col_tile * b.panel_stride;
+            let b_panel = &b.data[b_panel_offset..b_panel_offset + nr * depth_range.len()];
 
             // Loop over row tiles.
             for (block_row_tile, row_tile) in row_tiles.clone().enumerate() {
@@ -1141,9 +1163,10 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                 let out_tile = unsafe { output.tile(row_tile, col_tile) };
 
                 let kernel_lhs = match a {
-                    LhsBlock::Packed(packed_a) => {
-                        let a_panel_offset = block_row_tile * a_panel_size;
-                        let a_panel = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
+                    LhsBlock::Packed { data, panel_stride } => {
+                        let a_panel_offset = block_row_tile * panel_stride;
+                        let a_panel =
+                            &data[a_panel_offset..a_panel_offset + mr * depth_range.len()];
                         kernels::Lhs::Packed(a_panel)
                     }
                     LhsBlock::Unpacked(mat) => {
@@ -1171,7 +1194,7 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                             kernel_lhs,
                             out_tile.used_rows,
                             b_panel,
-                            panel_length,
+                            depth_range.len(),
                             alpha,
                             beta,
                         );
@@ -1194,7 +1217,7 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                             kernel_lhs,
                             out_tile.used_rows,
                             b_panel,
-                            panel_length,
+                            depth_range.len(),
                             alpha,
                             OutT::zero(), // Multiplication with `beta` is handled below.
                         );
