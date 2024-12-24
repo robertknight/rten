@@ -6,6 +6,7 @@
 //! operations like vector-scalar products.
 
 use std::cell::RefCell;
+use std::marker::PhantomData;
 use std::mem::{transmute, MaybeUninit};
 use std::ops::{Add, Mul, Range};
 
@@ -626,7 +627,7 @@ fn row_block_size(a_rows: usize, mr: usize) -> usize {
 }
 
 /// A single tile of the output matrix.
-struct OutputTile<T> {
+struct OutputTile<'a, T> {
     /// Pointer to first element in this tile.
     ptr: *mut T,
 
@@ -638,12 +639,14 @@ struct OutputTile<T> {
 
     /// Number of columns in this tile. Will be <= the [`Kernel`]'s `NR` constant.
     used_cols: usize,
+
+    _marker: PhantomData<&'a mut [T]>,
 }
 
 /// Wrapper around the GEMM output matrix which divides it into a grid of tiles.
 /// This can be shared across threads, but each individual tile must only be
 /// operated on by one thread at a time.
-struct OutputTiles<T> {
+struct OutputTiles<'a, T> {
     data: *mut T,
 
     // Size and stride of the output matrix.
@@ -658,16 +661,18 @@ struct OutputTiles<T> {
     // Precomputed number of tiles along each axis.
     n_row_tiles: usize,
     n_col_tiles: usize,
+
+    _marker: PhantomData<&'a mut [T]>,
 }
 
 /// Safety: Caller must ensure they do not operate on overlapping tiles
 /// concurrently.
-unsafe impl<T> Sync for OutputTiles<T> {}
+unsafe impl<T> Sync for OutputTiles<'_, T> {}
 
-impl<T> OutputTiles<T> {
+impl<'a, T> OutputTiles<'a, T> {
     /// Expose `data` as a grid of tiles, each with a maximum size of
     /// `tile_rows` * `tile_cols`.
-    fn new(mut data: MatrixMut<T>, tile_rows: usize, tile_cols: usize) -> OutputTiles<T> {
+    fn new(mut data: MatrixMut<'a, T>, tile_rows: usize, tile_cols: usize) -> OutputTiles<'a, T> {
         OutputTiles {
             data: data.data_mut().unwrap().as_mut_ptr(),
             rows: data.rows(),
@@ -677,6 +682,7 @@ impl<T> OutputTiles<T> {
             tile_cols,
             n_row_tiles: data.rows().div_ceil(tile_rows),
             n_col_tiles: data.cols().div_ceil(tile_cols),
+            _marker: PhantomData,
         }
     }
 
@@ -696,6 +702,7 @@ impl<T> OutputTiles<T> {
             row_stride: self.row_stride,
             used_rows: (self.rows - start_row).min(self.tile_rows),
             used_cols: (self.cols - start_col).min(self.tile_cols),
+            _marker: PhantomData,
         }
     }
 }
