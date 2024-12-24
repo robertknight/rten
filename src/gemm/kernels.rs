@@ -57,10 +57,10 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     where
         Self: Sized;
 
-    /// Return the width of this kernel's tiles.
+    /// Return the number of rows in each tile.
     fn mr(&self) -> usize;
 
-    /// Return the height of this kernel's tiles.
+    /// Return the number of columns in each tile.
     fn nr(&self) -> usize;
 
     /// Return a name for this kernel for use in logging etc.
@@ -75,8 +75,7 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         cols: Range<usize>,
     );
 
-    /// Pack a block of the RHS / "B" input for use
-    /// by this kernel.
+    /// Pack a block of the RHS / "B" input for use by this kernel.
     fn pack_b_block(
         &self,
         out: &mut [MaybeUninit<RhsT>],
