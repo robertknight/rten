@@ -88,7 +88,14 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         );
     }
 
-    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+    fn gemv_kernel(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        a: &[f32],
+        b: Matrix,
+        alpha: f32,
+        beta: f32,
+    ) {
         // Safety - f32 "SIMD" type is always supported
         unsafe {
             simd_gemv::<f32, 4>(out, a, b, alpha, beta);

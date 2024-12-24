@@ -88,7 +88,14 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
         );
     }
 
-    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+    fn gemv_kernel(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        a: &[f32],
+        b: Matrix,
+        alpha: f32,
+        beta: f32,
+    ) {
         // Safety - WASM SIMD types are supported if this kernel was constructed.
         unsafe {
             simd_gemv::<v128f, 4>(out, a, b, alpha, beta);

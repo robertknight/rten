@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use rten_simd::SimdFloat;
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
@@ -9,10 +11,13 @@ use crate::iter_util::{range_chunks_exact, unroll_loop};
 /// Multiple output columns are computed at a time, using `NR_REGS` SIMD
 /// registers of type `S`. See [`Kernel::gemv_kernel`].
 ///
+/// If `beta` is zero the output may be uninitialized. The output will always
+/// be initialized after the kernel has run.
+///
 /// Safety: The `SimdFloat` type must be supported on the current system.
 #[inline(always)]
 pub unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
-    out: &mut [f32],
+    out: &mut [MaybeUninit<f32>],
     a: &[f32],
     b: Matrix,
     alpha: f32,
@@ -61,20 +66,20 @@ pub unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
 
         if beta == 0. {
             for i in 0..NR_REGS {
-                acc[i].store(get_out_tile_ptr(i));
+                acc[i].store(get_out_tile_ptr(i) as *mut f32);
             }
         } else if beta == 1. {
             for i in 0..NR_REGS {
                 let out_tile_ptr = get_out_tile_ptr(i);
-                let out_tile = S::load(out_tile_ptr).add(acc[i]);
-                out_tile.store(out_tile_ptr);
+                let out_tile = S::load(out_tile_ptr as *mut f32).add(acc[i]);
+                out_tile.store(out_tile_ptr as *mut f32);
             }
         } else {
             let beta_vec = S::splat(beta);
             for i in 0..NR_REGS {
                 let out_tile_ptr = get_out_tile_ptr(i);
-                let out_tile = S::load(out_tile_ptr).mul_add(beta_vec, acc[i]);
-                out_tile.store(out_tile_ptr);
+                let out_tile = S::load(out_tile_ptr as *mut f32).mul_add(beta_vec, acc[i]);
+                out_tile.store(out_tile_ptr as *mut f32);
             }
         }
     }
@@ -85,15 +90,19 @@ pub unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
             acc += *a_ptr.add(k) * *b_ptr.add(k * b_row_stride + c);
         }
         let out_el = out_ptr.add(c);
-        let tmp = if beta == 0. { 0. } else { *out_el };
-        *out_el = beta * tmp + acc * alpha;
+        let tmp = if beta == 0. {
+            0.
+        } else {
+            (*out_el).assume_init()
+        };
+        *out_el = MaybeUninit::new(beta * tmp + acc * alpha);
     }
 }
 
 /// Variant of [`simd_gemv`] which handles the case where `b` has unit row stride.
 #[inline(always)]
 unsafe fn simd_gemv_transposed<S: SimdFloat>(
-    out: &mut [f32],
+    out: &mut [MaybeUninit<f32>],
     a: &[f32],
     b: Matrix,
     alpha: f32,
@@ -134,12 +143,14 @@ unsafe fn simd_gemv_transposed<S: SimdFloat>(
 
         if beta == 0. {
             for i in 0..COL_TILE {
-                out[col_tile.start + i] = alpha * acc[i];
+                out[col_tile.start + i].write(alpha * acc[i]);
             }
         } else {
             for i in 0..COL_TILE {
-                let out_val = alpha * acc[i] + beta * out[col_tile.start + i];
-                out[col_tile.start + i] = out_val;
+                // Safety: Output is initialized when `beta` is non-zero.
+                let out_val =
+                    alpha * acc[i] + beta * unsafe { out[col_tile.start + i].assume_init() };
+                out[col_tile.start + i].write(out_val);
             }
         }
     }
@@ -162,7 +173,7 @@ unsafe fn simd_gemv_transposed<S: SimdFloat>(
 /// This doesn't benefit from SIMD operations. It is at least inlined so it
 /// can benefit from the kernel's instruction set (eg. for FMA operations).
 #[inline(always)]
-fn simd_gemv_fallback(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+fn simd_gemv_fallback(out: &mut [MaybeUninit<f32>], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
     assert!(a.len() == b.rows());
     assert!(out.len() == b.cols());
 
@@ -174,9 +185,10 @@ fn simd_gemv_fallback(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f
         }
         acc *= alpha;
         if beta == 0. {
-            *out = acc;
+            out.write(acc);
         } else {
-            *out = acc + beta * *out;
+            // Safety: Output is initialized when `beta` is non-zero.
+            out.write(acc + beta * unsafe { out.assume_init() });
         }
     }
 }

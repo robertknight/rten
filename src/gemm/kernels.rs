@@ -45,8 +45,9 @@ pub enum Lhs<'a, T> {
 ///
 /// # Safety
 ///
-/// It must only be possible to construct the kernel using `new` if the
-/// instructions it uses are supported on the current system.
+/// - It must only be possible to construct the kernel using `new` if the
+///   instructions it uses are supported on the current system.
+/// - Kernels must initialize all output elements when `beta` is zero.
 ///
 /// [^1]: https://dl.acm.org/doi/pdf/10.1145/2925987
 pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
@@ -130,6 +131,14 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     /// # Safety
     ///
     /// If `beta` is zero then the output may be uninitialized and must not be
-    /// read by the implementation.
-    fn gemv_kernel(&self, out: &mut [OutT], a: &[LhsT], b: Matrix<RhsT>, alpha: f32, beta: OutT);
+    /// read by the implementation. After the kernel has run, all elements will
+    /// be initialized.
+    fn gemv_kernel(
+        &self,
+        out: &mut [MaybeUninit<OutT>],
+        a: &[LhsT],
+        b: Matrix<RhsT>,
+        alpha: f32,
+        beta: OutT,
+    );
 }
