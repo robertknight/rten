@@ -7,7 +7,7 @@
 
 use std::cell::RefCell;
 use std::marker::PhantomData;
-use std::mem::{transmute, MaybeUninit};
+use std::mem::MaybeUninit;
 use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
@@ -444,7 +444,8 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     ) {
         gemm_impl(
             &*self.kernel,
-            out_data,
+            // Safety: `gemm_impl` only writes initialized values to `out_data`.
+            unsafe { std::mem::transmute::<&mut [OutT], &mut [MaybeUninit<OutT>]>(out_data) },
             out_row_stride,
             a,
             b,
@@ -489,7 +490,8 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     ) {
         gemm_impl(
             &*self.kernel,
-            out_data,
+            // Safety: `gemm_impl` only writes initialized values to `out_data`.
+            unsafe { std::mem::transmute::<&mut [OutT], &mut [MaybeUninit<OutT>]>(out_data) },
             out_row_stride,
             a,
             b,
@@ -517,9 +519,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     ) {
         gemm_impl(
             &*self.kernel,
-            // Safety: When beta is zero, we initialize all output elements
-            // and ignore existing values.
-            unsafe { transmute::<&mut [MaybeUninit<OutT>], &mut [OutT]>(out_data) },
+            out_data,
             out_row_stride,
             a,
             b,
@@ -714,7 +714,7 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
     a: NdTensorView<LhsT, 1>,
     b: Matrix<RhsT>,
-    mut output_mat: MatrixMut<OutT>,
+    mut output_mat: MatrixMut<MaybeUninit<OutT>>,
     alpha: f32,
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
@@ -757,6 +757,9 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 effective_beta = OutT::one();
             }
 
+            // Safety: Calls to `gemv_kernel` initialized all output elements.
+            let out_chunk =
+                unsafe { std::mem::transmute::<&mut [MaybeUninit<OutT>], &mut [OutT]>(out_chunk) };
             match bias {
                 Some(BiasVector::Column(bias)) => {
                     let bias = bias[0];
@@ -804,7 +807,7 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
 ///       43.2 (2016): 1-18. https://dl.acm.org/doi/pdf/10.1145/2925987
 fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
-    out_data: &mut [OutT],
+    out_data: &mut [MaybeUninit<OutT>],
     out_row_stride: usize,
     a: GemmInputA<LhsT>,
     b: GemmInputB<RhsT>,
@@ -837,7 +840,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     }
 
     // Construct a Matrix from the implied dimensions, to validate the slice length.
-    let mut output_mat = MatrixMut::<OutT>::from_data_with_strides(
+    let mut output_mat = MatrixMut::<MaybeUninit<OutT>>::from_data_with_strides(
         [a.rows(), b.cols()],
         out_data,
         [out_row_stride, 1],
@@ -847,11 +850,17 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     // Handle case where depth is zero. We still need to initialize the output
     // in this case.
     if a.cols() == 0 {
-        if beta == OutT::zero() {
-            output_mat.fill(OutT::zero());
+        let mut output_mat = if beta == OutT::zero() {
+            output_mat.fill(MaybeUninit::new(OutT::zero()));
+
+            // Safety: We just initialized the output.
+            unsafe { output_mat.assume_init() }
         } else {
+            // Safety: If beta is non-zero we assume the caller initialized the output.
+            let mut output_mat = unsafe { output_mat.assume_init() };
             output_mat.apply(|x| *x * beta);
-        }
+            output_mat
+        };
 
         if let Some(bias) = bias {
             let bias_mat = match bias {
@@ -1088,7 +1097,7 @@ enum LhsBlock<'a, T> {
 /// in this block during the current GEMM operation.
 fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
-    output: &OutputTiles<OutT>,
+    output: &OutputTiles<MaybeUninit<OutT>>,
     col_tiles: Range<usize>,
     row_tiles: Range<usize>,
     depth_range: Range<usize>,
@@ -1156,7 +1165,8 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                     //  - Tile has NR columns
                     unsafe {
                         kernel.kernel(
-                            out_tile.ptr,
+                            // Safety: Kernel will initialize all elements in the tile.
+                            out_tile.ptr as *mut OutT,
                             out_tile.row_stride,
                             kernel_lhs,
                             out_tile.used_rows,
@@ -1178,9 +1188,8 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                     //  - Tile size is <= MAX_TILE_ELEMENTS
                     unsafe {
                         kernel.kernel(
-                            transmute::<*mut MaybeUninit<OutT>, *mut OutT>(
-                                tmp_out_tile.as_mut_ptr(),
-                            ),
+                            // Safety: Kernel will initialize `used_rows * NR` elements.
+                            tmp_out_tile.as_mut_ptr() as *mut OutT,
                             nr,
                             kernel_lhs,
                             out_tile.used_rows,
@@ -1200,10 +1209,12 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                                 let tmp = if beta == OutT::zero() {
                                     OutT::zero()
                                 } else {
-                                    *out_el
+                                    (*out_el).assume_init()
                                 };
-                                *out_el = beta * tmp
-                                    + tmp_out_tile.get_unchecked(i * nr + j).assume_init();
+                                out_el.write(MaybeUninit::new(
+                                    beta * tmp
+                                        + tmp_out_tile.get_unchecked(i * nr + j).assume_init(),
+                                ));
                             }
                         }
                     }
@@ -1211,6 +1222,9 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
 
                 // Add bias vector on first write to an output tile.
                 if depth_range.start == 0 {
+                    // After the kernel is called, all elements of the output
+                    // tile are now initialized.
+                    let out_ptr = out_tile.ptr as *mut OutT;
                     match bias {
                         Some(BiasVector::Column(bias)) => {
                             for row in 0..out_tile.used_rows {
@@ -1219,8 +1233,7 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                                     //  - Row and column indices are valid for current tile
                                     //  - Bias length was checked at start of `gemm_impl`
                                     unsafe {
-                                        let out_el =
-                                            out_tile.ptr.add(row * out_tile.row_stride + col);
+                                        let out_el = out_ptr.add(row * out_tile.row_stride + col);
                                         *out_el =
                                             *out_el + *bias.get_unchecked(row_tile * mr + row);
                                     }
@@ -1234,8 +1247,7 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                                     //  - Row and column indices are valid for current tile
                                     //  - Bias length was checked at start of `gemm_impl`
                                     unsafe {
-                                        let out_el =
-                                            out_tile.ptr.add(row * out_tile.row_stride + col);
+                                        let out_el = out_ptr.add(row * out_tile.row_stride + col);
                                         *out_el =
                                             *out_el + *bias.get_unchecked(col_tile * nr + col);
                                     }

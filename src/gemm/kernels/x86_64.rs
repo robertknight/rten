@@ -126,10 +126,23 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         );
     }
 
-    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+    fn gemv_kernel(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        a: &[f32],
+        b: Matrix,
+        alpha: f32,
+        beta: f32,
+    ) {
         #[target_feature(enable = "avx2")]
         #[target_feature(enable = "fma")]
-        unsafe fn gemv_kernel_impl(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+        unsafe fn gemv_kernel_impl(
+            out: &mut [MaybeUninit<f32>],
+            a: &[f32],
+            b: Matrix,
+            alpha: f32,
+            beta: f32,
+        ) {
             simd_gemv::<__m256, 4>(out, a, b, alpha, beta);
         }
         // Safety: Kernel can only be constructed if supported.
@@ -232,10 +245,23 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         )
     }
 
-    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+    fn gemv_kernel(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        a: &[f32],
+        b: Matrix,
+        alpha: f32,
+        beta: f32,
+    ) {
         #[target_feature(enable = "avx512f")]
         #[target_feature(enable = "avx512vl")]
-        unsafe fn gemv_kernel_impl(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+        unsafe fn gemv_kernel_impl(
+            out: &mut [MaybeUninit<f32>],
+            a: &[f32],
+            b: Matrix,
+            alpha: f32,
+            beta: f32,
+        ) {
             simd_gemv::<__m512, 2>(out, a, b, alpha, beta);
         }
         // Safety: Kernel can only be constructed if supported.
