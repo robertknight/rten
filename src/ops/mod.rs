@@ -26,8 +26,10 @@ use rten_tensor::{
 };
 
 use crate::downcast::impl_downcastdyn;
+use crate::gemm::PackedBMatrix;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::tensor_pool::{ExtractBuffer, TensorPool};
+use crate::weight_cache::WeightCache;
 
 mod binary_elementwise;
 mod concat;
@@ -334,6 +336,13 @@ impl<'a> From<&'a Output> for Input<'a> {
             Output::UInt8Tensor(t) => Input::UInt8Tensor(t.view()),
         }
     }
+}
+
+/// An operator input which has been pre-packed for more efficient use during
+/// inference.
+pub enum PrepackedInput {
+    /// Prepacked RHS / B input for matrix multiplication with f32 weights.
+    FloatBMatrix(PackedBMatrix<f32>),
 }
 
 /// Enum of the different types of output tensor that a model or operator can
@@ -809,6 +818,23 @@ pub trait Operator: Any + Debug {
         SmallVec::new()
     }
 
+    /// Return the IDs of inputs which can be pre-packed using [`prepack`](Operator::prepack).
+    fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
+        SmallVec::new()
+    }
+
+    /// Pre-pack an input for more efficient inference later.
+    ///
+    /// `index` specifies the input ID and should be one of the inputs returned
+    /// by [`prepack_inputs`](Operator::prepack_inputs).
+    fn prepack(
+        &self,
+        #[allow(unused)] index: usize,
+        #[allow(unused)] input: Input,
+    ) -> Option<PrepackedInput> {
+        None
+    }
+
     /// Execute the operator with the given inputs and captured values.
     ///
     /// This method will be called instead of `run` if the operator reports that
@@ -825,6 +851,7 @@ pub trait Operator: Any + Debug {
         pool: &TensorPool,
         input: InputList,
         #[allow(unused)] captures: CaptureEnv,
+        #[allow(unused)] weight_cache: Option<&[WeightCache]>,
         #[allow(unused)] run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
         self.run(pool, input)
@@ -847,6 +874,10 @@ impl_downcastdyn!(Operator);
 /// references using `into`.
 pub struct InputList<'a> {
     inputs: Cow<'a, [Option<Input<'a>>]>,
+
+    /// Callback that retrieves the pre-packed copy of an input with a given
+    /// index.
+    get_prepacked: Option<&'a dyn Fn(usize) -> Option<&'a PrepackedInput>>,
 }
 
 impl<'a> InputList<'a> {
@@ -854,6 +885,7 @@ impl<'a> InputList<'a> {
     pub fn new() -> InputList<'a> {
         InputList {
             inputs: Cow::Owned(vec![]),
+            get_prepacked: None,
         }
     }
 
@@ -879,6 +911,7 @@ impl<'a> InputList<'a> {
     pub fn from(inputs: &[Input<'a>]) -> InputList<'a> {
         InputList {
             inputs: inputs.iter().cloned().map(Some).collect(),
+            get_prepacked: None,
         }
     }
 
@@ -888,12 +921,28 @@ impl<'a> InputList<'a> {
     pub fn from_optional(inputs: &'a [Option<Input<'a>>]) -> InputList<'a> {
         InputList {
             inputs: Cow::Borrowed(inputs),
+            get_prepacked: None,
         }
+    }
+
+    /// Configure a callback that will get or create a pre-packed copy of the
+    /// input with a given index.
+    pub fn with_prepacked(
+        mut self,
+        lookup: &'a dyn Fn(usize) -> Option<&'a PrepackedInput>,
+    ) -> Self {
+        self.get_prepacked = Some(lookup);
+        self
     }
 
     /// Get an optional input.
     pub fn get(&self, index: usize) -> Option<Input<'a>> {
         self.inputs.get(index).cloned().flatten()
+    }
+
+    /// Get the pre-packed version of a weight input, if available.
+    pub fn get_prepacked(&self, index: usize) -> Option<&'a PrepackedInput> {
+        self.get_prepacked.and_then(|gp| gp(index))
     }
 
     /// Get a mutable reference to an input.

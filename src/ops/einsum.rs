@@ -497,7 +497,7 @@ fn einsum_matmul(
 
     let xp = permute_and_insert_axes(x, term1, &x_order);
     let yp = permute_and_insert_axes(y, term2, &y_order);
-    let mut out = matmul(pool, xp, yp)?;
+    let mut out = matmul(pool, xp, yp, None)?;
 
     if !matmul_m.is_ascii_lowercase() {
         out.remove_axis(out.ndim() - 2);
@@ -720,7 +720,7 @@ mod tests {
 
         let mat_a = Tensor::from([[1., 2., 3.], [4., 5., 6.]]);
         let mat_b = Tensor::from([[1., 2., 3., 4.], [5., 6., 7., 8.], [9., 10., 11., 12.]]);
-        let matmul_ab = matmul(&pool, mat_a.view(), mat_b.view()).unwrap();
+        let matmul_ab = matmul(&pool, mat_a.view(), mat_b.view(), None).unwrap();
         let matmul_ba = matmul_ab.transposed().to_tensor();
         let outer_mat_ab = mul(
             &pool,
@@ -867,7 +867,7 @@ mod tests {
             Case {
                 equation: "ij,j->i",
                 inputs: vec![mat_a.view(), mat_b.slice((.., 0))],
-                expected: Ok(matmul(&pool, mat_a.view(), mat_b.slice((.., ..1)))
+                expected: Ok(matmul(&pool, mat_a.view(), mat_b.slice((.., ..1)), None)
                     .unwrap()
                     .into_shape([mat_a.size(0)].as_slice())),
             },
@@ -875,7 +875,7 @@ mod tests {
             Case {
                 equation: "j,jk->k",
                 inputs: vec![mat_a.slice(0), mat_b.view()],
-                expected: Ok(matmul(&pool, mat_a.slice((..1, ..)), mat_b.view())
+                expected: Ok(matmul(&pool, mat_a.slice((..1, ..)), mat_b.view(), None)
                     .unwrap()
                     .into_shape([mat_b.size(1)].as_slice())),
             },

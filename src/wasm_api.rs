@@ -214,7 +214,7 @@ impl Tensor {
         let a = self.as_float()?;
         let b = other.as_float()?;
         let pool = TensorPool::new();
-        let out = matmul(&pool, a, b).map_err(|e| e.to_string())?;
+        let out = matmul(&pool, a, b, None).map_err(|e| e.to_string())?;
         Ok(Tensor::from_output(out.into()))
     }
 }

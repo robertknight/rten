@@ -194,7 +194,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
 impl<S: Storage<Elem = f32>, L: MutLayout> FloatOperators for TensorBase<S, L> {
     fn matmul(&self, other: TensorView) -> Result<Tensor, OpError> {
         let view = self.as_dyn();
-        use_thread_pool(|| matmul(&TensorPool::new(), view, other))
+        use_thread_pool(|| matmul(&TensorPool::new(), view, other, None))
     }
 
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {

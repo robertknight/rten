@@ -109,6 +109,7 @@ mod slice_reductions;
 mod tensor_pool;
 mod threading;
 mod timing;
+mod weight_cache;
 
 #[cfg(feature = "wasm_api")]
 mod wasm_api;

@@ -1,13 +1,18 @@
 use rayon::prelude::*;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{Tensor, TensorView};
+use rten_tensor::{Matrix, Tensor, TensorView};
+use smallvec::SmallVec;
 
-use crate::gemm::{BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT};
+use crate::gemm::{
+    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, PackedBMatrix,
+};
 use crate::iter_util::range_chunks;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
-use crate::ops::{static_dims, InputList, IntoOpResult, OpError, Operator, OutputList};
+use crate::ops::{
+    static_dims, Input, InputList, IntoOpResult, OpError, Operator, OutputList, PrepackedInput,
+};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
@@ -119,21 +124,30 @@ enum MatmulStrategy {
     Batch,
 }
 
+fn matmul_prepack_b(input: Input) -> Option<PrepackedInput> {
+    let executor = GemmExecutor::default();
+    let tensor: TensorView<f32> = input.try_into().ok()?;
+    let matrix: Matrix<f32> = tensor.try_into().ok()?;
+    Some(PrepackedInput::FloatBMatrix(executor.prepack_b(matrix)))
+}
+
 pub fn matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
     pool: &TensorPool,
     a: TensorView<LhsT>,
     b: TensorView<RhsT>,
+    packed_b: Option<&PackedBMatrix<RhsT>>,
 ) -> Result<Tensor<OutT>, OpError>
 where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
 {
-    matmul_impl(pool, a, b, MatmulStrategy::Auto, None)
+    matmul_impl(pool, a, b, packed_b, MatmulStrategy::Auto, None)
 }
 
 fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
     pool: &TensorPool,
     mut a: TensorView<LhsT>,
     mut b: TensorView<RhsT>,
+    packed_b: Option<&PackedBMatrix<RhsT>>,
     strategy: MatmulStrategy,
     bias: Option<BiasVector<OutT>>,
 ) -> Result<Tensor<OutT>, OpError>
@@ -188,7 +202,7 @@ where
         // nb. We assume `a` is likely already contiguous, so this will be cheap.
         let a_contig = a.to_contiguous_in(pool).auto_return(pool);
         let a_matrix = a_contig.reshaped([num_a_matrices * a_rows, a_cols].as_slice());
-        let mut output = matmul_impl(pool, a_matrix.view(), b.clone(), strategy, bias)?;
+        let mut output = matmul_impl(pool, a_matrix.view(), b.clone(), packed_b, strategy, bias)?;
         output.reshape(out_shape);
         return Ok(output);
     }
@@ -214,7 +228,8 @@ where
 
     let gemm = GemmExecutor::default();
 
-    // Prepack re-used inputs to amortize packing cost.
+    // Prepack inputs if they are re-used, to amortize packing cost, or we
+    // were already called with prepacked inputs.
     //
     // We don't prepack when the "A" matrix is a vector because that uses a
     // special case vector-matrix algorithm that doesn't benefit from packing.
@@ -224,11 +239,16 @@ where
     });
     let prepacked_a = prepacked_a.as_deref();
 
-    let prepacked_b = (num_a_matrices > 1 && num_b_matrices == 1 && a_rows > 1).then(|| {
-        let b_matrix = b.inner_iter::<2>().next().unwrap();
-        gemm.prepack_b_in(pool, b_matrix).auto_return(pool)
-    });
-    let prepacked_b = prepacked_b.as_deref();
+    let prepacked_b =
+        (num_b_matrices == 1 && num_a_matrices > 1 && a_rows > 1 && packed_b.is_none()).then(
+            || {
+                let b_matrix = b.inner_iter::<2>().next().unwrap();
+                gemm.prepack_b_in(pool, b_matrix).auto_return(pool)
+            },
+        );
+    let prepacked_b = prepacked_b
+        .as_deref()
+        .or(if a_rows > 1 { packed_b } else { None });
 
     a_broadcast
         .inner_iter::<2>()
@@ -282,7 +302,23 @@ impl Operator for MatMul {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
-        matmul::<f32, f32, f32>(pool, a, b).into_op_result()
+        let packed_b = match inputs.get_prepacked(1) {
+            Some(PrepackedInput::FloatBMatrix(pb)) => Some(pb),
+            _ => None,
+        };
+        matmul::<f32, f32, f32>(pool, a, b, packed_b).into_op_result()
+    }
+
+    fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
+        [1].into()
+    }
+
+    fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
+        if index == 1 {
+            matmul_prepack_b(input)
+        } else {
+            None
+        }
     }
 }
 
@@ -290,12 +326,13 @@ pub fn matmul_add<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
     pool: &TensorPool,
     a: TensorView<LhsT>,
     b: TensorView<RhsT>,
+    packed_b: Option<&PackedBMatrix<RhsT>>,
     bias: BiasVector<OutT>,
 ) -> Result<Tensor<OutT>, OpError>
 where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
 {
-    matmul_impl(pool, a, b, MatmulStrategy::Auto, Some(bias))
+    matmul_impl(pool, a, b, packed_b, MatmulStrategy::Auto, Some(bias))
 }
 
 /// Fusion for `Add(MatMul(a, b), bias)` subgraphs, where `bias` is a vector.
@@ -310,11 +347,27 @@ impl Operator for MatMulAdd {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
+        let packed_b = match inputs.get_prepacked(1) {
+            Some(PrepackedInput::FloatBMatrix(pb)) => Some(pb),
+            _ => None,
+        };
 
         let bias = inputs.require_as(2)?;
         let bias = static_dims!(bias, 1, "N")?.to_contiguous_in(pool);
 
-        matmul_add(pool, a, b, BiasVector::Row(bias.data().unwrap())).into_op_result()
+        matmul_add(pool, a, b, packed_b, BiasVector::Row(bias.data().unwrap())).into_op_result()
+    }
+
+    fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
+        [1].into()
+    }
+
+    fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
+        if index == 1 {
+            matmul_prepack_b(input)
+        } else {
+            None
+        }
     }
 }
 
@@ -451,10 +504,12 @@ mod tests {
     use crate::gemm::{gemm, BiasVector, GemmExecutor, GemmInputA, GemmInputB};
     use crate::ops::binary_elementwise::broadcast_shapes;
     use crate::ops::tests::new_pool;
+    use crate::ops::{InputList, Operator};
     use crate::tensor_pool::AutoReturn;
 
     use super::{
-        gemm_op, matmul, matmul_add, matmul_impl, matmul_integer, MatmulStrategy, OpError,
+        gemm_op, matmul, matmul_add, matmul_impl, matmul_integer, MatMul, MatMulAdd,
+        MatmulStrategy, OpError,
     };
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -768,7 +823,67 @@ mod tests {
             let mut expected = Tensor::zeros(out_shape);
 
             reference_matmul(expected.view_mut(), a.view(), b.view(), None);
-            let result = matmul(&pool, a.view(), b.view()).unwrap();
+            let result = matmul(&pool, a.view(), b.view(), None).unwrap();
+            expect_equal(&result, &expected)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_with_prepacked_inputs() -> Result<(), Box<dyn Error>> {
+        struct Case {
+            op: Box<dyn Operator>,
+            bias_input: bool,
+        }
+
+        let cases = [
+            Case {
+                op: Box::new(MatMul {}),
+                bias_input: false,
+            },
+            Case {
+                op: Box::new(MatMulAdd {}),
+                bias_input: true,
+            },
+        ];
+
+        let mut rng = XorShiftRng::new(1234);
+
+        let a = Tensor::rand(&[5, 10], &mut rng);
+
+        // The unpacked and pre-packed versions of an input should use the
+        // same data. Here we intentionally use different tensors with
+        // the same shape so we can verify if the packed data was used.
+        let b = Tensor::<f32>::rand(&[10, 3], &mut rng);
+
+        // Dummy zero bias.
+        let bias = Tensor::<f32>::zeros(&[3]);
+
+        for Case { op, bias_input } in cases {
+            let packed_b_input = Tensor::rand(&[10, 3], &mut rng);
+            let packed_b = op.prepack(1, packed_b_input.view().into()).unwrap();
+
+            let mut expected = Tensor::zeros(&[5, 3]);
+            reference_matmul(expected.view_mut(), a.view(), packed_b_input.view(), None);
+
+            let pool = new_pool();
+            let get_prepacked = |idx| {
+                if idx == 1 {
+                    Some(&packed_b)
+                } else {
+                    None
+                }
+            };
+            let mut inputs =
+                InputList::from(&[a.view().into(), b.view().into()]).with_prepacked(&get_prepacked);
+            if bias_input {
+                inputs.push(bias.view());
+            }
+
+            let mut result = op.run(&pool, inputs).unwrap();
+            let result: Tensor<f32> = result.remove(0).try_into().unwrap();
+
             expect_equal(&result, &expected)?;
         }
 
@@ -786,7 +901,7 @@ mod tests {
         let pool = new_pool();
         let mut expected = Tensor::zeros(&[10, 5]);
         reference_matmul(expected.view_mut(), a.view(), b.view(), bias.clone());
-        let result = matmul_add(&pool, a.view(), b.view(), bias.unwrap()).unwrap();
+        let result = matmul_add(&pool, a.view(), b.view(), None, bias.unwrap()).unwrap();
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -836,7 +951,7 @@ mod tests {
             let a = Tensor::rand(a_shape, &mut rng);
             let b = Tensor::rand(b_shape, &mut rng);
 
-            let result = matmul(&pool, a.view(), b.view());
+            let result = matmul(&pool, a.view(), b.view(), None);
             assert_eq!(result, Err(error));
         }
 
@@ -862,7 +977,7 @@ mod tests {
             let mut rng = XorShiftRng::new(1234);
             let a = Tensor::rand(&[m, k], &mut rng);
             let b = Tensor::rand(&[k, n], &mut rng);
-            let result = matmul(&pool, a.view(), b.view()).unwrap();
+            let result = matmul(&pool, a.view(), b.view(), None).unwrap();
 
             assert_eq!(result.shape(), &[m, n]);
             if k == 0 {
@@ -1038,7 +1153,7 @@ mod tests {
                 );
                 let pool = new_pool();
                 run_bench(trials, Some(&desc), || {
-                    matmul_impl(&pool, a.view(), b.view(), strategy, None)
+                    matmul_impl(&pool, a.view(), b.view(), None, strategy, None)
                         .unwrap()
                         .auto_return(&pool);
                 });

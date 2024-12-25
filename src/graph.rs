@@ -19,10 +19,12 @@ use crate::constant_storage::ArcTensorView;
 use crate::env::env_flag;
 use crate::ops::{
     DataType, Input, InputList, InputOrOutput, OpError, Operator, Output, OutputList,
+    PrepackedInput,
 };
 use crate::tensor_pool::TensorPool;
 use crate::threading;
 use crate::timing::{InputShape, Instant, RunTiming, TimingRecord, TimingSort};
+use crate::weight_cache::WeightCache;
 
 /// Represents the size of a dimension of a runtime-provided value, such as
 /// an operator input, output or intermediate value.
@@ -895,6 +897,56 @@ impl Graph {
         )
     }
 
+    /// Pre-pack constant inputs (ie. weights) to operators.
+    ///
+    /// When loading models, prepacking should be performed after graph
+    /// optimization. There may be other nodes in between the weight constant
+    /// and the compute node, which would prevent prepacking. Graph optimization
+    /// can eliminate these. A common example is when weights are transposed.
+    pub fn prepack_weights(&self, cache: &mut WeightCache) {
+        for (op_node_id, op_node) in self.iter().filter_map(|(node_id, node)| match node {
+            Node::Operator(op) => Some((node_id, op)),
+            _ => None,
+        }) {
+            for input_index in op_node.operator.prepack_inputs() {
+                let Some(input_id) = op_node.input_ids().get(input_index).copied().flatten() else {
+                    continue;
+                };
+
+                if cache.contains(input_id) {
+                    // Input was already pre-packed. This might happen if the
+                    // input is used by multiple operators.
+                    continue;
+                }
+
+                let Some(Node::Constant(const_node)) = self.get_node(input_id) else {
+                    // Input is a value computed during inference, so we don't have it to prepack.
+                    continue;
+                };
+
+                let Some(packed) = op_node.operator.prepack(input_index, const_node.as_input())
+                else {
+                    // Operator doesn't support or decided not to prepack this value.
+                    continue;
+                };
+
+                cache.insert(input_id, packed);
+            }
+
+            let subgraph_caches: Vec<_> = op_node
+                .operator
+                .subgraphs()
+                .into_iter()
+                .map(|subgraph| {
+                    let mut subgraph_cache = WeightCache::new();
+                    subgraph.prepack_weights(&mut subgraph_cache);
+                    subgraph_cache
+                })
+                .collect();
+            cache.insert_subgraph_caches(op_node_id, subgraph_caches);
+        }
+    }
+
     /// Add a constant node to the graph.
     ///
     /// Returns the ID of the added node.
@@ -1005,6 +1057,7 @@ impl Graph {
         &self,
         inputs: Vec<(NodeId, InputOrOutput)>,
         outputs: &[NodeId],
+        weight_cache: Option<&WeightCache>,
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
         let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
@@ -1016,6 +1069,7 @@ impl Graph {
                 outputs,
                 None, /* captures */
                 None, /* pool */
+                weight_cache,
                 opts,
             )
         })
@@ -1031,11 +1085,20 @@ impl Graph {
         outputs: &[NodeId],
         captures: CaptureEnv,
         pool: Option<&TensorPool>,
+        weight_cache: Option<&WeightCache>,
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
         let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
         let plan = self.get_cached_plan(&input_ids, outputs, true /* is_subgraph */)?;
-        self.run_plan(inputs, plan.plan(), outputs, Some(captures), pool, opts)
+        self.run_plan(
+            inputs,
+            plan.plan(),
+            outputs,
+            Some(captures),
+            pool,
+            weight_cache,
+            opts,
+        )
     }
 
     fn get_cached_plan(
@@ -1075,6 +1138,7 @@ impl Graph {
         outputs: &[NodeId],
         mut captures: Option<CaptureEnv>,
         pool: Option<&TensorPool>,
+        weight_cache: Option<&WeightCache>,
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
         let opts = opts.unwrap_or_default();
@@ -1103,7 +1167,7 @@ impl Graph {
                 Some(Node::Constant(constant)) => Some(constant.as_input()),
                 Some(Node::Value(_)) => inputs_by_id.get(&node_id).map(|input| input.as_input()),
                 _ => {
-                    panic!("node is not a value or constant");
+                    panic!("node {} is not a value or constant", node_id);
                 }
             }
         };
@@ -1303,12 +1367,23 @@ impl Graph {
                     pool,
                     InputList::from_optional(&op_inputs),
                     capture_env,
+                    weight_cache.and_then(|wc| wc.get_subgraph_caches(op_node_id)),
                     Some(opts.clone()),
                 )
             } else {
+                let get_prepacked = |input_index: usize| -> Option<&PrepackedInput> {
+                    op_node
+                        .input_ids()
+                        .get(input_index)
+                        .copied()
+                        .flatten()
+                        .and_then(|node_id| weight_cache.and_then(|wc| wc.get(node_id)))
+                };
+                let input_list =
+                    InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
                 op_node
                     .operator
-                    .run(pool, InputList::from_optional(&op_inputs))
+                    .run(pool, input_list)
                     .map_err(op_error_to_run_error)
             };
             std::mem::drop(op_inputs);
@@ -1490,6 +1565,7 @@ impl Graph {
                 &pruned_plan_output_ids,
                 None, /* captures */
                 None, /* pool */
+                None, /* weight cache */
                 opts,
             )
         })?;
@@ -1824,10 +1900,11 @@ mod tests {
     use super::{CachedPlan, CaptureEnv};
     use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TypedConstant};
     use crate::ops::{
-        Add, Concat, Conv, DataType, Identity, If, InputList, IntoOpResult, Mul, OpError, Operator,
-        Output, OutputList, Relu, Shape,
+        Add, Concat, Conv, DataType, Identity, If, Input, InputList, IntoOpResult, MatMul, Mul,
+        OpError, Operator, Output, OutputList, PrepackedInput, Relu, Shape,
     };
     use crate::tensor_pool::TensorPool;
+    use crate::weight_cache::WeightCache;
 
     #[derive(Clone, Debug, Default)]
     struct Metrics {
@@ -1928,7 +2005,7 @@ mod tests {
         );
 
         let results = g
-            .run(vec![(input_id, input.into())], &[relu_out], None)
+            .run(vec![(input_id, input.into())], &[relu_out], None, None)
             .unwrap();
 
         let expected = Tensor::from_data(
@@ -2076,13 +2153,18 @@ mod tests {
         let input = Tensor::from([1.]);
 
         let results = g
-            .run(vec![(input_id, input.view().into())], &[op_c_out], None)
+            .run(
+                vec![(input_id, input.view().into())],
+                &[op_c_out],
+                None,
+                None,
+            )
             .unwrap();
         let expected = Tensor::from([2., 3.]);
         expect_equal(&results[0].as_tensor_view().unwrap(), &expected.view())?;
 
         let results = g
-            .run(vec![(input_id, input.into())], &[op_d_out], None)
+            .run(vec![(input_id, input.into())], &[op_d_out], None, None)
             .unwrap();
         let expected = Tensor::from([3., 2.]);
         expect_equal(&results[0].as_tensor_view().unwrap(), &expected.view())?;
@@ -2127,7 +2209,12 @@ mod tests {
 
         let input = Tensor::from(0.);
         let results = g
-            .run(vec![(input_id, input.into())], &[op_a_out, op_b_out], None)
+            .run(
+                vec![(input_id, input.into())],
+                &[op_a_out, op_b_out],
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(
             &results[0].as_tensor_view().unwrap(),
@@ -2159,7 +2246,7 @@ mod tests {
         }
 
         let results = g
-            .run(vec![(input_id, input.into())], &[prev_output], None)
+            .run(vec![(input_id, input.into())], &[prev_output], None, None)
             .unwrap();
 
         let expected = Tensor::from([101., 102., 103., 104., 105.]);
@@ -2176,7 +2263,12 @@ mod tests {
         let input_id = g.add_value(Some("input"), None, None);
 
         let results = g
-            .run(vec![(input_id, input.view().into())], &[input_id], None)
+            .run(
+                vec![(input_id, input.view().into())],
+                &[input_id],
+                None,
+                None,
+            )
             .unwrap();
 
         expect_equal(&results[0].as_tensor_view().unwrap(), &input.view())?;
@@ -2191,7 +2283,7 @@ mod tests {
         let value = Tensor::from([1., 2., 3., 4., 5.]);
         let const_id = g.add_constant(Some("weight"), value.clone());
 
-        let results = g.run(vec![], &[const_id], None).unwrap();
+        let results = g.run(vec![], &[const_id], None, None).unwrap();
 
         expect_equal(&results[0].as_tensor_view().unwrap(), &value.view())?;
 
@@ -2239,7 +2331,7 @@ mod tests {
     #[test]
     fn test_no_outputs() {
         let g = Graph::new();
-        let results = g.run(vec![], &[], None).unwrap();
+        let results = g.run(vec![], &[], None, None).unwrap();
         assert_eq!(results.len(), 0);
     }
 
@@ -2254,6 +2346,7 @@ mod tests {
                 (input_id, input.view().into()),
             ],
             &[input_id],
+            None,
             None,
         );
         assert_eq!(
@@ -2271,7 +2364,12 @@ mod tests {
 
         let input = Tensor::from([1.]);
 
-        let result = g.run(vec![(input_id, input.into())], &[op_a_out, op_a_out], None);
+        let result = g.run(
+            vec![(input_id, input.into())],
+            &[op_a_out, op_a_out],
+            None,
+            None,
+        );
 
         assert_eq!(
             result,
@@ -2289,7 +2387,7 @@ mod tests {
         let output = g.add_value(None, None, None);
         g.add_op(Some("shape"), Box::new(Shape {}), &[None], &[Some(output)]);
 
-        let results = g.run(vec![], &[output], None);
+        let results = g.run(vec![], &[output], None, None);
 
         assert_eq!(
             results.err(),
@@ -2303,7 +2401,7 @@ mod tests {
     #[test]
     fn test_err_if_invalid_output() {
         let g = Graph::new();
-        let result = g.run(vec![], &[NodeId::from_u32(123)], None);
+        let result = g.run(vec![], &[NodeId::from_u32(123)], None, None);
         assert_eq!(
             result.err(),
             Some(RunError::PlanningError("Missing output 123".to_string()))
@@ -2314,7 +2412,7 @@ mod tests {
     fn test_err_if_missing_operator_input() {
         let mut g = Graph::new();
         let (_, output) = g.add_simple_op("op", Relu {}, &[NodeId::from_u32(42)]);
-        let result = g.run(vec![], &[output], None);
+        let result = g.run(vec![], &[output], None, None);
         assert_eq!(
             result.err(),
             Some(RunError::PlanningError(
@@ -2370,14 +2468,24 @@ mod tests {
         // First operator should not be run in-place, since it has an
         // immutable input. The result should be the same as the input.
         let results = g
-            .run(vec![(input_id, input.view().into())], &[op1_out], None)
+            .run(
+                vec![(input_id, input.view().into())],
+                &[op1_out],
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(results[0].as_tensor_view::<f32>().unwrap()[[0, 0]], 0.0);
 
         // Second operator should be run in-place, as it meets all the
         // requirements for this optimization.
         let results = g
-            .run(vec![(input_id, input.view().into())], &[op2_out], None)
+            .run(
+                vec![(input_id, input.view().into())],
+                &[op2_out],
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(results[0].as_tensor_view::<f32>().unwrap()[[0, 0]], 1.0);
 
@@ -2388,6 +2496,7 @@ mod tests {
             .run(
                 vec![(input_id, input.view().into())],
                 &[op3_out, op4_out],
+                None,
                 None,
             )
             .unwrap();
@@ -2427,6 +2536,7 @@ mod tests {
             .run(
                 vec![(input_id, input.view().into()), (bias_id, bias.into())],
                 &[op2_out],
+                None,
                 None,
             )
             .unwrap();
@@ -2509,6 +2619,7 @@ mod tests {
             .run(
                 vec![(input_id, input.into())],
                 &[left_split_out, right_split_out],
+                None,
                 None,
             )
             .unwrap();
@@ -2683,6 +2794,7 @@ mod tests {
             pool: &TensorPool,
             inputs: InputList,
             captures: CaptureEnv,
+            weight_caches: Option<&[WeightCache]>,
             options: Option<RunOptions>,
         ) -> Result<OutputList, RunError> {
             let inputs = self
@@ -2698,6 +2810,7 @@ mod tests {
                     self.graph.output_ids(),
                     captures,
                     Some(pool),
+                    weight_caches.map(|wcs| &wcs[0]),
                     options,
                 )
                 .map(|xs| xs.into_iter().collect())
@@ -2741,6 +2854,7 @@ mod tests {
                 ],
                 &[if_out],
                 None,
+                None,
             )
             .unwrap();
         let result: Tensor<f32> = result.remove(0).try_into().unwrap();
@@ -2754,6 +2868,7 @@ mod tests {
                     (cond, Tensor::from(0).into()),
                 ],
                 &[if_out],
+                None,
                 None,
             )
             .unwrap();
@@ -2785,7 +2900,12 @@ mod tests {
         let (_, sg_out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
 
         let mut result = g
-            .run(vec![(input, Tensor::from(2.).into())], &[sg_out], None)
+            .run(
+                vec![(input, Tensor::from(2.).into())],
+                &[sg_out],
+                None,
+                None,
+            )
             .unwrap();
         let result: Tensor<f32> = result.remove(0).try_into().unwrap();
         assert_eq!(result, Tensor::from(2.));
@@ -2809,7 +2929,7 @@ mod tests {
         let result = subgraph.partial_run(Vec::new(), &[sg_add], None).unwrap();
         assert_eq!(result.len(), 0);
 
-        let result = subgraph.run(Vec::new(), &[sg_add], None);
+        let result = subgraph.run(Vec::new(), &[sg_add], None, None);
         assert_eq!(
             result,
             Err(RunError::PlanningError(
@@ -2864,7 +2984,9 @@ mod tests {
         // Run the graph. The planner must account for captured dependencies
         // in the `Subgraph` op.
         let input = Tensor::from(3.);
-        let mut result = g.run(vec![(input_id, input.into())], &[out], None).unwrap();
+        let mut result = g
+            .run(vec![(input_id, input.into())], &[out], None, None)
+            .unwrap();
         let result: Tensor<f32> = result.remove(0).try_into().unwrap();
         assert_eq!(result.item(), Some(&6.));
     }
@@ -2899,7 +3021,9 @@ mod tests {
         // Run the graph. The planner must account for captured dependencies
         // from the innermost graph in the `Subgraph` op.
         let input = Tensor::from(3.);
-        let mut result = g.run(vec![(input_id, input.into())], &[out], None).unwrap();
+        let mut result = g
+            .run(vec![(input_id, input.into())], &[out], None, None)
+            .unwrap();
         let result: Tensor<f32> = result.remove(0).try_into().unwrap();
         assert_eq!(result.item(), Some(&6.));
     }
@@ -2927,7 +3051,9 @@ mod tests {
         let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[mul_out]);
 
         let input = Tensor::from(3.);
-        let mut result = g.run(vec![(input_id, input.into())], &[out], None).unwrap();
+        let mut result = g
+            .run(vec![(input_id, input.into())], &[out], None, None)
+            .unwrap();
         let result: Tensor<f32> = result.remove(0).try_into().unwrap();
         assert_eq!(result.item(), Some(&3.));
     }
@@ -2951,7 +3077,9 @@ mod tests {
 
         // Run graph with an owned value as input.
         let input = Tensor::from(42.);
-        let mut result = g.run(vec![(input_id, input.into())], &[out], None).unwrap();
+        let mut result = g
+            .run(vec![(input_id, input.into())], &[out], None, None)
+            .unwrap();
 
         // Check result and that Identity operation was run in-place.
         let result: Tensor<f32> = result.remove(0).try_into().unwrap();
@@ -2966,7 +3094,7 @@ mod tests {
         // Run graph with view as input.
         let input = Tensor::from(42.);
         let mut result = g
-            .run(vec![(input_id, input.view().into())], &[out], None)
+            .run(vec![(input_id, input.view().into())], &[out], None, None)
             .unwrap();
 
         // Check result and that Identity operation was not run in-place.
@@ -2978,5 +3106,89 @@ mod tests {
             assert_eq!(id_op_metrics.run_count, 1);
             assert_eq!(id_op_metrics.run_in_place_count, 1);
         }
+    }
+
+    // MatMul wrapper that verifies its B input (ie. the weights) are prepacked.
+    #[derive(Debug)]
+    struct MatMulExpectPacked {
+        inner: MatMul,
+    }
+
+    impl MatMulExpectPacked {
+        fn new() -> Self {
+            MatMulExpectPacked { inner: MatMul {} }
+        }
+    }
+
+    impl Operator for MatMulExpectPacked {
+        fn name(&self) -> &str {
+            "MatMulExpectPacked"
+        }
+
+        fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
+            [1].into()
+        }
+
+        fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
+            self.inner.prepack(index, input)
+        }
+
+        fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+            let prepacked = inputs.get_prepacked(1);
+            assert!(prepacked.is_some());
+            self.inner.run(pool, inputs)
+        }
+    }
+
+    #[test]
+    fn test_prepack_weights() {
+        // Create a graph and a subgraph, both with operators that can
+        // use prepacked weights.
+        let mut graph = Graph::new();
+        let mut cache = WeightCache::new();
+
+        let input = graph.add_value(Some("input"), None, None);
+        let weights = graph.add_constant(None, Tensor::<f32>::zeros(&[10, 7]));
+        let (_, matmul_out) =
+            graph.add_simple_op("MatMul", MatMulExpectPacked::new(), &[input, weights]);
+
+        let mut subgraph = Graph::new();
+        let sg_input = subgraph.add_value(Some("sg-input"), None, None);
+        let sg_weights = subgraph.add_constant(None, Tensor::<f32>::zeros(&[7, 5]));
+        let (_, sg_matmul_out) = subgraph.add_simple_op(
+            "sg-MatMul",
+            MatMulExpectPacked::new(),
+            &[sg_input, sg_weights],
+        );
+        subgraph.set_input_ids(&[sg_input]);
+        subgraph.set_output_ids(&[sg_matmul_out]);
+
+        let (subgraph_op, subgraph_out) =
+            graph.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[matmul_out]);
+        graph.set_input_ids(&[input]);
+        graph.set_output_ids(&[subgraph_out]);
+
+        // Prepack weights and verify that the cache was populated.
+        graph.prepack_weights(&mut cache);
+        assert_eq!(cache.len(), 2);
+        assert!(cache.get(weights).is_some());
+
+        let sg_cache = cache
+            .get_subgraph_caches(subgraph_op)
+            .map(|caches| &caches[0])
+            .unwrap();
+        assert!(sg_cache.get(sg_weights).is_some());
+
+        // Run the graph, passing the cache. The MatMul wrapper will verify
+        // that the B / RHS inputs were passed from the cache.
+        let input_value = Tensor::<f32>::zeros(&[3, 10]);
+        graph
+            .run(
+                [(input, input_value.into())].into(),
+                &[subgraph_out],
+                Some(&cache),
+                None,
+            )
+            .unwrap();
     }
 }

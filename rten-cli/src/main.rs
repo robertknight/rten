@@ -16,6 +16,9 @@ struct Args {
     /// Whether to enable graph optimizations
     optimize: bool,
 
+    /// Whether to enable prepacking of weights
+    prepack_weights: bool,
+
     /// Run model and don't produce other output
     quiet: bool,
 
@@ -115,6 +118,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut verbose = false;
     let mut input_sizes = Vec::new();
     let mut optimize = true;
+    let mut prepack_weights = false;
 
     let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
@@ -128,6 +132,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                     .map_err(|_| "Unable to parse `n_iters`".to_string())?;
             }
             Long("no-optimize") => optimize = false,
+            Short('p') | Long("prepack") => prepack_weights = true,
             Short('q') | Long("quiet") => quiet = true,
             Short('v') | Long("verbose") => verbose = true,
             Short('V') | Long("version") => {
@@ -163,11 +168,14 @@ Options:
 
   -q, --quiet    Run model and don't produce other output
 
-  -t, --timing   Output timing info
+  -p, --prepack  Enable prepacking of weights.
+                 This requires additional memory but makes inference faster.
 
   -s, --size <spec>
                  Specify size for a dynamic dimension in the form `dim_name=size`
                  or `input_name.dim_name=size`
+
+  -t, --timing   Output timing info
 
   -v, --verbose  Enable verbose logging
   -V, --version  Display RTen version
@@ -183,14 +191,15 @@ Options:
     let model = values.pop_front().ok_or("missing `<model>` arg")?;
 
     Ok(Args {
+        input_sizes,
+        mmap,
         model,
         n_iters,
-        mmap,
         optimize,
+        prepack_weights,
         quiet,
         timing,
         verbose,
-        input_sizes,
     })
 }
 
@@ -461,6 +470,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut model_opts = ModelOptions::with_all_ops();
     model_opts.enable_optimization(args.optimize);
+    model_opts.prepack_weights(args.prepack_weights);
 
     let model = if args.mmap {
         unsafe { model_opts.load_mmap(args.model)? }

@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use rten_tensor::prelude::*;
+use smallvec::SmallVec;
 
-use crate::ops::{Input, InputList, OpError, Operator, OutputList};
+use crate::ops::{Input, InputList, OpError, Operator, OutputList, PrepackedInput};
 use crate::tensor_pool::TensorPool;
 
 /// Specifies a permutation to an operator input.
@@ -75,6 +76,14 @@ impl Operator for FusedTranspose {
     fn run(&self, pool: &TensorPool, mut inputs: InputList) -> Result<OutputList, OpError> {
         self.perm.apply(&mut inputs)?;
         self.inner.run(pool, inputs)
+    }
+
+    fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
+        self.inner.prepack_inputs()
+    }
+
+    fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
+        self.inner.prepack(index, input)
     }
 }
 
