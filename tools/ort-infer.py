@@ -78,16 +78,12 @@ def run_model(
         model_path, providers=providers, sess_options=sess_opts
     )
 
-    def resolve_dim(dim: str) -> int:
-        if dim in dynamic_dims:
-            return dynamic_dims[dim]
-        else:
-            raise ValueError("Missing size for dynamic dim")
-
+    # Print summary of model inputs and outputs and generate random data for
+    # model inputs.
     inputs = {}
-    output_names = [node.name for node in session.get_outputs()]
-    unresolved_dim_names = set()
+    dynamic_dims_without_sizes = set()
 
+    print("Inputs:")
     for node in session.get_inputs():
         type_map = {
             "tensor(float)": np.float32,
@@ -100,54 +96,56 @@ def run_model(
         for d in node.shape:
             if isinstance(d, int):
                 resolved_shape.append(d)
+            elif d in dynamic_dims:
+                resolved_shape.append(dynamic_dims[d])
             else:
-                try:
-                    resolved_d = resolve_dim(d)
-                    resolved_shape.append(resolved_d)
-                except ValueError:
-                    # Collect names of dims with unresolved sizes. We then
-                    # list them all in one error. This avoids needing to run
-                    # the tool multiple times to get the names of all dynamic
-                    # inputs that the user needs to specify sizes for.
-                    unresolved_dim_names.add(d)
-        if unresolved_dim_names:
-            continue
+                dynamic_dims_without_sizes.add(d)
+                resolved_shape.append(1)
+            value = np.random.rand(*resolved_shape).astype(type_map[node.type])
+            inputs[node.name] = value
 
-        value = np.random.rand(*resolved_shape).astype(type_map[node.type])
-        inputs[node.name] = value
+        print(f"  {node.name}: {node.type} {node.shape}")
 
-    if unresolved_dim_names:
-        unresolved_list = ", ".join(f'"{dim}"' for dim in unresolved_dim_names)
-        raise ValueError(
-            "Missing size for dynamic dims: {}. Specify with `-d dim_name=size`".format(
-                unresolved_list
+    if dynamic_dims_without_sizes:
+        print()
+        for dim in dynamic_dims_without_sizes:
+            print(
+                f'  Size not specified for dynamic dimension "{dim}". Defaulting to 1.'
             )
-        )
+    print()
 
-    print(
-        "Model inputs:",
-        [(inp[0], inp[1].shape, inp[1].dtype.name) for inp in inputs.items()],
-    )
-    print("Outputs: ", output_names)
+    print("Outputs:")
+    for node in session.get_outputs():
+        print(f"  {node.name}: {node.type} {node.shape}")
+    print()
 
-    # Run the model multiple times. The first few runs can act as a warmup.
-    total_elapsed = 0.0
+    # Run model and collect timing statistics
+    output_names = [node.name for node in session.get_outputs()]
+    durations = []
     for _ in range(0, n_evals):
         start = perf_counter()
-        outputs = session.run(output_names, inputs)
+        session.run(output_names, inputs)
         elapsed = perf_counter() - start
-        total_elapsed += elapsed
-        print("Model eval time: {}ms".format(elapsed * 1000))
+        durations.append(elapsed * 1000.0)
+        print("Model eval time: {:.2f}ms".format(elapsed * 1000))
 
-    mean_elapsed = total_elapsed / n_evals
-    print("Mean eval time: {}ms".format(mean_elapsed * 1000))
+    # Print duration statistics
+    mean = sum(durations) / n_evals
+    variance = sum((dur - mean) ** 2 for dur in durations) / n_evals
+    std_dev = variance**0.5
+    min_dur = min(durations)
+    max_dur = max(durations)
+    print()
+    print(
+        f"Duration stats: mean {mean:.2f}ms, min {min_dur:.2f}ms, max {max_dur:.2f}ms, std dev {std_dev:.2f}ms"
+    )
 
 
 parser = ArgumentParser(description="Run an ONNX model using ONNX Runtime")
 parser.add_argument("model", help="Path to .onnx model")
 parser.add_argument(
-    "-d",
-    "--dim",
+    "-s",
+    "--size",
     type=str,
     action="append",
     help="Specify size for dynamic input dim as `dim_name=size`",
@@ -166,7 +164,7 @@ parser.add_argument(
 )
 parser.add_argument("-p", "--profile", action="store_true", help="Enable profiling")
 parser.add_argument(
-    "-s", "--save-optimized", type=str, help="Save optimized model to given path"
+    "--save-optimized", type=str, help="Save optimized model to given path"
 )
 parser.add_argument(
     "-t", "--intra-threads", type=int, help="Number of threads to use within ops"
@@ -179,24 +177,29 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
+provider_names = ", ".join(
+    p.replace("ExecutionProvider", "") for p in ort.get_available_providers()
+)
 
 print(f"ONNX Runtime version {ort.get_version_string()}")
-print("Available execution providers:", ort.get_available_providers())
-print(f"Device:", ort.get_device())
+print("Available execution providers:", provider_names)
+print("Device:", ort.get_device())
+print()
 
-dynamic_dims = {}
-for dim_str in args.dim or []:
+# Map of dimension name to size for dynamic dims. The parsing here should
+# roughly match rten-cli.
+dynamic_dims: dict[str, int] = {}
+for size_spec in args.size or []:
     try:
-        name, size = dim_str.split("=")
+        name, size = size_spec.split("=")
         size = int(size)
+        if size < 0:
+            print(f'Dim size "{name}" must be positive')
+            sys.exit(1)
     except ValueError:
         print(
-            f'Dim argument "{dim_str}" does not have expected format. Expected "name=size".'
+            f'Dimension size argument "{size_spec}" does not have expected format. Expected "name=size".'
         )
-        sys.exit(1)
-
-    if size < 0:
-        print(f"Dim size must be positive")
         sys.exit(1)
 
     dynamic_dims[name] = size
