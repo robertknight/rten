@@ -9,8 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten
 
+- Fix panic if `Model::run` is passed an input or output node ID which refers to
+  an operator node rather than a value or constant node
+  (https://github.com/robertknight/rten/pull/485).
+
+- Support prepacked weights. This increases model load time and memory usage but
+  decreases inference time. Weight pre-packing is disabled by default and can be
+  enabled via `ModelOptions::prepack_weights`
+  (https://github.com/robertknight/rten/pull/483).
+
 - Support fusing LayerNormalization operator variants that don't use a bias,
-  such as found in ModernBERT and other models.
+  such as found in ModernBERT and other models (https://github.com/robertknight/rten/pull/470).
 
 - Support `DepthToSpace` operator (https://github.com/robertknight/rten/pull/468)
 
@@ -62,6 +71,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Breaking changes:** The result of `TensorBase::reshaped` now has a shorter
 lifetime as it may be an owned tensor instead of a view. Method call chains that
 used `reshaped` in the middle may need to be split into separate statements.
+
+- Support indexing 1D tensors using scalars instead of arrays
+  (https://github.com/robertknight/rten/pull/480).
 
 - Support using slice ranges with steps in `TensorBase::slice`
   (https://github.com/robertknight/rten/pull/464)
