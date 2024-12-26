@@ -9,12 +9,12 @@ use crate::graph::{
     CaptureEnv, Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError, TypedConstant,
 };
 use crate::ops::fused::FusedTranspose;
-use crate::ops::{Gelu, LayerNormalization, MatMulAdd, Operator, ReduceMean, Silu, Transpose};
+use crate::ops::{FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, Silu, Transpose};
 use crate::Output;
 
 mod pattern_matcher;
 
-use pattern_matcher::{binary_op, const_symbol, symbol, unary_op, unary_op_key};
+use pattern_matcher::{binary_op, const_symbol, symbol, unary_op, unary_op_key, Match};
 
 /// Errors that occur while applying graph optimizations.
 #[derive(Debug, PartialEq)]
@@ -294,11 +294,12 @@ impl GraphOptimizer {
         }
         self.propagate_constants(&mut graph_mut)?;
 
-        self.fuse_transpose(&mut graph_mut)?;
         self.fuse_silu(&mut graph_mut)?;
         self.fuse_gelu(&mut graph_mut)?;
         self.fuse_layer_norm(&mut graph_mut)?;
         self.fuse_matmul_add(&mut graph_mut)?;
+        self.fuse_matmul_scaled(&mut graph_mut)?;
+        self.fuse_transpose(&mut graph_mut)?;
 
         Ok(graph_mut.finalize_graph())
     }
@@ -389,7 +390,7 @@ impl GraphOptimizer {
 
             // Filter against a set of operators which are known to efficiently
             // handle transposed inputs.
-            if !["MatMul"].contains(&transpose_target.operator().name()) {
+            if !["MatMul", "FusedMatMul"].contains(&transpose_target.operator().name()) {
                 return None;
             }
 
@@ -477,8 +478,78 @@ impl GraphOptimizer {
 
             Some(Fusion::from_op(
                 op_node.name(),
-                MatMulAdd {},
-                vec![Some(a_input), Some(b_input), Some(bias_input)],
+                FusedMatMul { alpha: None },
+                [Some(a_input), Some(b_input), Some(bias_input)].into(),
+                op_output,
+            ))
+        });
+
+        Ok(())
+    }
+
+    /// Fuse multiplication or division of MatMul inputs and outputs by
+    /// scalars.
+    ///
+    /// A subgraph of the form `Mul(MatMul(Mul(X, c), Mul(Y, d)), e)` where c, d
+    /// and e are constants can be rewritten as `FusedMatMul(X, Y, alpha=c * d *
+    /// e)`. Each `Mul(X, c)` can also be expressed as `Div(X, 1/c)`.
+    fn fuse_matmul_scaled(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
+        let x = symbol("x");
+        let y = symbol("y");
+
+        let c = const_symbol("c");
+        let d = const_symbol("d");
+
+        // We currently recognize two common patterns of specifying a scaled
+        // matmul in the graph, but there are many other permuations (eg.
+        // only one input scaled, Muls swapped for Divs and vice versa) that
+        // ideally this transform would recognize.
+        //
+        // A more complex situation is where the Mul or Div operand is constant
+        // in practice, but computed from a value's shape at runtime. Consider
+        // standard scaled dot product attention:
+        //
+        //   Attention(Q, K, V) = Softmax(MatMul(Q, Transpose(K)) / Sqrt(dK))
+        //
+        // `Sqrt(dK)` is always constant at runtime, but depending on how the
+        // model was exported may be computed from `Shape(K)` output. Such
+        // cases are not currently handled.
+
+        // MatMul(Mul(X, c), Mul(Y, d))
+        let matmul_mul_pat = binary_op("MatMul", c.clone() * x.clone(), d.clone() * y.clone());
+
+        // Div(MatMul(X), c)
+        let div_matmul_pat = binary_op("MatMul", x.clone(), y.clone()) / c.clone();
+
+        graph.apply_fusion(|graph, op_node_id, op_node| {
+            let get_scalar = |match_: &Match, name: &str| -> Option<f32> {
+                let scalar_node_id = match_.resolved_symbol(name)?;
+                match graph.graph().get_node(scalar_node_id) {
+                    Some(Node::Constant(const_node)) => const_node.as_scalar(),
+                    _ => None,
+                }
+            };
+
+            let (alpha, match_) =
+                if let Some(match_) = matmul_mul_pat.test(op_node_id, graph.graph()) {
+                    let c = get_scalar(&match_, "c")?;
+                    let d = get_scalar(&match_, "d")?;
+                    (c * d, match_)
+                } else if let Some(match_) = div_matmul_pat.test(op_node_id, graph.graph()) {
+                    let c = get_scalar(&match_, "c")?;
+                    (1. / c, match_)
+                } else {
+                    return None;
+                };
+
+            let x_input = match_.resolved_symbol("x").unwrap();
+            let y_input = match_.resolved_symbol("y").unwrap();
+            let op_output = op_node.output_id()?;
+
+            Some(Fusion::from_op(
+                op_node.name(),
+                FusedMatMul { alpha: Some(alpha) },
+                [Some(x_input), Some(y_input)].into(),
                 op_output,
             ))
         });
@@ -637,8 +708,8 @@ mod tests {
     use crate::downcast::DowncastDyn;
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
     use crate::ops::{
-        Add, Div, Erf, LayerNormalization, MatMul, Mul, Pow, ReduceMean, Sigmoid, Sqrt, Sub,
-        Transpose,
+        Add, Div, Erf, FusedMatMul, LayerNormalization, MatMul, Mul, Pow, ReduceMean, Sigmoid,
+        Sqrt, Sub, Transpose,
     };
 
     fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
@@ -804,8 +875,49 @@ mod tests {
         let graph = optimize_graph(graph).unwrap();
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
-        assert_eq!(op.operator().name(), "MatMulAdd");
+        assert_eq!(op.operator().name(), "FusedMatMul");
         assert_eq!(op.name(), Some("add"));
+    }
+
+    #[test]
+    fn test_fuse_matmul_scaled() {
+        // Pattern 1: MatMul(Mul(A, c), Mul(B, d))
+        let mut graph = Graph::new();
+        let a = graph.add_value(None, None, None);
+        let b = graph.add_value(None, None, None);
+        let c = graph.add_constant(None, Tensor::from(0.5));
+        let d = graph.add_constant(None, Tensor::from(0.3));
+        let (_, mul_a_out) = graph.add_simple_op("scale-a", Mul {}, &[a, c]);
+        let (_, mul_b_out) = graph.add_simple_op("scale-b", Mul {}, &[b, d]);
+        let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[mul_a_out, mul_b_out]);
+        graph.set_input_ids(&[a, b]);
+        graph.set_output_ids(&[matmul_out]);
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(op.operator().name(), "FusedMatMul");
+        assert_eq!(op.name(), Some("matmul"));
+        let fused_matmul_op = op.operator().downcast_ref::<FusedMatMul>().unwrap();
+        assert_eq!(fused_matmul_op.alpha, Some(0.5 * 0.3));
+
+        // Pattern 2: Div(MatMul(A, B), c)
+        let mut graph = Graph::new();
+        let a = graph.add_value(None, None, None);
+        let b = graph.add_value(None, None, None);
+        let c = graph.add_constant(None, Tensor::from(0.5));
+        let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[a, b]);
+        let (_, div_out) = graph.add_simple_op("div", Div {}, &[matmul_out, c]);
+        graph.set_input_ids(&[a, b]);
+        graph.set_output_ids(&[div_out]);
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(op.operator().name(), "FusedMatMul");
+        assert_eq!(op.name(), Some("div"));
+        let fused_matmul_op = op.operator().downcast_ref::<FusedMatMul>().unwrap();
+        assert_eq!(fused_matmul_op.alpha, Some(1. / 0.5));
     }
 
     #[test]
