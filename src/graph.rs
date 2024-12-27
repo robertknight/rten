@@ -39,6 +39,7 @@ pub enum Dimension {
     Symbolic(String),
 }
 
+#[derive(Debug)]
 pub struct OperatorNode {
     name: Option<String>,
     inputs: Vec<Option<NodeId>>,
@@ -87,6 +88,7 @@ impl OperatorNode {
     }
 }
 
+#[derive(Debug)]
 pub struct ValueNode {
     name: Option<String>,
     shape: Option<Vec<Dimension>>,
@@ -100,6 +102,7 @@ impl ValueNode {
 }
 
 /// Data for a constant node (ie. model weights) in a [`Graph`].
+#[derive(Debug)]
 pub enum ConstantNodeData<T> {
     Owned(Tensor<T>),
     Arc(ArcTensorView<T>),
@@ -126,6 +129,7 @@ impl<T> From<ArcTensorView<T>> for ConstantNodeData<T> {
     }
 }
 
+#[derive(Debug)]
 pub struct ConstantNode<T> {
     name: Option<String>,
     data: ConstantNodeData<T>,
@@ -155,6 +159,7 @@ impl<T> ConstantNode<T> {
     }
 }
 
+#[derive(Debug)]
 pub enum Constant {
     Float(ConstantNode<f32>),
     Int32(ConstantNode<i32>),
@@ -268,6 +273,7 @@ impl_typed_constant!(i32, Int32);
 impl_typed_constant!(i8, Int8);
 impl_typed_constant!(u8, UInt8);
 
+#[derive(Debug)]
 pub enum Node {
     Operator(OperatorNode),
     Constant(Constant),

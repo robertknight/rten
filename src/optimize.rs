@@ -14,7 +14,7 @@ use crate::Output;
 
 mod pattern_matcher;
 
-use pattern_matcher::{binary_op, const_symbol, symbol, unary_op, unary_op_key, Match};
+use pattern_matcher::{binary_op, const_symbol, symbol, unary_op, unary_op_key};
 
 /// Errors that occur while applying graph optimizations.
 #[derive(Debug, PartialEq)]
@@ -494,62 +494,100 @@ impl GraphOptimizer {
     /// and e are constants can be rewritten as `FusedMatMul(X, Y, alpha=c * d *
     /// e)`. Each `Mul(X, c)` can also be expressed as `Div(X, 1/c)`.
     fn fuse_matmul_scaled(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        let x = symbol("x");
-        let y = symbol("y");
+        let binary_op_input_ids = |op: &OperatorNode| -> Option<[NodeId; 2]> {
+            match op.input_ids() {
+                [Some(lhs_id), Some(rhs_id)] => Some([*lhs_id, *rhs_id]),
+                _ => None,
+            }
+        };
 
-        let c = const_symbol("c");
-        let d = const_symbol("d");
+        let get_const_scalar = |graph: &Graph, node_id: NodeId| -> Option<f32> {
+            graph.get_node(node_id).and_then(|node| match node {
+                Node::Constant(const_node) => const_node.as_scalar(),
+                _ => None,
+            })
+        };
 
-        // We currently recognize two common patterns of specifying a scaled
-        // matmul in the graph, but there are many other permuations (eg.
-        // only one input scaled, Muls swapped for Divs and vice versa) that
-        // ideally this transform would recognize.
-        //
-        // A more complex situation is where the Mul or Div operand is constant
-        // in practice, but computed from a value's shape at runtime. Consider
-        // standard scaled dot product attention:
-        //
-        //   Attention(Q, K, V) = Softmax(MatMul(Q, Transpose(K)) / Sqrt(dK))
-        //
-        // `Sqrt(dK)` is always constant at runtime, but depending on how the
-        // model was exported may be computed from `Shape(K)` output. Such
-        // cases are not currently handled.
+        // Test if `op_node` is a Mul or Div node with one constant scalar
+        // input and one non-constant input. If so, returns the constant scalar
+        // which the node multiplies the other input by and the ID of the other
+        // input.
+        let get_scale_factor = |graph: &Graph, op_node: &OperatorNode| -> Option<(f32, NodeId)> {
+            let op_type = op_node.operator().name();
+            if !["Mul", "Div"].contains(&op_type) {
+                return None;
+            }
 
-        // MatMul(Mul(X, c), Mul(Y, d))
-        let matmul_mul_pat = binary_op("MatMul", c.clone() * x.clone(), d.clone() * y.clone());
+            let [lhs, rhs] = binary_op_input_ids(op_node)?;
+            let lhs_scalar = get_const_scalar(graph, lhs);
+            let rhs_scalar = get_const_scalar(graph, rhs);
 
-        // Div(MatMul(X), c)
-        let div_matmul_pat = binary_op("MatMul", x.clone(), y.clone()) / c.clone();
-
-        graph.apply_fusion(|graph, op_node_id, op_node| {
-            let get_scalar = |match_: &Match, name: &str| -> Option<f32> {
-                let scalar_node_id = match_.resolved_symbol(name)?;
-                match graph.graph().get_node(scalar_node_id) {
-                    Some(Node::Constant(const_node)) => const_node.as_scalar(),
+            match op_type {
+                "Mul" => match (lhs_scalar, rhs_scalar) {
+                    (Some(lhs_scale), None) => Some((lhs_scale, rhs)),
+                    (None, Some(rhs_scale)) => Some((rhs_scale, lhs)),
                     _ => None,
-                }
+                },
+                "Div" => match (lhs_scalar, rhs_scalar) {
+                    (None, Some(rhs_scale)) => Some((1. / rhs_scale, lhs)),
+                    _ => None,
+                },
+                _ => None,
+            }
+        };
+
+        graph.apply_fusion(|graph, _op_node_id, op_node| {
+            // Accumulated scale factor from scalings applied to MatMul inputs
+            // and outputs.
+            let mut alpha = 1.0;
+
+            let op_output = op_node.output_id()?;
+            let graph = graph.graph();
+
+            // Check if this is a Mul/Div node scaling the output of a MatMul.
+            let matmul_node = if ["Mul", "Div"].contains(&op_node.operator().name()) {
+                let (output_scale, scale_input) = get_scale_factor(graph, op_node)?;
+                alpha *= output_scale;
+                let (_, scale_input_op) = graph.get_source_node(scale_input)?;
+                scale_input_op
+            } else {
+                op_node
             };
 
-            let (alpha, match_) =
-                if let Some(match_) = matmul_mul_pat.test(op_node_id, graph.graph()) {
-                    let c = get_scalar(&match_, "c")?;
-                    let d = get_scalar(&match_, "d")?;
-                    (c * d, match_)
-                } else if let Some(match_) = div_matmul_pat.test(op_node_id, graph.graph()) {
-                    let c = get_scalar(&match_, "c")?;
-                    (1. / c, match_)
-                } else {
-                    return None;
-                };
+            if matmul_node.operator().name() != "MatMul" {
+                return None;
+            }
 
-            let x_input = match_.resolved_symbol("x").unwrap();
-            let y_input = match_.resolved_symbol("y").unwrap();
-            let op_output = op_node.output_id()?;
+            let [matmul_lhs, matmul_rhs] = binary_op_input_ids(matmul_node)?;
+            let lhs_input = if let Some((_, lhs_source_op)) = graph.get_source_node(matmul_lhs) {
+                let (lhs_scale, lhs_input) =
+                    get_scale_factor(graph, lhs_source_op).unwrap_or((1.0, matmul_lhs));
+                alpha *= lhs_scale;
+                lhs_input
+            } else {
+                // MatMul LHS is not computed by an upstream operator.
+                matmul_lhs
+            };
+
+            let rhs_input = if let Some((_, rhs_source_op)) = graph.get_source_node(matmul_rhs) {
+                let (rhs_scale, rhs_input) =
+                    get_scale_factor(graph, rhs_source_op).unwrap_or((1.0, matmul_rhs));
+                alpha *= rhs_scale;
+                rhs_input
+            } else {
+                // MatMul RHS is not computed by an upstream operator.
+                matmul_rhs
+            };
+
+            if alpha == 1.0 {
+                // Scale factor of 1 has no effect.
+                return None;
+            }
 
             Some(Fusion::from_op(
-                op_node.name(),
+                matmul_node.name(),
                 FusedMatMul { alpha: Some(alpha) },
-                [Some(x_input), Some(y_input)].into(),
+                [Some(lhs_input), Some(rhs_input)].into(),
                 op_output,
             ))
         });
@@ -881,7 +919,8 @@ mod tests {
 
     #[test]
     fn test_fuse_matmul_scaled() {
-        // Pattern 1: MatMul(Mul(A, c), Mul(B, d))
+        // Pattern 1: MatMul(Mul(A, c), Mul(B, d)). This has scale applied to
+        // inputs via `Mul` ops.
         let mut graph = Graph::new();
         let a = graph.add_value(None, None, None);
         let b = graph.add_value(None, None, None);
@@ -901,7 +940,8 @@ mod tests {
         let fused_matmul_op = op.operator().downcast_ref::<FusedMatMul>().unwrap();
         assert_eq!(fused_matmul_op.alpha, Some(0.5 * 0.3));
 
-        // Pattern 2: Div(MatMul(A, B), c)
+        // Pattern 2: Div(MatMul(A, B), c). This has scale applied to outputs
+        // via `Div` ops.
         let mut graph = Graph::new();
         let a = graph.add_value(None, None, None);
         let b = graph.add_value(None, None, None);
@@ -915,7 +955,7 @@ mod tests {
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "FusedMatMul");
-        assert_eq!(op.name(), Some("div"));
+        assert_eq!(op.name(), Some("matmul"));
         let fused_matmul_op = op.operator().downcast_ref::<FusedMatMul>().unwrap();
         assert_eq!(fused_matmul_op.alpha, Some(1. / 0.5));
     }
