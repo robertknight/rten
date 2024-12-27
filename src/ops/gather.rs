@@ -54,10 +54,11 @@ pub fn gather<T: Copy + Default>(
         &input.shape()[axis + 1..],
     ]
     .concat();
-    let mut output = Tensor::zeros_in(pool, &out_shape);
 
+    let mut output = Tensor::uninit_in(pool, &out_shape);
     let mut in_range = full_range(input.ndim());
     let mut out_range = full_range(output.ndim());
+    let mut n_init = 0;
 
     for (index_idx, index) in indices.indices().zip(indices.iter()) {
         in_range[axis] = SliceItem::Index(*index as isize);
@@ -67,9 +68,18 @@ pub fn gather<T: Copy + Default>(
         let in_slice = input
             .try_slice(in_range.as_slice())
             .map_err(|_| INVALID_INDEX_ERR)?;
-        let mut out_slice = output.slice_mut(out_range.as_slice());
-        out_slice.copy_from(&in_slice);
+        let out_slice = output.slice_mut(out_range.as_slice());
+        let out_slice = out_slice.init_from(&in_slice);
+        n_init += out_slice.len();
     }
+
+    // Each iteration of the above loop initializes one slice of the output
+    // with shape `output_shape[..axis] + index + output_shape[axis + len(index)..]`.
+    //
+    // It iterates over all values for the middle index dimensions, so by the
+    // end it has initialized all elements of the output.
+    assert_eq!(n_init, output.len());
+    let output = unsafe { output.assume_init() };
 
     Ok(output)
 }
