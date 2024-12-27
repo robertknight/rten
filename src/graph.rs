@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
-use std::num::NonZero;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{DynLayout, Tensor, TensorView};
 
 // The std HashMap/HashSet provide DOS resistance. In this module hash keys are
 // mostly `NodeId`s which we allocate ourselves, so this is not a concern.
@@ -15,7 +13,6 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use smallvec::SmallVec;
 
-use crate::constant_storage::ArcTensorView;
 use crate::env::env_flag;
 use crate::ops::{
     DataType, Input, InputList, InputOrOutput, OpError, Operator, Output, OutputList,
@@ -26,344 +23,16 @@ use crate::threading;
 use crate::timing::{InputShape, Instant, RunTiming, TimingRecord, TimingSort};
 use crate::weight_cache::WeightCache;
 
-/// Represents the size of a dimension of a runtime-provided value, such as
-/// an operator input, output or intermediate value.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Dimension {
-    /// A dimension whose expected size is fixed and specified as part of the
-    /// model.
-    Fixed(usize),
+mod capture_env;
+pub use capture_env::CaptureEnv;
+mod node;
+use node::ValueNode;
+pub use node::{
+    Constant, ConstantNode, ConstantNodeData, Dimension, Node, OperatorNode, TypedConstant,
+};
 
-    /// A dimension whose size is determined at runtime. The symbol provides
-    /// a name to identify when different values share a size.
-    Symbolic(String),
-}
-
-#[derive(Debug)]
-pub struct OperatorNode {
-    name: Option<String>,
-    inputs: Vec<Option<NodeId>>,
-    outputs: Vec<Option<NodeId>>,
-    operator: Arc<dyn Operator + Send + Sync>,
-}
-
-impl OperatorNode {
-    pub fn name(&self) -> Option<&str> {
-        self.name.as_deref()
-    }
-
-    pub fn input_ids(&self) -> &[Option<NodeId>] {
-        &self.inputs
-    }
-
-    pub fn output_ids(&self) -> &[Option<NodeId>] {
-        &self.outputs
-    }
-
-    pub fn output_id(&self) -> Option<NodeId> {
-        match &self.outputs[..] {
-            [Some(id)] => Some(*id),
-            _ => None,
-        }
-    }
-
-    pub fn operator(&self) -> &dyn Operator {
-        self.operator.as_ref()
-    }
-
-    /// Return a new `Arc` reference to this node's operator.
-    ///
-    /// Since operators are stateless and immutable once added to a graph, they
-    /// can be "cloned" just be creating a new reference.
-    pub fn clone_operator(&self) -> Arc<dyn Operator + Send + Sync> {
-        self.operator.clone()
-    }
-
-    pub fn replace_input(&mut self, old_id: NodeId, new_id: NodeId) {
-        for input_id in self.inputs.iter_mut() {
-            if *input_id == Some(old_id) {
-                *input_id = Some(new_id);
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct ValueNode {
-    name: Option<String>,
-    shape: Option<Vec<Dimension>>,
-    dtype: Option<DataType>,
-}
-
-impl ValueNode {
-    fn name(&self) -> Option<&str> {
-        self.name.as_deref()
-    }
-}
-
-/// Data for a constant node (ie. model weights) in a [`Graph`].
-#[derive(Debug)]
-pub enum ConstantNodeData<T> {
-    Owned(Tensor<T>),
-    Arc(ArcTensorView<T>),
-}
-
-impl<T> ConstantNodeData<T> {
-    fn clone_ref(&self) -> Option<ConstantNodeData<T>> {
-        match self {
-            ConstantNodeData::Owned(_) => None,
-            ConstantNodeData::Arc(view) => Some(ConstantNodeData::Arc(view.clone())),
-        }
-    }
-}
-
-impl<T> From<Tensor<T>> for ConstantNodeData<T> {
-    fn from(val: Tensor<T>) -> ConstantNodeData<T> {
-        ConstantNodeData::Owned(val)
-    }
-}
-
-impl<T> From<ArcTensorView<T>> for ConstantNodeData<T> {
-    fn from(val: ArcTensorView<T>) -> ConstantNodeData<T> {
-        ConstantNodeData::Arc(val)
-    }
-}
-
-#[derive(Debug)]
-pub struct ConstantNode<T> {
-    name: Option<String>,
-    data: ConstantNodeData<T>,
-}
-
-impl<T> ConstantNode<T> {
-    pub fn view(&self) -> TensorView<T> {
-        match &self.data {
-            ConstantNodeData::Owned(data) => data.view(),
-            ConstantNodeData::Arc(data) => data.view(),
-        }
-    }
-
-    fn clone_ref(&self) -> Option<ConstantNode<T>> {
-        let data = self.data.clone_ref()?;
-        Some(ConstantNode {
-            name: self.name.clone(),
-            data,
-        })
-    }
-
-    fn layout(&self) -> &DynLayout {
-        match &self.data {
-            ConstantNodeData::Owned(data) => data.layout(),
-            ConstantNodeData::Arc(data) => data.layout(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum Constant {
-    Float(ConstantNode<f32>),
-    Int32(ConstantNode<i32>),
-    Int8(ConstantNode<i8>),
-    UInt8(ConstantNode<u8>),
-}
-
-impl Constant {
-    pub fn name(&self) -> Option<&str> {
-        match self {
-            Constant::Float(f) => f.name.as_deref(),
-            Constant::Int32(i) => i.name.as_deref(),
-            Constant::Int8(i) => i.name.as_deref(),
-            Constant::UInt8(i) => i.name.as_deref(),
-        }
-    }
-
-    pub fn shape(&self) -> &[usize] {
-        self.layout().shape()
-    }
-
-    /// Clone this constant, but only if it can be done so cheaply by
-    /// incrementing a ref count on the underlying data.
-    pub fn clone_ref(&self) -> Option<Constant> {
-        match self {
-            Constant::Float(f) => f.clone_ref().map(Constant::Float),
-            Constant::Int32(i) => i.clone_ref().map(Constant::Int32),
-            Constant::Int8(i) => i.clone_ref().map(Constant::Int8),
-            Constant::UInt8(i) => i.clone_ref().map(Constant::UInt8),
-        }
-    }
-
-    fn layout(&self) -> &DynLayout {
-        match self {
-            Constant::Float(f) => f.layout(),
-            Constant::Int32(i) => i.layout(),
-            Constant::Int8(i) => i.layout(),
-            Constant::UInt8(i) => i.layout(),
-        }
-    }
-
-    /// Return the data for this constant as a tensor view.
-    pub fn as_input(&self) -> Input {
-        match self {
-            Constant::Float(f) => Input::FloatTensor(f.view()),
-            Constant::Int32(i) => Input::Int32Tensor(i.view()),
-            Constant::Int8(i) => Input::Int8Tensor(i.view()),
-            Constant::UInt8(i) => Input::UInt8Tensor(i.view()),
-        }
-    }
-
-    fn dtype(&self) -> DataType {
-        match self {
-            Constant::Float(_) => DataType::Float,
-            Constant::Int32(_) => DataType::Int32,
-            Constant::Int8(_) => DataType::Int8,
-            Constant::UInt8(_) => DataType::UInt8,
-        }
-    }
-}
-
-macro_rules! impl_constant_node {
-    ($scalar_type:ty, $variant:ident) => {
-        impl From<ConstantNode<$scalar_type>> for Constant {
-            fn from(node: ConstantNode<$scalar_type>) -> Constant {
-                Constant::$variant(node)
-            }
-        }
-    };
-}
-
-impl_constant_node!(f32, Float);
-impl_constant_node!(i32, Int32);
-impl_constant_node!(i8, Int8);
-impl_constant_node!(u8, UInt8);
-
-/// Extract typed data from a [`Constant`].
-pub trait TypedConstant<T> {
-    fn as_view(&self) -> Option<TensorView<T>>;
-    fn as_scalar(&self) -> Option<T>;
-    fn as_vector(&self) -> Option<&[T]>;
-}
-
-macro_rules! impl_typed_constant {
-    ($type:ty, $variant:ident) => {
-        impl TypedConstant<$type> for Constant {
-            fn as_view(&self) -> Option<TensorView<$type>> {
-                match self {
-                    Constant::$variant(tensor) => Some(tensor.view()),
-                    _ => None,
-                }
-            }
-
-            fn as_scalar(&self) -> Option<$type> {
-                self.as_view().and_then(|view| view.item().copied())
-            }
-
-            fn as_vector(&self) -> Option<&[$type]> {
-                self.as_view()
-                    .and_then(|view| match (view.ndim(), view.data()) {
-                        (1, Some(vec_data)) => Some(vec_data),
-                        _ => None,
-                    })
-            }
-        }
-    };
-}
-
-impl_typed_constant!(f32, Float);
-impl_typed_constant!(i32, Int32);
-impl_typed_constant!(i8, Int8);
-impl_typed_constant!(u8, UInt8);
-
-#[derive(Debug)]
-pub enum Node {
-    Operator(OperatorNode),
-    Constant(Constant),
-    Value(ValueNode),
-}
-
-impl Node {
-    /// Return the debug name of this node
-    pub fn name(&self) -> Option<&str> {
-        match self {
-            Node::Operator(node) => node.name(),
-            Node::Constant(constant) => constant.name(),
-            Node::Value(node) => node.name(),
-        }
-    }
-
-    /// Return the tensor shape associated with this node.
-    ///
-    /// For constants this is the shape of the tensor. Operator nodes have no
-    /// shape. For values (eg. inputs/outputs) this is the expected shape.
-    pub fn shape(&self) -> Option<Vec<Dimension>> {
-        let dims_from_fixed_shape =
-            |shape: &[usize]| shape.iter().copied().map(Dimension::Fixed).collect();
-
-        match self {
-            Node::Operator(_) => None,
-            Node::Constant(node) => Some(dims_from_fixed_shape(node.layout().shape())),
-            Node::Value(node) => node.shape.clone(),
-        }
-    }
-
-    /// Return the data type associated with this node.
-    ///
-    /// - For constants this returns the element type of the tensor
-    /// - For values this returns the expected element type of the tensor at
-    ///   runtime, if known
-    /// - For operators this always returns `None`.
-    pub fn dtype(&self) -> Option<DataType> {
-        match self {
-            Node::Value(node) => node.dtype,
-            Node::Constant(constant) => Some(constant.dtype()),
-            Node::Operator(_) => None,
-        }
-    }
-}
-
-/// ID of a node in a [`Model`](crate::Model) graph.
-///
-/// This is used to identify input and output values as well as internal nodes.
-///
-/// Node IDs are u32 values <= `i32::MAX`.
-#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct NodeId(NonZero<u32>);
-
-impl NodeId {
-    /// Return the underlying u32 value of the ID.
-    pub fn as_u32(self) -> u32 {
-        self.0.get() - 1
-    }
-
-    /// Return the underlying ID value as a usize, for slice indexing.
-    pub fn as_usize(self) -> usize {
-        self.as_u32() as usize
-    }
-
-    /// Construct a node ID from a u32 value.
-    ///
-    /// Panics if the value exceeds `i32::MAX`.
-    pub fn from_u32(value: u32) -> NodeId {
-        // Node IDs are limited to `i32::MAX` because the `OperatorNode` type
-        // in the FlatBuffers schema represents operator input and output IDs
-        // as `i32`. Negative values are used as a niche to represent missing
-        // optional inputs.
-        assert!(value <= i32::MAX as u32);
-
-        // Valid node IDs are in the range `[0, i32::MAX]`, so we store them as
-        // values in `[1, i32::MAX + 1]` internally and reserve 0 as a niche to
-        // make `Option<NodeId>` the same size as `NodeId`.
-        NodeId(unsafe {
-            // Safety: `value + 1` cannot be zero
-            NonZero::new_unchecked(value + 1)
-        })
-    }
-}
-
-impl std::fmt::Display for NodeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.as_u32().fmt(f)
-    }
-}
+mod node_id;
+pub use node_id::NodeId;
 
 /// Reasons why a graph execution failed
 #[derive(Eq, PartialEq, Debug)]
@@ -404,6 +73,8 @@ impl fmt::Display for RunError {
         }
     }
 }
+
+impl Error for RunError {}
 
 /// Return true if all elements in `xs` are unique according to the comparison
 /// function `eq`.
@@ -474,8 +145,6 @@ impl NodeRefCount {
     }
 }
 
-impl Error for RunError {}
-
 /// An execution plan specifying the operations to perform to derive a set of
 /// output nodes given a set of input nodes.
 struct CachedPlan {
@@ -521,142 +190,6 @@ impl CachedPlan {
     /// Return the set of operator node IDs for this plan.
     fn plan(&self) -> &[NodeId] {
         &self.plan
-    }
-}
-
-/// An environment from which subgraphs can resolve captured values.
-///
-/// Subgraphs used by control flow operators (`If`, `Loop` etc.) may contain
-/// value nodes that capture their values from parent graphs, like a captured
-/// value in a Rust closure. A `CaptureEnv` is passed to the subgraph when
-/// it is executed and used to resolve these values.
-///
-/// `CaptureEnv`s are arranged in a hierarchy. Value lookups will attempt to
-/// look up the value in the environment's associated graph. If no such node
-/// exists, the value will be looked up in the parent environment and so on.
-///
-/// Values can be captured either by reference or
-/// by value. Values that are captured by-value can potentially be used as
-/// [`in-place inputs`](Operator::run_in_place).
-#[derive(Clone)]
-pub struct CaptureEnv<'a> {
-    // The parent environment to search if a node name is not found in this
-    // environment.
-    parent: Option<&'a CaptureEnv<'a>>,
-
-    // The "local" graph for this environment. Node names are looked up in
-    // this graph first and if found, values are resolved from `inputs` or
-    // `temp_values`.
-    graph: Option<&'a Graph>,
-
-    // Values passed as inputs to the graph run.
-    inputs: Option<&'a FxHashMap<NodeId, InputOrOutput<'a>>>,
-
-    // Values computed during the graph run, captured by reference.
-    temp_values_by_ref: Option<&'a FxHashMap<NodeId, Output>>,
-
-    // Values computed during the graph run, captured by value.
-    temp_values: Option<FxHashMap<NodeId, Output>>,
-}
-
-impl<'a> CaptureEnv<'a> {
-    /// Create a new capture environment.
-    ///
-    /// Lookups will first match nodes in `graph` and then try the `parent`
-    /// environment if that fails. Lookups that match constant nodes will be
-    /// resolved from the node directly. Lookups that match value nodes will
-    /// be resolved from the captured values first or the captured inputs
-    /// otherwise.
-    pub fn new(
-        parent: Option<&'a CaptureEnv<'a>>,
-        graph: &'a Graph,
-        inputs: Option<&'a FxHashMap<NodeId, InputOrOutput<'a>>>,
-        temp_values_by_ref: Option<&'a FxHashMap<NodeId, Output>>,
-        temp_values: Option<FxHashMap<NodeId, Output>>,
-    ) -> CaptureEnv<'a> {
-        CaptureEnv {
-            parent,
-            graph: Some(graph),
-            inputs,
-            temp_values_by_ref,
-            temp_values,
-        }
-    }
-
-    /// Return a new capture environment which has `self` as a parent.
-    ///
-    /// The child `CaptureEnv` will have no captures of its own. This is useful
-    /// in loop operators which need to create a new capture environment to pass
-    /// to each iteration of a loop.
-    pub fn child(&self) -> CaptureEnv {
-        CaptureEnv {
-            parent: Some(self),
-            graph: None,
-            inputs: None,
-            temp_values_by_ref: None,
-            temp_values: None,
-        }
-    }
-
-    /// Look up a node by name in this environment.
-    pub fn get_node(&self, name: &str) -> Option<&'a Node> {
-        if let Some(graph) = self.graph {
-            if let Some(node_id) = graph.get_node_id(name) {
-                // If a node by this name exists in this graph, but is a placeholder
-                // for a value captured from a parent graph, then ignore it.
-                if !graph.captures().contains(&node_id) {
-                    return graph.get_node(node_id);
-                }
-            }
-        }
-
-        self.parent.and_then(|parent| parent.get_node(name))
-    }
-
-    /// Look up an operator input value by name in this environment.
-    pub fn get_input(&self, name: &str) -> Option<Input> {
-        if let Some(graph) = self.graph {
-            if let Some(node_id) = graph.get_node_id(name) {
-                // If a node by this name exists in this graph, but is a placeholder
-                // for a value captured from a parent graph, then ignore it.
-                if !graph.captures().contains(&node_id) {
-                    // Otherwise, get the value from this scope.
-                    return match graph.get_node(node_id) {
-                        Some(Node::Constant(c)) => Some(c.as_input()),
-                        Some(Node::Value(_)) => self
-                            .temp_values_by_ref
-                            .and_then(|tv| tv.get(&node_id))
-                            .map(|i| i.as_input())
-                            .or_else(|| {
-                                self.temp_values
-                                    .as_ref()
-                                    .and_then(|tv| tv.get(&node_id))
-                                    .map(|o| o.as_input())
-                            })
-                            .or_else(|| {
-                                self.inputs
-                                    .and_then(|i| i.get(&node_id))
-                                    .map(|i| i.as_input())
-                            }),
-                        _ => None,
-                    };
-                }
-            }
-        }
-
-        self.parent.and_then(|parent| parent.get_input(name))
-    }
-
-    /// Remove and return a value from the capture environment's map of by-value
-    /// captures.
-    pub fn take_input(&mut self, name: &str) -> Option<Output> {
-        let node_id = self.graph.and_then(|g| g.get_node_id(name))?;
-        self.temp_values.as_mut()?.remove(&node_id)
-    }
-
-    /// Remove and return all by-value captures.
-    pub fn take_all_inputs(&mut self) -> Option<FxHashMap<NodeId, Output>> {
-        self.temp_values.take()
     }
 }
 
@@ -706,6 +239,8 @@ pub struct RunOptions {
 /// are referenced in operator input lists. The IDs of all these nodes are
 /// returned by [`captures`](Graph::captures).
 pub struct Graph {
+    /// Nodes that make up the graph. The graph's edges are stored as part of
+    /// operator nodes.
     nodes: Vec<Node>,
 
     /// The plan that was used for the most recent execution of the graph.
@@ -792,7 +327,7 @@ impl Graph {
 
         for node in self.nodes.iter() {
             if let Node::Operator(op) = node {
-                for subgraph in op.operator.subgraphs() {
+                for subgraph in op.operator().subgraphs() {
                     captures.extend(subgraph.capture_names())
                 }
             }
@@ -846,12 +381,8 @@ impl Graph {
         inputs: &[Option<NodeId>],
         outputs: &[Option<NodeId>],
     ) -> NodeId {
-        let op_id = self.add_node(Node::Operator(OperatorNode {
-            name: name.map(|s| s.to_owned()),
-            inputs: Vec::from(inputs),
-            outputs: Vec::from(outputs),
-            operator: Arc::from(op),
-        }));
+        let op_node = Node::Operator(OperatorNode::new(name, inputs, outputs, op));
+        let op_id = self.add_node(op_node);
 
         for output_id in outputs.iter().flatten() {
             self.source_ids.insert(*output_id, op_id);
@@ -894,13 +425,8 @@ impl Graph {
         V: Into<ConstantNodeData<T>>,
         ConstantNode<T>: Into<Constant>,
     {
-        self.add_constant_node(
-            ConstantNode {
-                name: name.map(|s| s.to_owned()),
-                data: value.into(),
-            }
-            .into(),
-        )
+        let const_node: Constant = ConstantNode::new(name, value.into()).into();
+        self.add_constant_node(const_node)
     }
 
     /// Pre-pack constant inputs (ie. weights) to operators.
@@ -914,7 +440,7 @@ impl Graph {
             Node::Operator(op) => Some((node_id, op)),
             _ => None,
         }) {
-            for input_index in op_node.operator.prepack_inputs() {
+            for input_index in op_node.operator().prepack_inputs() {
                 let Some(input_id) = op_node.input_ids().get(input_index).copied().flatten() else {
                     continue;
                 };
@@ -930,7 +456,9 @@ impl Graph {
                     continue;
                 };
 
-                let Some(packed) = op_node.operator.prepack(input_index, const_node.as_input())
+                let Some(packed) = op_node
+                    .operator()
+                    .prepack(input_index, const_node.as_input())
                 else {
                     // Operator doesn't support or decided not to prepack this value.
                     continue;
@@ -940,7 +468,7 @@ impl Graph {
             }
 
             let subgraph_caches: Vec<_> = op_node
-                .operator
+                .operator()
                 .subgraphs()
                 .into_iter()
                 .map(|subgraph| {
@@ -976,11 +504,8 @@ impl Graph {
         shape: Option<Vec<Dimension>>,
         dtype: Option<DataType>,
     ) -> NodeId {
-        self.add_node(Node::Value(ValueNode {
-            name: name.map(|s| s.to_owned()),
-            shape,
-            dtype,
-        }))
+        let value_node = Node::Value(ValueNode::new(name, shape, dtype));
+        self.add_node(value_node)
     }
 
     /// Return an iterator over nodes in the graph.
@@ -1242,14 +767,14 @@ impl Graph {
             // For non-commutative ops we have to use the first input. For
             // commutative ops we can swap inputs around if that enables us to
             // run an op in place.
-            let in_place_input_id = if op_node.operator.can_run_in_place() {
-                if op_node.operator.is_commutative() {
+            let in_place_input_id = if op_node.operator().can_run_in_place() {
+                if op_node.operator().is_commutative() {
                     // Pick the largest input by number of elements. This
                     // assumes that commutative op outputs will have a shape
                     // that matches their largest input (eg. consider a
                     // binary op that broadcasts inputs to a common shape).
                     op_node
-                        .inputs
+                        .input_ids()
                         .iter()
                         .max_by_key(|input_id| {
                             input_id
@@ -1260,7 +785,7 @@ impl Graph {
                         .copied()
                         .flatten()
                 } else {
-                    op_node.inputs.first().copied().flatten()
+                    op_node.input_ids().first().copied().flatten()
                 }
             } else {
                 None
@@ -1291,11 +816,11 @@ impl Graph {
 
             // Extract values used by the operator's subgraphs which can be
             // passed by value.
-            let has_subgraph = op_node.operator.has_subgraph();
+            let has_subgraph = op_node.operator().has_subgraph();
             let by_value_captures = has_subgraph.then(|| {
                 let mut by_value_captures = FxHashMap::default();
                 for node_id in self.operator_dependencies(op_node) {
-                    if op_node.inputs.contains(&Some(node_id)) {
+                    if op_node.input_ids().contains(&Some(node_id)) {
                         continue;
                     }
                     if let Some(tensor) = take_value(node_id) {
@@ -1307,8 +832,8 @@ impl Graph {
 
             // Collect all or remaining inputs for the operator
             let mut op_inputs: SmallVec<[Option<Input>; 4]> =
-                SmallVec::with_capacity(op_node.inputs.len());
-            for node_id in op_node.inputs.iter() {
+                SmallVec::with_capacity(op_node.input_ids().len());
+            for node_id in op_node.input_ids().iter() {
                 if in_place_input.is_some() && *node_id == in_place_input_id {
                     continue;
                 }
@@ -1350,14 +875,14 @@ impl Graph {
             };
 
             let op_error_to_run_error = |op_error| RunError::OperatorError {
-                name: op_node.name.as_deref().unwrap_or("").to_string(),
+                name: op_node.name().unwrap_or("").to_string(),
                 error: op_error,
             };
 
             // Run the operation.
             let op_result = if let Some(input) = in_place_input {
                 op_node
-                    .operator
+                    .operator()
                     .run_in_place(pool, input, InputList::from_optional(&op_inputs))
                     .map(|out| [out].into())
                     .map_err(op_error_to_run_error)
@@ -1369,7 +894,7 @@ impl Graph {
                     Some(&temp_values),
                     by_value_captures,
                 );
-                op_node.operator.run_subgraph(
+                op_node.operator().run_subgraph(
                     pool,
                     InputList::from_optional(&op_inputs),
                     capture_env,
@@ -1388,7 +913,7 @@ impl Graph {
                 let input_list =
                     InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
                 op_node
-                    .operator
+                    .operator()
                     .run(pool, input_list)
                     .map_err(op_error_to_run_error)
             };
@@ -1404,7 +929,7 @@ impl Graph {
 
             // Extract outputs or fail if an error occurred.
             let outputs = op_result?;
-            if op_node.outputs.len() != outputs.len() {
+            if op_node.output_ids().len() != outputs.len() {
                 return Err(RunError::OutputMismatch(
                     "operator output count did not match expected count",
                 ));
@@ -1413,7 +938,7 @@ impl Graph {
             // Save outputs for future steps.
             temp_values.extend(
                 op_node
-                    .outputs
+                    .output_ids()
                     .iter()
                     .zip(outputs.into_iter())
                     .filter_map(|(output_id, output)| output_id.map(|id| (id, output))),
@@ -1435,10 +960,10 @@ impl Graph {
                 op_start = op_end;
 
                 op_timing_records.push(TimingRecord {
-                    name: op_node.operator.name(),
+                    name: op_node.operator().name(),
                     input_shapes,
                     elapsed: op_duration,
-                    node_name: op_node.name.as_deref().unwrap_or(""),
+                    node_name: op_node.name().unwrap_or(""),
                 });
             }
         }
@@ -1488,10 +1013,10 @@ impl Graph {
         println!(
             "#{} {} ({})",
             step,
-            op_node.operator.name(),
-            op_node.name.as_ref().unwrap_or(&String::new())
+            op_node.operator().name(),
+            op_node.name().unwrap_or("")
         );
-        for (index, (id, shape)) in op_node.inputs.iter().zip(input_shapes).enumerate() {
+        for (index, (id, shape)) in op_node.input_ids().iter().zip(input_shapes).enumerate() {
             if let (Some(id), Some(shape)) = (id, shape) {
                 let name = self.node_name(*id);
                 println!("  input {}: {} ({:?})", index, name, shape);
@@ -1499,7 +1024,7 @@ impl Graph {
         }
 
         if let Ok(outputs) = op_result.as_ref() {
-            for (index, (id, output)) in op_node.outputs.iter().zip(outputs).enumerate() {
+            for (index, (id, output)) in op_node.output_ids().iter().zip(outputs).enumerate() {
                 let name = id.map(|id| self.node_name(id)).unwrap_or(String::new());
                 println!("  output {}: {} ({:?})", index, name, output.shape());
             }
@@ -1620,7 +1145,7 @@ impl Graph {
             //
             // - The output varies on each run (`Random*`)
             // - We are missing a required input
-            let prune_op = !op_node.operator.is_deterministic() || !all_inputs_available;
+            let prune_op = !op_node.operator().is_deterministic() || !all_inputs_available;
 
             if prune_op {
                 for input_id in all_inputs {
@@ -1630,9 +1155,9 @@ impl Graph {
                 }
                 continue;
             }
-            resolved_values.extend(op_node.outputs.iter().filter_map(|id_opt| *id_opt));
+            resolved_values.extend(op_node.output_ids().iter().filter_map(|id_opt| *id_opt));
             pruned_plan.push(node_id);
-            candidate_outputs.extend(op_node.outputs.iter().filter_map(|id_opt| *id_opt));
+            candidate_outputs.extend(op_node.output_ids().iter().filter_map(|id_opt| *id_opt));
         }
 
         // Get IDs of values produced by the pruned plan which are either in the
@@ -1679,7 +1204,7 @@ impl Graph {
     ) -> impl Iterator<Item = NodeId> + Clone + 'a {
         op_node.input_ids().iter().filter_map(|id| *id).chain(
             op_node
-                .operator
+                .operator()
                 .subgraphs()
                 .into_iter()
                 .flat_map(|sg| sg.capture_names())
@@ -1773,7 +1298,7 @@ impl Graph {
                         return Err(RunError::PlanningError(msg));
                     }
                 }
-                for output_id in op_node.outputs.iter().filter_map(|node| *node) {
+                for output_id in op_node.output_ids().iter().filter_map(|node| *node) {
                     self.resolved_values.insert(output_id);
                 }
                 self.plan.push((op_node_id, op_node));
