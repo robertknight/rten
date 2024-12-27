@@ -239,6 +239,8 @@ pub struct RunOptions {
 /// are referenced in operator input lists. The IDs of all these nodes are
 /// returned by [`captures`](Graph::captures).
 pub struct Graph {
+    /// Nodes that make up the graph. The graph's edges are stored as part of
+    /// operator nodes.
     nodes: Vec<Node>,
 
     /// The plan that was used for the most recent execution of the graph.
