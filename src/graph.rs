@@ -74,6 +74,8 @@ impl fmt::Display for RunError {
     }
 }
 
+impl Error for RunError {}
+
 /// Return true if all elements in `xs` are unique according to the comparison
 /// function `eq`.
 ///
@@ -142,8 +144,6 @@ impl NodeRefCount {
         self.rc[id.as_usize()] as usize
     }
 }
-
-impl Error for RunError {}
 
 /// An execution plan specifying the operations to perform to derive a set of
 /// output nodes given a set of input nodes.
