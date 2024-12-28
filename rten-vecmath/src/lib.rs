@@ -1,21 +1,28 @@
-//! SIMD-vectorized implementations of various math functions that are commonly
-//! used in neural networks.
+//! SIMD-vectorized implementations of functions used in neural networks.
 //!
-//! For each function in this library there are multiple variants, which
-//! typically include:
+//! The functions are implemented by structs which implement the SIMD operation
+//! traits from [rten-simd](rten_simd).
 //!
-//!  - A version that operates on scalars
-//!  - A version that reads values from an input slice and writes to the
-//!    corresponding position in an equal-length output slice. These have a
-//!    `vec_` prefix.
-//!  - A version that reads values from a mutable input slice and writes
-//!    the computed values back in-place. These have a `vec_` prefix and
-//!    `_in_place` suffix.
+//! ## Examples
 //!
-//! All variants use the same underlying implementation and should have the
-//! same accuracy.
+//! ### Applying a vectorized unary function
 //!
-//! See the source code for comments on accuracy.
+//! ```
+//! use std::mem::MaybeUninit;
+//!
+//! use rten_simd::dispatch::SimdUnaryOp;
+//! use rten_vecmath::Erf;
+//!
+//! // Apply the error function to each element of `data`.
+//! let mut data = [1., 0.5, 2.0];
+//! let erf_op = Erf {};
+//! erf_op.map_mut(&mut data);
+//!
+//! // Apply the error function to each element of `src`, writing to `dest`.
+//! let src = [1., 0.5, 2.0];
+//! let mut dest = [MaybeUninit::uninit(); 3];
+//! erf_op.map(&src, &mut dest);
+//! ```
 
 mod erf;
 mod exp;
@@ -30,12 +37,12 @@ mod ulp;
 #[cfg(test)]
 mod testing;
 
-pub use erf::{erf, gelu, vec_erf, vec_erf_in_place, vec_gelu, vec_gelu_in_place};
-pub use exp::{
-    exp, sigmoid, silu, swish, vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place,
-    vec_silu, vec_silu_in_place, vec_swish, vec_swish_in_place,
-};
-pub use normalize::{vec_normalize, vec_normalize_in_place};
-pub use softmax::{vec_softmax, vec_softmax_in_place};
-pub use sum::{vec_sum, vec_sum_square, vec_sum_square_sub};
-pub use tanh::{tanh, vec_tanh, vec_tanh_in_place};
+// Unary functions.
+pub use erf::{Erf, Gelu};
+pub use exp::{Exp, Sigmoid, Silu, Swish};
+pub use tanh::Tanh;
+
+// Normalization and reduction functions.
+pub use normalize::{normalize, normalize_mut};
+pub use softmax::{softmax, softmax_mut};
+pub use sum::{sum, sum_square, sum_square_sub};

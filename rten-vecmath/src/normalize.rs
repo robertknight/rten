@@ -4,7 +4,7 @@ use rten_simd::dispatch::{dispatch, SimdOp};
 use rten_simd::span::{MutPtrLen, PtrLen};
 use rten_simd::SimdFloat;
 
-struct SimdNormalize<'a> {
+struct Normalize<'a> {
     input: PtrLen<f32>,
     output: MutPtrLen<MaybeUninit<f32>>,
 
@@ -21,7 +21,7 @@ struct SimdNormalize<'a> {
     element_bias: Option<&'a [f32]>,
 }
 
-impl SimdOp for SimdNormalize<'_> {
+impl SimdOp for Normalize<'_> {
     type Output = ();
 
     #[inline(always)]
@@ -107,7 +107,7 @@ impl SimdOp for SimdNormalize<'_> {
 /// # Panics
 ///
 /// Panics if any of the slices have different lengths.
-pub fn vec_normalize(
+pub fn normalize(
     input: &[f32],
     output: &mut [MaybeUninit<f32>],
     pre_scale_bias: f32,
@@ -116,7 +116,7 @@ pub fn vec_normalize(
     bias: f32,
     element_bias: Option<&[f32]>,
 ) {
-    let simd_op = SimdNormalize {
+    let simd_op = Normalize {
         input: input.into(),
         output: output.into(),
         pre_scale_bias,
@@ -128,8 +128,8 @@ pub fn vec_normalize(
     dispatch(simd_op)
 }
 
-/// Variant of [`vec_normalize`] which updates elements in-place.
-pub fn vec_normalize_in_place(
+/// Variant of [`normalize`] which updates elements in-place.
+pub fn normalize_mut(
     input: &mut [f32],
     pre_scale_bias: f32,
     scale: f32,
@@ -138,7 +138,7 @@ pub fn vec_normalize_in_place(
     element_bias: Option<&[f32]>,
 ) {
     let output: MutPtrLen<f32> = input.into();
-    let simd_op = SimdNormalize {
+    let simd_op = Normalize {
         input: input.into(),
         output: output.as_uninit(),
         pre_scale_bias,
@@ -152,9 +152,9 @@ pub fn vec_normalize_in_place(
 
 #[cfg(test)]
 mod tests {
-    use super::vec_normalize_in_place;
+    use super::normalize_mut;
 
-    fn reference_normalize_in_place(
+    fn reference_normalize_mut(
         data: &mut [f32],
         pre_scale_bias: f32,
         scale: f32,
@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_normalize_in_place() {
+    fn test_normalize_mut() {
         let data: Vec<_> = (0..10).map(|i| i as f32 * 0.1).collect();
         let pre_scale_bias = 0.5;
         let scale = 0.123;
@@ -180,7 +180,7 @@ mod tests {
 
         // With per-element scale and bias
         let mut expected = data.clone();
-        reference_normalize_in_place(
+        reference_normalize_mut(
             &mut expected[..],
             pre_scale_bias,
             scale,
@@ -190,7 +190,7 @@ mod tests {
         );
 
         let mut actual = data.clone();
-        vec_normalize_in_place(
+        normalize_mut(
             &mut actual[..],
             pre_scale_bias,
             scale,
@@ -203,10 +203,10 @@ mod tests {
 
         // Without per-element scale and bias
         let mut expected = data.clone();
-        reference_normalize_in_place(&mut expected[..], pre_scale_bias, scale, None, bias, None);
+        reference_normalize_mut(&mut expected[..], pre_scale_bias, scale, None, bias, None);
 
         let mut actual = data.clone();
-        vec_normalize_in_place(&mut actual[..], pre_scale_bias, scale, None, bias, None);
+        normalize_mut(&mut actual[..], pre_scale_bias, scale, None, bias, None);
 
         assert_eq!(actual, expected);
     }

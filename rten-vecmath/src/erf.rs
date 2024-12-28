@@ -3,18 +3,11 @@
 #![allow(clippy::excessive_precision)]
 
 use std::f32::consts::SQRT_2;
-use std::mem::MaybeUninit;
 
-use rten_simd::dispatch::{dispatch_map_op, dispatch_map_op_in_place, SimdUnaryOp};
+use rten_simd::dispatch::SimdUnaryOp;
 use rten_simd::SimdFloat;
 
 use crate::exp::simd_exp;
-
-/// Computes the [error function](https://en.wikipedia.org/wiki/Error_function).
-pub fn erf(x: f32) -> f32 {
-    // Safety: f32 is available on all platforms
-    unsafe { simd_erf(x) }
-}
 
 /// Vectorized implementation of error function (erf).
 ///
@@ -57,26 +50,20 @@ unsafe fn simd_erf<S: SimdFloat>(x: S) -> S {
     y.blend(y.neg(), neg_mask)
 }
 
-struct SimdErf {}
-impl SimdUnaryOp for SimdErf {
+/// Vectorized error function (erf).
+///
+/// The implementation uses an approximation from Abramowitz and Stegun,
+/// see <https://en.wikipedia.org/wiki/Error_function#Approximation_with_elementary_functions>.
+///
+/// This has a maximum absolute error of 6.631017e-7 when comparing to
+/// `libm::erff` as a source of truth.
+pub struct Erf {}
+
+impl SimdUnaryOp for Erf {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
         simd_erf(x)
     }
-}
-
-/// Vectorized error function.
-///
-/// This is a vectorized version of [`erf`] that computes the function for each
-/// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
-/// in length.
-pub fn vec_erf(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_map_op(xs, out, SimdErf {});
-}
-
-/// Variant of [`vec_erf`] that modifies elements in-place.
-pub fn vec_erf_in_place(xs: &mut [f32]) {
-    dispatch_map_op_in_place(xs, SimdErf {});
 }
 
 const SQRT_2_RCP: f32 = 1.0 / SQRT_2;
@@ -90,36 +77,21 @@ unsafe fn simd_gelu<S: SimdFloat>(x: S) -> S {
     half_x.mul(y)
 }
 
-struct SimdGelu {}
-impl SimdUnaryOp for SimdGelu {
+/// Computes the [GELU](https://onnx.ai/onnx/operators/onnx__Gelu.html)
+/// function.
+pub struct Gelu {}
+impl SimdUnaryOp for Gelu {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
         simd_gelu(x)
     }
 }
 
-/// Vectorized GELU function.
-///
-/// Computes the [GELU](https://onnx.ai/onnx/operators/onnx__Gelu.html)
-/// function for each element of `xs`.
-pub fn vec_gelu(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_map_op(xs, out, SimdGelu {});
-}
-
-/// Variant of [`vec_gelu`] that modifies elements in-place.
-pub fn vec_gelu_in_place(xs: &mut [f32]) {
-    dispatch_map_op_in_place(xs, SimdGelu {});
-}
-
-/// Computes the GELU function. See [`vec_gelu`].
-pub fn gelu(x: f32) -> f32 {
-    // Safety: f32 is available on all platforms
-    unsafe { simd_gelu(x) }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{erf, vec_erf, vec_gelu};
+    use rten_simd::dispatch::SimdUnaryOp;
+
+    use super::{Erf, Gelu};
     use crate::testing::{
         arange, benchmark_op, check_f32s_are_equal_atol, triples, AllF32s, AsUninit, Progress,
     };
@@ -145,7 +117,7 @@ mod tests {
         let mut actual = vec![0.; input.len()];
         let expected: Vec<_> = input.iter().copied().map(libm::erff).collect();
 
-        vec_erf(&input, actual.as_mut_slice().as_uninit());
+        Erf {}.map(&input, actual.as_mut_slice().as_uninit());
 
         check_f32s_are_equal_atol(triples(&input, &actual, &expected), MAX_EXPECTED_DIFF);
     }
@@ -154,8 +126,9 @@ mod tests {
     #[ignore] // Ignored by default due to long runtime
     fn test_erf_exhaustive() {
         let mut max_diff = 0.0f32;
+        let op = Erf {};
         for x in Progress::wrap(AllF32s::new(), "testing erf") {
-            let (actual, expected) = (erf(x), libm::erff(x));
+            let (actual, expected) = (op.scalar_eval(x), libm::erff(x));
             let diff = (actual - expected).abs();
             max_diff = max_diff.max(diff);
         }
@@ -168,7 +141,7 @@ mod tests {
         let mut actual = vec![0.; input.len()];
         let expected: Vec<_> = input.iter().copied().map(reference_gelu).collect();
 
-        vec_gelu(&input, actual.as_mut_slice().as_uninit());
+        Gelu {}.map(&input, actual.as_mut_slice().as_uninit());
 
         // Gelu uses erf, so its error is constrained by this.
         check_f32s_are_equal_atol(triples(&input, &actual, &expected), MAX_EXPECTED_DIFF);
@@ -183,7 +156,7 @@ mod tests {
                     .zip(ys.iter_mut())
                     .for_each(|(x, y)| *y = libm::erff(*x))
             },
-            vec_erf,
+            |xs, ys| Erf {}.map(xs, ys),
         );
     }
 }

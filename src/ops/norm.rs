@@ -3,9 +3,7 @@ use std::mem::MaybeUninit;
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
-use rten_vecmath::{
-    vec_normalize, vec_normalize_in_place, vec_softmax_in_place, vec_sum, vec_sum_square_sub,
-};
+use rten_vecmath::{normalize, normalize_mut, softmax_mut, sum, sum_square_sub};
 
 use crate::ops::static_dims;
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
@@ -98,8 +96,8 @@ fn normalize_slice(data: NormalizeData, opts: NormalizeOptions) {
         NormalizeData::SrcDest((src, _dest)) => *src,
     };
 
-    let mean = mean.unwrap_or_else(|| vec_sum(input) / input.len() as f32);
-    let variance = variance.unwrap_or_else(|| vec_sum_square_sub(input, mean) / input.len() as f32);
+    let mean = mean.unwrap_or_else(|| sum(input) / input.len() as f32);
+    let variance = variance.unwrap_or_else(|| sum_square_sub(input, mean) / input.len() as f32);
 
     // To avoid divisions in the vectorized loop, we re-arrange:
     //
@@ -116,7 +114,7 @@ fn normalize_slice(data: NormalizeData, opts: NormalizeOptions) {
     let scaled_std_dev_reciprocal = scale / (variance + epsilon).sqrt();
 
     match data {
-        NormalizeData::InPlace(data) => vec_normalize_in_place(
+        NormalizeData::InPlace(data) => normalize_mut(
             data,
             mean,
             scaled_std_dev_reciprocal,
@@ -125,7 +123,7 @@ fn normalize_slice(data: NormalizeData, opts: NormalizeOptions) {
             element_bias,
         ),
         NormalizeData::SrcDest((src, dest)) => {
-            vec_normalize(
+            normalize(
                 src,
                 dest,
                 mean,
@@ -592,7 +590,7 @@ pub fn softmax(pool: &TensorPool, input: TensorView, axis: isize) -> Result<Tens
 }
 
 pub fn softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError> {
-    softmax_lanes(output, axis, vec_softmax_in_place)?;
+    softmax_lanes(output, axis, softmax_mut)?;
     Ok(())
 }
 

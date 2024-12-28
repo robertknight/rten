@@ -4,14 +4,10 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::mem::MaybeUninit;
 
+use rten_simd::dispatch::SimdUnaryOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
-use rten_vecmath::{
-    erf as erf_scalar, exp as exp_scalar, gelu as gelu_scalar, sigmoid as sigmoid_scalar,
-    silu as silu_scalar, swish as swish_scalar, tanh as tanh_scalar, vec_erf, vec_erf_in_place,
-    vec_exp, vec_exp_in_place, vec_gelu, vec_gelu_in_place, vec_sigmoid, vec_sigmoid_in_place,
-    vec_silu, vec_silu_in_place, vec_swish, vec_swish_in_place, vec_tanh, vec_tanh_in_place,
-};
+use rten_vecmath as vecmath;
 
 use crate::number::AsBool;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
@@ -193,7 +189,7 @@ fn par_unary_op_in_place<T: Copy + Send, VF: Fn(&mut [T]) + Send + Sync, SF: Fn(
 /// Define an operator which supports float tensors and is optimize using SIMD
 /// and multithreading.
 macro_rules! parallel_unary_float_op {
-    ($op_name:ident, $func_name:ident, $in_place_func_name:ident, $impl_func_name:ident, $impl_in_place_func_name:ident, $impl_scalar_name:ident) => {
+    ($op_name:ident, $func_name:ident, $in_place_func_name:ident, $impl_func:expr, $impl_in_place_func:expr, $impl_scalar:expr) => {
         #[derive(Debug)]
         pub struct $op_name {}
 
@@ -225,11 +221,11 @@ macro_rules! parallel_unary_float_op {
         }
 
         pub fn $func_name(pool: &TensorPool, input: TensorView) -> Tensor {
-            par_unary_op(pool, input, $impl_func_name)
+            par_unary_op(pool, input, $impl_func)
         }
 
         pub fn $in_place_func_name(input: TensorViewMut) {
-            par_unary_op_in_place(input, $impl_in_place_func_name, $impl_scalar_name);
+            par_unary_op_in_place(input, $impl_in_place_func, $impl_scalar);
         }
     };
 }
@@ -431,17 +427,17 @@ parallel_unary_float_op!(
     Erf,
     erf,
     erf_in_place,
-    vec_erf,
-    vec_erf_in_place,
-    erf_scalar
+    |src, dest| vecmath::Erf {}.map(src, dest),
+    |src| vecmath::Erf {}.map_mut(src),
+    |x| vecmath::Erf {}.scalar_eval(x)
 );
 parallel_unary_float_op!(
     Exp,
     exp,
     exp_in_place,
-    vec_exp,
-    vec_exp_in_place,
-    exp_scalar
+    |src, dest| vecmath::Exp {}.map(src, dest),
+    |src| vecmath::Exp {}.map_mut(src),
+    |x| vecmath::Exp {}.scalar_eval(x)
 );
 unary_float_op!(Floor, floor, floor_in_place, |val: f32| val.floor());
 
@@ -449,9 +445,9 @@ parallel_unary_float_op!(
     Gelu,
     gelu,
     gelu_in_place,
-    vec_gelu,
-    vec_gelu_in_place,
-    gelu_scalar
+    |src, dest| vecmath::Gelu {}.map(src, dest),
+    |src| vecmath::Gelu {}.map_mut(src),
+    |x| vecmath::Gelu {}.scalar_eval(x)
 );
 
 #[derive(Debug)]
@@ -607,9 +603,9 @@ parallel_unary_float_op!(
     Sigmoid,
     sigmoid,
     sigmoid_in_place,
-    vec_sigmoid,
-    vec_sigmoid_in_place,
-    sigmoid_scalar
+    |src, dest| vecmath::Sigmoid {}.map(src, dest),
+    |src| vecmath::Sigmoid {}.map_mut(src),
+    |x| vecmath::Sigmoid {}.scalar_eval(x)
 );
 
 // Sigmoid Linear Unit (SiLU) function.
@@ -623,9 +619,9 @@ parallel_unary_float_op!(
     Silu,
     silu,
     silu_in_place,
-    vec_silu,
-    vec_silu_in_place,
-    silu_scalar
+    |src, dest| vecmath::Silu {}.map(src, dest),
+    |src| vecmath::Silu {}.map_mut(src),
+    |x| vecmath::Silu {}.scalar_eval(x)
 );
 
 /// Swish function (<https://en.wikipedia.org/wiki/Swish_function>).
@@ -665,15 +661,13 @@ impl Operator for Swish {
 }
 
 pub fn swish(pool: &TensorPool, input: TensorView, beta: f32) -> Tensor {
-    par_unary_op(pool, input, |src, dest| vec_swish(src, dest, beta))
+    let swish = vecmath::Swish { beta };
+    par_unary_op(pool, input, |src, dest| swish.map(src, dest))
 }
 
 pub fn swish_in_place(input: TensorViewMut, beta: f32) {
-    par_unary_op_in_place(
-        input,
-        |src| vec_swish_in_place(src, beta),
-        |x| swish_scalar(x, beta),
-    );
+    let swish = vecmath::Swish { beta };
+    par_unary_op_in_place(input, |src| swish.map_mut(src), |x| swish.scalar_eval(x));
 }
 
 unary_float_op!(Sin, sin, sin_in_place, |val: f32| val.sin());
@@ -716,9 +710,9 @@ parallel_unary_float_op!(
     Tanh,
     tanh,
     tanh_in_place,
-    vec_tanh,
-    vec_tanh_in_place,
-    tanh_scalar
+    |src, dest| vecmath::Tanh {}.map(src, dest),
+    |src| vecmath::Tanh {}.map_mut(src),
+    |x| vecmath::Tanh {}.scalar_eval(x)
 );
 
 #[cfg(test)]

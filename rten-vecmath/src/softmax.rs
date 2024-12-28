@@ -55,12 +55,12 @@ unsafe fn simd_softmax<S: SimdFloat>(input: PtrLen<f32>, out: MutPtrLen<MaybeUni
     );
 }
 
-struct SimdSoftmax {
+struct Softmax {
     input: PtrLen<f32>,
     output: MutPtrLen<MaybeUninit<f32>>,
 }
 
-impl SimdOp for SimdSoftmax {
+impl SimdOp for Softmax {
     type Output = ();
 
     #[inline(always)]
@@ -74,8 +74,8 @@ impl SimdOp for SimdSoftmax {
 /// `out` will be fully initialized after this function returns.
 ///
 /// [softmax]: https://en.wikipedia.org/wiki/Softmax_function
-pub fn vec_softmax(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    let op = SimdSoftmax {
+pub fn softmax(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
+    let op = Softmax {
         input: xs.into(),
         output: out.into(),
     };
@@ -85,9 +85,9 @@ pub fn vec_softmax(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
 /// Computes the [softmax][softmax] function over a slice of floats.
 ///
 /// [softmax]: https://en.wikipedia.org/wiki/Softmax_function
-pub fn vec_softmax_in_place(xs: &mut [f32]) {
+pub fn softmax_mut(xs: &mut [f32]) {
     let out: MutPtrLen<f32> = xs.into();
-    let op = SimdSoftmax {
+    let op = Softmax {
         input: xs.into(),
         output: out.as_uninit(),
     };
@@ -96,7 +96,7 @@ pub fn vec_softmax_in_place(xs: &mut [f32]) {
 
 #[cfg(test)]
 mod tests {
-    use super::vec_softmax;
+    use super::softmax;
 
     use crate::testing::{benchmark_op, check_f32s_are_equal_ulps, triples, AsUninit};
 
@@ -115,7 +115,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_softmax() {
+    fn test_softmax() {
         // Test against reference values.
         let input = vec![0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2304];
         let expected = &([
@@ -123,7 +123,7 @@ mod tests {
         ]);
         let mut actual = vec![0.; input.len()];
 
-        vec_softmax(&input, actual.as_mut_slice().as_uninit());
+        softmax(&input, actual.as_mut_slice().as_uninit());
         check_f32s_are_equal_ulps(triples(&input, &actual, expected), 0. /* max ULPs */);
 
         // Test against reference implementation for various lengths.
@@ -133,7 +133,7 @@ mod tests {
             reference_softmax(&input, &mut expected);
 
             let mut actual = vec![0.; input.len()];
-            vec_softmax(&input, actual.as_mut_slice().as_uninit());
+            softmax(&input, actual.as_mut_slice().as_uninit());
             check_f32s_are_equal_ulps(triples(&input, &actual, &expected), 2. /* max ULPs */);
         }
     }
@@ -141,6 +141,6 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_softmax() {
-        benchmark_op(reference_softmax, vec_softmax);
+        benchmark_op(reference_softmax, softmax);
     }
 }
