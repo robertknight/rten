@@ -132,6 +132,30 @@ pub(crate) unsafe fn simd_exp<S: SimdFloat>(x: S) -> S {
     r.blend(S::zero(), underflow_mask)
 }
 
+struct SimdExp {}
+impl SimdUnaryOp for SimdExp {
+    #[inline(always)]
+    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
+        simd_exp(x)
+    }
+}
+
+/// Vectorized exponential function.
+///
+/// This is a vectorized version of [`exp`] that computes the function for each
+/// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
+/// in length.
+///
+/// `out` will be fully initialized after this function returns.
+pub fn vec_exp(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
+    dispatch_map_op(xs, out, SimdExp {});
+}
+
+/// Variant of [`vec_exp`] that modifies elements in-place.
+pub fn vec_exp_in_place(xs: &mut [f32]) {
+    dispatch_map_op_in_place(xs, SimdExp {});
+}
+
 /// Compute sigmoid of each element in a SIMD vector.
 ///
 /// ie. This computes `1. / (1. + exp(-x))`.
@@ -190,12 +214,6 @@ unsafe fn simd_silu<S: SimdFloat>(x: S) -> S {
     x.mul(simd_sigmoid(x))
 }
 
-/// Sigmoid Linear Unit (SiLU) function. This computes `x * sigmoid(x)`.
-pub fn silu(x: f32) -> f32 {
-    // Safety: f32 is available on all systems
-    unsafe { simd_silu(x) }
-}
-
 struct SimdSilu {}
 impl SimdUnaryOp for SimdSilu {
     #[inline(always)]
@@ -218,28 +236,43 @@ pub fn vec_silu_in_place(xs: &mut [f32]) {
     dispatch_map_op_in_place(xs, SimdSilu {});
 }
 
-struct SimdExp {}
-impl SimdUnaryOp for SimdExp {
+/// Sigmoid Linear Unit (SiLU) function. This computes `x * sigmoid(x)`.
+pub fn silu(x: f32) -> f32 {
+    // Safety: f32 is available on all systems
+    unsafe { simd_silu(x) }
+}
+
+struct SimdSwish {
+    beta: f32,
+}
+
+impl SimdUnaryOp for SimdSwish {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        simd_exp(x)
+        let beta = S::splat(self.beta);
+        x.mul(simd_sigmoid(x.mul(beta)))
     }
 }
 
-/// Vectorized exponential function.
+/// Vectorized Swish function.
 ///
-/// This is a vectorized version of [`exp`] that computes the function for each
-/// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
-/// in length.
-///
-/// `out` will be fully initialized after this function returns.
-pub fn vec_exp(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_map_op(xs, out, SimdExp {});
+/// This computes `x * sigmoid(beta * x)` for each element.
+pub fn vec_swish(xs: &[f32], out: &mut [MaybeUninit<f32>], beta: f32) {
+    dispatch_map_op(xs, out, SimdSwish { beta });
 }
 
-/// Variant of [`vec_exp`] that modifies elements in-place.
-pub fn vec_exp_in_place(xs: &mut [f32]) {
-    dispatch_map_op_in_place(xs, SimdExp {});
+/// Vectorized Swish function.
+///
+/// This computes `x * sigmoid(beta * x)` for each element.
+pub fn vec_swish_in_place(xs: &mut [f32], beta: f32) {
+    dispatch_map_op_in_place(xs, SimdSwish { beta });
+}
+
+/// Swish function. This computes `x * sigmoid(beta * x)`.
+pub fn swish(x: f32, beta: f32) -> f32 {
+    // Safety: f32 is available on all systems
+    let op = SimdSwish { beta };
+    unsafe { op.eval(x) }
 }
 
 #[cfg(test)]
@@ -249,7 +282,7 @@ mod tests {
     use crate::testing::{
         arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,
     };
-    use crate::{exp, vec_exp, vec_sigmoid, vec_silu};
+    use crate::{exp, vec_exp, vec_sigmoid, vec_silu, vec_swish};
 
     // Maximum error of `vec_expf` compared to Rust standard library
     // implementation.
@@ -265,6 +298,10 @@ mod tests {
 
     fn reference_silu(x: f32) -> f32 {
         x * reference_sigmoid(x)
+    }
+
+    fn reference_swish(x: f32, beta: f32) -> f32 {
+        x * reference_sigmoid(beta * x)
     }
 
     /// Check the results of a SIMD implementation of a unary operator against
@@ -370,6 +407,17 @@ mod tests {
             MAX_SIGMOID_ERROR_ULPS,
             arange(-6., 6., 0.001f32),
         );
+    }
+
+    #[test]
+    fn test_swish() {
+        let beta = 1.7;
+        check_simd_vs_reference(
+            |src, dest| vec_swish(src, dest, beta),
+            |x| reference_swish(x, beta),
+            MAX_SIGMOID_ERROR_ULPS,
+            arange(-6., 6., 0.001f32),
+        )
     }
 
     #[test]

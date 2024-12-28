@@ -32,8 +32,8 @@ mod testing;
 
 pub use erf::{erf, gelu, vec_erf, vec_erf_in_place, vec_gelu, vec_gelu_in_place};
 pub use exp::{
-    exp, sigmoid, silu, vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place, vec_silu,
-    vec_silu_in_place,
+    exp, sigmoid, silu, swish, vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place,
+    vec_silu, vec_silu_in_place, vec_swish, vec_swish_in_place,
 };
 pub use normalize::{vec_normalize, vec_normalize_in_place};
 pub use softmax::{vec_softmax, vec_softmax_in_place};
