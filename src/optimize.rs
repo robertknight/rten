@@ -176,6 +176,15 @@ impl GraphMutator {
         })
     }
 
+    /// Get the scalar value of a constant node, or `None` if the node is
+    /// not a constant or the value is not a scalar.
+    fn get_scalar(&self, node_id: NodeId) -> Option<f32> {
+        self.graph.get_node(node_id).and_then(|node| match node {
+            Node::Constant(const_node) => const_node.as_scalar(),
+            _ => None,
+        })
+    }
+
     fn set_captures(&mut self, captures: &[NodeId]) {
         self.graph.set_captures(captures)
     }
@@ -457,18 +466,11 @@ impl GraphOptimizer {
         let beta = const_symbol("beta");
         let swish_pattern = x.clone() * unary_op("Sigmoid", beta * x.clone());
 
-        let get_const_scalar = |graph: &Graph, node_id: NodeId| -> Option<f32> {
-            graph.get_node(node_id).and_then(|node| match node {
-                Node::Constant(const_node) => const_node.as_scalar(),
-                _ => None,
-            })
-        };
-
         graph.apply_fusion(|graph, op_node_id, op_node| {
             let swish_match = swish_pattern.test(op_node_id, graph.graph())?;
             let swish_input = swish_match.resolved_symbol("x").expect("missing symbol");
             let beta_input = swish_match.resolved_symbol("beta").expect("missing symbol");
-            let beta = get_const_scalar(graph.graph(), beta_input)?;
+            let beta = graph.get_scalar(beta_input)?;
             let op_output = op_node.output_id()?;
 
             Some(Fusion::from_op(
@@ -535,40 +537,34 @@ impl GraphOptimizer {
             }
         };
 
-        let get_const_scalar = |graph: &Graph, node_id: NodeId| -> Option<f32> {
-            graph.get_node(node_id).and_then(|node| match node {
-                Node::Constant(const_node) => const_node.as_scalar(),
-                _ => None,
-            })
-        };
-
         // Test if `op_node` is a Mul or Div node with one constant scalar
         // input and one non-constant input. If so, returns the constant scalar
         // which the node multiplies the other input by and the ID of the other
         // input.
-        let get_scale_factor = |graph: &Graph, op_node: &OperatorNode| -> Option<(f32, NodeId)> {
-            let op_type = op_node.operator().name();
-            if !["Mul", "Div"].contains(&op_type) {
-                return None;
-            }
+        let get_scale_factor =
+            |graph: &GraphMutator, op_node: &OperatorNode| -> Option<(f32, NodeId)> {
+                let op_type = op_node.operator().name();
+                if !["Mul", "Div"].contains(&op_type) {
+                    return None;
+                }
 
-            let [lhs, rhs] = binary_op_input_ids(op_node)?;
-            let lhs_scalar = get_const_scalar(graph, lhs);
-            let rhs_scalar = get_const_scalar(graph, rhs);
+                let [lhs, rhs] = binary_op_input_ids(op_node)?;
+                let lhs_scalar = graph.get_scalar(lhs);
+                let rhs_scalar = graph.get_scalar(rhs);
 
-            match op_type {
-                "Mul" => match (lhs_scalar, rhs_scalar) {
-                    (Some(lhs_scale), None) => Some((lhs_scale, rhs)),
-                    (None, Some(rhs_scale)) => Some((rhs_scale, lhs)),
+                match op_type {
+                    "Mul" => match (lhs_scalar, rhs_scalar) {
+                        (Some(lhs_scale), None) => Some((lhs_scale, rhs)),
+                        (None, Some(rhs_scale)) => Some((rhs_scale, lhs)),
+                        _ => None,
+                    },
+                    "Div" => match (lhs_scalar, rhs_scalar) {
+                        (None, Some(rhs_scale)) => Some((1. / rhs_scale, lhs)),
+                        _ => None,
+                    },
                     _ => None,
-                },
-                "Div" => match (lhs_scalar, rhs_scalar) {
-                    (None, Some(rhs_scale)) => Some((1. / rhs_scale, lhs)),
-                    _ => None,
-                },
-                _ => None,
-            }
-        };
+                }
+            };
 
         graph.apply_fusion(|graph, _op_node_id, op_node| {
             // Accumulated scale factor from scalings applied to MatMul inputs
@@ -576,13 +572,12 @@ impl GraphOptimizer {
             let mut alpha = 1.0;
 
             let op_output = op_node.output_id()?;
-            let graph = graph.graph();
 
             // Check if this is a Mul/Div node scaling the output of a MatMul.
             let matmul_node = if ["Mul", "Div"].contains(&op_node.operator().name()) {
                 let (output_scale, scale_input) = get_scale_factor(graph, op_node)?;
                 alpha *= output_scale;
-                let (_, scale_input_op) = graph.get_source_node(scale_input)?;
+                let (_, scale_input_op) = graph.graph().get_source_node(scale_input)?;
                 scale_input_op
             } else {
                 op_node
@@ -593,25 +588,27 @@ impl GraphOptimizer {
             }
 
             let [matmul_lhs, matmul_rhs] = binary_op_input_ids(matmul_node)?;
-            let lhs_input = if let Some((_, lhs_source_op)) = graph.get_source_node(matmul_lhs) {
-                let (lhs_scale, lhs_input) =
-                    get_scale_factor(graph, lhs_source_op).unwrap_or((1.0, matmul_lhs));
-                alpha *= lhs_scale;
-                lhs_input
-            } else {
-                // MatMul LHS is not computed by an upstream operator.
-                matmul_lhs
-            };
+            let lhs_input =
+                if let Some((_, lhs_source_op)) = graph.graph().get_source_node(matmul_lhs) {
+                    let (lhs_scale, lhs_input) =
+                        get_scale_factor(graph, lhs_source_op).unwrap_or((1.0, matmul_lhs));
+                    alpha *= lhs_scale;
+                    lhs_input
+                } else {
+                    // MatMul LHS is not computed by an upstream operator.
+                    matmul_lhs
+                };
 
-            let rhs_input = if let Some((_, rhs_source_op)) = graph.get_source_node(matmul_rhs) {
-                let (rhs_scale, rhs_input) =
-                    get_scale_factor(graph, rhs_source_op).unwrap_or((1.0, matmul_rhs));
-                alpha *= rhs_scale;
-                rhs_input
-            } else {
-                // MatMul RHS is not computed by an upstream operator.
-                matmul_rhs
-            };
+            let rhs_input =
+                if let Some((_, rhs_source_op)) = graph.graph().get_source_node(matmul_rhs) {
+                    let (rhs_scale, rhs_input) =
+                        get_scale_factor(graph, rhs_source_op).unwrap_or((1.0, matmul_rhs));
+                    alpha *= rhs_scale;
+                    rhs_input
+                } else {
+                    // MatMul RHS is not computed by an upstream operator.
+                    matmul_rhs
+                };
 
             if alpha == 1.0 {
                 // Scale factor of 1 has no effect.
