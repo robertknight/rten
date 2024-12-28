@@ -8,9 +8,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 use rten_vecmath::{
     erf as erf_scalar, exp as exp_scalar, gelu as gelu_scalar, sigmoid as sigmoid_scalar,
-    silu as silu_scalar, tanh as tanh_scalar, vec_erf, vec_erf_in_place, vec_exp, vec_exp_in_place,
-    vec_gelu, vec_gelu_in_place, vec_sigmoid, vec_sigmoid_in_place, vec_silu, vec_silu_in_place,
-    vec_tanh, vec_tanh_in_place,
+    silu as silu_scalar, swish as swish_scalar, tanh as tanh_scalar, vec_erf, vec_erf_in_place,
+    vec_exp, vec_exp_in_place, vec_gelu, vec_gelu_in_place, vec_sigmoid, vec_sigmoid_in_place,
+    vec_silu, vec_silu_in_place, vec_swish, vec_swish_in_place, vec_tanh, vec_tanh_in_place,
 };
 
 use crate::number::AsBool;
@@ -615,7 +615,7 @@ parallel_unary_float_op!(
 // Sigmoid Linear Unit (SiLU) function.
 //
 // This is a special case of the Swish function
-// (https://en.wikipedia.org/wiki/Swish_function).
+// (<https://en.wikipedia.org/wiki/Swish_function>).
 //
 // Not an official ONNX operator, but used in popular object detection models.
 // See https://github.com/onnx/onnx/issues/4854.
@@ -627,6 +627,54 @@ parallel_unary_float_op!(
     vec_silu_in_place,
     silu_scalar
 );
+
+/// Swish function (<https://en.wikipedia.org/wiki/Swish_function>).
+///
+/// This computes `x * sigmoid(beta * x)`. The special case where beta = 1 is
+/// known as [`Silu`].
+#[derive(Debug)]
+pub struct Swish {
+    pub beta: f32,
+}
+
+impl Operator for Swish {
+    fn name(&self) -> &str {
+        "Swish"
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+        swish(pool, inputs.require_as(0)?, self.beta).into_op_result()
+    }
+
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        input: Output,
+        _: InputList,
+    ) -> Result<Output, OpError> {
+        let mut tensor = input
+            .into_tensor::<f32>()
+            .ok_or(OpError::IncorrectInputType)?;
+        swish_in_place(tensor.view_mut(), self.beta);
+        Ok(tensor.into())
+    }
+}
+
+pub fn swish(pool: &TensorPool, input: TensorView, beta: f32) -> Tensor {
+    par_unary_op(pool, input, |src, dest| vec_swish(src, dest, beta))
+}
+
+pub fn swish_in_place(input: TensorViewMut, beta: f32) {
+    par_unary_op_in_place(
+        input,
+        |src| vec_swish_in_place(src, beta),
+        |x| swish_scalar(x, beta),
+    );
+}
 
 unary_float_op!(Sin, sin, sin_in_place, |val: f32| val.sin());
 
@@ -689,14 +737,14 @@ mod tests {
         floor, gelu, gelu_in_place, hard_sigmoid, hard_swish, leaky_relu, leaky_relu_in_place, log,
         log_in_place, neg, neg_in_place, not, not_in_place, reciprocal, relu, relu_in_place, round,
         round_in_place, sigmoid, sigmoid_in_place, sign, sign_in_place, silu, silu_in_place, sin,
-        sin_in_place, softplus, softplus_in_place, sqrt, sqrt_in_place, tan, tan_in_place, tanh,
-        tanh_in_place,
+        sin_in_place, softplus, softplus_in_place, sqrt, sqrt_in_place, swish, swish_in_place, tan,
+        tan_in_place, tanh, tanh_in_place,
     };
 
     /// Define a test for a simple unary operator which applies the function
     /// `$gen_expected` to each input element.
     macro_rules! test_unary_op {
-        ($test_name:ident, $op:ident, $in_place_op:ident, $gen_expected:expr) => {
+        ($test_name:ident, $op:expr, $in_place_op:expr, $gen_expected:expr) => {
             #[test]
             fn $test_name() -> Result<(), Box<dyn Error>> {
                 let pool = new_pool();
@@ -1157,6 +1205,12 @@ mod tests {
 
     test_unary_op!(test_silu, silu, silu_in_place, |x: &f32| x
         * reference_sigmoid(*x));
+    test_unary_op!(
+        test_swish,
+        |pool, input| swish(pool, input, 0.5),
+        |input| swish_in_place(input, 0.5),
+        |x: &f32| x * reference_sigmoid(0.5 * *x)
+    );
     test_unary_op!(test_sign, sign, sign_in_place, |x: &f32| x.signum());
     test_unary_op!(test_sin, sin, sin_in_place, |x: &f32| x.sin());
     test_unary_op!(test_softplus, softplus, softplus_in_place, |x: &f32| {
