@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use rten_tensor;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
-use rten_vecmath::{vec_sum, vec_sum_square};
+use rten_vecmath::{sum, sum_square};
 
 use crate::number::{Identities, IsNaN};
 use crate::ops::layout::squeeze_in_place;
@@ -401,7 +401,7 @@ pub fn reduce_mean(
     struct MeanKernel {}
     impl ReduceKernel<f32> for MeanKernel {
         fn reduce_slice(&self, slice: &[f32]) -> f32 {
-            vec_sum(slice) / slice.len() as f32
+            sum(slice) / slice.len() as f32
         }
     }
 
@@ -441,7 +441,7 @@ pub fn reduce_l2(
     struct L2ReduceKernel {}
     impl ReduceKernel<f32> for L2ReduceKernel {
         fn reduce_slice(&self, slice: &[f32]) -> f32 {
-            vec_sum_square(slice).sqrt()
+            sum_square(slice).sqrt()
         }
     }
 

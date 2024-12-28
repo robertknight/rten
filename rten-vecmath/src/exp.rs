@@ -2,9 +2,7 @@
 
 #![allow(clippy::excessive_precision)]
 
-use std::mem::MaybeUninit;
-
-use rten_simd::dispatch::{dispatch_map_op, dispatch_map_op_in_place, SimdUnaryOp};
+use rten_simd::dispatch::SimdUnaryOp;
 use rten_simd::{Simd, SimdFloat, SimdInt};
 
 const INV_LOG2: f32 = std::f32::consts::LOG2_E; // aka. 1 / ln2
@@ -25,15 +23,6 @@ const EXP_POLY_3: f32 = 1.66664720e-1; // ~ 1/3! or 1/6
 const EXP_POLY_4: f32 = 4.16695364e-2; // ~ 1/4! or 1/24
 const EXP_POLY_5: f32 = 8.37312452e-3; // ~ 1/5! or 1/120
 const EXP_POLY_6: f32 = 1.37805939e-3; // ~ 1/6! or 1/720
-
-/// Computes e^val. Functionally equivalent to [`f32::exp`].
-///
-/// This is scalar variant of [`vec_exp`] that uses exactly the same algorithm.
-/// It has no performance or correctness advantage over [`f32::exp`] on most systems.
-pub fn exp(val: f32) -> f32 {
-    // Safety: f32 is available on all systems.
-    unsafe { simd_exp(val) }
-}
 
 /// Vectorized implementation of exponential function.
 ///
@@ -132,28 +121,14 @@ pub(crate) unsafe fn simd_exp<S: SimdFloat>(x: S) -> S {
     r.blend(S::zero(), underflow_mask)
 }
 
-struct SimdExp {}
-impl SimdUnaryOp for SimdExp {
+/// Vectorized exponential function.
+pub struct Exp {}
+
+impl SimdUnaryOp for Exp {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
         simd_exp(x)
     }
-}
-
-/// Vectorized exponential function.
-///
-/// This is a vectorized version of [`exp`] that computes the function for each
-/// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
-/// in length.
-///
-/// `out` will be fully initialized after this function returns.
-pub fn vec_exp(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_map_op(xs, out, SimdExp {});
-}
-
-/// Variant of [`vec_exp`] that modifies elements in-place.
-pub fn vec_exp_in_place(xs: &mut [f32]) {
-    dispatch_map_op_in_place(xs, SimdExp {});
 }
 
 /// Compute sigmoid of each element in a SIMD vector.
@@ -174,79 +149,35 @@ unsafe fn simd_sigmoid<S: SimdFloat>(x: S) -> S {
 /// Computes the [sigmoid function][sigmoid], aka. the standard logistic function, `1. /
 /// (1. + (-x).exp())`.
 ///
-/// This is a scalar variant of [`vec_sigmoid`] that uses the same algorithm.
-///
 /// [sigmoid]: https://en.wikipedia.org/wiki/Logistic_function#Mathematical_properties
-pub fn sigmoid(x: f32) -> f32 {
-    // f32 is available on all systems
-    unsafe { simd_sigmoid(x) }
-}
-
-struct SimdSigmoid {}
-impl SimdUnaryOp for SimdSigmoid {
+pub struct Sigmoid {}
+impl SimdUnaryOp for Sigmoid {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
         simd_sigmoid(x)
     }
 }
 
-/// Vectorized sigmoid function.
-///
-/// This is a vectorized version of [`sigmoid`] that computes the function for
-/// each element in `xs` and writes the result to `out`. `xs` and `out` must be
-/// equal in length.
-///
-/// `out` will be fully initialized after this function returns.
-pub fn vec_sigmoid(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_map_op(xs, out, SimdSigmoid {});
-}
-
-/// Variant of [`vec_sigmoid`] that modifies elements in-place.
-pub fn vec_sigmoid_in_place(xs: &mut [f32]) {
-    dispatch_map_op_in_place(xs, SimdSigmoid {});
-}
-
-/// Compute Sigmoid Linear Unit (SiLU) function.
+/// Vectorized Sigmoid Linear Unit (SiLU) function.
 ///
 /// This computes `x * sigmoid(x)` for all lanes in `x`.
-#[inline(always)]
-unsafe fn simd_silu<S: SimdFloat>(x: S) -> S {
-    x.mul(simd_sigmoid(x))
-}
+pub struct Silu {}
 
-struct SimdSilu {}
-impl SimdUnaryOp for SimdSilu {
+impl SimdUnaryOp for Silu {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        simd_silu(x)
+        x.mul(simd_sigmoid(x))
     }
 }
 
-/// Vectorized Sigmoid Linear Unit (SiLU) function.
+/// Vectorized Swish function.
 ///
-/// This computes `x * sigmoid(x)` for each element.
-pub fn vec_silu(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_map_op(xs, out, SimdSilu {});
+/// This computes `x * sigmoid(beta * x)` for each element.
+pub struct Swish {
+    pub beta: f32,
 }
 
-/// Vectorized Sigmoid Linear Unit (SiLU) function.
-///
-/// This computes `x * sigmoid(x)` for each element.
-pub fn vec_silu_in_place(xs: &mut [f32]) {
-    dispatch_map_op_in_place(xs, SimdSilu {});
-}
-
-/// Sigmoid Linear Unit (SiLU) function. This computes `x * sigmoid(x)`.
-pub fn silu(x: f32) -> f32 {
-    // Safety: f32 is available on all systems
-    unsafe { simd_silu(x) }
-}
-
-struct SimdSwish {
-    beta: f32,
-}
-
-impl SimdUnaryOp for SimdSwish {
+impl SimdUnaryOp for Swish {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
         let beta = S::splat(self.beta);
@@ -254,35 +185,16 @@ impl SimdUnaryOp for SimdSwish {
     }
 }
 
-/// Vectorized Swish function.
-///
-/// This computes `x * sigmoid(beta * x)` for each element.
-pub fn vec_swish(xs: &[f32], out: &mut [MaybeUninit<f32>], beta: f32) {
-    dispatch_map_op(xs, out, SimdSwish { beta });
-}
-
-/// Vectorized Swish function.
-///
-/// This computes `x * sigmoid(beta * x)` for each element.
-pub fn vec_swish_in_place(xs: &mut [f32], beta: f32) {
-    dispatch_map_op_in_place(xs, SimdSwish { beta });
-}
-
-/// Swish function. This computes `x * sigmoid(beta * x)`.
-pub fn swish(x: f32, beta: f32) -> f32 {
-    // Safety: f32 is available on all systems
-    let op = SimdSwish { beta };
-    unsafe { op.eval(x) }
-}
-
 #[cfg(test)]
 mod tests {
     use std::mem::MaybeUninit;
 
+    use rten_simd::dispatch::SimdUnaryOp;
+
     use crate::testing::{
         arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,
     };
-    use crate::{exp, vec_exp, vec_sigmoid, vec_silu, vec_swish};
+    use crate::{Exp, Sigmoid, Silu, Swish};
 
     // Maximum error of `vec_expf` compared to Rust standard library
     // implementation.
@@ -335,9 +247,10 @@ mod tests {
         // |x| above/below ln2, zero and values below/above min/max cutoffs.
         let cases = [-2.0f32, -1., -0.5, 0.1, 0., 0.1, 0.5, 1., 2., -105., 105.];
 
+        let exp_op = Exp {};
         for case in cases {
             let expected = case.exp();
-            let actual = exp(case);
+            let actual = exp_op.scalar_eval(case);
             let diff = (expected - actual).abs();
 
             if actual.is_infinite() || expected.is_infinite() {
@@ -353,7 +266,7 @@ mod tests {
     #[test]
     fn test_vec_expf() {
         check_simd_vs_reference(
-            vec_exp,
+            |src, dest| Exp {}.map(src, dest),
             f32::exp,
             MAX_EXP_ERROR_ULPS,
             arange(-6., 6., 0.001f32),
@@ -363,11 +276,16 @@ mod tests {
     #[test]
     #[ignore] // Ignored by default due to long runtime
     fn test_expf_exhaustive() {
-        check_with_all_f32s(|x| (exp(x), x.exp()), MAX_EXP_ERROR_ULPS, "testing exp");
+        let exp_op = Exp {};
+        check_with_all_f32s(
+            |x| (exp_op.scalar_eval(x), x.exp()),
+            MAX_EXP_ERROR_ULPS,
+            "testing exp",
+        );
         check_with_all_f32s(
             |x| {
                 let mut y = [0.; 1];
-                vec_exp(&[x], y.as_mut().as_uninit());
+                exp_op.map(&[x], y.as_mut().as_uninit());
                 (y[0], x.exp())
             },
             MAX_EXP_ERROR_ULPS,
@@ -378,7 +296,7 @@ mod tests {
     #[test]
     fn test_sigmoid() {
         check_simd_vs_reference(
-            vec_sigmoid,
+            |src, dest| Sigmoid {}.map(src, dest),
             reference_sigmoid,
             MAX_SIGMOID_ERROR_ULPS,
             arange(-6., 6., 0.001f32),
@@ -391,7 +309,7 @@ mod tests {
         check_with_all_f32s(
             |x| {
                 let mut y = [0.; 1];
-                vec_sigmoid(&[x], y.as_mut().as_uninit());
+                Sigmoid {}.map(&[x], y.as_mut().as_uninit());
                 (y[0], reference_sigmoid(x))
             },
             MAX_SIGMOID_ERROR_ULPS,
@@ -402,7 +320,7 @@ mod tests {
     #[test]
     fn test_silu() {
         check_simd_vs_reference(
-            vec_silu,
+            |src, dest| Silu {}.map(src, dest),
             reference_silu,
             MAX_SIGMOID_ERROR_ULPS,
             arange(-6., 6., 0.001f32),
@@ -413,7 +331,7 @@ mod tests {
     fn test_swish() {
         let beta = 1.7;
         check_simd_vs_reference(
-            |src, dest| vec_swish(src, dest, beta),
+            |src, dest| Swish { beta }.map(src, dest),
             |x| reference_swish(x, beta),
             MAX_SIGMOID_ERROR_ULPS,
             arange(-6., 6., 0.001f32),
@@ -425,7 +343,7 @@ mod tests {
     fn bench_expf() {
         benchmark_op(
             |xs, ys| xs.iter().zip(ys.iter_mut()).for_each(|(x, y)| *y = x.exp()),
-            vec_exp,
+            |xs, ys| Exp {}.map(xs, ys),
         );
     }
 
@@ -438,7 +356,7 @@ mod tests {
                     .zip(ys.iter_mut())
                     .for_each(|(x, y)| *y = reference_sigmoid(*x))
             },
-            vec_sigmoid,
+            |xs, ys| Sigmoid {}.map(xs, ys),
         );
     }
 }

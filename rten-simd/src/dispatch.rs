@@ -101,36 +101,58 @@ pub trait SimdUnaryOp {
     /// The caller must ensure that the `S` is a supported SIMD vector type
     /// on the current system.
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S;
-}
 
-/// Apply a vectorized unary function to elements of `input` using [`simd_map`].
-pub fn dispatch_map_op<Op: SimdUnaryOp>(input: &[f32], out: &mut [MaybeUninit<f32>], op: Op) {
-    let wrapped_op = SimdMapOp::wrap(input.into(), out.into(), op);
-    dispatch(wrapped_op)
-}
+    /// Evaluate the unary function on `x`.
+    fn scalar_eval(&self, x: f32) -> f32 {
+        // Safety: `f32` is a supported "SIMD" type on all platforms.
+        unsafe { self.eval(x) }
+    }
 
-/// Apply a vectorized unary function in-place to elements of `input`.
-pub fn dispatch_map_op_in_place<Op: SimdUnaryOp>(input: &mut [f32], op: Op) {
-    let out: MutPtrLen<f32> = input.into();
-    let wrapped_op = SimdMapOp::wrap(input.into(), out.as_uninit(), op);
-    dispatch(wrapped_op)
+    /// Apply this function to a slice.
+    ///
+    /// This reads elements from `input` in SIMD vector-sized chunks, applies
+    /// `op` and writes the results to `output`.
+    fn map(&self, input: &[f32], output: &mut [MaybeUninit<f32>])
+    where
+        Self: Sized,
+    {
+        let wrapped_op = SimdMapOp::wrap(input.into(), output.into(), self);
+        dispatch(wrapped_op)
+    }
+
+    /// Apply a vectorized unary function to a mutable slice.
+    ///
+    /// This is similar to [`map`](SimdUnaryOp::map) but reads and writes to the
+    /// same slice.
+    fn map_mut(&self, input: &mut [f32])
+    where
+        Self: Sized,
+    {
+        let out: MutPtrLen<f32> = input.into();
+        let wrapped_op = SimdMapOp::wrap(input.into(), out.as_uninit(), self);
+        dispatch(wrapped_op)
+    }
 }
 
 /// SIMD operation which applies a unary operator `Op` to all elements in
 /// an input buffer using [`simd_map`].
-pub struct SimdMapOp<Op: SimdUnaryOp> {
+pub struct SimdMapOp<'a, Op: SimdUnaryOp> {
     input: PtrLen<f32>,
     output: MutPtrLen<MaybeUninit<f32>>,
-    op: Op,
+    op: &'a Op,
 }
 
-impl<Op: SimdUnaryOp> SimdMapOp<Op> {
-    pub fn wrap(input: PtrLen<f32>, output: MutPtrLen<MaybeUninit<f32>>, op: Op) -> SimdMapOp<Op> {
+impl<'a, Op: SimdUnaryOp> SimdMapOp<'a, Op> {
+    pub fn wrap(
+        input: PtrLen<f32>,
+        output: MutPtrLen<MaybeUninit<f32>>,
+        op: &'a Op,
+    ) -> SimdMapOp<'a, Op> {
         SimdMapOp { input, output, op }
     }
 }
 
-impl<Op: SimdUnaryOp> SimdOp for SimdMapOp<Op> {
+impl<Op: SimdUnaryOp> SimdOp for SimdMapOp<'_, Op> {
     type Output = ();
 
     #[inline(always)]

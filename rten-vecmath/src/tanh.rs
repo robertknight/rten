@@ -1,16 +1,9 @@
 #![allow(clippy::excessive_precision)]
 
-use std::mem::MaybeUninit;
-
-use rten_simd::dispatch::{dispatch_map_op, dispatch_map_op_in_place, SimdUnaryOp};
+use rten_simd::dispatch::SimdUnaryOp;
 use rten_simd::SimdFloat;
 
 use crate::exp::simd_exp;
-
-/// Compute `x.tanh()` using the same algorithm as [`vec_tanh`].
-pub fn tanh(x: f32) -> f32 {
-    unsafe { simd_tanh(x) }
-}
 
 #[inline(always)]
 unsafe fn simd_tanh<S: SimdFloat>(x: S) -> S {
@@ -64,35 +57,24 @@ unsafe fn simd_tanh<S: SimdFloat>(x: S) -> S {
     y.blend(y.neg(), x_negative)
 }
 
-struct SimdTanh {}
-impl SimdUnaryOp for SimdTanh {
+/// Vectorized tanh implementation.
+pub struct Tanh {}
+
+impl SimdUnaryOp for Tanh {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
         simd_tanh(x)
     }
 }
 
-/// Vectorized tanh implementation.
-///
-/// This computes `x.tanh()` for each value in `xs` and writes the result to
-/// `out`.
-///
-/// After this function returns, `out` will be fully initialized.
-pub fn vec_tanh(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_map_op(xs, out, SimdTanh {});
-}
-
-/// Variant of [`vec_tanh`] which modifies elements in-place.
-pub fn vec_tanh_in_place(xs: &mut [f32]) {
-    dispatch_map_op_in_place(xs, SimdTanh {});
-}
-
 #[cfg(test)]
 mod tests {
+    use rten_simd::dispatch::SimdUnaryOp;
+
     use crate::testing::{
         arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,
     };
-    use crate::vec_tanh;
+    use crate::Tanh;
 
     // Maximum error of `vec_tanh` compared to `f32::tanh`.
     const MAX_TANH_ERROR_ULPS: f32 = 3.0;
@@ -103,7 +85,7 @@ mod tests {
         check_with_all_f32s(
             |x| {
                 let mut y = [0.; 1];
-                vec_tanh(&[x], y.as_mut().as_uninit());
+                Tanh {}.map(&[x], y.as_mut().as_uninit());
                 (y[0], x.tanh())
             },
             MAX_TANH_ERROR_ULPS,
@@ -116,7 +98,7 @@ mod tests {
         let cases: Vec<f32> = arange(-8., 8., 0.001f32).collect();
         let expected: Vec<_> = cases.iter().copied().map(|x| x.tanh()).collect();
         let mut actual = cases.clone();
-        vec_tanh(&cases, actual.as_mut_slice().as_uninit());
+        Tanh {}.map(&cases, actual.as_mut_slice().as_uninit());
 
         let results = cases
             .iter()
@@ -134,7 +116,7 @@ mod tests {
                     .zip(ys.iter_mut())
                     .for_each(|(x, y)| *y = x.tanh())
             },
-            vec_tanh,
+            |xs, ys| Tanh {}.map(xs, ys),
         );
     }
 }
