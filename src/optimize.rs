@@ -9,7 +9,9 @@ use crate::graph::{
     CaptureEnv, Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError, TypedConstant,
 };
 use crate::ops::fused::FusedTranspose;
-use crate::ops::{FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, Silu, Transpose};
+use crate::ops::{
+    FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, Silu, Swish, Transpose,
+};
 use crate::Output;
 
 mod pattern_matcher;
@@ -295,6 +297,7 @@ impl GraphOptimizer {
         self.propagate_constants(&mut graph_mut)?;
 
         self.fuse_silu(&mut graph_mut)?;
+        self.fuse_swish(&mut graph_mut)?;
         self.fuse_gelu(&mut graph_mut)?;
         self.fuse_layer_norm(&mut graph_mut)?;
         self.fuse_matmul_add(&mut graph_mut)?;
@@ -441,6 +444,37 @@ impl GraphOptimizer {
                 op_node.name(),
                 Silu {},
                 vec![Some(silu_input)],
+                op_output,
+            ))
+        });
+
+        Ok(())
+    }
+
+    /// Fuse `x * Sigmoid(beta * x)` into `Swish(x, beta)`.
+    fn fuse_swish(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
+        let x = symbol("x");
+        let beta = const_symbol("beta");
+        let swish_pattern = x.clone() * unary_op("Sigmoid", beta * x.clone());
+
+        let get_const_scalar = |graph: &Graph, node_id: NodeId| -> Option<f32> {
+            graph.get_node(node_id).and_then(|node| match node {
+                Node::Constant(const_node) => const_node.as_scalar(),
+                _ => None,
+            })
+        };
+
+        graph.apply_fusion(|graph, op_node_id, op_node| {
+            let swish_match = swish_pattern.test(op_node_id, graph.graph())?;
+            let swish_input = swish_match.resolved_symbol("x").expect("missing symbol");
+            let beta_input = swish_match.resolved_symbol("beta").expect("missing symbol");
+            let beta = get_const_scalar(graph.graph(), beta_input)?;
+            let op_output = op_node.output_id()?;
+
+            Some(Fusion::from_op(
+                op_node.name(),
+                Swish { beta },
+                [Some(swish_input)].into(),
                 op_output,
             ))
         });
@@ -747,7 +781,7 @@ mod tests {
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
     use crate::ops::{
         Add, Div, Erf, FusedMatMul, LayerNormalization, MatMul, Mul, Pow, ReduceMean, Sigmoid,
-        Sqrt, Sub, Transpose,
+        Sqrt, Sub, Swish, Transpose,
     };
 
     fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
@@ -894,6 +928,26 @@ mod tests {
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "Silu");
+        assert_eq!(op.name(), Some("mul"));
+    }
+
+    #[test]
+    fn test_fuse_swish() {
+        let mut graph = Graph::new();
+
+        let input = graph.add_value(None, None, None);
+        let beta = graph.add_constant(None, Tensor::from(1.7));
+        let (_, mul_beta_out) = graph.add_simple_op("mul_beta", Mul {}, &[input, beta]);
+        let (_, sigmoid_out) = graph.add_simple_op("sigmoid", Sigmoid {}, &[mul_beta_out]);
+        let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[input, sigmoid_out]);
+        graph.set_input_ids(&[input]);
+        graph.set_output_ids(&[mul_out]);
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        let swish_op = op.operator().downcast_ref::<Swish>().unwrap();
+        assert_eq!(swish_op.beta, 1.7);
         assert_eq!(op.name(), Some("mul"));
     }
 
