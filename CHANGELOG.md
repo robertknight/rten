@@ -5,9 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.15.0] - Unreleased
+## [0.15.0] - 2024-12-28
 
 ### rten
+
+- Fuse and vectorize Swish activation function used in CLIP and other models
+  (https://github.com/robertknight/rten/pull/493).
+
+- Avoid redundant zeroing of output buffer in `Gather` operator
+  (https://github.com/robertknight/rten/pull/492)
+
+- Fuse `MatMul` + `Mul` or `Div` by constant on either inputs or outputs
+  (https://github.com/robertknight/rten/pull/487,
+  https://github.com/robertknight/rten/pull/489).  In Transformers this occurs
+  in the context of Scaled Dot Product Attention.
 
 - Fix panic if `Model::run` is passed an input or output node ID which refers to
   an operator node rather than a value or constant node
