@@ -132,6 +132,30 @@ pub(crate) unsafe fn simd_exp<S: SimdFloat>(x: S) -> S {
     r.blend(S::zero(), underflow_mask)
 }
 
+struct SimdExp {}
+impl SimdUnaryOp for SimdExp {
+    #[inline(always)]
+    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
+        simd_exp(x)
+    }
+}
+
+/// Vectorized exponential function.
+///
+/// This is a vectorized version of [`exp`] that computes the function for each
+/// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
+/// in length.
+///
+/// `out` will be fully initialized after this function returns.
+pub fn vec_exp(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
+    dispatch_map_op(xs, out, SimdExp {});
+}
+
+/// Variant of [`vec_exp`] that modifies elements in-place.
+pub fn vec_exp_in_place(xs: &mut [f32]) {
+    dispatch_map_op_in_place(xs, SimdExp {});
+}
+
 /// Compute sigmoid of each element in a SIMD vector.
 ///
 /// ie. This computes `1. / (1. + exp(-x))`.
@@ -216,30 +240,6 @@ pub fn vec_silu(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
 /// This computes `x * sigmoid(x)` for each element.
 pub fn vec_silu_in_place(xs: &mut [f32]) {
     dispatch_map_op_in_place(xs, SimdSilu {});
-}
-
-struct SimdExp {}
-impl SimdUnaryOp for SimdExp {
-    #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        simd_exp(x)
-    }
-}
-
-/// Vectorized exponential function.
-///
-/// This is a vectorized version of [`exp`] that computes the function for each
-/// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
-/// in length.
-///
-/// `out` will be fully initialized after this function returns.
-pub fn vec_exp(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_map_op(xs, out, SimdExp {});
-}
-
-/// Variant of [`vec_exp`] that modifies elements in-place.
-pub fn vec_exp_in_place(xs: &mut [f32]) {
-    dispatch_map_op_in_place(xs, SimdExp {});
 }
 
 #[cfg(test)]
