@@ -234,13 +234,13 @@ impl Fusion {
     fn from_op<Op: Operator + Send + Sync>(
         name: Option<&str>,
         op: Op,
-        input_ids: Vec<Option<NodeId>>,
+        input_ids: &[Option<NodeId>],
         output_id: NodeId,
     ) -> Fusion {
         Fusion {
             name: name.map(|s| s.to_string()),
             fused_op: Box::new(op),
-            input_ids,
+            input_ids: input_ids.to_vec(),
             output_id,
         }
     }
@@ -433,7 +433,7 @@ impl GraphOptimizer {
             Some(Fusion::from_op(
                 transpose_target.name(),
                 fused_op,
-                fused_input,
+                &fused_input,
                 target_output,
             ))
         });
@@ -454,7 +454,7 @@ impl GraphOptimizer {
             Some(Fusion::from_op(
                 op_node.name(),
                 Silu {},
-                vec![Some(silu_input)],
+                &[Some(silu_input)],
                 op_output,
             ))
         });
@@ -478,7 +478,7 @@ impl GraphOptimizer {
             Some(Fusion::from_op(
                 op_node.name(),
                 Swish { beta },
-                [Some(swish_input)].into(),
+                &[Some(swish_input)],
                 op_output,
             ))
         });
@@ -517,7 +517,7 @@ impl GraphOptimizer {
             Some(Fusion::from_op(
                 op_node.name(),
                 FusedMatMul { alpha: None },
-                [Some(a_input), Some(b_input), Some(bias_input)].into(),
+                &[Some(a_input), Some(b_input), Some(bias_input)],
                 op_output,
             ))
         });
@@ -620,7 +620,7 @@ impl GraphOptimizer {
             Some(Fusion::from_op(
                 matmul_node.name(),
                 FusedMatMul { alpha: Some(alpha) },
-                [Some(lhs_input), Some(rhs_input)].into(),
+                &[Some(lhs_input), Some(rhs_input)],
                 op_output,
             ))
         });
@@ -646,7 +646,7 @@ impl GraphOptimizer {
             Some(Fusion::from_op(
                 op_node.name(),
                 Gelu {},
-                vec![Some(gelu_input)],
+                &[Some(gelu_input)],
                 op_output,
             ))
         });
@@ -694,7 +694,7 @@ impl GraphOptimizer {
                     axis: -1,
                     epsilon: Some(epsilon),
                 },
-                [Some(x_input), Some(scale_input)].into(),
+                &[Some(x_input), Some(scale_input)],
                 op_output,
             ))
         });
@@ -775,7 +775,7 @@ impl GraphOptimizer {
                     axis: -1,
                     epsilon: Some(epsilon),
                 },
-                vec![Some(center_input), Some(scale_input), bias_input],
+                &[Some(center_input), Some(scale_input), bias_input],
                 op_output,
             ))
         });
