@@ -1224,8 +1224,20 @@ pub trait ResizeLayout: MutLayout {
 
     /// Remove a size-1 axis at the given index.
     ///
+    /// Since the axis has size one, this does not alter the number of elements
+    /// in the layout or the order in which they are visited.
+    ///
     /// Panics if the axis does not have a size of 1.
-    fn remove_axis(&mut self, index: usize);
+    fn remove_axis(&mut self, index: usize) {
+        assert!(self.size(index) == 1);
+        self.remove_axis_of_any_size(index)
+    }
+
+    /// Remove an axis that may have any size.
+    ///
+    /// If the size of the axis is not one, this will "remove" elements from
+    /// the layout.
+    fn remove_axis_of_any_size(&mut self, index: usize);
 
     /// Merge consecutive axes where possible.
     ///
@@ -1239,8 +1251,7 @@ impl ResizeLayout for DynLayout {
         self.insert_dim(index)
     }
 
-    fn remove_axis(&mut self, index: usize) {
-        assert!(self.size(index) == 1);
+    fn remove_axis_of_any_size(&mut self, index: usize) {
         self.shape_and_strides.remove(index);
         self.shape_and_strides.remove(self.ndim() + index);
     }
@@ -1621,6 +1632,26 @@ mod tests {
     fn test_permute_repeated_dims() {
         let mut layout = DynLayout::from_shape(&[5, 5]);
         layout.permute(&[1, 1]);
+    }
+
+    #[test]
+    fn test_remove_axis_of_any_size() {
+        let shape = [1, 2, 3, 4];
+        for d in 0..shape.len() {
+            let mut layout = DynLayout::from_shape(&shape);
+            let (expected_shape, expected_strides): (Vec<usize>, Vec<usize>) = layout
+                .shape()
+                .iter()
+                .zip(layout.strides())
+                .enumerate()
+                .filter_map(|(i, (size, stride))| if i != d { Some((size, stride)) } else { None })
+                .unzip();
+
+            layout.remove_axis_of_any_size(d);
+
+            assert_eq!(layout.shape(), expected_shape);
+            assert_eq!(layout.strides(), expected_strides);
+        }
     }
 
     #[test]
