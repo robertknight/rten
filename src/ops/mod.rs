@@ -88,7 +88,8 @@ pub use matmul::{gemm_op, matmul, FusedMatMul, Gemm, MatMul, MatMulInteger};
 pub use non_max_suppression::{non_max_suppression, BoxOrder, NonMaxSuppression};
 pub use norm::{
     batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
-    softmax, BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax, Softmax,
+    rms_normalization, softmax, BatchNormalization, InstanceNormalization, LayerNormalization,
+    LogSoftmax, RmsNormalization, Softmax,
 };
 pub use pad::{pad, Pad, PadMode};
 pub use pooling::{

@@ -3,21 +3,38 @@ use std::mem::MaybeUninit;
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
-use rten_vecmath::{normalize, normalize_mut, softmax_mut, sum, sum_square_sub};
+use rten_vecmath::{normalize, normalize_mut, softmax_mut, sum, sum_square, sum_square_sub};
 
 use crate::ops::static_dims;
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::slice_reductions::slice_max;
 use crate::tensor_pool::TensorPool;
 
-struct NormalizeOptions<'a> {
-    /// Pre-computed mean of the input data. If not specified, the mean will
-    /// be computed from the input.
-    mean: Option<f32>,
+/// Specifies how to normalize the mean and variance.
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum MeanNormalize {
+    /// Normalize mean and variance using precomputed statistics.
+    ///
+    /// This is used for BatchNormalization.
+    Static { mean: f32, variance: f32 },
 
-    /// Pre-computed variance of the input data. If not specified, the variance
-    /// will be computed from the input.
-    variance: Option<f32>,
+    /// Normalize mean and variance using statistics computed from the input
+    /// data.
+    ///
+    /// This is used for LayerNormalization, InstanceNormalization and
+    /// GroupNormalization.
+    Dynamic,
+
+    /// Normalize the scale of the input using [RMSNorm] but don't center the mean.
+    ///
+    /// The RMS is computed dynamically from the input.
+    ///
+    /// [RMSNorm]: <https://pytorch.org/docs/stable/generated/torch.nn.modules.normalization.RMSNorm.html>
+    DynamicRootMeanSquare,
+}
+
+struct NormalizeOptions<'a> {
+    mean_normalize: MeanNormalize,
 
     /// Epsilon value used to avoid divide-by-zero in sqrt.
     epsilon: f32,
@@ -38,8 +55,7 @@ struct NormalizeOptions<'a> {
 impl Default for NormalizeOptions<'_> {
     fn default() -> Self {
         NormalizeOptions {
-            mean: None,
-            variance: None,
+            mean_normalize: MeanNormalize::Dynamic,
 
             // Default value for ONNX BatchNormalization, InstanceNormalization
             // and LayerNormalization operators.
@@ -82,8 +98,7 @@ impl<'a> From<(&'a [f32], &'a mut [MaybeUninit<f32>])> for NormalizeData<'a> {
 /// ```
 fn normalize_slice(data: NormalizeData, opts: NormalizeOptions) {
     let NormalizeOptions {
-        mean,
-        variance,
+        mean_normalize,
         epsilon,
         scale,
         bias,
@@ -96,8 +111,18 @@ fn normalize_slice(data: NormalizeData, opts: NormalizeOptions) {
         NormalizeData::SrcDest((src, _dest)) => *src,
     };
 
-    let mean = mean.unwrap_or_else(|| sum(input) / input.len() as f32);
-    let variance = variance.unwrap_or_else(|| sum_square_sub(input, mean) / input.len() as f32);
+    let (mean, variance) = match mean_normalize {
+        MeanNormalize::Static { mean, variance } => (mean, variance),
+        MeanNormalize::Dynamic => {
+            let mean = sum(input) / input.len() as f32;
+            let variance = sum_square_sub(input, mean) / input.len() as f32;
+            (mean, variance)
+        }
+        MeanNormalize::DynamicRootMeanSquare => {
+            let root_mean_square = sum_square(input) / input.len() as f32;
+            (0., root_mean_square)
+        }
+    };
 
     // To avoid divisions in the vectorized loop, we re-arrange:
     //
@@ -168,8 +193,10 @@ pub fn batch_norm_in_place(
             normalize_slice(
                 chan_data.into(),
                 NormalizeOptions {
-                    mean: Some(chan_mean),
-                    variance: Some(chan_var),
+                    mean_normalize: MeanNormalize::Static {
+                        mean: chan_mean,
+                        variance: chan_var,
+                    },
                     epsilon,
                     scale: chan_scale,
                     bias: chan_bias,
@@ -366,6 +393,24 @@ impl Operator for InstanceNormalization {
     }
 }
 
+pub fn rms_normalization(
+    pool: &TensorPool,
+    input: TensorView,
+    scale: TensorView,
+    axis: isize,
+    epsilon: Option<f32>,
+) -> Result<Tensor, OpError> {
+    layer_normalization_impl(
+        pool,
+        input,
+        scale,
+        None, // bias
+        axis,
+        epsilon,
+        MeanNormalize::DynamicRootMeanSquare,
+    )
+}
+
 pub fn layer_normalization(
     pool: &TensorPool,
     input: TensorView,
@@ -373,6 +418,26 @@ pub fn layer_normalization(
     bias: Option<TensorView>,
     axis: isize,
     epsilon: Option<f32>,
+) -> Result<Tensor, OpError> {
+    layer_normalization_impl(
+        pool,
+        input,
+        scale,
+        bias,
+        axis,
+        epsilon,
+        MeanNormalize::Dynamic,
+    )
+}
+
+fn layer_normalization_impl(
+    pool: &TensorPool,
+    input: TensorView,
+    scale: TensorView,
+    bias: Option<TensorView>,
+    axis: isize,
+    epsilon: Option<f32>,
+    mean_normalize: MeanNormalize,
 ) -> Result<Tensor, OpError> {
     let epsilon = epsilon.unwrap_or(1e-5);
     let resolved_axis = resolve_axis(input.ndim(), axis)?;
@@ -423,6 +488,7 @@ pub fn layer_normalization(
         normalize_slice(
             (in_chunk, out_chunk).into(),
             NormalizeOptions {
+                mean_normalize,
                 epsilon,
                 element_scale: Some(scale_data),
                 element_bias: bias_data,
@@ -458,6 +524,32 @@ impl Operator for LayerNormalization {
 
         layer_normalization(pool, input.view(), scale, bias, self.axis, self.epsilon)
             .into_op_result()
+    }
+}
+
+/// Root Mean Square normalization.
+///
+/// This is a simplified version of [`LayerNormalization`] which does not center
+/// the mean and uses a Root Mean Square statistic instead of variance to
+/// normalize the scale.
+///
+/// See <https://pytorch.org/docs/stable/generated/torch.nn.modules.normalization.RMSNorm.html>.
+#[derive(Debug)]
+pub struct RmsNormalization {
+    pub axis: isize,
+    pub epsilon: Option<f32>,
+}
+
+impl Operator for RmsNormalization {
+    fn name(&self) -> &str {
+        "RmsNormalization"
+    }
+
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+        let input = inputs.require_as(0)?;
+        let scale = inputs.require_as(1)?;
+
+        rms_normalization(pool, input.view(), scale, self.axis, self.epsilon).into_op_result()
     }
 }
 
@@ -634,14 +726,14 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::Tensor;
+    use rten_tensor::{NdTensor, NdTensorView, Tensor};
 
     use super::SOFTMAX_GRAIN_SIZE;
     use crate::ops::tests::{expect_eq_1e4, new_pool};
     use crate::ops::OpError;
     use crate::ops::{
         batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
-        softmax,
+        rms_normalization, softmax,
     };
 
     #[test]
@@ -881,6 +973,34 @@ mod tests {
                 (result, expected) => assert_eq!(result, expected),
             }
         }
+
+        Ok(())
+    }
+
+    fn reference_rms(input: NdTensorView<f32, 1>, scale: NdTensorView<f32, 1>) -> NdTensor<f32, 1> {
+        let sum_square = input.iter().map(|x| x * x).sum::<f32>();
+        let rms = (sum_square / input.len() as f32).sqrt();
+        let out: Vec<f32> = input
+            .iter()
+            .zip(scale.iter())
+            .map(|(x, scale)| (x / rms) * scale)
+            .collect();
+        NdTensor::from_data(input.shape(), out)
+    }
+
+    #[test]
+    fn test_rms_normalization() -> Result<(), Box<dyn Error>> {
+        let mut rng = XorShiftRng::new(5678);
+        let input = Tensor::rand(&[10], &mut rng);
+        let scale = Tensor::rand(&[10], &mut rng);
+        let epsilon = 1e-5;
+
+        let pool = new_pool();
+        let result =
+            rms_normalization(&pool, input.view(), scale.view(), 0, Some(epsilon)).unwrap();
+
+        let expected = reference_rms(input.nd_view(), scale.nd_view()).into_dyn();
+        expect_eq_1e4(&result, &expected)?;
 
         Ok(())
     }
