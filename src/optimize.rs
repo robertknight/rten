@@ -448,7 +448,7 @@ impl GraphOptimizer {
 
         graph.apply_fusion(|graph, op_node_id, op_node| {
             let silu_match = silu_pattern.test(op_node_id, graph.graph())?;
-            let silu_input = silu_match.resolved_symbol("x").expect("missing symbol");
+            let silu_input = silu_match.node_id("x").expect("missing symbol");
             let op_output = op_node.output_id()?;
 
             Some(Fusion::from_op(
@@ -470,8 +470,8 @@ impl GraphOptimizer {
 
         graph.apply_fusion(|graph, op_node_id, op_node| {
             let swish_match = swish_pattern.test(op_node_id, graph.graph())?;
-            let swish_input = swish_match.resolved_symbol("x").expect("missing symbol");
-            let beta_input = swish_match.resolved_symbol("beta").expect("missing symbol");
+            let swish_input = swish_match.node_id("x").expect("missing symbol");
+            let beta_input = swish_match.node_id("beta").expect("missing symbol");
             let beta = graph.get_scalar(beta_input)?;
             let op_output = op_node.output_id()?;
 
@@ -500,9 +500,9 @@ impl GraphOptimizer {
         graph.apply_fusion(|graph, op_node_id, op_node| {
             let matmul_add_match = matmul_add_pat.test(op_node_id, graph.graph())?;
 
-            let a_input = matmul_add_match.resolved_symbol("a").unwrap();
-            let b_input = matmul_add_match.resolved_symbol("b").unwrap();
-            let bias_input = matmul_add_match.resolved_symbol("bias").unwrap();
+            let a_input = matmul_add_match.node_id("a").unwrap();
+            let b_input = matmul_add_match.node_id("b").unwrap();
+            let bias_input = matmul_add_match.node_id("bias").unwrap();
             let op_output = op_node.output_id()?;
 
             let is_bias_a_vector = match graph.graph().get_node(bias_input) {
@@ -640,7 +640,7 @@ impl GraphOptimizer {
 
         graph.apply_fusion(|graph, op_node_id, op_node| {
             let gelu_match = gelu_pattern.test(op_node_id, graph.graph())?;
-            let gelu_input = gelu_match.resolved_symbol("x").expect("missing symbol");
+            let gelu_input = gelu_match.node_id("x").expect("missing symbol");
             let op_output = op_node.output_id()?;
 
             Some(Fusion::from_op(
@@ -677,11 +677,11 @@ impl GraphOptimizer {
 
         graph.apply_fusion(|graph, op_node_id, op_node| {
             let rms_match = rms_pat.test(op_node_id, graph.graph())?;
-            let x_input = rms_match.resolved_symbol("x").unwrap();
-            let epsilon_input = rms_match.resolved_symbol("epsilon").unwrap();
+            let x_input = rms_match.node_id("x").unwrap();
+            let epsilon_input = rms_match.node_id("epsilon").unwrap();
             let epsilon = graph.get_scalar(epsilon_input)?;
-            let scale_input = rms_match.resolved_symbol("scale").unwrap();
-            let norm_mean = rms_match.resolved_symbol("norm_mean").unwrap();
+            let scale_input = rms_match.node_id("scale").unwrap();
+            let norm_mean = rms_match.node_id("norm_mean").unwrap();
             let op_output = op_node.output_id()?;
 
             if !mean_op_reduces_last_axis(graph.graph(), norm_mean) {
@@ -731,23 +731,23 @@ impl GraphOptimizer {
             let (shift_scale_input, bias_input, scale_input) =
                 if let Some(shift_scale_match) = shift_scale_pat.test(op_node_id, graph.graph()) {
                     // Found match for scale + bias.
-                    let shift_scale_input = shift_scale_match.resolved_symbol("x").unwrap();
-                    let bias_input = shift_scale_match.resolved_symbol("bias").unwrap();
-                    let scale_input = shift_scale_match.resolved_symbol("scale").unwrap();
+                    let shift_scale_input = shift_scale_match.node_id("x").unwrap();
+                    let bias_input = shift_scale_match.node_id("bias").unwrap();
+                    let scale_input = shift_scale_match.node_id("scale").unwrap();
                     (shift_scale_input, Some(bias_input), scale_input)
                 } else if let Some(scale_match) = scale_pat.test(op_node_id, graph.graph()) {
                     // Found match for scale only.
-                    let x_input = scale_match.resolved_symbol("x").unwrap();
-                    let scale_input = scale_match.resolved_symbol("scale").unwrap();
+                    let x_input = scale_match.node_id("x").unwrap();
+                    let scale_input = scale_match.node_id("scale").unwrap();
                     (x_input, None, scale_input)
                 } else {
                     return None;
                 };
 
             let norm_match = normalize_variance_pat.test(shift_scale_input, graph.graph())?;
-            let norm_input = norm_match.resolved_symbol("x").unwrap();
-            let epsilon_input = norm_match.resolved_symbol("epsilon").unwrap();
-            let norm_mean = norm_match.resolved_symbol("norm_mean").unwrap();
+            let norm_input = norm_match.node_id("x").unwrap();
+            let epsilon_input = norm_match.node_id("epsilon").unwrap();
+            let norm_mean = norm_match.node_id("norm_mean").unwrap();
             if !mean_op_reduces_last_axis(graph.graph(), norm_mean) {
                 // The LayerNormalization operator supports taking the mean over
                 // multiple trailing axes. However this fusion only supports the
@@ -756,8 +756,8 @@ impl GraphOptimizer {
             }
 
             let center_match = center_pat.test(norm_input, graph.graph())?;
-            let center_input = center_match.resolved_symbol("x").unwrap();
-            let center_mean = center_match.resolved_symbol("center_mean").unwrap();
+            let center_input = center_match.node_id("x").unwrap();
+            let center_mean = center_match.node_id("center_mean").unwrap();
             if !mean_op_reduces_last_axis(graph.graph(), center_mean) {
                 return None;
             }

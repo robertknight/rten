@@ -60,9 +60,9 @@ pub struct Match {
 }
 
 impl Match {
-    /// Return the value node ID that a symbol was resolved to.
-    pub fn resolved_symbol(&self, name: &str) -> Option<NodeId> {
-        self.symbols.find(name)
+    /// Return the node ID that a symbol was resolved to.
+    pub fn node_id(&self, symbol_name: &str) -> Option<NodeId> {
+        self.symbols.find(symbol_name)
     }
 }
 
@@ -444,7 +444,7 @@ mod tests {
 
             assert_eq!(pat_match.is_some(), expect_match, "mismatch for case {}", i);
             if let Some(pat_match) = pat_match {
-                assert_eq!(pat_match.resolved_symbol("x"), Some(input));
+                assert_eq!(pat_match.node_id("x"), Some(input));
             }
         }
     }
@@ -455,7 +455,7 @@ mod tests {
         let x = symbol("x");
         let pat = x.clone() / (1.0 + unary_op_key("Abs", x.clone(), "abs_op"));
         let pat_match = pat.test(output, &graph).unwrap();
-        let abs_node_id = pat_match.resolved_symbol("abs_op").unwrap();
+        let abs_node_id = pat_match.node_id("abs_op").unwrap();
         let abs_op = graph.get_node(abs_node_id).unwrap();
         assert!(matches!(abs_op, Node::Operator(op) if op.operator().name() == "Abs"));
     }
