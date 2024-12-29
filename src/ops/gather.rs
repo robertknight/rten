@@ -58,6 +58,22 @@ pub fn gather<T: Copy + Default>(
     ]
     .concat();
 
+    // Fast path for common case of gathering from a contiguous input along
+    // axis zero. For example, when gathering from a `[token_id, embed_dim]`
+    // embedding matrix.
+    if let (0, Some(in_data)) = (axis, input.data()) {
+        let in_slice_len = input.shape()[axis + 1..].iter().product();
+        let mut out_data = pool.alloc(out_shape.iter().product());
+        for index in indices.iter() {
+            let Some(index) = resolve_index(input.size(axis), *index as isize) else {
+                return Err(INVALID_INDEX_ERR);
+            };
+            let in_chunk = &in_data[index * in_slice_len..][..in_slice_len];
+            out_data.extend_from_slice(in_chunk);
+        }
+        return Ok(Tensor::from_data(&out_shape, out_data));
+    }
+
     // Construct layout for gathered slice of the input. Each slice has the same
     // layout so we construct it once outside the loop and then reuse it on each
     // iteration.
@@ -676,11 +692,18 @@ mod tests {
 
         // Test case shrunk down from a small BERT model where `gather` is used
         // to lookup embeddings.
+        //
+        // This exercises the fast path for axis=0 with contiguous input.
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::<f32>::rand(&[128, 10], &mut rng);
         let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 50]);
         let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
-        assert_eq!(result.shape(), &[2, 2, 10]);
+        let expected = Tensor::from_fn(&[2, 2, 10], |index| {
+            let [x, y, z] = index.try_into().unwrap();
+            let idx = indices[[x, y]] as usize;
+            input[[idx, z]]
+        });
+        assert_eq!(result, expected);
 
         // Test case #1 from ONNX spec.
         let input = Tensor::from_data(&[3, 2], vec![1.0, 1.2, 2.3, 3.4, 4.5, 5.7]);
