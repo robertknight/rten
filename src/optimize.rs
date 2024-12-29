@@ -10,7 +10,8 @@ use crate::graph::{
 };
 use crate::ops::fused::FusedTranspose;
 use crate::ops::{
-    FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, Silu, Swish, Transpose,
+    FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, RmsNormalization, Silu, Swish,
+    Transpose,
 };
 use crate::Output;
 
@@ -309,6 +310,7 @@ impl GraphOptimizer {
         self.fuse_swish(&mut graph_mut)?;
         self.fuse_gelu(&mut graph_mut)?;
         self.fuse_layer_norm(&mut graph_mut)?;
+        self.fuse_rms_norm(&mut graph_mut)?;
         self.fuse_matmul_add(&mut graph_mut)?;
         self.fuse_matmul_scaled(&mut graph_mut)?;
         self.fuse_transpose(&mut graph_mut)?;
@@ -652,6 +654,54 @@ impl GraphOptimizer {
         Ok(())
     }
 
+    /// Fuse `RMSNormalization(x)`.
+    ///
+    /// See https://pytorch.org/docs/stable/generated/torch.nn.modules.normalization.RMSNorm.html.
+    fn fuse_rms_norm(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
+        let x = symbol("x");
+        let scale = const_symbol("scale");
+        let epsilon = const_symbol("epsilon");
+
+        // The scaling of the input is canonically written as `x / (sqrt(rms) + epsilon)`.
+        //
+        // Here we test for `x * 1/(sqrt(rms) + epsilon)` because that is the
+        // observed pattern in models like T5. Ideally we would recognize both.
+        let rms_pat = x.clone()
+            * (1.
+                / unary_op(
+                    "Sqrt",
+                    epsilon
+                        + unary_op_key("ReduceMean", binary_op("Pow", x.clone(), 2.0), "norm_mean"),
+                ))
+            * scale;
+
+        graph.apply_fusion(|graph, op_node_id, op_node| {
+            let rms_match = rms_pat.test(op_node_id, graph.graph())?;
+            let x_input = rms_match.resolved_symbol("x").unwrap();
+            let epsilon_input = rms_match.resolved_symbol("epsilon").unwrap();
+            let epsilon = graph.get_scalar(epsilon_input)?;
+            let scale_input = rms_match.resolved_symbol("scale").unwrap();
+            let norm_mean = rms_match.resolved_symbol("norm_mean").unwrap();
+            let op_output = op_node.output_id()?;
+
+            if !mean_op_reduces_last_axis(graph.graph(), norm_mean) {
+                return None;
+            }
+
+            Some(Fusion::from_op(
+                op_node.name(),
+                RmsNormalization {
+                    axis: -1,
+                    epsilon: Some(epsilon),
+                },
+                [Some(x_input), Some(scale_input)].into(),
+                op_output,
+            ))
+        });
+
+        Ok(())
+    }
+
     /// Identify and fuse common patterns for `LayerNormalization(X)`.
     fn fuse_layer_norm(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
         let x = symbol("x");
@@ -678,31 +728,6 @@ impl GraphOptimizer {
         let scale_pat = x.clone() * scale;
 
         graph.apply_fusion(|graph, op_node_id, op_node| {
-            // Test if a node is a `ReduceMean` operator that reduces over its
-            // last axis.
-            let mean_op_reduces_last_axis = |node_id| match graph.graph().get_node(node_id) {
-                Some(Node::Operator(op_node)) => {
-                    let Some(mean_op) = op_node.operator().downcast_ref::<ReduceMean>() else {
-                        return false;
-                    };
-
-                    // The last axis can be specified with either a positive or
-                    // negative value. We only support the negative case as that
-                    // is easier to handle and used in popular models.
-                    if mean_op.axes.as_deref() == Some(&[-1]) {
-                        true
-                    } else if let Some(axes_input) = op_node.input_ids().get(1).copied().flatten() {
-                        match graph.graph().get_node(axes_input) {
-                            Some(Node::Constant(val)) => val.as_vector() == Some(&[-1]),
-                            _ => false,
-                        }
-                    } else {
-                        false
-                    }
-                }
-                _ => false,
-            };
-
             let (shift_scale_input, bias_input, scale_input) =
                 if let Some(shift_scale_match) = shift_scale_pat.test(op_node_id, graph.graph()) {
                     // Found match for scale + bias.
@@ -723,7 +748,7 @@ impl GraphOptimizer {
             let norm_input = norm_match.resolved_symbol("x").unwrap();
             let epsilon_input = norm_match.resolved_symbol("epsilon").unwrap();
             let norm_mean = norm_match.resolved_symbol("norm_mean").unwrap();
-            if !mean_op_reduces_last_axis(norm_mean) {
+            if !mean_op_reduces_last_axis(graph.graph(), norm_mean) {
                 // The LayerNormalization operator supports taking the mean over
                 // multiple trailing axes. However this fusion only supports the
                 // common case of taking the mean over one axis.
@@ -733,7 +758,7 @@ impl GraphOptimizer {
             let center_match = center_pat.test(norm_input, graph.graph())?;
             let center_input = center_match.resolved_symbol("x").unwrap();
             let center_mean = center_match.resolved_symbol("center_mean").unwrap();
-            if !mean_op_reduces_last_axis(center_mean) {
+            if !mean_op_reduces_last_axis(graph.graph(), center_mean) {
                 return None;
             }
 
@@ -765,6 +790,32 @@ impl Default for GraphOptimizer {
     }
 }
 
+/// Test if a node is a `ReduceMean` operator that reduces over its last axis.
+fn mean_op_reduces_last_axis(graph: &Graph, node_id: NodeId) -> bool {
+    match graph.get_node(node_id) {
+        Some(Node::Operator(op_node)) => {
+            let Some(mean_op) = op_node.operator().downcast_ref::<ReduceMean>() else {
+                return false;
+            };
+
+            // The last axis can be specified with either a positive or
+            // negative value. We only support the negative case as that
+            // is easier to handle and used in popular models.
+            if mean_op.axes.as_deref() == Some(&[-1]) {
+                true
+            } else if let Some(axes_input) = op_node.input_ids().get(1).copied().flatten() {
+                match graph.get_node(axes_input) {
+                    Some(Node::Constant(val)) => val.as_vector() == Some(&[-1]),
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -777,8 +828,8 @@ mod tests {
     use crate::downcast::DowncastDyn;
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
     use crate::ops::{
-        Add, Div, Erf, FusedMatMul, LayerNormalization, MatMul, Mul, Pow, ReduceMean, Sigmoid,
-        Sqrt, Sub, Swish, Transpose,
+        Add, Div, Erf, FusedMatMul, LayerNormalization, MatMul, Mul, Pow, ReduceMean,
+        RmsNormalization, Sigmoid, Sqrt, Sub, Swish, Transpose,
     };
 
     fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
@@ -1138,6 +1189,50 @@ mod tests {
             let layer_norm = op.operator().downcast_ref::<LayerNormalization>().unwrap();
             assert_eq!(layer_norm.epsilon, Some(1e-6));
         }
+    }
+
+    fn rms_norm_graph() -> Graph {
+        let mut graph = Graph::new();
+        let input = graph.add_value(None, None, None);
+
+        // Divide input by root mean squared to normalize scale.
+        let two = graph.add_constant(None, Tensor::from(2.));
+        let (_, pow_out) = graph.add_simple_op("pow", Pow {}, &[input, two]);
+        let (_, var_mean_out) = graph.add_simple_op(
+            "var_mean",
+            ReduceMean {
+                axes: Some(vec![-1]),
+                keep_dims: false,
+            },
+            &[pow_out],
+        );
+        let epsilon = graph.add_constant(None, Tensor::from(1e-6));
+        let (_, add_eps_out) = graph.add_simple_op("add_eps", Add {}, &[epsilon, var_mean_out]);
+        let (_, sqrt_out) = graph.add_simple_op("sqrt", Sqrt {}, &[add_eps_out]);
+
+        let one = graph.add_constant(None, Tensor::from(1.));
+        let (_, reciprocal_out) = graph.add_simple_op("div", Div {}, &[one, sqrt_out]);
+        let (_, mul_rcp_out) = graph.add_simple_op("mul", Mul {}, &[input, reciprocal_out]);
+
+        // Apply constant scale
+        let scale = graph.add_constant(None, Tensor::from([3., 4., 5.]));
+        let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[mul_rcp_out, scale]);
+
+        graph.set_input_ids(&[input]);
+        graph.set_output_ids(&[mul_out]);
+
+        graph
+    }
+
+    #[test]
+    fn test_fuse_rms_norm() {
+        let graph = rms_norm_graph();
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        let rms_norm = op.operator().downcast_ref::<RmsNormalization>().unwrap();
+        assert_eq!(rms_norm.epsilon, Some(1e-6));
     }
 
     #[test]
