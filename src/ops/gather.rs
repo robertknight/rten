@@ -1,5 +1,8 @@
 use rten_tensor::prelude::*;
-use rten_tensor::{to_slice_items, NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut};
+use rten_tensor::{
+    to_slice_items, NdTensorView, ResizeLayout, SliceItem, StorageMut, Tensor, TensorView,
+    TensorViewMut,
+};
 use smallvec::SmallVec;
 
 use crate::number::IsNaN;
@@ -55,29 +58,49 @@ pub fn gather<T: Copy + Default>(
     ]
     .concat();
 
-    let mut output = Tensor::uninit_in(pool, &out_shape);
-    let mut in_range = full_range(input.ndim());
-    let mut out_range = full_range(output.ndim());
-    let mut n_init = 0;
+    // Construct layout for gathered slice of the input. Each slice has the same
+    // layout so we construct it once outside the loop and then reuse it on each
+    // iteration.
+    let mut in_slice_layout = input.layout().clone();
+    in_slice_layout.remove_axis_of_any_size(axis);
+    let in_slice_layout = in_slice_layout;
 
-    for (index_idx, index) in indices.indices().zip(indices.iter()) {
-        in_range[axis] = SliceItem::Index(*index as isize);
-        for (i, index_val) in index_idx.into_iter().enumerate() {
-            out_range[axis + i] = SliceItem::Index(index_val as isize);
-        }
-        let in_slice = input
-            .try_slice(in_range.as_slice())
-            .map_err(|_| INVALID_INDEX_ERR)?;
-        let out_slice = output.slice_mut(out_range.as_slice());
+    let mut output = Tensor::uninit_in(pool, &out_shape);
+    let mut out_slice_layout = output.layout().clone();
+    for _ in axis..axis + indices.ndim() {
+        out_slice_layout.remove_axis_of_any_size(axis);
+    }
+    let out_slice_layout = out_slice_layout;
+
+    let out_step = output.shape()[axis + indices.ndim()..].iter().product();
+    let in_slice_data_len = in_slice_layout.min_data_len();
+    let out_slice_data_len = out_slice_layout.min_data_len();
+
+    let mut n_init = 0;
+    let mut out_storage = output.storage_mut();
+    for (index, out_data_offset) in indices.iter().zip((0..).step_by(out_step)) {
+        let Some(index) = resolve_index(input.size(axis), *index as isize) else {
+            return Err(INVALID_INDEX_ERR);
+        };
+
+        // Compute storage offsets for this slice.
+        let in_offset = index * input.stride(axis);
+        let in_slice_data = input
+            .storage()
+            .slice(in_offset..in_offset + in_slice_data_len);
+        let out_slice_data =
+            out_storage.slice_mut(out_data_offset..out_data_offset + out_slice_data_len);
+
+        // Create input and output slices using the pre-computed layout.
+        let out_slice =
+            TensorViewMut::from_storage_and_layout(out_slice_data, out_slice_layout.clone());
+        let in_slice = TensorView::from_storage_and_layout(in_slice_data, in_slice_layout.clone());
+
+        // Copy data from input to output
         let out_slice = out_slice.init_from(&in_slice);
         n_init += out_slice.len();
     }
 
-    // Each iteration of the above loop initializes one slice of the output
-    // with shape `output_shape[..axis] + index + output_shape[axis + len(index)..]`.
-    //
-    // It iterates over all values for the middle index dimensions, so by the
-    // end it has initialized all elements of the output.
     assert_eq!(n_init, output.len());
     let output = unsafe { output.assume_init() };
 
@@ -677,6 +700,13 @@ mod tests {
         let input = Tensor::from([1, 2, 3]);
         let indices = Tensor::from([-1, -2, -3]);
         let expected = Tensor::from([3, 2, 1]);
+        let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Empty indices
+        let input = Tensor::from([1, 2, 3]);
+        let indices = Tensor::from([0i32; 0]);
+        let expected = Tensor::from([0i32; 0]);
         let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
         assert_eq!(&result, &expected);
 
