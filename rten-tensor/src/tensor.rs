@@ -1257,7 +1257,7 @@ where
     /// initialized before calling `assume_init`.
     pub unsafe fn assume_init(self) -> TensorBase<<S as AssumeInit>::Output, L> {
         TensorBase {
-            layout: self.layout.clone(),
+            layout: self.layout,
             data: self.data.assume_init(),
         }
     }
