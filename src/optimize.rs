@@ -763,11 +763,7 @@ impl GraphOptimizer {
             }
 
             let op_output = op_node.output_id()?;
-
-            let epsilon = match graph.graph().get_node(epsilon_input) {
-                Some(Node::Constant(val)) => val.as_scalar(),
-                _ => None,
-            }?;
+            let epsilon = graph.get_scalar(epsilon_input)?;
 
             Some(Fusion::from_op(
                 op_node.name(),
