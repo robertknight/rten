@@ -869,37 +869,34 @@ mod tests {
 
     impl OpExprs for Expr {
         fn erf(&self) -> Expr {
-            Expr::unary(Erf {}, self.clone())
+            self.unary(Erf {})
         }
 
         fn matmul(&self, rhs: Expr) -> Expr {
-            Expr::binary(MatMul {}, self.clone(), rhs)
+            self.binary(MatMul {}, rhs)
         }
 
         fn mean(&self) -> Expr {
-            Expr::unary(
-                ReduceMean {
-                    axes: Some(vec![-1]),
-                    keep_dims: false,
-                },
-                self.clone(),
-            )
+            self.unary(ReduceMean {
+                axes: Some(vec![-1]),
+                keep_dims: false,
+            })
         }
 
         fn sigmoid(&self) -> Expr {
-            Expr::unary(Sigmoid {}, self.clone())
+            self.unary(Sigmoid {})
         }
 
         fn square(&self) -> Expr {
-            Expr::binary(Pow {}, self.clone(), Expr::constant(2.0))
+            self.binary(Pow {}, Expr::constant(2.0))
         }
 
         fn sqrt(&self) -> Expr {
-            Expr::unary(Sqrt {}, self.clone())
+            self.unary(Sqrt {})
         }
 
         fn transpose(&self) -> Expr {
-            Expr::unary(Transpose { perm: None }, self.clone())
+            self.unary(Transpose { perm: None })
         }
     }
 
