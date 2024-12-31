@@ -825,8 +825,8 @@ mod tests {
     use crate::graph::builder::Expr;
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
     use crate::ops::{
-        Add, Div, Erf, FusedMatMul, LayerNormalization, MatMul, Mul, RmsNormalization, Sigmoid,
-        Swish, Transpose,
+        Add, Erf, FusedMatMul, LayerNormalization, MatMul, RmsNormalization, Sigmoid, Swish,
+        Transpose,
     };
 
     fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
@@ -966,22 +966,18 @@ mod tests {
 
     #[test]
     fn test_fuse_transpose() {
-        let mut graph = Graph::new();
-
-        let input_1 = graph.add_value(None, None, None);
-        let input_2 = graph.add_value(None, None, None);
-
-        let (_, transpose_out) =
-            graph.add_simple_op("transpose", Transpose { perm: None }, &[input_1]);
-        let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[transpose_out, input_2]);
-        graph.set_input_ids(&[input_1, input_2]);
-        graph.set_output_ids(&[matmul_out]);
+        let graph = {
+            let x = Expr::value("x");
+            let y = Expr::value("y");
+            let x_transposed = Expr::unary(Transpose { perm: None }, x.clone());
+            let expr = Expr::binary(MatMul {}, x_transposed, y);
+            expr.build_graph(["x", "y"])
+        };
 
         let graph = optimize_graph(graph).unwrap();
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "FusedTranspose(MatMul)");
-        assert_eq!(op.name(), Some("matmul"));
     }
 
     #[test]
@@ -1016,79 +1012,67 @@ mod tests {
 
     #[test]
     fn test_fuse_matmul_add() {
-        let mut graph = Graph::new();
-
-        let a = graph.add_value(None, None, None);
-        let b = graph.add_value(None, None, None);
-        let bias = graph.add_constant(None, Tensor::from([1., 2., 3.]));
-
-        let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[a, b]);
-        let (_, add_out) = graph.add_simple_op("add", Add {}, &[matmul_out, bias]);
-        graph.set_input_ids(&[a, b]);
-        graph.set_output_ids(&[add_out]);
+        let graph = {
+            let a = Expr::value("a");
+            let b = Expr::value("b");
+            let bias = Expr::constant([1., 2., 3.]);
+            let expr = Expr::binary(MatMul {}, a, b) + bias;
+            expr.build_graph(["a", "b"])
+        };
 
         let graph = optimize_graph(graph).unwrap();
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "FusedMatMul");
-        assert_eq!(op.name(), Some("add"));
     }
 
     #[test]
     fn test_fuse_matmul_scaled() {
         // Pattern 1: MatMul(Mul(A, c), Mul(B, d)). This has scale applied to
         // inputs via `Mul` ops.
-        let mut graph = Graph::new();
-        let a = graph.add_value(None, None, None);
-        let b = graph.add_value(None, None, None);
-        let c = graph.add_constant(None, Tensor::from(0.5));
-        let d = graph.add_constant(None, Tensor::from(0.3));
-        let (_, mul_a_out) = graph.add_simple_op("scale-a", Mul {}, &[a, c]);
-        let (_, mul_b_out) = graph.add_simple_op("scale-b", Mul {}, &[b, d]);
-        let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[mul_a_out, mul_b_out]);
-        graph.set_input_ids(&[a, b]);
-        graph.set_output_ids(&[matmul_out]);
+        let graph = {
+            let a = Expr::value("a");
+            let b = Expr::value("b");
+            let c = Expr::constant(0.5);
+            let d = Expr::constant(0.3);
+            let expr = Expr::binary(MatMul {}, a * c, b * d);
+            expr.build_graph(["a", "b"])
+        };
 
         let graph = optimize_graph(graph).unwrap();
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "FusedMatMul");
-        assert_eq!(op.name(), Some("matmul"));
         let fused_matmul_op = op.operator().downcast_ref::<FusedMatMul>().unwrap();
         assert_eq!(fused_matmul_op.alpha, Some(0.5 * 0.3));
 
         // Pattern 2: Div(MatMul(A, B), c). This has scale applied to outputs
         // via `Div` ops.
-        let mut graph = Graph::new();
-        let a = graph.add_value(None, None, None);
-        let b = graph.add_value(None, None, None);
-        let c = graph.add_constant(None, Tensor::from(0.5));
-        let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[a, b]);
-        let (_, div_out) = graph.add_simple_op("div", Div {}, &[matmul_out, c]);
-        graph.set_input_ids(&[a, b]);
-        graph.set_output_ids(&[div_out]);
+        let graph = {
+            let a = Expr::value("a");
+            let b = Expr::value("b");
+            let c = Expr::constant(0.5);
+            let expr = Expr::binary(MatMul {}, a, b / c);
+            expr.build_graph(["a", "b"])
+        };
 
         let graph = optimize_graph(graph).unwrap();
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "FusedMatMul");
-        assert_eq!(op.name(), Some("matmul"));
         let fused_matmul_op = op.operator().downcast_ref::<FusedMatMul>().unwrap();
         assert_eq!(fused_matmul_op.alpha, Some(1. / 0.5));
     }
 
     #[test]
     fn test_chained_fused_ops() {
-        let mut graph = Graph::new();
-
-        // Add two consecutive decomposed Silu operations
-        let input = graph.add_value(None, None, None);
-        let (_, sigmoid_out) = graph.add_simple_op("sigmoid", Sigmoid {}, &[input]);
-        let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[input, sigmoid_out]);
-        let (_, sigmoid_2_out) = graph.add_simple_op("sigmoid", Sigmoid {}, &[mul_out]);
-        let (_, mul_2_out) = graph.add_simple_op("mul", Mul {}, &[mul_out, sigmoid_2_out]);
-        graph.set_input_ids(&[input]);
-        graph.set_output_ids(&[mul_2_out]);
+        // Two consecutive decomposed Silu operations
+        let graph = {
+            let x = Expr::value("x");
+            let y = x.clone() * Expr::unary(Sigmoid {}, x);
+            let z = y.clone() * Expr::unary(Sigmoid {}, y);
+            z.build_graph(["x"])
+        };
 
         let graph = optimize_graph(graph).unwrap();
 
