@@ -23,6 +23,9 @@ use crate::threading;
 use crate::timing::{InputShape, Instant, RunTiming, TimingRecord, TimingSort};
 use crate::weight_cache::WeightCache;
 
+#[cfg(test)]
+pub mod builder;
+
 mod capture_env;
 pub use capture_env::CaptureEnv;
 mod node;
