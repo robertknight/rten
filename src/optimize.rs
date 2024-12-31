@@ -1019,7 +1019,7 @@ mod tests {
     fn test_fuse_swish() {
         let graph = {
             let x = Expr::value("x");
-            let beta = Expr::constant(1.7);
+            let beta = 1.7;
             let expr = x.clone() * (x.clone() * beta).sigmoid();
             expr.build_graph(["x"])
         };
@@ -1036,7 +1036,7 @@ mod tests {
         let graph = {
             let a = Expr::value("a");
             let b = Expr::value("b");
-            let bias = Expr::constant([1., 2., 3.]);
+            let bias = [1., 2., 3.];
             let expr = a.matmul(b) + bias;
             expr.build_graph(["a", "b"])
         };
@@ -1054,9 +1054,7 @@ mod tests {
         let graph = {
             let a = Expr::value("a");
             let b = Expr::value("b");
-            let c = Expr::constant(0.5);
-            let d = Expr::constant(0.3);
-            let expr = (a * c).matmul(b * d);
+            let expr = (a * 0.5).matmul(b * 0.3);
             expr.build_graph(["a", "b"])
         };
 
@@ -1072,8 +1070,7 @@ mod tests {
         let graph = {
             let a = Expr::value("a");
             let b = Expr::value("b");
-            let c = Expr::constant(0.5);
-            let expr = a.matmul(b) / c;
+            let expr = a.matmul(b) / 0.5;
             expr.build_graph(["a", "b"])
         };
 
@@ -1111,10 +1108,8 @@ mod tests {
     fn test_fuse_gelu() {
         let graph = {
             let x = Expr::value("x");
-            let sqrt_2 = Expr::constant((2.0f32).sqrt());
-            let one = Expr::constant(1.0);
-            let half = Expr::constant(0.5);
-            let expr = x.clone() * ((x / sqrt_2).erf() + one) * half;
+            let sqrt_2 = (2.0f32).sqrt();
+            let expr = x.clone() * ((x / sqrt_2).erf() + 1.0) * 0.5;
             expr.build_graph(["x"])
         };
 
@@ -1126,7 +1121,7 @@ mod tests {
 
     fn layer_norm_graph(with_bias: bool) -> Graph {
         // Center mean
-        let epsilon = Expr::constant(1e-6);
+        let epsilon = 1e-6;
         let x = Expr::value("x");
         let x_mean = x.mean();
         let x_sub_mean = x.clone() - x_mean;
@@ -1135,9 +1130,9 @@ mod tests {
         let normalized = x_sub_mean.clone() / (x_sub_mean.square().mean() + epsilon).sqrt();
 
         // Shift and scale result
-        let scale = Expr::constant([3., 4., 5.]);
+        let scale = [3., 4., 5.];
         let expr = if with_bias {
-            let bias = Expr::constant([1., 2., 3.]);
+            let bias = [1., 2., 3.];
             normalized * scale + bias
         } else {
             normalized * scale
@@ -1172,8 +1167,8 @@ mod tests {
         let graph = {
             let x = Expr::value("x");
             let epsilon = 1e-6;
-            let rms = (x.square().mean() + Expr::constant(epsilon)).sqrt();
-            let scale = Expr::constant([3., 4., 5.]);
+            let rms = (x.square().mean() + epsilon).sqrt();
+            let scale = [3., 4., 5.];
             let expr = x * (Expr::constant(1.) / rms) * scale;
             expr.build_graph(["x"])
         };

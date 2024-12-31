@@ -213,6 +213,17 @@ macro_rules! impl_binary_op {
                 self.binary(crate::ops::$op_struct {}, rhs)
             }
         }
+
+        impl<V> $op_trait<V> for Expr
+        where
+            V: Into<Tensor<f32>>,
+        {
+            type Output = Expr;
+
+            fn $op_method(self, rhs: V) -> Expr {
+                self.binary(crate::ops::$op_struct {}, Expr::constant(rhs))
+            }
+        }
     };
 }
 
@@ -233,7 +244,7 @@ mod tests {
         // re-use of the same expression (`x_sqr`) and generate a graph from it.
         let x = Expr::value("x");
         let x_sqr = x.clone() * x.clone();
-        let x_4_plus_2 = x_sqr.clone() * x_sqr.clone() + Expr::constant(2.0);
+        let x_4_plus_2 = x_sqr.clone() * x_sqr.clone() + 2.0;
         let graph = x_4_plus_2.build_graph(["x"]);
 
         // Verify graph generates expected value from input when run.
