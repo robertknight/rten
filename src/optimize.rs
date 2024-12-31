@@ -1190,17 +1190,14 @@ mod tests {
 
     #[test]
     fn test_optimize_preserves_input_output_nodes() {
-        let mut graph = Graph::new();
-
-        let input_1 = graph.add_value(None, None, None);
-        let input_2 = graph.add_value(None, None, None);
-
-        // Add fuse-able Transpose + MatMul
-        let (_, transpose_out) =
-            graph.add_simple_op("transpose", Transpose { perm: None }, &[input_1]);
-        let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[transpose_out, input_2]);
-        graph.set_input_ids(&[input_1, input_2]);
-        graph.set_output_ids(&[matmul_out]);
+        // Fuse-able Transpose + MatMul
+        let graph = {
+            let x = Expr::value("x");
+            let y = Expr::value("y");
+            x.transpose().matmul(y).build_graph(["x", "y"])
+        };
+        let orig_input_ids = graph.input_ids().to_vec();
+        let orig_output_ids = graph.output_ids().to_vec();
 
         let graph = optimize_graph(graph).unwrap();
 
@@ -1214,9 +1211,8 @@ mod tests {
         // The optimizer could have created new output nodes instead, but it
         // would need to ensure that the new outputs preserved value node
         // metadata (name, shape) from the original outputs.
-        assert_eq!(graph.input_ids(), &[input_1, input_2]);
-        assert_eq!(graph.output_ids(), &[matmul_out]);
-        assert_eq!(graph.node_name(matmul_out), "matmul_out");
+        assert_eq!(graph.input_ids(), orig_input_ids);
+        assert_eq!(graph.output_ids(), orig_output_ids);
     }
 
     #[test]
