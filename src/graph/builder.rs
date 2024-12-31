@@ -34,7 +34,7 @@ enum ExprKind {
 /// let sqrt_2 = Expr::constant((2.0f32).sqrt());
 /// let one = Expr::constant(1.0);
 /// let half = Expr::constant(0.5);
-/// let expr = x.clone() * (Expr::unary(Erf {}, x / sqrt_2) + one) * half;
+/// let expr = x.clone() * ((x / sqrt_2).unary(Erf {}) + one) * half;
 /// let graph: Graph = expr.build_graph(["x"]);
 /// ```
 ///
@@ -118,19 +118,19 @@ impl Expr {
         Expr::from(ExprKind::Constant(value.into()))
     }
 
-    /// Create a unary operator expression.
-    pub fn unary<Op: Operator + Send + Sync>(op: Op, input: Expr) -> Expr {
+    /// Create an expression which applies a unary operator to this expression.
+    pub fn unary<Op: Operator + Send + Sync>(&self, op: Op) -> Expr {
         Expr::from(ExprKind::Operator(OperatorExpr {
             op: Cell::new(Some(Box::new(op))),
-            inputs: [input].into(),
+            inputs: [self.clone()].into(),
         }))
     }
 
-    /// Create a binary operator expression.
-    pub fn binary<Op: Operator + Send + Sync>(op: Op, lhs: Expr, rhs: Expr) -> Expr {
+    /// Create an expression which applies a binary operator to this expression.
+    pub fn binary<Op: Operator + Send + Sync>(&self, op: Op, rhs: Expr) -> Expr {
         Expr::from(ExprKind::Operator(OperatorExpr {
             op: Cell::new(Some(Box::new(op))),
-            inputs: [lhs, rhs].into(),
+            inputs: [self.clone(), rhs].into(),
         }))
     }
 
@@ -210,7 +210,18 @@ macro_rules! impl_binary_op {
             type Output = Expr;
 
             fn $op_method(self, rhs: Expr) -> Expr {
-                Expr::binary(crate::ops::$op_struct {}, self, rhs)
+                self.binary(crate::ops::$op_struct {}, rhs)
+            }
+        }
+
+        impl<V> $op_trait<V> for Expr
+        where
+            V: Into<Tensor<f32>>,
+        {
+            type Output = Expr;
+
+            fn $op_method(self, rhs: V) -> Expr {
+                self.binary(crate::ops::$op_struct {}, Expr::constant(rhs))
             }
         }
     };
@@ -233,7 +244,7 @@ mod tests {
         // re-use of the same expression (`x_sqr`) and generate a graph from it.
         let x = Expr::value("x");
         let x_sqr = x.clone() * x.clone();
-        let x_4_plus_2 = x_sqr.clone() * x_sqr.clone() + Expr::constant(2.0);
+        let x_4_plus_2 = x_sqr.clone() * x_sqr.clone() + 2.0;
         let graph = x_4_plus_2.build_graph(["x"]);
 
         // Verify graph generates expected value from input when run.

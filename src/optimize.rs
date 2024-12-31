@@ -825,8 +825,8 @@ mod tests {
     use crate::graph::builder::Expr;
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
     use crate::ops::{
-        Add, Erf, FusedMatMul, LayerNormalization, MatMul, RmsNormalization, Sigmoid, Swish,
-        Transpose,
+        Add, Erf, FusedMatMul, LayerNormalization, MatMul, Pow, ReduceMean, RmsNormalization,
+        Sigmoid, Sqrt, Swish, Transpose,
     };
 
     fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
@@ -852,28 +852,51 @@ mod tests {
         ArcTensorView::from_data(&[], slice)
     }
 
-    // Helpers to construct expressions for various operators.
-    mod op_expr {
-        use crate::graph::builder::Expr;
-        use crate::ops::{Pow, ReduceMean, Sqrt};
+    /// Extends [`Expr`] with methods to create expressions for specific
+    /// operations.
+    ///
+    /// For example `a.matmul(b)` returns an expression for a `MatMul` graph
+    /// node with `a` and `b` as inputs.
+    trait OpExprs {
+        fn erf(&self) -> Expr;
+        fn matmul(&self, rhs: Expr) -> Expr;
+        fn mean(&self) -> Expr;
+        fn sigmoid(&self) -> Expr;
+        fn square(&self) -> Expr;
+        fn sqrt(&self) -> Expr;
+        fn transpose(&self) -> Expr;
+    }
 
-        /// Take the mean over the last axis
-        pub fn mean(x: Expr) -> Expr {
-            Expr::unary(
-                ReduceMean {
-                    axes: Some(vec![-1]),
-                    keep_dims: false,
-                },
-                x,
-            )
+    impl OpExprs for Expr {
+        fn erf(&self) -> Expr {
+            self.unary(Erf {})
         }
 
-        pub fn square(x: Expr) -> Expr {
-            Expr::binary(Pow {}, x, Expr::constant(2.0))
+        fn matmul(&self, rhs: Expr) -> Expr {
+            self.binary(MatMul {}, rhs)
         }
 
-        pub fn sqrt(x: Expr) -> Expr {
-            Expr::unary(Sqrt {}, x)
+        fn mean(&self) -> Expr {
+            self.unary(ReduceMean {
+                axes: Some(vec![-1]),
+                keep_dims: false,
+            })
+        }
+
+        fn sigmoid(&self) -> Expr {
+            self.unary(Sigmoid {})
+        }
+
+        fn square(&self) -> Expr {
+            self.binary(Pow {}, Expr::constant(2.0))
+        }
+
+        fn sqrt(&self) -> Expr {
+            self.unary(Sqrt {})
+        }
+
+        fn transpose(&self) -> Expr {
+            self.unary(Transpose { perm: None })
         }
     }
 
@@ -969,9 +992,7 @@ mod tests {
         let graph = {
             let x = Expr::value("x");
             let y = Expr::value("y");
-            let x_transposed = Expr::unary(Transpose { perm: None }, x.clone());
-            let expr = Expr::binary(MatMul {}, x_transposed, y);
-            expr.build_graph(["x", "y"])
+            x.transpose().matmul(y).build_graph(["x", "y"])
         };
 
         let graph = optimize_graph(graph).unwrap();
@@ -984,7 +1005,7 @@ mod tests {
     fn test_fuse_silu() {
         let graph = {
             let x = Expr::value("x");
-            let expr = x.clone() * Expr::unary(Sigmoid {}, x);
+            let expr = x.clone() * x.sigmoid();
             expr.build_graph(["x"])
         };
 
@@ -998,8 +1019,8 @@ mod tests {
     fn test_fuse_swish() {
         let graph = {
             let x = Expr::value("x");
-            let beta = Expr::constant(1.7);
-            let expr = x.clone() * Expr::unary(Sigmoid {}, x.clone() * beta);
+            let beta = 1.7;
+            let expr = x.clone() * (x.clone() * beta).sigmoid();
             expr.build_graph(["x"])
         };
 
@@ -1015,8 +1036,8 @@ mod tests {
         let graph = {
             let a = Expr::value("a");
             let b = Expr::value("b");
-            let bias = Expr::constant([1., 2., 3.]);
-            let expr = Expr::binary(MatMul {}, a, b) + bias;
+            let bias = [1., 2., 3.];
+            let expr = a.matmul(b) + bias;
             expr.build_graph(["a", "b"])
         };
 
@@ -1033,9 +1054,7 @@ mod tests {
         let graph = {
             let a = Expr::value("a");
             let b = Expr::value("b");
-            let c = Expr::constant(0.5);
-            let d = Expr::constant(0.3);
-            let expr = Expr::binary(MatMul {}, a * c, b * d);
+            let expr = (a * 0.5).matmul(b * 0.3);
             expr.build_graph(["a", "b"])
         };
 
@@ -1051,8 +1070,7 @@ mod tests {
         let graph = {
             let a = Expr::value("a");
             let b = Expr::value("b");
-            let c = Expr::constant(0.5);
-            let expr = Expr::binary(MatMul {}, a, b / c);
+            let expr = a.matmul(b) / 0.5;
             expr.build_graph(["a", "b"])
         };
 
@@ -1069,8 +1087,8 @@ mod tests {
         // Two consecutive decomposed Silu operations
         let graph = {
             let x = Expr::value("x");
-            let y = x.clone() * Expr::unary(Sigmoid {}, x);
-            let z = y.clone() * Expr::unary(Sigmoid {}, y);
+            let y = x.clone() * x.sigmoid();
+            let z = y.clone() * y.sigmoid();
             z.build_graph(["x"])
         };
 
@@ -1090,10 +1108,8 @@ mod tests {
     fn test_fuse_gelu() {
         let graph = {
             let x = Expr::value("x");
-            let sqrt_2 = Expr::constant((2.0f32).sqrt());
-            let one = Expr::constant(1.0);
-            let half = Expr::constant(0.5);
-            let expr = x.clone() * (Expr::unary(Erf {}, x / sqrt_2) + one) * half;
+            let sqrt_2 = (2.0f32).sqrt();
+            let expr = x.clone() * ((x / sqrt_2).erf() + 1.0) * 0.5;
             expr.build_graph(["x"])
         };
 
@@ -1104,21 +1120,19 @@ mod tests {
     }
 
     fn layer_norm_graph(with_bias: bool) -> Graph {
-        use op_expr::{mean, sqrt, square};
-
         // Center mean
-        let epsilon = Expr::constant(1e-6);
+        let epsilon = 1e-6;
         let x = Expr::value("x");
-        let x_mean = mean(x.clone());
+        let x_mean = x.mean();
         let x_sub_mean = x.clone() - x_mean;
 
         // Normalize variance
-        let normalized = x_sub_mean.clone() / sqrt(mean(square(x_sub_mean.clone())) + epsilon);
+        let normalized = x_sub_mean.clone() / (x_sub_mean.square().mean() + epsilon).sqrt();
 
         // Shift and scale result
-        let scale = Expr::constant([3., 4., 5.]);
+        let scale = [3., 4., 5.];
         let expr = if with_bias {
-            let bias = Expr::constant([1., 2., 3.]);
+            let bias = [1., 2., 3.];
             normalized * scale + bias
         } else {
             normalized * scale
@@ -1149,14 +1163,12 @@ mod tests {
 
     #[test]
     fn test_fuse_rms_norm() {
-        use op_expr::{mean, sqrt, square};
-
         // See https://arxiv.org/pdf/1910.07467
         let graph = {
             let x = Expr::value("x");
             let epsilon = 1e-6;
-            let rms = sqrt(mean(square(x.clone())) + Expr::constant(epsilon));
-            let scale = Expr::constant([3., 4., 5.]);
+            let rms = (x.square().mean() + epsilon).sqrt();
+            let scale = [3., 4., 5.];
             let expr = x * (Expr::constant(1.) / rms) * scale;
             expr.build_graph(["x"])
         };
@@ -1170,17 +1182,14 @@ mod tests {
 
     #[test]
     fn test_optimize_preserves_input_output_nodes() {
-        let mut graph = Graph::new();
-
-        let input_1 = graph.add_value(None, None, None);
-        let input_2 = graph.add_value(None, None, None);
-
-        // Add fuse-able Transpose + MatMul
-        let (_, transpose_out) =
-            graph.add_simple_op("transpose", Transpose { perm: None }, &[input_1]);
-        let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[transpose_out, input_2]);
-        graph.set_input_ids(&[input_1, input_2]);
-        graph.set_output_ids(&[matmul_out]);
+        // Fuse-able Transpose + MatMul
+        let graph = {
+            let x = Expr::value("x");
+            let y = Expr::value("y");
+            x.transpose().matmul(y).build_graph(["x", "y"])
+        };
+        let orig_input_ids = graph.input_ids().to_vec();
+        let orig_output_ids = graph.output_ids().to_vec();
 
         let graph = optimize_graph(graph).unwrap();
 
@@ -1194,9 +1203,8 @@ mod tests {
         // The optimizer could have created new output nodes instead, but it
         // would need to ensure that the new outputs preserved value node
         // metadata (name, shape) from the original outputs.
-        assert_eq!(graph.input_ids(), &[input_1, input_2]);
-        assert_eq!(graph.output_ids(), &[matmul_out]);
-        assert_eq!(graph.node_name(matmul_out), "matmul_out");
+        assert_eq!(graph.input_ids(), orig_input_ids);
+        assert_eq!(graph.output_ids(), orig_output_ids);
     }
 
     #[test]
