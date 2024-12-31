@@ -3,7 +3,7 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::ops::{Add, Div, Mul};
+use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
 
 use rten_tensor::Tensor;
@@ -219,6 +219,7 @@ macro_rules! impl_binary_op {
 impl_binary_op!(Add, add, Add);
 impl_binary_op!(Mul, mul, Mul);
 impl_binary_op!(Div, div, Div);
+impl_binary_op!(Sub, sub, Sub);
 
 #[cfg(test)]
 mod tests {

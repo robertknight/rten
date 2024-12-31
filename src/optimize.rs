@@ -825,8 +825,8 @@ mod tests {
     use crate::graph::builder::Expr;
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
     use crate::ops::{
-        Add, Div, Erf, FusedMatMul, LayerNormalization, MatMul, Mul, Pow, ReduceMean,
-        RmsNormalization, Sigmoid, Sqrt, Sub, Swish, Transpose,
+        Add, Div, Erf, FusedMatMul, LayerNormalization, MatMul, Mul, RmsNormalization, Sigmoid,
+        Swish, Transpose,
     };
 
     fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
@@ -850,6 +850,31 @@ mod tests {
         )
         .unwrap();
         ArcTensorView::from_data(&[], slice)
+    }
+
+    // Helpers to construct expressions for various operators.
+    mod op_expr {
+        use crate::graph::builder::Expr;
+        use crate::ops::{Pow, ReduceMean, Sqrt};
+
+        /// Take the mean over the last axis
+        pub fn mean(x: Expr) -> Expr {
+            Expr::unary(
+                ReduceMean {
+                    axes: Some(vec![-1]),
+                    keep_dims: false,
+                },
+                x,
+            )
+        }
+
+        pub fn square(x: Expr) -> Expr {
+            Expr::binary(Pow {}, x, Expr::constant(2.0))
+        }
+
+        pub fn sqrt(x: Expr) -> Expr {
+            Expr::unary(Sqrt {}, x)
+        }
     }
 
     #[test]
@@ -1095,122 +1120,62 @@ mod tests {
     }
 
     fn layer_norm_graph(with_bias: bool) -> Graph {
-        let mut graph = Graph::new();
-        let input = graph.add_value(None, None, None);
+        use op_expr::{mean, sqrt, square};
 
-        // Center values
-        let (_, mean_out) = graph.add_simple_op(
-            "mean",
-            ReduceMean {
-                axes: Some(vec![-1]),
-                keep_dims: false,
-            },
-            &[input],
-        );
-        let (_, sub_out) = graph.add_simple_op("sub", Sub {}, &[input, mean_out]);
+        // Center mean
+        let epsilon = Expr::constant(1e-6);
+        let x = Expr::value("x");
+        let x_mean = mean(x.clone());
+        let x_sub_mean = x.clone() - x_mean;
 
         // Normalize variance
-        let two = graph.add_constant(None, Tensor::from(2.));
-        let (_, pow_out) = graph.add_simple_op("pow", Pow {}, &[sub_out, two]);
-        let (_, var_mean_out) = graph.add_simple_op(
-            "var_mean",
-            ReduceMean {
-                axes: Some(vec![-1]),
-                keep_dims: false,
-            },
-            &[pow_out],
-        );
-        let epsilon = graph.add_constant(None, Tensor::from(1e-6));
-        let (_, add_eps_out) = graph.add_simple_op("add_eps", Add {}, &[epsilon, var_mean_out]);
-        let (_, sqrt_out) = graph.add_simple_op("sqrt", Sqrt {}, &[add_eps_out]);
-        let (_, div_out) = graph.add_simple_op("div", Div {}, &[sub_out, sqrt_out]);
+        let normalized = x_sub_mean.clone() / sqrt(mean(square(x_sub_mean.clone())) + epsilon);
 
-        // Shift and scale
-        let scale = graph.add_constant(None, Tensor::from([3., 4., 5.]));
-        let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[div_out, scale]);
-
-        if with_bias {
-            let bias = graph.add_constant(None, Tensor::from([1., 2., 3.]));
-            let (_, add_out) = graph.add_simple_op("final_add", Add {}, &[mul_out, bias]);
-            graph.set_output_ids(&[add_out]);
+        // Shift and scale result
+        let scale = Expr::constant([3., 4., 5.]);
+        let expr = if with_bias {
+            let bias = Expr::constant([1., 2., 3.]);
+            normalized * scale + bias
         } else {
-            graph.set_output_ids(&[mul_out]);
-        }
-
-        graph.set_input_ids(&[input]);
-        graph
+            normalized * scale
+        };
+        expr.build_graph(["x"])
     }
 
     #[test]
     fn test_fuse_layer_norm() {
-        struct Case<'a> {
+        struct Case {
             with_bias: bool,
-            output_name: &'a str,
         }
 
-        let cases = [
-            Case {
-                with_bias: true,
-                output_name: "final_add",
-            },
-            Case {
-                with_bias: false,
-                output_name: "mul",
-            },
-        ];
+        let cases = [Case { with_bias: true }, Case { with_bias: false }];
 
-        for Case {
-            with_bias,
-            output_name,
-        } in cases
-        {
+        for Case { with_bias } in cases {
             let graph = layer_norm_graph(with_bias);
             let graph = optimize_graph(graph).unwrap();
             let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
             assert_eq!(op.operator().name(), "LayerNormalization");
-            assert_eq!(op.name(), Some(output_name));
 
             let layer_norm = op.operator().downcast_ref::<LayerNormalization>().unwrap();
             assert_eq!(layer_norm.epsilon, Some(1e-6));
+            let bias_input = op.input_ids().get(2).copied().flatten();
+            assert_eq!(bias_input.is_some(), with_bias);
         }
-    }
-
-    fn rms_norm_graph() -> Graph {
-        let mut graph = Graph::new();
-        let input = graph.add_value(None, None, None);
-
-        // Divide input by root mean squared to normalize scale.
-        let two = graph.add_constant(None, Tensor::from(2.));
-        let (_, pow_out) = graph.add_simple_op("pow", Pow {}, &[input, two]);
-        let (_, var_mean_out) = graph.add_simple_op(
-            "var_mean",
-            ReduceMean {
-                axes: Some(vec![-1]),
-                keep_dims: false,
-            },
-            &[pow_out],
-        );
-        let epsilon = graph.add_constant(None, Tensor::from(1e-6));
-        let (_, add_eps_out) = graph.add_simple_op("add_eps", Add {}, &[epsilon, var_mean_out]);
-        let (_, sqrt_out) = graph.add_simple_op("sqrt", Sqrt {}, &[add_eps_out]);
-
-        let one = graph.add_constant(None, Tensor::from(1.));
-        let (_, reciprocal_out) = graph.add_simple_op("div", Div {}, &[one, sqrt_out]);
-        let (_, mul_rcp_out) = graph.add_simple_op("mul", Mul {}, &[input, reciprocal_out]);
-
-        // Apply constant scale
-        let scale = graph.add_constant(None, Tensor::from([3., 4., 5.]));
-        let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[mul_rcp_out, scale]);
-
-        graph.set_input_ids(&[input]);
-        graph.set_output_ids(&[mul_out]);
-
-        graph
     }
 
     #[test]
     fn test_fuse_rms_norm() {
-        let graph = rms_norm_graph();
+        use op_expr::{mean, sqrt, square};
+
+        // See https://arxiv.org/pdf/1910.07467
+        let graph = {
+            let x = Expr::value("x");
+            let epsilon = 1e-6;
+            let rms = sqrt(mean(square(x.clone())) + Expr::constant(epsilon));
+            let scale = Expr::constant([3., 4., 5.]);
+            let expr = x * (Expr::constant(1.) / rms) * scale;
+            expr.build_graph(["x"])
+        };
 
         let graph = optimize_graph(graph).unwrap();
 
