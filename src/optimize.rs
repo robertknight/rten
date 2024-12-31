@@ -822,6 +822,7 @@ mod tests {
     use super::{GraphOptimizer, OptimizeError};
     use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
     use crate::downcast::DowncastDyn;
+    use crate::graph::builder::Expr;
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
     use crate::ops::{
         Add, Div, Erf, FusedMatMul, LayerNormalization, MatMul, Mul, Pow, ReduceMean,
@@ -960,39 +961,32 @@ mod tests {
 
     #[test]
     fn test_fuse_silu() {
-        let mut graph = Graph::new();
-
-        let input = graph.add_value(None, None, None);
-        let (_, sigmoid_out) = graph.add_simple_op("sigmoid", Sigmoid {}, &[input]);
-        let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[input, sigmoid_out]);
-        graph.set_input_ids(&[input]);
-        graph.set_output_ids(&[mul_out]);
+        let graph = {
+            let x = Expr::value("x");
+            let expr = x.clone() * Expr::unary(Sigmoid {}, x);
+            expr.build_graph(["x"])
+        };
 
         let graph = optimize_graph(graph).unwrap();
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "Silu");
-        assert_eq!(op.name(), Some("mul"));
     }
 
     #[test]
     fn test_fuse_swish() {
-        let mut graph = Graph::new();
-
-        let input = graph.add_value(None, None, None);
-        let beta = graph.add_constant(None, Tensor::from(1.7));
-        let (_, mul_beta_out) = graph.add_simple_op("mul_beta", Mul {}, &[input, beta]);
-        let (_, sigmoid_out) = graph.add_simple_op("sigmoid", Sigmoid {}, &[mul_beta_out]);
-        let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[input, sigmoid_out]);
-        graph.set_input_ids(&[input]);
-        graph.set_output_ids(&[mul_out]);
+        let graph = {
+            let x = Expr::value("x");
+            let beta = Expr::constant(1.7);
+            let expr = x.clone() * Expr::unary(Sigmoid {}, x.clone() * beta);
+            expr.build_graph(["x"])
+        };
 
         let graph = optimize_graph(graph).unwrap();
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         let swish_op = op.operator().downcast_ref::<Swish>().unwrap();
         assert_eq!(swish_op.beta, 1.7);
-        assert_eq!(op.name(), Some("mul"));
     }
 
     #[test]
@@ -1085,25 +1079,19 @@ mod tests {
 
     #[test]
     fn test_fuse_gelu() {
-        let mut graph = Graph::new();
-
-        let sqrt_2 = graph.add_constant(None, Tensor::from((2.0f32).sqrt()));
-        let one = graph.add_constant(None, Tensor::from(1.0));
-        let half = graph.add_constant(None, Tensor::from(0.5));
-
-        let input = graph.add_value(None, None, None);
-        let (_, div_out) = graph.add_simple_op("div", Div {}, &[input, sqrt_2]);
-        let (_, erf_out) = graph.add_simple_op("erf", Erf {}, &[div_out]);
-        let (_, add_out) = graph.add_simple_op("add", Add {}, &[erf_out, one]);
-        let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[input, add_out]);
-        let (_, mul_half_out) = graph.add_simple_op("mul_half", Mul {}, &[mul_out, half]);
-        graph.set_input_ids(&[input]);
-        graph.set_output_ids(&[mul_half_out]);
+        let graph = {
+            let x = Expr::value("x");
+            let sqrt_2 = Expr::constant((2.0f32).sqrt());
+            let one = Expr::constant(1.0);
+            let half = Expr::constant(0.5);
+            let expr = x.clone() * (Expr::unary(Erf {}, x / sqrt_2) + one) * half;
+            expr.build_graph(["x"])
+        };
 
         let graph = optimize_graph(graph).unwrap();
+
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "Gelu");
-        assert_eq!(op.name(), Some("mul_half"));
     }
 
     fn layer_norm_graph(with_bias: bool) -> Graph {
