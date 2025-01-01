@@ -12,7 +12,7 @@ use rten_tensor::Matrix;
 use rten_simd::isa_detection::is_avx512_supported;
 
 use super::simd_generic::{simd_gemm, simd_gemv};
-use super::{Kernel, Lhs};
+use super::{Kernel, Lhs, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
@@ -104,8 +104,9 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         tile_ptr: *mut f32,
         tile_row_stride: usize,
         a: Lhs<f32>,
-        used_rows: usize,
         b: &[f32],
+        used_rows: usize,
+        used_cols: usize,
         depth: usize,
         alpha: f32,
         beta: f32,
@@ -114,16 +115,34 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         const NR: usize = FmaKernel::NR;
         const NR_REGS: usize = vec_count::<__m256>(NR);
 
+        // TODO - Replace temporary tile with masked loads and stores.
+        let mut tmp_tile = TempTile::<f32, MR, NR>::new();
+        let (dest_ptr, dest_row_stride, dest_beta) = if used_cols == NR {
+            (tile_ptr, tile_row_stride, beta)
+        } else {
+            (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
+        };
+
         simd_gemm::<__m256, MR, NR_REGS>(
-            tile_ptr,
-            tile_row_stride,
+            dest_ptr,
+            dest_row_stride,
             a,
             used_rows,
             b,
             depth,
             alpha,
-            beta,
+            dest_beta,
         );
+
+        if used_cols != NR {
+            tmp_tile.accumulate_into(
+                tile_ptr as *mut MaybeUninit<f32>,
+                used_rows,
+                used_cols,
+                tile_row_stride,
+                beta,
+            );
+        }
     }
 
     fn gemv_kernel(
@@ -233,16 +252,34 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         const NR: usize = Avx512Kernel::NR;
         const NR_REGS: usize = vec_count::<__m512>(NR);
 
+        // TODO - Replace temporary tile with masked loads and stores.
+        let mut tmp_tile = TempTile::<f32, MR, NR>::new();
+        let (dest_ptr, dest_row_stride, dest_beta) = if used_cols == NR {
+            (tile_ptr, tile_row_stride, beta)
+        } else {
+            (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
+        };
+
         simd_gemm::<__m512, MR, NR_REGS>(
-            tile_ptr,
-            tile_row_stride,
+            dest_ptr,
+            dest_row_stride,
             a,
             used_rows,
             b,
             depth,
             alpha,
-            beta,
-        )
+            dest_beta,
+        );
+
+        if used_cols != NR {
+            tmp_tile.accumulate_into(
+                tile_ptr as *mut MaybeUninit<f32>,
+                used_rows,
+                used_cols,
+                tile_row_stride,
+                beta,
+            );
+        }
     }
 
     fn gemv_kernel(

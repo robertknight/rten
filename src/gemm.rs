@@ -1193,64 +1193,21 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                     }
                 };
 
-                if out_tile.used_cols == nr {
-                    // Safety:
-                    //  - Tile has NR columns
-                    unsafe {
-                        kernel.kernel(
-                            // Safety: Kernel will initialize all elements in the tile.
-                            out_tile.ptr as *mut OutT,
-                            out_tile.row_stride,
-                            kernel_lhs,
-                            out_tile.used_rows,
-                            b_panel,
-                            depth_range.len(),
-                            alpha,
-                            beta,
-                        );
-                    }
-                } else {
-                    // If this is not a full size tile, run the kernel on a
-                    // temporary buffer that is the size of a full tile, then
-                    // copy the results back to the output. This allows the same
-                    // kernel implementation to be used whether the tile is
-                    // full-sized or not.
-                    let mut tmp_out_tile = [MaybeUninit::<OutT>::uninit(); MAX_TILE_ELEMENTS];
-
-                    // Safety:
-                    //  - Tile size is <= MAX_TILE_ELEMENTS
-                    unsafe {
-                        kernel.kernel(
-                            // Safety: Kernel will initialize `used_rows * NR` elements.
-                            tmp_out_tile.as_mut_ptr() as *mut OutT,
-                            nr,
-                            kernel_lhs,
-                            out_tile.used_rows,
-                            b_panel,
-                            depth_range.len(),
-                            alpha,
-                            OutT::zero(), // Multiplication with `beta` is handled below.
-                        );
-                    }
-
-                    for i in 0..out_tile.used_rows {
-                        for j in 0..out_tile.used_cols {
-                            // Safety: Row and column indices are < used rows /
-                            // cols in this tile.
-                            unsafe {
-                                let out_el = out_tile.ptr.add(out_tile.row_stride * i + j);
-                                let tmp = if beta == OutT::zero() {
-                                    OutT::zero()
-                                } else {
-                                    (*out_el).assume_init()
-                                };
-                                out_el.write(MaybeUninit::new(
-                                    beta * tmp
-                                        + tmp_out_tile.get_unchecked(i * nr + j).assume_init(),
-                                ));
-                            }
-                        }
-                    }
+                // Safety:
+                //  - Kernel is supported on current system
+                //  - Output tile is initialized if beta is non-zero
+                unsafe {
+                    kernel.kernel(
+                        out_tile.ptr as *mut OutT,
+                        out_tile.row_stride,
+                        kernel_lhs,
+                        b_panel,
+                        out_tile.used_rows,
+                        out_tile.used_cols,
+                        depth_range.len(),
+                        alpha,
+                        beta,
+                    );
                 }
 
                 // Add bias vector on first write to an output tile.
