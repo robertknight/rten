@@ -94,10 +94,8 @@ impl<'a> From<(&'a [f32], &'a mut [MaybeUninit<f32>])> for NormalizeData<'a> {
 /// Normalize the mean and variance of elements in `data` and apply a scale
 /// and bias to the result.
 ///
-/// ```text
-/// Y = (X - mean) / sqrt(variance + epsilon) * scale + bias
-/// ```
-fn normalize_slice(data: NormalizeData, opts: NormalizeOptions) {
+/// Returns the normalized elements.
+fn normalize_slice<'a>(data: NormalizeData<'a>, opts: NormalizeOptions<'a>) -> &'a mut [f32] {
     let NormalizeOptions {
         mean_normalize,
         epsilon,
@@ -676,7 +674,7 @@ pub fn softmax(pool: &TensorPool, input: TensorView, axis: isize) -> Result<Tens
 
 pub fn softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError> {
     softmax_lanes(output, axis, |lane| {
-        vecmath::Softmax::new_mut(lane).dispatch()
+        vecmath::Softmax::new_mut(lane).dispatch();
     })?;
     Ok(())
 }

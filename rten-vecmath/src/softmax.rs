@@ -62,6 +62,8 @@ unsafe fn simd_softmax<S: SimdFloat>(input: PtrLen<f32>, out: MutPtrLen<MaybeUni
 pub struct Softmax<'a> {
     input: PtrLen<f32>,
     output: MutPtrLen<MaybeUninit<f32>>,
+
+    // Communicate ownership of `output` to borrow checker.
     _marker: PhantomData<&'a mut [f32]>,
 }
 
@@ -87,12 +89,16 @@ impl<'a> Softmax<'a> {
     }
 }
 
-impl SimdOp for Softmax<'_> {
-    type Output = ();
+impl<'a> SimdOp for Softmax<'a> {
+    /// The normalized elements.
+    type Output = &'a mut [f32];
 
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
-        simd_softmax::<S>(self.input, self.output)
+        simd_softmax::<S>(self.input, self.output);
+
+        // Safety: `simd_softmax` initialized all elements of `self.output`.
+        unsafe { self.output.assume_init().as_slice() }
     }
 }
 
@@ -146,7 +152,7 @@ mod tests {
     #[ignore]
     fn bench_softmax() {
         benchmark_op(reference_softmax, |src, dest| {
-            Softmax::new(src, dest).dispatch()
+            Softmax::new(src, dest).dispatch();
         });
     }
 }

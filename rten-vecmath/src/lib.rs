@@ -52,6 +52,25 @@
 //! Softmax::new_mut(&mut data).dispatch();
 //! ```
 //!
+//! ### Applying softmax with separate input and output buffers
+//!
+//! This example reads data from an input and writes to an uninitialized output
+//! buffer. The softmax operation returns the initialized slice.
+//!
+//! ```
+//! use rten_simd::dispatch::SimdOp;
+//! use rten_vecmath::Softmax;
+//!
+//! let data = [1., 0.5, 2.0];
+//! let mut output = Vec::with_capacity(data.len());
+//! let output_uninit = &mut output.spare_capacity_mut()[..data.len()];
+//! let output_init = Softmax::new(&data, output_uninit).dispatch();
+//!
+//! // Safety: The softmax operation initialized all output elements.
+//! let init_len = output_init.len();
+//! unsafe { output.set_len(init_len) };
+//! ```
+//!
 //! ### Computing the sum of a list of floats
 //!
 //! ```

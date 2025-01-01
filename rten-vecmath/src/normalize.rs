@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 
 use rten_simd::dispatch::SimdOp;
@@ -19,6 +20,9 @@ pub struct Normalize<'a> {
     input: PtrLen<f32>,
     output: MutPtrLen<MaybeUninit<f32>>,
     opts: NormalizeOptions<'a>,
+
+    // Communicate ownership of `output` to borrow checker.
+    _marker: PhantomData<&'a mut [f32]>,
 }
 
 impl<'a> Normalize<'a> {
@@ -33,6 +37,7 @@ impl<'a> Normalize<'a> {
             input: input.into(),
             output: output.into(),
             opts,
+            _marker: PhantomData,
         }
     }
 
@@ -43,6 +48,7 @@ impl<'a> Normalize<'a> {
             input: input.into(),
             output: output.as_uninit(),
             opts,
+            _marker: PhantomData,
         }
     }
 }
@@ -74,8 +80,9 @@ impl Default for NormalizeOptions<'_> {
     }
 }
 
-impl SimdOp for Normalize<'_> {
-    type Output = ();
+impl<'a> SimdOp for Normalize<'a> {
+    /// The normalized elements.
+    type Output = &'a mut [f32];
 
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
@@ -90,6 +97,7 @@ impl SimdOp for Normalize<'_> {
                     bias,
                     element_bias,
                 },
+            _marker,
         } = self;
 
         assert_eq!(input.len(), output.len());
@@ -149,6 +157,9 @@ impl SimdOp for Normalize<'_> {
                 .mul_add(scale_vec, bias_vec);
             y.store_partial(out_ptr as *mut f32, n);
         }
+
+        // Safety: All elements of `output` were initialized above.
+        output.assume_init().as_slice()
     }
 }
 
