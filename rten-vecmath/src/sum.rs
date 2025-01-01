@@ -1,9 +1,21 @@
-use rten_simd::dispatch::{dispatch, SimdOp};
+use rten_simd::dispatch::SimdOp;
 use rten_simd::functional::simd_fold;
 use rten_simd::SimdFloat;
 
-struct Sum<'a> {
+/// Computes the sum of a sequence of numbers.
+///
+/// This is more efficient than `slice.iter().sum()` as it computes multiple
+/// partial sums in parallel using SIMD and then sums across the SIMD lanes at
+/// the end. This will produce very slightly different results because the
+/// additions are happening in a different order.
+pub struct Sum<'a> {
     input: &'a [f32],
+}
+
+impl<'a> Sum<'a> {
+    pub fn new(input: &'a [f32]) -> Self {
+        Sum { input }
+    }
 }
 
 impl SimdOp for Sum<'_> {
@@ -21,19 +33,21 @@ impl SimdOp for Sum<'_> {
     }
 }
 
-/// Compute the sum of a slice of floats.
+/// Computes the sum of squares of a sequence of numbers.
 ///
-/// This is more efficient than `xs.iter().sum()` as it computes multiple
-/// partial sums in parallel using SIMD and then sums across the SIMD lanes at
-/// the end. This will produce very slightly different results because the
-/// additions are happening in a different order.
-pub fn sum(xs: &[f32]) -> f32 {
-    let op = Sum { input: xs };
-    dispatch(op)
+/// This is conceptually equivalent to `slice.iter().map(|&x| x * x).sum()` but
+/// more efficient as it computes multiple partial sums in parallel using SIMD
+/// and then sums across the SIMD lanes at the end. This will produce very
+/// slightly different results because the additions are happening in a
+/// different order.
+pub struct SumSquare<'a> {
+    input: &'a [f32],
 }
 
-struct SumSquare<'a> {
-    input: &'a [f32],
+impl<'a> SumSquare<'a> {
+    pub fn new(input: &'a [f32]) -> Self {
+        SumSquare { input }
+    }
 }
 
 impl SimdOp for SumSquare<'_> {
@@ -51,20 +65,20 @@ impl SimdOp for SumSquare<'_> {
     }
 }
 
-/// Compute the sum of the squares of elements in `xs`.
+/// Compute the sum of squares of input with a bias subtracted.
 ///
-/// Conceptually this is like `xs.iter().map(|&x| x * x).sum()` but more
-/// efficient as it computes multiple partial sums in parallel and then sums
-/// across SIMD lanes at the end. The results will also be slightly different
-/// because the additions are happening in a different order.
-pub fn sum_square(xs: &[f32]) -> f32 {
-    let op = SumSquare { input: xs };
-    dispatch(op)
-}
-
-struct SumSquareSub<'a> {
+/// This is a variant of [`SumSquare`] which subtracts a constant value from each
+/// element before squaring it. A typical use case is to compute the variance of
+/// a sequence, which is defined as `mean((X - x_mean)^2)`.
+pub struct SumSquareSub<'a> {
     input: &'a [f32],
     offset: f32,
+}
+
+impl<'a> SumSquareSub<'a> {
+    pub fn new(input: &'a [f32], offset: f32) -> Self {
+        SumSquareSub { input, offset }
+    }
 }
 
 impl SimdOp for SumSquareSub<'_> {
@@ -86,19 +100,10 @@ impl SimdOp for SumSquareSub<'_> {
     }
 }
 
-/// Compute the sum of squares of `xs - offset`.
-///
-/// This is a variant of [`sum`] which subtracts a constant value from each
-/// element before squaring it. A typical use case is to compute the variance of
-/// a sequence, which is defined as `mean((X - x_mean)^2)`.
-pub fn sum_square_sub(xs: &[f32], offset: f32) -> f32 {
-    let op = SumSquareSub { input: xs, offset };
-    dispatch(op)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{sum, sum_square, sum_square_sub};
+    use super::{Sum, SumSquare, SumSquareSub};
+    use rten_simd::dispatch::SimdOp;
 
     // Chosen to not be a multiple of vector size, so that tail handling is
     // exercised.
@@ -108,7 +113,7 @@ mod tests {
     fn test_sum() {
         let xs: Vec<f32> = (0..LEN).map(|i| i as f32 * 0.1).collect();
         let expected_sum: f32 = xs.iter().sum();
-        let sum = sum(&xs);
+        let sum = Sum::new(&xs).dispatch();
         assert_eq!(sum, expected_sum);
     }
 
@@ -116,7 +121,7 @@ mod tests {
     fn test_sum_square() {
         let xs: Vec<f32> = (0..LEN).map(|i| i as f32 * 0.1).collect();
         let expected_sum: f32 = xs.iter().copied().map(|x| x * x).sum();
-        let sum = sum_square(&xs);
+        let sum = SumSquare::new(&xs).dispatch();
         assert_eq!(sum, expected_sum);
     }
 
@@ -125,7 +130,7 @@ mod tests {
         let xs: Vec<f32> = (0..LEN).map(|i| i as f32 * 0.1).collect();
         let mean = xs.iter().sum::<f32>() / xs.len() as f32;
         let expected_sum: f32 = xs.iter().copied().map(|x| (x - mean) * (x - mean)).sum();
-        let sum = sum_square_sub(&xs, mean);
+        let sum = SumSquareSub::new(&xs, mean).dispatch();
         assert_eq!(sum, expected_sum);
     }
 }

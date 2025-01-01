@@ -43,6 +43,6 @@ pub use exp::{Exp, Sigmoid, Silu, Swish};
 pub use tanh::Tanh;
 
 // Normalization and reduction functions.
-pub use normalize::{normalize, normalize_mut};
-pub use softmax::{softmax, softmax_mut};
-pub use sum::{sum, sum_square, sum_square_sub};
+pub use normalize::{Normalize, NormalizeOptions};
+pub use softmax::Softmax;
+pub use sum::{Sum, SumSquare, SumSquareSub};

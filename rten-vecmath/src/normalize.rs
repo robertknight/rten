@@ -1,24 +1,77 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::dispatch::{dispatch, SimdOp};
+use rten_simd::dispatch::SimdOp;
 use rten_simd::span::{MutPtrLen, PtrLen};
 use rten_simd::SimdFloat;
 
-struct Normalize<'a> {
+/// Normalize the mean and variance of elements in a slice.
+///
+/// This normalizes elements according to the formula:
+///
+/// ```text
+/// output[i] = (input[i] - pre_scale_bias) * scale * element_scale[i] + bias + element_bias[i]
+/// ```
+///
+/// # Panics
+///
+/// Dispatching the operation panics if any of the slices have different lengths.
+pub struct Normalize<'a> {
     input: PtrLen<f32>,
     output: MutPtrLen<MaybeUninit<f32>>,
+    opts: NormalizeOptions<'a>,
+}
 
+impl<'a> Normalize<'a> {
+    /// Create a normalize operation which reads `input` and writes the normalized
+    /// output to `output`.
+    pub fn new(
+        input: &'a [f32],
+        output: &'a mut [MaybeUninit<f32>],
+        opts: NormalizeOptions<'a>,
+    ) -> Self {
+        Normalize {
+            input: input.into(),
+            output: output.into(),
+            opts,
+        }
+    }
+
+    /// Create a normalize operation which normalizes `input` in-place.
+    pub fn new_mut(input: &'a mut [f32], opts: NormalizeOptions<'a>) -> Self {
+        let output: MutPtrLen<f32> = input.into();
+        Normalize {
+            input: input.into(),
+            output: output.as_uninit(),
+            opts,
+        }
+    }
+}
+
+/// Configuration for the [`Normalize`] operation.
+pub struct NormalizeOptions<'a> {
     /// Bias to subtract before scaling.
-    pre_scale_bias: f32,
+    pub pre_scale_bias: f32,
 
-    scale: f32,
-    element_scale: Option<&'a [f32]>,
+    pub scale: f32,
+    pub element_scale: Option<&'a [f32]>,
 
     /// Constant bias to add after scaling
-    bias: f32,
+    pub bias: f32,
 
     /// Per-element bias to add after scaling
-    element_bias: Option<&'a [f32]>,
+    pub element_bias: Option<&'a [f32]>,
+}
+
+impl Default for NormalizeOptions<'_> {
+    fn default() -> Self {
+        NormalizeOptions {
+            pre_scale_bias: 0.,
+            scale: 1.,
+            element_scale: None,
+            bias: 0.,
+            element_bias: None,
+        }
+    }
 }
 
 impl SimdOp for Normalize<'_> {
@@ -29,11 +82,14 @@ impl SimdOp for Normalize<'_> {
         let Self {
             input,
             output,
-            pre_scale_bias,
-            scale,
-            element_scale,
-            bias,
-            element_bias,
+            opts:
+                NormalizeOptions {
+                    pre_scale_bias,
+                    scale,
+                    element_scale,
+                    bias,
+                    element_bias,
+                },
         } = self;
 
         assert_eq!(input.len(), output.len());
@@ -96,63 +152,10 @@ impl SimdOp for Normalize<'_> {
     }
 }
 
-/// Normalize elements in a slice.
-///
-/// This normalizes elements according to the formula:
-///
-/// ```text
-/// output[i] = (input[i] - pre_scale_bias) * scale * element_scale[i] + bias + element_bias[i]
-/// ```
-///
-/// # Panics
-///
-/// Panics if any of the slices have different lengths.
-pub fn normalize(
-    input: &[f32],
-    output: &mut [MaybeUninit<f32>],
-    pre_scale_bias: f32,
-    scale: f32,
-    element_scale: Option<&[f32]>,
-    bias: f32,
-    element_bias: Option<&[f32]>,
-) {
-    let simd_op = Normalize {
-        input: input.into(),
-        output: output.into(),
-        pre_scale_bias,
-        scale,
-        element_scale,
-        bias,
-        element_bias,
-    };
-    dispatch(simd_op)
-}
-
-/// Variant of [`normalize`] which updates elements in-place.
-pub fn normalize_mut(
-    input: &mut [f32],
-    pre_scale_bias: f32,
-    scale: f32,
-    element_scale: Option<&[f32]>,
-    bias: f32,
-    element_bias: Option<&[f32]>,
-) {
-    let output: MutPtrLen<f32> = input.into();
-    let simd_op = Normalize {
-        input: input.into(),
-        output: output.as_uninit(),
-        pre_scale_bias,
-        scale,
-        element_scale,
-        bias,
-        element_bias,
-    };
-    dispatch(simd_op)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::normalize_mut;
+    use super::{Normalize, NormalizeOptions};
+    use rten_simd::dispatch::SimdOp;
 
     fn reference_normalize_mut(
         data: &mut [f32],
@@ -190,15 +193,17 @@ mod tests {
         );
 
         let mut actual = data.clone();
-        normalize_mut(
+        Normalize::new_mut(
             &mut actual[..],
-            pre_scale_bias,
-            scale,
-            Some(&element_scale),
-            bias,
-            Some(&element_bias),
-        );
-
+            NormalizeOptions {
+                pre_scale_bias,
+                scale,
+                element_scale: Some(&element_scale),
+                bias,
+                element_bias: Some(&element_bias),
+            },
+        )
+        .dispatch();
         assert_eq!(actual, expected);
 
         // Without per-element scale and bias
@@ -206,7 +211,17 @@ mod tests {
         reference_normalize_mut(&mut expected[..], pre_scale_bias, scale, None, bias, None);
 
         let mut actual = data.clone();
-        normalize_mut(&mut actual[..], pre_scale_bias, scale, None, bias, None);
+        Normalize::new_mut(
+            &mut actual[..],
+            NormalizeOptions {
+                pre_scale_bias,
+                scale,
+                element_scale: None,
+                bias,
+                element_bias: None,
+            },
+        )
+        .dispatch();
 
         assert_eq!(actual, expected);
     }

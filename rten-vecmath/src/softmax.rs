@@ -1,6 +1,7 @@
+use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 
-use rten_simd::dispatch::{dispatch, SimdOp};
+use rten_simd::dispatch::SimdOp;
 use rten_simd::functional::{simd_fold, simd_map};
 use rten_simd::span::{MutPtrLen, PtrLen};
 use rten_simd::{SimdFloat, SimdMask};
@@ -55,12 +56,38 @@ unsafe fn simd_softmax<S: SimdFloat>(input: PtrLen<f32>, out: MutPtrLen<MaybeUni
     );
 }
 
-struct Softmax {
+/// Computes the [softmax][softmax] function over a slice of floats.
+///
+/// [softmax]: https://en.wikipedia.org/wiki/Softmax_function
+pub struct Softmax<'a> {
     input: PtrLen<f32>,
     output: MutPtrLen<MaybeUninit<f32>>,
+    _marker: PhantomData<&'a mut [f32]>,
 }
 
-impl SimdOp for Softmax {
+impl<'a> Softmax<'a> {
+    /// Construct a softmax operation which reads `input` and writes to to
+    /// `output`.
+    pub fn new(input: &'a [f32], output: &'a mut [MaybeUninit<f32>]) -> Self {
+        Softmax {
+            input: input.into(),
+            output: output.into(),
+            _marker: PhantomData,
+        }
+    }
+
+    /// Construct a softmax operation which updates `input` in place.
+    pub fn new_mut(input: &'a mut [f32]) -> Self {
+        let output: MutPtrLen<f32> = input.into();
+        Softmax {
+            input: input.into(),
+            output: output.as_uninit(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl SimdOp for Softmax<'_> {
     type Output = ();
 
     #[inline(always)]
@@ -69,35 +96,11 @@ impl SimdOp for Softmax {
     }
 }
 
-/// Computes the [softmax][softmax] function over a slice of floats.
-///
-/// `out` will be fully initialized after this function returns.
-///
-/// [softmax]: https://en.wikipedia.org/wiki/Softmax_function
-pub fn softmax(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    let op = Softmax {
-        input: xs.into(),
-        output: out.into(),
-    };
-    dispatch(op)
-}
-
-/// Computes the [softmax][softmax] function over a slice of floats.
-///
-/// [softmax]: https://en.wikipedia.org/wiki/Softmax_function
-pub fn softmax_mut(xs: &mut [f32]) {
-    let out: MutPtrLen<f32> = xs.into();
-    let op = Softmax {
-        input: xs.into(),
-        output: out.as_uninit(),
-    };
-    dispatch(op)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::softmax;
+    use rten_simd::dispatch::SimdOp;
 
+    use super::Softmax;
     use crate::testing::{benchmark_op, check_f32s_are_equal_ulps, triples, AsUninit};
 
     fn reference_softmax(xs: &[f32], ys: &mut [f32]) {
@@ -123,7 +126,7 @@ mod tests {
         ]);
         let mut actual = vec![0.; input.len()];
 
-        softmax(&input, actual.as_mut_slice().as_uninit());
+        Softmax::new(&input, actual.as_mut_slice().as_uninit()).dispatch();
         check_f32s_are_equal_ulps(triples(&input, &actual, expected), 0. /* max ULPs */);
 
         // Test against reference implementation for various lengths.
@@ -133,7 +136,8 @@ mod tests {
             reference_softmax(&input, &mut expected);
 
             let mut actual = vec![0.; input.len()];
-            softmax(&input, actual.as_mut_slice().as_uninit());
+            Softmax::new(&input, actual.as_mut_slice().as_uninit()).dispatch();
+
             check_f32s_are_equal_ulps(triples(&input, &actual, &expected), 2. /* max ULPs */);
         }
     }
@@ -141,6 +145,8 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_softmax() {
-        benchmark_op(reference_softmax, softmax);
+        benchmark_op(reference_softmax, |src, dest| {
+            Softmax::new(src, dest).dispatch()
+        });
     }
 }
