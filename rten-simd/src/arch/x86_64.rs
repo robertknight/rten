@@ -311,7 +311,7 @@ use std::arch::x86_64::{
     _mm512_div_ps, _mm512_fmadd_ps, _mm512_loadu_ps, _mm512_loadu_si512, _mm512_mask_blend_epi32,
     _mm512_mask_blend_ps, _mm512_mask_i32gather_ps, _mm512_max_ps, _mm512_mul_ps,
     _mm512_reduce_add_ps, _mm512_set1_epi32, _mm512_set1_ps, _mm512_setzero_si512,
-    _mm512_sllv_epi32, _mm512_storeu_ps, _mm512_storeu_si512, _mm512_sub_epi32, _mm512_sub_ps,
+    _mm512_sllv_epi32, _mm512_storeu_epi32, _mm512_storeu_ps, _mm512_sub_epi32, _mm512_sub_ps,
     _MM_CMPINT_EQ, _MM_CMPINT_LE, _MM_CMPINT_LT,
 };
 
@@ -379,7 +379,7 @@ impl Simd for __m512i {
     #[inline]
     #[target_feature(enable = "avx512f")]
     unsafe fn store(self, ptr: *mut i32) {
-        _mm512_storeu_si512(ptr, self)
+        _mm512_storeu_epi32(ptr, self)
     }
 
     #[inline]
