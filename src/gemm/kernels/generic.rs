@@ -4,7 +4,7 @@ use std::ops::Range;
 use rten_simd::vec_count;
 use rten_tensor::{Matrix, MatrixLayout};
 
-use super::simd_generic::{simd_gemm, simd_gemv};
+use super::simd_generic::{simd_gemv, GemmDispatch};
 use super::{Kernel, Lhs, PackedLayout, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::number::{cast_pod_mut_slice, cast_pod_slice};
@@ -92,30 +92,36 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         const NR_REGS: usize = vec_count::<f32>(NR);
 
         let b = cast_pod_slice(b).unwrap();
-
-        if used_cols == NR {
-            simd_gemm::<f32, MR, NR_REGS>(
-                tile_ptr,
-                tile_row_stride,
-                a,
-                used_rows,
-                b,
-                depth,
-                alpha,
-                beta,
-            );
+        let mut tmp_tile = TempTile::<f32, MR, NR>::new();
+        let (dest_ptr, dest_row_stride, dest_beta) = if used_cols == NR {
+            (tile_ptr, tile_row_stride, beta)
         } else {
-            let mut tmp_tile = TempTile::<f32, MR, NR>::new();
-            simd_gemm::<f32, MR, NR_REGS>(
-                tmp_tile.as_mut_ptr() as *mut f32,
-                NR,
-                a,
-                used_rows,
-                b,
-                depth,
-                alpha,
-                0.,
-            );
+            (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
+        };
+
+        let gemm = GemmDispatch::<f32, MR, NR_REGS>::new(
+            dest_ptr,
+            dest_row_stride,
+            a,
+            b,
+            depth,
+            alpha,
+            dest_beta,
+        );
+
+        match used_rows {
+            8 => gemm.dispatch::<8>(),
+            7 => gemm.dispatch::<7>(),
+            6 => gemm.dispatch::<6>(),
+            5 => gemm.dispatch::<5>(),
+            4 => gemm.dispatch::<4>(),
+            3 => gemm.dispatch::<3>(),
+            2 => gemm.dispatch::<2>(),
+            1 => gemm.dispatch::<1>(),
+            _ => panic!("unsupported `used_rows` {}", used_rows),
+        }
+
+        if used_cols != NR {
             tmp_tile.accumulate_into(
                 tile_ptr as *mut MaybeUninit<f32>,
                 used_rows,
