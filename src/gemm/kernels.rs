@@ -1,6 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use super::GemmOutT;
 use rten_tensor::Matrix;
 
 pub mod generic;
@@ -108,8 +109,9 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         tile_ptr: *mut OutT,
         tile_row_stride: usize,
         a: Lhs<LhsT>,
-        used_rows: usize,
         b: &[RhsT],
+        used_rows: usize,
+        used_cols: usize,
         depth: usize,
         alpha: f32,
         beta: OutT,
@@ -140,4 +142,77 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         alpha: f32,
         beta: OutT,
     );
+}
+
+/// A temporary stack-allocated tile used by some kernels to handle edge tiles
+/// which are smaller than the kernel's (MR, NR) size.
+///
+/// The kernel first allocates a [`TempTile`] and accumulates into it, then
+/// calls [`accumulate_into`] to add the results to the matrix multiplication
+/// output, for rows and columns that are actually valid.
+///
+/// The temporary tile is uninitialized, so callers must always set `beta=0`
+/// when running the kernel on it. The row stride of the temporary tile is
+/// always `NR`.
+pub struct TempTile<T: GemmOutT, const MR: usize, const NR: usize> {
+    data: [[MaybeUninit<T>; NR]; MR],
+}
+
+impl<T: GemmOutT, const MR: usize, const NR: usize> TempTile<T, MR, NR> {
+    // Create an uninitialized temporary tile.
+    //
+    // Since the data is uninitialized, the only cost is reserving stack space.
+    pub fn new() -> Self {
+        TempTile {
+            data: [[MaybeUninit::<T>::uninit(); NR]; MR],
+        }
+    }
+
+    /// Return a pointer to the temporary tile data.
+    pub fn as_mut_ptr(&mut self) -> *mut MaybeUninit<T> {
+        self.data.as_mut_ptr() as *mut MaybeUninit<T>
+    }
+
+    /// Update the first `n_rows` rows and `n_cols` columns of the tile pointed
+    /// to by `dest` with the values from this temporary tile.
+    ///
+    /// If `beta` is zero, `dest` is treated as uninitialized. Otherwise
+    /// it must be initialized.
+    pub unsafe fn accumulate_into(
+        &self,
+        dest: *mut MaybeUninit<T>,
+        n_rows: usize,
+        n_cols: usize,
+        row_stride: usize,
+        beta: T,
+    ) {
+        if beta != T::zero() {
+            // Accumulate into initialized output.
+            for i in 0..n_rows {
+                for j in 0..n_cols {
+                    // Safety: Row and column indices are < `n_rows`/`n_cols`
+                    unsafe {
+                        let out_el = dest.add(row_stride * i + j);
+                        let tmp = (*out_el).assume_init();
+                        out_el.write(MaybeUninit::new(
+                            beta * tmp + self.data.get_unchecked(i).get_unchecked(j).assume_init(),
+                        ));
+                    }
+                }
+            }
+        } else {
+            // Copy into possible uninitialized output.
+            for i in 0..n_rows {
+                for j in 0..n_cols {
+                    // Safety: Row and column indices are < `n_rows`/`n_cols`
+                    unsafe {
+                        let out_el = dest.add(row_stride * i + j);
+                        out_el.write(MaybeUninit::new(
+                            self.data.get_unchecked(i).get_unchecked(j).assume_init(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
 }
