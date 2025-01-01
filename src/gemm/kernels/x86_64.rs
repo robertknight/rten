@@ -11,7 +11,7 @@ use rten_tensor::Matrix;
 #[cfg(feature = "avx512")]
 use rten_simd::isa_detection::is_avx512_supported;
 
-use super::simd_generic::{simd_gemm, simd_gemv};
+use super::simd_generic::{simd_gemv, GemmDispatch};
 use super::{Kernel, Lhs, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 
@@ -123,16 +123,25 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
             (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
         };
 
-        simd_gemm::<__m256, MR, NR_REGS>(
+        let gemm = GemmDispatch::<__m256, MR, NR_REGS>::new(
             dest_ptr,
             dest_row_stride,
             a,
-            used_rows,
             b,
             depth,
             alpha,
             dest_beta,
         );
+
+        match used_rows {
+            6 => gemm.dispatch::<6>(),
+            5 => gemm.dispatch::<5>(),
+            4 => gemm.dispatch::<4>(),
+            3 => gemm.dispatch::<3>(),
+            2 => gemm.dispatch::<2>(),
+            1 => gemm.dispatch::<1>(),
+            _ => panic!("unsupported `used_rows` {}", used_rows),
+        }
 
         if used_cols != NR {
             tmp_tile.accumulate_into(
@@ -261,16 +270,25 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
             (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
         };
 
-        simd_gemm::<__m512, MR, NR_REGS>(
+        let gemm = GemmDispatch::<__m512, MR, NR_REGS>::new(
             dest_ptr,
             dest_row_stride,
             a,
-            used_rows,
             b,
             depth,
             alpha,
             dest_beta,
         );
+
+        match used_rows {
+            6 => gemm.dispatch::<6>(),
+            5 => gemm.dispatch::<5>(),
+            4 => gemm.dispatch::<4>(),
+            3 => gemm.dispatch::<3>(),
+            2 => gemm.dispatch::<2>(),
+            1 => gemm.dispatch::<1>(),
+            _ => panic!("unsupported `used_rows` {}", used_rows),
+        }
 
         if used_cols != NR {
             tmp_tile.accumulate_into(
