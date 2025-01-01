@@ -103,6 +103,18 @@ impl<T> MutPtrLen<T> {
             len: self.len,
         }
     }
+
+    /// Convert `self` into a slice.
+    ///
+    /// # Safety
+    ///
+    /// The caller must uphold all the invariants specified in
+    /// [`std::slice::from_raw_parts_mut`]. In particular all elements must be
+    /// initialized, and there must be no other mutable references to any
+    /// elements in the slice.
+    pub unsafe fn as_slice<'a>(self) -> &'a mut [T] {
+        std::slice::from_raw_parts_mut(self.ptr, self.len)
+    }
 }
 
 impl<'a, T> From<&'a mut [T]> for MutPtrLen<T> {

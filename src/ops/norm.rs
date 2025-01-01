@@ -1,9 +1,10 @@
 use std::mem::MaybeUninit;
 
 use rayon::prelude::*;
+use rten_simd::dispatch::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
-use rten_vecmath::{normalize, normalize_mut, softmax_mut, sum, sum_square, sum_square_sub};
+use rten_vecmath as vecmath;
 
 use crate::ops::static_dims;
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
@@ -93,10 +94,8 @@ impl<'a> From<(&'a [f32], &'a mut [MaybeUninit<f32>])> for NormalizeData<'a> {
 /// Normalize the mean and variance of elements in `data` and apply a scale
 /// and bias to the result.
 ///
-/// ```text
-/// Y = (X - mean) / sqrt(variance + epsilon) * scale + bias
-/// ```
-fn normalize_slice(data: NormalizeData, opts: NormalizeOptions) {
+/// Returns the normalized elements.
+fn normalize_slice<'a>(data: NormalizeData<'a>, opts: NormalizeOptions<'a>) -> &'a mut [f32] {
     let NormalizeOptions {
         mean_normalize,
         epsilon,
@@ -114,12 +113,12 @@ fn normalize_slice(data: NormalizeData, opts: NormalizeOptions) {
     let (mean, variance) = match mean_normalize {
         MeanNormalize::Static { mean, variance } => (mean, variance),
         MeanNormalize::Dynamic => {
-            let mean = sum(input) / input.len() as f32;
-            let variance = sum_square_sub(input, mean) / input.len() as f32;
+            let mean = vecmath::Sum::new(input).dispatch() / input.len() as f32;
+            let variance = vecmath::SumSquareSub::new(input, mean).dispatch() / input.len() as f32;
             (mean, variance)
         }
         MeanNormalize::DynamicRootMeanSquare => {
-            let root_mean_square = sum_square(input) / input.len() as f32;
+            let root_mean_square = vecmath::SumSquare::new(input).dispatch() / input.len() as f32;
             (0., root_mean_square)
         }
     };
@@ -138,27 +137,19 @@ fn normalize_slice(data: NormalizeData, opts: NormalizeOptions) {
     // ```
     let scaled_std_dev_reciprocal = scale / (variance + epsilon).sqrt();
 
-    match data {
-        NormalizeData::InPlace(data) => normalize_mut(
-            data,
-            mean,
-            scaled_std_dev_reciprocal,
-            element_scale,
-            bias,
-            element_bias,
-        ),
-        NormalizeData::SrcDest((src, dest)) => {
-            normalize(
-                src,
-                dest,
-                mean,
-                scaled_std_dev_reciprocal,
-                element_scale,
-                bias,
-                element_bias,
-            );
-        }
-    }
+    let opts = vecmath::NormalizeOptions {
+        pre_scale_bias: mean,
+        bias,
+        scale: scaled_std_dev_reciprocal,
+        element_bias,
+        element_scale,
+    };
+
+    let op = match data {
+        NormalizeData::InPlace(data) => vecmath::Normalize::new_mut(data, opts),
+        NormalizeData::SrcDest((src, dest)) => vecmath::Normalize::new(src, dest, opts),
+    };
+    op.dispatch()
 }
 
 /// Perform in-place batch normalization on the `NC*` tensor `out`.
@@ -682,7 +673,9 @@ pub fn softmax(pool: &TensorPool, input: TensorView, axis: isize) -> Result<Tens
 }
 
 pub fn softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError> {
-    softmax_lanes(output, axis, softmax_mut)?;
+    softmax_lanes(output, axis, |lane| {
+        vecmath::Softmax::new_mut(lane).dispatch();
+    })?;
     Ok(())
 }
 

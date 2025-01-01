@@ -77,10 +77,10 @@ pub fn dispatch<Op: SimdOp>(op: Op) -> Op::Output {
 /// Trait for SIMD operations which can be evaluated using different SIMD
 /// vector types.
 ///
-/// To dispatch the operation, create a [`SimdDispatcher`] and call
-/// [`dispatch(op)`](SimdDispatcher::dispatch).
+/// To dispatch the operation using the preferred instruction set for the
+/// current system, call the [`dispatch`](SimdOp::dispatch) method.
 pub trait SimdOp {
-    /// Output type returned by `eval`.
+    /// Output type returned by the operation.
     type Output;
 
     /// Evaluate the operator using a given SIMD vector type.
@@ -90,6 +90,17 @@ pub trait SimdOp {
     /// The caller must ensure that the `S` is a supported SIMD vector type
     /// on the current system.
     unsafe fn eval<S: SimdFloat>(self) -> Self::Output;
+
+    /// Evaluate this operator using the default SIMD dispatch configuration
+    /// for the current platform.
+    ///
+    /// To customize the dispatch, use the [`SimdDispatcher`] API directly.
+    fn dispatch(self) -> Self::Output
+    where
+        Self: Sized,
+    {
+        SimdDispatcher::default().dispatch(self)
+    }
 }
 
 /// Trait for evaluating a unary function on a SIMD vector.
