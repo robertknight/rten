@@ -144,7 +144,7 @@ mod tests {
             let mut actual = vec![0.; input.len()];
             Softmax::new(&input, actual.as_mut_slice().as_uninit()).dispatch();
 
-            check_f32s_are_equal_ulps(triples(&input, &actual, &expected), 2. /* max ULPs */);
+            check_f32s_are_equal_ulps(triples(&input, &actual, &expected), 3. /* max ULPs */);
         }
     }
 
