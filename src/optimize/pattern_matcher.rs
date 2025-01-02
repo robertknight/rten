@@ -341,29 +341,22 @@ pub fn const_symbol(name: &'static str) -> Pattern {
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::Tensor;
-
     use super::{const_symbol, symbol, unary_op, unary_op_key, Pattern};
-    use crate::graph::{Graph, Node, NodeId};
-    use crate::ops::{Abs, Add, Div};
+    use crate::graph::builder::Expr;
+    use crate::graph::{Graph, Node};
+    use crate::ops::Abs;
 
     /// Create a graph that implements the softsign function `x / 1 + |x|`.
-    fn softsign_graph() -> (Graph, NodeId, NodeId) {
-        let mut graph = Graph::new();
-        let input_id = graph.add_value(Some("x"), None, None);
-
-        let (_, abs_out) = graph.add_simple_op("abs", Abs {}, &[input_id]);
-        let one = graph.add_constant(None, Tensor::from(1.0));
-        let (_, add_out) = graph.add_simple_op("add", Add {}, &[one, abs_out]);
-        let (_, div_out) = graph.add_simple_op("div", Div {}, &[input_id, add_out]);
-
-        (graph, input_id, div_out)
+    fn softsign_graph() -> Graph {
+        let x = Expr::value("x");
+        let expr = x.clone() / (Expr::constant(1.0) + x.unary(Abs {}));
+        expr.build_graph(["x"])
     }
 
     #[test]
     fn test_pattern_match() {
         struct Case {
-            graph: (Graph, NodeId, NodeId), // (graph, input_id, output_id)
+            graph: Graph,
             pattern: Pattern,
             expect_match: bool,
         }
@@ -439,7 +432,8 @@ mod tests {
             },
         ) in cases.into_iter().enumerate()
         {
-            let (graph, input, output) = graph;
+            let input = graph.input_ids()[0];
+            let output = graph.output_ids()[0];
             let pat_match = pattern.test(output, &graph);
 
             assert_eq!(pat_match.is_some(), expect_match, "mismatch for case {}", i);
@@ -451,7 +445,8 @@ mod tests {
 
     #[test]
     fn test_operator_with_key() {
-        let (graph, _input, output) = softsign_graph();
+        let graph = softsign_graph();
+        let output = graph.output_ids()[0];
         let x = symbol("x");
         let pat = x.clone() / (1.0 + unary_op_key("Abs", x.clone(), "abs_op"));
         let pat_match = pat.test(output, &graph).unwrap();
