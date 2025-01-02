@@ -340,10 +340,11 @@ fn run_with_random_input(
     }
 
     let n_iters = n_iters.max(1);
-    let mut remaining_iters = n_iters;
+    let mut iter_num = 1;
     let mut outputs;
     let mut durations = Vec::new();
 
+    // `loop` instead of `for` to guarantee `outputs` is initialized.
     loop {
         let start = Instant::now();
         outputs = model.run(inputs.clone(), model.output_ids(), Some(run_opts.clone()))?;
@@ -351,17 +352,18 @@ fn run_with_random_input(
 
         if !quiet {
             println!(
-                "  Model returned {} outputs in {:.2}ms.",
+                "  #{} - Model returned {} outputs in {:.2}ms.",
+                iter_num,
                 outputs.len(),
                 elapsed
             );
         }
         durations.push(elapsed);
 
-        remaining_iters -= 1;
-        if remaining_iters == 0 {
+        if iter_num >= n_iters {
             break;
         }
+        iter_num += 1;
     }
     if !quiet {
         if n_iters > 1 {
