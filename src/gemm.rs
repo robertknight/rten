@@ -15,7 +15,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView, Storage};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
-use crate::number::{cast_pod_mut_slice, cast_pod_slice, Identities, Pod};
+use crate::number::{cast_pod_mut_slice, Identities, Pod};
 use crate::tensor_pool::ExtractBuffer;
 
 mod kernels;
@@ -23,16 +23,21 @@ mod packing;
 
 use kernels::generic::GenericKernel;
 use kernels::Kernel;
+use packing::{PackElem, PackingBuffer};
 
 /// Left-hand or "A" GEMM input that has been pre-packed.
 #[derive(Clone)]
 pub struct PackedAMatrix<T> {
-    /// Sequence of packed row panels.
-    data: Vec<T>,
+    /// Sequence of packed row panels. The exact format depends upon the kernel
+    /// that packed the data.
+    data: PackingBuffer,
 
     /// Height of row panel. This should match the kernel's [`mr`](Kernel::mr)
     /// value.
     panel_height: usize,
+
+    /// Stride of each panel in `data`.
+    panel_stride: usize,
 
     /// Number of rows in the unpacked matrix.
     rows: usize,
@@ -42,6 +47,8 @@ pub struct PackedAMatrix<T> {
 
     /// Name of the kernel that packed this buffer. See [`Kernel::name`].
     kernel_name: &'static str,
+
+    _marker: PhantomData<T>,
 }
 
 impl<T> PackedAMatrix<T> {
@@ -50,36 +57,46 @@ impl<T> PackedAMatrix<T> {
     fn block(&self, rows: Range<usize>, depth: Range<usize>) -> LhsBlock<T> {
         assert_eq!(rows.start % self.panel_height, 0);
 
-        let panel_stride = self.panel_len();
-        let panel_range = rows.start / self.panel_height..rows.end.div_ceil(self.panel_height);
-        let start = panel_range.start * panel_stride + depth.start * self.panel_height;
-        let end = (panel_range.end - 1) * panel_stride + depth.end * self.panel_height;
-        let data = &self.data[start..end];
-        LhsBlock::Packed { data, panel_stride }
-    }
+        // Size of each column in the packed block in bytes. This assumes the
+        // specific column major layout for each row panel currently used by
+        // the kernels. This will need to change as new packed formats are
+        // introduced.
+        let col_size = self.panel_height * size_of::<T>();
 
-    fn panel_len(&self) -> usize {
-        self.panel_height * self.cols
+        let panel_range = rows.start / self.panel_height..rows.end.div_ceil(self.panel_height);
+        let start = panel_range.start * self.panel_stride + depth.start * col_size;
+        let end = (panel_range.end - 1) * self.panel_stride + depth.end * col_size;
+        let data = &self.data.as_bytes()[start..end];
+
+        LhsBlock::Packed {
+            data,
+            panel_stride: self.panel_stride,
+            panel_len: (depth.end - depth.start) * col_size,
+        }
     }
 }
 
 impl<T> ExtractBuffer for PackedAMatrix<T> {
-    type Elem = T;
+    type Elem = PackElem;
 
-    fn extract_buffer(self) -> Option<Vec<T>> {
-        Some(self.data)
+    fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
+        Some(self.data.into_vec())
     }
 }
 
 /// Right-hand or "B" GEMM input that has been pre-packed.
 #[derive(Clone)]
 pub struct PackedBMatrix<T> {
-    /// Sequence of packed column panels.
-    data: Vec<T>,
+    /// Sequence of packed column panels. The exact format depends upon the
+    /// kernel that packed the data.
+    data: PackingBuffer,
 
     /// Width of column panel. This should match the kernel's [`nr`](Kernel::nr)
     /// value.
     panel_width: usize,
+
+    /// Stride of each panel in `data`.
+    panel_stride: usize,
 
     /// Number of rows in the unpacked matrix.
     rows: usize,
@@ -89,6 +106,8 @@ pub struct PackedBMatrix<T> {
 
     /// Name of the kernel that packed this buffer. See [`Kernel::name`].
     kernel_name: &'static str,
+
+    _marker: PhantomData<T>,
 }
 
 impl<T> PackedBMatrix<T> {
@@ -97,16 +116,19 @@ impl<T> PackedBMatrix<T> {
     fn block(&self, cols: Range<usize>, depth: Range<usize>) -> RhsBlock<T> {
         assert_eq!(cols.start % self.panel_width, 0);
 
-        let panel_stride = self.panel_len();
-        let panel_range = cols.start / self.panel_width..cols.end.div_ceil(self.panel_width);
-        let start = panel_range.start * panel_stride + depth.start * self.panel_width;
-        let end = (panel_range.end - 1) * panel_stride + depth.end * self.panel_width;
-        let data = &self.data[start..end];
-        RhsBlock { data, panel_stride }
-    }
+        let row_size = self.panel_width * size_of::<T>();
 
-    fn panel_len(&self) -> usize {
-        self.panel_width * self.rows
+        let panel_range = cols.start / self.panel_width..cols.end.div_ceil(self.panel_width);
+        let start = panel_range.start * self.panel_stride + depth.start * row_size;
+        let end = (panel_range.end - 1) * self.panel_stride + depth.end * row_size;
+        let data = &self.data.as_bytes()[start..end];
+
+        RhsBlock {
+            data,
+            panel_stride: self.panel_stride,
+            panel_len: (depth.end - depth.start) * row_size,
+            _marker: PhantomData,
+        }
     }
 
     /// Number of rows in the unpacked matrix.
@@ -121,10 +143,10 @@ impl<T> PackedBMatrix<T> {
 }
 
 impl<T> ExtractBuffer for PackedBMatrix<T> {
-    type Elem = T;
+    type Elem = PackElem;
 
-    fn extract_buffer(self) -> Option<Vec<T>> {
-        Some(self.data)
+    fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
+        Some(self.data.into_vec())
     }
 }
 
@@ -349,29 +371,16 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     /// Variant of [`prepack_a`](GemmExecutor::prepack_a) which takes an
     /// allocator.
     pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix<LhsT>) -> PackedAMatrix<LhsT> {
-        let mr = self.kernel.mr();
-        let panel_len = mr * a.cols();
-        let packed_len = a.rows().next_multiple_of(mr) * a.cols();
-        let mut data = alloc.alloc(packed_len);
+        let layout = self.kernel.packed_a_layout(a, a.rows(), a.cols());
+        let mut data = PackingBuffer::new();
+        let uninit_data = data.alloc_in(alloc, &layout);
 
-        // Pack input as a sequence of row panels.
-        let mut out_panels = data.spare_capacity_mut()[..packed_len].chunks_exact_mut(panel_len);
-        let mut n_init = 0;
-        for panel_rows in range_chunks(0..a.rows(), mr) {
-            let out_panel = out_panels.next().unwrap();
-            let used_size = panel_rows.len().next_multiple_of(mr) * a.cols();
-            let (used, unused) = out_panel.split_at_mut(used_size);
+        self.kernel
+            .pack_a_block(uninit_data, a, 0..a.rows(), 0..a.cols());
 
-            self.kernel.pack_a_block(used, a, panel_rows, 0..a.cols());
-
-            unused.fill(MaybeUninit::new(LhsT::zero()));
-            n_init += out_panel.len();
-        }
-
-        // Safety: We used `pack_a_block` to initialize `packed_len` elements.
-        assert_eq!(n_init, packed_len);
+        // Safety: We used `pack_a_block` to initialize `layout.size` bytes
         unsafe {
-            data.set_len(packed_len);
+            data.set_len(layout.size());
         }
 
         PackedAMatrix {
@@ -379,7 +388,9 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             rows: a.rows(),
             cols: a.cols(),
             panel_height: self.kernel.mr(),
+            panel_stride: layout.panel_stride(),
             kernel_name: self.kernel.name(),
+            _marker: PhantomData,
         }
     }
 
@@ -399,38 +410,26 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     /// Variant of [`prepack_b`](GemmExecutor::prepack_b) which takes an
     /// allocator.
     pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix<RhsT>) -> PackedBMatrix<RhsT> {
-        let nr = self.kernel.nr();
-        let packed_len = b.cols().next_multiple_of(nr) * b.rows();
-        let panel_len = nr * b.rows();
-        let mut out = alloc.alloc(packed_len);
+        let layout = self.kernel.packed_b_layout(b.rows(), b.cols());
+        let mut data = PackingBuffer::new();
+        let uninit_data = data.alloc_in(alloc, &layout);
 
-        // Pack input as a sequence of column panels.
-        let mut out_panels = out.spare_capacity_mut()[..packed_len].chunks_exact_mut(panel_len);
-        let mut n_init = 0;
-        for panel_cols in range_chunks(0..b.cols(), nr) {
-            let out_panel = out_panels.next().unwrap();
-            let used_size = panel_cols.len().next_multiple_of(nr) * b.rows();
-            let (used, unused) = out_panel.split_at_mut(used_size);
+        self.kernel
+            .pack_b_block(uninit_data, b, 0..b.rows(), 0..b.cols());
 
-            self.kernel
-                .pack_b_block(used, b, 0..b.rows(), panel_cols.clone());
-
-            unused.fill(MaybeUninit::new(RhsT::zero()));
-            n_init += out_panel.len();
-        }
-
-        // Safety: We used `pack_b_block` to initialize `packed_len` elements.
-        assert_eq!(n_init, packed_len);
+        // Safety: We used `pack_b_block` to initialize `layout.size` bytes.
         unsafe {
-            out.set_len(packed_len);
+            data.set_len(layout.size());
         }
 
         PackedBMatrix {
-            data: out,
+            data,
             rows: b.rows(),
             cols: b.cols(),
-            panel_width: nr,
+            panel_width: self.kernel.nr(),
+            panel_stride: layout.panel_stride(),
             kernel_name: self.kernel.name(),
+            _marker: PhantomData,
         }
     }
 
@@ -933,14 +932,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     }
 
     // Buffers for packed blocks of the matrix.
-    //
-    // These use `u64` rather than LhsT / RhsT because statics cannot be generic.
-    // `u64` is assumed to have an alignment that is greater or equal to the
-    // alignment of any LhsT / RhsT.
-    thread_local!(static PACKED_A: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) });
-    thread_local!(static PACKED_B: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) });
-    assert!(align_of::<LhsT>() <= align_of::<u64>());
-    assert!(align_of::<RhsT>() <= align_of::<u64>());
+    thread_local!(static PACKED_A: RefCell<PackingBuffer> = const { RefCell::new(PackingBuffer::new()) });
+    thread_local!(static PACKED_B: RefCell<PackingBuffer> = const { RefCell::new(PackingBuffer::new()) });
 
     let n_col_blocks = b.cols().div_ceil(nc);
     let n_row_blocks = a.rows().div_ceil(mc);
@@ -964,30 +957,27 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
             for depth_range in range_chunks(0..a.cols(), kc) {
                 // Borrowed packing buffer for current thread. Returned after
                 // the GEMM block is computed.
-                let mut thread_local_packed_b: Option<Vec<u64>> = None;
-                let panel_length = depth_range.len();
-                let packed_b_size = (col_end - col_start).next_multiple_of(nr) * panel_length;
+                let mut thread_local_packed_b: Option<PackingBuffer> = None;
 
                 let rhs_block = match b {
                     GemmInputB::Unpacked(_) | GemmInputB::Virtual(_) => PACKED_B.with(|cell| {
                         let mut packed_b = cell.take();
-                        packed_b.clear();
-                        packed_b
-                            .reserve(packed_b_size.div_ceil(size_of::<u64>() / size_of::<RhsT>()));
 
-                        let packed_b_slice =
-                            cast_pod_mut_slice(packed_b.spare_capacity_mut()).unwrap();
-                        let packed_b_slice = &mut packed_b_slice[..packed_b_size];
+                        let layout = kernel.packed_b_layout(depth_range.len(), col_end - col_start);
+                        let packed_uninit = packed_b.alloc(&layout);
 
                         match b {
                             GemmInputB::Unpacked(b) => kernel.pack_b_block(
-                                packed_b_slice,
+                                packed_uninit,
                                 b,
                                 depth_range.clone(),
                                 col_start..col_end,
                             ),
                             GemmInputB::Virtual(vm) => vm.pack_b(
-                                packed_b_slice,
+                                // Cast [MaybeUninit<u8>] => [MaybeUninit<RhsT>] as im2col packing
+                                // currently assumes the packed data is in the same format as the
+                                // RHS input.
+                                cast_pod_mut_slice(packed_uninit).unwrap(),
                                 kernel.nr(),
                                 depth_range.clone(),
                                 col_start..col_end,
@@ -995,17 +985,16 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                             GemmInputB::Packed(_) => unreachable!(),
                         }
 
-                        // Safety: The packing call initialized `packed_b_size` elements.
+                        // Safety: `pack_b_block` will have initialized `layout.size()` bytes.
                         unsafe {
-                            packed_b.set_len(packed_b_size);
+                            packed_b.set_len(layout.size());
                         }
                         thread_local_packed_b = Some(packed_b);
-                        let packed_b_data =
-                            cast_pod_slice::<_, RhsT>(thread_local_packed_b.as_deref().unwrap())
-                                .unwrap();
                         RhsBlock {
-                            data: packed_b_data,
-                            panel_stride: kernel.nr() * depth_range.len(),
+                            data: thread_local_packed_b.as_ref().unwrap().as_bytes(),
+                            panel_stride: layout.panel_stride(),
+                            panel_len: layout.panel_stride(),
+                            _marker: PhantomData,
                         }
                     }),
                     GemmInputB::Packed(pm) => pm.block(col_range.clone(), depth_range.clone()),
@@ -1026,45 +1015,41 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                         let row_start = row_idx * mc;
                         let row_end = (row_start + mc).min(a.rows());
                         let row_range = row_start..row_end;
-                        let packed_a_size =
-                            (row_end - row_start).next_multiple_of(mr) * depth_range.len();
 
                         // Borrowed packing buffer for current thread. Returned after
                         // the GEMM block is computed.
-                        let mut thread_local_packed_a: Option<Vec<u64>> = None;
+                        let mut thread_local_packed_a: Option<PackingBuffer> = None;
 
                         let lhs_block = match a {
-                            GemmInputA::Unpacked(a) if a.col_stride() == 1 => LhsBlock::Unpacked(a),
                             GemmInputA::Unpacked(a) => PACKED_A.with(|cell| {
-                                let mut packed_a = cell.take();
-                                packed_a.clear();
-                                packed_a.reserve(
-                                    packed_a_size.div_ceil(size_of::<u64>() / size_of::<LhsT>()),
+                                let layout = kernel.packed_a_layout(
+                                    a,
+                                    row_end - row_start,
+                                    depth_range.len(),
                                 );
+                                if !layout.must_pack {
+                                    return LhsBlock::Unpacked(a);
+                                };
 
-                                let packed_a_block = cast_pod_mut_slice::<_, MaybeUninit<LhsT>>(
-                                    packed_a.spare_capacity_mut(),
-                                )
-                                .unwrap();
+                                let mut packed_a = cell.take();
+                                let packed_uninit = packed_a.alloc(&layout);
+
                                 kernel.pack_a_block(
-                                    &mut packed_a_block[..packed_a_size],
+                                    packed_uninit,
                                     a,
                                     row_start..row_end,
                                     depth_range.clone(),
                                 );
-                                // Safety: `pack_a_block` will have initialized
-                                // `packed_a_size` elements.
+
+                                // Safety: We initialized `layout.size` bytes.
                                 unsafe {
-                                    packed_a.set_len(packed_a_size);
+                                    packed_a.set_len(layout.size());
                                 }
                                 thread_local_packed_a = Some(packed_a);
-                                let packed_a = cast_pod_slice::<_, LhsT>(
-                                    thread_local_packed_a.as_deref().unwrap(),
-                                )
-                                .unwrap();
                                 LhsBlock::Packed {
-                                    data: packed_a,
-                                    panel_stride: mr * depth_range.len(),
+                                    data: thread_local_packed_a.as_ref().unwrap().as_bytes(),
+                                    panel_stride: layout.panel_stride(),
+                                    panel_len: layout.panel_stride(),
                                 }
                             }),
                             GemmInputA::Packed(pm) => {
@@ -1102,10 +1087,13 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
 enum LhsBlock<'a, T> {
     /// Packed block of A matrix, arranged as a sequence of row panels.
     Packed {
-        data: &'a [T],
+        data: &'a [u8],
 
         /// Stride between each row panel.
         panel_stride: usize,
+
+        /// Length of each row panel.
+        panel_len: usize,
     },
 
     /// Unpacked A matrix. This must have a column stride of 1.
@@ -1116,10 +1104,15 @@ enum LhsBlock<'a, T> {
 /// a sequence of column panels.
 #[derive(Copy, Clone)]
 struct RhsBlock<'a, T> {
-    data: &'a [T],
+    data: &'a [u8],
 
     /// Stride between each column panel.
     panel_stride: usize,
+
+    /// Size between each column panel.
+    panel_len: usize,
+
+    _marker: PhantomData<T>,
 }
 
 /// Process a single block (ie. a slice along each of the M/N/K dimensions) of a
@@ -1163,7 +1156,7 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
         .enumerate()
         .for_each(|(block_col_tile, col_tile)| {
             let b_panel_offset = block_col_tile * b.panel_stride;
-            let b_panel = &b.data[b_panel_offset..b_panel_offset + nr * depth_range.len()];
+            let b_panel = &b.data[b_panel_offset..b_panel_offset + b.panel_len];
 
             // Loop over row tiles.
             for (block_row_tile, row_tile) in row_tiles.clone().enumerate() {
@@ -1173,10 +1166,13 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                 let out_tile = unsafe { output.tile(row_tile, col_tile) };
 
                 let kernel_lhs = match a {
-                    LhsBlock::Packed { data, panel_stride } => {
+                    LhsBlock::Packed {
+                        data,
+                        panel_stride,
+                        panel_len,
+                    } => {
                         let a_panel_offset = block_row_tile * panel_stride;
-                        let a_panel =
-                            &data[a_panel_offset..a_panel_offset + mr * depth_range.len()];
+                        let a_panel = &data[a_panel_offset..a_panel_offset + panel_len];
                         kernels::Lhs::Packed(a_panel)
                     }
                     LhsBlock::Unpacked(mat) => {

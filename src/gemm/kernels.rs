@@ -20,8 +20,9 @@ pub mod wasm;
 /// LHS / A input to a GEMM kernel.
 #[derive(Clone, Copy)]
 pub enum Lhs<'a, T> {
-    /// Input packed into a contiguous buffer in column major order.
-    Packed(&'a [T]),
+    /// Input packed by the kernel's [`pack_a_block`](Kernel::pack_a_block)
+    /// impl.
+    Packed(&'a [u8]),
 
     /// Unpacked input with a column stride of 1 and row stride of `row_stride`.
     ///
@@ -34,6 +35,55 @@ pub enum Lhs<'a, T> {
         len: usize,
         row_stride: usize,
     },
+}
+
+/// Metadata about a packed block of an input matrix.
+///
+/// The packed block is expected to be organized as a sequence of panels with
+/// stride [`panel_stride`](PackedInfo::panel_stride), but the kernel is
+/// otherwise free to choose the layout.
+pub struct PackedLayout {
+    size: usize,
+    align: usize,
+    panel_stride: usize,
+
+    /// True if the input must be packed to be used by the kernel.
+    pub must_pack: bool,
+}
+
+impl PackedLayout {
+    /// Construct a new packing buffer descriptor.
+    ///
+    /// `size`, `align` and `panel_stride` specify the minimum size of the
+    /// packing buffer, its alignment and the stride between panels
+    /// respectively. All units are in bytes. The size must be a multiple of
+    /// both the alignment and panel stride.
+    pub fn new(size: usize, align: usize, panel_stride: usize) -> PackedLayout {
+        debug_assert_eq!(size % align, 0);
+        debug_assert_eq!(size % panel_stride, 0);
+
+        PackedLayout {
+            size,
+            align,
+            panel_stride,
+            must_pack: false,
+        }
+    }
+
+    /// Return size of the packed block in bytes.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Return minimum alignment of the packed block.
+    pub fn align(&self) -> usize {
+        self.align
+    }
+
+    /// Return stride between panels in bytes.
+    pub fn panel_stride(&self) -> usize {
+        self.panel_stride
+    }
 }
 
 /// Kernel that computes a small tile of a general matrix multiplication (GEMM)
@@ -67,19 +117,31 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     /// Return a name for this kernel for use in logging etc.
     fn name(&self) -> &'static str;
 
+    /// Return the layout of a packing buffer required to pack a block of `a`
+    /// of size `rows x cols`.
+    fn packed_a_layout(&self, a: Matrix<LhsT>, rows: usize, cols: usize) -> PackedLayout;
+
     /// Pack a block of the LHS / "A" input for use by this kernel.
     fn pack_a_block(
         &self,
-        out: &mut [MaybeUninit<LhsT>],
+        out: &mut [MaybeUninit<u8>],
         a: Matrix<LhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
     );
 
+    /// Return the layout of a packing buffer required to pack a block of a "B"
+    /// / RHS input of size `rows x cols`.
+    ///
+    /// Unlike `packed_a_layout` this doesn't take the matrix as an argument.
+    /// `packed_a_layout` may use this to indicate that the A input does not
+    /// need to be packed. For the B input it is assumed this is always packed.
+    fn packed_b_layout(&self, rows: usize, cols: usize) -> PackedLayout;
+
     /// Pack a block of the RHS / "B" input for use by this kernel.
     fn pack_b_block(
         &self,
-        out: &mut [MaybeUninit<RhsT>],
+        out: &mut [MaybeUninit<u8>],
         b: Matrix<RhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
@@ -109,7 +171,7 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         tile_ptr: *mut OutT,
         tile_row_stride: usize,
         a: Lhs<LhsT>,
-        b: &[RhsT],
+        b: &[u8],
         used_rows: usize,
         used_cols: usize,
         depth: usize,

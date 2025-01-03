@@ -232,6 +232,7 @@ impl Pod for i8 {}
 impl Pod for u8 {}
 impl Pod for f32 {}
 impl Pod for i32 {}
+impl Pod for u32 {}
 impl Pod for u64 {}
 impl<T: Pod> Pod for MaybeUninit<T> {}
 
