@@ -3,11 +3,12 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_simd::vec_count;
-use rten_tensor::Matrix;
+use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemm, simd_gemv};
-use super::{Kernel, Lhs, TempTile};
-use crate::gemm::packing::{pack_a_block, pack_b_block};
+use super::{Kernel, Lhs, PackedLayout, TempTile};
+use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
+use crate::number::{cast_pod_mut_slice, cast_pod_slice};
 
 pub struct ArmNeonKernel {
     _private: (),
@@ -37,23 +38,35 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         Self::NR
     }
 
+    fn packed_a_layout(&self, a: Matrix, rows: usize, cols: usize) -> PackedLayout {
+        let mut info = packed_a_layout::<f32, { Self::MR }>(rows, cols);
+        info.must_pack = a.col_stride() != 1;
+        info
+    }
+
     fn pack_a_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: &mut [MaybeUninit<u8>],
         a: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
+        let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
         pack_a_block::<f32, { Self::MR }>(out, a, rows, cols);
+    }
+
+    fn packed_b_layout(&self, rows: usize, cols: usize) -> PackedLayout {
+        packed_b_layout::<f32, { Self::NR }>(rows, cols)
     }
 
     fn pack_b_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: &mut [MaybeUninit<u8>],
         b: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
+        let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
         pack_b_block::<f32, { Self::NR }>(out, b, rows, cols);
     }
 
@@ -62,7 +75,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         tile_ptr: *mut f32,
         tile_row_stride: usize,
         a: Lhs<f32>,
-        b: &[f32],
+        b: &[u8],
         used_rows: usize,
         used_cols: usize,
         depth: usize,
@@ -72,6 +85,8 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         const MR: usize = ArmNeonKernel::MR;
         const NR: usize = ArmNeonKernel::NR;
         const NR_REGS: usize = vec_count::<float32x4_t>(NR);
+
+        let b = cast_pod_slice(b).unwrap();
 
         if used_cols == NR {
             simd_gemm::<float32x4_t, MR, NR_REGS>(

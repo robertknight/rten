@@ -231,8 +231,14 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
     assert!(depth > 0);
     let (a_ptr, a_row_stride) = match a {
         Lhs::Packed(data) => {
-            assert!(data.len() >= depth * MR);
-            (data.as_ptr(), 1)
+            let min_len = depth * MR * size_of::<f32>();
+            assert!(
+                data.len() >= min_len,
+                "packed data len {} smaller than required {}",
+                data.len(),
+                min_len
+            );
+            (data.as_ptr() as *const f32, 1)
         }
         Lhs::Unpacked {
             data,
@@ -365,8 +371,14 @@ pub unsafe fn simd_gemm_tail<S: SimdFloat, const MR: usize, const NR_REGS: usize
     assert!(depth > 0);
     let (a_ptr, a_row_stride) = match a {
         Lhs::Packed(data) => {
-            assert!(data.len() >= depth * MR);
-            (data.as_ptr(), 1)
+            let min_len = depth * MR * size_of::<f32>();
+            assert!(
+                data.len() >= min_len,
+                "packed data len {} smaller than required {}",
+                data.len(),
+                min_len
+            );
+            (data.as_ptr() as *const f32, 1)
         }
         Lhs::Unpacked {
             data,

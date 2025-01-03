@@ -6,14 +6,15 @@ use std::ops::Range;
 use std::arch::x86_64::__m512;
 
 use rten_simd::vec_count;
-use rten_tensor::Matrix;
+use rten_tensor::{Matrix, MatrixLayout};
 
 #[cfg(feature = "avx512")]
 use rten_simd::isa_detection::is_avx512_supported;
 
 use super::simd_generic::{simd_gemm, simd_gemv};
-use super::{Kernel, Lhs, TempTile};
-use crate::gemm::packing::{pack_a_block, pack_b_block};
+use super::{Kernel, Lhs, PackedLayout, TempTile};
+use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
+use crate::number::{cast_pod_mut_slice, cast_pod_slice};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
 pub struct FmaKernel {
@@ -71,26 +72,40 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         Self::NR
     }
 
+    fn packed_a_layout(&self, a: Matrix, rows: usize, cols: usize) -> PackedLayout {
+        let mut info = packed_a_layout::<f32, { Self::MR }>(rows, cols);
+        info.must_pack = a.col_stride() != 1;
+        info
+    }
+
     fn pack_a_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: &mut [MaybeUninit<u8>],
         a: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
+        let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
+
         // Safety: Kernel can only be constructed if AVX is supported.
         unsafe {
             pack_a_block_avx::<{ Self::MR }>(out, a, rows, cols);
         }
     }
 
+    fn packed_b_layout(&self, rows: usize, cols: usize) -> PackedLayout {
+        packed_b_layout::<f32, { Self::NR }>(rows, cols)
+    }
+
     fn pack_b_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: &mut [MaybeUninit<u8>],
         b: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
+        let out = cast_pod_mut_slice(out).unwrap();
+
         // Safety: Kernel can only be constructed if AVX is supported.
         unsafe {
             pack_b_block_avx::<{ Self::NR }>(out, b, rows, cols);
@@ -104,7 +119,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         tile_ptr: *mut f32,
         tile_row_stride: usize,
         a: Lhs<f32>,
-        b: &[f32],
+        b: &[u8],
         used_rows: usize,
         used_cols: usize,
         depth: usize,
@@ -114,6 +129,8 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         const MR: usize = FmaKernel::MR;
         const NR: usize = FmaKernel::NR;
         const NR_REGS: usize = vec_count::<__m256>(NR);
+
+        let b = cast_pod_slice(b).unwrap();
 
         // TODO - Replace temporary tile with masked loads and stores.
         let mut tmp_tile = TempTile::<f32, MR, NR>::new();
@@ -209,26 +226,40 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         Self::NR
     }
 
+    fn packed_a_layout(&self, a: Matrix, rows: usize, cols: usize) -> PackedLayout {
+        let mut info = packed_a_layout::<f32, { Self::MR }>(rows, cols);
+        info.must_pack = a.col_stride() != 1;
+        info
+    }
+
     fn pack_a_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: &mut [MaybeUninit<u8>],
         a: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        // Safety: We assume AVX-512 implies availability of AVX 2.
+        let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
+
+        // Safety: AVX-512 implies availability of AVX 2.
         unsafe {
             pack_a_block_avx::<{ Self::MR }>(out, a, rows, cols);
         }
     }
 
+    fn packed_b_layout(&self, rows: usize, cols: usize) -> PackedLayout {
+        packed_b_layout::<f32, { Self::NR }>(rows, cols)
+    }
+
     fn pack_b_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: &mut [MaybeUninit<u8>],
         b: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
+        let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
+
         // Safety: We assume AVX-512 implies availability of AVX 2.
         unsafe {
             pack_b_block_avx::<{ Self::NR }>(out, b, rows, cols);
@@ -242,7 +273,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         tile_ptr: *mut f32,
         tile_row_stride: usize,
         a: Lhs<f32>,
-        b: &[f32],
+        b: &[u8],
         used_rows: usize,
         used_cols: usize,
         depth: usize,
@@ -252,6 +283,8 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         const MR: usize = Avx512Kernel::MR;
         const NR: usize = Avx512Kernel::NR;
         const NR_REGS: usize = vec_count::<__m512>(NR);
+
+        let b = cast_pod_slice(b).unwrap();
 
         // TODO - Replace temporary tile with masked loads and stores.
         let mut tmp_tile = TempTile::<f32, MR, NR>::new();
