@@ -113,6 +113,23 @@ pub trait SimdUnaryOp {
     /// on the current system.
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S;
 
+    /// Evaluate the unary function on elements in `x`.
+    ///
+    /// This is a shorthand for `Self::default().eval(x)`. It is mainly useful
+    /// when one vectorized operation needs to call another as part of its
+    /// implementation.
+    ///
+    /// # Safety
+    ///
+    /// See safety notes for [`eval`](SimdUnaryOp::eval).
+    #[inline(always)]
+    unsafe fn apply<S: SimdFloat>(x: S) -> S
+    where
+        Self: Default,
+    {
+        Self::default().eval(x)
+    }
+
     /// Evaluate the unary function on `x`.
     fn scalar_eval(&self, x: f32) -> f32 {
         // Safety: `f32` is a supported "SIMD" type on all platforms.

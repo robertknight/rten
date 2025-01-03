@@ -3,59 +3,7 @@
 use rten_simd::dispatch::SimdUnaryOp;
 use rten_simd::SimdFloat;
 
-use crate::exp::simd_exp;
-
-#[inline(always)]
-unsafe fn simd_tanh<S: SimdFloat>(x: S) -> S {
-    let x_negative = x.le(S::zero());
-    let abs_x = x.abs();
-
-    // Cutoff beyond which `f32::tanh(x)` saturates at +/- 1.0.
-    let x_cutoff = abs_x.ge(S::splat(9.02));
-
-    // tanh(x) ~ x when |x| is very small.
-    let x_tiny = abs_x.le(S::splat(0.0004));
-
-    // Threshold below which `tanh(x) = (exp(2x) - 1) / (exp(2x) + 1)` method
-    // produces errors >= 2 ULP.
-    let x_small = abs_x.le(S::splat(0.55));
-
-    // For small x, use polynomial approximation. Computed using Sollya with
-    // `P = fpminimax(f, [|1, 3, 5, 7, 9|], [|SG...|], [0, 0.6])`.
-    const P1: f32 = 0.999999940395355224609375;
-    const P3: f32 = -0.33332359790802001953125;
-    const P5: f32 = 0.13310669362545013427734375;
-    const P7: f32 = -5.21197654306888580322265625e-2;
-    const P9: f32 = 1.5497927553951740264892578125e-2;
-
-    let p1 = S::splat(P1);
-    let p3 = S::splat(P3);
-    let p5 = S::splat(P5);
-    let p7 = S::splat(P7);
-    let p9 = S::splat(P9);
-
-    let x_sqr = x.mul(x);
-    let y_small = p9.mul_add(x_sqr, p7);
-    let y_small = y_small.mul_add(x_sqr, p5);
-    let y_small = y_small.mul_add(x_sqr, p3);
-    let y_small = y_small.mul_add(x_sqr, p1);
-    let y_small = y_small.mul(abs_x);
-
-    // For medium x, compute `tanh(x) = (exp(2x) - 1) / (exp(2x) + 1)`.
-    let x2 = abs_x.mul(S::splat(2.0));
-    let exp_2x = simd_exp(x2);
-    let exp_2x_m1 = exp_2x.sub(S::one());
-    let exp_2x_p1 = exp_2x.add(S::one());
-    let y_medium = exp_2x_m1.div(exp_2x_p1);
-
-    // Select output to use depending on |x|.
-    let y = y_medium.blend(S::one(), x_cutoff);
-    let y = y.blend(y_small, x_small);
-    let y = y.blend(abs_x, x_tiny);
-
-    // Flip sign if input was negative.
-    y.blend(y.neg(), x_negative)
-}
+use crate::Exp;
 
 /// Vectorized tanh implementation.
 pub struct Tanh {}
@@ -63,7 +11,54 @@ pub struct Tanh {}
 impl SimdUnaryOp for Tanh {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        simd_tanh(x)
+        let x_negative = x.le(S::zero());
+        let abs_x = x.abs();
+
+        // Cutoff beyond which `f32::tanh(x)` saturates at +/- 1.0.
+        let x_cutoff = abs_x.ge(S::splat(9.02));
+
+        // tanh(x) ~ x when |x| is very small.
+        let x_tiny = abs_x.le(S::splat(0.0004));
+
+        // Threshold below which `tanh(x) = (exp(2x) - 1) / (exp(2x) + 1)` method
+        // produces errors >= 2 ULP.
+        let x_small = abs_x.le(S::splat(0.55));
+
+        // For small x, use polynomial approximation. Computed using Sollya with
+        // `P = fpminimax(f, [|1, 3, 5, 7, 9|], [|SG...|], [0, 0.6])`.
+        const P1: f32 = 0.999999940395355224609375;
+        const P3: f32 = -0.33332359790802001953125;
+        const P5: f32 = 0.13310669362545013427734375;
+        const P7: f32 = -5.21197654306888580322265625e-2;
+        const P9: f32 = 1.5497927553951740264892578125e-2;
+
+        let p1 = S::splat(P1);
+        let p3 = S::splat(P3);
+        let p5 = S::splat(P5);
+        let p7 = S::splat(P7);
+        let p9 = S::splat(P9);
+
+        let x_sqr = x.mul(x);
+        let y_small = p9.mul_add(x_sqr, p7);
+        let y_small = y_small.mul_add(x_sqr, p5);
+        let y_small = y_small.mul_add(x_sqr, p3);
+        let y_small = y_small.mul_add(x_sqr, p1);
+        let y_small = y_small.mul(abs_x);
+
+        // For medium x, compute `tanh(x) = (exp(2x) - 1) / (exp(2x) + 1)`.
+        let x2 = abs_x.mul(S::splat(2.0));
+        let exp_2x = Exp::apply(x2);
+        let exp_2x_m1 = exp_2x.sub(S::one());
+        let exp_2x_p1 = exp_2x.add(S::one());
+        let y_medium = exp_2x_m1.div(exp_2x_p1);
+
+        // Select output to use depending on |x|.
+        let y = y_medium.blend(S::one(), x_cutoff);
+        let y = y.blend(y_small, x_small);
+        let y = y.blend(abs_x, x_tiny);
+
+        // Flip sign if input was negative.
+        y.blend(y.neg(), x_negative)
     }
 }
 

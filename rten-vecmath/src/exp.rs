@@ -24,137 +24,121 @@ const EXP_POLY_4: f32 = 4.16695364e-2; // ~ 1/4! or 1/24
 const EXP_POLY_5: f32 = 8.37312452e-3; // ~ 1/5! or 1/120
 const EXP_POLY_6: f32 = 1.37805939e-3; // ~ 1/6! or 1/720
 
-/// Vectorized implementation of exponential function.
-///
-/// Based on work by Norbert Juffa in
-/// https://forums.developer.nvidia.com/t/a-more-accurate-performance-competitive-implementation-of-expf/47528.
-///
-/// See also
-/// https://justinwillmert.com/articles/2020/numerically-computing-the-exponential-function-with-polynomial-approximations/.
-///
-/// Method outline:
-///
-///  1. Use the identity `exp(a + b) = exp(a) * exp(b)` to reduce the range for
-///     which a polynomial approximation needs to be valid:
-///
-///     ```text
-///        exp(x) = exp(ln2 * k) * exp(r);
-///               = 2**k * exp(r)
-///     ```
-///
-///     Such that `k` is an integer and `|r| <= 1/2 ln 2`.
-///
-///     ```text
-///             k = rintf(x / ln2)
-///             r = x - k * ln 2
-///     ```
-///
-///  2. Compute `exp(r)` using a polynomial approximation.
-///
-///  3. Compute result as `exp(x) = exp(r) * 2**k`. The reconstruction is split
-///     into multiple steps to extend the domain.
+/// Vectorized exponential function.
 ///
 /// This has a maximum error of 1 ULP compared to `f32::exp` in the Rust standard
 /// library.
-///
-/// Safety: The caller must ensure the `SimdFloat` impl is usable on the current system.
-#[inline(always)]
-pub(crate) unsafe fn simd_exp<S: SimdFloat>(x: S) -> S {
-    // Load constants
-    let inv_log_2 = S::splat(INV_LOG2);
-    let rounding_magic = S::splat(ROUNDING_MAGIC);
-    let ln2_hi = S::splat(LOG2_HI);
-    let ln2_lo = S::splat(LOG2_LO);
-
-    let p6 = S::splat(EXP_POLY_6);
-    let p5 = S::splat(EXP_POLY_5);
-    let p4 = S::splat(EXP_POLY_4);
-    let p3 = S::splat(EXP_POLY_3);
-    let p2 = S::splat(EXP_POLY_2);
-    let p1 = S::splat(EXP_POLY_1);
-    let p0 = S::splat(EXP_POLY_0);
-
-    // Compute `k = rintf(x / ln2), r = x - k * ln2`.
-    let j = x.mul_add(inv_log_2, rounding_magic);
-    let j = j.sub(rounding_magic);
-    let r = j.mul_add(ln2_hi, x);
-    let r = j.mul_add(ln2_lo, r);
-    let k = j.to_int_trunc();
-
-    // Approximate `exp(r)` on interval [-ln2 / 2, +ln2 / 2]
-    let mut tmp = p6;
-    tmp = tmp.mul_add(r, p5);
-    tmp = tmp.mul_add(r, p4);
-    tmp = tmp.mul_add(r, p3);
-    tmp = tmp.mul_add(r, p2);
-    tmp = tmp.mul_add(r, p1);
-    let r = tmp.mul_add(r, p0);
-
-    // Reconstruct `exp(x) = 2**k * exp(r`).
-    //
-    // Reconstruction is split into steps to extend the input domain of the
-    // function. The split reconstruction is effectively:
-    //
-    //   When k > 0:  exp(r) * exp2(127) * exp2(k - 127)
-    //   When k <= 0: exp(r) * exp2(-123) * exp2(k + 123)
-    //
-    // Where 127 is the exponent bias for f32.
-    let ia = k.gt(S::Int::zero());
-    let x7f = S::Int::splat(0x7f000000);
-    #[allow(overflowing_literals)]
-    let x83 = S::Int::splat(0x83000000);
-    let ia = x83.blend(S::Int::zero(), ia);
-    let is = ia.add(x7f);
-
-    let it = k.shl::<23>();
-    let it = it.sub(ia);
-
-    let s = is.reinterpret_as_float();
-    let t = it.reinterpret_as_float();
-    let r = r.mul(s);
-    let r = r.mul(t);
-
-    // Handle overflow and underflow when `x.abs() >= 104.`
-    let overflow_mask = x.ge(S::splat(104.0));
-    let underflow_mask = x.le(S::splat(-104.0));
-    let r = r.blend(S::splat(f32::INFINITY), overflow_mask);
-    r.blend(S::zero(), underflow_mask)
-}
-
-/// Vectorized exponential function.
+#[derive(Default)]
 pub struct Exp {}
 
+// Implementation based on work by Norbert Juffa in
+// https://forums.developer.nvidia.com/t/a-more-accurate-performance-competitive-implementation-of-expf/47528.
+//
+// See also
+// https://justinwillmert.com/articles/2020/numerically-computing-the-exponential-function-with-polynomial-approximations/.
+//
+// Method outline:
+//
+//  1. Use the identity `exp(a + b) = exp(a) * exp(b)` to reduce the range for
+//     which a polynomial approximation needs to be valid:
+//
+//     ```text
+//        exp(x) = exp(ln2 * k) * exp(r);
+//               = 2**k * exp(r)
+//     ```
+//
+//     Such that `k` is an integer and `|r| <= 1/2 ln 2`.
+//
+//     ```text
+//             k = rintf(x / ln2)
+//             r = x - k * ln 2
+//     ```
+//
+//  2. Compute `exp(r)` using a polynomial approximation.
+//
+//  3. Compute result as `exp(x) = exp(r) * 2**k`. The reconstruction is split
+//     into multiple steps to extend the domain.
 impl SimdUnaryOp for Exp {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        simd_exp(x)
-    }
-}
+        // Load constants
+        let inv_log_2 = S::splat(INV_LOG2);
+        let rounding_magic = S::splat(ROUNDING_MAGIC);
+        let ln2_hi = S::splat(LOG2_HI);
+        let ln2_lo = S::splat(LOG2_LO);
 
-/// Compute sigmoid of each element in a SIMD vector.
-///
-/// ie. This computes `1. / (1. + exp(-x))`.
-///
-/// This has a maximum error of 4 ULPs compared to a reference implementation
-/// using `1. / (1. + (-x).exp())`.
-///
-/// Safety: The caller must ensure the `SimdFloat` impl is usable on the current system.
-#[inline(always)]
-unsafe fn simd_sigmoid<S: SimdFloat>(x: S) -> S {
-    // 1. + exp(-x)
-    let denom = S::one().add(simd_exp(x.neg()));
-    denom.reciprocal()
+        let p6 = S::splat(EXP_POLY_6);
+        let p5 = S::splat(EXP_POLY_5);
+        let p4 = S::splat(EXP_POLY_4);
+        let p3 = S::splat(EXP_POLY_3);
+        let p2 = S::splat(EXP_POLY_2);
+        let p1 = S::splat(EXP_POLY_1);
+        let p0 = S::splat(EXP_POLY_0);
+
+        // Compute `k = rintf(x / ln2), r = x - k * ln2`.
+        let j = x.mul_add(inv_log_2, rounding_magic);
+        let j = j.sub(rounding_magic);
+        let r = j.mul_add(ln2_hi, x);
+        let r = j.mul_add(ln2_lo, r);
+        let k = j.to_int_trunc();
+
+        // Approximate `exp(r)` on interval [-ln2 / 2, +ln2 / 2]
+        let mut tmp = p6;
+        tmp = tmp.mul_add(r, p5);
+        tmp = tmp.mul_add(r, p4);
+        tmp = tmp.mul_add(r, p3);
+        tmp = tmp.mul_add(r, p2);
+        tmp = tmp.mul_add(r, p1);
+        let r = tmp.mul_add(r, p0);
+
+        // Reconstruct `exp(x) = 2**k * exp(r`).
+        //
+        // Reconstruction is split into steps to extend the input domain of the
+        // function. The split reconstruction is effectively:
+        //
+        //   When k > 0:  exp(r) * exp2(127) * exp2(k - 127)
+        //   When k <= 0: exp(r) * exp2(-123) * exp2(k + 123)
+        //
+        // Where 127 is the exponent bias for f32.
+        let ia = k.gt(S::Int::zero());
+        let x7f = S::Int::splat(0x7f000000);
+        #[allow(overflowing_literals)]
+        let x83 = S::Int::splat(0x83000000);
+        let ia = x83.blend(S::Int::zero(), ia);
+        let is = ia.add(x7f);
+
+        let it = k.shl::<23>();
+        let it = it.sub(ia);
+
+        let s = is.reinterpret_as_float();
+        let t = it.reinterpret_as_float();
+        let r = r.mul(s);
+        let r = r.mul(t);
+
+        // Handle overflow and underflow when `x.abs() >= 104.`
+        let overflow_mask = x.ge(S::splat(104.0));
+        let underflow_mask = x.le(S::splat(-104.0));
+        let r = r.blend(S::splat(f32::INFINITY), overflow_mask);
+        r.blend(S::zero(), underflow_mask)
+    }
 }
 
 /// Computes the [sigmoid function][sigmoid], aka. the standard logistic function, `1. /
 /// (1. + (-x).exp())`.
 ///
+/// This has a maximum error of 4 ULPs compared to a reference implementation
+/// using `1. / (1. + (-x).exp())`.
+///
 /// [sigmoid]: https://en.wikipedia.org/wiki/Logistic_function#Mathematical_properties
+#[derive(Default)]
 pub struct Sigmoid {}
+
 impl SimdUnaryOp for Sigmoid {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        simd_sigmoid(x)
+        // 1. + exp(-x)
+        let denom = S::one().add(Exp::apply(x.neg()));
+        denom.reciprocal()
     }
 }
 
@@ -166,7 +150,7 @@ pub struct Silu {}
 impl SimdUnaryOp for Silu {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        x.mul(simd_sigmoid(x))
+        x.mul(Sigmoid::apply(x))
     }
 }
 
@@ -181,7 +165,7 @@ impl SimdUnaryOp for Swish {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
         let beta = S::splat(self.beta);
-        x.mul(simd_sigmoid(x.mul(beta)))
+        x.mul(Sigmoid::apply(x.mul(beta)))
     }
 }
 
