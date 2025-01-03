@@ -7,48 +7,7 @@ use std::f32::consts::SQRT_2;
 use rten_simd::dispatch::SimdUnaryOp;
 use rten_simd::SimdFloat;
 
-use crate::exp::simd_exp;
-
-/// Vectorized implementation of error function (erf).
-///
-/// The implementation uses an approximation from Abramowitz and Stegun,
-/// see https://en.wikipedia.org/wiki/Error_function#Approximation_with_elementary_functions.
-///
-/// This has a maximum absolute error of 6.631017e-7 when comparing to
-/// `libm::erff` as a source of truth.
-///
-/// Safety: The caller must ensure the `SimdFloat` impl is usable on the current system.
-#[inline(always)]
-unsafe fn simd_erf<S: SimdFloat>(x: S) -> S {
-    let neg_mask = x.lt(S::zero());
-
-    // x = x.abs()
-    let x = x.blend(x.neg(), neg_mask);
-
-    let p = S::splat(0.3275911);
-
-    // Coefficients for polynomial approximation.
-    let a0 = S::splat(0.254829592);
-    let a1 = S::splat(-0.284496736);
-    let a2 = S::splat(1.421413741);
-    let a3 = S::splat(-1.453152027);
-    let a4 = S::splat(1.061405429);
-
-    // t = 1. / (1. + p * x);
-    let t = x.mul_add(p, S::one()).reciprocal();
-    let at = t.poly_eval(&[a0, a1, a2, a3, a4]);
-
-    // exp_mx2 = e^(-x^2)
-    let x_m2 = x.mul(x).neg();
-    let exp_mx2 = simd_exp(x_m2);
-
-    // y = 1. - at * exp_mx2;
-    let y = S::one().sub(at.mul(exp_mx2));
-
-    // Approximation is valid only for x >= 0. For negative values approximation
-    // can be computed as -erf(-x).
-    y.blend(y.neg(), neg_mask)
-}
+use crate::Exp;
 
 /// Vectorized error function (erf).
 ///
@@ -57,33 +16,57 @@ unsafe fn simd_erf<S: SimdFloat>(x: S) -> S {
 ///
 /// This has a maximum absolute error of 6.631017e-7 when comparing to
 /// `libm::erff` as a source of truth.
+#[derive(Default)]
 pub struct Erf {}
 
 impl SimdUnaryOp for Erf {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        simd_erf(x)
+        let neg_mask = x.lt(S::zero());
+
+        // x = x.abs()
+        let x = x.blend(x.neg(), neg_mask);
+
+        let p = S::splat(0.3275911);
+
+        // Coefficients for polynomial approximation.
+        let a0 = S::splat(0.254829592);
+        let a1 = S::splat(-0.284496736);
+        let a2 = S::splat(1.421413741);
+        let a3 = S::splat(-1.453152027);
+        let a4 = S::splat(1.061405429);
+
+        // t = 1. / (1. + p * x);
+        let t = x.mul_add(p, S::one()).reciprocal();
+        let at = t.poly_eval(&[a0, a1, a2, a3, a4]);
+
+        // exp_mx2 = e^(-x^2)
+        let x_m2 = x.mul(x).neg();
+        let exp_mx2 = Exp::apply(x_m2);
+
+        // y = 1. - at * exp_mx2;
+        let y = S::one().sub(at.mul(exp_mx2));
+
+        // Approximation is valid only for x >= 0. For negative values approximation
+        // can be computed as -erf(-x).
+        y.blend(y.neg(), neg_mask)
     }
 }
 
 const SQRT_2_RCP: f32 = 1.0 / SQRT_2;
 
-#[inline(always)]
-unsafe fn simd_gelu<S: SimdFloat>(x: S) -> S {
-    let half_x = x.mul(S::splat(0.5));
-    let sqrt_2_rcp = S::splat(SQRT_2_RCP);
-    let y = x.mul(sqrt_2_rcp);
-    let y = simd_erf(y).add(S::splat(1.0));
-    half_x.mul(y)
-}
-
 /// Computes the [GELU](https://onnx.ai/onnx/operators/onnx__Gelu.html)
 /// function.
 pub struct Gelu {}
+
 impl SimdUnaryOp for Gelu {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        simd_gelu(x)
+        let half_x = x.mul(S::splat(0.5));
+        let sqrt_2_rcp = S::splat(SQRT_2_RCP);
+        let y = x.mul(sqrt_2_rcp);
+        let y = Erf::apply(y).add(S::splat(1.0));
+        half_x.mul(y)
     }
 }
 
