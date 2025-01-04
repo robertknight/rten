@@ -20,7 +20,7 @@ use crate::graph::{
 };
 use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
-use crate::number::{LeBytes, Pod};
+use crate::number::{cast_pod_slice, LeBytes, Pod};
 use crate::op_registry::{convert_dtype, OpLoadContext, OpRegistry, ReadOpError};
 use crate::ops::{DataType, InputOrOutput, Output};
 use crate::optimize::GraphOptimizer;
@@ -815,22 +815,11 @@ impl Error for ModelLoadError {}
 
 /// Transmute a `[u8]` to `[T]` provided it is correctly aligned and we're on
 /// a little-endian system.
-fn transmute_bytes<T: Pod>(bytes: &[u8]) -> Option<&[T]> {
-    if bytes.as_ptr() as usize % std::mem::align_of::<T>() != 0
-        || bytes.len() % std::mem::size_of::<T>() != 0
-    {
-        return None;
-    }
-
+fn cast_le_bytes<T: Pod>(bytes: &[u8]) -> Option<&[T]> {
     if std::mem::size_of::<T>() != 1 && !cfg!(target_endian = "little") {
         return None;
     }
-
-    // Safety: We checked that the data is correctly aligned, and this is
-    // a POD type for which any byte values are allowed.
-    let n_elements = bytes.len() / std::mem::size_of::<T>();
-    let elements = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const T, n_elements) };
-    Some(elements)
+    cast_pod_slice(bytes)
 }
 
 /// Convert a range of bytes in storage into data for a graph constant.
@@ -851,7 +840,7 @@ fn constant_data_from_storage_offset<T: LeBytes + Pod>(
         ));
     };
 
-    if let Some(elements) = transmute_bytes(bytes) {
+    if let Some(elements) = cast_le_bytes(bytes) {
         let storage =
             ArcSlice::new(storage.clone(), elements).expect("storage does not contain data");
         let const_data: ConstantNodeData<T> = ArcTensorView::from_data(shape, storage).into();
@@ -874,7 +863,7 @@ fn constant_data_from_flatbuffers_vec<'a, T: Pod + flatbuffers::Follow<'a, Inner
     fb_vec: flatbuffers::Vector<'a, T>,
     shape: &[usize],
 ) -> ConstantNodeData<T> {
-    if let Some(elements) = transmute_bytes(fb_vec.bytes()) {
+    if let Some(elements) = cast_le_bytes(fb_vec.bytes()) {
         let storage =
             ArcSlice::new(storage.clone(), elements).expect("storage does not contain data");
         ArcTensorView::from_data(shape, storage).into()
