@@ -607,20 +607,26 @@ impl Default for GemmExecutor<f32, f32, f32> {
 }
 
 /// Return the block size for the K / depth dimension of a GEMM operation.
+///
+/// This is chosen such that a `depth_block_size * nr` panel of B fits in the L1
+/// cache, and can be reused in the loop over row tiles within each row block.
+/// On AVX2 with f32 GEMM for example, NR=16 so `256 * 16 * 4 = 16KB`.
 fn depth_block_size(a_cols: usize) -> usize {
     256.min(a_cols)
 }
 
 /// Return the block size for the N / column dimension of a GEMM operation.
 ///
-/// The result is always a multiple of `nr`.
+/// The block size is always a multiple of `nr`, as the block is divided into
+/// column tiles of width `nr`.
+///
+/// The value should be chosen such that a block of B of size
+/// `row_block_size * depth_block_size` fits in the L3 cache. This is then
+/// reused for each loop over row blocks within the column panel. In the current
+/// implementation the column block size is also adjusted dynamically to enable
+/// parallelism. In a multi-threaded context, all column blocks that exist
+/// concurrently need to fit in the L3 cache.
 fn col_block_size(b_cols: usize, nr: usize) -> usize {
-    // In the BLIS library which formulated the GEMM algorithm we use,
-    // the column block size is chosen so that blocks fit in the L3 cache
-    // (see https://dl.acm.org/doi/pdf/10.1145/2925987, p 12:7).
-    //
-    // In this library that constraint provides an upper bound, but the value
-    // is also adjusted to control parallelism.
     let parallelism = rayon::current_num_threads();
     let lower_bound = 128.min(b_cols);
     let unrounded = (b_cols / parallelism).max(lower_bound).min(1024);
@@ -629,7 +635,12 @@ fn col_block_size(b_cols: usize, nr: usize) -> usize {
 
 /// Return the block size for the M / row dimension of a GEMM operation.
 ///
-/// The result is always a multiple of `mr`.
+/// The block size is always a multiple of `mr`, as the block is divided into
+/// row tiles of height `mr`.
+///
+/// The value should be chosen such that a panel of A of size `row_block_size *
+/// depth_block_size` fits in the L2 cache. This is then reused for each
+/// column tile that is visited within a block.
 fn row_block_size(a_rows: usize, mr: usize) -> usize {
     64.min(a_rows).next_multiple_of(mr)
 }
@@ -1119,11 +1130,8 @@ struct RhsBlock<'a, T> {
 /// matrix multiplication.
 ///
 /// `col_tiles` and `row_tiles` specifies the range of output tiles to update.
-/// `packed_a` and `packed_b` are the corresponding packed inputs. `depth_range`
-/// specifies the range along the K dimension.
-///
-/// `first_update` indicates whether this is the first write to the output tiles
-/// in this block during the current GEMM operation.
+/// `a` and `b` are the inputs. `depth_range` specifies the range along the K
+/// dimension.
 fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
     output: &OutputTiles<MaybeUninit<OutT>>,

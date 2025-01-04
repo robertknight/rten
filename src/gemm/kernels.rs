@@ -94,6 +94,19 @@ impl PackedLayout {
 /// methods that pack the input matrices into a format that is efficient for the
 /// kernel to use.
 ///
+/// # Tile size selection
+///
+/// For a typical f32 kernel using FMA instructions (eg. AVX2), the tile size is
+/// chosen such that an `MR x NR` tile of the output fits in registers. Each
+/// iteration over the K dimension accumulates into this tile. Additionally one
+/// of the dimensions (usually NR) is a multiple of the vector size and the
+/// other is large enough such that enough cycles elapse between one update to
+/// an accumulator register and the next that it doesn't encounter a delay
+/// waiting for the previous update to complete. There is a small overhead for
+/// each call into the kernel, so making tiles larger can improve performance by
+/// reducing the overall number of tiles that need to be processed. See [^1]
+/// for more details.
+///
 /// # Safety
 ///
 /// - It must only be possible to construct the kernel using `new` if the
