@@ -59,6 +59,7 @@ where
                 GemmInputB::Unpacked(b.nd_view()),
                 alpha,
                 beta,
+                None, // bias
             );
             output
         }
@@ -71,6 +72,7 @@ where
                 GemmInputA::Unpacked(a.nd_view()),
                 GemmInputB::Unpacked(b.nd_view()),
                 alpha,
+                None, // bias
             );
             // Safety: `gemm_uninit` initialized all elements
             unsafe { output.assume_init() }
@@ -277,7 +279,7 @@ where
                 GemmInputB::Unpacked(b_mat)
             };
 
-            gemm.gemm_uninit_bias(
+            gemm.gemm_uninit(
                 out_mat,
                 out_row_stride,
                 a_input,
@@ -589,7 +591,7 @@ mod tests {
             .zip(c.inner_iter_mut::<2>())
             .for_each(|((a, b), mut c)| {
                 let c_row_stride = c.stride(0);
-                gemm.gemm_bias(
+                gemm.gemm(
                     c.data_mut().unwrap(),
                     c_row_stride,
                     GemmInputA::Unpacked(a),
