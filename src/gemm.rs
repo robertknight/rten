@@ -25,26 +25,22 @@ use kernels::generic::GenericKernel;
 use kernels::Kernel;
 use packing::{PackElem, PackingBuffer};
 
-/// Left-hand or "A" GEMM input that has been pre-packed.
+/// Common data and logic for a pre-packed A or B matrix.
 ///
-/// The pre-packed input is divided into column blocks according to the
-/// depth / K cache blocking size and then into row panels of height MR, where
-/// MR is the number of rows in the kernel's tile.
-///
-/// Each panel has the same height, but the panels in the last column block have
-/// a narrower width, and thus a smaller stride, if the number of columns does
-/// not divide the depth block size.
+/// The packed matrix is arranged as a series of blocks corresponding to slices
+/// along the K (depth) dimension. Each block is subdivided into panels
+/// corresponding to slices along the M or N dimensions. Each panel has size
+/// `MR x K_block` or `K_block x NR` where `MR x NR` is the kernel's tile size.
+/// The layout and data type of elements within each panel depends upon the kernel.
 #[derive(Clone)]
-pub struct PackedAMatrix<T> {
-    /// Sequence of packed row panels. The exact format depends upon the kernel
-    /// that packed the data.
+struct PackedMatrixBase {
     data: PackingBuffer,
 
-    /// Height of row panel. This should match the kernel's [`mr`](Kernel::mr)
-    /// value.
-    panel_height: usize,
+    /// Size of the short side of each panel. This will match the kernel's MR
+    /// (for packed A) or NR (for packed B) dimensions.
+    panel_size: usize,
 
-    /// Number of columns in each depth block.
+    /// Cache-blocking size along the K dimension.
     depth_block: usize,
 
     /// Stride between each depth block.
@@ -54,33 +50,29 @@ pub struct PackedAMatrix<T> {
     panel_stride: usize,
 
     /// Stride of panels in the last depth block. This will be smaller than
-    /// `panel_stride` if the number of columns is not a multiple of the
+    /// `panel_stride` if the size of the K dimension is not a multiple of the
     /// depth block size.
     tail_panel_stride: usize,
 
-    /// Number of rows in the unpacked matrix.
-    rows: usize,
+    /// Size of the matrix along the N or M dimension.
+    nm_size: usize,
 
-    /// Number of columns in the unpacked matrix.
-    cols: usize,
+    /// Size of the matrix along the K dimension.
+    depth_size: usize,
 
     /// Name of the kernel that packed this buffer. See [`Kernel::name`].
     kernel_name: &'static str,
-
-    _marker: PhantomData<T>,
 }
 
-impl<T> PackedAMatrix<T> {
-    /// Return the packed data for a given range along the M (`rows`) and K
-    /// (`depth`) dimensions.
+impl PackedMatrixBase {
+    /// Retrieve a block from the packed matrix as a `(data, panel_stride)` tuple.
     ///
-    /// The row range start and end must be multiples of `self.panel_height`.
-    /// The depth block index specifies the column range as a multiple of
-    /// `self.depth_block`.
-    fn block(&self, rows: Range<usize>, depth_block_idx: usize) -> LhsBlock<T> {
-        assert_eq!(rows.start % self.panel_height, 0);
+    /// `nm_range` is the range from the M or N dimensions and `depth_block_idx`
+    /// sets the range along the K dimension.
+    fn block(&self, nm_range: Range<usize>, depth_block_idx: usize) -> (&[u8], usize) {
+        assert_eq!(nm_range.start % self.panel_size, 0);
 
-        let n_blocks = self.cols.div_ceil(self.depth_block);
+        let n_blocks = self.depth_size.div_ceil(self.depth_block);
         let panel_stride = if depth_block_idx == n_blocks - 1 {
             self.tail_panel_stride
         } else {
@@ -88,11 +80,26 @@ impl<T> PackedAMatrix<T> {
         };
         let depth_block_offset = depth_block_idx * self.depth_block_stride;
 
-        let panel_range = rows.start / self.panel_height..rows.end.div_ceil(self.panel_height);
+        let panel_range = nm_range.start / self.panel_size..nm_range.end.div_ceil(self.panel_size);
         let start = depth_block_offset + panel_range.start * panel_stride;
         let end = depth_block_offset + panel_range.end * panel_stride;
         let data = &self.data.as_bytes()[start..end];
 
+        (data, panel_stride)
+    }
+}
+
+/// Left-hand or "A" GEMM input that has been pre-packed.
+#[derive(Clone)]
+pub struct PackedAMatrix<T> {
+    base: PackedMatrixBase,
+    _marker: PhantomData<T>,
+}
+
+impl<T> PackedAMatrix<T> {
+    /// Return the packed data for a given range along the M and K dimensions.
+    fn block(&self, rows: Range<usize>, depth_block_idx: usize) -> LhsBlock<T> {
+        let (data, panel_stride) = self.base.block(rows, depth_block_idx);
         LhsBlock::Packed { data, panel_stride }
     }
 }
@@ -101,89 +108,26 @@ impl<T> ExtractBuffer for PackedAMatrix<T> {
     type Elem = PackElem;
 
     fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
-        Some(self.data.into_vec())
+        Some(self.base.data.into_vec())
     }
 }
 
 /// Right-hand or "B" GEMM input that has been pre-packed.
-///
-/// The pre-packed input is divided into row blocks according to the depth / K
-/// cache blocking size and then into column panels of width NR, where NR is the
-/// number of columns in the kernel's tile.
-///
-/// Each panel has the same width, but the panels in the last row block have a
-/// shorter height, and thus a smaller stride, if the number of rows does not
-/// divide the depth block size.
 #[derive(Clone)]
 pub struct PackedBMatrix<T> {
-    /// Sequence of packed column panels. The exact format depends upon the
-    /// kernel that packed the data.
-    data: PackingBuffer,
-
-    /// Width of column panel. This should match the kernel's [`nr`](Kernel::nr)
-    /// value.
-    panel_width: usize,
-
-    /// Number of rows in each depth block.
-    depth_block: usize,
-
-    /// Stride between each depth block.
-    depth_block_stride: usize,
-
-    /// Stride of each panel in `data`.
-    panel_stride: usize,
-
-    /// Stride of panels in the last depth block. This will be smaller than
-    /// `panel_stride` if the number of rows is not a multiple of the
-    /// depth block size.
-    tail_panel_stride: usize,
-
-    /// Number of rows in the unpacked matrix.
-    rows: usize,
-
-    /// Number of columns in the unpacked matrix.
-    cols: usize,
-
-    /// Name of the kernel that packed this buffer. See [`Kernel::name`].
-    kernel_name: &'static str,
-
+    base: PackedMatrixBase,
     _marker: PhantomData<T>,
 }
 
 impl<T> PackedBMatrix<T> {
-    /// Return the packed data for a given range along the N (`cols`) and K
-    /// (`depth`) dimensions.
+    /// Return the packed data for a given range along the N and K dimensions.
     fn block(&self, cols: Range<usize>, depth_block_idx: usize) -> RhsBlock<T> {
-        assert_eq!(cols.start % self.panel_width, 0);
-
-        let n_blocks = self.rows.div_ceil(self.depth_block);
-        let panel_stride = if depth_block_idx == n_blocks - 1 {
-            self.tail_panel_stride
-        } else {
-            self.panel_stride
-        };
-        let depth_block_offset = depth_block_idx * self.depth_block_stride;
-
-        let panel_range = cols.start / self.panel_width..cols.end.div_ceil(self.panel_width);
-        let start = depth_block_offset + panel_range.start * panel_stride;
-        let end = depth_block_offset + panel_range.end * panel_stride;
-        let data = &self.data.as_bytes()[start..end];
-
+        let (data, panel_stride) = self.base.block(cols, depth_block_idx);
         RhsBlock {
             data,
             panel_stride,
             _marker: PhantomData,
         }
-    }
-
-    /// Number of rows in the unpacked matrix.
-    pub fn rows(&self) -> usize {
-        self.rows
-    }
-
-    /// Number of columns in the unpacked matrix.
-    pub fn cols(&self) -> usize {
-        self.cols
     }
 }
 
@@ -191,7 +135,7 @@ impl<T> ExtractBuffer for PackedBMatrix<T> {
     type Elem = PackElem;
 
     fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
-        Some(self.data.into_vec())
+        Some(self.base.data.into_vec())
     }
 }
 
@@ -210,14 +154,14 @@ impl<T> GemmInputA<'_, T> {
     pub fn rows(&self) -> usize {
         match self {
             Self::Unpacked(m) => m.rows(),
-            Self::Packed(pm) => pm.rows,
+            Self::Packed(pm) => pm.base.nm_size,
         }
     }
 
     pub fn cols(&self) -> usize {
         match self {
             Self::Unpacked(m) => m.cols(),
-            Self::Packed(pm) => pm.cols,
+            Self::Packed(pm) => pm.base.depth_size,
         }
     }
 }
@@ -300,7 +244,7 @@ impl<T> GemmInputB<'_, T> {
     pub fn rows(&self) -> usize {
         match self {
             Self::Unpacked(m) => m.rows(),
-            Self::Packed(pm) => pm.rows,
+            Self::Packed(pm) => pm.base.depth_size,
             Self::Virtual(vm) => vm.rows(),
         }
     }
@@ -308,7 +252,7 @@ impl<T> GemmInputB<'_, T> {
     pub fn cols(&self) -> usize {
         match self {
             Self::Unpacked(m) => m.cols(),
-            Self::Packed(pm) => pm.cols,
+            Self::Packed(pm) => pm.base.nm_size,
             Self::Virtual(vm) => vm.cols(),
         }
     }
@@ -453,17 +397,19 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         }
 
         PackedAMatrix {
-            data,
-            rows: a.rows(),
-            cols: a.cols(),
-            panel_height: self.kernel.mr(),
-            depth_block,
-            panel_stride: layout.panel_stride(),
-            tail_panel_stride: tail_layout
-                .map(|tl| tl.panel_stride())
-                .unwrap_or(layout.panel_stride()),
-            depth_block_stride: layout.size(),
-            kernel_name: self.kernel.name(),
+            base: PackedMatrixBase {
+                data,
+                nm_size: a.rows(),
+                depth_size: a.cols(),
+                panel_size: self.kernel.mr(),
+                depth_block,
+                panel_stride: layout.panel_stride(),
+                tail_panel_stride: tail_layout
+                    .map(|tl| tl.panel_stride())
+                    .unwrap_or(layout.panel_stride()),
+                depth_block_stride: layout.size(),
+                kernel_name: self.kernel.name(),
+            },
             _marker: PhantomData,
         }
     }
@@ -520,17 +466,19 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         }
 
         PackedBMatrix {
-            data,
-            rows: b.rows(),
-            cols: b.cols(),
-            panel_width: self.kernel.nr(),
-            depth_block,
-            panel_stride: layout.panel_stride(),
-            tail_panel_stride: tail_layout
-                .map(|tl| tl.panel_stride())
-                .unwrap_or(layout.panel_stride()),
-            depth_block_stride: layout.size(),
-            kernel_name: self.kernel.name(),
+            base: PackedMatrixBase {
+                data,
+                depth_size: b.rows(),
+                nm_size: b.cols(),
+                panel_size: self.kernel.nr(),
+                depth_block,
+                panel_stride: layout.panel_stride(),
+                tail_panel_stride: tail_layout
+                    .map(|tl| tl.panel_stride())
+                    .unwrap_or(layout.panel_stride()),
+                depth_block_stride: layout.size(),
+                kernel_name: self.kernel.name(),
+            },
             _marker: PhantomData,
         }
     }
@@ -1032,18 +980,18 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     // If using prepacked inputs, make sure they were packed with the same
     // configuration we are using now.
     if let GemmInputA::Packed(packed) = &a {
-        assert_eq!(packed.kernel_name, kernel.name());
-        assert_eq!(packed.panel_height, kernel.mr());
-        assert_eq!(packed.rows, a.rows());
-        assert_eq!(packed.cols, a.cols());
-        assert_eq!(packed.depth_block, kc);
+        assert_eq!(packed.base.kernel_name, kernel.name());
+        assert_eq!(packed.base.panel_size, kernel.mr());
+        assert_eq!(packed.base.nm_size, a.rows());
+        assert_eq!(packed.base.depth_size, a.cols());
+        assert_eq!(packed.base.depth_block, kc);
     }
     if let GemmInputB::Packed(packed) = &b {
-        assert_eq!(packed.kernel_name, kernel.name());
-        assert_eq!(packed.panel_width, kernel.nr());
-        assert_eq!(packed.rows, b.rows());
-        assert_eq!(packed.cols, b.cols());
-        assert_eq!(packed.depth_block, kc);
+        assert_eq!(packed.base.kernel_name, kernel.name());
+        assert_eq!(packed.base.panel_size, kernel.nr());
+        assert_eq!(packed.base.depth_size, b.rows());
+        assert_eq!(packed.base.nm_size, b.cols());
+        assert_eq!(packed.base.depth_block, kc);
     }
 
     // Buffers for packed blocks of the matrix.
