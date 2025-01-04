@@ -85,11 +85,13 @@ impl<'a> SimdOp for Softmax<'a> {
 
         // *x /= exp_sum
         let exp_sum = exp_sum.fold_splat(0., |sum, x| sum + x);
+        let inv_exp_sum = S::one().div(exp_sum);
+
         simd_map(
             output.assume_init().into(),
             output,
             #[inline(always)]
-            |x: S| x.div(exp_sum),
+            |x: S| x.mul(inv_exp_sum),
         );
 
         // Safety: `simd_softmax` initialized all elements of `self.output`.
@@ -128,7 +130,7 @@ mod tests {
         let mut actual = vec![0.; input.len()];
 
         Softmax::new(&input, actual.as_mut_slice().as_uninit()).dispatch();
-        check_f32s_are_equal_ulps(triples(&input, &actual, expected), 0. /* max ULPs */);
+        check_f32s_are_equal_ulps(triples(&input, &actual, expected), 1. /* max ULPs */);
 
         // Test against reference implementation for various lengths.
         for len in 1..20 {
