@@ -42,6 +42,7 @@ pub enum Lhs<'a, T> {
 /// The packed block is expected to be organized as a sequence of panels with
 /// stride [`panel_stride`](PackedInfo::panel_stride), but the kernel is
 /// otherwise free to choose the layout.
+#[derive(Clone, Debug, PartialEq)]
 pub struct PackedLayout {
     size: usize,
     align: usize,
@@ -94,6 +95,19 @@ impl PackedLayout {
 /// methods that pack the input matrices into a format that is efficient for the
 /// kernel to use.
 ///
+/// # Tile size selection
+///
+/// For a typical f32 kernel using FMA instructions (eg. AVX2), the tile size is
+/// chosen such that an `MR x NR` tile of the output fits in registers. Each
+/// iteration over the K dimension accumulates into this tile. Additionally one
+/// of the dimensions (usually NR) is a multiple of the vector size and the
+/// other is large enough such that enough cycles elapse between one update to
+/// an accumulator register and the next that it doesn't encounter a delay
+/// waiting for the previous update to complete. There is a small overhead for
+/// each call into the kernel, so making tiles larger can improve performance by
+/// reducing the overall number of tiles that need to be processed. See [^1]
+/// for more details.
+///
 /// # Safety
 ///
 /// - It must only be possible to construct the kernel using `new` if the
@@ -117,8 +131,7 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     /// Return a name for this kernel for use in logging etc.
     fn name(&self) -> &'static str;
 
-    /// Return the layout of a packing buffer required to pack a block of `a`
-    /// of size `rows x cols`.
+    /// Return the layout of a packing buffer required to pack an A / LHS input.
     fn packed_a_layout(&self, a: Matrix<LhsT>, rows: usize, cols: usize) -> PackedLayout;
 
     /// Pack a block of the LHS / "A" input for use by this kernel.

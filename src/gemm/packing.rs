@@ -237,10 +237,10 @@ impl PackingBuffer {
     ///
     /// Returns an uninitialized slice of `layout.size()` bytes which the
     /// caller must fill.
-    pub fn alloc(&mut self, layout: &PackedLayout) -> &mut [MaybeUninit<u8>] {
-        assert!(layout.align() <= align_of::<PackElem>());
+    pub fn alloc(&mut self, size: usize, align: usize) -> &mut [MaybeUninit<u8>] {
+        assert!(align <= align_of::<PackElem>());
 
-        let buf_len = layout.size().div_ceil(size_of::<PackElem>());
+        let buf_len = size.div_ceil(size_of::<PackElem>());
         self.buf.clear();
         self.buf.reserve(buf_len);
         self.used_len = 0;
@@ -257,11 +257,12 @@ impl PackingBuffer {
     pub fn alloc_in<A: Alloc>(
         &mut self,
         alloc: A,
-        layout: &PackedLayout,
+        size: usize,
+        align: usize,
     ) -> &mut [MaybeUninit<u8>] {
-        assert!(layout.align() <= align_of::<PackElem>());
+        assert!(align <= align_of::<PackElem>());
 
-        let buf_len = layout.size().div_ceil(size_of::<PackElem>());
+        let buf_len = size.div_ceil(size_of::<PackElem>());
         self.buf = alloc.alloc::<PackElem>(buf_len);
         self.used_len = 0;
 
@@ -327,7 +328,7 @@ mod tests {
             assert_eq!(buf.as_bytes().len(), 0);
 
             let layout = PackedLayout::new(size, align, panel_stride);
-            let uninit_data = buf.alloc(&layout);
+            let uninit_data = buf.alloc(layout.size(), layout.align());
             assert_eq!(uninit_data.len(), layout.size());
 
             uninit_data.fill(MaybeUninit::new(0));
