@@ -238,7 +238,7 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
                 data.len(),
                 min_len
             );
-            (data.as_ptr() as *const f32, 1)
+            (data.as_ptr() as *const f32, depth)
         }
         Lhs::Unpacked {
             data,
@@ -257,10 +257,6 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
     let mut b_rows = [S::zero(); NR_REGS];
 
     unroll_loop!(0..depth - 1, k, 4, {
-        let a_off = match a {
-            Lhs::Packed(_) => k * MR,
-            Lhs::Unpacked { .. } => k,
-        };
         let b_off = k * NR_REGS * S::LEN;
 
         // Prefetch B for the next iteration
@@ -271,7 +267,7 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
         }
 
         for i in 0..MR {
-            let a_val = *a_ptr.add(a_off + i * a_row_stride);
+            let a_val = *a_ptr.add(i * a_row_stride + k);
             let a_broadcast = S::splat(a_val);
 
             for j in 0..NR_REGS {
@@ -287,10 +283,6 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
 
     // Perform final outer product update.
     let k = depth - 1;
-    let a_off = match a {
-        Lhs::Packed(_) => k * MR,
-        Lhs::Unpacked { .. } => k,
-    };
     let b_off = k * NR_REGS * S::LEN;
 
     for i in 0..NR_REGS {
@@ -298,7 +290,7 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
     }
 
     for i in 0..MR {
-        let a_val = *a_ptr.add(a_off + i * a_row_stride);
+        let a_val = *a_ptr.add(i * a_row_stride + k);
         let a_broadcast = S::splat(a_val);
 
         for j in 0..NR_REGS {
@@ -378,7 +370,7 @@ pub unsafe fn simd_gemm_tail<S: SimdFloat, const MR: usize, const NR_REGS: usize
                 data.len(),
                 min_len
             );
-            (data.as_ptr() as *const f32, 1)
+            (data.as_ptr() as *const f32, depth)
         }
         Lhs::Unpacked {
             data,
@@ -398,10 +390,6 @@ pub unsafe fn simd_gemm_tail<S: SimdFloat, const MR: usize, const NR_REGS: usize
     let mut b_rows = [S::zero(); NR_REGS];
 
     unroll_loop!(0..depth - 1, k, 4, {
-        let a_off = match a {
-            Lhs::Packed(_) => k * MR,
-            Lhs::Unpacked { .. } => k,
-        };
         let b_off = k * NR_REGS * S::LEN;
 
         // Prefetch B for the next iteration
@@ -412,7 +400,7 @@ pub unsafe fn simd_gemm_tail<S: SimdFloat, const MR: usize, const NR_REGS: usize
         }
 
         for i in 0..used_rows {
-            let a_val = *a_ptr.add(a_off + i * a_row_stride);
+            let a_val = *a_ptr.add(i * a_row_stride + k);
             let a_broadcast = S::splat(a_val);
 
             for j in 0..NR_REGS {
@@ -428,10 +416,6 @@ pub unsafe fn simd_gemm_tail<S: SimdFloat, const MR: usize, const NR_REGS: usize
 
     // Perform final outer product update.
     let k = depth - 1;
-    let a_off = match a {
-        Lhs::Packed(_) => k * MR,
-        Lhs::Unpacked { .. } => k,
-    };
     let b_off = k * NR_REGS * S::LEN;
 
     for i in 0..NR_REGS {
@@ -439,7 +423,7 @@ pub unsafe fn simd_gemm_tail<S: SimdFloat, const MR: usize, const NR_REGS: usize
     }
 
     for i in 0..used_rows {
-        let a_val = *a_ptr.add(a_off + i * a_row_stride);
+        let a_val = *a_ptr.add(i * a_row_stride + k);
         let a_broadcast = S::splat(a_val);
 
         for j in 0..NR_REGS {

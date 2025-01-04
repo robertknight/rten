@@ -4,6 +4,7 @@ use std::ops::Range;
 use rten_tensor::{Alloc, Matrix, MatrixLayout, Storage};
 
 use super::kernels::PackedLayout;
+use crate::iter_util::range_chunks;
 use crate::number::{cast_pod_mut_slice, cast_pod_slice};
 
 /// Return the required size and other metadata for packing an "A" matrix with
@@ -14,7 +15,46 @@ pub fn packed_a_layout<T, const MR: usize>(rows: usize, cols: usize) -> PackedLa
     PackedLayout::new(size, align_of::<T>(), panel_stride)
 }
 
-/// Pack a block of the "A" matrix for use by a GEMM kernel.
+/// Pack a block of the "A" matrix for use by a GEMM kernel, in row-major order.
+///
+/// The packed buffer is laid out as a sequence of `ceil(rows.len() / MR)` row
+/// panels. Each row panel has size `MR * cols.len()` and uses row-major order.
+/// If `rows.len()` is not a multiple of `MR`, the final panel is zero-padded.
+#[inline] // Allow caller to control `target_feature`s
+pub fn pack_a_block<T: Copy + Default, const MR: usize>(
+    out: &mut [MaybeUninit<T>],
+    a: Matrix<T>,
+    rows: Range<usize>,
+    cols: Range<usize>,
+) {
+    assert_eq!(out.len(), rows.len().next_multiple_of(MR) * cols.len());
+
+    let mut out_idx = 0;
+    for panel_rows in range_chunks(rows, MR) {
+        for row in panel_rows.clone() {
+            for col in cols.clone() {
+                unsafe {
+                    out.get_unchecked_mut(out_idx)
+                        .write(*a.get_unchecked([row, col]));
+                }
+                out_idx += 1;
+            }
+        }
+
+        for _ in panel_rows.end..panel_rows.start + MR {
+            for _ in cols.clone() {
+                unsafe { out.get_unchecked_mut(out_idx).write(T::default()) };
+                out_idx += 1;
+            }
+        }
+    }
+
+    // Make sure we initialized the entire block.
+    assert_eq!(out_idx, out.len());
+}
+
+/// Pack a block of the "A" matrix for use by a GEMM kernel, in column major
+/// order.
 ///
 /// The packed buffer is laid out as a sequence of `ceil(rows.len() / MR)`
 /// row panels. Each row panel has size `MR * cols.len()` and uses
@@ -27,8 +67,9 @@ pub fn packed_a_layout<T, const MR: usize>(rows: usize, cols: usize) -> PackedLa
 ///
 /// When this function returns, all elements of `out` will have been initialized
 /// either to a value from `a`, or zero.
+#[allow(unused)] // Currently unused in favor of row-major packing.
 #[inline] // Allow caller to control `target_feature`s
-pub fn pack_a_block<T: Copy + Default, const MR: usize>(
+pub fn pack_a_block_col_major<T: Copy + Default, const MR: usize>(
     out: &mut [MaybeUninit<T>],
     a: Matrix<T>,
     rows: Range<usize>,
