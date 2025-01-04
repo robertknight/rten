@@ -42,6 +42,7 @@ pub enum Lhs<'a, T> {
 /// The packed block is expected to be organized as a sequence of panels with
 /// stride [`panel_stride`](PackedInfo::panel_stride), but the kernel is
 /// otherwise free to choose the layout.
+#[derive(Clone, Debug, PartialEq)]
 pub struct PackedLayout {
     size: usize,
     align: usize,
@@ -130,8 +131,7 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     /// Return a name for this kernel for use in logging etc.
     fn name(&self) -> &'static str;
 
-    /// Return the layout of a packing buffer required to pack a block of `a`
-    /// of size `rows x cols`.
+    /// Return the layout of a packing buffer required to pack an A / LHS input.
     fn packed_a_layout(&self, a: Matrix<LhsT>, rows: usize, cols: usize) -> PackedLayout;
 
     /// Pack a block of the LHS / "A" input for use by this kernel.
