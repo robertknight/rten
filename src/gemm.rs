@@ -1144,12 +1144,7 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
 ) {
-    // Maximum tile size supported. This is used when allocating space on the
-    // stack for a temporary output tile.
-    const MAX_TILE_ELEMENTS: usize = 256;
-
     let (mr, nr) = (kernel.mr(), kernel.nr());
-    assert!(nr * mr <= MAX_TILE_ELEMENTS);
 
     // Sanity check input length here rather than inner loop.
     if let LhsBlock::Unpacked(mat) = &a {
