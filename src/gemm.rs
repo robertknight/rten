@@ -295,6 +295,7 @@ pub fn gemm<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         GemmInputB::Unpacked(b),
         alpha,
         beta,
+        None, // bias
     );
 }
 
@@ -499,51 +500,6 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         b: GemmInputB<RhsT>,
         alpha: f32,
         beta: OutT,
-    ) {
-        gemm_impl(
-            &*self.kernel,
-            // Safety: `gemm_impl` only writes initialized values to `out_data`.
-            unsafe { std::mem::transmute::<&mut [OutT], &mut [MaybeUninit<OutT>]>(out_data) },
-            out_row_stride,
-            a,
-            b,
-            alpha,
-            beta,
-            None,
-        )
-    }
-
-    /// Perform a General Matrix Multiplication ("gemm").
-    ///
-    /// This is the same as [`GemmExecutor::gemm`] but takes an uninitialized
-    /// output slice. The `beta` value is implicitly set to zero.
-    pub fn gemm_uninit(
-        &self,
-        out_data: &mut [MaybeUninit<OutT>],
-        out_row_stride: usize,
-        a: GemmInputA<LhsT>,
-        b: GemmInputB<RhsT>,
-        alpha: f32,
-    ) {
-        self.gemm_uninit_bias(out_data, out_row_stride, a, b, alpha, None);
-    }
-
-    /// Perform a matrix multiplication with fused bias vector addition.
-    ///
-    /// This computes `output = alpha * (a @ b) + beta * output + bias` where
-    /// `@` is matrix multiplication.
-    ///
-    /// If `bias` is present, it is treated as a column vector whose length
-    /// must match the rows of `a`.
-    #[allow(unused)]
-    pub fn gemm_bias(
-        &self,
-        out_data: &mut [OutT],
-        out_row_stride: usize,
-        a: GemmInputA<LhsT>,
-        b: GemmInputB<RhsT>,
-        alpha: f32,
-        beta: OutT,
         bias: Option<BiasVector<OutT>>,
     ) {
         gemm_impl(
@@ -556,17 +512,14 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             alpha,
             beta,
             bias,
-        )
+        );
     }
 
-    /// Perform a matrix multiplication with fused bias vector addition.
+    /// Perform a General Matrix Multiplication ("gemm").
     ///
-    /// This computes `output = alpha * (a @ b) + bias` where
-    /// `@` is matrix multiplication.
-    ///
-    /// If `bias` is present, it is treated as a column vector whose length
-    /// must match the rows of `a`.
-    pub fn gemm_uninit_bias(
+    /// This is the same as [`GemmExecutor::gemm`] but takes an uninitialized
+    /// output slice. The `beta` value is implicitly set to zero.
+    pub fn gemm_uninit(
         &self,
         out_data: &mut [MaybeUninit<OutT>],
         out_row_stride: usize,
@@ -582,7 +535,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             a,
             b,
             alpha,
-            OutT::zero(), /* beta */
+            OutT::zero(),
             bias,
         )
     }
@@ -1353,7 +1306,7 @@ mod tests {
             GemmExecutor::new()
         };
 
-        gemm.gemm_bias(
+        gemm.gemm(
             output.data_mut().expect("expected contiguous input"),
             out_row_stride,
             GemmInputA::Unpacked(a.nd_view()),
@@ -1752,8 +1705,9 @@ mod tests {
                 result_row_stride,
                 GemmInputA::Packed(&packed_a),
                 GemmInputB::Packed(&packed_b),
-                1.,
-                1.,
+                1.,   // alpha
+                1.,   // beta
+                None, // bias
             );
 
             // Compare the results of pre-packed GEMM to unpacked GEMM rather
@@ -1767,8 +1721,9 @@ mod tests {
                 expected_row_stride,
                 GemmInputA::Unpacked(a_mat),
                 GemmInputB::Unpacked(b_mat),
-                1.,
-                1.,
+                1.,   // alpha
+                1.,   // beta
+                None, // bias
             );
 
             expect_equal(&result, &expected)?;
@@ -1866,8 +1821,9 @@ mod tests {
                 result_row_stride,
                 GemmInputA::Unpacked(a.nd_view()),
                 GemmInputB::Virtual(&packer),
-                1.,
-                1.,
+                1.,   // alpha
+                1.,   // beta
+                None, // bias
             );
             reference_gemm(&mut expected, &a, &b, 1., 1., None);
 

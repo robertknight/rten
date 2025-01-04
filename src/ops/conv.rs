@@ -52,7 +52,7 @@ where
             .reshaped_in(pool, [in_c, in_h * in_w])
             .auto_return(pool);
 
-        gemm.gemm_uninit_bias(
+        gemm.gemm_uninit(
             out_item.data_mut().unwrap(),
             out_row_stride,
             GemmInputA::Unpacked(kernel_mat.view()),
@@ -277,7 +277,7 @@ where
                 let bias_vec = bias
                     .as_ref()
                     .map(|b| BiasVector::Column(&b.data().unwrap()[out_chans.clone()]));
-                gemm.gemm_uninit_bias(
+                gemm.gemm_uninit(
                     out_mat.data_mut().unwrap(),
                     out_row_stride,
                     prepacked_kernel
@@ -560,7 +560,8 @@ pub fn conv_transpose(
             col2im_row_stride,
             GemmInputA::Unpacked(kernel_mat),
             GemmInputB::Unpacked(input_mat.view()),
-            1., /* alpha */
+            1.,   // alpha
+            None, // bias
         );
 
         // Safety: `gemm_uninit` initialized col2im_mat.
