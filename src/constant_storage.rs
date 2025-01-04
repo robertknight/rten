@@ -130,42 +130,18 @@ pub type ArcTensorView<T> = TensorBase<ArcSlice<T>, DynLayout>;
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Range;
     use std::sync::Arc;
 
     use rten_tensor::prelude::*;
 
     use super::{ArcSlice, ArcTensorView, ConstantStorage};
-
-    /// Trait for types which allow any bit pattern, and thus can be cast
-    /// freely to/from bytes without worrying about constructing invalid
-    /// data.
-    ///
-    /// See https://docs.rs/bytemuck/latest/bytemuck/trait.Pod.html.
-    trait Pod: Copy {}
-
-    impl Pod for i32 {}
+    use crate::number::cast_pod_slice;
 
     /// Convert a `Vec<i32>` to native-endian bytes.
     fn vec_to_ne_bytes(vec: Vec<i32>) -> Vec<u8> {
         vec.into_iter()
             .flat_map(|x| x.to_ne_bytes().into_iter())
             .collect()
-    }
-
-    /// Cast a range of bytes in a slice to `T`s.
-    fn cast_slice<T: Pod>(slice: &[u8], range: Range<usize>) -> Option<&[T]> {
-        let size = std::mem::size_of::<T>();
-        let data = slice.get(range)?;
-        let typed_slice = unsafe {
-            let ptr: *const T = std::mem::transmute(data.as_ptr());
-            let len = match size {
-                0 => 0,
-                _ => data.len() / size,
-            };
-            std::slice::from_raw_parts(ptr, len)
-        };
-        Some(typed_slice)
     }
 
     #[test]
@@ -175,10 +151,10 @@ mod tests {
         let storage = Arc::new(ConstantStorage::Buffer(bytes));
 
         // Create two slices referencing memory from the storage.
-        let slice_one = cast_slice::<i32>(storage.data(), 0..32).unwrap();
+        let slice_one = cast_pod_slice::<u8, i32>(&storage.data()[0..32]).unwrap();
         assert_eq!(slice_one, [0, 1, 2, 3, 4, 5, 6, 7]);
 
-        let slice_two = cast_slice::<i32>(storage.data(), 32..64).unwrap();
+        let slice_two = cast_pod_slice::<u8, i32>(&storage.data()[32..64]).unwrap();
         assert_eq!(slice_two, [8, 9, 10, 11, 12, 13, 14, 15]);
 
         let arc_slice_one = ArcSlice::new(storage.clone(), slice_one).unwrap();
