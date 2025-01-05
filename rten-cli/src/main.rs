@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::time::Instant;
@@ -189,6 +190,24 @@ Options:
     }
 
     let model = values.pop_front().ok_or("missing `<model>` arg")?;
+
+    // Sort entries to group duplicates and prioritize those with input names
+    // before those without.
+    input_sizes.sort_by(|a, b| match (&a.input_name, &b.input_name) {
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(a_name), Some(b_name)) => match a_name.cmp(&b_name) {
+            Ordering::Equal => a.dim_name.cmp(&b.dim_name),
+            ord => ord,
+        },
+        (None, None) => a.dim_name.cmp(&b.dim_name),
+    });
+
+    // Remove duplicate entries, keeping only the last one.
+    // `dedup_by` keeps only the first entry, hence we reverse before and after.
+    input_sizes.reverse();
+    input_sizes.dedup_by(|a, b| a.input_name == b.input_name && a.dim_name == b.dim_name);
+    input_sizes.reverse();
 
     Ok(Args {
         input_sizes,
