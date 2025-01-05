@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::time::Instant;
 
@@ -8,6 +8,9 @@ use rten::{
 };
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
+
+mod dim_size;
+use dim_size::DimSize;
 
 struct Args {
     /// Model file to load.
@@ -36,74 +39,6 @@ struct Args {
 
     /// Load model using `Model::load_mmap`.
     mmap: bool,
-}
-
-/// Specifies the size for a dynamic input dimension.
-struct DimSize {
-    /// Name of model input. If `None`, this matches all inputs.
-    input_name: Option<String>,
-
-    /// Name of the dynamically-sized dimension.
-    dim_name: String,
-
-    /// Dimension size
-    size: usize,
-}
-
-impl DimSize {
-    /// Return true if `self` specifies the size for a given input dimension.
-    fn matches(&self, input_name: &str, dim_name: &str) -> bool {
-        match self {
-            DimSize {
-                input_name: Some(in_name),
-                dim_name: dn,
-                size: _,
-            } if in_name == input_name && dn == dim_name => true,
-            DimSize {
-                input_name: None,
-                dim_name: dn,
-                size: _,
-            } if dn == dim_name => true,
-            _ => false,
-        }
-    }
-
-    /// Parse a dimension size specifier in the form `dim_name=size` or
-    /// `input_name.dim_name=size`.
-    fn parse(spec: &str) -> Result<DimSize, String> {
-        let parts: Vec<&str> = spec.split('=').collect();
-        let (name_spec, size_spec) = match parts[..] {
-            [name, size] => (name, size),
-            _ => {
-                return Err(
-                    "Invalid input format. Expected dim_name=size or input_name.dim_name=size"
-                        .into(),
-                );
-            }
-        };
-
-        let name_parts: Vec<_> = name_spec.split('.').collect();
-        let (input_name, dim_name) = match &name_parts[..] {
-            [dim_name] => (None, dim_name),
-            [input_name, dim_name] => (Some(input_name), dim_name),
-            _ => {
-                return Err(
-                    "Invalid input input name format. Expected dim_name or input_name.dim_name"
-                        .into(),
-                );
-            }
-        };
-
-        let size: usize = size_spec
-            .parse()
-            .map_err(|_| format!("Failed to parse dimension size \"{}\"", parts[1]))?;
-
-        Ok(DimSize {
-            input_name: input_name.map(|s| s.to_string()),
-            dim_name: dim_name.to_string(),
-            size,
-        })
-    }
 }
 
 fn parse_args() -> Result<Args, lexopt::Error> {
@@ -190,6 +125,8 @@ Options:
 
     let model = values.pop_front().ok_or("missing `<model>` arg")?;
 
+    DimSize::sort_dedup(&mut input_sizes);
+
     Ok(Args {
         input_sizes,
         mmap,
@@ -242,6 +179,13 @@ fn run_with_random_input(
 ) -> Result<(), Box<dyn Error>> {
     let mut rng = fastrand::Rng::new();
 
+    // Names of all dynamic dimensions for which no size was explicitly
+    // specified.
+    let mut dynamic_dims_using_default_size: HashSet<String> = HashSet::new();
+
+    // Indexes of entries in `dim_sizes` that didn't match any inputs.
+    let mut unused_dim_sizes: HashSet<usize> = (0..dim_sizes.len()).collect();
+
     // Generate random model inputs. The `Output` type here is used as an
     // enum that can hold tensors of different types.
     let inputs: Vec<(NodeId, Output)> = model.input_ids().iter().copied().try_fold(
@@ -258,16 +202,15 @@ fn run_with_random_input(
                 .iter()
                 .map(|dim| match dim {
                     Dimension::Symbolic(dim_name) => {
-                        let dim_size = dim_sizes.iter().find(|ds| ds.matches(name, dim_name));
-                        if let Some(ds) = dim_size {
-                            ds.size
+                        if let Some((idx, dim_size)) = dim_sizes
+                            .iter()
+                            .enumerate()
+                            .find(|(_i, ds)| ds.matches(name, dim_name))
+                        {
+                            unused_dim_sizes.remove(&idx);
+                            dim_size.size
                         } else {
-                            if !quiet {
-                                println!(
-                                    "  Size not specified for dynamic dimension \"{}.{}\". Defaulting to 1.",
-                                    name, dim_name
-                                );
-                            }
+                            dynamic_dims_using_default_size.insert(dim_name.to_string());
                             1
                         }
                     }
@@ -275,7 +218,10 @@ fn run_with_random_input(
                 })
                 .collect();
 
-            fn random_ints<T, F: FnMut() -> T>(shape: &[usize], gen: F) -> Output where Output: From<Tensor<T>> {
+            fn random_ints<T, F: FnMut() -> T>(shape: &[usize], gen: F) -> Output
+            where
+                Output: From<Tensor<T>>,
+            {
                 Tensor::from_simple_fn(shape, gen).into()
             }
 
@@ -290,7 +236,9 @@ fn run_with_random_input(
                 // Inputs such as `token_type_ids`, `position_ids`, `input_ids`.
                 // We use zero as a value that is likely to be valid for all
                 // of these.
-                name if name.ends_with("_ids") => Output::from(Tensor::<i32>::zeros(&resolved_shape)),
+                name if name.ends_with("_ids") => {
+                    Output::from(Tensor::<i32>::zeros(&resolved_shape))
+                }
 
                 // Optimum can export "merged" transformer models which have two
                 // branches. One accepts KV-cache inputs and the other does not.
@@ -301,14 +249,16 @@ fn run_with_random_input(
                 // For anything else, random values.
                 _ => match dtype {
                     // Generate floats in [0, 1]
-                    Some(DataType::Float) | None => Output::from(Tensor::from_simple_fn(&resolved_shape, || rng.f32())),
+                    Some(DataType::Float) | None => {
+                        Output::from(Tensor::from_simple_fn(&resolved_shape, || rng.f32()))
+                    }
                     // Generate random values for int types. The default ranges
                     // are intended to be suitable for many models, but there
                     // ought to be a way to override them.
                     Some(DataType::Int32) => random_ints(&resolved_shape, || rng.i32(0..256)),
                     Some(DataType::Int8) => random_ints(&resolved_shape, || rng.i8(0..=127)),
                     Some(DataType::UInt8) => random_ints(&resolved_shape, || rng.u8(0..=255)),
-                }
+                },
             };
 
             inputs.push((id, tensor));
@@ -316,6 +266,39 @@ fn run_with_random_input(
             Ok::<_, Box<dyn Error>>(inputs)
         },
     )?;
+
+    // Warn about any dynamic dims for which sizes were generated.
+    //
+    // Some models may have many inputs with the same dim name. To be less
+    // verbose, we only warn once per dim name.
+    if !quiet && !dynamic_dims_using_default_size.is_empty() {
+        for dim_name in dynamic_dims_using_default_size {
+            println!(
+                "  Size not specified for dim \"{}\". Defaulting to 1.",
+                dim_name
+            );
+        }
+    }
+
+    // Error if specified dimension sizes were unused. This likely indicates a
+    // typo in the name. Running the model with a default dimension size might
+    // cause errors or less work (because a dimension has a smaller value than
+    // intended).
+    if let Some(idx) = unused_dim_sizes.into_iter().next() {
+        let dim_size = &dim_sizes[idx];
+        let err = if let Some(input_name) = &dim_size.input_name {
+            format!(
+                "Input and dim name \"{}.{}\" did not match any inputs",
+                input_name, dim_size.dim_name
+            )
+        } else {
+            format!(
+                "Dim name \"{}\" did not match any inputs",
+                dim_size.dim_name
+            )
+        };
+        return Err(err.into());
+    }
 
     // Convert inputs from `Output` (owned) to `Input` (view).
     let inputs: Vec<(NodeId, InputOrOutput)> = inputs
@@ -330,7 +313,7 @@ fn run_with_random_input(
                 .as_ref()
                 .and_then(|ni| ni.name())
                 .unwrap_or("(unnamed)");
-            println!("  Input \"{name}\" generated shape {:?}", input.shape());
+            println!("  Input \"{name}\" shape {:?}", input.shape());
         }
     }
 
@@ -503,7 +486,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Running model with random inputs...");
     }
 
-    run_with_random_input(
+    if let Err(err) = run_with_random_input(
         &model,
         &args.input_sizes,
         RunOptions {
@@ -513,7 +496,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         args.n_iters,
         args.quiet,
-    )?;
+    ) {
+        // For readability, add a blank line after any output before the final
+        // error.
+        println!();
+        return Err(err);
+    }
 
     Ok(())
 }
