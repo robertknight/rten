@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::time::Instant;
@@ -9,6 +8,9 @@ use rten::{
 };
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
+
+mod dim_size;
+use dim_size::DimSize;
 
 struct Args {
     /// Model file to load.
@@ -37,74 +39,6 @@ struct Args {
 
     /// Load model using `Model::load_mmap`.
     mmap: bool,
-}
-
-/// Specifies the size for a dynamic input dimension.
-struct DimSize {
-    /// Name of model input. If `None`, this matches all inputs.
-    input_name: Option<String>,
-
-    /// Name of the dynamically-sized dimension.
-    dim_name: String,
-
-    /// Dimension size
-    size: usize,
-}
-
-impl DimSize {
-    /// Return true if `self` specifies the size for a given input dimension.
-    fn matches(&self, input_name: &str, dim_name: &str) -> bool {
-        match self {
-            DimSize {
-                input_name: Some(in_name),
-                dim_name: dn,
-                size: _,
-            } if in_name == input_name && dn == dim_name => true,
-            DimSize {
-                input_name: None,
-                dim_name: dn,
-                size: _,
-            } if dn == dim_name => true,
-            _ => false,
-        }
-    }
-
-    /// Parse a dimension size specifier in the form `dim_name=size` or
-    /// `input_name.dim_name=size`.
-    fn parse(spec: &str) -> Result<DimSize, String> {
-        let parts: Vec<&str> = spec.split('=').collect();
-        let (name_spec, size_spec) = match parts[..] {
-            [name, size] => (name, size),
-            _ => {
-                return Err(
-                    "Invalid input format. Expected dim_name=size or input_name.dim_name=size"
-                        .into(),
-                );
-            }
-        };
-
-        let name_parts: Vec<_> = name_spec.split('.').collect();
-        let (input_name, dim_name) = match &name_parts[..] {
-            [dim_name] => (None, dim_name),
-            [input_name, dim_name] => (Some(input_name), dim_name),
-            _ => {
-                return Err(
-                    "Invalid input input name format. Expected dim_name or input_name.dim_name"
-                        .into(),
-                );
-            }
-        };
-
-        let size: usize = size_spec
-            .parse()
-            .map_err(|_| format!("Failed to parse dimension size \"{}\"", parts[1]))?;
-
-        Ok(DimSize {
-            input_name: input_name.map(|s| s.to_string()),
-            dim_name: dim_name.to_string(),
-            size,
-        })
-    }
 }
 
 fn parse_args() -> Result<Args, lexopt::Error> {
@@ -191,23 +125,7 @@ Options:
 
     let model = values.pop_front().ok_or("missing `<model>` arg")?;
 
-    // Sort entries to group duplicates and prioritize those with input names
-    // before those without.
-    input_sizes.sort_by(|a, b| match (&a.input_name, &b.input_name) {
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        (Some(a_name), Some(b_name)) => match a_name.cmp(&b_name) {
-            Ordering::Equal => a.dim_name.cmp(&b.dim_name),
-            ord => ord,
-        },
-        (None, None) => a.dim_name.cmp(&b.dim_name),
-    });
-
-    // Remove duplicate entries, keeping only the last one.
-    // `dedup_by` keeps only the first entry, hence we reverse before and after.
-    input_sizes.reverse();
-    input_sizes.dedup_by(|a, b| a.input_name == b.input_name && a.dim_name == b.dim_name);
-    input_sizes.reverse();
+    DimSize::sort_dedup(&mut input_sizes);
 
     Ok(Args {
         input_sizes,
