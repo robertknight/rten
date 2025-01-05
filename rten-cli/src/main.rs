@@ -486,7 +486,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Running model with random inputs...");
     }
 
-    run_with_random_input(
+    if let Err(err) = run_with_random_input(
         &model,
         &args.input_sizes,
         RunOptions {
@@ -496,7 +496,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         args.n_iters,
         args.quiet,
-    )?;
+    ) {
+        // For readability, add a blank line after any output before the final
+        // error.
+        println!();
+        return Err(err);
+    }
 
     Ok(())
 }
