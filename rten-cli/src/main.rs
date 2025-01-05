@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::time::Instant;
 
@@ -242,6 +242,10 @@ fn run_with_random_input(
 ) -> Result<(), Box<dyn Error>> {
     let mut rng = fastrand::Rng::new();
 
+    // Names of all dynamic dimensions for which no size was explicitly
+    // specified.
+    let mut dynamic_dims_using_default_size: HashSet<String> = HashSet::new();
+
     // Generate random model inputs. The `Output` type here is used as an
     // enum that can hold tensors of different types.
     let inputs: Vec<(NodeId, Output)> = model.input_ids().iter().copied().try_fold(
@@ -262,12 +266,7 @@ fn run_with_random_input(
                         if let Some(ds) = dim_size {
                             ds.size
                         } else {
-                            if !quiet {
-                                println!(
-                                    "  Size not specified for dynamic dimension \"{}.{}\". Defaulting to 1.",
-                                    name, dim_name
-                                );
-                            }
+                            dynamic_dims_using_default_size.insert(dim_name.to_string());
                             1
                         }
                     }
@@ -275,7 +274,10 @@ fn run_with_random_input(
                 })
                 .collect();
 
-            fn random_ints<T, F: FnMut() -> T>(shape: &[usize], gen: F) -> Output where Output: From<Tensor<T>> {
+            fn random_ints<T, F: FnMut() -> T>(shape: &[usize], gen: F) -> Output
+            where
+                Output: From<Tensor<T>>,
+            {
                 Tensor::from_simple_fn(shape, gen).into()
             }
 
@@ -290,7 +292,9 @@ fn run_with_random_input(
                 // Inputs such as `token_type_ids`, `position_ids`, `input_ids`.
                 // We use zero as a value that is likely to be valid for all
                 // of these.
-                name if name.ends_with("_ids") => Output::from(Tensor::<i32>::zeros(&resolved_shape)),
+                name if name.ends_with("_ids") => {
+                    Output::from(Tensor::<i32>::zeros(&resolved_shape))
+                }
 
                 // Optimum can export "merged" transformer models which have two
                 // branches. One accepts KV-cache inputs and the other does not.
@@ -301,14 +305,16 @@ fn run_with_random_input(
                 // For anything else, random values.
                 _ => match dtype {
                     // Generate floats in [0, 1]
-                    Some(DataType::Float) | None => Output::from(Tensor::from_simple_fn(&resolved_shape, || rng.f32())),
+                    Some(DataType::Float) | None => {
+                        Output::from(Tensor::from_simple_fn(&resolved_shape, || rng.f32()))
+                    }
                     // Generate random values for int types. The default ranges
                     // are intended to be suitable for many models, but there
                     // ought to be a way to override them.
                     Some(DataType::Int32) => random_ints(&resolved_shape, || rng.i32(0..256)),
                     Some(DataType::Int8) => random_ints(&resolved_shape, || rng.i8(0..=127)),
                     Some(DataType::UInt8) => random_ints(&resolved_shape, || rng.u8(0..=255)),
-                }
+                },
             };
 
             inputs.push((id, tensor));
@@ -316,6 +322,19 @@ fn run_with_random_input(
             Ok::<_, Box<dyn Error>>(inputs)
         },
     )?;
+
+    // Warn about any dynamic dims for which sizes were generated.
+    //
+    // Some models may have many inputs with the same dim name. To be less
+    // verbose, we only warn once per dim name.
+    if !quiet && !dynamic_dims_using_default_size.is_empty() {
+        for dim_name in dynamic_dims_using_default_size {
+            println!(
+                "  Size not specified for dim \"{}\". Defaulting to 1.",
+                dim_name
+            );
+        }
+    }
 
     // Convert inputs from `Output` (owned) to `Input` (view).
     let inputs: Vec<(NodeId, InputOrOutput)> = inputs
@@ -330,7 +349,7 @@ fn run_with_random_input(
                 .as_ref()
                 .and_then(|ni| ni.name())
                 .unwrap_or("(unnamed)");
-            println!("  Input \"{name}\" generated shape {:?}", input.shape());
+            println!("  Input \"{name}\" shape {:?}", input.shape());
         }
     }
 
