@@ -246,6 +246,9 @@ fn run_with_random_input(
     // specified.
     let mut dynamic_dims_using_default_size: HashSet<String> = HashSet::new();
 
+    // Indexes of entries in `dim_sizes` that didn't match any inputs.
+    let mut unused_dim_sizes: HashSet<usize> = (0..dim_sizes.len()).collect();
+
     // Generate random model inputs. The `Output` type here is used as an
     // enum that can hold tensors of different types.
     let inputs: Vec<(NodeId, Output)> = model.input_ids().iter().copied().try_fold(
@@ -262,9 +265,13 @@ fn run_with_random_input(
                 .iter()
                 .map(|dim| match dim {
                     Dimension::Symbolic(dim_name) => {
-                        let dim_size = dim_sizes.iter().find(|ds| ds.matches(name, dim_name));
-                        if let Some(ds) = dim_size {
-                            ds.size
+                        if let Some((idx, dim_size)) = dim_sizes
+                            .iter()
+                            .enumerate()
+                            .find(|(_i, ds)| ds.matches(name, dim_name))
+                        {
+                            unused_dim_sizes.remove(&idx);
+                            dim_size.size
                         } else {
                             dynamic_dims_using_default_size.insert(dim_name.to_string());
                             1
@@ -334,6 +341,26 @@ fn run_with_random_input(
                 dim_name
             );
         }
+    }
+
+    // Error if specified dimension sizes were unused. This likely indicates a
+    // typo in the name. Running the model with a default dimension size might
+    // cause errors or less work (because a dimension has a smaller value than
+    // intended).
+    if let Some(idx) = unused_dim_sizes.into_iter().next() {
+        let dim_size = &dim_sizes[idx];
+        let err = if let Some(input_name) = &dim_size.input_name {
+            format!(
+                "Input and dim name \"{}.{}\" did not match any inputs",
+                input_name, dim_size.dim_name
+            )
+        } else {
+            format!(
+                "Dim name \"{}\" did not match any inputs",
+                dim_size.dim_name
+            )
+        };
+        return Err(err.into());
     }
 
     // Convert inputs from `Output` (owned) to `Input` (view).
