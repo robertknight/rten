@@ -4,7 +4,7 @@ use rten_simd::SimdFloat;
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
 use super::Lhs;
-use crate::iter_util::{range_chunks_exact, unroll_loop};
+use crate::iter_util::{range_chunks_exact, unroll_loop, unroll_loop_x4};
 
 /// Compute an output block of a vector-matrix product ("gemv" in BLAS APIs).
 ///
@@ -293,7 +293,7 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize, con
     let mut tmp = [[S::zero(); NR_REGS]; ROWS];
     let mut b_rows = [S::zero(); NR_REGS];
 
-    unroll_loop!(0..depth - 1, k, 4, {
+    unroll_loop_x4!(0..depth - 1, k, {
         let b_off = k * NR_REGS * S::LEN;
 
         // Prefetch B for the next iteration
