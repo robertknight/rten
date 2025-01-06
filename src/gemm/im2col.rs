@@ -107,6 +107,12 @@ impl<T: Copy + Default> Im2Col<'_, T> {
 
         let img_ptr = self.image.storage().as_ptr();
 
+        // Compute max valid image buffer offset. Used to clamp generated offsets
+        // as a form of bounds check.
+        let img_len = self.image.storage().len();
+        assert!(img_len > 0 && img_len <= i32::MAX as usize);
+        let max_img_offset = S::splat(img_len as i32 - 1);
+
         // Loop over column panels, then rows, then `S::LEN`-wide column groups
         // within each panel.
         let out_ptr = out.as_mut_ptr();
@@ -134,7 +140,13 @@ impl<T: Copy + Default> Im2Col<'_, T> {
                 for i in 0..NR_REGS {
                     let y_offset = col_y_offset[i].add(row_y_offset);
                     let x_offset = col_x_offset[i].add(row_x_offset);
-                    let offsets = row_chan_offset.add(y_offset).add(x_offset);
+                    let offsets = row_chan_offset
+                        .add(y_offset)
+                        .add(x_offset)
+                        // Ensure offsets cannot be out of bounds even if row /
+                        // column offsets were calculated incorrectly.
+                        .max(S::zero())
+                        .min(max_img_offset);
 
                     // Create mask to specify offsets which are valid. Others
                     // correspond to the padding region.
@@ -153,6 +165,8 @@ impl<T: Copy + Default> Im2Col<'_, T> {
                     // Gather elements and store in packing buffer.
                     for idx in 0..S::LEN {
                         let out_ptr: *mut T = std::mem::transmute(out_ptr.add(out_offset + idx));
+
+                        // Safety: Offsets are clamped so they must be in-bounds.
                         let src_elem = *img_ptr.add(offsets_array[idx] as usize);
 
                         // This should be compiled to a conditional move.
