@@ -1,4 +1,4 @@
-use std::arch::aarch64::float32x4_t;
+use std::arch::aarch64::{float32x4_t, int32x4_t};
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
@@ -8,6 +8,7 @@ use rten_tensor::{Matrix, MatrixLayout};
 use super::simd_generic::{simd_gemv, GemmDispatch};
 use super::{Kernel, Lhs, PackedLayout, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
+use crate::gemm::Im2Col;
 use crate::number::{cast_pod_mut_slice, cast_pod_slice};
 
 pub struct ArmNeonKernel {
@@ -68,6 +69,22 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
     ) {
         let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
         pack_b_block::<f32, { Self::NR }>(out, b, rows, cols);
+    }
+
+    fn pack_im2col(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        image: &Im2Col<f32>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        const NR_REGS: usize = vec_count::<float32x4_t>(ArmNeonKernel::NR);
+
+        // Safety: Arm Neon instructions are supported
+        let out = cast_pod_mut_slice(out).unwrap();
+        unsafe {
+            image.pack_block::<int32x4_t, NR_REGS>(out, Self::NR, rows, cols);
+        }
     }
 
     unsafe fn kernel(

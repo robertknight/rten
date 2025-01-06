@@ -6,9 +6,7 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
-use crate::gemm::{
-    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, VirtualMatrix,
-};
+use crate::gemm::{BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{static_dims, InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
 use crate::tensor_pool::{AutoReturn, TensorPool};
@@ -17,7 +15,7 @@ mod depthwise;
 mod im2col;
 
 use depthwise::conv_2d_depthwise;
-use im2col::VirtualIm2Col;
+use im2col::build_im2col;
 
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
@@ -101,7 +99,6 @@ where
     W: GemmInT,
     Y: Default + std::ops::AddAssign<Y> + GemmOutT,
     GemmExecutor<W, X, Y>: Default,
-    for<'a> VirtualIm2Col<'a, X>: VirtualMatrix<X>,
 {
     // Handle 1D convolution by expanding to 2D and then removing the extra
     // dimension from the result.
@@ -264,14 +261,13 @@ where
                     .unwrap();
                 let out_row_stride = out_mat.stride(0);
 
-                let im2col = VirtualIm2Col::new(
-                    gemm.kernel_type(),
+                let im2col = build_im2col(
                     in_item,
                     [k_h, k_w],
                     fixed_padding,
                     [stride_y, stride_x],
                     [dilation_y, dilation_x],
-                    gemm.b_panel_width(),
+                    gemm.im2col_col_count_step(),
                 );
 
                 let bias_vec = bias
@@ -283,7 +279,7 @@ where
                     prepacked_kernel
                         .map(GemmInputA::Packed)
                         .unwrap_or(GemmInputA::Unpacked(kernel_mat.view())),
-                    GemmInputB::Virtual(&im2col),
+                    GemmInputB::Im2Col(&im2col),
                     1., // alpha
                     bias_vec,
                 );
