@@ -15,12 +15,14 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView, Storage};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
-use crate::number::{cast_pod_mut_slice, Identities, Pod};
+use crate::number::{Identities, Pod};
 use crate::tensor_pool::ExtractBuffer;
 
+mod im2col;
 mod kernels;
 mod packing;
 
+pub use im2col::{ColOffsets, Im2Col, RowOffsets};
 use kernels::generic::GenericKernel;
 use kernels::Kernel;
 use packing::{PackElem, PackingBuffer};
@@ -167,7 +169,7 @@ impl<T> GemmInputA<'_, T> {
 }
 
 /// Trait implemented by GEMM input types.
-pub trait GemmInT: Copy + Send + Sync + Identities + Pod {}
+pub trait GemmInT: Copy + Default + Send + Sync + Identities + Pod {}
 impl GemmInT for f32 {}
 
 /// Trait implemented by GEMM output types.
@@ -184,48 +186,6 @@ pub trait GemmOutT:
 }
 impl GemmOutT for f32 {}
 
-/// A virtual matrix which has a known size, but may not actually be
-/// materialized in memory. The GEMM implementation will call
-/// [`VirtualMatrix::pack_b`] to pack blocks of this matrix into a buffer as it
-/// needs them.
-///
-/// This is useful for operations such as im2col-based convolution, which
-/// involve creating potentially large temporary matrices.
-///
-/// # Safety
-///
-/// Implementations of [`pack_b`](VirtualMatrix::pack_b) must initialize the
-/// entire buffer passed to them.
-pub unsafe trait VirtualMatrix<T>: Sync {
-    /// Return the number of rows in the virtual matrix.
-    fn rows(&self) -> usize;
-
-    /// Return the number of columns in the virtual matrix.
-    fn cols(&self) -> usize;
-
-    /// Called by the GEMM implementation to pack a block of the virtual matrix
-    /// into temporary buffer where it can be efficiently processed.
-    ///
-    /// Implementations must copy the subregion of the matrix specified by
-    /// `rows` and `cols` into `out` with a specific memory layout:
-    ///
-    ///  - The columns specified by `cols` are divided into a sequence of
-    ///    panels, each wth `panel_width` columns and `rows.len()` rows.
-    ///    `panel_width` will depend on the matrix multiplication kernel used, but
-    ///    will be a small value like 4 (SSE) or 16 (AVX2).
-    ///  - Each panel should be written to `out` sequentially. Within each
-    ///    panel, elements should be written out in row-major order.
-    ///  - `cols.len()` may not be an even multiple of `panel_width`. In that
-    ///    case the final panel should be zero-padded.
-    fn pack_b(
-        &self,
-        out: &mut [MaybeUninit<T>],
-        panel_width: usize,
-        rows: Range<usize>,
-        cols: Range<usize>,
-    );
-}
-
 /// Right-hand or "B" input for a GEMM operation.
 #[derive(Copy, Clone)]
 pub enum GemmInputB<'a, T> {
@@ -235,17 +195,16 @@ pub enum GemmInputB<'a, T> {
     /// A matrix which has been pre-packed by [`GemmExecutor::prepack_b`].
     Packed(&'a PackedBMatrix<T>),
 
-    /// A virtual matrix, blocks of which will be materialized on-demand
-    /// during GEMM execution. See [`VirtualMatrix`].
-    Virtual(&'a dyn VirtualMatrix<T>),
+    /// An image which is transformed into a matrix using an im2col transformation.
+    Im2Col(&'a Im2Col<'a, T>),
 }
 
-impl<T> GemmInputB<'_, T> {
+impl<T: Copy + Default> GemmInputB<'_, T> {
     pub fn rows(&self) -> usize {
         match self {
             Self::Unpacked(m) => m.rows(),
             Self::Packed(pm) => pm.base.depth_size,
-            Self::Virtual(vm) => vm.rows(),
+            Self::Im2Col(im) => im.rows(),
         }
     }
 
@@ -253,7 +212,7 @@ impl<T> GemmInputB<'_, T> {
         match self {
             Self::Unpacked(m) => m.cols(),
             Self::Packed(pm) => pm.base.nm_size,
-            Self::Virtual(vm) => vm.cols(),
+            Self::Im2Col(im) => im.cols(),
         }
     }
 }
@@ -415,10 +374,10 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         }
     }
 
-    /// Return the panel width used when packing the "B" matrix.
+    /// Return column count step for building an [`Im2Col`] input.
     ///
-    /// This information is useful for implementations of [`VirtualMatrix`].
-    pub fn b_panel_width(&self) -> usize {
+    /// The number of columns in [`ColOffsets`] must be a multiple of this.
+    pub fn im2col_col_count_step(&self) -> usize {
         self.kernel.nr()
     }
 
@@ -976,7 +935,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 let mut thread_local_packed_b: Option<PackingBuffer> = None;
 
                 let rhs_block = match b {
-                    GemmInputB::Unpacked(_) | GemmInputB::Virtual(_) => PACKED_B.with(|cell| {
+                    GemmInputB::Unpacked(_) | GemmInputB::Im2Col(_) => PACKED_B.with(|cell| {
                         let mut packed_b = cell.take();
 
                         let layout = kernel.packed_b_layout(depth_range.len(), col_end - col_start);
@@ -989,12 +948,9 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                 depth_range.clone(),
                                 col_start..col_end,
                             ),
-                            GemmInputB::Virtual(vm) => vm.pack_b(
-                                // Cast [MaybeUninit<u8>] => [MaybeUninit<RhsT>] as im2col packing
-                                // currently assumes the packed data is in the same format as the
-                                // RHS input.
-                                cast_pod_mut_slice(packed_uninit).unwrap(),
-                                kernel.nr(),
+                            GemmInputB::Im2Col(im) => kernel.pack_im2col(
+                                packed_uninit,
+                                im,
                                 depth_range.clone(),
                                 col_start..col_end,
                             ),
@@ -1248,18 +1204,17 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
 #[cfg(test)]
 mod tests {
     use std::error::Error;
-    use std::mem::MaybeUninit;
-    use std::ops::Range;
     use std::time::Instant;
 
     use rten_bench::run_bench;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{Matrix, MatrixLayout, NdTensor, Tensor};
+    use rten_tensor::{Matrix, MatrixLayout, NdTensor, NdTensorView, Tensor};
 
     use super::{
-        gemm, BiasVector, GemmExecutor, GemmInputA, GemmInputB, KernelType, VirtualMatrix,
+        gemm, BiasVector, ColOffsets, GemmExecutor, GemmInputA, GemmInputB, Im2Col, KernelType,
+        RowOffsets,
     };
 
     fn reference_matmul_alpha_beta(a: &Tensor, b: &Tensor, alpha: f32, beta: f32) -> Tensor {
@@ -1732,103 +1687,93 @@ mod tests {
         Ok(())
     }
 
+    // Simplified version of the im2col builder used by convolution code.
+    //
+    // This builds a mapping between elements of an image and a
+    // `[chans, height x width]` matrix where `image[c, y, x]` maps to
+    // `im2col_matrix[c, y / width, y % width]`.
+    fn build_im2col(image: NdTensorView<f32, 3>, col_count_step: usize) -> Im2Col<f32> {
+        let [chans, img_h, img_w] = image.shape();
+        let [chan_stride, h_stride, w_stride] = image.strides();
+
+        let rows = chans;
+        let n_cols = img_w * img_h;
+        let n_cols_padded = n_cols.next_multiple_of(col_count_step);
+
+        let row_offsets = RowOffsets {
+            chan: (0..rows as i32)
+                .map(|chan| chan * chan_stride as i32)
+                .collect(),
+            y: vec![0; rows],
+            x: vec![0; rows],
+        };
+        let mut col_offsets = ColOffsets {
+            y: (0..n_cols)
+                .map(|i| i as i32 / img_w as i32)
+                .map(|y| y * h_stride as i32)
+                .collect(),
+            x: (0..n_cols)
+                .map(|i| i as i32 % img_w as i32)
+                .map(|x| x * w_stride as i32)
+                .collect(),
+        };
+        for _ in n_cols..n_cols_padded {
+            col_offsets.y.push(0);
+            col_offsets.x.push(0);
+        }
+
+        let max_y_offset = (img_h - 1) * h_stride;
+        let max_x_offset = (img_w - 1) * w_stride;
+
+        Im2Col {
+            image,
+            row_offsets,
+            col_offsets,
+            n_cols,
+            max_y_offset: max_y_offset as i32,
+            max_x_offset: max_x_offset as i32,
+        }
+    }
+
     #[test]
-    fn test_gemm_virtual() -> Result<(), Box<dyn Error>> {
+    fn test_gemm_im2col() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
+        let gemm = GemmExecutor::default();
 
-        struct Packer<'a> {
-            tensor: Matrix<'a, f32>,
-        }
+        // nb. If the test fails, debug by setting dimensions to 1.
+        let img_h = 2;
+        let img_w = 2;
+        let img_chans = 2;
+        let kernel_chans = 3;
 
-        // Safety: `pack_b` initializes the entire buffer.
-        unsafe impl<'a> VirtualMatrix<f32> for Packer<'a> {
-            fn rows(&self) -> usize {
-                self.tensor.rows()
-            }
+        let img = NdTensor::<f32, 3>::rand([img_chans, img_h, img_w], &mut rng);
+        let im2col = build_im2col(img.view(), gemm.im2col_col_count_step());
 
-            fn cols(&self) -> usize {
-                self.tensor.cols()
-            }
+        let kernel_mat = NdTensor::<f32, 2>::rand([kernel_chans, img_chans], &mut rng);
+        let mut output_mat = NdTensor::<f32, 2>::zeros([kernel_chans, img_h * img_w]);
+        let out_row_stride = output_mat.row_stride();
 
-            fn pack_b(
-                &self,
-                out: &mut [MaybeUninit<f32>],
-                panel_width: usize,
-                rows: Range<usize>,
-                cols: Range<usize>,
-            ) {
-                let out_cols = cols.len().next_multiple_of(panel_width);
-                let mut out_iter = out.iter_mut();
+        gemm.gemm(
+            output_mat.data_mut().unwrap(),
+            out_row_stride,
+            GemmInputA::Unpacked(kernel_mat.view()),
+            GemmInputB::Im2Col(&im2col),
+            1.,   // alpha
+            0.,   // beta
+            None, // bias
+        );
 
-                for panel_start_col in (0..out_cols).step_by(panel_width) {
-                    for row in rows.clone() {
-                        for panel_col in 0..panel_width {
-                            let col = panel_start_col + panel_col;
-                            out_iter.next().unwrap().write(
-                                self.tensor
-                                    .get([row, cols.start + col])
-                                    .copied()
-                                    .unwrap_or(0.),
-                            );
-                        }
-                    }
+        let mut expected = NdTensor::<f32, 2>::zeros([kernel_chans, im2col.cols()]);
+        for i in 0..expected.rows() {
+            for j in 0..expected.cols() {
+                let mut acc = 0.;
+                for k in 0..kernel_mat.cols() {
+                    acc += kernel_mat[[i, k]] * img[[k, j / img_w, j % img_w]];
                 }
+                expected[[i, j]] = acc;
             }
         }
-
-        struct Case {
-            m: usize,
-            n: usize,
-            k: usize,
-        }
-
-        let cases = [
-            // Single block along all dimensions.
-            Case {
-                m: 10,
-                k: 20,
-                n: 30,
-            },
-            // Multiple depth blocks.
-            Case {
-                m: 10,
-                k: DEPTH_BLOCK_SIZE + 50,
-                n: 20,
-            },
-            // Multiple column blocks
-            Case {
-                m: 10,
-                k: 10,
-                n: COL_BLOCK_SIZE + 50,
-            },
-        ];
-
-        for case in cases {
-            let mut result = Tensor::zeros(&[case.m, case.n]);
-            let result_row_stride = result.stride(0);
-            let mut expected = result.clone();
-
-            let a = Tensor::rand(&[case.m, case.k], &mut rng);
-            let b = Tensor::rand(&[case.k, case.n], &mut rng);
-            let gemm = GemmExecutor::new();
-
-            let packer = Packer {
-                tensor: b.nd_view(),
-            };
-
-            gemm.gemm(
-                result.data_mut().unwrap(),
-                result_row_stride,
-                GemmInputA::Unpacked(a.nd_view()),
-                GemmInputB::Virtual(&packer),
-                1.,   // alpha
-                1.,   // beta
-                None, // bias
-            );
-            reference_gemm(&mut expected, &a, &b, 1., 1., None);
-
-            expect_equal(&result, &expected)?;
-        }
+        expect_equal(&output_mat, &expected)?;
 
         Ok(())
     }

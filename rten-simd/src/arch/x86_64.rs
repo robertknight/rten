@@ -2,11 +2,11 @@ use std::arch::x86_64::{
     __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_and_si256, _mm256_andnot_ps,
     _mm256_blendv_epi8, _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_castsi256_ps,
     _mm256_cmp_ps, _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
-    _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_ps,
-    _mm256_mul_ps, _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setr_epi32,
-    _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps,
-    _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ,
-    _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_epi32,
+    _mm256_max_ps, _mm256_min_epi32, _mm256_mul_ps, _mm256_or_si256, _mm256_set1_epi32,
+    _mm256_set1_ps, _mm256_setr_epi32, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256,
+    _mm256_sub_epi32, _mm256_sub_ps, _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch,
+    _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::mem::transmute;
 
@@ -144,6 +144,18 @@ impl SimdInt for __m256i {
     #[target_feature(enable = "avx2")]
     unsafe fn shl<const COUNT: i32>(self) -> Self {
         _mm256_slli_epi32(self, COUNT)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    unsafe fn max(self, rhs: Self) -> Self {
+        _mm256_max_epi32(self, rhs)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    unsafe fn min(self, rhs: Self) -> Self {
+        _mm256_min_epi32(self, rhs)
     }
 
     #[inline]
@@ -309,10 +321,10 @@ use std::arch::x86_64::{
     __m512, __m512i, __mmask16, _mm512_abs_ps, _mm512_add_epi32, _mm512_add_ps,
     _mm512_castsi512_ps, _mm512_cmp_epi32_mask, _mm512_cmp_ps_mask, _mm512_cvttps_epi32,
     _mm512_div_ps, _mm512_fmadd_ps, _mm512_loadu_ps, _mm512_loadu_si512, _mm512_mask_blend_epi32,
-    _mm512_mask_blend_ps, _mm512_mask_i32gather_ps, _mm512_max_ps, _mm512_mul_ps,
-    _mm512_reduce_add_ps, _mm512_set1_epi32, _mm512_set1_ps, _mm512_setzero_si512,
-    _mm512_sllv_epi32, _mm512_storeu_epi32, _mm512_storeu_ps, _mm512_sub_epi32, _mm512_sub_ps,
-    _MM_CMPINT_EQ, _MM_CMPINT_LE, _MM_CMPINT_LT,
+    _mm512_mask_blend_ps, _mm512_mask_i32gather_ps, _mm512_max_epi32, _mm512_max_ps,
+    _mm512_min_epi32, _mm512_mul_ps, _mm512_reduce_add_ps, _mm512_set1_epi32, _mm512_set1_ps,
+    _mm512_setzero_si512, _mm512_sllv_epi32, _mm512_storeu_epi32, _mm512_storeu_ps,
+    _mm512_sub_epi32, _mm512_sub_ps, _MM_CMPINT_EQ, _MM_CMPINT_LE, _MM_CMPINT_LT,
 };
 
 #[cfg(feature = "avx512")]
@@ -368,6 +380,18 @@ impl Simd for __m512i {
     #[target_feature(enable = "avx512f")]
     unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
         _mm512_mask_blend_epi32(mask, self, other)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn min(self, rhs: Self) -> Self {
+        _mm512_min_epi32(self, rhs)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn max(self, rhs: Self) -> Self {
+        _mm512_max_epi32(self, rhs)
     }
 
     #[inline]

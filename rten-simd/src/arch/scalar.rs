@@ -93,6 +93,16 @@ impl SimdInt for i32 {
     }
 
     #[inline]
+    unsafe fn max(self, rhs: Self) -> Self {
+        Ord::max(self, rhs)
+    }
+
+    #[inline]
+    unsafe fn min(self, rhs: Self) -> Self {
+        Ord::min(self, rhs)
+    }
+
+    #[inline]
     unsafe fn add(self, rhs: Self) -> Self {
         self + rhs
     }

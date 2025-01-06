@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use super::GemmOutT;
+use super::{GemmOutT, Im2Col};
 use rten_tensor::Matrix;
 
 pub mod generic;
@@ -156,6 +156,16 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         &self,
         out: &mut [MaybeUninit<u8>],
         b: Matrix<RhsT>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    );
+
+    /// Pack a block of an image as the B input for use by this kernel, using
+    /// an im2col transformation to flatten the image into a matrix.
+    fn pack_im2col(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        image: &Im2Col<RhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
     );

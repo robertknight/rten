@@ -2,8 +2,8 @@ use std::arch::aarch64::{
     float32x4_t, int32x4_t, uint32x4_t, vabsq_f32, vaddq_f32, vaddq_s32, vaddvq_f32, vandq_u32,
     vbslq_f32, vbslq_s32, vceqq_s32, vcgeq_f32, vcgeq_s32, vcgtq_s32, vcleq_f32, vcleq_s32,
     vcltq_f32, vcltq_s32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s32, vfmaq_f32, vld1q_f32,
-    vld1q_s32, vld1q_u32, vmaxq_f32, vmulq_f32, vreinterpretq_f32_s32, vshlq_n_s32, vst1q_f32,
-    vst1q_s32, vst1q_u32, vsubq_f32, vsubq_s32,
+    vld1q_s32, vld1q_u32, vmaxq_f32, vmaxq_s32, vminq_s32, vmulq_f32, vreinterpretq_f32_s32,
+    vshlq_n_s32, vst1q_f32, vst1q_s32, vst1q_u32, vsubq_f32, vsubq_s32,
 };
 
 use crate::{Simd, SimdFloat, SimdInt, SimdMask};
@@ -111,6 +111,16 @@ impl SimdInt for int32x4_t {
     #[inline]
     unsafe fn shl<const COUNT: i32>(self) -> Self {
         vshlq_n_s32(self, COUNT)
+    }
+
+    #[inline]
+    unsafe fn max(self, rhs: Self) -> Self {
+        vmaxq_s32(self, rhs)
+    }
+
+    #[inline]
+    unsafe fn min(self, rhs: Self) -> Self {
+        vminq_s32(self, rhs)
     }
 
     #[inline]

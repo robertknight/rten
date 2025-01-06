@@ -7,6 +7,7 @@ use rten_tensor::{Matrix, MatrixLayout};
 use super::simd_generic::{simd_gemv, GemmDispatch};
 use super::{Kernel, Lhs, PackedLayout, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
+use crate::gemm::Im2Col;
 use crate::number::{cast_pod_mut_slice, cast_pod_slice};
 
 /// This is the base kernel that does not use architecture-specific intrinsics
@@ -73,6 +74,22 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
     ) {
         let out = cast_pod_mut_slice(out).unwrap();
         pack_b_block::<f32, { Self::NR }>(out, b, rows, cols);
+    }
+
+    fn pack_im2col(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        image: &Im2Col<f32>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        const NR_REGS: usize = vec_count::<f32>(GenericKernel::NR);
+
+        // Safety: Scalar "SIMD" types are always supported
+        let out = cast_pod_mut_slice(out).unwrap();
+        unsafe {
+            image.pack_block::<i32, NR_REGS>(out, Self::NR, rows, cols);
+        }
     }
 
     unsafe fn kernel(
