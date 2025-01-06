@@ -207,6 +207,12 @@ pub trait SimdInt: Simd<Elem = i32> {
     /// Compute `self - rhs`.
     unsafe fn sub(self, rhs: Self) -> Self;
 
+    /// Compute minimum of self and `rhs`.
+    unsafe fn min(self, rhs: Self) -> Self;
+
+    /// Compute maximum of self and `rhs`.
+    unsafe fn max(self, rhs: Self) -> Self;
+
     /// Shift the bits in each element left by `count`.
     unsafe fn shl<const COUNT: i32>(self) -> Self;
 
