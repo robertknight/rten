@@ -28,7 +28,7 @@ serde_json = { version = "1.0.117" }
 
 [package]
 name = "rten"
-version = "0.15.0"
+version = "0.15.1"
 edition = "2021"
 authors = ["Robert Knight"]
 description = "Machine learning runtime"
@@ -44,9 +44,9 @@ include = ["/src", "/CHANGELOG.md", "/README.md"]
 flatbuffers = "24.3.25"
 rayon = "1.7.0"
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
-rten-tensor = { path = "./rten-tensor", version = "0.15.0" }
-rten-vecmath = { path = "./rten-vecmath", version = "0.15.0" }
-rten-simd = { path = "./rten-simd", version = "0.15.0" }
+rten-tensor = { path = "./rten-tensor", version = "0.15.1" }
+rten-vecmath = { path = "./rten-vecmath", version = "0.15.1" }
+rten-simd = { path = "./rten-simd", version = "0.15.1" }
 fastrand = { version = "2.0.2", optional = true }
 fastrand-contrib = { version = "0.1.0", optional = true }
 rustc-hash = "2.0.0"

@@ -1,6 +1,6 @@
 [package]
 name = "rten-vecmath"
-version = "0.15.0"
+version = "0.15.1"
 edition = "2021"
 authors = ["Robert Knight"]
 description = "SIMD vectorized implementations of various math functions used in ML models"
@@ -10,7 +10,7 @@ repository = "https://github.com/robertknight/rten"
 include = ["/src", "/README.md"]
 
 [dependencies]
-rten-simd = { path = "../rten-simd", version = "0.15.0" }
+rten-simd = { path = "../rten-simd", version = "0.15.1" }
 
 [dev-dependencies]
 fastrand = "2.0.2"
