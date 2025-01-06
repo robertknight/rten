@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2025-01-06
+
+### rten
+
+- Refactored matrix multiplication internals to prepare for supporting additional
+  data types and architectures (https://github.com/robertknight/rten/pull/510,
+  https://github.com/robertknight/rten/pull/511,
+  https://github.com/robertknight/rten/pull/513,
+  https://github.com/robertknight/rten/pull/519)
+
+- Optimized Softmax by using multiplication-by-reciprocal instead of
+  division (https://github.com/robertknight/rten/pull/516)
+
+- Optimized matrix multiplication with specialized code for edge tiles
+  (https://github.com/robertknight/rten/pull/505), more efficient indexing
+  into LHS / A input (https://github.com/robertknight/rten/pull/512) and
+  more aggressive unrolling (https://github.com/robertknight/rten/pull/518)
+
+- Fuse RMSNorm subgraphs (https://github.com/robertknight/rten/pull/497)
+
+- Optimized Gather with fast path for common case of axis=0 and faster general case
+  (https://github.com/robertknight/rten/pull/496)
+
+### rten-cli
+
+- Error if a dimension size specified with `--size` does not match any model
+  input (https://github.com/robertknight/rten/pull/517)
+
+- Made output less noisy when a dimension size repeated in many inputs is not
+  specified and is defaulted to 1 (https://github.com/robertknight/rten/pull/517)
+
+- Prefix timing for each run with a run number (https://github.com/robertknight/rten/pull/508)
+
 ## [0.15.0] - 2024-12-28
 
 ### rten
