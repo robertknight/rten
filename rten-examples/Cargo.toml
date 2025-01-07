@@ -104,6 +104,11 @@ path = "src/gpt2.rs"
 test = false
 
 [[bin]]
+name = "modernbert"
+path = "src/modernbert.rs"
+test = false
+
+[[bin]]
 name = "jina_similarity"
 path = "src/jina_similarity.rs"
 test = false
