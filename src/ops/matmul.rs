@@ -1,7 +1,7 @@
 use rayon::prelude::*;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{Matrix, Tensor, TensorView};
+use rten_tensor::{Matrix, NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::gemm::{
@@ -433,18 +433,32 @@ pub fn matmul_integer(
     let a_broadcast = a.broadcast(a_broadcast_shape.as_slice());
     let b_broadcast = b.broadcast(b_broadcast_shape.as_slice());
 
-    fn is_scalar<T>(tensor: &Option<TensorView<T>>) -> bool {
-        tensor.as_ref().map(|zp| zp.ndim() == 0).unwrap_or(true)
+    // Convert the zero point to a vector.
+    //
+    // The spec allows for the zero point to be a scalar, vector or a batch of
+    // vectors. The batch case is currently not supported.
+    fn zero_point_to_vec<T>(
+        zero_point: Option<TensorView<T>>,
+        expected_len: usize,
+    ) -> Result<Option<NdTensorView<T, 1>>, OpError> {
+        match zero_point {
+            Some(zp) if zp.ndim() == 0 => Ok(Some(zp.broadcast([expected_len]))),
+            Some(zp) if zp.ndim() == 1 => {
+                if zp.size(0) != expected_len {
+                    Err(OpError::InvalidValue("Zero point has incorrect size"))
+                } else {
+                    Ok(Some(zp.nd_view()))
+                }
+            }
+            Some(_) => Err(OpError::UnsupportedValue(
+                "Only scalar or vector zero points are supported",
+            )),
+            None => Ok(None),
+        }
     }
 
-    if !is_scalar(&a_zero_point) || !is_scalar(&b_zero_point) {
-        return Err(OpError::UnsupportedValue(
-            "Only scalar zero points are supported",
-        ));
-    }
-
-    let a_zero = a_zero_point.and_then(|zp| zp.item()).copied().unwrap_or(0) as i32;
-    let b_zero = b_zero_point.and_then(|zp| zp.item()).copied().unwrap_or(0) as i32;
+    let a_zero = zero_point_to_vec(a_zero_point, a_rows)?;
+    let b_zero = zero_point_to_vec(b_zero_point, b_cols)?;
 
     a_broadcast
         .inner_iter::<2>()
@@ -462,7 +476,11 @@ pub fn matmul_integer(
                 for depth_block in range_chunks(0..k, 32) {
                     for row_block in range_chunks(0..m, 32) {
                         for j in col_block.clone() {
+                            let b_zero = b_zero.as_ref().map(|zp| zp[j]).unwrap_or(0) as i32;
+
                             for i in row_block.clone() {
+                                let a_zero = a_zero.as_ref().map(|zp| zp[i]).unwrap_or(0) as i32;
+
                                 let mut out = 0i32;
                                 for k in depth_block.clone() {
                                     // Safety: `[i, k]` is in-bounds for `a_mat`.
@@ -633,8 +651,10 @@ mod tests {
         let a_bcast = [out_prefix.as_slice(), &a.shape()[a_batch_dims..]].concat();
         let b_bcast = [out_prefix.as_slice(), &b.shape()[b_batch_dims..]].concat();
 
-        let a_zero_point = a_zero_point.and_then(|zp| zp.item()).copied().unwrap_or(0) as i32;
-        let b_zero_point = b_zero_point.and_then(|zp| zp.item()).copied().unwrap_or(0) as i32;
+        let a_rows = a.size(a.ndim() - 2);
+        let b_cols = b.size(b.ndim() - 1);
+        let a_zero_point = a_zero_point.map(|zp| zp.broadcast([a_rows]));
+        let b_zero_point = b_zero_point.map(|zp| zp.broadcast([b_cols]));
 
         a.broadcast(a_bcast.as_slice())
             .inner_iter::<2>()
@@ -645,11 +665,13 @@ mod tests {
                 let depth = a.size(1);
 
                 for i in 0..n_rows {
+                    let row_zero_point = a_zero_point.map(|zp| zp[i]).unwrap_or(0) as i32;
                     for j in 0..n_cols {
+                        let col_zero_point = b_zero_point.map(|zp| zp[j]).unwrap_or(0) as i32;
                         let mut y = 0;
                         for k in 0..depth {
-                            let a_el = (a[[i, k]] as i32) - a_zero_point;
-                            let b_el = (b[[k, j]] as i32) - b_zero_point;
+                            let a_el = (a[[i, k]] as i32) - row_zero_point;
+                            let b_el = (b[[k, j]] as i32) - col_zero_point;
                             y += a_el * b_el;
                         }
                         c[[i, j]] = y;
@@ -1056,6 +1078,21 @@ mod tests {
                 b_zero_point: Some(Tensor::from(-50)),
                 expected_err: None,
             },
+            // Vector zero points
+            Case {
+                a: Tensor::from([[1, 2], [3, 4]]),
+                b: Tensor::from([[5, 6], [7, 8]]),
+                a_zero_point: Some(Tensor::from([1, 2])),
+                b_zero_point: Some(Tensor::from([3, 4])),
+                expected_err: None,
+            },
+            Case {
+                a: Tensor::from([[1, 2], [3, 4]]),
+                b: Tensor::from([[5, 6], [7, 8]]),
+                a_zero_point: Some(Tensor::from([1, 2, 4])),
+                b_zero_point: Some(Tensor::from([3, 4])),
+                expected_err: Some(OpError::InvalidValue("Zero point has incorrect size")),
+            },
             // Non-scalar zero points
             Case {
                 a: Tensor::from([[2, 2], [2, 2]]),
@@ -1063,7 +1100,7 @@ mod tests {
                 a_zero_point: Some(Tensor::from([[2, 2], [2, 2]])),
                 b_zero_point: None,
                 expected_err: Some(OpError::UnsupportedValue(
-                    "Only scalar zero points are supported",
+                    "Only scalar or vector zero points are supported",
                 )),
             },
             Case {
@@ -1072,7 +1109,7 @@ mod tests {
                 a_zero_point: None,
                 b_zero_point: Some(Tensor::from([[2, 2], [2, 2]])),
                 expected_err: Some(OpError::UnsupportedValue(
-                    "Only scalar zero points are supported",
+                    "Only scalar or vector zero points are supported",
                 )),
             },
             // Empty output
