@@ -20,21 +20,26 @@ The general steps to run an example are:
    package:
 
    ```sh
-   $ rten-convert <onnx_model> <output_model>
+   $ pip install rten-convert
+   $ rten-convert model.onnx
    ```
 
-3. Run the example using:
+   This will create a `model.rten` file in the same directory as the ONNX
+   model.
+
+3. Run the example from the `rten-examples` directory using:
 
    ```sh
    $ cargo run -r --bin <example_name> <model_path> <...args>
    ```
 
    Where `...args` refers to the example-specific arguments, such as input data.
+
+   Note the `-r` flag to create a **release build**. This is required as the
+   examples will run very slowly in debug builds.
+
    The syntax and flags for an individual example can be displayed using its
    `--help` command:
-
-   Note the `-r` flag to create a release build. This is required as the
-   examples will run very slowly in debug builds.
 
    ```sh
    $ cargo run -r --bin <example_name> -- --help
@@ -42,6 +47,13 @@ The general steps to run an example are:
 
    Note the `--` before `--help`. Without this `cargo` will print its own help
    info.
+
+   You can also run examples from the root of rten repository by specifying
+   the rten-examples package name:
+
+   ```sh
+   $ cargo run -p rten-examples -r --bin <example_name> -- <...args>
+   ```
 
 ## Reference implementations
 
@@ -78,6 +90,7 @@ on the [SQuAD](https://paperswithcode.com/dataset/squad) dataset
 - **gpt2** - Text generation using the [GPT-2](https://openai.com/index/better-language-models/)
 language model.
 - **jina_similarity** - Sentence similarity using vector embeddings of sentences
+- **modernbert** - Masked word prediction using [ModernBERT](https://huggingface.co/blog/modernbert). Also works with the base version of the original BERT model.
 - **qwen2_chat** - Chatbot using [Qwen2](https://github.com/QwenLM/Qwen2)
 
 ### Audio
