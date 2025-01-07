@@ -46,6 +46,12 @@ impl<'a> From<&'a str> for EncoderInput<'a> {
     }
 }
 
+impl<'a> From<&'a String> for EncoderInput<'a> {
+    fn from(val: &'a String) -> EncoderInput<'a> {
+        EncoderInput::Item(val)
+    }
+}
+
 /// Construct a tokenizer input with a pair of sequences.
 impl<'a> From<(&'a str, &'a str)> for EncoderInput<'a> {
     fn from(val: (&'a str, &'a str)) -> EncoderInput<'a> {
