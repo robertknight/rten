@@ -192,6 +192,10 @@ where
         ));
     }
 
+    if groups == 0 {
+        return Err(OpError::InvalidValue("Group count must be > 0"));
+    }
+
     let out_channels_per_group = out_c / groups;
     let in_channels_per_group = in_c / groups;
 
@@ -201,7 +205,7 @@ where
         ));
     }
 
-    if groups == 0 || in_c % groups != 0 || out_c % groups != 0 {
+    if in_c % groups != 0 || out_c % groups != 0 {
         return Err(OpError::IncompatibleInputShapes(
             "Input channels and output channels must be divisible by group count",
         ));
@@ -1189,6 +1193,7 @@ mod tests {
             input: Tensor<f32>,
             kernel: Tensor<f32>,
             strides: &'a [usize],
+            groups: usize,
             expected: OpError,
         }
 
@@ -1198,6 +1203,7 @@ mod tests {
                 input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
                 kernel: Tensor::rand(&[1, 1, 3, 3], &mut rng),
                 strides: &[1, 1],
+                groups: 1,
                 expected: OpError::InvalidValue("Input too small for kernel size"),
             },
             // Zero stride
@@ -1205,7 +1211,16 @@ mod tests {
                 input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
                 kernel: Tensor::rand(&[1, 1, 2, 2], &mut rng),
                 strides: &[0, 0],
+                groups: 1,
                 expected: OpError::InvalidValue("Strides must be > 0"),
+            },
+            // Zero groups
+            Case {
+                input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                kernel: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                strides: &[1, 1],
+                groups: 0,
+                expected: OpError::InvalidValue("Group count must be > 0"),
             },
         ];
 
@@ -1215,6 +1230,7 @@ mod tests {
             input,
             kernel,
             strides,
+            groups,
             expected,
         } in cases
         {
@@ -1224,7 +1240,7 @@ mod tests {
                 kernel.view(),
                 None,
                 [0; 4].into(),
-                1, /* groups */
+                groups,
                 strides,
                 &[1, 1], /* dilations */
             );
