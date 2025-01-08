@@ -5,7 +5,7 @@ use std::fmt::Display;
 /// Errors with matrix multiplication inputs.
 #[derive(Clone, Debug, PartialEq)]
 pub enum GemmError {
-    /// Columns of LHS and RHS inputs do not match.
+    /// Number of columns in LHS does not match rows of RHS.
     KSizeMismatch,
     /// Bias vector length does not match the corresponding output matrix size.
     WrongBiasSize,
