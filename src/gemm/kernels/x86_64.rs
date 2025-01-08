@@ -12,7 +12,7 @@ use rten_tensor::{Matrix, MatrixLayout};
 use rten_simd::isa_detection::is_avx512_supported;
 
 use super::simd_generic::{simd_gemv, GemmDispatch};
-use super::{Kernel, Lhs, PackedLayout, TempTile};
+use super::{Kernel, Lhs, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
 use crate::number::{cast_pod_mut_slice, cast_pod_slice};
@@ -84,7 +84,13 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         Self::NR
     }
 
-    fn packed_a_layout(&self, a: Matrix, rows: usize, cols: usize) -> PackedLayout {
+    fn packed_a_layout(
+        &self,
+        a: Matrix,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<f32>>,
+    ) -> PackedLayout {
         let mut info = packed_a_layout::<f32, { Self::MR }>(rows, cols);
         info.must_pack = a.col_stride() != 1;
         info
@@ -96,6 +102,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         a: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
+        _quant: Option<QuantParams<f32>>,
     ) {
         let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
 
@@ -105,7 +112,12 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         }
     }
 
-    fn packed_b_layout(&self, rows: usize, cols: usize) -> PackedLayout {
+    fn packed_b_layout(
+        &self,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<f32>>,
+    ) -> PackedLayout {
         packed_b_layout::<f32, { Self::NR }>(rows, cols)
     }
 
@@ -115,6 +127,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         b: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
+        _quant: Option<QuantParams<f32>>,
     ) {
         let out = cast_pod_mut_slice(out).unwrap();
 
@@ -153,6 +166,8 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         depth: usize,
         alpha: f32,
         beta: f32,
+        _a_quant: Option<QuantParams<f32>>,
+        _b_quant: Option<QuantParams<f32>>,
     ) {
         const MR: usize = FmaKernel::MR;
         const NR: usize = FmaKernel::NR;
@@ -206,6 +221,8 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         b: Matrix,
         alpha: f32,
         beta: f32,
+        _a_quant: Option<QuantParams<f32>>,
+        _b_quant: Option<QuantParams<f32>>,
     ) {
         #[target_feature(enable = "avx2")]
         #[target_feature(enable = "fma")]
@@ -275,7 +292,13 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         Self::NR
     }
 
-    fn packed_a_layout(&self, a: Matrix, rows: usize, cols: usize) -> PackedLayout {
+    fn packed_a_layout(
+        &self,
+        a: Matrix,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<f32>>,
+    ) -> PackedLayout {
         let mut info = packed_a_layout::<f32, { Self::MR }>(rows, cols);
         info.must_pack = a.col_stride() != 1;
         info
@@ -287,6 +310,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         a: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
+        _quant: Option<QuantParams<f32>>,
     ) {
         let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
 
@@ -296,7 +320,12 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         }
     }
 
-    fn packed_b_layout(&self, rows: usize, cols: usize) -> PackedLayout {
+    fn packed_b_layout(
+        &self,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<f32>>,
+    ) -> PackedLayout {
         packed_b_layout::<f32, { Self::NR }>(rows, cols)
     }
 
@@ -306,6 +335,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         b: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
+        _quant: Option<QuantParams<f32>>,
     ) {
         let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
 
@@ -344,6 +374,8 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         depth: usize,
         alpha: f32,
         beta: f32,
+        _a_quant: Option<QuantParams<f32>>,
+        _b_quant: Option<QuantParams<f32>>,
     ) {
         const MR: usize = Avx512Kernel::MR;
         const NR: usize = Avx512Kernel::NR;
@@ -397,6 +429,8 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         b: Matrix,
         alpha: f32,
         beta: f32,
+        _a_quant: Option<QuantParams<f32>>,
+        _b_quant: Option<QuantParams<f32>>,
     ) {
         #[target_feature(enable = "avx512f")]
         #[target_feature(enable = "avx512vl")]

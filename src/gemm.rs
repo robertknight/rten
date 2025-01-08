@@ -27,6 +27,7 @@ pub use errors::GemmError;
 pub use im2col::{ColOffsets, Im2Col, RowOffsets};
 use kernels::generic::GenericKernel;
 use kernels::Kernel;
+pub use kernels::QuantParams;
 use packing::{PackElem, PackingBuffer};
 
 pub type GemmResult = Result<(), GemmError>;
@@ -263,6 +264,8 @@ where
         alpha,
         beta,
         None, // bias
+        None, // a_quant
+        None, // b_quant
     )
 }
 
@@ -330,11 +333,11 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix<LhsT>) -> PackedAMatrix<LhsT> {
         let depth_block = depth_block_size(a.cols());
 
-        let layout = self.kernel.packed_a_layout(a, a.rows(), depth_block);
+        let layout = self.kernel.packed_a_layout(a, a.rows(), depth_block, None);
         let tail_layout = if a.cols() % depth_block != 0 {
             Some(
                 self.kernel
-                    .packed_a_layout(a, a.rows(), a.cols() % depth_block),
+                    .packed_a_layout(a, a.rows(), a.cols() % depth_block, None),
             )
         } else {
             None
@@ -356,7 +359,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             range_chunks(0..a.cols(), depth_block).zip(uninit_data.chunks_mut(layout.size()))
         {
             self.kernel
-                .pack_a_block(block_data, a, 0..a.rows(), col_block);
+                .pack_a_block(block_data, a, 0..a.rows(), col_block, None);
         }
 
         // Safety: We used `pack_a_block` to initialize `total_size` bytes
@@ -400,11 +403,11 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix<RhsT>) -> PackedBMatrix<RhsT> {
         let depth_block = depth_block_size(b.rows());
 
-        let layout = self.kernel.packed_b_layout(depth_block, b.cols());
+        let layout = self.kernel.packed_b_layout(depth_block, b.cols(), None);
         let tail_layout = if b.rows() % depth_block != 0 {
             Some(
                 self.kernel
-                    .packed_b_layout(b.rows() % depth_block, b.cols()),
+                    .packed_b_layout(b.rows() % depth_block, b.cols(), None),
             )
         } else {
             None
@@ -425,7 +428,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             range_chunks(0..b.rows(), depth_block).zip(uninit_data.chunks_mut(layout.size()))
         {
             self.kernel
-                .pack_b_block(block_data, b, row_block, 0..b.cols());
+                .pack_b_block(block_data, b, row_block, 0..b.cols(), None);
         }
 
         // Safety: We used `pack_b_block` to initialize `layout.size` bytes.
@@ -468,6 +471,8 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         alpha: f32,
         beta: OutT,
         bias: Option<BiasVector<OutT>>,
+        a_quant: Option<QuantParams<LhsT>>,
+        b_quant: Option<QuantParams<RhsT>>,
     ) -> GemmResult {
         gemm_impl(
             &*self.kernel,
@@ -479,6 +484,8 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             alpha,
             beta,
             bias,
+            a_quant,
+            b_quant,
         )
     }
 
@@ -494,6 +501,8 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         b: GemmInputB<RhsT>,
         alpha: f32,
         bias: Option<BiasVector<OutT>>,
+        a_quant: Option<QuantParams<LhsT>>,
+        b_quant: Option<QuantParams<RhsT>>,
     ) -> GemmResult {
         gemm_impl(
             &*self.kernel,
@@ -504,6 +513,8 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             alpha,
             OutT::zero(),
             bias,
+            a_quant,
+            b_quant,
         )
     }
 
@@ -567,6 +578,12 @@ impl GemmExecutor<f32, f32, f32> {
 impl Default for GemmExecutor<f32, f32, f32> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Default for GemmExecutor<u8, i8, i32> {
+    fn default() -> Self {
+        Self::from_kernel::<GenericKernel>(KernelType::Generic).unwrap()
     }
 }
 
@@ -701,6 +718,8 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     alpha: f32,
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
+    a_quant: Option<QuantParams<LhsT>>,
+    b_quant: Option<QuantParams<RhsT>>,
 ) {
     assert!(output_mat.is_contiguous());
 
@@ -733,7 +752,15 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 range_chunks(0..a_cols, k_block_size).zip(a_data.chunks(k_block_size))
             {
                 let b_block = b.slice((k_block, col_block.clone()));
-                kernel.gemv_kernel(out_chunk, a_block, b_block, alpha, effective_beta);
+                kernel.gemv_kernel(
+                    out_chunk,
+                    a_block,
+                    b_block,
+                    alpha,
+                    effective_beta,
+                    a_quant,
+                    b_quant,
+                );
 
                 // Reset `beta` so that subsequent updates for each column
                 // accumulate into the first update.
@@ -797,6 +824,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     alpha: f32,
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
+    a_quant: Option<QuantParams<LhsT>>,
+    b_quant: Option<QuantParams<RhsT>>,
 ) -> GemmResult {
     if a.cols() != b.rows() {
         return Err(GemmError::KSizeMismatch);
@@ -870,6 +899,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
             // nb. We checked above that, if present, the bias length matches
             // `a.rows()` or `b.cols()` as appropriate.
             bias,
+            a_quant,
+            b_quant,
         );
         return Ok(());
     }
@@ -936,7 +967,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                     GemmInputB::Unpacked(_) | GemmInputB::Im2Col(_) => PACKED_B.with(|cell| {
                         let mut packed_b = cell.take();
 
-                        let layout = kernel.packed_b_layout(depth_range.len(), col_end - col_start);
+                        let layout =
+                            kernel.packed_b_layout(depth_range.len(), col_end - col_start, b_quant);
                         let packed_uninit = packed_b.alloc(layout.size(), layout.align());
 
                         match b {
@@ -945,6 +977,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                 b,
                                 depth_range.clone(),
                                 col_start..col_end,
+                                b_quant,
                             ),
                             GemmInputB::Im2Col(im) => kernel.pack_im2col(
                                 packed_uninit,
@@ -995,6 +1028,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                     a,
                                     row_end - row_start,
                                     depth_range.len(),
+                                    a_quant,
                                 );
                                 if !layout.must_pack {
                                     return LhsBlock::Unpacked(a);
@@ -1008,6 +1042,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                     a,
                                     row_start..row_end,
                                     depth_range.clone(),
+                                    a_quant,
                                 );
 
                                 // Safety: We initialized `layout.size` bytes.
@@ -1034,6 +1069,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                             alpha,
                             effective_beta,
                             bias,
+                            a_quant,
+                            b_quant,
                         );
 
                         if let Some(packed_a) = thread_local_packed_a {
@@ -1094,6 +1131,8 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     alpha: f32,
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
+    a_quant: Option<QuantParams<LhsT>>,
+    b_quant: Option<QuantParams<RhsT>>,
 ) {
     let (mr, nr) = (kernel.mr(), kernel.nr());
 
@@ -1111,6 +1150,12 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
         .for_each(|(block_col_tile, col_tile)| {
             let b_panel_offset = block_col_tile * b.panel_stride;
             let b_panel = &b.data[b_panel_offset..b_panel_offset + b.panel_stride];
+            let b_quant_tile = b_quant.map(|bq| {
+                let col_range = col_tile * nr..(col_tile * nr + nr).min(bq.zero_point.len());
+                QuantParams {
+                    zero_point: &bq.zero_point[col_range],
+                }
+            });
 
             // Loop over row tiles.
             for (block_row_tile, row_tile) in row_tiles.clone().enumerate() {
@@ -1118,6 +1163,13 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                 //  - The loops in this function and its caller are set up so that
                 //    every output tile is processed by one thread at a time.
                 let out_tile = unsafe { output.tile(row_tile, col_tile) };
+
+                let a_quant_tile = a_quant.map(|aq| {
+                    let row_range = row_tile * mr..(row_tile * mr + mr).min(aq.zero_point.len());
+                    QuantParams {
+                        zero_point: &aq.zero_point[row_range],
+                    }
+                });
 
                 let kernel_lhs = match a {
                     LhsBlock::Packed {
@@ -1157,6 +1209,8 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                         depth_range.len(),
                         alpha,
                         beta,
+                        a_quant_tile,
+                        b_quant_tile,
                     );
                 }
 
@@ -1355,6 +1409,8 @@ mod tests {
             alpha,
             beta,
             bias,
+            None, // a_quant
+            None, // b_quant
         )
         .unwrap();
     }
@@ -1449,6 +1505,8 @@ mod tests {
                 1.,   // alpha
                 0.,   // beta
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             );
             assert_eq!(result, Err(expected));
         }
@@ -1782,6 +1840,8 @@ mod tests {
                 1.,   // alpha
                 1.,   // beta
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             )
             .unwrap();
 
@@ -1799,6 +1859,8 @@ mod tests {
                 1.,   // alpha
                 1.,   // beta
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             )
             .unwrap();
 
@@ -1882,6 +1944,8 @@ mod tests {
             1.,   // alpha
             0.,   // beta
             None, // bias
+            None, // a_quant
+            None, // b_quant
         )
         .unwrap();
 

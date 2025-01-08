@@ -241,6 +241,8 @@ pub fn gru(
                 1.,   // alpha
                 0.,   // beta
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             )
             .unwrap();
             if let Some(input_bias) = input_bias {
@@ -257,6 +259,8 @@ pub fn gru(
                 1.,   // alpha
                 0.,   // beta
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             )
             .unwrap();
             if let Some(hidden_bias) = hidden_bias {
@@ -498,6 +502,8 @@ pub fn lstm(
                 1.,   // alpha
                 0.,   // beta
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             )
             .unwrap();
             if let Some(input_bias) = input_bias {
@@ -512,6 +518,8 @@ pub fn lstm(
                 1.,   // alpha
                 1.,   // beta
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             )
             .unwrap();
             if let Some(hidden_bias) = hidden_bias {
