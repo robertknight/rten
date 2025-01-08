@@ -1194,6 +1194,7 @@ mod tests {
             kernel: Tensor<f32>,
             strides: &'a [usize],
             groups: usize,
+            dilations: &'a [usize],
             expected: OpError,
         }
 
@@ -1203,6 +1204,7 @@ mod tests {
                 input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
                 kernel: Tensor::rand(&[1, 1, 3, 3], &mut rng),
                 strides: &[1, 1],
+                dilations: &[1, 1],
                 groups: 1,
                 expected: OpError::InvalidValue("Input too small for kernel size"),
             },
@@ -1211,14 +1213,34 @@ mod tests {
                 input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
                 kernel: Tensor::rand(&[1, 1, 2, 2], &mut rng),
                 strides: &[0, 0],
+                dilations: &[1, 1],
                 groups: 1,
                 expected: OpError::InvalidValue("Strides must be > 0"),
+            },
+            // Unsupported stride count
+            Case {
+                input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                kernel: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                strides: &[1, 1, 1],
+                dilations: &[1, 1],
+                groups: 1,
+                expected: OpError::InvalidValue("expected 2 stride values"),
+            },
+            // Unsupported dilation count
+            Case {
+                input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                kernel: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                strides: &[1, 1],
+                dilations: &[1, 1, 1],
+                groups: 1,
+                expected: OpError::InvalidValue("expected 2 dilation values"),
             },
             // Zero groups
             Case {
                 input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
                 kernel: Tensor::rand(&[1, 1, 2, 2], &mut rng),
                 strides: &[1, 1],
+                dilations: &[1, 1],
                 groups: 0,
                 expected: OpError::InvalidValue("Group count must be > 0"),
             },
@@ -1230,6 +1252,7 @@ mod tests {
             input,
             kernel,
             strides,
+            dilations,
             groups,
             expected,
         } in cases
@@ -1242,7 +1265,7 @@ mod tests {
                 [0; 4].into(),
                 groups,
                 strides,
-                &[1, 1], /* dilations */
+                dilations,
             );
 
             assert_eq!(result.err(), Some(expected));
