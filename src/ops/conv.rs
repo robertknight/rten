@@ -192,6 +192,10 @@ where
         ));
     }
 
+    if groups == 0 {
+        return Err(OpError::InvalidValue("Group count must be > 0"));
+    }
+
     let out_channels_per_group = out_c / groups;
     let in_channels_per_group = in_c / groups;
 
@@ -201,7 +205,7 @@ where
         ));
     }
 
-    if groups == 0 || in_c % groups != 0 || out_c % groups != 0 {
+    if in_c % groups != 0 || out_c % groups != 0 {
         return Err(OpError::IncompatibleInputShapes(
             "Input channels and output channels must be divisible by group count",
         ));
@@ -1182,51 +1186,90 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_input_too_small() {
+    fn test_conv_invalid() {
         let mut rng = XorShiftRng::new(1234);
-        let input = Tensor::rand(&[1, 1, 2, 2], &mut rng);
-        let kernel = Tensor::rand(&[1, 1, 3, 3], &mut rng);
+
+        struct Case<'a> {
+            input: Tensor<f32>,
+            kernel: Tensor<f32>,
+            strides: &'a [usize],
+            groups: usize,
+            dilations: &'a [usize],
+            expected: OpError,
+        }
+
+        let cases = [
+            // Input too small
+            Case {
+                input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                kernel: Tensor::rand(&[1, 1, 3, 3], &mut rng),
+                strides: &[1, 1],
+                dilations: &[1, 1],
+                groups: 1,
+                expected: OpError::InvalidValue("Input too small for kernel size"),
+            },
+            // Zero stride
+            Case {
+                input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                kernel: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                strides: &[0, 0],
+                dilations: &[1, 1],
+                groups: 1,
+                expected: OpError::InvalidValue("Strides must be > 0"),
+            },
+            // Unsupported stride count
+            Case {
+                input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                kernel: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                strides: &[1, 1, 1],
+                dilations: &[1, 1],
+                groups: 1,
+                expected: OpError::InvalidValue("expected 2 stride values"),
+            },
+            // Unsupported dilation count
+            Case {
+                input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                kernel: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                strides: &[1, 1],
+                dilations: &[1, 1, 1],
+                groups: 1,
+                expected: OpError::InvalidValue("expected 2 dilation values"),
+            },
+            // Zero groups
+            Case {
+                input: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                kernel: Tensor::rand(&[1, 1, 2, 2], &mut rng),
+                strides: &[1, 1],
+                dilations: &[1, 1],
+                groups: 0,
+                expected: OpError::InvalidValue("Group count must be > 0"),
+            },
+        ];
 
         let pool = new_pool();
-        let result = conv(
-            &pool,
-            input.view(),
-            kernel.view(),
-            None,
-            [0; 4].into(),
-            1,       /* groups */
-            &[1, 1], /* stride */
-            &[1, 1], /* dilations */
-        );
 
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue("Input too small for kernel size"))
-        );
-    }
+        for Case {
+            input,
+            kernel,
+            strides,
+            dilations,
+            groups,
+            expected,
+        } in cases
+        {
+            let result = conv(
+                &pool,
+                input.view(),
+                kernel.view(),
+                None,
+                [0; 4].into(),
+                groups,
+                strides,
+                dilations,
+            );
 
-    #[test]
-    fn test_conv_zero_stride() {
-        let mut rng = XorShiftRng::new(1234);
-        let input = Tensor::rand(&[1, 1, 2, 2], &mut rng);
-        let kernel = Tensor::rand(&[1, 1, 2, 2], &mut rng);
-
-        let pool = new_pool();
-        let result = conv(
-            &pool,
-            input.view(),
-            kernel.view(),
-            None,
-            [0; 4].into(),
-            1,       /* groups */
-            &[0, 0], /* stride */
-            &[1, 1], /* dilations */
-        );
-
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue("Strides must be > 0"))
-        );
+            assert_eq!(result.err(), Some(expected));
+        }
     }
 
     #[test]
