@@ -60,7 +60,8 @@ where
                 alpha,
                 beta,
                 None, // bias
-            );
+            )
+            .unwrap();
             output
         }
         _ => {
@@ -73,7 +74,8 @@ where
                 GemmInputB::Unpacked(b.nd_view()),
                 alpha,
                 None, // bias
-            );
+            )
+            .unwrap();
             // Safety: `gemm_uninit` initialized all elements
             unsafe { output.assume_init() }
         }
@@ -286,7 +288,8 @@ where
                 b_input,
                 alpha.unwrap_or(1.),
                 bias,
-            );
+            )
+            .unwrap();
         });
 
     // Safety: Loop above initialized all output elements.
@@ -560,6 +563,7 @@ mod tests {
             alpha,
             beta,
         )
+        .unwrap()
     }
 
     /// Multiply matrices in `a` by corresponding matrices in `b` and write to
@@ -618,6 +622,7 @@ mod tests {
                     0., /* beta */
                     bias,
                 )
+                .unwrap()
             });
 
         match (a_is_vec, b_is_vec) {

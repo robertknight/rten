@@ -18,14 +18,18 @@ use crate::iter_util::{range_chunks, MaybeParIter};
 use crate::number::{Identities, Pod};
 use crate::tensor_pool::ExtractBuffer;
 
+mod errors;
 mod im2col;
 mod kernels;
 mod packing;
 
+pub use errors::GemmError;
 pub use im2col::{ColOffsets, Im2Col, RowOffsets};
 use kernels::generic::GenericKernel;
 use kernels::Kernel;
 use packing::{PackElem, PackingBuffer};
+
+pub type GemmResult = Result<(), GemmError>;
 
 /// Common data and logic for a pre-packed A or B matrix.
 ///
@@ -62,7 +66,7 @@ struct PackedMatrixBase {
     /// Size of the matrix along the K dimension.
     depth_size: usize,
 
-    /// Name of the kernel that packed this buffer. See [`Kernel::name`].
+    /// Name of the kernel used to pack the data.
     kernel_name: &'static str,
 }
 
@@ -241,7 +245,8 @@ pub fn gemm<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     b: Matrix<RhsT>,
     alpha: f32,
     beta: OutT,
-) where
+) -> GemmResult
+where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
 {
     // This heap-allocates a new kernel on each call. That's OK because this
@@ -255,7 +260,7 @@ pub fn gemm<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         alpha,
         beta,
         None, // bias
-    );
+    )
 }
 
 /// Executes matrix multiplication operations.
@@ -460,7 +465,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         alpha: f32,
         beta: OutT,
         bias: Option<BiasVector<OutT>>,
-    ) {
+    ) -> GemmResult {
         gemm_impl(
             &*self.kernel,
             // Safety: `gemm_impl` only writes initialized values to `out_data`.
@@ -471,7 +476,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             alpha,
             beta,
             bias,
-        );
+        )
     }
 
     /// Perform a General Matrix Multiplication ("gemm").
@@ -486,7 +491,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         b: GemmInputB<RhsT>,
         alpha: f32,
         bias: Option<BiasVector<OutT>>,
-    ) {
+    ) -> GemmResult {
         gemm_impl(
             &*self.kernel,
             out_data,
@@ -795,29 +800,23 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     alpha: f32,
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
-) {
-    assert!(
-        a.cols() == b.rows(),
-        "Columns of matrix `a` must match rows of matrix `b`"
-    );
+) -> GemmResult {
+    if a.cols() != b.rows() {
+        return Err(GemmError::KSizeMismatch);
+    }
 
-    match bias {
-        Some(BiasVector::Row(bias)) => assert_eq!(
-            bias.len(),
-            b.cols(),
-            "Bias row vector length must match columns of `b`"
-        ),
-        Some(BiasVector::Column(bias)) => assert_eq!(
-            bias.len(),
-            a.rows(),
-            "Bias column vector length must match rows of `a`"
-        ),
-        None => {}
+    let bias_ok = match bias {
+        Some(BiasVector::Row(bias)) => bias.len() == b.cols(),
+        Some(BiasVector::Column(bias)) => bias.len() == a.rows(),
+        None => true,
+    };
+    if !bias_ok {
+        return Err(GemmError::WrongBiasSize);
     }
 
     // Handle case where output is empty.
     if a.rows() == 0 || b.cols() == 0 {
-        return;
+        return Ok(());
     }
 
     // Construct a Matrix from the implied dimensions, to validate the slice length.
@@ -826,7 +825,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         out_data,
         [out_row_stride, 1],
     )
-    .expect("Output buffer should be large enough");
+    .map_err(|_| GemmError::OutputNotLargeEnough)?;
 
     // Handle case where depth is zero. We still need to initialize the output
     // in this case.
@@ -859,7 +858,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 }
             }
         }
-        return;
+        return Ok(());
     }
 
     // Use optimized path for vector-matrix products.
@@ -875,7 +874,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
             // `a.rows()` or `b.cols()` as appropriate.
             bias,
         );
-        return;
+        return Ok(());
     }
 
     let output_tiles = OutputTiles::new(output_mat, kernel.mr(), kernel.nr());
@@ -892,18 +891,20 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     // If using prepacked inputs, make sure they were packed with the same
     // configuration we are using now.
     if let GemmInputA::Packed(packed) = &a {
-        assert_eq!(packed.base.kernel_name, kernel.name());
-        assert_eq!(packed.base.panel_size, kernel.mr());
-        assert_eq!(packed.base.nm_size, a.rows());
-        assert_eq!(packed.base.depth_size, a.cols());
-        assert_eq!(packed.base.depth_block, kc);
+        if packed.base.panel_size != kernel.mr() || packed.base.kernel_name != kernel.name() {
+            return Err(GemmError::PackedDataKernelMismatch);
+        }
+        if packed.base.depth_block != kc {
+            return Err(GemmError::PackedDataBlockingMismatch);
+        }
     }
     if let GemmInputB::Packed(packed) = &b {
-        assert_eq!(packed.base.kernel_name, kernel.name());
-        assert_eq!(packed.base.panel_size, kernel.nr());
-        assert_eq!(packed.base.depth_size, b.rows());
-        assert_eq!(packed.base.nm_size, b.cols());
-        assert_eq!(packed.base.depth_block, kc);
+        if packed.base.panel_size != kernel.nr() || packed.base.kernel_name != kernel.name() {
+            return Err(GemmError::PackedDataKernelMismatch);
+        }
+        if packed.base.depth_block != kc {
+            return Err(GemmError::PackedDataBlockingMismatch);
+        }
     }
 
     // Buffers for packed blocks of the matrix.
@@ -1048,6 +1049,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 }
             }
         });
+
+    Ok(())
 }
 
 /// LHS / A input for a call to [`gemm_block`].
@@ -1213,8 +1216,8 @@ mod tests {
     use rten_tensor::{Matrix, MatrixLayout, NdTensor, NdTensorView, Tensor};
 
     use super::{
-        gemm, BiasVector, ColOffsets, GemmExecutor, GemmInputA, GemmInputB, Im2Col, KernelType,
-        RowOffsets,
+        BiasVector, ColOffsets, GemmError, GemmExecutor, GemmInputA, GemmInputB, Im2Col,
+        KernelType, RowOffsets,
     };
 
     fn reference_matmul_alpha_beta(a: &Tensor, b: &Tensor, alpha: f32, beta: f32) -> Tensor {
@@ -1269,7 +1272,8 @@ mod tests {
             alpha,
             beta,
             bias,
-        );
+        )
+        .unwrap();
     }
 
     /// Very slow but simple reference implementation. This should produce the
@@ -1322,21 +1326,55 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Output buffer should be large enough")]
-    fn test_gemm_panics_if_output_is_too_short() {
-        let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let b = Tensor::from_data(&[2, 2], vec![5., 6., 7., 8.]);
+    fn test_gemm_input_errors() {
+        struct Case {
+            a: NdTensor<f32, 2>,
+            b: NdTensor<f32, 2>,
+            output_len: usize,
+            output_row_stride: usize,
+            expected: GemmError,
+        }
 
-        let mut output = vec![1., 2.];
+        let cases = [
+            Case {
+                a: NdTensor::from([[1., 2.], [3., 4.]]),
+                b: NdTensor::from([[1., 2.], [3., 4.]]),
+                output_len: 2,
+                output_row_stride: 2,
+                expected: GemmError::OutputNotLargeEnough,
+            },
+            Case {
+                a: NdTensor::from([[1.], [2.]]),
+                b: NdTensor::from([[1., 2.], [3., 4.]]),
+                output_len: 4,
+                output_row_stride: 2,
+                expected: GemmError::KSizeMismatch,
+            },
+        ];
 
-        gemm(
-            &mut output,
-            2,
-            a.nd_view(),
-            b.nd_view(),
-            1., /* alpha */
-            1., /* beta */
-        );
+        let gemm = GemmExecutor::default();
+
+        for Case {
+            a,
+            b,
+            output_len,
+            output_row_stride,
+            expected,
+        } in cases
+        {
+            let mut output = vec![0.; output_len];
+
+            let result = gemm.gemm(
+                &mut output,
+                output_row_stride,
+                GemmInputA::Unpacked(a.view()),
+                GemmInputB::Unpacked(b.view()),
+                1.,   // alpha
+                0.,   // beta
+                None, // bias
+            );
+            assert_eq!(result, Err(expected));
+        }
     }
 
     fn test_gemm_with_kernel(kernel: Option<KernelType>) -> Result<(), Box<dyn Error>> {
@@ -1663,7 +1701,8 @@ mod tests {
                 1.,   // alpha
                 1.,   // beta
                 None, // bias
-            );
+            )
+            .unwrap();
 
             // Compare the results of pre-packed GEMM to unpacked GEMM rather
             // than reference GEMM because a) it is faster for large inputs
@@ -1679,7 +1718,8 @@ mod tests {
                 1.,   // alpha
                 1.,   // beta
                 None, // bias
-            );
+            )
+            .unwrap();
 
             expect_equal(&result, &expected)?;
         }
@@ -1761,7 +1801,8 @@ mod tests {
             1.,   // alpha
             0.,   // beta
             None, // bias
-        );
+        )
+        .unwrap();
 
         let mut expected = NdTensor::<f32, 2>::zeros([kernel_chans, im2col.cols()]);
         for i in 0..expected.rows() {
