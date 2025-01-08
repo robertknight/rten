@@ -57,7 +57,8 @@ where
             GemmInputB::Unpacked(in_mat.view()),
             1., // alpha
             bias_vec,
-        );
+        )
+        .unwrap();
         n_init += out_item.len();
     }
 
@@ -282,7 +283,8 @@ where
                     GemmInputB::Im2Col(&im2col),
                     1., // alpha
                     bias_vec,
-                );
+                )
+                .unwrap();
                 n_init.fetch_add(out_mat.len(), Ordering::SeqCst);
             });
     }
@@ -558,7 +560,8 @@ pub fn conv_transpose(
             GemmInputB::Unpacked(input_mat.view()),
             1.,   // alpha
             None, // bias
-        );
+        )
+        .unwrap();
 
         // Safety: `gemm_uninit` initialized col2im_mat.
         let col2im_mat = unsafe { col2im_mat.view().assume_init() };

@@ -241,7 +241,8 @@ pub fn gru(
                 1.,   // alpha
                 0.,   // beta
                 None, // bias
-            );
+            )
+            .unwrap();
             if let Some(input_bias) = input_bias {
                 add_in_place(gates.as_dyn_mut(), input_bias.as_dyn());
             }
@@ -256,7 +257,8 @@ pub fn gru(
                 1.,   // alpha
                 0.,   // beta
                 None, // bias
-            );
+            )
+            .unwrap();
             if let Some(hidden_bias) = hidden_bias {
                 add_in_place(hidden_scratch.as_dyn_mut(), hidden_bias.as_dyn());
             }
@@ -496,7 +498,8 @@ pub fn lstm(
                 1.,   // alpha
                 0.,   // beta
                 None, // bias
-            );
+            )
+            .unwrap();
             if let Some(input_bias) = input_bias {
                 add_in_place(gates.as_dyn_mut(), input_bias.as_dyn());
             }
@@ -509,7 +512,8 @@ pub fn lstm(
                 1.,   // alpha
                 1.,   // beta
                 None, // bias
-            );
+            )
+            .unwrap();
             if let Some(hidden_bias) = hidden_bias {
                 add_in_place(gates.as_dyn_mut(), hidden_bias.as_dyn());
             }
