@@ -845,7 +845,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         if let Some(bias) = bias {
             let bias_mat = match bias {
                 BiasVector::Column(bias) => {
-                    NdTensorView::from_data([a.rows()], bias).broadcast([a.rows(), b.cols()])
+                    NdTensorView::from_data([a.rows(), 1], bias).broadcast([a.rows(), b.cols()])
                 }
                 BiasVector::Row(bias) => {
                     NdTensorView::from_data([1, b.cols()], bias).broadcast([a.rows(), b.cols()])
@@ -1640,7 +1640,7 @@ mod tests {
             // Vector-matrix, where n > minimum block size
             Case { m: 1, n: 129, k: 1 },
             // Case where k == 0
-            Case { m: 5, n: 5, k: 0 },
+            Case { m: 5, n: 7, k: 0 },
         ];
 
         for Case { m, n, k } in cases {
@@ -1669,6 +1669,7 @@ mod tests {
                 0.,
                 Some(BiasVector::Column(&bias)),
             );
+            expect_equal(&result, &expected)?;
 
             // Row vector bias
             let bias: Vec<f32> = (0..b.cols()).map(|b| b as f32).collect();
@@ -1689,7 +1690,6 @@ mod tests {
                 0.,
                 Some(BiasVector::Row(&bias)),
             );
-
             expect_equal(&result, &expected)?;
         }
 
