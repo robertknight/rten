@@ -1213,24 +1213,29 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{Matrix, MatrixLayout, NdTensor, NdTensorView, Tensor};
+    use rten_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView};
 
     use super::{
         BiasVector, ColOffsets, GemmError, GemmExecutor, GemmInputA, GemmInputB, Im2Col,
         KernelType, RowOffsets,
     };
 
-    fn reference_matmul_alpha_beta(a: &Tensor, b: &Tensor, alpha: f32, beta: f32) -> Tensor {
-        let [a_rows, _a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");
-        let [_b_rows, b_cols]: [usize; 2] = b.shape().try_into().expect("input should be a matrix");
-        let mut output = Tensor::zeros(&[a_rows, b_cols]);
+    fn reference_matmul_alpha_beta(
+        a: Matrix,
+        b: Matrix,
+        alpha: f32,
+        beta: f32,
+    ) -> NdTensor<f32, 2> {
+        let [a_rows, _a_cols]: [usize; 2] = a.shape();
+        let [_b_rows, b_cols]: [usize; 2] = b.shape();
+        let mut output = NdTensor::zeros([a_rows, b_cols]);
 
-        reference_gemm(&mut output, a, b, alpha, beta, None);
+        reference_gemm(output.view_mut(), a, b, alpha, beta, None);
 
         output
     }
 
-    fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
+    fn reference_matmul(a: Matrix, b: Matrix) -> NdTensor<f32, 2> {
         reference_matmul_alpha_beta(a, b, 1., 0.)
     }
 
@@ -1249,9 +1254,9 @@ mod tests {
     /// Run a GEMM operation using the kernel specified by `kernel`, or the
     /// default kernel for the current system if None.
     fn run_gemm(
-        output: &mut Tensor,
-        a: &Tensor,
-        b: &Tensor,
+        mut output: MatrixMut,
+        a: Matrix,
+        b: Matrix,
         alpha: f32,
         beta: f32,
         bias: Option<BiasVector<f32>>,
@@ -1267,8 +1272,8 @@ mod tests {
         gemm.gemm(
             output.data_mut().expect("expected contiguous input"),
             out_row_stride,
-            GemmInputA::Unpacked(a.nd_view()),
-            GemmInputB::Unpacked(b.nd_view()),
+            GemmInputA::Unpacked(a),
+            GemmInputB::Unpacked(b),
             alpha,
             beta,
             bias,
@@ -1281,20 +1286,17 @@ mod tests {
     /// appear in problems with a large K dimension, due to the different
     /// ordering of floating-point operations.
     fn reference_gemm(
-        output: &mut Tensor,
-        a: &Tensor,
-        b: &Tensor,
+        mut output: MatrixMut,
+        a: Matrix,
+        b: Matrix,
         alpha: f32,
         beta: f32,
         bias: Option<BiasVector<f32>>,
     ) {
-        let [a_rows, a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");
-        let [_b_rows, b_cols]: [usize; 2] = b.shape().try_into().expect("input should be a matrix");
-
-        for r in 0..a_rows {
-            for c in 0..b_cols {
+        for r in 0..a.rows() {
+            for c in 0..b.cols() {
                 let mut accum = 0.0;
-                for k in 0..a_cols {
+                for k in 0..a.cols() {
                     accum += a[[r, k]] * b[[k, c]];
                 }
                 let bias = match bias {
@@ -1310,16 +1312,24 @@ mod tests {
     // Simplest possible test case for easy debugging.
     #[test]
     fn test_simple_gemm() -> Result<(), Box<dyn Error>> {
-        let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let b = Tensor::from_data(&[2, 2], vec![5., 6., 7., 8.]);
-        let expected = reference_matmul(&a, &b);
+        let a = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
+        let b = NdTensor::from_data([2, 2], vec![5., 6., 7., 8.]);
+        let expected = reference_matmul(a.view(), b.view());
 
-        let mut result = Tensor::zeros(&[a.size(0), b.size(1)]);
-        run_gemm(&mut result, &a, &b, 1., 1., None, None);
+        let mut result = NdTensor::zeros([a.size(0), b.size(1)]);
+        run_gemm(result.view_mut(), a.view(), b.view(), 1., 1., None, None);
         expect_equal(&result, &expected)?;
 
-        let mut result = Tensor::zeros(&[a.size(0), b.size(1)]);
-        run_gemm(&mut result, &a, &b, 1., 1., None, Some(KernelType::Generic));
+        let mut result = NdTensor::zeros([a.size(0), b.size(1)]);
+        run_gemm(
+            result.view_mut(),
+            a.view(),
+            b.view(),
+            1.,
+            1.,
+            None,
+            Some(KernelType::Generic),
+        );
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -1412,13 +1422,13 @@ mod tests {
 
         for (lhs_size, rhs_size) in cases {
             let mut rng = XorShiftRng::new(1234);
-            let a = Tensor::rand(&lhs_size, &mut rng);
-            let b = Tensor::rand(&rhs_size, &mut rng);
-            let mut result = Tensor::zeros(&[lhs_size[0], rhs_size[1]]);
+            let a = NdTensor::rand(lhs_size, &mut rng);
+            let b = NdTensor::rand(rhs_size, &mut rng);
+            let mut result = NdTensor::zeros([lhs_size[0], rhs_size[1]]);
 
-            run_gemm(&mut result, &a, &b, 1., 0., None, kernel);
+            run_gemm(result.view_mut(), a.view(), b.view(), 1., 0., None, kernel);
 
-            let expected = reference_matmul(&a, &b);
+            let expected = reference_matmul(a.view(), b.view());
 
             if let Err(err) = expect_equal(&result, &expected) {
                 println!(
@@ -1467,21 +1477,21 @@ mod tests {
     #[test]
     fn test_gemm_transposed() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
-        let mut a = Tensor::rand(&[20, 30], &mut rng);
-        let mut b = Tensor::rand(&[10, 20], &mut rng);
+        let mut a = NdTensor::rand([20, 30], &mut rng);
+        let mut b = NdTensor::rand([10, 20], &mut rng);
 
         // Transpose the input matrices. This will alter their row and column
         // strides and shapes, but not re-order the data.
-        a.permute(&[1, 0]);
-        b.permute(&[1, 0]);
+        a.permute([1, 0]);
+        b.permute([1, 0]);
 
-        let [a_rows, _]: [usize; 2] = a.shape().try_into().unwrap();
-        let [_, b_cols]: [usize; 2] = b.shape().try_into().unwrap();
+        let [a_rows, _]: [usize; 2] = a.shape();
+        let [_, b_cols]: [usize; 2] = b.shape();
 
-        let mut result = Tensor::zeros(&[a_rows, b_cols]);
-        run_gemm(&mut result, &a, &b, 1., 1., None, None);
+        let mut result = NdTensor::zeros([a_rows, b_cols]);
+        run_gemm(result.view_mut(), a.view(), b.view(), 1., 1., None, None);
 
-        let expected = reference_matmul(&a, &b);
+        let expected = reference_matmul(a.view(), b.view());
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -1491,16 +1501,24 @@ mod tests {
     fn test_gemm_alpha() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
 
-        let a = Tensor::rand(&[10, 5], &mut rng);
-        let b = Tensor::rand(&[5, 15], &mut rng);
+        let a = NdTensor::rand([10, 5], &mut rng);
+        let b = NdTensor::rand([5, 15], &mut rng);
 
         for kernel in [None, Some(KernelType::Generic)] {
             for alpha in [0.0, 0.5, 1.0, 2.0] {
-                let mut result = Tensor::rand(&[10, 15], &mut rng);
+                let mut result = NdTensor::rand([10, 15], &mut rng);
                 let mut expected = result.clone();
 
-                run_gemm(&mut result, &a, &b, alpha, 0.0, None, kernel);
-                reference_gemm(&mut expected, &a, &b, alpha, 0.0, None);
+                run_gemm(
+                    result.view_mut(),
+                    a.view(),
+                    b.view(),
+                    alpha,
+                    0.0,
+                    None,
+                    kernel,
+                );
+                reference_gemm(expected.view_mut(), a.view(), b.view(), alpha, 0.0, None);
 
                 expect_equal(&result, &expected)?;
             }
@@ -1522,16 +1540,24 @@ mod tests {
         let cases = [Case { m: 10, k: 5, n: 15 }, Case { m: 10, k: 0, n: 15 }];
 
         for Case { m, n, k } in cases {
-            let a = Tensor::rand(&[m, k], &mut rng);
-            let b = Tensor::rand(&[k, n], &mut rng);
+            let a = NdTensor::rand([m, k], &mut rng);
+            let b = NdTensor::rand([k, n], &mut rng);
 
             for kernel in [None, Some(KernelType::Generic)] {
                 for beta in [0.5, 1.0, 2.0] {
-                    let mut result = Tensor::rand(&[m, n], &mut rng);
+                    let mut result = NdTensor::rand([m, n], &mut rng);
                     let mut expected = result.clone();
 
-                    run_gemm(&mut result, &a, &b, 1., beta, None, kernel);
-                    reference_gemm(&mut expected, &a, &b, 1., beta, None);
+                    run_gemm(
+                        result.view_mut(),
+                        a.view(),
+                        b.view(),
+                        1.,
+                        beta,
+                        None,
+                        kernel,
+                    );
+                    reference_gemm(expected.view_mut(), a.view(), b.view(), 1., beta, None);
 
                     expect_equal(&result, &expected)?;
                 }
@@ -1563,17 +1589,32 @@ mod tests {
 
         for Case { m, n, k } in cases {
             let mut rng = XorShiftRng::new(1234);
-            let a = Tensor::rand(&[m, k], &mut rng);
-            let b = Tensor::rand(&[k, n], &mut rng);
+            let a = NdTensor::rand([m, k], &mut rng);
+            let b = NdTensor::rand([k, n], &mut rng);
 
-            let mut result = Tensor::full(&[m, n], f32::NAN);
-            let mut expected = Tensor::zeros(result.shape());
+            let mut result = NdTensor::full([m, n], f32::NAN);
+            let mut expected = NdTensor::zeros(result.shape());
 
             // Test alpha values for which we may have special cases (0, 1) and
             // the general case.
             for alpha in [0., 0.5, 1.] {
-                run_gemm(&mut result, &a, &b, alpha, 0. /* beta */, None, None);
-                reference_gemm(&mut expected, &a, &b, alpha, 0. /* beta */, None);
+                run_gemm(
+                    result.view_mut(),
+                    a.view(),
+                    b.view(),
+                    alpha,
+                    0., /* beta */
+                    None,
+                    None,
+                );
+                reference_gemm(
+                    expected.view_mut(),
+                    a.view(),
+                    b.view(),
+                    alpha,
+                    0., /* beta */
+                    None,
+                );
                 expect_equal(&result, &expected)?;
             }
         }
@@ -1603,44 +1644,51 @@ mod tests {
         ];
 
         for Case { m, n, k } in cases {
-            let a = Tensor::rand(&[m, k], &mut rng);
-            let b = Tensor::rand(&[k, n], &mut rng);
+            let a = NdTensor::rand([m, k], &mut rng);
+            let b = NdTensor::rand([k, n], &mut rng);
 
-            let mut result = Tensor::zeros(&[m, n]);
+            let mut result = NdTensor::zeros([m, n]);
             let mut expected = result.clone();
 
             // Column vector bias
-            let bias: Vec<f32> = (0..a.shape()[0]).map(|b| b as f32).collect();
+            let bias: Vec<f32> = (0..a.rows()).map(|b| b as f32).collect();
             run_gemm(
-                &mut result,
-                &a,
-                &b,
+                result.view_mut(),
+                a.view(),
+                b.view(),
                 1.,
                 0.,
                 Some(BiasVector::Column(&bias)),
                 None,
             );
             reference_gemm(
-                &mut expected,
-                &a,
-                &b,
+                expected.view_mut(),
+                a.view(),
+                b.view(),
                 1.,
                 0.,
                 Some(BiasVector::Column(&bias)),
             );
 
             // Row vector bias
-            let bias: Vec<f32> = (0..b.shape()[1]).map(|b| b as f32).collect();
+            let bias: Vec<f32> = (0..b.cols()).map(|b| b as f32).collect();
             run_gemm(
-                &mut result,
-                &a,
-                &b,
+                result.view_mut(),
+                a.view(),
+                b.view(),
                 1.,
                 0.,
                 Some(BiasVector::Row(&bias)),
                 None,
             );
-            reference_gemm(&mut expected, &a, &b, 1., 0., Some(BiasVector::Row(&bias)));
+            reference_gemm(
+                expected.view_mut(),
+                a.view(),
+                b.view(),
+                1.,
+                0.,
+                Some(BiasVector::Row(&bias)),
+            );
 
             expect_equal(&result, &expected)?;
         }
@@ -1680,17 +1728,15 @@ mod tests {
 
         for case in cases {
             let Case { m, n, k } = case;
-            let a = Tensor::rand(&[m, k], &mut rng);
-            let b = Tensor::rand(&[k, n], &mut rng);
+            let a = NdTensor::rand([m, k], &mut rng);
+            let b = NdTensor::rand([k, n], &mut rng);
 
-            let a_mat: Matrix = a.nd_view();
-            let b_mat: Matrix = b.nd_view();
             let gemm = GemmExecutor::new();
 
-            let packed_a = gemm.prepack_a(a_mat);
-            let packed_b = gemm.prepack_b(b.nd_view());
+            let packed_a = gemm.prepack_a(a.view());
+            let packed_b = gemm.prepack_b(b.view());
 
-            let mut result = Tensor::zeros(&[m, n]);
+            let mut result = NdTensor::zeros([m, n]);
             let result_row_stride = result.stride(0);
 
             gemm.gemm(
@@ -1708,13 +1754,13 @@ mod tests {
             // than reference GEMM because a) it is faster for large inputs
             // and b) in the case where K is large, the accumulated numerical
             // differences will be smaller.
-            let mut expected = Tensor::zeros(result.shape());
+            let mut expected = NdTensor::zeros(result.shape());
             let expected_row_stride = expected.stride(0);
             gemm.gemm(
                 expected.data_mut().unwrap(),
                 expected_row_stride,
-                GemmInputA::Unpacked(a_mat),
-                GemmInputB::Unpacked(b_mat),
+                GemmInputA::Unpacked(a.view()),
+                GemmInputB::Unpacked(b.view()),
                 1.,   // alpha
                 1.,   // beta
                 None, // bias
@@ -1979,26 +2025,26 @@ mod tests {
             b_strides,
         } in cases
         {
-            let a = Tensor::rand(&[1, k], &mut rng);
-            let mut b = Tensor::rand(&[k, n], &mut rng);
+            let a = NdTensor::rand([1, k], &mut rng);
+            let mut b = NdTensor::rand([k, n], &mut rng);
             match b_strides {
                 Strides::Contiguous => {}
                 Strides::Transposed => {
                     b.transpose();
                 }
                 Strides::Other => {
-                    b = Tensor::from_data_with_strides(&[k, n / 2], b.to_vec(), &[b.stride(0), 2])
+                    b = NdTensor::from_data_with_strides([k, n / 2], b.to_vec(), [b.stride(0), 2])
                         .unwrap();
                 }
             }
 
-            let mut result = Tensor::zeros(&[1, b.size(1)]);
+            let mut result = NdTensor::zeros([1, b.size(1)]);
             let bias_array = bias.map(|b| [b]);
 
             run_gemm(
-                &mut result,
-                &a,
-                &b,
+                result.view_mut(),
+                a.view(),
+                b.view(),
                 alpha,
                 beta,
                 bias_array
@@ -2007,8 +2053,8 @@ mod tests {
                 None,
             );
 
-            let expected =
-                reference_matmul_alpha_beta(&a, &b, alpha, beta).map(|x| x + bias.unwrap_or(0.));
+            let expected = reference_matmul_alpha_beta(a.view(), b.view(), alpha, beta)
+                .map(|x| x + bias.unwrap_or(0.));
             expect_equal(&result, &expected)?;
         }
 
@@ -2057,19 +2103,19 @@ mod tests {
             let iters = iters.min(target_iters);
 
             let mut rng = XorShiftRng::new(1234);
-            let mut result = Tensor::zeros(&[m, n]);
-            let a = Tensor::rand(&[m, k], &mut rng);
+            let mut result = NdTensor::zeros([m, n]);
+            let a = NdTensor::rand([m, k], &mut rng);
             let b = if transpose_b {
-                let mut b = Tensor::rand(&[n, k], &mut rng);
+                let mut b = NdTensor::rand([n, k], &mut rng);
                 b.transpose();
                 b
             } else {
-                Tensor::rand(&[k, n], &mut rng)
+                NdTensor::rand([k, n], &mut rng)
             };
 
             let start = Instant::now();
             for _i in 0..iters {
-                run_gemm(&mut result, &a, &b, 1., 0., None, None);
+                run_gemm(result.view_mut(), a.view(), b.view(), 1., 0., None, None);
             }
             let duration = start.elapsed();
 
