@@ -2077,28 +2077,28 @@ impl<T, S: StorageMut<Elem = T>> TensorBase<S, NdLayout<1>> {
     }
 }
 
-/// View of a slice of a tensor with a static dimension count.
+/// View of a tensor with N dimensions.
 pub type NdTensorView<'a, T, const N: usize> = TensorBase<ViewData<'a, T>, NdLayout<N>>;
 
-/// Tensor with a static dimension count.
+/// Owned tensor with N dimensions.
 pub type NdTensor<T, const N: usize> = TensorBase<Vec<T>, NdLayout<N>>;
 
-/// Mutable view of a slice of a tensor with a static dimension count.
+/// Mutable view of a tensor with N dimensions.
 pub type NdTensorViewMut<'a, T, const N: usize> = TensorBase<ViewMutData<'a, T>, NdLayout<N>>;
 
-/// View of a slice as a matrix.
+/// View of a 2D tensor.
 pub type Matrix<'a, T = f32> = NdTensorView<'a, T, 2>;
 
-/// Mutable view of a slice as a matrix.
+/// Mutable view of a 2D tensor.
 pub type MatrixMut<'a, T = f32> = NdTensorViewMut<'a, T, 2>;
 
-/// Tensor with a dynamic dimension count.
+/// Owned tensor with a dynamic dimension count.
 pub type Tensor<T = f32> = TensorBase<Vec<T>, DynLayout>;
 
-/// View of a slice of a tensor with a dynamic dimension count.
+/// View of a tensor with a dynamic dimension count.
 pub type TensorView<'a, T = f32> = TensorBase<ViewData<'a, T>, DynLayout>;
 
-/// Mutable view of a slice of a tensor with a dynamic dimension count.
+/// Mutable view of a tensor with a dynamic dimension count.
 pub type TensorViewMut<'a, T = f32> = TensorBase<ViewMutData<'a, T>, DynLayout>;
 
 impl<T, S: Storage<Elem = T>, L: MutLayout, I: AsIndex<L>> Index<I> for TensorBase<S, L> {
