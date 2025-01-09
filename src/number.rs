@@ -43,24 +43,38 @@ pub trait Identities {
     fn zero() -> Self;
 }
 
-impl Identities for f32 {
-    fn one() -> f32 {
-        1.
-    }
+macro_rules! impl_float_identities {
+    ($type:ty) => {
+        impl Identities for $type {
+            fn one() -> Self {
+                1.
+            }
 
-    fn zero() -> f32 {
-        0.
-    }
+            fn zero() -> Self {
+                0.
+            }
+        }
+    };
 }
 
-impl Identities for i32 {
-    fn one() -> i32 {
-        1
-    }
-    fn zero() -> i32 {
-        0
-    }
+macro_rules! impl_int_identities {
+    ($type:ty) => {
+        impl Identities for $type {
+            fn one() -> Self {
+                1
+            }
+
+            fn zero() -> Self {
+                0
+            }
+        }
+    };
 }
+
+impl_float_identities!(f32);
+impl_int_identities!(i32);
+impl_int_identities!(i8);
+impl_int_identities!(u8);
 
 /// Test if a number is a float NaN ("Not a number") value.
 pub trait IsNaN {
