@@ -174,6 +174,8 @@ impl<T> GemmInputA<'_, T> {
 
 /// Trait implemented by GEMM input types.
 pub trait GemmInT: Copy + Default + Send + Sync + Identities + Pod {}
+impl GemmInT for i8 {}
+impl GemmInT for u8 {}
 impl GemmInT for f32 {}
 
 /// Trait implemented by GEMM output types.
@@ -188,6 +190,7 @@ pub trait GemmOutT:
     + Pod
 {
 }
+impl GemmOutT for i32 {}
 impl GemmOutT for f32 {}
 
 /// Right-hand or "B" input for a GEMM operation.
