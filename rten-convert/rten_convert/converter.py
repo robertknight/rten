@@ -55,6 +55,7 @@ class ConstantNode(Node):
     """
 
     shape: list[int]
+    strides: Optional[list[int]]
     data: np.ndarray
 
     def __init__(self, name: str, shape: list[int], data: np.ndarray):
@@ -861,6 +862,12 @@ def op_node_from_onnx_operator(
             op_reader.check_attr("input_forget", "int", 0)
             op_reader.check_attr("layout", "int", 0)
 
+        case "MatMul":
+            b = constant_nodes.get(onnx_op.input[-1])
+            if b and len(b.shape) == 2 and b.shape[-1] > 1:
+                b.data = np.ascontiguousarray(b.data.transpose())
+                b.strides = [1, b.shape[0]]
+
         case "MaxPool":
             attrs = sg.MaxPoolAttrsT()
             kernel_shape = op_reader.require_attr("kernel_shape", "ints")
@@ -1202,6 +1209,12 @@ def build_constant_node(
     shape_vec = write_vec(
         builder, sg.ConstantNodeStartShapeVector, constant.shape, "u32"
     )
+    if getattr(constant, "strides", None):
+        strides_vec = write_vec(
+            builder, sg.ConstantNodeStartStridesVector, constant.strides, "u32"
+        )
+    else:
+        strides_vec = None
     n_elems = reduce(mul, constant.shape, 1)
     assert n_elems == constant.data.size, "constant shape does not match element count"
 
@@ -1261,6 +1274,8 @@ def build_constant_node(
     sg.ConstantNodeStart(builder)
     sg.ConstantNodeAddShape(builder, shape_vec)
     sg.ConstantNodeAddDtype(builder, dtype)
+    if strides_vec:
+        sg.ConstantNodeAddStrides(builder, strides_vec)
 
     if inline_data:
         sg.ConstantNodeAddDataType(builder, inline_data_type)
