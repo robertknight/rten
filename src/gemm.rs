@@ -506,6 +506,13 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             bias,
         )
     }
+
+    fn from_kernel<K: Kernel<LhsT, RhsT, OutT> + 'static>(kernel_type: KernelType) -> Option<Self> {
+        K::new().map(|kernel| GemmExecutor {
+            kernel: Box::new(kernel),
+            kernel_type,
+        })
+    }
 }
 
 impl GemmExecutor<f32, f32, f32> {
@@ -536,37 +543,24 @@ impl GemmExecutor<f32, f32, f32> {
     /// kernel is not supported.
     #[allow(dead_code)] // Currently only used in tests
     pub fn with_kernel(hint: KernelType) -> Option<Self> {
-        fn make_kernel<K: Kernel<f32, f32, f32> + 'static>(
-            kernel_type: KernelType,
-        ) -> Option<GemmExecutor> {
-            K::new().map(|kernel| GemmExecutor {
-                kernel: Box::new(kernel),
-                kernel_type,
-            })
-        }
-
         match hint {
             #[cfg(feature = "avx512")]
             #[cfg(target_arch = "x86_64")]
-            KernelType::Avx512 => make_kernel::<kernels::x86_64::Avx512Kernel>(hint),
+            KernelType::Avx512 => Self::from_kernel::<kernels::x86_64::Avx512Kernel>(hint),
             #[cfg(target_arch = "x86_64")]
-            KernelType::Fma => make_kernel::<kernels::x86_64::FmaKernel>(hint),
+            KernelType::Fma => Self::from_kernel::<kernels::x86_64::FmaKernel>(hint),
             #[cfg(target_arch = "aarch64")]
-            KernelType::ArmNeon => make_kernel::<kernels::aarch64::ArmNeonKernel>(hint),
+            KernelType::ArmNeon => Self::from_kernel::<kernels::aarch64::ArmNeonKernel>(hint),
             #[cfg(target_arch = "wasm32")]
             #[cfg(target_feature = "simd128")]
-            KernelType::Wasm => make_kernel::<kernels::wasm::WasmKernel>(hint),
+            KernelType::Wasm => Self::from_kernel::<kernels::wasm::WasmKernel>(hint),
             KernelType::Generic => Some(Self::with_generic_kernel()),
         }
     }
 
     /// Construct a GemmExecutor that uses the generic kernel.
     fn with_generic_kernel() -> Self {
-        let kernel = GenericKernel::new().unwrap();
-        GemmExecutor {
-            kernel: Box::new(kernel),
-            kernel_type: KernelType::Generic,
-        }
+        Self::from_kernel::<GenericKernel>(KernelType::Generic).unwrap()
     }
 }
 
