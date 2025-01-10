@@ -1212,31 +1212,116 @@ mod tests {
     use rten_bench::run_bench;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
-    use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView};
+    use rten_tensor::test_util::{expect_equal, ApproxEq};
+    use rten_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, RandomSource};
 
     use super::{
-        BiasVector, ColOffsets, GemmError, GemmExecutor, GemmInputA, GemmInputB, Im2Col,
-        KernelType, RowOffsets,
+        BiasVector, ColOffsets, GemmError, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT,
+        Im2Col, KernelType, RowOffsets,
     };
 
-    fn reference_matmul_alpha_beta(
-        a: Matrix,
-        b: Matrix,
-        alpha: f32,
-        beta: f32,
-    ) -> NdTensor<f32, 2> {
-        let [a_rows, _a_cols]: [usize; 2] = a.shape();
-        let [_b_rows, b_cols]: [usize; 2] = b.shape();
-        let mut output = NdTensor::zeros([a_rows, b_cols]);
-
-        reference_gemm(output.view_mut(), a, b, alpha, beta, None);
-
-        output
+    /// Scale a possibly non-float value by a float.
+    ///
+    /// Used for scaling by alpha in `C = alpha * AB + beta * C`.
+    trait MulFloat {
+        fn mul_float(self, scale: f32) -> Self;
     }
 
-    fn reference_matmul(a: Matrix, b: Matrix) -> NdTensor<f32, 2> {
-        reference_matmul_alpha_beta(a, b, 1., 0.)
+    impl MulFloat for f32 {
+        fn mul_float(self, scale: f32) -> Self {
+            self * scale
+        }
+    }
+
+    impl MulFloat for i32 {
+        fn mul_float(self, scale: f32) -> Self {
+            (self as f32 * scale) as Self
+        }
+    }
+
+    /// Type that can be used as the output for the reference GEMM
+    /// implementation.
+    trait RefGemmOutT<LhsT, RhsT>:
+        Default + GemmOutT + From<LhsT> + From<RhsT> + MulFloat + ApproxEq + std::fmt::Debug
+    {
+    }
+
+    impl<LhsT, RhsT> RefGemmOutT<LhsT, RhsT> for f32
+    where
+        f32: From<LhsT>,
+        f32: From<RhsT>,
+    {
+    }
+
+    #[derive(Clone)]
+    struct GemmOpts<'a, OutT> {
+        alpha: f32,
+        beta: OutT,
+        bias: Option<BiasVector<'a, OutT>>,
+    }
+
+    impl<OutT: GemmOutT> Default for GemmOpts<'_, OutT> {
+        fn default() -> Self {
+            GemmOpts {
+                alpha: 1.,
+                beta: OutT::zero(),
+                bias: None,
+            }
+        }
+    }
+
+    /// Reference implementation. This should produce the same results as the
+    /// optimized GEMM, but small numerical differences will appear in problems
+    /// with a large K dimension, due to the different ordering of
+    /// floating-point operations.
+    fn reference_gemm<LhsT, RhsT, OutT>(
+        mut output: MatrixMut<OutT>,
+        a: Matrix<LhsT>,
+        b: Matrix<RhsT>,
+        opts: Option<GemmOpts<OutT>>,
+    ) where
+        LhsT: GemmInT,
+        RhsT: GemmInT,
+        OutT: RefGemmOutT<LhsT, RhsT>,
+    {
+        let GemmOpts { alpha, beta, bias } = opts.unwrap_or_default();
+
+        for r in 0..a.rows() {
+            for c in 0..b.cols() {
+                let mut accum = OutT::zero();
+                for k in 0..a.cols() {
+                    accum = accum + OutT::from(a[[r, k]]) * OutT::from(b[[k, c]]);
+                }
+                let bias = match bias {
+                    Some(BiasVector::Row(b)) => b[c],
+                    Some(BiasVector::Column(b)) => b[r],
+                    None => OutT::zero(),
+                };
+                output[[r, c]] = accum.mul_float(alpha) + beta * output[[r, c]] + bias;
+            }
+        }
+    }
+
+    fn reference_matmul<LhsT, RhsT, OutT>(
+        a: Matrix<LhsT>,
+        b: Matrix<RhsT>,
+        opts: Option<GemmOpts<OutT>>,
+    ) -> NdTensor<OutT, 2>
+    where
+        LhsT: GemmInT,
+        RhsT: GemmInT,
+        OutT: RefGemmOutT<LhsT, RhsT>,
+    {
+        if let Some(opts) = &opts {
+            assert_eq!(
+                opts.beta,
+                OutT::zero(),
+                "beta has no effect in `reference_matmul`"
+            );
+        }
+        let mut output = NdTensor::full([a.rows(), b.cols()], OutT::zero());
+        reference_gemm(output.view_mut(), a, b, opts);
+        output
     }
 
     // Maximum block sizes that the GEMM implementation uses. Choosing M, N, K
@@ -1251,23 +1336,19 @@ mod tests {
     const COL_BLOCK_SIZE: usize = 1024;
     const DEPTH_BLOCK_SIZE: usize = 256;
 
-    /// Run a GEMM operation using the kernel specified by `kernel`, or the
-    /// default kernel for the current system if None.
-    fn run_gemm(
-        mut output: MatrixMut,
-        a: Matrix,
-        b: Matrix,
-        alpha: f32,
-        beta: f32,
-        bias: Option<BiasVector<f32>>,
-        kernel: Option<KernelType>,
-    ) {
+    fn run_gemm<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
+        mut output: MatrixMut<OutT>,
+        a: Matrix<LhsT>,
+        b: Matrix<RhsT>,
+        opts: Option<GemmOpts<OutT>>,
+        gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
+    ) where
+        GemmExecutor<LhsT, RhsT, OutT>: Default,
+    {
         let out_row_stride = output.stride(0);
-        let gemm = if let Some(kernel) = kernel {
-            GemmExecutor::with_kernel(kernel).expect("kernel not available")
-        } else {
-            GemmExecutor::new()
-        };
+        let default_gemm = GemmExecutor::default();
+        let gemm = gemm.unwrap_or(&default_gemm);
+        let GemmOpts { alpha, beta, bias } = opts.unwrap_or_default();
 
         gemm.gemm(
             output.data_mut().expect("expected contiguous input"),
@@ -1281,32 +1362,33 @@ mod tests {
         .unwrap();
     }
 
-    /// Very slow but simple reference implementation. This should produce the
-    /// same results as the optimized GEMM, but small numerical differences will
-    /// appear in problems with a large K dimension, due to the different
-    /// ordering of floating-point operations.
-    fn reference_gemm(
-        mut output: MatrixMut,
-        a: Matrix,
-        b: Matrix,
-        alpha: f32,
-        beta: f32,
-        bias: Option<BiasVector<f32>>,
-    ) {
-        for r in 0..a.rows() {
-            for c in 0..b.cols() {
-                let mut accum = 0.0;
-                for k in 0..a.cols() {
-                    accum += a[[r, k]] * b[[k, c]];
-                }
-                let bias = match bias {
-                    Some(BiasVector::Row(b)) => b[c],
-                    Some(BiasVector::Column(b)) => b[r],
-                    None => 0.,
-                };
-                output[[r, c]] = alpha * accum + beta * output[[r, c]] + bias;
-            }
-        }
+    fn run_matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT + Default>(
+        a: Matrix<LhsT>,
+        b: Matrix<RhsT>,
+        opts: Option<GemmOpts<OutT>>,
+        gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
+    ) -> NdTensor<OutT, 2>
+    where
+        GemmExecutor<LhsT, RhsT, OutT>: Default,
+    {
+        let mut output = NdTensor::zeros([a.rows(), b.cols()]);
+        run_gemm(output.view_mut(), a, b, opts, gemm);
+        output
+    }
+
+    /// Run a matmul with the reference and real implementations and verify
+    /// the results match.
+    fn run_compare_matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: RefGemmOutT<LhsT, RhsT>>(
+        a: Matrix<LhsT>,
+        b: Matrix<RhsT>,
+        opts: Option<GemmOpts<OutT>>,
+        gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
+    ) where
+        GemmExecutor<LhsT, RhsT, OutT>: Default,
+    {
+        let result = run_matmul(a.view(), b.view(), opts.clone(), gemm);
+        let expected = reference_matmul(a.view(), b.view(), opts);
+        expect_equal(&result, &expected).unwrap();
     }
 
     // Simplest possible test case for easy debugging.
@@ -1314,24 +1396,13 @@ mod tests {
     fn test_simple_gemm() -> Result<(), Box<dyn Error>> {
         let a = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
         let b = NdTensor::from_data([2, 2], vec![5., 6., 7., 8.]);
-        let expected = reference_matmul(a.view(), b.view());
-
-        let mut result = NdTensor::zeros([a.size(0), b.size(1)]);
-        run_gemm(result.view_mut(), a.view(), b.view(), 1., 1., None, None);
-        expect_equal(&result, &expected)?;
-
-        let mut result = NdTensor::zeros([a.size(0), b.size(1)]);
-        run_gemm(
-            result.view_mut(),
+        run_compare_matmul(a.view(), b.view(), None, None);
+        run_compare_matmul(
             a.view(),
             b.view(),
-            1.,
-            1.,
             None,
-            Some(KernelType::Generic),
+            Some(&GemmExecutor::with_kernel(KernelType::Generic).unwrap()),
         );
-        expect_equal(&result, &expected)?;
-
         Ok(())
     }
 
@@ -1373,7 +1444,6 @@ mod tests {
         } in cases
         {
             let mut output = vec![0.; output_len];
-
             let result = gemm.gemm(
                 &mut output,
                 output_row_stride,
@@ -1387,7 +1457,19 @@ mod tests {
         }
     }
 
-    fn test_gemm_with_kernel(kernel: Option<KernelType>) -> Result<(), Box<dyn Error>> {
+    /// Test a GEMM kernel using all square matrices up to a given size, plus
+    /// various other "interesting" size combinations.
+    fn test_gemm_various_input_sizes<LhsT, RhsT, OutT>(
+        gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
+    ) -> Result<(), Box<dyn Error>>
+    where
+        LhsT: GemmInT,
+        RhsT: GemmInT,
+        GemmExecutor<LhsT, RhsT, OutT>: Default,
+        XorShiftRng: RandomSource<LhsT>,
+        XorShiftRng: RandomSource<RhsT>,
+        OutT: RefGemmOutT<LhsT, RhsT>,
+    {
         // "Interesting" sizes for the row, column and depth dimensions of the
         // computation. These are chosen to cover cases that are less than,
         // equal to and above the tile/block sizes which the algorithm divides
@@ -1422,13 +1504,11 @@ mod tests {
 
         for (lhs_size, rhs_size) in cases {
             let mut rng = XorShiftRng::new(1234);
-            let a = NdTensor::rand(lhs_size, &mut rng);
-            let b = NdTensor::rand(rhs_size, &mut rng);
-            let mut result = NdTensor::zeros([lhs_size[0], rhs_size[1]]);
+            let a = NdTensor::<LhsT, 2>::rand(lhs_size, &mut rng);
+            let b = NdTensor::<RhsT, 2>::rand(rhs_size, &mut rng);
 
-            run_gemm(result.view_mut(), a.view(), b.view(), 1., 0., None, kernel);
-
-            let expected = reference_matmul(a.view(), b.view());
+            let result = run_matmul(a.view(), b.view(), None, gemm);
+            let expected = reference_matmul(a.view(), b.view(), None);
 
             if let Err(err) = expect_equal(&result, &expected) {
                 println!(
@@ -1445,20 +1525,23 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_gemm_with_fma_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_with_kernel(Some(KernelType::Fma))
+        let gemm = GemmExecutor::with_kernel(KernelType::Fma).unwrap();
+        test_gemm_various_input_sizes(Some(&gemm))
     }
 
     #[cfg(feature = "avx512")]
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_gemm_with_avx512_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_with_kernel(Some(KernelType::Avx512))
+        let gemm = GemmExecutor::with_kernel(KernelType::Avx512).unwrap();
+        test_gemm_various_input_sizes(Some(&gemm))
     }
 
     #[cfg(target_arch = "aarch64")]
     #[test]
     fn test_gemm_with_arm_neon_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_with_kernel(Some(KernelType::ArmNeon))
+        let gemm = GemmExecutor::with_kernel(KernelType::ArmNeon).unwrap();
+        test_gemm_various_input_sizes(Some(&gemm))
     }
 
     // This duplicates one of the other `test_gemm_with_XXX_kernel` tests
@@ -1466,12 +1549,13 @@ mod tests {
     // test is fast.
     #[test]
     fn test_gemm_with_auto_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_with_kernel(None)
+        test_gemm_various_input_sizes::<f32, f32, f32>(None)
     }
 
     #[test]
     fn test_gemm_with_generic_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_with_kernel(Some(KernelType::Generic))
+        let gemm = GemmExecutor::with_kernel(KernelType::Generic).unwrap();
+        test_gemm_various_input_sizes(Some(&gemm))
     }
 
     #[test]
@@ -1485,16 +1569,16 @@ mod tests {
         a.permute([1, 0]);
         b.permute([1, 0]);
 
-        let [a_rows, _]: [usize; 2] = a.shape();
-        let [_, b_cols]: [usize; 2] = b.shape();
-
-        let mut result = NdTensor::zeros([a_rows, b_cols]);
-        run_gemm(result.view_mut(), a.view(), b.view(), 1., 1., None, None);
-
-        let expected = reference_matmul(a.view(), b.view());
-        expect_equal(&result, &expected)?;
+        run_compare_matmul(a.view(), b.view(), None, None);
 
         Ok(())
+    }
+
+    fn generic_native_f32_kernels() -> [GemmExecutor<f32, f32, f32>; 2] {
+        [
+            GemmExecutor::default(),
+            GemmExecutor::with_kernel(KernelType::Generic).unwrap(),
+        ]
     }
 
     #[test]
@@ -1504,23 +1588,13 @@ mod tests {
         let a = NdTensor::rand([10, 5], &mut rng);
         let b = NdTensor::rand([5, 15], &mut rng);
 
-        for kernel in [None, Some(KernelType::Generic)] {
+        for gemm in generic_native_f32_kernels() {
             for alpha in [0.0, 0.5, 1.0, 2.0] {
-                let mut result = NdTensor::rand([10, 15], &mut rng);
-                let mut expected = result.clone();
-
-                run_gemm(
-                    result.view_mut(),
-                    a.view(),
-                    b.view(),
+                let opts = Some(GemmOpts {
                     alpha,
-                    0.0,
-                    None,
-                    kernel,
-                );
-                reference_gemm(expected.view_mut(), a.view(), b.view(), alpha, 0.0, None);
-
-                expect_equal(&result, &expected)?;
+                    ..Default::default()
+                });
+                run_compare_matmul(a.view(), b.view(), opts.clone(), Some(&gemm));
             }
         }
 
@@ -1543,21 +1617,23 @@ mod tests {
             let a = NdTensor::rand([m, k], &mut rng);
             let b = NdTensor::rand([k, n], &mut rng);
 
-            for kernel in [None, Some(KernelType::Generic)] {
+            for gemm in generic_native_f32_kernels() {
                 for beta in [0.5, 1.0, 2.0] {
                     let mut result = NdTensor::rand([m, n], &mut rng);
                     let mut expected = result.clone();
+                    let opts = Some(GemmOpts {
+                        beta,
+                        ..Default::default()
+                    });
 
                     run_gemm(
                         result.view_mut(),
                         a.view(),
                         b.view(),
-                        1.,
-                        beta,
-                        None,
-                        kernel,
+                        opts.clone(),
+                        Some(&gemm),
                     );
-                    reference_gemm(expected.view_mut(), a.view(), b.view(), 1., beta, None);
+                    reference_gemm(expected.view_mut(), a.view(), b.view(), opts);
 
                     expect_equal(&result, &expected)?;
                 }
@@ -1592,29 +1668,20 @@ mod tests {
             let a = NdTensor::rand([m, k], &mut rng);
             let b = NdTensor::rand([k, n], &mut rng);
 
+            // Create output buffer with NANs. This will cause incorrect
+            // output if the GEMM impl incorrectly does `C = beta * C * alpha *
+            // AB` instead of `C = alpha * AB` where beta is zero.
             let mut result = NdTensor::full([m, n], f32::NAN);
-            let mut expected = NdTensor::zeros(result.shape());
 
             // Test alpha values for which we may have special cases (0, 1) and
             // the general case.
             for alpha in [0., 0.5, 1.] {
-                run_gemm(
-                    result.view_mut(),
-                    a.view(),
-                    b.view(),
+                let opts = Some(GemmOpts {
                     alpha,
-                    0., /* beta */
-                    None,
-                    None,
-                );
-                reference_gemm(
-                    expected.view_mut(),
-                    a.view(),
-                    b.view(),
-                    alpha,
-                    0., /* beta */
-                    None,
-                );
+                    ..Default::default()
+                });
+                run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None);
+                let expected = reference_matmul(a.view(), b.view(), opts);
                 expect_equal(&result, &expected)?;
             }
         }
@@ -1647,50 +1714,21 @@ mod tests {
             let a = NdTensor::rand([m, k], &mut rng);
             let b = NdTensor::rand([k, n], &mut rng);
 
-            let mut result = NdTensor::zeros([m, n]);
-            let mut expected = result.clone();
-
             // Column vector bias
             let bias: Vec<f32> = (0..a.rows()).map(|b| b as f32).collect();
-            run_gemm(
-                result.view_mut(),
-                a.view(),
-                b.view(),
-                1.,
-                0.,
-                Some(BiasVector::Column(&bias)),
-                None,
-            );
-            reference_gemm(
-                expected.view_mut(),
-                a.view(),
-                b.view(),
-                1.,
-                0.,
-                Some(BiasVector::Column(&bias)),
-            );
-            expect_equal(&result, &expected)?;
+            let opts = Some(GemmOpts {
+                bias: Some(BiasVector::Column(&bias)),
+                ..Default::default()
+            });
+            run_compare_matmul(a.view(), b.view(), opts, None);
 
             // Row vector bias
             let bias: Vec<f32> = (0..b.cols()).map(|b| b as f32).collect();
-            run_gemm(
-                result.view_mut(),
-                a.view(),
-                b.view(),
-                1.,
-                0.,
-                Some(BiasVector::Row(&bias)),
-                None,
-            );
-            reference_gemm(
-                expected.view_mut(),
-                a.view(),
-                b.view(),
-                1.,
-                0.,
-                Some(BiasVector::Row(&bias)),
-            );
-            expect_equal(&result, &expected)?;
+            let opts = Some(GemmOpts {
+                bias: Some(BiasVector::Row(&bias)),
+                ..Default::default()
+            });
+            run_compare_matmul(a.view(), b.view(), opts, None);
         }
 
         Ok(())
@@ -2040,21 +2078,20 @@ mod tests {
 
             let mut result = NdTensor::zeros([1, b.size(1)]);
             let bias_array = bias.map(|b| [b]);
-
-            run_gemm(
-                result.view_mut(),
-                a.view(),
-                b.view(),
+            let opts = Some(GemmOpts {
                 alpha,
                 beta,
-                bias_array
+                bias: bias_array
                     .as_ref()
                     .map(|b| BiasVector::Column(b.as_slice())),
-                None,
-            );
+                ..Default::default()
+            });
 
-            let expected = reference_matmul_alpha_beta(a.view(), b.view(), alpha, beta)
-                .map(|x| x + bias.unwrap_or(0.));
+            run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None);
+
+            let mut expected = NdTensor::zeros([1, b.size(1)]);
+            reference_gemm(expected.view_mut(), a.view(), b.view(), opts);
+
             expect_equal(&result, &expected)?;
         }
 
@@ -2115,7 +2152,7 @@ mod tests {
 
             let start = Instant::now();
             for _i in 0..iters {
-                run_gemm(result.view_mut(), a.view(), b.view(), 1., 0., None, None);
+                run_gemm(result.view_mut(), a.view(), b.view(), None, None);
             }
             let duration = start.elapsed();
 
