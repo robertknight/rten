@@ -1268,7 +1268,7 @@ mod tests {
 
     use super::{
         BiasVector, ColOffsets, GemmError, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT,
-        Im2Col, KernelType, RowOffsets,
+        Im2Col, KernelType, QuantParams, RowOffsets,
     };
 
     /// Scale a possibly non-float value by a float.
@@ -1293,7 +1293,14 @@ mod tests {
     /// Type that can be used as the output for the reference GEMM
     /// implementation.
     trait RefGemmOutT<LhsT, RhsT>:
-        Default + GemmOutT + From<LhsT> + From<RhsT> + MulFloat + ApproxEq + std::fmt::Debug
+        Default
+        + GemmOutT
+        + From<LhsT>
+        + From<RhsT>
+        + MulFloat
+        + ApproxEq
+        + std::fmt::Debug
+        + std::ops::Sub<Output = Self>
     {
     }
 
@@ -1304,19 +1311,30 @@ mod tests {
     {
     }
 
+    impl<LhsT, RhsT> RefGemmOutT<LhsT, RhsT> for i32
+    where
+        i32: From<LhsT>,
+        i32: From<RhsT>,
+    {
+    }
+
     #[derive(Clone)]
-    struct GemmOpts<'a, OutT> {
+    struct GemmOpts<'a, LhsT, RhsT, OutT> {
         alpha: f32,
         beta: OutT,
         bias: Option<BiasVector<'a, OutT>>,
+        a_quant: Option<QuantParams<'a, LhsT>>,
+        b_quant: Option<QuantParams<'a, RhsT>>,
     }
 
-    impl<OutT: GemmOutT> Default for GemmOpts<'_, OutT> {
+    impl<LhsT, RhsT, OutT: GemmOutT> Default for GemmOpts<'_, LhsT, RhsT, OutT> {
         fn default() -> Self {
             GemmOpts {
                 alpha: 1.,
                 beta: OutT::zero(),
                 bias: None,
+                a_quant: None,
+                b_quant: None,
             }
         }
     }
@@ -1329,19 +1347,36 @@ mod tests {
         mut output: MatrixMut<OutT>,
         a: Matrix<LhsT>,
         b: Matrix<RhsT>,
-        opts: Option<GemmOpts<OutT>>,
+        opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
     ) where
         LhsT: GemmInT,
         RhsT: GemmInT,
         OutT: RefGemmOutT<LhsT, RhsT>,
     {
-        let GemmOpts { alpha, beta, bias } = opts.unwrap_or_default();
+        let GemmOpts {
+            alpha,
+            beta,
+            bias,
+            a_quant,
+            b_quant,
+        } = opts.unwrap_or_default();
 
         for r in 0..a.rows() {
+            let a_zero = a_quant
+                .as_ref()
+                .map(|aq| OutT::from(aq.zero_point[r]))
+                .unwrap_or(OutT::zero());
             for c in 0..b.cols() {
+                let b_zero = b_quant
+                    .as_ref()
+                    .map(|bq| OutT::from(bq.zero_point[c]))
+                    .unwrap_or(OutT::zero());
+
                 let mut accum = OutT::zero();
                 for k in 0..a.cols() {
-                    accum = accum + OutT::from(a[[r, k]]) * OutT::from(b[[k, c]]);
+                    let a_el = OutT::from(a[[r, k]]) - a_zero;
+                    let b_el = OutT::from(b[[k, c]]) - b_zero;
+                    accum = accum + a_el * b_el;
                 }
                 let bias = match bias {
                     Some(BiasVector::Row(b)) => b[c],
@@ -1356,7 +1391,7 @@ mod tests {
     fn reference_matmul<LhsT, RhsT, OutT>(
         a: Matrix<LhsT>,
         b: Matrix<RhsT>,
-        opts: Option<GemmOpts<OutT>>,
+        opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
     ) -> NdTensor<OutT, 2>
     where
         LhsT: GemmInT,
@@ -1391,7 +1426,7 @@ mod tests {
         mut output: MatrixMut<OutT>,
         a: Matrix<LhsT>,
         b: Matrix<RhsT>,
-        opts: Option<GemmOpts<OutT>>,
+        opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
         gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
     ) where
         GemmExecutor<LhsT, RhsT, OutT>: Default,
@@ -1399,7 +1434,13 @@ mod tests {
         let out_row_stride = output.stride(0);
         let default_gemm = GemmExecutor::default();
         let gemm = gemm.unwrap_or(&default_gemm);
-        let GemmOpts { alpha, beta, bias } = opts.unwrap_or_default();
+        let GemmOpts {
+            alpha,
+            beta,
+            bias,
+            a_quant,
+            b_quant,
+        } = opts.unwrap_or_default();
 
         gemm.gemm(
             output.data_mut().expect("expected contiguous input"),
@@ -1409,8 +1450,8 @@ mod tests {
             alpha,
             beta,
             bias,
-            None, // a_quant
-            None, // b_quant
+            a_quant,
+            b_quant,
         )
         .unwrap();
     }
@@ -1418,7 +1459,7 @@ mod tests {
     fn run_matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT + Default>(
         a: Matrix<LhsT>,
         b: Matrix<RhsT>,
-        opts: Option<GemmOpts<OutT>>,
+        opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
         gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
     ) -> NdTensor<OutT, 2>
     where
@@ -1434,7 +1475,7 @@ mod tests {
     fn run_compare_matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: RefGemmOutT<LhsT, RhsT>>(
         a: Matrix<LhsT>,
         b: Matrix<RhsT>,
-        opts: Option<GemmOpts<OutT>>,
+        opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
         gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
     ) where
         GemmExecutor<LhsT, RhsT, OutT>: Default,
@@ -1446,7 +1487,7 @@ mod tests {
 
     // Simplest possible test case for easy debugging.
     #[test]
-    fn test_simple_gemm() -> Result<(), Box<dyn Error>> {
+    fn test_simple_gemm_f32() -> Result<(), Box<dyn Error>> {
         let a = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
         let b = NdTensor::from_data([2, 2], vec![5., 6., 7., 8.]);
         run_compare_matmul(a.view(), b.view(), None, None);
@@ -1456,6 +1497,14 @@ mod tests {
             None,
             Some(&GemmExecutor::with_kernel(KernelType::Generic).unwrap()),
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simple_gemm_u8i8_i32() -> Result<(), Box<dyn Error>> {
+        let a = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let b = NdTensor::from_data([2, 2], vec![5, 6, 7, 8]);
+        run_compare_matmul::<u8, i8, i32>(a.view(), b.view(), None, None);
         Ok(())
     }
 
@@ -1611,6 +1660,47 @@ mod tests {
     fn test_gemm_with_generic_kernel() -> Result<(), Box<dyn Error>> {
         let gemm = GemmExecutor::with_kernel(KernelType::Generic).unwrap();
         test_gemm_various_input_sizes(Some(&gemm))
+    }
+
+    #[test]
+    fn test_gemm_u8i8_i32() -> Result<(), Box<dyn Error>> {
+        let gemm = GemmExecutor::<u8, i8, i32>::default();
+        test_gemm_various_input_sizes(Some(&gemm))
+    }
+
+    #[test]
+    fn test_gemm_u8i8_i32_zero_point() {
+        let mut rng = XorShiftRng::new(1234);
+
+        struct Case {
+            m: usize,
+            n: usize,
+            k: usize,
+        }
+
+        let cases = [
+            // Matrix-matrix
+            Case { m: 5, n: 7, k: 10 },
+            // Vector-matrix
+            Case { m: 1, n: 5, k: 10 },
+        ];
+
+        for Case { m, n, k } in cases {
+            let a = NdTensor::<u8, 2>::rand([m, k], &mut rng);
+            let b = NdTensor::<i8, 2>::rand([k, n], &mut rng);
+            let a_zero_point: Vec<_> = (0..a.rows() as u8).collect();
+            let b_zero_point: Vec<_> = (0..b.cols() as i8).collect();
+            let opts = Some(GemmOpts {
+                a_quant: Some(QuantParams {
+                    zero_point: &a_zero_point,
+                }),
+                b_quant: Some(QuantParams {
+                    zero_point: &b_zero_point,
+                }),
+                ..Default::default()
+            });
+            run_compare_matmul(a.view(), b.view(), opts, None);
+        }
     }
 
     #[test]
