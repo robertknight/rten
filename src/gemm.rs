@@ -840,22 +840,16 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         return Err(GemmError::WrongBiasSize);
     }
 
-    match a_quant {
-        Some(quant) => {
-            if quant.zero_point.len() != a.rows() {
-                return Err(GemmError::WrongQuantParamSize);
-            }
+    if let Some(a_quant) = a_quant {
+        if a_quant.zero_point.len() != a.rows() {
+            return Err(GemmError::WrongQuantParamSize);
         }
-        None => {}
     }
 
-    match b_quant {
-        Some(quant) => {
-            if quant.zero_point.len() != b.cols() {
-                return Err(GemmError::WrongQuantParamSize);
-            }
+    if let Some(b_quant) = b_quant {
+        if b_quant.zero_point.len() != b.cols() {
+            return Err(GemmError::WrongQuantParamSize);
         }
-        None => {}
     }
 
     // Handle case where output is empty.

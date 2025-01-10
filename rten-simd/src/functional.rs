@@ -82,3 +82,40 @@ pub unsafe fn simd_fold<S: Simd, Op: Fn(S, S) -> S>(
 
     accum
 }
+
+/// A variant of [`simd_fold`] where the accumulator is an array of values
+/// instead of just one.
+///
+/// # Safety
+///
+/// The caller must ensure that `S` is a supported SIMD vector type on the
+/// current system.
+#[inline(always)]
+pub unsafe fn simd_fold_array<S: Simd, const N: usize, Op: Fn([S; N], S) -> [S; N]>(
+    xs: PtrLen<S::Elem>,
+    mut accum: [S; N],
+    simd_op: Op,
+) -> [S; N] {
+    let mut n = xs.len();
+    let mut x_ptr = xs.ptr();
+
+    while n >= S::LEN {
+        let x = S::load(x_ptr);
+        accum = simd_op(accum, x);
+        n -= S::LEN;
+        x_ptr = x_ptr.add(S::LEN);
+    }
+
+    let n_mask = S::Mask::first_n(n);
+    if n > 0 {
+        let x = S::load_partial(x_ptr, n);
+        let prev_accum = accum;
+        let new_accum = simd_op(accum, x);
+
+        for i in 0..N {
+            accum[i] = prev_accum[i].blend(new_accum[i], n_mask);
+        }
+    }
+
+    accum
+}
