@@ -1564,7 +1564,7 @@ mod tests {
     #[test]
     fn test_gemm_transposed() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
-        let mut a = NdTensor::rand([20, 30], &mut rng);
+        let mut a = NdTensor::<f32, 2>::rand([20, 30], &mut rng);
         let mut b = NdTensor::rand([10, 20], &mut rng);
 
         // Transpose the input matrices. This will alter their row and column
@@ -2144,7 +2144,7 @@ mod tests {
 
             let mut rng = XorShiftRng::new(1234);
             let mut result = NdTensor::zeros([m, n]);
-            let a = NdTensor::rand([m, k], &mut rng);
+            let a = NdTensor::<f32, 2>::rand([m, k], &mut rng);
             let b = if transpose_b {
                 let mut b = NdTensor::rand([n, k], &mut rng);
                 b.transpose();
