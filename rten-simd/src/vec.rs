@@ -68,7 +68,10 @@ pub trait Simd: Copy + Sized {
     /// This type should always be `[Self::ELEM; Self::LEN]`. The `to_array`
     /// method returns this associated type rather than a concrete array due to
     /// const generics limitations.
-    type Array: Copy + std::fmt::Debug + std::ops::Index<usize, Output = Self::Elem>;
+    type Array: Copy
+        + std::fmt::Debug
+        + std::ops::Index<usize, Output = Self::Elem>
+        + AsRef<[Self::Elem]>;
 
     /// Combine elements of `self` and `rhs` according to a mask.
     ///
@@ -274,6 +277,9 @@ pub trait SimdFloat: Simd<Elem = f32> {
 
     /// Compute a mask containing `self < rhs`.
     unsafe fn lt(self, rhs: Self) -> Self::Mask;
+
+    /// Compute the minimum of `self` and `rhs`.
+    unsafe fn min(self, rhs: Self) -> Self;
 
     /// Compute the maximum of `self` and `rhs`.
     unsafe fn max(self, rhs: Self) -> Self;
