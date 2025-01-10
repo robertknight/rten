@@ -1,11 +1,12 @@
+use rten_simd::dispatch::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Scalar, Tensor, TensorView};
+use rten_vecmath as vecmath;
 
 use crate::ops::{
-    reduce_max, reduce_min, resolve_axis, DataType, Input, InputList, IntoOpResult, OpError,
-    Operator, Output, OutputList,
+    resolve_axis, DataType, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
 };
-use crate::tensor_pool::{AutoReturn, TensorPool};
+use crate::tensor_pool::TensorPool;
 
 /// Convert a quantized tensor element to a higher precision value.
 pub trait Dequantize<To> {
@@ -309,19 +310,9 @@ where
     let q_min = 0.;
     let q_max = 255.;
 
-    // Get the range of the input. This implementation is simple but sub-optimal
-    // as it makes two passes over the same data to get the min/max.
-    let x_min = reduce_min(pool, input.view(), None, false /* keep_dims */)?
-        .auto_return(pool)
-        .item()
-        .copied()
-        .unwrap();
+    let input = input.to_contiguous_in(pool);
+    let (x_min, x_max) = vecmath::MinMax::new(input.data().unwrap()).dispatch();
     let x_min_adjusted = x_min.min(q_min);
-    let x_max = reduce_max(pool, input.view(), None, false /* keep_dims */)?
-        .auto_return(pool)
-        .item()
-        .copied()
-        .unwrap();
     let x_max_adjusted = x_max.max(q_min);
     let x_range = x_max_adjusted - x_min_adjusted;
     let scale = x_range / q_max;
@@ -335,7 +326,7 @@ where
     let zero_point_tensor = Tensor::from(zero_point);
     let quantized = quantize_linear(
         pool,
-        input,
+        input.view(),
         scale_tensor.view(),
         Some(zero_point_tensor.view()),
         1, /* axis */
