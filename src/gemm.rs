@@ -2321,8 +2321,17 @@ mod tests {
         Csv,
     }
 
-    fn run_gemm_bench(cases: &[BenchCase], format: Format) {
-        println!("Testing kernel {}", GemmExecutor::new().kernel_name());
+    fn run_gemm_bench<LhsT, RhsT, OutT>(cases: &[BenchCase], format: Format)
+    where
+        GemmExecutor<LhsT, RhsT, OutT>: Default,
+        LhsT: GemmInT,
+        RhsT: GemmInT,
+        OutT: GemmOutT + Default,
+        XorShiftRng: RandomSource<LhsT>,
+        XorShiftRng: RandomSource<RhsT>,
+    {
+        let gemm = GemmExecutor::<LhsT, RhsT, OutT>::default();
+        println!("Testing kernel {}", gemm.kernel_name());
 
         // Print header
         match format {
@@ -2351,19 +2360,19 @@ mod tests {
             let iters = iters.min(target_iters);
 
             let mut rng = XorShiftRng::new(1234);
-            let mut result = NdTensor::zeros([m, n]);
-            let a = NdTensor::<f32, 2>::rand([m, k], &mut rng);
+            let mut result = NdTensor::<OutT, 2>::zeros([m, n]);
+            let a = NdTensor::<LhsT, 2>::rand([m, k], &mut rng);
             let b = if transpose_b {
-                let mut b = NdTensor::rand([n, k], &mut rng);
+                let mut b = NdTensor::<RhsT, 2>::rand([n, k], &mut rng);
                 b.transpose();
                 b
             } else {
-                NdTensor::rand([k, n], &mut rng)
+                NdTensor::<RhsT, 2>::rand([k, n], &mut rng)
             };
 
             let start = Instant::now();
             for _i in 0..iters {
-                run_gemm(result.view_mut(), a.view(), b.view(), None, None).unwrap();
+                run_gemm(result.view_mut(), a.view(), b.view(), None, Some(&gemm)).unwrap();
             }
             let duration = start.elapsed();
 
@@ -2458,7 +2467,11 @@ mod tests {
             },
         ];
 
-        run_gemm_bench(&cases, Format::Pretty);
+        println!("f32 x f32 -> f32");
+        run_gemm_bench::<f32, f32, f32>(&cases, Format::Pretty);
+
+        println!("u8 x i8 -> i32");
+        run_gemm_bench::<u8, i8, i32>(&cases, Format::Pretty);
     }
 
     #[test]
@@ -2472,7 +2485,7 @@ mod tests {
                 transpose_b: false,
             })
             .collect();
-        run_gemm_bench(&cases, Format::Csv);
+        run_gemm_bench::<f32, f32, f32>(&cases, Format::Csv);
     }
 
     // Like `bench_pack_a`, but this does include allocation costs, so is
