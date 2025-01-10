@@ -83,6 +83,7 @@
 
 mod erf;
 mod exp;
+mod min_max;
 mod normalize;
 mod softmax;
 mod sum;
@@ -100,6 +101,7 @@ pub use exp::{Exp, Sigmoid, Silu, Swish};
 pub use tanh::Tanh;
 
 // Normalization and reduction functions.
+pub use min_max::MinMax;
 pub use normalize::{Normalize, NormalizeOptions};
 pub use softmax::Softmax;
 pub use sum::{Sum, SumSquare, SumSquareSub};
