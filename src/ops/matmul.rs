@@ -5,9 +5,8 @@ use rten_tensor::{Matrix, NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::gemm::{
-    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, PackedBMatrix,
+    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, PackedBMatrix, QuantParams,
 };
-use crate::iter_util::range_chunks;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
 use crate::ops::{
@@ -60,6 +59,8 @@ where
                 alpha,
                 beta,
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             )
             .unwrap();
             output
@@ -74,6 +75,8 @@ where
                 GemmInputB::Unpacked(b.nd_view()),
                 alpha,
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             )
             .unwrap();
             // Safety: `gemm_uninit` initialized all elements
@@ -144,7 +147,17 @@ pub fn matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
 where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
 {
-    matmul_impl(pool, a, b, packed_b, MatmulStrategy::Auto, None, None)
+    matmul_impl(
+        pool,
+        a,
+        b,
+        packed_b,
+        MatmulStrategy::Auto,
+        None,
+        None,
+        None, /* a_quant */
+        None, /* b_quant */
+    )
 }
 
 fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
@@ -155,6 +168,8 @@ fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
     strategy: MatmulStrategy,
     bias: Option<BiasVector<OutT>>,
     alpha: Option<f32>,
+    a_quant: Option<QuantParams<LhsT>>,
+    b_quant: Option<QuantParams<RhsT>>,
 ) -> Result<Tensor<OutT>, OpError>
 where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
@@ -215,6 +230,8 @@ where
             strategy,
             bias,
             alpha,
+            a_quant,
+            b_quant,
         )?;
         output.reshape(out_shape);
         return Ok(output);
@@ -288,6 +305,8 @@ where
                 b_input,
                 alpha.unwrap_or(1.),
                 bias,
+                a_quant,
+                b_quant,
             )
             .unwrap();
         });
@@ -347,7 +366,17 @@ pub fn matmul_fused<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
 where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
 {
-    matmul_impl(pool, a, b, packed_b, MatmulStrategy::Auto, bias, alpha)
+    matmul_impl(
+        pool,
+        a,
+        b,
+        packed_b,
+        MatmulStrategy::Auto,
+        bias,
+        alpha,
+        None, /* a_quant */
+        None, /* b_quant */
+    )
 }
 
 /// MatMul with fused addition of bias and scaling of result.
@@ -400,42 +429,6 @@ pub fn matmul_integer(
     a_zero_point: Option<TensorView<u8>>,
     b_zero_point: Option<TensorView<i8>>,
 ) -> Result<Tensor<i32>, OpError> {
-    if a.ndim() < 2 || b.ndim() < 2 {
-        return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
-    }
-
-    let a_rows = a.size(a.ndim() - 2);
-    let a_cols = a.size(a.ndim() - 1);
-
-    let b_rows = b.size(b.ndim() - 2);
-    let b_cols = b.size(b.ndim() - 1);
-
-    if a_cols != b_rows {
-        return Err(OpError::IncompatibleInputShapes(
-            "Columns of first matrix does not match rows of second matrix",
-        ));
-    }
-
-    let a_prefix = &a.shape()[..a.ndim() - 2];
-    let b_prefix = &b.shape()[..b.ndim() - 2];
-
-    let out_prefix = broadcast_shapes(a_prefix, b_prefix)
-        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast shapes"))?;
-    let out_shape = &[out_prefix.as_slice(), &[a_rows, b_cols]].concat();
-
-    let mut output = Tensor::<i32>::uninit_in(pool, out_shape);
-    if output.is_empty() {
-        // nb. We don't need to alloc from the pool here, since the buffer
-        // is already empty.
-        return Ok(Tensor::zeros(out_shape));
-    }
-
-    let a_broadcast_shape = [out_prefix.as_slice(), &[a_rows, a_cols]].concat();
-    let b_broadcast_shape = [out_prefix.as_slice(), &[b_rows, b_cols]].concat();
-
-    let a_broadcast = a.broadcast(a_broadcast_shape.as_slice());
-    let b_broadcast = b.broadcast(b_broadcast_shape.as_slice());
-
     // Convert the zero point to a vector.
     //
     // The spec allows for the zero point to be a scalar, vector or a batch of
@@ -460,58 +453,33 @@ pub fn matmul_integer(
         }
     }
 
-    let a_zero = zero_point_to_vec(a_zero_point, a_rows)?;
-    let b_zero = zero_point_to_vec(b_zero_point, b_cols)?;
+    if a.ndim() < 2 || b.ndim() < 2 {
+        return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
+    }
+    let a_rows = a.size(a.ndim() - 2);
+    let b_cols = b.size(b.ndim() - 1);
 
-    a_broadcast
-        .inner_iter::<2>()
-        .zip(b_broadcast.inner_iter::<2>())
-        .zip(output.inner_iter_mut::<2>())
-        .par_bridge()
-        .for_each(|((a_mat, b_mat), mut out_mat)| {
-            let [m, k] = a_mat.shape();
-            let [bk, n] = b_mat.shape();
-            assert_eq!(k, bk);
-            assert_eq!(out_mat.shape(), [m, n]);
+    let a_zero = zero_point_to_vec(a_zero_point, a_rows)?.map(|zp| zp.to_contiguous());
+    let a_quant = a_zero.as_ref().map(|zp| QuantParams {
+        zero_point: zp.data().unwrap(),
+    });
 
-            // Do some extremely rudimentary cache blocking.
-            for col_block in range_chunks(0..n, 32) {
-                for depth_block in range_chunks(0..k, 32) {
-                    for row_block in range_chunks(0..m, 32) {
-                        for j in col_block.clone() {
-                            let b_zero = b_zero.as_ref().map(|zp| zp[j]).unwrap_or(0) as i32;
+    let b_zero = zero_point_to_vec(b_zero_point, b_cols)?.map(|zp| zp.to_contiguous());
+    let b_quant = b_zero.as_ref().map(|zp| QuantParams {
+        zero_point: zp.data().unwrap(),
+    });
 
-                            for i in row_block.clone() {
-                                let a_zero = a_zero.as_ref().map(|zp| zp[i]).unwrap_or(0) as i32;
-
-                                let mut out = 0i32;
-                                for k in depth_block.clone() {
-                                    // Safety: `[i, k]` is in-bounds for `a_mat`.
-                                    let a = unsafe { *a_mat.get_unchecked([i, k]) } as i32 - a_zero;
-                                    // Safety: `[k, j]` is in-bounds for `b_mat`.
-                                    let b = unsafe { *b_mat.get_unchecked([k, j]) } as i32 - b_zero;
-                                    out += a * b;
-                                }
-                                unsafe {
-                                    // Safety: `[i, j]` is in-bounds for `b_mat`.
-                                    let el = out_mat.get_unchecked_mut([i, j]);
-                                    if depth_block.start == 0 {
-                                        el.write(out);
-                                    } else {
-                                        el.write(el.assume_init() + out);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-    // Safety: Loop above initialized all output elements.
-    let output = unsafe { output.assume_init() };
-
-    Ok(output)
+    matmul_impl(
+        pool,
+        a,
+        b,
+        None,
+        MatmulStrategy::Auto,
+        None,
+        None,
+        a_quant,
+        b_quant,
+    )
 }
 
 #[derive(Debug)]
@@ -621,6 +589,8 @@ mod tests {
                     alpha.unwrap_or(1.),
                     0., /* beta */
                     bias,
+                    None, // a_quant
+                    None, // b_quant
                 )
                 .unwrap()
             });
@@ -1018,8 +988,8 @@ mod tests {
         } in cases
         {
             let mut rng = XorShiftRng::new(1234);
-            let a = Tensor::rand(a_shape, &mut rng);
-            let b = Tensor::rand(b_shape, &mut rng);
+            let a = Tensor::<f32>::rand(a_shape, &mut rng);
+            let b = Tensor::<f32>::rand(b_shape, &mut rng);
 
             let result = matmul(&pool, a.view(), b.view(), None);
             assert_eq!(result, Err(error));
@@ -1045,8 +1015,8 @@ mod tests {
         let pool = new_pool();
         for Case { m, n, k } in cases {
             let mut rng = XorShiftRng::new(1234);
-            let a = Tensor::rand(&[m, k], &mut rng);
-            let b = Tensor::rand(&[k, n], &mut rng);
+            let a = Tensor::<f32>::rand(&[m, k], &mut rng);
+            let b = Tensor::<f32>::rand(&[k, n], &mut rng);
             let result = matmul(&pool, a.view(), b.view(), None).unwrap();
 
             assert_eq!(result.shape(), &[m, n]);
@@ -1091,6 +1061,15 @@ mod tests {
                 b_zero_point: Some(Tensor::from([3, 4])),
                 expected_err: None,
             },
+            // A input which is a row vector
+            Case {
+                a: Tensor::from([[1, 2, 3, 4]]),
+                b: Tensor::from([[5, 6], [7, 8], [9, 10], [11, 12]]),
+                a_zero_point: Some(Tensor::from([1])),
+                b_zero_point: Some(Tensor::from([3, 4])),
+                expected_err: None,
+            },
+            // Incorrect zero point size
             Case {
                 a: Tensor::from([[1, 2], [3, 4]]),
                 b: Tensor::from([[5, 6], [7, 8]]),
@@ -1228,8 +1207,8 @@ mod tests {
         } in cases
         {
             let mut rng = XorShiftRng::new(1234);
-            let a = Tensor::rand(&[a_batch, a_rows, a_cols], &mut rng);
-            let b = Tensor::rand(&[a_cols, b_cols], &mut rng);
+            let a = Tensor::<f32>::rand(&[a_batch, a_rows, a_cols], &mut rng);
+            let b = Tensor::<f32>::rand(&[a_cols, b_cols], &mut rng);
 
             let run_trial = |strategy| {
                 let trials = 10;
@@ -1238,9 +1217,19 @@ mod tests {
                 );
                 let pool = new_pool();
                 run_bench(trials, Some(&desc), || {
-                    matmul_impl(&pool, a.view(), b.view(), None, strategy, None, None)
-                        .unwrap()
-                        .auto_return(&pool);
+                    matmul_impl(
+                        &pool,
+                        a.view(),
+                        b.view(),
+                        None,
+                        strategy,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .unwrap()
+                    .auto_return(&pool);
                 });
             };
 

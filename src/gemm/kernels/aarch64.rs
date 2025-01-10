@@ -6,7 +6,7 @@ use rten_simd::vec_count;
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, GemmDispatch};
-use super::{Kernel, Lhs, PackedLayout, TempTile};
+use super::{Kernel, Lhs, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
 use crate::number::{cast_pod_mut_slice, cast_pod_slice};
@@ -39,7 +39,13 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         Self::NR
     }
 
-    fn packed_a_layout(&self, a: Matrix, rows: usize, cols: usize) -> PackedLayout {
+    fn packed_a_layout(
+        &self,
+        a: Matrix,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<f32>>,
+    ) -> PackedLayout {
         let mut info = packed_a_layout::<f32, { Self::MR }>(rows, cols);
         info.must_pack = a.col_stride() != 1;
         info
@@ -51,12 +57,18 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         a: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
+        _quant: Option<QuantParams<f32>>,
     ) {
         let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
         pack_a_block::<f32, { Self::MR }>(out, a, rows, cols);
     }
 
-    fn packed_b_layout(&self, rows: usize, cols: usize) -> PackedLayout {
+    fn packed_b_layout(
+        &self,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<f32>>,
+    ) -> PackedLayout {
         packed_b_layout::<f32, { Self::NR }>(rows, cols)
     }
 
@@ -66,6 +78,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         b: Matrix,
         rows: Range<usize>,
         cols: Range<usize>,
+        _quant: Option<QuantParams<f32>>,
     ) {
         let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
         pack_b_block::<f32, { Self::NR }>(out, b, rows, cols);
@@ -98,6 +111,8 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         depth: usize,
         alpha: f32,
         beta: f32,
+        _a_quant: Option<QuantParams<f32>>,
+        _b_quant: Option<QuantParams<f32>>,
     ) {
         const MR: usize = ArmNeonKernel::MR;
         const NR: usize = ArmNeonKernel::NR;
@@ -152,6 +167,8 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         b: Matrix,
         alpha: f32,
         beta: f32,
+        _a_quant: Option<QuantParams<f32>>,
+        _b_quant: Option<QuantParams<f32>>,
     ) {
         // Safety - float32x4_t is supported if this kernel was constructed.
         unsafe {

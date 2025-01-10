@@ -27,6 +27,7 @@ pub use errors::GemmError;
 pub use im2col::{ColOffsets, Im2Col, RowOffsets};
 use kernels::generic::GenericKernel;
 use kernels::Kernel;
+pub use kernels::QuantParams;
 use packing::{PackElem, PackingBuffer};
 
 pub type GemmResult = Result<(), GemmError>;
@@ -174,6 +175,8 @@ impl<T> GemmInputA<'_, T> {
 
 /// Trait implemented by GEMM input types.
 pub trait GemmInT: Copy + Default + Send + Sync + Identities + Pod {}
+impl GemmInT for i8 {}
+impl GemmInT for u8 {}
 impl GemmInT for f32 {}
 
 /// Trait implemented by GEMM output types.
@@ -188,6 +191,7 @@ pub trait GemmOutT:
     + Pod
 {
 }
+impl GemmOutT for i32 {}
 impl GemmOutT for f32 {}
 
 /// Right-hand or "B" input for a GEMM operation.
@@ -260,6 +264,8 @@ where
         alpha,
         beta,
         None, // bias
+        None, // a_quant
+        None, // b_quant
     )
 }
 
@@ -327,11 +333,11 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix<LhsT>) -> PackedAMatrix<LhsT> {
         let depth_block = depth_block_size(a.cols());
 
-        let layout = self.kernel.packed_a_layout(a, a.rows(), depth_block);
+        let layout = self.kernel.packed_a_layout(a, a.rows(), depth_block, None);
         let tail_layout = if a.cols() % depth_block != 0 {
             Some(
                 self.kernel
-                    .packed_a_layout(a, a.rows(), a.cols() % depth_block),
+                    .packed_a_layout(a, a.rows(), a.cols() % depth_block, None),
             )
         } else {
             None
@@ -353,7 +359,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             range_chunks(0..a.cols(), depth_block).zip(uninit_data.chunks_mut(layout.size()))
         {
             self.kernel
-                .pack_a_block(block_data, a, 0..a.rows(), col_block);
+                .pack_a_block(block_data, a, 0..a.rows(), col_block, None);
         }
 
         // Safety: We used `pack_a_block` to initialize `total_size` bytes
@@ -397,11 +403,11 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix<RhsT>) -> PackedBMatrix<RhsT> {
         let depth_block = depth_block_size(b.rows());
 
-        let layout = self.kernel.packed_b_layout(depth_block, b.cols());
+        let layout = self.kernel.packed_b_layout(depth_block, b.cols(), None);
         let tail_layout = if b.rows() % depth_block != 0 {
             Some(
                 self.kernel
-                    .packed_b_layout(b.rows() % depth_block, b.cols()),
+                    .packed_b_layout(b.rows() % depth_block, b.cols(), None),
             )
         } else {
             None
@@ -422,7 +428,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             range_chunks(0..b.rows(), depth_block).zip(uninit_data.chunks_mut(layout.size()))
         {
             self.kernel
-                .pack_b_block(block_data, b, row_block, 0..b.cols());
+                .pack_b_block(block_data, b, row_block, 0..b.cols(), None);
         }
 
         // Safety: We used `pack_b_block` to initialize `layout.size` bytes.
@@ -465,6 +471,8 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         alpha: f32,
         beta: OutT,
         bias: Option<BiasVector<OutT>>,
+        a_quant: Option<QuantParams<LhsT>>,
+        b_quant: Option<QuantParams<RhsT>>,
     ) -> GemmResult {
         gemm_impl(
             &*self.kernel,
@@ -476,6 +484,8 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             alpha,
             beta,
             bias,
+            a_quant,
+            b_quant,
         )
     }
 
@@ -491,6 +501,8 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         b: GemmInputB<RhsT>,
         alpha: f32,
         bias: Option<BiasVector<OutT>>,
+        a_quant: Option<QuantParams<LhsT>>,
+        b_quant: Option<QuantParams<RhsT>>,
     ) -> GemmResult {
         gemm_impl(
             &*self.kernel,
@@ -501,7 +513,16 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             alpha,
             OutT::zero(),
             bias,
+            a_quant,
+            b_quant,
         )
+    }
+
+    fn from_kernel<K: Kernel<LhsT, RhsT, OutT> + 'static>(kernel_type: KernelType) -> Option<Self> {
+        K::new().map(|kernel| GemmExecutor {
+            kernel: Box::new(kernel),
+            kernel_type,
+        })
     }
 }
 
@@ -533,43 +554,36 @@ impl GemmExecutor<f32, f32, f32> {
     /// kernel is not supported.
     #[allow(dead_code)] // Currently only used in tests
     pub fn with_kernel(hint: KernelType) -> Option<Self> {
-        fn make_kernel<K: Kernel<f32, f32, f32> + 'static>(
-            kernel_type: KernelType,
-        ) -> Option<GemmExecutor> {
-            K::new().map(|kernel| GemmExecutor {
-                kernel: Box::new(kernel),
-                kernel_type,
-            })
-        }
-
         match hint {
             #[cfg(feature = "avx512")]
             #[cfg(target_arch = "x86_64")]
-            KernelType::Avx512 => make_kernel::<kernels::x86_64::Avx512Kernel>(hint),
+            KernelType::Avx512 => Self::from_kernel::<kernels::x86_64::Avx512Kernel>(hint),
             #[cfg(target_arch = "x86_64")]
-            KernelType::Fma => make_kernel::<kernels::x86_64::FmaKernel>(hint),
+            KernelType::Fma => Self::from_kernel::<kernels::x86_64::FmaKernel>(hint),
             #[cfg(target_arch = "aarch64")]
-            KernelType::ArmNeon => make_kernel::<kernels::aarch64::ArmNeonKernel>(hint),
+            KernelType::ArmNeon => Self::from_kernel::<kernels::aarch64::ArmNeonKernel>(hint),
             #[cfg(target_arch = "wasm32")]
             #[cfg(target_feature = "simd128")]
-            KernelType::Wasm => make_kernel::<kernels::wasm::WasmKernel>(hint),
+            KernelType::Wasm => Self::from_kernel::<kernels::wasm::WasmKernel>(hint),
             KernelType::Generic => Some(Self::with_generic_kernel()),
         }
     }
 
     /// Construct a GemmExecutor that uses the generic kernel.
     fn with_generic_kernel() -> Self {
-        let kernel = GenericKernel::new().unwrap();
-        GemmExecutor {
-            kernel: Box::new(kernel),
-            kernel_type: KernelType::Generic,
-        }
+        Self::from_kernel::<GenericKernel>(KernelType::Generic).unwrap()
     }
 }
 
 impl Default for GemmExecutor<f32, f32, f32> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Default for GemmExecutor<u8, i8, i32> {
+    fn default() -> Self {
+        Self::from_kernel::<GenericKernel>(KernelType::Generic).unwrap()
     }
 }
 
@@ -704,6 +718,8 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     alpha: f32,
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
+    a_quant: Option<QuantParams<LhsT>>,
+    b_quant: Option<QuantParams<RhsT>>,
 ) {
     assert!(output_mat.is_contiguous());
 
@@ -736,7 +752,15 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 range_chunks(0..a_cols, k_block_size).zip(a_data.chunks(k_block_size))
             {
                 let b_block = b.slice((k_block, col_block.clone()));
-                kernel.gemv_kernel(out_chunk, a_block, b_block, alpha, effective_beta);
+                kernel.gemv_kernel(
+                    out_chunk,
+                    a_block,
+                    b_block,
+                    alpha,
+                    effective_beta,
+                    a_quant,
+                    b_quant,
+                );
 
                 // Reset `beta` so that subsequent updates for each column
                 // accumulate into the first update.
@@ -800,6 +824,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     alpha: f32,
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
+    a_quant: Option<QuantParams<LhsT>>,
+    b_quant: Option<QuantParams<RhsT>>,
 ) -> GemmResult {
     if a.cols() != b.rows() {
         return Err(GemmError::KSizeMismatch);
@@ -812,6 +838,24 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     };
     if !bias_ok {
         return Err(GemmError::WrongBiasSize);
+    }
+
+    match a_quant {
+        Some(quant) => {
+            if quant.zero_point.len() != a.rows() {
+                return Err(GemmError::WrongQuantParamSize);
+            }
+        }
+        None => {}
+    }
+
+    match b_quant {
+        Some(quant) => {
+            if quant.zero_point.len() != b.cols() {
+                return Err(GemmError::WrongQuantParamSize);
+            }
+        }
+        None => {}
     }
 
     // Handle case where output is empty.
@@ -873,6 +917,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
             // nb. We checked above that, if present, the bias length matches
             // `a.rows()` or `b.cols()` as appropriate.
             bias,
+            a_quant,
+            b_quant,
         );
         return Ok(());
     }
@@ -939,7 +985,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                     GemmInputB::Unpacked(_) | GemmInputB::Im2Col(_) => PACKED_B.with(|cell| {
                         let mut packed_b = cell.take();
 
-                        let layout = kernel.packed_b_layout(depth_range.len(), col_end - col_start);
+                        let layout =
+                            kernel.packed_b_layout(depth_range.len(), col_end - col_start, b_quant);
                         let packed_uninit = packed_b.alloc(layout.size(), layout.align());
 
                         match b {
@@ -948,6 +995,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                 b,
                                 depth_range.clone(),
                                 col_start..col_end,
+                                b_quant,
                             ),
                             GemmInputB::Im2Col(im) => kernel.pack_im2col(
                                 packed_uninit,
@@ -998,6 +1046,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                     a,
                                     row_end - row_start,
                                     depth_range.len(),
+                                    a_quant,
                                 );
                                 if !layout.must_pack {
                                     return LhsBlock::Unpacked(a);
@@ -1011,6 +1060,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                     a,
                                     row_start..row_end,
                                     depth_range.clone(),
+                                    a_quant,
                                 );
 
                                 // Safety: We initialized `layout.size` bytes.
@@ -1037,6 +1087,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                             alpha,
                             effective_beta,
                             bias,
+                            a_quant,
+                            b_quant,
                         );
 
                         if let Some(packed_a) = thread_local_packed_a {
@@ -1097,6 +1149,8 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     alpha: f32,
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
+    a_quant: Option<QuantParams<LhsT>>,
+    b_quant: Option<QuantParams<RhsT>>,
 ) {
     let (mr, nr) = (kernel.mr(), kernel.nr());
 
@@ -1114,6 +1168,12 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
         .for_each(|(block_col_tile, col_tile)| {
             let b_panel_offset = block_col_tile * b.panel_stride;
             let b_panel = &b.data[b_panel_offset..b_panel_offset + b.panel_stride];
+            let b_quant_tile = b_quant.map(|bq| {
+                let col_range = col_tile * nr..(col_tile * nr + nr).min(bq.zero_point.len());
+                QuantParams {
+                    zero_point: &bq.zero_point[col_range],
+                }
+            });
 
             // Loop over row tiles.
             for (block_row_tile, row_tile) in row_tiles.clone().enumerate() {
@@ -1121,6 +1181,13 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                 //  - The loops in this function and its caller are set up so that
                 //    every output tile is processed by one thread at a time.
                 let out_tile = unsafe { output.tile(row_tile, col_tile) };
+
+                let a_quant_tile = a_quant.map(|aq| {
+                    let row_range = row_tile * mr..(row_tile * mr + mr).min(aq.zero_point.len());
+                    QuantParams {
+                        zero_point: &aq.zero_point[row_range],
+                    }
+                });
 
                 let kernel_lhs = match a {
                     LhsBlock::Packed {
@@ -1160,6 +1227,8 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
                         depth_range.len(),
                         alpha,
                         beta,
+                        a_quant_tile,
+                        b_quant_tile,
                     );
                 }
 
@@ -1217,7 +1286,7 @@ mod tests {
 
     use super::{
         BiasVector, ColOffsets, GemmError, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT,
-        Im2Col, KernelType, RowOffsets,
+        Im2Col, KernelType, QuantParams, RowOffsets,
     };
 
     /// Scale a possibly non-float value by a float.
@@ -1242,7 +1311,14 @@ mod tests {
     /// Type that can be used as the output for the reference GEMM
     /// implementation.
     trait RefGemmOutT<LhsT, RhsT>:
-        Default + GemmOutT + From<LhsT> + From<RhsT> + MulFloat + ApproxEq + std::fmt::Debug
+        Default
+        + GemmOutT
+        + From<LhsT>
+        + From<RhsT>
+        + MulFloat
+        + ApproxEq
+        + std::fmt::Debug
+        + std::ops::Sub<Output = Self>
     {
     }
 
@@ -1253,19 +1329,30 @@ mod tests {
     {
     }
 
+    impl<LhsT, RhsT> RefGemmOutT<LhsT, RhsT> for i32
+    where
+        i32: From<LhsT>,
+        i32: From<RhsT>,
+    {
+    }
+
     #[derive(Clone)]
-    struct GemmOpts<'a, OutT> {
+    struct GemmOpts<'a, LhsT, RhsT, OutT> {
         alpha: f32,
         beta: OutT,
         bias: Option<BiasVector<'a, OutT>>,
+        a_quant: Option<QuantParams<'a, LhsT>>,
+        b_quant: Option<QuantParams<'a, RhsT>>,
     }
 
-    impl<OutT: GemmOutT> Default for GemmOpts<'_, OutT> {
+    impl<LhsT, RhsT, OutT: GemmOutT> Default for GemmOpts<'_, LhsT, RhsT, OutT> {
         fn default() -> Self {
             GemmOpts {
                 alpha: 1.,
                 beta: OutT::zero(),
                 bias: None,
+                a_quant: None,
+                b_quant: None,
             }
         }
     }
@@ -1278,19 +1365,36 @@ mod tests {
         mut output: MatrixMut<OutT>,
         a: Matrix<LhsT>,
         b: Matrix<RhsT>,
-        opts: Option<GemmOpts<OutT>>,
+        opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
     ) where
         LhsT: GemmInT,
         RhsT: GemmInT,
         OutT: RefGemmOutT<LhsT, RhsT>,
     {
-        let GemmOpts { alpha, beta, bias } = opts.unwrap_or_default();
+        let GemmOpts {
+            alpha,
+            beta,
+            bias,
+            a_quant,
+            b_quant,
+        } = opts.unwrap_or_default();
 
         for r in 0..a.rows() {
+            let a_zero = a_quant
+                .as_ref()
+                .map(|aq| OutT::from(aq.zero_point[r]))
+                .unwrap_or(OutT::zero());
             for c in 0..b.cols() {
+                let b_zero = b_quant
+                    .as_ref()
+                    .map(|bq| OutT::from(bq.zero_point[c]))
+                    .unwrap_or(OutT::zero());
+
                 let mut accum = OutT::zero();
                 for k in 0..a.cols() {
-                    accum = accum + OutT::from(a[[r, k]]) * OutT::from(b[[k, c]]);
+                    let a_el = OutT::from(a[[r, k]]) - a_zero;
+                    let b_el = OutT::from(b[[k, c]]) - b_zero;
+                    accum = accum + a_el * b_el;
                 }
                 let bias = match bias {
                     Some(BiasVector::Row(b)) => b[c],
@@ -1305,7 +1409,7 @@ mod tests {
     fn reference_matmul<LhsT, RhsT, OutT>(
         a: Matrix<LhsT>,
         b: Matrix<RhsT>,
-        opts: Option<GemmOpts<OutT>>,
+        opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
     ) -> NdTensor<OutT, 2>
     where
         LhsT: GemmInT,
@@ -1340,15 +1444,22 @@ mod tests {
         mut output: MatrixMut<OutT>,
         a: Matrix<LhsT>,
         b: Matrix<RhsT>,
-        opts: Option<GemmOpts<OutT>>,
+        opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
         gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
-    ) where
+    ) -> super::GemmResult
+    where
         GemmExecutor<LhsT, RhsT, OutT>: Default,
     {
         let out_row_stride = output.stride(0);
         let default_gemm = GemmExecutor::default();
         let gemm = gemm.unwrap_or(&default_gemm);
-        let GemmOpts { alpha, beta, bias } = opts.unwrap_or_default();
+        let GemmOpts {
+            alpha,
+            beta,
+            bias,
+            a_quant,
+            b_quant,
+        } = opts.unwrap_or_default();
 
         gemm.gemm(
             output.data_mut().expect("expected contiguous input"),
@@ -1358,22 +1469,23 @@ mod tests {
             alpha,
             beta,
             bias,
+            a_quant,
+            b_quant,
         )
-        .unwrap();
     }
 
     fn run_matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT + Default>(
         a: Matrix<LhsT>,
         b: Matrix<RhsT>,
-        opts: Option<GemmOpts<OutT>>,
+        opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
         gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
-    ) -> NdTensor<OutT, 2>
+    ) -> Result<NdTensor<OutT, 2>, GemmError>
     where
         GemmExecutor<LhsT, RhsT, OutT>: Default,
     {
         let mut output = NdTensor::zeros([a.rows(), b.cols()]);
-        run_gemm(output.view_mut(), a, b, opts, gemm);
-        output
+        run_gemm(output.view_mut(), a, b, opts, gemm)?;
+        Ok(output)
     }
 
     /// Run a matmul with the reference and real implementations and verify
@@ -1381,19 +1493,19 @@ mod tests {
     fn run_compare_matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: RefGemmOutT<LhsT, RhsT>>(
         a: Matrix<LhsT>,
         b: Matrix<RhsT>,
-        opts: Option<GemmOpts<OutT>>,
+        opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
         gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
     ) where
         GemmExecutor<LhsT, RhsT, OutT>: Default,
     {
-        let result = run_matmul(a.view(), b.view(), opts.clone(), gemm);
+        let result = run_matmul(a.view(), b.view(), opts.clone(), gemm).unwrap();
         let expected = reference_matmul(a.view(), b.view(), opts);
         expect_equal(&result, &expected).unwrap();
     }
 
     // Simplest possible test case for easy debugging.
     #[test]
-    fn test_simple_gemm() -> Result<(), Box<dyn Error>> {
+    fn test_simple_gemm_f32() -> Result<(), Box<dyn Error>> {
         let a = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
         let b = NdTensor::from_data([2, 2], vec![5., 6., 7., 8.]);
         run_compare_matmul(a.view(), b.view(), None, None);
@@ -1403,6 +1515,14 @@ mod tests {
             None,
             Some(&GemmExecutor::with_kernel(KernelType::Generic).unwrap()),
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simple_gemm_u8i8_i32() -> Result<(), Box<dyn Error>> {
+        let a = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let b = NdTensor::from_data([2, 2], vec![5, 6, 7, 8]);
+        run_compare_matmul::<u8, i8, i32>(a.view(), b.view(), None, None);
         Ok(())
     }
 
@@ -1452,6 +1572,8 @@ mod tests {
                 1.,   // alpha
                 0.,   // beta
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             );
             assert_eq!(result, Err(expected));
         }
@@ -1507,7 +1629,7 @@ mod tests {
             let a = NdTensor::<LhsT, 2>::rand(lhs_size, &mut rng);
             let b = NdTensor::<RhsT, 2>::rand(rhs_size, &mut rng);
 
-            let result = run_matmul(a.view(), b.view(), None, gemm);
+            let result = run_matmul(a.view(), b.view(), None, gemm).unwrap();
             let expected = reference_matmul(a.view(), b.view(), None);
 
             if let Err(err) = expect_equal(&result, &expected) {
@@ -1559,9 +1681,92 @@ mod tests {
     }
 
     #[test]
+    fn test_gemm_u8i8_i32() -> Result<(), Box<dyn Error>> {
+        let gemm = GemmExecutor::<u8, i8, i32>::default();
+        test_gemm_various_input_sizes(Some(&gemm))
+    }
+
+    #[test]
+    fn test_gemm_u8i8_i32_zero_point() {
+        let mut rng = XorShiftRng::new(1234);
+
+        struct Case {
+            m: usize,
+            n: usize,
+            k: usize,
+        }
+
+        let cases = [
+            // Matrix-matrix
+            Case { m: 5, n: 7, k: 10 },
+            // Vector-matrix
+            Case { m: 1, n: 5, k: 10 },
+        ];
+
+        for Case { m, n, k } in cases {
+            let a = NdTensor::<u8, 2>::rand([m, k], &mut rng);
+            let b = NdTensor::<i8, 2>::rand([k, n], &mut rng);
+            let a_zero_point: Vec<_> = (0..a.rows() as u8).collect();
+            let b_zero_point: Vec<_> = (0..b.cols() as i8).collect();
+            let opts = Some(GemmOpts {
+                a_quant: Some(QuantParams {
+                    zero_point: &a_zero_point,
+                }),
+                b_quant: Some(QuantParams {
+                    zero_point: &b_zero_point,
+                }),
+                ..Default::default()
+            });
+            run_compare_matmul(a.view(), b.view(), opts, None);
+        }
+    }
+
+    #[test]
+    fn test_gemm_u8i8_i32_invalid_zero_point() {
+        let mut rng = XorShiftRng::new(1234);
+        let a = NdTensor::<u8, 2>::rand([5, 10], &mut rng);
+        let b = NdTensor::<i8, 2>::rand([10, 3], &mut rng);
+
+        fn gemm_opts<'a>(
+            a_zero_point: &'a [u8],
+            b_zero_point: &'a [i8],
+        ) -> GemmOpts<'a, u8, i8, i32> {
+            GemmOpts {
+                a_quant: Some(QuantParams {
+                    zero_point: a_zero_point,
+                }),
+                b_quant: Some(QuantParams {
+                    zero_point: b_zero_point,
+                }),
+                ..Default::default()
+            }
+        }
+        let a_zero_point: Vec<_> = (0..a.rows()).map(|row| row as u8).collect();
+        let b_zero_point: Vec<_> = (0..b.cols()).map(|col| col as i8).collect();
+
+        // LHS zero point does not match LHS rows.
+        let result = run_matmul(
+            a.view(),
+            b.view(),
+            Some(gemm_opts(&[1, 2, 3], &b_zero_point)),
+            None,
+        );
+        assert_eq!(result, Err(GemmError::WrongQuantParamSize));
+
+        // RHS zero point does not match RHS columns.
+        let result = run_matmul(
+            a.view(),
+            b.view(),
+            Some(gemm_opts(&a_zero_point, &[1, 2, 3, 4])),
+            None,
+        );
+        assert_eq!(result, Err(GemmError::WrongQuantParamSize));
+    }
+
+    #[test]
     fn test_gemm_transposed() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
-        let mut a = NdTensor::rand([20, 30], &mut rng);
+        let mut a = NdTensor::<f32, 2>::rand([20, 30], &mut rng);
         let mut b = NdTensor::rand([10, 20], &mut rng);
 
         // Transpose the input matrices. This will alter their row and column
@@ -1632,7 +1837,7 @@ mod tests {
                         b.view(),
                         opts.clone(),
                         Some(&gemm),
-                    );
+                    )?;
                     reference_gemm(expected.view_mut(), a.view(), b.view(), opts);
 
                     expect_equal(&result, &expected)?;
@@ -1680,7 +1885,7 @@ mod tests {
                     alpha,
                     ..Default::default()
                 });
-                run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None);
+                run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None)?;
                 let expected = reference_matmul(a.view(), b.view(), opts);
                 expect_equal(&result, &expected)?;
             }
@@ -1785,6 +1990,8 @@ mod tests {
                 1.,   // alpha
                 1.,   // beta
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             )
             .unwrap();
 
@@ -1802,6 +2009,8 @@ mod tests {
                 1.,   // alpha
                 1.,   // beta
                 None, // bias
+                None, // a_quant
+                None, // b_quant
             )
             .unwrap();
 
@@ -1885,6 +2094,8 @@ mod tests {
             1.,   // alpha
             0.,   // beta
             None, // bias
+            None, // a_quant
+            None, // b_quant
         )
         .unwrap();
 
@@ -2087,7 +2298,7 @@ mod tests {
                 ..Default::default()
             });
 
-            run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None);
+            run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None).unwrap();
 
             let mut expected = NdTensor::zeros([1, b.size(1)]);
             reference_gemm(expected.view_mut(), a.view(), b.view(), opts);
@@ -2141,7 +2352,7 @@ mod tests {
 
             let mut rng = XorShiftRng::new(1234);
             let mut result = NdTensor::zeros([m, n]);
-            let a = NdTensor::rand([m, k], &mut rng);
+            let a = NdTensor::<f32, 2>::rand([m, k], &mut rng);
             let b = if transpose_b {
                 let mut b = NdTensor::rand([n, k], &mut rng);
                 b.transpose();
@@ -2152,7 +2363,7 @@ mod tests {
 
             let start = Instant::now();
             for _i in 0..iters {
-                run_gemm(result.view_mut(), a.view(), b.view(), None, None);
+                run_gemm(result.view_mut(), a.view(), b.view(), None, None).unwrap();
             }
             let duration = start.elapsed();
 

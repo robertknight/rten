@@ -57,6 +57,8 @@ where
             GemmInputB::Unpacked(in_mat.view()),
             1., // alpha
             bias_vec,
+            None, // a_quant
+            None, // b_quant
         )
         .unwrap();
         n_init += out_item.len();
@@ -287,6 +289,8 @@ where
                     GemmInputB::Im2Col(&im2col),
                     1., // alpha
                     bias_vec,
+                    None, // a_quant
+                    None, // b_quant
                 )
                 .unwrap();
                 n_init.fetch_add(out_mat.len(), Ordering::SeqCst);
@@ -319,7 +323,7 @@ impl Operator for Conv {
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
-        conv(
+        conv::<f32, f32, f32>(
             pool,
             input,
             weight,
@@ -564,6 +568,8 @@ pub fn conv_transpose(
             GemmInputB::Unpacked(input_mat.view()),
             1.,   // alpha
             None, // bias
+            None, // a_quant
+            None, // b_quant
         )
         .unwrap();
 
@@ -1623,8 +1629,8 @@ mod tests {
         // This has a small spatial shape, so it measures overhead around the
         // inner loop. A larger spatial shape would be more affected by the
         // efficiency of the innermost loops.
-        let input = Tensor::rand(&[1, 576, 14, 14], &mut rng);
-        let kernel = Tensor::rand(&[576, 1, 3, 3], &mut rng);
+        let input = Tensor::<f32>::rand(&[1, 576, 14, 14], &mut rng);
+        let kernel = Tensor::<f32>::rand(&[576, 1, 3, 3], &mut rng);
 
         let n_groups = input.size(1);
         let padding = Padding::Fixed([1, 1, 1, 1].into());

@@ -87,6 +87,23 @@ impl PackedLayout {
     }
 }
 
+/// Parameters required to perform matrix multiplication on quantized tensors.
+#[derive(Debug)]
+pub struct QuantParams<'a, T> {
+    /// Values that correspond to zero in each row (for LHS inputs) or column
+    /// (for RHS inputs).
+    pub zero_point: &'a [T],
+}
+
+// Make QuantParams Copy/Clone regardless of `T`.
+impl<T> Clone for QuantParams<'_, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for QuantParams<'_, T> {}
+
 /// Kernel that computes a small tile of a general matrix multiplication (GEMM)
 /// or general matrix-vector multiplication (GEMV).
 ///
@@ -132,7 +149,13 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     fn name(&self) -> &'static str;
 
     /// Return the layout of a packing buffer required to pack an A / LHS input.
-    fn packed_a_layout(&self, a: Matrix<LhsT>, rows: usize, cols: usize) -> PackedLayout;
+    fn packed_a_layout(
+        &self,
+        a: Matrix<LhsT>,
+        rows: usize,
+        cols: usize,
+        quant: Option<QuantParams<LhsT>>,
+    ) -> PackedLayout;
 
     /// Pack a block of the LHS / "A" input for use by this kernel.
     fn pack_a_block(
@@ -141,6 +164,7 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         a: Matrix<LhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
+        quant: Option<QuantParams<LhsT>>,
     );
 
     /// Return the layout of a packing buffer required to pack a block of a "B"
@@ -149,7 +173,12 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     /// Unlike `packed_a_layout` this doesn't take the matrix as an argument.
     /// `packed_a_layout` may use this to indicate that the A input does not
     /// need to be packed. For the B input it is assumed this is always packed.
-    fn packed_b_layout(&self, rows: usize, cols: usize) -> PackedLayout;
+    fn packed_b_layout(
+        &self,
+        rows: usize,
+        cols: usize,
+        quant: Option<QuantParams<RhsT>>,
+    ) -> PackedLayout;
 
     /// Pack a block of the RHS / "B" input for use by this kernel.
     fn pack_b_block(
@@ -158,6 +187,7 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         b: Matrix<RhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
+        quant: Option<QuantParams<RhsT>>,
     );
 
     /// Pack a block of an image as the B input for use by this kernel, using
@@ -200,6 +230,8 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         depth: usize,
         alpha: f32,
         beta: OutT,
+        a_quant: Option<QuantParams<LhsT>>,
+        b_quant: Option<QuantParams<RhsT>>,
     );
 
     /// Compute an output block of a vector-matrix product ("gemv").
@@ -226,6 +258,8 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         b: Matrix<RhsT>,
         alpha: f32,
         beta: OutT,
+        a_quant: Option<QuantParams<LhsT>>,
+        b_quant: Option<QuantParams<RhsT>>,
     );
 }
 
