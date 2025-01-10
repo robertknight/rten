@@ -840,6 +840,24 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         return Err(GemmError::WrongBiasSize);
     }
 
+    match a_quant {
+        Some(quant) => {
+            if quant.zero_point.len() != a.rows() {
+                return Err(GemmError::WrongQuantParamSize);
+            }
+        }
+        None => {}
+    }
+
+    match b_quant {
+        Some(quant) => {
+            if quant.zero_point.len() != b.cols() {
+                return Err(GemmError::WrongQuantParamSize);
+            }
+        }
+        None => {}
+    }
+
     // Handle case where output is empty.
     if a.rows() == 0 || b.cols() == 0 {
         return Ok(());
@@ -1428,7 +1446,8 @@ mod tests {
         b: Matrix<RhsT>,
         opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
         gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
-    ) where
+    ) -> super::GemmResult
+    where
         GemmExecutor<LhsT, RhsT, OutT>: Default,
     {
         let out_row_stride = output.stride(0);
@@ -1453,7 +1472,6 @@ mod tests {
             a_quant,
             b_quant,
         )
-        .unwrap();
     }
 
     fn run_matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT + Default>(
@@ -1461,13 +1479,13 @@ mod tests {
         b: Matrix<RhsT>,
         opts: Option<GemmOpts<LhsT, RhsT, OutT>>,
         gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
-    ) -> NdTensor<OutT, 2>
+    ) -> Result<NdTensor<OutT, 2>, GemmError>
     where
         GemmExecutor<LhsT, RhsT, OutT>: Default,
     {
         let mut output = NdTensor::zeros([a.rows(), b.cols()]);
-        run_gemm(output.view_mut(), a, b, opts, gemm);
-        output
+        run_gemm(output.view_mut(), a, b, opts, gemm)?;
+        Ok(output)
     }
 
     /// Run a matmul with the reference and real implementations and verify
@@ -1480,7 +1498,7 @@ mod tests {
     ) where
         GemmExecutor<LhsT, RhsT, OutT>: Default,
     {
-        let result = run_matmul(a.view(), b.view(), opts.clone(), gemm);
+        let result = run_matmul(a.view(), b.view(), opts.clone(), gemm).unwrap();
         let expected = reference_matmul(a.view(), b.view(), opts);
         expect_equal(&result, &expected).unwrap();
     }
@@ -1611,7 +1629,7 @@ mod tests {
             let a = NdTensor::<LhsT, 2>::rand(lhs_size, &mut rng);
             let b = NdTensor::<RhsT, 2>::rand(rhs_size, &mut rng);
 
-            let result = run_matmul(a.view(), b.view(), None, gemm);
+            let result = run_matmul(a.view(), b.view(), None, gemm).unwrap();
             let expected = reference_matmul(a.view(), b.view(), None);
 
             if let Err(err) = expect_equal(&result, &expected) {
@@ -1704,6 +1722,48 @@ mod tests {
     }
 
     #[test]
+    fn test_gemm_u8i8_i32_invalid_zero_point() {
+        let mut rng = XorShiftRng::new(1234);
+        let a = NdTensor::<u8, 2>::rand([5, 10], &mut rng);
+        let b = NdTensor::<i8, 2>::rand([10, 3], &mut rng);
+
+        fn gemm_opts<'a>(
+            a_zero_point: &'a [u8],
+            b_zero_point: &'a [i8],
+        ) -> GemmOpts<'a, u8, i8, i32> {
+            GemmOpts {
+                a_quant: Some(QuantParams {
+                    zero_point: a_zero_point,
+                }),
+                b_quant: Some(QuantParams {
+                    zero_point: b_zero_point,
+                }),
+                ..Default::default()
+            }
+        }
+        let a_zero_point: Vec<_> = (0..a.rows()).map(|row| row as u8).collect();
+        let b_zero_point: Vec<_> = (0..b.cols()).map(|col| col as i8).collect();
+
+        // LHS zero point does not match LHS rows.
+        let result = run_matmul(
+            a.view(),
+            b.view(),
+            Some(gemm_opts(&[1, 2, 3], &b_zero_point)),
+            None,
+        );
+        assert_eq!(result, Err(GemmError::WrongQuantParamSize));
+
+        // RHS zero point does not match RHS columns.
+        let result = run_matmul(
+            a.view(),
+            b.view(),
+            Some(gemm_opts(&a_zero_point, &[1, 2, 3, 4])),
+            None,
+        );
+        assert_eq!(result, Err(GemmError::WrongQuantParamSize));
+    }
+
+    #[test]
     fn test_gemm_transposed() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let mut a = NdTensor::<f32, 2>::rand([20, 30], &mut rng);
@@ -1777,7 +1837,7 @@ mod tests {
                         b.view(),
                         opts.clone(),
                         Some(&gemm),
-                    );
+                    )?;
                     reference_gemm(expected.view_mut(), a.view(), b.view(), opts);
 
                     expect_equal(&result, &expected)?;
@@ -1825,7 +1885,7 @@ mod tests {
                     alpha,
                     ..Default::default()
                 });
-                run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None);
+                run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None)?;
                 let expected = reference_matmul(a.view(), b.view(), opts);
                 expect_equal(&result, &expected)?;
             }
@@ -2238,7 +2298,7 @@ mod tests {
                 ..Default::default()
             });
 
-            run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None);
+            run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None).unwrap();
 
             let mut expected = NdTensor::zeros([1, b.size(1)]);
             reference_gemm(expected.view_mut(), a.view(), b.view(), opts);
@@ -2303,7 +2363,7 @@ mod tests {
 
             let start = Instant::now();
             for _i in 0..iters {
-                run_gemm(result.view_mut(), a.view(), b.view(), None, None);
+                run_gemm(result.view_mut(), a.view(), b.view(), None, None).unwrap();
             }
             let duration = start.elapsed();
 

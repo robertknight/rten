@@ -9,6 +9,8 @@ pub enum GemmError {
     KSizeMismatch,
     /// Bias vector length does not match the corresponding output matrix size.
     WrongBiasSize,
+    /// Quantization parameter size does not match corresponding input size.
+    WrongQuantParamSize,
     /// The buffer provided for the output is too short.
     OutputNotLargeEnough,
     /// The data was packed with a kernel that uses a different layout than
@@ -26,6 +28,9 @@ impl Display for GemmError {
                 write!(fmt, "columns of matrix `a` must match rows of matrix `b`")
             }
             Self::WrongBiasSize => write!(fmt, "bias vector length is incorrect"),
+            Self::WrongQuantParamSize => {
+                write!(fmt, "quantization parameter size does not match input")
+            }
             Self::OutputNotLargeEnough => write!(fmt, "output buffer is too small"),
             Self::PackedDataKernelMismatch => {
                 write!(fmt, "matrix was packed with a different kernel")
