@@ -132,7 +132,7 @@ impl Quantize<u8> for f32 {
     fn quantize(self, inv_scale: Self, zero_point: u8) -> u8 {
         let y = (self * inv_scale).round_ties_even();
         let y = y + zero_point as f32;
-        y.clamp(0., 255.) as u8
+        y as u8 // saturating cast
     }
 }
 
@@ -140,7 +140,7 @@ impl Quantize<i8> for f32 {
     fn quantize(self, inv_scale: Self, zero_point: i8) -> i8 {
         let y = (self * inv_scale).round_ties_even();
         let y = y + zero_point as f32;
-        y.clamp(-128., 127.) as i8
+        y as i8 // saturating cast
     }
 }
 
