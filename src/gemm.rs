@@ -155,7 +155,6 @@ pub enum GemmInputA<'a, T> {
 
     /// A matrix which has been pre-packed by [`GemmExecutor::prepack_a`].
     Packed(&'a PackedAMatrix<T>),
-    // TODO - Support virtual "A" inputs, like `GemmInputB::Virtual`.
 }
 
 impl<T> GemmInputA<'_, T> {
@@ -1156,8 +1155,6 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     }
 
     // Loop over column tiles.
-    //
-    // TODO - This should be parallel, but threading overhead needs to be reduced.
     col_tiles
         .enumerate()
         .for_each(|(block_col_tile, col_tile)| {
@@ -2505,7 +2502,4 @@ mod tests {
             },
         );
     }
-
-    // TODO - Add a set of tests for use with Miri. These should exercise all
-    // unsafe code, but be adjusted to run quickly.
 }
