@@ -2448,8 +2448,6 @@ mod tests {
         run_gemm_bench::<f32, f32, f32>(&cases, Format::Csv);
     }
 
-    // Like `bench_pack_a`, but this does include allocation costs, so is
-    // relevant for ops which prepack inputs (eg. batched matmul).
     #[test]
     #[ignore]
     fn bench_prepack_a() {
