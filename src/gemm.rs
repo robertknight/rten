@@ -237,38 +237,6 @@ pub enum BiasVector<'a, T> {
     Row(&'a [T]),
 }
 
-/// Perform a General Matrix Multiplication ("gemm").
-///
-/// This computes `output = alpha * (a @ b) + beta * output` where `@` is
-/// matrix multiplication.
-#[allow(unused)]
-pub fn gemm<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
-    out_data: &mut [OutT],
-    out_row_stride: usize,
-    a: Matrix<LhsT>,
-    b: Matrix<RhsT>,
-    alpha: f32,
-    beta: OutT,
-) -> GemmResult
-where
-    GemmExecutor<LhsT, RhsT, OutT>: Default,
-{
-    // This heap-allocates a new kernel on each call. That's OK because this
-    // is very cheap relative to the large matmuls we expect to be doing, but
-    // would be good to avoid for small inputs.
-    GemmExecutor::default().gemm(
-        out_data,
-        out_row_stride,
-        GemmInputA::Unpacked(a),
-        GemmInputB::Unpacked(b),
-        alpha,
-        beta,
-        None, // bias
-        None, // a_quant
-        None, // b_quant
-    )
-}
-
 /// Executes matrix multiplication operations.
 ///
 /// For simple use cases, the standalone [`gemm`] function can be used.
