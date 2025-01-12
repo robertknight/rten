@@ -15,7 +15,7 @@ use super::simd_generic::{simd_gemv, GemmDispatch};
 use super::{Kernel, Lhs, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
-use crate::number::{cast_pod_mut_slice, cast_pod_slice};
+use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
 pub struct FmaKernel {

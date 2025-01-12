@@ -135,7 +135,7 @@ mod tests {
     use rten_tensor::prelude::*;
 
     use super::{ArcSlice, ArcTensorView, ConstantStorage};
-    use crate::number::cast_pod_slice;
+    use crate::slice_cast::cast_pod_slice;
 
     /// Convert a `Vec<i32>` to native-endian bytes.
     fn vec_to_ne_bytes(vec: Vec<i32>) -> Vec<u8> {

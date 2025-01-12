@@ -15,7 +15,8 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView, Storage};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
-use crate::number::{Identities, Pod};
+use crate::number::Identities;
+use crate::slice_cast::Pod;
 use crate::tensor_pool::ExtractBuffer;
 
 mod errors;
