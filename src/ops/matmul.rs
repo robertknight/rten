@@ -509,7 +509,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
-    use crate::gemm::{gemm, BiasVector, GemmExecutor, GemmInputA, GemmInputB};
+    use crate::gemm::{BiasVector, GemmExecutor, GemmInputA, GemmInputB};
     use crate::ops::binary_elementwise::broadcast_shapes;
     use crate::ops::tests::new_pool;
     use crate::ops::{InputList, Operator};
@@ -523,15 +523,19 @@ mod tests {
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
         c.make_contiguous();
         let c_row_stride = c.stride(c.ndim() - 2);
-        gemm(
-            c.data_mut().unwrap(),
-            c_row_stride,
-            a.nd_view(),
-            b.nd_view(),
-            alpha,
-            beta,
-        )
-        .unwrap()
+        GemmExecutor::default()
+            .gemm(
+                c.data_mut().unwrap(),
+                c_row_stride,
+                GemmInputA::Unpacked(a.nd_view()),
+                GemmInputB::Unpacked(b.nd_view()),
+                alpha,
+                beta,
+                None, // bias
+                None, // a_quant
+                None, // b_quant
+            )
+            .unwrap()
     }
 
     /// Multiply matrices in `a` by corresponding matrices in `b` and write to

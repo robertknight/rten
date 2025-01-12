@@ -20,12 +20,13 @@ use crate::graph::{
 };
 use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
-use crate::number::{cast_pod_slice, LeBytes, Pod};
+use crate::number::LeBytes;
 use crate::op_registry::{convert_dtype, OpLoadContext, OpRegistry, ReadOpError};
 use crate::ops::{DataType, InputOrOutput, Output};
 use crate::optimize::GraphOptimizer;
 use crate::schema_generated as sg;
 use crate::schema_generated::root_as_model;
+use crate::slice_cast::{cast_pod_slice, Pod};
 use crate::timing::TimingSort;
 use crate::weight_cache::WeightCache;
 

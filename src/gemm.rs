@@ -15,7 +15,8 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView, Storage};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
-use crate::number::{Identities, Pod};
+use crate::number::Identities;
+use crate::slice_cast::Pod;
 use crate::tensor_pool::ExtractBuffer;
 
 mod errors;
@@ -154,7 +155,6 @@ pub enum GemmInputA<'a, T> {
 
     /// A matrix which has been pre-packed by [`GemmExecutor::prepack_a`].
     Packed(&'a PackedAMatrix<T>),
-    // TODO - Support virtual "A" inputs, like `GemmInputB::Virtual`.
 }
 
 impl<T> GemmInputA<'_, T> {
@@ -235,38 +235,6 @@ pub enum BiasVector<'a, T> {
     /// Slice of values treated as a column vector. The length must match the
     /// number of columns in the RHS / B input.
     Row(&'a [T]),
-}
-
-/// Perform a General Matrix Multiplication ("gemm").
-///
-/// This computes `output = alpha * (a @ b) + beta * output` where `@` is
-/// matrix multiplication.
-#[allow(unused)]
-pub fn gemm<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
-    out_data: &mut [OutT],
-    out_row_stride: usize,
-    a: Matrix<LhsT>,
-    b: Matrix<RhsT>,
-    alpha: f32,
-    beta: OutT,
-) -> GemmResult
-where
-    GemmExecutor<LhsT, RhsT, OutT>: Default,
-{
-    // This heap-allocates a new kernel on each call. That's OK because this
-    // is very cheap relative to the large matmuls we expect to be doing, but
-    // would be good to avoid for small inputs.
-    GemmExecutor::default().gemm(
-        out_data,
-        out_row_stride,
-        GemmInputA::Unpacked(a),
-        GemmInputB::Unpacked(b),
-        alpha,
-        beta,
-        None, // bias
-        None, // a_quant
-        None, // b_quant
-    )
 }
 
 /// Executes matrix multiplication operations.
@@ -1155,8 +1123,6 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     }
 
     // Loop over column tiles.
-    //
-    // TODO - This should be parallel, but threading overhead needs to be reduced.
     col_tiles
         .enumerate()
         .for_each(|(block_col_tile, col_tile)| {
@@ -2504,7 +2470,4 @@ mod tests {
             },
         );
     }
-
-    // TODO - Add a set of tests for use with Miri. These should exercise all
-    // unsafe code, but be adjusted to run quickly.
 }

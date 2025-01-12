@@ -5,7 +5,7 @@ use rten_tensor::{Alloc, Matrix, MatrixLayout, Storage};
 
 use super::kernels::PackedLayout;
 use crate::iter_util::range_chunks;
-use crate::number::{cast_pod_mut_slice, cast_pod_slice};
+use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
 
 /// Return the required size and other metadata for packing an "A" matrix with
 /// [`pack_a_block`].
