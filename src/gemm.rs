@@ -1543,6 +1543,32 @@ mod tests {
         }
     }
 
+    // Random number generator which produces values with a reduced range.
+    //
+    // This works around an issue under AVX2 where the `vpmaddubsw` instruction
+    // can encounter saturation when adding two signed 16-bit values into a
+    // 16-bit result. Each of the two 16-bit inputs are the result of a `u8 x i8`
+    // multiplication. By limiting the range of either the u8 or i8 input, we
+    // can avoid saturation. `(i16::MAX / 2).isqrt() == 127`, so if we ensure
+    // both int8 values are <= 127, saturation won't occur.
+    //
+    // This issue does not affect the VNNI instruction used on newer x64 systems.
+    struct ReducedRangeRng {
+        rng: XorShiftRng,
+    }
+
+    impl ReducedRangeRng {
+        fn new() -> Self {
+            Self {
+                rng: XorShiftRng::new(1234),
+            }
+        }
+
+        fn next_u8(&mut self) -> u8 {
+            (self.rng.next_u64() % 128) as u8
+        }
+    }
+
     /// Test a GEMM kernel using all square matrices up to a given size, plus
     /// various other "interesting" size combinations.
     fn test_gemm_various_input_sizes<LhsT, RhsT, OutT>(
@@ -1651,21 +1677,15 @@ mod tests {
 
     #[test]
     fn test_gemm_u8i8_i32() -> Result<(), Box<dyn Error>> {
-        let mut rng = XorShiftRng::new(1234);
+        let mut rng = ReducedRangeRng::new();
         let gemm = GemmExecutor::<u8, i8, i32>::default();
-        test_gemm_various_input_sizes(
-            Some(&gemm),
-            Some(&mut || {
-                // To avoid saturation issues under AVX2 we restrict the LHS input
-                // to [0, 127].
-                (rng.next_u64() % 128) as u8
-            }),
-        )
+        test_gemm_various_input_sizes(Some(&gemm), Some(&mut || rng.next_u8()))
     }
 
     #[test]
     fn test_gemm_u8i8_i32_zero_point() {
-        let mut rng = XorShiftRng::new(1234);
+        let mut lhs_rng = ReducedRangeRng::new();
+        let mut rhs_rng = XorShiftRng::new(1234);
 
         struct Case {
             m: usize,
@@ -1681,12 +1701,8 @@ mod tests {
         ];
 
         for Case { m, n, k } in cases {
-            let a = NdTensor::<u8, 2>::from_simple_fn([m, k], || {
-                // To avoid saturation issues under AVX2 we restrict the LHS input
-                // to [0, 127].
-                (rng.next_u64() % 128) as u8
-            });
-            let b = NdTensor::<i8, 2>::rand([k, n], &mut rng);
+            let a = NdTensor::<u8, 2>::from_simple_fn([m, k], || lhs_rng.next_u8());
+            let b = NdTensor::<i8, 2>::rand([k, n], &mut rhs_rng);
             let a_zero_point: Vec<_> = (0..a.rows() as u8).collect();
             let b_zero_point: Vec<_> = (0..b.cols() as i8).collect();
             let opts = Some(GemmOpts {
