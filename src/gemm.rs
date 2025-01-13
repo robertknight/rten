@@ -2390,7 +2390,8 @@ mod tests {
             //   `fma_units` is 2. For a 3.4Ghz CPU this would give a max
             //   theoretical peak of 3.4 * 8 * 2 * 2 = 108.8 GFLOPS.
 
-            let flops = (2 * m * n * k * iters as usize) as f32 / duration.as_secs_f32();
+            let flops =
+                (2 * m as u64 * n as u64 * k as u64 * iters as u64) as f32 / duration.as_secs_f32();
             let gflops = flops / (10f32).powi(9);
             let duration_ms = duration.as_secs_f64() * 1000.0;
 

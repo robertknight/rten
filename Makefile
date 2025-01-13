@@ -45,6 +45,11 @@ wasm:
 	# out to get a release WASM build with symbols.
 	tools/optimize-wasm.sh dist/rten_bg.wasm
 
+.PHONY: wasm-relaxedsimd
+wasm-relaxedsimd:
+	RUSTFLAGS="-C target-feature=+simd128,+relaxed-simd" cargo build --features=wasm_api --release --target wasm32-unknown-unknown
+	wasm-bindgen target/wasm32-unknown-unknown/release/rten.wasm --out-dir dist/ --target web --weak-refs
+
 .PHONY: wasm-nosimd
 wasm-nosimd:
 	cargo build --release --target wasm32-unknown-unknown

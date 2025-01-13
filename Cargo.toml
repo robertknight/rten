@@ -72,7 +72,7 @@ wasm_api = []
 random = ["dep:fastrand", "dep:fastrand-contrib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.83"
+wasm-bindgen = "0.2.100"
 
 [lints.clippy]
 # `assert!(const)` effectively used as a static assert, which compiler will
