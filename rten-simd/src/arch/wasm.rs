@@ -5,6 +5,9 @@ use std::arch::wasm32::{
     i32x4_trunc_sat_f32x4, v128, v128_and, v128_bitselect, v128_load, v128_store,
 };
 
+#[cfg(target_feature = "relaxed-simd")]
+use std::arch::wasm32::f32x4_relaxed_madd;
+
 use crate::{Simd, SimdFloat, SimdInt, SimdMask};
 
 /// Wrapper around a WASM v128 type that marks it as containing integers.
@@ -182,7 +185,14 @@ impl SimdFloat for v128f {
 
     #[inline]
     unsafe fn mul_add(self, a: Self, b: Self) -> Self {
-        Self(f32x4_add(f32x4_mul(self.0, a.0), b.0))
+        #[cfg(target_feature = "relaxed-simd")]
+        {
+            Self(f32x4_relaxed_madd(self.0, a.0, b.0))
+        }
+        #[cfg(not(target_feature = "relaxed-simd"))]
+        {
+            Self(f32x4_add(f32x4_mul(self.0, a.0), b.0))
+        }
     }
 
     #[inline]
