@@ -7,6 +7,8 @@ use super::kernels::PackedLayout;
 use crate::iter_util::range_chunks;
 use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
 
+pub mod int8;
+
 /// Helper for incrementally filling a slice.
 struct SliceWriter<'a, T> {
     offset: usize,

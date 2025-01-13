@@ -13,6 +13,7 @@ use rten_simd::isa_detection::is_avx512_supported;
 
 use super::simd_generic::{simd_gemv, GemmDispatch};
 use super::{Kernel, Lhs, PackedLayout, QuantParams, TempTile};
+use crate::gemm::packing;
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
 use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
@@ -448,4 +449,293 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
             gemv_kernel_impl(out, a, b, alpha, beta);
         }
     }
+}
+
+pub struct Avx2Int8Kernel {
+    _private: (),
+}
+
+impl Avx2Int8Kernel {
+    // Tile size matches AVX2 register
+    const MR: usize = 8;
+    const NR: usize = 8;
+}
+
+unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
+    fn new() -> Option<Self> {
+        let supported = is_x86_feature_detected!("avx2");
+        supported.then_some(Avx2Int8Kernel { _private: () })
+    }
+
+    fn name(&self) -> &'static str {
+        "avx2-int8"
+    }
+
+    fn mr(&self) -> usize {
+        Self::MR
+    }
+
+    fn nr(&self) -> usize {
+        Self::NR
+    }
+
+    fn packed_a_layout(
+        &self,
+        _a: Matrix<u8>,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<u8>>,
+    ) -> PackedLayout {
+        let mut layout = packing::int8::packed_a_layout::<{ Self::MR }>(rows, cols);
+        layout.must_pack = true;
+        layout
+    }
+
+    fn pack_a_block(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        a: Matrix<u8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+        _quant: Option<QuantParams<u8>>,
+    ) {
+        let out = cast_pod_mut_slice(out).unwrap();
+        packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
+    }
+
+    fn packed_b_layout(
+        &self,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<i8>>,
+    ) -> PackedLayout {
+        packing::int8::packed_b_layout::<{ Self::NR }>(rows, cols)
+    }
+
+    fn pack_b_block(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        b: Matrix<i8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+        _quant: Option<QuantParams<i8>>,
+    ) {
+        let out = cast_pod_mut_slice(out).unwrap();
+        packing::int8::pack_b::<{ Self::NR }>(out, b.slice((rows, cols)))
+    }
+
+    fn pack_im2col(
+        &self,
+        _out: &mut [MaybeUninit<u8>],
+        _image: &Im2Col<i8>,
+        _rows: Range<usize>,
+        _cols: Range<usize>,
+    ) {
+        unimplemented!("pack_im2col not implemented");
+    }
+
+    #[target_feature(enable = "avx2")]
+    unsafe fn kernel(
+        &self,
+        tile_ptr: *mut i32,
+        tile_row_stride: usize,
+        a: Lhs<u8>,
+        b: &[u8],
+        used_rows: usize,
+        used_cols: usize,
+        depth: usize,
+        _alpha: f32,
+        beta: i32,
+        a_quant: Option<QuantParams<u8>>,
+        b_quant: Option<QuantParams<i8>>,
+    ) {
+        use core::arch::x86_64::{
+            _mm256_add_epi32, _mm256_broadcast_ss, _mm256_loadu_si256, _mm256_madd_epi16,
+            _mm256_maddubs_epi16, _mm256_mullo_epi32, _mm256_set1_epi16, _mm256_set1_epi32,
+            _mm256_storeu_si256, _mm256_sub_epi32,
+        };
+
+        // The value for each element in the output tile is computed as:
+        //
+        // c = (a[0] - a_zero_point) * (b[0] - b_zero_point) + ...
+        //
+        // (or `c += ...` when beta=1)
+        //
+        // Where `a_zero_point` is the zero point for the row of A and
+        // `b_zero_point` is the zero point for the column of B.
+        //
+        // This can be expanded and re-arranged into:
+        //
+        // c = a[0]b[0] - a[0] * b_zero_point - b[0] * a_zero_point + a_zero_point * b_zero_point + ...
+        // c = dot(a, b) - sum(a) * b_zero_point - sum(b) * a_zero_point + k * a_zero_point * b_zero_point
+        // c = k * a_zero_point * b_zero_point + dot(a, b) - sum(a) * b_zero_point - sum(b) * a_zero_point
+        //
+        // The `k * a_zero_point * b_zero_point` term is computed first as the
+        // initial value of the accumulator tile, then we loop over K and add
+        // the dot product of each row and column. Finally the scaled row
+        // and column sums are subtracted.
+
+        let a_data = match a {
+            Lhs::Packed(data) => data,
+            Lhs::Unpacked { .. } => panic!("lhs must be packed"),
+        };
+        let a_ptr = a_data.as_ptr();
+        let b_ptr = b.as_ptr();
+
+        let n_depth_tiles = depth.div_ceil(4);
+
+        let mut a_zero_points = [0; Self::MR];
+        if let Some(a_quant) = a_quant {
+            #[allow(clippy::manual_memcpy)]
+            for row in 0..used_rows {
+                a_zero_points[row] = a_quant.zero_point[row] as i32;
+            }
+        }
+        let mut b_zero_points = [0; Self::NR];
+        if let Some(b_quant) = b_quant {
+            #[allow(clippy::manual_memcpy)]
+            for col in 0..used_cols {
+                b_zero_points[col] = b_quant.zero_point[col] as i32;
+            }
+        }
+        let b_zero = _mm256_loadu_si256(b_zero_points.as_ptr() as *const __m256i);
+
+        // Initialize output tile with `k * a_zero_point[row] * b_zero_point[col]`
+        let k_mul_b_zero = _mm256_mullo_epi32(_mm256_set1_epi32(depth as i32), b_zero);
+        let mut tmp = [k_mul_b_zero; Self::MR];
+        for row in 0..Self::MR {
+            let a_zero = _mm256_set1_epi32(a_zero_points[row]);
+            tmp[row] = _mm256_mullo_epi32(tmp[row], a_zero);
+        }
+
+        // Loop over K dimension and compute dot product of `[MR, 4]` tiles
+        // of A with `[4, NR]` tiles of B.
+        for k_block in 0..n_depth_tiles {
+            // Load `[4, NR]` microtile from B
+            let bv = _mm256_loadu_si256(b_ptr.add(k_block * Self::NR * 4) as *const __m256i);
+
+            // Each iteration broadcasts 4x int 8 values from A, computes NR
+            // dot products and accumulates into the output tile.
+            for row in 0..Self::MR {
+                let av = _mm256_broadcast_ss(std::mem::transmute::<*const u8, &f32>(
+                    a_ptr.add(k_block * Self::MR * 4 + row * 4),
+                ));
+                let av = std::mem::transmute::<__m256, __m256i>(av);
+
+                let dot = _mm256_maddubs_epi16(av, bv);
+                let dot = _mm256_madd_epi16(dot, _mm256_set1_epi16(1));
+                tmp[row] = _mm256_add_epi32(tmp[row], dot);
+            }
+        }
+
+        // Scale zero points by row and column sums and subtract from output
+        // tile. The MR row sums and NR column sums are stored at the end of the
+        // packed A and B data respectively.
+        let a_row_sums: &[i32] =
+            cast_pod_slice(&a_data[a_data.len() - Self::MR * size_of::<i32>()..]).unwrap();
+        let b_col_sums =
+            _mm256_loadu_si256(b_ptr.add(b.len() - Self::NR * size_of::<i32>()) as *const __m256i);
+        for row in 0..Self::MR {
+            let a_zero = _mm256_set1_epi32(a_zero_points[row]);
+            let a_sum = _mm256_set1_epi32(a_row_sums[row]);
+
+            let a_sum_mul_b_zero = _mm256_mullo_epi32(a_sum, b_zero);
+            let b_sum_mul_a_zero = _mm256_mullo_epi32(b_col_sums, a_zero);
+            tmp[row] = _mm256_sub_epi32(tmp[row], a_sum_mul_b_zero);
+            tmp[row] = _mm256_sub_epi32(tmp[row], b_sum_mul_a_zero);
+        }
+
+        // Write from temporary tile in registers back to output.
+        let output_tile_ptr = |row| tile_ptr.add(row * tile_row_stride);
+
+        if beta == 0 {
+            if used_rows == Self::MR && used_cols == Self::NR {
+                // Full output tile
+                for row in 0..Self::MR {
+                    let tile_ptr = output_tile_ptr(row);
+                    _mm256_storeu_si256(tile_ptr as *mut __m256i, tmp[row]);
+                }
+            } else {
+                // Partial output tile
+                for r in 0..used_rows {
+                    let tile_ptr = output_tile_ptr(r);
+                    let tmp = to_array::<i32, { Self::NR }>(tmp[r]);
+                    for c in 0..used_cols {
+                        *tile_ptr.add(c) = tmp[c];
+                    }
+                }
+            }
+        } else if beta == 1 {
+            if used_rows == Self::MR && used_cols == Self::NR {
+                // Full output tile
+                for row in 0..Self::MR {
+                    let tile_ptr = output_tile_ptr(row);
+                    let out =
+                        _mm256_add_epi32(_mm256_loadu_si256(tile_ptr as *const __m256i), tmp[row]);
+                    _mm256_storeu_si256(tile_ptr as *mut __m256i, out);
+                }
+            } else {
+                // Partial output tile
+                for r in 0..used_rows {
+                    let tile_ptr = output_tile_ptr(r);
+                    let tmp = to_array::<i32, { Self::NR }>(tmp[r]);
+                    for c in 0..used_cols {
+                        *tile_ptr.add(c) += tmp[c];
+                    }
+                }
+            }
+        } else {
+            panic!("unsupported beta value");
+        }
+    }
+
+    fn gemv_kernel(
+        &self,
+        out: &mut [MaybeUninit<i32>],
+        a: &[u8],
+        b: Matrix<i8>,
+        alpha: f32,
+        beta: i32,
+        a_quant: Option<QuantParams<u8>>,
+        b_quant: Option<QuantParams<i8>>,
+    ) {
+        // TODO - Optimize with AVX intrinsics.
+        assert!(beta == 0 || beta == 1);
+        assert_eq!(alpha, 1.);
+        assert_eq!(b.rows(), a.len());
+        assert_eq!(out.len(), b.cols());
+
+        let a_zero = a_quant.map(|aq| aq.zero_point[0] as i32).unwrap_or(0);
+        let depth = a.len();
+
+        for (out, col) in out.iter_mut().zip(0..b.cols()) {
+            let b_zero = b_quant.map(|bq| bq.zero_point[col] as i32).unwrap_or(0);
+            let mut acc = 0;
+            for k in 0..depth {
+                let a_el = unsafe { *a.get_unchecked(k) } as i32 - a_zero;
+                let b_el = unsafe { *b.get_unchecked([k, col]) } as i32 - b_zero;
+                acc += a_el * b_el;
+            }
+            if beta == 0 {
+                out.write(acc);
+            } else {
+                // Safety: Output is initialized when beta is non-zero
+                unsafe {
+                    out.write(out.assume_init() + acc);
+                }
+            }
+        }
+    }
+}
+
+/// Convert a SIMD vector into a `[T; N]` array.
+fn to_array<T: Copy + Default, const N: usize>(x: __m256i) -> [T; N] {
+    use core::arch::x86_64::_mm256_storeu_si256;
+
+    assert_eq!(size_of::<T>() * N, size_of::<__m256i>());
+    let mut out = [T::default(); N];
+    unsafe {
+        _mm256_storeu_si256(out.as_mut_ptr() as *mut __m256i, x);
+    }
+    out
 }
