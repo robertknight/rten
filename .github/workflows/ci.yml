@@ -26,7 +26,7 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Install wasm-bindgen
       # nb. wasm-bindgen-cli version must match `wasm-bindgen` version in Cargo.lock
-      run: cargo install wasm-bindgen-cli --version 0.2.92
+      run: cargo install wasm-bindgen-cli --version 0.2.100
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build
       run: cargo build
