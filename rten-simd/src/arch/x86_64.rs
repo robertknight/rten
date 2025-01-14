@@ -390,18 +390,6 @@ impl Simd for __m512i {
 
     #[inline]
     #[target_feature(enable = "avx512f")]
-    unsafe fn min(self, rhs: Self) -> Self {
-        _mm512_min_epi32(self, rhs)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
-    unsafe fn max(self, rhs: Self) -> Self {
-        _mm512_max_epi32(self, rhs)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
     unsafe fn load(ptr: *const i32) -> Self {
         _mm512_loadu_si512(ptr)
     }
@@ -453,6 +441,18 @@ impl SimdInt for __m512i {
     #[target_feature(enable = "avx512f")]
     unsafe fn gt(self, other: Self) -> Self::Mask {
         other.lt(self)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn min(self, rhs: Self) -> Self {
+        _mm512_min_epi32(self, rhs)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn max(self, rhs: Self) -> Self {
+        _mm512_max_epi32(self, rhs)
     }
 
     #[inline]
@@ -604,7 +604,7 @@ impl SimdFloat for __m512 {
 
     #[inline]
     #[target_feature(enable = "avx512f")]
-    unsafe fn mix(self, rhs: Self) -> Self {
+    unsafe fn min(self, rhs: Self) -> Self {
         _mm512_min_ps(self, rhs)
     }
 
