@@ -11,7 +11,7 @@ use rten_tensor::{Matrix, MatrixLayout};
 #[cfg(feature = "avx512")]
 use rten_simd::isa_detection::is_avx512_supported;
 
-use super::simd_generic::{simd_gemv, GemmDispatch};
+use super::simd_generic::{simd_gemv, simd_int8_gemm, GemmDispatch};
 use super::{Kernel, Lhs, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing;
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
@@ -549,144 +549,31 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         a_quant: Option<QuantParams<u8>>,
         b_quant: Option<QuantParams<i8>>,
     ) {
-        use core::arch::x86_64::{
-            _mm256_add_epi32, _mm256_broadcast_ss, _mm256_loadu_si256, _mm256_madd_epi16,
-            _mm256_maddubs_epi16, _mm256_mullo_epi32, _mm256_set1_epi16, _mm256_set1_epi32,
-            _mm256_storeu_si256, _mm256_sub_epi32,
-        };
-
-        // The value for each element in the output tile is computed as:
-        //
-        // c = (a[0] - a_zero_point) * (b[0] - b_zero_point) + ...
-        //
-        // (or `c += ...` when beta=1)
-        //
-        // Where `a_zero_point` is the zero point for the row of A and
-        // `b_zero_point` is the zero point for the column of B.
-        //
-        // This can be expanded and re-arranged into:
-        //
-        // c = a[0]b[0] - a[0] * b_zero_point - b[0] * a_zero_point + a_zero_point * b_zero_point + ...
-        // c = dot(a, b) - sum(a) * b_zero_point - sum(b) * a_zero_point + k * a_zero_point * b_zero_point
-        // c = k * a_zero_point * b_zero_point + dot(a, b) - sum(a) * b_zero_point - sum(b) * a_zero_point
-        //
-        // The `k * a_zero_point * b_zero_point` term is computed first as the
-        // initial value of the accumulator tile, then we loop over K and add
-        // the dot product of each row and column. Finally the scaled row
-        // and column sums are subtracted.
-
         let a_data = match a {
             Lhs::Packed(data) => data,
             Lhs::Unpacked { .. } => panic!("lhs must be packed"),
         };
-        let a_ptr = a_data.as_ptr();
-        let b_ptr = b.as_ptr();
 
-        let n_depth_tiles = depth.div_ceil(4);
+        let a_zero_points = extract_zero_points(a_quant, used_rows);
+        let b_zero_points = extract_zero_points(b_quant, used_cols);
+        let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
+        let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        let mut a_zero_points = [0; Self::MR];
-        if let Some(a_quant) = a_quant {
-            #[allow(clippy::manual_memcpy)]
-            for row in 0..used_rows {
-                a_zero_points[row] = a_quant.zero_point[row] as i32;
-            }
-        }
-        let mut b_zero_points = [0; Self::NR];
-        if let Some(b_quant) = b_quant {
-            #[allow(clippy::manual_memcpy)]
-            for col in 0..used_cols {
-                b_zero_points[col] = b_quant.zero_point[col] as i32;
-            }
-        }
-        let b_zero = _mm256_loadu_si256(b_zero_points.as_ptr() as *const __m256i);
-
-        // Initialize output tile with `k * a_zero_point[row] * b_zero_point[col]`
-        let k_mul_b_zero = _mm256_mullo_epi32(_mm256_set1_epi32(depth as i32), b_zero);
-        let mut tmp = [k_mul_b_zero; Self::MR];
-        for row in 0..Self::MR {
-            let a_zero = _mm256_set1_epi32(a_zero_points[row]);
-            tmp[row] = _mm256_mullo_epi32(tmp[row], a_zero);
-        }
-
-        // Loop over K dimension and compute dot product of `[MR, 4]` tiles
-        // of A with `[4, NR]` tiles of B.
-        for k_block in 0..n_depth_tiles {
-            // Load `[4, NR]` microtile from B
-            let bv = _mm256_loadu_si256(b_ptr.add(k_block * Self::NR * 4) as *const __m256i);
-
-            // Each iteration broadcasts 4x int 8 values from A, computes NR
-            // dot products and accumulates into the output tile.
-            for row in 0..Self::MR {
-                let av = _mm256_broadcast_ss(std::mem::transmute::<*const u8, &f32>(
-                    a_ptr.add(k_block * Self::MR * 4 + row * 4),
-                ));
-                let av = std::mem::transmute::<__m256, __m256i>(av);
-
-                let dot = _mm256_maddubs_epi16(av, bv);
-                let dot = _mm256_madd_epi16(dot, _mm256_set1_epi16(1));
-                tmp[row] = _mm256_add_epi32(tmp[row], dot);
-            }
-        }
-
-        // Scale zero points by row and column sums and subtract from output
-        // tile. The MR row sums and NR column sums are stored at the end of the
-        // packed A and B data respectively.
-        let a_row_sums: &[i32] =
-            cast_pod_slice(&a_data[a_data.len() - Self::MR * size_of::<i32>()..]).unwrap();
-        let b_col_sums =
-            _mm256_loadu_si256(b_ptr.add(b.len() - Self::NR * size_of::<i32>()) as *const __m256i);
-        for row in 0..Self::MR {
-            let a_zero = _mm256_set1_epi32(a_zero_points[row]);
-            let a_sum = _mm256_set1_epi32(a_row_sums[row]);
-
-            let a_sum_mul_b_zero = _mm256_mullo_epi32(a_sum, b_zero);
-            let b_sum_mul_a_zero = _mm256_mullo_epi32(b_col_sums, a_zero);
-            tmp[row] = _mm256_sub_epi32(tmp[row], a_sum_mul_b_zero);
-            tmp[row] = _mm256_sub_epi32(tmp[row], b_sum_mul_a_zero);
-        }
-
-        // Write from temporary tile in registers back to output.
-        let output_tile_ptr = |row| tile_ptr.add(row * tile_row_stride);
-
-        if beta == 0 {
-            if used_rows == Self::MR && used_cols == Self::NR {
-                // Full output tile
-                for row in 0..Self::MR {
-                    let tile_ptr = output_tile_ptr(row);
-                    _mm256_storeu_si256(tile_ptr as *mut __m256i, tmp[row]);
-                }
-            } else {
-                // Partial output tile
-                for r in 0..used_rows {
-                    let tile_ptr = output_tile_ptr(r);
-                    let tmp = to_array::<i32, { Self::NR }>(tmp[r]);
-                    for c in 0..used_cols {
-                        *tile_ptr.add(c) = tmp[c];
-                    }
-                }
-            }
-        } else if beta == 1 {
-            if used_rows == Self::MR && used_cols == Self::NR {
-                // Full output tile
-                for row in 0..Self::MR {
-                    let tile_ptr = output_tile_ptr(row);
-                    let out =
-                        _mm256_add_epi32(_mm256_loadu_si256(tile_ptr as *const __m256i), tmp[row]);
-                    _mm256_storeu_si256(tile_ptr as *mut __m256i, out);
-                }
-            } else {
-                // Partial output tile
-                for r in 0..used_rows {
-                    let tile_ptr = output_tile_ptr(r);
-                    let tmp = to_array::<i32, { Self::NR }>(tmp[r]);
-                    for c in 0..used_cols {
-                        *tile_ptr.add(c) += tmp[c];
-                    }
-                }
-            }
-        } else {
-            panic!("unsupported beta value");
-        }
+        simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
+            tile_ptr,
+            tile_row_stride,
+            a_data,
+            b,
+            used_rows,
+            used_cols,
+            depth,
+            beta != 0, // accumulate
+            a_zero_points,
+            b_zero_points,
+            a_row_sums,
+            b_col_sums,
+            avx2_int8_dot_product,
+        )
     }
 
     fn gemv_kernel(
@@ -728,14 +615,30 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
     }
 }
 
-/// Convert a SIMD vector into a `[T; N]` array.
-fn to_array<T: Copy + Default, const N: usize>(x: __m256i) -> [T; N] {
-    use core::arch::x86_64::_mm256_storeu_si256;
+/// Compute 8x dot products between `u8` values in `a`, `i8` values in `b` and
+/// add the `i32` results to `c`.
+#[inline(always)]
+unsafe fn avx2_int8_dot_product(a: __m256i, b: __m256i, c: __m256i) -> __m256i {
+    use core::arch::x86_64::{
+        _mm256_add_epi32, _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16,
+    };
+    let tmp = _mm256_maddubs_epi16(a, b);
+    let tmp = _mm256_madd_epi16(tmp, _mm256_set1_epi16(1));
+    _mm256_add_epi32(c, tmp)
+}
 
-    assert_eq!(size_of::<T>() * N, size_of::<__m256i>());
-    let mut out = [T::default(); N];
-    unsafe {
-        _mm256_storeu_si256(out.as_mut_ptr() as *mut __m256i, x);
+/// Extract `len` zero points from `quant`, upconvert to i32 and pad unused
+/// elements in the result with zero.
+fn extract_zero_points<T: Copy + Into<i32>, const MAX_LEN: usize>(
+    quant: Option<QuantParams<T>>,
+    len: usize,
+) -> [i32; MAX_LEN] {
+    let mut zero_points = [0; MAX_LEN];
+    if let Some(quant) = quant {
+        #[allow(clippy::manual_memcpy)]
+        for row in 0..len {
+            zero_points[row] = quant.zero_point[row].into();
+        }
     }
-    out
+    zero_points
 }

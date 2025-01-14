@@ -12,6 +12,7 @@ use rten_tensor::Matrix;
 
 use super::PackedLayout;
 use super::SliceWriter;
+use crate::slice_cast::cast_pod_slice;
 
 /// Size of micro tiles of K in the innermost dimension of packed layouts.
 const K_TILE: usize = 4;
@@ -189,6 +190,22 @@ pub fn pack_a<const MR: usize>(out: &mut [MaybeUninit<u8>], a: Matrix<u8>) {
     }
 
     assert!(out.completed());
+}
+
+/// Extract the packed elements and row sums from a buffer packed by [`pack_a`].
+pub fn extract_packed_a<const MR: usize>(a: &[u8]) -> (&[u8], &[i32; MR]) {
+    let row_sum_offset = a.len() - MR * size_of::<i32>();
+    let (packed_elements, row_sums) = a.split_at(row_sum_offset);
+    let row_sums: &[i32] = cast_pod_slice(row_sums).unwrap();
+    (packed_elements, row_sums.try_into().unwrap())
+}
+
+/// Extract the packed elements and column sums from a buffer packed by [`pack_b`].
+pub fn extract_packed_b<const NR: usize>(b: &[u8]) -> (&[u8], &[i32; NR]) {
+    let col_sum_offset = b.len() - NR * size_of::<i32>();
+    let (packed_elements, col_sums) = b.split_at(col_sum_offset);
+    let row_sums: &[i32] = cast_pod_slice(col_sums).unwrap();
+    (packed_elements, row_sums.try_into().unwrap())
 }
 
 #[cfg(test)]
