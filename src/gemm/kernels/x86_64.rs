@@ -642,3 +642,185 @@ fn extract_zero_points<T: Copy + Into<i32>, const MAX_LEN: usize>(
     }
     zero_points
 }
+
+#[cfg(feature = "avx512")]
+pub struct Avx512Int8Kernel {
+    _private: (),
+}
+
+#[cfg(feature = "avx512")]
+impl Avx512Int8Kernel {
+    const MR: usize = 8;
+    // Tile size matches AVX-512 register
+    const NR: usize = 16;
+}
+
+#[cfg(feature = "avx512")]
+unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
+    fn new() -> Option<Self> {
+        is_avx512_supported().then_some(Avx512Int8Kernel { _private: () })
+    }
+
+    fn name(&self) -> &'static str {
+        "avx512-int8"
+    }
+
+    fn mr(&self) -> usize {
+        Self::MR
+    }
+
+    fn nr(&self) -> usize {
+        Self::NR
+    }
+
+    fn packed_a_layout(
+        &self,
+        _a: Matrix<u8>,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<u8>>,
+    ) -> PackedLayout {
+        let mut layout = packing::int8::packed_a_layout::<{ Self::MR }>(rows, cols);
+        layout.must_pack = true;
+        layout
+    }
+
+    fn pack_a_block(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        a: Matrix<u8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+        _quant: Option<QuantParams<u8>>,
+    ) {
+        let out = cast_pod_mut_slice(out).unwrap();
+        packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
+    }
+
+    fn packed_b_layout(
+        &self,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<i8>>,
+    ) -> PackedLayout {
+        packing::int8::packed_b_layout::<{ Self::NR }>(rows, cols)
+    }
+
+    fn pack_b_block(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        b: Matrix<i8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+        _quant: Option<QuantParams<i8>>,
+    ) {
+        let out = cast_pod_mut_slice(out).unwrap();
+        packing::int8::pack_b::<{ Self::NR }>(out, b.slice((rows, cols)))
+    }
+
+    fn pack_im2col(
+        &self,
+        _out: &mut [MaybeUninit<u8>],
+        _image: &Im2Col<i8>,
+        _rows: Range<usize>,
+        _cols: Range<usize>,
+    ) {
+        unimplemented!("pack_im2col not implemented");
+    }
+
+    #[target_feature(enable = "avx512f")]
+    #[target_feature(enable = "avx512bw")]
+    unsafe fn kernel(
+        &self,
+        tile_ptr: *mut i32,
+        tile_row_stride: usize,
+        a: Lhs<u8>,
+        b: &[u8],
+        used_rows: usize,
+        used_cols: usize,
+        depth: usize,
+        _alpha: f32,
+        beta: i32,
+        a_quant: Option<QuantParams<u8>>,
+        b_quant: Option<QuantParams<i8>>,
+    ) {
+        let a_data = match a {
+            Lhs::Packed(data) => data,
+            Lhs::Unpacked { .. } => panic!("lhs must be packed"),
+        };
+
+        let a_zero_points = extract_zero_points(a_quant, used_rows);
+        let b_zero_points = extract_zero_points(b_quant, used_cols);
+        let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
+        let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
+
+        unsafe {
+            simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
+                tile_ptr,
+                tile_row_stride,
+                a_data,
+                b,
+                used_rows,
+                used_cols,
+                depth,
+                beta != 0, // accumulate
+                a_zero_points,
+                b_zero_points,
+                a_row_sums,
+                b_col_sums,
+                avx512_int8_dot_product,
+            )
+        }
+    }
+
+    fn gemv_kernel(
+        &self,
+        out: &mut [MaybeUninit<i32>],
+        a: &[u8],
+        b: Matrix<i8>,
+        alpha: f32,
+        beta: i32,
+        a_quant: Option<QuantParams<u8>>,
+        b_quant: Option<QuantParams<i8>>,
+    ) {
+        // TODO - Optimize with AVX intrinsics.
+        assert!(beta == 0 || beta == 1);
+        assert_eq!(alpha, 1.);
+        assert_eq!(b.rows(), a.len());
+        assert_eq!(out.len(), b.cols());
+
+        let a_zero = a_quant.map(|aq| aq.zero_point[0] as i32).unwrap_or(0);
+        let depth = a.len();
+
+        for (out, col) in out.iter_mut().zip(0..b.cols()) {
+            let b_zero = b_quant.map(|bq| bq.zero_point[col] as i32).unwrap_or(0);
+            let mut acc = 0;
+            for k in 0..depth {
+                let a_el = unsafe { *a.get_unchecked(k) } as i32 - a_zero;
+                let b_el = unsafe { *b.get_unchecked([k, col]) } as i32 - b_zero;
+                acc += a_el * b_el;
+            }
+            if beta == 0 {
+                out.write(acc);
+            } else {
+                // Safety: Output is initialized when beta is non-zero
+                unsafe {
+                    out.write(out.assume_init() + acc);
+                }
+            }
+        }
+    }
+}
+
+/// Compute 16 dot products between `u8` values in `a`, `i8` values in `b` and
+/// add the `i32` results to `c`.
+#[cfg(feature = "avx512")]
+#[inline(always)]
+unsafe fn avx512_int8_dot_product(a: __m512i, b: __m512i, c: __m512i) -> __m512i {
+    use core::arch::x86_64::{
+        _mm512_add_epi32, _mm512_madd_epi16, _mm512_maddubs_epi16, _mm512_set1_epi16,
+    };
+    let tmp = _mm512_maddubs_epi16(a, b);
+    let tmp = _mm512_madd_epi16(tmp, _mm512_set1_epi16(1));
+    _mm512_add_epi32(c, tmp)
+}

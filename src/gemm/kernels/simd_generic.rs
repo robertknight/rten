@@ -438,7 +438,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize>(
     let b_ptr = b.as_ptr();
 
     let n_depth_tiles = depth.div_ceil(4);
-    let b_zero = S::load(b_zero_points.as_ptr() as *const i32);
+    let b_zero = S::load(b_zero_points.as_ptr());
 
     // Initialize output tile with `k * a_zero_point[row] * b_zero_point[col]`
     let k_mul_b_zero = S::splat(depth as i32).mul(b_zero);
@@ -478,6 +478,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize>(
     // Write from accumulator in registers back to output.
     let output_tile_ptr = |row| tile_ptr.add(row * tile_row_stride);
 
+    #[allow(clippy::collapsible_else_if)]
     if !accumulate {
         if used_rows == MR && used_cols == NR {
             // Full output tile
