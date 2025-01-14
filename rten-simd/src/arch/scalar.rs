@@ -113,6 +113,11 @@ impl SimdInt for i32 {
     }
 
     #[inline]
+    unsafe fn mul(self, rhs: Self) -> Self {
+        self * rhs
+    }
+
+    #[inline]
     unsafe fn shl<const COUNT: i32>(self) -> Self {
         self << COUNT
     }

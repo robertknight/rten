@@ -207,6 +207,9 @@ pub trait SimdInt: Simd<Elem = i32> {
     /// Compute `self + rhs`.
     unsafe fn add(self, rhs: Self) -> Self;
 
+    /// Compute `self * rhs`, keeping the low 32-bits of each result.
+    unsafe fn mul(self, rhs: Self) -> Self;
+
     /// Compute `self - rhs`.
     unsafe fn sub(self, rhs: Self) -> Self;
 
