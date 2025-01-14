@@ -645,7 +645,8 @@ fn extract_zero_points<T: Copy + Into<i32>, const MAX_LEN: usize>(
 
 #[cfg(feature = "avx512")]
 pub struct Avx512Int8Kernel {
-    _private: (),
+    /// True if VNNI ("DL Boost") int8 dot product instructions are supported.
+    have_vnni: bool,
 }
 
 #[cfg(feature = "avx512")]
@@ -658,7 +659,11 @@ impl Avx512Int8Kernel {
 #[cfg(feature = "avx512")]
 unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
     fn new() -> Option<Self> {
-        is_avx512_supported().then_some(Avx512Int8Kernel { _private: () })
+        if !is_avx512_supported() {
+            return None;
+        }
+        let have_vnni = detect_avx512_vnni();
+        Some(Avx512Int8Kernel { have_vnni })
     }
 
     fn name(&self) -> &'static str {
@@ -754,7 +759,23 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        unsafe {
+        if self.have_vnni {
+            simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
+                tile_ptr,
+                tile_row_stride,
+                a_data,
+                b,
+                used_rows,
+                used_cols,
+                depth,
+                beta != 0, // accumulate
+                a_zero_points,
+                b_zero_points,
+                a_row_sums,
+                b_col_sums,
+                avx512_vnni_int8_dot_product,
+            )
+        } else {
             simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
                 tile_ptr,
                 tile_row_stride,
@@ -823,4 +844,31 @@ unsafe fn avx512_int8_dot_product(a: __m512i, b: __m512i, c: __m512i) -> __m512i
     let tmp = _mm512_maddubs_epi16(a, b);
     let tmp = _mm512_madd_epi16(tmp, _mm512_set1_epi16(1));
     _mm512_add_epi32(c, tmp)
+}
+
+#[cfg(feature = "avx512")]
+#[target_feature(enable = "avx512f")]
+#[inline]
+unsafe fn avx512_vnni_int8_dot_product(a: __m512i, b: __m512i, mut c: __m512i) -> __m512i {
+    use std::arch::asm;
+    asm! {
+        "vpdpbusd {result}, {a}, {b}",
+        result = inout(zmm_reg) c,
+        a = in(zmm_reg) a,
+        b = in(zmm_reg) b,
+        options(nostack)
+    }
+    c
+}
+
+/// Detect availability of AVX-512 VNNI instructions.
+///
+/// This function only returns valid results if AVX-512 is supported.
+///
+/// See https://www.felixcloutier.com/x86/cpuid or the Intel Instruction Set
+/// Reference for cpuid.
+fn detect_avx512_vnni() -> bool {
+    use core::arch::x86_64::__cpuid_count;
+    let regs = unsafe { __cpuid_count(7, 0) };
+    regs.ecx & (1 << 11) != 0
 }
