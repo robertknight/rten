@@ -797,10 +797,25 @@ unsafe fn avx512_int8_dot_product(a: __m512i, b: __m512i, c: __m512i) -> __m512i
     _mm512_add_epi32(c, tmp)
 }
 
+/// Compute 16 dot products between `u8` values in `a`, `i8` values in `b` and
+/// add the `i32` results to `c`.
+///
+/// This uses AVX-512 VNNI instructions for better performance and to avoid
+/// saturation issue that `VPMADDUBSW` has. See
+/// https://www.intel.com/content/www/us/en/developer/articles/guide/deep-learning-with-avx512-and-dl-boost.html.
 #[cfg(feature = "avx512")]
 #[target_feature(enable = "avx512f")]
 #[inline]
 unsafe fn avx512_vnni_int8_dot_product(a: __m512i, b: __m512i, mut c: __m512i) -> __m512i {
+    // Use inline asm rather than an intrinsic here to avoid needing to mark
+    // this function as using the `avx512vnni` feature. If we did that, the
+    // entire kernel function needs to have the same target feature statically
+    // enabled in order for this function to be inlined into it, which is
+    // critical for performance. This in turn means we would need to have
+    // separate instantiations of the kernel for the VNNI and non-VNNI cases.
+    //
+    // By using asm we can use this instruction after a dynamic flag check
+    // within the kernel.
     use std::arch::asm;
     asm! {
         "vpdpbusd {result}, {a}, {b}",
@@ -812,14 +827,37 @@ unsafe fn avx512_vnni_int8_dot_product(a: __m512i, b: __m512i, mut c: __m512i) -
     c
 }
 
-/// Detect availability of AVX-512 VNNI instructions.
+/// Detect availability of AVX-512 VNNI instructions using cpuid.
 ///
 /// This function only returns valid results if AVX-512 is supported.
 ///
 /// See https://www.felixcloutier.com/x86/cpuid or the Intel Instruction Set
 /// Reference for cpuid.
+///
+/// This function differs from `is_x86_feature_detected("avx512vnni")` as that
+/// function can incorrectly return false on macOS if feature detection was
+/// performed before an AVX512 instruction was used in a process. See
+/// notes in [`is_avx512_supported`].
+#[cfg(feature = "avx512")]
 fn detect_avx512_vnni() -> bool {
     use core::arch::x86_64::__cpuid_count;
     let regs = unsafe { __cpuid_count(7, 0) };
     regs.ecx & (1 << 11) != 0
+}
+
+#[cfg(feature = "avx512")]
+#[cfg(test)]
+mod tests {
+    use super::detect_avx512_vnni;
+
+    #[test]
+    fn test_vnni_detect() {
+        // `detect_avx512_vnni` may return true in cases where
+        // `is_x86_feature_detected` returns false, but the converse is not
+        // true.
+        let have_vnni = detect_avx512_vnni();
+        if is_x86_feature_detected!("avx512vnni") {
+            assert!(have_vnni);
+        }
+    }
 }
