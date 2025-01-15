@@ -382,11 +382,22 @@ pub fn int8_gemv(
     for (out, col) in out.iter_mut().zip(0..b.cols()) {
         let b_zero = b_quant.map(|bq| bq.zero_point[col] as i32).unwrap_or(0);
         let mut acc = 0;
+        let mut row_sum = 0;
+        let mut col_sum = 0;
+
         for k in 0..depth {
-            let a_el = unsafe { *a.get_unchecked(k) } as i32 - a_zero;
-            let b_el = unsafe { *b.get_unchecked([k, col]) } as i32 - b_zero;
+            let a_el = unsafe { *a.get_unchecked(k) } as i32;
+            let b_el = unsafe { *b.get_unchecked([k, col]) } as i32;
             acc += a_el * b_el;
+            row_sum += a_el;
+            col_sum += b_el;
         }
+
+        // Subtract zero points. This is equivalent to doing
+        // `acc += (a - a_zero) * (b - b_zero)` in the loop over K, but more
+        // efficient.
+        acc = depth as i32 * a_zero * b_zero + acc - row_sum * b_zero - col_sum * a_zero;
+
         if beta == 0 {
             out.write(acc);
         } else {
