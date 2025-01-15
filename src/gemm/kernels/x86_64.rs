@@ -11,6 +11,7 @@ use rten_tensor::{Matrix, MatrixLayout};
 #[cfg(feature = "avx512")]
 use rten_simd::isa_detection::is_avx512_supported;
 
+use super::generic::int8_gemv;
 use super::simd_generic::{simd_gemv, simd_int8_gemm, GemmDispatch};
 use super::{Kernel, Lhs, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing;
@@ -586,32 +587,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         a_quant: Option<QuantParams<u8>>,
         b_quant: Option<QuantParams<i8>>,
     ) {
-        // TODO - Optimize with AVX intrinsics.
-        assert!(beta == 0 || beta == 1);
-        assert_eq!(alpha, 1.);
-        assert_eq!(b.rows(), a.len());
-        assert_eq!(out.len(), b.cols());
-
-        let a_zero = a_quant.map(|aq| aq.zero_point[0] as i32).unwrap_or(0);
-        let depth = a.len();
-
-        for (out, col) in out.iter_mut().zip(0..b.cols()) {
-            let b_zero = b_quant.map(|bq| bq.zero_point[col] as i32).unwrap_or(0);
-            let mut acc = 0;
-            for k in 0..depth {
-                let a_el = unsafe { *a.get_unchecked(k) } as i32 - a_zero;
-                let b_el = unsafe { *b.get_unchecked([k, col]) } as i32 - b_zero;
-                acc += a_el * b_el;
-            }
-            if beta == 0 {
-                out.write(acc);
-            } else {
-                // Safety: Output is initialized when beta is non-zero
-                unsafe {
-                    out.write(out.assume_init() + acc);
-                }
-            }
-        }
+        int8_gemv(out, a, b, alpha, beta, a_quant, b_quant);
     }
 }
 
@@ -804,32 +780,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         a_quant: Option<QuantParams<u8>>,
         b_quant: Option<QuantParams<i8>>,
     ) {
-        // TODO - Optimize with AVX intrinsics.
-        assert!(beta == 0 || beta == 1);
-        assert_eq!(alpha, 1.);
-        assert_eq!(b.rows(), a.len());
-        assert_eq!(out.len(), b.cols());
-
-        let a_zero = a_quant.map(|aq| aq.zero_point[0] as i32).unwrap_or(0);
-        let depth = a.len();
-
-        for (out, col) in out.iter_mut().zip(0..b.cols()) {
-            let b_zero = b_quant.map(|bq| bq.zero_point[col] as i32).unwrap_or(0);
-            let mut acc = 0;
-            for k in 0..depth {
-                let a_el = unsafe { *a.get_unchecked(k) } as i32 - a_zero;
-                let b_el = unsafe { *b.get_unchecked([k, col]) } as i32 - b_zero;
-                acc += a_el * b_el;
-            }
-            if beta == 0 {
-                out.write(acc);
-            } else {
-                // Safety: Output is initialized when beta is non-zero
-                unsafe {
-                    out.write(out.assume_init() + acc);
-                }
-            }
-        }
+        int8_gemv(out, a, b, alpha, beta, a_quant, b_quant);
     }
 }
 

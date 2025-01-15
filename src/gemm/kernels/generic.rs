@@ -357,29 +357,42 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         a_quant: Option<QuantParams<u8>>,
         b_quant: Option<QuantParams<i8>>,
     ) {
-        assert!(beta == 0 || beta == 1);
-        assert_eq!(alpha, 1.);
-        assert_eq!(b.rows(), a.len());
-        assert_eq!(out.len(), b.cols());
+        int8_gemv(out, a, b, alpha, beta, a_quant, b_quant)
+    }
+}
 
-        let a_zero = a_quant.map(|aq| aq.zero_point[0] as i32).unwrap_or(0);
-        let depth = a.len();
+/// Generic implementation of [`Kernel::gemv`] for u8 x i8 -> i32 kernels.
+pub fn int8_gemv(
+    out: &mut [MaybeUninit<i32>],
+    a: &[u8],
+    b: Matrix<i8>,
+    alpha: f32,
+    beta: i32,
+    a_quant: Option<QuantParams<u8>>,
+    b_quant: Option<QuantParams<i8>>,
+) {
+    assert!(beta == 0 || beta == 1);
+    assert_eq!(alpha, 1.);
+    assert_eq!(b.rows(), a.len());
+    assert_eq!(out.len(), b.cols());
 
-        for (out, col) in out.iter_mut().zip(0..b.cols()) {
-            let b_zero = b_quant.map(|bq| bq.zero_point[col] as i32).unwrap_or(0);
-            let mut acc = 0;
-            for k in 0..depth {
-                let a_el = unsafe { *a.get_unchecked(k) } as i32 - a_zero;
-                let b_el = unsafe { *b.get_unchecked([k, col]) } as i32 - b_zero;
-                acc += a_el * b_el;
-            }
-            if beta == 0 {
-                out.write(acc);
-            } else {
-                // Safety: Output is initialized when beta is non-zero
-                unsafe {
-                    out.write(out.assume_init() + acc);
-                }
+    let a_zero = a_quant.map(|aq| aq.zero_point[0] as i32).unwrap_or(0);
+    let depth = a.len();
+
+    for (out, col) in out.iter_mut().zip(0..b.cols()) {
+        let b_zero = b_quant.map(|bq| bq.zero_point[col] as i32).unwrap_or(0);
+        let mut acc = 0;
+        for k in 0..depth {
+            let a_el = unsafe { *a.get_unchecked(k) } as i32 - a_zero;
+            let b_el = unsafe { *b.get_unchecked([k, col]) } as i32 - b_zero;
+            acc += a_el * b_el;
+        }
+        if beta == 0 {
+            out.write(acc);
+        } else {
+            // Safety: Output is initialized when beta is non-zero
+            unsafe {
+                out.write(out.assume_init() + acc);
             }
         }
     }
