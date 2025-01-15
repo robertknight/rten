@@ -85,6 +85,7 @@ mod erf;
 mod exp;
 mod min_max;
 mod normalize;
+mod quantize;
 mod softmax;
 mod sum;
 mod tanh;
@@ -98,6 +99,7 @@ mod testing;
 // Unary functions.
 pub use erf::{Erf, Gelu};
 pub use exp::{Exp, Sigmoid, Silu, Swish};
+pub use quantize::Quantize;
 pub use tanh::Tanh;
 
 // Normalization and reduction functions.
