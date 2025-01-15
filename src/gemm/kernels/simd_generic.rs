@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::SimdFloat;
+use rten_simd::{SimdFloat, SimdInt};
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
 use super::Lhs;
@@ -378,6 +378,140 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize, con
                 let out_val = S::load(out_ptr).mul(beta_broadcast);
                 let out_val = tmp[i][j].mul_add(alpha_broadcast, out_val);
                 out_val.store(out_ptr);
+            }
+        }
+    }
+}
+
+/// Compute an i32 matrix multiplication tile with maximum size `MR x NR` using
+/// packed blocks of A and B int8 inputs. `NR` must equal `S::LEN`.
+///
+/// Whether int8 values in `a` and `b` are treated as signed depends on the
+/// `dot_product` function.
+///
+/// `dot_product(a, b, c)` is a function that computes `c + dot(a, b)` where
+/// `c` contains packed i32 values and `a` and `b` contain groups of 4 packed
+/// 8-bit integers.
+///
+/// If `accumulate` is true, the output referenced by `tile_ptr` must be
+/// initialized and the result will be added to it. If false, the `tile_ptr`
+/// may be uninitialized and will be initialized with the result.
+#[inline(always)]
+pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize>(
+    tile_ptr: *mut i32,
+    tile_row_stride: usize,
+    a: &[u8],
+    b: &[u8],
+    used_rows: usize,
+    used_cols: usize,
+    depth: usize,
+    accumulate: bool,
+    a_zero_points: [i32; MR],
+    b_zero_points: [i32; NR],
+    a_row_sums: &[i32; MR],
+    b_col_sums: &[i32; NR],
+    dot_product: unsafe fn(S, S, S) -> S,
+) {
+    assert_eq!(S::LEN, NR);
+
+    // The value for each element in the output tile is computed as:
+    //
+    // c = (a[0] - a_zero_point) * (b[0] - b_zero_point) + ...
+    //
+    // (or `c += ...` when beta=1)
+    //
+    // Where `a_zero_point` is the zero point for the row of A and
+    // `b_zero_point` is the zero point for the column of B.
+    //
+    // This can be expanded and re-arranged into:
+    //
+    // c = a[0]b[0] - a[0] * b_zero_point - b[0] * a_zero_point + a_zero_point * b_zero_point + ...
+    // c = dot(a, b) - sum(a) * b_zero_point - sum(b) * a_zero_point + k * a_zero_point * b_zero_point
+    // c = k * a_zero_point * b_zero_point + dot(a, b) - sum(a) * b_zero_point - sum(b) * a_zero_point
+    //
+    // The `k * a_zero_point * b_zero_point` term is computed first as the
+    // initial value of the accumulator tile, then we loop over K and add
+    // the dot product of each row and column. Finally the scaled row
+    // and column sums are subtracted.
+
+    let a_ptr = a.as_ptr();
+    let b_ptr = b.as_ptr();
+
+    let n_depth_tiles = depth.div_ceil(4);
+    let b_zero = S::load(b_zero_points.as_ptr());
+
+    // Initialize output tile with `k * a_zero_point[row] * b_zero_point[col]`
+    let k_mul_b_zero = S::splat(depth as i32).mul(b_zero);
+    let mut tmp = [k_mul_b_zero; MR];
+    for row in 0..MR {
+        let a_zero = S::splat(a_zero_points[row]);
+        tmp[row] = tmp[row].mul(a_zero);
+    }
+
+    // Loop over K dimension and compute dot product of panel of A with panel of
+    // B.
+    for k_block in 0..n_depth_tiles {
+        // Load `[4, NR]` microtile from B
+        let b_vec = S::load(b_ptr.add(k_block * NR * 4) as *const i32);
+
+        // Each iteration broadcasts 4x int 8 values from A, computes NR
+        // dot products and accumulates into the output tile.
+        for row in 0..MR {
+            let a_val = *(a_ptr.add(k_block * MR * 4 + row * 4) as *const i32);
+            let a_vec = S::splat(a_val);
+            tmp[row] = dot_product(a_vec, b_vec, tmp[row]);
+        }
+    }
+
+    // Scale zero points by row and column sums and subtract from output tile.
+    let b_col_sums = S::load(b_col_sums.as_ptr());
+    for row in 0..MR {
+        let a_zero = S::splat(a_zero_points[row]);
+        let a_sum = S::splat(a_row_sums[row]);
+
+        let a_sum_mul_b_zero = a_sum.mul(b_zero);
+        let b_sum_mul_a_zero = b_col_sums.mul(a_zero);
+        tmp[row] = tmp[row].sub(a_sum_mul_b_zero);
+        tmp[row] = tmp[row].sub(b_sum_mul_a_zero);
+    }
+
+    // Write from accumulator in registers back to output.
+    let output_tile_ptr = |row| tile_ptr.add(row * tile_row_stride);
+
+    #[allow(clippy::collapsible_else_if)]
+    if !accumulate {
+        if used_rows == MR && used_cols == NR {
+            // Full output tile
+            for row in 0..MR {
+                let tile_ptr = output_tile_ptr(row);
+                tmp[row].store(tile_ptr);
+            }
+        } else {
+            // Partial output tile
+            for r in 0..used_rows {
+                let tile_ptr = output_tile_ptr(r);
+                let tmp = tmp[r].to_array();
+                for c in 0..used_cols {
+                    tile_ptr.add(c).write(tmp[c]);
+                }
+            }
+        }
+    } else {
+        if used_rows == MR && used_cols == NR {
+            // Full output tile
+            for row in 0..MR {
+                let tile_ptr = output_tile_ptr(row);
+                let out = S::load(tile_ptr).add(tmp[row]);
+                out.store(tile_ptr);
+            }
+        } else {
+            // Partial output tile
+            for r in 0..used_rows {
+                let tile_ptr = output_tile_ptr(r);
+                let tmp = tmp[r].to_array();
+                for c in 0..used_cols {
+                    *tile_ptr.add(c) += tmp[c];
+                }
             }
         }
     }

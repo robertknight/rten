@@ -551,6 +551,13 @@ impl Default for GemmExecutor<f32, f32, f32> {
 
 impl Default for GemmExecutor<u8, i8, i32> {
     fn default() -> Self {
+        #[cfg(feature = "avx512")]
+        #[cfg(target_arch = "x86_64")]
+        if let Some(gemm) =
+            Self::from_kernel::<kernels::x86_64::Avx512Int8Kernel>(KernelType::Avx512)
+        {
+            return gemm;
+        }
         #[cfg(target_arch = "x86_64")]
         if let Some(gemm) = Self::from_kernel::<kernels::x86_64::Avx2Int8Kernel>(KernelType::Fma) {
             return gemm;
