@@ -573,7 +573,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             b_zero_points,
             a_row_sums,
             b_col_sums,
-            avx2_int8_dot_product,
+            avx2_u8i8i32_dot_product,
         )
     }
 
@@ -594,7 +594,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
 /// Compute 8x dot products between `u8` values in `a`, `i8` values in `b` and
 /// add the `i32` results to `c`.
 #[inline(always)]
-unsafe fn avx2_int8_dot_product(a: __m256i, b: __m256i, c: __m256i) -> __m256i {
+unsafe fn avx2_u8i8i32_dot_product(a: __m256i, b: __m256i, c: __m256i) -> __m256i {
     use core::arch::x86_64::{
         _mm256_add_epi32, _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16,
     };
@@ -749,7 +749,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
                 b_zero_points,
                 a_row_sums,
                 b_col_sums,
-                avx512_vnni_int8_dot_product,
+                avx512_vnni_u8i8i32_dot_product,
             )
         } else {
             simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
@@ -765,7 +765,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
                 b_zero_points,
                 a_row_sums,
                 b_col_sums,
-                avx512_int8_dot_product,
+                avx512_u8i8i32_dot_product,
             )
         }
     }
@@ -788,7 +788,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
 /// add the `i32` results to `c`.
 #[cfg(feature = "avx512")]
 #[inline(always)]
-unsafe fn avx512_int8_dot_product(a: __m512i, b: __m512i, c: __m512i) -> __m512i {
+unsafe fn avx512_u8i8i32_dot_product(a: __m512i, b: __m512i, c: __m512i) -> __m512i {
     use core::arch::x86_64::{
         _mm512_add_epi32, _mm512_madd_epi16, _mm512_maddubs_epi16, _mm512_set1_epi16,
     };
@@ -806,7 +806,7 @@ unsafe fn avx512_int8_dot_product(a: __m512i, b: __m512i, c: __m512i) -> __m512i
 #[cfg(feature = "avx512")]
 #[target_feature(enable = "avx512f")]
 #[inline]
-unsafe fn avx512_vnni_int8_dot_product(a: __m512i, b: __m512i, mut c: __m512i) -> __m512i {
+unsafe fn avx512_vnni_u8i8i32_dot_product(a: __m512i, b: __m512i, mut c: __m512i) -> __m512i {
     // Use inline asm rather than an intrinsic here to avoid needing to mark
     // this function as using the `avx512vnni` feature. If we did that, the
     // entire kernel function needs to have the same target feature statically
