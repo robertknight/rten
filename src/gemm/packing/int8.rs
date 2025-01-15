@@ -204,8 +204,8 @@ pub fn extract_packed_a<const MR: usize>(a: &[u8]) -> (&[u8], &[i32; MR]) {
 pub fn extract_packed_b<const NR: usize>(b: &[u8]) -> (&[u8], &[i32; NR]) {
     let col_sum_offset = b.len() - NR * size_of::<i32>();
     let (packed_elements, col_sums) = b.split_at(col_sum_offset);
-    let row_sums: &[i32] = cast_pod_slice(col_sums).unwrap();
-    (packed_elements, row_sums.try_into().unwrap())
+    let col_sums: &[i32] = cast_pod_slice(col_sums).unwrap();
+    (packed_elements, col_sums.try_into().unwrap())
 }
 
 #[cfg(test)]
