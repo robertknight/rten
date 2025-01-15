@@ -212,42 +212,90 @@ pub fn extract_packed_b<const NR: usize>(b: &[u8]) -> (&[u8], &[i32; NR]) {
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
-    use rten_tensor::NdTensor;
+    use rten_tensor::{Matrix, MatrixLayout, NdTensor};
 
-    use super::{pack_a, pack_b, packed_a_layout, packed_b_layout, K_TILE};
+    use super::{
+        extract_packed_a, extract_packed_b, pack_a, pack_b, packed_a_layout, packed_b_layout,
+        K_TILE,
+    };
+    use crate::slice_cast::cast_pod_slice;
 
     const MR: usize = 8;
     const NR: usize = 8;
 
-    #[test]
-    fn test_pack_a() {
-        let mut rng = XorShiftRng::new(5678);
+    fn pack_a_matrix(mat: Matrix<u8>) -> Vec<u8> {
+        let layout = packed_a_layout::<MR>(mat.rows(), mat.cols());
 
-        // Test packing with a range of input sizes and make sure it doesn't panic.
+        // Layout must have space for at least each element in the input, plus
+        // row sums as i32 values.
+        assert!(layout.size() >= mat.rows() * mat.cols() + mat.rows() * 4);
+
+        let mut buf = Vec::with_capacity(layout.size());
+        pack_a::<MR>(&mut buf.spare_capacity_mut()[..layout.size()], mat.view());
+
+        // Safety: `pack_a` initialized `layout.size()` elements.
+        unsafe { buf.set_len(layout.size()) }
+
+        buf
+    }
+
+    fn pack_b_matrix(mat: Matrix<i8>) -> Vec<i8> {
+        let layout = packed_b_layout::<NR>(mat.rows(), mat.cols());
+
+        // Layout must have space for at least each element in the input, plus
+        // column sums as i32 values.
+        assert!(layout.size() >= mat.rows() * mat.cols() + mat.cols() * 4);
+
+        let mut buf = Vec::with_capacity(layout.size());
+        pack_b::<NR>(&mut buf.spare_capacity_mut()[..layout.size()], mat.view());
+
+        // Safety: `pack_b` initialized `layout.size()` elements.
+        unsafe { buf.set_len(layout.size()) }
+
+        buf
+    }
+
+    #[test]
+    fn test_pack_a_various_sizes() {
+        let mut rng = XorShiftRng::new(5678);
         for m in 1..MR * 2 {
             for k in 1..K_TILE * 2 {
                 let mat = NdTensor::rand([m, k], &mut rng);
-                let layout = packed_a_layout::<MR>(m, k);
-                let mut buf = Vec::with_capacity(layout.size());
-
-                pack_a::<MR>(&mut buf.spare_capacity_mut()[..layout.size()], mat.view());
+                pack_a_matrix(mat.view());
             }
         }
     }
 
     #[test]
-    fn test_pack_b() {
-        let mut rng = XorShiftRng::new(5678);
+    fn test_extract_packed_a() {
+        let mat = NdTensor::<u8, 2>::from([[1, 2], [3, 4]]);
+        let packed = pack_a_matrix(mat.view());
 
-        // Test packing with a range of input sizes and make sure it doesn't panic.
+        let (packed_elems, row_sums) = extract_packed_a(&packed);
+
+        assert!(packed_elems.len() >= mat.rows() * mat.cols());
+        assert_eq!(row_sums, &[3, 7, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_pack_b_various_sizes() {
+        let mut rng = XorShiftRng::new(5678);
         for n in 1..NR * 2 {
             for k in 1..K_TILE * 2 {
                 let mat = NdTensor::rand([k, n], &mut rng);
-                let layout = packed_b_layout::<NR>(k, n);
-                let mut buf = Vec::with_capacity(layout.size());
-
-                pack_b::<NR>(&mut buf.spare_capacity_mut()[..layout.size()], mat.view());
+                pack_b_matrix(mat.view());
             }
         }
+    }
+
+    #[test]
+    fn test_extract_packed_b() {
+        let mat = NdTensor::<i8, 2>::from([[1, 2], [3, 4]]);
+        let packed = pack_b_matrix(mat.view());
+
+        let (packed_elems, col_sums) = extract_packed_b(cast_pod_slice(&packed).unwrap());
+
+        assert!(packed_elems.len() >= mat.rows() * mat.cols());
+        assert_eq!(col_sums, &[4, 6, 0, 0, 0, 0, 0, 0]);
     }
 }
