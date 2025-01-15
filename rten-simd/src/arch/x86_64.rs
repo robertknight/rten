@@ -1,15 +1,15 @@
 use std::arch::x86_64::{
     __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_and_si256, _mm256_andnot_ps,
     _mm256_blendv_epi8, _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_castsi256_ps,
-    _mm256_cmp_ps, _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
-    _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_epi32,
-    _mm256_max_ps, _mm256_min_epi32, _mm256_min_ps, _mm256_mul_ps, _mm256_mullo_epi32,
-    _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setr_epi32, _mm256_slli_epi32,
-    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps, _mm_add_ps,
-    _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ,
-    _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_cmp_ps, _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvtps_epi32, _mm256_cvttps_epi32,
+    _mm256_div_ps, _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256,
+    _mm256_max_epi32, _mm256_max_ps, _mm256_min_epi32, _mm256_min_ps, _mm256_mul_ps,
+    _mm256_mullo_epi32, _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setr_epi32,
+    _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps,
+    _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ,
+    _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
-use std::mem::transmute;
+use std::mem::{transmute, MaybeUninit};
 
 use crate::{Simd, SimdFloat, SimdInt, SimdMask};
 
@@ -170,6 +170,32 @@ impl SimdInt for __m256i {
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         _mm256_castsi256_ps(self)
     }
+
+    #[inline]
+    unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8> {
+        use std::arch::x86_64::{
+            __m128i, _mm256_castsi256_si128, _mm256_packus_epi16, _mm256_packus_epi32,
+            _mm256_permute2f128_si256, _mm_storel_epi64,
+        };
+
+        let zero = Self::zero();
+
+        // Swap lo/hi 128 bits.
+        let self_hi_lo = _mm256_permute2f128_si256(self, self, 1);
+
+        // Convert i32 -> u16 with saturation. First eight values contain 4
+        // lanes from LHS, then 4 lanes from RHS.
+        let packed_u16 = _mm256_packus_epi32(self, self_hi_lo);
+
+        // Convert u16 -> u8 with saturation. First eight values come from LHS.
+        let packed_u8 = _mm256_packus_epi16(packed_u16, zero);
+
+        // Extract low 64 bits and write to array.
+        let lower_128 = _mm256_castsi256_si128(packed_u8);
+        let mut dest: [MaybeUninit<u8>; 8] = [MaybeUninit::uninit(); 8];
+        _mm_storel_epi64(dest.as_mut_ptr() as *mut __m128i, lower_128);
+        transmute::<[MaybeUninit<u8>; 8], [u8; 8]>(dest)
+    }
 }
 
 impl Simd for __m256 {
@@ -258,6 +284,12 @@ impl SimdFloat for __m256 {
 
     #[inline]
     #[target_feature(enable = "avx2")]
+    unsafe fn to_int_round(self) -> Self::Int {
+        _mm256_cvtps_epi32(self)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
     unsafe fn mul(self, rhs: Self) -> Self {
         _mm256_mul_ps(self, rhs)
     }
@@ -332,13 +364,13 @@ impl SimdFloat for __m256 {
 #[cfg(feature = "avx512")]
 use std::arch::x86_64::{
     __m512, __m512i, __mmask16, _mm512_abs_ps, _mm512_add_epi32, _mm512_add_ps,
-    _mm512_castsi512_ps, _mm512_cmp_epi32_mask, _mm512_cmp_ps_mask, _mm512_cvttps_epi32,
-    _mm512_div_ps, _mm512_fmadd_ps, _mm512_loadu_ps, _mm512_loadu_si512, _mm512_mask_blend_epi32,
-    _mm512_mask_blend_ps, _mm512_mask_i32gather_ps, _mm512_max_epi32, _mm512_max_ps,
-    _mm512_min_epi32, _mm512_min_ps, _mm512_mul_ps, _mm512_mullo_epi32, _mm512_reduce_add_ps,
-    _mm512_set1_epi32, _mm512_set1_ps, _mm512_setzero_si512, _mm512_sllv_epi32,
-    _mm512_storeu_epi32, _mm512_storeu_ps, _mm512_sub_epi32, _mm512_sub_ps, _MM_CMPINT_EQ,
-    _MM_CMPINT_LE, _MM_CMPINT_LT,
+    _mm512_castsi512_ps, _mm512_cmp_epi32_mask, _mm512_cmp_ps_mask, _mm512_cvtps_epi32,
+    _mm512_cvttps_epi32, _mm512_div_ps, _mm512_fmadd_ps, _mm512_loadu_ps, _mm512_loadu_si512,
+    _mm512_mask_blend_epi32, _mm512_mask_blend_ps, _mm512_mask_i32gather_ps, _mm512_max_epi32,
+    _mm512_max_ps, _mm512_min_epi32, _mm512_min_ps, _mm512_mul_ps, _mm512_mullo_epi32,
+    _mm512_reduce_add_ps, _mm512_set1_epi32, _mm512_set1_ps, _mm512_setzero_si512,
+    _mm512_sllv_epi32, _mm512_storeu_epi32, _mm512_storeu_ps, _mm512_sub_epi32, _mm512_sub_ps,
+    _MM_CMPINT_EQ, _MM_CMPINT_LE, _MM_CMPINT_LT,
 };
 
 #[cfg(feature = "avx512")]
@@ -493,6 +525,13 @@ impl SimdInt for __m512i {
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         _mm512_castsi512_ps(self)
     }
+
+    #[inline]
+    unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8> {
+        // For AVX-512 the compiler can generate something reasonably fast for
+        // this. This doesn't work with AVX2.
+        self.to_array().map(|c| c.clamp(0, u8::MAX as i32) as u8)
+    }
 }
 
 #[cfg(feature = "avx512")]
@@ -578,6 +617,12 @@ impl SimdFloat for __m512 {
     #[target_feature(enable = "avx512f")]
     unsafe fn to_int_trunc(self) -> Self::Int {
         _mm512_cvttps_epi32(self)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn to_int_round(self) -> Self::Int {
+        _mm512_cvtps_epi32(self)
     }
 
     #[inline]
