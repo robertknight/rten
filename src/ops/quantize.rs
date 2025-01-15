@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use rten_simd::dispatch::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Scalar, Tensor, TensorView};
@@ -125,7 +127,27 @@ impl Operator for DequantizeLinear {
 /// See https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html for
 /// additional details.
 pub trait Quantize<To> {
+    /// Quantize a single value.
     fn quantize(self, inv_scale: Self, zero_point: To) -> To;
+
+    /// Quantize a slice of values in `src`, writing to `dest` and returning the
+    /// initialized slice.
+    fn quantize_slice<'a>(
+        src: &[Self],
+        dest: &'a mut [MaybeUninit<To>],
+        inv_scale: Self,
+        zero_point: To,
+    ) -> &'a mut [To]
+    where
+        Self: Copy + Sized,
+        To: Copy,
+    {
+        assert_eq!(src.len(), dest.len());
+        for (x, y) in src.iter().zip(dest.iter_mut()) {
+            y.write(x.quantize(inv_scale, zero_point));
+        }
+        unsafe { std::mem::transmute::<&mut [MaybeUninit<To>], &mut [To]>(dest) }
+    }
 }
 
 impl Quantize<u8> for f32 {
@@ -133,6 +155,15 @@ impl Quantize<u8> for f32 {
         let y = (self * inv_scale).round_ties_even();
         let y = y + zero_point as f32;
         y as u8 // saturating cast
+    }
+
+    fn quantize_slice<'a>(
+        src: &[f32],
+        dest: &'a mut [MaybeUninit<u8>],
+        inv_scale: f32,
+        zero_point: u8,
+    ) -> &'a mut [u8] {
+        vecmath::Quantize::new(src, dest, inv_scale, zero_point).dispatch()
     }
 }
 
@@ -165,9 +196,22 @@ where
     match scale.ndim() {
         0 => {
             let inv_scale = 1. / *scale.item().unwrap();
-            let zero_point = zero_point.and_then(|z| z.item()).unwrap();
+            let zero_point = *zero_point.and_then(|z| z.item()).unwrap();
 
-            Ok(input.map_in(pool, |x| x.quantize(inv_scale, *zero_point)))
+            if let Some(data) = input.data() {
+                let mut buf = pool.alloc(data.len());
+                let buf_data = &mut buf.spare_capacity_mut()[..data.len()];
+
+                Quantize::quantize_slice(data, buf_data, inv_scale, zero_point);
+
+                // Safety: `quantize_slice` initialized `data.len()` elements
+                unsafe {
+                    buf.set_len(data.len());
+                }
+                Ok(Tensor::from_data(input.shape(), buf))
+            } else {
+                Ok(input.map_in(pool, |x| x.quantize(inv_scale, zero_point)))
+            }
         }
         1 => {
             let axis = resolve_axis(input.ndim(), axis)?;
