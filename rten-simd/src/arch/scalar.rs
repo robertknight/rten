@@ -60,6 +60,7 @@ macro_rules! impl_simd {
     };
 }
 
+impl_simd!(u8);
 impl_simd!(i32);
 impl_simd!(f32);
 
@@ -126,6 +127,11 @@ impl SimdInt for i32 {
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         f32::from_bits(self as u32)
     }
+
+    #[inline]
+    unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8> {
+        self.clamp(0, 255) as u8
+    }
 }
 
 /// Treat an `f32` as a single-lane SIMD "vector".
@@ -160,6 +166,11 @@ impl SimdFloat for f32 {
     #[inline]
     unsafe fn to_int_trunc(self) -> Self::Int {
         self as i32
+    }
+
+    #[inline]
+    unsafe fn to_int_round(self) -> Self::Int {
+        self.round_ties_even() as i32
     }
 
     #[inline]

@@ -224,6 +224,9 @@ pub trait SimdInt: Simd<Elem = i32> {
 
     /// Reinterpret the bits of each element as a float.
     unsafe fn reinterpret_as_float(self) -> Self::Float;
+
+    /// Convert each lane in `self` to a `u8` value with saturation.
+    unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8>;
 }
 
 /// Trait for SIMD vectors containing single-precision floats.
@@ -263,8 +266,11 @@ pub trait SimdFloat: Simd<Elem = f32> {
     /// Compute `self - rhs`.
     unsafe fn sub(self, rhs: Self) -> Self;
 
-    /// Convert this float to an int with truncation.
+    /// Convert each f32 lane to an i32 with truncation.
     unsafe fn to_int_trunc(self) -> Self::Int;
+
+    /// Convert each f32 lane to an i32 with rounding.
+    unsafe fn to_int_round(self) -> Self::Int;
 
     /// Compute `self * rhs`.
     unsafe fn mul(self, rhs: Self) -> Self;

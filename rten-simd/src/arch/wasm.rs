@@ -1,8 +1,9 @@
 use std::arch::wasm32::{
     f32x4_abs, f32x4_add, f32x4_div, f32x4_extract_lane, f32x4_ge, f32x4_le, f32x4_lt, f32x4_max,
-    f32x4_min, f32x4_mul, f32x4_splat, f32x4_sub, i32x4, i32x4_add, i32x4_eq, i32x4_ge, i32x4_gt,
-    i32x4_le, i32x4_lt, i32x4_max, i32x4_min, i32x4_mul, i32x4_shl, i32x4_shuffle, i32x4_splat,
-    i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_and, v128_bitselect, v128_load, v128_store,
+    f32x4_min, f32x4_mul, f32x4_nearest, f32x4_splat, f32x4_sub, i32x4, i32x4_add, i32x4_eq,
+    i32x4_ge, i32x4_gt, i32x4_le, i32x4_lt, i32x4_max, i32x4_min, i32x4_mul, i32x4_shl,
+    i32x4_shuffle, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_and, v128_bitselect,
+    v128_load, v128_store,
 };
 
 #[cfg(target_feature = "relaxed-simd")]
@@ -143,6 +144,11 @@ impl SimdInt for v128i {
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         v128f(self.0)
     }
+
+    #[inline]
+    unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8> {
+        Simd::to_array(self).map(|c| c.clamp(0, u8::MAX as i32) as u8)
+    }
 }
 
 impl Simd for v128f {
@@ -213,6 +219,11 @@ impl SimdFloat for v128f {
     #[inline]
     unsafe fn to_int_trunc(self) -> Self::Int {
         v128i(i32x4_trunc_sat_f32x4(self.0))
+    }
+
+    #[inline]
+    unsafe fn to_int_round(self) -> Self::Int {
+        v128i(i32x4_trunc_sat_f32x4(f32x4_nearest(self.0)))
     }
 
     #[inline]

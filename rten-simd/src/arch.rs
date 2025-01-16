@@ -1,7 +1,10 @@
 //! Architecture-specific functionality.
 
-/// Dummy arch which implements SIMD vector types for Rust scalars (i32, f32 etc.)
+/// Dummy arch which implements SIMD traits for Rust scalars (i32, f32 etc.)
 mod scalar;
+
+/// Dummy arch which implements SIMD traits for arrays
+mod array;
 
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
