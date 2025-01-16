@@ -727,6 +727,10 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 (col_block_idx * b_block_size)..((col_block_idx + 1) * b_block_size).min(b_cols);
             let mut effective_beta = beta;
 
+            let b_quant = b_quant.map(|bq| QuantParams {
+                zero_point: &bq.zero_point[col_block.clone()],
+            });
+
             for (k_block, a_block) in
                 range_chunks(0..a_cols, k_block_size).zip(a_data.chunks(k_block_size))
             {
@@ -1705,13 +1709,20 @@ mod tests {
             Case { m: 5, n: 7, k: 10 },
             // Vector-matrix
             Case { m: 1, n: 5, k: 10 },
+            // Vector-matrix, where n is large enough that work should be
+            // divided into multiple blocks.
+            Case {
+                m: 1,
+                n: 256,
+                k: 10,
+            },
         ];
 
         for Case { m, n, k } in cases {
             let a = NdTensor::<u8, 2>::from_simple_fn([m, k], || lhs_rng.next_u8());
             let b = NdTensor::<i8, 2>::rand([k, n], &mut rhs_rng);
-            let a_zero_point: Vec<_> = (0..a.rows() as u8).collect();
-            let b_zero_point: Vec<_> = (0..b.cols() as i8).collect();
+            let a_zero_point: Vec<_> = (0..a.rows()).map(|x| x as u8).collect();
+            let b_zero_point: Vec<_> = (0..b.cols()).map(|x| x as i8).collect();
             let opts = Some(GemmOpts {
                 a_quant: Some(QuantParams {
                     zero_point: &a_zero_point,
