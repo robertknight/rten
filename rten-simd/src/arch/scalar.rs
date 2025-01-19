@@ -147,6 +147,11 @@ impl SimdInt for i32 {
     unsafe fn load_extend_i8(ptr: *const i8) -> Self {
         *ptr as i32
     }
+
+    #[inline]
+    unsafe fn sum(self) -> i32 {
+        self
+    }
 }
 
 /// Treat an `f32` as a single-lane SIMD "vector".

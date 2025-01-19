@@ -236,6 +236,15 @@ pub trait SimdInt: Simd<Elem = i32> {
     /// The returned vector contains `[a[0], b[0], c[0], d[0], ...
     /// a[N], b[N], c[N], d[N]]` where `N == Self::LEN`.
     unsafe fn load_interleave_i8(a: *const i8, b: *const i8, c: *const i8, d: *const i8) -> Self;
+
+    /// Horizontally sum the lanes in this vector.
+    unsafe fn sum(self) -> i32 {
+        let mut acc = 0;
+        for x in self.to_array().as_ref() {
+            acc += x;
+        }
+        acc
+    }
 }
 
 /// Trait for SIMD vectors containing single-precision floats.
