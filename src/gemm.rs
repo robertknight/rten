@@ -1598,9 +1598,11 @@ mod tests {
         // computation. These are chosen to cover cases that are less than,
         // equal to and above the tile/block sizes which the algorithm divides
         // the problem into along each dimension.
-        let col_steps = [0, 2, 4, 5, 8, 1024, 1025];
-        let depth_steps = [0, 2, 20, 256, 300];
-        let row_steps = [0, 2, 8, 10, 16, 64, 80];
+        //
+        // This also covers the case where each dimension is a vector.
+        let col_steps = [0, 1, 2, 4, 5, 8, 1024, 1025];
+        let depth_steps = [0, 1, 2, 20, 256, 300];
+        let row_steps = [0, 1, 2, 8, 10, 16, 64, 80];
 
         let mut cases = Vec::new();
 
@@ -1707,8 +1709,10 @@ mod tests {
         let cases = [
             // Matrix-matrix
             Case { m: 5, n: 7, k: 10 },
-            // Vector-matrix
+            // Vector-matrix product.
             Case { m: 1, n: 5, k: 10 },
+            Case { m: 1, n: 8, k: 4 },
+            Case { m: 1, n: 16, k: 4 },
             // Vector-matrix, where n is large enough that work should be
             // divided into multiple blocks.
             Case {
@@ -1721,6 +1725,7 @@ mod tests {
         for Case { m, n, k } in cases {
             let a = NdTensor::<u8, 2>::from_simple_fn([m, k], || lhs_rng.next_u8());
             let b = NdTensor::<i8, 2>::rand([k, n], &mut rhs_rng);
+
             let a_zero_point: Vec<_> = (0..a.rows()).map(|x| x as u8).collect();
             let b_zero_point: Vec<_> = (0..b.cols()).map(|x| x as i8).collect();
             let opts = Some(GemmOpts {
@@ -1787,6 +1792,22 @@ mod tests {
         // Transpose the input matrices. This will alter their row and column
         // strides and shapes, but not re-order the data.
         a.permute([1, 0]);
+        b.permute([1, 0]);
+
+        run_compare_matmul(a.view(), b.view(), None, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemv_u8i8_i32_transposed() -> Result<(), Box<dyn Error>> {
+        let mut lhs_rng = ReducedRangeRng::new();
+        let mut rng = XorShiftRng::new(1234);
+        let a = NdTensor::<u8, 2>::from_simple_fn([1, 8], || lhs_rng.next_u8());
+        let mut b = NdTensor::<i8, 2>::rand([5, 8], &mut rng);
+
+        // Transpose the input B matrix. This will alter the row and column
+        // strides and shapes, but not re-order the data.
         b.permute([1, 0]);
 
         run_compare_matmul(a.view(), b.view(), None, None);

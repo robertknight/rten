@@ -516,3 +516,231 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize>(
         }
     }
 }
+
+/// Compute a vector-matrix product between a u8 vector and i8 matrix, producing
+/// an i32 vector.
+///
+/// This is a specialization of [`simd_int8_gemm`] for the case where the LHS
+/// input is a vector. In this case the kernel inputs are not packed.
+///
+/// # Safety
+///
+/// - Instructions used by SIMD type `S` and `dot_product` must be supported.
+#[inline(always)]
+pub unsafe fn simd_int8_gemv<S: SimdInt>(
+    out: &mut [MaybeUninit<i32>],
+    a: &[u8],
+    b: Matrix<i8>,
+    accumulate: bool,
+    a_zero_point: u8,
+    b_zero_points: Option<&[i8]>,
+    dot_product: unsafe fn(S, S, S) -> S,
+) {
+    assert_eq!(out.len(), b.cols());
+    assert_eq!(b.rows(), a.len());
+    assert_eq!(a.as_ptr() as usize % align_of::<i32>(), 0);
+
+    if b.row_stride() == 1 {
+        return simd_int8_gemv_transposed(
+            out,
+            a,
+            b,
+            accumulate,
+            a_zero_point,
+            b_zero_points,
+            dot_product,
+        );
+    } else if b.col_stride() != 1 {
+        return simd_int8_gemv_fallback(out, a, b, accumulate, a_zero_point, b_zero_points);
+    }
+
+    let a_ptr = a.as_ptr();
+    let depth = a.len();
+    let b_ptr = b.storage().as_ptr();
+    let b_row_stride = b.row_stride();
+
+    let row_sum: i32 = a.iter().map(|x| *x as i32).sum();
+
+    let mut col_tiles = range_chunks_exact(0..b.cols(), S::LEN);
+    for col_tile in col_tiles.by_ref() {
+        let b_ptr = b_ptr.add(col_tile.start);
+        let mut acc = S::zero();
+        let mut col_sums = S::zero();
+        let one_u8 = S::splat(i32::from_le_bytes([1; 4]));
+
+        // Loop over K tiles of size 4.
+        let mut k_tiles = range_chunks_exact(0..depth, 4);
+        for k_tile in k_tiles.by_ref() {
+            // Broadcast 4x u8 values
+            let a = S::splat(*(a_ptr.add(k_tile.start) as *const i32));
+
+            // Load `S::LEN` groups of 4 i8 values.
+            let b = S::load_interleave_i8(
+                b_ptr.add(k_tile.start * b_row_stride),
+                b_ptr.add((k_tile.start + 1) * b_row_stride),
+                b_ptr.add((k_tile.start + 2) * b_row_stride),
+                b_ptr.add((k_tile.start + 3) * b_row_stride),
+            );
+
+            // Compute `C += dot(A, B)` for each of the `S::LEN` columns.
+            acc = dot_product(a, b, acc);
+            col_sums = dot_product(one_u8, b, col_sums);
+        }
+
+        for k in k_tiles.remainder() {
+            let a = S::splat(*a_ptr.add(k) as i32);
+            let b = S::load_extend_i8(b_ptr.add(k * b_row_stride));
+            acc = a.mul(b).add(acc);
+            col_sums = col_sums.add(b);
+        }
+
+        // Subtract zero points. This is equivalent to doing
+        // `acc += (a - a_zero) * (b - b_zero)` in the loop over K, but more
+        // efficient.
+        let row_sum_vec = S::splat(row_sum);
+        let depth_vec = S::splat(depth as i32);
+        let a_zero_vec = S::splat(a_zero_point as i32);
+        let b_zero_vec = if let Some(b_zero) = b_zero_points {
+            S::load_extend_i8(b_zero.as_ptr().add(col_tile.start))
+        } else {
+            S::zero()
+        };
+        acc = depth_vec
+            .mul(a_zero_vec)
+            .mul(b_zero_vec)
+            .add(acc)
+            .sub(row_sum_vec.mul(b_zero_vec))
+            .sub(col_sums.mul(a_zero_vec));
+
+        let out_ptr = out.as_ptr().add(col_tile.start) as *mut i32;
+        if !accumulate {
+            acc.store(out_ptr);
+        } else {
+            S::load(out_ptr).add(acc).store(out_ptr);
+        }
+    }
+
+    for col in col_tiles.remainder() {
+        let mut acc = 0;
+        let mut col_sum = 0;
+        for (k, &a) in a.iter().enumerate() {
+            let b_val = *b.get_unchecked([k, col]) as i32;
+            acc += a as i32 * b_val;
+            col_sum += b_val;
+        }
+
+        // Subtract zero points. This is equivalent to doing
+        // `acc += (a - a_zero) * (b - b_zero)` in the loop over K, but more
+        // efficient.
+        let a_zero = a_zero_point as i32;
+        let b_zero = b_zero_points.map(|bq| bq[col]).unwrap_or(0) as i32;
+        acc = depth as i32 * a_zero * b_zero + acc - row_sum * b_zero - col_sum * a_zero;
+
+        let out = out.as_ptr().add(col) as *mut i32;
+        if !accumulate {
+            out.write(acc);
+        } else {
+            *out += acc;
+        }
+    }
+}
+
+/// Variant of [`simd_int8_gemv`] for the case where the RHS has unit row stride.
+#[inline(always)]
+unsafe fn simd_int8_gemv_transposed<S: SimdInt>(
+    out: &mut [MaybeUninit<i32>],
+    a: &[u8],
+    b: Matrix<i8>,
+    accumulate: bool,
+    a_zero_point: u8,
+    b_zero_points: Option<&[i8]>,
+    dot_product: unsafe fn(S, S, S) -> S,
+) {
+    let depth = a.len();
+
+    let row_sum: i32 = a.iter().map(|x| *x as i32).sum();
+    let a_ptr = a.as_ptr();
+    let b_ptr = b.storage().as_ptr();
+    let one_u8 = S::splat(i32::from_le_bytes([1; 4]));
+
+    for col in 0..b.cols() {
+        let b_ptr = b_ptr.add(col * b.col_stride());
+        let mut acc = S::zero();
+        let mut col_sum = S::zero();
+
+        // nb. `S::LEN` refers to `i32` values, but `depth` is a count of u8/i8
+        // values.
+        let mut k_tiles = range_chunks_exact(0..depth, S::LEN * 4);
+
+        for k_tile in k_tiles.by_ref() {
+            let a = S::load(a_ptr.add(k_tile.start) as *const i32);
+            let b = S::load(b_ptr.add(k_tile.start) as *const i32);
+            acc = dot_product(a, b, acc);
+            col_sum = dot_product(one_u8, b, col_sum);
+        }
+
+        let mut acc = acc.sum();
+        let mut col_sum = col_sum.sum();
+
+        for k in k_tiles.remainder() {
+            let a = *a_ptr.add(k) as i32;
+            let b = *b_ptr.add(k) as i32;
+            acc += a * b;
+            col_sum += b;
+        }
+
+        let a_zero = a_zero_point as i32;
+        let b_zero = b_zero_points.map(|bz| bz[col]).unwrap_or(0) as i32;
+        let acc = (depth as i32 * a_zero * b_zero) + acc - row_sum * b_zero - col_sum * a_zero;
+
+        let out_ptr = out.get_unchecked_mut(col);
+        if !accumulate {
+            out_ptr.write(acc);
+        } else {
+            out_ptr.write(out_ptr.assume_init() + acc);
+        }
+    }
+}
+
+/// Fallback for [`simd_int8_gemv`] when RHS has neither unit column stride nor
+/// unit row stride.
+#[inline(always)]
+fn simd_int8_gemv_fallback(
+    out: &mut [MaybeUninit<i32>],
+    a: &[u8],
+    b: Matrix<i8>,
+    accumulate: bool,
+    a_zero_point: u8,
+    b_zero_points: Option<&[i8]>,
+) {
+    let depth = a.len();
+    for (out, col) in out.iter_mut().zip(0..b.cols()) {
+        let b_zero = b_zero_points.map(|bz| bz[col] as i32).unwrap_or(0);
+        let mut acc = 0;
+        let mut row_sum = 0;
+        let mut col_sum = 0;
+
+        for k in 0..depth {
+            let a_el = unsafe { *a.get_unchecked(k) } as i32;
+            let b_el = unsafe { *b.get_unchecked([k, col]) } as i32;
+            acc += a_el * b_el;
+            row_sum += a_el;
+            col_sum += b_el;
+        }
+
+        // Subtract zero points. This is equivalent to doing
+        // `acc += (a - a_zero) * (b - b_zero)` in the loop over K, but more
+        // efficient.
+        let a_zero = a_zero_point as i32;
+        acc = depth as i32 * a_zero * b_zero + acc - row_sum * b_zero - col_sum * a_zero;
+
+        if !accumulate {
+            out.write(acc);
+        } else {
+            // Safety: Output is initialized when `accumulate` is true
+            unsafe {
+                out.write(out.assume_init() + acc);
+            }
+        }
+    }
+}
