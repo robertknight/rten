@@ -227,6 +227,15 @@ pub trait SimdInt: Simd<Elem = i32> {
 
     /// Convert each lane in `self` to a `u8` value with saturation.
     unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8>;
+
+    /// Load `S::LEN` i8 values from `ptr` and sign-extend to i32.
+    unsafe fn load_extend_i8(ptr: *const i8) -> Self;
+
+    /// Load and interleave 4 groups of i8 values.
+    ///
+    /// The returned vector contains `[a[0], b[0], c[0], d[0], ...
+    /// a[N], b[N], c[N], d[N]]` where `N == Self::LEN`.
+    unsafe fn load_interleave_i8(a: *const i8, b: *const i8, c: *const i8, d: *const i8) -> Self;
 }
 
 /// Trait for SIMD vectors containing single-precision floats.

@@ -132,6 +132,21 @@ impl SimdInt for i32 {
     unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8> {
         self.clamp(0, 255) as u8
     }
+
+    #[inline]
+    unsafe fn load_interleave_i8(
+        a0: *const i8,
+        a1: *const i8,
+        a2: *const i8,
+        a3: *const i8,
+    ) -> Self {
+        i32::from_le_bytes([*a0 as u8, *a1 as u8, *a2 as u8, *a3 as u8])
+    }
+
+    #[inline]
+    unsafe fn load_extend_i8(ptr: *const i8) -> Self {
+        *ptr as i32
+    }
 }
 
 /// Treat an `f32` as a single-lane SIMD "vector".

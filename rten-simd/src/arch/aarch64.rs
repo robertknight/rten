@@ -138,6 +138,35 @@ impl SimdInt for int32x4_t {
     unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8> {
         self.to_array().map(|c| c.clamp(0, u8::MAX as i32) as u8)
     }
+
+    #[inline]
+    unsafe fn load_extend_i8(ptr: *const i8) -> Self {
+        let lanes = [
+            *ptr as i32,
+            *ptr.add(1) as i32,
+            *ptr.add(2) as i32,
+            *ptr.add(3) as i32,
+        ];
+        Self::load(lanes.as_ptr())
+    }
+
+    #[inline]
+    unsafe fn load_interleave_i8(
+        a_ptr: *const i8,
+        b_ptr: *const i8,
+        c_ptr: *const i8,
+        d_ptr: *const i8,
+    ) -> Self {
+        use core::arch::aarch64::{vld1q_s8, vreinterpretq_s32_s8};
+        let mut bytes: [i8; 16] = [0; 16];
+        for i in 0..Self::LEN {
+            bytes[i * 4] = *a_ptr.add(i);
+            bytes[i * 4 + 1] = *b_ptr.add(i);
+            bytes[i * 4 + 2] = *c_ptr.add(i);
+            bytes[i * 4 + 3] = *d_ptr.add(i);
+        }
+        vreinterpretq_s32_s8(vld1q_s8(bytes.as_ptr()))
+    }
 }
 
 impl Simd for float32x4_t {
@@ -252,4 +281,11 @@ impl SimdFloat for float32x4_t {
     unsafe fn sum(self) -> f32 {
         vaddvq_f32(self)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::vec::tests::test_simdint;
+
+    test_simdint!(int32x4_t_simdint, core::arch::aarch64::int32x4_t);
 }
