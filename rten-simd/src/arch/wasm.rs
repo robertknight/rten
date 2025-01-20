@@ -149,6 +149,33 @@ impl SimdInt for v128i {
     unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8> {
         Simd::to_array(self).map(|c| c.clamp(0, u8::MAX as i32) as u8)
     }
+
+    #[inline]
+    unsafe fn load_extend_i8(ptr: *const i8) -> Self {
+        use core::arch::wasm32::{i16x8_extend_low_i8x16, i32x4_extend_low_i16x8, i64x2};
+        let tmp: i64 = std::ptr::read_unaligned(ptr as *const i64);
+        let tmp = i64x2(tmp, tmp);
+        let tmp = i16x8_extend_low_i8x16(tmp);
+        let tmp = i32x4_extend_low_i16x8(tmp);
+        Self(tmp)
+    }
+
+    #[inline]
+    unsafe fn load_interleave_i8(
+        a_ptr: *const i8,
+        b_ptr: *const i8,
+        c_ptr: *const i8,
+        d_ptr: *const i8,
+    ) -> Self {
+        let mut bytes: [i8; 16] = [0; 16];
+        for i in 0..Self::LEN {
+            bytes[i * 4] = *a_ptr.add(i);
+            bytes[i * 4 + 1] = *b_ptr.add(i);
+            bytes[i * 4 + 2] = *c_ptr.add(i);
+            bytes[i * 4 + 3] = *d_ptr.add(i);
+        }
+        Self(v128_load(bytes.as_ptr() as *const v128))
+    }
 }
 
 impl Simd for v128f {
@@ -277,4 +304,11 @@ impl SimdFloat for v128f {
         let sum = f32x4_add(lo, hi);
         f32x4_extract_lane::<0>(sum)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::vec::tests::test_simdint;
+
+    test_simdint!(v128i_simdint, crate::arch::wasm::v128i);
 }
