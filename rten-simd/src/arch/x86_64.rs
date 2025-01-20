@@ -743,3 +743,13 @@ impl SimdFloat for __m512 {
         _mm512_reduce_add_ps(self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::vec::tests::test_simdint;
+
+    test_simdint!(avx2_simdint, core::arch::x86_64::__m256i);
+
+    #[cfg(feature = "avx512")]
+    test_simdint!(avx512_simdint, core::arch::x86_64::__m512i);
+}

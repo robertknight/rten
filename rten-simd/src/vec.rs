@@ -352,3 +352,72 @@ pub trait SimdFloat: Simd<Elem = f32> {
         Self::splat(reduced)
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    /// Generate tests for a `SimdInt` implementation.
+    macro_rules! test_simdint {
+        ($modname:ident, $type_import_path:ty) => {
+            mod $modname {
+                use crate::vec::{Simd, SimdInt};
+                use $type_import_path as SimdVec;
+
+                const LEN: usize = <SimdVec as Simd>::LEN;
+
+                #[test]
+                fn test_load_extend_i8() {
+                    let src: Vec<i8> = (0..).take(LEN).collect();
+                    let vec = unsafe { <SimdVec as SimdInt>::load_extend_i8(src.as_ptr()) };
+                    let actual = unsafe { vec.to_array() };
+                    let expected: Vec<_> = src.iter().map(|x| *x as i32).collect();
+                    assert_eq!(actual.as_ref(), expected);
+                }
+
+                #[test]
+                fn test_load_interleave_i8() {
+                    let group_step = 5;
+                    let a: Vec<_> = (0..).step_by(group_step).take(LEN).collect();
+                    let b: Vec<_> = (1..).step_by(group_step).take(LEN).collect();
+                    let c: Vec<_> = (2..).step_by(group_step).take(LEN).collect();
+                    let d: Vec<_> = (3..).step_by(group_step).take(LEN).collect();
+
+                    let mut expected = Vec::new();
+                    for step in 0..LEN {
+                        let base = step * group_step;
+                        for i in 0..4 {
+                            expected.push((base + i) as i8);
+                        }
+                    }
+
+                    let vec = unsafe {
+                        <SimdVec as SimdInt>::load_interleave_i8(
+                            a.as_ptr(),
+                            b.as_ptr(),
+                            c.as_ptr(),
+                            d.as_ptr(),
+                        )
+                    };
+                    let actual = unsafe { vec.to_array() };
+                    let actual: Vec<i8> = actual
+                        .as_ref()
+                        .iter()
+                        .flat_map(|x| x.to_le_bytes().map(|b| b as i8))
+                        .collect();
+
+                    assert_eq!(actual.as_ref(), expected);
+                }
+
+                #[test]
+                fn test_sum() {
+                    let src: Vec<i32> = (0..).take(LEN).collect();
+                    let vec = unsafe { <SimdVec as Simd>::load(src.as_ptr()) };
+                    let actual = unsafe { vec.sum() };
+                    let expected: i32 = src.iter().sum();
+                    assert_eq!(actual, expected);
+                }
+            }
+        };
+    }
+
+    pub(crate) use test_simdint;
+}

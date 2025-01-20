@@ -305,3 +305,10 @@ impl SimdFloat for v128f {
         f32x4_extract_lane::<0>(sum)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::vec::tests::test_simdint;
+
+    test_simdint!(v128i_simdint, crate::arch::wasm::v128i);
+}
