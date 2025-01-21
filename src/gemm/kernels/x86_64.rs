@@ -12,7 +12,7 @@ use rten_tensor::{Matrix, MatrixLayout};
 use rten_simd::isa_detection::is_avx512_supported;
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
-use super::{Kernel, Lhs, PackedLayout, QuantParams, TempTile};
+use super::{extract_zero_points, Kernel, Lhs, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing;
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
@@ -626,22 +626,6 @@ unsafe fn avx2_u8i8i32_dot_product(a: __m256i, b: __m256i, c: __m256i) -> __m256
     let tmp = _mm256_maddubs_epi16(a, b);
     let tmp = _mm256_madd_epi16(tmp, _mm256_set1_epi16(1));
     _mm256_add_epi32(c, tmp)
-}
-
-/// Extract `len` zero points from `quant`, upconvert to i32 and pad unused
-/// elements in the result with zero.
-fn extract_zero_points<T: Copy + Into<i32>, const MAX_LEN: usize>(
-    quant: Option<QuantParams<T>>,
-    len: usize,
-) -> [i32; MAX_LEN] {
-    let mut zero_points = [0; MAX_LEN];
-    if let Some(quant) = quant {
-        #[allow(clippy::manual_memcpy)]
-        for row in 0..len {
-            zero_points[row] = quant.zero_point[row].into();
-        }
-    }
-    zero_points
 }
 
 #[cfg(feature = "avx512")]

@@ -562,6 +562,12 @@ impl Default for GemmExecutor<u8, i8, i32> {
         if let Some(gemm) = Self::from_kernel::<kernels::x86_64::Avx2Int8Kernel>(KernelType::Fma) {
             return gemm;
         }
+        #[cfg(target_arch = "aarch64")]
+        if let Some(gemm) =
+            Self::from_kernel::<kernels::aarch64::ArmInt8DotKernel>(KernelType::ArmNeon)
+        {
+            return gemm;
+        }
         Self::from_kernel::<GenericKernel>(KernelType::Generic).unwrap()
     }
 }
