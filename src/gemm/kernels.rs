@@ -335,3 +335,19 @@ impl<T: GemmOutT, const MR: usize, const NR: usize> TempTile<T, MR, NR> {
         }
     }
 }
+
+/// Extract `len` zero points from `quant`, upconvert to i32 and pad unused
+/// elements in the result with zero.
+fn extract_zero_points<T: Copy + Into<i32>, const MAX_LEN: usize>(
+    quant: Option<QuantParams<T>>,
+    len: usize,
+) -> [i32; MAX_LEN] {
+    let mut zero_points = [0; MAX_LEN];
+    if let Some(quant) = quant {
+        #[allow(clippy::manual_memcpy)]
+        for row in 0..len {
+            zero_points[row] = quant.zero_point[row].into();
+        }
+    }
+    zero_points
+}
