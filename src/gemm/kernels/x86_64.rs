@@ -554,8 +554,8 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             Lhs::Unpacked { .. } => panic!("lhs must be packed"),
         };
 
-        let a_zero_points = extract_zero_points(a_quant, used_rows);
-        let b_zero_points = extract_zero_points(b_quant, used_cols);
+        let a_zero_points = extract_zero_points(a_quant, used_rows, |x| x);
+        let b_zero_points = extract_zero_points(b_quant, used_cols, |x| x);
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
@@ -598,7 +598,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             a_zero: u8,
             b_zero: Option<&[i8]>,
         ) {
-            simd_int8_gemv(
+            simd_int8_gemv::<_, false /* CAST_B_U8 */>(
                 out,
                 a,
                 b,
@@ -739,8 +739,8 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             Lhs::Unpacked { .. } => panic!("lhs must be packed"),
         };
 
-        let a_zero_points = extract_zero_points(a_quant, used_rows);
-        let b_zero_points = extract_zero_points(b_quant, used_cols);
+        let a_zero_points = extract_zero_points(a_quant, used_rows, |x| x);
+        let b_zero_points = extract_zero_points(b_quant, used_cols, |x| x);
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
@@ -803,7 +803,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             a_zero: u8,
             b_zero: Option<&[i8]>,
         ) {
-            simd_int8_gemv(
+            simd_int8_gemv::<_, false /* CAST_B_U8 */>(
                 out,
                 a,
                 b,

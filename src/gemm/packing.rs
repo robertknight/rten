@@ -26,6 +26,9 @@ impl<'a, T> SliceWriter<'a, T> {
     }
 
     /// Write the next element in the slice.
+    ///
+    /// Safety: The number of elements already written must be less than the
+    /// length of the slice.
     unsafe fn write_unchecked(&mut self, val: T) {
         debug_assert!(self.offset < self.slice.len());
         self.slice.get_unchecked_mut(self.offset).write(val);
@@ -33,6 +36,9 @@ impl<'a, T> SliceWriter<'a, T> {
     }
 
     /// Write `len` copies of `val` to the slice.
+    ///
+    /// Safety: The number of elements already written must be less than or
+    /// equal to `slice.len() - len`.
     unsafe fn write_n_unchecked(&mut self, len: usize, val: T)
     where
         T: Copy,

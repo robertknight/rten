@@ -152,6 +152,11 @@ impl SimdInt for i32 {
     unsafe fn sum(self) -> i32 {
         self
     }
+
+    #[inline]
+    unsafe fn xor(self, rhs: Self) -> i32 {
+        self ^ rhs
+    }
 }
 
 /// Treat an `f32` as a single-lane SIMD "vector".

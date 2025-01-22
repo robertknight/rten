@@ -190,13 +190,7 @@ impl ArmInt8DotKernel {
 
 unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
     fn new() -> Option<Self> {
-        // This kernel requires i8mm for the USDOT instruction. This is
-        // convenient as it lets us use the same kernel as x64 but requires
-        // Arm v8.6+ (also optionally included in some earlier versions).
-        //
-        // With some modifications it should be possible to use UDOT instead
-        // which is much more widely available.
-        if !std::arch::is_aarch64_feature_detected!("i8mm") {
+        if !std::arch::is_aarch64_feature_detected!("dotprod") {
             return None;
         }
         Some(ArmInt8DotKernel { _private: () })
@@ -255,8 +249,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<i8>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
-        packing::int8::pack_b::<{ Self::NR }>(out, b.slice((rows, cols)))
+        packing::int8::pack_b_cast_i8_u8::<{ Self::NR }>(out, b.slice((rows, cols)))
     }
 
     fn pack_im2col(
@@ -269,7 +262,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         unimplemented!("pack_im2col not implemented");
     }
 
-    #[target_feature(enable = "i8mm")]
+    #[target_feature(enable = "dotprod")]
     unsafe fn kernel(
         &self,
         tile_ptr: *mut i32,
@@ -289,8 +282,8 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
             Lhs::Unpacked { .. } => panic!("lhs must be packed"),
         };
 
-        let a_zero_points = extract_zero_points(a_quant, used_rows);
-        let b_zero_points = extract_zero_points(b_quant, used_cols);
+        let a_zero_points = extract_zero_points(a_quant, used_rows, |x| x);
+        let b_zero_points = extract_zero_points(b_quant, used_cols, |zp| zp + I8_U8_SHIFT);
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
@@ -307,7 +300,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
             b_zero_points,
             a_row_sums,
             b_col_sums,
-            usdot,
+            udot,
         )
     }
 
@@ -325,7 +318,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         let b_zero = b_quant.map(|bq| bq.zero_point);
         let accumulate = beta != 0;
 
-        #[target_feature(enable = "i8mm")]
+        #[target_feature(enable = "dotprod")]
         unsafe fn gemv_impl(
             out: &mut [MaybeUninit<i32>],
             a: &[u8],
@@ -334,7 +327,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
             a_zero: u8,
             b_zero: Option<&[i8]>,
         ) {
-            simd_int8_gemv(out, a, b, accumulate, a_zero, b_zero, usdot)
+            simd_int8_gemv::<_, true /* CAST_B_U8 */>(out, a, b, accumulate, a_zero, b_zero, udot)
         }
 
         // Safety: We checked target feature support when kernel was
@@ -343,29 +336,32 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
     }
 }
 
-/// Compute dot product of groups of 4 u8 ints with 4 i8 ints and accumulate
-/// into 4 i32 values.
+/// Adjustment to apply to zero points in kernel where corresponding input
+/// was shifted from i8 to u8 when packing.
+const I8_U8_SHIFT: i32 = 128;
+
+/// Compute dot product of groups of 4 u8 ints from `a` and `b` and add to
+/// 4 i32 values from `c`.
 ///
-/// `a` and `b` are intepreted as `uint8x16_t` and ``int8x16_t` respectively.
-#[target_feature(enable = "i8mm")]
+/// `a` and `b` are interpreted as `uint8x16_t`.
+#[target_feature(enable = "dotprod")]
 #[inline]
-unsafe fn usdot(a: int32x4_t, b: int32x4_t, c: int32x4_t) -> int32x4_t {
-    use core::arch::aarch64::{
-        vreinterpretq_s32_u32, vreinterpretq_s8_s32, vreinterpretq_u32_s32, vreinterpretq_u8_s32,
-    };
+unsafe fn udot(a: int32x4_t, b: int32x4_t, c: int32x4_t) -> int32x4_t {
+    use core::arch::aarch64::{vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s32};
     let a = vreinterpretq_u8_s32(a);
-    let b = vreinterpretq_s8_s32(b);
+    let b = vreinterpretq_u8_s32(b);
     let mut c = vreinterpretq_u32_s32(c);
 
-    // Use inline asm here because the `vusdotq_s32` intrinsic is not
+    // Use inline asm here because the `vdotq_u32` intrinsic is not
     // stabilized yet.
     use std::arch::asm;
     asm! {
-        "usdot {result:v}.4s, {a:v}.16b, {b:v}.16b",
+        "udot {result:v}.4s, {a:v}.16b, {b:v}.16b",
         result = inout(vreg) c,
         a = in(vreg) a,
         b = in(vreg) b,
         options(nostack)
     }
+
     vreinterpretq_s32_u32(c)
 }

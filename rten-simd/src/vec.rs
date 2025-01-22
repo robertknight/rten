@@ -245,6 +245,9 @@ pub trait SimdInt: Simd<Elem = i32> {
         }
         acc
     }
+
+    /// Bitwise XOR this value with `rhs`.
+    unsafe fn xor(self, rhs: Self) -> Self;
 }
 
 /// Trait for SIMD vectors containing single-precision floats.

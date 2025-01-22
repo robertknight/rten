@@ -3,7 +3,7 @@ use std::arch::wasm32::{
     f32x4_min, f32x4_mul, f32x4_nearest, f32x4_splat, f32x4_sub, i32x4, i32x4_add, i32x4_eq,
     i32x4_ge, i32x4_gt, i32x4_le, i32x4_lt, i32x4_max, i32x4_min, i32x4_mul, i32x4_shl,
     i32x4_shuffle, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_and, v128_bitselect,
-    v128_load, v128_store,
+    v128_load, v128_store, v128_xor,
 };
 
 #[cfg(target_feature = "relaxed-simd")]
@@ -175,6 +175,11 @@ impl SimdInt for v128i {
             bytes[i * 4 + 3] = *d_ptr.add(i);
         }
         Self(v128_load(bytes.as_ptr() as *const v128))
+    }
+
+    #[inline]
+    unsafe fn xor(self, rhs: Self) -> Self {
+        Self(v128_xor(self.0, rhs.0))
     }
 }
 
