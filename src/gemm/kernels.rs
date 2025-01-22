@@ -341,12 +341,17 @@ impl<T: GemmOutT, const MR: usize, const NR: usize> TempTile<T, MR, NR> {
 fn extract_zero_points<T: Copy + Into<i32>, const MAX_LEN: usize>(
     quant: Option<QuantParams<T>>,
     len: usize,
+    adjust: impl Fn(i32) -> i32,
 ) -> [i32; MAX_LEN] {
     let mut zero_points = [0; MAX_LEN];
+    for row in 0..len {
+        zero_points[row] = adjust(0);
+    }
     if let Some(quant) = quant {
         #[allow(clippy::manual_memcpy)]
         for row in 0..len {
-            zero_points[row] = quant.zero_point[row].into();
+            let val: i32 = quant.zero_point[row].into();
+            zero_points[row] = adjust(val);
         }
     }
     zero_points

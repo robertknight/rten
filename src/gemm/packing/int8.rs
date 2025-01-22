@@ -34,15 +34,68 @@ pub fn packed_b_layout<const NR: usize>(b_rows: usize, b_cols: usize) -> PackedL
     PackedLayout::new(size, align, panel_stride)
 }
 
-// Pack blocks of the B matrix for use by the matmul kernel.
-//
-// Pack B matrix of shape `[K, N]` into a series of column panels. Each panel
-// contains elements from a `[K, NR]` slice of the input and is laid out as `[K
-// / 4, NR, 4]` u8 values, followed by `NR` i32 column sums.  In the kernel a
-// transposed `[NR, 4]` microtile of `B` is then multiplied with a `[MR, 4]`
-// microtile of `A` using dot product instructions. The column sums are used
-// to handle subtraction of the zero point.
+/// Pack blocks of the B matrix for use by the matmul kernel.
+///
+/// Pack B matrix of shape `[K, N]` into a series of column panels. Each panel
+/// contains elements from a `[K, NR]` slice of the input and is laid out as `[K
+/// / 4, NR, 4]` u8 values, followed by `NR` i32 column sums.  In the kernel a
+/// transposed `[NR, 4]` microtile of `B` is then multiplied with a `[MR, 4]`
+/// microtile of `A` using dot product instructions. The column sums are used
+/// to handle subtraction of the zero point.
 pub fn pack_b<const NR: usize>(out: &mut [MaybeUninit<i8>], b: Matrix<i8>) {
+    pack_b_impl::<NR, _>(
+        out,
+        b,
+        |x| x,
+        |out, col_sum| {
+            let bytes = col_sum.to_ne_bytes();
+            for i in 0..4 {
+                unsafe {
+                    out.write_unchecked(bytes[i] as i8);
+                }
+            }
+        },
+    )
+}
+
+/// Convert a byte from signed to unsigned and shift the value so that it
+/// is the same distance from the minimum value.
+///
+/// For example `-125` (i8::MIN + 3) becomes `3` (u8::MIN + 3).
+#[inline]
+#[allow(unused)]
+fn shift_cast_i8_u8(x: i8) -> u8 {
+    x as u8 ^ 0x80
+}
+
+/// Variant of [`pack_b`] which converts `i8` values to `u8` values during
+/// packing, shifting the values by 128 to preserve the position of each value
+/// within the numeric range.
+#[allow(unused)]
+pub fn pack_b_cast_i8_u8<const NR: usize>(out: &mut [MaybeUninit<u8>], b: Matrix<i8>) {
+    pack_b_impl::<NR, _>(out, b, shift_cast_i8_u8, |out, col_sum| {
+        let bytes = col_sum.to_ne_bytes();
+        for i in 0..4 {
+            unsafe {
+                out.write_unchecked(bytes[i]);
+            }
+        }
+    })
+}
+
+/// A type with size and align of 1.
+trait Byte: Copy + Default {}
+impl Byte for u8 {}
+impl Byte for i8 {}
+
+fn pack_b_impl<const NR: usize, T: Byte>(
+    out: &mut [MaybeUninit<T>],
+    b: Matrix<i8>,
+    cast: impl Fn(i8) -> T,
+    write_col_sum: impl Fn(&mut SliceWriter<T>, i32),
+) where
+    i32: From<T>,
+{
     let [b_rows, b_cols] = b.shape();
     assert_eq!(out.len(), packed_b_layout::<NR>(b_rows, b_cols).size());
 
@@ -63,8 +116,8 @@ pub fn pack_b<const NR: usize>(out: &mut [MaybeUninit<i8>], b: Matrix<i8>) {
                         let y = row_tile * K_TILE + r;
                         let x = col_tile * NR + c;
                         unsafe {
-                            let val = *b.get_unchecked([y, x]);
-                            col_sums[c] += val as i32;
+                            let val = cast(*b.get_unchecked([y, x]));
+                            col_sums[c] += i32::from(val);
                             out.write_unchecked(val);
                         }
                     }
@@ -76,27 +129,22 @@ pub fn pack_b<const NR: usize>(out: &mut [MaybeUninit<i8>], b: Matrix<i8>) {
                         let y = row_tile * K_TILE + r;
                         let x = col_tile * NR + c;
                         unsafe {
-                            let val = *b.get_unchecked([y, x]);
-                            col_sums[c] += val as i32;
+                            let val = cast(*b.get_unchecked([y, x]));
+                            col_sums[c] += i32::from(val);
                             out.write_unchecked(val);
                         }
                     }
                     // Pad to row tile size
-                    unsafe { out.write_n_unchecked(K_TILE - row_range.len(), 0) };
+                    unsafe { out.write_n_unchecked(K_TILE - row_range.len(), T::default()) };
                 }
                 // Pad to column tile size
-                unsafe { out.write_n_unchecked((NR - col_range.len()) * K_TILE, 0) };
+                unsafe { out.write_n_unchecked((NR - col_range.len()) * K_TILE, T::default()) };
             }
         }
 
         // Write column sums
         for c in 0..NR {
-            let col_sum_i8 = col_sums[c].to_ne_bytes().map(|b| b as i8);
-            for i in 0..4 {
-                unsafe {
-                    out.write_unchecked(col_sum_i8[i]);
-                }
-            }
+            write_col_sum(&mut out, col_sums[c]);
         }
     }
 
@@ -215,8 +263,8 @@ mod tests {
     use rten_tensor::{Matrix, MatrixLayout, NdTensor};
 
     use super::{
-        extract_packed_a, extract_packed_b, pack_a, pack_b, packed_a_layout, packed_b_layout,
-        K_TILE,
+        extract_packed_a, extract_packed_b, pack_a, pack_b, pack_b_cast_i8_u8, packed_a_layout,
+        packed_b_layout, K_TILE,
     };
     use crate::slice_cast::cast_pod_slice;
 
@@ -248,6 +296,22 @@ mod tests {
 
         let mut buf = Vec::with_capacity(layout.size());
         pack_b::<NR>(&mut buf.spare_capacity_mut()[..layout.size()], mat.view());
+
+        // Safety: `pack_b` initialized `layout.size()` elements.
+        unsafe { buf.set_len(layout.size()) }
+
+        buf
+    }
+
+    fn pack_b_matrix_cast_u8<const NR: usize>(mat: Matrix<i8>) -> Vec<u8> {
+        let layout = packed_b_layout::<NR>(mat.rows(), mat.cols());
+
+        // Layout must have space for at least each element in the input, plus
+        // column sums as i32 values.
+        assert!(layout.size() >= mat.rows() * mat.cols() + mat.cols() * 4);
+
+        let mut buf = Vec::with_capacity(layout.size());
+        pack_b_cast_i8_u8::<NR>(&mut buf.spare_capacity_mut()[..layout.size()], mat.view());
 
         // Safety: `pack_b` initialized `layout.size()` elements.
         unsafe { buf.set_len(layout.size()) }
@@ -297,5 +361,17 @@ mod tests {
 
         assert!(packed_elems.len() >= mat.rows() * mat.cols());
         assert_eq!(col_sums, &[4, 6, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_pack_b_cast_i8_u8() {
+        let mat = NdTensor::<i8, 2>::from([[1, 2], [3, 4]]);
+        let packed = pack_b_matrix_cast_u8::<2>(mat.view());
+
+        let (packed_elems, col_sums) = extract_packed_b(&packed);
+
+        assert!(packed_elems.len() >= mat.rows() * mat.cols());
+        assert_eq!(packed_elems, &[129, 131, 0, 0, 130, 132, 0, 0]);
+        assert_eq!(col_sums, &[129 + 131, 130 + 132]);
     }
 }

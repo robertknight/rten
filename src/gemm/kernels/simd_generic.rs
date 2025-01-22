@@ -517,17 +517,24 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize>(
     }
 }
 
+// Mask that when XOR-ed with packed i8 values shifts them to u8 by adding 128.
+const I8_U8_SHIFT_MASK: i32 = 0x80808080u32 as i32;
+
 /// Compute a vector-matrix product between a u8 vector and i8 matrix, producing
 /// an i32 vector.
 ///
 /// This is a specialization of [`simd_int8_gemm`] for the case where the LHS
 /// input is a vector. In this case the kernel inputs are not packed.
 ///
+/// `CAST_B_U8` specifies that the `dot_product` function expects its second
+/// argument to contain `u8` rather than `i8` values. If true, the values of
+/// B are shifted by 128 and the same adjustment is applied to zero points.
+///
 /// # Safety
 ///
 /// - Instructions used by SIMD type `S` and `dot_product` must be supported.
 #[inline(always)]
-pub unsafe fn simd_int8_gemv<S: SimdInt>(
+pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
     out: &mut [MaybeUninit<i32>],
     a: &[u8],
     b: Matrix<i8>,
@@ -541,7 +548,7 @@ pub unsafe fn simd_int8_gemv<S: SimdInt>(
     assert_eq!(a.as_ptr() as usize % align_of::<i32>(), 0);
 
     if b.row_stride() == 1 {
-        return simd_int8_gemv_transposed(
+        return simd_int8_gemv_transposed::<S, CAST_B_U8>(
             out,
             a,
             b,
@@ -551,8 +558,18 @@ pub unsafe fn simd_int8_gemv<S: SimdInt>(
             dot_product,
         );
     } else if b.col_stride() != 1 {
-        return simd_int8_gemv_fallback(out, a, b, accumulate, a_zero_point, b_zero_points);
+        return simd_int8_gemv_fallback::<CAST_B_U8>(
+            out,
+            a,
+            b,
+            accumulate,
+            a_zero_point,
+            b_zero_points,
+        );
     }
+
+    let b_zero_shift = if CAST_B_U8 { 128 } else { 0 };
+    let bit_flip_mask = S::splat(I8_U8_SHIFT_MASK);
 
     let a_ptr = a.as_ptr();
     let depth = a.len();
@@ -581,6 +598,7 @@ pub unsafe fn simd_int8_gemv<S: SimdInt>(
                 b_ptr.add((k_tile.start + 2) * b_row_stride),
                 b_ptr.add((k_tile.start + 3) * b_row_stride),
             );
+            let b = if CAST_B_U8 { b.xor(bit_flip_mask) } else { b };
 
             // Compute `C += dot(A, B)` for each of the `S::LEN` columns.
             acc = dot_product(a, b, acc);
@@ -590,6 +608,12 @@ pub unsafe fn simd_int8_gemv<S: SimdInt>(
         for k in k_tiles.remainder() {
             let a = S::splat(*a_ptr.add(k) as i32);
             let b = S::load_extend_i8(b_ptr.add(k * b_row_stride));
+            let b = if CAST_B_U8 {
+                b.add(S::splat(b_zero_shift))
+            } else {
+                b
+            };
+
             acc = a.mul(b).add(acc);
             col_sums = col_sums.add(b);
         }
@@ -605,6 +629,8 @@ pub unsafe fn simd_int8_gemv<S: SimdInt>(
         } else {
             S::zero()
         };
+        let b_zero_vec = b_zero_vec.add(S::splat(b_zero_shift));
+
         acc = depth_vec
             .mul(a_zero_vec)
             .mul(b_zero_vec)
@@ -624,7 +650,10 @@ pub unsafe fn simd_int8_gemv<S: SimdInt>(
         let mut acc = 0;
         let mut col_sum = 0;
         for (k, &a) in a.iter().enumerate() {
-            let b_val = *b.get_unchecked([k, col]) as i32;
+            let mut b_val = *b.get_unchecked([k, col]) as i32;
+            if CAST_B_U8 {
+                b_val += b_zero_shift;
+            }
             acc += a as i32 * b_val;
             col_sum += b_val;
         }
@@ -633,7 +662,7 @@ pub unsafe fn simd_int8_gemv<S: SimdInt>(
         // `acc += (a - a_zero) * (b - b_zero)` in the loop over K, but more
         // efficient.
         let a_zero = a_zero_point as i32;
-        let b_zero = b_zero_points.map(|bq| bq[col]).unwrap_or(0) as i32;
+        let b_zero = b_zero_points.map(|bq| bq[col] as i32).unwrap_or(0) + b_zero_shift;
         acc = depth as i32 * a_zero * b_zero + acc - row_sum * b_zero - col_sum * a_zero;
 
         let out = out.as_ptr().add(col) as *mut i32;
@@ -647,7 +676,7 @@ pub unsafe fn simd_int8_gemv<S: SimdInt>(
 
 /// Variant of [`simd_int8_gemv`] for the case where the RHS has unit row stride.
 #[inline(always)]
-unsafe fn simd_int8_gemv_transposed<S: SimdInt>(
+unsafe fn simd_int8_gemv_transposed<S: SimdInt, const CAST_B_U8: bool>(
     out: &mut [MaybeUninit<i32>],
     a: &[u8],
     b: Matrix<i8>,
@@ -656,6 +685,8 @@ unsafe fn simd_int8_gemv_transposed<S: SimdInt>(
     b_zero_points: Option<&[i8]>,
     dot_product: unsafe fn(S, S, S) -> S,
 ) {
+    let bit_flip_mask = S::splat(I8_U8_SHIFT_MASK);
+    let b_zero_shift = if CAST_B_U8 { 128 } else { 0 };
     let depth = a.len();
 
     let row_sum: i32 = a.iter().map(|x| *x as i32).sum();
@@ -675,6 +706,8 @@ unsafe fn simd_int8_gemv_transposed<S: SimdInt>(
         for k_tile in k_tiles.by_ref() {
             let a = S::load(a_ptr.add(k_tile.start) as *const i32);
             let b = S::load(b_ptr.add(k_tile.start) as *const i32);
+            let b = if CAST_B_U8 { b.xor(bit_flip_mask) } else { b };
+
             acc = dot_product(a, b, acc);
             col_sum = dot_product(one_u8, b, col_sum);
         }
@@ -690,7 +723,9 @@ unsafe fn simd_int8_gemv_transposed<S: SimdInt>(
         }
 
         let a_zero = a_zero_point as i32;
-        let b_zero = b_zero_points.map(|bz| bz[col]).unwrap_or(0) as i32;
+        let b_zero = b_zero_points
+            .map(|bz| bz[col] as i32 + b_zero_shift)
+            .unwrap_or(0);
         let acc = (depth as i32 * a_zero * b_zero) + acc - row_sum * b_zero - col_sum * a_zero;
 
         let out_ptr = out.get_unchecked_mut(col);
@@ -705,7 +740,7 @@ unsafe fn simd_int8_gemv_transposed<S: SimdInt>(
 /// Fallback for [`simd_int8_gemv`] when RHS has neither unit column stride nor
 /// unit row stride.
 #[inline(always)]
-fn simd_int8_gemv_fallback(
+fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
     out: &mut [MaybeUninit<i32>],
     a: &[u8],
     b: Matrix<i8>,
@@ -713,9 +748,12 @@ fn simd_int8_gemv_fallback(
     a_zero_point: u8,
     b_zero_points: Option<&[i8]>,
 ) {
+    let b_zero_shift = if CAST_B_U8 { 128 } else { 0 };
     let depth = a.len();
     for (out, col) in out.iter_mut().zip(0..b.cols()) {
-        let b_zero = b_zero_points.map(|bz| bz[col] as i32).unwrap_or(0);
+        let b_zero = b_zero_points
+            .map(|bz| bz[col] as i32 + b_zero_shift)
+            .unwrap_or(0);
         let mut acc = 0;
         let mut row_sum = 0;
         let mut col_sum = 0;
@@ -723,6 +761,7 @@ fn simd_int8_gemv_fallback(
         for k in 0..depth {
             let a_el = unsafe { *a.get_unchecked(k) } as i32;
             let b_el = unsafe { *b.get_unchecked([k, col]) } as i32;
+            let b_el = if CAST_B_U8 { b_el + b_zero_shift } else { b_el };
             acc += a_el * b_el;
             row_sum += a_el;
             col_sum += b_el;
