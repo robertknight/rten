@@ -6,8 +6,8 @@ use std::arch::x86_64::{
     _mm256_max_epi32, _mm256_max_ps, _mm256_min_epi32, _mm256_min_ps, _mm256_mul_ps,
     _mm256_mullo_epi32, _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setr_epi32,
     _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps,
-    _mm_add_ps, _mm_cvtss_f32, _mm_loadl_epi64, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps,
-    _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_xor_si256, _mm_add_ps, _mm_cvtss_f32, _mm_loadl_epi64, _mm_movehl_ps, _mm_prefetch,
+    _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::mem::{transmute, MaybeUninit};
 
@@ -228,6 +228,12 @@ impl SimdInt for __m256i {
         use core::arch::x86_64::_mm256_cvtepi8_epi32;
         _mm256_cvtepi8_epi32(_mm_loadl_epi64(ptr as *const __m128i))
     }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    unsafe fn xor(self, other: Self) -> Self {
+        _mm256_xor_si256(self, other)
+    }
 }
 
 impl Simd for __m256 {
@@ -402,7 +408,7 @@ use std::arch::x86_64::{
     _mm512_max_ps, _mm512_min_epi32, _mm512_min_ps, _mm512_mul_ps, _mm512_mullo_epi32,
     _mm512_reduce_add_ps, _mm512_set1_epi32, _mm512_set1_ps, _mm512_setzero_si512,
     _mm512_sllv_epi32, _mm512_storeu_epi32, _mm512_storeu_ps, _mm512_sub_epi32, _mm512_sub_ps,
-    _MM_CMPINT_EQ, _MM_CMPINT_LE, _MM_CMPINT_LT,
+    _mm512_xor_si512, _MM_CMPINT_EQ, _MM_CMPINT_LE, _MM_CMPINT_LT,
 };
 
 #[cfg(feature = "avx512")]
@@ -595,6 +601,12 @@ impl SimdInt for __m512i {
     unsafe fn load_extend_i8(ptr: *const i8) -> Self {
         use core::arch::x86_64::{_mm512_cvtepi8_epi32, _mm_loadu_si128};
         _mm512_cvtepi8_epi32(_mm_loadu_si128(ptr as *const __m128i))
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn xor(self, other: Self) -> Self {
+        _mm512_xor_si512(self, other)
     }
 }
 

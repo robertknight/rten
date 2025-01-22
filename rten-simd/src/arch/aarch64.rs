@@ -2,9 +2,9 @@ use std::arch::aarch64::{
     float32x4_t, int32x4_t, uint32x4_t, vabsq_f32, vaddq_f32, vaddq_s32, vaddvq_f32, vandq_u32,
     vbslq_f32, vbslq_s32, vceqq_s32, vcgeq_f32, vcgeq_s32, vcgtq_s32, vcleq_f32, vcleq_s32,
     vcltq_f32, vcltq_s32, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s32,
-    vfmaq_f32, vld1q_f32, vld1q_s32, vld1q_u32, vmaxq_f32, vmaxq_s32, vminq_f32, vminq_s32,
-    vmulq_f32, vmulq_s32, vreinterpretq_f32_s32, vshlq_n_s32, vst1q_f32, vst1q_s32, vst1q_u32,
-    vsubq_f32, vsubq_s32,
+    veorq_s32, vfmaq_f32, vld1q_f32, vld1q_s32, vld1q_u32, vmaxq_f32, vmaxq_s32, vminq_f32,
+    vminq_s32, vmulq_f32, vmulq_s32, vreinterpretq_f32_s32, vshlq_n_s32, vst1q_f32, vst1q_s32,
+    vst1q_u32, vsubq_f32, vsubq_s32,
 };
 
 use crate::{Simd, SimdFloat, SimdInt, SimdMask};
@@ -166,6 +166,11 @@ impl SimdInt for int32x4_t {
             bytes[i * 4 + 3] = *d_ptr.add(i);
         }
         vreinterpretq_s32_s8(vld1q_s8(bytes.as_ptr()))
+    }
+
+    #[inline]
+    unsafe fn xor(self, rhs: Self) -> Self {
+        veorq_s32(self, rhs)
     }
 }
 
