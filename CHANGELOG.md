@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### rten
+
+- Support models with subgraphs in `tools/ort-quantize.py` script and adjust
+  configuration so that it produces usable results with more models
+  (https://github.com/robertknight/rten/pull/530)
+
+- Added initial optimized implementation of `MatMulInteger` for x64 (AVX2,
+  AVX512 VNNI) and Arm 64 (with dotprod extensions)
+  (https://github.com/robertknight/rten/pull/528,
+  https://github.com/robertknight/rten/pull/535,
+  https://github.com/robertknight/rten/pull/537,
+  https://github.com/robertknight/rten/pull/541,
+  https://github.com/robertknight/rten/pull/542,
+  https://github.com/robertknight/rten/pull/543)
+
+- Optimized and vectorized `DynamicQuantizeLinear` and `QuantizeLinear` operations
+  (https://github.com/robertknight/rten/pull/531,
+  https://github.com/robertknight/rten/pull/532,
+  https://github.com/robertknight/rten/pull/538)
+
+- Fixed edge case bug with incorrect handling of fused MatMul-Add operations
+  when K dimension (LHS column count) is zero (https://github.com/robertknight/rten/pull/526)
+
+- Fixed panic in `Conv` operator if group count is zero (https://github.com/robertknight/rten/pull/523)
+
+- Support `MatMulInteger` operators where zero point is a vector (https://github.com/robertknight/rten/pull/521)
+
+### rten-examples
+
+- Added ModernBERT masked word prediction example (https://github.com/robertknight/rten/pull/520)
+
 ## [0.15.1] - 2025-01-06
 
 ### rten
