@@ -177,6 +177,72 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
     }
 }
 
+macro_rules! impl_arm_int8_common {
+    () => {
+        fn mr(&self) -> usize {
+            Self::MR
+        }
+
+        fn nr(&self) -> usize {
+            Self::NR
+        }
+
+        fn packed_a_layout(
+            &self,
+            _a: Matrix<u8>,
+            rows: usize,
+            cols: usize,
+            _quant: Option<QuantParams<u8>>,
+        ) -> PackedLayout {
+            let mut layout = packing::int8::packed_a_layout::<{ Self::MR }>(rows, cols);
+            layout.must_pack = true;
+            layout
+        }
+
+        fn pack_a_block(
+            &self,
+            out: &mut [MaybeUninit<u8>],
+            a: Matrix<u8>,
+            rows: Range<usize>,
+            cols: Range<usize>,
+            _quant: Option<QuantParams<u8>>,
+        ) {
+            let out = cast_pod_mut_slice(out).unwrap();
+            packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
+        }
+
+        fn packed_b_layout(
+            &self,
+            rows: usize,
+            cols: usize,
+            _quant: Option<QuantParams<i8>>,
+        ) -> PackedLayout {
+            packing::int8::packed_b_layout::<{ Self::NR }>(rows, cols)
+        }
+
+        fn pack_b_block(
+            &self,
+            out: &mut [MaybeUninit<u8>],
+            b: Matrix<i8>,
+            rows: Range<usize>,
+            cols: Range<usize>,
+            _quant: Option<QuantParams<i8>>,
+        ) {
+            packing::int8::pack_b_cast_i8_u8::<{ Self::NR }>(out, b.slice((rows, cols)))
+        }
+
+        fn pack_im2col(
+            &self,
+            _out: &mut [MaybeUninit<u8>],
+            _image: &Im2Col<i8>,
+            _rows: Range<usize>,
+            _cols: Range<usize>,
+        ) {
+            unimplemented!("pack_im2col not implemented");
+        }
+    };
+}
+
 /// 8-bit integer matrix multiplication kernel using Arm dot product
 /// instructions.
 pub struct ArmInt8DotKernel {
@@ -197,70 +263,10 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
     }
 
     fn name(&self) -> &'static str {
-        "arm-udot-int8"
+        "arm-int8-udot"
     }
 
-    fn mr(&self) -> usize {
-        Self::MR
-    }
-
-    fn nr(&self) -> usize {
-        Self::NR
-    }
-
-    fn packed_a_layout(
-        &self,
-        _a: Matrix<u8>,
-        rows: usize,
-        cols: usize,
-        _quant: Option<QuantParams<u8>>,
-    ) -> PackedLayout {
-        let mut layout = packing::int8::packed_a_layout::<{ Self::MR }>(rows, cols);
-        layout.must_pack = true;
-        layout
-    }
-
-    fn pack_a_block(
-        &self,
-        out: &mut [MaybeUninit<u8>],
-        a: Matrix<u8>,
-        rows: Range<usize>,
-        cols: Range<usize>,
-        _quant: Option<QuantParams<u8>>,
-    ) {
-        let out = cast_pod_mut_slice(out).unwrap();
-        packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
-    }
-
-    fn packed_b_layout(
-        &self,
-        rows: usize,
-        cols: usize,
-        _quant: Option<QuantParams<i8>>,
-    ) -> PackedLayout {
-        packing::int8::packed_b_layout::<{ Self::NR }>(rows, cols)
-    }
-
-    fn pack_b_block(
-        &self,
-        out: &mut [MaybeUninit<u8>],
-        b: Matrix<i8>,
-        rows: Range<usize>,
-        cols: Range<usize>,
-        _quant: Option<QuantParams<i8>>,
-    ) {
-        packing::int8::pack_b_cast_i8_u8::<{ Self::NR }>(out, b.slice((rows, cols)))
-    }
-
-    fn pack_im2col(
-        &self,
-        _out: &mut [MaybeUninit<u8>],
-        _image: &Im2Col<i8>,
-        _rows: Range<usize>,
-        _cols: Range<usize>,
-    ) {
-        unimplemented!("pack_im2col not implemented");
-    }
+    impl_arm_int8_common!();
 
     #[target_feature(enable = "dotprod")]
     unsafe fn kernel(
@@ -281,7 +287,6 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
             Lhs::Packed(data) => data,
             Lhs::Unpacked { .. } => panic!("lhs must be packed"),
         };
-
         let a_zero_points = extract_zero_points(a_quant, used_rows, |x| x);
         let b_zero_points = extract_zero_points(b_quant, used_cols, |zp| zp + I8_U8_SHIFT);
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
@@ -330,9 +335,102 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
             simd_int8_gemv::<_, true /* CAST_B_U8 */>(out, a, b, accumulate, a_zero, b_zero, udot)
         }
 
-        // Safety: We checked target feature support when kernel was
-        // constructed.
-        unsafe { gemv_impl(out, a, b, accumulate, a_zero, b_zero) }
+        // Safety: Target features were checked when this kernel was constructed.
+        unsafe {
+            gemv_impl(out, a, b, accumulate, a_zero, b_zero);
+        }
+    }
+}
+
+/// 8-bit integer matrix multiplication kernel for Arm CPUs which don't support
+/// dot product instructions.
+pub struct ArmInt8Kernel {
+    _private: (),
+}
+
+impl ArmInt8Kernel {
+    const MR: usize = 8;
+    const NR: usize = 4;
+}
+
+unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
+    fn new() -> Option<Self> {
+        Some(ArmInt8Kernel { _private: () })
+    }
+
+    fn name(&self) -> &'static str {
+        "arm-int8"
+    }
+
+    impl_arm_int8_common!();
+
+    unsafe fn kernel(
+        &self,
+        tile_ptr: *mut i32,
+        tile_row_stride: usize,
+        a: Lhs<u8>,
+        b: &[u8],
+        used_rows: usize,
+        used_cols: usize,
+        depth: usize,
+        _alpha: f32,
+        beta: i32,
+        a_quant: Option<QuantParams<u8>>,
+        b_quant: Option<QuantParams<i8>>,
+    ) {
+        let a_data = match a {
+            Lhs::Packed(data) => data,
+            Lhs::Unpacked { .. } => panic!("lhs must be packed"),
+        };
+
+        let a_zero_points = extract_zero_points(a_quant, used_rows, |x| x);
+        let b_zero_points = extract_zero_points(b_quant, used_cols, |zp| zp + I8_U8_SHIFT);
+        let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
+        let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
+
+        simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
+            tile_ptr,
+            tile_row_stride,
+            a_data,
+            b,
+            used_rows,
+            used_cols,
+            depth,
+            beta != 0, // accumulate
+            a_zero_points,
+            b_zero_points,
+            a_row_sums,
+            b_col_sums,
+            fallback_udot,
+        )
+    }
+
+    fn gemv_kernel(
+        &self,
+        out: &mut [MaybeUninit<i32>],
+        a: &[u8],
+        b: Matrix<i8>,
+        _alpha: f32,
+        beta: i32,
+        a_quant: Option<QuantParams<u8>>,
+        b_quant: Option<QuantParams<i8>>,
+    ) {
+        let a_zero = a_quant.map(|aq| aq.zero_point[0]).unwrap_or(0);
+        let b_zero = b_quant.map(|bq| bq.zero_point);
+        let accumulate = beta != 0;
+
+        // Safety: Target features were checked when kernel was constructed.
+        unsafe {
+            simd_int8_gemv::<_, true /* CAST_B_U8 */>(
+                out,
+                a,
+                b,
+                accumulate,
+                a_zero,
+                b_zero,
+                fallback_udot,
+            )
+        }
     }
 }
 
@@ -348,13 +446,14 @@ const I8_U8_SHIFT: i32 = 128;
 #[inline]
 unsafe fn udot(a: int32x4_t, b: int32x4_t, c: int32x4_t) -> int32x4_t {
     use core::arch::aarch64::{vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s32};
+    use core::arch::asm;
+
     let a = vreinterpretq_u8_s32(a);
     let b = vreinterpretq_u8_s32(b);
     let mut c = vreinterpretq_u32_s32(c);
 
     // Use inline asm here because the `vdotq_u32` intrinsic is not
     // stabilized yet.
-    use std::arch::asm;
     asm! {
         "udot {result:v}.4s, {a:v}.16b, {b:v}.16b",
         result = inout(vreg) c,
@@ -364,4 +463,25 @@ unsafe fn udot(a: int32x4_t, b: int32x4_t, c: int32x4_t) -> int32x4_t {
     }
 
     vreinterpretq_s32_u32(c)
+}
+
+/// Fallback implementation of [`udot`] for older Arm CPUs which don't support
+/// dot product instructions.
+#[inline(always)]
+unsafe fn fallback_udot(a: int32x4_t, b: int32x4_t, c: int32x4_t) -> int32x4_t {
+    use core::arch::aarch64::{
+        vaddq_u32, vget_low_u8, vmull_high_u8, vmull_u8, vpaddlq_u16, vpaddq_u32,
+        vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s32,
+    };
+
+    let a = vreinterpretq_u8_s32(a);
+    let b = vreinterpretq_u8_s32(b);
+    let c = vreinterpretq_u32_s32(c);
+
+    let mul_lo = vmull_u8(vget_low_u8(a), vget_low_u8(b));
+    let mul_hi = vmull_high_u8(a, b);
+    let tmp_lo = vpaddlq_u16(mul_lo);
+    let tmp_hi = vpaddlq_u16(mul_hi);
+    let dot_prod = vpaddq_u32(tmp_lo, tmp_hi);
+    vreinterpretq_s32_u32(vaddq_u32(dot_prod, c))
 }

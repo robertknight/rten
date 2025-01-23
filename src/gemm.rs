@@ -237,27 +237,11 @@ pub enum BiasVector<'a, T> {
     Row(&'a [T]),
 }
 
-/// Executes matrix multiplication operations.
-///
-/// For simple use cases, the standalone [`gemm`] function can be used.
-/// GemmExecutor provides a more advanced API that enables features such as
-/// performing matrix multiplications with pre-packed inputs.
-///
-/// ## Prepacking
-///
-/// Prepacking is useful when an input will be reused in multiple GEMM
-/// operations. In this case the work to pack (re-layout) the input for maximum
-/// computational efficiency, which is normally does internally on each call,
-/// can be done just once for the reused input.
-pub struct GemmExecutor<LhsT: GemmInT = f32, RhsT: GemmInT = f32, OutT: GemmOutT = f32> {
-    kernel: Box<dyn Kernel<LhsT, RhsT, OutT>>,
-    kernel_type: KernelType,
-}
-
-/// Arguments for [`GemmExecutor::with_kernel`] specifying which kernel to use.
+/// Argument for [`GemmExecutor::with_kernel`] specifying which kernel to use.
 #[derive(Clone, Copy, Debug)]
-pub enum KernelType {
+enum F32KernelType {
     /// Use the fallback/generic kernel. Always available.
+    #[allow(unused)]
     Generic,
 
     /// Use the AVX 2 + FMA kernel. Intel x64 only.
@@ -265,6 +249,7 @@ pub enum KernelType {
     Fma,
 
     /// Use the AVX 512 kernel. Intel x64 only.
+    #[cfg(target_arch = "x86_64")]
     #[cfg(feature = "avx512")]
     Avx512,
 
@@ -278,16 +263,51 @@ pub enum KernelType {
     Wasm,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum Int8KernelType {
+    #[allow(unused)]
+    Generic,
+
+    #[cfg(target_arch = "x86_64")]
+    Avx2,
+    #[cfg(target_arch = "x86_64")]
+    #[cfg(feature = "avx512")]
+    Avx512,
+
+    #[cfg(target_arch = "aarch64")]
+    ArmDot,
+    #[cfg(target_arch = "aarch64")]
+    ArmNeon,
+}
+
+/// Executes matrix multiplication operations.
+///
+/// For simple use cases, the standalone [`gemm`] function can be used.
+/// GemmExecutor provides a more advanced API that enables features such as
+/// performing matrix multiplications with pre-packed inputs.
+///
+/// ## Prepacking
+///
+/// Prepacking is useful when an input will be reused in multiple GEMM
+/// operations. In this case the work to pack (re-layout) the input for maximum
+/// computational efficiency, which is normally does internally on each call,
+/// can be done just once for the reused input.
+pub struct GemmExecutor<LhsT: GemmInT = f32, RhsT: GemmInT = LhsT, OutT: GemmOutT = LhsT> {
+    kernel: Box<dyn Kernel<LhsT, RhsT, OutT>>,
+}
+
 impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT> {
+    pub fn new() -> Self
+    where
+        Self: Default,
+    {
+        Self::default()
+    }
+
     /// Return the name of the kernel that this executor is using.
     #[allow(dead_code)]
     pub fn kernel_name(&self) -> &str {
         self.kernel.name()
-    }
-
-    /// Return the type of kernel being used.
-    pub fn kernel_type(&self) -> KernelType {
-        self.kernel_type
     }
 
     /// Prepack a matrix for use as the left-hand or "A" input.
@@ -486,89 +506,170 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         )
     }
 
-    fn from_kernel<K: Kernel<LhsT, RhsT, OutT> + 'static>(kernel_type: KernelType) -> Option<Self> {
+    fn from_kernel<K: Kernel<LhsT, RhsT, OutT> + 'static>() -> Option<Self> {
         K::new().map(|kernel| GemmExecutor {
             kernel: Box::new(kernel),
-            kernel_type,
         })
     }
 }
 
-impl GemmExecutor<f32, f32, f32> {
-    /// Create a [`GemmExecutor`] using the preferred kernel for the current system.
-    pub fn new() -> GemmExecutor {
-        #[cfg(feature = "avx512")]
-        #[cfg(target_arch = "x86_64")]
-        if let Some(gemm) = Self::with_kernel(KernelType::Avx512) {
+/// Try to construct a [`GemmExecutor`] with a given kernel type.
+macro_rules! try_kernel {
+    ($hint:expr) => {
+        if let Some(gemm) = Self::with_kernel($hint) {
             return gemm;
         }
-        #[cfg(target_arch = "x86_64")]
-        if let Some(gemm) = Self::with_kernel(KernelType::Fma) {
-            return gemm;
-        }
-        #[cfg(target_arch = "aarch64")]
-        if let Some(gemm) = Self::with_kernel(KernelType::ArmNeon) {
-            return gemm;
-        }
-        #[cfg(target_arch = "wasm32")]
-        #[cfg(target_feature = "simd128")]
-        if let Some(gemm) = Self::with_kernel(KernelType::Wasm) {
-            return gemm;
-        }
-        Self::with_generic_kernel()
-    }
+    };
+}
+
+/// Trait for instantiating a [`GemmExecutor`] with a particular kernel.
+///
+/// This primarily exists to support creating tests which are run against
+/// all available kernels.
+trait WithKernel: Default {
+    /// Enum specifying kernel to use.
+    type KernelType;
+
+    /// Try to instantiate this executor with a given kernel. Returns None if
+    /// the kernel is not supported on this system.
+    fn with_kernel(kern_type: Self::KernelType) -> Option<Self>;
+
+    /// Instantiate this executor with the generic/fallback kernel.
+    fn with_generic_kernel() -> Self;
+
+    /// Return all the kernel types supported on the current system.
+    #[allow(unused)]
+    fn kernel_types() -> Vec<Self::KernelType>;
+}
+
+impl WithKernel for GemmExecutor<f32, f32, f32> {
+    type KernelType = F32KernelType;
 
     /// Create a [`GemmExecutor`] using the given kernel. Returns `None` if the
     /// kernel is not supported.
     #[allow(dead_code)] // Currently only used in tests
-    pub fn with_kernel(hint: KernelType) -> Option<Self> {
+    fn with_kernel(hint: F32KernelType) -> Option<Self> {
         match hint {
             #[cfg(feature = "avx512")]
             #[cfg(target_arch = "x86_64")]
-            KernelType::Avx512 => Self::from_kernel::<kernels::x86_64::Avx512Kernel>(hint),
+            F32KernelType::Avx512 => Self::from_kernel::<kernels::x86_64::Avx512Kernel>(),
             #[cfg(target_arch = "x86_64")]
-            KernelType::Fma => Self::from_kernel::<kernels::x86_64::FmaKernel>(hint),
+            F32KernelType::Fma => Self::from_kernel::<kernels::x86_64::FmaKernel>(),
             #[cfg(target_arch = "aarch64")]
-            KernelType::ArmNeon => Self::from_kernel::<kernels::aarch64::ArmNeonKernel>(hint),
+            F32KernelType::ArmNeon => Self::from_kernel::<kernels::aarch64::ArmNeonKernel>(),
             #[cfg(target_arch = "wasm32")]
             #[cfg(target_feature = "simd128")]
-            KernelType::Wasm => Self::from_kernel::<kernels::wasm::WasmKernel>(hint),
-            KernelType::Generic => Some(Self::with_generic_kernel()),
+            F32KernelType::Wasm => Self::from_kernel::<kernels::wasm::WasmKernel>(),
+            F32KernelType::Generic => Some(Self::with_generic_kernel()),
         }
+    }
+
+    fn kernel_types() -> Vec<F32KernelType> {
+        let mut types = Vec::new();
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            #[cfg(feature = "avx512")]
+            types.push(F32KernelType::Avx512);
+            types.push(F32KernelType::Fma);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            types.push(F32KernelType::ArmNeon);
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_feature = "simd128")]
+        {
+            types.push(F32KernelType::Wasm);
+        }
+
+        types.push(F32KernelType::Generic);
+
+        types
     }
 
     /// Construct a GemmExecutor that uses the generic kernel.
     fn with_generic_kernel() -> Self {
-        Self::from_kernel::<GenericKernel>(KernelType::Generic).unwrap()
+        Self::from_kernel::<GenericKernel>().unwrap()
     }
 }
 
 impl Default for GemmExecutor<f32, f32, f32> {
     fn default() -> Self {
-        Self::new()
+        #[cfg(feature = "avx512")]
+        #[cfg(target_arch = "x86_64")]
+        try_kernel!(F32KernelType::Avx512);
+        #[cfg(target_arch = "x86_64")]
+        try_kernel!(F32KernelType::Fma);
+        #[cfg(target_arch = "aarch64")]
+        try_kernel!(F32KernelType::ArmNeon);
+        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_feature = "simd128")]
+        try_kernel!(F32KernelType::Wasm);
+        Self::with_generic_kernel()
+    }
+}
+
+impl WithKernel for GemmExecutor<u8, i8, i32> {
+    type KernelType = Int8KernelType;
+
+    fn with_kernel(hint: Int8KernelType) -> Option<Self> {
+        match hint {
+            #[cfg(feature = "avx512")]
+            #[cfg(target_arch = "x86_64")]
+            Int8KernelType::Avx512 => Self::from_kernel::<kernels::x86_64::Avx512Int8Kernel>(),
+            #[cfg(target_arch = "x86_64")]
+            Int8KernelType::Avx2 => Self::from_kernel::<kernels::x86_64::Avx2Int8Kernel>(),
+            #[cfg(target_arch = "aarch64")]
+            Int8KernelType::ArmNeon => Self::from_kernel::<kernels::aarch64::ArmInt8Kernel>(),
+            #[cfg(target_arch = "aarch64")]
+            Int8KernelType::ArmDot => Self::from_kernel::<kernels::aarch64::ArmInt8DotKernel>(),
+            Int8KernelType::Generic => Self::from_kernel::<GenericKernel>(),
+        }
+    }
+
+    fn kernel_types() -> Vec<Int8KernelType> {
+        let mut types = Vec::new();
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            #[cfg(feature = "avx512")]
+            types.push(Int8KernelType::Avx512);
+            types.push(Int8KernelType::Avx2);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            types.push(Int8KernelType::ArmDot);
+            types.push(Int8KernelType::ArmNeon);
+        }
+
+        types.push(Int8KernelType::Generic);
+
+        types
+    }
+
+    fn with_generic_kernel() -> Self {
+        Self::from_kernel::<GenericKernel>().unwrap()
     }
 }
 
 impl Default for GemmExecutor<u8, i8, i32> {
     fn default() -> Self {
-        #[cfg(feature = "avx512")]
         #[cfg(target_arch = "x86_64")]
-        if let Some(gemm) =
-            Self::from_kernel::<kernels::x86_64::Avx512Int8Kernel>(KernelType::Avx512)
         {
-            return gemm;
-        }
-        #[cfg(target_arch = "x86_64")]
-        if let Some(gemm) = Self::from_kernel::<kernels::x86_64::Avx2Int8Kernel>(KernelType::Fma) {
-            return gemm;
+            #[cfg(feature = "avx512")]
+            try_kernel!(Int8KernelType::Avx512);
+            try_kernel!(Int8KernelType::Avx2);
         }
         #[cfg(target_arch = "aarch64")]
-        if let Some(gemm) =
-            Self::from_kernel::<kernels::aarch64::ArmInt8DotKernel>(KernelType::ArmNeon)
         {
-            return gemm;
+            try_kernel!(Int8KernelType::ArmDot);
+            try_kernel!(Int8KernelType::ArmNeon);
         }
-        Self::from_kernel::<GenericKernel>(KernelType::Generic).unwrap()
+        Self::with_generic_kernel()
     }
 }
 
@@ -1266,8 +1367,8 @@ mod tests {
     use rten_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, RandomSource};
 
     use super::{
-        BiasVector, ColOffsets, GemmError, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT,
-        Im2Col, KernelType, QuantParams, RowOffsets,
+        BiasVector, ColOffsets, F32KernelType, GemmError, GemmExecutor, GemmInT, GemmInputA,
+        GemmInputB, GemmOutT, Im2Col, QuantParams, RowOffsets, WithKernel,
     };
 
     /// Scale a possibly non-float value by a float.
@@ -1484,6 +1585,20 @@ mod tests {
         expect_equal(&result, &expected).unwrap();
     }
 
+    /// Return `GemmExecutor`s with all of the available kernels for the given
+    /// input and output types.
+    fn all_gemms<L, R, O>() -> impl Iterator<Item = GemmExecutor<L, R, O>>
+    where
+        L: GemmInT,
+        R: GemmInT,
+        O: GemmOutT,
+        GemmExecutor<L, R, O>: WithKernel,
+    {
+        GemmExecutor::<L, R, O>::kernel_types()
+            .into_iter()
+            .filter_map(|kern_type| GemmExecutor::<L, R, O>::with_kernel(kern_type))
+    }
+
     // Simplest possible test case for easy debugging.
     #[test]
     fn test_simple_gemm_f32() -> Result<(), Box<dyn Error>> {
@@ -1494,7 +1609,7 @@ mod tests {
             a.view(),
             b.view(),
             None,
-            Some(&GemmExecutor::with_kernel(KernelType::Generic).unwrap()),
+            Some(&GemmExecutor::<f32>::with_kernel(F32KernelType::Generic).unwrap()),
         );
         Ok(())
     }
@@ -1661,7 +1776,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_gemm_with_fma_kernel() -> Result<(), Box<dyn Error>> {
-        let gemm = GemmExecutor::with_kernel(KernelType::Fma).unwrap();
+        let gemm = GemmExecutor::<f32>::with_kernel(F32KernelType::Fma).unwrap();
         test_gemm_various_input_sizes(Some(&gemm), None)
     }
 
@@ -1669,14 +1784,14 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_gemm_with_avx512_kernel() -> Result<(), Box<dyn Error>> {
-        let gemm = GemmExecutor::with_kernel(KernelType::Avx512).unwrap();
+        let gemm = GemmExecutor::<f32>::with_kernel(F32KernelType::Avx512).unwrap();
         test_gemm_various_input_sizes(Some(&gemm), None)
     }
 
     #[cfg(target_arch = "aarch64")]
     #[test]
     fn test_gemm_with_arm_neon_kernel() -> Result<(), Box<dyn Error>> {
-        let gemm = GemmExecutor::with_kernel(KernelType::ArmNeon).unwrap();
+        let gemm = GemmExecutor::<f32>::with_kernel(F32KernelType::ArmNeon).unwrap();
         test_gemm_various_input_sizes(Some(&gemm), None)
     }
 
@@ -1690,15 +1805,17 @@ mod tests {
 
     #[test]
     fn test_gemm_with_generic_kernel() -> Result<(), Box<dyn Error>> {
-        let gemm = GemmExecutor::with_kernel(KernelType::Generic).unwrap();
+        let gemm = GemmExecutor::<f32>::with_kernel(F32KernelType::Generic).unwrap();
         test_gemm_various_input_sizes(Some(&gemm), None)
     }
 
     #[test]
     fn test_gemm_u8i8_i32() -> Result<(), Box<dyn Error>> {
-        let mut rng = ReducedRangeRng::new();
-        let gemm = GemmExecutor::<u8, i8, i32>::default();
-        test_gemm_various_input_sizes(Some(&gemm), Some(&mut || rng.next_u8()))
+        for gemm in all_gemms::<u8, i8, i32>() {
+            let mut rng = ReducedRangeRng::new();
+            test_gemm_various_input_sizes(Some(&gemm), Some(&mut || rng.next_u8()))?;
+        }
+        Ok(())
     }
 
     #[test]
@@ -1706,6 +1823,7 @@ mod tests {
         let mut lhs_rng = ReducedRangeRng::new();
         let mut rhs_rng = XorShiftRng::new(1234);
 
+        #[derive(Copy, Clone)]
         struct Case {
             m: usize,
             n: usize,
@@ -1728,22 +1846,24 @@ mod tests {
             },
         ];
 
-        for Case { m, n, k } in cases {
-            let a = NdTensor::<u8, 2>::from_simple_fn([m, k], || lhs_rng.next_u8());
-            let b = NdTensor::<i8, 2>::rand([k, n], &mut rhs_rng);
+        for gemm in all_gemms::<u8, i8, i32>() {
+            for Case { m, n, k } in cases {
+                let a = NdTensor::<u8, 2>::from_simple_fn([m, k], || lhs_rng.next_u8());
+                let b = NdTensor::<i8, 2>::rand([k, n], &mut rhs_rng);
 
-            let a_zero_point: Vec<_> = (0..a.rows()).map(|x| x as u8).collect();
-            let b_zero_point: Vec<_> = (0..b.cols()).map(|x| x as i8).collect();
-            let opts = Some(GemmOpts {
-                a_quant: Some(QuantParams {
-                    zero_point: &a_zero_point,
-                }),
-                b_quant: Some(QuantParams {
-                    zero_point: &b_zero_point,
-                }),
-                ..Default::default()
-            });
-            run_compare_matmul(a.view(), b.view(), opts, None);
+                let a_zero_point: Vec<_> = (0..a.rows()).map(|x| x as u8).collect();
+                let b_zero_point: Vec<_> = (0..b.cols()).map(|x| x as i8).collect();
+                let opts = Some(GemmOpts {
+                    a_quant: Some(QuantParams {
+                        zero_point: &a_zero_point,
+                    }),
+                    b_quant: Some(QuantParams {
+                        zero_point: &b_zero_point,
+                    }),
+                    ..Default::default()
+                });
+                run_compare_matmul(a.view(), b.view(), opts, Some(&gemm));
+            }
         }
     }
 
@@ -1816,7 +1936,9 @@ mod tests {
         // strides and shapes, but not re-order the data.
         b.permute([1, 0]);
 
-        run_compare_matmul(a.view(), b.view(), None, None);
+        for gemm in all_gemms::<u8, i8, i32>() {
+            run_compare_matmul(a.view(), b.view(), None, Some(&gemm));
+        }
 
         Ok(())
     }
@@ -1824,7 +1946,7 @@ mod tests {
     fn generic_native_f32_kernels() -> [GemmExecutor<f32, f32, f32>; 2] {
         [
             GemmExecutor::default(),
-            GemmExecutor::with_kernel(KernelType::Generic).unwrap(),
+            GemmExecutor::<f32>::with_kernel(F32KernelType::Generic).unwrap(),
         ]
     }
 
@@ -2534,7 +2656,7 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_prepack_a() {
-        let gemm = GemmExecutor::new();
+        let gemm = GemmExecutor::<f32>::new();
         let mut rng = XorShiftRng::new(1234);
         let m = 1024;
         let n = 1024;
