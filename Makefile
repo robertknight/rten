@@ -73,6 +73,12 @@ wasm-test-simd:
 	RUSTFLAGS="-C target-feature=+simd128" cargo build --target wasm32-wasip1 --tests -p rten-simd
 	wasmtime --dir . target/wasm32-wasip1/debug/deps/rten_simd-*.wasm --nocapture
 
+.PHONY: wasm-bench-gemm
+wasm-bench-gemm:
+	rm -f target/wasm32-wasi/release/deps/rten-*.wasm
+	RUSTFLAGS="-C target-feature=+simd128" cargo build --target wasm32-wasip1 --tests -p rten -r
+	wasmtime --dir . target/wasm32-wasip1/release/deps/rten-*.wasm --nocapture --ignored bench_gemm_mix
+
 src/schema_generated.rs: src/schema.fbs
 	flatc -o src/ --rust src/schema.fbs
 	cargo fmt

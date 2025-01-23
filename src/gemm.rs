@@ -278,6 +278,10 @@ enum Int8KernelType {
     ArmDot,
     #[cfg(target_arch = "aarch64")]
     ArmNeon,
+
+    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_feature = "simd128")]
+    Wasm,
 }
 
 /// Executes matrix multiplication operations.
@@ -626,6 +630,9 @@ impl WithKernel for GemmExecutor<u8, i8, i32> {
             Int8KernelType::ArmNeon => Self::from_kernel::<kernels::aarch64::ArmInt8Kernel>(),
             #[cfg(target_arch = "aarch64")]
             Int8KernelType::ArmDot => Self::from_kernel::<kernels::aarch64::ArmInt8DotKernel>(),
+            #[cfg(target_arch = "wasm32")]
+            #[cfg(target_feature = "simd128")]
+            Int8KernelType::Wasm => Self::from_kernel::<kernels::wasm::WasmInt8Kernel>(),
             Int8KernelType::Generic => Self::from_kernel::<GenericKernel>(),
         }
     }
@@ -644,6 +651,12 @@ impl WithKernel for GemmExecutor<u8, i8, i32> {
         {
             types.push(Int8KernelType::ArmDot);
             types.push(Int8KernelType::ArmNeon);
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_feature = "simd128")]
+        {
+            types.push(Int8KernelType::Wasm);
         }
 
         types.push(Int8KernelType::Generic);
@@ -668,6 +681,10 @@ impl Default for GemmExecutor<u8, i8, i32> {
         {
             try_kernel!(Int8KernelType::ArmDot);
             try_kernel!(Int8KernelType::ArmNeon);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            try_kernel!(Int8KernelType::Wasm);
         }
         Self::with_generic_kernel()
     }
