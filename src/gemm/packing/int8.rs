@@ -42,6 +42,7 @@ pub fn packed_b_layout<const NR: usize>(b_rows: usize, b_cols: usize) -> PackedL
 /// transposed `[NR, 4]` microtile of `B` is then multiplied with a `[MR, 4]`
 /// microtile of `A` using dot product instructions. The column sums are used
 /// to handle subtraction of the zero point.
+#[allow(unused)]
 pub fn pack_b<const NR: usize>(out: &mut [MaybeUninit<i8>], b: Matrix<i8>) {
     pack_b_impl::<NR, _>(
         out,
