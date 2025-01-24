@@ -14,8 +14,11 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v3
-    - name: Install Rust wasm toolchain
+    - name: Install Rust wasm32-unknown-unknown target
       run: rustup target add wasm32-unknown-unknown
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+    - name: Install Rust nightly toolchain
+      run: rustup toolchain install nightly
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Cache
       uses: actions/cache@v3
@@ -30,11 +33,16 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build
       run: cargo build
-    - name: WASM build
-      run: make wasm
-      if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Test
       run: make test
+    # We compile AVX-512 in CI but don't run tests as GitHub Actions' default
+    # runners don't support it yet (https://github.com/actions/runner/issues/1069).
+    - name: Build (AVX-512)
+      run: cargo +nightly check -p rten --features avx512
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+    - name: Build (WASM)
+      run: make wasm
+      if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Lint
       run: |
         make checkformatting
