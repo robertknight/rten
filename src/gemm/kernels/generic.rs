@@ -245,12 +245,18 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
 
     fn pack_im2col(
         &self,
-        _out: &mut [MaybeUninit<u8>],
-        _image: &Im2Col<i8>,
-        _rows: Range<usize>,
-        _cols: Range<usize>,
+        out: &mut [MaybeUninit<u8>],
+        image: &Im2Col<i8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
     ) {
-        unimplemented!("im2col packing not implemented");
+        const NR_REGS: usize = vec_count::<f32>(GenericKernel::NR);
+
+        // Safety: Scalar "SIMD" types are always supported
+        let out = cast_pod_mut_slice(out).unwrap();
+        unsafe {
+            image.pack_block::<i32, NR_REGS>(out, Self::NR, rows, cols);
+        }
     }
 
     unsafe fn kernel(

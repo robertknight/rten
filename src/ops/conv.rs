@@ -275,6 +275,7 @@ where
                     [stride_y, stride_x],
                     [dilation_y, dilation_x],
                     gemm.im2col_col_count_step(),
+                    gemm.im2col_row_count_step(),
                 );
 
                 let bias_vec = bias

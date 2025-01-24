@@ -381,7 +381,14 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     ///
     /// The number of columns in [`ColOffsets`] must be a multiple of this.
     pub fn im2col_col_count_step(&self) -> usize {
-        self.kernel.nr()
+        self.kernel.im2col_col_count_step()
+    }
+
+    /// Return row count step for building an [`Im2Col`] input.
+    ///
+    /// The number of rows in [`RowOffsets`] must be a multiple of this.
+    pub fn im2col_row_count_step(&self) -> usize {
+        self.kernel.im2col_row_count_step()
     }
 
     /// Prepack a matrix for use as the right-hand or "B" matrix input.
@@ -2186,21 +2193,34 @@ mod tests {
     // This builds a mapping between elements of an image and a
     // `[chans, height x width]` matrix where `image[c, y, x]` maps to
     // `im2col_matrix[c, y / width, y % width]`.
-    fn build_im2col(image: NdTensorView<f32, 3>, col_count_step: usize) -> Im2Col<f32> {
+    fn build_im2col<T: Copy>(
+        image: NdTensorView<T, 3>,
+        col_count_step: usize,
+        row_count_step: usize,
+    ) -> Im2Col<T> {
         let [chans, img_h, img_w] = image.shape();
         let [chan_stride, h_stride, w_stride] = image.strides();
 
-        let rows = chans;
         let n_cols = img_w * img_h;
         let n_cols_padded = n_cols.next_multiple_of(col_count_step);
 
-        let row_offsets = RowOffsets {
+        let rows = chans;
+        let n_rows_padded = rows.next_multiple_of(row_count_step);
+
+        let mut row_offsets = RowOffsets {
             chan: (0..rows as i32)
                 .map(|chan| chan * chan_stride as i32)
                 .collect(),
             y: vec![0; rows],
             x: vec![0; rows],
         };
+
+        for _ in rows..n_rows_padded {
+            row_offsets.chan.push(i32::MAX);
+            row_offsets.x.push(i32::MAX);
+            row_offsets.y.push(i32::MAX);
+        }
+
         let mut col_offsets = ColOffsets {
             y: (0..n_cols)
                 .map(|i| i as i32 / img_w as i32)
@@ -2212,8 +2232,8 @@ mod tests {
                 .collect(),
         };
         for _ in n_cols..n_cols_padded {
-            col_offsets.y.push(0);
-            col_offsets.x.push(0);
+            col_offsets.y.push(i32::MAX);
+            col_offsets.x.push(i32::MAX);
         }
 
         let max_y_offset = (img_h - 1) * h_stride;
@@ -2224,13 +2244,14 @@ mod tests {
             row_offsets,
             col_offsets,
             n_cols,
+            n_rows: rows,
             max_y_offset: max_y_offset as i32,
             max_x_offset: max_x_offset as i32,
         }
     }
 
     #[test]
-    fn test_gemm_im2col() -> Result<(), Box<dyn Error>> {
+    fn test_gemm_im2col_f32() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let gemm = GemmExecutor::default();
 
@@ -2241,7 +2262,11 @@ mod tests {
         let kernel_chans = 3;
 
         let img = NdTensor::<f32, 3>::rand([img_chans, img_h, img_w], &mut rng);
-        let im2col = build_im2col(img.view(), gemm.im2col_col_count_step());
+        let im2col = build_im2col(
+            img.view(),
+            gemm.im2col_col_count_step(),
+            gemm.im2col_row_count_step(),
+        );
 
         let kernel_mat = NdTensor::<f32, 2>::rand([kernel_chans, img_chans], &mut rng);
         let mut output_mat = NdTensor::<f32, 2>::zeros([kernel_chans, img_h * img_w]);
@@ -2271,6 +2296,57 @@ mod tests {
             }
         }
         expect_equal(&output_mat, &expected)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemm_im2col_u8i8_i32() -> Result<(), Box<dyn Error>> {
+        let mut rng = XorShiftRng::new(1234);
+
+        // nb. If the test fails, debug by setting dimensions to 1.
+        let img_h = 2;
+        let img_w = 2;
+        let img_chans = 2;
+        let kernel_chans = 3;
+
+        let img = NdTensor::<i8, 3>::rand([img_chans, img_h, img_w], &mut rng);
+
+        for gemm in all_gemms() {
+            let im2col = build_im2col(
+                img.view(),
+                gemm.im2col_col_count_step(),
+                gemm.im2col_row_count_step(),
+            );
+            let kernel_mat = NdTensor::<u8, 2>::rand([kernel_chans, img_chans], &mut rng);
+            let mut output_mat = NdTensor::<i32, 2>::zeros([kernel_chans, img_h * img_w]);
+            let out_row_stride = output_mat.row_stride();
+
+            gemm.gemm(
+                output_mat.data_mut().unwrap(),
+                out_row_stride,
+                GemmInputA::Unpacked(kernel_mat.view()),
+                GemmInputB::Im2Col(&im2col),
+                1.,   // alpha
+                0,    // beta
+                None, // bias
+                None, // a_quant
+                None, // b_quant
+            )
+            .unwrap();
+
+            let mut expected = NdTensor::<i32, 2>::zeros([kernel_chans, im2col.cols()]);
+            for i in 0..expected.rows() {
+                for j in 0..expected.cols() {
+                    let mut acc = 0;
+                    for k in 0..kernel_mat.cols() {
+                        acc += kernel_mat[[i, k]] as i32 * img[[k, j / img_w, j % img_w]] as i32;
+                    }
+                    expected[[i, j]] = acc;
+                }
+            }
+            expect_equal(&output_mat, &expected)?;
+        }
 
         Ok(())
     }

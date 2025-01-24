@@ -206,6 +206,10 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         Self::NR
     }
 
+    fn im2col_row_count_step(&self) -> usize {
+        4
+    }
+
     fn packed_a_layout(
         &self,
         _a: Matrix<u8>,
@@ -252,12 +256,15 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
 
     fn pack_im2col(
         &self,
-        _out: &mut [MaybeUninit<u8>],
-        _image: &Im2Col<i8>,
-        _rows: Range<usize>,
-        _cols: Range<usize>,
+        out: &mut [MaybeUninit<u8>],
+        image: &Im2Col<i8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
     ) {
-        unimplemented!("pack_im2col not implemented");
+        // Safety: WASM SIMD is supported.
+        unsafe {
+            image.pack_block_i8_dot_cast_u8::<v128i>(out, rows, cols);
+        }
     }
 
     unsafe fn kernel(

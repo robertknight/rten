@@ -64,8 +64,7 @@ pub fn pack_b<const NR: usize>(out: &mut [MaybeUninit<i8>], b: Matrix<i8>) {
 ///
 /// For example `-125` (i8::MIN + 3) becomes `3` (u8::MIN + 3).
 #[inline]
-#[allow(unused)]
-fn shift_cast_i8_u8(x: i8) -> u8 {
+pub fn shift_cast_i8_u8(x: i8) -> u8 {
     x as u8 ^ 0x80
 }
 

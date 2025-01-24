@@ -158,6 +158,22 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         false
     }
 
+    /// Step size used when packing an image usage [`pack_im2col`](Kernel::pack_im2col).
+    ///
+    /// The length of the offset arrays in [`Im2Col::row_offsets`] must be a
+    /// multiple of this.
+    fn im2col_row_count_step(&self) -> usize {
+        1
+    }
+
+    /// Step size used when packing an image usage [`pack_im2col`](Kernel::pack_im2col).
+    ///
+    /// The length of the offset arrays in [`Im2Col::col_offsets`] must be a
+    /// multiple of this.
+    fn im2col_col_count_step(&self) -> usize {
+        self.nr()
+    }
+
     /// Return the layout of a packing buffer required to pack an A / LHS input.
     fn packed_a_layout(
         &self,
