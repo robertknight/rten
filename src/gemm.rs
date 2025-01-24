@@ -526,7 +526,7 @@ macro_rules! try_kernel {
 ///
 /// This primarily exists to support creating tests which are run against
 /// all available kernels.
-trait WithKernel: Default {
+trait WithKernel: Sized {
     /// Enum specifying kernel to use.
     type KernelType;
 
@@ -1599,6 +1599,32 @@ mod tests {
             .filter_map(|kern_type| GemmExecutor::<L, R, O>::with_kernel(kern_type))
     }
 
+    // Random number generator which produces values with a reduced range.
+    //
+    // This works around an issue under AVX2 where the `vpmaddubsw` instruction
+    // can encounter saturation when adding two signed 16-bit values into a
+    // 16-bit result. Each of the two 16-bit inputs are the result of a `u8 x i8`
+    // multiplication. By limiting the range of either the u8 or i8 input, we
+    // can avoid saturation. `(i16::MAX / 2).isqrt() == 127`, so if we ensure
+    // both int8 values are <= 127, saturation won't occur.
+    //
+    // This issue does not affect the VNNI instruction used on newer x64 systems.
+    struct ReducedRangeRng {
+        rng: XorShiftRng,
+    }
+
+    impl ReducedRangeRng {
+        fn new() -> Self {
+            Self {
+                rng: XorShiftRng::new(1234),
+            }
+        }
+
+        fn next_u8(&mut self) -> u8 {
+            (self.rng.next_u64() % 128) as u8
+        }
+    }
+
     // Simplest possible test case for easy debugging.
     #[test]
     fn test_simple_gemm_f32() -> Result<(), Box<dyn Error>> {
@@ -1675,32 +1701,6 @@ mod tests {
         }
     }
 
-    // Random number generator which produces values with a reduced range.
-    //
-    // This works around an issue under AVX2 where the `vpmaddubsw` instruction
-    // can encounter saturation when adding two signed 16-bit values into a
-    // 16-bit result. Each of the two 16-bit inputs are the result of a `u8 x i8`
-    // multiplication. By limiting the range of either the u8 or i8 input, we
-    // can avoid saturation. `(i16::MAX / 2).isqrt() == 127`, so if we ensure
-    // both int8 values are <= 127, saturation won't occur.
-    //
-    // This issue does not affect the VNNI instruction used on newer x64 systems.
-    struct ReducedRangeRng {
-        rng: XorShiftRng,
-    }
-
-    impl ReducedRangeRng {
-        fn new() -> Self {
-            Self {
-                rng: XorShiftRng::new(1234),
-            }
-        }
-
-        fn next_u8(&mut self) -> u8 {
-            (self.rng.next_u64() % 128) as u8
-        }
-    }
-
     /// Test a GEMM kernel using all square matrices up to a given size, plus
     /// various other "interesting" size combinations.
     fn test_gemm_various_input_sizes<LhsT, RhsT, OutT>(
@@ -1773,40 +1773,12 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(target_arch = "x86_64")]
     #[test]
-    fn test_gemm_with_fma_kernel() -> Result<(), Box<dyn Error>> {
-        let gemm = GemmExecutor::<f32>::with_kernel(F32KernelType::Fma).unwrap();
-        test_gemm_various_input_sizes(Some(&gemm), None)
-    }
-
-    #[cfg(feature = "avx512")]
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn test_gemm_with_avx512_kernel() -> Result<(), Box<dyn Error>> {
-        let gemm = GemmExecutor::<f32>::with_kernel(F32KernelType::Avx512).unwrap();
-        test_gemm_various_input_sizes(Some(&gemm), None)
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    #[test]
-    fn test_gemm_with_arm_neon_kernel() -> Result<(), Box<dyn Error>> {
-        let gemm = GemmExecutor::<f32>::with_kernel(F32KernelType::ArmNeon).unwrap();
-        test_gemm_various_input_sizes(Some(&gemm), None)
-    }
-
-    // This duplicates one of the other `test_gemm_with_XXX_kernel` tests
-    // depending on what the preferred kernel is. That's OK as long as this
-    // test is fast.
-    #[test]
-    fn test_gemm_with_auto_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_various_input_sizes::<f32, f32, f32>(None, None)
-    }
-
-    #[test]
-    fn test_gemm_with_generic_kernel() -> Result<(), Box<dyn Error>> {
-        let gemm = GemmExecutor::<f32>::with_kernel(F32KernelType::Generic).unwrap();
-        test_gemm_various_input_sizes(Some(&gemm), None)
+    fn test_gemm_f32() -> Result<(), Box<dyn Error>> {
+        for gemm in all_gemms::<f32, f32, f32>() {
+            test_gemm_various_input_sizes(Some(&gemm), None)?;
+        }
+        Ok(())
     }
 
     #[test]
@@ -1943,13 +1915,6 @@ mod tests {
         Ok(())
     }
 
-    fn generic_native_f32_kernels() -> [GemmExecutor<f32, f32, f32>; 2] {
-        [
-            GemmExecutor::default(),
-            GemmExecutor::<f32>::with_kernel(F32KernelType::Generic).unwrap(),
-        ]
-    }
-
     #[test]
     fn test_gemm_alpha() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
@@ -1957,7 +1922,7 @@ mod tests {
         let a = NdTensor::rand([10, 5], &mut rng);
         let b = NdTensor::rand([5, 15], &mut rng);
 
-        for gemm in generic_native_f32_kernels() {
+        for gemm in all_gemms::<f32, f32, f32>() {
             for alpha in [0.0, 0.5, 1.0, 2.0] {
                 let opts = Some(GemmOpts {
                     alpha,
@@ -1986,7 +1951,7 @@ mod tests {
             let a = NdTensor::rand([m, k], &mut rng);
             let b = NdTensor::rand([k, n], &mut rng);
 
-            for gemm in generic_native_f32_kernels() {
+            for gemm in all_gemms::<f32, f32, f32>() {
                 for beta in [0.5, 1.0, 2.0] {
                     let mut result = NdTensor::rand([m, n], &mut rng);
                     let mut expected = result.clone();
