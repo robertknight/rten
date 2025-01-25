@@ -127,11 +127,6 @@ parallelism or other factors.
 
 ## Optimizing inference
 
-RTen does not currently have many turn-key solutions for optimizing inference,
-like `torch.compile` for PyTorch or ONNX Runtime's [graph
-optimizations](https://onnxruntime.ai/docs/performance/model-optimizations/graph-optimizations.html).
-These are planned for the future.
-
 Some ways to speed up inference without changing RTen's code are:
 
 - If choosing from a family of models with different sizes, you can trade

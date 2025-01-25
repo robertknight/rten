@@ -32,11 +32,12 @@ planned for the future:
 
 - Supports CPU inference only. There is currently no support for running models
   on GPUs or other accelerators.
-- Not all ONNX operators are currently supported. See `OperatorType` in
+- Not all ONNX operators are supported. See `OperatorType` in
   [src/schema.fbs](src/schema.fbs) and [this issue](https://github.com/robertknight/rten/issues/14) for currently supported operators. For
   implemented operators, some attributes or input shapes may not be supported.
-- A limited set of data types are supported: float32 and int32 tensors. int64
-  and boolean tensors are converted to int32.
+- Not all ONNX data types are supported. Currently supported data types for
+  tensors are: float32, int32, int64 (converted to int32), bool (converted to
+  int32), int8, uint8.
 - RTen is not as well optimized as more mature runtimes such as ONNX Runtime
   or TensorFlow Lite. The performance difference depends on the operators used,
   model structure, CPU architecture and platform.

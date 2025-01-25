@@ -46,16 +46,25 @@
 //!
 //! RTen currently executes models on the CPU. It can build for most
 //! architectures that the Rust compiler supports. SIMD acceleration is
-//! available for x86-64, Arm Neon and WebAssembly. For x86-64, AVX-512 support
+//! available for x86-64, Arm 64 and WebAssembly. For x86-64, AVX-512 support
 //! is available but requires Nightly Rust and enabling the `avx512` crate
 //! feature.
 //!
 //! ## Data types
 //!
-//! RTen supports `f32` and `i32` data types. Models with `i64` and `bool`
-//! tensors are supported, but these are converted to `i32` by the conversion
-//! tool. Supported for lower-precision types (16-bit floats, 8-bit integers
-//! etc.) is planned for the future.
+//! RTen supports tensors with the following data types:
+//!
+//! - `f32`, `i32`, `i8`, `u8`
+//! - `i64` and `bool` tensors are supported by converting them to `i32` as
+//! part of the model conversion process. When preparing model inputs that
+//! expect these data types in ONNX, you will need to convert them to `i32`.
+//!
+//! Some operators support a more limited set of data types than described in
+//! the ONNX specification. Please file an issue if you need an operator to
+//! support additional data types.
+//!
+//! Support for additional types (eg. `f16`, `bf16`) is planned for the
+//! future.
 //!
 //! ## Operators
 //!
@@ -69,10 +78,21 @@
 //! - The `random` feature enables operators that generate random numbers (eg.
 //!   `RandomUniform`).
 //!
+//! ## Quantized models
+//!
+//! RTen supports quantized models where activations are in uint8 format and
+//! weights are in int8 format. This combination is the default when an ONNX
+//! model is quantized using [dynamic
+//! quantization](https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html#dynamic-quantization).
+//! The `tools/ort-quantize.py` script in the RTen repository can be used to
+//! quantize an existing model with float tensors into this format.
+//!
 //! # Inspecting models
 //!
 //! The [rten-cli](https://crates.io/crates/rten-cli) tool can be used to query
-//! basic information about a `.rten` model.
+//! basic information about a `.rten` model, such as the inputs and outputs.
+//! It can also be used to test model compatibility and inference performance
+//! by running models with randomly generated inputs.
 //!
 //! # Performance
 //!
