@@ -81,7 +81,7 @@ pub mod macos {
 ///  - AVX512BW
 ///
 /// These features are available on Skylake (2016) and later.
-/// See https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#AVX-512_CPU_compatibility_table.
+/// See <https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#AVX-512_CPU_compatibility_table>.
 ///
 /// This is unfortunately not as simple as using `is_x86_feature_detected`
 /// because that can return incorrect results on macOS.
