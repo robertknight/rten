@@ -1,10 +1,10 @@
 use std::arch::aarch64::{
-    float32x4_t, int32x4_t, uint32x4_t, vabsq_f32, vaddq_f32, vaddq_s32, vaddvq_f32, vandq_u32,
-    vbslq_f32, vbslq_s32, vceqq_s32, vcgeq_f32, vcgeq_s32, vcgtq_s32, vcleq_f32, vcleq_s32,
-    vcltq_f32, vcltq_s32, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s32,
-    veorq_s32, vfmaq_f32, vld1q_f32, vld1q_s32, vld1q_u32, vmaxq_f32, vmaxq_s32, vminq_f32,
-    vminq_s32, vmulq_f32, vmulq_s32, vreinterpretq_f32_s32, vshlq_n_s32, vst1q_f32, vst1q_s32,
-    vst1q_u32, vsubq_f32, vsubq_s32,
+    float32x4_t, int32x4_t, uint32x4_t, uint8x8_t, vabsq_f32, vaddq_f32, vaddq_s32, vaddvq_f32,
+    vandq_u32, vbslq_f32, vbslq_s32, vceqq_s32, vcgeq_f32, vcgeq_s32, vcgtq_s32, vcleq_f32,
+    vcleq_s32, vcltq_f32, vcltq_s32, vcombine_s16, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32,
+    vdupq_n_f32, vdupq_n_s32, veorq_s32, vfmaq_f32, vld1q_f32, vld1q_s32, vld1q_u32, vmaxq_f32,
+    vmaxq_s32, vminq_f32, vminq_s32, vmulq_f32, vmulq_s32, vqmovn_s32, vqmovun_s16,
+    vreinterpretq_f32_s32, vshlq_n_s32, vst1q_f32, vst1q_s32, vst1q_u32, vsubq_f32, vsubq_s32,
 };
 
 use crate::{Simd, SimdFloat, SimdInt, SimdMask};
@@ -136,7 +136,10 @@ impl SimdInt for int32x4_t {
 
     #[inline]
     unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8> {
-        self.to_array().map(|c| c.clamp(0, u8::MAX as i32) as u8)
+        let tmp_i16x4 = vqmovn_s32(self);
+        let tmp_u8x8 = vqmovun_s16(vcombine_s16(tmp_i16x4, tmp_i16x4));
+        let tmp = std::mem::transmute::<uint8x8_t, [u8; 8]>(tmp_u8x8);
+        [tmp[0], tmp[1], tmp[2], tmp[3]]
     }
 
     #[inline]

@@ -411,6 +411,19 @@ pub mod tests {
                 }
 
                 #[test]
+                fn test_saturating_cast_u8() {
+                    let src: Vec<i32> = [0, 1, -1, 256].iter().cycle().take(LEN).copied().collect();
+                    let expected: Vec<u8> = src
+                        .iter()
+                        .map(|&x| x.clamp(0, u8::MAX as i32) as u8)
+                        .collect();
+                    let vec = unsafe { <SimdVec as Simd>::load(src.as_ptr()) };
+                    let vec_u8 = unsafe { vec.saturating_cast_u8().to_array() };
+
+                    assert_eq!(vec_u8.as_ref(), expected);
+                }
+
+                #[test]
                 fn test_sum() {
                     let src: Vec<i32> = (0..).take(LEN).collect();
                     let vec = unsafe { <SimdVec as Simd>::load(src.as_ptr()) };
