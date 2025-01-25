@@ -3,7 +3,7 @@
 /// Functions for reading system info on macOS.
 #[cfg(target_os = "macos")]
 #[allow(unused)]
-mod macos {
+pub mod macos {
     /// Detect availability of AVX-512 on macOS, where `is_x86_feature_detected`
     /// can return false even if AVX-512 is available.
     ///
