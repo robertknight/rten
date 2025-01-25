@@ -10,9 +10,32 @@ args = parser.parse_args()
 
 output = args.output or args.input.replace(".onnx", ".quant.onnx")
 
+# Quantized operation types we support.
+#
+# See https://github.com/microsoft/onnxruntime/blob/1fc9c4823d7c2e8f0d07a09315a0755dd7c58ef8/onnxruntime/python/tools/quantization/quantize.py#L828 for the default list that ORT uses.
+#
+# See https://github.com/microsoft/onnxruntime/blob/1fc9c4823d7c2e8f0d07a09315a0755dd7c58ef8/onnxruntime/python/tools/quantization/registry.py#L66 for registries of different ops that
+# will be quantized depending on the quantization type.
+op_types_to_quantize = [
+    # Supported ops from `CommonOpsRegistry`. These support int8 types directly.
+    #
+    # There are other operators which support int8 types that we could list
+    # here but don't because `quantize_dynamic` doesn't attempt to quantize them.
+    "Gather",
+    "Transpose",
+    # Supported ops from `IntegerOpsRegistry`. These get replaced during quantization.
+    "MatMul",  # Replaced by MatMulInteger
+    # "Conv" - Replaced by ConvInteger, which is not implemented yet.
+    #
+    # ConvInteger ops produced by `quantize_dynamic` also don't work in ORT
+    # due to the input data type combination being unsupported.
+    # See https://github.com/microsoft/onnxruntime/issues/15888 .
+]
+
 quantize_dynamic(
     args.input,
     output,
+    op_types_to_quantize=op_types_to_quantize,
     # Avoid a saturation issue on x86-64 systems that don't support VNNI by
     # reducing the range of quantized values from 8 to 7 bits.
     #
