@@ -9,6 +9,8 @@ jobs:
   ci:
     strategy:
       matrix:
+        # The macOS build tests Arm and macOS-specific code paths.
+        # The Linux build tests everything else (x64, wasm, Python ...)
         os: [ubuntu-latest, macos-14]
     runs-on: ${{ matrix.os }}
     steps:
@@ -66,6 +68,7 @@ jobs:
       run: |
         python -m venv .venv
         .venv/bin/pip install --upgrade pip
+      if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Python Lint
       run: |
         source .venv/bin/activate
@@ -73,3 +76,4 @@ jobs:
         pip install -e .
         pip install -r requirements.dev.txt
         make check
+      if: ${{ matrix.os == 'ubuntu-latest' }}
