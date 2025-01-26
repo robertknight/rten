@@ -29,6 +29,7 @@ impl ThreadPool {
 /// This may be less than the total number of cores on systems with heterogenous
 /// cores (eg. a mix of performance and efficiency).
 fn optimal_core_count() -> u32 {
+    #[allow(unused_mut)]
     let mut core_count = num_cpus::get_physical().max(1) as u32;
 
     #[cfg(target_os = "macos")]

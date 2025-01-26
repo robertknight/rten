@@ -14,12 +14,12 @@ use crate::{Simd, SimdFloat, SimdInt, SimdMask};
 /// Wrapper around a WASM v128 type that marks it as containing integers.
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug)]
-pub struct v128i(v128);
+pub struct v128i(pub v128);
 
 /// Wrapper around a WASM v128 type that marks it as containing floats.
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug)]
-pub struct v128f(v128);
+pub struct v128f(pub v128);
 
 impl SimdMask for v128i {
     type Array = [bool; 4];
