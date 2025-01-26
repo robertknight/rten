@@ -10485,11 +10485,11 @@ impl<'a> flatbuffers::Follow<'a> for ConstantNode<'a> {
 
 impl<'a> ConstantNode<'a> {
     pub const VT_SHAPE: flatbuffers::VOffsetT = 4;
-    pub const VT_STRIDES: flatbuffers::VOffsetT = 6;
-    pub const VT_DATA_TYPE: flatbuffers::VOffsetT = 8;
-    pub const VT_DATA: flatbuffers::VOffsetT = 10;
-    pub const VT_DTYPE: flatbuffers::VOffsetT = 12;
-    pub const VT_DATA_OFFSET: flatbuffers::VOffsetT = 14;
+    pub const VT_DATA_TYPE: flatbuffers::VOffsetT = 6;
+    pub const VT_DATA: flatbuffers::VOffsetT = 8;
+    pub const VT_DTYPE: flatbuffers::VOffsetT = 10;
+    pub const VT_DATA_OFFSET: flatbuffers::VOffsetT = 12;
+    pub const VT_STRIDES: flatbuffers::VOffsetT = 14;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -10504,11 +10504,11 @@ impl<'a> ConstantNode<'a> {
         if let Some(x) = args.data_offset {
             builder.add_data_offset(x);
         }
-        if let Some(x) = args.data {
-            builder.add_data(x);
-        }
         if let Some(x) = args.strides {
             builder.add_strides(x);
+        }
+        if let Some(x) = args.data {
+            builder.add_data(x);
         }
         if let Some(x) = args.shape {
             builder.add_shape(x);
@@ -10532,19 +10532,6 @@ impl<'a> ConstantNode<'a> {
                     None,
                 )
                 .unwrap()
-        }
-    }
-    #[inline]
-    pub fn strides(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        // Safety:
-        // Created from valid Table for this object
-        // which contains a valid value in this slot
-        unsafe {
-            self._tab
-                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                    ConstantNode::VT_STRIDES,
-                    None,
-                )
         }
     }
     #[inline]
@@ -10587,6 +10574,19 @@ impl<'a> ConstantNode<'a> {
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe { self._tab.get::<u64>(ConstantNode::VT_DATA_OFFSET, None) }
+    }
+    #[inline]
+    pub fn strides(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    ConstantNode::VT_STRIDES,
+                    None,
+                )
+        }
     }
     #[inline]
     #[allow(non_snake_case)]
@@ -10662,11 +10662,6 @@ impl flatbuffers::Verifiable for ConstantNode<'_> {
                 Self::VT_SHAPE,
                 true,
             )?
-            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
-                "strides",
-                Self::VT_STRIDES,
-                false,
-            )?
             .visit_union::<ConstantData, _>(
                 "data_type",
                 Self::VT_DATA_TYPE,
@@ -10699,28 +10694,33 @@ impl flatbuffers::Verifiable for ConstantNode<'_> {
             )?
             .visit_field::<ConstantDataType>("dtype", Self::VT_DTYPE, false)?
             .visit_field::<u64>("data_offset", Self::VT_DATA_OFFSET, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "strides",
+                Self::VT_STRIDES,
+                false,
+            )?
             .finish();
         Ok(())
     }
 }
 pub struct ConstantNodeArgs<'a> {
     pub shape: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
-    pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub data_type: ConstantData,
     pub data: Option<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>>,
     pub dtype: Option<ConstantDataType>,
     pub data_offset: Option<u64>,
+    pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for ConstantNodeArgs<'a> {
     #[inline]
     fn default() -> Self {
         ConstantNodeArgs {
             shape: None, // required field
-            strides: None,
             data_type: ConstantData::NONE,
             data: None,
             dtype: None,
             data_offset: None,
+            strides: None,
         }
     }
 }
@@ -10734,11 +10734,6 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ConstantNodeBuilder<'a, 'b, A> 
     pub fn add_shape(&mut self, shape: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
         self.fbb_
             .push_slot_always::<flatbuffers::WIPOffset<_>>(ConstantNode::VT_SHAPE, shape);
-    }
-    #[inline]
-    pub fn add_strides(&mut self, strides: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
-        self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<_>>(ConstantNode::VT_STRIDES, strides);
     }
     #[inline]
     pub fn add_data_type(&mut self, data_type: ConstantData) {
@@ -10764,6 +10759,11 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ConstantNodeBuilder<'a, 'b, A> 
             .push_slot_always::<u64>(ConstantNode::VT_DATA_OFFSET, data_offset);
     }
     #[inline]
+    pub fn add_strides(&mut self, strides: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(ConstantNode::VT_STRIDES, strides);
+    }
+    #[inline]
     pub fn new(
         _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
     ) -> ConstantNodeBuilder<'a, 'b, A> {
@@ -10785,7 +10785,6 @@ impl core::fmt::Debug for ConstantNode<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConstantNode");
         ds.field("shape", &self.shape());
-        ds.field("strides", &self.strides());
         ds.field("data_type", &self.data_type());
         match self.data_type() {
             ConstantData::FloatData => {
@@ -10835,6 +10834,7 @@ impl core::fmt::Debug for ConstantNode<'_> {
         };
         ds.field("dtype", &self.dtype());
         ds.field("data_offset", &self.data_offset());
+        ds.field("strides", &self.strides());
         ds.finish()
     }
 }

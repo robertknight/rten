@@ -6123,42 +6123,15 @@ class ConstantNode(object):
         return o == 0
 
     # ConstantNode
-    def Strides(self, j):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
-        return 0
-
-    # ConstantNode
-    def StridesAsNumpy(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
-        return 0
-
-    # ConstantNode
-    def StridesLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            return self._tab.VectorLen(o)
-        return 0
-
-    # ConstantNode
-    def StridesIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        return o == 0
-
-    # ConstantNode
     def DataType(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
     # ConstantNode
     def Data(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             from flatbuffers.table import Table
             obj = Table(bytearray(), 0)
@@ -6168,17 +6141,44 @@ class ConstantNode(object):
 
     # ConstantNode
     def Dtype(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint16Flags, o + self._tab.Pos)
         return None
 
     # ConstantNode
     def DataOffset(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint64Flags, o + self._tab.Pos)
         return None
+
+    # ConstantNode
+    def Strides(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # ConstantNode
+    def StridesAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # ConstantNode
+    def StridesLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ConstantNode
+    def StridesIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        return o == 0
 
 def ConstantNodeStart(builder):
     builder.StartObject(6)
@@ -6189,23 +6189,23 @@ def ConstantNodeAddShape(builder, shape):
 def ConstantNodeStartShapeVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
+def ConstantNodeAddDataType(builder, dataType):
+    builder.PrependUint8Slot(1, dataType, 0)
+
+def ConstantNodeAddData(builder, data):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
+
+def ConstantNodeAddDtype(builder, dtype):
+    builder.PrependUint16Slot(3, dtype, None)
+
+def ConstantNodeAddDataOffset(builder, dataOffset):
+    builder.PrependUint64Slot(4, dataOffset, None)
+
 def ConstantNodeAddStrides(builder, strides):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
+    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
 
 def ConstantNodeStartStridesVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
-
-def ConstantNodeAddDataType(builder, dataType):
-    builder.PrependUint8Slot(2, dataType, 0)
-
-def ConstantNodeAddData(builder, data):
-    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
-
-def ConstantNodeAddDtype(builder, dtype):
-    builder.PrependUint16Slot(4, dtype, None)
-
-def ConstantNodeAddDataOffset(builder, dataOffset):
-    builder.PrependUint64Slot(5, dataOffset, None)
 
 def ConstantNodeEnd(builder):
     return builder.EndObject()
@@ -6221,11 +6221,11 @@ class ConstantNodeT(object):
     # ConstantNodeT
     def __init__(self):
         self.shape = None  # type: List[int]
-        self.strides = None  # type: List[int]
         self.dataType = 0  # type: int
         self.data = None  # type: Union[None, FloatDataT, Int32DataT, Int8DataT, UInt8DataT]
         self.dtype = None  # type: Optional[int]
         self.dataOffset = None  # type: Optional[int]
+        self.strides = None  # type: List[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -6255,6 +6255,10 @@ class ConstantNodeT(object):
                     self.shape.append(constantNode.Shape(i))
             else:
                 self.shape = constantNode.ShapeAsNumpy()
+        self.dataType = constantNode.DataType()
+        self.data = ConstantDataCreator(self.dataType, constantNode.Data())
+        self.dtype = constantNode.Dtype()
+        self.dataOffset = constantNode.DataOffset()
         if not constantNode.StridesIsNone():
             if np is None:
                 self.strides = []
@@ -6262,10 +6266,6 @@ class ConstantNodeT(object):
                     self.strides.append(constantNode.Strides(i))
             else:
                 self.strides = constantNode.StridesAsNumpy()
-        self.dataType = constantNode.DataType()
-        self.data = ConstantDataCreator(self.dataType, constantNode.Data())
-        self.dtype = constantNode.Dtype()
-        self.dataOffset = constantNode.DataOffset()
 
     # ConstantNodeT
     def Pack(self, builder):
@@ -6277,6 +6277,8 @@ class ConstantNodeT(object):
                 for i in reversed(range(len(self.shape))):
                     builder.PrependUint32(self.shape[i])
                 shape = builder.EndVector()
+        if self.data is not None:
+            data = self.data.Pack(builder)
         if self.strides is not None:
             if np is not None and type(self.strides) is np.ndarray:
                 strides = builder.CreateNumpyVector(self.strides)
@@ -6285,18 +6287,16 @@ class ConstantNodeT(object):
                 for i in reversed(range(len(self.strides))):
                     builder.PrependUint32(self.strides[i])
                 strides = builder.EndVector()
-        if self.data is not None:
-            data = self.data.Pack(builder)
         ConstantNodeStart(builder)
         if self.shape is not None:
             ConstantNodeAddShape(builder, shape)
-        if self.strides is not None:
-            ConstantNodeAddStrides(builder, strides)
         ConstantNodeAddDataType(builder, self.dataType)
         if self.data is not None:
             ConstantNodeAddData(builder, data)
         ConstantNodeAddDtype(builder, self.dtype)
         ConstantNodeAddDataOffset(builder, self.dataOffset)
+        if self.strides is not None:
+            ConstantNodeAddStrides(builder, strides)
         constantNode = ConstantNodeEnd(builder)
         return constantNode
 
