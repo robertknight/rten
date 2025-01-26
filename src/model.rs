@@ -616,13 +616,21 @@ impl Model {
                     graph.add_constant(name, const_data)
                 }
                 Some(sg::ConstantDataType::Int8) => {
-                    let const_data =
-                        constant_data_from_storage_offset::<i8>(storage, &shape, data_offset)?;
+                    let const_data = constant_data_from_storage_offset::<i8>(
+                        storage,
+                        &shape,
+                        strides.as_deref(),
+                        data_offset,
+                    )?;
                     graph.add_constant(name, const_data)
                 }
                 Some(sg::ConstantDataType::UInt8) => {
-                    let const_data =
-                        constant_data_from_storage_offset::<u8>(storage, &shape, data_offset)?;
+                    let const_data = constant_data_from_storage_offset::<u8>(
+                        storage,
+                        &shape,
+                        strides.as_deref(),
+                        data_offset,
+                    )?;
                     graph.add_constant(name, const_data)
                 }
                 _ => {
