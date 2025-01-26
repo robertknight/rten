@@ -479,6 +479,10 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         Self::NR
     }
 
+    fn may_saturate(&self) -> bool {
+        true
+    }
+
     fn packed_a_layout(
         &self,
         _a: Matrix<u8>,
@@ -661,6 +665,10 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
 
     fn nr(&self) -> usize {
         Self::NR
+    }
+
+    fn may_saturate(&self) -> bool {
+        !self.have_vnni
     }
 
     fn packed_a_layout(

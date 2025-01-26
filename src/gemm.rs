@@ -510,6 +510,18 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         )
     }
 
+    /// Return true if the GEMM kernel may encounter saturation in a data type
+    /// that is smaller than the output.
+    ///
+    /// In this case the output may be incorrect if the range of the inputs
+    /// is not restricted to account for this.
+    ///
+    /// The main offender is the `vpmaddubsw` instruction used in int8 kernels
+    /// on x64, on systems which don't support VNNI.
+    pub fn may_saturate(&self) -> bool {
+        self.kernel.may_saturate()
+    }
+
     fn from_kernel<K: Kernel<LhsT, RhsT, OutT> + 'static>() -> Option<Self> {
         K::new().map(|kernel| GemmExecutor {
             kernel: Box::new(kernel),
@@ -1616,29 +1628,41 @@ mod tests {
             .filter_map(|kern_type| GemmExecutor::<L, R, O>::with_kernel(kern_type))
     }
 
-    // Random number generator which produces values with a reduced range.
+    // Random number generator which produces values with an optionally reduced
+    // range.
     //
     // This works around an issue under AVX2 where the `vpmaddubsw` instruction
     // can encounter saturation when adding two signed 16-bit values into a
-    // 16-bit result. Each of the two 16-bit inputs are the result of a `u8 x i8`
-    // multiplication. By limiting the range of either the u8 or i8 input, we
-    // can avoid saturation. `(i16::MAX / 2).isqrt() == 127`, so if we ensure
-    // both int8 values are <= 127, saturation won't occur.
+    // 16-bit result. Each of the two 16-bit inputs are the result of a `u8 x
+    // i8` multiplication. By limiting the range of either the u8 or i8 input,
+    // we can avoid saturation. This issue does not affect the VNNI instruction
+    // used on newer x64 systems.
     //
-    // This issue does not affect the VNNI instruction used on newer x64 systems.
+    // To match the workaround in ONNX Runtime's quantizer when
+    // `reduce_range=True` is enabled, the range of the RHS (ie. the weights)
+    // is limited.
+    //
+    // To avoid saturation we require `a_max * b_max * 2 <= i16::MAX`. This
+    // re-arranges to `b_max <= (i16::MAX / 2) / 255 <= 64`.
     struct ReducedRangeRng {
+        reduce_range: bool,
         rng: XorShiftRng,
     }
 
     impl ReducedRangeRng {
-        fn new() -> Self {
+        fn new(reduce_range: bool) -> Self {
             Self {
                 rng: XorShiftRng::new(1234),
+                reduce_range,
             }
         }
 
-        fn next_u8(&mut self) -> u8 {
-            (self.rng.next_u64() % 128) as u8
+        fn next_i8(&mut self) -> i8 {
+            if self.reduce_range {
+                (self.rng.next_u64() % 65) as i8
+            } else {
+                self.rng.next_u64() as i8
+            }
         }
     }
 
@@ -1723,6 +1747,7 @@ mod tests {
     fn test_gemm_various_input_sizes<LhsT, RhsT, OutT>(
         gemm: Option<&GemmExecutor<LhsT, RhsT, OutT>>,
         mut lhs_gen: Option<&mut dyn FnMut() -> LhsT>,
+        mut rhs_gen: Option<&mut dyn FnMut() -> RhsT>,
     ) -> Result<(), Box<dyn Error>>
     where
         LhsT: GemmInT,
@@ -1773,7 +1798,11 @@ mod tests {
             } else {
                 NdTensor::<LhsT, 2>::rand(lhs_size, &mut rng)
             };
-            let b = NdTensor::<RhsT, 2>::rand(rhs_size, &mut rng);
+            let b = if let Some(rhs_gen) = rhs_gen.as_mut() {
+                NdTensor::<RhsT, 2>::from_simple_fn(rhs_size, rhs_gen)
+            } else {
+                NdTensor::<RhsT, 2>::rand(rhs_size, &mut rng)
+            };
 
             let result = run_matmul(a.view(), b.view(), None, gemm).unwrap();
             let expected = reference_matmul(a.view(), b.view(), None);
@@ -1793,7 +1822,7 @@ mod tests {
     #[test]
     fn test_gemm_f32() -> Result<(), Box<dyn Error>> {
         for gemm in all_gemms::<f32, f32, f32>() {
-            test_gemm_various_input_sizes(Some(&gemm), None)?;
+            test_gemm_various_input_sizes(Some(&gemm), None, None)?;
         }
         Ok(())
     }
@@ -1801,17 +1830,14 @@ mod tests {
     #[test]
     fn test_gemm_u8i8_i32() -> Result<(), Box<dyn Error>> {
         for gemm in all_gemms::<u8, i8, i32>() {
-            let mut rng = ReducedRangeRng::new();
-            test_gemm_various_input_sizes(Some(&gemm), Some(&mut || rng.next_u8()))?;
+            let mut rng = ReducedRangeRng::new(gemm.may_saturate());
+            test_gemm_various_input_sizes(Some(&gemm), None, Some(&mut || rng.next_i8()))?;
         }
         Ok(())
     }
 
     #[test]
     fn test_gemm_u8i8_i32_zero_point() {
-        let mut lhs_rng = ReducedRangeRng::new();
-        let mut rhs_rng = XorShiftRng::new(1234);
-
         #[derive(Copy, Clone)]
         struct Case {
             m: usize,
@@ -1836,9 +1862,12 @@ mod tests {
         ];
 
         for gemm in all_gemms::<u8, i8, i32>() {
+            let mut lhs_rng = XorShiftRng::new(1234);
+            let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate());
+
             for Case { m, n, k } in cases {
-                let a = NdTensor::<u8, 2>::from_simple_fn([m, k], || lhs_rng.next_u8());
-                let b = NdTensor::<i8, 2>::rand([k, n], &mut rhs_rng);
+                let a = NdTensor::<u8, 2>::rand([m, k], &mut lhs_rng);
+                let b = NdTensor::<i8, 2>::from_simple_fn([k, n], || rhs_rng.next_i8());
 
                 let a_zero_point: Vec<_> = (0..a.rows()).map(|x| x as u8).collect();
                 let b_zero_point: Vec<_> = (0..b.cols()).map(|x| x as i8).collect();
@@ -1916,16 +1945,16 @@ mod tests {
 
     #[test]
     fn test_gemv_u8i8_i32_transposed() -> Result<(), Box<dyn Error>> {
-        let mut lhs_rng = ReducedRangeRng::new();
-        let mut rng = XorShiftRng::new(1234);
-        let a = NdTensor::<u8, 2>::from_simple_fn([1, 8], || lhs_rng.next_u8());
-        let mut b = NdTensor::<i8, 2>::rand([5, 8], &mut rng);
-
-        // Transpose the input B matrix. This will alter the row and column
-        // strides and shapes, but not re-order the data.
-        b.permute([1, 0]);
-
         for gemm in all_gemms::<u8, i8, i32>() {
+            let mut lhs_rng = XorShiftRng::new(1234);
+            let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate());
+            let a = NdTensor::<u8, 2>::rand([1, 8], &mut lhs_rng);
+            let mut b = NdTensor::<i8, 2>::from_simple_fn([5, 8], || rhs_rng.next_i8());
+
+            // Transpose the input B matrix. This will alter the row and column
+            // strides and shapes, but not re-order the data.
+            b.permute([1, 0]);
+
             run_compare_matmul(a.view(), b.view(), None, Some(&gemm));
         }
 

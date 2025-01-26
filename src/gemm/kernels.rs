@@ -148,6 +148,10 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     /// Return a name for this kernel for use in logging etc.
     fn name(&self) -> &'static str;
 
+    fn may_saturate(&self) -> bool {
+        false
+    }
+
     /// Return the layout of a packing buffer required to pack an A / LHS input.
     fn packed_a_layout(
         &self,
