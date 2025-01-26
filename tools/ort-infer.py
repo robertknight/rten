@@ -90,6 +90,7 @@ def run_model(
             "tensor(float16)": np.float16,
             "tensor(int64)": np.int64,
             "tensor(int32)": np.int32,
+            "tensor(bool)": np.bool_,
         }
 
         resolved_shape = []
