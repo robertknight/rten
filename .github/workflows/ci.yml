@@ -14,8 +14,16 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v3
-    - name: Install Rust wasm32-unknown-unknown target
-      run: rustup target add wasm32-unknown-unknown
+    - name: Install Rust WASM targets
+      run: |
+        rustup target add wasm32-unknown-unknown
+        rustup target add wasm32-wasip1
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+    - name: Install wasmtime
+      run: |
+        curl https://wasmtime.dev/install.sh -sSf | bash
+        ls $HOME/.wasmtime/bin
+        echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Install Rust nightly toolchain
       run: rustup toolchain install nightly
@@ -42,6 +50,10 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build (WASM)
       run: make wasm
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+    - name: Test (WASM)
+      run: |
+        make wasm-test wasm-test-simd
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Lint
       run: |

@@ -62,13 +62,13 @@ wasm-all: wasm wasm-nosimd
 # WASM tests run with `--nocapture` as otherwise assertion failure panic messages
 # are not printed if a test assert fails.
 .PHONY: wasm-tests
-wasm-tests:
+wasm-test:
 	rm -f target/wasm32-wasi/debug/deps/rten-*.wasm
 	RUSTFLAGS="-C target-feature=+simd128" cargo build --target wasm32-wasip1 --tests -p rten
 	wasmtime --dir . target/wasm32-wasip1/debug/deps/rten-*.wasm --nocapture
 
 .PHONY: wasm-tests
-wasm-tests-simd:
+wasm-test-simd:
 	rm -f target/wasm32-wasi/debug/deps/rten_simd-*.wasm
 	RUSTFLAGS="-C target-feature=+simd128" cargo build --target wasm32-wasip1 --tests -p rten-simd
 	wasmtime --dir . target/wasm32-wasip1/debug/deps/rten_simd-*.wasm --nocapture
