@@ -510,6 +510,18 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         )
     }
 
+    /// Return true if the GEMM kernel may encounter saturation in a data type
+    /// that is smaller than the output.
+    ///
+    /// In this case the output may be incorrect if the range of the inputs
+    /// is not restricted to account for this.
+    ///
+    /// The main offender is the `vpmaddubsw` instruction used in int8 kernels
+    /// on x64, on systems which don't support VNNI.
+    pub fn may_saturate(&self) -> bool {
+        self.kernel.may_saturate()
+    }
+
     fn from_kernel<K: Kernel<LhsT, RhsT, OutT> + 'static>() -> Option<Self> {
         K::new().map(|kernel| GemmExecutor {
             kernel: Box::new(kernel),
@@ -1616,7 +1628,8 @@ mod tests {
             .filter_map(|kern_type| GemmExecutor::<L, R, O>::with_kernel(kern_type))
     }
 
-    // Random number generator which produces values with a reduced range.
+    // Random number generator which produces values with an optionally reduced
+    // range.
     //
     // This works around an issue under AVX2 where the `vpmaddubsw` instruction
     // can encounter saturation when adding two signed 16-bit values into a
@@ -1632,18 +1645,24 @@ mod tests {
     // To avoid saturation we require `a_max * b_max * 2 <= i16::MAX`. This
     // re-arranges to `b_max <= (i16::MAX / 2) / 255 <= 64`.
     struct ReducedRangeRng {
+        reduce_range: bool,
         rng: XorShiftRng,
     }
 
     impl ReducedRangeRng {
-        fn new() -> Self {
+        fn new(reduce_range: bool) -> Self {
             Self {
                 rng: XorShiftRng::new(1234),
+                reduce_range,
             }
         }
 
         fn next_i8(&mut self) -> i8 {
-            (self.rng.next_u64() % 65) as i8
+            if self.reduce_range {
+                (self.rng.next_u64() % 65) as i8
+            } else {
+                self.rng.next_u64() as i8
+            }
         }
     }
 
@@ -1811,7 +1830,7 @@ mod tests {
     #[test]
     fn test_gemm_u8i8_i32() -> Result<(), Box<dyn Error>> {
         for gemm in all_gemms::<u8, i8, i32>() {
-            let mut rng = ReducedRangeRng::new();
+            let mut rng = ReducedRangeRng::new(gemm.may_saturate());
             test_gemm_various_input_sizes(Some(&gemm), None, Some(&mut || rng.next_i8()))?;
         }
         Ok(())
@@ -1819,9 +1838,6 @@ mod tests {
 
     #[test]
     fn test_gemm_u8i8_i32_zero_point() {
-        let mut lhs_rng = XorShiftRng::new(1234);
-        let mut rhs_rng = ReducedRangeRng::new();
-
         #[derive(Copy, Clone)]
         struct Case {
             m: usize,
@@ -1846,6 +1862,9 @@ mod tests {
         ];
 
         for gemm in all_gemms::<u8, i8, i32>() {
+            let mut lhs_rng = XorShiftRng::new(1234);
+            let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate());
+
             for Case { m, n, k } in cases {
                 let a = NdTensor::<u8, 2>::rand([m, k], &mut lhs_rng);
                 let b = NdTensor::<i8, 2>::from_simple_fn([k, n], || rhs_rng.next_i8());
@@ -1926,16 +1945,16 @@ mod tests {
 
     #[test]
     fn test_gemv_u8i8_i32_transposed() -> Result<(), Box<dyn Error>> {
-        let mut lhs_rng = XorShiftRng::new(1234);
-        let mut rhs_rng = ReducedRangeRng::new();
-        let a = NdTensor::<u8, 2>::rand([1, 8], &mut lhs_rng);
-        let mut b = NdTensor::<i8, 2>::from_simple_fn([5, 8], || rhs_rng.next_i8());
-
-        // Transpose the input B matrix. This will alter the row and column
-        // strides and shapes, but not re-order the data.
-        b.permute([1, 0]);
-
         for gemm in all_gemms::<u8, i8, i32>() {
+            let mut lhs_rng = XorShiftRng::new(1234);
+            let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate());
+            let a = NdTensor::<u8, 2>::rand([1, 8], &mut lhs_rng);
+            let mut b = NdTensor::<i8, 2>::from_simple_fn([5, 8], || rhs_rng.next_i8());
+
+            // Transpose the input B matrix. This will alter the row and column
+            // strides and shapes, but not re-order the data.
+            b.permute([1, 0]);
+
             run_compare_matmul(a.view(), b.view(), None, Some(&gemm));
         }
 
