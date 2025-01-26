@@ -51,6 +51,28 @@ impl<'a, T> SliceWriter<'a, T> {
     }
 }
 
+/// Helper for [`SliceWriter`] which supports writing elements of a different
+/// type than the SliceWriter's underlying slice.
+trait WriteElem<T> {
+    unsafe fn write_elem(&mut self, elem: T);
+}
+
+impl WriteElem<i32> for SliceWriter<'_, u8> {
+    unsafe fn write_elem(&mut self, elem: i32) {
+        for byte in elem.to_ne_bytes() {
+            self.write_unchecked(byte);
+        }
+    }
+}
+
+impl WriteElem<i32> for SliceWriter<'_, i8> {
+    unsafe fn write_elem(&mut self, elem: i32) {
+        for byte in elem.to_ne_bytes() {
+            self.write_unchecked(byte as i8);
+        }
+    }
+}
+
 /// Return the required size and other metadata for packing an "A" matrix with
 /// [`pack_a_block`].
 pub fn packed_a_layout<T, const MR: usize>(rows: usize, cols: usize) -> PackedLayout {

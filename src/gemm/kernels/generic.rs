@@ -8,7 +8,7 @@ use super::simd_generic::{simd_gemv, GemmDispatch};
 use super::{Kernel, Lhs, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
-use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
+use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice, Pod};
 
 /// This is the base kernel that does not use architecture-specific intrinsics
 /// but is autovectorization-friendly. It is expected to perform the same as
@@ -181,7 +181,11 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
     }
 }
 
-unsafe impl Kernel<u8, i8, i32> for GenericKernel {
+unsafe impl<LhsT, RhsT> Kernel<LhsT, RhsT, i32> for GenericKernel
+where
+    LhsT: Pod + Default + Into<i32> + std::fmt::Debug,
+    RhsT: Pod + Default + Into<i32> + std::fmt::Debug,
+{
     fn new() -> Option<Self> {
         Some(GenericKernel { _private: () })
     }
@@ -200,10 +204,10 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
 
     fn packed_a_layout(
         &self,
-        _a: Matrix<u8>,
+        _a: Matrix<LhsT>,
         rows: usize,
         cols: usize,
-        _quant: Option<QuantParams<u8>>,
+        _quant: Option<QuantParams<LhsT>>,
     ) -> PackedLayout {
         let mut info = packed_a_layout::<u8, { Self::MR }>(rows, cols);
         info.must_pack = true;
@@ -213,40 +217,40 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
     fn pack_a_block(
         &self,
         out: &mut [MaybeUninit<u8>],
-        a: Matrix<u8>,
+        a: Matrix<LhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
-        _quant: Option<QuantParams<u8>>,
+        _quant: Option<QuantParams<LhsT>>,
     ) {
         let out = cast_pod_mut_slice(out).unwrap();
-        pack_a_block::<u8, { Self::MR }>(out, a, rows, cols);
+        pack_a_block::<LhsT, { Self::MR }>(out, a, rows, cols);
     }
 
     fn packed_b_layout(
         &self,
         rows: usize,
         cols: usize,
-        _quant: Option<QuantParams<i8>>,
+        _quant: Option<QuantParams<RhsT>>,
     ) -> PackedLayout {
-        packed_b_layout::<i8, { Self::NR }>(rows, cols)
+        packed_b_layout::<RhsT, { Self::NR }>(rows, cols)
     }
 
     fn pack_b_block(
         &self,
         out: &mut [MaybeUninit<u8>],
-        b: Matrix<i8>,
+        b: Matrix<RhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
-        _quant: Option<QuantParams<i8>>,
+        _quant: Option<QuantParams<RhsT>>,
     ) {
         let out = cast_pod_mut_slice(out).unwrap();
-        pack_b_block::<i8, { Self::NR }>(out, b, rows, cols);
+        pack_b_block::<RhsT, { Self::NR }>(out, b, rows, cols);
     }
 
     fn pack_im2col(
         &self,
         _out: &mut [MaybeUninit<u8>],
-        _image: &Im2Col<i8>,
+        _image: &Im2Col<RhsT>,
         _rows: Range<usize>,
         _cols: Range<usize>,
     ) {
@@ -257,15 +261,15 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         &self,
         tile_ptr: *mut i32,
         tile_row_stride: usize,
-        a: Lhs<u8>,
+        a: Lhs<LhsT>,
         b: &[u8],
         used_rows: usize,
         used_cols: usize,
         depth: usize,
         alpha: f32,
         beta: i32,
-        a_quant: Option<QuantParams<u8>>,
-        b_quant: Option<QuantParams<i8>>,
+        a_quant: Option<QuantParams<LhsT>>,
+        b_quant: Option<QuantParams<RhsT>>,
     ) {
         assert_eq!(alpha, 1.);
         assert!(beta == 0 || beta == 1, "unsupported beta value");
@@ -279,24 +283,25 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
             Lhs::Packed(packed) => packed,
             Lhs::Unpacked { .. } => panic!("inputs must be packed"),
         };
+        let a_data: &[LhsT] = cast_pod_slice(a_data).unwrap();
         let a_row_stride = depth;
 
-        let mut a_zero_point = [0u8; MR];
+        let mut a_zero_point = [0i32; MR];
         if let Some(a_quant) = a_quant {
             #[allow(clippy::manual_memcpy)]
             for row in 0..used_rows {
-                a_zero_point[row] = a_quant.zero_point[row];
+                a_zero_point[row] = a_quant.zero_point[row].into();
             }
         }
-        let mut b_zero_point = [0i8; NR];
+        let mut b_zero_point = [0i32; NR];
         if let Some(b_quant) = b_quant {
             #[allow(clippy::manual_memcpy)]
             for col in 0..used_cols {
-                b_zero_point[col] = b_quant.zero_point[col];
+                b_zero_point[col] = b_quant.zero_point[col].into();
             }
         }
 
-        let b: &[i8] = cast_pod_slice(b).unwrap();
+        let b: &[RhsT] = cast_pod_slice(b).unwrap();
         let use_tmp_tile = used_cols < NR || used_rows < MR;
 
         let mut tmp_tile = TempTile::<i32, MR, NR>::new();
@@ -309,11 +314,11 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         let mut tmp = [[0i32; NR]; MR];
         for k in 0..depth {
             for row in 0..MR {
-                let a_i32 = unsafe { *a_data.get_unchecked(row * a_row_stride + k) } as i32
-                    - a_zero_point[row] as i32;
+                let a_i32: i32 = unsafe { (*a_data.get_unchecked(row * a_row_stride + k)).into() };
+                let a_i32 = a_i32 - a_zero_point[row];
                 for col in 0..NR {
-                    let b_i32 =
-                        unsafe { *b.get_unchecked(k * NR + col) } as i32 - b_zero_point[col] as i32;
+                    let b_i32: i32 = unsafe { (*b.get_unchecked(k * NR + col)).into() };
+                    let b_i32 = b_i32 - b_zero_point[col];
                     tmp[row][col] += a_i32 * b_i32;
                 }
             }
@@ -350,44 +355,44 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
     fn gemv_kernel(
         &self,
         out: &mut [MaybeUninit<i32>],
-        a: &[u8],
-        b: Matrix<i8>,
+        a: &[LhsT],
+        b: Matrix<RhsT>,
         alpha: f32,
         beta: i32,
-        a_quant: Option<QuantParams<u8>>,
-        b_quant: Option<QuantParams<i8>>,
+        a_quant: Option<QuantParams<LhsT>>,
+        b_quant: Option<QuantParams<RhsT>>,
     ) {
         int8_gemv(out, a, b, alpha, beta, a_quant, b_quant)
     }
 }
 
 /// Generic implementation of [`Kernel::gemv`] for u8 x i8 -> i32 kernels.
-pub fn int8_gemv(
+pub fn int8_gemv<LhsT: Copy + Into<i32>, RhsT: Copy + Into<i32>>(
     out: &mut [MaybeUninit<i32>],
-    a: &[u8],
-    b: Matrix<i8>,
+    a: &[LhsT],
+    b: Matrix<RhsT>,
     alpha: f32,
     beta: i32,
-    a_quant: Option<QuantParams<u8>>,
-    b_quant: Option<QuantParams<i8>>,
+    a_quant: Option<QuantParams<LhsT>>,
+    b_quant: Option<QuantParams<RhsT>>,
 ) {
     assert!(beta == 0 || beta == 1);
     assert_eq!(alpha, 1.);
     assert_eq!(b.rows(), a.len());
     assert_eq!(out.len(), b.cols());
 
-    let a_zero = a_quant.map(|aq| aq.zero_point[0] as i32).unwrap_or(0);
+    let a_zero = a_quant.map(|aq| aq.zero_point[0].into()).unwrap_or(0);
     let depth = a.len();
 
     for (out, col) in out.iter_mut().zip(0..b.cols()) {
-        let b_zero = b_quant.map(|bq| bq.zero_point[col] as i32).unwrap_or(0);
+        let b_zero = b_quant.map(|bq| bq.zero_point[col].into()).unwrap_or(0);
         let mut acc = 0;
         let mut row_sum = 0;
         let mut col_sum = 0;
 
         for k in 0..depth {
-            let a_el = unsafe { *a.get_unchecked(k) } as i32;
-            let b_el = unsafe { *b.get_unchecked([k, col]) } as i32;
+            let a_el: i32 = unsafe { (*a.get_unchecked(k)).into() };
+            let b_el: i32 = unsafe { (*b.get_unchecked([k, col])).into() };
             acc += a_el * b_el;
             row_sum += a_el;
             col_sum += b_el;

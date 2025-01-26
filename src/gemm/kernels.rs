@@ -340,22 +340,38 @@ impl<T: GemmOutT, const MR: usize, const NR: usize> TempTile<T, MR, NR> {
     }
 }
 
+/// Adjustment to apply to a zero point for elements that have been converted
+/// from `Self` to `Dst` during packing.
+trait ZeroPointAdjust<Dst> {
+    const ZP_ADJUST: i32;
+}
+
+impl<T> ZeroPointAdjust<T> for T {
+    const ZP_ADJUST: i32 = 0;
+}
+
+impl ZeroPointAdjust<u8> for i8 {
+    const ZP_ADJUST: i32 = 128;
+}
+
 /// Extract `len` zero points from `quant`, upconvert to i32 and pad unused
 /// elements in the result with zero.
-fn extract_zero_points<T: Copy + Into<i32>, const MAX_LEN: usize>(
+fn extract_zero_points<T, U, const MAX_LEN: usize>(
     quant: Option<QuantParams<T>>,
     len: usize,
-    adjust: impl Fn(i32) -> i32,
-) -> [i32; MAX_LEN] {
+) -> [i32; MAX_LEN]
+where
+    T: Copy + Into<i32> + ZeroPointAdjust<U>,
+{
     let mut zero_points = [0; MAX_LEN];
     for row in 0..len {
-        zero_points[row] = adjust(0);
+        zero_points[row] += T::ZP_ADJUST;
     }
     if let Some(quant) = quant {
         #[allow(clippy::manual_memcpy)]
         for row in 0..len {
             let val: i32 = quant.zero_point[row].into();
-            zero_points[row] = adjust(val);
+            zero_points[row] = val + T::ZP_ADJUST;
         }
     }
     zero_points

@@ -5,7 +5,9 @@ use rten_simd::arch::wasm::{v128f, v128i};
 use rten_simd::vec_count;
 use rten_tensor::{Matrix, MatrixLayout};
 
-use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
+use super::simd_generic::{
+    simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch, CAST_I8_TO_U8, CAST_SAME,
+};
 use super::{extract_zero_points, Kernel, Lhs, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::{packing, Im2Col};
@@ -189,150 +191,158 @@ impl WasmInt8Kernel {
     const NR: usize = 4;
 }
 
-unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
-    fn new() -> Option<Self> {
-        Some(WasmInt8Kernel { _private: () })
-    }
+macro_rules! impl_wasm_int8_kernel {
+    ($lhs:ty, $rhs:ty, $lhs_cast:ident, $rhs_cast:ident) => {
+        unsafe impl Kernel<$lhs, $rhs, i32> for WasmInt8Kernel {
+            fn new() -> Option<Self> {
+                Some(WasmInt8Kernel { _private: () })
+            }
 
-    fn name(&self) -> &'static str {
-        "wasm-int8"
-    }
+            fn name(&self) -> &'static str {
+                "wasm-int8"
+            }
 
-    fn mr(&self) -> usize {
-        Self::MR
-    }
+            fn mr(&self) -> usize {
+                Self::MR
+            }
 
-    fn nr(&self) -> usize {
-        Self::NR
-    }
+            fn nr(&self) -> usize {
+                Self::NR
+            }
 
-    fn packed_a_layout(
-        &self,
-        _a: Matrix<u8>,
-        rows: usize,
-        cols: usize,
-        _quant: Option<QuantParams<u8>>,
-    ) -> PackedLayout {
-        let mut layout = packing::int8::packed_a_layout::<{ Self::MR }>(rows, cols);
-        layout.must_pack = true;
-        layout
-    }
+            fn packed_a_layout(
+                &self,
+                _a: Matrix<$lhs>,
+                rows: usize,
+                cols: usize,
+                _quant: Option<QuantParams<$lhs>>,
+            ) -> PackedLayout {
+                let mut layout = packing::int8::packed_a_layout::<{ Self::MR }>(rows, cols);
+                layout.must_pack = true;
+                layout
+            }
 
-    fn pack_a_block(
-        &self,
-        out: &mut [MaybeUninit<u8>],
-        a: Matrix<u8>,
-        rows: Range<usize>,
-        cols: Range<usize>,
-        _quant: Option<QuantParams<u8>>,
-    ) {
-        let out = cast_pod_mut_slice(out).unwrap();
-        packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
-    }
+            fn pack_a_block(
+                &self,
+                out: &mut [MaybeUninit<u8>],
+                a: Matrix<$lhs>,
+                rows: Range<usize>,
+                cols: Range<usize>,
+                _quant: Option<QuantParams<$lhs>>,
+            ) {
+                let out = cast_pod_mut_slice(out).unwrap();
+                packing::int8::pack_a::<{ Self::MR }, $lhs, u8>(out, a.slice((rows, cols)))
+            }
 
-    fn packed_b_layout(
-        &self,
-        rows: usize,
-        cols: usize,
-        _quant: Option<QuantParams<i8>>,
-    ) -> PackedLayout {
-        packing::int8::packed_b_layout::<{ Self::NR }>(rows, cols)
-    }
+            fn packed_b_layout(
+                &self,
+                rows: usize,
+                cols: usize,
+                _quant: Option<QuantParams<$rhs>>,
+            ) -> PackedLayout {
+                packing::int8::packed_b_layout::<{ Self::NR }>(rows, cols)
+            }
 
-    fn pack_b_block(
-        &self,
-        out: &mut [MaybeUninit<u8>],
-        b: Matrix<i8>,
-        rows: Range<usize>,
-        cols: Range<usize>,
-        _quant: Option<QuantParams<i8>>,
-    ) {
-        packing::int8::pack_b_cast_i8_u8::<{ Self::NR }>(out, b.slice((rows, cols)))
-    }
+            fn pack_b_block(
+                &self,
+                out: &mut [MaybeUninit<u8>],
+                b: Matrix<$rhs>,
+                rows: Range<usize>,
+                cols: Range<usize>,
+                _quant: Option<QuantParams<$rhs>>,
+            ) {
+                let out = cast_pod_mut_slice(out).unwrap();
+                packing::int8::pack_b::<{ Self::NR }, $rhs, u8>(out, b.slice((rows, cols)))
+            }
 
-    fn pack_im2col(
-        &self,
-        _out: &mut [MaybeUninit<u8>],
-        _image: &Im2Col<i8>,
-        _rows: Range<usize>,
-        _cols: Range<usize>,
-    ) {
-        unimplemented!("pack_im2col not implemented");
-    }
+            fn pack_im2col(
+                &self,
+                _out: &mut [MaybeUninit<u8>],
+                _image: &Im2Col<$rhs>,
+                _rows: Range<usize>,
+                _cols: Range<usize>,
+            ) {
+                unimplemented!("pack_im2col not implemented");
+            }
 
-    unsafe fn kernel(
-        &self,
-        tile_ptr: *mut i32,
-        tile_row_stride: usize,
-        a: Lhs<u8>,
-        b: &[u8],
-        used_rows: usize,
-        used_cols: usize,
-        depth: usize,
-        _alpha: f32,
-        beta: i32,
-        a_quant: Option<QuantParams<u8>>,
-        b_quant: Option<QuantParams<i8>>,
-    ) {
-        let a_data = match a {
-            Lhs::Packed(data) => data,
-            Lhs::Unpacked { .. } => panic!("lhs must be packed"),
-        };
+            unsafe fn kernel(
+                &self,
+                tile_ptr: *mut i32,
+                tile_row_stride: usize,
+                a: Lhs<$lhs>,
+                b: &[u8],
+                used_rows: usize,
+                used_cols: usize,
+                depth: usize,
+                _alpha: f32,
+                beta: i32,
+                a_quant: Option<QuantParams<$lhs>>,
+                b_quant: Option<QuantParams<$rhs>>,
+            ) {
+                let a_data = match a {
+                    Lhs::Packed(data) => data,
+                    Lhs::Unpacked { .. } => panic!("lhs must be packed"),
+                };
 
-        let a_zero_points = extract_zero_points(a_quant, used_rows, |x| x);
-        let b_zero_points = extract_zero_points(b_quant, used_cols, |x| x + I8_U8_SHIFT);
-        let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
-        let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
+                let a_zero_points =
+                    extract_zero_points::<$lhs, u8, { Self::MR }>(a_quant, used_rows);
+                let b_zero_points =
+                    extract_zero_points::<$rhs, u8, { Self::NR }>(b_quant, used_cols);
+                let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
+                let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
-            tile_ptr,
-            tile_row_stride,
-            a_data,
-            b,
-            used_rows,
-            used_cols,
-            depth,
-            beta != 0, // accumulate
-            a_zero_points,
-            b_zero_points,
-            a_row_sums,
-            b_col_sums,
-            wasm_u8u8_i32_dot_product,
-        )
-    }
+                simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
+                    tile_ptr,
+                    tile_row_stride,
+                    a_data,
+                    b,
+                    used_rows,
+                    used_cols,
+                    depth,
+                    beta != 0, // accumulate
+                    a_zero_points,
+                    b_zero_points,
+                    a_row_sums,
+                    b_col_sums,
+                    wasm_u8u8_i32_dot_product,
+                )
+            }
 
-    fn gemv_kernel(
-        &self,
-        out: &mut [MaybeUninit<i32>],
-        a: &[u8],
-        b: Matrix<i8>,
-        _alpha: f32,
-        beta: i32,
-        a_quant: Option<QuantParams<u8>>,
-        b_quant: Option<QuantParams<i8>>,
-    ) {
-        let a_zero = a_quant.map(|aq| aq.zero_point[0]).unwrap_or(0);
-        let b_zero = b_quant.map(|bq| bq.zero_point);
-        let accumulate = beta != 0;
+            fn gemv_kernel(
+                &self,
+                out: &mut [MaybeUninit<i32>],
+                a: &[$lhs],
+                b: Matrix<$rhs>,
+                _alpha: f32,
+                beta: i32,
+                a_quant: Option<QuantParams<$lhs>>,
+                b_quant: Option<QuantParams<$rhs>>,
+            ) {
+                let a_zero = a_quant.map(|aq| aq.zero_point[0]).unwrap_or(0);
+                let b_zero = b_quant.map(|bq| bq.zero_point);
+                let accumulate = beta != 0;
 
-        // Safety: Target features were checked when kernel was constructed.
-        unsafe {
-            simd_int8_gemv::<_, true /* CAST_B_U8 */>(
-                out,
-                a,
-                b,
-                accumulate,
-                a_zero,
-                b_zero,
-                wasm_u8u8_i32_dot_product,
-            )
+                // Safety: Target features were checked when kernel was constructed.
+                unsafe {
+                    simd_int8_gemv::<_, $lhs, $rhs, $lhs_cast, $rhs_cast>(
+                        out,
+                        a,
+                        b,
+                        accumulate,
+                        a_zero,
+                        b_zero,
+                        wasm_u8u8_i32_dot_product,
+                    )
+                }
+            }
         }
-    }
+    };
 }
 
-/// Adjustment to apply to zero points in kernel where corresponding input
-/// was shifted from i8 to u8 when packing.
-const I8_U8_SHIFT: i32 = 128;
+impl_wasm_int8_kernel!(u8, i8, CAST_SAME, CAST_I8_TO_U8);
+impl_wasm_int8_kernel!(u8, u8, CAST_SAME, CAST_SAME);
+impl_wasm_int8_kernel!(i8, i8, CAST_I8_TO_U8, CAST_I8_TO_U8);
+impl_wasm_int8_kernel!(i8, u8, CAST_I8_TO_U8, CAST_SAME);
 
 /// Compute i32 dot product of each group of 4 u8 integers in `a` and `b` and
 /// add to i32x4 accumulator in `c`.

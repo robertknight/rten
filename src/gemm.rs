@@ -628,79 +628,95 @@ impl Default for GemmExecutor<f32, f32, f32> {
     }
 }
 
-impl WithKernel for GemmExecutor<u8, i8, i32> {
-    type KernelType = Int8KernelType;
+macro_rules! impl_withkernel_default_int8 {
+    ($lhs:ty, $rhs:ty) => {
+        impl WithKernel for GemmExecutor<$lhs, $rhs, i32> {
+            type KernelType = Int8KernelType;
 
-    fn with_kernel(hint: Int8KernelType) -> Option<Self> {
-        match hint {
-            #[cfg(feature = "avx512")]
-            #[cfg(target_arch = "x86_64")]
-            Int8KernelType::Avx512 => Self::from_kernel::<kernels::x86_64::Avx512Int8Kernel>(),
-            #[cfg(target_arch = "x86_64")]
-            Int8KernelType::Avx2 => Self::from_kernel::<kernels::x86_64::Avx2Int8Kernel>(),
-            #[cfg(target_arch = "aarch64")]
-            Int8KernelType::ArmNeon => Self::from_kernel::<kernels::aarch64::ArmInt8Kernel>(),
-            #[cfg(target_arch = "aarch64")]
-            Int8KernelType::ArmDot => Self::from_kernel::<kernels::aarch64::ArmInt8DotKernel>(),
-            #[cfg(target_arch = "wasm32")]
-            #[cfg(target_feature = "simd128")]
-            Int8KernelType::Wasm => Self::from_kernel::<kernels::wasm::WasmInt8Kernel>(),
-            Int8KernelType::Generic => Self::from_kernel::<GenericKernel>(),
+            fn with_kernel(hint: Int8KernelType) -> Option<Self> {
+                match hint {
+                    #[cfg(feature = "avx512")]
+                    #[cfg(target_arch = "x86_64")]
+                    Int8KernelType::Avx512 => {
+                        Self::from_kernel::<kernels::x86_64::Avx512Int8Kernel>()
+                    }
+                    #[cfg(target_arch = "x86_64")]
+                    Int8KernelType::Avx2 => Self::from_kernel::<kernels::x86_64::Avx2Int8Kernel>(),
+                    #[cfg(target_arch = "aarch64")]
+                    Int8KernelType::ArmNeon => {
+                        Self::from_kernel::<kernels::aarch64::ArmInt8Kernel>()
+                    }
+                    #[cfg(target_arch = "aarch64")]
+                    Int8KernelType::ArmDot => {
+                        Self::from_kernel::<kernels::aarch64::ArmInt8DotKernel>()
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    #[cfg(target_feature = "simd128")]
+                    Int8KernelType::Wasm => Self::from_kernel::<kernels::wasm::WasmInt8Kernel>(),
+                    Int8KernelType::Generic => Self::from_kernel::<GenericKernel>(),
+                }
+            }
+
+            fn kernel_types() -> Vec<Int8KernelType> {
+                let mut types = Vec::new();
+
+                #[cfg(target_arch = "x86_64")]
+                {
+                    #[cfg(feature = "avx512")]
+                    types.push(Int8KernelType::Avx512);
+                    types.push(Int8KernelType::Avx2);
+                }
+
+                #[cfg(target_arch = "aarch64")]
+                {
+                    types.push(Int8KernelType::ArmDot);
+                    types.push(Int8KernelType::ArmNeon);
+                }
+
+                #[cfg(target_arch = "wasm32")]
+                #[cfg(target_feature = "simd128")]
+                {
+                    types.push(Int8KernelType::Wasm);
+                }
+
+                types.push(Int8KernelType::Generic);
+
+                types
+            }
+
+            fn with_generic_kernel() -> Self {
+                Self::from_kernel::<GenericKernel>().unwrap()
+            }
         }
-    }
 
-    fn kernel_types() -> Vec<Int8KernelType> {
-        let mut types = Vec::new();
-
-        #[cfg(target_arch = "x86_64")]
-        {
-            #[cfg(feature = "avx512")]
-            types.push(Int8KernelType::Avx512);
-            types.push(Int8KernelType::Avx2);
+        impl Default for GemmExecutor<$lhs, $rhs, i32> {
+            fn default() -> Self {
+                #[cfg(target_arch = "x86_64")]
+                {
+                    #[cfg(feature = "avx512")]
+                    try_kernel!(Int8KernelType::Avx512);
+                    try_kernel!(Int8KernelType::Avx2);
+                }
+                #[cfg(target_arch = "aarch64")]
+                {
+                    try_kernel!(Int8KernelType::ArmDot);
+                    try_kernel!(Int8KernelType::ArmNeon);
+                }
+                #[cfg(target_arch = "wasm32")]
+                #[cfg(target_feature = "simd128")]
+                {
+                    try_kernel!(Int8KernelType::Wasm);
+                }
+                Self::with_generic_kernel()
+            }
         }
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            types.push(Int8KernelType::ArmDot);
-            types.push(Int8KernelType::ArmNeon);
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        #[cfg(target_feature = "simd128")]
-        {
-            types.push(Int8KernelType::Wasm);
-        }
-
-        types.push(Int8KernelType::Generic);
-
-        types
-    }
-
-    fn with_generic_kernel() -> Self {
-        Self::from_kernel::<GenericKernel>().unwrap()
-    }
+    };
 }
 
-impl Default for GemmExecutor<u8, i8, i32> {
-    fn default() -> Self {
-        #[cfg(target_arch = "x86_64")]
-        {
-            #[cfg(feature = "avx512")]
-            try_kernel!(Int8KernelType::Avx512);
-            try_kernel!(Int8KernelType::Avx2);
-        }
-        #[cfg(target_arch = "aarch64")]
-        {
-            try_kernel!(Int8KernelType::ArmDot);
-            try_kernel!(Int8KernelType::ArmNeon);
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            try_kernel!(Int8KernelType::Wasm);
-        }
-        Self::with_generic_kernel()
-    }
-}
+impl_withkernel_default_int8!(u8, i8);
+impl_withkernel_default_int8!(u8, u8);
+impl_withkernel_default_int8!(i8, i8);
+impl_withkernel_default_int8!(i8, u8);
 
 /// Return the block size for the K / depth dimension of a GEMM operation.
 ///
@@ -1656,12 +1672,24 @@ mod tests {
                 reduce_range,
             }
         }
+    }
 
-        fn next_i8(&mut self) -> i8 {
+    impl RandomSource<i8> for ReducedRangeRng {
+        fn next(&mut self) -> i8 {
             if self.reduce_range {
                 (self.rng.next_u64() % 65) as i8
             } else {
                 self.rng.next_u64() as i8
+            }
+        }
+    }
+
+    impl RandomSource<u8> for ReducedRangeRng {
+        fn next(&mut self) -> u8 {
+            if self.reduce_range {
+                (self.rng.next_u64() % 127) as u8
+            } else {
+                self.rng.next_u64() as u8
             }
         }
     }
@@ -1827,14 +1855,27 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_gemm_u8i8_i32() -> Result<(), Box<dyn Error>> {
-        for gemm in all_gemms::<u8, i8, i32>() {
-            let mut rng = ReducedRangeRng::new(gemm.may_saturate());
-            test_gemm_various_input_sizes(Some(&gemm), None, Some(&mut || rng.next_i8()))?;
-        }
-        Ok(())
+    macro_rules! int8_gemm_tests {
+        ($mod_name:ident, $lhs:ty, $rhs:ty) => {
+            mod $mod_name {
+                use super::{all_gemms, test_gemm_various_input_sizes, Error, ReducedRangeRng};
+                use rten_tensor::RandomSource;
+
+                #[test]
+                fn test_gemm() -> Result<(), Box<dyn Error>> {
+                    for gemm in all_gemms::<$lhs, $rhs, i32>() {
+                        let mut rng = ReducedRangeRng::new(gemm.may_saturate());
+                        test_gemm_various_input_sizes(Some(&gemm), None, Some(&mut || rng.next()))?;
+                    }
+                    Ok(())
+                }
+            }
+        };
     }
+    int8_gemm_tests!(u8i8_i32, u8, i8);
+    int8_gemm_tests!(u8u8_i32, u8, u8);
+    int8_gemm_tests!(i8i8_i32, i8, i8);
+    int8_gemm_tests!(i8u8_i32, i8, u8);
 
     #[test]
     fn test_gemm_u8i8_i32_zero_point() {
@@ -1867,7 +1908,7 @@ mod tests {
 
             for Case { m, n, k } in cases {
                 let a = NdTensor::<u8, 2>::rand([m, k], &mut lhs_rng);
-                let b = NdTensor::<i8, 2>::from_simple_fn([k, n], || rhs_rng.next_i8());
+                let b = NdTensor::<i8, 2>::rand([k, n], &mut rhs_rng);
 
                 let a_zero_point: Vec<_> = (0..a.rows()).map(|x| x as u8).collect();
                 let b_zero_point: Vec<_> = (0..b.cols()).map(|x| x as i8).collect();
@@ -1949,7 +1990,7 @@ mod tests {
             let mut lhs_rng = XorShiftRng::new(1234);
             let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate());
             let a = NdTensor::<u8, 2>::rand([1, 8], &mut lhs_rng);
-            let mut b = NdTensor::<i8, 2>::from_simple_fn([5, 8], || rhs_rng.next_i8());
+            let mut b = NdTensor::<i8, 2>::rand([5, 8], &mut rhs_rng);
 
             // Transpose the input B matrix. This will alter the row and column
             // strides and shapes, but not re-order the data.
