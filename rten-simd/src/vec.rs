@@ -237,6 +237,18 @@ pub trait SimdInt: Simd<Elem = i32> {
     /// a[N], b[N], c[N], d[N]]` where `N == Self::LEN`.
     unsafe fn load_interleave_i8(a: *const i8, b: *const i8, c: *const i8, d: *const i8) -> Self;
 
+    /// Interleave i8 values from the low half of `self` and `rhs`.
+    unsafe fn zip_lo_i8(self, rhs: Self) -> Self;
+
+    /// Interleave i8 values from the high half of `self` and `rhs`.
+    unsafe fn zip_hi_i8(self, rhs: Self) -> Self;
+
+    /// Interleave i16 values from the low half of `self` and `rhs`.
+    unsafe fn zip_lo_i16(self, rhs: Self) -> Self;
+
+    /// Interleave i16 values from the high half of `self` and `rhs`.
+    unsafe fn zip_hi_i16(self, rhs: Self) -> Self;
+
     /// Horizontally sum the lanes in this vector.
     unsafe fn sum(self) -> i32 {
         let mut acc = 0;
@@ -408,6 +420,75 @@ pub mod tests {
                         .collect();
 
                     assert_eq!(actual.as_ref(), expected);
+                }
+
+                #[test]
+                fn test_zip_lo_hi_i8() {
+                    let a_start = 0i8;
+                    // `bstart` is not i8 to avoid overflow when `LEN` is 64.
+                    let b_start = LEN * 4;
+                    let a: Vec<_> = (a_start..).take(LEN * 4).collect();
+                    let b: Vec<_> = (b_start..).map(|x| x as i8).take(LEN * 4).collect();
+
+                    let a_vec = unsafe { SimdVec::load(a.as_ptr() as *const i32) };
+                    let b_vec = unsafe { SimdVec::load(b.as_ptr() as *const i32) };
+
+                    let i8_lo = unsafe { a_vec.zip_lo_i8(b_vec) };
+                    let i8_hi = unsafe { a_vec.zip_hi_i8(b_vec) };
+
+                    let mut actual_i8_lo = [0i8; LEN * 4];
+                    unsafe { i8_lo.store(actual_i8_lo.as_mut_ptr() as *mut i32) }
+
+                    let mut actual_i8_hi = [0i8; LEN * 4];
+                    unsafe { i8_hi.store(actual_i8_hi.as_mut_ptr() as *mut i32) }
+
+                    let expected_i8_lo: Vec<_> = (a_start..)
+                        .zip(b_start..)
+                        .flat_map(|(a, b)| [a, b as i8])
+                        .take(LEN * 4)
+                        .collect();
+                    assert_eq!(actual_i8_lo, expected_i8_lo.as_slice());
+
+                    let expected_i8_hi: Vec<_> = (a_start + LEN as i8 * 2..)
+                        .zip(b_start + LEN * 2..)
+                        .flat_map(|(a, b)| [a, b as i8])
+                        .take(LEN * 4)
+                        .collect();
+                    assert_eq!(actual_i8_hi, expected_i8_hi.as_slice());
+                }
+
+                #[test]
+                fn test_zip_lo_hi_i16() {
+                    let a_start = 0i16;
+                    let b_start = LEN as i16 * 2;
+                    let a: Vec<_> = (a_start..).take(LEN * 2).collect();
+                    let b: Vec<_> = (b_start..).take(LEN * 2).collect();
+
+                    let a_vec = unsafe { SimdVec::load(a.as_ptr() as *const i32) };
+                    let b_vec = unsafe { SimdVec::load(b.as_ptr() as *const i32) };
+
+                    let i16_lo = unsafe { a_vec.zip_lo_i16(b_vec) };
+                    let i16_hi = unsafe { a_vec.zip_hi_i16(b_vec) };
+
+                    let mut actual_i16_lo = [0i16; LEN * 2];
+                    unsafe { i16_lo.store(actual_i16_lo.as_mut_ptr() as *mut i32) }
+
+                    let mut actual_i16_hi = [0i16; LEN * 2];
+                    unsafe { i16_hi.store(actual_i16_hi.as_mut_ptr() as *mut i32) }
+
+                    let expected_i16_lo: Vec<_> = (a_start..)
+                        .zip(b_start..)
+                        .flat_map(|(a, b)| [a, b])
+                        .take(LEN * 2)
+                        .collect();
+                    assert_eq!(actual_i16_lo, expected_i16_lo.as_slice());
+
+                    let expected_i16_hi: Vec<_> = (a_start + LEN as i16..)
+                        .zip(b_start + LEN as i16..)
+                        .flat_map(|(a, b)| [a, b])
+                        .take(LEN * 2)
+                        .collect();
+                    assert_eq!(actual_i16_hi, expected_i16_hi.as_slice());
                 }
 
                 #[test]

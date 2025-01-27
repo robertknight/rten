@@ -1,3 +1,5 @@
+use std::mem::transmute;
+
 use crate::{Simd, SimdFloat, SimdInt, SimdMask};
 
 impl SimdMask for bool {
@@ -157,6 +159,38 @@ impl SimdInt for i32 {
     unsafe fn xor(self, rhs: Self) -> i32 {
         self ^ rhs
     }
+
+    #[inline]
+    unsafe fn zip_lo_i8(self, rhs: Self) -> Self {
+        let self_i8 = unsafe { transmute::<i32, [i8; 4]>(self) };
+        let rhs_i8 = unsafe { transmute::<i32, [i8; 4]>(rhs) };
+        let lo_i8 = [self_i8[0], rhs_i8[0], self_i8[1], rhs_i8[1]];
+        unsafe { transmute::<[i8; 4], i32>(lo_i8) }
+    }
+
+    #[inline]
+    unsafe fn zip_hi_i8(self, rhs: Self) -> Self {
+        let self_i8 = unsafe { transmute::<i32, [i8; 4]>(self) };
+        let rhs_i8 = unsafe { transmute::<i32, [i8; 4]>(rhs) };
+        let hi_i8 = [self_i8[2], rhs_i8[2], self_i8[3], rhs_i8[3]];
+        unsafe { transmute::<[i8; 4], i32>(hi_i8) }
+    }
+
+    #[inline]
+    unsafe fn zip_lo_i16(self, rhs: Self) -> Self {
+        let self_i16 = unsafe { transmute::<i32, [i16; 2]>(self) };
+        let rhs_i16 = unsafe { transmute::<i32, [i16; 2]>(rhs) };
+        let lo_i16 = [self_i16[0], rhs_i16[0]];
+        unsafe { transmute::<[i16; 2], i32>(lo_i16) }
+    }
+
+    #[inline]
+    unsafe fn zip_hi_i16(self, rhs: Self) -> Self {
+        let self_i16 = unsafe { transmute::<i32, [i16; 2]>(self) };
+        let rhs_i16 = unsafe { transmute::<i32, [i16; 2]>(rhs) };
+        let hi_i16 = [self_i16[1], rhs_i16[1]];
+        unsafe { transmute::<[i16; 2], i32>(hi_i16) }
+    }
 }
 
 /// Treat an `f32` as a single-lane SIMD "vector".
@@ -246,4 +280,11 @@ impl SimdFloat for f32 {
     unsafe fn sum(self) -> f32 {
         self
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::vec::tests::test_simdint;
+
+    test_simdint!(i32_simdint, i32);
 }
