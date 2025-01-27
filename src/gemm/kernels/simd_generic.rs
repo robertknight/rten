@@ -578,44 +578,76 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
 
     let row_sum: i32 = a.iter().map(|x| *x as i32).sum();
 
-    let mut col_tiles = range_chunks_exact(0..b.cols(), S::LEN);
+    // Iterate over `4 x S::LEN` columns at a time, which is one `i8` SIMD vec,
+    // four `i32` vecs.
+    let mut col_tiles = range_chunks_exact(0..b.cols(), 4 * S::LEN);
     for col_tile in col_tiles.by_ref() {
         let b_ptr = b_ptr.add(col_tile.start);
-        let mut acc = S::zero();
-        let mut col_sums = S::zero();
+        let mut acc = [S::zero(); 4];
+        let mut col_sums = [S::zero(); 4];
         let one_u8 = S::splat(i32::from_le_bytes([1; 4]));
 
         // Loop over K tiles of size 4.
-        let mut k_tiles = range_chunks_exact(0..depth, 4);
-        for k_tile in k_tiles.by_ref() {
-            // Broadcast 4x u8 values
-            let a = S::splat(*(a_ptr.add(k_tile.start) as *const i32));
+        let mut k = 0;
+        while k + 4 <= depth {
+            // Broadcast 4 values from A.
+            let a = S::splat(*(a_ptr.add(k) as *const i32));
 
-            // Load `S::LEN` groups of 4 i8 values.
-            let b = S::load_interleave_i8(
-                b_ptr.add(k_tile.start * b_row_stride),
-                b_ptr.add((k_tile.start + 1) * b_row_stride),
-                b_ptr.add((k_tile.start + 2) * b_row_stride),
-                b_ptr.add((k_tile.start + 3) * b_row_stride),
-            );
-            let b = if CAST_B_U8 { b.xor(bit_flip_mask) } else { b };
+            // Load 4 rows of `S::LEN * 4` int8 elements from B and interleave
+            // to give 4 transposed `[4, S::LEN]` tiles. eg. Given 4 rows A, B,
+            // C, D if `S::LEN` = 4, the first tile is stored in column-major
+            // order and contains:
+            //
+            // A0 A1 A2 A3
+            // B0 B1 B2 B3
+            // C0 C1 C2 C3
+            // D0 D1 D2 D3
+            //
+            // The second tile contains A4..A7 and so on.
+            let b0 = S::load(b_ptr.add(k * b_row_stride) as *const i32);
+            let b1 = S::load(b_ptr.add((k + 1) * b_row_stride) as *const i32);
+            let b2 = S::load(b_ptr.add((k + 2) * b_row_stride) as *const i32);
+            let b3 = S::load(b_ptr.add((k + 3) * b_row_stride) as *const i32);
 
-            // Compute `C += dot(A, B)` for each of the `S::LEN` columns.
-            acc = dot_product(a, b, acc);
-            col_sums = dot_product(one_u8, b, col_sums);
+            let b01_lo = b0.zip_lo_i8(b1);
+            let b01_hi = b0.zip_hi_i8(b1);
+            let b23_lo = b2.zip_lo_i8(b3);
+            let b23_hi = b2.zip_hi_i8(b3);
+
+            let b_tiles = [
+                b01_lo.zip_lo_i16(b23_lo),
+                b01_lo.zip_hi_i16(b23_lo),
+                b01_hi.zip_lo_i16(b23_hi),
+                b01_hi.zip_hi_i16(b23_hi),
+            ];
+
+            for i in 0..4 {
+                let b_tile = if CAST_B_U8 {
+                    b_tiles[i].xor(bit_flip_mask)
+                } else {
+                    b_tiles[i]
+                };
+                acc[i] = dot_product(a, b_tile, acc[i]);
+                col_sums[i] = dot_product(one_u8, b_tile, col_sums[i]);
+            }
+            k += 4;
         }
 
-        for k in k_tiles.remainder() {
-            let a = S::splat(*a_ptr.add(k) as i32);
-            let b = S::load_extend_i8(b_ptr.add(k * b_row_stride));
-            let b = if CAST_B_U8 {
-                b.add(S::splat(b_zero_shift))
-            } else {
-                b
-            };
+        while k < depth {
+            let a = S::splat((*a_ptr.add(k)).into());
 
-            acc = a.mul(b).add(acc);
-            col_sums = col_sums.add(b);
+            for i in 0..4 {
+                let b = S::load_extend_i8(b_ptr.add(k * b_row_stride + i * S::LEN));
+                let b = if CAST_B_U8 {
+                    b.add(S::splat(b_zero_shift))
+                } else {
+                    b
+                };
+
+                acc[i] = a.mul(b).add(acc[i]);
+                col_sums[i] = col_sums[i].add(b);
+            }
+            k += 1;
         }
 
         // Subtract zero points. This is equivalent to doing
@@ -623,26 +655,28 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
         // efficient.
         let row_sum_vec = S::splat(row_sum);
         let depth_vec = S::splat(depth as i32);
-        let a_zero_vec = S::splat(a_zero_point as i32);
-        let b_zero_vec = if let Some(b_zero) = b_zero_points {
-            S::load_extend_i8(b_zero.as_ptr().add(col_tile.start))
-        } else {
-            S::zero()
-        };
-        let b_zero_vec = b_zero_vec.add(S::splat(b_zero_shift));
+        let a_zero_vec = S::splat(a_zero_point.into());
 
-        acc = depth_vec
-            .mul(a_zero_vec)
-            .mul(b_zero_vec)
-            .add(acc)
-            .sub(row_sum_vec.mul(b_zero_vec))
-            .sub(col_sums.mul(a_zero_vec));
+        for i in 0..4 {
+            let b_zero_vec = if let Some(b_zero) = b_zero_points {
+                S::load_extend_i8(b_zero.as_ptr().add(col_tile.start + i * S::LEN))
+            } else {
+                S::zero()
+            };
+            let b_zero_vec = b_zero_vec.add(S::splat(b_zero_shift));
+            acc[i] = depth_vec
+                .mul(a_zero_vec)
+                .mul(b_zero_vec)
+                .add(acc[i])
+                .sub(row_sum_vec.mul(b_zero_vec))
+                .sub(col_sums[i].mul(a_zero_vec));
 
-        let out_ptr = out.as_ptr().add(col_tile.start) as *mut i32;
-        if !accumulate {
-            acc.store(out_ptr);
-        } else {
-            S::load(out_ptr).add(acc).store(out_ptr);
+            let out_ptr = out.as_ptr().add(col_tile.start + i * S::LEN) as *mut i32;
+            if !accumulate {
+                acc[i].store(out_ptr);
+            } else {
+                S::load(out_ptr).add(acc[i]).store(out_ptr);
+            }
         }
     }
 
