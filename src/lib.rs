@@ -56,8 +56,8 @@
 //!
 //! - `f32`, `i32`, `i8`, `u8`
 //! - `i64` and `bool` tensors are supported by converting them to `i32` as
-//! part of the model conversion process. When preparing model inputs that
-//! expect these data types in ONNX, you will need to convert them to `i32`.
+//!   part of the model conversion process. When preparing model inputs that
+//!   expect these data types in ONNX, you will need to convert them to `i32`.
 //!
 //! Some operators support a more limited set of data types than described in
 //! the ONNX specification. Please file an issue if you need an operator to
