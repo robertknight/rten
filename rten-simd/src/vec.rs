@@ -231,6 +231,8 @@ pub trait SimdInt: Simd<Elem = i32> {
     /// Load `S::LEN` i8 values from `ptr` and sign-extend to i32.
     unsafe fn load_extend_i8(ptr: *const i8) -> Self;
 
+    unsafe fn load_extend_u8(ptr: *const u8) -> Self;
+
     /// Load and interleave 4 groups of i8 values.
     ///
     /// The returned vector contains `[a[0], b[0], c[0], d[0], ...
@@ -369,8 +371,17 @@ pub mod tests {
 
                 #[test]
                 fn test_load_extend_i8() {
-                    let src: Vec<i8> = (0..).take(LEN).collect();
+                    let src: Vec<i8> = (-2..).take(LEN).collect();
                     let vec = unsafe { <SimdVec as SimdInt>::load_extend_i8(src.as_ptr()) };
+                    let actual = unsafe { vec.to_array() };
+                    let expected: Vec<_> = src.iter().map(|x| *x as i32).collect();
+                    assert_eq!(actual.as_ref(), expected);
+                }
+
+                #[test]
+                fn test_load_extend_u8() {
+                    let src: Vec<u8> = (0..).take(LEN).collect();
+                    let vec = unsafe { <SimdVec as SimdInt>::load_extend_u8(src.as_ptr()) };
                     let actual = unsafe { vec.to_array() };
                     let expected: Vec<_> = src.iter().map(|x| *x as i32).collect();
                     assert_eq!(actual.as_ref(), expected);

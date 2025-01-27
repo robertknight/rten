@@ -154,6 +154,17 @@ impl SimdInt for int32x4_t {
     }
 
     #[inline]
+    unsafe fn load_extend_u8(ptr: *const u8) -> Self {
+        let lanes = [
+            *ptr as i32,
+            *ptr.add(1) as i32,
+            *ptr.add(2) as i32,
+            *ptr.add(3) as i32,
+        ];
+        Self::load(lanes.as_ptr())
+    }
+
+    #[inline]
     unsafe fn load_interleave_i8(
         a_ptr: *const i8,
         b_ptr: *const i8,

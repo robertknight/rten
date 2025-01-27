@@ -161,6 +161,16 @@ impl SimdInt for v128i {
     }
 
     #[inline]
+    unsafe fn load_extend_u8(ptr: *const u8) -> Self {
+        use core::arch::wasm32::{i16x8_extend_low_u8x16, i32x4_extend_low_i16x8, i64x2};
+        let tmp: i64 = std::ptr::read_unaligned(ptr as *const i64);
+        let tmp = i64x2(tmp, tmp);
+        let tmp = i16x8_extend_low_u8x16(tmp);
+        let tmp = i32x4_extend_low_i16x8(tmp);
+        Self(tmp)
+    }
+
+    #[inline]
     unsafe fn load_interleave_i8(
         a_ptr: *const i8,
         b_ptr: *const i8,

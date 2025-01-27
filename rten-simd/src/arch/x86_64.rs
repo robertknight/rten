@@ -230,6 +230,12 @@ impl SimdInt for __m256i {
     }
 
     #[inline]
+    unsafe fn load_extend_u8(ptr: *const u8) -> Self {
+        use core::arch::x86_64::_mm256_cvtepu8_epi32;
+        _mm256_cvtepu8_epi32(_mm_loadl_epi64(ptr as *const __m128i))
+    }
+
+    #[inline]
     #[target_feature(enable = "avx2")]
     unsafe fn xor(self, other: Self) -> Self {
         _mm256_xor_si256(self, other)
@@ -601,6 +607,13 @@ impl SimdInt for __m512i {
     unsafe fn load_extend_i8(ptr: *const i8) -> Self {
         use core::arch::x86_64::{_mm512_cvtepi8_epi32, _mm_loadu_si128};
         _mm512_cvtepi8_epi32(_mm_loadu_si128(ptr as *const __m128i))
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn load_extend_i8(ptr: *const i8) -> Self {
+        use core::arch::x86_64::{_mm512_cvtepu8_epi32, _mm_loadu_si128};
+        _mm512_cvtepu8_epi32(_mm_loadu_si128(ptr as *const __m128i))
     }
 
     #[inline]

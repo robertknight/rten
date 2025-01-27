@@ -149,6 +149,11 @@ impl SimdInt for i32 {
     }
 
     #[inline]
+    unsafe fn load_extend_u8(ptr: *const u8) -> Self {
+        *ptr as i32
+    }
+
+    #[inline]
     unsafe fn sum(self) -> i32 {
         self
     }
