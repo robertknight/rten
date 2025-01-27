@@ -54,7 +54,7 @@ pub mod macos {
         let sysctl_ret = unsafe {
             sysctlbyname(
                 name.as_ptr(),
-                std::mem::transmute(&mut result),
+                &mut result as *mut i64 as *mut c_void,
                 &mut size,
                 std::ptr::null(),
                 0,
