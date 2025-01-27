@@ -422,13 +422,16 @@ impl Operator for FusedMatMul {
     }
 }
 
-pub fn matmul_integer(
+pub fn matmul_integer<LhsT: GemmInT, RhsT: GemmInT>(
     pool: &TensorPool,
-    a: TensorView<u8>,
-    b: TensorView<i8>,
-    a_zero_point: Option<TensorView<u8>>,
-    b_zero_point: Option<TensorView<i8>>,
-) -> Result<Tensor<i32>, OpError> {
+    a: TensorView<LhsT>,
+    b: TensorView<RhsT>,
+    a_zero_point: Option<TensorView<LhsT>>,
+    b_zero_point: Option<TensorView<RhsT>>,
+) -> Result<Tensor<i32>, OpError>
+where
+    GemmExecutor<LhsT, RhsT, i32>: Default,
+{
     // Convert the zero point to a vector.
     //
     // The spec allows for the zero point to be a scalar, vector or a batch of
@@ -491,11 +494,32 @@ impl Operator for MatMulInteger {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let a = inputs.require_as(0)?;
-        let b = inputs.require_as(1)?;
-        let a_zero_point = inputs.get_as(2)?;
-        let b_zero_point = inputs.get_as(3)?;
-        matmul_integer(pool, a, b, a_zero_point, b_zero_point).into_op_result()
+        let a = inputs.require(0)?;
+        let b = inputs.require(1)?;
+
+        match (a, b) {
+            (Input::UInt8Tensor(a), Input::Int8Tensor(b)) => {
+                let a_zero_point = inputs.get_as(2)?;
+                let b_zero_point = inputs.get_as(3)?;
+                matmul_integer(pool, a, b, a_zero_point, b_zero_point).into_op_result()
+            }
+            (Input::UInt8Tensor(a), Input::UInt8Tensor(b)) => {
+                let a_zero_point = inputs.get_as(2)?;
+                let b_zero_point = inputs.get_as(3)?;
+                matmul_integer(pool, a, b, a_zero_point, b_zero_point).into_op_result()
+            }
+            (Input::Int8Tensor(a), Input::Int8Tensor(b)) => {
+                let a_zero_point = inputs.get_as(2)?;
+                let b_zero_point = inputs.get_as(3)?;
+                matmul_integer(pool, a, b, a_zero_point, b_zero_point).into_op_result()
+            }
+            (Input::Int8Tensor(a), Input::UInt8Tensor(b)) => {
+                let a_zero_point = inputs.get_as(2)?;
+                let b_zero_point = inputs.get_as(3)?;
+                matmul_integer(pool, a, b, a_zero_point, b_zero_point).into_op_result()
+            }
+            _ => Err(OpError::IncorrectInputType),
+        }
     }
 }
 
