@@ -159,29 +159,6 @@ impl SimdInt for int32x4_t {
     }
 
     #[inline]
-    unsafe fn load_interleave_i8(
-        a_ptr: *const i8,
-        b_ptr: *const i8,
-        c_ptr: *const i8,
-        d_ptr: *const i8,
-    ) -> Self {
-        use core::arch::aarch64::{
-            vcombine_s32, vld1_dup_s32, vreinterpret_s16_s8, vreinterpret_s32_s16,
-            vreinterpret_s8_s32, vzip1_s8, vzip_s16,
-        };
-
-        let a = vld1_dup_s32(a_ptr as *const i32);
-        let b = vld1_dup_s32(b_ptr as *const i32);
-        let c = vld1_dup_s32(c_ptr as *const i32);
-        let d = vld1_dup_s32(d_ptr as *const i32);
-
-        let ab = vzip1_s8(vreinterpret_s8_s32(a), vreinterpret_s8_s32(b));
-        let cd = vzip1_s8(vreinterpret_s8_s32(c), vreinterpret_s8_s32(d));
-        let abcd = vzip_s16(vreinterpret_s16_s8(ab), vreinterpret_s16_s8(cd));
-        vcombine_s32(vreinterpret_s32_s16(abcd.0), vreinterpret_s32_s16(abcd.1))
-    }
-
-    #[inline]
     unsafe fn zip_lo_i8(self, rhs: Self) -> Self {
         vreinterpretq_s32_s8(vzip1q_s8(
             vreinterpretq_s8_s32(self),

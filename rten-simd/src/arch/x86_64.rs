@@ -201,32 +201,6 @@ impl SimdInt for __m256i {
     }
 
     #[inline]
-    unsafe fn load_interleave_i8(
-        a_ptr: *const i8,
-        b_ptr: *const i8,
-        c_ptr: *const i8,
-        d_ptr: *const i8,
-    ) -> Self {
-        use core::arch::x86_64::{
-            _mm256_castsi128_si256, _mm256_insertf128_si256, _mm_unpackhi_epi16,
-            _mm_unpacklo_epi16, _mm_unpacklo_epi8,
-        };
-        let a = _mm_loadl_epi64(a_ptr as *const __m128i);
-        let b = _mm_loadl_epi64(b_ptr as *const __m128i);
-        let c = _mm_loadl_epi64(c_ptr as *const __m128i);
-        let d = _mm_loadl_epi64(d_ptr as *const __m128i);
-
-        let ab = _mm_unpacklo_epi8(a, b); // A0 B0 ... A7 B7
-        let cd = _mm_unpacklo_epi8(c, d); // C0 C1 ... C7 D7
-
-        let abcd_lo = _mm_unpacklo_epi16(ab, cd); // A0 B0 C0 D0 ...
-        let abcd_hi = _mm_unpackhi_epi16(ab, cd); // A3 B3 C3 D3 ...
-
-        let lo = _mm256_castsi128_si256(abcd_lo);
-        _mm256_insertf128_si256(lo, abcd_hi, 1)
-    }
-
-    #[inline]
     unsafe fn load_extend_i8(ptr: *const i8) -> Self {
         use core::arch::x86_64::_mm256_cvtepi8_epi32;
         _mm256_cvtepi8_epi32(_mm_loadl_epi64(ptr as *const __m128i))
@@ -608,31 +582,6 @@ impl SimdInt for __m512i {
         // For AVX-512 the compiler can generate something reasonably fast for
         // this. This doesn't work with AVX2.
         self.to_array().map(|c| c.clamp(0, u8::MAX as i32) as u8)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
-    unsafe fn load_interleave_i8(
-        a_ptr: *const i8,
-        b_ptr: *const i8,
-        c_ptr: *const i8,
-        d_ptr: *const i8,
-    ) -> Self {
-        use core::arch::x86_64::{_mm512_castsi256_si512, _mm512_insertf32x8};
-        let lo = <__m256i as SimdInt>::load_interleave_i8(a_ptr, b_ptr, c_ptr, d_ptr);
-        let lo = _mm512_castsi256_si512(lo);
-        let hi = <__m256i as SimdInt>::load_interleave_i8(
-            a_ptr.add(8),
-            b_ptr.add(8),
-            c_ptr.add(8),
-            d_ptr.add(8),
-        );
-        let result = _mm512_insertf32x8(
-            transmute::<__m512i, __m512>(lo),
-            transmute::<__m256i, __m256>(hi),
-            1,
-        );
-        transmute::<__m512, __m512i>(result)
     }
 
     #[inline]
