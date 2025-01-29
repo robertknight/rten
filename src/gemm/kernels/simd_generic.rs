@@ -604,10 +604,12 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
             // D0 D1 D2 D3
             //
             // The second tile contains A4..A7 and so on.
-            let b0 = S::load(b_ptr.add(k * b_row_stride) as *const i32);
-            let b1 = S::load(b_ptr.add((k + 1) * b_row_stride) as *const i32);
-            let b2 = S::load(b_ptr.add((k + 2) * b_row_stride) as *const i32);
-            let b3 = S::load(b_ptr.add((k + 3) * b_row_stride) as *const i32);
+            let b_tile_ptr: [*const i32; 4] =
+                std::array::from_fn(|i| b_ptr.add((k + i) * b_row_stride) as *const i32);
+            let b0 = S::load(b_tile_ptr[0]);
+            let b1 = S::load(b_tile_ptr[1]);
+            let b2 = S::load(b_tile_ptr[2]);
+            let b3 = S::load(b_tile_ptr[3]);
 
             let b01_lo = b0.zip_lo_i8(b1);
             let b01_hi = b0.zip_hi_i8(b1);
@@ -620,6 +622,11 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
                 b01_hi.zip_lo_i16(b23_hi),
                 b01_hi.zip_hi_i16(b23_hi),
             ];
+
+            // Pre-fetch the current block of 4 rows for the next column tile.
+            for i in 0..4 {
+                S::prefetch(b_tile_ptr[i].add(S::LEN));
+            }
 
             for i in 0..4 {
                 let b_tile = if CAST_B_U8 {
