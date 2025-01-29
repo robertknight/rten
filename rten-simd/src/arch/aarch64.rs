@@ -7,6 +7,11 @@ use std::arch::aarch64::{
     vreinterpretq_f32_s32, vshlq_n_s32, vst1q_f32, vst1q_s32, vst1q_u32, vsubq_f32, vsubq_s32,
 };
 
+use core::arch::aarch64::{
+    vreinterpretq_s16_s32, vreinterpretq_s32_s16, vreinterpretq_s32_s8, vreinterpretq_s8_s32,
+    vzip1q_s16, vzip1q_s8, vzip2q_s16, vzip2q_s8,
+};
+
 use crate::{Simd, SimdFloat, SimdInt, SimdMask};
 
 impl SimdMask for uint32x4_t {
@@ -174,6 +179,38 @@ impl SimdInt for int32x4_t {
         let cd = vzip1_s8(vreinterpret_s8_s32(c), vreinterpret_s8_s32(d));
         let abcd = vzip_s16(vreinterpret_s16_s8(ab), vreinterpret_s16_s8(cd));
         vcombine_s32(vreinterpret_s32_s16(abcd.0), vreinterpret_s32_s16(abcd.1))
+    }
+
+    #[inline]
+    unsafe fn zip_lo_i8(self, rhs: Self) -> Self {
+        vreinterpretq_s32_s8(vzip1q_s8(
+            vreinterpretq_s8_s32(self),
+            vreinterpretq_s8_s32(rhs),
+        ))
+    }
+
+    #[inline]
+    unsafe fn zip_hi_i8(self, rhs: Self) -> Self {
+        vreinterpretq_s32_s8(vzip2q_s8(
+            vreinterpretq_s8_s32(self),
+            vreinterpretq_s8_s32(rhs),
+        ))
+    }
+
+    #[inline]
+    unsafe fn zip_lo_i16(self, rhs: Self) -> Self {
+        vreinterpretq_s32_s16(vzip1q_s16(
+            vreinterpretq_s16_s32(self),
+            vreinterpretq_s16_s32(rhs),
+        ))
+    }
+
+    #[inline]
+    unsafe fn zip_hi_i16(self, rhs: Self) -> Self {
+        vreinterpretq_s32_s16(vzip2q_s16(
+            vreinterpretq_s16_s32(self),
+            vreinterpretq_s16_s32(rhs),
+        ))
     }
 
     #[inline]
