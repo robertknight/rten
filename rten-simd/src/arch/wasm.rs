@@ -161,23 +161,6 @@ impl SimdInt for v128i {
     }
 
     #[inline]
-    unsafe fn load_interleave_i8(
-        a_ptr: *const i8,
-        b_ptr: *const i8,
-        c_ptr: *const i8,
-        d_ptr: *const i8,
-    ) -> Self {
-        let mut bytes: [i8; 16] = [0; 16];
-        for i in 0..Self::LEN {
-            bytes[i * 4] = *a_ptr.add(i);
-            bytes[i * 4 + 1] = *b_ptr.add(i);
-            bytes[i * 4 + 2] = *c_ptr.add(i);
-            bytes[i * 4 + 3] = *d_ptr.add(i);
-        }
-        Self(v128_load(bytes.as_ptr() as *const v128))
-    }
-
-    #[inline]
     unsafe fn xor(self, rhs: Self) -> Self {
         Self(v128_xor(self.0, rhs.0))
     }
