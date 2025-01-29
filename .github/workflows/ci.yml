@@ -30,6 +30,9 @@ jobs:
     - name: Install Rust nightly toolchain
       run: rustup toolchain install nightly
       if: ${{ matrix.os == 'ubuntu-latest' }}
+    - name: Install Rust x86_64-apple-darwin target
+      run: rustup target add x86_64-apple-darwin
+      if: ${{ matrix.os == 'macos-14' }}
     - name: Cache
       uses: actions/cache@v3
       with:
@@ -57,6 +60,9 @@ jobs:
       run: |
         make wasm-test wasm-test-simd
       if: ${{ matrix.os == 'ubuntu-latest' }}
+    - name: Build (Intel macOS)
+      run: cargo check --workspace --target x86_64-apple-darwin
+      if: ${{ matrix.os == 'macos-14' }}
     - name: Lint
       run: |
         make checkformatting

@@ -10,7 +10,7 @@ pub mod macos {
     /// See https://github.com/golang/go/issues/43089. Go chose to use the
     /// `commpage` to get the info. We use `sysctlbyname` instead since it is
     /// a documented API.
-    fn test_for_avx512_on_macos() -> bool {
+    pub(super) fn test_for_avx512_on_macos() -> bool {
         use std::sync::OnceLock;
 
         static AVX512_AVAILABLE: OnceLock<bool> = OnceLock::new();
@@ -54,7 +54,7 @@ pub mod macos {
         let sysctl_ret = unsafe {
             sysctlbyname(
                 name.as_ptr(),
-                std::mem::transmute(&mut result),
+                &mut result as *mut i64 as *mut c_void,
                 &mut size,
                 std::ptr::null(),
                 0,
