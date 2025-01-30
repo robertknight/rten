@@ -9,6 +9,8 @@ use std::arch::wasm32::{
 #[cfg(target_feature = "relaxed-simd")]
 use std::arch::wasm32::f32x4_relaxed_madd;
 
+use std::mem::transmute;
+
 use crate::{Simd, SimdFloat, SimdInt, SimdMask};
 
 /// Wrapper around a WASM v128 type that marks it as containing integers.
@@ -41,8 +43,7 @@ impl SimdMask for v128i {
 
     #[inline]
     unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0; Self::LEN];
-        self.store(array.as_mut_ptr());
+        let array = transmute::<v128, [u32; 4]>(self.0);
         std::array::from_fn(|i| array[i] != 0)
     }
 }
@@ -76,9 +77,7 @@ impl Simd for v128i {
 
     #[inline]
     unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
+        transmute::<v128, Self::Array>(self.0)
     }
 }
 
@@ -249,9 +248,7 @@ impl Simd for v128f {
 
     #[inline]
     unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0.; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
+        transmute::<v128, Self::Array>(self.0)
     }
 }
 

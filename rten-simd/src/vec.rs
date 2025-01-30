@@ -140,6 +140,10 @@ pub trait Simd: Copy + Sized {
     }
 
     /// Return the contents of this vector as an array.
+    ///
+    /// This is a cheap transmute for most implementations because the SIMD
+    /// type and the array have the same layout. The converse is not true
+    /// because the SIMD type may have greater alignment.
     unsafe fn to_array(self) -> Self::Array;
 
     /// Return a new vector with all elements set to zero.
@@ -176,6 +180,10 @@ pub trait SimdMask: Copy {
     }
 
     /// Convert this SIMD mask to a boolean array.
+    ///
+    /// Unlike [`Simd::to_array`] this is not a simple transmute because
+    /// the elements need to be converted from the architecture-specific
+    /// representation of a mask to a `bool` array.
     unsafe fn to_array(self) -> Self::Array;
 
     /// Create a SIMD mask from a boolean array.

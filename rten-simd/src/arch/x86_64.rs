@@ -42,8 +42,7 @@ impl SimdMask for __m256i {
 
     #[inline]
     unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0; Self::LEN];
-        self.store(array.as_mut_ptr());
+        let array = <Self as Simd>::to_array(self);
         std::array::from_fn(|i| array[i] != 0)
     }
 }
@@ -93,9 +92,7 @@ impl Simd for __m256i {
 
     #[inline]
     unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
+        transmute::<Self, Self::Array>(self)
     }
 }
 
@@ -292,9 +289,7 @@ impl Simd for __m256 {
 
     #[inline]
     unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0.; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
+        transmute::<Self, Self::Array>(self)
     }
 }
 
@@ -494,9 +489,7 @@ impl Simd for __m512i {
     #[inline]
     #[target_feature(enable = "avx512f")]
     unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
+        transmute::<Self, Self::Array>(self)
     }
 }
 
@@ -699,9 +692,7 @@ impl Simd for __m512 {
     #[inline]
     #[target_feature(enable = "avx512f")]
     unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0.; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
+        transmute::<Self, Self::Array>(self)
     }
 }
 
