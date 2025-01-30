@@ -4,13 +4,11 @@ use std::arch::aarch64::{
     vcleq_s32, vcltq_f32, vcltq_s32, vcombine_s16, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32,
     vdupq_n_f32, vdupq_n_s32, veorq_s32, vfmaq_f32, vld1q_f32, vld1q_s32, vld1q_u32, vmaxq_f32,
     vmaxq_s32, vminq_f32, vminq_s32, vmulq_f32, vmulq_s32, vqmovn_s32, vqmovun_s16,
-    vreinterpretq_f32_s32, vshlq_n_s32, vst1q_f32, vst1q_s32, vst1q_u32, vsubq_f32, vsubq_s32,
+    vreinterpretq_f32_s32, vreinterpretq_s16_s32, vreinterpretq_s32_s16, vreinterpretq_s32_s8,
+    vreinterpretq_s8_s32, vshlq_n_s32, vst1q_f32, vst1q_s32, vsubq_f32, vsubq_s32, vzip1q_s16,
+    vzip1q_s8, vzip2q_s16, vzip2q_s8,
 };
-
-use core::arch::aarch64::{
-    vreinterpretq_s16_s32, vreinterpretq_s32_s16, vreinterpretq_s32_s8, vreinterpretq_s8_s32,
-    vzip1q_s16, vzip1q_s8, vzip2q_s16, vzip2q_s8,
-};
+use std::mem::transmute;
 
 use crate::{Simd, SimdFloat, SimdInt, SimdMask};
 
@@ -30,8 +28,7 @@ impl SimdMask for uint32x4_t {
 
     #[inline]
     unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0; 4];
-        vst1q_u32(array.as_mut_ptr(), self);
+        let array = transmute::<Self, [u32; 4]>(self);
         std::array::from_fn(|i| array[i] != 0)
     }
 }
@@ -70,9 +67,7 @@ impl Simd for int32x4_t {
 
     #[inline]
     unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
+        transmute::<Self, Self::Array>(self)
     }
 }
 
@@ -225,9 +220,7 @@ impl Simd for float32x4_t {
 
     #[inline]
     unsafe fn to_array(self) -> Self::Array {
-        let mut array = [0.; Self::LEN];
-        self.store(array.as_mut_ptr());
-        array
+        transmute::<Self, Self::Array>(self)
     }
 }
 
