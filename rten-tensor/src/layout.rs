@@ -16,6 +16,18 @@ pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
         && (0..ndim).all(|dim| permutation.iter().filter(|d| **d == dim).count() == 1)
 }
 
+/// Generate debug assertion that a dimension index is valid for a layout.
+macro_rules! debug_assert_dim_valid {
+    ($layout:ident, $dim:expr) => {
+        debug_assert!(
+            $dim < $layout.ndim(),
+            "dim {} out of bounds for tensor with {} dims",
+            $dim,
+            $layout.ndim()
+        )
+    };
+}
+
 /// Layouts describe the shape of a tensor, ie. the number of dimensions and
 /// size of each, and the mapping between indices and offsets in the data
 /// storage.
@@ -94,6 +106,7 @@ pub trait Layout {
 
     /// Returns the size of the dimension `dim`.
     fn size(&self, dim: usize) -> usize {
+        debug_assert_dim_valid!(self, dim);
         self.shape().as_ref()[dim]
     }
 
@@ -102,6 +115,7 @@ pub trait Layout {
 
     /// Returns the offset between adjacent indices along dimension `dim`.
     fn stride(&self, dim: usize) -> usize {
+        debug_assert_dim_valid!(self, dim);
         self.strides().as_ref()[dim]
     }
 
@@ -610,6 +624,7 @@ impl Layout for DynLayout {
     /// Returns the size of the dimension `dim`.
     #[inline]
     fn size(&self, dim: usize) -> usize {
+        debug_assert_dim_valid!(self, dim);
         self.shape_and_strides[dim]
     }
 
@@ -622,6 +637,7 @@ impl Layout for DynLayout {
     /// Return the stride for a specific dimension.
     #[inline]
     fn stride(&self, dim: usize) -> usize {
+        debug_assert_dim_valid!(self, dim);
         self.shape_and_strides[self.ndim() + dim]
     }
 
