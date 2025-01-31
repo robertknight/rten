@@ -759,6 +759,7 @@ unsafe fn simd_int8_gemv_transposed<S: SimdInt, const CAST_B_U8: bool>(
         for k in k_tiles.remainder() {
             let a = *a_ptr.add(k) as i32;
             let b = *b_ptr.add(k) as i32;
+            let b = if CAST_B_U8 { b + b_zero_shift } else { b };
             acc += a * b;
             col_sum += b;
         }
@@ -766,7 +767,7 @@ unsafe fn simd_int8_gemv_transposed<S: SimdInt, const CAST_B_U8: bool>(
         let a_zero = a_zero_point as i32;
         let b_zero = b_zero_points
             .map(|bz| bz[col] as i32 + b_zero_shift)
-            .unwrap_or(0);
+            .unwrap_or(b_zero_shift);
         let acc = (depth as i32 * a_zero * b_zero) + acc - row_sum * b_zero - col_sum * a_zero;
 
         let out_ptr = out.get_unchecked_mut(col);
