@@ -1852,6 +1852,9 @@ mod tests {
             Case { m: 1, n: 5, k: 10 },
             Case { m: 1, n: 8, k: 4 },
             Case { m: 1, n: 16, k: 4 },
+            // Vector-matrix product, K not a multiple of 4 (tile size used by
+            // int8 dot product instructions).
+            Case { m: 1, n: 1, k: 2 },
             // Vector-matrix, where n is large enough that work should be
             // divided into multiple blocks.
             Case {
@@ -1945,17 +1948,32 @@ mod tests {
 
     #[test]
     fn test_gemv_u8i8_i32_transposed() -> Result<(), Box<dyn Error>> {
+        struct Case {
+            n: usize,
+            k: usize,
+        }
+
+        let cases = [
+            // K multiple of 4
+            Case { k: 8, n: 5 },
+            // K not a multiple of 4
+            Case { k: 2, n: 5 },
+        ];
+
         for gemm in all_gemms::<u8, i8, i32>() {
             let mut lhs_rng = XorShiftRng::new(1234);
             let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate());
-            let a = NdTensor::<u8, 2>::rand([1, 8], &mut lhs_rng);
-            let mut b = NdTensor::<i8, 2>::from_simple_fn([5, 8], || rhs_rng.next_i8());
 
-            // Transpose the input B matrix. This will alter the row and column
-            // strides and shapes, but not re-order the data.
-            b.permute([1, 0]);
+            for &Case { k, n } in &cases {
+                let a = NdTensor::<u8, 2>::rand([1, k], &mut lhs_rng);
+                let mut b = NdTensor::<i8, 2>::from_simple_fn([n, k], || rhs_rng.next_i8());
 
-            run_compare_matmul(a.view(), b.view(), None, Some(&gemm));
+                // Transpose the input B matrix. This will alter the row and column
+                // strides and shapes, but not re-order the data.
+                b.permute([1, 0]);
+
+                run_compare_matmul(a.view(), b.view(), None, Some(&gemm));
+            }
         }
 
         Ok(())
