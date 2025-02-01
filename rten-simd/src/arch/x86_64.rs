@@ -1,16 +1,15 @@
 use std::arch::x86_64::{
     __m128i, __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_and_si256, _mm256_andnot_ps,
-    _mm256_blendv_epi8, _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_castsi128_si256,
-    _mm256_castsi256_ps, _mm256_castsi256_si128, _mm256_cmp_ps, _mm256_cmpeq_epi32,
-    _mm256_cmpgt_epi32, _mm256_cvtps_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
-    _mm256_extractf128_ps, _mm256_extractf128_si256, _mm256_fmadd_ps, _mm256_insertf128_si256,
-    _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_epi32, _mm256_max_ps, _mm256_min_epi32,
-    _mm256_min_ps, _mm256_mul_ps, _mm256_mullo_epi32, _mm256_or_si256, _mm256_set1_epi32,
-    _mm256_set1_ps, _mm256_setr_epi32, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256,
-    _mm256_sub_epi32, _mm256_sub_ps, _mm256_unpackhi_epi16, _mm256_unpackhi_epi8,
-    _mm256_unpacklo_epi16, _mm256_unpacklo_epi8, _mm256_xor_si256, _mm_add_ps, _mm_cvtss_f32,
-    _mm_loadl_epi64, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ,
-    _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_blendv_epi8, _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_castsi256_ps,
+    _mm256_castsi256_si128, _mm256_cmp_ps, _mm256_cmpeq_epi32, _mm256_cmpgt_epi32,
+    _mm256_cvtps_epi32, _mm256_cvttps_epi32, _mm256_div_ps, _mm256_extractf128_ps, _mm256_fmadd_ps,
+    _mm256_insertf128_si256, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_epi32, _mm256_max_ps,
+    _mm256_min_epi32, _mm256_min_ps, _mm256_mul_ps, _mm256_mullo_epi32, _mm256_or_si256,
+    _mm256_permute2x128_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setr_epi32,
+    _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps,
+    _mm256_unpackhi_epi16, _mm256_unpackhi_epi8, _mm256_unpacklo_epi16, _mm256_unpacklo_epi8,
+    _mm256_xor_si256, _mm_add_ps, _mm_cvtss_f32, _mm_loadl_epi64, _mm_movehl_ps, _mm_prefetch,
+    _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::mem::{transmute, MaybeUninit};
 
@@ -211,38 +210,34 @@ impl SimdInt for __m256i {
 
     #[inline]
     unsafe fn zip_lo_i8(self, rhs: Self) -> Self {
-        // Interleave from low half of each 128-bit block.
-        let lo = _mm256_unpacklo_epi8(self, rhs);
-        // Interleave from high half of each 128-bit block.
-        let hi = _mm256_unpackhi_epi8(self, rhs);
-        // Combine elements from low and high half of first 128-bit block in
-        // `self` and `rhs`.
-        _mm256_insertf128_si256(lo, _mm256_castsi256_si128(hi), 1)
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm256_unpacklo_epi8(self, rhs); // AB0 AB2
+        let hi = _mm256_unpackhi_epi8(self, rhs); // AB1 AB3
+        _mm256_insertf128_si256(lo, _mm256_castsi256_si128(hi), 1) // AB0 AB1
     }
 
     #[inline]
     unsafe fn zip_hi_i8(self, rhs: Self) -> Self {
-        let lo = _mm256_unpacklo_epi8(self, rhs);
-        let hi = _mm256_unpackhi_epi8(self, rhs);
-        let lo_hi = _mm256_castsi128_si256(_mm256_extractf128_si256(lo, 1));
-        let hi_hi = _mm256_extractf128_si256(hi, 1);
-        _mm256_insertf128_si256(lo_hi, hi_hi, 1)
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm256_unpacklo_epi8(self, rhs); // AB0 AB2
+        let hi = _mm256_unpackhi_epi8(self, rhs); // AB1 AB3
+        _mm256_permute2x128_si256(lo, hi, 0x31) // AB2 AB3
     }
 
     #[inline]
     unsafe fn zip_lo_i16(self, rhs: Self) -> Self {
-        let lo = _mm256_unpacklo_epi16(self, rhs);
-        let hi = _mm256_unpackhi_epi16(self, rhs);
-        _mm256_insertf128_si256(lo, _mm256_castsi256_si128(hi), 1)
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm256_unpacklo_epi16(self, rhs); // AB0 AB2
+        let hi = _mm256_unpackhi_epi16(self, rhs); // AB1 AB3
+        _mm256_insertf128_si256(lo, _mm256_castsi256_si128(hi), 1) // AB0 AB1
     }
 
     #[inline]
     unsafe fn zip_hi_i16(self, rhs: Self) -> Self {
-        let lo = _mm256_unpacklo_epi16(self, rhs);
-        let hi = _mm256_unpackhi_epi16(self, rhs);
-        let lo_hi = _mm256_castsi128_si256(_mm256_extractf128_si256(lo, 1));
-        let hi_hi = _mm256_extractf128_si256(hi, 1);
-        _mm256_insertf128_si256(lo_hi, hi_hi, 1)
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm256_unpacklo_epi16(self, rhs); // AB0 AB2
+        let hi = _mm256_unpackhi_epi16(self, rhs); // AB1 AB3
+        _mm256_permute2x128_si256(lo, hi, 0x31) // AB2 AB3
     }
 }
 
@@ -414,9 +409,11 @@ use std::arch::x86_64::{
     _mm512_cvttps_epi32, _mm512_div_ps, _mm512_fmadd_ps, _mm512_loadu_ps, _mm512_loadu_si512,
     _mm512_mask_blend_epi32, _mm512_mask_blend_ps, _mm512_mask_i32gather_ps, _mm512_max_epi32,
     _mm512_max_ps, _mm512_min_epi32, _mm512_min_ps, _mm512_mul_ps, _mm512_mullo_epi32,
-    _mm512_reduce_add_ps, _mm512_set1_epi32, _mm512_set1_ps, _mm512_setzero_si512,
-    _mm512_sllv_epi32, _mm512_storeu_epi32, _mm512_storeu_ps, _mm512_sub_epi32, _mm512_sub_ps,
-    _mm512_xor_si512, _MM_CMPINT_EQ, _MM_CMPINT_LE, _MM_CMPINT_LT,
+    _mm512_permutex2var_epi32, _mm512_reduce_add_ps, _mm512_set1_epi32, _mm512_set1_ps,
+    _mm512_setr_epi32, _mm512_setzero_si512, _mm512_sllv_epi32, _mm512_storeu_epi32,
+    _mm512_storeu_ps, _mm512_sub_epi32, _mm512_sub_ps, _mm512_unpackhi_epi16, _mm512_unpackhi_epi8,
+    _mm512_unpacklo_epi16, _mm512_unpacklo_epi8, _mm512_xor_si512, _MM_CMPINT_EQ, _MM_CMPINT_LE,
+    _MM_CMPINT_LT,
 };
 
 #[cfg(feature = "avx512")]
@@ -593,57 +590,41 @@ impl SimdInt for __m512i {
     #[inline]
     #[target_feature(enable = "avx512f")]
     unsafe fn zip_lo_i8(self, rhs: Self) -> Self {
-        use core::arch::x86_64::{
-            _mm512_castsi256_si512, _mm512_castsi512_si256, _mm512_inserti64x4,
-        };
-        let lo_self = _mm512_castsi512_si256(self);
-        let lo_rhs = _mm512_castsi512_si256(rhs);
-        let lo = lo_self.zip_lo_i8(lo_rhs);
-        let lo = _mm512_castsi256_si512(lo);
-        let hi = lo_self.zip_hi_i8(lo_rhs);
-        _mm512_inserti64x4(lo, hi, 1)
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm512_unpacklo_epi8(self, rhs); // AB0 AB2 AB4 AB6
+        let hi = _mm512_unpackhi_epi8(self, rhs); // AB1 AB3 AB5 AB7
+        let idx = _mm512_setr_epi32(0, 1, 2, 3, 16, 17, 18, 19, 4, 5, 6, 7, 20, 21, 22, 23);
+        _mm512_permutex2var_epi32(lo, idx, hi) // AB0 AB1 AB2 AB3
     }
 
     #[inline]
     #[target_feature(enable = "avx512f")]
     unsafe fn zip_hi_i8(self, rhs: Self) -> Self {
-        use core::arch::x86_64::{
-            _mm512_castsi256_si512, _mm512_extracti64x4_epi64, _mm512_inserti64x4,
-        };
-        let hi_self = _mm512_extracti64x4_epi64(self, 1);
-        let hi_rhs = _mm512_extracti64x4_epi64(rhs, 1);
-        let lo = hi_self.zip_lo_i8(hi_rhs);
-        let lo = _mm512_castsi256_si512(lo);
-        let hi = hi_self.zip_hi_i8(hi_rhs);
-        _mm512_inserti64x4(lo, hi, 1)
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm512_unpacklo_epi8(self, rhs); // AB0 AB2 AB4 AB6
+        let hi = _mm512_unpackhi_epi8(self, rhs); // AB1 AB3 AB5 AB7
+        let idx = _mm512_setr_epi32(8, 9, 10, 11, 24, 25, 26, 27, 12, 13, 14, 15, 28, 29, 30, 31);
+        _mm512_permutex2var_epi32(lo, idx, hi) // AB4 AB5 AB6 AB7
     }
 
     #[inline]
     #[target_feature(enable = "avx512f")]
     unsafe fn zip_lo_i16(self, rhs: Self) -> Self {
-        use core::arch::x86_64::{
-            _mm512_castsi256_si512, _mm512_castsi512_si256, _mm512_inserti64x4,
-        };
-        let lo_self = _mm512_castsi512_si256(self);
-        let lo_rhs = _mm512_castsi512_si256(rhs);
-        let lo = lo_self.zip_lo_i16(lo_rhs);
-        let lo = _mm512_castsi256_si512(lo);
-        let hi = lo_self.zip_hi_i16(lo_rhs);
-        _mm512_inserti64x4(lo, hi, 1)
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm512_unpacklo_epi16(self, rhs); // AB0 AB2 AB4 AB6
+        let hi = _mm512_unpackhi_epi16(self, rhs); // AB1 AB3 AB5 AB7
+        let idx = _mm512_setr_epi32(0, 1, 2, 3, 16, 17, 18, 19, 4, 5, 6, 7, 20, 21, 22, 23);
+        _mm512_permutex2var_epi32(lo, idx, hi) // AB0 AB1 AB2 AB3
     }
 
     #[inline]
     #[target_feature(enable = "avx512f")]
     unsafe fn zip_hi_i16(self, rhs: Self) -> Self {
-        use core::arch::x86_64::{
-            _mm512_castsi256_si512, _mm512_extracti64x4_epi64, _mm512_inserti64x4,
-        };
-        let hi_self = _mm512_extracti64x4_epi64(self, 1);
-        let hi_rhs = _mm512_extracti64x4_epi64(rhs, 1);
-        let lo = hi_self.zip_lo_i16(hi_rhs);
-        let lo = _mm512_castsi256_si512(lo);
-        let hi = hi_self.zip_hi_i16(hi_rhs);
-        _mm512_inserti64x4(lo, hi, 1)
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm512_unpacklo_epi16(self, rhs); // AB0 AB2 AB4 AB6
+        let hi = _mm512_unpackhi_epi16(self, rhs); // AB1 AB3 AB5 AB7
+        let idx = _mm512_setr_epi32(8, 9, 10, 11, 24, 25, 26, 27, 12, 13, 14, 15, 28, 29, 30, 31);
+        _mm512_permutex2var_epi32(lo, idx, hi) // AB4 AB5 AB6 AB7
     }
 }
 

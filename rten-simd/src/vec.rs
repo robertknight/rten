@@ -391,7 +391,7 @@ pub mod tests {
                 }
 
                 #[test]
-                fn test_zip_lo_hi_i8() {
+                fn test_zip_lo_i8() {
                     let a_start = 0i8;
                     // `bstart` is not i8 to avoid overflow when `LEN` is 64.
                     let b_start = LEN * 4;
@@ -402,13 +402,9 @@ pub mod tests {
                     let b_vec = unsafe { SimdVec::load(b.as_ptr() as *const i32) };
 
                     let i8_lo = unsafe { a_vec.zip_lo_i8(b_vec) };
-                    let i8_hi = unsafe { a_vec.zip_hi_i8(b_vec) };
 
                     let mut actual_i8_lo = [0i8; LEN * 4];
                     unsafe { i8_lo.store(actual_i8_lo.as_mut_ptr() as *mut i32) }
-
-                    let mut actual_i8_hi = [0i8; LEN * 4];
-                    unsafe { i8_hi.store(actual_i8_hi.as_mut_ptr() as *mut i32) }
 
                     let expected_i8_lo: Vec<_> = (a_start..)
                         .zip(b_start..)
@@ -416,6 +412,23 @@ pub mod tests {
                         .take(LEN * 4)
                         .collect();
                     assert_eq!(actual_i8_lo, expected_i8_lo.as_slice());
+                }
+
+                #[test]
+                fn test_zip_hi_i8() {
+                    let a_start = 0i8;
+                    // `bstart` is not i8 to avoid overflow when `LEN` is 64.
+                    let b_start = LEN * 4;
+                    let a: Vec<_> = (a_start..).take(LEN * 4).collect();
+                    let b: Vec<_> = (b_start..).map(|x| x as i8).take(LEN * 4).collect();
+
+                    let a_vec = unsafe { SimdVec::load(a.as_ptr() as *const i32) };
+                    let b_vec = unsafe { SimdVec::load(b.as_ptr() as *const i32) };
+
+                    let i8_hi = unsafe { a_vec.zip_hi_i8(b_vec) };
+
+                    let mut actual_i8_hi = [0i8; LEN * 4];
+                    unsafe { i8_hi.store(actual_i8_hi.as_mut_ptr() as *mut i32) }
 
                     let expected_i8_hi: Vec<_> = (a_start + LEN as i8 * 2..)
                         .zip(b_start + LEN * 2..)
@@ -426,7 +439,7 @@ pub mod tests {
                 }
 
                 #[test]
-                fn test_zip_lo_hi_i16() {
+                fn test_zip_lo_i16() {
                     let a_start = 0i16;
                     let b_start = LEN as i16 * 2;
                     let a: Vec<_> = (a_start..).take(LEN * 2).collect();
@@ -436,13 +449,9 @@ pub mod tests {
                     let b_vec = unsafe { SimdVec::load(b.as_ptr() as *const i32) };
 
                     let i16_lo = unsafe { a_vec.zip_lo_i16(b_vec) };
-                    let i16_hi = unsafe { a_vec.zip_hi_i16(b_vec) };
 
                     let mut actual_i16_lo = [0i16; LEN * 2];
                     unsafe { i16_lo.store(actual_i16_lo.as_mut_ptr() as *mut i32) }
-
-                    let mut actual_i16_hi = [0i16; LEN * 2];
-                    unsafe { i16_hi.store(actual_i16_hi.as_mut_ptr() as *mut i32) }
 
                     let expected_i16_lo: Vec<_> = (a_start..)
                         .zip(b_start..)
@@ -450,6 +459,22 @@ pub mod tests {
                         .take(LEN * 2)
                         .collect();
                     assert_eq!(actual_i16_lo, expected_i16_lo.as_slice());
+                }
+
+                #[test]
+                fn test_zip_hi_i16() {
+                    let a_start = 0i16;
+                    let b_start = LEN as i16 * 2;
+                    let a: Vec<_> = (a_start..).take(LEN * 2).collect();
+                    let b: Vec<_> = (b_start..).take(LEN * 2).collect();
+
+                    let a_vec = unsafe { SimdVec::load(a.as_ptr() as *const i32) };
+                    let b_vec = unsafe { SimdVec::load(b.as_ptr() as *const i32) };
+
+                    let i16_hi = unsafe { a_vec.zip_hi_i16(b_vec) };
+
+                    let mut actual_i16_hi = [0i16; LEN * 2];
+                    unsafe { i16_hi.store(actual_i16_hi.as_mut_ptr() as *mut i32) }
 
                     let expected_i16_hi: Vec<_> = (a_start + LEN as i16..)
                         .zip(b_start + LEN as i16..)
