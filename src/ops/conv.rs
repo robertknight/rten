@@ -1,15 +1,22 @@
+use std::any::TypeId;
 use std::mem::MaybeUninit;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use rten_tensor::{CowTensor, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
-use crate::gemm::{BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT};
+use crate::gemm::{
+    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams,
+};
+use crate::ops::matmul::zero_point_to_vec;
 use crate::ops::pooling::calc_output_size_and_padding;
-use crate::ops::{static_dims, InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
-use crate::tensor_pool::{AutoReturn, TensorPool};
+use crate::ops::{
+    static_dims, Input, InputList, IntoOpResult, OpError, Operator, OutputList, Padding,
+};
+use crate::shift_cast::ShiftCast;
+use crate::tensor_pool::{AutoReturn, PoolRef, TensorPool};
 
 mod depthwise;
 mod im2col;
@@ -24,6 +31,8 @@ fn conv_2d_pointwise<X: GemmInT, W: GemmInT, Y: GemmOutT>(
     input: &NdTensorView<X, 4>,
     kernel: &NdTensorView<W, 4>,
     bias: Option<NdTensorView<Y, 1>>,
+    input_quant: Option<QuantParams<X>>,
+    kernel_quant: Option<QuantParams<W>>,
 ) -> Tensor<Y>
 where
     GemmExecutor<W, X, Y>: Default,
@@ -57,8 +66,8 @@ where
             GemmInputB::Unpacked(in_mat.view()),
             1., // alpha
             bias_vec,
-            None, // a_quant
-            None, // b_quant
+            kernel_quant,
+            input_quant,
         )
         .unwrap();
         n_init += out_item.len();
@@ -101,6 +110,27 @@ where
     DepthwiseConvExecutor<X, W, Y>: Default,
     GemmExecutor<W, X, Y>: Default,
 {
+    conv_impl(
+        pool, input, kernel, bias, padding, groups, strides, dilations, None, None,
+    )
+}
+
+fn conv_impl<X: GemmInT, W: GemmInT, Y: GemmOutT + Default>(
+    pool: &TensorPool,
+    input: TensorView<X>,
+    kernel: TensorView<W>,
+    bias: Option<TensorView<Y>>,
+    padding: Padding,
+    groups: usize,
+    strides: &[usize],
+    dilations: &[usize],
+    input_zero: Option<X>,
+    kernel_zero: Option<&[W]>,
+) -> Result<Tensor<Y>, OpError>
+where
+    DepthwiseConvExecutor<X, W, Y>: Default,
+    GemmExecutor<W, X, Y>: Default,
+{
     // Handle 1D convolution by expanding to 2D and then removing the extra
     // dimension from the result.
     if let &[_n, _c, _w] = input.shape() {
@@ -128,7 +158,7 @@ where
             }
         };
 
-        let result_2d = conv(
+        let result_2d = conv_impl(
             pool,
             input_2d,
             kernel_2d,
@@ -137,6 +167,8 @@ where
             groups,
             &strides_2d,
             &dilations_2d,
+            input_zero,
+            kernel_zero,
         );
 
         return result_2d.map(|mut t| {
@@ -174,6 +206,13 @@ where
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
 
     let has_padding = pad_top > 0 || pad_left > 0 || pad_bottom > 0 || pad_right > 0;
+    let im2col_cols = out_h * out_w;
+
+    let kernel_quant = kernel_zero.map(|zero_point| QuantParams { zero_point });
+    let input_zero_vec = input_zero.map(|zero_point| vec![zero_point; im2col_cols]);
+    let input_quant = input_zero_vec
+        .as_ref()
+        .map(|zero_point| QuantParams { zero_point });
 
     if k_h == 1
         && k_w == 1
@@ -189,6 +228,8 @@ where
             &input.nd_view(),
             &kernel.nd_view(),
             bias.as_ref().map(|b| b.nd_view()),
+            input_quant,
+            kernel_quant,
         ));
     }
 
@@ -222,6 +263,8 @@ where
             [stride_y, stride_x],
             [dilation_y, dilation_x],
             [out_h, out_w],
+            input_zero,
+            kernel_zero,
         );
         return Ok(output.into_dyn());
     }
@@ -290,8 +333,8 @@ where
                     GemmInputB::Im2Col(&im2col),
                     1., // alpha
                     bias_vec,
-                    None, // a_quant
-                    None, // b_quant
+                    kernel_quant,
+                    input_quant,
                 )
                 .unwrap();
                 n_init.fetch_add(out_mat.len(), Ordering::SeqCst);
@@ -335,6 +378,146 @@ impl Operator for Conv {
             &self.dilations,
         )
         .into_op_result()
+    }
+}
+
+pub fn conv_integer<X, W>(
+    pool: &TensorPool,
+    input: TensorView<X>,
+    kernel: TensorView<W>,
+    padding: Padding,
+    groups: usize,
+    strides: &[usize],
+    dilations: &[usize],
+    input_zero: Option<TensorView<X>>,
+    kernel_zero: Option<TensorView<W>>,
+) -> Result<Tensor<i32>, OpError>
+where
+    X: Copy + Default + ShiftCast<i8>,
+    W: Copy + Default + Into<i16> + ShiftCast<u8> + 'static,
+    for<'a> TensorView<'a, X>: ShiftCast<CowTensor<'a, i8>>,
+    for<'a> TensorView<'a, W>: ShiftCast<CowTensor<'a, u8>>,
+{
+    let out_chans = if kernel.ndim() >= 1 {
+        kernel.size(0)
+    } else {
+        // Kernel has too few dimensions. Defaulting the channel count to zero
+        // here is easy, but results in an error that is confusing.
+        0
+    };
+
+    let input_zero = if let Some(zero_point) = input_zero {
+        let Some(&zero) = zero_point.item() else {
+            return Err(OpError::InvalidValue("input zero point must be a scalar"));
+        };
+        zero
+    } else {
+        X::default()
+    };
+    let kernel_zero = zero_point_to_vec(kernel_zero, out_chans)?
+        .map(|zp| zp.to_vec())
+        .unwrap_or_else(|| vec![W::default(); out_chans]);
+
+    // Only i8 x u8 -> i32 convolution is currently supported directly, because
+    // this conveniently maps to the supported input combinations for GEMM
+    // ops.
+    //
+    // For other input types we map the int8 inputs to the opposite sign by
+    // shifting the input and zero point by 128.
+    //
+    // If the lower-level GEMM ops gain support for more int8 signed-ness
+    // combinations natively, this copy can be avoided.
+    let input: PoolRef<CowTensor<i8>> = input.shift_cast_in(pool).auto_return(pool);
+    let input_zero: i8 = input_zero.shift_cast();
+
+    let (kernel, kernel_zero) = if TypeId::of::<W>() == TypeId::of::<i8>() {
+        let gemm = GemmExecutor::<u8, i8, i32>::default();
+        if gemm.may_saturate() {
+            // If we are on a platform (x64 without VNNI) where int8 GEMM can
+            // encounter i16 saturation then we need to make sure the u8 weights
+            // lie within the safe range ([0, 127]).
+            //
+            // We assume that the model was converted with `reduce_range` enabled
+            // (https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html#when-and-why-do-i-need-to-try-u8u8).
+            //
+            // If the weights were already in u8, we assume they are already in the safe
+            // range. If they were in i8 we assume they were in the i8 safe range `[-64,
+            // 63]`. After adding 128, they will be in `[64, 191]` which is outside the
+            // `[0, 127]` safe range. Therefore we subtract 64 to bring both back into
+            // the safe range.
+            let kernel: Tensor<u8> =
+                kernel.map_in(pool, |w| (<W as Into<i16>>::into(*w) + 64i16) as u8);
+            let kernel_zero: Vec<u8> = kernel_zero
+                .into_iter()
+                .map(|w| (w.into() + 64i16) as u8)
+                .collect();
+            (kernel.into_cow(), kernel_zero)
+        } else {
+            (kernel.shift_cast_in(pool), kernel_zero.shift_cast())
+        }
+    } else {
+        // No-op cast
+        (kernel.shift_cast_in(pool), kernel_zero.shift_cast())
+    };
+    let kernel = kernel.auto_return(pool);
+
+    conv_impl::<i8, u8, i32>(
+        pool,
+        input.view(),
+        kernel.view(),
+        None, // bias
+        padding,
+        groups,
+        strides,
+        dilations,
+        Some(input_zero),
+        Some(&kernel_zero),
+    )
+}
+
+#[derive(Debug)]
+pub struct ConvInteger {
+    pub groups: usize,
+    pub dilations: Vec<usize>,
+    pub padding: Padding,
+    pub strides: Vec<usize>,
+}
+
+impl Operator for ConvInteger {
+    fn name(&self) -> &str {
+        "ConvInteger"
+    }
+
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+        let input = inputs.require(0)?;
+        let weight = inputs.require(1)?;
+
+        macro_rules! conv_integer {
+            ($x:expr, $w:expr) => {{
+                let input_zero = inputs.get_as(2)?;
+                let weight_zero = inputs.get_as(3)?;
+                conv_integer(
+                    pool,
+                    $x,
+                    $w,
+                    self.padding.clone(),
+                    self.groups,
+                    &self.strides,
+                    &self.dilations,
+                    input_zero,
+                    weight_zero,
+                )
+                .into_op_result()
+            }};
+        }
+
+        match (input, weight) {
+            (Input::Int8Tensor(x), Input::Int8Tensor(w)) => conv_integer!(x, w),
+            (Input::Int8Tensor(x), Input::UInt8Tensor(w)) => conv_integer!(x, w),
+            (Input::UInt8Tensor(x), Input::Int8Tensor(w)) => conv_integer!(x, w),
+            (Input::UInt8Tensor(x), Input::UInt8Tensor(w)) => conv_integer!(x, w),
+            _ => Err(OpError::IncorrectInputType),
+        }
     }
 }
 
@@ -629,13 +812,36 @@ mod tests {
     use rten_tensor::test_util::{expect_equal, ExpectEqualError};
     use rten_tensor::{Tensor, TensorView};
 
+    use crate::gemm::ReducedRangeRng;
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
-    use crate::ops::{conv, conv_transpose, Conv, OpError, Operator, Padding};
+    use crate::ops::{conv, conv_integer, conv_transpose, Conv, OpError, Operator, Padding};
     use crate::tensor_pool::AutoReturn;
 
     use super::conv_transpose_output_size_and_padding;
+
+    trait ReferenceConvKernel<X, W> {
+        /// Update a single output element (`self`) with a given input and weight value.
+        fn conv_kernel(self, x: X, w: W, x_zero: X, w_zero: W) -> Self;
+    }
+
+    impl ReferenceConvKernel<f32, f32> for f32 {
+        fn conv_kernel(self, x: f32, w: f32, x_zero: f32, w_zero: f32) -> Self {
+            self + (x - x_zero) * (w - w_zero)
+        }
+    }
+
+    impl<X, W> ReferenceConvKernel<X, W> for i32
+    where
+        i32: From<X> + From<W>,
+    {
+        fn conv_kernel(self, x: X, w: W, x_zero: X, w_zero: W) -> Self {
+            let (x, x_zero) = (i32::from(x), i32::from(x_zero));
+            let (w, w_zero) = (i32::from(w), i32::from(w_zero));
+            self + (x - x_zero) * (w - w_zero)
+        }
+    }
 
     /// Un-optimized reference implementation of convolution.
     ///
@@ -648,11 +854,13 @@ mod tests {
         groups: usize,
         strides: &[usize],
         dilations: &[usize],
+        input_zero: Option<X>,
+        kernel_zero: Option<&[W]>,
     ) -> Tensor<Y>
     where
-        X: Copy + std::ops::Mul<W, Output = Y>,
-        W: Copy,
-        Y: Copy + Default + std::ops::Add<Y, Output = Y> + std::ops::AddAssign<Y>,
+        X: Copy + Default,
+        W: Copy + Default,
+        Y: Copy + Default + ReferenceConvKernel<X, W> + std::ops::Add<Output = Y>,
     {
         // If this is a 1D conv, insert a dummy H axis, perform a 2D convolution
         // and then remove the H axis from the result.
@@ -674,6 +882,8 @@ mod tests {
                 groups,
                 &[1, strides[0]],
                 &[1, dilations[0]],
+                input_zero,
+                kernel_zero,
             );
 
             result.remove_axis(2);
@@ -703,6 +913,11 @@ mod tests {
 
         let mut output = Tensor::zeros(&[batch, out_chans, out_h, out_w]);
 
+        let x_zero = input_zero.unwrap_or(X::default());
+        let w_zero = kernel_zero
+            .map(|kz| kz.to_vec())
+            .unwrap_or(vec![W::default(); out_chans]);
+
         for n in 0..batch {
             for group in 0..groups {
                 let in_chan_start = group * in_channels_per_group;
@@ -730,10 +945,12 @@ mod tests {
                                             && in_x >= pad_left
                                             && in_x < in_w + pad_left
                                         {
-                                            accum += input
-                                                [[n, in_chan, in_y - pad_top, in_x - pad_left]]
-                                                * kernel
-                                                    [[out_chan, in_chan - in_chan_start, k_y, k_x]];
+                                            let x = input
+                                                [[n, in_chan, in_y - pad_top, in_x - pad_left]];
+                                            let w = kernel
+                                                [[out_chan, in_chan - in_chan_start, k_y, k_x]];
+                                            accum =
+                                                accum.conv_kernel(x, w, x_zero, w_zero[out_chan]);
                                         }
                                     }
                                 }
@@ -751,14 +968,14 @@ mod tests {
     /// Perform a convolution using the optimized and reference implementations
     /// and check that the results are approximately equal.
     fn check_conv(
-        input: TensorView,
-        kernel: TensorView,
-        bias: Option<TensorView>,
+        input: TensorView<f32>,
+        kernel: TensorView<f32>,
+        bias: Option<TensorView<f32>>,
         pads: Padding,
         groups: usize,
         strides: &[usize],
         dilations: &[usize],
-    ) -> Result<Tensor, ExpectEqualError> {
+    ) -> Result<Tensor<f32>, ExpectEqualError> {
         let pool = new_pool();
         let result = conv(
             &pool,
@@ -771,8 +988,9 @@ mod tests {
             &dilations,
         )
         .expect("conv operation failed");
-        let reference_result =
-            reference_conv(input, kernel, bias, pads, groups, strides, dilations);
+        let reference_result = reference_conv(
+            input, kernel, bias, pads, groups, strides, dilations, None, None,
+        );
         expect_equal(&result, &reference_result)?;
         Ok(result)
     }
@@ -879,6 +1097,8 @@ mod tests {
             1,       /* groups */
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
+            None,
+            None,
         );
 
         expect_equal(&result, &reference_result)?;
@@ -1377,6 +1597,153 @@ mod tests {
             assert_eq!(result.shape(), &[n, out_c, in_w]);
         }
     }
+
+    macro_rules! impl_conv_integer_test {
+        ($name:ident, $input_ty:ty, $weight_ty:ty) => {
+            #[test]
+            fn $name() {
+                fn check_conv_int8(
+                    input: TensorView<$input_ty>,
+                    kernel: TensorView<$weight_ty>,
+                    pads: Padding,
+                    groups: usize,
+                    strides: &[usize],
+                    dilations: &[usize],
+                    input_zero: Option<TensorView<$input_ty>>,
+                    kernel_zero: Option<TensorView<$weight_ty>>,
+                ) -> Result<Tensor<i32>, ExpectEqualError> {
+                    let pool = new_pool();
+                    let result = conv_integer(
+                        &pool,
+                        input.view(),
+                        kernel.view(),
+                        pads.clone(),
+                        groups,
+                        &strides,
+                        &dilations,
+                        input_zero.clone(),
+                        kernel_zero.clone(),
+                    )
+                    .expect("conv operation failed");
+                    let reference_result = reference_conv(
+                        input,
+                        kernel,
+                        None,
+                        pads,
+                        groups,
+                        strides,
+                        dilations,
+                        input_zero.map(|kz| kz.item().copied().unwrap()),
+                        kernel_zero.map(|kz| kz.data().unwrap()),
+                    );
+                    expect_equal(&result, &reference_result)?;
+                    Ok(result)
+                }
+
+                let mut rng = XorShiftRng::new(1234);
+                let mut kernel_rng = ReducedRangeRng::new(true /* reduce_range */, 1234);
+
+                struct Case {
+                    input: Tensor<$input_ty>,
+                    kernel: Tensor<$weight_ty>,
+                    input_zero: Option<$input_ty>,
+                    kernel_zero: Option<Vec<$weight_ty>>,
+                    groups: usize,
+                }
+
+                let cases = [
+                    // General convolution.
+                    Case {
+                        input: Tensor::rand(&[1, 2, 5, 5], &mut rng),
+                        kernel: Tensor::rand(&[1, 2, 3, 3], &mut kernel_rng),
+                        input_zero: Some(12),
+                        kernel_zero: Some([1].into()),
+                        groups: 1,
+                    },
+                    // General convolution with multiple output channels.
+                    Case {
+                        input: Tensor::rand(&[1, 2, 5, 5], &mut rng),
+                        kernel: Tensor::rand(&[3, 2, 3, 3], &mut kernel_rng),
+                        input_zero: Some(12),
+                        kernel_zero: Some([1, 2, 3].into()),
+                        groups: 1,
+                    },
+                    // General convolution with no zero point.
+                    Case {
+                        input: Tensor::rand(&[1, 2, 5, 5], &mut rng),
+                        kernel: Tensor::rand(&[1, 2, 3, 3], &mut kernel_rng),
+                        input_zero: None,
+                        kernel_zero: None,
+                        groups: 1,
+                    },
+                    // Pointwise convolution.
+                    Case {
+                        input: Tensor::rand(&[1, 2, 5, 5], &mut rng),
+                        kernel: Tensor::rand(&[1, 2, 1, 1], &mut kernel_rng),
+                        input_zero: Some(12),
+                        kernel_zero: Some([1].into()),
+                        groups: 1,
+                    },
+                    // Pointwise convolution with no zero point.
+                    Case {
+                        input: Tensor::rand(&[1, 2, 1, 1], &mut rng),
+                        kernel: Tensor::rand(&[1, 2, 1, 1], &mut kernel_rng),
+                        input_zero: Some(12),
+                        kernel_zero: Some([1].into()),
+                        groups: 1,
+                    },
+                    // Depthwise convolution.
+                    Case {
+                        input: Tensor::rand(&[2, 2, 5, 5], &mut rng),
+                        kernel: Tensor::rand(&[2, 1, 3, 3], &mut kernel_rng),
+                        input_zero: Some(12),
+                        kernel_zero: Some([1, 2].into()),
+                        groups: 2,
+                    },
+                    // Depthwise convolution with no zero point.
+                    Case {
+                        input: Tensor::rand(&[2, 2, 5, 5], &mut rng),
+                        kernel: Tensor::rand(&[2, 1, 3, 3], &mut kernel_rng),
+                        input_zero: None,
+                        kernel_zero: None,
+                        groups: 2,
+                    },
+                ];
+
+                for Case {
+                    input,
+                    kernel,
+                    input_zero,
+                    kernel_zero,
+                    groups,
+                } in cases
+                {
+                    let output_chans = kernel.size(0);
+                    check_conv_int8(
+                        input.view(),
+                        kernel.view(),
+                        Padding::zero::<2>(),
+                        groups,
+                        &[1, 1], // strides
+                        &[1, 1], // dilations
+                        input_zero
+                            .map(|zero| Tensor::from(zero))
+                            .as_ref()
+                            .map(|t| t.view()),
+                        kernel_zero
+                            .map(|zero| Tensor::from_data(&[output_chans], zero))
+                            .as_ref()
+                            .map(|t| t.view()),
+                    )
+                    .unwrap();
+                }
+            }
+        };
+    }
+    impl_conv_integer_test!(test_conv_integer_u8_u8, u8, u8);
+    impl_conv_integer_test!(test_conv_integer_u8_i8, u8, i8);
+    impl_conv_integer_test!(test_conv_integer_i8_u8, i8, u8);
+    impl_conv_integer_test!(test_conv_integer_i8_i8, i8, i8);
 
     #[test]
     fn test_conv_transpose() -> Result<(), Box<dyn Error>> {

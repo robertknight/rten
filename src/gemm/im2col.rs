@@ -302,14 +302,13 @@ impl Im2Col<'_, i8> {
                         let out_ptr = out_ptr.add(out_offset + idx * K_TILE + i);
                         let src_elem = *img_ptr.add(offsets_array[idx] as usize);
 
-                        // This should be compiled to a conditional move.
-                        let elem = if pad_mask_array[idx] { src_elem } else { 0 };
-
                         if CAST_B_U8 {
-                            let elem = shift_cast_i8_u8(elem);
+                            let src_elem = shift_cast_i8_u8(src_elem);
+                            let elem = if pad_mask_array[idx] { src_elem } else { 0 };
                             col_sums[idx] += elem as i32;
                             out_ptr.write(MaybeUninit::new(elem as i8));
                         } else {
+                            let elem = if pad_mask_array[idx] { src_elem } else { 0 };
                             col_sums[idx] += elem as i32;
                             out_ptr.write(MaybeUninit::new(elem));
                         }

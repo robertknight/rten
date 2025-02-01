@@ -80,6 +80,8 @@ trait DepthwiseConvKernel<X, W, Y> {
         out_init: Y,
         image_chan: &[X],
         kernel_chan: NdTensorView<W, 2>,
+        input_zero: X,
+        kernel_zero: W,
     );
 }
 
@@ -94,6 +96,8 @@ impl DepthwiseConvKernel<f32, f32, f32> for GenericDepthwiseConvKernel {
         out_init: f32,
         image_chan: &[f32],
         kernel_chan: NdTensorView<f32, 2>,
+        _input_zero: f32,
+        _kernel_zero: f32,
     ) {
         let kernel_view = kernel_chan.weakly_checked_view();
 
@@ -131,7 +135,58 @@ impl DepthwiseConvKernel<f32, f32, f32> for GenericDepthwiseConvKernel {
     }
 }
 
-/// Computes depthwise convolutions.
+impl DepthwiseConvKernel<i8, u8, i32> for GenericDepthwiseConvKernel {
+    fn compute_row(
+        &self,
+        params: &ConvParams,
+        out_row: &mut [MaybeUninit<i32>],
+        out_y: usize,
+        out_init: i32,
+        image_chan: &[i8],
+        kernel_chan: NdTensorView<u8, 2>,
+        input_zero: i8,
+        kernel_zero: u8,
+    ) {
+        let kernel_view = kernel_chan.weakly_checked_view();
+        let input_zero = input_zero as i32;
+        let kernel_zero = kernel_zero as i32;
+
+        // Initialize output row.
+        for x in out_row.iter_mut() {
+            x.write(out_init);
+        }
+        let out_row: &mut [i32] = unsafe { std::mem::transmute(out_row) };
+
+        for k_y in 0..params.kernel_h {
+            let in_y = out_y * params.stride_h + k_y * params.dilation_y;
+            if in_y < params.pad_top || in_y >= params.in_h + params.pad_top {
+                continue;
+            }
+
+            let in_row_y = in_y - params.pad_top;
+            let in_row = &image_chan[in_row_y * params.in_row_stride..][..params.in_row_len];
+
+            for (k_x, (in_range, out_range)) in params.col_range_for_kernel_x.iter().enumerate() {
+                let dest = &mut out_row[out_range.clone()];
+                let src = &in_row[in_range.clone()];
+                let scale = kernel_view[[k_y, k_x]] as i32 - kernel_zero;
+
+                let src_els = src.len().div_ceil(params.stride_w);
+                debug_assert!(src_els == dest.len());
+
+                unroll_loop!(0..src_els, i, 4, {
+                    unsafe {
+                        *dest.get_unchecked_mut(i) +=
+                            (*src.get_unchecked(i * params.stride_w) as i32 - input_zero) * scale;
+                    }
+                });
+            }
+        }
+    }
+}
+
+/// Compute depthwise convolution for the block of channels from `input`
+/// specified by `chan_range` into `output`.
 ///
 /// Convolutions where the group count is equal to the input and output
 /// channel count are referred to as _depthwise_. These use a different
@@ -142,7 +197,9 @@ pub struct DepthwiseConvExecutor<X: Copy, W, Y: Copy + Default> {
     kernel: Box<dyn DepthwiseConvKernel<X, W, Y> + Sync>,
 }
 
-impl<X: Copy, W, Y: Copy + Default> DepthwiseConvExecutor<X, W, Y> {
+impl<X: Copy + Default + Sync, W: Copy + Default + Sync, Y: Copy + Default>
+    DepthwiseConvExecutor<X, W, Y>
+{
     /// Compute depthwise convolution for the block of channels from `input`
     /// specified by `chan_range` into `output`.
     ///
@@ -163,6 +220,8 @@ impl<X: Copy, W, Y: Copy + Default> DepthwiseConvExecutor<X, W, Y> {
         strides: [usize; 2],
         dilations: [usize; 2],
         col_range_for_kernel_x: &[(Range<usize>, Range<usize>)],
+        input_zero: Option<X>,
+        kernel_zero: Option<&[W]>,
     ) {
         debug_assert_eq!(input.stride(2), 1, "last dim of input is not contiguous");
         debug_assert_eq!(output.stride(2), 1, "last dim of output is not contiguous");
@@ -186,6 +245,7 @@ impl<X: Copy, W, Y: Copy + Default> DepthwiseConvExecutor<X, W, Y> {
             col_range_for_kernel_x,
         };
 
+        let input_zero = input_zero.unwrap_or_default();
         for c in chan_range.clone() {
             let kernel_view = kernel.slice([c, 0]);
 
@@ -203,6 +263,8 @@ impl<X: Copy, W, Y: Copy + Default> DepthwiseConvExecutor<X, W, Y> {
                 Y::default()
             };
 
+            let kernel_zero = kernel_zero.map(|kz| kz[c]).unwrap_or_default();
+
             for out_y in 0..out_h {
                 // Here and in the `compute_row` implementation we use manual
                 // slicing of the input data rather than tensor `slice` methods
@@ -215,6 +277,8 @@ impl<X: Copy, W, Y: Copy + Default> DepthwiseConvExecutor<X, W, Y> {
                     init_value,
                     in_chan_data,
                     kernel_view,
+                    input_zero,
+                    kernel_zero,
                 );
             }
         }
@@ -231,6 +295,8 @@ impl<X: Copy, W, Y: Copy + Default> DepthwiseConvExecutor<X, W, Y> {
         strides: [usize; 2],
         dilations: [usize; 2],
         out_hw: [usize; 2],
+        input_zero: Option<X>,
+        kernel_zero: Option<&[W]>,
     ) -> NdTensor<Y, 4> {
         let [batch, _in_c, _in_h, in_w]: [usize; 4] = input.shape();
         let [out_c, _, _k_h, k_w]: [usize; 4] = kernel.shape();
@@ -283,7 +349,7 @@ impl<X: Copy, W, Y: Copy + Default> DepthwiseConvExecutor<X, W, Y> {
                 .for_each(|(mut out_chans, chan_range)| {
                     self.depthwise_conv_2d_block(
                         out_chans.nd_view_mut(),
-                        chan_range,
+                        chan_range.clone(),
                         input,
                         kernel.view(),
                         bias,
@@ -291,6 +357,8 @@ impl<X: Copy, W, Y: Copy + Default> DepthwiseConvExecutor<X, W, Y> {
                         strides,
                         dilations,
                         &col_range_for_kernel_x,
+                        input_zero,
+                        kernel_zero.map(|kz| &kz[chan_range]),
                     );
 
                     n_init.fetch_add(out_chans.len(), Ordering::SeqCst);
@@ -304,6 +372,14 @@ impl<X: Copy, W, Y: Copy + Default> DepthwiseConvExecutor<X, W, Y> {
 }
 
 impl Default for DepthwiseConvExecutor<f32, f32, f32> {
+    fn default() -> Self {
+        DepthwiseConvExecutor {
+            kernel: Box::new(GenericDepthwiseConvKernel {}),
+        }
+    }
+}
+
+impl Default for DepthwiseConvExecutor<i8, u8, i32> {
     fn default() -> Self {
         DepthwiseConvExecutor {
             kernel: Box::new(GenericDepthwiseConvKernel {}),
