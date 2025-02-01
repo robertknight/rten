@@ -3,9 +3,19 @@ from argparse import ArgumentParser
 import onnx
 from onnxruntime.quantization import quantize_dynamic
 
-parser = ArgumentParser()
+parser = ArgumentParser(description="Quantize ONNX models using dynamic quantization.")
 parser.add_argument("input")
 parser.add_argument("output", nargs="?")
+parser.add_argument(
+    "--quantize-conv",
+    action="store_true",
+    help="""
+Enable quantization of `Conv` operators.
+
+This is disabled by default to avoid producing models that don't work
+in ONNX Runtime. See https://github.com/microsoft/onnxruntime/issues/15888.
+""",
+)
 args = parser.parse_args()
 
 output = args.output or args.input.replace(".onnx", ".quant.onnx")
@@ -25,12 +35,10 @@ op_types_to_quantize = [
     "Transpose",
     # Supported ops from `IntegerOpsRegistry`. These get replaced during quantization.
     "MatMul",  # Replaced by MatMulInteger
-    # "Conv" - Replaced by ConvInteger, which is not implemented yet.
-    #
-    # ConvInteger ops produced by `quantize_dynamic` also don't work in ORT
-    # due to the input data type combination being unsupported.
-    # See https://github.com/microsoft/onnxruntime/issues/15888 .
 ]
+
+if args.quantize_conv:
+    op_types_to_quantize.append("Conv")  # Replaced by ConvInteger
 
 quantize_dynamic(
     args.input,
