@@ -15,10 +15,10 @@
 //! at runtime, as well as whether the tensor owns, borrows or mutably borrows
 //! its data.
 //!
-//! | Rank    | Owned (like `Vec<T>`) | Borrowed (like `&[T]`) | Mutably borrowed |
-//! | ----    | --------------------- | ---------------------- | ---------------- |
-//! | Static  | [NdTensor] | [NdTensorView] | [NdTensorViewMut] |
-//! | Dynamic | [Tensor]   | [TensorView]   | [TensorViewMut]   |
+//! | Rank    | Owned (like `Vec<T>`) | Borrowed (like `&[T]`) | Mutably borrowed | Owned or borrowed |
+//! | ----    | --------------------- | ---------------------- | ---------------- | ----------------- |
+//! | Static  | [NdTensor] | [NdTensorView] | [NdTensorViewMut] | [CowNdTensor] |
+//! | Dynamic | [Tensor]   | [TensorView]   | [TensorViewMut]   | [CowTensor]   |
 //!
 //! All tensors implement the [Layout] trait, which provide methods to query
 //! the shape, dimension count and strides of the tensor. Tensor views provide
@@ -125,8 +125,8 @@ pub use layout::{
 pub use slice_range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
 
 pub use tensor::{
-    AsView, Matrix, MatrixMut, NdTensor, NdTensorView, NdTensorViewMut, Scalar, Tensor, TensorBase,
-    TensorView, TensorViewMut, WeaklyCheckedView,
+    AsView, CowNdTensor, CowTensor, Matrix, MatrixMut, NdTensor, NdTensorView, NdTensorViewMut,
+    Scalar, Tensor, TensorBase, TensorView, TensorViewMut, WeaklyCheckedView,
 };
 
 pub use storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
