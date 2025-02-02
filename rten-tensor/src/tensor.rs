@@ -2086,6 +2086,14 @@ pub type NdTensor<T, const N: usize> = TensorBase<Vec<T>, NdLayout<N>>;
 /// Mutable view of a tensor with N dimensions.
 pub type NdTensorViewMut<'a, T, const N: usize> = TensorBase<ViewMutData<'a, T>, NdLayout<N>>;
 
+/// Owned or borrowed tensor with N dimensions.
+///
+/// `CowNdTensor`s can be created using [`as_cow`](TensorBase::as_cow) (to
+/// borrow) or [`into_cow`](TensorBase::into_cow).
+///
+/// The name comes from [`std::borrow::Cow`].
+pub type CowNdTensor<'a, T, const N: usize> = TensorBase<CowData<'a, T>, NdLayout<N>>;
+
 /// View of a 2D tensor.
 pub type Matrix<'a, T = f32> = NdTensorView<'a, T, 2>;
 
@@ -2100,6 +2108,14 @@ pub type TensorView<'a, T = f32> = TensorBase<ViewData<'a, T>, DynLayout>;
 
 /// Mutable view of a tensor with a dynamic dimension count.
 pub type TensorViewMut<'a, T = f32> = TensorBase<ViewMutData<'a, T>, DynLayout>;
+
+/// Owned or borrowed tensor with a dynamic dimension count.
+///
+/// `CowTensor`s can be created using [`as_cow`](TensorBase::as_cow) (to
+/// borrow) or [`into_cow`](TensorBase::into_cow).
+///
+/// The name comes from [`std::borrow::Cow`].
+pub type CowTensor<'a, T> = TensorBase<CowData<'a, T>, DynLayout>;
 
 impl<T, S: Storage<Elem = T>, L: MutLayout, I: AsIndex<L>> Index<I> for TensorBase<S, L> {
     type Output = T;
