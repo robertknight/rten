@@ -1,22 +1,28 @@
 //! rten_tensor provides multi-dimensional arrays, commonly referred to as
 //! _tensors_ in a machine learning context.
 //!
-//! Each tensor is a combination of data and a layout. The data can be owned,
-//! borrowed or mutably borrowed. This is analagous to `Vec<T>`, `&[T]` and
-//! `&mut [T]` for 1D arrays. The layout determines the number of dimensions
-//! (the _rank_), the size of each dimension, and the strides (gap between
-//! successive indices along a given dimension).
+//! # Storage and layout
 //!
-//! # Key types and traits
+//! A tensor is a combination of data storage and a layout. The data storage
+//! determines the element type and how the data is owned. A tensor can be:
+//!
+//! - Owned (like `Vec<T>`)
+//! - Borrowed (like `&[T]` or `&mut [T]`)
+//! - Maybe-owned (like `Cow[T]`)
+//!
+//! The layout determines the number of dimensions (the _rank_) and size of each
+//! (the _shape_) and how indices map to offsets in the storage. The dimension
+//! count can be static (fixed at compile time) or dynamic (variable at
+//! runtime).
+//!
+//! # Tensor types and traits
 //!
 //! The base type for all tensors is [TensorBase]. This is not normally used
-//! directly but instead via a type alias, depending on whether the number of
-//! dimensions (the _rank_) of the tensor is known at compile time or only
-//! at runtime, as well as whether the tensor owns, borrows or mutably borrows
-//! its data.
+//! directly but instead via a type alias which specifies the data ownership
+//! and layout:
 //!
-//! | Rank    | Owned (like `Vec<T>`) | Borrowed (like `&[T]`) | Mutably borrowed | Owned or borrowed |
-//! | ----    | --------------------- | ---------------------- | ---------------- | ----------------- |
+//! | Rank    | Owned | Borrowed | Mutably borrowed | Owned or borrowed |
+//! | ----    | ----- | -------- | ---------------- | ----------------- |
 //! | Static  | [NdTensor] | [NdTensorView] | [NdTensorViewMut] | [CowNdTensor] |
 //! | Dynamic | [Tensor]   | [TensorView]   | [TensorViewMut]   | [CowTensor]   |
 //!
