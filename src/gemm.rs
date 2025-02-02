@@ -1385,6 +1385,12 @@ fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
 }
 
 #[cfg(test)]
+mod reduced_range_rng;
+
+#[cfg(test)]
+pub use reduced_range_rng::ReducedRangeRng;
+
+#[cfg(test)]
 mod tests {
     use std::error::Error;
     use std::time::Instant;
@@ -1397,7 +1403,7 @@ mod tests {
 
     use super::{
         BiasVector, ColOffsets, F32KernelType, GemmError, GemmExecutor, GemmInT, GemmInputA,
-        GemmInputB, GemmOutT, Im2Col, QuantParams, RowOffsets, WithKernel,
+        GemmInputB, GemmOutT, Im2Col, QuantParams, ReducedRangeRng, RowOffsets, WithKernel,
     };
 
     /// Scale a possibly non-float value by a float.
@@ -1628,44 +1634,6 @@ mod tests {
             .filter_map(|kern_type| GemmExecutor::<L, R, O>::with_kernel(kern_type))
     }
 
-    // Random number generator which produces values with an optionally reduced
-    // range.
-    //
-    // This works around an issue under AVX2 where the `vpmaddubsw` instruction
-    // can encounter saturation when adding two signed 16-bit values into a
-    // 16-bit result. Each of the two 16-bit inputs are the result of a `u8 x
-    // i8` multiplication. By limiting the range of either the u8 or i8 input,
-    // we can avoid saturation. This issue does not affect the VNNI instruction
-    // used on newer x64 systems.
-    //
-    // To match the workaround in ONNX Runtime's quantizer when
-    // `reduce_range=True` is enabled, the range of the RHS (ie. the weights)
-    // is limited.
-    //
-    // To avoid saturation we require `a_max * b_max * 2 <= i16::MAX`. This
-    // re-arranges to `b_max <= (i16::MAX / 2) / 255 <= 64`.
-    struct ReducedRangeRng {
-        reduce_range: bool,
-        rng: XorShiftRng,
-    }
-
-    impl ReducedRangeRng {
-        fn new(reduce_range: bool) -> Self {
-            Self {
-                rng: XorShiftRng::new(1234),
-                reduce_range,
-            }
-        }
-
-        fn next_i8(&mut self) -> i8 {
-            if self.reduce_range {
-                (self.rng.next_u64() % 65) as i8
-            } else {
-                self.rng.next_u64() as i8
-            }
-        }
-    }
-
     // Simplest possible test case for easy debugging.
     #[test]
     fn test_simple_gemm_f32() -> Result<(), Box<dyn Error>> {
@@ -1830,8 +1798,8 @@ mod tests {
     #[test]
     fn test_gemm_u8i8_i32() -> Result<(), Box<dyn Error>> {
         for gemm in all_gemms::<u8, i8, i32>() {
-            let mut rng = ReducedRangeRng::new(gemm.may_saturate());
-            test_gemm_various_input_sizes(Some(&gemm), None, Some(&mut || rng.next_i8()))?;
+            let mut rng = ReducedRangeRng::new(gemm.may_saturate(), 1234);
+            test_gemm_various_input_sizes(Some(&gemm), None, Some(&mut || rng.next()))?;
         }
         Ok(())
     }
@@ -1866,11 +1834,11 @@ mod tests {
 
         for gemm in all_gemms::<u8, i8, i32>() {
             let mut lhs_rng = XorShiftRng::new(1234);
-            let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate());
+            let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate(), 5678);
 
             for Case { m, n, k } in cases {
                 let a = NdTensor::<u8, 2>::rand([m, k], &mut lhs_rng);
-                let b = NdTensor::<i8, 2>::from_simple_fn([k, n], || rhs_rng.next_i8());
+                let b = NdTensor::<i8, 2>::rand([k, n], &mut rhs_rng);
 
                 let a_zero_point: Vec<_> = (0..a.rows()).map(|x| x as u8).collect();
                 let b_zero_point: Vec<_> = (0..b.cols()).map(|x| x as i8).collect();
@@ -1962,11 +1930,11 @@ mod tests {
 
         for gemm in all_gemms::<u8, i8, i32>() {
             let mut lhs_rng = XorShiftRng::new(1234);
-            let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate());
+            let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate(), 5678);
 
             for &Case { k, n } in &cases {
                 let a = NdTensor::<u8, 2>::rand([1, k], &mut lhs_rng);
-                let mut b = NdTensor::<i8, 2>::from_simple_fn([n, k], || rhs_rng.next_i8());
+                let mut b = NdTensor::<i8, 2>::rand([n, k], &mut rhs_rng);
 
                 // Transpose the input B matrix. This will alter the row and column
                 // strides and shapes, but not re-order the data.
