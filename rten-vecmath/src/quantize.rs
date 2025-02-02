@@ -38,6 +38,7 @@ impl<'s, 'd, To> Quantize<'s, 'd, To> {
 impl<'d> SimdOp for Quantize<'_, 'd, u8> {
     type Output = &'d mut [u8];
 
+    #[inline(always)]
     unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
         let mut n = self.src.len();
         let mut src_ptr = self.src.as_ptr();

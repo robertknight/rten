@@ -171,6 +171,7 @@ impl SimdInt for __m256i {
     }
 
     #[inline]
+    #[target_feature(enable = "avx2")]
     unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8> {
         use std::arch::x86_64::{
             __m128i, _mm256_castsi256_si128, _mm256_packus_epi16, _mm256_packus_epi32,
