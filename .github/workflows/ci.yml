@@ -23,9 +23,9 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Install wasmtime
       run: |
-        curl https://wasmtime.dev/install.sh -sSf | bash
-        ls $HOME/.wasmtime/bin
-        echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+        mkdir -p ~/.wasmtime
+        curl -L https://github.com/bytecodealliance/wasmtime/releases/download/v29.0.1/wasmtime-v29.0.1-x86_64-linux.tar.xz | tar xf - --xz -C ~/.wasmtime --strip-components=1
+        echo "$HOME/.wasmtime" >> "$GITHUB_PATH"
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Install Rust nightly toolchain
       run: rustup toolchain install nightly
