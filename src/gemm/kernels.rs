@@ -148,6 +148,12 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     /// Return a name for this kernel for use in logging etc.
     fn name(&self) -> &'static str;
 
+    /// Return true if this kernel may encounter saturation in a data type that
+    /// is smaller than the accumulator.
+    ///
+    /// The caller will have to prepare inputs (usually the weights) to avoid
+    /// this. This is primarily an issue for x64 systems without VNNI.
+    /// See https://oneapi-src.github.io/oneDNN/dev_guide_int8_computations.html.
     fn may_saturate(&self) -> bool {
         false
     }
