@@ -96,6 +96,7 @@ impl OpRegistry {
         register_op!(Clip);
         register_op!(Concat);
         register_op!(Conv);
+        register_op!(ConvInteger);
         register_op!(ConstantOfShape);
         register_op!(ConvTranspose);
         register_op!(Cos);
@@ -446,6 +447,18 @@ impl_read_op!(Conv, attrs_as_conv_attrs, |attrs: sg::ConvAttrs| {
     let strides = vec_from_attr(attrs.strides(), &[1, 1]);
     let dilations = vec_from_attr(attrs.dilations(), &[1, 1]);
     Ok(ops::Conv {
+        groups,
+        padding,
+        strides,
+        dilations,
+    })
+});
+impl_read_op!(ConvInteger, attrs_as_conv_attrs, |attrs: sg::ConvAttrs| {
+    let groups = attrs.groups() as usize;
+    let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
+    let strides = vec_from_attr(attrs.strides(), &[1, 1]);
+    let dilations = vec_from_attr(attrs.dilations(), &[1, 1]);
+    Ok(ops::ConvInteger {
         groups,
         padding,
         strides,

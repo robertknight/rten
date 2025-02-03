@@ -436,6 +436,30 @@ impl Operator for FusedMatMul {
     }
 }
 
+/// Normalize a zero point input by converting it to a vector.
+///
+/// The spec for `MatMulInteger` allows for the zero point to be a scalar,
+/// vector or a batch of vectors. The batch case is currently not supported.
+pub fn zero_point_to_vec<T>(
+    zero_point: Option<TensorView<T>>,
+    expected_len: usize,
+) -> Result<Option<NdTensorView<T, 1>>, OpError> {
+    match zero_point {
+        Some(zp) if zp.ndim() == 0 => Ok(Some(zp.broadcast([expected_len]))),
+        Some(zp) if zp.ndim() == 1 => {
+            if zp.size(0) != expected_len {
+                Err(OpError::InvalidValue("Zero point has incorrect size"))
+            } else {
+                Ok(Some(zp.nd_view()))
+            }
+        }
+        Some(_) => Err(OpError::UnsupportedValue(
+            "Only scalar or vector zero points are supported",
+        )),
+        None => Ok(None),
+    }
+}
+
 pub fn matmul_integer(
     pool: &TensorPool,
     a: TensorView<u8>,
@@ -443,30 +467,6 @@ pub fn matmul_integer(
     a_zero_point: Option<TensorView<u8>>,
     b_zero_point: Option<TensorView<i8>>,
 ) -> Result<Tensor<i32>, OpError> {
-    // Convert the zero point to a vector.
-    //
-    // The spec allows for the zero point to be a scalar, vector or a batch of
-    // vectors. The batch case is currently not supported.
-    fn zero_point_to_vec<T>(
-        zero_point: Option<TensorView<T>>,
-        expected_len: usize,
-    ) -> Result<Option<NdTensorView<T, 1>>, OpError> {
-        match zero_point {
-            Some(zp) if zp.ndim() == 0 => Ok(Some(zp.broadcast([expected_len]))),
-            Some(zp) if zp.ndim() == 1 => {
-                if zp.size(0) != expected_len {
-                    Err(OpError::InvalidValue("Zero point has incorrect size"))
-                } else {
-                    Ok(Some(zp.nd_view()))
-                }
-            }
-            Some(_) => Err(OpError::UnsupportedValue(
-                "Only scalar or vector zero points are supported",
-            )),
-            None => Ok(None),
-        }
-    }
-
     if a.ndim() < 2 || b.ndim() < 2 {
         return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
     }

@@ -125,6 +125,7 @@ mod model_metadata;
 mod number;
 mod op_registry;
 mod optimize;
+mod shift_cast;
 mod slice_cast;
 mod slice_reductions;
 mod tensor_pool;

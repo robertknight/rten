@@ -734,7 +734,7 @@ def op_node_from_onnx_operator(
             attrs.valueType = scalar_type
             attrs.value = scalar
 
-        case "Conv":
+        case "Conv" | "ConvInteger":
             attrs = sg.ConvAttrsT()
             attrs.dilations = read_dilations(op_reader)
             attrs.groups = op_reader.get_attr("group", "int", 1)

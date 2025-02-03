@@ -71,7 +71,7 @@ pub use binary_elementwise::{
 };
 pub use concat::{concat, tile, Concat, Tile};
 pub use control_flow::If;
-pub use conv::{conv, conv_transpose, Conv, ConvTranspose};
+pub use conv::{conv, conv_integer, conv_transpose, Conv, ConvInteger, ConvTranspose};
 pub use convert::Cast;
 pub use einsum::{einsum, Einsum};
 pub use gather::{

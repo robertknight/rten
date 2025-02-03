@@ -117,6 +117,7 @@ class OperatorType(object):
     DynamicQuantizeLinear = 107
     MatMulInteger = 108
     DepthToSpace = 109
+    ConvInteger = 110
 
 
 class RNNDirection(object):
@@ -205,91 +206,91 @@ def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
     if not isinstance(table, Table):
         return None
-    if unionType == OperatorAttrs().ArgMaxAttrs:
+    if unionType == OperatorAttrs.ArgMaxAttrs:
         return ArgMaxAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().AveragePoolAttrs:
+    if unionType == OperatorAttrs.AveragePoolAttrs:
         return AveragePoolAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().BatchNormalizationAttrs:
+    if unionType == OperatorAttrs.BatchNormalizationAttrs:
         return BatchNormalizationAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().CastAttrs:
+    if unionType == OperatorAttrs.CastAttrs:
         return CastAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().ConcatAttrs:
+    if unionType == OperatorAttrs.ConcatAttrs:
         return ConcatAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().ConstantOfShapeAttrs:
+    if unionType == OperatorAttrs.ConstantOfShapeAttrs:
         return ConstantOfShapeAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().ConvAttrs:
+    if unionType == OperatorAttrs.ConvAttrs:
         return ConvAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().ConvTransposeAttrs:
+    if unionType == OperatorAttrs.ConvTransposeAttrs:
         return ConvTransposeAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().FlattenAttrs:
+    if unionType == OperatorAttrs.FlattenAttrs:
         return FlattenAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().GatherAttrs:
+    if unionType == OperatorAttrs.GatherAttrs:
         return GatherAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().GemmAttrs:
+    if unionType == OperatorAttrs.GemmAttrs:
         return GemmAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().GRUAttrs:
+    if unionType == OperatorAttrs.GRUAttrs:
         return GRUAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().LeakyReluAttrs:
+    if unionType == OperatorAttrs.LeakyReluAttrs:
         return LeakyReluAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().LSTMAttrs:
+    if unionType == OperatorAttrs.LSTMAttrs:
         return LSTMAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().MaxPoolAttrs:
+    if unionType == OperatorAttrs.MaxPoolAttrs:
         return MaxPoolAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().ReduceMeanAttrs:
+    if unionType == OperatorAttrs.ReduceMeanAttrs:
         return ReduceMeanAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().ReshapeAttrs:
+    if unionType == OperatorAttrs.ReshapeAttrs:
         return ReshapeAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().ResizeAttrs:
+    if unionType == OperatorAttrs.ResizeAttrs:
         return ResizeAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().SplitAttrs:
+    if unionType == OperatorAttrs.SplitAttrs:
         return SplitAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().SoftmaxAttrs:
+    if unionType == OperatorAttrs.SoftmaxAttrs:
         return SoftmaxAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().TransposeAttrs:
+    if unionType == OperatorAttrs.TransposeAttrs:
         return TransposeAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().ModAttrs:
+    if unionType == OperatorAttrs.ModAttrs:
         return ModAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().ScatterElementsAttrs:
+    if unionType == OperatorAttrs.ScatterElementsAttrs:
         return ScatterElementsAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().OneHotAttrs:
+    if unionType == OperatorAttrs.OneHotAttrs:
         return OneHotAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().TopKAttrs:
+    if unionType == OperatorAttrs.TopKAttrs:
         return TopKAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().HardSigmoidAttrs:
+    if unionType == OperatorAttrs.HardSigmoidAttrs:
         return HardSigmoidAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().TriluAttrs:
+    if unionType == OperatorAttrs.TriluAttrs:
         return TriluAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().ScatterNDAttrs:
+    if unionType == OperatorAttrs.ScatterNDAttrs:
         return ScatterNDAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().NonMaxSuppressionAttrs:
+    if unionType == OperatorAttrs.NonMaxSuppressionAttrs:
         return NonMaxSuppressionAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().LayerNormalizationAttrs:
+    if unionType == OperatorAttrs.LayerNormalizationAttrs:
         return LayerNormalizationAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().RandomUniformAttrs:
+    if unionType == OperatorAttrs.RandomUniformAttrs:
         return RandomUniformAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().EluAttrs:
+    if unionType == OperatorAttrs.EluAttrs:
         return EluAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().RandomUniformLikeAttrs:
+    if unionType == OperatorAttrs.RandomUniformLikeAttrs:
         return RandomUniformLikeAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().RandomNormalAttrs:
+    if unionType == OperatorAttrs.RandomNormalAttrs:
         return RandomNormalAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().RandomNormalLikeAttrs:
+    if unionType == OperatorAttrs.RandomNormalLikeAttrs:
         return RandomNormalLikeAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().GatherNDAttrs:
+    if unionType == OperatorAttrs.GatherNDAttrs:
         return GatherNDAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().GeluAttrs:
+    if unionType == OperatorAttrs.GeluAttrs:
         return GeluAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().EinsumAttrs:
+    if unionType == OperatorAttrs.EinsumAttrs:
         return EinsumAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().IfAttrs:
+    if unionType == OperatorAttrs.IfAttrs:
         return IfAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().PadAttrs:
+    if unionType == OperatorAttrs.PadAttrs:
         return PadAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().DequantizeLinearAttrs:
+    if unionType == OperatorAttrs.DequantizeLinearAttrs:
         return DequantizeLinearAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().QuantizeLinearAttrs:
+    if unionType == OperatorAttrs.QuantizeLinearAttrs:
         return QuantizeLinearAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().DepthToSpaceAttrs:
+    if unionType == OperatorAttrs.DepthToSpaceAttrs:
         return DepthToSpaceAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
@@ -308,9 +309,9 @@ def ScalarCreator(unionType, table):
     from flatbuffers.table import Table
     if not isinstance(table, Table):
         return None
-    if unionType == Scalar().IntScalar:
+    if unionType == Scalar.IntScalar:
         return IntScalarT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == Scalar().FloatScalar:
+    if unionType == Scalar.FloatScalar:
         return FloatScalarT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
@@ -343,11 +344,11 @@ def NodeKindCreator(unionType, table):
     from flatbuffers.table import Table
     if not isinstance(table, Table):
         return None
-    if unionType == NodeKind().OperatorNode:
+    if unionType == NodeKind.OperatorNode:
         return OperatorNodeT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == NodeKind().ConstantNode:
+    if unionType == NodeKind.ConstantNode:
         return ConstantNodeT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == NodeKind().ValueNode:
+    if unionType == NodeKind.ValueNode:
         return ValueNodeT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
@@ -363,13 +364,13 @@ def ConstantDataCreator(unionType, table):
     from flatbuffers.table import Table
     if not isinstance(table, Table):
         return None
-    if unionType == ConstantData().FloatData:
+    if unionType == ConstantData.FloatData:
         return FloatDataT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == ConstantData().Int32Data:
+    if unionType == ConstantData.Int32Data:
         return Int32DataT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == ConstantData().Int8Data:
+    if unionType == ConstantData.Int8Data:
         return Int8DataT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == ConstantData().UInt8Data:
+    if unionType == ConstantData.UInt8Data:
         return UInt8DataT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
