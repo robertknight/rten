@@ -15,6 +15,7 @@ pub fn build_im2col<T>(
     strides: [usize; 2],
     dilations: [usize; 2],
     col_count_step: usize,
+    row_count_step: usize,
 ) -> Im2Col<T> {
     // Ensure image has at least one cell.
     assert!(image.len() > 0);
@@ -39,9 +40,11 @@ pub fn build_im2col<T>(
     // Build lookup table of row index in the virtual im2col matrix to
     // offsets in the image.
     let n_rows = chans * k_h * k_w;
-    let mut row_chan_offsets = Vec::<i32>::with_capacity(n_rows);
-    let mut row_y_offsets = Vec::<i32>::with_capacity(n_rows);
-    let mut row_x_offsets = Vec::<i32>::with_capacity(n_rows);
+    let n_rows_padded = n_rows.next_multiple_of(row_count_step);
+
+    let mut row_chan_offsets = Vec::<i32>::with_capacity(n_rows_padded);
+    let mut row_y_offsets = Vec::<i32>::with_capacity(n_rows_padded);
+    let mut row_x_offsets = Vec::<i32>::with_capacity(n_rows_padded);
     for chan in 0..chans {
         // Offset to image channel
         row_chan_offsets.extend(std::iter::repeat(chan as i32 * im_stride_c).take(k_h * k_w));
@@ -56,6 +59,21 @@ pub fn build_im2col<T>(
                     .take(k_w),
             );
         }
+    }
+
+    // Compute max valid X / Y offsets for testing whether an element is in
+    // the padding region or not.
+    let max_y_offset: i32 = ((image.size(1) - 1) * image.stride(1))
+        .try_into()
+        .expect("invalid im2col params");
+    let max_x_offset: i32 = ((image.size(2) - 1) * image.stride(2))
+        .try_into()
+        .expect("invalid im2col params");
+
+    for _ in n_rows..n_rows_padded {
+        row_chan_offsets.push(0);
+        row_x_offsets.push(max_x_offset + 1);
+        row_y_offsets.push(max_y_offset + 1);
     }
 
     // Build lookup table of column index in the virtual im2col matrix to
@@ -86,17 +104,11 @@ pub fn build_im2col<T>(
         col_x_offsets.push(img_x * im_stride_w);
     }
 
-    // Compute max valid X / Y offsets for testing whether an element is in
-    // the padding region or not.
-    let max_y_offset: i32 = ((image.size(1) - 1) * image.stride(1))
-        .try_into()
-        .expect("invalid im2col params");
-    let max_x_offset: i32 = ((image.size(2) - 1) * image.stride(2))
-        .try_into()
-        .expect("invalid im2col params");
-
     Im2Col {
         image,
+        n_rows,
+        n_cols,
+
         row_offsets: RowOffsets {
             chan: row_chan_offsets,
             y: row_y_offsets,
@@ -106,7 +118,6 @@ pub fn build_im2col<T>(
             y: col_y_offsets,
             x: col_x_offsets,
         },
-        n_cols,
 
         max_y_offset,
         max_x_offset,

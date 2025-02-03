@@ -71,6 +71,7 @@ pub trait Simd: Copy + Sized {
     type Array: Copy
         + std::fmt::Debug
         + std::ops::Index<usize, Output = Self::Elem>
+        + std::ops::IndexMut<usize, Output = Self::Elem>
         + AsRef<[Self::Elem]>;
 
     /// Combine elements of `self` and `rhs` according to a mask.

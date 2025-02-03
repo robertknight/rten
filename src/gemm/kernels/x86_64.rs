@@ -483,6 +483,10 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         true
     }
 
+    fn im2col_row_count_step(&self) -> usize {
+        4
+    }
+
     fn packed_a_layout(
         &self,
         _a: Matrix<u8>,
@@ -530,12 +534,25 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
 
     fn pack_im2col(
         &self,
-        _out: &mut [MaybeUninit<u8>],
-        _image: &Im2Col<i8>,
-        _rows: Range<usize>,
-        _cols: Range<usize>,
+        out: &mut [MaybeUninit<u8>],
+        image: &Im2Col<i8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
     ) {
-        unimplemented!("pack_im2col not implemented");
+        #[target_feature(enable = "avx2")]
+        unsafe fn pack_im2col_avx(
+            out: &mut [MaybeUninit<u8>],
+            image: &Im2Col<i8>,
+            rows: Range<usize>,
+            cols: Range<usize>,
+        ) {
+            let out = cast_pod_mut_slice(out).unwrap();
+            image.pack_block_i8_dot::<__m256i>(out, rows, cols);
+        }
+
+        unsafe {
+            pack_im2col_avx(out, image, rows, cols);
+        }
     }
 
     #[target_feature(enable = "avx2")]
@@ -671,6 +688,10 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         !self.have_vnni
     }
 
+    fn im2col_row_count_step(&self) -> usize {
+        4
+    }
+
     fn packed_a_layout(
         &self,
         _a: Matrix<u8>,
@@ -718,12 +739,26 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
 
     fn pack_im2col(
         &self,
-        _out: &mut [MaybeUninit<u8>],
-        _image: &Im2Col<i8>,
-        _rows: Range<usize>,
-        _cols: Range<usize>,
+        out: &mut [MaybeUninit<u8>],
+        image: &Im2Col<i8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
     ) {
-        unimplemented!("pack_im2col not implemented");
+        #[target_feature(enable = "avx512f")]
+        #[target_feature(enable = "avx512bw")]
+        unsafe fn pack_im2col_avx512(
+            out: &mut [MaybeUninit<u8>],
+            image: &Im2Col<i8>,
+            rows: Range<usize>,
+            cols: Range<usize>,
+        ) {
+            let out = cast_pod_mut_slice(out).unwrap();
+            image.pack_block_i8_dot::<__m512i>(out, rows, cols);
+        }
+
+        unsafe {
+            pack_im2col_avx512(out, image, rows, cols);
+        }
     }
 
     #[target_feature(enable = "avx512f")]
