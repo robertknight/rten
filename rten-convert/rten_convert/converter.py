@@ -551,6 +551,13 @@ def read_pads(op_reader: ONNXOperatorReader, attrs: PadAttrs) -> None:
             pads = op_reader.get_attr("pads", "ints", [0, 0, 0, 0])
             if len(pads) not in [2, 4]:
                 raise Exception('"padding" attribute must have 2 or 4 values')
+        case "VALID":
+            # "VALID" means no padding. Map this to fixed padding of zero,
+            # using `kernel_shape` to infer the number of dimensions.
+            auto_pad = sg.AutoPad.NotSet
+            kernel_shape = op_reader.require_attr("kernel_shape", "ints")
+            pads = [0, 0] * len(kernel_shape)
+
         case other:
             raise Exception(f"Unsupported auto_pad value {other}")
 
