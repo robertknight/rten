@@ -261,9 +261,11 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
+        const NR_REGS: usize = vec_count::<v128f>(WasmInt8Kernel::NR);
+
         // Safety: WASM SIMD is supported.
         unsafe {
-            image.pack_block_i8_dot_cast_u8::<v128i>(out, rows, cols);
+            image.pack_block_i8_dot_cast_u8::<v128i, NR_REGS>(out, rows, cols);
         }
     }
 
@@ -291,7 +293,8 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
+        const NR_REGS: usize = vec_count::<v128f>(WasmInt8Kernel::NR);
+        simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
             tile_ptr,
             tile_row_stride,
             a_data,

@@ -384,7 +384,7 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize, con
 }
 
 /// Compute an i32 matrix multiplication tile with maximum size `MR x NR` using
-/// packed blocks of A and B int8 inputs. `NR` must equal `S::LEN`.
+/// packed blocks of A and B int8 inputs. `NR` must equal `NR_REGS * S::LEN`.
 ///
 /// Whether int8 values in `a` and `b` are treated as signed depends on the
 /// `dot_product` function.
@@ -397,7 +397,7 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize, con
 /// initialized and the result will be added to it. If false, the `tile_ptr`
 /// may be uninitialized and will be initialized with the result.
 #[inline(always)]
-pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize>(
+pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const NR_REGS: usize>(
     tile_ptr: *mut i32,
     tile_row_stride: usize,
     a: &[u8],
@@ -412,7 +412,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize>(
     b_col_sums: &[i32; NR],
     dot_product: unsafe fn(S, S, S) -> S,
 ) {
-    assert_eq!(S::LEN, NR);
+    assert_eq!(S::LEN * NR_REGS, NR);
 
     // The value for each element in the output tile is computed as:
     //
@@ -438,61 +438,77 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize>(
     let b_ptr = b.as_ptr();
 
     let n_depth_tiles = depth.div_ceil(4);
-    let b_zero = S::load(b_zero_points.as_ptr());
+    let b_zero: [S; NR_REGS] =
+        std::array::from_fn(|i| S::load(b_zero_points.as_ptr().add(i * S::LEN)));
 
     // Initialize output tile with `k * a_zero_point[row] * b_zero_point[col]`
-    let k_mul_b_zero = S::splat(depth as i32).mul(b_zero);
+    let k_mul_b_zero: [S; NR_REGS] = std::array::from_fn(|i| S::splat(depth as i32).mul(b_zero[i]));
     let mut tmp = [k_mul_b_zero; MR];
     for row in 0..MR {
         let a_zero = S::splat(a_zero_points[row]);
-        tmp[row] = tmp[row].mul(a_zero);
+        for i in 0..NR_REGS {
+            tmp[row][i] = tmp[row][i].mul(a_zero);
+        }
     }
 
     // Loop over K dimension and compute dot product of panel of A with panel of
     // B.
     for k_block in 0..n_depth_tiles {
         // Load `[4, NR]` microtile from B
-        let b_vec = S::load(b_ptr.add(k_block * NR * 4) as *const i32);
+        let b_vec: [S; NR_REGS] = std::array::from_fn(|i| {
+            S::load(b_ptr.add((k_block * NR + i * S::LEN) * 4) as *const i32)
+        });
 
         // Each iteration broadcasts 4x int 8 values from A, computes NR
         // dot products and accumulates into the output tile.
         for row in 0..MR {
             let a_val = *(a_ptr.add(k_block * MR * 4 + row * 4) as *const i32);
             let a_vec = S::splat(a_val);
-            tmp[row] = dot_product(a_vec, b_vec, tmp[row]);
+            for i in 0..NR_REGS {
+                tmp[row][i] = dot_product(a_vec, b_vec[i], tmp[row][i]);
+            }
         }
     }
 
     // Scale zero points by row and column sums and subtract from output tile.
-    let b_col_sums = S::load(b_col_sums.as_ptr());
+    let b_col_sums: [S; NR_REGS] =
+        std::array::from_fn(|i| S::load(b_col_sums.as_ptr().add(i * S::LEN)));
     for row in 0..MR {
         let a_zero = S::splat(a_zero_points[row]);
         let a_sum = S::splat(a_row_sums[row]);
 
-        let a_sum_mul_b_zero = a_sum.mul(b_zero);
-        let b_sum_mul_a_zero = b_col_sums.mul(a_zero);
-        tmp[row] = tmp[row].sub(a_sum_mul_b_zero);
-        tmp[row] = tmp[row].sub(b_sum_mul_a_zero);
+        for i in 0..NR_REGS {
+            let a_sum_mul_b_zero = a_sum.mul(b_zero[i]);
+            let b_sum_mul_a_zero = b_col_sums[i].mul(a_zero);
+            let sum = a_sum_mul_b_zero.add(b_sum_mul_a_zero);
+            tmp[row][i] = tmp[row][i].sub(sum);
+        }
     }
 
     // Write from accumulator in registers back to output.
-    let output_tile_ptr = |row| tile_ptr.add(row * tile_row_stride);
+    let output_tile_ptr = |row, col_block| tile_ptr.add(row * tile_row_stride + col_block * S::LEN);
 
     #[allow(clippy::collapsible_else_if)]
     if !accumulate {
         if used_rows == MR && used_cols == NR {
             // Full output tile
             for row in 0..MR {
-                let tile_ptr = output_tile_ptr(row);
-                tmp[row].store(tile_ptr);
+                for c_block in 0..NR_REGS {
+                    let tile_ptr = output_tile_ptr(row, c_block);
+                    tmp[row][c_block].store(tile_ptr);
+                }
             }
         } else {
             // Partial output tile
             for r in 0..used_rows {
-                let tile_ptr = output_tile_ptr(r);
-                let tmp = tmp[r].to_array();
-                for c in 0..used_cols {
-                    tile_ptr.add(c).write(tmp[c]);
+                for c_block in 0..NR_REGS {
+                    let tile_ptr = output_tile_ptr(r, c_block);
+                    let used_cols = used_cols.saturating_sub(c_block * S::LEN).min(S::LEN);
+                    let tmp = tmp[r][c_block].to_array();
+
+                    for c in 0..used_cols {
+                        tile_ptr.add(c).write(tmp[c]);
+                    }
                 }
             }
         }
@@ -500,17 +516,23 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize>(
         if used_rows == MR && used_cols == NR {
             // Full output tile
             for row in 0..MR {
-                let tile_ptr = output_tile_ptr(row);
-                let out = S::load(tile_ptr).add(tmp[row]);
-                out.store(tile_ptr);
+                for c_block in 0..NR_REGS {
+                    let tile_ptr = output_tile_ptr(row, c_block);
+                    let out = S::load(tile_ptr).add(tmp[row][c_block]);
+                    out.store(tile_ptr);
+                }
             }
         } else {
             // Partial output tile
             for r in 0..used_rows {
-                let tile_ptr = output_tile_ptr(r);
-                let tmp = tmp[r].to_array();
-                for c in 0..used_cols {
-                    *tile_ptr.add(c) += tmp[c];
+                for c_block in 0..NR_REGS {
+                    let tile_ptr = output_tile_ptr(r, c_block);
+                    let used_cols = used_cols.saturating_sub(c_block * S::LEN).min(S::LEN);
+                    let tmp = tmp[r][c_block].to_array();
+
+                    for c in 0..used_cols {
+                        *tile_ptr.add(c) += tmp[c];
+                    }
                 }
             }
         }

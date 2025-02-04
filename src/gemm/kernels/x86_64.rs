@@ -546,8 +546,10 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             rows: Range<usize>,
             cols: Range<usize>,
         ) {
+            const NR_REGS: usize = vec_count::<__m256i>(Avx2Int8Kernel::NR);
+
             let out = cast_pod_mut_slice(out).unwrap();
-            image.pack_block_i8_dot::<__m256i>(out, rows, cols);
+            image.pack_block_i8_dot::<__m256i, NR_REGS>(out, rows, cols);
         }
 
         unsafe {
@@ -580,7 +582,8 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
+        const NR_REGS: usize = vec_count::<__m256i>(Avx2Int8Kernel::NR);
+        simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
             tile_ptr,
             tile_row_stride,
             a_data,
@@ -752,8 +755,10 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             rows: Range<usize>,
             cols: Range<usize>,
         ) {
+            const NR_REGS: usize = vec_count::<__m512i>(Avx512Int8Kernel::NR);
+
             let out = cast_pod_mut_slice(out).unwrap();
-            image.pack_block_i8_dot::<__m512i>(out, rows, cols);
+            image.pack_block_i8_dot::<__m512i, NR_REGS>(out, rows, cols);
         }
 
         unsafe {
@@ -787,8 +792,9 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
+        const NR_REGS: usize = vec_count::<__m512i>(Avx512Int8Kernel::NR);
         if self.have_vnni {
-            simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
+            simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
                 tile_ptr,
                 tile_row_stride,
                 a_data,
@@ -804,7 +810,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
                 avx512_vnni_u8i8i32_dot_product,
             )
         } else {
-            simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
+            simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
                 tile_ptr,
                 tile_row_stride,
                 a_data,

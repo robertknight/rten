@@ -178,7 +178,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
 }
 
 macro_rules! impl_arm_int8_common {
-    () => {
+    ($self_type:ty) => {
         fn mr(&self) -> usize {
             Self::MR
         }
@@ -243,7 +243,8 @@ macro_rules! impl_arm_int8_common {
             cols: Range<usize>,
         ) {
             // Safety: Arm Neon is supported
-            unsafe { image.pack_block_i8_dot_cast_u8::<int32x4_t>(out, rows, cols) }
+            const NR_REGS: usize = vec_count::<int32x4_t>(<$self_type>::NR);
+            unsafe { image.pack_block_i8_dot_cast_u8::<int32x4_t, NR_REGS>(out, rows, cols) }
         }
     };
 }
@@ -256,7 +257,7 @@ pub struct ArmInt8DotKernel {
 
 impl ArmInt8DotKernel {
     const MR: usize = 8;
-    const NR: usize = 4;
+    const NR: usize = 8;
 }
 
 unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
@@ -271,7 +272,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         "arm-int8-udot"
     }
 
-    impl_arm_int8_common!();
+    impl_arm_int8_common!(ArmInt8DotKernel);
 
     #[target_feature(enable = "dotprod")]
     unsafe fn kernel(
@@ -297,7 +298,8 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
+        const NR_REGS: usize = vec_count::<int32x4_t>(ArmInt8DotKernel::NR);
+        simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
             tile_ptr,
             tile_row_stride,
             a_data,
@@ -367,7 +369,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
         "arm-int8"
     }
 
-    impl_arm_int8_common!();
+    impl_arm_int8_common!(ArmInt8Kernel);
 
     unsafe fn kernel(
         &self,
@@ -393,7 +395,8 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        simd_int8_gemm::<_, { Self::MR }, { Self::NR }>(
+        const NR_REGS: usize = vec_count::<int32x4_t>(ArmInt8Kernel::NR);
+        simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
             tile_ptr,
             tile_row_stride,
             a_data,
