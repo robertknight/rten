@@ -344,7 +344,33 @@ impl<'a> From<&'a Output> for Input<'a> {
 pub enum PrepackedInput {
     /// Prepacked RHS / B input for matrix multiplication with f32 weights.
     FloatBMatrix(PackedBMatrix<f32>),
+
+    /// Prepacked RHS / B input for matrix multiplication with i8 weights.
+    Int8BMatrix(PackedBMatrix<i8>),
 }
+
+macro_rules! impl_prepacked_input_conversions {
+    ($type:ty, $variant:ident) => {
+        impl From<PackedBMatrix<$type>> for PrepackedInput {
+            fn from(value: PackedBMatrix<$type>) -> Self {
+                PrepackedInput::$variant(value)
+            }
+        }
+
+        impl<'a> TryFrom<&'a PrepackedInput> for &'a PackedBMatrix<$type> {
+            type Error = OpError;
+
+            fn try_from(ppi: &'a PrepackedInput) -> Result<Self, OpError> {
+                match ppi {
+                    PrepackedInput::$variant(packed) => Ok(packed),
+                    _ => Err(OpError::IncorrectInputType),
+                }
+            }
+        }
+    };
+}
+impl_prepacked_input_conversions!(f32, FloatBMatrix);
+impl_prepacked_input_conversions!(i8, Int8BMatrix);
 
 /// Enum of the different types of output tensor that a model or operator can
 /// return.
