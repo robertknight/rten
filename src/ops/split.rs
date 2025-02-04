@@ -1,7 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
-use crate::ops::{resolve_axis, static_dims, InputList, OpError, Operator, OutputList};
+use crate::ops::{resolve_axis, static_dims, Input, InputList, OpError, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
 
 pub fn split<T: Copy>(
@@ -57,12 +57,23 @@ impl Operator for Split {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as::<f32>(0)?;
+        let input = inputs.require(0)?;
         let splits = inputs.require_as::<i32>(1)?;
         let splits = static_dims!(splits, 1)?;
 
-        split(pool, input, self.axis, &splits)
-            .map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
+        macro_rules! split {
+            ($x:ident) => {
+                split(pool, $x, self.axis, &splits)
+                    .map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
+            };
+        }
+
+        match input {
+            Input::FloatTensor(x) => split!(x),
+            Input::Int32Tensor(x) => split!(x),
+            Input::Int8Tensor(x) => split!(x),
+            Input::UInt8Tensor(x) => split!(x),
+        }
     }
 }
 
