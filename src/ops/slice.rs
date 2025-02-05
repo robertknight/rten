@@ -4,8 +4,8 @@ use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::ops::{
-    resolve_axis, static_dims, Input, InputList, IntoOpResult, OpError, Operator, Output,
-    OutputList,
+    map_input, map_output, resolve_axis, static_dims, Input, InputList, IntoOpResult, OpError,
+    Operator, Output, OutputList,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -105,20 +105,9 @@ impl Operator for Slice {
             .map(|steps| static_dims!(steps, 1))
             .transpose()?;
 
-        let result: Result<Output, OpError> = match input {
-            Input::FloatTensor(input) => {
-                slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
-            }
-            Input::Int32Tensor(input) => {
-                slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
-            }
-            Input::Int8Tensor(input) => {
-                slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
-            }
-            Input::UInt8Tensor(input) => {
-                slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
-            }
-        };
+        let result: Result<Output, OpError> = map_input!(input, x, {
+            slice(pool, x, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
+        });
         result.into_op_result()
     }
 
@@ -164,24 +153,10 @@ impl Operator for Slice {
             }
         }
 
-        match input {
-            Output::Int32Tensor(mut output) => {
-                slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
-                Ok(output.into())
-            }
-            Output::FloatTensor(mut output) => {
-                slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
-                Ok(output.into())
-            }
-            Output::Int8Tensor(mut output) => {
-                slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
-                Ok(output.into())
-            }
-            Output::UInt8Tensor(mut output) => {
-                slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
-                Ok(output.into())
-            }
-        }
+        map_output!(input, output, {
+            slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
+            Ok(output.into())
+        })
     }
 }
 
