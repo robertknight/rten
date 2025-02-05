@@ -87,6 +87,11 @@
 //! The `tools/ort-quantize.py` script in the RTen repository can be used to
 //! quantize an existing model with float tensors into this format.
 //!
+//! See the [quantization
+//! guide](https://github.com/robertknight/rten/blob/main/docs/quantization.md)
+//! for a tutorial on how to quantize models and more information about
+//! quantization in ONNX and the nuances of quantization support in RTen.
+//!
 //! # Inspecting models
 //!
 //! The [rten-cli](https://crates.io/crates/rten-cli) tool can be used to query
