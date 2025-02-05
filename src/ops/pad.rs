@@ -1,7 +1,9 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
-use crate::ops::{static_dims, Input, InputList, IntoOpResult, OpError, Operator, OutputList};
+use crate::ops::{
+    map_input, static_dims, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
+};
 use crate::tensor_pool::TensorPool;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -187,24 +189,10 @@ impl Operator for Pad {
             ));
         }
 
-        match input {
-            Input::Int32Tensor(t) => {
-                let const_val = inputs.get_as_scalar::<i32>(2)?.unwrap_or(0);
-                pad(pool, t, &pads, self.mode, const_val).into_op_result()
-            }
-            Input::Int8Tensor(t) => {
-                let const_val = inputs.get_as_scalar::<i8>(2)?.unwrap_or(0);
-                pad(pool, t, &pads, self.mode, const_val).into_op_result()
-            }
-            Input::UInt8Tensor(t) => {
-                let const_val = inputs.get_as_scalar::<u8>(2)?.unwrap_or(0);
-                pad(pool, t, &pads, self.mode, const_val).into_op_result()
-            }
-            Input::FloatTensor(t) => {
-                let const_val = inputs.get_as_scalar::<f32>(2)?.unwrap_or(0.);
-                pad(pool, t, &pads, self.mode, const_val).into_op_result()
-            }
-        }
+        map_input!(input, x, {
+            let const_val = inputs.get_as_scalar(2)?.unwrap_or_default();
+            pad(pool, x, &pads, self.mode, const_val).into_op_result()
+        })
     }
 }
 

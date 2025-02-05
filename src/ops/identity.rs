@@ -1,7 +1,9 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
+use crate::ops::{
+    map_input, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+};
 use crate::tensor_pool::TensorPool;
 
 fn identity<T: Copy>(pool: &TensorPool, src: TensorView<T>) -> Tensor<T> {
@@ -18,12 +20,7 @@ impl Operator for Identity {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
-        let result: Output = match input {
-            Input::Int32Tensor(t) => identity(pool, t).into(),
-            Input::FloatTensor(t) => identity(pool, t).into(),
-            _ => return Err(OpError::UnsupportedType),
-        };
-        result.into_op_result()
+        map_input!(input, x, { identity(pool, x).into_op_result() })
     }
 
     fn can_run_in_place(&self) -> bool {

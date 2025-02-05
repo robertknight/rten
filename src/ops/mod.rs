@@ -1077,6 +1077,40 @@ pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
     Ok(resolved_axes)
 }
 
+/// Extract the typed tensor view from `$input` and pass it to `$block`, using
+/// the variable name specified by `$typed_input`.
+macro_rules! map_input {
+    ($input:expr, $typed_input:ident, $block:tt) => {
+        match $input {
+            Input::FloatTensor($typed_input) => $block,
+            Input::Int32Tensor($typed_input) => $block,
+            Input::UInt8Tensor($typed_input) => $block,
+            Input::Int8Tensor($typed_input) => $block,
+        }
+    };
+}
+
+use map_input;
+
+/// Extract the typed owned tensor from `$input` and pass it to `$block` as
+/// mutable value, using the variable name specified by `$typed_input`.
+macro_rules! map_output {
+    ($input:expr, $typed_input:ident, $block:tt) => {
+        match $input {
+            #[allow(unused_mut)]
+            Output::FloatTensor(mut $typed_input) => $block,
+            #[allow(unused_mut)]
+            Output::Int32Tensor(mut $typed_input) => $block,
+            #[allow(unused_mut)]
+            Output::UInt8Tensor(mut $typed_input) => $block,
+            #[allow(unused_mut)]
+            Output::Int8Tensor(mut $typed_input) => $block,
+        }
+    };
+}
+
+use map_output;
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;

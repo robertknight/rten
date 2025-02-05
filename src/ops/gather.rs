@@ -8,7 +8,8 @@ use smallvec::SmallVec;
 use crate::number::IsNaN;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
-    resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
+    map_input, resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator,
+    OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -136,12 +137,10 @@ impl Operator for Gather {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
-        match input {
-            Input::Int32Tensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
-            Input::FloatTensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
-            Input::UInt8Tensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
-            Input::Int8Tensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
-        }
+
+        map_input!(input, x, {
+            gather(pool, x, self.axis, indices).into_op_result()
+        })
     }
 }
 
@@ -281,20 +280,10 @@ impl Operator for GatherElements {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
-        match input {
-            Input::Int32Tensor(input) => {
-                gather_elements(pool, input, indices, self.axis).into_op_result()
-            }
-            Input::FloatTensor(input) => {
-                gather_elements(pool, input, indices, self.axis).into_op_result()
-            }
-            Input::Int8Tensor(input) => {
-                gather_elements(pool, input, indices, self.axis).into_op_result()
-            }
-            Input::UInt8Tensor(input) => {
-                gather_elements(pool, input, indices, self.axis).into_op_result()
-            }
-        }
+
+        map_input!(input, x, {
+            gather_elements(pool, x, indices, self.axis).into_op_result()
+        })
     }
 }
 
@@ -408,20 +397,10 @@ impl Operator for GatherND {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
-        match input {
-            Input::Int32Tensor(input) => {
-                gather_nd(pool, input, indices, self.batch_dims).into_op_result()
-            }
-            Input::FloatTensor(input) => {
-                gather_nd(pool, input, indices, self.batch_dims).into_op_result()
-            }
-            Input::Int8Tensor(input) => {
-                gather_nd(pool, input, indices, self.batch_dims).into_op_result()
-            }
-            Input::UInt8Tensor(input) => {
-                gather_nd(pool, input, indices, self.batch_dims).into_op_result()
-            }
-        }
+
+        map_input!(input, x, {
+            gather_nd(pool, x, indices, self.batch_dims).into_op_result()
+        })
     }
 }
 
@@ -526,27 +505,11 @@ impl Operator for ScatterElements {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let data = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
-        let updates = inputs.require(2)?;
 
-        match (data, updates) {
-            (Input::Int32Tensor(data), Input::Int32Tensor(updates)) => {
-                scatter_elements(pool, data, indices, updates, self.axis, self.reduction)
-                    .into_op_result()
-            }
-            (Input::FloatTensor(data), Input::FloatTensor(updates)) => {
-                scatter_elements(pool, data, indices, updates, self.axis, self.reduction)
-                    .into_op_result()
-            }
-            (Input::Int8Tensor(data), Input::Int8Tensor(updates)) => {
-                scatter_elements(pool, data, indices, updates, self.axis, self.reduction)
-                    .into_op_result()
-            }
-            (Input::UInt8Tensor(data), Input::UInt8Tensor(updates)) => {
-                scatter_elements(pool, data, indices, updates, self.axis, self.reduction)
-                    .into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(data, x, {
+            let updates = inputs.require_as(2)?;
+            scatter_elements(pool, x, indices, updates, self.axis, self.reduction).into_op_result()
+        })
     }
 }
 
@@ -632,23 +595,11 @@ impl Operator for ScatterND {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let data = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
-        let updates = inputs.require(2)?;
 
-        match (data, updates) {
-            (Input::Int32Tensor(data), Input::Int32Tensor(updates)) => {
-                scatter_nd(pool, data, indices, updates, self.reduction).into_op_result()
-            }
-            (Input::FloatTensor(data), Input::FloatTensor(updates)) => {
-                scatter_nd(pool, data, indices, updates, self.reduction).into_op_result()
-            }
-            (Input::Int8Tensor(data), Input::Int8Tensor(updates)) => {
-                scatter_nd(pool, data, indices, updates, self.reduction).into_op_result()
-            }
-            (Input::UInt8Tensor(data), Input::UInt8Tensor(updates)) => {
-                scatter_nd(pool, data, indices, updates, self.reduction).into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(data, x, {
+            let updates = inputs.require_as(2)?;
+            scatter_nd(pool, x, indices, updates, self.reduction).into_op_result()
+        })
     }
 }
 
