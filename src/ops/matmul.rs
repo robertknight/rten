@@ -460,13 +460,18 @@ pub fn zero_point_to_vec<T>(
     }
 }
 
-pub fn matmul_integer(
+pub fn matmul_integer<LhsT, RhsT>(
     pool: &TensorPool,
-    a: TensorView<u8>,
-    b: TensorView<i8>,
-    a_zero_point: Option<TensorView<u8>>,
-    b_zero_point: Option<TensorView<i8>>,
-) -> Result<Tensor<i32>, OpError> {
+    a: TensorView<LhsT>,
+    b: TensorView<RhsT>,
+    a_zero_point: Option<TensorView<LhsT>>,
+    b_zero_point: Option<TensorView<RhsT>>,
+) -> Result<Tensor<i32>, OpError>
+where
+    LhsT: GemmInT,
+    RhsT: GemmInT,
+    GemmExecutor<LhsT, RhsT, i32>: Default,
+{
     if a.ndim() < 2 || b.ndim() < 2 {
         return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
     }
@@ -505,11 +510,27 @@ impl Operator for MatMulInteger {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let a = inputs.require_as(0)?;
-        let b = inputs.require_as(1)?;
-        let a_zero_point = inputs.get_as(2)?;
-        let b_zero_point = inputs.get_as(3)?;
-        matmul_integer(pool, a, b, a_zero_point, b_zero_point).into_op_result()
+        let a = inputs.require(0)?;
+        let b = inputs.require(1)?;
+
+        macro_rules! matmul_integer {
+            ($a:expr, $b:expr) => {{
+                let a_zero_point = inputs.get_as(2)?;
+                let b_zero_point = inputs.get_as(3)?;
+                matmul_integer(pool, $a, $b, a_zero_point, b_zero_point).into_op_result()
+            }};
+        }
+
+        match (a, b) {
+            (Input::UInt8Tensor(a), Input::Int8Tensor(b)) => matmul_integer!(a, b),
+
+            // GEMM doesn't support other int8 signed-ness combinations yet.
+            (Input::Int8Tensor(_), Input::Int8Tensor(_)) => Err(OpError::UnsupportedType),
+            (Input::Int8Tensor(_), Input::UInt8Tensor(_)) => Err(OpError::UnsupportedType),
+            (Input::UInt8Tensor(_), Input::UInt8Tensor(_)) => Err(OpError::UnsupportedType),
+
+            _ => Err(OpError::IncorrectInputType),
+        }
     }
 }
 
@@ -624,12 +645,15 @@ mod tests {
         }
     }
 
-    fn reference_matmul_integer(
-        a: TensorView<u8>,
-        b: TensorView<i8>,
-        a_zero_point: Option<TensorView<u8>>,
-        b_zero_point: Option<TensorView<i8>>,
-    ) -> Tensor<i32> {
+    fn reference_matmul_integer<LhsT: Copy + Default, RhsT: Copy + Default>(
+        a: TensorView<LhsT>,
+        b: TensorView<RhsT>,
+        a_zero_point: Option<TensorView<LhsT>>,
+        b_zero_point: Option<TensorView<RhsT>>,
+    ) -> Tensor<i32>
+    where
+        i32: From<LhsT> + From<RhsT>,
+    {
         let a_batch_dims = a.ndim() - 2;
         let b_batch_dims = b.ndim() - 2;
 
@@ -658,13 +682,15 @@ mod tests {
                 let depth = a.size(1);
 
                 for i in 0..n_rows {
-                    let row_zero_point = a_zero_point.map(|zp| zp[i]).unwrap_or(0) as i32;
+                    let row_zero_point =
+                        i32::from(a_zero_point.map(|zp| zp[i]).unwrap_or_default());
                     for j in 0..n_cols {
-                        let col_zero_point = b_zero_point.map(|zp| zp[j]).unwrap_or(0) as i32;
+                        let col_zero_point =
+                            i32::from(b_zero_point.map(|zp| zp[j]).unwrap_or_default());
                         let mut y = 0;
                         for k in 0..depth {
-                            let a_el = (a[[i, k]] as i32) - row_zero_point;
-                            let b_el = (b[[k, j]] as i32) - col_zero_point;
+                            let a_el = i32::from(a[[i, k]]) - row_zero_point;
+                            let b_el = i32::from(b[[k, j]]) - col_zero_point;
                             y += a_el * b_el;
                         }
                         c[[i, j]] = y;
