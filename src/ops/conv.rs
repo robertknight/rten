@@ -435,21 +435,29 @@ where
         if gemm.may_saturate() {
             // If we are on a platform (x64 without VNNI) where int8 GEMM can
             // encounter i16 saturation then we need to make sure the u8 weights
-            // lie within the safe range ([0, 127]).
+            // lie within the `u7` safe range ([0, 127]).
             //
-            // We assume that the model was converted with `reduce_range` enabled
+            // To avoid the saturation hazard, the model should be converted with `reduce_range`
+            // enabled
             // (https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html#when-and-why-do-i-need-to-try-u8u8).
+            // Then the weights will be in `[-64, 63]` and we can shift them to
+            // the safe range by adding 64.
             //
-            // If the weights were already in u8, we assume they are already in the safe
-            // range. If they were in i8 we assume they were in the i8 safe range `[-64,
-            // 63]`. After adding 128, they will be in `[64, 191]` which is outside the
-            // `[0, 127]` safe range. Therefore we subtract 64 to bring both back into
-            // the safe range.
+            // To handle the case where the weights are outside this range, we
+            // shift by the minimum amount needed to avoid underflow when
+            // converting i8 -> i16 -> u8. Saturation may then occur, but we
+            // limit the amount and that's better than underflow.
+            let kernel_min: i16 = kernel
+                .iter()
+                .copied()
+                .fold(0i16, |acc, x| acc.min(x.into()));
+            let shift = -kernel_min;
+
             let kernel: Tensor<u8> =
-                kernel.map_in(pool, |w| (<W as Into<i16>>::into(*w) + 64i16) as u8);
+                kernel.map_in(pool, |w| (<W as Into<i16>>::into(*w) + shift) as u8);
             let kernel_zero: Vec<u8> = kernel_zero
                 .into_iter()
-                .map(|w| (w.into() + 64i16) as u8)
+                .map(|w| (w.into() + shift) as u8)
                 .collect();
             (kernel.into_cow(), kernel_zero)
         } else {
