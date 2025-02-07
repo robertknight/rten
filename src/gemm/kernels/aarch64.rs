@@ -357,7 +357,7 @@ pub struct ArmInt8Kernel {
 
 impl ArmInt8Kernel {
     const MR: usize = 8;
-    const NR: usize = 4;
+    const NR: usize = 8;
 }
 
 unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
