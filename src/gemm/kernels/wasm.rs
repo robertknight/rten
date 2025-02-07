@@ -186,7 +186,7 @@ pub struct WasmInt8Kernel {
 
 impl WasmInt8Kernel {
     const MR: usize = 8;
-    const NR: usize = 4;
+    const NR: usize = 8;
 }
 
 unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
