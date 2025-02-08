@@ -357,6 +357,17 @@ pub enum Output {
 }
 
 impl Output {
+    /// Return the data type of elements in this tensor.
+    pub fn dtype(&self) -> DataType {
+        match self {
+            Self::FloatTensor(_) => DataType::Float,
+            Self::Int32Tensor(_) => DataType::Int32,
+            Self::Int8Tensor(_) => DataType::Int8,
+            Self::UInt8Tensor(_) => DataType::UInt8,
+        }
+    }
+
+    /// Return a borrowed view of this tensor.
     pub fn as_input(&self) -> Input {
         match self {
             Self::FloatTensor(ft) => Input::FloatTensor(ft.view()),

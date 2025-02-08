@@ -4,32 +4,44 @@ use crate::ops::{DataType, Input, InputList, IntoOpResult, OpError, Operator, Ou
 use crate::tensor_pool::TensorPool;
 
 fn cast(pool: &TensorPool, input: Input, dtype: DataType) -> Result<Output, OpError> {
-    match dtype {
+    macro_rules! cast_as {
+        ($x:ident) => {
+            $x.to_tensor_in(pool).into()
+        };
+
+        ($x:ident, $dest_ty:ty) => {
+            $x.map_in(pool, |x| *x as $dest_ty).into()
+        };
+    }
+
+    let result: Output = match dtype {
         DataType::Int32 => match input {
-            Input::Int32Tensor(t) => Ok(t.to_tensor_in(pool).into()),
-            Input::FloatTensor(t) => Ok(t.map_in(pool, |x| *x as i32).into()),
-            Input::Int8Tensor(t) => Ok(t.map_in(pool, |x| *x as i32).into()),
-            Input::UInt8Tensor(t) => Ok(t.map_in(pool, |x| *x as i32).into()),
+            Input::Int32Tensor(t) => cast_as!(t),
+            Input::FloatTensor(t) => cast_as!(t, i32),
+            Input::Int8Tensor(t) => cast_as!(t, i32),
+            Input::UInt8Tensor(t) => cast_as!(t, i32),
         },
         DataType::Float => match input {
-            Input::FloatTensor(t) => Ok(t.to_tensor_in(pool).into()),
-            Input::Int32Tensor(t) => Ok(t.map_in(pool, |x| *x as f32).into()),
-            Input::Int8Tensor(t) => Ok(t.map_in(pool, |x| *x as f32).into()),
-            Input::UInt8Tensor(t) => Ok(t.map_in(pool, |x| *x as f32).into()),
+            Input::FloatTensor(t) => cast_as!(t),
+            Input::Int32Tensor(t) => cast_as!(t, f32),
+            Input::Int8Tensor(t) => cast_as!(t, f32),
+            Input::UInt8Tensor(t) => cast_as!(t, f32),
         },
         DataType::Int8 => match input {
-            Input::FloatTensor(t) => Ok(t.map_in(pool, |x| *x as i8).into()),
-            Input::Int32Tensor(t) => Ok(t.map_in(pool, |x| *x as i8).into()),
-            Input::Int8Tensor(t) => Ok(t.to_tensor_in(pool).into()),
-            Input::UInt8Tensor(t) => Ok(t.map_in(pool, |x| *x as i8).into()),
+            Input::Int8Tensor(t) => cast_as!(t),
+            Input::FloatTensor(t) => cast_as!(t, i8),
+            Input::Int32Tensor(t) => cast_as!(t, i8),
+            Input::UInt8Tensor(t) => cast_as!(t, i8),
         },
         DataType::UInt8 => match input {
-            Input::FloatTensor(t) => Ok(t.map_in(pool, |x| *x as u8).into()),
-            Input::Int32Tensor(t) => Ok(t.map_in(pool, |x| *x as u8).into()),
-            Input::Int8Tensor(t) => Ok(t.map_in(pool, |x| *x as u8).into()),
-            Input::UInt8Tensor(t) => Ok(t.to_tensor_in(pool).into()),
+            Input::UInt8Tensor(t) => cast_as!(t),
+            Input::FloatTensor(t) => cast_as!(t, u8),
+            Input::Int32Tensor(t) => cast_as!(t, u8),
+            Input::Int8Tensor(t) => cast_as!(t, u8),
         },
-    }
+    };
+
+    Ok(result)
 }
 
 #[derive(Debug)]
@@ -57,16 +69,12 @@ impl Operator for Cast {
         input: Output,
         _: InputList,
     ) -> Result<Output, OpError> {
-        match (input, self.to) {
-            (Output::Int32Tensor(t), DataType::Int32) => Ok(t.into()),
-            (Output::FloatTensor(t), DataType::Float) => Ok(t.into()),
-            (Output::Int8Tensor(t), DataType::Int8) => Ok(t.into()),
-            (Output::UInt8Tensor(t), DataType::UInt8) => Ok(t.into()),
-            (input, _) => {
-                let converted = cast(pool, input.as_input(), self.to)?;
-                input.add_to_pool(pool);
-                Ok(converted)
-            }
+        if input.dtype() == self.to {
+            Ok(input)
+        } else {
+            let converted = cast(pool, input.as_input(), self.to)?;
+            input.add_to_pool(pool);
+            Ok(converted)
         }
     }
 }
