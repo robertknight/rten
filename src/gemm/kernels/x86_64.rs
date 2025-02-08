@@ -456,9 +456,8 @@ pub struct Avx2Int8Kernel {
 }
 
 impl Avx2Int8Kernel {
-    // Tile size matches AVX2 register
-    const MR: usize = 8;
-    const NR: usize = 8;
+    const MR: usize = 6;
+    const NR: usize = 16;
 }
 
 unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
@@ -661,8 +660,7 @@ pub struct Avx512Int8Kernel {
 #[cfg(feature = "avx512")]
 impl Avx512Int8Kernel {
     const MR: usize = 8;
-    // Tile size matches AVX-512 register
-    const NR: usize = 16;
+    const NR: usize = 32;
 }
 
 #[cfg(feature = "avx512")]
