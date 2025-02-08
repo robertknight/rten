@@ -7,7 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+This release adds support for running models that have been quantized to int8,
+taking advantage of dot product CPU instructions if available.
+A guide to quantization support in RTen has been added in `docs/quantization.md`.
+The `tools/ort-quantize.py` script in the rten repository has been updated to
+provide an easy way to quantize ONNX models with recommended settings.
+
+Further optimizations for quantized model inference will come in future releases.
+
 ### rten
+
+- Added a guide to quantization support in RTen (https://github.com/robertknight/rten/pull/584)
+
+- Support `axis` equal to input rank in `Flatten` operator (https://github.com/robertknight/rten/pull/577)
+
+- Support all tensor types in `Split` operator (https://github.com/robertknight/rten/pull/576)
+
+- Support `auto_pad=VALID` in `Conv` and other operators (https://github.com/robertknight/rten/pull/575)
+
+- Support `ConvInteger` operator (https://github.com/robertknight/rten/pull/566,
+  https://github.com/robertknight/rten/pull/570)
+
+- Set default thread count on macOS to match performance core count rather than
+  total core count (https://github.com/robertknight/rten/pull/552)
+
+- `ort-quantize.py` now avoids quantizing `Conv` operators by default to work
+  around an issue in ONNX Runtime. If the produced model does not need to be
+  compatible with ORT, quantization can be enabled using `--quantize-conv`
+  (https://github.com/robertknight/rten/pull/550,
+  https://github.com/robertknight/rten/pull/566)
 
 - Support models with subgraphs in `tools/ort-quantize.py` script and adjust
   configuration so that it produces usable results with more models
@@ -32,11 +60,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed panic in `Conv` operator if group count is zero (https://github.com/robertknight/rten/pull/523)
 
-- Support `MatMulInteger` operators where zero point is a vector (https://github.com/robertknight/rten/pull/521)
+- Support `MatMulInteger` operators where zero point is a vector (https://github.com/robertknight/rten/pull/521,
+  https://github.com/robertknight/rten/pull/572)
 
 ### rten-examples
 
 - Added ModernBERT masked word prediction example (https://github.com/robertknight/rten/pull/520)
+
+### rten-tensor
+
+- Added `CowTensor` and `CowNdTensor` type aliases for tensors which can be
+  either owned or borrowed (https://github.com/robertknight/rten/pull/568)
 
 ## [0.15.1] - 2025-01-06
 
