@@ -129,6 +129,9 @@ parallelism or other factors.
 
 Some ways to speed up inference without changing RTen's code are:
 
+- Quantize the model to int8. This reduces memory bandwidth usage (especially
+  important for larger models) and allows the use of hardware instructions
+  that accelerate int8 dot products and matrix multiplication.
 - If choosing from a family of models with different sizes, you can trade
   accuracy for performance by using a smaller model.
 - If you can break your problem up into chunks, use
