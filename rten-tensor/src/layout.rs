@@ -458,7 +458,9 @@ impl<const N: usize> NdLayout<N> {
     pub fn broadcast<const M: usize>(&self, to_shape: [usize; M]) -> NdLayout<M> {
         assert!(
             self.can_broadcast_to(&to_shape),
-            "Cannot broadcast to specified shape"
+            "cannot broadcast {:?} to {:?}",
+            self.shape(),
+            to_shape,
         );
         let mut strides = [0usize; M];
         for (i, stride) in broadcast_strides(&self.shape(), &self.strides(), &to_shape).enumerate()
@@ -698,7 +700,9 @@ impl DynLayout {
     pub fn broadcast(&self, to_shape: &[usize]) -> DynLayout {
         assert!(
             self.can_broadcast_to(to_shape),
-            "Cannot broadcast to specified shape"
+            "cannot broadcast shape {:?} to {:?}",
+            self.shape(),
+            to_shape
         );
 
         let mut shape_and_strides = SmallVec::with_capacity(to_shape.len() * 2);
