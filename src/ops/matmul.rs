@@ -131,11 +131,18 @@ enum MatmulStrategy {
     Batch,
 }
 
-fn matmul_prepack_b(input: Input) -> Option<PrepackedInput> {
+fn matmul_prepack_b<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
+    input: Input,
+) -> Option<PrepackedInput>
+where
+    GemmExecutor<LhsT, RhsT, OutT>: Default,
+    PrepackedInput: From<PackedBMatrix<RhsT>>,
+    for<'a> TensorView<'a, RhsT>: TryFrom<Input<'a>>,
+{
     let executor = GemmExecutor::default();
-    let tensor: TensorView<f32> = input.try_into().ok()?;
-    let matrix: Matrix<f32> = tensor.try_into().ok()?;
-    Some(PrepackedInput::FloatBMatrix(executor.prepack_b(matrix)))
+    let tensor: TensorView<RhsT> = input.try_into().ok()?;
+    let matrix: Matrix<RhsT> = tensor.try_into().ok()?;
+    Some(executor.prepack_b(matrix).into())
 }
 
 pub fn matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
@@ -362,7 +369,7 @@ impl Operator for MatMul {
 
     fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
         if index == 1 {
-            matmul_prepack_b(input)
+            matmul_prepack_b::<f32, f32, f32>(input)
         } else {
             None
         }
@@ -429,7 +436,7 @@ impl Operator for FusedMatMul {
 
     fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
         if index == 1 {
-            matmul_prepack_b(input)
+            matmul_prepack_b::<f32, f32, f32>(input)
         } else {
             None
         }
@@ -466,6 +473,7 @@ pub fn matmul_integer<LhsT, RhsT>(
     b: TensorView<RhsT>,
     a_zero_point: Option<TensorView<LhsT>>,
     b_zero_point: Option<TensorView<RhsT>>,
+    packed_b: Option<&PackedBMatrix<RhsT>>,
 ) -> Result<Tensor<i32>, OpError>
 where
     LhsT: GemmInT,
@@ -497,7 +505,7 @@ where
         pool,
         a,
         b,
-        None,
+        packed_b,
         MatmulStrategy::Auto,
         None,
         None,
@@ -522,7 +530,10 @@ impl Operator for MatMulInteger {
             ($a:expr, $b:expr) => {{
                 let a_zero_point = inputs.get_as(2)?;
                 let b_zero_point = inputs.get_as(3)?;
-                matmul_integer(pool, $a, $b, a_zero_point, b_zero_point).into_op_result()
+                let packed_b = inputs
+                    .get_prepacked(1)
+                    .and_then(|packed| packed.try_into().ok());
+                matmul_integer(pool, $a, $b, a_zero_point, b_zero_point, packed_b).into_op_result()
             }};
         }
 
@@ -535,6 +546,18 @@ impl Operator for MatMulInteger {
             (Input::UInt8Tensor(_), Input::UInt8Tensor(_)) => Err(OpError::UnsupportedType),
 
             _ => Err(OpError::IncorrectInputType),
+        }
+    }
+
+    fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
+        [1].into()
+    }
+
+    fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
+        if index == 1 {
+            matmul_prepack_b::<u8, i8, i32>(input)
+        } else {
+            None
         }
     }
 }
@@ -559,7 +582,7 @@ mod tests {
 
     use super::{
         gemm_op, matmul, matmul_fused, matmul_impl, matmul_integer, FusedMatMul, MatMul,
-        MatmulStrategy, OpError,
+        MatMulInteger, MatmulStrategy, OpError,
     };
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -1190,6 +1213,7 @@ mod tests {
                 b.view(),
                 a_zero_point.as_ref().map(|zp| zp.view()),
                 b_zero_point.as_ref().map(|zp| zp.view()),
+                None,
             );
 
             match (result, expected_err) {
@@ -1210,6 +1234,40 @@ mod tests {
                 }
             }
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_matmul_integer_with_prepacked_inputs() -> Result<(), Box<dyn Error>> {
+        let mut rng = XorShiftRng::new(1234);
+        let op = MatMulInteger {};
+
+        let a = Tensor::<u8>::rand(&[5, 10], &mut rng);
+
+        // The unpacked and pre-packed versions of an input should use the
+        // same data. Here we intentionally use different tensors with
+        // the same shape so we can verify if the packed data was used.
+        let b = Tensor::<i8>::rand(&[10, 3], &mut rng);
+        let packed_b_input = Tensor::<i8>::rand(&[10, 3], &mut rng);
+        let packed_b = op.prepack(1, packed_b_input.view().into()).unwrap();
+
+        let expected = reference_matmul(a.view(), packed_b_input.view(), MatMulOpts::default());
+
+        let pool = new_pool();
+        let get_prepacked = |idx| {
+            if idx == 1 {
+                Some(&packed_b)
+            } else {
+                None
+            }
+        };
+        let inputs =
+            InputList::from(&[a.view().into(), b.view().into()]).with_prepacked(&get_prepacked);
+        let mut result = op.run(&pool, inputs).unwrap();
+        let result: Tensor<i32> = result.remove(0).try_into().unwrap();
+
+        expect_equal(&result, &expected)?;
 
         Ok(())
     }
