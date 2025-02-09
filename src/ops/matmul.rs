@@ -472,11 +472,16 @@ where
     RhsT: GemmInT,
     GemmExecutor<LhsT, RhsT, i32>: Default,
 {
-    if a.ndim() < 2 || b.ndim() < 2 {
-        return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
-    }
-    let a_rows = a.size(a.ndim() - 2);
-    let b_cols = b.size(b.ndim() - 1);
+    let a_rows = if a.ndim() > 1 {
+        a.size(a.ndim() - 2)
+    } else {
+        1
+    };
+    let b_cols = if b.ndim() > 1 {
+        b.size(b.ndim() - 1)
+    } else {
+        1
+    };
 
     let a_zero = zero_point_to_vec(a_zero_point, a_rows)?.map(|zp| zp.to_contiguous());
     let a_quant = a_zero.as_ref().map(|zp| QuantParams {
@@ -1075,12 +1080,28 @@ mod tests {
                 b_zero_point: Some(Tensor::from([3, 4])),
                 expected_err: None,
             },
-            // An input which is a row vector
+            // LHS input has one row
             Case {
                 a: Tensor::from([[1, 2, 3, 4]]),
                 b: Tensor::from([[5, 6], [7, 8], [9, 10], [11, 12]]),
                 a_zero_point: Some(Tensor::from([1])),
                 b_zero_point: Some(Tensor::from([3, 4])),
+                expected_err: None,
+            },
+            // LHS is a vector
+            Case {
+                a: Tensor::from([1, 2]),
+                b: Tensor::from([[1, 2], [3, 4]]),
+                a_zero_point: Some(Tensor::from([1])),
+                b_zero_point: Some(Tensor::from([2, 3])),
+                expected_err: None,
+            },
+            // RHS is a vector
+            Case {
+                a: Tensor::from([[1, 2], [3, 4]]),
+                b: Tensor::from([1, 2]),
+                a_zero_point: Some(Tensor::from([1, 2])),
+                b_zero_point: Some(Tensor::from([3])),
                 expected_err: None,
             },
             // Incorrect zero point size
@@ -1118,7 +1139,7 @@ mod tests {
                 b_zero_point: None,
                 expected_err: None,
             },
-            // Mismatched shapes
+            // K dim mismatch between LHS and RHS
             Case {
                 a: Tensor::zeros(&[1, 2]),
                 b: Tensor::zeros(&[3, 1]),
@@ -1128,19 +1149,21 @@ mod tests {
                     "Columns of first matrix does not match rows of second matrix",
                 )),
             },
+            // LHS is a scalar
             Case {
-                a: Tensor::zeros(&[1]),
+                a: Tensor::zeros(&[]),
                 b: Tensor::zeros(&[3, 1]),
                 a_zero_point: None,
                 b_zero_point: None,
-                expected_err: Some(OpError::InvalidValue("Inputs must have >= 2 dimensions")),
+                expected_err: Some(OpError::InvalidValue("Inputs must have >= 1 dimensions")),
             },
+            // RHS is a scalar
             Case {
                 a: Tensor::zeros(&[1, 2]),
-                b: Tensor::zeros(&[1]),
+                b: Tensor::zeros(&[]),
                 a_zero_point: None,
                 b_zero_point: None,
-                expected_err: Some(OpError::InvalidValue("Inputs must have >= 2 dimensions")),
+                expected_err: Some(OpError::InvalidValue("Inputs must have >= 1 dimensions")),
             },
             Case {
                 a: Tensor::zeros(&[2, 2, 2]),
