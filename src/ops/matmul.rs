@@ -542,9 +542,11 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{Tensor, TensorView, TensorViewMut};
+    use rten_tensor::{Tensor, TensorView};
 
-    use crate::gemm::{BiasVector, GemmExecutor, GemmInputA, GemmInputB};
+    use crate::gemm::{
+        BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams,
+    };
     use crate::ops::binary_elementwise::broadcast_shapes;
     use crate::ops::tests::new_pool;
     use crate::ops::{InputList, Operator};
@@ -573,16 +575,30 @@ mod tests {
             .unwrap()
     }
 
-    /// Multiply matrices in `a` by corresponding matrices in `b` and write to
-    /// `c`. The shapes of `a` and `b` are broadcast so that their first N-2
-    /// dims match `c`.
-    fn reference_matmul(
-        mut c: TensorViewMut,
-        mut a: TensorView,
-        mut b: TensorView,
-        bias: Option<BiasVector<f32>>,
+    #[derive(Default)]
+    struct MatMulOpts<'a, LhsT, RhsT, OutT> {
+        bias: Option<BiasVector<'a, OutT>>,
         alpha: Option<f32>,
-    ) {
+        a_zero: Option<TensorView<'a, LhsT>>,
+        b_zero: Option<TensorView<'a, RhsT>>,
+    }
+
+    /// Multiply matrices in `a` by corresponding matrices in `b`.
+    fn reference_matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT + Default>(
+        mut a: TensorView<LhsT>,
+        mut b: TensorView<RhsT>,
+        opts: MatMulOpts<LhsT, RhsT, OutT>,
+    ) -> Tensor<OutT>
+    where
+        GemmExecutor<LhsT, RhsT, OutT>: Default,
+    {
+        let MatMulOpts {
+            bias,
+            alpha,
+            a_zero,
+            b_zero,
+        } = opts;
+
         // Expand vector inputs to matrices. This follows the rules of
         // `numpy.matmul`.
         let a_is_vec = a.ndim() == 1;
@@ -594,17 +610,13 @@ mod tests {
             b.insert_axis(1);
         }
 
-        // If one or both of the inputs are vectors, temporarily expand the
-        // output shape to match the expanded input shapes.
-        match (a_is_vec, b_is_vec) {
-            (true, false) => c.insert_axis(c.ndim() - 1),
-            (false, true) => c.insert_axis(c.ndim()),
-            (true, true) => {
-                c.insert_axis(c.ndim());
-                c.insert_axis(c.ndim());
-            }
-            (false, false) => {}
-        }
+        let a_rows = a.size(a.ndim() - 2);
+        let b_cols = b.size(b.ndim() - 1);
+        let a_prefix = &a.shape()[..a.ndim() - 2];
+        let b_prefix = &b.shape()[..b.ndim() - 2];
+        let out_prefix = broadcast_shapes(a_prefix, b_prefix).unwrap();
+        let out_shape = &[out_prefix.as_slice(), &[a_rows, b_cols]].concat();
+        let mut c = Tensor::zeros(out_shape);
 
         let a_batch_dims = a.ndim() - 2;
         let b_batch_dims = b.ndim() - 2;
@@ -613,7 +625,13 @@ mod tests {
         let a_bcast = [out_prefix, &a.shape()[a_batch_dims..]].concat();
         let b_bcast = [out_prefix, &b.shape()[b_batch_dims..]].concat();
 
-        let gemm = GemmExecutor::<f32, f32, f32>::default();
+        let a_zero = a_zero.map(|zp| zp.broadcast([a_rows]).to_vec());
+        let a_quant = a_zero.as_ref().map(|zp| QuantParams { zero_point: &zp });
+
+        let b_zero = b_zero.map(|zp| zp.broadcast([b_cols]).to_vec());
+        let b_quant = b_zero.as_ref().map(|zp| QuantParams { zero_point: &zp });
+
+        let gemm = GemmExecutor::<LhsT, RhsT, OutT>::default();
         a.broadcast(a_bcast.as_slice())
             .inner_iter::<2>()
             .zip(b.broadcast(b_bcast.as_slice()).inner_iter::<2>())
@@ -626,10 +644,10 @@ mod tests {
                     GemmInputA::Unpacked(a),
                     GemmInputB::Unpacked(b),
                     alpha.unwrap_or(1.),
-                    0., /* beta */
+                    OutT::default(), /* beta */
                     bias,
-                    None, // a_quant
-                    None, // b_quant
+                    a_quant,
+                    b_quant,
                 )
                 .unwrap()
             });
@@ -643,62 +661,8 @@ mod tests {
             }
             (false, false) => {}
         }
-    }
 
-    fn reference_matmul_integer<LhsT: Copy + Default, RhsT: Copy + Default>(
-        a: TensorView<LhsT>,
-        b: TensorView<RhsT>,
-        a_zero_point: Option<TensorView<LhsT>>,
-        b_zero_point: Option<TensorView<RhsT>>,
-    ) -> Tensor<i32>
-    where
-        i32: From<LhsT> + From<RhsT>,
-    {
-        let a_batch_dims = a.ndim() - 2;
-        let b_batch_dims = b.ndim() - 2;
-
-        let a_prefix = &a.shape()[..a.ndim() - 2];
-        let b_prefix = &b.shape()[..b.ndim() - 2];
-        let out_prefix = broadcast_shapes(a_prefix, b_prefix).unwrap();
-        let mut out_shape = out_prefix.to_vec();
-        out_shape.push(a.size(a.ndim() - 2));
-        out_shape.push(b.size(b.ndim() - 1));
-        let mut out = Tensor::<i32>::zeros(&out_shape);
-
-        let a_bcast = [out_prefix.as_slice(), &a.shape()[a_batch_dims..]].concat();
-        let b_bcast = [out_prefix.as_slice(), &b.shape()[b_batch_dims..]].concat();
-
-        let a_rows = a.size(a.ndim() - 2);
-        let b_cols = b.size(b.ndim() - 1);
-        let a_zero_point = a_zero_point.map(|zp| zp.broadcast([a_rows]));
-        let b_zero_point = b_zero_point.map(|zp| zp.broadcast([b_cols]));
-
-        a.broadcast(a_bcast.as_slice())
-            .inner_iter::<2>()
-            .zip(b.broadcast(b_bcast.as_slice()).inner_iter::<2>())
-            .zip(out.inner_iter_mut::<2>())
-            .for_each(|((a, b), mut c)| {
-                let [n_rows, n_cols] = c.shape();
-                let depth = a.size(1);
-
-                for i in 0..n_rows {
-                    let row_zero_point =
-                        i32::from(a_zero_point.map(|zp| zp[i]).unwrap_or_default());
-                    for j in 0..n_cols {
-                        let col_zero_point =
-                            i32::from(b_zero_point.map(|zp| zp[j]).unwrap_or_default());
-                        let mut y = 0;
-                        for k in 0..depth {
-                            let a_el = i32::from(a[[i, k]]) - row_zero_point;
-                            let b_el = i32::from(b[[k, j]]) - col_zero_point;
-                            y += a_el * b_el;
-                        }
-                        c[[i, j]] = y;
-                    }
-                }
-            });
-
-        out
+        c
     }
 
     #[test]
@@ -872,19 +836,17 @@ mod tests {
         let pool = new_pool();
 
         for Case {
+            out_shape,
             a_shape,
             b_shape,
-            out_shape,
         } in cases
         {
             let mut rng = XorShiftRng::new(1234);
-            let a = Tensor::rand(a_shape, &mut rng);
-            let b = Tensor::rand(b_shape, &mut rng);
-
-            let mut expected = Tensor::zeros(out_shape);
-
-            reference_matmul(expected.view_mut(), a.view(), b.view(), None, None);
+            let a = Tensor::<f32>::rand(a_shape, &mut rng);
+            let b = Tensor::<f32>::rand(b_shape, &mut rng);
+            let expected = reference_matmul(a.view(), b.view(), MatMulOpts::default());
             let result = matmul(&pool, a.view(), b.view(), None).unwrap();
+            assert_eq!(result.shape(), out_shape);
             expect_equal(&result, &expected)?;
         }
 
@@ -925,14 +887,7 @@ mod tests {
             let packed_b_input = Tensor::rand(&[10, 3], &mut rng);
             let packed_b = op.prepack(1, packed_b_input.view().into()).unwrap();
 
-            let mut expected = Tensor::zeros(&[5, 3]);
-            reference_matmul(
-                expected.view_mut(),
-                a.view(),
-                packed_b_input.view(),
-                None,
-                None,
-            );
+            let expected = reference_matmul(a.view(), packed_b_input.view(), MatMulOpts::default());
 
             let pool = new_pool();
             let get_prepacked = |idx| {
@@ -982,8 +937,15 @@ mod tests {
 
         for Case { bias, alpha } in cases {
             let pool = new_pool();
-            let mut expected = Tensor::zeros(&[10, 5]);
-            reference_matmul(expected.view_mut(), a.view(), b.view(), bias.clone(), alpha);
+            let expected = reference_matmul(
+                a.view(),
+                b.view(),
+                MatMulOpts {
+                    bias: bias.clone(),
+                    alpha,
+                    ..Default::default()
+                },
+            );
             let result = matmul_fused(&pool, a.view(), b.view(), None, bias, alpha).unwrap();
             expect_equal(&result, &expected)?;
         }
@@ -1209,11 +1171,14 @@ mod tests {
 
             match (result, expected_err) {
                 (Ok(result), None) => {
-                    let expected = reference_matmul_integer(
+                    let expected = reference_matmul(
                         a.view(),
                         b.view(),
-                        a_zero_point.as_ref().map(|zp| zp.view()),
-                        b_zero_point.as_ref().map(|zp| zp.view()),
+                        MatMulOpts {
+                            a_zero: a_zero_point.as_ref().map(|zp| zp.view()),
+                            b_zero: b_zero_point.as_ref().map(|zp| zp.view()),
+                            ..Default::default()
+                        },
                     );
                     assert_eq!(result, expected);
                 }
