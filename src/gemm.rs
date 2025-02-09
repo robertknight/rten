@@ -12,7 +12,9 @@ use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView, Storage};
+use rten_tensor::{
+    Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView, Storage, StorageMut,
+};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
 use crate::number::Identities;
@@ -796,7 +798,7 @@ impl<'a, T> OutputTiles<'a, T> {
     /// `tile_rows` * `tile_cols`.
     fn new(mut data: MatrixMut<'a, T>, tile_rows: usize, tile_cols: usize) -> OutputTiles<'a, T> {
         OutputTiles {
-            data: data.data_mut().unwrap().as_mut_ptr(),
+            data: data.storage_mut().as_mut_ptr(),
             rows: data.rows(),
             cols: data.cols(),
             row_stride: data.stride(0),
