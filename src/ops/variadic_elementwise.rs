@@ -6,7 +6,7 @@ use rten_tensor::{Tensor, TensorView};
 use crate::number::IsNaN;
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, OutputList};
+use crate::ops::{map_input, Input, InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Apply an elementwise reduction to a sequence of tensors.
@@ -33,7 +33,10 @@ fn reduce_elementwise<T: Copy, R: Fn(T, T) -> T + Copy>(
 }
 
 /// Extract operator inputs as a vec of tensor views of the same type.
-fn typed_views<'a, T>(inputs: &'a InputList) -> Result<Vec<TensorView<'a, T>>, OpError>
+fn typed_views<'a, T>(
+    inputs: &'a InputList,
+    _: TensorView<T>,
+) -> Result<Vec<TensorView<'a, T>>, OpError>
 where
     Input<'a>: TryInto<TensorView<'a, T>, Error = OpError>,
 {
@@ -53,23 +56,6 @@ pub fn max<T: Copy + PartialOrd + IsNaN>(
     })
 }
 
-macro_rules! run_typed_op {
-    ($pool:expr, $inputs:ident, $op:ident) => {{
-        let first = $inputs.require(0)?;
-        match first {
-            Input::FloatTensor(_) => {
-                let inputs: Vec<TensorView<f32>> = typed_views(&$inputs)?;
-                $op($pool, &inputs).into_op_result()
-            }
-            Input::Int32Tensor(_) => {
-                let inputs: Vec<TensorView<i32>> = typed_views(&$inputs)?;
-                $op($pool, &inputs).into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
-    }};
-}
-
 #[derive(Debug)]
 pub struct Max {}
 
@@ -79,7 +65,11 @@ impl Operator for Max {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        run_typed_op!(pool, inputs, max)
+        let first = inputs.require(0)?;
+        map_input!(first, first, [FloatTensor, Int32Tensor], {
+            let inputs = typed_views(&inputs, first)?;
+            max(pool, &inputs).into_op_result()
+        })
     }
 }
 
@@ -98,7 +88,8 @@ impl Operator for Mean {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let inputs: Vec<TensorView<f32>> = typed_views(&inputs)?;
+        let first = inputs.require_as(0)?;
+        let inputs = typed_views(&inputs, first)?;
         mean(pool, &inputs).into_op_result()
     }
 }
@@ -122,7 +113,11 @@ impl Operator for Min {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        run_typed_op!(pool, inputs, min)
+        let first = inputs.require(0)?;
+        map_input!(first, first, [FloatTensor, Int32Tensor], {
+            let inputs = typed_views(&inputs, first)?;
+            min(pool, &inputs).into_op_result()
+        })
     }
 }
 
@@ -142,7 +137,11 @@ impl Operator for Sum {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        run_typed_op!(pool, inputs, sum)
+        let first = inputs.require(0)?;
+        map_input!(first, first, [FloatTensor, Int32Tensor], {
+            let inputs = typed_views(&inputs, first)?;
+            sum(pool, &inputs).into_op_result()
+        })
     }
 }
 

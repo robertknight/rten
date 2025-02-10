@@ -7,7 +7,8 @@ use smallvec::SmallVec;
 
 use crate::ops::static_dims;
 use crate::ops::{
-    resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+    map_input, map_output, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
+    OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -41,7 +42,10 @@ fn concatenated_shape<T: Copy>(
     Ok(out_shape)
 }
 
-fn typed_inputs<'a, T>(inputs: &InputList<'a>) -> Result<SmallVec<[TensorView<'a, T>; 4]>, OpError>
+fn typed_inputs<'a, T>(
+    inputs: &InputList<'a>,
+    _: TensorView<T>,
+) -> Result<SmallVec<[TensorView<'a, T>; 4]>, OpError>
 where
     TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
 {
@@ -108,17 +112,10 @@ impl Operator for Concat {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let first = inputs.require(0)?;
-        match first {
-            Input::FloatTensor(_) => {
-                let typed_inputs = typed_inputs::<f32>(&inputs)?;
-                concat(pool, &typed_inputs, self.axis).into_op_result()
-            }
-            Input::Int32Tensor(_) => {
-                let typed_inputs = typed_inputs::<i32>(&inputs)?;
-                concat(pool, &typed_inputs, self.axis).into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(first, first, [FloatTensor, Int32Tensor], {
+            let typed_inputs = typed_inputs(&inputs, first)?;
+            concat(pool, &typed_inputs, self.axis).into_op_result()
+        })
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -140,17 +137,10 @@ impl Operator for Concat {
         first: Output,
         rest: InputList,
     ) -> Result<Output, OpError> {
-        match first {
-            Output::FloatTensor(first) => {
-                let typed_inputs = typed_inputs(&rest)?;
-                concat_in_place(pool, first, &typed_inputs, self.axis).map(|t| t.into())
-            }
-            Output::Int32Tensor(first) => {
-                let typed_inputs = typed_inputs(&rest)?;
-                concat_in_place(pool, first, &typed_inputs, self.axis).map(|t| t.into())
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_output!(first, first, [FloatTensor, Int32Tensor], {
+            let typed_inputs = typed_inputs(&rest, first.view())?;
+            concat_in_place(pool, first, &typed_inputs, self.axis).map(|t| t.into())
+        })
     }
 }
 
@@ -266,11 +256,9 @@ impl Operator for Tile {
         let repeats = inputs.require_as::<i32>(1)?;
         let repeats = static_dims!(repeats, 1)?;
 
-        match input {
-            Input::Int32Tensor(input) => tile(pool, input, repeats).into_op_result(),
-            Input::FloatTensor(input) => tile(pool, input, repeats).into_op_result(),
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            tile(pool, input, repeats).into_op_result()
+        })
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -291,11 +279,9 @@ impl Operator for Tile {
             return Ok(output);
         }
 
-        match output {
-            Output::Int32Tensor(input) => tile(pool, input.view(), repeats).map(|t| t.into()),
-            Output::FloatTensor(input) => tile(pool, input.view(), repeats).map(|t| t.into()),
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_output!(output, input, [FloatTensor, Int32Tensor], {
+            tile(pool, input.view(), repeats).map(|t| t.into())
+        })
     }
 }
 

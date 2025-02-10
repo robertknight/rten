@@ -4,8 +4,8 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::ops::{
-    resolve_axis, resolve_index, static_dims, Input, InputList, IntoOpResult, OpError, Operator,
-    OutputList, Scalar,
+    map_input, resolve_axis, resolve_index, static_dims, Input, InputList, IntoOpResult, OpError,
+    Operator, OutputList, Scalar,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -95,19 +95,11 @@ impl Operator for OneHot {
             .ok_or(OpError::InvalidValue("`depth` must be a positive scalar"))?;
         let values = inputs.require(2)?;
 
-        match values {
-            Input::Int32Tensor(values) => {
-                let values = static_dims!(values, 1)?;
-                let (on_value, off_value) = extract_on_off_values(values)?;
-                onehot(pool, indices, self.axis, depth, on_value, off_value).into_op_result()
-            }
-            Input::FloatTensor(values) => {
-                let values = static_dims!(values, 1)?;
-                let (on_value, off_value) = extract_on_off_values(values)?;
-                onehot(pool, indices, self.axis, depth, on_value, off_value).into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(values, values, [Int32Tensor, FloatTensor], {
+            let values = static_dims!(values, 1)?;
+            let (on_value, off_value) = extract_on_off_values(values)?;
+            onehot(pool, indices, self.axis, depth, on_value, off_value).into_op_result()
+        })
     }
 }
 
@@ -145,21 +137,15 @@ impl Operator for Range {
         let limit = inputs.require(1)?;
         let delta = inputs.require(2)?;
 
-        match start {
-            Input::FloatTensor(_) => {
-                let start = start.try_into()?;
-                let limit = limit.try_into()?;
-                let delta = delta.try_into()?;
-                range::<f32>(start, limit, delta).into_op_result()
-            }
-            Input::Int32Tensor(_) => {
-                let start = start.try_into()?;
-                let limit = limit.try_into()?;
-                let delta = delta.try_into()?;
-                range::<i32>(start, limit, delta).into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(start, start, [FloatTensor, Int32Tensor], {
+            let start = start
+                .item()
+                .copied()
+                .ok_or(OpError::InvalidValue("`start` must be a scalar"))?;
+            let limit = limit.try_into()?;
+            let delta = delta.try_into()?;
+            range(start, limit, delta).into_op_result()
+        })
     }
 }
 

@@ -10,7 +10,9 @@ use rten_tensor::{Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;
 
 use crate::number::AsBool;
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
+use crate::ops::{
+    map_input, map_output, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Trait for operators which take a single float tensor and apply a function
@@ -77,11 +79,9 @@ macro_rules! unary_numeric_op {
 
             fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
                 let input = inputs.require(0)?;
-                match input {
-                    Input::FloatTensor(input) => $view_impl(pool, input).into_op_result(),
-                    Input::Int32Tensor(input) => $view_impl(pool, input).into_op_result(),
-                    _ => Err(OpError::UnsupportedType),
-                }
+                map_input!(input, input, [FloatTensor, Int32Tensor], {
+                    $view_impl(pool, input).into_op_result()
+                })
             }
 
             fn can_run_in_place(&self) -> bool {
@@ -94,17 +94,10 @@ macro_rules! unary_numeric_op {
                 input: Output,
                 _: InputList,
             ) -> Result<Output, OpError> {
-                match input {
-                    Output::FloatTensor(mut input) => {
-                        $mut_impl(input.view_mut());
-                        Ok(input.into())
-                    }
-                    Output::Int32Tensor(mut input) => {
-                        $mut_impl(input.view_mut());
-                        Ok(input.into())
-                    }
-                    _ => Err(OpError::UnsupportedType),
-                }
+                map_output!(input, input, [FloatTensor, Int32Tensor], {
+                    $mut_impl(input.view_mut());
+                    Ok(input.into())
+                })
             }
         }
     };
@@ -343,19 +336,11 @@ impl Operator for Clip {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
-        match input {
-            Input::FloatTensor(input) => {
-                let min = inputs.get_as_scalar(1)?;
-                let max = inputs.get_as_scalar(2)?;
-                clip(pool, input, min, max).into_op_result()
-            }
-            Input::Int32Tensor(input) => {
-                let min = inputs.get_as_scalar(1)?;
-                let max = inputs.get_as_scalar(2)?;
-                clip(pool, input, min, max).into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            let min = inputs.get_as_scalar(1)?;
+            let max = inputs.get_as_scalar(2)?;
+            clip(pool, input, min, max).into_op_result()
+        })
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -368,21 +353,12 @@ impl Operator for Clip {
         input: Output,
         other: InputList,
     ) -> Result<Output, OpError> {
-        match input {
-            Output::FloatTensor(mut input) => {
-                let min = other.get_as_scalar(0)?;
-                let max = other.get_as_scalar(1)?;
-                clip_in_place(&mut input, min, max);
-                Ok(input.into())
-            }
-            Output::Int32Tensor(mut input) => {
-                let min = other.get_as_scalar(0)?;
-                let max = other.get_as_scalar(1)?;
-                clip_in_place(&mut input, min, max);
-                Ok(input.into())
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_output!(input, input, [FloatTensor, Int32Tensor], {
+            let min = other.get_as_scalar(0)?;
+            let max = other.get_as_scalar(1)?;
+            clip_in_place(&mut input, min, max);
+            Ok(input.into())
+        })
     }
 }
 

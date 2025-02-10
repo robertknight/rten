@@ -10,7 +10,8 @@ use rten_vecmath as vecmath;
 use crate::number::{Identities, IsNaN};
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
-    resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
+    map_input, resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator,
+    OutputList,
 };
 use crate::slice_reductions::slice_sum;
 use crate::tensor_pool::{AutoReturn, TensorPool};
@@ -211,11 +212,9 @@ impl Operator for CumSum {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axis: i32 = inputs.require_as_scalar(1)?;
-        match input {
-            Input::Int32Tensor(input) => cum_sum(pool, input, axis as isize).into_op_result(),
-            Input::FloatTensor(input) => cum_sum(pool, input, axis as isize).into_op_result(),
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            cum_sum(pool, input, axis as isize).into_op_result()
+        })
     }
 }
 
@@ -255,11 +254,9 @@ impl Operator for NonZero {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
-        match input {
-            Input::Int32Tensor(input) => nonzero(pool, input).into_op_result(),
-            Input::FloatTensor(input) => nonzero(pool, input).into_op_result(),
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            nonzero(pool, input).into_op_result()
+        })
     }
 }
 
@@ -786,19 +783,10 @@ impl Operator for TopK {
             }
         })?;
 
-        match values {
-            Input::FloatTensor(values) => {
-                let (values, indices) =
-                    topk(pool, values, k, self.axis, self.largest, self.sorted)?;
-                Ok([values.into(), indices.into()].into_iter().collect())
-            }
-            Input::Int32Tensor(values) => {
-                let (values, indices) =
-                    topk(pool, values, k, self.axis, self.largest, self.sorted)?;
-                Ok([values.into(), indices.into()].into_iter().collect())
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(values, values, [FloatTensor, Int32Tensor], {
+            let (values, indices) = topk(pool, values, k, self.axis, self.largest, self.sorted)?;
+            Ok([values.into(), indices.into()].into_iter().collect())
+        })
     }
 }
 

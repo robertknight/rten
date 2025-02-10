@@ -1114,8 +1114,13 @@ pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
     Ok(resolved_axes)
 }
 
-/// Extract the typed tensor view from `$input` and pass it to `$block`, using
-/// the variable name specified by `$typed_input`.
+/// Extract a typed tensor view from an [`Input`] and pass it to a block.
+///
+/// The result of the macro is the result of the block, hence the block must
+/// return a value of the same type regardless of the input type.
+///
+/// A list of supported tensor types can optionally be specified, as a list of
+/// [`Input`] variant names.
 macro_rules! map_input {
     ($input:expr, $typed_input:ident, $block:tt) => {
         match $input {
@@ -1125,12 +1130,26 @@ macro_rules! map_input {
             Input::Int8Tensor($typed_input) => $block,
         }
     };
+
+    ($input:expr, $typed_input:ident, [$($variant:ident),+], $block:tt) => {
+            match $input {
+                $(Input::$variant($typed_input) => $block),+,
+                _ => {
+                    return Err(OpError::UnsupportedType);
+                }
+            }
+    };
 }
 
 use map_input;
 
-/// Extract the typed owned tensor from `$input` and pass it to `$block` as
-/// mutable value, using the variable name specified by `$typed_input`.
+/// Extract a typed owned tensor from an [`Output`] and pass it to a block.
+///
+/// The result of the macro is the result of the block, hence the block must
+/// return a value of the same type regardless of the input type.
+///
+/// A list of supported tensor types can optionally be specified, as a list of
+/// [`Output`] variant names.
 macro_rules! map_output {
     ($input:expr, $typed_input:ident, $block:tt) => {
         match $input {
@@ -1143,6 +1162,18 @@ macro_rules! map_output {
             #[allow(unused_mut)]
             Output::Int8Tensor(mut $typed_input) => $block,
         }
+    };
+
+    ($input:expr, $typed_input:ident, [$($variant:ident),+], $block:tt) => {
+            match $input {
+                $(
+                    #[allow(unused_mut)]
+                    Output::$variant(mut $typed_input) => $block
+                ),+,
+                _ => {
+                    return Err(OpError::UnsupportedType);
+                }
+            }
     };
 }
 

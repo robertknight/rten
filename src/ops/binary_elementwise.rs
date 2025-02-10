@@ -6,7 +6,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::number::{AsBool, Identities, IsInt};
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
+use crate::ops::{
+    map_input, map_output, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+};
 use crate::tensor_pool::TensorPool;
 
 /// Given the shapes of two inputs to a binary operation, return the shape
@@ -327,17 +329,10 @@ fn binary_commutative_op<T: Copy + Debug + Default, F: Fn(T, T) -> T>(
 macro_rules! run_typed_op {
     ($pool:expr, $inputs:expr, $op_func:ident) => {{
         let a = $inputs.require(0)?;
-        match a {
-            Input::FloatTensor(a) => {
-                let b = $inputs.require_as::<f32>(1)?;
-                $op_func($pool, a, b).into_op_result()
-            }
-            Input::Int32Tensor(a) => {
-                let b = $inputs.require_as::<i32>(1)?;
-                $op_func($pool, a, b).into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(a, a, [FloatTensor, Int32Tensor], {
+            let b = $inputs.require_as(1)?;
+            $op_func($pool, a, b).into_op_result()
+        })
     }};
     ($inputs:expr, $op_func:ident) => {
         run_typed_op!(&TensorPool::new(), $inputs, $op_func)
@@ -349,27 +344,15 @@ macro_rules! run_typed_op {
 /// on the tensor type.
 macro_rules! run_typed_op_in_place {
     ($pool:expr, $input:expr, $other: expr, $in_place_op_func:ident, $op_func:ident) => {{
-        match $input {
-            Output::FloatTensor(mut a) => {
-                let b = $other.require_as::<f32>(0)?;
-                if can_run_binary_op_in_place(&a, &b) {
-                    $in_place_op_func(a.view_mut(), b);
-                    Ok(a.into())
-                } else {
-                    $op_func($pool, a.view(), b.view()).map(|t| t.into())
-                }
+        map_output!($input, a, [FloatTensor, Int32Tensor], {
+            let b = $other.require_as(0)?;
+            if can_run_binary_op_in_place(&a, &b) {
+                $in_place_op_func(a.view_mut(), b);
+                Ok(a.into())
+            } else {
+                $op_func($pool, a.view(), b.view()).map(|t| t.into())
             }
-            Output::Int32Tensor(mut a) => {
-                let b = $other.require_as::<i32>(0)?;
-                if can_run_binary_op_in_place(&a, &b) {
-                    $in_place_op_func(a.view_mut(), b.view());
-                    Ok(a.into())
-                } else {
-                    $op_func($pool, a.view(), b.view()).map(|t| t.into())
-                }
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        })
     }};
 }
 
@@ -661,17 +644,10 @@ impl Operator for Mod {
             DivMode::FloorDiv
         };
 
-        match a {
-            Input::FloatTensor(a) => {
-                let b = inputs.require_as::<f32>(1)?;
-                mod_op(pool, a, b, mode).into_op_result()
-            }
-            Input::Int32Tensor(a) => {
-                let b = inputs.require_as::<i32>(1)?;
-                mod_op(pool, a, b, mode).into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(a, a, [FloatTensor, Int32Tensor], {
+            let b = inputs.require_as(1)?;
+            mod_op(pool, a, b, mode).into_op_result()
+        })
     }
 }
 
@@ -904,18 +880,11 @@ impl Operator for Where {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let condition = inputs.require_as::<i32>(0)?;
         let x = inputs.require(1)?;
-        let y = inputs.require(2)?;
-        match x {
-            Input::FloatTensor(x) => {
-                let y: TensorView = y.try_into()?;
-                where_op(pool, condition, x, y).into_op_result()
-            }
-            Input::Int32Tensor(x) => {
-                let y: TensorView<i32> = y.try_into()?;
-                where_op(pool, condition, x, y).into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+
+        map_input!(x, x, [FloatTensor, Int32Tensor], {
+            let y = inputs.require_as(2)?;
+            where_op(pool, condition, x, y).into_op_result()
+        })
     }
 }
 

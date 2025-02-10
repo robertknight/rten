@@ -20,21 +20,19 @@ impl PermuteSpec {
             return Err(OpError::MissingInputs);
         };
 
+        macro_rules! permute {
+            ($t:ident) => {
+                if let Some(perm) = self.perm.as_ref() {
+                    $t.permute(perm);
+                } else {
+                    $t.transpose();
+                }
+            };
+        }
+
         match input {
-            Input::Int32Tensor(ref mut t) => {
-                if let Some(perm) = self.perm.as_ref() {
-                    t.permute(perm);
-                } else {
-                    t.transpose();
-                }
-            }
-            Input::FloatTensor(ref mut t) => {
-                if let Some(perm) = self.perm.as_ref() {
-                    t.permute(perm);
-                } else {
-                    t.transpose();
-                }
-            }
+            Input::Int32Tensor(ref mut t) => permute!(t),
+            Input::FloatTensor(ref mut t) => permute!(t),
             _ => return Err(OpError::UnsupportedType),
         }
 
