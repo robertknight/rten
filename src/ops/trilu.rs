@@ -1,7 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, OutputList};
+use crate::ops::{map_input, Input, InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
 
 pub fn trilu<T: Copy + Default>(
@@ -47,11 +47,9 @@ impl Operator for Trilu {
         let input = inputs.require(0)?;
         let k = inputs.get_as_scalar(1)?.unwrap_or(0);
 
-        match input {
-            Input::FloatTensor(input) => trilu(pool, input, k, self.upper).into_op_result(),
-            Input::Int32Tensor(input) => trilu(pool, input, k, self.upper).into_op_result(),
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            trilu(pool, input, k, self.upper).into_op_result()
+        })
     }
 }
 
