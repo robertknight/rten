@@ -168,7 +168,7 @@ impl Operator for ArgMin {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
-        dispatch_single_axis_reduce_op!(pool, input, arg_max, self.axis, self.keep_dims)
+        dispatch_single_axis_reduce_op!(pool, input, arg_min, self.axis, self.keep_dims)
     }
 }
 
