@@ -14,6 +14,7 @@ serde = { workspace = true, optional = true }
 smallvec = { version = "1.10.0", features=["union", "const_generics", "const_new"] }
 
 [dev-dependencies]
+rten-testing = { path = "../rten-testing" }
 serde_json = { workspace = true }
 
 [lib]

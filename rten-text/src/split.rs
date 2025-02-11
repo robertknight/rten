@@ -153,10 +153,13 @@ impl<'a> SplitExt<'a> for &'a str {
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use super::{SliceExt, SplitExt};
 
     #[test]
     fn test_chunks_overlap() {
+        #[derive(Debug)]
         struct Case<'a> {
             input: &'a [i32],
             chunk_size: usize,
@@ -202,16 +205,16 @@ mod tests {
             },
         ];
 
-        for Case {
-            input,
-            chunk_size,
-            overlap,
-            expected,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let &Case {
+                input,
+                chunk_size,
+                overlap,
+                expected,
+            } = case;
             let chunks: Vec<_> = input.chunks_with_overlap(chunk_size, overlap).collect();
             assert_eq!(chunks, expected);
-        }
+        })
     }
 
     #[test]
@@ -225,6 +228,7 @@ mod tests {
 
     #[test]
     fn test_split_keep_delimeters() {
+        #[derive(Debug)]
         struct Case<'a> {
             text: &'a str,
             expected: &'a [&'a str],
@@ -256,12 +260,14 @@ mod tests {
             },
         ];
 
-        for Case { text, expected } in cases {
+        cases.test_each(|case| {
+            let &Case { text, expected } = case;
+
             let words_and_puncs: Vec<_> = text
                 .split_whitespace()
                 .flat_map(|s| s.split_keep_delimeters(|c| c.is_ascii_punctuation()))
                 .collect();
             assert_eq!(words_and_puncs, expected,);
-        }
+        })
     }
 }

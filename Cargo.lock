@@ -388,6 +388,7 @@ dependencies = [
  "rten-bench",
  "rten-simd",
  "rten-tensor",
+ "rten-testing",
  "rten-vecmath",
  "rustc-hash",
  "serde_json",
@@ -407,6 +408,7 @@ dependencies = [
  "lexopt",
  "rten",
  "rten-tensor",
+ "rten-testing",
 ]
 
 [[package]]
@@ -437,6 +439,7 @@ dependencies = [
  "fastrand",
  "rten",
  "rten-tensor",
+ "rten-testing",
  "rten-text",
 ]
 
@@ -455,6 +458,7 @@ version = "0.16.0"
 dependencies = [
  "rten-bench",
  "rten-tensor",
+ "rten-testing",
  "serde",
 ]
 
@@ -466,16 +470,22 @@ version = "0.16.0"
 name = "rten-tensor"
 version = "0.16.0"
 dependencies = [
+ "rten-testing",
  "serde",
  "serde_json",
  "smallvec",
 ]
 
 [[package]]
+name = "rten-testing"
+version = "0.1.0"
+
+[[package]]
 name = "rten-text"
 version = "0.16.0"
 dependencies = [
  "fancy-regex",
+ "rten-testing",
  "serde",
  "serde_json",
  "unicode-normalization",

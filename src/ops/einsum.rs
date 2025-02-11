@@ -700,6 +700,7 @@ fn einsum_path(expr: &EinsumExpr, broadcast_ndim: u8) -> Vec<EinsumStep> {
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::{Tensor, TensorView};
+    use rten_testing::TestCases;
 
     use super::{einsum_path, EinsumExpr, EinsumInput, EinsumStep, EinsumTerm};
     use crate::ops::tests::new_pool;
@@ -707,6 +708,7 @@ mod tests {
 
     #[test]
     fn test_einsum() {
+        #[derive(Debug)]
         struct Case<'a> {
             equation: &'a str,
             inputs: Vec<TensorView<'a>>,
@@ -714,7 +716,6 @@ mod tests {
         }
 
         let pool = new_pool();
-
         let vec_a = Tensor::arange(1., 10., None);
         let vec_b = Tensor::arange(1., 5., None);
 
@@ -1042,19 +1043,21 @@ mod tests {
             },
         ];
 
-        for Case {
-            equation,
-            inputs,
-            expected,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                equation,
+                inputs,
+                expected,
+            } = case;
+
+            let pool = new_pool();
             let output = einsum(&pool, inputs.as_slice(), equation);
             assert_eq!(
-                output, expected,
+                &output, expected,
                 "result mismatch for equation {}",
                 equation
             );
-        }
+        });
     }
 
     #[test]

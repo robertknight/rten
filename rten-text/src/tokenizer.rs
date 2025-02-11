@@ -832,6 +832,8 @@ mod tests {
     use std::ops::Range;
     use std::path::PathBuf;
 
+    use rten_testing::TestCases;
+
     use super::{EncodeOptions, EncoderInput, TokenId, Tokenizer, TokenizerOptions, WordPiece};
     use crate::normalizers::Normalizer;
     use crate::{normalizers, pre_tokenizers};
@@ -886,6 +888,7 @@ mod tests {
 
     #[test]
     fn test_text_for_token_range() {
+        #[derive(Debug)]
         struct Case<'a> {
             input: EncoderInput<'a>,
             range: Range<usize>,
@@ -960,30 +963,25 @@ mod tests {
             },
         ];
 
-        let model = make_wordpiece(vocab);
-        let tokenizer = Tokenizer::new(
-            model,
-            TokenizerOptions {
-                cls_token: Some("[CLS]"),
-                sep_token: Some("[SEP]"),
-            },
-        )
-        .with_pre_tokenizer(Box::new(pre_tokenizers::Bert::new()));
+        cases.test_each(|case| {
+            let model = make_wordpiece(vocab);
+            let tokenizer = Tokenizer::new(
+                model,
+                TokenizerOptions {
+                    cls_token: Some("[CLS]"),
+                    sep_token: Some("[SEP]"),
+                },
+            )
+            .with_pre_tokenizer(Box::new(pre_tokenizers::Bert::new()));
 
-        for Case {
-            input,
-            range,
-            expected,
-        } in cases
-        {
-            let encoded = tokenizer.encode(input, None).unwrap();
-            let text = encoded.text_for_token_range(range.clone());
+            let encoded = tokenizer.encode(case.input, None).unwrap();
+            let text = encoded.text_for_token_range(case.range.clone());
             assert_eq!(
-                text, expected,
+                text, case.expected,
                 "mismatch for input {:?} with range {:?}",
-                input, range
+                case.input, case.range
             );
-        }
+        })
     }
 
     #[test]
@@ -992,6 +990,7 @@ mod tests {
             "[CLS]", "[SEP]", "[UNK]", "This", "is", "a", "test", "sequence",
         ];
 
+        #[derive(Debug)]
         struct Case<'a> {
             text: &'a str,
             max_chunk_len: Option<usize>,
@@ -1081,15 +1080,16 @@ mod tests {
 
         let model = make_wordpiece(vocab);
 
-        for Case {
-            text,
-            max_chunk_len,
-            overlap,
-            tokens,
-            use_cls_sep,
-            lowercase,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                text,
+                max_chunk_len,
+                overlap,
+                tokens,
+                use_cls_sep,
+                lowercase,
+            } = case;
+
             let mut tokenizer = Tokenizer::new(
                 model.clone(),
                 TokenizerOptions {
@@ -1099,21 +1099,21 @@ mod tests {
             )
             .with_pre_tokenizer(Box::new(pre_tokenizers::Bert::new()));
 
-            if lowercase {
+            if *lowercase {
                 tokenizer = tokenizer.with_normalizer(lowercase_normalizer());
             }
 
             let options = EncodeOptions {
-                max_chunk_len,
-                overlap,
+                max_chunk_len: *max_chunk_len,
+                overlap: *overlap,
             };
-            let chunks = tokenizer.encode_chunks(text.into(), options).unwrap();
+            let chunks = tokenizer.encode_chunks((*text).into(), options).unwrap();
             let chunk_tokens: Vec<_> = chunks
                 .into_iter()
                 .map(|c| tokenizer.model().get_tokens(c.token_ids()).unwrap())
                 .collect();
-            assert_eq!(chunk_tokens, tokens);
-        }
+            assert_eq!(chunk_tokens, *tokens);
+        })
     }
 
     #[test]
@@ -1138,6 +1138,7 @@ mod tests {
 
         let model = make_wordpiece(vocab);
 
+        #[derive(Debug)]
         struct Case<'a> {
             query: &'a str,
             context: &'a str,
@@ -1274,16 +1275,17 @@ mod tests {
             },
         ];
 
-        for Case {
-            query,
-            context,
-            max_chunk_len,
-            overlap,
-            tokens,
-            use_sep_cls,
-            lowercase,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                query,
+                context,
+                max_chunk_len,
+                overlap,
+                tokens,
+                use_sep_cls,
+                lowercase,
+            } = case;
+
             let mut tokenizer = Tokenizer::new(
                 model.clone(),
                 TokenizerOptions {
@@ -1293,23 +1295,23 @@ mod tests {
             )
             .with_pre_tokenizer(Box::new(pre_tokenizers::Bert::new()));
 
-            if lowercase {
+            if *lowercase {
                 tokenizer = tokenizer.with_normalizer(lowercase_normalizer());
             }
 
             let options = EncodeOptions {
-                max_chunk_len,
-                overlap,
+                max_chunk_len: *max_chunk_len,
+                overlap: *overlap,
                 ..Default::default()
             };
             let chunks = tokenizer
-                .encode_chunks((query, context).into(), options)
+                .encode_chunks((*query, *context).into(), options)
                 .unwrap();
             let chunk_tokens: Vec<_> = chunks
                 .iter()
                 .map(|c| tokenizer.model().get_tokens(c.token_ids()).unwrap())
                 .collect();
-            assert_eq!(chunk_tokens, tokens);
+            assert_eq!(chunk_tokens, *tokens);
 
             // Check that the generated offsets are correct. Since none of the
             // tokens are subwords, and no normalization is being applied, the
@@ -1322,7 +1324,7 @@ mod tests {
                             .text_for_token_range(i..i + 1)
                             .map(|t| t.trim())
                             .unwrap();
-                        let text = if lowercase {
+                        let text = if *lowercase {
                             text.to_lowercase()
                         } else {
                             text.to_string()
@@ -1331,7 +1333,7 @@ mod tests {
                     }
                 }
             }
-        }
+        })
     }
 
     #[derive(Deserialize)]

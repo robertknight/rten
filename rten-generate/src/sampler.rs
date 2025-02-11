@@ -124,6 +124,7 @@ fn multinomial(rng: &mut fastrand::Rng, probs: NdTensorView<f32, 1>) -> Option<u
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
+    use rten_testing::TestCases;
 
     use super::{ArgMaxSampler, Sampler, TopKSampler};
 
@@ -140,6 +141,7 @@ mod tests {
 
     #[test]
     fn test_topk_sampler() {
+        #[derive(Debug)]
         struct Case<'a> {
             k: usize,
             temperature: f32,
@@ -173,12 +175,13 @@ mod tests {
             },
         ];
 
-        for Case {
-            k,
-            temperature,
-            expected_counts: expected,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let &Case {
+                k,
+                temperature,
+                expected_counts: expected,
+            } = case;
+
             let rng = fastrand::Rng::with_seed(1234);
 
             let logits = NdTensor::arange(0., 10., None);
@@ -206,6 +209,6 @@ mod tests {
             // For the top K tokens the distribution should be in proportion to
             // their probabilities.
             assert_eq!(counts[logits.size(vocab_dim) - k..], *expected);
-        }
+        })
     }
 }

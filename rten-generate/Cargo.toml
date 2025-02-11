@@ -15,6 +15,9 @@ rten = { path = "../", version = "0.16.0" }
 rten-text = { path = "../rten-text", version = "0.16.0", optional = true }
 rten-tensor = { path = "../rten-tensor", version = "0.16.0" }
 
+[dev-dependencies]
+rten-testing = { path = "../rten-testing" }
+
 [features]
 # Enable text decoding using tokenizers from rten-text
 text-decoder = ["dep:rten-text"]

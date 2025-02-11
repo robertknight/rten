@@ -1104,6 +1104,7 @@ mod tests {
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{expect_equal, ApproxEq};
     use rten_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, RandomSource};
+    use rten_testing::TestCases;
 
     use super::{
         BiasVector, ColOffsets, F32KernelType, GemmError, GemmExecutor, GemmInT, GemmInputA,
@@ -1363,6 +1364,7 @@ mod tests {
 
     #[test]
     fn test_gemm_input_errors() {
+        #[derive(Debug)]
         struct Case {
             a: NdTensor<f32, 2>,
             b: NdTensor<f32, 2>,
@@ -1388,30 +1390,30 @@ mod tests {
             },
         ];
 
-        let gemm = GemmExecutor::default();
-
-        for Case {
-            a,
-            b,
-            output_len,
-            output_row_stride,
-            expected,
-        } in cases
-        {
-            let mut output = vec![0.; output_len];
-            let result = gemm.gemm(
-                &mut output,
-                output_row_stride,
-                GemmInputA::Unpacked(a.view()),
-                GemmInputB::Unpacked(b.view()),
-                1.,   // alpha
-                0.,   // beta
-                None, // bias
-                None, // a_quant
-                None, // b_quant
-            );
-            assert_eq!(result, Err(expected));
-        }
+        cases.test_each(
+            |Case {
+                 a,
+                 b,
+                 output_len,
+                 output_row_stride,
+                 expected,
+             }| {
+                let gemm = GemmExecutor::default();
+                let mut output = vec![0.; *output_len];
+                let result = gemm.gemm(
+                    &mut output,
+                    *output_row_stride,
+                    GemmInputA::Unpacked(a.view()),
+                    GemmInputB::Unpacked(b.view()),
+                    1.,   // alpha
+                    0.,   // beta
+                    None, // bias
+                    None, // a_quant
+                    None, // b_quant
+                );
+                assert_eq!(result.as_ref(), Err(expected));
+            },
+        )
     }
 
     /// Test a GEMM kernel using all square matrices up to a given size, plus
@@ -1510,7 +1512,7 @@ mod tests {
 
     #[test]
     fn test_gemm_u8i8_i32_zero_point() {
-        #[derive(Copy, Clone)]
+        #[derive(Copy, Clone, Debug)]
         struct Case {
             m: usize,
             n: usize,
@@ -1536,11 +1538,11 @@ mod tests {
             },
         ];
 
-        for gemm in all_gemms::<u8, i8, i32>() {
-            let mut lhs_rng = XorShiftRng::new(1234);
-            let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate(), 5678);
+        cases.test_each(|&Case { m, n, k }| {
+            for gemm in all_gemms::<u8, i8, i32>() {
+                let mut lhs_rng = XorShiftRng::new(1234);
+                let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate(), 5678);
 
-            for Case { m, n, k } in cases {
                 let a = NdTensor::<u8, 2>::rand([m, k], &mut lhs_rng);
                 let b = NdTensor::<i8, 2>::rand([k, n], &mut rhs_rng);
 
@@ -1557,7 +1559,7 @@ mod tests {
                 });
                 run_compare_matmul(a.view(), b.view(), opts, Some(&gemm));
             }
-        }
+        })
     }
 
     #[test]
@@ -1619,7 +1621,8 @@ mod tests {
     }
 
     #[test]
-    fn test_gemv_u8i8_i32_transposed() -> Result<(), Box<dyn Error>> {
+    fn test_gemv_u8i8_i32_transposed() {
+        #[derive(Debug)]
         struct Case {
             n: usize,
             k: usize,
@@ -1632,11 +1635,11 @@ mod tests {
             Case { k: 2, n: 5 },
         ];
 
-        for gemm in all_gemms::<u8, i8, i32>() {
-            let mut lhs_rng = XorShiftRng::new(1234);
-            let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate(), 5678);
+        cases.test_each(|&Case { k, n }| {
+            for gemm in all_gemms::<u8, i8, i32>() {
+                let mut lhs_rng = XorShiftRng::new(1234);
+                let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate(), 5678);
 
-            for &Case { k, n } in &cases {
                 let a = NdTensor::<u8, 2>::rand([1, k], &mut lhs_rng);
                 let mut b = NdTensor::<i8, 2>::rand([n, k], &mut rhs_rng);
 
@@ -1646,9 +1649,7 @@ mod tests {
 
                 run_compare_matmul(a.view(), b.view(), None, Some(&gemm));
             }
-        }
-
-        Ok(())
+        })
     }
 
     #[test]
@@ -1672,9 +1673,8 @@ mod tests {
     }
 
     #[test]
-    fn test_gemm_beta() -> Result<(), Box<dyn Error>> {
-        let mut rng = XorShiftRng::new(1234);
-
+    fn test_gemm_beta() {
+        #[derive(Debug)]
         struct Case {
             m: usize,
             n: usize,
@@ -1683,7 +1683,8 @@ mod tests {
 
         let cases = [Case { m: 10, k: 5, n: 15 }, Case { m: 10, k: 0, n: 15 }];
 
-        for Case { m, n, k } in cases {
+        cases.test_each(|&Case { m, n, k }| {
+            let mut rng = XorShiftRng::new(1234);
             let a = NdTensor::rand([m, k], &mut rng);
             let b = NdTensor::rand([k, n], &mut rng);
 
@@ -1702,19 +1703,19 @@ mod tests {
                         b.view(),
                         opts.clone(),
                         Some(&gemm),
-                    )?;
+                    )
+                    .unwrap();
                     reference_gemm(expected.view_mut(), a.view(), b.view(), opts);
 
-                    expect_equal(&result, &expected)?;
+                    expect_equal(&result, &expected).unwrap();
                 }
             }
-        }
-
-        Ok(())
+        })
     }
 
     #[test]
-    fn test_gemm_beta_zero() -> Result<(), Box<dyn Error>> {
+    fn test_gemm_beta_zero() {
+        #[derive(Debug)]
         struct Case {
             m: usize,
             n: usize,
@@ -1733,7 +1734,7 @@ mod tests {
             Case { m: 1, n: 20, k: 20 },
         ];
 
-        for Case { m, n, k } in cases {
+        cases.test_each(|&Case { m, n, k }| {
             let mut rng = XorShiftRng::new(1234);
             let a = NdTensor::rand([m, k], &mut rng);
             let b = NdTensor::rand([k, n], &mut rng);
@@ -1750,19 +1751,16 @@ mod tests {
                     alpha,
                     ..Default::default()
                 });
-                run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None)?;
+                run_gemm(result.view_mut(), a.view(), b.view(), opts.clone(), None).unwrap();
                 let expected = reference_matmul(a.view(), b.view(), opts);
-                expect_equal(&result, &expected)?;
+                expect_equal(&result, &expected).unwrap();
             }
-        }
-
-        Ok(())
+        })
     }
 
     #[test]
-    fn test_gemm_bias() -> Result<(), Box<dyn Error>> {
-        let mut rng = XorShiftRng::new(1234);
-
+    fn test_gemm_bias() {
+        #[derive(Debug)]
         struct Case {
             m: usize,
             n: usize,
@@ -1780,7 +1778,9 @@ mod tests {
             Case { m: 5, n: 7, k: 0 },
         ];
 
-        for Case { m, n, k } in cases {
+        cases.test_each(|&Case { m, n, k }| {
+            let mut rng = XorShiftRng::new(1234);
+
             let a = NdTensor::rand([m, k], &mut rng);
             let b = NdTensor::rand([k, n], &mut rng);
 
@@ -1799,9 +1799,7 @@ mod tests {
                 ..Default::default()
             });
             run_compare_matmul(a.view(), b.view(), opts, None);
-        }
-
-        Ok(())
+        })
     }
 
     #[test]
@@ -2049,13 +2047,15 @@ mod tests {
     }
 
     #[test]
-    fn test_gemv() -> Result<(), Box<dyn Error>> {
+    fn test_gemv() {
+        #[derive(Clone, Copy, Debug)]
         enum Strides {
             Contiguous,
             Transposed,
             Other,
         }
 
+        #[derive(Debug)]
         struct Case {
             n: usize,
             k: usize,
@@ -2197,17 +2197,17 @@ mod tests {
             },
         ];
 
-        let mut rng = XorShiftRng::new(1234);
+        cases.test_each(|case| {
+            let &Case {
+                n,
+                k,
+                alpha,
+                beta,
+                bias,
+                b_strides,
+            } = case;
 
-        for Case {
-            n,
-            k,
-            alpha,
-            beta,
-            bias,
-            b_strides,
-        } in cases
-        {
+            let mut rng = XorShiftRng::new(1234);
             let a = NdTensor::rand([1, k], &mut rng);
             let mut b = NdTensor::rand([k, n], &mut rng);
             match b_strides {
@@ -2237,10 +2237,8 @@ mod tests {
             let mut expected = NdTensor::zeros([1, b.size(1)]);
             reference_gemm(expected.view_mut(), a.view(), b.view(), opts);
 
-            expect_equal(&result, &expected)?;
-        }
-
-        Ok(())
+            expect_equal(&result, &expected).unwrap();
+        })
     }
 
     struct BenchCase {

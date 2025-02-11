@@ -15,6 +15,7 @@ serde = { workspace = true, features = ["derive"], optional = true }
 
 [dev-dependencies]
 rten-bench = { path = "../rten-bench" }
+rten-testing = { path = "../rten-testing" }
 
 [lib]
 crate-type = ["lib"]

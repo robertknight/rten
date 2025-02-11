@@ -15,6 +15,9 @@ rten = { path = "../", version = "0.16.0", features=["mmap", "random"] }
 rten-tensor = { path = "../rten-tensor", version = "0.16.0" }
 lexopt = "0.3.0"
 
+[dev-dependencies]
+rten-testing = { path = "../rten-testing" }
+
 [features]
 # Use AVX-512 instructions if available. Requires nightly Rust for AVX-512 intrinsics.
 avx512 = ["rten/avx512"]

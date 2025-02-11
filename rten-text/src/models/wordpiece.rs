@@ -132,6 +132,8 @@ impl Model for WordPiece {
 mod tests {
     use std::collections::HashMap;
 
+    use rten_testing::TestCases;
+
     use crate::models::{WordPiece, WordPieceOptions};
     use crate::normalizers::Normalizer;
     use crate::tokenizer::{Tokenizer, TokenizerOptions};
@@ -166,6 +168,7 @@ mod tests {
 
     #[test]
     fn test_wordpiece_model() {
+        #[derive(Debug)]
         struct Case<'a> {
             text: &'a str,
             tokens: &'a [&'a str],
@@ -176,7 +179,6 @@ mod tests {
             "Piece", "of", "pie", ".", "!", "?", "Hey", "Hello", "the", "game", "is", "set", "in",
             "Faerûn",
         ];
-        let tokenizer = create_tokenizer(vocab, None, Default::default());
 
         let cases = [
             // Single sequence, no subwords.
@@ -221,14 +223,17 @@ mod tests {
             },
         ];
 
-        for Case { text, tokens } in cases {
+        cases.test_each(|case| {
+            let &Case { text, tokens } = case;
+
+            let tokenizer = create_tokenizer(vocab, None, Default::default());
             let encoded = tokenizer.encode(text, None).unwrap();
             assert_eq!(
                 tokenizer.model().get_tokens(encoded.token_ids()).unwrap(),
                 tokens
             );
             assert!(encoded.token_type_ids().all(|ttid| ttid == 0));
-        }
+        });
     }
 
     #[test]
@@ -253,6 +258,7 @@ mod tests {
 
     #[test]
     fn test_wordpiece_model_lowercase() {
+        #[derive(Debug)]
         struct Case<'a> {
             text: &'a str,
             tokens: &'a [&'a str],
@@ -261,12 +267,6 @@ mod tests {
         let vocab = &[
             "[CLS]", "[SEP]", "[UNK]", "this", "is", "a", "test", "sequence",
         ];
-
-        let normalizer = normalizers::Bert::new(normalizers::BertOptions {
-            lowercase: true,
-            ..Default::default()
-        });
-        let tokenizer = create_tokenizer(vocab, Some(Box::new(normalizer)), Default::default());
 
         let cases = [
             // Single sequence, no subwords.
@@ -280,18 +280,27 @@ mod tests {
             },
         ];
 
-        for Case { text, tokens } in cases {
+        cases.test_each(|case| {
+            let &Case { text, tokens } = case;
+
+            let normalizer = normalizers::Bert::new(normalizers::BertOptions {
+                lowercase: true,
+                ..Default::default()
+            });
+            let tokenizer = create_tokenizer(vocab, Some(Box::new(normalizer)), Default::default());
+
             let encoded = tokenizer.encode(text, None).unwrap();
             assert_eq!(
                 tokenizer.model().get_tokens(encoded.token_ids()).unwrap(),
                 tokens
             );
             assert!(encoded.token_type_ids().all(|ttid| ttid == 0));
-        }
+        })
     }
 
     #[test]
     fn test_decode() {
+        #[derive(Debug)]
         struct Case<'a> {
             input: &'a str,
             expected: &'a str,
@@ -316,16 +325,18 @@ mod tests {
             "[CLS]", "[SEP]", "[UNK]", "this", "is", "a", "test", "sequence",
         ];
 
-        let normalizer = normalizers::Bert::new(normalizers::BertOptions {
-            lowercase: true,
-            ..Default::default()
-        });
-        let tokenizer = create_tokenizer(vocab, Some(Box::new(normalizer)), Default::default());
+        cases.test_each(|case| {
+            let &Case { input, expected } = case;
 
-        for Case { input, expected } in cases {
+            let normalizer = normalizers::Bert::new(normalizers::BertOptions {
+                lowercase: true,
+                ..Default::default()
+            });
+            let tokenizer = create_tokenizer(vocab, Some(Box::new(normalizer)), Default::default());
+
             let encoded = tokenizer.encode(input, None).unwrap();
             let decoded = tokenizer.decode(encoded.token_ids()).unwrap();
             assert_eq!(decoded, expected);
-        }
+        })
     }
 }

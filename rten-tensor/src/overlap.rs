@@ -71,10 +71,13 @@ pub fn may_have_internal_overlap(shape: &[usize], strides: &[usize]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use super::is_contiguous;
 
     #[test]
     fn test_is_contiguous() {
+        #[derive(Debug)]
         struct Case<'a> {
             shape: &'a [usize],
             strides: &'a [usize],
@@ -153,13 +156,8 @@ mod tests {
             },
         ];
 
-        for Case {
-            shape,
-            strides,
-            contiguous,
-        } in cases
-        {
-            assert_eq!(is_contiguous(shape, strides), contiguous);
-        }
+        cases.test_each(|case| {
+            assert_eq!(is_contiguous(case.shape, case.strides), case.contiguous);
+        })
     }
 }
