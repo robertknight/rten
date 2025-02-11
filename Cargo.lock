@@ -408,6 +408,7 @@ dependencies = [
  "lexopt",
  "rten",
  "rten-tensor",
+ "rten-testing",
 ]
 
 [[package]]

@@ -127,10 +127,13 @@ impl std::error::Error for ParseError {}
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use super::{DimSize, ParseError, ParseErrorKind};
 
     #[test]
     fn test_parse() {
+        #[derive(Debug)]
         struct Case<'a> {
             spec: &'a str,
             expected: Result<DimSize, ParseError>,
@@ -167,10 +170,10 @@ mod tests {
             },
         ];
 
-        for Case { spec, expected } in cases {
+        cases.test_each(|Case { spec, expected }| {
             let dim_size = DimSize::parse(&spec);
-            assert_eq!(dim_size, expected);
-        }
+            assert_eq!(dim_size, *expected);
+        })
     }
 
     #[test]
