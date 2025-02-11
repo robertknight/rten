@@ -356,6 +356,8 @@ impl Normalizer for Unicode {
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use super::{Bert, BertOptions, Normalizer, Replace, Sequence, Unicode};
 
     #[test]
@@ -380,6 +382,7 @@ mod tests {
             ..Default::default()
         });
 
+        #[derive(Debug)]
         struct Case<'a> {
             input: &'a str,
             expected: &'a str,
@@ -406,20 +409,22 @@ mod tests {
             },
         ];
 
-        for Case {
-            input,
-            expected,
-            expected_offsets,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                input,
+                expected,
+                expected_offsets,
+            } = case;
+
             let (normalized, offsets) = normalizer.normalize(input).unwrap();
-            assert_eq!(normalized, expected);
-            assert_eq!(offsets, expected_offsets);
-        }
+            assert_eq!(normalized, *expected);
+            assert_eq!(offsets, *expected_offsets);
+        })
     }
 
     #[test]
     fn test_bert_strip_accepts() {
+        #[derive(Debug)]
         struct Case<'a> {
             input: &'a str,
             lowercase: bool,
@@ -448,27 +453,29 @@ mod tests {
             },
         ];
 
-        for Case {
-            input,
-            lowercase,
-            expected,
-            expected_offsets,
-        } in cases
-        {
-            let normalizer = Bert::new(BertOptions {
+        cases.test_each(|case| {
+            let Case {
+                input,
                 lowercase,
+                expected,
+                expected_offsets,
+            } = case;
+
+            let normalizer = Bert::new(BertOptions {
+                lowercase: *lowercase,
                 strip_accents: true,
                 ..Default::default()
             });
 
             let (normalized, offsets) = normalizer.normalize(input).unwrap();
-            assert_eq!(normalized, expected);
-            assert_eq!(offsets, expected_offsets);
-        }
+            assert_eq!(normalized, *expected);
+            assert_eq!(offsets, *expected_offsets);
+        })
     }
 
     #[test]
     fn test_replace() {
+        #[derive(Debug)]
         struct Case<'a> {
             input: &'a str,
             pattern: &'a str,
@@ -504,20 +511,21 @@ mod tests {
             },
         ];
 
-        for Case {
-            input,
-            pattern,
-            content,
-            expected,
-            expected_offsets,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                input,
+                pattern,
+                content,
+                expected,
+                expected_offsets,
+            } = case;
+
             let normalizer = Replace::new(pattern, content.to_string()).unwrap();
             let (normalized, offsets) = normalizer.normalize(input).unwrap();
             assert_eq!(offsets.len(), normalized.len());
-            assert_eq!(normalized, expected);
-            assert_eq!(offsets, expected_offsets);
-        }
+            assert_eq!(normalized, *expected);
+            assert_eq!(offsets, *expected_offsets);
+        })
     }
 
     fn lowercase_normalizer() -> Box<dyn Normalizer> {
@@ -537,9 +545,12 @@ mod tests {
 
     #[test]
     fn test_sequence() {
+        use std::panic::AssertUnwindSafe;
+
+        #[derive(Debug)]
         struct Case<'a> {
             input: &'a str,
-            normalizers: Vec<Box<dyn Normalizer>>,
+            normalizers: AssertUnwindSafe<Vec<Box<dyn Normalizer>>>,
             expected: &'a str,
             expected_offsets: Vec<usize>,
         }
@@ -550,52 +561,58 @@ mod tests {
             // This is the sequence used by CLIP.
             Case {
                 input: "FOO  BAR  BAZ",
-                normalizers: [
-                    nfc_normalizer(),
-                    lowercase_normalizer(),
-                    replace_normalizer(r"\s+", " "),
-                ]
-                .into(),
+                normalizers: AssertUnwindSafe(
+                    [
+                        nfc_normalizer(),
+                        lowercase_normalizer(),
+                        replace_normalizer(r"\s+", " "),
+                    ]
+                    .into(),
+                ),
                 expected: "foo bar baz",
                 expected_offsets: [0, 1, 2, 3, 5, 6, 7, 8, 10, 11, 12].into(),
             },
             // Multiple normalizers that modify offsets.
             Case {
                 input: "FOO BAR BAZ",
-                normalizers: [
-                    replace_normalizer(" ", "--"),
-                    replace_normalizer("--", "_"),
-                    lowercase_normalizer(),
-                ]
-                .into(),
+                normalizers: AssertUnwindSafe(
+                    [
+                        replace_normalizer(" ", "--"),
+                        replace_normalizer("--", "_"),
+                        lowercase_normalizer(),
+                    ]
+                    .into(),
+                ),
                 expected: "foo_bar_baz",
                 expected_offsets: (0.."foo bar baz".len()).collect(),
             },
             // Empty sequence
             Case {
                 input: "foo bar baz",
-                normalizers: Vec::new(),
+                normalizers: AssertUnwindSafe(Vec::new()),
                 expected: "foo bar baz",
                 expected_offsets: (0.."foo bar baz".len()).collect(),
             },
         ];
 
-        for Case {
-            input,
-            normalizers,
-            expected,
-            expected_offsets,
-        } in cases
-        {
-            let seq = Sequence::from_vec(normalizers);
+        cases.test_each_value(|case| {
+            let Case {
+                input,
+                normalizers,
+                expected,
+                expected_offsets,
+            } = case;
+
+            let seq = Sequence::from_vec(normalizers.0);
             let (normalized, offsets) = seq.normalize(input).unwrap();
             assert_eq!(normalized, expected);
             assert_eq!(offsets, expected_offsets);
-        }
+        })
     }
 
     #[test]
     fn test_unicode() {
+        #[derive(Debug)]
         struct Case<'a> {
             input: &'a str,
             normalizer: Unicode,
@@ -652,17 +669,18 @@ mod tests {
             },
         ];
 
-        for Case {
-            input,
-            normalizer,
-            expected,
-            expected_offsets,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                input,
+                normalizer,
+                expected,
+                expected_offsets,
+            } = case;
+
             let (normalized, offsets) = normalizer.normalize(input).unwrap();
-            assert_eq!(normalized, expected);
+            assert_eq!(normalized, *expected);
             assert_eq!(normalized.len(), offsets.len());
-            assert_eq!(offsets, expected_offsets);
-        }
+            assert_eq!(offsets, *expected_offsets);
+        })
     }
 }

@@ -483,6 +483,7 @@ name = "rten-text"
 version = "0.16.0"
 dependencies = [
  "fancy-regex",
+ "rten-testing",
  "serde",
  "serde_json",
  "unicode-normalization",

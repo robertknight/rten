@@ -88,7 +88,7 @@ pub const GPT2_REGEX: &str =
     r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
 
 /// Specifies how [`Split`] should handle delimiters between chunks.
-#[derive(Copy, Clone, Default, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum SplitDelimiterBehavior {
     /// Exclude the delimiter from the output.
     #[default]
@@ -98,7 +98,7 @@ pub enum SplitDelimiterBehavior {
     Isolate,
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SplitOptions<'a> {
     pub pattern: &'a str,
     pub delimiter: SplitDelimiterBehavior,
@@ -264,12 +264,15 @@ impl PreTokenizer for Sequence {
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use super::{
         Bert, Digits, PreTokenizer, Sequence, Split, SplitDelimiterBehavior, SplitOptions,
     };
 
     #[test]
     fn test_bert() {
+        #[derive(Debug)]
         struct Case<'a> {
             input: &'a str,
             expected: Vec<&'a str>,
@@ -280,15 +283,16 @@ mod tests {
             expected: ["foo", ".", " ", "bar", " ", "baz", ",", " ", "meep"].into(),
         }];
 
-        for Case { input, expected } in cases {
+        cases.test_each(|case| {
             let bert = Bert::new();
-            let chunks = bert.pre_tokenize(input).unwrap();
-            assert_eq!(chunks, expected);
-        }
+            let chunks = bert.pre_tokenize(case.input).unwrap();
+            assert_eq!(chunks, case.expected);
+        })
     }
 
     #[test]
     fn test_digits() {
+        #[derive(Debug)]
         struct Case<'a> {
             individual_digits: bool,
             input: &'a str,
@@ -310,20 +314,16 @@ mod tests {
             },
         ];
 
-        for Case {
-            individual_digits,
-            input,
-            expected,
-        } in cases
-        {
-            let digits = Digits::new(individual_digits);
-            let chunks = digits.pre_tokenize(input).unwrap();
-            assert_eq!(chunks, expected);
-        }
+        cases.test_each(|case| {
+            let digits = Digits::new(case.individual_digits);
+            let chunks = digits.pre_tokenize(case.input).unwrap();
+            assert_eq!(chunks, case.expected);
+        })
     }
 
     #[test]
     fn test_split() {
+        #[derive(Debug)]
         struct Case<'a> {
             opts: SplitOptions<'a>,
             input: &'a str,
@@ -371,16 +371,11 @@ mod tests {
             },
         ];
 
-        for Case {
-            opts,
-            input,
-            expected,
-        } in cases
-        {
-            let split = Split::new(opts).unwrap();
-            let chunks = split.pre_tokenize(input).unwrap();
-            assert_eq!(chunks, expected);
-        }
+        cases.test_each(|case| {
+            let split = Split::new(case.opts.clone()).unwrap();
+            let chunks = split.pre_tokenize(case.input).unwrap();
+            assert_eq!(chunks, case.expected);
+        })
     }
 
     #[test]

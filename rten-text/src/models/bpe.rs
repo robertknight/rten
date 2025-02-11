@@ -537,6 +537,8 @@ impl Model for Bpe {
 mod tests {
     use std::collections::HashMap;
 
+    use rten_testing::TestCases;
+
     use super::{merge_pairs_from_lines, Bpe, BpeOptions, EncodedBytes};
     use crate::pre_tokenizers::Split;
     use crate::tokenizer::{TokenId, Tokenizer};
@@ -603,6 +605,7 @@ in g";
 
     #[test]
     fn test_encode() {
+        #[derive(Debug)]
         struct Case<'a> {
             text: &'a str,
             expected_tokens: &'a [&'a str],
@@ -661,35 +664,37 @@ ba r",
             },
         ];
 
-        for Case {
-            text,
-            expected_tokens: tokens,
-            merges,
-            vocab,
-            end_of_word_suffix,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                text,
+                expected_tokens: tokens,
+                merges,
+                vocab,
+                end_of_word_suffix,
+            } = case;
+
             let merges: Vec<&str> = merges.lines().collect();
             let merge_pairs = merge_pairs_from_lines(&merges);
             let bpe_opts = BpeOptions {
                 merges: &merge_pairs,
-                vocab,
-                end_of_word_suffix,
+                vocab: vocab.clone(),
+                end_of_word_suffix: end_of_word_suffix.clone(),
                 ..Default::default()
             };
             let model = Bpe::new(bpe_opts).unwrap();
             let tokenizer = Tokenizer::new(model, Default::default())
                 .with_pre_tokenizer(Box::new(Split::gpt2()));
-            let encoded = tokenizer.encode(text, None).unwrap();
+            let encoded = tokenizer.encode(*text, None).unwrap();
             assert_eq!(
                 tokenizer.model().get_tokens(encoded.token_ids()).unwrap(),
-                tokens
+                *tokens
             );
-        }
+        })
     }
 
     #[test]
     fn test_get_token_str() {
+        #[derive(Debug)]
         struct Case<'a> {
             input: &'a str,
             encoded_str: &'a str,
@@ -716,24 +721,26 @@ ba r",
 
         let merges: Vec<&str> = MINI_GPT2.lines().collect();
         let merge_pairs = merge_pairs_from_lines(&merges);
-        let bpe_opts = BpeOptions {
-            merges: &merge_pairs,
-            added_tokens: added_tokens(),
-            ..Default::default()
-        };
-        let model = Bpe::new(bpe_opts).unwrap();
-        let tokenizer =
-            Tokenizer::new(model, Default::default()).with_pre_tokenizer(Box::new(Split::gpt2()));
 
-        for Case { input, encoded_str } in cases {
-            let tok_id = tokenizer.model().get_token_id(input).unwrap();
+        cases.test_each(|case| {
+            let bpe_opts = BpeOptions {
+                merges: &merge_pairs,
+                added_tokens: added_tokens(),
+                ..Default::default()
+            };
+            let model = Bpe::new(bpe_opts).unwrap();
+            let tokenizer = Tokenizer::new(model, Default::default())
+                .with_pre_tokenizer(Box::new(Split::gpt2()));
+
+            let tok_id = tokenizer.model().get_token_id(case.input).unwrap();
             let token_str = tokenizer.model().get_token_str(tok_id).unwrap();
-            assert_eq!(token_str, encoded_str);
-        }
+            assert_eq!(token_str, case.encoded_str);
+        })
     }
 
     #[test]
     fn test_decode() {
+        #[derive(Debug)]
         struct Case<'a> {
             text: &'a str,
             add_eos: bool,
@@ -770,18 +777,19 @@ ba r",
             },
         ];
 
-        for Case {
-            text,
-            add_eos,
-            expected,
-            vocab,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                text,
+                add_eos,
+                expected,
+                vocab,
+            } = case;
+
             let merges: Vec<&str> = MINI_GPT2.lines().collect();
             let merge_pairs = merge_pairs_from_lines(&merges);
             let bpe_opts = BpeOptions {
                 merges: &merge_pairs,
-                vocab,
+                vocab: vocab.clone(),
                 added_tokens: added_tokens(),
                 ..Default::default()
             };
@@ -789,14 +797,14 @@ ba r",
             let tokenizer = Tokenizer::new(model, Default::default())
                 .with_pre_tokenizer(Box::new(Split::gpt2()));
 
-            let encoded = tokenizer.encode(text, None).unwrap();
+            let encoded = tokenizer.encode(*text, None).unwrap();
             let mut token_ids = encoded.token_ids().to_vec();
-            if add_eos {
+            if *add_eos {
                 // The `<|endoftext|>` token ID from GPT-2.
                 token_ids.push(50256);
             }
             let decoded = tokenizer.decode(&token_ids).unwrap();
-            assert_eq!(decoded, expected);
-        }
+            assert_eq!(decoded, *expected);
+        })
     }
 }
