@@ -456,6 +456,7 @@ version = "0.16.0"
 dependencies = [
  "rten-bench",
  "rten-tensor",
+ "rten-testing",
  "serde",
 ]
 

@@ -1154,6 +1154,7 @@ impl ExactSizeIterator for PolygonsIter<'_> {}
 mod tests {
     use rten_tensor::test_util::ApproxEq;
     use rten_tensor::{MatrixLayout, NdTensor};
+    use rten_testing::TestCases;
 
     use crate::tests::{points_from_coords, points_from_n_coords};
     use crate::Vec2;
@@ -1174,6 +1175,7 @@ mod tests {
 
     #[test]
     fn test_line_distance() {
+        #[derive(Debug)]
         struct Case {
             start: Point,
             end: Point,
@@ -1234,7 +1236,7 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             let line = Line::from_endpoints(case.start, case.end);
             let dist = line.distance(case.point);
             assert!(
@@ -1246,7 +1248,7 @@ mod tests {
                 dist,
                 case.dist
             );
-        }
+        });
     }
 
     #[test]
@@ -1272,6 +1274,7 @@ mod tests {
 
     #[test]
     fn test_line_rightwards() {
+        #[derive(Debug)]
         struct Case {
             input: Line,
             right: Line,
@@ -1286,9 +1289,9 @@ mod tests {
                 right: Line::from_endpoints(Point::from_yx(0, 0), Point::from_yx(5, 5)),
             },
         ];
-        for case in cases {
+        cases.test_each(|case| {
             assert_eq!(case.input.rightwards(), case.right);
-        }
+        })
     }
 
     /// Create a line from [y1, x1, y2, x2] coordinates.
@@ -1301,6 +1304,7 @@ mod tests {
 
     #[test]
     fn test_line_intersects() {
+        #[derive(Debug)]
         struct Case {
             a: Line,
             b: Line,
@@ -1357,12 +1361,12 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             assert_eq!(case.a.intersects(case.b), case.expected);
 
             // `intersects` should be commutative.
             assert_eq!(case.b.intersects(case.a), case.expected);
-        }
+        })
     }
 
     #[test]
@@ -1379,6 +1383,7 @@ mod tests {
 
     #[test]
     fn test_line_overlap() {
+        #[derive(Debug)]
         struct Case {
             a: (i32, i32),
             b: (i32, i32),
@@ -1412,7 +1417,7 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             // Horizontal lines
             let a = Line::from_endpoints(Point::from_yx(0, case.a.0), Point::from_yx(0, case.a.1));
             let b = Line::from_endpoints(Point::from_yx(0, case.b.0), Point::from_yx(0, case.b.1));
@@ -1424,11 +1429,12 @@ mod tests {
             let b = Line::from_endpoints(Point::from_yx(case.b.0, 0), Point::from_yx(case.b.1, 0));
             assert_eq!(a.vertical_overlap(b), case.overlap);
             assert_eq!(b.vertical_overlap(a), case.overlap);
-        }
+        })
     }
 
     #[test]
     fn test_line_width_height() {
+        #[derive(Debug)]
         struct Case {
             line: Line,
             width: i32,
@@ -1448,14 +1454,15 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             assert_eq!(case.line.width(), case.width);
             assert_eq!(case.line.height(), case.height);
-        }
+        })
     }
 
     #[test]
     fn test_line_y_for_x_and_x_for_y() {
+        #[derive(Debug)]
         struct Case {
             line: Line,
 
@@ -1498,8 +1505,8 @@ mod tests {
             },
         ];
 
-        for case in cases {
-            for (x, expected_y) in case.points {
+        cases.test_each(|case| {
+            for &(x, expected_y) in &case.points {
                 assert_eq!(case.line.to_f32().y_for_x(x), expected_y);
                 if let Some(y) = expected_y {
                     assert_eq!(
@@ -1512,7 +1519,7 @@ mod tests {
                     );
                 }
             }
-        }
+        })
     }
 
     #[test]
@@ -1528,6 +1535,7 @@ mod tests {
 
     #[test]
     fn test_polygon_contains_pixel() {
+        #[derive(Debug)]
         struct Case {
             poly: Polygon,
         }
@@ -1561,7 +1569,7 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             // Create two grids that are slightly larger than the max X + Y
             // coordinates.
             let grid_size = case
@@ -1595,11 +1603,12 @@ mod tests {
                     assert_eq!(fill_grid[[y, x]], contains_pixel_grid[[y, x]]);
                 }
             }
-        }
+        })
     }
 
     #[test]
     fn test_polygon_is_simple() {
+        #[derive(Debug)]
         struct Case {
             poly: Polygon,
             simple: bool,
@@ -1618,13 +1627,12 @@ mod tests {
             },
         ];
 
-        for case in cases {
-            assert_eq!(case.poly.is_simple(), case.simple)
-        }
+        cases.test_each(|case| assert_eq!(case.poly.is_simple(), case.simple))
     }
 
     #[test]
     fn test_polygon_fill_iter() {
+        #[derive(Debug)]
         struct Case {
             vertices: Vec<Point>,
             filled: Vec<Point>,
@@ -1671,15 +1679,16 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             let poly = Polygon::new(&case.vertices);
             let filled: Vec<_> = poly.fill_iter().collect();
             assert_eq!(filled, case.filled);
-        }
+        })
     }
 
     #[test]
     fn test_rect_clamp() {
+        #[derive(Debug)]
         struct Case {
             rect: Rect,
             boundary: Rect,
@@ -1699,9 +1708,9 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             assert_eq!(case.rect.clamp(case.boundary), case.expected);
-        }
+        })
     }
 
     #[test]
@@ -1728,6 +1737,7 @@ mod tests {
 
     #[test]
     fn test_rotated_rect_contains() {
+        #[derive(Debug)]
         struct Case {
             rrect: RotatedRect,
         }
@@ -1747,7 +1757,9 @@ mod tests {
             },
         ];
 
-        for Case { rrect: r } in cases {
+        cases.test_each(|case| {
+            let &Case { rrect: r } = case;
+
             assert!(r.contains(r.center()));
 
             // Test points slightly inside.
@@ -1759,7 +1771,7 @@ mod tests {
             for c in r.expanded(1e-5, 1e-5).corners() {
                 assert!(!r.contains(c));
             }
-        }
+        })
     }
 
     #[test]
@@ -1788,6 +1800,7 @@ mod tests {
 
     #[test]
     fn test_rotated_rect_intersects() {
+        #[derive(Debug)]
         struct Case {
             a: RotatedRect,
             b: RotatedRect,
@@ -1823,7 +1836,7 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             assert_eq!(
                 case.a.bounding_rect().intersects(case.b.bounding_rect()),
                 case.bounding_rect_intersects
@@ -1831,7 +1844,7 @@ mod tests {
             assert_eq!(case.a.intersects(&case.b), case.intersects);
             // `intersects` should be transitive
             assert_eq!(case.b.intersects(&case.a), case.intersects);
-        }
+        })
     }
 
     #[test]
