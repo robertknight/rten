@@ -388,6 +388,7 @@ dependencies = [
  "rten-bench",
  "rten-simd",
  "rten-tensor",
+ "rten-testing",
  "rten-vecmath",
  "rustc-hash",
  "serde_json",
@@ -470,6 +471,10 @@ dependencies = [
  "serde_json",
  "smallvec",
 ]
+
+[[package]]
+name = "rten-testing"
+version = "0.1.0"
 
 [[package]]
 name = "rten-text"

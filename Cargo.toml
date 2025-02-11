@@ -10,9 +10,12 @@ members = [
   "rten-text",
   "rten-vecmath",
 
+  # Example crates. These are not published.
+  "rten-examples",
+
   # Development crates. These are not published.
   "rten-bench",
-  "rten-examples",
+  "rten-testing",
 ]
 default-members = [
   ".",
@@ -56,6 +59,7 @@ num_cpus = "1.16.0"
 [dev-dependencies]
 libm = "0.2.6"
 rten-bench = { path = "./rten-bench" }
+rten-testing = { path = "./rten-testing" }
 serde_json = { workspace = true }
 
 [lib]
