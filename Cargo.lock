@@ -438,6 +438,7 @@ dependencies = [
  "fastrand",
  "rten",
  "rten-tensor",
+ "rten-testing",
  "rten-text",
 ]
 
