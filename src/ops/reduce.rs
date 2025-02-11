@@ -71,44 +71,6 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
     Ok(reduced)
 }
 
-/// Dispatch a reduction over multiple axes.
-macro_rules! dispatch_reduce_op {
-    ($pool:expr, $input:expr, $reduce_op:ident, $axes:expr, $keep_dims:expr) => {
-        match $input {
-            Input::FloatTensor(input) => $reduce_op(
-                $pool,
-                input,
-                $axes.as_ref().map(|axis| &axis[..]),
-                $keep_dims,
-            )
-            .into_op_result(),
-            Input::Int32Tensor(input) => $reduce_op(
-                $pool,
-                input,
-                $axes.as_ref().map(|axis| &axis[..]),
-                $keep_dims,
-            )
-            .into_op_result(),
-            _ => Err(OpError::UnsupportedType),
-        }
-    };
-}
-
-/// Dispatch a reduction over a single axis.
-macro_rules! dispatch_single_axis_reduce_op {
-    ($pool:expr, $input:expr, $reduce_op:ident, $axis:expr, $keep_dims:expr) => {
-        match $input {
-            Input::FloatTensor(input) => {
-                $reduce_op($pool, input, $axis, $keep_dims).into_op_result()
-            }
-            Input::Int32Tensor(input) => {
-                $reduce_op($pool, input, $axis, $keep_dims).into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
-    };
-}
-
 /// Return the index of the maximum value along a given axis.
 ///
 /// NaN values are propagated by treating NaNs as greater than other values.
@@ -134,7 +96,9 @@ impl Operator for ArgMax {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
-        dispatch_single_axis_reduce_op!(pool, input, arg_max, self.axis, self.keep_dims)
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            arg_max(pool, input, self.axis, self.keep_dims).into_op_result()
+        })
     }
 }
 
@@ -168,7 +132,9 @@ impl Operator for ArgMin {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
-        dispatch_single_axis_reduce_op!(pool, input, arg_min, self.axis, self.keep_dims)
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            arg_min(pool, input, self.axis, self.keep_dims).into_op_result()
+        })
     }
 }
 
@@ -559,7 +525,9 @@ impl Operator for ReduceMin {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
-        dispatch_reduce_op!(pool, input, reduce_min, axes, self.keep_dims)
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            reduce_min(pool, input, axes.as_deref(), self.keep_dims).into_op_result()
+        })
     }
 }
 
@@ -586,7 +554,9 @@ impl Operator for ReduceMax {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
-        dispatch_reduce_op!(pool, input, reduce_max, axes, self.keep_dims)
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            reduce_max(pool, input, axes.as_deref(), self.keep_dims).into_op_result()
+        })
     }
 }
 
@@ -619,7 +589,9 @@ impl Operator for ReduceProd {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
-        dispatch_reduce_op!(pool, input, reduce_prod, axes, self.keep_dims)
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            reduce_prod(pool, input, axes.as_deref(), self.keep_dims).into_op_result()
+        })
     }
 }
 
@@ -652,7 +624,9 @@ impl Operator for ReduceSum {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
-        dispatch_reduce_op!(pool, input, reduce_sum, axes, self.keep_dims)
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            reduce_sum(pool, input, axes.as_deref(), self.keep_dims).into_op_result()
+        })
     }
 }
 
@@ -685,7 +659,9 @@ impl Operator for ReduceSumSquare {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
-        dispatch_reduce_op!(pool, input, reduce_sum_square, axes, self.keep_dims)
+        map_input!(input, input, [FloatTensor, Int32Tensor], {
+            reduce_sum_square(pool, input, axes.as_deref(), self.keep_dims).into_op_result()
+        })
     }
 }
 
