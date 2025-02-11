@@ -1486,6 +1486,8 @@ impl_slice_with!(5, U5, 0);
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use std::ops::Range;
 
     use super::OverlapPolicy;
@@ -1516,6 +1518,7 @@ mod tests {
 
     #[test]
     fn test_try_from_shape_and_strides() {
+        #[derive(Debug)]
         struct Case<'a> {
             shape: &'a [usize],
             strides: &'a [usize],
@@ -1534,7 +1537,7 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             let layout = DynLayout::try_from_shape_and_strides(
                 case.shape,
                 case.strides,
@@ -1543,11 +1546,12 @@ mod tests {
             .unwrap();
             assert_eq!(layout.shape(), case.shape);
             assert_eq!(layout.strides(), case.strides);
-        }
+        })
     }
 
     #[test]
     fn test_index_axis() {
+        #[derive(Debug)]
         struct Case {
             layout: NdLayout<2>,
             axis: usize,
@@ -1570,23 +1574,24 @@ mod tests {
             },
         ];
 
-        for Case {
-            layout,
-            axis,
-            index,
-            expected,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                layout,
+                axis,
+                index,
+                expected,
+            } = case;
+
             let (expected_start, expected_layout) = expected;
 
-            let (offsets, sliced_layout) = layout.index_axis(axis, index);
-            assert_eq!(sliced_layout, expected_layout);
-            assert_eq!(offsets.start, expected_start);
+            let (offsets, sliced_layout) = layout.index_axis(*axis, *index);
+            assert_eq!(sliced_layout, *expected_layout);
+            assert_eq!(offsets.start, *expected_start);
             assert_eq!(offsets.len(), expected_layout.min_data_len());
 
-            let (_, sliced_layout_dyn) = layout.as_dyn().index_axis(axis, index);
+            let (_, sliced_layout_dyn) = layout.as_dyn().index_axis(*axis, *index);
             assert_eq!(sliced_layout_dyn, expected_layout.as_dyn());
-        }
+        })
     }
 
     #[test]
@@ -1676,6 +1681,7 @@ mod tests {
 
     #[test]
     fn test_reshaped() {
+        #[derive(Debug)]
         struct Case<'a> {
             layout: DynLayout,
             new_shape: &'a [usize],
@@ -1718,24 +1724,25 @@ mod tests {
             },
         ];
 
-        for Case {
-            layout,
-            new_shape,
-            for_copy,
-            error,
-        } in cases
-        {
-            let reshaped = if for_copy {
-                layout.reshaped_for_copy(new_shape)
+        cases.test_each(|case| {
+            let Case {
+                layout,
+                new_shape,
+                for_copy,
+                error,
+            } = case;
+
+            let reshaped = if *for_copy {
+                layout.reshaped_for_copy(*new_shape)
             } else {
-                layout.reshaped_for_view(new_shape)
+                layout.reshaped_for_view(*new_shape)
             };
 
             assert_eq!(reshaped.as_ref().err(), error.as_ref());
             if let Ok(new_layout) = reshaped {
-                assert_eq!(new_layout.shape(), new_shape);
+                assert_eq!(new_layout.shape(), *new_shape);
             }
-        }
+        })
     }
 
     #[test]
@@ -1748,6 +1755,7 @@ mod tests {
 
     #[test]
     fn test_slice_axis() {
+        #[derive(Clone, Debug)]
         struct Case<'a> {
             shape: &'a [usize],
             axis: usize,
@@ -1764,24 +1772,26 @@ mod tests {
             offsets: 2..14,
         }];
 
-        for Case {
-            shape,
-            axis,
-            range,
-            sliced_shape,
-            offsets,
-        } in cases
-        {
+        cases.test_each_clone(|case| {
+            let Case {
+                shape,
+                axis,
+                range,
+                sliced_shape,
+                offsets,
+            } = case;
+
             let layout = DynLayout::from_shape(shape);
             let (offset_range, sliced_layout) = layout.slice_axis(axis, range);
             assert_eq!(sliced_layout.shape(), sliced_shape);
             assert_eq!(sliced_layout.strides(), layout.strides());
             assert_eq!(offset_range, offsets);
-        }
+        })
     }
 
     #[test]
     fn test_slice_invalid() {
+        #[derive(Debug)]
         struct Case<'a> {
             layout: DynLayout,
             ranges: &'a [SliceItem],
@@ -1832,15 +1842,10 @@ mod tests {
             },
         ];
 
-        for Case {
-            layout,
-            ranges,
-            expected,
-        } in cases
-        {
-            let result = layout.slice(ranges);
-            assert_eq!(result, Err(expected));
-        }
+        cases.test_each(|case| {
+            let result = case.layout.slice(case.ranges);
+            assert_eq!(result, Err(case.expected.clone()));
+        })
     }
 
     #[test]
@@ -1854,6 +1859,7 @@ mod tests {
 
     #[test]
     fn test_split() {
+        #[derive(Debug)]
         struct Case {
             shape: [usize; 2],
             strides: Option<[usize; 2]>,
@@ -1924,18 +1930,19 @@ mod tests {
             }
         }
 
-        for Case {
-            shape,
-            strides,
-            axis,
-            mid,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                shape,
+                strides,
+                axis,
+                mid,
+            } = case;
+
             let layout = if let Some(strides) = strides {
-                NdLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap)
+                NdLayout::try_from_shape_and_strides(*shape, *strides, OverlapPolicy::AllowOverlap)
                     .unwrap()
             } else {
-                NdLayout::from_shape(shape)
+                NdLayout::from_shape(*shape)
             };
             let dyn_layout = if let Some(strides) = strides {
                 DynLayout::try_from_shape_and_strides(
@@ -1948,13 +1955,14 @@ mod tests {
                 DynLayout::from_shape(shape.as_slice())
             };
 
-            check_split(layout, axis, mid);
-            check_split(dyn_layout, axis, mid);
-        }
+            check_split(layout, *axis, *mid);
+            check_split(dyn_layout, *axis, *mid);
+        })
     }
 
     #[test]
     fn test_merge_axes() {
+        #[derive(Debug)]
         struct Case<'a> {
             shape: &'a [usize],
             strides: &'a [usize],
@@ -2016,19 +2024,16 @@ mod tests {
             },
         ];
 
-        for Case {
-            shape,
-            strides,
-            merged_shape,
-            merged_strides,
-        } in cases
-        {
-            let mut layout =
-                DynLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap)
-                    .unwrap();
+        cases.test_each(|case| {
+            let mut layout = DynLayout::try_from_shape_and_strides(
+                case.shape,
+                case.strides,
+                OverlapPolicy::AllowOverlap,
+            )
+            .unwrap();
             layout.merge_axes();
-            assert_eq!(layout.shape(), merged_shape);
-            assert_eq!(layout.strides(), merged_strides);
-        }
+            assert_eq!(layout.shape(), case.merged_shape);
+            assert_eq!(layout.strides(), case.merged_strides);
+        })
     }
 }

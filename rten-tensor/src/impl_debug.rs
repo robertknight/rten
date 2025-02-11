@@ -20,6 +20,7 @@ impl<T: Debug> Debug for Entry<T> {
 }
 
 /// Configuration for debug formatting of a tensor.
+#[derive(Clone, Debug)]
 struct FormatOptions {
     /// Maximum number of columns to print before eliding.
     pub max_columns: usize,
@@ -161,11 +162,14 @@ where
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use super::{FormatOptions, FormatTensor};
     use crate::Tensor;
 
     #[test]
     fn test_debug() {
+        #[derive(Clone, Debug)]
         struct Case<'a> {
             tensor: Tensor,
             opts: FormatOptions,
@@ -266,14 +270,9 @@ mod tests {
             },
         ];
 
-        for Case {
-            tensor,
-            opts,
-            expected,
-        } in cases
-        {
-            let debug_str = format!("{:?}", FormatTensor::new(&tensor, opts));
-            assert_eq!(debug_str, expected);
-        }
+        cases.test_each_clone(|case| {
+            let debug_str = format!("{:?}", FormatTensor::new(&case.tensor, case.opts));
+            assert_eq!(debug_str, case.expected);
+        })
     }
 }

@@ -119,10 +119,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use crate::{NdTensor, Tensor};
 
     #[test]
     fn test_deserialize_serialize_dynamic_rank() {
+        #[derive(Debug)]
         struct Case<'a> {
             json: &'a str,
             expected: Result<Tensor<f32>, String>,
@@ -161,12 +164,14 @@ mod tests {
             },
         ];
 
-        for Case { json, expected } in cases {
+        cases.test_each(|case| {
+            let Case { json, expected } = case;
+
             let actual: Result<Tensor<f32>, String> =
                 serde_json::from_str(&json).map_err(|e| e.to_string());
             match (actual, expected) {
                 (Ok(actual), Ok(expected)) => {
-                    assert_eq!(actual, expected);
+                    assert_eq!(actual, *expected);
 
                     // Verify that serializing the result produces the original
                     // JSON.
@@ -175,18 +180,19 @@ mod tests {
                     assert_eq!(actual_json, expected_json);
                 }
                 (Err(actual_err), Err(expected_err)) => assert!(
-                    actual_err.contains(&expected_err),
+                    actual_err.contains(expected_err),
                     "expected \"{}\" to contain \"{}\"",
                     actual_err,
                     expected_err
                 ),
-                (actual, expected) => assert_eq!(actual, expected),
+                (actual, expected) => assert_eq!(actual, *expected),
             }
-        }
+        })
     }
 
     #[test]
     fn test_deserialize_serialize_static_rank() {
+        #[derive(Debug)]
         struct Case<'a> {
             json: &'a str,
             expected: Result<NdTensor<f32, 2>, String>,
@@ -203,13 +209,15 @@ mod tests {
             },
         ];
 
-        for Case { json, expected } in cases {
+        cases.test_each(|case| {
+            let Case { json, expected } = case;
+
             let actual: Result<NdTensor<f32, 2>, String> =
                 serde_json::from_str(&json).map_err(|e| e.to_string());
 
             match (actual, expected) {
                 (Ok(actual), Ok(expected)) => {
-                    assert_eq!(actual, expected);
+                    assert_eq!(actual, *expected);
 
                     // Verify that serializing the result produces the original
                     // JSON.
@@ -218,13 +226,13 @@ mod tests {
                     assert_eq!(actual_json, expected_json);
                 }
                 (Err(actual_err), Err(expected_err)) => assert!(
-                    actual_err.contains(&expected_err),
+                    actual_err.contains(expected_err),
                     "expected \"{}\" to contain \"{}\"",
                     actual_err,
                     expected_err
                 ),
-                (actual, expected) => assert_eq!(actual, expected),
+                (actual, expected) => assert_eq!(actual, *expected),
             }
-        }
+        })
     }
 }

@@ -506,6 +506,8 @@ impl std::iter::FusedIterator for IndexRangeIter {}
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use super::{IntoSliceItems, SliceItem, SliceRange};
 
     #[test]
@@ -540,6 +542,7 @@ mod tests {
 
     #[test]
     fn test_index_range() {
+        #[derive(Debug)]
         struct Case {
             range: SliceItem,
             dim_size: usize,
@@ -631,24 +634,26 @@ mod tests {
             },
         ];
 
-        for Case {
-            range,
-            dim_size,
-            indices,
-        } in cases
-        {
-            let mut index_iter = range.index_range(dim_size).into_iter();
+        cases.test_each(|case| {
+            let Case {
+                range,
+                dim_size,
+                indices,
+            } = case;
+
+            let mut index_iter = range.index_range(*dim_size).into_iter();
             let size_hint = index_iter.size_hint();
             let index_vec: Vec<_> = index_iter.by_ref().collect();
 
             assert_eq!(size_hint, (index_vec.len(), Some(index_vec.len())));
-            assert_eq!(index_vec, indices);
+            assert_eq!(index_vec, *indices);
             assert_eq!(index_iter.size_hint(), (0, Some(0)));
-        }
+        })
     }
 
     #[test]
     fn test_index_range_steps() {
+        #[derive(Debug)]
         struct Case {
             range: SliceRange,
             dim_size: usize,
@@ -682,14 +687,9 @@ mod tests {
             },
         ];
 
-        for Case {
-            range,
-            dim_size,
-            steps,
-        } in cases
-        {
-            assert_eq!(range.index_range(dim_size).steps(), steps);
-        }
+        cases.test_each(|case| {
+            assert_eq!(case.range.index_range(case.dim_size).steps(), case.steps);
+        })
     }
 
     #[test]

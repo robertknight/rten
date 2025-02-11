@@ -453,6 +453,8 @@ fn copy_range_into_slice_inner<T: Clone>(
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use super::{copy_into, copy_into_slice, copy_into_uninit, copy_range_into_slice};
     use crate::rng::XorShiftRng;
     use crate::{AsView, Layout, NdTensor, SliceItem, Tensor, TensorView};
@@ -536,6 +538,7 @@ mod tests {
 
     #[test]
     fn test_copy_range_into_slice() {
+        #[derive(Debug)]
         struct Case<'a> {
             tensor: Tensor<i32>,
             range: &'a [SliceItem],
@@ -568,12 +571,13 @@ mod tests {
             },
         ];
 
-        for Case {
-            tensor,
-            range,
-            expected,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                tensor,
+                range,
+                expected,
+            } = case;
+
             let dest_len = expected.len();
             let mut dest = Vec::with_capacity(dest_len);
 
@@ -588,8 +592,8 @@ mod tests {
                 dest.set_len(dest_len);
             }
 
-            assert_eq!(dest, expected);
-        }
+            assert_eq!(dest, *expected);
+        })
     }
 
     #[test]
