@@ -571,6 +571,7 @@ mod tests {
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Tensor, TensorView};
+    use rten_testing::TestCases;
 
     use crate::gemm::{
         BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams,
@@ -791,7 +792,8 @@ mod tests {
     }
 
     #[test]
-    fn test_matmul() -> Result<(), Box<dyn Error>> {
+    fn test_matmul() {
+        #[derive(Debug)]
         struct Case<'a> {
             a_shape: &'a [usize],
             b_shape: &'a [usize],
@@ -861,24 +863,22 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
+        cases.test_each(|case| {
+            let &Case {
+                out_shape,
+                a_shape,
+                b_shape,
+            } = case;
 
-        for Case {
-            out_shape,
-            a_shape,
-            b_shape,
-        } in cases
-        {
+            let pool = new_pool();
             let mut rng = XorShiftRng::new(1234);
             let a = Tensor::<f32>::rand(a_shape, &mut rng);
             let b = Tensor::<f32>::rand(b_shape, &mut rng);
             let expected = reference_matmul(a.view(), b.view(), MatMulOpts::default());
             let result = matmul(&pool, a.view(), b.view(), None).unwrap();
             assert_eq!(result.shape(), out_shape);
-            expect_equal(&result, &expected)?;
-        }
-
-        Ok(())
+            expect_equal(&result, &expected).unwrap();
+        });
     }
 
     #[test]

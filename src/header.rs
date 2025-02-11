@@ -162,6 +162,8 @@ impl Error for HeaderError {}
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use super::{Header, HeaderError};
 
     #[test]
@@ -183,6 +185,7 @@ mod tests {
 
     #[test]
     fn test_invalid_header() {
+        #[derive(Debug)]
         struct Case {
             buf: Vec<u8>,
             expected: HeaderError,
@@ -242,9 +245,9 @@ mod tests {
             },
         ];
 
-        for Case { buf, expected } in cases {
-            let result = Header::from_buf(&buf);
-            assert_eq!(result, Err(expected));
-        }
+        cases.test_each(|Case { buf, expected }| {
+            let result = Header::from_buf(buf);
+            assert_eq!(result.as_ref(), Err(expected));
+        })
     }
 }

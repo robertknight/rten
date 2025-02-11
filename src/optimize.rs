@@ -818,6 +818,7 @@ mod tests {
     use std::sync::Arc;
 
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use super::{GraphOptimizer, OptimizeError};
     use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
@@ -1142,13 +1143,14 @@ mod tests {
 
     #[test]
     fn test_fuse_layer_norm() {
+        #[derive(Debug)]
         struct Case {
             with_bias: bool,
         }
 
         let cases = [Case { with_bias: true }, Case { with_bias: false }];
 
-        for Case { with_bias } in cases {
+        cases.test_each(|&Case { with_bias }| {
             let graph = layer_norm_graph(with_bias);
             let graph = optimize_graph(graph).unwrap();
             let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
@@ -1158,7 +1160,7 @@ mod tests {
             assert_eq!(layer_norm.epsilon, Some(1e-6));
             let bias_input = op.input_ids().get(2).copied().flatten();
             assert_eq!(bias_input.is_some(), with_bias);
-        }
+        })
     }
 
     #[test]

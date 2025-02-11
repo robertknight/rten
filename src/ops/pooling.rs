@@ -406,6 +406,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use super::calc_output_size_and_padding;
     use crate::ops::tests::expect_eq_1e4;
@@ -667,6 +668,7 @@ mod tests {
 
     #[test]
     fn test_calc_output_size_and_padding() {
+        #[derive(Debug)]
         struct Case {
             in_size: (usize, usize),
             kernel_size: (usize, usize),
@@ -772,25 +774,26 @@ mod tests {
             },
         ];
 
-        for Case {
-            in_size,
-            kernel_size,
-            dilations,
-            strides,
-            padding,
-            expected,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                in_size,
+                kernel_size,
+                dilations,
+                strides,
+                padding,
+                expected,
+            } = case;
+
             assert_eq!(
-                calc_output_size_and_padding(
-                    in_size,
-                    kernel_size,
-                    strides,
-                    padding,
-                    Some(dilations),
+                &calc_output_size_and_padding(
+                    *in_size,
+                    *kernel_size,
+                    *strides,
+                    padding.clone(),
+                    Some(*dilations),
                 ),
                 expected
             );
-        }
+        })
     }
 }

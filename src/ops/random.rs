@@ -143,6 +143,7 @@ mod tests {
 
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use crate::ops::operators::{FloatOperators, Operators};
     use crate::ops::tests::{new_pool, run_op};
@@ -152,6 +153,7 @@ mod tests {
 
     #[test]
     fn test_random_uniform() {
+        #[derive(Clone, Debug)]
         struct Case {
             low: f32,
             high: f32,
@@ -189,15 +191,14 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-
-        for Case {
+        cases.test_each_clone(|Case {
             low,
             high,
             shape,
             seed,
-        } in cases
+        }|
         {
+            let pool = new_pool();
             let op = RandomUniform {
                 low,
                 high,
@@ -250,7 +251,7 @@ mod tests {
             } else {
                 assert_ne!(output, output_2);
             }
-        }
+        })
     }
 
     #[test]

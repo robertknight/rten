@@ -203,6 +203,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{NdTensor, Tensor};
+    use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{pad, OpError, Operator, Pad, PadMode};
@@ -281,6 +282,7 @@ mod tests {
 
     #[test]
     fn test_pad_reflect() -> Result<(), Box<dyn Error>> {
+        #[derive(Debug)]
         struct Case {
             input: Tensor,
             pads: NdTensor<i32, 1>,
@@ -372,22 +374,22 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
+        cases.test_each(|case| {
+            let Case {
+                input,
+                pads,
+                expected,
+            } = case;
 
-        for Case {
-            input,
-            pads,
-            expected,
-        } in cases
-        {
+            let pool = new_pool();
             let result = pad(&pool, input.view(), &pads.view(), PadMode::Reflect, 0.);
             match (result, expected) {
                 (Ok(result), Ok(expected)) => {
-                    expect_equal(&result, &expected)?;
+                    expect_equal(&result, &expected).unwrap();
                 }
-                (result, expected) => assert_eq!(result, expected),
+                (result, expected) => assert_eq!(&result, expected),
             }
-        }
+        });
 
         Ok(())
     }
