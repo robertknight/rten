@@ -720,6 +720,7 @@ mod tests {
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{NdTensor, NdTensorView, Tensor};
+    use rten_testing::TestCases;
 
     use super::SOFTMAX_GRAIN_SIZE;
     use crate::ops::tests::{expect_eq_1e4, new_pool};
@@ -730,7 +731,8 @@ mod tests {
     };
 
     #[test]
-    fn test_batch_norm() -> Result<(), Box<dyn Error>> {
+    fn test_batch_norm() {
+        #[derive(Debug)]
         struct Case {
             input: Tensor,
         }
@@ -746,8 +748,8 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for Case { input } in cases {
+        cases.test_each(|Case { input }| {
+            let pool = new_pool();
             let scale = &[3.0, 3.0];
             let bias = &[0.1, 0.2];
             let mean = &[0.5, -0.5];
@@ -771,10 +773,8 @@ mod tests {
             )
             .unwrap();
 
-            expect_equal(&result, &expected)?;
-        }
-
-        Ok(())
+            expect_equal(&result, &expected).unwrap();
+        })
     }
 
     #[test]
@@ -866,9 +866,8 @@ mod tests {
     }
 
     #[test]
-    fn test_layer_normalization() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
-
+    fn test_layer_normalization() {
+        #[derive(Debug)]
         struct Case {
             input: Tensor,
             scale: Tensor,
@@ -942,32 +941,32 @@ mod tests {
             },
         ];
 
-        for Case {
-            input,
-            scale,
-            bias,
-            axis,
-            expected,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                input,
+                scale,
+                bias,
+                axis,
+                expected,
+            } = case;
+
+            let pool = new_pool();
             let result = layer_normalization(
                 &pool,
                 input.view(),
                 scale.view(),
                 bias.as_ref().map(|b| b.view()),
-                axis,
+                *axis,
                 None, /* epsilon */
             );
 
             match (result, expected) {
                 (Ok(result), Ok(expected)) => {
-                    expect_eq_1e4(&result, &expected)?;
+                    expect_eq_1e4(&result, &expected).unwrap();
                 }
-                (result, expected) => assert_eq!(result, expected),
+                (result, expected) => assert_eq!(result, *expected),
             }
-        }
-
-        Ok(())
+        })
     }
 
     fn reference_rms(input: NdTensorView<f32, 1>, scale: NdTensorView<f32, 1>) -> NdTensor<f32, 1> {

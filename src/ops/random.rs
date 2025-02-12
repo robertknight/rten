@@ -139,8 +139,6 @@ impl Operator for RandomNormalLike {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
@@ -267,7 +265,8 @@ mod tests {
     }
 
     #[test]
-    fn test_random_normal() -> Result<(), Box<dyn Error>> {
+    fn test_random_normal() {
+        #[derive(Clone, Debug)]
         struct Case {
             mean: f32,
             scale: f32,
@@ -299,13 +298,14 @@ mod tests {
             },
         ];
 
-        for Case {
-            mean,
-            scale,
-            shape,
-            seed,
-        } in cases
-        {
+        cases.test_each_clone(|case| {
+            let Case {
+                mean,
+                scale,
+                shape,
+                seed,
+            } = case;
+
             let op = RandomNormal {
                 mean,
                 scale,
@@ -317,7 +317,8 @@ mod tests {
 
             // Test that outputs have expected distribution.
             let mean = output
-                .reduce_mean(None, false /* keep_dims */)?
+                .reduce_mean(None, false /* keep_dims */)
+                .unwrap()
                 .item()
                 .copied()
                 .unwrap();
@@ -330,7 +331,8 @@ mod tests {
 
             let var: f32 = output
                 .map(|x| (x - mean) * (x - mean))
-                .reduce_sum(None, false /* keep_dims */)?
+                .reduce_sum(None, false /* keep_dims */)
+                .unwrap()
                 .item()
                 .unwrap()
                 / output.len() as f32;
@@ -346,9 +348,7 @@ mod tests {
             } else {
                 assert_ne!(output, output_2);
             }
-        }
-
-        Ok(())
+        })
     }
 
     #[test]

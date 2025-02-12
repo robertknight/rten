@@ -87,18 +87,19 @@ impl Operator for FusedTranspose {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
     use std::sync::Arc;
 
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use super::FusedTranspose;
     use crate::ops::tests::new_pool;
     use crate::ops::{InputList, Operator, Sub};
 
     #[test]
-    fn test_fused_transpose() -> Result<(), Box<dyn Error>> {
+    fn test_fused_transpose() {
+        #[derive(Debug)]
         struct Case {
             a: Tensor<i32>,
             b: Tensor<i32>,
@@ -127,28 +128,28 @@ mod tests {
             },
         ];
 
-        for Case {
-            a,
-            b,
-            transpose_input,
-            expected,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                a,
+                b,
+                transpose_input,
+                expected,
+            } = case;
+
             // nb. `Sub` operator chosen because it is a simple non-commutative
             // binary op.
             let sub_op = Sub {};
             let fused_transpose =
-                FusedTranspose::wrap(Arc::new(sub_op), transpose_input, Some(&[1, 0]));
+                FusedTranspose::wrap(Arc::new(sub_op), *transpose_input, Some(&[1, 0]));
 
             let pool = new_pool();
-            let mut outputs =
-                fused_transpose.run(&pool, InputList::from(&[a.view().into(), b.view().into()]))?;
+            let mut outputs = fused_transpose
+                .run(&pool, InputList::from(&[a.view().into(), b.view().into()]))
+                .unwrap();
 
             let output: Tensor<i32> = outputs.remove(0).try_into().unwrap();
 
-            assert_eq!(output, expected);
-        }
-
-        Ok(())
+            assert_eq!(output, *expected);
+        })
     }
 }

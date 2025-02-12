@@ -1062,6 +1062,7 @@ mod tests {
 
     #[test]
     fn test_einsum_path() {
+        #[derive(Debug)]
         struct Case<'a> {
             equation: &'a str,
             broadcast_ndim: u8,
@@ -1157,14 +1158,9 @@ mod tests {
             },
         ];
 
-        for Case {
-            equation,
-            path,
-            broadcast_ndim,
-        } in cases
-        {
-            let expr = EinsumExpr::parse(equation).unwrap();
-            assert_eq!(einsum_path(&expr, broadcast_ndim), path);
-        }
+        cases.test_each(|case| {
+            let expr = EinsumExpr::parse(case.equation).unwrap();
+            assert_eq!(einsum_path(&expr, case.broadcast_ndim), case.path);
+        })
     }
 }
