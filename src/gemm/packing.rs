@@ -293,12 +293,14 @@ impl Default for PackingBuffer {
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
     use std::mem::MaybeUninit;
 
     use super::{PackedLayout, PackingBuffer};
 
     #[test]
     fn test_packing_buffer() {
+        #[derive(Clone, Debug)]
         struct Case {
             size: usize,
             align: usize,
@@ -311,12 +313,13 @@ mod tests {
             panel_stride: 64,
         }];
 
-        for Case {
-            size,
-            align,
-            panel_stride,
-        } in cases
-        {
+        cases.test_each_clone(|case| {
+            let Case {
+                size,
+                align,
+                panel_stride,
+            } = case;
+
             let mut buf = PackingBuffer::new();
             assert_eq!(buf.as_bytes().len(), 0);
 
@@ -331,6 +334,6 @@ mod tests {
             }
 
             assert_eq!(buf.as_bytes().len(), layout.size());
-        }
+        })
     }
 }

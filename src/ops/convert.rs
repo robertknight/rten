@@ -81,15 +81,15 @@ impl Operator for Cast {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{Cast, DataType, Operator, Output};
 
     #[test]
-    fn test_cast() -> Result<(), Box<dyn Error>> {
+    fn test_cast() {
+        #[derive(Debug)]
         struct Case {
             input: Output,
             dtype: DataType,
@@ -152,18 +152,11 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for Case {
-            input,
-            dtype,
-            expected,
-        } in cases
-        {
-            let cast_op = Cast { to: dtype };
-            let result = cast_op.run(&pool, (&input).into()).unwrap().remove(0);
-            assert_eq!(result, expected);
-        }
-
-        Ok(())
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let cast_op = Cast { to: case.dtype };
+            let result = cast_op.run(&pool, (&case.input).into()).unwrap().remove(0);
+            assert_eq!(result, case.expected);
+        })
     }
 }

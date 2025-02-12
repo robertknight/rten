@@ -699,6 +699,7 @@ mod tests {
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{eq_with_nans, expect_equal, expect_equal_with_tolerance};
     use rten_tensor::{RandomSource, Tensor};
+    use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{
@@ -816,7 +817,8 @@ mod tests {
     }
 
     #[test]
-    fn test_clip() -> Result<(), Box<dyn Error>> {
+    fn test_clip() {
+        #[derive(Debug)]
         struct Case {
             input: Tensor,
             min: Option<f32>,
@@ -845,17 +847,15 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for case in cases {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let result = clip(&pool, case.input.view(), case.min, case.max);
-            expect_equal(&result, &case.expected)?;
+            expect_equal(&result, &case.expected).unwrap();
 
             let mut input = case.input.clone();
             clip_in_place(&mut input, case.min, case.max);
-            expect_equal(&input, &case.expected)?;
-        }
-
-        Ok(())
+            expect_equal(&input, &case.expected).unwrap();
+        })
     }
 
     // TODO: Eliminate the duplication for tests that apply the operator
@@ -864,27 +864,26 @@ mod tests {
     test_unary_op!(test_cos, cos, cos_in_place, |x: &f32| x.cos());
 
     #[test]
-    fn test_elu() -> Result<(), Box<dyn Error>> {
+    fn test_elu() {
+        #[derive(Debug)]
         struct Case {
             alpha: f32,
         }
 
         let cases = [Case { alpha: 1.0 }, Case { alpha: 0.5 }];
 
-        let pool = new_pool();
-        for Case { alpha } in cases {
+        cases.test_each(|Case { alpha }| {
+            let pool = new_pool();
             let input = Tensor::from([-5., -2., -1., -0.5, 0., 0.5, 1., 2., 5.]);
-            let expected = input.map(|&x: &f32| if x >= 0. { x } else { alpha * (x.exp() - 1.) });
+            let expected = input.map(|&x: &f32| if x >= 0. { x } else { *alpha * (x.exp() - 1.) });
 
-            let actual = elu(&pool, input.view(), alpha);
-            expect_equal(&actual, &expected)?;
+            let actual = elu(&pool, input.view(), *alpha);
+            expect_equal(&actual, &expected).unwrap();
 
             let mut input = input.clone();
-            elu_in_place(input.view_mut(), alpha);
-            expect_equal(&input, &expected)?;
-        }
-
-        Ok(())
+            elu_in_place(input.view_mut(), *alpha);
+            expect_equal(&input, &expected).unwrap();
+        })
     }
 
     #[test]

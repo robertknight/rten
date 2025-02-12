@@ -773,6 +773,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{eq_with_nans, expect_equal};
     use rten_tensor::{NdTensor, SliceRange, Tensor};
+    use rten_testing::TestCases;
 
     use crate::ops::tests::{new_pool, run_op};
     use crate::ops::{
@@ -922,20 +923,23 @@ mod tests {
     }
 
     #[test]
-    fn test_reduce_axes_via_input() -> Result<(), Box<dyn Error>> {
+    fn test_reduce_axes_via_input() {
+        use std::panic::AssertUnwindSafe;
+
+        #[derive(Debug)]
         struct Case {
-            op: Box<dyn Operator>,
+            op: AssertUnwindSafe<Box<dyn Operator>>,
         }
 
         macro_rules! op_case {
             ($op:ident) => {
                 Case {
-                    op: Box::new($op {
+                    op: AssertUnwindSafe(Box::new($op {
                         // Don't set `axes` attr. Axes will come from inputs
                         // instead.
                         axes: None,
                         keep_dims: true,
-                    }),
+                    })),
                 }
             };
         }
@@ -950,18 +954,18 @@ mod tests {
             op_case!(ReduceSumSquare),
         ];
 
-        for Case { op } in cases {
+        cases.test_each(|case| {
             let input = NdTensor::from([[0., 1., 2.], [3., 4., 5.]]);
             let axes = Tensor::from([0]);
-            let result: NdTensor<f32, 2> = run_op(&*op, (input.view(), axes.view()))?;
+            let result: NdTensor<f32, 2> =
+                run_op(&*case.op.0, (input.view(), axes.view())).unwrap();
             assert_eq!(result.shape(), [1, 3]);
 
             let axes = Tensor::from([1]);
-            let result: NdTensor<f32, 2> = run_op(&*op, (input.view(), axes.view()))?;
+            let result: NdTensor<f32, 2> =
+                run_op(&*case.op.0, (input.view(), axes.view())).unwrap();
             assert_eq!(result.shape(), [2, 1]);
-        }
-
-        Ok(())
+        })
     }
 
     #[test]
@@ -1242,6 +1246,7 @@ mod tests {
 
     #[test]
     fn test_topk() {
+        #[derive(Debug)]
         struct Case {
             input: Tensor<f32>,
             k: usize,
@@ -1352,25 +1357,23 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for (
-            i,
-            Case {
+        cases.test_each(|case| {
+            let Case {
                 input,
                 expected,
                 k,
                 axis,
                 largest,
-            },
-        ) in cases.into_iter().enumerate()
-        {
+            } = case;
+
+            let pool = new_pool();
             // nb. We always sort here so first result order is predictable.
             let result = topk(
                 &pool,
                 input.view(),
-                k,
-                axis,
-                largest,
+                *k,
+                *axis,
+                *largest,
                 true, /* sorted */
             );
 
@@ -1378,13 +1381,12 @@ mod tests {
                 (Ok((values, indices)), Ok((expected_values, expected_indices))) => {
                     assert!(
                         eq_with_nans(values.view(), expected_values.view()),
-                        "values differ in case {}",
-                        i
+                        "values differ",
                     );
-                    assert_eq!(indices, expected_indices, "indices differ in case {}", i);
+                    assert_eq!(indices, *expected_indices, "indices differ");
                 }
-                (result, expected) => assert_eq!(result, expected),
+                (result, expected) => assert_eq!(result, *expected),
             }
-        }
+        })
     }
 }

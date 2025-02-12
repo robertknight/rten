@@ -57,12 +57,14 @@ impl Operator for Trilu {
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{trilu, OpError};
 
     #[test]
     fn test_trilu() {
+        #[derive(Debug)]
         struct Case {
             input: Tensor<i32>,
             expected: Tensor<i32>,
@@ -146,17 +148,11 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for Case {
-            input,
-            expected,
-            upper,
-            k,
-        } in cases
-        {
-            let result = trilu(&pool, input.view(), k, upper).unwrap();
-            assert_eq!(result, expected);
-        }
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let result = trilu(&pool, case.input.view(), case.k, case.upper).unwrap();
+            assert_eq!(result, case.expected);
+        })
     }
 
     #[test]

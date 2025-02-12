@@ -413,11 +413,10 @@ impl Operator for DynamicQuantizeLinear {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal_with_tolerance;
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use super::{dequantize_linear, dynamic_quantize_linear, quantize_linear};
     use crate::ops::tests::new_pool;
@@ -427,7 +426,8 @@ mod tests {
     // result should be the input. In the opposite order this would not be the
     // case, since quantization is lossy.
     #[test]
-    fn test_dequantize_quantize_linear() -> Result<(), Box<dyn Error>> {
+    fn test_dequantize_quantize_linear() {
+        #[derive(Debug)]
         struct Case {
             axis: isize,
             input: Output,
@@ -491,27 +491,28 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for Case {
-            input,
-            scale,
-            zero_point,
-            axis,
-            expected,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let Case {
+                input,
+                scale,
+                zero_point,
+                axis,
+                expected,
+            } = case;
+
             match input {
                 Output::UInt8Tensor(input) => {
                     let zero_point: Option<Tensor<u8>> =
-                        zero_point.map(|zp| zp.try_into().unwrap());
+                        zero_point.clone().map(|zp| zp.try_into().unwrap());
                     let result = dequantize_linear(
                         &pool,
                         input.view(),
                         scale.view(),
                         zero_point.as_ref().map(|zp| zp.view()),
-                        axis,
+                        *axis,
                     );
-                    assert_eq!(result, expected);
+                    assert_eq!(result, *expected);
 
                     // Re-quantize the result, and we should get back to the
                     // input.
@@ -521,23 +522,23 @@ mod tests {
                             dequant.view(),
                             scale.view(),
                             zero_point.as_ref().map(|zp| zp.view()),
-                            axis,
+                            *axis,
                         )
                         .unwrap();
-                        assert_eq!(requantized, input);
+                        assert_eq!(requantized, *input);
                     }
                 }
                 Output::Int8Tensor(input) => {
                     let zero_point: Option<Tensor<i8>> =
-                        zero_point.map(|zp| zp.try_into().unwrap());
+                        zero_point.clone().map(|zp| zp.try_into().unwrap());
                     let result = dequantize_linear(
                         &pool,
                         input.view(),
                         scale.view(),
                         zero_point.as_ref().map(|zp| zp.view()),
-                        axis,
+                        *axis,
                     );
-                    assert_eq!(result, expected);
+                    assert_eq!(result, *expected);
 
                     // Re-quantize the result, and we should get back to the
                     // input.
@@ -547,21 +548,20 @@ mod tests {
                             dequant.view(),
                             scale.view(),
                             zero_point.as_ref().map(|zp| zp.view()),
-                            axis,
+                            *axis,
                         )
                         .unwrap();
-                        assert_eq!(requantized, input);
+                        assert_eq!(requantized, *input);
                     }
                 }
                 _ => panic!("unsupported quantized type"),
             };
-        }
-
-        Ok(())
+        })
     }
 
     #[test]
-    fn test_dynamic_quantize_linear() -> Result<(), Box<dyn Error>> {
+    fn test_dynamic_quantize_linear() {
+        #[derive(Debug)]
         struct Case {
             input: Tensor<f32>,
             max_error: f32,
@@ -604,11 +604,14 @@ mod tests {
                 max_error: 0.,
             },
         ];
-        let pool = new_pool();
 
-        for Case { input, max_error } in cases {
+        cases.test_each(|case| {
+            let Case { input, max_error } = case;
+
+            let pool = new_pool();
+
             // Quantize input.
-            let output = dynamic_quantize_linear::<u8>(&pool, input.view())?;
+            let output = dynamic_quantize_linear::<u8>(&pool, input.view()).unwrap();
             assert_eq!(output.quantized.shape(), input.shape());
             let zero_point = *output.zero_point.item().unwrap();
             let scale = *output.scale.item().unwrap();
@@ -618,9 +621,7 @@ mod tests {
             let dequantized = output
                 .quantized
                 .map(|&q| (q as i32 - zero_point as i32) as f32 * scale);
-            expect_equal_with_tolerance(&dequantized, &input, max_error, max_error)?;
-        }
-
-        Ok(())
+            expect_equal_with_tolerance(&dequantized, &input, *max_error, *max_error).unwrap();
+        })
     }
 }

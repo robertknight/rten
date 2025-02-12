@@ -153,6 +153,7 @@ impl Operator for Range {
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{onehot, range, ConstantOfShape, OpError, Operator, Scalar};
@@ -178,6 +179,7 @@ mod tests {
 
     #[test]
     fn test_onehot() {
+        #[derive(Debug)]
         struct Case {
             classes: Tensor<i32>,
             axis: isize,
@@ -247,19 +249,18 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for Case {
-            classes,
-            axis,
-            depth,
-            on_value,
-            off_value,
-            expected,
-        } in cases
-        {
-            let result = onehot(&pool, classes.view(), axis, depth, on_value, off_value);
-            assert_eq!(result, expected);
-        }
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let result = onehot(
+                &pool,
+                case.classes.view(),
+                case.axis,
+                case.depth,
+                case.on_value,
+                case.off_value,
+            );
+            assert_eq!(result, case.expected);
+        })
     }
 
     #[test]
