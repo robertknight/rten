@@ -235,6 +235,7 @@ pub fn find_contours(mask: NdTensorView<bool, 2>, mode: RetrievalMode) -> Polygo
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
+    use rten_testing::TestCases;
 
     use crate::tests::border_points;
     use crate::{fill_rect, stroke_rect, Point, Rect};
@@ -243,6 +244,7 @@ mod tests {
 
     #[test]
     fn test_find_contours_in_empty_mask() {
+        #[derive(Debug)]
         struct Case {
             size: [usize; 2],
         }
@@ -253,15 +255,16 @@ mod tests {
             Case { size: [10, 10] },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             let mask = NdTensor::zeros(case.size);
             let contours = find_contours(mask.view(), RetrievalMode::List);
             assert_eq!(contours.len(), 0);
-        }
+        })
     }
 
     #[test]
     fn test_find_contours_single_rect() {
+        #[derive(Debug)]
         struct Case {
             rect: Rect,
         }
@@ -270,7 +273,7 @@ mod tests {
             rect: Rect::from_tlbr(5, 5, 10, 10),
         }];
 
-        for case in cases {
+        cases.test_each(|case| {
             let mut mask = NdTensor::zeros([20, 20]);
             fill_rect(mask.view_mut(), case.rect, true);
 
@@ -279,7 +282,7 @@ mod tests {
             assert_eq!(contours.len(), 1);
             let border = contours.iter().next().unwrap();
             assert_eq!(border, border_points(case.rect, false /* omit_corners */));
-        }
+        })
     }
 
     #[test]

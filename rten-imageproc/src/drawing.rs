@@ -478,6 +478,7 @@ impl<'a, T: Copy + Default> Painter<'a, T> {
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::{MatrixLayout, NdTensor, NdTensorView};
+    use rten_testing::TestCases;
 
     use crate::tests::print_grid;
     use crate::{BoundingRect, Painter, Point, Polygon, Rect};
@@ -525,6 +526,7 @@ mod tests {
 
     #[test]
     fn test_draw_polygon() {
+        #[derive(Debug)]
         struct Case {
             points: &'static [[i32; 2]],
             expected: NdTensor<i32, 2>,
@@ -566,7 +568,7 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             let points: Vec<_> = case
                 .points
                 .iter()
@@ -576,7 +578,7 @@ mod tests {
             let mut image = NdTensor::zeros(case.expected.shape());
             draw_polygon(image.view_mut(), &points, 1, 1 /* width */);
             compare_images(image.view(), case.expected.view());
-        }
+        })
     }
 
     #[test]

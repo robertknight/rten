@@ -611,6 +611,7 @@ mod tests {
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{
@@ -700,6 +701,7 @@ mod tests {
 
     #[test]
     fn test_gather_invalid_indices() {
+        #[derive(Debug)]
         struct Case {
             input: Tensor<i32>,
             indices: Tensor<i32>,
@@ -722,14 +724,14 @@ mod tests {
             },
         ];
 
-        for Case { input, indices } in cases {
+        cases.test_each(|case| {
             let pool = new_pool();
-            let result = gather(&pool, input.view(), 0, indices.view());
+            let result = gather(&pool, case.input.view(), 0, case.indices.view());
             assert_eq!(
                 result.err(),
                 Some(OpError::InvalidValue("Entry in `indices` is out of range"))
             );
-        }
+        })
     }
 
     #[test]
@@ -822,6 +824,7 @@ mod tests {
 
     #[test]
     fn test_gather_nd() {
+        #[derive(Debug)]
         struct Case {
             batch_dims: usize,
             data: Tensor<i32>,
@@ -892,21 +895,20 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for Case {
-            batch_dims,
-            mut data,
-            transpose,
-            indices,
-            expected,
-        } in cases
-        {
-            if transpose {
-                data.transpose();
-            }
-            let result = gather_nd(&pool, data.view(), indices.view(), batch_dims);
-            assert_eq!(result, expected);
-        }
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let result = gather_nd(
+                &pool,
+                if case.transpose {
+                    case.data.transposed()
+                } else {
+                    case.data.view()
+                },
+                case.indices.view(),
+                case.batch_dims,
+            );
+            assert_eq!(result, case.expected);
+        })
     }
 
     #[test]
@@ -981,8 +983,7 @@ mod tests {
 
     #[test]
     fn test_scatter_nd() {
-        let pool = new_pool();
-
+        #[derive(Debug)]
         struct Case {
             data: Tensor<i32>,
             indices: Tensor<i32>,
@@ -1030,21 +1031,23 @@ mod tests {
             },
         ];
 
-        for Case {
-            data,
-            indices,
-            updates,
-            expected,
-        } in cases
-        {
-            let result =
-                scatter_nd(&pool, data.view(), indices.view(), updates.view(), None).unwrap();
-            assert_eq!(result, expected);
-        }
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let result = scatter_nd(
+                &pool,
+                case.data.view(),
+                case.indices.view(),
+                case.updates.view(),
+                None,
+            )
+            .unwrap();
+            assert_eq!(result, case.expected);
+        })
     }
 
     #[test]
     fn test_scatter_nd_reduce() {
+        #[derive(Debug)]
         struct Case {
             data: Tensor<f32>,
             indices: Tensor<i32>,
@@ -1084,29 +1087,23 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for Case {
-            data,
-            indices,
-            updates,
-            expected,
-            reduction,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let result = scatter_nd(
                 &pool,
-                data.view(),
-                indices.view(),
-                updates.view(),
-                Some(reduction),
+                case.data.view(),
+                case.indices.view(),
+                case.updates.view(),
+                Some(case.reduction),
             )
             .unwrap();
-            assert_eq!(result, expected);
-        }
+            assert_eq!(result, case.expected);
+        })
     }
 
     #[test]
     fn test_scatter_nd_invalid() {
+        #[derive(Debug)]
         struct Case {
             data: Tensor<f32>,
             indices: Tensor<i32>,
@@ -1147,16 +1144,16 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for Case {
-            data,
-            indices,
-            updates,
-            expected,
-        } in cases
-        {
-            let result = scatter_nd(&pool, data.view(), indices.view(), updates.view(), None);
-            assert_eq!(result, Err(expected));
-        }
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let result = scatter_nd(
+                &pool,
+                case.data.view(),
+                case.indices.view(),
+                case.updates.view(),
+                None,
+            );
+            assert_eq!(result.as_ref(), Err(&case.expected));
+        })
     }
 }

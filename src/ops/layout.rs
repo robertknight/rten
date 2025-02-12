@@ -633,6 +633,7 @@ mod tests {
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{NdTensor, Tensor};
+    use rten_testing::TestCases;
 
     use super::{depth_to_space, DepthToSpaceMode};
     use crate::ops::layout::{
@@ -644,6 +645,7 @@ mod tests {
 
     #[test]
     fn test_depth_to_space() {
+        #[derive(Debug)]
         struct Case {
             input: NdTensor<f32, 4>,
             block_size: u32,
@@ -702,17 +704,11 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for Case {
-            input,
-            block_size,
-            mode,
-            expected,
-        } in cases
-        {
-            let result = depth_to_space(&pool, input.as_dyn(), block_size, mode);
-            assert_eq!(result, expected);
-        }
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let result = depth_to_space(&pool, case.input.as_dyn(), case.block_size, case.mode);
+            assert_eq!(result, case.expected);
+        })
     }
 
     #[test]
@@ -778,8 +774,7 @@ mod tests {
 
     #[test]
     fn test_flatten() {
-        let pool = new_pool();
-
+        #[derive(Debug)]
         struct Case {
             shape: Vec<usize>,
             axis: isize,
@@ -838,16 +833,13 @@ mod tests {
             },
         ];
 
-        for Case {
-            shape,
-            axis,
-            expected,
-        } in cases
-        {
-            let input = Tensor::<f32>::zeros(shape.as_slice());
-            let result = flatten(&pool, input.view(), axis).map(|tensor| tensor.shape().to_vec());
-            assert_eq!(result, expected);
-        }
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let input = Tensor::<f32>::zeros(case.shape.as_slice());
+            let result =
+                flatten(&pool, input.view(), case.axis).map(|tensor| tensor.shape().to_vec());
+            assert_eq!(result, case.expected);
+        })
     }
 
     #[test]

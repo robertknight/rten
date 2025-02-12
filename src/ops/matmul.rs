@@ -941,12 +941,13 @@ mod tests {
     }
 
     #[test]
-    fn test_matmul_fused() -> Result<(), Box<dyn Error>> {
+    fn test_matmul_fused() {
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[10, 15], &mut rng);
         let b = Tensor::rand(&[15, 5], &mut rng);
         let bias_data: Vec<f32> = (0..b.size(b.ndim() - 1)).map(|_| rng.next_f32()).collect();
 
+        #[derive(Debug)]
         struct Case<'a> {
             bias: Option<BiasVector<'a, f32>>,
             alpha: Option<f32>,
@@ -963,26 +964,27 @@ mod tests {
             },
         ];
 
-        for Case { bias, alpha } in cases {
+        cases.test_each(|case| {
+            let Case { bias, alpha } = case;
+
             let pool = new_pool();
             let expected = reference_matmul(
                 a.view(),
                 b.view(),
                 MatMulOpts {
                     bias: bias.clone(),
-                    alpha,
+                    alpha: *alpha,
                     ..Default::default()
                 },
             );
-            let result = matmul_fused(&pool, a.view(), b.view(), None, bias, alpha).unwrap();
-            expect_equal(&result, &expected)?;
-        }
-
-        Ok(())
+            let result = matmul_fused(&pool, a.view(), b.view(), None, *bias, *alpha).unwrap();
+            expect_equal(&result, &expected).unwrap();
+        })
     }
 
     #[test]
-    fn test_matmul_invalid() -> Result<(), Box<dyn Error>> {
+    fn test_matmul_invalid() {
+        #[derive(Debug)]
         struct Case<'a> {
             a_shape: &'a [usize],
             b_shape: &'a [usize],
@@ -1014,26 +1016,27 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for Case {
-            a_shape,
-            b_shape,
-            error,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let Case {
+                a_shape,
+                b_shape,
+                error,
+            } = case;
+
+            let pool = new_pool();
+
             let mut rng = XorShiftRng::new(1234);
             let a = Tensor::<f32>::rand(a_shape, &mut rng);
             let b = Tensor::<f32>::rand(b_shape, &mut rng);
 
             let result = matmul(&pool, a.view(), b.view(), None);
-            assert_eq!(result, Err(error));
-        }
-
-        Ok(())
+            assert_eq!(result.as_ref(), Err(error));
+        })
     }
 
     #[test]
     fn test_matmul_zero_sized_dim() {
+        #[derive(Clone, Debug)]
         struct Case {
             m: usize,
             n: usize,
@@ -1046,8 +1049,8 @@ mod tests {
             Case { m: 5, n: 10, k: 0 },
         ];
 
-        let pool = new_pool();
-        for Case { m, n, k } in cases {
+        cases.test_each_clone(|Case { m, n, k }| {
+            let pool = new_pool();
             let mut rng = XorShiftRng::new(1234);
             let a = Tensor::<f32>::rand(&[m, k], &mut rng);
             let b = Tensor::<f32>::rand(&[k, n], &mut rng);
@@ -1057,11 +1060,12 @@ mod tests {
             if k == 0 {
                 assert!(result.iter().all(|x| *x == 0.));
             }
-        }
+        })
     }
 
     #[test]
-    fn test_matmul_integer() -> Result<(), Box<dyn Error>> {
+    fn test_matmul_integer() {
+        #[derive(Debug)]
         struct Case {
             a: Tensor<u8>,
             b: Tensor<i8>,
@@ -1197,16 +1201,16 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
+        cases.test_each(|case| {
+            let Case {
+                a,
+                b,
+                a_zero_point,
+                b_zero_point,
+                expected_err,
+            } = case;
 
-        for Case {
-            a,
-            b,
-            a_zero_point,
-            b_zero_point,
-            expected_err,
-        } in cases
-        {
+            let pool = new_pool();
             let result = matmul_integer(
                 &pool,
                 a.view(),
@@ -1230,12 +1234,10 @@ mod tests {
                     assert_eq!(result, expected);
                 }
                 (result, expected_err) => {
-                    assert_eq!(result.err(), expected_err);
+                    assert_eq!(result.err(), *expected_err);
                 }
             }
-        }
-
-        Ok(())
+        })
     }
 
     #[test]

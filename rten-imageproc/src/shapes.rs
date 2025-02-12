@@ -1253,6 +1253,7 @@ mod tests {
 
     #[test]
     fn test_line_downwards() {
+        #[derive(Debug)]
         struct Case {
             input: Line,
             down: Line,
@@ -1267,9 +1268,9 @@ mod tests {
                 down: Line::from_endpoints(Point::from_yx(0, 0), Point::from_yx(5, 5)),
             },
         ];
-        for case in cases {
+        cases.test_each(|case| {
             assert_eq!(case.input.downwards(), case.down);
-        }
+        })
     }
 
     #[test]

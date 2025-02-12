@@ -168,6 +168,7 @@ mod tests {
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{slice, slice_in_place};
@@ -449,6 +450,7 @@ mod tests {
     fn test_slice_with_step() {
         let input = from_slice(&[1, 2, 3, 4, 5]);
 
+        #[derive(Debug)]
         struct Case<'a> {
             start: i32,
             end: i32,
@@ -492,8 +494,8 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for case in cases {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let starts = &[case.start];
             let ends = &[case.end];
             let axes = &[0];
@@ -512,6 +514,6 @@ mod tests {
                 sliced,
                 Tensor::from_data(case.expected_shape, case.expected_elements.to_vec())
             );
-        }
+        })
     }
 }
