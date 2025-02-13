@@ -895,6 +895,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use super::fast_broadcast_cycles_repeats;
     use crate::ops::tests::new_pool;
@@ -1346,7 +1347,8 @@ mod tests {
     }
 
     #[test]
-    fn test_pow() -> Result<(), Box<dyn Error>> {
+    fn test_pow() {
+        #[derive(Debug)]
         struct Case {
             a: Tensor<f32>,
             b: Tensor<f32>,
@@ -1380,20 +1382,18 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
+        cases.test_each(|case| {
+            let pool = new_pool();
 
-        for case in cases {
             // Copying variant
             let result = pow(&pool, case.a.view(), case.b.view()).unwrap();
-            expect_equal(&result, &case.expected)?;
+            expect_equal(&result, &case.expected).unwrap();
 
             // In-place variant
             let mut a = case.a.clone();
             pow_in_place(a.view_mut(), case.b.view());
-            expect_equal(&a, &case.expected)?;
-        }
-
-        Ok(())
+            expect_equal(&a, &case.expected).unwrap();
+        })
     }
 
     #[test]

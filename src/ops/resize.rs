@@ -457,11 +457,10 @@ impl Operator for Resize {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{NdTensor, NdTensorView, Tensor};
+    use rten_testing::TestCases;
 
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
@@ -474,7 +473,8 @@ mod tests {
     // (`cv2.resize`) or PyTorch (`torch.nn.functional.interpolate`).
 
     #[test]
-    fn test_resize_nearest() -> Result<(), Box<dyn Error>> {
+    fn test_resize_nearest() {
+        #[derive(Debug)]
         struct Case {
             image: Tensor,
             scales: Vec<f32>,
@@ -545,8 +545,8 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for case in cases {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let result = resize(
                 &pool,
                 case.image.view(),
@@ -557,14 +557,12 @@ mod tests {
             )
             .unwrap();
 
-            expect_equal(&result, &case.expected)?;
-        }
-
-        Ok(())
+            expect_equal(&result, &case.expected).unwrap();
+        })
     }
 
     #[test]
-    fn test_resize_nearest_mode() -> Result<(), Box<dyn Error>> {
+    fn test_resize_nearest_mode() {
         let image = Tensor::from_data(&[1, 1, 1, 2], vec![0.1, 0.2]);
 
         // Use a scale factor of 4 so that we have output pixels that map
@@ -572,6 +570,7 @@ mod tests {
         // This allows the same input to exercise all the rounding modes.
         let scales = &[1., 1., 1., 4.];
 
+        #[derive(Debug)]
         struct Case {
             mode: NearestMode,
 
@@ -612,8 +611,8 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for case in cases {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let result = resize(
                 &pool,
                 image.view(),
@@ -624,14 +623,13 @@ mod tests {
             )
             .unwrap();
 
-            expect_equal(&result, &case.expected)?;
-        }
-
-        Ok(())
+            expect_equal(&result, &case.expected).unwrap();
+        })
     }
 
     #[test]
-    fn test_resize_bilinear() -> Result<(), Box<dyn Error>> {
+    fn test_resize_bilinear() {
+        #[derive(Debug)]
         struct Case<'a> {
             image: NdTensorView<'a, f32, 4>,
             scales: Vec<f32>,
@@ -733,8 +731,8 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for case in cases {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let result = resize(
                 &pool,
                 case.image.as_dyn(),
@@ -746,19 +744,19 @@ mod tests {
             )
             .unwrap();
 
-            expect_eq_1e4(&result, &case.expected)?;
-        }
-
-        Ok(())
+            expect_eq_1e4(&result, &case.expected).unwrap();
+        })
     }
 
     #[test]
     fn test_resize_scales_sizes() {
+        #[derive(Debug)]
         enum CaseOutput {
             Shape(Vec<usize>),
             Error(OpError),
         }
 
+        #[derive(Debug)]
         struct Case {
             image: Tensor,
             scales: Option<Tensor>,
@@ -857,8 +855,8 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for case in cases {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let op = Resize {
                 mode: ResizeMode::Linear,
                 ..Resize::default()
@@ -870,12 +868,12 @@ mod tests {
                 case.sizes.as_ref().map(|t| t.into()),
             ];
             let result = op.run(&pool, InputList::from_optional(&inputs));
-            match (case.expected, result) {
+            match (&case.expected, result) {
                 (CaseOutput::Shape(shape), Ok(out)) => {
-                    assert_eq!(out[0].shape(), &shape);
+                    assert_eq!(out[0].shape(), *&shape);
                 }
                 (CaseOutput::Error(expected_err), Err(err)) => {
-                    assert_eq!(err, expected_err);
+                    assert_eq!(&err, expected_err);
                 }
                 (CaseOutput::Shape(_), Err(err)) => {
                     panic!("Expected output but got error {:?}", err);
@@ -884,6 +882,6 @@ mod tests {
                     panic!("Expected error but got output");
                 }
             }
-        }
+        })
     }
 }

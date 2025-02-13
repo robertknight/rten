@@ -414,7 +414,7 @@ mod tests {
     use crate::ops::{average_pool, global_average_pool, max_pool, OpError, Padding};
 
     #[test]
-    fn test_average_pool() -> Result<(), Box<dyn Error>> {
+    fn test_average_pool() {
         let input = Tensor::from_data(
             &[1, 1, 4, 4],
             vec![
@@ -425,6 +425,7 @@ mod tests {
             ],
         );
 
+        #[derive(Debug)]
         struct Case {
             kernel_size: [usize; 2],
             strides: [usize; 2],
@@ -478,8 +479,8 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for case in cases {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let result = average_pool(
                 &pool,
                 input.view(),
@@ -489,10 +490,8 @@ mod tests {
                 false, /* count_include_pad */
             )
             .unwrap();
-            expect_equal(&result, &case.expected)?;
-        }
-
-        Ok(())
+            expect_equal(&result, &case.expected).unwrap();
+        })
     }
 
     #[test]
@@ -566,7 +565,7 @@ mod tests {
     }
 
     #[test]
-    fn test_max_pool() -> Result<(), Box<dyn Error>> {
+    fn test_max_pool() {
         let input = Tensor::from_data(
             &[1, 1, 4, 4],
             vec![
@@ -577,6 +576,7 @@ mod tests {
             ],
         );
 
+        #[derive(Debug)]
         struct Case {
             kernel_size: [usize; 2],
             strides: [usize; 2],
@@ -629,8 +629,8 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for case in cases {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let result = max_pool(
                 &pool,
                 input.view(),
@@ -639,10 +639,8 @@ mod tests {
                 [0, 0, 0, 0].into(),
             )
             .unwrap();
-            expect_equal(&result, &case.expected)?;
-        }
-
-        Ok(())
+            expect_equal(&result, &case.expected).unwrap();
+        })
     }
 
     #[test]

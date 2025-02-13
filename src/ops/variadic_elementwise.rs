@@ -150,6 +150,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::eq_with_nans;
     use rten_tensor::{Tensor, TensorView};
+    use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{max, mean, min, sum, Input, InputList, Max, Min, OpError, Operator, Sum};
@@ -165,6 +166,7 @@ mod tests {
     // other elementwise reductions share most of the implementation.
     #[test]
     fn test_max() {
+        #[derive(Debug)]
         struct Case {
             inputs: Vec<Tensor>,
             expected: Result<Tensor, OpError>,
@@ -226,15 +228,15 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for case in cases {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let views: Vec<_> = case.inputs.iter().map(|t| t.view()).collect();
             let result = max(&pool, &views);
-            match (result, case.expected) {
+            match (&result, &case.expected) {
                 (Ok(result), Ok(expected)) => assert!(eq_with_nans(result.view(), expected.view())),
                 (result, expected) => assert_eq!(result, expected),
             }
-        }
+        });
 
         // Test the `Max` Operator impl
         let a = Tensor::from([1., 2., 7., 8.]);

@@ -819,6 +819,7 @@ mod tests {
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{expect_equal, ExpectEqualError};
     use rten_tensor::{Tensor, TensorView};
+    use rten_testing::TestCases;
 
     use crate::gemm::ReducedRangeRng;
     use crate::ops::pooling::calc_output_size_and_padding;
@@ -1287,9 +1288,8 @@ mod tests {
 
     // Test various combinations of input and kernel shape and attributes.
     #[test]
-    fn test_conv_shapes() -> Result<(), Box<dyn Error>> {
-        let mut rng = XorShiftRng::new(1234);
-
+    fn test_conv_shapes() {
+        #[derive(Debug)]
         struct Case {
             input: Vec<usize>,
             kernel: Vec<usize>,
@@ -1322,30 +1322,22 @@ mod tests {
             },
         ]);
 
-        for Case {
-            input,
-            kernel,
-            padding,
-            strides,
-            dilations,
-            output,
-        } in cases
-        {
-            let input = Tensor::rand(&input, &mut rng);
-            let kernel = Tensor::rand(&kernel, &mut rng);
+        cases.test_each(|case| {
+            let mut rng = XorShiftRng::new(1234);
+            let input = Tensor::rand(&case.input, &mut rng);
+            let kernel = Tensor::rand(&case.kernel, &mut rng);
             let result = check_conv(
                 input.view(),
                 kernel.view(),
                 None,
-                padding,
+                case.padding.clone(),
                 1, /* groups */
-                &strides,
-                &dilations,
-            )?;
-            assert_eq!(result.shape(), &output);
-        }
-
-        Ok(())
+                &case.strides,
+                &case.dilations,
+            )
+            .unwrap();
+            assert_eq!(result.shape(), &case.output);
+        })
     }
 
     // Tests for convolutions that are neither pointwise nor depthwise. In
@@ -1422,8 +1414,7 @@ mod tests {
 
     #[test]
     fn test_conv_invalid() {
-        let mut rng = XorShiftRng::new(1234);
-
+        #[derive(Debug)]
         struct Case<'a> {
             input: Tensor<f32>,
             kernel: Tensor<f32>,
@@ -1433,6 +1424,7 @@ mod tests {
             expected: OpError,
         }
 
+        let mut rng = XorShiftRng::new(1234);
         let cases = [
             // Input too small
             Case {
@@ -1481,30 +1473,20 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-
-        for Case {
-            input,
-            kernel,
-            strides,
-            dilations,
-            groups,
-            expected,
-        } in cases
-        {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let result = conv(
                 &pool,
-                input.view(),
-                kernel.view(),
+                case.input.view(),
+                case.kernel.view(),
                 None,
                 [0; 4].into(),
-                groups,
-                strides,
-                dilations,
+                case.groups,
+                case.strides,
+                case.dilations,
             );
-
-            assert_eq!(result.err(), Some(expected));
-        }
+            assert_eq!(result.err().as_ref(), Some(&case.expected));
+        })
     }
 
     #[test]
@@ -1563,6 +1545,7 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         let [n, in_c, out_c, in_w, k_w] = [1, 5, 10, 20, 3];
 
+        #[derive(Debug)]
         struct Case {
             input: Tensor,
             kernel: Tensor,
@@ -1588,12 +1571,12 @@ mod tests {
             },
         ];
 
-        for Case { input, kernel } in cases {
+        cases.test_each(|case| {
             let pool = new_pool();
             let result = conv(
                 &pool,
-                input.view(),
-                kernel.view(),
+                case.input.view(),
+                case.kernel.view(),
                 None,
                 Padding::Same,
                 1,    /* groups */
@@ -1603,7 +1586,7 @@ mod tests {
             .unwrap();
 
             assert_eq!(result.shape(), &[n, out_c, in_w]);
-        }
+        })
     }
 
     macro_rules! impl_conv_integer_test {
@@ -1651,6 +1634,7 @@ mod tests {
                 let mut rng = XorShiftRng::new(1234);
                 let mut kernel_rng = ReducedRangeRng::new(true /* reduce_range */, 1234);
 
+                #[derive(Debug)]
                 struct Case {
                     input: Tensor<$input_ty>,
                     kernel: Tensor<$weight_ty>,
@@ -1718,33 +1702,27 @@ mod tests {
                     },
                 ];
 
-                for Case {
-                    input,
-                    kernel,
-                    input_zero,
-                    kernel_zero,
-                    groups,
-                } in cases
-                {
-                    let output_chans = kernel.size(0);
+                cases.test_each(|case| {
+                    let output_chans = case.kernel.size(0);
                     check_conv_int8(
-                        input.view(),
-                        kernel.view(),
+                        case.input.view(),
+                        case.kernel.view(),
                         Padding::zero::<2>(),
-                        groups,
+                        case.groups,
                         &[1, 1], // strides
                         &[1, 1], // dilations
-                        input_zero
+                        case.input_zero
                             .map(|zero| Tensor::from(zero))
                             .as_ref()
                             .map(|t| t.view()),
-                        kernel_zero
+                        case.kernel_zero
+                            .clone()
                             .map(|zero| Tensor::from_data(&[output_chans], zero))
                             .as_ref()
                             .map(|t| t.view()),
                     )
                     .unwrap();
-                }
+                })
             }
         };
     }
@@ -1883,6 +1861,7 @@ mod tests {
 
     #[test]
     fn test_conv_transpose_output_size_and_padding() {
+        #[derive(Debug)]
         struct Case {
             input_shape: [usize; 2],
             kernel_shape: [usize; 2],
@@ -1982,18 +1961,15 @@ mod tests {
             },
         ];
 
-        for Case {
-            input_shape,
-            kernel_shape,
-            padding,
-            strides,
-            expected,
-        } in cases
-        {
-            let result =
-                conv_transpose_output_size_and_padding(input_shape, kernel_shape, padding, strides);
-            assert_eq!(result, expected);
-        }
+        cases.test_each(|case| {
+            let result = conv_transpose_output_size_and_padding(
+                case.input_shape,
+                case.kernel_shape,
+                case.padding.clone(),
+                case.strides,
+            );
+            assert_eq!(result, case.expected);
+        })
     }
 
     #[test]

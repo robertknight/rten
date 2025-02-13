@@ -598,7 +598,6 @@ impl Operator for LSTM {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
     use std::fs::File;
     use std::io::BufReader;
 
@@ -606,6 +605,7 @@ mod tests {
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{NdTensor, Tensor};
+    use rten_testing::TestCases;
     use serde_json::Value;
 
     use crate::ops::tests::new_pool;
@@ -645,7 +645,7 @@ mod tests {
         serde_json::from_reader(reader).unwrap()
     }
 
-    #[derive(Clone, Copy, PartialEq)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
     enum Op {
         Gru,
         Lstm,
@@ -656,7 +656,6 @@ mod tests {
     // shape and that the last hidden / hidden seq outputs are consistent.
     #[test]
     fn test_rnn_ops_with_random_input() {
-        let mut rng = XorShiftRng::new(1234);
         let batch = 2;
         let seq_len = 5;
         let dir = Direction::Bidirectional;
@@ -664,6 +663,7 @@ mod tests {
         let hidden_size = 3;
         let features = 2;
 
+        #[derive(Clone, Debug)]
         struct Case {
             op: Op,
             with_bias: bool,
@@ -698,8 +698,9 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for case in cases {
+        cases.test_each_clone(|case| {
+            let mut rng = XorShiftRng::new(1234);
+            let pool = new_pool();
             let num_gates = match case.op {
                 Op::Gru => 3,
                 Op::Lstm => 4,
@@ -794,7 +795,7 @@ mod tests {
             ));
             let last_hidden_rev = last_hidden.slice(1);
             assert_eq!(hidden_seq_rev, last_hidden_rev);
-        }
+        })
     }
 
     /// Re-order a weight or bias tensor for LSTM gates from (input, forget,
@@ -953,9 +954,10 @@ mod tests {
     }
 
     #[test]
-    fn test_rnn_pytorch() -> Result<(), Box<dyn Error>> {
+    fn test_rnn_pytorch() {
         let dict = read_json_file("pytorch-ref-tests/rnn.json");
 
+        #[derive(Debug)]
         struct Case {
             name: &'static str,
             dir: Direction,
@@ -988,8 +990,8 @@ mod tests {
             },
         ];
 
-        let pool = new_pool();
-        for case in cases {
+        cases.test_each(|case| {
+            let pool = new_pool();
             let op = if case.name.starts_with("lstm") {
                 Op::Lstm
             } else {
@@ -1022,10 +1024,8 @@ mod tests {
             };
             let output = &result[0];
 
-            expect_equal(output, &data.expected)?;
-        }
-
-        Ok(())
+            expect_equal(output, &data.expected).unwrap();
+        })
     }
 
     // TODO - Add tests for incorrect input shapes

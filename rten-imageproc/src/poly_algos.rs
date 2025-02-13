@@ -223,12 +223,15 @@ pub fn min_area_rect(points: &[PointF]) -> Option<RotatedRect> {
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use super::{convex_hull, min_area_rect, simplify_polygon, simplify_polyline};
     use crate::tests::{border_points, points_from_coords};
     use crate::{BoundingRect, Point, PointF, Polygon, Rect};
 
     #[test]
     fn test_convex_hull() {
+        #[derive(Debug)]
         struct Case {
             points: &'static [[f32; 2]],
             hull: &'static [[f32; 2]],
@@ -288,18 +291,19 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             let points = points_from_coords(case.points);
             let expected_hull = points_from_coords(case.hull);
 
             let hull = convex_hull(&points);
 
             assert_eq!(hull, expected_hull);
-        }
+        })
     }
 
     #[test]
     fn test_min_area_rect() {
+        #[derive(Debug)]
         struct Case {
             points: Vec<PointF>,
         }
@@ -329,10 +333,10 @@ mod tests {
             Case { points: Vec::new() },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             let Some(min_rect) = min_area_rect(&case.points) else {
                 assert!(case.points.is_empty());
-                continue;
+                return;
             };
 
             // Rotated rect should never be larger than axis-aligned bounding rect.
@@ -364,11 +368,12 @@ mod tests {
                 max_dist,
                 threshold
             );
-        }
+        })
     }
 
     #[test]
     fn test_simplify_polyline() {
+        #[derive(Debug)]
         struct Case {
             poly: Vec<PointF>,
             epsilon: f32,
@@ -423,14 +428,15 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each(|case| {
             let simplified = simplify_polyline(&case.poly, case.epsilon);
             assert_eq!(&simplified, &case.simplified);
-        }
+        })
     }
 
     #[test]
     fn test_simplify_polygon() {
+        #[derive(Debug)]
         struct Case {
             poly: Vec<PointF>,
             epsilon: f32,
@@ -451,9 +457,9 @@ mod tests {
                 .collect(),
         }];
 
-        for case in cases {
+        cases.test_each(|case| {
             let simplified = simplify_polygon(&case.poly, case.epsilon);
             assert_eq!(&simplified, &case.simplified);
-        }
+        })
     }
 }

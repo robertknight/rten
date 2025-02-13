@@ -1803,9 +1803,8 @@ mod tests {
     }
 
     #[test]
-    fn test_gemm_prepack() -> Result<(), Box<dyn Error>> {
-        let mut rng = XorShiftRng::new(1234);
-
+    fn test_gemm_prepack() {
+        #[derive(Clone, Debug)]
         struct Case {
             m: usize,
             n: usize,
@@ -1832,8 +1831,10 @@ mod tests {
             },
         ];
 
-        for case in cases {
+        cases.test_each_clone(|case| {
             let Case { m, n, k } = case;
+
+            let mut rng = XorShiftRng::new(1234);
             let a = NdTensor::rand([m, k], &mut rng);
             let b = NdTensor::rand([k, n], &mut rng);
 
@@ -1877,10 +1878,8 @@ mod tests {
             )
             .unwrap();
 
-            expect_equal(&result, &expected)?;
-        }
-
-        Ok(())
+            expect_equal(&result, &expected).unwrap();
+        })
     }
 
     // Simplified version of the im2col builder used by convolution code.
