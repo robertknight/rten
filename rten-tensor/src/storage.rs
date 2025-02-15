@@ -1,6 +1,9 @@
 use std::borrow::Cow;
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 use std::ops::Range;
+
+use crate::assume_init::AssumeInit;
 
 /// Trait for backing storage used by tensors and views.
 ///
@@ -349,6 +352,14 @@ unsafe impl<T> Storage for ViewData<'_, T> {
     }
 }
 
+impl<'a, T> AssumeInit for ViewData<'a, MaybeUninit<T>> {
+    type Output = ViewData<'a, T>;
+
+    unsafe fn assume_init(self) -> Self::Output {
+        std::mem::transmute(self)
+    }
+}
+
 /// Storage for a mutable tensor view.
 ///
 /// This has the same representation in memory as a mutable slice: a pointer
@@ -417,6 +428,14 @@ unsafe impl<T> Storage for ViewMutData<'_, T> {
 unsafe impl<T> StorageMut for ViewMutData<'_, T> {
     fn as_mut_ptr(&mut self) -> *mut T {
         self.ptr
+    }
+}
+
+impl<'a, T> AssumeInit for ViewMutData<'a, MaybeUninit<T>> {
+    type Output = ViewMutData<'a, T>;
+
+    unsafe fn assume_init(self) -> Self::Output {
+        std::mem::transmute(self)
     }
 }
 

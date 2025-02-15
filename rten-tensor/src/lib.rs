@@ -58,6 +58,7 @@
 //! }
 //! ```
 
+mod assume_init;
 mod copy;
 pub mod errors;
 mod index_iterator;
@@ -119,6 +120,7 @@ impl Alloc for GlobalAlloc {
     }
 }
 
+pub use assume_init::AssumeInit;
 pub use index_iterator::{DynIndices, Indices, NdIndices};
 pub use iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut, Iter, IterMut,
