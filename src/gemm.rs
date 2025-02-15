@@ -12,7 +12,9 @@ use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView, Storage};
+use rten_tensor::{
+    Alloc, AssumeInit, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView, Storage,
+};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
 use crate::number::Identities;
@@ -601,8 +603,7 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
             }
 
             // Safety: Calls to `gemv_kernel` initialized all output elements.
-            let out_chunk =
-                unsafe { std::mem::transmute::<&mut [MaybeUninit<OutT>], &mut [OutT]>(out_chunk) };
+            let out_chunk = unsafe { out_chunk.assume_init() };
             match bias {
                 Some(BiasVector::Column(bias)) => {
                     let bias = bias[0];

@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut};
+use rten_tensor::{AssumeInit, NdTensor, NdTensorView, NdTensorViewMut};
 use smallvec::SmallVec;
 
 use crate::iter_util::{range_chunks, unroll_loop};
@@ -105,7 +105,7 @@ impl DepthwiseConvKernel<f32, f32, f32> for GenericDepthwiseConvKernel {
         for x in out_row.iter_mut() {
             x.write(out_init);
         }
-        let out_row: &mut [f32] = unsafe { std::mem::transmute(out_row) };
+        let out_row: &mut [f32] = unsafe { out_row.assume_init() };
 
         for k_y in 0..params.kernel_h {
             let in_y = out_y * params.stride_h + k_y * params.dilation_y;
@@ -155,7 +155,7 @@ impl DepthwiseConvKernel<i8, u8, i32> for GenericDepthwiseConvKernel {
         for x in out_row.iter_mut() {
             x.write(out_init);
         }
-        let out_row: &mut [i32] = unsafe { std::mem::transmute(out_row) };
+        let out_row: &mut [i32] = unsafe { out_row.assume_init() };
 
         for k_y in 0..params.kernel_h {
             let in_y = out_y * params.stride_h + k_y * params.dilation_y;

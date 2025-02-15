@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Range};
 
+use crate::assume_init::AssumeInit;
 use crate::copy::{
     copy_into, copy_into_slice, copy_into_uninit, copy_range_into_slice, map_into_slice,
 };
@@ -1201,44 +1202,6 @@ impl<T, L: MutLayout> TensorBase<CowData<'_, T>, L> {
             CowData::Owned(vec) => Some(vec),
             CowData::Borrowed(_) => None,
         }
-    }
-}
-
-/// Trait for converting potentially uninitialized tensor element storage to
-/// initialized storage.
-pub trait AssumeInit {
-    /// The type of the initialized storage.
-    type Output;
-
-    /// Promise that all elements in the storage have been initialized.
-    ///
-    /// # Safety
-    ///
-    /// The caller must guarantee that all elements have been initialized.
-    unsafe fn assume_init(self) -> Self::Output;
-}
-
-impl<T> AssumeInit for Vec<MaybeUninit<T>> {
-    type Output = Vec<T>;
-
-    unsafe fn assume_init(self) -> Self::Output {
-        std::mem::transmute(self)
-    }
-}
-
-impl<'a, T> AssumeInit for ViewData<'a, MaybeUninit<T>> {
-    type Output = ViewData<'a, T>;
-
-    unsafe fn assume_init(self) -> Self::Output {
-        std::mem::transmute(self)
-    }
-}
-
-impl<'a, T> AssumeInit for ViewMutData<'a, MaybeUninit<T>> {
-    type Output = ViewMutData<'a, T>;
-
-    unsafe fn assume_init(self) -> Self::Output {
-        std::mem::transmute(self)
     }
 }
 
