@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, Tensor, TensorView};
+use rten_tensor::{AssumeInit, NdTensorView, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
@@ -155,7 +155,7 @@ where
     dest.copy_from_slice(uninit_src);
 
     // SAFETY: Valid elements have just been copied into `this` so it is initialized
-    unsafe { std::mem::transmute(dest) }
+    unsafe { dest.assume_init() }
 }
 
 /// Recursively tile (ie. repeatly copy) chunks of `input` to `output`.

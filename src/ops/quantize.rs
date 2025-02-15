@@ -2,7 +2,7 @@ use std::mem::MaybeUninit;
 
 use rten_simd::dispatch::SimdOp;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, Scalar, Tensor, TensorView};
+use rten_tensor::{AssumeInit, NdTensor, NdTensorView, Scalar, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::ops::{
@@ -146,7 +146,7 @@ pub trait Quantize<To> {
         for (x, y) in src.iter().zip(dest.iter_mut()) {
             y.write(x.quantize(inv_scale, zero_point));
         }
-        unsafe { std::mem::transmute::<&mut [MaybeUninit<To>], &mut [To]>(dest) }
+        unsafe { dest.assume_init() }
     }
 }
 
