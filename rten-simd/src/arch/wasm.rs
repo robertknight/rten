@@ -49,7 +49,7 @@ impl SimdMask for v128i {
 }
 
 impl Simd for v128i {
-    const LEN: usize = 4;
+    const LEN: Option<usize> = Some(4);
 
     type Array = [i32; 4];
     type Elem = i32;
@@ -220,7 +220,7 @@ impl SimdInt for v128i {
 }
 
 impl Simd for v128f {
-    const LEN: usize = 4;
+    const LEN: Option<usize> = Some(4);
 
     type Array = [f32; 4];
     type Elem = f32;
@@ -329,7 +329,7 @@ impl SimdFloat for v128f {
 
     #[inline]
     unsafe fn gather_mask(src: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
-        super::simd_gather_mask::<_, _, _, { Self::LEN }>(src, offsets, mask)
+        super::simd_gather_mask::<_, _, _, { Self::LEN.unwrap() }>(src, offsets, mask)
     }
 
     #[inline]

@@ -24,7 +24,7 @@ impl SimdMask for bool {
 macro_rules! impl_simd {
     ($type:ty) => {
         impl Simd for $type {
-            const LEN: usize = 1;
+            const LEN: Option<usize> = Some(1);
 
             type Array = [$type; 1];
             type Elem = $type;

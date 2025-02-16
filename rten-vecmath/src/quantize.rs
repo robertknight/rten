@@ -46,8 +46,9 @@ impl<'d> SimdOp for Quantize<'_, 'd, u8> {
 
         let zp_vec = S::Int::splat(self.zero_point as i32);
         let scale_vec = S::splat(self.inv_scale);
+        let v_len = S::len();
 
-        while n >= S::LEN {
+        while n >= v_len {
             let q = S::load(src_ptr)
                 .mul(scale_vec)
                 .to_int_round()
@@ -55,9 +56,9 @@ impl<'d> SimdOp for Quantize<'_, 'd, u8> {
                 .saturating_cast_u8();
             q.store(dest_ptr as *mut u8);
 
-            src_ptr = src_ptr.add(S::LEN);
-            dest_ptr = dest_ptr.add(S::LEN);
-            n -= S::LEN;
+            src_ptr = src_ptr.add(v_len);
+            dest_ptr = dest_ptr.add(v_len);
+            n -= v_len;
         }
 
         while n > 0 {

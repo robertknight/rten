@@ -47,7 +47,7 @@ impl SimdMask for __m256i {
 }
 
 impl Simd for __m256i {
-    const LEN: usize = 8;
+    const LEN: Option<usize> = Some(8);
 
     type Array = [i32; 8];
     type Elem = i32;
@@ -243,7 +243,7 @@ impl SimdInt for __m256i {
 }
 
 impl Simd for __m256 {
-    const LEN: usize = 8;
+    const LEN: Option<usize> = Some(8);
 
     type Array = [f32; 8];
     type Elem = f32;
@@ -383,7 +383,7 @@ impl SimdFloat for __m256 {
         // same extent, so using an emulated gather may not pay off there.
         //
         // See https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/gather-data-sampling.html
-        super::simd_gather_mask::<_, _, _, { Self::LEN }>(src, offsets, mask)
+        super::simd_gather_mask::<_, _, _, { Self::LEN.unwrap() }>(src, offsets, mask)
     }
 
     #[inline]
@@ -448,7 +448,7 @@ impl SimdMask for __mmask16 {
 
 #[cfg(feature = "avx512")]
 impl Simd for __m512i {
-    const LEN: usize = 16;
+    const LEN: Option<usize> = Some(16);
 
     type Array = [i32; 16];
     type Elem = i32;
@@ -631,7 +631,7 @@ impl SimdInt for __m512i {
 
 #[cfg(feature = "avx512")]
 impl Simd for __m512 {
-    const LEN: usize = 16;
+    const LEN: Option<usize> = Some(16);
 
     type Array = [f32; 16];
     type Elem = f32;

@@ -145,7 +145,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        const NR_REGS: usize = vec_count::<__m256i>(FmaKernel::NR);
+        const NR_REGS: usize = vec_count::<__m256i>(FmaKernel::NR).unwrap();
 
         // Safety: Kernel can only be constructed if AVX is supported
         let out = cast_pod_mut_slice(out).unwrap();
@@ -172,7 +172,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
     ) {
         const MR: usize = FmaKernel::MR;
         const NR: usize = FmaKernel::NR;
-        const NR_REGS: usize = vec_count::<__m256>(NR);
+        const NR_REGS: usize = vec_count::<__m256>(NR).unwrap();
 
         let b = cast_pod_slice(b).unwrap();
 
@@ -353,7 +353,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        const NR_REGS: usize = vec_count::<__m512i>(Avx512Kernel::NR);
+        const NR_REGS: usize = vec_count::<__m512i>(Avx512Kernel::NR).unwrap();
 
         // Safety: Kernel can only be constructed if AVX-512 is supported.
         let out = cast_pod_mut_slice(out).unwrap();
@@ -380,7 +380,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
     ) {
         const MR: usize = Avx512Kernel::MR;
         const NR: usize = Avx512Kernel::NR;
-        const NR_REGS: usize = vec_count::<__m512>(NR);
+        const NR_REGS: usize = vec_count::<__m512>(NR).unwrap();
 
         let b = cast_pod_slice(b).unwrap();
 
@@ -545,7 +545,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             rows: Range<usize>,
             cols: Range<usize>,
         ) {
-            const NR_REGS: usize = vec_count::<__m256i>(Avx2Int8Kernel::NR);
+            const NR_REGS: usize = vec_count::<__m256i>(Avx2Int8Kernel::NR).unwrap();
 
             let out = cast_pod_mut_slice(out).unwrap();
             image.pack_block_i8_dot::<__m256i, NR_REGS>(out, rows, cols);
@@ -581,7 +581,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        const NR_REGS: usize = vec_count::<__m256i>(Avx2Int8Kernel::NR);
+        const NR_REGS: usize = vec_count::<__m256i>(Avx2Int8Kernel::NR).unwrap();
         simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
             tile_ptr,
             tile_row_stride,
@@ -753,7 +753,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             rows: Range<usize>,
             cols: Range<usize>,
         ) {
-            const NR_REGS: usize = vec_count::<__m512i>(Avx512Int8Kernel::NR);
+            const NR_REGS: usize = vec_count::<__m512i>(Avx512Int8Kernel::NR).unwrap();
 
             let out = cast_pod_mut_slice(out).unwrap();
             image.pack_block_i8_dot::<__m512i, NR_REGS>(out, rows, cols);
@@ -790,7 +790,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        const NR_REGS: usize = vec_count::<__m512i>(Avx512Int8Kernel::NR);
+        const NR_REGS: usize = vec_count::<__m512i>(Avx512Int8Kernel::NR).unwrap();
         if self.have_vnni {
             simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
                 tile_ptr,
