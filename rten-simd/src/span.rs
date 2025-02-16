@@ -1,127 +1,90 @@
-//! Slice-like types without the restrictions on aliasing.
+//! Slice-like types used as inputs and outputs for vectorized operations.
 
 use std::mem::{transmute, MaybeUninit};
 
-/// Const pointer to a range of `T`s.
+enum SrcDestInner<'a, T> {
+    InOut(&'a [T], &'a mut [MaybeUninit<T>]),
+    InMut(&'a mut [T]),
+}
+
+/// Input-output buffer for vectorized operations.
 ///
-/// This is like an `&[T]`, but without the guarantee that no mutable aliases
-/// exist. This is useful as it enables re-using the same unsafe code for
-/// mutating and non-mutating variants of a function.
-#[derive(Copy, Clone)]
-pub struct PtrLen<T> {
-    ptr: *const T,
-    len: usize,
+/// This can either be a single mutable buffer for operations that execute
+/// in-place (`&mut [T]`) or a pair of input and output buffers where the
+/// output is uninitialized (`([T], &mut [MaybeUninit<T>])`) and both buffers
+/// must have the same length.
+pub struct SrcDest<'a, T: Copy> {
+    inner: SrcDestInner<'a, T>,
 }
 
-impl<T> PtrLen<T> {
-    pub fn ptr(&self) -> *const T {
-        self.ptr
+impl<'a, T: Copy> SrcDest<'a, T> {
+    /// Return the source slice.
+    pub fn src(&self) -> &[T] {
+        match &self.inner {
+            SrcDestInner::InOut(src, _dest) => src,
+            SrcDestInner::InMut(src_mut) => src_mut,
+        }
     }
 
+    /// Return the length of the input and output slices.
     pub fn len(&self) -> usize {
-        self.len
+        self.src().len()
     }
 
+    /// Return true if the input and output slices are empty.
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.src().is_empty()
     }
-}
 
-impl<'a, T> From<&'a [T]> for PtrLen<T> {
-    fn from(val: &'a [T]) -> PtrLen<T> {
-        PtrLen {
-            ptr: val.as_ptr(),
-            len: val.len(),
+    /// Return source and destination slice pointers and the length.
+    ///
+    /// The source and destination will either alias, or the destination will
+    /// be a non-aliasing, uninitialized slice.
+    pub fn src_dest_ptr(&mut self) -> (*const T, *mut MaybeUninit<T>, usize) {
+        match &mut self.inner {
+            SrcDestInner::InOut(src, dest) => (src.as_ptr(), dest.as_mut_ptr(), src.len()),
+            SrcDestInner::InMut(src) => (
+                src.as_ptr(),
+                src.as_mut_ptr() as *mut MaybeUninit<T>,
+                src.len(),
+            ),
         }
     }
-}
 
-impl<'a, T> From<&'a mut [T]> for PtrLen<T> {
-    fn from(val: &'a mut [T]) -> PtrLen<T> {
-        PtrLen {
-            ptr: val.as_ptr(),
-            len: val.len(),
-        }
-    }
-}
-
-impl<T> From<MutPtrLen<T>> for PtrLen<T> {
-    fn from(val: MutPtrLen<T>) -> PtrLen<T> {
-        PtrLen {
-            ptr: val.ptr,
-            len: val.len,
-        }
-    }
-}
-
-/// Mutable pointer to a range of `T`s.
-///
-/// This is like an `&mut [T]`, but without the guarantee that no aliases exist.
-#[derive(Copy, Clone)]
-pub struct MutPtrLen<T> {
-    ptr: *mut T,
-    len: usize,
-}
-
-impl<T> MutPtrLen<T> {
-    pub fn ptr(&self) -> *mut T {
-        self.ptr
-    }
-
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-}
-
-impl<T> MutPtrLen<MaybeUninit<T>> {
-    /// Promise that the span of `T`s that are pointed to have been initialized.
+    /// Return the initialized destination slice.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that all elements referenced by this range have
-    /// been initialized.
-    pub unsafe fn assume_init(self) -> MutPtrLen<T> {
-        MutPtrLen {
-            ptr: unsafe { transmute::<*mut MaybeUninit<T>, *mut T>(self.ptr) },
-            len: self.len,
+    /// If this instance was constructed with an uninitialized destination
+    /// buffer, all elements must have been initialized before this is called.
+    pub unsafe fn dest_assume_init(self) -> &'a mut [T] {
+        match self.inner {
+            SrcDestInner::InOut(_src, dest) => transmute::<&mut [MaybeUninit<T>], &mut [T]>(dest),
+            SrcDestInner::InMut(src) => src,
         }
     }
 }
 
-impl<T> MutPtrLen<T> {
-    /// Transmute a span of initialized `T`s to uninitialized `T`s.
-    pub fn as_uninit(self) -> MutPtrLen<MaybeUninit<T>>
-    where
-        T: Copy,
-    {
-        MutPtrLen {
-            ptr: unsafe { transmute::<*mut T, *mut MaybeUninit<T>>(self.ptr) },
-            len: self.len,
+impl<'a, T: Copy> From<(&'a [T], &'a mut [MaybeUninit<T>])> for SrcDest<'a, T> {
+    fn from(val: (&'a [T], &'a mut [MaybeUninit<T>])) -> Self {
+        let (src, dest) = val;
+        assert_eq!(
+            src.len(),
+            dest.len(),
+            "src len {} != dest len {}",
+            src.len(),
+            dest.len(),
+        );
+        SrcDest {
+            inner: SrcDestInner::InOut(src, dest),
         }
-    }
-
-    /// Convert `self` into a slice.
-    ///
-    /// # Safety
-    ///
-    /// The caller must uphold all the invariants specified in
-    /// [`std::slice::from_raw_parts_mut`]. In particular all elements must be
-    /// initialized, and there must be no other mutable references to any
-    /// elements in the slice.
-    pub unsafe fn as_slice<'a>(self) -> &'a mut [T] {
-        std::slice::from_raw_parts_mut(self.ptr, self.len)
     }
 }
 
-impl<'a, T> From<&'a mut [T]> for MutPtrLen<T> {
-    fn from(val: &'a mut [T]) -> MutPtrLen<T> {
-        MutPtrLen {
-            ptr: val.as_mut_ptr(),
-            len: val.len(),
+impl<'a, T: Copy> From<&'a mut [T]> for SrcDest<'a, T> {
+    fn from(val: &'a mut [T]) -> Self {
+        SrcDest {
+            inner: SrcDestInner::InMut(val),
         }
     }
 }

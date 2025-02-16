@@ -19,7 +19,7 @@ impl SimdOp for MinMax<'_> {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
         let [vec_min, vec_max] = simd_fold_array(
-            self.input.into(),
+            self.input,
             [S::splat(f32::MAX), S::splat(f32::MIN)],
             #[inline(always)]
             |[min, max], x| [x.min(min), x.max(max)],

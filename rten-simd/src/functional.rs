@@ -1,8 +1,6 @@
 //! Higher order functions (map, fold etc.) that use vectorized operations.
 
-use std::mem::MaybeUninit;
-
-use crate::span::{MutPtrLen, PtrLen};
+use crate::span::SrcDest;
 use crate::{Simd, SimdMask};
 
 /// Apply a unary operation to each element in `input` and store the results
@@ -21,15 +19,10 @@ use crate::{Simd, SimdMask};
 /// current system.
 #[inline(always)]
 pub unsafe fn simd_map<S: Simd, Op: FnMut(S) -> S>(
-    input: PtrLen<S::Elem>,
-    output: MutPtrLen<MaybeUninit<S::Elem>>,
+    mut src_dest: SrcDest<S::Elem>,
     mut op: Op,
-) {
-    assert!(input.len() == output.len());
-
-    let mut n = input.len();
-    let mut in_ptr = input.ptr();
-    let mut out_ptr = output.ptr();
+) -> &mut [S::Elem] {
+    let (mut in_ptr, mut out_ptr, mut n) = src_dest.src_dest_ptr();
 
     while n >= S::LEN {
         let x = S::load(in_ptr);
@@ -46,6 +39,8 @@ pub unsafe fn simd_map<S: Simd, Op: FnMut(S) -> S>(
         let y = op(x);
         y.store_partial(out_ptr as *mut S::Elem, n);
     }
+
+    src_dest.dest_assume_init()
 }
 
 /// Apply a vectorized fold operation over `xs`. If the length of `xs` is not
@@ -58,12 +53,12 @@ pub unsafe fn simd_map<S: Simd, Op: FnMut(S) -> S>(
 /// current system.
 #[inline(always)]
 pub unsafe fn simd_fold<S: Simd, Op: Fn(S, S) -> S>(
-    xs: PtrLen<S::Elem>,
+    xs: &[S::Elem],
     mut accum: S,
     simd_op: Op,
 ) -> S {
     let mut n = xs.len();
-    let mut x_ptr = xs.ptr();
+    let mut x_ptr = xs.as_ptr();
 
     while n >= S::LEN {
         let x = S::load(x_ptr);
@@ -92,12 +87,12 @@ pub unsafe fn simd_fold<S: Simd, Op: Fn(S, S) -> S>(
 /// current system.
 #[inline(always)]
 pub unsafe fn simd_fold_array<S: Simd, const N: usize, Op: Fn([S; N], S) -> [S; N]>(
-    xs: PtrLen<S::Elem>,
+    xs: &[S::Elem],
     mut accum: [S; N],
     simd_op: Op,
 ) -> [S; N] {
     let mut n = xs.len();
-    let mut x_ptr = xs.ptr();
+    let mut x_ptr = xs.as_ptr();
 
     while n >= S::LEN {
         let x = S::load(x_ptr);
