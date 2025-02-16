@@ -1,9 +1,8 @@
-use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 
 use rten_simd::dispatch::{SimdOp, SimdUnaryOp};
 use rten_simd::functional::{simd_fold, simd_map};
-use rten_simd::span::{MutPtrLen, PtrLen};
+use rten_simd::span::SrcDest;
 use rten_simd::{SimdFloat, SimdMask};
 
 use crate::Exp;
@@ -16,11 +15,7 @@ use crate::Exp;
 ///
 /// [softmax]: <https://en.wikipedia.org/wiki/Softmax_function>
 pub struct Softmax<'a> {
-    input: PtrLen<f32>,
-    output: MutPtrLen<MaybeUninit<f32>>,
-
-    // Communicate ownership of `output` to borrow checker.
-    _marker: PhantomData<&'a mut [f32]>,
+    src_dest: SrcDest<'a, f32>,
 }
 
 impl<'a> Softmax<'a> {
@@ -28,19 +23,14 @@ impl<'a> Softmax<'a> {
     /// `output`.
     pub fn new(input: &'a [f32], output: &'a mut [MaybeUninit<f32>]) -> Self {
         Softmax {
-            input: input.into(),
-            output: output.into(),
-            _marker: PhantomData,
+            src_dest: (input, output).into(),
         }
     }
 
     /// Construct a softmax operation which updates `input` in place.
     pub fn new_mut(input: &'a mut [f32]) -> Self {
-        let output: MutPtrLen<f32> = input.into();
         Softmax {
-            input: input.into(),
-            output: output.as_uninit(),
-            _marker: PhantomData,
+            src_dest: input.into(),
         }
     }
 }
@@ -51,10 +41,8 @@ impl<'a> SimdOp for Softmax<'a> {
 
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
-        let (input, output) = (self.input, self.output);
-
         let max_val = simd_fold(
-            input,
+            self.src_dest.src(),
             S::splat(f32::MIN),
             #[inline(always)]
             |max, x| max.max(x),
@@ -64,9 +52,8 @@ impl<'a> SimdOp for Softmax<'a> {
         // *x = (*x - max_val).exp()
         let mut prev_exp_sum = S::zero();
         let mut exp_sum = S::zero();
-        simd_map(
-            input,
-            output,
+        let dest = simd_map(
+            self.src_dest,
             #[inline(always)]
             |x: S| {
                 let y = Exp::apply(x.sub(max_val));
@@ -77,7 +64,7 @@ impl<'a> SimdOp for Softmax<'a> {
         );
 
         // Undo the last update to `exp_sum` for unused lanes.
-        let remainder = input.len() % S::LEN;
+        let remainder = dest.len() % S::LEN;
         if remainder != 0 {
             let remainder_mask = S::Mask::first_n(remainder);
             exp_sum = prev_exp_sum.blend(exp_sum, remainder_mask);
@@ -88,14 +75,12 @@ impl<'a> SimdOp for Softmax<'a> {
         let inv_exp_sum = S::one().div(exp_sum);
 
         simd_map(
-            output.assume_init().into(),
-            output,
+            dest.into(),
             #[inline(always)]
             |x: S| x.mul(inv_exp_sum),
         );
 
-        // Safety: `simd_softmax` initialized all elements of `self.output`.
-        unsafe { self.output.assume_init().as_slice() }
+        dest
     }
 }
 

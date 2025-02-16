@@ -1,8 +1,7 @@
-use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 
 use rten_simd::dispatch::SimdOp;
-use rten_simd::span::{MutPtrLen, PtrLen};
+use rten_simd::span::SrcDest;
 use rten_simd::SimdFloat;
 
 /// Normalize the mean and variance of elements in a slice.
@@ -17,12 +16,8 @@ use rten_simd::SimdFloat;
 ///
 /// Dispatching the operation panics if any of the slices have different lengths.
 pub struct Normalize<'a> {
-    input: PtrLen<f32>,
-    output: MutPtrLen<MaybeUninit<f32>>,
+    src_dest: SrcDest<'a, f32>,
     opts: NormalizeOptions<'a>,
-
-    // Communicate ownership of `output` to borrow checker.
-    _marker: PhantomData<&'a mut [f32]>,
 }
 
 impl<'a> Normalize<'a> {
@@ -34,21 +29,16 @@ impl<'a> Normalize<'a> {
         opts: NormalizeOptions<'a>,
     ) -> Self {
         Normalize {
-            input: input.into(),
-            output: output.into(),
+            src_dest: (input, output).into(),
             opts,
-            _marker: PhantomData,
         }
     }
 
     /// Create a normalize operation which normalizes `input` in-place.
     pub fn new_mut(input: &'a mut [f32], opts: NormalizeOptions<'a>) -> Self {
-        let output: MutPtrLen<f32> = input.into();
         Normalize {
-            input: input.into(),
-            output: output.as_uninit(),
+            src_dest: input.into(),
             opts,
-            _marker: PhantomData,
         }
     }
 }
@@ -87,8 +77,7 @@ impl<'a> SimdOp for Normalize<'a> {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
         let Self {
-            input,
-            output,
+            mut src_dest,
             opts:
                 NormalizeOptions {
                     pre_scale_bias,
@@ -97,23 +86,19 @@ impl<'a> SimdOp for Normalize<'a> {
                     bias,
                     element_bias,
                 },
-            _marker,
         } = self;
 
-        assert_eq!(input.len(), output.len());
         if let Some(scale) = element_scale {
-            assert_eq!(scale.len(), input.len());
+            assert_eq!(scale.len(), src_dest.len());
         }
         if let Some(bias) = element_bias {
-            assert_eq!(bias.len(), input.len());
+            assert_eq!(bias.len(), src_dest.len());
         }
 
-        let mut in_ptr = input.ptr();
-        let mut out_ptr = output.ptr();
+        let (mut in_ptr, mut out_ptr, mut n) = src_dest.src_dest_ptr();
 
         let mut scale_ptr = element_scale.map(|s| s.as_ptr());
         let mut bias_ptr = element_bias.map(|b| b.as_ptr());
-        let mut n = input.len();
 
         let one = S::one();
         let zero = S::zero();
@@ -159,7 +144,7 @@ impl<'a> SimdOp for Normalize<'a> {
         }
 
         // Safety: All elements of `output` were initialized above.
-        output.assume_init().as_slice()
+        src_dest.dest_assume_init()
     }
 }
 

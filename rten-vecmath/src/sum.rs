@@ -24,7 +24,7 @@ impl SimdOp for Sum<'_> {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
         let vec_sum = simd_fold(
-            self.input.into(),
+            self.input,
             S::zero(),
             #[inline(always)]
             |sum, x| sum.add(x),
@@ -56,7 +56,7 @@ impl SimdOp for SumSquare<'_> {
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
         let vec_sum = simd_fold(
-            self.input.into(),
+            self.input,
             S::zero(),
             #[inline(always)]
             |sum, x| x.mul_add(x, sum),
@@ -88,7 +88,7 @@ impl SimdOp for SumSquareSub<'_> {
     unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
         let offset_vec = S::splat(self.offset);
         let vec_sum = simd_fold(
-            self.input.into(),
+            self.input,
             S::zero(),
             #[inline(always)]
             |sum, x| {

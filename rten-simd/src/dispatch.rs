@@ -4,7 +4,7 @@
 use std::mem::MaybeUninit;
 
 use crate::functional::simd_map;
-use crate::span::{MutPtrLen, PtrLen};
+use crate::span::SrcDest;
 use crate::SimdFloat;
 
 /// Dispatches SIMD operations using the preferred SIMD types for the current
@@ -144,8 +144,8 @@ pub trait SimdUnaryOp {
     where
         Self: Sized,
     {
-        let wrapped_op = SimdMapOp::wrap(input.into(), output.into(), self);
-        dispatch(wrapped_op)
+        let wrapped_op = SimdMapOp::wrap((input, output).into(), self);
+        dispatch(wrapped_op);
     }
 
     /// Apply a vectorized unary function to a mutable slice.
@@ -156,40 +156,33 @@ pub trait SimdUnaryOp {
     where
         Self: Sized,
     {
-        let out: MutPtrLen<f32> = input.into();
-        let wrapped_op = SimdMapOp::wrap(input.into(), out.as_uninit(), self);
-        dispatch(wrapped_op)
+        let wrapped_op = SimdMapOp::wrap(input.into(), self);
+        dispatch(wrapped_op);
     }
 }
 
 /// SIMD operation which applies a unary operator `Op` to all elements in
 /// an input buffer using [`simd_map`].
 pub struct SimdMapOp<'a, Op: SimdUnaryOp> {
-    input: PtrLen<f32>,
-    output: MutPtrLen<MaybeUninit<f32>>,
+    src_dest: SrcDest<'a, f32>,
     op: &'a Op,
 }
 
 impl<'a, Op: SimdUnaryOp> SimdMapOp<'a, Op> {
-    pub fn wrap(
-        input: PtrLen<f32>,
-        output: MutPtrLen<MaybeUninit<f32>>,
-        op: &'a Op,
-    ) -> SimdMapOp<'a, Op> {
-        SimdMapOp { input, output, op }
+    pub fn wrap(src_dest: SrcDest<'a, f32>, op: &'a Op) -> SimdMapOp<'a, Op> {
+        SimdMapOp { src_dest, op }
     }
 }
 
-impl<Op: SimdUnaryOp> SimdOp for SimdMapOp<'_, Op> {
-    type Output = ();
+impl<'a, Op: SimdUnaryOp> SimdOp for SimdMapOp<'a, Op> {
+    type Output = &'a mut [f32];
 
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(self) {
+    unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
         simd_map(
-            self.input,
-            self.output,
+            self.src_dest,
             #[inline(always)]
             |x: S| self.op.eval(x),
-        );
+        )
     }
 }
