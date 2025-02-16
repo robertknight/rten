@@ -96,7 +96,7 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        const NR_REGS: usize = vec_count::<f32>(GenericKernel::NR);
+        const NR_REGS: usize = vec_count::<f32>(GenericKernel::NR).unwrap();
 
         // Safety: Scalar "SIMD" types are always supported
         let out = cast_pod_mut_slice(out).unwrap();
@@ -121,7 +121,7 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
     ) {
         const MR: usize = GenericKernel::MR;
         const NR: usize = GenericKernel::NR;
-        const NR_REGS: usize = vec_count::<f32>(NR);
+        const NR_REGS: usize = vec_count::<f32>(NR).unwrap();
 
         let b = cast_pod_slice(b).unwrap();
         let mut tmp_tile = TempTile::<f32, MR, NR>::new();
@@ -250,7 +250,7 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        const NR_REGS: usize = vec_count::<f32>(GenericKernel::NR);
+        const NR_REGS: usize = vec_count::<f32>(GenericKernel::NR).unwrap();
 
         // Safety: Scalar "SIMD" types are always supported
         let out = cast_pod_mut_slice(out).unwrap();

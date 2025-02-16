@@ -25,7 +25,7 @@ macro_rules! impl_simd_for_array {
         where
             [bool; N]: Default,
         {
-            const LEN: usize = N;
+            const LEN: Option<usize> = Some(N);
 
             type Array = Self;
             type Elem = $type;
@@ -48,7 +48,7 @@ macro_rules! impl_simd_for_array {
 
             #[inline]
             unsafe fn store(self, ptr: *mut $type) {
-                for i in 0..Self::LEN {
+                for i in 0..N {
                     ptr.add(i).write(self[i]);
                 }
             }

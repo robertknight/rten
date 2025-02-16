@@ -107,7 +107,7 @@ impl<T: Copy + Default> Im2Col<'_, T> {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        assert_eq!(panel_width, S::LEN * NR_REGS);
+        assert_eq!(panel_width, S::len() * NR_REGS);
 
         let col_range = cols.start..cols.end.next_multiple_of(panel_width);
         let used_size = rows.len() * col_range.len();
@@ -132,12 +132,12 @@ impl<T: Copy + Default> Im2Col<'_, T> {
         let out_ptr = out.as_mut_ptr();
         let mut out_offset = 0;
 
-        for start_col in (0..col_y_offsets.len()).step_by(S::LEN * NR_REGS) {
+        for start_col in (0..col_y_offsets.len()).step_by(S::len() * NR_REGS) {
             let col_y_offset: [S; NR_REGS] = std::array::from_fn(|i| {
-                S::load(col_y_offsets.as_ptr().add(start_col + S::LEN * i))
+                S::load(col_y_offsets.as_ptr().add(start_col + S::len() * i))
             });
             let col_x_offset: [S; NR_REGS] = std::array::from_fn(|i| {
-                S::load(col_x_offsets.as_ptr().add(start_col + S::LEN * i))
+                S::load(col_x_offsets.as_ptr().add(start_col + S::len() * i))
             });
             let max_x_offset = S::splat(self.max_x_offset);
             let max_y_offset = S::splat(self.max_y_offset);
@@ -177,7 +177,7 @@ impl<T: Copy + Default> Im2Col<'_, T> {
                     let pad_mask_array = pad_mask.to_array();
 
                     // Gather elements and store in packing buffer.
-                    for idx in 0..S::LEN {
+                    for idx in 0..S::len() {
                         let out_ptr: *mut T = std::mem::transmute(out_ptr.add(out_offset + idx));
 
                         // Safety: Offsets are clamped so they must be in-bounds.
@@ -193,7 +193,7 @@ impl<T: Copy + Default> Im2Col<'_, T> {
                         out_ptr.write(elem);
                     }
 
-                    out_offset += S::LEN;
+                    out_offset += S::len();
                 }
             }
         }
@@ -250,10 +250,10 @@ impl Im2Col<'_, i8> {
         let max_y_offset = S::splat(self.max_y_offset);
 
         let col_x_offsets = &self.col_offsets.x;
-        debug_assert_eq!(col_x_offsets.len() % S::LEN, 0);
+        debug_assert_eq!(col_x_offsets.len() % S::len(), 0);
 
         let col_y_offsets = &self.col_offsets.y;
-        debug_assert_eq!(col_y_offsets.len() % S::LEN, 0);
+        debug_assert_eq!(col_y_offsets.len() % S::len(), 0);
 
         let row_x_offsets = &self.row_offsets.x;
         debug_assert_eq!(row_x_offsets.len() % K_TILE, 0);
@@ -269,12 +269,12 @@ impl Im2Col<'_, i8> {
 
         let mut out_offset = 0;
 
-        for start_col in cols.step_by(S::LEN * NR_REGS) {
+        for start_col in cols.step_by(S::len() * NR_REGS) {
             let col_y_offset: [S; NR_REGS] = std::array::from_fn(|i| {
-                S::load(col_y_offsets.get_unchecked(start_col + i * S::LEN))
+                S::load(col_y_offsets.get_unchecked(start_col + i * S::len()))
             });
             let col_x_offset: [S; NR_REGS] = std::array::from_fn(|i| {
-                S::load(col_x_offsets.get_unchecked(start_col + i * S::LEN))
+                S::load(col_x_offsets.get_unchecked(start_col + i * S::len()))
             });
             let zero = S::zero();
 
@@ -303,9 +303,9 @@ impl Im2Col<'_, i8> {
                         // this offset is always valid.
                         let offsets_array = zero.blend(offsets, pad_mask).to_array();
 
-                        for idx in 0..S::LEN {
+                        for idx in 0..S::len() {
                             let out_ptr =
-                                out_ptr.add(out_offset + (c_block * S::LEN + idx) * K_TILE + i);
+                                out_ptr.add(out_offset + (c_block * S::len() + idx) * K_TILE + i);
                             let src_elem = *img_ptr.add(offsets_array[idx] as usize);
 
                             if CAST_B_U8 {
@@ -321,16 +321,16 @@ impl Im2Col<'_, i8> {
                         }
                     }
                 }
-                out_offset += S::LEN * NR_REGS * K_TILE;
+                out_offset += S::len() * NR_REGS * K_TILE;
             }
 
             // Store column sums at end of each panel.
             for c_block in 0..NR_REGS {
                 let col_sum_ptr = out_ptr.add(out_offset) as *mut i32;
-                for i in 0..S::LEN {
+                for i in 0..S::len() {
                     *col_sum_ptr.add(i) = col_sums[c_block][i];
                 }
-                out_offset += S::LEN * K_TILE;
+                out_offset += S::len() * K_TILE;
             }
         }
 

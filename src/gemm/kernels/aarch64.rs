@@ -91,7 +91,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        const NR_REGS: usize = vec_count::<float32x4_t>(ArmNeonKernel::NR);
+        const NR_REGS: usize = vec_count::<float32x4_t>(ArmNeonKernel::NR).unwrap();
 
         // Safety: Arm Neon instructions are supported
         let out = cast_pod_mut_slice(out).unwrap();
@@ -116,7 +116,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
     ) {
         const MR: usize = ArmNeonKernel::MR;
         const NR: usize = ArmNeonKernel::NR;
-        const NR_REGS: usize = vec_count::<float32x4_t>(NR);
+        const NR_REGS: usize = vec_count::<float32x4_t>(NR).unwrap();
 
         let b = cast_pod_slice(b).unwrap();
 
@@ -243,7 +243,7 @@ macro_rules! impl_arm_int8_common {
             cols: Range<usize>,
         ) {
             // Safety: Arm Neon is supported
-            const NR_REGS: usize = vec_count::<int32x4_t>(<$self_type>::NR);
+            const NR_REGS: usize = vec_count::<int32x4_t>(<$self_type>::NR).unwrap();
             unsafe { image.pack_block_i8_dot_cast_u8::<int32x4_t, NR_REGS>(out, rows, cols) }
         }
     };
@@ -298,7 +298,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        const NR_REGS: usize = vec_count::<int32x4_t>(ArmInt8DotKernel::NR);
+        const NR_REGS: usize = vec_count::<int32x4_t>(ArmInt8DotKernel::NR).unwrap();
         simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
             tile_ptr,
             tile_row_stride,
@@ -395,7 +395,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        const NR_REGS: usize = vec_count::<int32x4_t>(ArmInt8Kernel::NR);
+        const NR_REGS: usize = vec_count::<int32x4_t>(ArmInt8Kernel::NR).unwrap();
         simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
             tile_ptr,
             tile_row_stride,

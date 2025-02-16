@@ -38,8 +38,9 @@ pub unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
     let a_ptr = a.as_ptr();
     let b_ptr = b.storage().as_ptr();
     let b_row_stride = b.row_stride();
+    let v_len = S::len();
 
-    let mut b_tiles = range_chunks_exact(0..b.cols(), NR_REGS * S::LEN);
+    let mut b_tiles = range_chunks_exact(0..b.cols(), NR_REGS * v_len);
     for b_tile in b_tiles.by_ref() {
         let mut acc = [S::zero(); NR_REGS];
         unroll_loop!(0..a.len(), k, 4, {
@@ -47,10 +48,10 @@ pub unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
             let a_elts = S::splat(a_elt);
 
             // Pre-fetch the current row for the next column tile.
-            S::prefetch(b_ptr.add(k * b_row_stride + b_tile.start + NR_REGS + S::LEN));
+            S::prefetch(b_ptr.add(k * b_row_stride + b_tile.start + NR_REGS + v_len));
 
             for i in 0..NR_REGS {
-                let b_elts = S::load(b_ptr.add(k * b_row_stride + b_tile.start + i * S::LEN));
+                let b_elts = S::load(b_ptr.add(k * b_row_stride + b_tile.start + i * S::len()));
                 acc[i] = a_elts.mul_add(b_elts, acc[i]);
             }
         });
@@ -62,7 +63,7 @@ pub unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
             }
         }
 
-        let get_out_tile_ptr = |i| out_ptr.add(b_tile.start + i * S::LEN);
+        let get_out_tile_ptr = |i| out_ptr.add(b_tile.start + i * v_len);
 
         if beta == 0. {
             for i in 0..NR_REGS {
@@ -121,7 +122,7 @@ unsafe fn simd_gemv_transposed<S: SimdFloat>(
     for col_tile in col_tiles.by_ref() {
         let mut acc = [S::zero(); COL_TILE];
 
-        let mut depth_tiles = range_chunks_exact(0..a.len(), S::LEN);
+        let mut depth_tiles = range_chunks_exact(0..a.len(), S::len());
         for depth_tile in depth_tiles.by_ref() {
             let a_tile = S::load(a.as_ptr().add(depth_tile.start));
             for i in 0..COL_TILE {
@@ -264,7 +265,7 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize, con
     alpha: f32,
     beta: f32,
 ) {
-    assert!(b.len() >= depth * NR_REGS * S::LEN);
+    assert!(b.len() >= depth * NR_REGS * S::len());
     assert!(depth > 0);
     let (a_ptr, a_row_stride) = match a {
         Lhs::Packed(data) => {
@@ -294,13 +295,13 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize, con
     let mut b_rows = [S::zero(); NR_REGS];
 
     unroll_loop_x4!(0..depth - 1, k, {
-        let b_off = k * NR_REGS * S::LEN;
+        let b_off = k * NR_REGS * S::len();
 
         // Prefetch B for the next iteration
-        S::prefetch(b_ptr.add((k + 1) * NR_REGS * S::LEN));
+        S::prefetch(b_ptr.add((k + 1) * NR_REGS * S::len()));
 
         for i in 0..NR_REGS {
-            b_rows[i] = S::load(b_ptr.add(b_off + i * S::LEN));
+            b_rows[i] = S::load(b_ptr.add(b_off + i * S::len()));
         }
 
         for i in 0..ROWS {
@@ -320,10 +321,10 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize, con
 
     // Perform final outer product update.
     let k = depth - 1;
-    let b_off = k * NR_REGS * S::LEN;
+    let b_off = k * NR_REGS * S::len();
 
     for i in 0..NR_REGS {
-        b_rows[i] = S::load(b_ptr.add(b_off + i * S::LEN));
+        b_rows[i] = S::load(b_ptr.add(b_off + i * S::len()));
     }
 
     for i in 0..ROWS {
@@ -335,7 +336,7 @@ pub unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize, con
         }
     }
 
-    let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j * S::LEN);
+    let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j * S::len());
 
     // Write to output tile.
     //
@@ -412,7 +413,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
     b_col_sums: &[i32; NR],
     dot_product: unsafe fn(S, S, S) -> S,
 ) {
-    assert_eq!(S::LEN * NR_REGS, NR);
+    assert_eq!(S::len() * NR_REGS, NR);
 
     // The value for each element in the output tile is computed as:
     //
@@ -439,7 +440,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
 
     let n_depth_tiles = depth.div_ceil(4);
     let b_zero: [S; NR_REGS] =
-        std::array::from_fn(|i| S::load(b_zero_points.as_ptr().add(i * S::LEN)));
+        std::array::from_fn(|i| S::load(b_zero_points.as_ptr().add(i * S::len())));
 
     // Initialize output tile with `k * a_zero_point[row] * b_zero_point[col]`
     let k_mul_b_zero: [S; NR_REGS] = std::array::from_fn(|i| S::splat(depth as i32).mul(b_zero[i]));
@@ -456,7 +457,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
     for k_block in 0..n_depth_tiles {
         // Load `[4, NR]` microtile from B
         let b_vec: [S; NR_REGS] = std::array::from_fn(|i| {
-            S::load(b_ptr.add((k_block * NR + i * S::LEN) * 4) as *const i32)
+            S::load(b_ptr.add((k_block * NR + i * S::len()) * 4) as *const i32)
         });
 
         // Each iteration broadcasts 4x int 8 values from A, computes NR
@@ -472,7 +473,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
 
     // Scale zero points by row and column sums and subtract from output tile.
     let b_col_sums: [S; NR_REGS] =
-        std::array::from_fn(|i| S::load(b_col_sums.as_ptr().add(i * S::LEN)));
+        std::array::from_fn(|i| S::load(b_col_sums.as_ptr().add(i * S::len())));
     for row in 0..MR {
         let a_zero = S::splat(a_zero_points[row]);
         let a_sum = S::splat(a_row_sums[row]);
@@ -486,7 +487,8 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
     }
 
     // Write from accumulator in registers back to output.
-    let output_tile_ptr = |row, col_block| tile_ptr.add(row * tile_row_stride + col_block * S::LEN);
+    let output_tile_ptr =
+        |row, col_block| tile_ptr.add(row * tile_row_stride + col_block * S::len());
 
     #[allow(clippy::collapsible_else_if)]
     if !accumulate {
@@ -503,7 +505,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
             for r in 0..used_rows {
                 for c_block in 0..NR_REGS {
                     let tile_ptr = output_tile_ptr(r, c_block);
-                    let used_cols = used_cols.saturating_sub(c_block * S::LEN).min(S::LEN);
+                    let used_cols = used_cols.saturating_sub(c_block * S::len()).min(S::len());
                     let tmp = tmp[r][c_block].to_array();
 
                     for c in 0..used_cols {
@@ -527,7 +529,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
             for r in 0..used_rows {
                 for c_block in 0..NR_REGS {
                     let tile_ptr = output_tile_ptr(r, c_block);
-                    let used_cols = used_cols.saturating_sub(c_block * S::LEN).min(S::LEN);
+                    let used_cols = used_cols.saturating_sub(c_block * S::len()).min(S::len());
                     let tmp = tmp[r][c_block].to_array();
 
                     for c in 0..used_cols {
@@ -602,7 +604,7 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
 
     // Iterate over `4 x S::LEN` columns at a time, which is one `i8` SIMD vec,
     // four `i32` vecs.
-    let mut col_tiles = range_chunks_exact(0..b.cols(), 4 * S::LEN);
+    let mut col_tiles = range_chunks_exact(0..b.cols(), 4 * S::len());
     for col_tile in col_tiles.by_ref() {
         let b_ptr = b_ptr.add(col_tile.start);
         let mut acc = [S::zero(); 4];
@@ -647,7 +649,7 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
 
             // Pre-fetch the current block of 4 rows for the next column tile.
             for i in 0..4 {
-                S::prefetch(b_tile_ptr[i].add(S::LEN));
+                S::prefetch(b_tile_ptr[i].add(S::len()));
             }
 
             for i in 0..4 {
@@ -666,7 +668,7 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
             let a = S::splat((*a_ptr.add(k)).into());
 
             for i in 0..4 {
-                let b = S::load_extend_i8(b_ptr.add(k * b_row_stride + i * S::LEN));
+                let b = S::load_extend_i8(b_ptr.add(k * b_row_stride + i * S::len()));
                 let b = if CAST_B_U8 {
                     b.add(S::splat(b_zero_shift))
                 } else {
@@ -688,7 +690,7 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
 
         for i in 0..4 {
             let b_zero_vec = if let Some(b_zero) = b_zero_points {
-                S::load_extend_i8(b_zero.as_ptr().add(col_tile.start + i * S::LEN))
+                S::load_extend_i8(b_zero.as_ptr().add(col_tile.start + i * S::len()))
             } else {
                 S::zero()
             };
@@ -700,7 +702,7 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
                 .sub(row_sum_vec.mul(b_zero_vec))
                 .sub(col_sums[i].mul(a_zero_vec));
 
-            let out_ptr = out.as_ptr().add(col_tile.start + i * S::LEN) as *mut i32;
+            let out_ptr = out.as_ptr().add(col_tile.start + i * S::len()) as *mut i32;
             if !accumulate {
                 acc[i].store(out_ptr);
             } else {
@@ -764,7 +766,7 @@ unsafe fn simd_int8_gemv_transposed<S: SimdInt, const CAST_B_U8: bool>(
 
         // nb. `S::LEN` refers to `i32` values, but `depth` is a count of u8/i8
         // values.
-        let mut k_tiles = range_chunks_exact(0..depth, S::LEN * 4);
+        let mut k_tiles = range_chunks_exact(0..depth, S::len() * 4);
 
         for k_tile in k_tiles.by_ref() {
             let a = S::load(a_ptr.add(k_tile.start) as *const i32);

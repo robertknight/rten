@@ -24,14 +24,15 @@ pub unsafe fn simd_map<S: Simd, Op: FnMut(S) -> S>(
 ) -> &mut [S::Elem] {
     let (mut in_ptr, mut out_ptr, mut n) = src_dest.src_dest_ptr();
 
-    while n >= S::LEN {
+    let v_len = S::len();
+    while n >= v_len {
         let x = S::load(in_ptr);
         let y = op(x);
         y.store(out_ptr as *mut S::Elem);
 
-        n -= S::LEN;
-        in_ptr = in_ptr.add(S::LEN);
-        out_ptr = out_ptr.add(S::LEN);
+        n -= v_len;
+        in_ptr = in_ptr.add(v_len);
+        out_ptr = out_ptr.add(v_len);
     }
 
     if n > 0 {
@@ -43,9 +44,9 @@ pub unsafe fn simd_map<S: Simd, Op: FnMut(S) -> S>(
     src_dest.dest_assume_init()
 }
 
-/// Apply a vectorized fold operation over `xs`. If the length of `xs` is not
-/// a multiple of `S::LEN` then the accumulator is left unchanged for unused
-/// lanes in the final update.
+/// Apply a vectorized fold operation over `xs`. If the length of `xs` is not a
+/// multiple of the vector length then the accumulator is left unchanged for
+/// unused lanes in the final update.
 ///
 /// # Safety
 ///
@@ -59,12 +60,13 @@ pub unsafe fn simd_fold<S: Simd, Op: Fn(S, S) -> S>(
 ) -> S {
     let mut n = xs.len();
     let mut x_ptr = xs.as_ptr();
+    let v_len = S::len();
 
-    while n >= S::LEN {
+    while n >= v_len {
         let x = S::load(x_ptr);
         accum = simd_op(accum, x);
-        n -= S::LEN;
-        x_ptr = x_ptr.add(S::LEN);
+        n -= v_len;
+        x_ptr = x_ptr.add(v_len);
     }
 
     let n_mask = S::Mask::first_n(n);
@@ -93,12 +95,13 @@ pub unsafe fn simd_fold_array<S: Simd, const N: usize, Op: Fn([S; N], S) -> [S; 
 ) -> [S; N] {
     let mut n = xs.len();
     let mut x_ptr = xs.as_ptr();
+    let v_len = S::len();
 
-    while n >= S::LEN {
+    while n >= v_len {
         let x = S::load(x_ptr);
         accum = simd_op(accum, x);
-        n -= S::LEN;
-        x_ptr = x_ptr.add(S::LEN);
+        n -= v_len;
+        x_ptr = x_ptr.add(v_len);
     }
 
     let n_mask = S::Mask::first_n(n);

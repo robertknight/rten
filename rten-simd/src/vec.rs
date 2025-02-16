@@ -40,22 +40,16 @@
 //! implemented as functions in this trait rather than using the standard trait
 //! from `std::ops`.
 
-use std::mem::MaybeUninit;
-
-/// Maximum number of 32-bit lanes in a vector register across all supported
-/// architectures.
-pub const MAX_LEN: usize = 16;
-
 /// Base trait for SIMD vectors.
 ///
 /// This provides common associated types and methods that are applicable for
 /// all SIMD vectors.
 #[allow(clippy::missing_safety_doc)]
-pub trait Simd: Copy + Sized {
+pub trait Simd: Copy {
     type Elem: Copy + Default;
 
-    /// The number of elements in the SIMD vector.
-    const LEN: usize;
+    /// The number of elements in the SIMD vector, if known at compile time.
+    const LEN: Option<usize>;
 
     /// The type used by operations that use or return masks.
     ///
@@ -72,7 +66,16 @@ pub trait Simd: Copy + Sized {
         + std::fmt::Debug
         + std::ops::Index<usize, Output = Self::Elem>
         + std::ops::IndexMut<usize, Output = Self::Elem>
-        + AsRef<[Self::Elem]>;
+        + AsRef<[Self::Elem]>
+        + IntoIterator<Item = Self::Elem>;
+
+    /// Return the number of elements in the SIMD vector.
+    ///
+    /// This value is a constant which may be known either at compile time
+    /// (eg. AVX2, Arm Neon) or only at runtime (eg. Arm SVE).
+    unsafe fn len() -> usize {
+        Self::LEN.unwrap()
+    }
 
     /// Combine elements of `self` and `rhs` according to a mask.
     ///
@@ -99,12 +102,12 @@ pub trait Simd: Copy + Sized {
     /// Panics if `len > Self::LEN`.
     #[inline]
     unsafe fn load_partial(ptr: *const Self::Elem, len: usize) -> Self {
-        assert!(len <= Self::LEN);
-        let mut remainder = [Self::Elem::default(); MAX_LEN];
+        assert!(len <= Self::len());
+        let mut remainder = Self::zero().to_array();
         for i in 0..len {
             remainder[i] = *ptr.add(i);
         }
-        Self::load(remainder.as_ptr())
+        Self::load(remainder.as_ref().as_ptr())
     }
 
     /// Prefetch the cache line containing `data`, for reading.
@@ -132,11 +135,10 @@ pub trait Simd: Copy + Sized {
     /// Panics if `len > Self::LEN`.
     #[inline]
     unsafe fn store_partial(self, dest: *mut Self::Elem, len: usize) {
-        assert!(len <= Self::LEN);
-        let mut remainder = [MaybeUninit::uninit(); MAX_LEN];
-        self.store(remainder.as_mut_ptr() as *mut Self::Elem);
+        assert!(len <= Self::len());
+        let remainder = self.to_array();
         for i in 0..len {
-            dest.add(i).write(remainder[i].assume_init());
+            dest.add(i).write(remainder[i]);
         }
     }
 
@@ -158,8 +160,12 @@ pub trait Simd: Copy + Sized {
 }
 
 /// Return the number of SIMD vectors required to hold `count` elements.
-pub const fn vec_count<S: Simd>(count: usize) -> usize {
-    count.div_ceil(S::LEN)
+pub const fn vec_count<S: Simd>(count: usize) -> Option<usize> {
+    if let Some(len) = S::LEN {
+        Some(count.div_ceil(len))
+    } else {
+        None
+    }
 }
 
 /// Trait implemented by SIMD masks.
@@ -364,9 +370,7 @@ pub trait SimdFloat: Simd<Elem = f32> {
     /// return a new vector with the accumulated value broadcast to each lane.
     #[inline]
     unsafe fn fold_splat<F: Fn(f32, f32) -> f32>(self, accum: f32, f: F) -> Self {
-        let mut elements = [accum; MAX_LEN];
-        self.store(elements.as_mut_ptr());
-        let reduced = elements.into_iter().fold(accum, f);
+        let reduced = self.to_array().into_iter().fold(accum, f);
         Self::splat(reduced)
     }
 }
@@ -380,7 +384,7 @@ pub mod tests {
                 use crate::vec::{Simd, SimdInt};
                 use $type_import_path as SimdVec;
 
-                const LEN: usize = <SimdVec as Simd>::LEN;
+                const LEN: usize = <SimdVec as Simd>::LEN.unwrap();
 
                 #[test]
                 fn test_load_extend_i8() {

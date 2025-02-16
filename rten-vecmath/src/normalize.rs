@@ -105,8 +105,9 @@ impl<'a> SimdOp for Normalize<'a> {
         let const_scale_vec = S::splat(scale);
         let const_bias_vec = S::splat(bias);
         let pre_scale_bias_vec = S::splat(pre_scale_bias);
+        let v_len = S::len();
 
-        while n >= S::LEN {
+        while n >= v_len {
             let scale_vec = scale_ptr
                 .map(|s| S::load(s))
                 .unwrap_or(one)
@@ -120,12 +121,12 @@ impl<'a> SimdOp for Normalize<'a> {
                 .mul_add(scale_vec, bias_vec);
             y.store(out_ptr as *mut f32);
 
-            in_ptr = in_ptr.add(S::LEN);
-            out_ptr = out_ptr.add(S::LEN);
-            scale_ptr = scale_ptr.map(|s| s.add(S::LEN));
-            bias_ptr = bias_ptr.map(|b| b.add(S::LEN));
+            in_ptr = in_ptr.add(v_len);
+            out_ptr = out_ptr.add(v_len);
+            scale_ptr = scale_ptr.map(|s| s.add(v_len));
+            bias_ptr = bias_ptr.map(|b| b.add(v_len));
 
-            n -= S::LEN;
+            n -= v_len;
         }
 
         if n > 0 {
