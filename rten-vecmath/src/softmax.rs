@@ -67,7 +67,7 @@ impl<'a> SimdOp for Softmax<'a> {
         let remainder = dest.len() % S::len();
         if remainder != 0 {
             let remainder_mask = S::Mask::first_n(remainder);
-            exp_sum = prev_exp_sum.blend(exp_sum, remainder_mask);
+            exp_sum = exp_sum.select(prev_exp_sum, remainder_mask);
         }
 
         // *x /= exp_sum

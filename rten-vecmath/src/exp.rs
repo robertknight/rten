@@ -104,7 +104,7 @@ impl SimdUnaryOp for Exp {
         let x7f = S::Int::splat(0x7f000000);
         #[allow(overflowing_literals)]
         let x83 = S::Int::splat(0x83000000);
-        let ia = x83.blend(S::Int::zero(), ia);
+        let ia = S::Int::zero().select(x83, ia);
         let is = ia.add(x7f);
 
         let it = k.shl::<23>();
@@ -118,8 +118,8 @@ impl SimdUnaryOp for Exp {
         // Handle overflow and underflow when `x.abs() >= 104.`
         let overflow_mask = x.ge(S::splat(104.0));
         let underflow_mask = x.le(S::splat(-104.0));
-        let r = r.blend(S::splat(f32::INFINITY), overflow_mask);
-        r.blend(S::zero(), underflow_mask)
+        let r = S::splat(f32::INFINITY).select(r, overflow_mask);
+        S::zero().select(r, underflow_mask)
     }
 }
 

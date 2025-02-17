@@ -55,8 +55,8 @@ impl Simd for __m256i {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-        _mm256_blendv_epi8(self, other, mask)
+    unsafe fn select(self, other: Self, mask: Self::Mask) -> Self {
+        _mm256_blendv_epi8(other, self, mask)
     }
 
     #[inline]
@@ -251,8 +251,8 @@ impl Simd for __m256 {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
-        _mm256_blendv_ps(self, rhs, transmute::<__m256i, __m256>(mask))
+    unsafe fn select(self, rhs: Self, mask: Self::Mask) -> Self {
+        _mm256_blendv_ps(rhs, self, transmute::<__m256i, __m256>(mask))
     }
 
     #[inline]
@@ -468,8 +468,8 @@ impl Simd for __m512i {
 
     #[inline]
     #[target_feature(enable = "avx512f")]
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-        _mm512_mask_blend_epi32(mask, self, other)
+    unsafe fn select(self, other: Self, mask: Self::Mask) -> Self {
+        _mm512_mask_blend_epi32(mask, other, self)
     }
 
     #[inline]
@@ -645,8 +645,8 @@ impl Simd for __m512 {
 
     #[inline]
     #[target_feature(enable = "avx512f")]
-    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
-        _mm512_mask_blend_ps(mask, self, rhs)
+    unsafe fn select(self, rhs: Self, mask: Self::Mask) -> Self {
+        _mm512_mask_blend_ps(mask, rhs, self)
     }
 
     #[inline]

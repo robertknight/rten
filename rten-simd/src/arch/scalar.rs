@@ -31,8 +31,8 @@ macro_rules! impl_simd {
             type Mask = bool;
 
             #[inline]
-            unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-                if !mask {
+            unsafe fn select(self, other: Self, mask: Self::Mask) -> Self {
+                if mask {
                     self
                 } else {
                     other

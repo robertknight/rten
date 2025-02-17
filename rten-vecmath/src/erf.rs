@@ -25,7 +25,7 @@ impl SimdUnaryOp for Erf {
         let neg_mask = x.lt(S::zero());
 
         // x = x.abs()
-        let x = x.blend(x.neg(), neg_mask);
+        let x = x.neg().select(x, neg_mask);
 
         let p = S::splat(0.3275911);
 
@@ -49,7 +49,7 @@ impl SimdUnaryOp for Erf {
 
         // Approximation is valid only for x >= 0. For negative values approximation
         // can be computed as -erf(-x).
-        y.blend(y.neg(), neg_mask)
+        y.neg().select(y, neg_mask)
     }
 }
 

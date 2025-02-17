@@ -61,8 +61,8 @@ impl Simd for v128i {
     }
 
     #[inline]
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-        Self(v128_bitselect(other.0, self.0, mask.0))
+    unsafe fn select(self, other: Self, mask: Self::Mask) -> Self {
+        Self(v128_bitselect(self.0, other.0, mask.0))
     }
 
     #[inline]
@@ -232,8 +232,8 @@ impl Simd for v128f {
     }
 
     #[inline]
-    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
-        Self(v128_bitselect(rhs.0, self.0, mask.0))
+    unsafe fn select(self, rhs: Self, mask: Self::Mask) -> Self {
+        Self(v128_bitselect(self.0, rhs.0, mask.0))
     }
 
     #[inline]
