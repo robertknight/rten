@@ -74,7 +74,7 @@ pub unsafe fn simd_fold<S: Simd, Op: Fn(S, S) -> S>(
         let x = S::load_partial(x_ptr, n);
         let prev_accum = accum;
         let new_accum = simd_op(accum, x);
-        accum = prev_accum.blend(new_accum, n_mask);
+        accum = new_accum.select(prev_accum, n_mask);
     }
 
     accum
@@ -111,7 +111,7 @@ pub unsafe fn simd_fold_array<S: Simd, const N: usize, Op: Fn([S; N], S) -> [S; 
         let new_accum = simd_op(accum, x);
 
         for i in 0..N {
-            accum[i] = prev_accum[i].blend(new_accum[i], n_mask);
+            accum[i] = new_accum[i].select(prev_accum[i], n_mask);
         }
     }
 

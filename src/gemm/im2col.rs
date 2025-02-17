@@ -173,7 +173,7 @@ impl<T: Copy + Default> Im2Col<'_, T> {
 
                     // Set offsets to zero for padding elements. We require
                     // this offset is always valid.
-                    let offsets_array = zero.blend(offsets, pad_mask).to_array();
+                    let offsets_array = offsets.select(zero, pad_mask).to_array();
                     let pad_mask_array = pad_mask.to_array();
 
                     // Gather elements and store in packing buffer.
@@ -301,7 +301,7 @@ impl Im2Col<'_, i8> {
 
                         // Set offsets to zero for padding elements. We require
                         // this offset is always valid.
-                        let offsets_array = zero.blend(offsets, pad_mask).to_array();
+                        let offsets_array = offsets.select(zero, pad_mask).to_array();
 
                         for idx in 0..S::len() {
                             let out_ptr =

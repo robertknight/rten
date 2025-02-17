@@ -32,8 +32,8 @@ macro_rules! impl_simd_for_array {
             type Mask = [bool; N];
 
             #[inline]
-            unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
-                std::array::from_fn(|i| if !mask[i] { self[i] } else { rhs[i] })
+            unsafe fn select(self, rhs: Self, mask: Self::Mask) -> Self {
+                std::array::from_fn(|i| if mask[i] { self[i] } else { rhs[i] })
             }
 
             #[inline]

@@ -51,8 +51,8 @@ impl Simd for int32x4_t {
     }
 
     #[inline]
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-        vbslq_s32(mask, other, self)
+    unsafe fn select(self, other: Self, mask: Self::Mask) -> Self {
+        vbslq_s32(mask, self, other)
     }
 
     #[inline]
@@ -204,8 +204,8 @@ impl Simd for float32x4_t {
     }
 
     #[inline]
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
-        vbslq_f32(mask, other, self)
+    unsafe fn select(self, other: Self, mask: Self::Mask) -> Self {
+        vbslq_f32(mask, self, other)
     }
 
     #[inline]

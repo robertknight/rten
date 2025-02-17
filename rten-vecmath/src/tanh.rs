@@ -53,12 +53,12 @@ impl SimdUnaryOp for Tanh {
         let y_medium = exp_2x_m1.div(exp_2x_p1);
 
         // Select output to use depending on |x|.
-        let y = y_medium.blend(S::one(), x_cutoff);
-        let y = y.blend(y_small, x_small);
-        let y = y.blend(abs_x, x_tiny);
+        let y = S::one().select(y_medium, x_cutoff);
+        let y = y_small.select(y, x_small);
+        let y = abs_x.select(y, x_tiny);
 
         // Flip sign if input was negative.
-        y.blend(y.neg(), x_negative)
+        y.neg().select(y, x_negative)
     }
 }
 

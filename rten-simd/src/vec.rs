@@ -77,11 +77,11 @@ pub trait Simd: Copy {
         Self::LEN.unwrap()
     }
 
-    /// Combine elements of `self` and `rhs` according to a mask.
+    /// Combine elements of `self` and `other` according to a mask.
     ///
-    /// For each lane, if the mask value is zero, return the element from
+    /// For each lane, if the mask value is one, return the element from
     /// `self`, otherwise return the value from `other`.
-    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self;
+    unsafe fn select(self, other: Self, mask: Self::Mask) -> Self;
 
     /// Broadcast `val` to all elements in a new vector.
     ///
