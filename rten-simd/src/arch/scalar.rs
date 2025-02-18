@@ -258,15 +258,6 @@ impl SimdFloat for f32 {
     }
 
     #[inline]
-    unsafe fn gather_mask(ptr: *const f32, offset: i32, mask: Self::Mask) -> Self {
-        if mask {
-            *ptr.add(offset as usize)
-        } else {
-            0.
-        }
-    }
-
-    #[inline]
     unsafe fn sum(self) -> f32 {
         self
     }

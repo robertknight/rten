@@ -293,11 +293,6 @@ impl SimdFloat for float32x4_t {
     }
 
     #[inline]
-    unsafe fn gather_mask(src: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
-        super::simd_gather_mask::<_, _, _, { Self::LEN.unwrap() }>(src, offsets, mask)
-    }
-
-    #[inline]
     unsafe fn sum(self) -> f32 {
         vaddvq_f32(self)
     }

@@ -374,20 +374,6 @@ impl SimdFloat for __m256 {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn gather_mask(src: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
-        // AVX2 has a gather instruction, but we don't use it because on some
-        // Intel CPUs it is slower than regular loads due to a mitigation for
-        // the Gather Data Sampling (GDS) vulnerability.
-        //
-        // From initial testing it appears that AVX512 is not affected to the
-        // same extent, so using an emulated gather may not pay off there.
-        //
-        // See https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/gather-data-sampling.html
-        super::simd_gather_mask::<_, _, _, { Self::LEN.unwrap() }>(src, offsets, mask)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
     unsafe fn sum(self) -> f32 {
         // See https://stackoverflow.com/a/13222410/434243
         let hi_4 = _mm256_extractf128_ps(self, 1);
@@ -758,12 +744,6 @@ impl SimdFloat for __m512 {
     #[target_feature(enable = "avx512f")]
     unsafe fn min(self, rhs: Self) -> Self {
         _mm512_min_ps(self, rhs)
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
-    unsafe fn gather_mask(ptr: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
-        _mm512_mask_i32gather_ps::<4>(Self::zero(), mask, offsets, ptr as *const u8)
     }
 
     #[inline]
