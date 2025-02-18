@@ -328,11 +328,6 @@ impl SimdFloat for v128f {
     }
 
     #[inline]
-    unsafe fn gather_mask(src: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
-        super::simd_gather_mask::<_, _, _, { Self::LEN.unwrap() }>(src, offsets, mask)
-    }
-
-    #[inline]
     unsafe fn sum(self) -> f32 {
         // See https://github.com/WebAssembly/simd/issues/20.
         let lo_2 = self.0;

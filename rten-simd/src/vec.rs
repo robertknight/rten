@@ -353,19 +353,6 @@ pub trait SimdFloat: Simd<Elem = f32> {
     /// differences in results depending on the architecture.
     unsafe fn sum(self) -> f32;
 
-    /// Load `Self::LEN` values from the base memory address at `ptr` plus
-    /// offsets in `offsets`, excluding elements where `mask` is off.
-    ///
-    /// Offsets are expressed in terms of elements, not bytes. Elements of the
-    /// result are set to zero where the mask is off.
-    ///
-    /// # Safety
-    ///
-    /// All offsets in `offsets` and the offset zero must be valid for indexing
-    /// into `ptr`. The requirement for offset zero to be valid is needed on
-    /// architectures which do not have a gather instruction.
-    unsafe fn gather_mask(ptr: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self;
-
     /// Reduce the elements in this vector to a single value using `f`, then
     /// return a new vector with the accumulated value broadcast to each lane.
     #[inline]
