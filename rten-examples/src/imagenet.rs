@@ -124,7 +124,7 @@ const MOBILEVIT_CONFIG: InputConfig = InputConfig {
 
 // Config for EfficientNet model from ONNX Model Zoo.
 //
-// See https://github.com/onnx/models/tree/main/vision/classification/efficientnet-lite4
+// See https://github.com/onnx/models/tree/main/validated/vision/classification/efficientnet-lite4
 const EFFICIENTNET_CONFIG: InputConfig = InputConfig {
     chan_order: ChannelOrder::Rgb,
     norm: PixelNorm::ImageNetNorm,
@@ -137,7 +137,7 @@ const EFFICIENTNET_CONFIG: InputConfig = InputConfig {
 //
 // This also works with MobileNet v3 exported from torchvision.
 //
-// See https://github.com/onnx/models/tree/main/vision/classification/mobilenet
+// See https://github.com/onnx/models/tree/main/validated/vision/classification/mobilenet
 const MOBILENET_CONFIG: InputConfig = InputConfig {
     chan_order: ChannelOrder::Rgb,
     norm: PixelNorm::ImageNetNorm,
@@ -206,8 +206,20 @@ Where config is one of:
 /// This example loads an image and uses a classification model such as
 /// MobileNet to classify it into one of the 1000 ImageNet classes.
 ///
-/// See the `_CONFIG` constants in this module for details of where to obtain
-/// the models.
+/// Steps to run:
+///
+/// 1. Download an ImageNet image classification ONNX model. See the `_CONFIG`
+///    constants above for available models and links.
+///
+/// 2. Convert the model to .rten format using:
+///
+///    rten-convert mobilenet.onnx
+///
+/// 3. Run this example specifying the model type, model and path to an image:
+///
+///    ```
+///    cargo run --release --bin imagenet mobilenet mobilenet.rten image.jpg
+///    ```
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
     let model = Model::load_file(args.model)?;
