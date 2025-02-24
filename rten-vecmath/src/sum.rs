@@ -1,6 +1,4 @@
-use rten_simd::dispatch::SimdOp;
-use rten_simd::functional::simd_fold;
-use rten_simd::SimdFloat;
+use rten_simd::safe::{Isa, Simd, SimdIterable, SimdOp, SimdOps};
 
 /// Computes the sum of a sequence of numbers.
 ///
@@ -22,14 +20,13 @@ impl SimdOp for Sum<'_> {
     type Output = f32;
 
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
-        let vec_sum = simd_fold(
-            self.input,
-            S::zero(),
-            #[inline(always)]
-            |sum, x| sum.add(x),
-        );
-        vec_sum.sum()
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let ops = isa.f32();
+        let vec_sum = self
+            .input
+            .simd_iter(ops)
+            .fold(ops.zero(), |sum, x| ops.add(sum, x));
+        vec_sum.to_array().into_iter().sum()
     }
 }
 
@@ -54,14 +51,13 @@ impl SimdOp for SumSquare<'_> {
     type Output = f32;
 
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
-        let vec_sum = simd_fold(
-            self.input,
-            S::zero(),
-            #[inline(always)]
-            |sum, x| x.mul_add(x, sum),
-        );
-        vec_sum.sum()
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let ops = isa.f32();
+        let vec_sum = self
+            .input
+            .simd_iter(ops)
+            .fold(ops.zero(), |sum, x| ops.mul_add(x, x, sum));
+        vec_sum.to_array().into_iter().sum()
     }
 }
 
@@ -85,25 +81,23 @@ impl SimdOp for SumSquareSub<'_> {
     type Output = f32;
 
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
-        let offset_vec = S::splat(self.offset);
-        let vec_sum = simd_fold(
-            self.input,
-            S::zero(),
-            #[inline(always)]
-            |sum, x| {
-                let x_offset = x.sub(offset_vec);
-                x_offset.mul_add(x_offset, sum)
-            },
-        );
-        vec_sum.sum()
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let ops = isa.f32();
+        let offset_vec = ops.splat(self.offset);
+
+        let vec_sum = self.input.simd_iter(ops).fold(ops.zero(), |sum, x| {
+            let x_offset = ops.sub(x, offset_vec);
+            ops.mul_add(x_offset, x_offset, sum)
+        });
+
+        vec_sum.to_array().into_iter().sum()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Sum, SumSquare, SumSquareSub};
-    use rten_simd::dispatch::SimdOp;
+    use rten_simd::safe::SimdOp;
 
     // Chosen to not be a multiple of vector size, so that tail handling is
     // exercised.
