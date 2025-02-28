@@ -1,8 +1,8 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::dispatch::SimdOp;
+use rten_simd::safe::functional::simd_map;
+use rten_simd::safe::{Isa, SimdIterable, SimdOp, SimdOps};
 use rten_simd::span::SrcDest;
-use rten_simd::SimdFloat;
 
 /// Normalize the mean and variance of elements in a slice.
 ///
@@ -75,9 +75,11 @@ impl<'a> SimdOp for Normalize<'a> {
     type Output = &'a mut [f32];
 
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let ops = isa.f32();
+
         let Self {
-            mut src_dest,
+            src_dest,
             opts:
                 NormalizeOptions {
                     pre_scale_bias,
@@ -95,64 +97,37 @@ impl<'a> SimdOp for Normalize<'a> {
             assert_eq!(bias.len(), src_dest.len());
         }
 
-        let (mut in_ptr, mut out_ptr, mut n) = src_dest.src_dest_ptr();
+        let mut scale_iter = element_scale.map(|s| s.simd_iter_pad(ops));
+        let mut bias_iter = element_bias.map(|b| b.simd_iter_pad(ops));
 
-        let mut scale_ptr = element_scale.map(|s| s.as_ptr());
-        let mut bias_ptr = element_bias.map(|b| b.as_ptr());
+        let one = ops.one();
+        let zero = ops.zero();
+        let const_scale_vec = ops.splat(scale);
+        let const_bias_vec = ops.splat(bias);
+        let pre_scale_bias_vec = ops.splat(pre_scale_bias);
 
-        let one = S::one();
-        let zero = S::zero();
-        let const_scale_vec = S::splat(scale);
-        let const_bias_vec = S::splat(bias);
-        let pre_scale_bias_vec = S::splat(pre_scale_bias);
-        let v_len = S::len();
+        simd_map(
+            ops,
+            src_dest,
+            #[inline(always)]
+            |x| {
+                let scale_vec = scale_iter.as_mut().and_then(|s| s.next()).unwrap_or(one);
+                let scale_vec = ops.mul(scale_vec, const_scale_vec);
 
-        while n >= v_len {
-            let scale_vec = scale_ptr
-                .map(|s| S::load(s))
-                .unwrap_or(one)
-                .mul(const_scale_vec);
-            let bias_vec = bias_ptr
-                .map(|b| S::load(b))
-                .unwrap_or(zero)
-                .add(const_bias_vec);
-            let y = S::load(in_ptr)
-                .sub(pre_scale_bias_vec)
-                .mul_add(scale_vec, bias_vec);
-            y.store(out_ptr as *mut f32);
+                let bias_vec = bias_iter.as_mut().and_then(|b| b.next()).unwrap_or(zero);
+                let bias_vec = ops.add(bias_vec, const_bias_vec);
 
-            in_ptr = in_ptr.add(v_len);
-            out_ptr = out_ptr.add(v_len);
-            scale_ptr = scale_ptr.map(|s| s.add(v_len));
-            bias_ptr = bias_ptr.map(|b| b.add(v_len));
-
-            n -= v_len;
-        }
-
-        if n > 0 {
-            let scale_vec = scale_ptr
-                .map(|s| S::load_partial(s, n))
-                .unwrap_or(one)
-                .mul(const_scale_vec);
-            let bias_vec = bias_ptr
-                .map(|b| S::load_partial(b, n))
-                .unwrap_or(zero)
-                .add(const_bias_vec);
-            let y = S::load_partial(in_ptr, n)
-                .sub(pre_scale_bias_vec)
-                .mul_add(scale_vec, bias_vec);
-            y.store_partial(out_ptr as *mut f32, n);
-        }
-
-        // Safety: All elements of `output` were initialized above.
-        src_dest.dest_assume_init()
+                let y = ops.sub(x, pre_scale_bias_vec);
+                ops.mul_add(y, scale_vec, bias_vec)
+            },
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Normalize, NormalizeOptions};
-    use rten_simd::dispatch::SimdOp;
+    use rten_simd::safe::SimdOp;
 
     fn reference_normalize_mut(
         data: &mut [f32],
