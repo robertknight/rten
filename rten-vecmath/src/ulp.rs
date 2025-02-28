@@ -36,6 +36,26 @@ impl Ulp for f32 {
     }
 }
 
+/// Assert that the difference between two values is less than or equal to a
+/// given number of [ULPs](Ulp).
+macro_rules! assert_ulp_diff_le {
+    ($actual:expr, $expected:expr, $max_diff:expr) => {{
+        use crate::ulp::Ulp;
+
+        let ulp_diff = ($actual).diff_ulps($expected);
+        assert!(
+            ulp_diff <= $max_diff,
+            "difference between {} and {} is {} ULPs which exceeds {}",
+            $actual,
+            $expected,
+            ulp_diff,
+            $max_diff
+        );
+    }};
+}
+
+pub(crate) use assert_ulp_diff_le;
+
 #[cfg(test)]
 mod tests {
     use super::Ulp;

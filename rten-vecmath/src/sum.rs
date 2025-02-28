@@ -96,6 +96,8 @@ impl SimdOp for SumSquareSub<'_> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ulp::assert_ulp_diff_le;
+
     use super::{Sum, SumSquare, SumSquareSub};
     use rten_simd::safe::SimdOp;
 
@@ -106,25 +108,29 @@ mod tests {
     #[test]
     fn test_sum() {
         let xs: Vec<f32> = (0..LEN).map(|i| i as f32 * 0.1).collect();
-        let expected_sum: f32 = xs.iter().sum();
+        let expected_sum: f64 = xs.iter().map(|x| *x as f64).sum();
         let sum = Sum::new(&xs).dispatch();
-        assert_eq!(sum, expected_sum);
+        assert_ulp_diff_le!(sum, expected_sum as f32, 1.0);
     }
 
     #[test]
     fn test_sum_square() {
         let xs: Vec<f32> = (0..LEN).map(|i| i as f32 * 0.1).collect();
-        let expected_sum: f32 = xs.iter().copied().map(|x| x * x).sum();
+        let expected_sum: f64 = xs.iter().copied().map(|x| x as f64 * x as f64).sum();
         let sum = SumSquare::new(&xs).dispatch();
-        assert_eq!(sum, expected_sum);
+        assert_ulp_diff_le!(sum, expected_sum as f32, 2.0);
     }
 
     #[test]
     fn test_sum_square_sub() {
         let xs: Vec<f32> = (0..LEN).map(|i| i as f32 * 0.1).collect();
         let mean = xs.iter().sum::<f32>() / xs.len() as f32;
-        let expected_sum: f32 = xs.iter().copied().map(|x| (x - mean) * (x - mean)).sum();
+        let expected_sum: f64 = xs
+            .iter()
+            .copied()
+            .map(|x| (x as f64 - mean as f64) * (x as f64 - mean as f64))
+            .sum();
         let sum = SumSquareSub::new(&xs, mean).dispatch();
-        assert_eq!(sum, expected_sum);
+        assert_ulp_diff_le!(sum, expected_sum as f32, 2.0);
     }
 }
