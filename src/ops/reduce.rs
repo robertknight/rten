@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
-use rten_simd::dispatch::SimdOp;
+use rten_simd::safe::SimdOp;
 use rten_tensor;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};

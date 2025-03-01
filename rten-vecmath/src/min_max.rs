@@ -1,6 +1,4 @@
-use rten_simd::dispatch::SimdOp;
-use rten_simd::functional::simd_fold_array;
-use rten_simd::SimdFloat;
+use rten_simd::safe::{Isa, Simd, SimdIterable, SimdOp, SimdOps};
 
 /// Compute the minimum and maximum values in a slice of floats.
 pub struct MinMax<'a> {
@@ -17,12 +15,12 @@ impl SimdOp for MinMax<'_> {
     type Output = (f32, f32);
 
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
-        let [vec_min, vec_max] = simd_fold_array(
-            self.input,
-            [S::splat(f32::MAX), S::splat(f32::MIN)],
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let ops = isa.f32();
+        let [vec_min, vec_max] = self.input.simd_iter(ops).fold_n(
+            [ops.splat(f32::MAX), ops.splat(f32::MIN)],
             #[inline(always)]
-            |[min, max], x| [x.min(min), x.max(max)],
+            |[min, max], x| [ops.min(x, min), ops.max(x, max)],
         );
         let min = vec_min
             .to_array()
@@ -41,7 +39,7 @@ impl SimdOp for MinMax<'_> {
 #[cfg(test)]
 mod tests {
     use super::MinMax;
-    use rten_simd::dispatch::SimdOp;
+    use rten_simd::safe::SimdOp;
 
     // Chosen to not be a multiple of vector size, so that tail handling is
     // exercised.

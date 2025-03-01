@@ -74,7 +74,7 @@
 //! ### Computing the sum of a list of floats
 //!
 //! ```
-//! use rten_simd::dispatch::SimdOp;
+//! use rten_simd::safe::SimdOp;
 //! use rten_vecmath::Sum;
 //!
 //! let data = [1., 0.5, 2.0];
