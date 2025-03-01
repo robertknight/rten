@@ -33,7 +33,7 @@
 //!     #[inline(always)]
 //!     fn eval<I: Isa>(self, isa: I) -> Self::Output {
 //!         let ops = isa.f32();
-//!         simd_map(ops, self.xs, |x| ops.mul(x, x))
+//!         simd_map(ops, self.xs, #[inline(always)] |x| ops.mul(x, x))
 //!     }
 //! }
 //!
@@ -55,6 +55,10 @@
 //! 3. Call [`SimdOp::dispatch`] to select the preferred SIMD instruction set and
 //!    evaluate the operation using it.
 //!
+//! Note the use of the `#[inline(always)]` attribute on closures and any
+//! functions called within `eval`. See the section on inlining below for an
+//! explanation.
+//!
 //! ## Separation of SIMD vector types and operations
 //!
 //! SIMD vectors are effectively arrays (like `[T; N]`) with a specific
@@ -70,24 +74,50 @@
 //! ## Key traits
 //!
 //! The [`SimdOp`] trait defines an _operation_ which can be vectorized using
-//! different SIMD instruction sets.
+//! different SIMD instruction sets. This trait has a
+//! [`dispatch`](SimdOp::dispatch) method to perform the operation.
 //!
 //! An instance of the [`Isa`] trait is passed to the operation when it is
-//! evaluated. This instance provides access to different implementations of
-//! the [`SimdOps`] trait and sub-traits, which provide operations on SIMD
-//! vectors with different data types. The [`SimdOps`] trait provides operations
-//! that are available on all SIMD vectors. The sub-traits [`SimdFloatOps`]
-//! and [`SimdIntOps`] provide operations that are only available on SIMD
-//! vectors with float and integer elements respectively.
+//! evaluated. The type of ISA will depend on the selected instruction set.  The
+//! ISA provides access to different implementations of the [`SimdOps`] trait
+//! and sub-traits. These in turn provide operations on SIMD vectors with
+//! different data types. The [`SimdOps`] trait provides operations that are
+//! available on all SIMD vectors. The sub-traits [`SimdFloatOps`] and
+//! [`SimdIntOps`] provide operations that are only available on SIMD vectors
+//! with float and integer elements respectively.
 //!
 //! ## Applying SIMD operations to slices
 //!
-//! SIMD operations are usually applied to a slice of elements. To assist this,
+//! SIMD operations are usually applied to a slice of elements. To support this,
 //! the [`SimdIterable`] trait provides a way to iterate over SIMD vector-sized
 //! chunks of a slice.
 //!
 //! The [`functional`] module provides utilities for defining vectorized
 //! transforms on slices (eg. [`simd_map`](functional::simd_map)).
+//!
+//! ## The importance of inlining
+//!
+//! In the above example `#[inline(always)]` attributes are applied to ensure
+//! that the whole operation is compiled to a single function, with one instance
+//! generated per enabled ISA on each platform. This is required in current
+//! stable versions of Rust to ensure that the low-level intrinsics (eg.
+//! `_mm256_add_ps` to add two f32 SIMD vectors on x64) are compiled to direct
+//! instructions with no function call overhead.
+//!
+//! Failure to inline these intrinsics will significantly harm performance,
+//! since most of the runtime will be spend in function call overhead rather
+//! than actual computation. This issue affects platforms where the availability
+//! of the SIMD instruction set is not guaranteed at compile time.  This
+//! includes AVX2 and AVX-512 on x86-64, but not Arm Neon or WASM SIMD.
+//!
+//! If a vectorized operation performs more slowly than expected, it is
+//! recommended to use a profiler such as
+//! [samply](https://github.com/mstange/samply) to verify that the intrinsics
+//! have been inlined and thus do not appear in the list of called functions.
+//!
+//! The need for this comprehensive and aggressive approach to inlining is
+//! expected to change in future with updates to how Rust's [`target_feature`
+//! attribute](https://github.com/rust-lang/rust/issues/69098) works.
 mod arch;
 mod dispatch;
 pub mod functional;
