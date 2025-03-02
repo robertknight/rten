@@ -19,8 +19,15 @@ impl Elem for i32 {
 }
 
 /// Masks used or returned by SIMD operations.
-pub trait Mask: Copy {
-    type Array: AsRef<[bool]>;
+///
+/// Most operations on masks are available via the [`MaskOps`] trait.
+/// Implementations are obtained via [`SimdOps::mask_ops`].
+pub trait Mask: Copy + Debug {
+    type Array: AsRef<[bool]>
+        + Debug
+        + IntoIterator<Item = bool>
+        + PartialEq<Self::Array>
+        + std::ops::Index<usize, Output = bool>;
 
     /// Convert this mask to a bool array.
     fn to_array(self) -> Self::Array;
@@ -43,7 +50,8 @@ pub trait Simd: Copy + Debug {
     type Array: AsRef<[Self::Elem]>
         + Debug
         + IntoIterator<Item = Self::Elem>
-        + PartialEq<Self::Array>;
+        + PartialEq<Self::Array>
+        + std::ops::Index<usize, Output = Self::Elem>;
 
     /// Type of data held in each SIMD lane.
     type Elem: Elem;
@@ -119,6 +127,17 @@ pub unsafe trait Isa: Copy {
     fn i32(self) -> impl SimdIntOps<Self::I32>;
 }
 
+/// SIMD operations on a [`Mask`] vector.
+///
+/// # Safety
+///
+/// Implementations must ensure they can only be constructed if the
+/// instruction set is supported on the current system.
+pub unsafe trait MaskOps<M: Mask>: Copy {
+    /// Compute `x & y`.
+    fn and(self, x: M, y: M) -> M;
+}
+
 /// Trait for SIMD operations on a particular vector type.
 ///
 /// # Safety
@@ -132,6 +151,10 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
     fn from_bits(self, x: <S::Isa as Isa>::Bits) -> S {
         S::from_bits(x)
     }
+
+    /// Return the implementation of mask operations for the mask vector used
+    /// by this SIMD type.
+    fn mask_ops(self) -> impl MaskOps<S::Mask>;
 
     /// Return the number of elements in the vector.
     fn len(self) -> usize;
@@ -299,7 +322,8 @@ pub trait SimdIntOps<S: Simd>: SimdOps<S> {
 #[cfg(test)]
 mod test {
     use crate::safe::{
-        assert_simd_eq, test_simd_op, Isa, Mask, Simd, SimdFloatOps, SimdIntOps, SimdOp, SimdOps,
+        assert_simd_eq, test_simd_op, Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOp,
+        SimdOps,
     };
 
     #[test]
@@ -405,6 +429,38 @@ mod test {
             let actual = ops.mul(x, y);
             assert_simd_eq!(actual, expected);
         })
+    }
+
+    macro_rules! test_mask_ops {
+        ($type:ident) => {
+            test_simd_op!(isa, {
+                let ops = isa.$type();
+                let mask_ops = ops.mask_ops();
+
+                // First-n mask
+                let ones = ops.first_n_mask(ops.len());
+                let zeros = ops.first_n_mask(0);
+                let first = ops.first_n_mask(1);
+
+                assert!(ones.all_true());
+                assert!(zeros.all_false());
+
+                // Bitwise and
+                assert_simd_eq!(mask_ops.and(ones, ones), ones);
+                assert_simd_eq!(mask_ops.and(first, ones), first);
+                assert_simd_eq!(mask_ops.and(first, zeros), zeros);
+            });
+        };
+    }
+
+    #[test]
+    fn test_mask_ops_f32() {
+        test_mask_ops!(f32);
+    }
+
+    #[test]
+    fn test_mask_ops_i32() {
+        test_mask_ops!(i32);
     }
 
     #[test]

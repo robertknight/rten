@@ -126,7 +126,7 @@ mod vec;
 
 pub use dispatch::{SimdOp, SimdUnaryOp};
 pub use iter::{Iter, SimdIterable};
-pub use vec::{Elem, Isa, Mask, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+pub use vec::{Elem, Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
 #[cfg(test)]
 pub(crate) use dispatch::test_simd_op;
