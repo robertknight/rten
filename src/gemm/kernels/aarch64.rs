@@ -2,6 +2,7 @@ use std::arch::aarch64::{float32x4_t, int32x4_t};
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use rten_simd::safe::isa::ArmNeonIsa;
 use rten_simd::vec_count;
 use rten_tensor::{Matrix, MatrixLayout};
 
@@ -12,7 +13,7 @@ use crate::gemm::{packing, Im2Col};
 use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
 
 pub struct ArmNeonKernel {
-    _private: (),
+    isa: ArmNeonIsa,
 }
 
 impl ArmNeonKernel {
@@ -24,7 +25,7 @@ impl ArmNeonKernel {
 // available.
 unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
     fn new() -> Option<Self> {
-        Some(ArmNeonKernel { _private: () })
+        ArmNeonIsa::new().map(|isa| ArmNeonKernel { isa })
     }
 
     fn name(&self) -> &'static str {
@@ -95,9 +96,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
 
         // Safety: Arm Neon instructions are supported
         let out = cast_pod_mut_slice(out).unwrap();
-        unsafe {
-            image.pack_block::<int32x4_t, NR_REGS>(out, Self::NR, rows, cols);
-        }
+        image.pack_block::<_, NR_REGS>(self.isa, out, Self::NR, rows, cols);
     }
 
     unsafe fn kernel(
