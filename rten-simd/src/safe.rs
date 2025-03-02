@@ -124,9 +124,16 @@ pub mod functional;
 mod iter;
 mod vec;
 
+pub mod isa {
+    pub use super::arch::generic::GenericIsa;
+
+    #[cfg(target_arch = "aarch64")]
+    pub use super::arch::aarch64::ArmNeonIsa;
+}
+
 pub use dispatch::{SimdOp, SimdUnaryOp};
 pub use iter::{Iter, SimdIterable};
-pub use vec::{Elem, Isa, Mask, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+pub use vec::{Elem, Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
 #[cfg(test)]
 pub(crate) use dispatch::test_simd_op;

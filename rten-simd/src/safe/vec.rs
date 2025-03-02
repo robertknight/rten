@@ -20,7 +20,7 @@ impl Elem for i32 {
 
 /// Masks used or returned by SIMD operations.
 pub trait Mask: Copy {
-    type Array: AsRef<[bool]>;
+    type Array: AsRef<[bool]> + std::ops::Index<usize, Output = bool>;
 
     /// Convert this mask to a bool array.
     fn to_array(self) -> Self::Array;
@@ -43,7 +43,8 @@ pub trait Simd: Copy + Debug {
     type Array: AsRef<[Self::Elem]>
         + Debug
         + IntoIterator<Item = Self::Elem>
-        + PartialEq<Self::Array>;
+        + PartialEq<Self::Array>
+        + std::ops::Index<usize, Output = Self::Elem>;
 
     /// Type of data held in each SIMD lane.
     type Elem: Elem;
@@ -119,6 +120,17 @@ pub unsafe trait Isa: Copy {
     fn i32(self) -> impl SimdIntOps<Self::I32>;
 }
 
+/// Trait for SIMD operations on a particular mask vector type.
+///
+/// # Safety
+///
+/// Implementations must ensure they can only be constructed if the
+/// instruction set is supported on the current system.
+pub unsafe trait MaskOps<M: Mask>: Copy {
+    /// Compute `x & y`.
+    fn and(self, x: M, y: M) -> M;
+}
+
 /// Trait for SIMD operations on a particular vector type.
 ///
 /// # Safety
@@ -132,6 +144,10 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
     fn from_bits(self, x: <S::Isa as Isa>::Bits) -> S {
         S::from_bits(x)
     }
+
+    /// Return the implementation of mask operations for the mask vector used
+    /// by this SIMD type.
+    fn mask_ops(self) -> impl MaskOps<S::Mask>;
 
     /// Return the number of elements in the vector.
     fn len(self) -> usize;
