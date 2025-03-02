@@ -196,6 +196,12 @@ impl SimdFloatOps<F32x4> for GenericIsa {
     }
 
     #[inline]
+    fn abs(self, x: F32x4) -> F32x4 {
+        let xs = array::from_fn(|i| x.0[i].abs());
+        F32x4(xs)
+    }
+
+    #[inline]
     fn to_int_trunc(self, x: F32x4) -> Self::Int {
         let xs = array::from_fn(|i| x.0[i] as i32);
         I32x4(xs)

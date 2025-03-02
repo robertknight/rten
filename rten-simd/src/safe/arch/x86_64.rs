@@ -1,7 +1,7 @@
 use std::arch::x86_64::{
-    __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_blendv_epi8, _mm256_blendv_ps,
-    _mm256_cmp_ps, _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
-    _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32,
+    __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_andnot_ps, _mm256_blendv_epi8,
+    _mm256_blendv_ps, _mm256_cmp_ps, _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvttps_epi32,
+    _mm256_div_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32,
     _mm256_maskload_ps, _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
     _mm256_mul_ps, _mm256_mullo_epi32, _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps,
     _mm256_setzero_si256, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256,
@@ -153,6 +153,11 @@ impl SimdFloatOps<__m256> for Avx2Isa {
     #[inline]
     fn div(self, x: __m256, y: __m256) -> __m256 {
         unsafe { _mm256_div_ps(x, y) }
+    }
+
+    #[inline]
+    fn abs(self, x: __m256) -> __m256 {
+        unsafe { _mm256_andnot_ps(_mm256_set1_ps(-0.0), x) }
     }
 
     #[inline]
