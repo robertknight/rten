@@ -5,11 +5,15 @@ use std::ops::Range;
 #[cfg(feature = "avx512")]
 use std::arch::x86_64::{__m512, __m512i};
 
+use rten_simd::safe::isa::Avx2Isa;
 use rten_simd::vec_count;
 use rten_tensor::{Matrix, MatrixLayout};
 
 #[cfg(feature = "avx512")]
 use rten_simd::isa_detection::is_avx512_supported;
+
+#[cfg(feature = "avx512")]
+use rten_simd::safe::isa::Avx512Isa;
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
 use super::{extract_zero_points, Kernel, Lhs, PackedLayout, QuantParams, TempTile};
@@ -20,7 +24,7 @@ use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
 pub struct FmaKernel {
-    _private: (),
+    isa: Avx2Isa,
 }
 
 impl FmaKernel {
@@ -55,22 +59,10 @@ unsafe fn pack_b_block_avx<const NR: usize>(
     pack_b_block::<f32, NR>(out, b, rows, cols);
 }
 
-#[target_feature(enable = "avx2")]
-#[target_feature(enable = "fma")]
-unsafe fn pack_im2col_avx<const NR_REGS: usize, const NR: usize>(
-    out: &mut [MaybeUninit<f32>],
-    image: &Im2Col<f32>,
-    rows: Range<usize>,
-    cols: Range<usize>,
-) {
-    image.pack_block::<__m256i, NR_REGS>(out, NR, rows, cols);
-}
-
 // Safety - The `new` fn tests for AVX-2 / FMA support.
 unsafe impl Kernel<f32, f32, f32> for FmaKernel {
     fn new() -> Option<Self> {
-        let supported = is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma");
-        supported.then_some(FmaKernel { _private: () })
+        Avx2Isa::new().map(|isa| FmaKernel { isa })
     }
 
     fn name(&self) -> &'static str {
@@ -147,10 +139,22 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
     ) {
         const NR_REGS: usize = vec_count::<__m256i>(FmaKernel::NR).unwrap();
 
+        #[target_feature(enable = "avx2")]
+        #[target_feature(enable = "fma")]
+        unsafe fn pack_im2col_avx<const NR_REGS: usize, const NR: usize>(
+            isa: Avx2Isa,
+            out: &mut [MaybeUninit<f32>],
+            image: &Im2Col<f32>,
+            rows: Range<usize>,
+            cols: Range<usize>,
+        ) {
+            image.pack_block::<_, NR_REGS>(isa, out, NR, rows, cols);
+        }
+
         // Safety: Kernel can only be constructed if AVX is supported
         let out = cast_pod_mut_slice(out).unwrap();
         unsafe {
-            pack_im2col_avx::<NR_REGS, { Self::NR }>(out, image, rows, cols);
+            pack_im2col_avx::<NR_REGS, { Self::NR }>(self.isa, out, image, rows, cols);
         }
     }
 
@@ -243,22 +247,10 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
     }
 }
 
-#[cfg(feature = "avx512")]
-#[target_feature(enable = "avx512f")]
-#[target_feature(enable = "avx512vl")]
-unsafe fn pack_im2col_avx512<const NR_REGS: usize, const NR: usize>(
-    out: &mut [MaybeUninit<f32>],
-    image: &Im2Col<f32>,
-    rows: Range<usize>,
-    cols: Range<usize>,
-) {
-    image.pack_block::<__m512i, NR_REGS>(out, NR, rows, cols);
-}
-
 /// Optimized kernel for x64 CPUs that support AVX 512 instructions.
 #[cfg(feature = "avx512")]
 pub struct Avx512Kernel {
-    _private: (),
+    isa: Avx512Isa,
 }
 
 #[cfg(feature = "avx512")]
@@ -278,7 +270,7 @@ impl Avx512Kernel {
 #[cfg(feature = "avx512")]
 unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
     fn new() -> Option<Self> {
-        is_avx512_supported().then_some(Avx512Kernel { _private: () })
+        Avx512Isa::new().map(|isa| Avx512Kernel { isa })
     }
 
     fn name(&self) -> &'static str {
@@ -353,12 +345,25 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
+        #[cfg(feature = "avx512")]
+        #[target_feature(enable = "avx512f")]
+        #[target_feature(enable = "avx512vl")]
+        unsafe fn pack_im2col_avx512<const NR_REGS: usize, const NR: usize>(
+            isa: Avx512Isa,
+            out: &mut [MaybeUninit<f32>],
+            image: &Im2Col<f32>,
+            rows: Range<usize>,
+            cols: Range<usize>,
+        ) {
+            image.pack_block::<_, NR_REGS>(isa, out, NR, rows, cols);
+        }
+
         const NR_REGS: usize = vec_count::<__m512i>(Avx512Kernel::NR).unwrap();
 
         // Safety: Kernel can only be constructed if AVX-512 is supported.
         let out = cast_pod_mut_slice(out).unwrap();
         unsafe {
-            pack_im2col_avx512::<NR_REGS, { Self::NR }>(out, image, rows, cols);
+            pack_im2col_avx512::<NR_REGS, { Self::NR }>(self.isa, out, image, rows, cols);
         }
     }
 

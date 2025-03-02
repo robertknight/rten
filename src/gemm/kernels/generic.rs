@@ -1,6 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use rten_simd::safe::isa::GenericIsa;
 use rten_simd::vec_count;
 use rten_tensor::{Matrix, MatrixLayout};
 
@@ -14,7 +15,7 @@ use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
 /// but is autovectorization-friendly. It is expected to perform the same as
 /// a kernel using SSE intrinsics (or equivalent).
 pub struct GenericKernel {
-    _private: (),
+    isa: GenericIsa,
 }
 
 impl GenericKernel {
@@ -29,7 +30,9 @@ impl GenericKernel {
 // Safety - Base kernel is always supported
 unsafe impl Kernel<f32, f32, f32> for GenericKernel {
     fn new() -> Option<Self> {
-        Some(GenericKernel { _private: () })
+        Some(GenericKernel {
+            isa: GenericIsa::new(),
+        })
     }
 
     fn mr(&self) -> usize {
@@ -100,9 +103,7 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
 
         // Safety: Scalar "SIMD" types are always supported
         let out = cast_pod_mut_slice(out).unwrap();
-        unsafe {
-            image.pack_block::<i32, NR_REGS>(out, Self::NR, rows, cols);
-        }
+        image.pack_block::<_, NR_REGS>(self.isa, out, Self::NR, rows, cols);
     }
 
     unsafe fn kernel(
@@ -183,7 +184,9 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
 
 unsafe impl Kernel<u8, i8, i32> for GenericKernel {
     fn new() -> Option<Self> {
-        Some(GenericKernel { _private: () })
+        Some(GenericKernel {
+            isa: GenericIsa::new(),
+        })
     }
 
     fn mr(&self) -> usize {
@@ -250,13 +253,11 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        const NR_REGS: usize = vec_count::<f32>(GenericKernel::NR).unwrap();
+        const NR_REGS: usize = GenericKernel::NR / 4;
 
         // Safety: Scalar "SIMD" types are always supported
         let out = cast_pod_mut_slice(out).unwrap();
-        unsafe {
-            image.pack_block::<i32, NR_REGS>(out, Self::NR, rows, cols);
-        }
+        image.pack_block::<_, NR_REGS>(self.isa, out, Self::NR, rows, cols);
     }
 
     unsafe fn kernel(

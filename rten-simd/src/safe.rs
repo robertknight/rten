@@ -124,6 +124,30 @@ pub mod functional;
 mod iter;
 mod vec;
 
+/// Target-specific [`Isa`] implementations.
+///
+/// Most code using this library will not need to use these types. Instead the
+/// appropriate ISA will be constructed when using a dispatch method such as
+/// [`SimdOp::dispatch`]. These types are exported for use in downstream code
+/// which uses the portable SIMD APIs but also has ISA-specific properties.
+pub mod isa {
+    pub use super::arch::generic::GenericIsa;
+
+    #[cfg(target_arch = "aarch64")]
+    pub use super::arch::aarch64::ArmNeonIsa;
+
+    #[cfg(target_arch = "x86_64")]
+    pub use super::arch::x86_64::Avx2Isa;
+
+    #[cfg(target_arch = "x86_64")]
+    #[cfg(feature = "avx512")]
+    pub use super::arch::x86_64::Avx512Isa;
+
+    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_feature = "simd128")]
+    pub use super::arch::wasm32::Wasm32Isa;
+}
+
 pub use dispatch::{SimdOp, SimdUnaryOp};
 pub use iter::{Iter, SimdIterable};
 pub use vec::{Elem, Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
