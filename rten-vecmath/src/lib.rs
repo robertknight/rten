@@ -28,7 +28,7 @@
 //! ```
 //! use std::mem::MaybeUninit;
 //!
-//! use rten_simd::dispatch::SimdUnaryOp;
+//! use rten_simd::safe::SimdUnaryOp;
 //! use rten_vecmath::Erf;
 //!
 //! // Apply the error function to each element of `data`.
@@ -45,7 +45,7 @@
 //! ### Applying softmax in place
 //!
 //! ```
-//! use rten_simd::dispatch::SimdOp;
+//! use rten_simd::safe::SimdOp;
 //! use rten_vecmath::Softmax;
 //!
 //! let mut data = [1., 0.5, 2.0];
@@ -58,7 +58,7 @@
 //! buffer. The softmax operation returns the initialized slice.
 //!
 //! ```
-//! use rten_simd::dispatch::SimdOp;
+//! use rten_simd::safe::SimdOp;
 //! use rten_vecmath::Softmax;
 //!
 //! let data = [1., 0.5, 2.0];

@@ -151,6 +151,18 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
         self.add(self.mul(a, b), c)
     }
 
+    /// Evaluate a polynomial using Horner's method.
+    ///
+    /// Computes `x * coeffs[0] + x^2 * coeffs[1] ... x^n * coeffs[N]`
+    #[inline]
+    fn poly_eval(self, x: S, coeffs: &[S]) -> S {
+        let mut y = coeffs[coeffs.len() - 1];
+        for i in (0..coeffs.len() - 1).rev() {
+            y = self.mul_add(y, x, coeffs[i]);
+        }
+        self.mul(y, x)
+    }
+
     /// Return a mask indicating whether elements in `x` are less than `y`.
     fn lt(self, x: S, y: S) -> S::Mask;
 
@@ -178,6 +190,14 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
 
     /// Create a new vector with all lanes set to `x`.
     fn splat(self, x: S::Elem) -> S;
+
+    /// Reduce the elements in `x` to a single value using `f`, then
+    /// return a new vector with the accumulated value broadcast to each lane.
+    #[inline]
+    fn fold_splat<F: Fn(S::Elem, S::Elem) -> S::Elem>(self, x: S, accum: S::Elem, f: F) -> S {
+        let reduced = x.to_array().into_iter().fold(accum, f);
+        self.splat(reduced)
+    }
 
     /// Return a mask with the first `n` lanes set to true.
     fn first_n_mask(self, n: usize) -> S::Mask;
@@ -233,9 +253,19 @@ pub trait SimdFloatOps<S: Simd>: SimdOps<S> {
     /// Compute x / y
     fn div(self, x: S, y: S) -> S;
 
+    /// Compute 1. / x
+    fn reciprocal(self, x: S) -> S {
+        self.div(self.one(), x)
+    }
+
     /// Compute `-x`
     fn neg(self, x: S) -> S {
         self.sub(self.zero(), x)
+    }
+
+    /// Compute the absolute value of `x`
+    fn abs(self, x: S) -> S {
+        self.select(self.neg(x), x, self.lt(x, self.zero()))
     }
 
     /// Convert each lane to an integer of the same width, rounding towards zero.
@@ -422,6 +452,50 @@ mod test {
             let y = ops.shift_left::<1>(x);
             let expected = isa.i32().splat(42 << 1);
             assert_simd_eq!(y, expected);
+        })
+    }
+
+    #[test]
+    fn test_abs_f32() {
+        test_simd_op!(isa, {
+            let ops = isa.f32();
+
+            let vals = [-1., 0., 1.];
+            for v in vals {
+                let x = ops.splat(v);
+                let y = ops.abs(x);
+                let expected = ops.splat(v.abs());
+                assert_simd_eq!(y, expected);
+            }
+        })
+    }
+
+    #[test]
+    fn test_reciprocal_f32() {
+        test_simd_op!(isa, {
+            let ops = isa.f32();
+
+            let vals = [-5., -2., 2., 5.];
+            for v in vals {
+                let x = ops.splat(v);
+                let y = ops.reciprocal(x);
+                let expected = ops.splat(1. / v);
+                assert_simd_eq!(y, expected);
+            }
+        })
+    }
+
+    #[test]
+    fn test_poly_eval_f32() {
+        test_simd_op!(isa, {
+            let ops = isa.f32();
+
+            let coeffs = [2., 3., 4.];
+            let x = 0.567;
+            let y = ops.poly_eval(ops.splat(x), &coeffs.map(|c| ops.splat(c)));
+
+            let expected = (x * coeffs[0]) + (x * x * coeffs[1]) + (x * x * x * coeffs[2]);
+            assert_simd_eq!(y, ops.splat(expected));
         })
     }
 

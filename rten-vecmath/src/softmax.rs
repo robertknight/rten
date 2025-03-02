@@ -1,9 +1,8 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::dispatch::{SimdOp, SimdUnaryOp};
-use rten_simd::functional::{simd_fold, simd_map};
+use rten_simd::safe::functional::simd_map;
+use rten_simd::safe::{Isa, SimdFloatOps, SimdIterable, SimdOp, SimdOps, SimdUnaryOp};
 use rten_simd::span::SrcDest;
-use rten_simd::{SimdFloat, SimdMask};
 
 use crate::Exp;
 
@@ -40,44 +39,47 @@ impl<'a> SimdOp for Softmax<'a> {
     type Output = &'a mut [f32];
 
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(self) -> Self::Output {
-        let max_val = simd_fold(
-            self.src_dest.src(),
-            S::splat(f32::MIN),
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let ops = isa.f32();
+
+        let max_val = self.src_dest.src().simd_iter(ops).fold(
+            ops.splat(f32::MIN),
             #[inline(always)]
-            |max, x| max.max(x),
+            |max, x| ops.max(max, x),
         );
-        let max_val = max_val.fold_splat(f32::MIN, |max: f32, x: f32| max.max(x));
+        let max_val = ops.fold_splat(max_val, f32::MIN, |max: f32, x: f32| max.max(x));
 
         // *x = (*x - max_val).exp()
-        let mut prev_exp_sum = S::zero();
-        let mut exp_sum = S::zero();
+        let mut prev_exp_sum = ops.zero();
+        let mut exp_sum = ops.zero();
         let dest = simd_map(
+            ops,
             self.src_dest,
             #[inline(always)]
-            |x: S| {
-                let y = Exp::apply(x.sub(max_val));
+            |x| {
+                let y = Exp::apply(isa, ops.sub(x, max_val));
                 prev_exp_sum = exp_sum;
-                exp_sum = exp_sum.add(y);
+                exp_sum = ops.add(exp_sum, y);
                 y
             },
         );
 
         // Undo the last update to `exp_sum` for unused lanes.
-        let remainder = dest.len() % S::len();
+        let remainder = dest.len() % ops.len();
         if remainder != 0 {
-            let remainder_mask = S::Mask::first_n(remainder);
-            exp_sum = exp_sum.select(prev_exp_sum, remainder_mask);
+            let remainder_mask = ops.first_n_mask(remainder);
+            exp_sum = ops.select(exp_sum, prev_exp_sum, remainder_mask);
         }
 
         // *x /= exp_sum
-        let exp_sum = exp_sum.fold_splat(0., |sum, x| sum + x);
-        let inv_exp_sum = S::one().div(exp_sum);
+        let exp_sum = ops.fold_splat(exp_sum, 0., |sum, x| sum + x);
+        let inv_exp_sum = ops.reciprocal(exp_sum);
 
-        simd_map(
-            dest.into(),
+        let dest = simd_map(
+            ops,
+            dest,
             #[inline(always)]
-            |x: S| x.mul(inv_exp_sum),
+            |x| ops.mul(x, inv_exp_sum),
         );
 
         dest
@@ -86,7 +88,7 @@ impl<'a> SimdOp for Softmax<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rten_simd::dispatch::SimdOp;
+    use rten_simd::safe::SimdOp;
 
     use super::Softmax;
     use crate::testing::{benchmark_op, check_f32s_are_equal_ulps, triples, AsUninit};

@@ -1,7 +1,7 @@
 use std::arch::wasm32::{
-    f32x4_add, f32x4_div, f32x4_eq, f32x4_ge, f32x4_gt, f32x4_le, f32x4_lt, f32x4_max, f32x4_min,
-    f32x4_mul, f32x4_neg, f32x4_splat, f32x4_sub, i32x4_add, i32x4_eq, i32x4_ge, i32x4_gt,
-    i32x4_le, i32x4_lt, i32x4_mul, i32x4_neg, i32x4_shl, i32x4_splat, i32x4_sub,
+    f32x4_abs, f32x4_add, f32x4_div, f32x4_eq, f32x4_ge, f32x4_gt, f32x4_le, f32x4_lt, f32x4_max,
+    f32x4_min, f32x4_mul, f32x4_neg, f32x4_splat, f32x4_sub, i32x4_add, i32x4_eq, i32x4_ge,
+    i32x4_gt, i32x4_le, i32x4_lt, i32x4_mul, i32x4_neg, i32x4_shl, i32x4_splat, i32x4_sub,
     i32x4_trunc_sat_f32x4, v128, v128_bitselect, v128_load, v128_store,
 };
 use std::mem::transmute;
@@ -183,6 +183,11 @@ impl SimdFloatOps<F32x4> for Wasm32Isa {
     #[inline]
     fn neg(self, x: F32x4) -> F32x4 {
         F32x4(f32x4_neg(x.0))
+    }
+
+    #[inline]
+    fn abs(self, x: F32x4) -> F32x4 {
+        F32x4(f32x4_abs(x.0))
     }
 
     #[inline]
