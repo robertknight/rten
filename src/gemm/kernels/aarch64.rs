@@ -243,7 +243,7 @@ macro_rules! impl_arm_int8_common {
         ) {
             // Safety: Arm Neon is supported
             const NR_REGS: usize = vec_count::<int32x4_t>(<$self_type>::NR).unwrap();
-            unsafe { image.pack_block_i8_dot_cast_u8::<int32x4_t, NR_REGS>(out, rows, cols) }
+            image.pack_block_i8_dot_cast_u8::<_, NR_REGS>(self.isa, out, rows, cols)
         }
     };
 }
@@ -251,7 +251,7 @@ macro_rules! impl_arm_int8_common {
 /// 8-bit integer matrix multiplication kernel using Arm dot product
 /// instructions.
 pub struct ArmInt8DotKernel {
-    _private: (),
+    isa: ArmNeonIsa,
 }
 
 impl ArmInt8DotKernel {
@@ -264,7 +264,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         if !std::arch::is_aarch64_feature_detected!("dotprod") {
             return None;
         }
-        Some(ArmInt8DotKernel { _private: () })
+        ArmNeonIsa::new().map(|isa| ArmInt8DotKernel { isa })
     }
 
     fn name(&self) -> &'static str {
@@ -351,7 +351,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
 /// 8-bit integer matrix multiplication kernel for Arm CPUs which don't support
 /// dot product instructions.
 pub struct ArmInt8Kernel {
-    _private: (),
+    isa: ArmNeonIsa,
 }
 
 impl ArmInt8Kernel {
@@ -361,7 +361,7 @@ impl ArmInt8Kernel {
 
 unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
     fn new() -> Option<Self> {
-        Some(ArmInt8Kernel { _private: () })
+        ArmNeonIsa::new().map(|isa| ArmInt8Kernel { isa })
     }
 
     fn name(&self) -> &'static str {

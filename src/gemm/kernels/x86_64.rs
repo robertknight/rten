@@ -10,9 +10,6 @@ use rten_simd::vec_count;
 use rten_tensor::{Matrix, MatrixLayout};
 
 #[cfg(feature = "avx512")]
-use rten_simd::isa_detection::is_avx512_supported;
-
-#[cfg(feature = "avx512")]
 use rten_simd::safe::isa::Avx512Isa;
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
@@ -457,7 +454,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
 }
 
 pub struct Avx2Int8Kernel {
-    _private: (),
+    isa: Avx2Isa,
 }
 
 impl Avx2Int8Kernel {
@@ -467,8 +464,7 @@ impl Avx2Int8Kernel {
 
 unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
     fn new() -> Option<Self> {
-        let supported = is_x86_feature_detected!("avx2");
-        supported.then_some(Avx2Int8Kernel { _private: () })
+        Avx2Isa::new().map(|isa| Avx2Int8Kernel { isa })
     }
 
     fn name(&self) -> &'static str {
@@ -545,6 +541,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
     ) {
         #[target_feature(enable = "avx2")]
         unsafe fn pack_im2col_avx(
+            isa: Avx2Isa,
             out: &mut [MaybeUninit<u8>],
             image: &Im2Col<i8>,
             rows: Range<usize>,
@@ -553,11 +550,11 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             const NR_REGS: usize = vec_count::<__m256i>(Avx2Int8Kernel::NR).unwrap();
 
             let out = cast_pod_mut_slice(out).unwrap();
-            image.pack_block_i8_dot::<__m256i, NR_REGS>(out, rows, cols);
+            image.pack_block_i8_dot::<_, NR_REGS>(isa, out, rows, cols);
         }
 
         unsafe {
-            pack_im2col_avx(out, image, rows, cols);
+            pack_im2col_avx(self.isa, out, image, rows, cols);
         }
     }
 
@@ -658,6 +655,8 @@ unsafe fn avx2_u8i8i32_dot_product(a: __m256i, b: __m256i, c: __m256i) -> __m256
 
 #[cfg(feature = "avx512")]
 pub struct Avx512Int8Kernel {
+    isa: Avx512Isa,
+
     /// True if VNNI ("DL Boost") int8 dot product instructions are supported.
     have_vnni: bool,
 }
@@ -671,11 +670,9 @@ impl Avx512Int8Kernel {
 #[cfg(feature = "avx512")]
 unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
     fn new() -> Option<Self> {
-        if !is_avx512_supported() {
-            return None;
-        }
+        let isa = Avx512Isa::new()?;
         let have_vnni = detect_avx512_vnni();
-        Some(Avx512Int8Kernel { have_vnni })
+        Some(Avx512Int8Kernel { isa, have_vnni })
     }
 
     fn name(&self) -> &'static str {
@@ -753,6 +750,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         #[target_feature(enable = "avx512f")]
         #[target_feature(enable = "avx512bw")]
         unsafe fn pack_im2col_avx512(
+            isa: Avx512Isa,
             out: &mut [MaybeUninit<u8>],
             image: &Im2Col<i8>,
             rows: Range<usize>,
@@ -761,11 +759,11 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             const NR_REGS: usize = vec_count::<__m512i>(Avx512Int8Kernel::NR).unwrap();
 
             let out = cast_pod_mut_slice(out).unwrap();
-            image.pack_block_i8_dot::<__m512i, NR_REGS>(out, rows, cols);
+            image.pack_block_i8_dot::<_, NR_REGS>(isa, out, rows, cols);
         }
 
         unsafe {
-            pack_im2col_avx512(out, image, rows, cols);
+            pack_im2col_avx512(self.isa, out, image, rows, cols);
         }
     }
 

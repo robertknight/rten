@@ -24,6 +24,7 @@ impl Elem for i32 {
 /// Implementations are obtained via [`SimdOps::mask_ops`].
 pub trait Mask: Copy + Debug {
     type Array: AsRef<[bool]>
+        + Copy
         + Debug
         + IntoIterator<Item = bool>
         + PartialEq<Self::Array>
@@ -48,10 +49,12 @@ pub trait Mask: Copy + Debug {
 pub trait Simd: Copy + Debug {
     /// Representation of this vector as a `[Self::Elem; N]` array.
     type Array: AsRef<[Self::Elem]>
+        + Copy
         + Debug
         + IntoIterator<Item = Self::Elem>
         + PartialEq<Self::Array>
-        + std::ops::Index<usize, Output = Self::Elem>;
+        + std::ops::Index<usize, Output = Self::Elem>
+        + std::ops::IndexMut<usize, Output = Self::Elem>;
 
     /// Type of data held in each SIMD lane.
     type Elem: Elem;
