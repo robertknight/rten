@@ -1,28 +1,30 @@
 #![allow(clippy::excessive_precision)]
 
-use rten_simd::dispatch::SimdUnaryOp;
-use rten_simd::SimdFloat;
+use rten_simd::safe::{Isa, Simd, SimdFloatOps, SimdOps, SimdUnaryOp};
 
 use crate::Exp;
 
 /// Vectorized tanh implementation.
 pub struct Tanh {}
 
-impl SimdUnaryOp for Tanh {
+impl SimdUnaryOp<f32> for Tanh {
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        let x_negative = x.le(S::zero());
-        let abs_x = x.abs();
+    fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+        let ops = isa.f32();
+        let x = I::F32::from_bits(x);
+
+        let x_negative = ops.le(x, ops.zero());
+        let abs_x = ops.abs(x);
 
         // Cutoff beyond which `f32::tanh(x)` saturates at +/- 1.0.
-        let x_cutoff = abs_x.ge(S::splat(9.02));
+        let x_cutoff = ops.ge(abs_x, ops.splat(9.02));
 
         // tanh(x) ~ x when |x| is very small.
-        let x_tiny = abs_x.le(S::splat(0.0004));
+        let x_tiny = ops.le(abs_x, ops.splat(0.0004));
 
         // Threshold below which `tanh(x) = (exp(2x) - 1) / (exp(2x) + 1)` method
         // produces errors >= 2 ULP.
-        let x_small = abs_x.le(S::splat(0.55));
+        let x_small = ops.le(abs_x, ops.splat(0.55));
 
         // For small x, use polynomial approximation. Computed using Sollya with
         // `P = fpminimax(f, [|1, 3, 5, 7, 9|], [|SG...|], [0, 0.6])`.
@@ -32,39 +34,39 @@ impl SimdUnaryOp for Tanh {
         const P7: f32 = -5.21197654306888580322265625e-2;
         const P9: f32 = 1.5497927553951740264892578125e-2;
 
-        let p1 = S::splat(P1);
-        let p3 = S::splat(P3);
-        let p5 = S::splat(P5);
-        let p7 = S::splat(P7);
-        let p9 = S::splat(P9);
+        let p1 = ops.splat(P1);
+        let p3 = ops.splat(P3);
+        let p5 = ops.splat(P5);
+        let p7 = ops.splat(P7);
+        let p9 = ops.splat(P9);
 
-        let x_sqr = x.mul(x);
-        let y_small = p9.mul_add(x_sqr, p7);
-        let y_small = y_small.mul_add(x_sqr, p5);
-        let y_small = y_small.mul_add(x_sqr, p3);
-        let y_small = y_small.mul_add(x_sqr, p1);
-        let y_small = y_small.mul(abs_x);
+        let x_sqr = ops.mul(x, x);
+        let y_small = ops.mul_add(p9, x_sqr, p7);
+        let y_small = ops.mul_add(y_small, x_sqr, p5);
+        let y_small = ops.mul_add(y_small, x_sqr, p3);
+        let y_small = ops.mul_add(y_small, x_sqr, p1);
+        let y_small = ops.mul(y_small, abs_x);
 
         // For medium x, compute `tanh(x) = (exp(2x) - 1) / (exp(2x) + 1)`.
-        let x2 = abs_x.mul(S::splat(2.0));
-        let exp_2x = Exp::apply(x2);
-        let exp_2x_m1 = exp_2x.sub(S::one());
-        let exp_2x_p1 = exp_2x.add(S::one());
-        let y_medium = exp_2x_m1.div(exp_2x_p1);
+        let x2 = ops.mul(abs_x, ops.splat(2.0));
+        let exp_2x = Exp::apply(isa, x2);
+        let exp_2x_m1 = ops.sub(exp_2x, ops.one());
+        let exp_2x_p1 = ops.add(exp_2x, ops.one());
+        let y_medium = ops.div(exp_2x_m1, exp_2x_p1);
 
         // Select output to use depending on |x|.
-        let y = S::one().select(y_medium, x_cutoff);
-        let y = y_small.select(y, x_small);
-        let y = abs_x.select(y, x_tiny);
+        let y = ops.select(ops.one(), y_medium, x_cutoff);
+        let y = ops.select(y_small, y, x_small);
+        let y = ops.select(abs_x, y, x_tiny);
 
         // Flip sign if input was negative.
-        y.neg().select(y, x_negative)
+        ops.select(ops.neg(y), y, x_negative).to_bits()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use rten_simd::dispatch::SimdUnaryOp;
+    use rten_simd::safe::SimdUnaryOp;
 
     use crate::testing::{
         arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,

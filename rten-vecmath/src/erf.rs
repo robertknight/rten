@@ -4,8 +4,7 @@
 
 use std::f32::consts::SQRT_2;
 
-use rten_simd::dispatch::SimdUnaryOp;
-use rten_simd::SimdFloat;
+use rten_simd::safe::{Isa, Simd, SimdFloatOps, SimdOps, SimdUnaryOp};
 
 use crate::Exp;
 
@@ -19,37 +18,40 @@ use crate::Exp;
 #[derive(Default)]
 pub struct Erf {}
 
-impl SimdUnaryOp for Erf {
+impl SimdUnaryOp<f32> for Erf {
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        let neg_mask = x.lt(S::zero());
+    fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+        let ops = isa.f32();
+        let x = I::F32::from_bits(x);
+
+        let neg_mask = ops.lt(x, ops.zero());
 
         // x = x.abs()
-        let x = x.neg().select(x, neg_mask);
+        let x = ops.select(ops.neg(x), x, neg_mask);
 
-        let p = S::splat(0.3275911);
+        let p = ops.splat(0.3275911);
 
         // Coefficients for polynomial approximation.
-        let a0 = S::splat(0.254829592);
-        let a1 = S::splat(-0.284496736);
-        let a2 = S::splat(1.421413741);
-        let a3 = S::splat(-1.453152027);
-        let a4 = S::splat(1.061405429);
+        let a0 = ops.splat(0.254829592);
+        let a1 = ops.splat(-0.284496736);
+        let a2 = ops.splat(1.421413741);
+        let a3 = ops.splat(-1.453152027);
+        let a4 = ops.splat(1.061405429);
 
         // t = 1. / (1. + p * x);
-        let t = x.mul_add(p, S::one()).reciprocal();
-        let at = t.poly_eval(&[a0, a1, a2, a3, a4]);
+        let t = ops.reciprocal(ops.mul_add(x, p, ops.one()));
+        let at = ops.poly_eval(t, &[a0, a1, a2, a3, a4]);
 
         // exp_mx2 = e^(-x^2)
-        let x_m2 = x.mul(x).neg();
-        let exp_mx2 = Exp::apply(x_m2);
+        let x_m2 = ops.neg(ops.mul(x, x));
+        let exp_mx2 = Exp::apply(isa, x_m2);
 
         // y = 1. - at * exp_mx2;
-        let y = S::one().sub(at.mul(exp_mx2));
+        let y = ops.sub(ops.one(), ops.mul(at, exp_mx2));
 
         // Approximation is valid only for x >= 0. For negative values approximation
         // can be computed as -erf(-x).
-        y.neg().select(y, neg_mask)
+        ops.select(ops.neg(y), y, neg_mask).to_bits()
     }
 }
 
@@ -59,20 +61,23 @@ const SQRT_2_RCP: f32 = 1.0 / SQRT_2;
 /// function.
 pub struct Gelu {}
 
-impl SimdUnaryOp for Gelu {
+impl SimdUnaryOp<f32> for Gelu {
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
-        let half_x = x.mul(S::splat(0.5));
-        let sqrt_2_rcp = S::splat(SQRT_2_RCP);
-        let y = x.mul(sqrt_2_rcp);
-        let y = Erf::apply(y).add(S::splat(1.0));
-        half_x.mul(y)
+    fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+        let ops = isa.f32();
+        let x = I::F32::from_bits(x);
+
+        let half_x = ops.mul(x, ops.splat(0.5));
+        let sqrt_2_rcp = ops.splat(SQRT_2_RCP);
+        let y = ops.mul(x, sqrt_2_rcp);
+        let y = ops.add(Erf::apply(isa, y), ops.splat(1.0));
+        ops.mul(half_x, y).to_bits()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use rten_simd::dispatch::SimdUnaryOp;
+    use rten_simd::safe::SimdUnaryOp;
 
     use super::{Erf, Gelu};
     use crate::testing::{

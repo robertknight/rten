@@ -123,6 +123,18 @@ pub trait SimdUnaryOp<T: Elem> {
         let wrapped_op = SimdMapOp::wrap(input.into(), self);
         dispatch(wrapped_op);
     }
+
+    /// Apply this operation to a single element.
+    #[allow(private_bounds)]
+    fn scalar_eval(&self, x: T) -> T
+    where
+        Self: Sized,
+        for<'a> SimdMapOp<'a, T, Self>: SimdOp,
+    {
+        let mut array = [x];
+        self.map_mut(&mut array);
+        array[0]
+    }
 }
 
 /// SIMD operation which applies a unary operator `Op` to all elements in

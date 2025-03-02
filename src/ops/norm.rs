@@ -1,8 +1,7 @@
 use std::mem::MaybeUninit;
 
 use rayon::prelude::*;
-use rten_simd::dispatch::SimdOp as UnsafeSimdOp;
-use rten_simd::safe::SimdOp as SafeSimdOp;
+use rten_simd::safe::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
