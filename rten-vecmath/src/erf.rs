@@ -20,9 +20,9 @@ pub struct Erf {}
 
 impl SimdUnaryOp<f32> for Erf {
     #[inline(always)]
-    fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
         let ops = isa.f32();
-        let x = I::F32::from_bits(x);
+        let x = x.same_cast();
 
         let neg_mask = ops.lt(x, ops.zero());
 
@@ -51,7 +51,7 @@ impl SimdUnaryOp<f32> for Erf {
 
         // Approximation is valid only for x >= 0. For negative values approximation
         // can be computed as -erf(-x).
-        ops.select(ops.neg(y), y, neg_mask).to_bits()
+        ops.select(ops.neg(y), y, neg_mask).same_cast()
     }
 }
 
@@ -63,15 +63,15 @@ pub struct Gelu {}
 
 impl SimdUnaryOp<f32> for Gelu {
     #[inline(always)]
-    fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
         let ops = isa.f32();
-        let x = I::F32::from_bits(x);
+        let x = x.same_cast();
 
         let half_x = ops.mul(x, ops.splat(0.5));
         let sqrt_2_rcp = ops.splat(SQRT_2_RCP);
         let y = ops.mul(x, sqrt_2_rcp);
         let y = ops.add(Erf::apply(isa, y), ops.splat(1.0));
-        ops.mul(half_x, y).to_bits()
+        ops.mul(half_x, y).same_cast()
     }
 }
 

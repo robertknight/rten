@@ -71,6 +71,18 @@ pub trait Simd: Copy + Debug {
         T::from_bits(self.to_bits())
     }
 
+    /// Cast this vector to another with the same ISA and element type.
+    ///
+    /// This cast is a no-op which doesn't generate any code. It is needed in
+    /// some cases to downcast a `Simd` type to one of an `Isa`s associated
+    /// types, or vice-versa.
+    fn same_cast<T>(self) -> T
+    where
+        T: Simd<Elem = Self::Elem, Isa = Self::Isa>,
+    {
+        T::from_bits(self.to_bits())
+    }
+
     /// Convert `self` to a SIMD array.
     ///
     /// This is a cheap transmute in most cases, since SIMD vectors usually

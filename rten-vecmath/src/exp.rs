@@ -59,11 +59,11 @@ pub struct Exp {}
 //     into multiple steps to extend the domain.
 impl SimdUnaryOp<f32> for Exp {
     #[inline(always)]
-    fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
         let ops = isa.f32();
         let int_ops = isa.i32();
 
-        let x = I::F32::from_bits(x);
+        let x = x.same_cast();
 
         // Load constants
         let inv_log_2 = ops.splat(INV_LOG2);
@@ -123,7 +123,7 @@ impl SimdUnaryOp<f32> for Exp {
         let overflow_mask = ops.ge(x, ops.splat(104.0));
         let underflow_mask = ops.le(x, ops.splat(-104.0));
         let r = ops.select(ops.splat(f32::INFINITY), r, overflow_mask);
-        ops.select(ops.zero(), r, underflow_mask).to_bits()
+        ops.select(ops.zero(), r, underflow_mask).same_cast()
     }
 }
 
@@ -139,13 +139,13 @@ pub struct Sigmoid {}
 
 impl SimdUnaryOp<f32> for Sigmoid {
     #[inline(always)]
-    fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
         let ops = isa.f32();
-        let x = I::F32::from_bits(x);
+        let x = x.same_cast();
 
         // 1. + exp(-x)
         let denom = ops.add(ops.one(), Exp::apply(isa, ops.neg(x)));
-        ops.reciprocal(denom).to_bits()
+        ops.reciprocal(denom).same_cast()
     }
 }
 
@@ -156,11 +156,11 @@ pub struct Silu {}
 
 impl SimdUnaryOp<f32> for Silu {
     #[inline(always)]
-    fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
         let ops = isa.f32();
-        let x = I::F32::from_bits(x);
+        let x = x.same_cast();
 
-        ops.mul(x, Sigmoid::apply(isa, x)).to_bits()
+        ops.mul(x, Sigmoid::apply(isa, x)).same_cast()
     }
 }
 
@@ -173,12 +173,13 @@ pub struct Swish {
 
 impl SimdUnaryOp<f32> for Swish {
     #[inline(always)]
-    fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
         let ops = isa.f32();
-        let x = I::F32::from_bits(x);
+        let x = x.same_cast();
 
         let beta = ops.splat(self.beta);
-        ops.mul(x, Sigmoid::apply(isa, ops.mul(x, beta))).to_bits()
+        ops.mul(x, Sigmoid::apply(isa, ops.mul(x, beta)))
+            .same_cast()
     }
 }
 

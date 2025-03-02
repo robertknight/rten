@@ -64,8 +64,8 @@ pub fn dispatch<Op: SimdOp>(op: Op) -> Op::Output {
 pub trait SimdUnaryOp<T: Elem> {
     /// Evaluate the unary function on the elements in `x`.
     ///
-    /// `eval` is passed an untyped SIMD vector. This can be cast to the
-    /// specific type expected by the operation.
+    /// In order to perform operations on `x`, it will need to be cast to
+    /// the specific type used by the ISA:
     ///
     /// ```
     /// use rten_simd::safe::{Isa, Simd, SimdFloatOps, SimdOps, SimdUnaryOp};
@@ -73,15 +73,15 @@ pub trait SimdUnaryOp<T: Elem> {
     /// struct Reciprocal {}
     ///
     /// impl SimdUnaryOp<f32> for Reciprocal {
-    ///     fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+    ///     fn eval<I: Isa, S: Simd<Elem=f32, Isa=I>>(&self, isa: I, x: S) -> S {
     ///         let ops = isa.f32();
-    ///         let x = ops.from_bits(x);
+    ///         let x = x.same_cast();
     ///         let reciprocal = ops.div(ops.one(), x);
-    ///         reciprocal.to_bits()
+    ///         reciprocal.same_cast()
     ///     }
     /// }
     /// ```
-    fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits;
+    fn eval<I: Isa, S: Simd<Elem = T, Isa = I>>(&self, isa: I, x: S) -> S;
 
     /// Evaluate the unary function on elements in `x`.
     ///
@@ -93,7 +93,7 @@ pub trait SimdUnaryOp<T: Elem> {
     where
         Self: Default,
     {
-        S::from_bits(Self::default().eval(isa, x.to_bits()))
+        Self::default().eval(isa, x)
     }
 
     /// Apply this function to a slice.
@@ -161,7 +161,7 @@ macro_rules! impl_simd_map_op {
                     isa.$type(),
                     self.src_dest,
                     #[inline(always)]
-                    |x| I::$cap_type::from_bits(self.op.eval(isa, x.to_bits())),
+                    |x| self.op.eval(isa, x),
                 )
             }
         }
@@ -202,11 +202,11 @@ mod tests {
         struct Reciprocal {}
 
         impl SimdUnaryOp<f32> for Reciprocal {
-            fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+            fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
                 let ops = isa.f32();
-                let x = ops.from_bits(x);
+                let x = x.same_cast();
                 let y = ops.div(ops.one(), x);
-                y.to_bits()
+                y.same_cast()
             }
         }
 
@@ -217,20 +217,30 @@ mod tests {
     }
 
     #[test]
-    fn test_unary_int_op() {
+    fn test_unary_generic_op() {
         struct Double {}
 
-        impl SimdUnaryOp<i32> for Double {
-            fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
-                let ops = isa.i32();
-                let x = ops.from_bits(x);
-                ops.add(x, x).to_bits()
-            }
+        macro_rules! impl_double {
+            ($elem:ident) => {
+                impl SimdUnaryOp<$elem> for Double {
+                    fn eval<I: Isa, S: Simd<Elem = $elem, Isa = I>>(&self, isa: I, x: S) -> S {
+                        let ops = isa.$elem();
+                        let x = x.same_cast();
+                        ops.add(x, x).same_cast()
+                    }
+                }
+            };
         }
+
+        impl_double!(i32);
+        impl_double!(f32);
 
         let mut buf = [1, 2, 3, 4];
         Double {}.map_mut(&mut buf);
-
         assert_eq!(buf, [2, 4, 6, 8]);
+
+        let mut buf = [1., 2., 3., 4.];
+        Double {}.map_mut(&mut buf);
+        assert_eq!(buf, [2., 4., 6., 8.]);
     }
 }
