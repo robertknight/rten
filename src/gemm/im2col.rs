@@ -2,7 +2,6 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_simd::safe::{Isa, Mask, MaskOps, Simd, SimdOps};
-use rten_simd::{SimdInt, SimdMask};
 use rten_tensor::{NdTensorView, Storage};
 
 use super::packing::int8::shift_cast_i8_u8;
@@ -216,49 +215,55 @@ impl Im2Col<'_, i8> {
     /// containing `S::LEN x 4 x i8` (or u8) inputs.
     #[inline(always)]
     #[allow(unused)] // Some architectures only
-    pub(super) unsafe fn pack_block_i8_dot<S: SimdInt, const NR_REGS: usize>(
+    pub(super) fn pack_block_i8_dot<I: Isa, const NR_REGS: usize>(
         &self,
+        isa: I,
         out: &mut [MaybeUninit<i8>],
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        self.pack_block_int8::<S, NR_REGS, false>(out, rows, cols);
+        self.pack_block_int8::<_, NR_REGS, false>(isa, out, rows, cols);
     }
 
     /// Variant of [`pack_block_i8_dot`](Self::pack_block_i8_dot) which shifts
     /// i8 values to u8 by adding 128.
     #[inline(always)]
     #[allow(unused)] // Some architectures only
-    pub(super) unsafe fn pack_block_i8_dot_cast_u8<S: SimdInt, const NR_REGS: usize>(
+    pub(super) fn pack_block_i8_dot_cast_u8<I: Isa, const NR_REGS: usize>(
         &self,
+        isa: I,
         out: &mut [MaybeUninit<u8>],
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
         let out = cast_pod_mut_slice(out).unwrap();
-        self.pack_block_int8::<S, NR_REGS, true>(out, rows, cols);
+        self.pack_block_int8::<_, NR_REGS, true>(isa, out, rows, cols);
     }
 
     #[inline(always)]
-    unsafe fn pack_block_int8<S: SimdInt, const NR_REGS: usize, const CAST_B_U8: bool>(
+    fn pack_block_int8<I: Isa, const NR_REGS: usize, const CAST_B_U8: bool>(
         &self,
+        isa: I,
         out: &mut [MaybeUninit<i8>],
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
+        let ops = isa.i32();
+        let mask_ops = ops.mask_ops();
+
         const K_TILE: usize = size_of::<i32>() / size_of::<i8>();
 
         debug_assert!(rows.end <= self.rows());
         debug_assert!(cols.end <= self.cols());
 
-        let max_x_offset = S::splat(self.max_x_offset);
-        let max_y_offset = S::splat(self.max_y_offset);
+        let max_x_offset = ops.splat(self.max_x_offset);
+        let max_y_offset = ops.splat(self.max_y_offset);
 
         let col_x_offsets = &self.col_offsets.x;
-        debug_assert_eq!(col_x_offsets.len() % S::len(), 0);
+        debug_assert_eq!(col_x_offsets.len() % ops.len(), 0);
 
         let col_y_offsets = &self.col_offsets.y;
-        debug_assert_eq!(col_y_offsets.len() % S::len(), 0);
+        debug_assert_eq!(col_y_offsets.len() % ops.len(), 0);
 
         let row_x_offsets = &self.row_offsets.x;
         debug_assert_eq!(row_x_offsets.len() % K_TILE, 0);
@@ -269,73 +274,78 @@ impl Im2Col<'_, i8> {
         let row_chan_offsets = &self.row_offsets.chan;
         debug_assert_eq!(row_chan_offsets.len() % K_TILE, 0);
 
-        let img_ptr = self.image.storage().as_ptr();
-        let out_ptr = out.as_mut_ptr();
+        let img_data = self.image.storage();
 
         let mut out_offset = 0;
 
-        for start_col in cols.step_by(S::len() * NR_REGS) {
-            let col_y_offset: [S; NR_REGS] = std::array::from_fn(|i| {
-                S::load(col_y_offsets.get_unchecked(start_col + i * S::len()))
+        for start_col in cols.step_by(ops.len() * NR_REGS) {
+            let col_y_offset: [I::I32; NR_REGS] = std::array::from_fn(|i| unsafe {
+                ops.load_ptr(col_y_offsets.get_unchecked(start_col + i * ops.len()))
             });
-            let col_x_offset: [S; NR_REGS] = std::array::from_fn(|i| {
-                S::load(col_x_offsets.get_unchecked(start_col + i * S::len()))
+            let col_x_offset: [I::I32; NR_REGS] = std::array::from_fn(|i| unsafe {
+                ops.load_ptr(col_x_offsets.get_unchecked(start_col + i * ops.len()))
             });
-            let zero = S::zero();
+            let zero = ops.zero();
 
-            let mut col_sums = [S::zero().to_array(); NR_REGS];
+            let mut col_sums = [ops.zero().to_array(); NR_REGS];
 
             for start_row in rows.clone().step_by(4) {
                 for i in 0..K_TILE {
                     let k = start_row + i;
-                    let row_x_offset = S::splat(*row_x_offsets.get_unchecked(k));
-                    let row_y_offset = S::splat(*row_y_offsets.get_unchecked(k));
-                    let row_chan_offset = S::splat(*row_chan_offsets.get_unchecked(k));
+                    let row_x_offset = ops.splat(unsafe { *row_x_offsets.get_unchecked(k) });
+                    let row_y_offset = ops.splat(unsafe { *row_y_offsets.get_unchecked(k) });
+                    let row_chan_offset = ops.splat(unsafe { *row_chan_offsets.get_unchecked(k) });
 
                     for c_block in 0..NR_REGS {
-                        let x_offsets = row_x_offset.add(col_x_offset[c_block]);
-                        let y_offsets = row_y_offset.add(col_y_offset[c_block]);
-                        let offsets = x_offsets.add(y_offsets).add(row_chan_offset);
+                        let x_offsets = ops.add(row_x_offset, col_x_offset[c_block]);
+                        let y_offsets = ops.add(row_y_offset, col_y_offset[c_block]);
+                        let offsets = ops.add(ops.add(x_offsets, y_offsets), row_chan_offset);
 
-                        let pad_mask = y_offsets
-                            .ge(zero)
-                            .and(y_offsets.le(max_y_offset))
-                            .and(x_offsets.ge(zero))
-                            .and(x_offsets.le(max_x_offset));
+                        let y_valid =
+                            mask_ops.and(ops.ge(y_offsets, zero), ops.le(y_offsets, max_y_offset));
+                        let x_valid =
+                            mask_ops.and(ops.ge(x_offsets, zero), ops.le(x_offsets, max_x_offset));
+                        let pad_mask = mask_ops.and(y_valid, x_valid);
                         let pad_mask_array = pad_mask.to_array();
 
                         // Set offsets to zero for padding elements. We require
                         // this offset is always valid.
-                        let offsets_array = offsets.select(zero, pad_mask).to_array();
+                        let offsets_array = ops.select(offsets, zero, pad_mask).to_array();
 
-                        for idx in 0..S::len() {
-                            let out_ptr =
-                                out_ptr.add(out_offset + (c_block * S::len() + idx) * K_TILE + i);
-                            let src_elem = *img_ptr.add(offsets_array[idx] as usize);
+                        for idx in 0..ops.len() {
+                            let out_elem = unsafe {
+                                out.get_unchecked_mut(
+                                    out_offset + (c_block * ops.len() + idx) * K_TILE + i,
+                                )
+                            };
+                            let src_elem =
+                                unsafe { *img_data.get_unchecked(offsets_array[idx] as usize) };
 
                             if CAST_B_U8 {
                                 let src_elem = shift_cast_i8_u8(src_elem);
                                 let elem = if pad_mask_array[idx] { src_elem } else { 0 };
                                 col_sums[c_block][idx] += elem as i32;
-                                out_ptr.write(MaybeUninit::new(elem as i8));
+                                out_elem.write(elem as i8);
                             } else {
                                 let elem = if pad_mask_array[idx] { src_elem } else { 0 };
                                 col_sums[c_block][idx] += elem as i32;
-                                out_ptr.write(MaybeUninit::new(elem));
+                                out_elem.write(elem);
                             }
                         }
                     }
                 }
-                out_offset += S::len() * NR_REGS * K_TILE;
+                out_offset += ops.len() * NR_REGS * K_TILE;
             }
 
             // Store column sums at end of each panel.
             for c_block in 0..NR_REGS {
-                let col_sum_ptr = out_ptr.add(out_offset) as *mut i32;
-                for i in 0..S::len() {
-                    *col_sum_ptr.add(i) = col_sums[c_block][i];
+                let col_sum_ptr = unsafe { out.as_mut_ptr().add(out_offset) as *mut i32 };
+                for i in 0..ops.len() {
+                    unsafe {
+                        *col_sum_ptr.add(i) = col_sums[c_block][i];
+                    }
                 }
-                out_offset += S::len() * K_TILE;
+                out_offset += ops.len() * K_TILE;
             }
         }
 

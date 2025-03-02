@@ -180,7 +180,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
 }
 
 pub struct WasmInt8Kernel {
-    _private: (),
+    isa: Wasm32Isa,
 }
 
 impl WasmInt8Kernel {
@@ -190,7 +190,7 @@ impl WasmInt8Kernel {
 
 unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
     fn new() -> Option<Self> {
-        Some(WasmInt8Kernel { _private: () })
+        Wasm32Isa::new().map(|isa| WasmInt8Kernel { isa })
     }
 
     fn name(&self) -> &'static str {
@@ -261,11 +261,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         cols: Range<usize>,
     ) {
         const NR_REGS: usize = vec_count::<v128f>(WasmInt8Kernel::NR).unwrap();
-
-        // Safety: WASM SIMD is supported.
-        unsafe {
-            image.pack_block_i8_dot_cast_u8::<v128i, NR_REGS>(out, rows, cols);
-        }
+        image.pack_block_i8_dot_cast_u8::<_, NR_REGS>(self.isa, out, rows, cols);
     }
 
     unsafe fn kernel(
