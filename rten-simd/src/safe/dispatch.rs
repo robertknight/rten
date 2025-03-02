@@ -33,6 +33,22 @@ pub fn dispatch<Op: SimdOp>(op: Op) -> Op::Output {
 
     #[cfg(target_arch = "x86_64")]
     {
+        #[cfg(feature = "avx512")]
+        {
+            #[target_feature(enable = "avx512f")]
+            #[target_feature(enable = "avx512vl")]
+            unsafe fn dispatch_avx512<Op: SimdOp>(isa: impl Isa, op: Op) -> Op::Output {
+                op.eval(isa)
+            }
+
+            if let Some(isa) = super::arch::x86_64::Avx512Isa::new() {
+                // Safety: AVX-512 is supported
+                unsafe {
+                    return dispatch_avx512(isa, op);
+                }
+            }
+        }
+
         #[target_feature(enable = "avx2")]
         #[target_feature(enable = "avx")]
         #[target_feature(enable = "fma")]
