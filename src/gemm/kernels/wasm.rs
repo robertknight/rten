@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_simd::arch::wasm::{v128f, v128i};
+use rten_simd::safe::isa::Wasm32Isa;
 use rten_simd::vec_count;
 use rten_tensor::{Matrix, MatrixLayout};
 
@@ -12,7 +13,7 @@ use crate::gemm::{packing, Im2Col};
 use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
 
 pub struct WasmKernel {
-    _private: (),
+    isa: Wasm32Isa,
 }
 
 impl WasmKernel {
@@ -25,7 +26,7 @@ impl WasmKernel {
 unsafe impl Kernel<f32, f32, f32> for WasmKernel {
     fn new() -> Option<Self> {
         #[cfg(target_feature = "simd128")]
-        return Some(WasmKernel { _private: () });
+        return Wasm32Isa::new().map(|isa| WasmKernel { isa });
 
         #[cfg(not(target_feature = "simd128"))]
         None
@@ -99,9 +100,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
 
         // Safety: WASM SIMD types are supported
         let out = cast_pod_mut_slice(out).unwrap();
-        unsafe {
-            image.pack_block::<v128i, NR_REGS>(out, Self::NR, rows, cols);
-        }
+        image.pack_block::<_, NR_REGS>(self.isa, out, Self::NR, rows, cols);
     }
 
     unsafe fn kernel(

@@ -24,6 +24,12 @@ impl GenericIsa {
     }
 }
 
+impl Default for GenericIsa {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // Safety: Instructions used by generic ISA are always supported.
 unsafe impl Isa for GenericIsa {
     type F32 = F32x4;

@@ -1,6 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use rten_simd::safe::{Isa, Mask, MaskOps, Simd, SimdOps};
 use rten_simd::{SimdInt, SimdMask};
 use rten_tensor::{NdTensorView, Storage};
 
@@ -100,14 +101,18 @@ impl<T: Copy + Default> Im2Col<'_, T> {
     ///
     /// Caller must ensure SIMD type is supported.
     #[inline(always)]
-    pub(super) unsafe fn pack_block<S: SimdInt, const NR_REGS: usize>(
+    pub(super) fn pack_block<I: Isa, const NR_REGS: usize>(
         &self,
+        isa: I,
         out: &mut [MaybeUninit<T>],
         panel_width: usize,
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        assert_eq!(panel_width, S::len() * NR_REGS);
+        let ops = isa.i32();
+        let mask_ops = ops.mask_ops();
+
+        assert_eq!(panel_width, ops.len() * NR_REGS);
 
         let col_range = cols.start..cols.end.next_multiple_of(panel_width);
         let used_size = rows.len() * col_range.len();
@@ -119,69 +124,67 @@ impl<T: Copy + Default> Im2Col<'_, T> {
         let row_y_offsets = &self.row_offsets.y[rows.clone()];
         let row_x_offsets = &self.row_offsets.x[rows.clone()];
 
-        let img_ptr = self.image.storage().as_ptr();
+        let img_data = self.image.storage();
 
         // Compute max valid image buffer offset. Used to clamp generated offsets
         // as a form of bounds check.
         let img_len = self.image.storage().len();
         assert!(img_len > 0 && img_len <= i32::MAX as usize);
-        let max_img_offset = S::splat(img_len as i32 - 1);
+        let max_img_offset = ops.splat(img_len as i32 - 1);
 
         // Loop over column panels, then rows, then `S::LEN`-wide column groups
         // within each panel.
-        let out_ptr = out.as_mut_ptr();
         let mut out_offset = 0;
 
-        for start_col in (0..col_y_offsets.len()).step_by(S::len() * NR_REGS) {
-            let col_y_offset: [S; NR_REGS] = std::array::from_fn(|i| {
-                S::load(col_y_offsets.as_ptr().add(start_col + S::len() * i))
+        for start_col in (0..col_y_offsets.len()).step_by(ops.len() * NR_REGS) {
+            let col_y_offset: [I::I32; NR_REGS] = std::array::from_fn(|i| unsafe {
+                ops.load_ptr(col_y_offsets.as_ptr().add(start_col + ops.len() * i))
             });
-            let col_x_offset: [S; NR_REGS] = std::array::from_fn(|i| {
-                S::load(col_x_offsets.as_ptr().add(start_col + S::len() * i))
+            let col_x_offset: [I::I32; NR_REGS] = std::array::from_fn(|i| unsafe {
+                ops.load_ptr(col_x_offsets.as_ptr().add(start_col + ops.len() * i))
             });
-            let max_x_offset = S::splat(self.max_x_offset);
-            let max_y_offset = S::splat(self.max_y_offset);
+            let max_x_offset = ops.splat(self.max_x_offset);
+            let max_y_offset = ops.splat(self.max_y_offset);
 
             for ((&row_chan_offset, &row_y_offset), &row_x_offset) in row_chan_offsets
                 .iter()
                 .zip(row_y_offsets.iter())
                 .zip(row_x_offsets.iter())
             {
-                let row_chan_offset = S::splat(row_chan_offset);
-                let row_y_offset = S::splat(row_y_offset);
-                let row_x_offset = S::splat(row_x_offset);
+                let row_chan_offset = ops.splat(row_chan_offset);
+                let row_y_offset = ops.splat(row_y_offset);
+                let row_x_offset = ops.splat(row_x_offset);
 
                 for i in 0..NR_REGS {
-                    let y_offset = col_y_offset[i].add(row_y_offset);
-                    let x_offset = col_x_offset[i].add(row_x_offset);
-                    let offsets = row_chan_offset
-                        .add(y_offset)
-                        .add(x_offset)
-                        // Ensure offsets cannot be out of bounds even if row /
-                        // column offsets were calculated incorrectly.
-                        .max(S::zero())
-                        .min(max_img_offset);
+                    let y_offset = ops.add(col_y_offset[i], row_y_offset);
+                    let x_offset = ops.add(col_x_offset[i], row_x_offset);
+
+                    let offsets = ops.add(ops.add(row_chan_offset, y_offset), x_offset);
+
+                    // Ensure offsets cannot be out of bounds even if row /
+                    // column offsets were calculated incorrectly.
+                    let offsets = ops.min(ops.max(offsets, ops.zero()), max_img_offset);
 
                     // Create mask to specify offsets which are valid. Others
                     // correspond to the padding region.
-                    let zero = S::zero();
-                    let pad_mask = y_offset
-                        .ge(zero)
-                        .and(y_offset.le(max_y_offset))
-                        .and(x_offset.ge(zero))
-                        .and(x_offset.le(max_x_offset));
+                    let zero = ops.zero();
+
+                    let y_valid =
+                        mask_ops.and(ops.ge(y_offset, zero), ops.le(y_offset, max_y_offset));
+                    let x_valid =
+                        mask_ops.and(ops.ge(x_offset, zero), ops.le(x_offset, max_x_offset));
+                    let pad_mask = mask_ops.and(y_valid, x_valid);
 
                     // Set offsets to zero for padding elements. We require
                     // this offset is always valid.
-                    let offsets_array = offsets.select(zero, pad_mask).to_array();
+                    let offsets_array = ops.select(offsets, zero, pad_mask).to_array();
                     let pad_mask_array = pad_mask.to_array();
 
                     // Gather elements and store in packing buffer.
-                    for idx in 0..S::len() {
-                        let out_ptr: *mut T = std::mem::transmute(out_ptr.add(out_offset + idx));
-
-                        // Safety: Offsets are clamped so they must be in-bounds.
-                        let src_elem = *img_ptr.add(offsets_array[idx] as usize);
+                    for idx in 0..ops.len() {
+                        // Safety: offsets_array[idx] is a valid offset.
+                        let src_elem =
+                            unsafe { *img_data.get_unchecked(offsets_array[idx] as usize) };
 
                         // This should be compiled to a conditional move.
                         let elem = if pad_mask_array[idx] {
@@ -190,10 +193,12 @@ impl<T: Copy + Default> Im2Col<'_, T> {
                             T::default()
                         };
 
-                        out_ptr.write(elem);
+                        // Safety: `out_offset + i` is valid for `i < ops.len()`.
+                        let out_el = unsafe { out.get_unchecked_mut(out_offset + idx) };
+                        out_el.write(elem);
                     }
 
-                    out_offset += S::len();
+                    out_offset += ops.len();
                 }
             }
         }
