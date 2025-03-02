@@ -2,11 +2,11 @@ use std::arch::wasm32::{
     f32x4_abs, f32x4_add, f32x4_div, f32x4_eq, f32x4_ge, f32x4_gt, f32x4_le, f32x4_lt, f32x4_max,
     f32x4_min, f32x4_mul, f32x4_neg, f32x4_splat, f32x4_sub, i32x4_add, i32x4_eq, i32x4_ge,
     i32x4_gt, i32x4_le, i32x4_lt, i32x4_mul, i32x4_neg, i32x4_shl, i32x4_splat, i32x4_sub,
-    i32x4_trunc_sat_f32x4, v128, v128_bitselect, v128_load, v128_store,
+    i32x4_trunc_sat_f32x4, v128, v128_and, v128_bitselect, v128_load, v128_store,
 };
 use std::mem::transmute;
 
-use crate::safe::{Isa, Mask, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
@@ -45,6 +45,11 @@ unsafe impl Isa for Wasm32Isa {
 
 macro_rules! simd_ops_x32_common {
     ($simd:ty) => {
+        #[inline]
+        fn mask_ops(self) -> impl MaskOps<v128> {
+            self
+        }
+
         #[inline]
         fn len(self) -> usize {
             4
@@ -279,6 +284,13 @@ impl Mask for v128 {
     fn to_array(self) -> Self::Array {
         let array = unsafe { transmute::<Self, [i32; 4]>(self) };
         std::array::from_fn(|i| array[i] != 0)
+    }
+}
+
+unsafe impl MaskOps<v128> for Wasm32Isa {
+    #[inline]
+    fn and(self, x: v128, y: v128) -> v128 {
+        v128_and(x, y)
     }
 }
 

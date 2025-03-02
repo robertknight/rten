@@ -1,17 +1,17 @@
 use std::arch::x86_64::{
-    __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_andnot_ps, _mm256_blendv_epi8,
-    _mm256_blendv_ps, _mm256_cmp_ps, _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvttps_epi32,
-    _mm256_div_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32,
-    _mm256_maskload_ps, _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
-    _mm256_mul_ps, _mm256_mullo_epi32, _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps,
-    _mm256_setzero_si256, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256,
-    _mm256_sub_epi32, _mm256_sub_ps, _mm256_xor_ps, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ,
-    _CMP_LT_OQ,
+    __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_and_ps, _mm256_and_si256,
+    _mm256_andnot_ps, _mm256_blendv_epi8, _mm256_blendv_ps, _mm256_cmp_ps, _mm256_cmpeq_epi32,
+    _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps, _mm256_fmadd_ps, _mm256_loadu_ps,
+    _mm256_loadu_si256, _mm256_maskload_epi32, _mm256_maskload_ps, _mm256_maskstore_epi32,
+    _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps, _mm256_mul_ps, _mm256_mullo_epi32,
+    _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setzero_si256, _mm256_slli_epi32,
+    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps, _mm256_xor_ps,
+    _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
 
-use crate::safe::{Isa, Mask, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
 #[derive(Copy, Clone)]
 pub struct Avx2Isa {
@@ -44,22 +44,27 @@ unsafe impl Isa for Avx2Isa {
 }
 
 macro_rules! simd_ops_x32_common {
-    ($simd:ty) => {
+    ($simd:ty, $mask:ty) => {
         #[inline]
         fn len(self) -> usize {
             8
         }
 
         #[inline]
-        fn first_n_mask(self, n: usize) -> __m256i {
-            let mask: [i32; 8] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
-            unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) }
+        fn mask_ops(self) -> impl MaskOps<$mask> {
+            self
         }
     };
 }
 
 unsafe impl SimdOps<__m256> for Avx2Isa {
-    simd_ops_x32_common!(__m256);
+    simd_ops_x32_common!(__m256, __m256);
+
+    #[inline]
+    fn first_n_mask(self, n: usize) -> __m256 {
+        let mask: [i32; 8] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
+        unsafe { _mm256_loadu_ps(mask.as_ptr() as *const f32) }
+    }
 
     #[inline]
     fn add(self, x: __m256, y: __m256) -> __m256 {
@@ -82,28 +87,28 @@ unsafe impl SimdOps<__m256> for Avx2Isa {
     }
 
     #[inline]
-    fn lt(self, x: __m256, y: __m256) -> __m256i {
-        unsafe { transmute(_mm256_cmp_ps(x, y, _CMP_LT_OQ)) }
+    fn lt(self, x: __m256, y: __m256) -> __m256 {
+        unsafe { _mm256_cmp_ps(x, y, _CMP_LT_OQ) }
     }
 
     #[inline]
-    fn le(self, x: __m256, y: __m256) -> __m256i {
-        unsafe { transmute(_mm256_cmp_ps(x, y, _CMP_LE_OQ)) }
+    fn le(self, x: __m256, y: __m256) -> __m256 {
+        unsafe { _mm256_cmp_ps(x, y, _CMP_LE_OQ) }
     }
 
     #[inline]
-    fn eq(self, x: __m256, y: __m256) -> __m256i {
-        unsafe { transmute(_mm256_cmp_ps(x, y, _CMP_EQ_OQ)) }
+    fn eq(self, x: __m256, y: __m256) -> __m256 {
+        unsafe { _mm256_cmp_ps(x, y, _CMP_EQ_OQ) }
     }
 
     #[inline]
-    fn ge(self, x: __m256, y: __m256) -> __m256i {
-        unsafe { transmute(_mm256_cmp_ps(x, y, _CMP_GE_OQ)) }
+    fn ge(self, x: __m256, y: __m256) -> __m256 {
+        unsafe { _mm256_cmp_ps(x, y, _CMP_GE_OQ) }
     }
 
     #[inline]
-    fn gt(self, x: __m256, y: __m256) -> __m256i {
-        unsafe { transmute(_mm256_cmp_ps(x, y, _CMP_GT_OQ)) }
+    fn gt(self, x: __m256, y: __m256) -> __m256 {
+        unsafe { _mm256_cmp_ps(x, y, _CMP_GT_OQ) }
     }
 
     #[inline]
@@ -128,17 +133,17 @@ unsafe impl SimdOps<__m256> for Avx2Isa {
 
     #[inline]
     fn select(self, x: __m256, y: __m256, mask: <__m256 as Simd>::Mask) -> __m256 {
-        unsafe { _mm256_blendv_ps(y, x, transmute::<__m256i, __m256>(mask)) }
+        unsafe { _mm256_blendv_ps(y, x, mask) }
     }
 
     #[inline]
-    unsafe fn load_ptr_mask(self, ptr: *const f32, mask: __m256i) -> __m256 {
-        unsafe { _mm256_maskload_ps(ptr, mask) }
+    unsafe fn load_ptr_mask(self, ptr: *const f32, mask: __m256) -> __m256 {
+        unsafe { _mm256_maskload_ps(ptr, transmute::<__m256, __m256i>(mask)) }
     }
 
     #[inline]
-    unsafe fn store_ptr_mask(self, x: __m256, ptr: *mut f32, mask: __m256i) {
-        unsafe { _mm256_maskstore_ps(ptr, mask, x) }
+    unsafe fn store_ptr_mask(self, x: __m256, ptr: *mut f32, mask: __m256) {
+        unsafe { _mm256_maskstore_ps(ptr, transmute::<__m256, __m256i>(mask), x) }
     }
 
     #[inline]
@@ -172,7 +177,13 @@ impl SimdFloatOps<__m256> for Avx2Isa {
 }
 
 unsafe impl SimdOps<__m256i> for Avx2Isa {
-    simd_ops_x32_common!(__m256i);
+    simd_ops_x32_common!(__m256i, __m256i);
+
+    #[inline]
+    fn first_n_mask(self, n: usize) -> __m256i {
+        let mask: [i32; 8] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
+        unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) }
+    }
 
     #[inline]
     fn add(self, x: __m256i, y: __m256i) -> __m256i {
@@ -267,10 +278,33 @@ impl Mask for __m256i {
     }
 }
 
+unsafe impl MaskOps<__m256i> for Avx2Isa {
+    #[inline]
+    fn and(self, x: __m256i, y: __m256i) -> __m256i {
+        unsafe { _mm256_and_si256(x, y) }
+    }
+}
+
+impl Mask for __m256 {
+    type Array = [bool; 8];
+
+    #[inline]
+    fn to_array(self) -> Self::Array {
+        let array = unsafe { transmute::<Self, [f32; 8]>(self) };
+        std::array::from_fn(|i| array[i] != 0.)
+    }
+}
+
+unsafe impl MaskOps<__m256> for Avx2Isa {
+    #[inline]
+    fn and(self, x: __m256, y: __m256) -> __m256 {
+        unsafe { _mm256_and_ps(x, y) }
+    }
+}
+
 macro_rules! simd_x32_common {
     () => {
         type Array = [Self::Elem; 8];
-        type Mask = __m256i;
         type Isa = Avx2Isa;
 
         #[inline]
@@ -293,6 +327,7 @@ macro_rules! simd_x32_common {
 
 impl Simd for __m256 {
     type Elem = f32;
+    type Mask = __m256;
 
     simd_x32_common!();
 
@@ -304,6 +339,7 @@ impl Simd for __m256 {
 
 impl Simd for __m256i {
     type Elem = i32;
+    type Mask = __m256i;
 
     simd_x32_common!();
 

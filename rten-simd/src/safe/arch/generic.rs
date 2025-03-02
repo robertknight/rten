@@ -1,6 +1,8 @@
 use std::array;
 use std::mem::transmute;
 
+use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+
 const LEN: usize = 4;
 
 #[repr(align(16))]
@@ -10,8 +12,6 @@ pub struct I32x4([i32; LEN]);
 #[repr(align(16))]
 #[derive(Copy, Clone, Debug)]
 pub struct F32x4([f32; LEN]);
-
-use crate::safe::{Isa, Mask, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
 #[derive(Copy, Clone)]
 pub struct GenericIsa {
@@ -41,6 +41,11 @@ unsafe impl Isa for GenericIsa {
 
 macro_rules! simd_ops_x32_common {
     ($simd:ident, $elem:ty) => {
+        #[inline]
+        fn mask_ops(self) -> impl MaskOps<I32x4> {
+            self
+        }
+
         #[inline]
         fn len(self) -> usize {
             LEN
@@ -233,6 +238,13 @@ impl Mask for I32x4 {
     fn to_array(self) -> Self::Array {
         let array = self.0;
         std::array::from_fn(|i| array[i] != 0)
+    }
+}
+
+unsafe impl MaskOps<I32x4> for GenericIsa {
+    #[inline]
+    fn and(self, x: I32x4, y: I32x4) -> I32x4 {
+        I32x4(array::from_fn(|i| x.0[i] & y.0[i]))
     }
 }
 
