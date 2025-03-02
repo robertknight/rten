@@ -12,11 +12,20 @@ impl Elem for f32 {
     }
 }
 
-impl Elem for i32 {
-    fn one() -> Self {
-        1
-    }
+macro_rules! impl_elem_for_int {
+    ($int:ty) => {
+        impl Elem for $int {
+            fn one() -> Self {
+                1
+            }
+        }
+    };
 }
+
+impl_elem_for_int!(i32);
+impl_elem_for_int!(i16);
+impl_elem_for_int!(i8);
+impl_elem_for_int!(u8);
 
 /// Masks used or returned by SIMD operations.
 ///
@@ -113,21 +122,27 @@ pub trait Simd: Copy + Debug {
 /// Implementations must ensure they can only be constructed if the
 /// instruction set is supported on the current system.
 pub unsafe trait Isa: Copy {
-    /// A SIMD vector of unspecified type which all vectors in this family can
-    /// be cast to/from.
+    /// SIMD vector with an unspecified element type. This is used for
+    /// bitwise casting between different vector types.
     type Bits: Simd;
 
-    /// SIMD vector type for this ISA with `f32` elements.
+    /// SIMD vector with `f32` elements.
     type F32: Simd<Elem = f32, Isa = Self>;
 
-    /// SIMD vector type for this ISA with `i32` elements.
+    /// SIMD vector with `i32` elements.
     type I32: Simd<Elem = i32, Isa = Self>;
 
-    /// Entry point for operations on SIMD vectors containing `f32` elements.
+    /// SIMD vector with `i16` elements.
+    type I16: Simd<Elem = i16, Isa = Self>;
+
+    /// Operations on SIMD vectors with `f32` elements.
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32>;
 
-    /// Entry point for operations on SIMD vectors containing `i32` elements.
+    /// Operations on SIMD vectors with `i32` elements.
     fn i32(self) -> impl SimdIntOps<Self::I32>;
+
+    /// Operations on SIMD vectors with `i16` elements.
+    fn i16(self) -> impl SimdIntOps<Self::I16>;
 }
 
 /// SIMD operations on a [`Mask`] vector.
@@ -365,6 +380,10 @@ pub trait SimdFloatOps<S: Simd>: SimdOps<S> {
 
     /// Convert each lane to an integer of the same width, rounding towards zero.
     fn to_int_trunc(self, x: S) -> Self::Int;
+
+    /// Convert each lane to an integer of the same width, rounding to nearest
+    /// with ties to even.
+    fn to_int_round(self, x: S) -> Self::Int;
 }
 
 /// Extends [`SimdOps`] with operations available on SIMD vectors with signed
@@ -373,6 +392,11 @@ pub trait SimdIntOps<S: Simd>: SimdOps<S> {
     /// Shift each lane in `x` left by `SHIFT` bits.
     fn shift_left<const SHIFT: i32>(self, x: S) -> S;
 
+    /// Compute the absolute value of `x`
+    fn abs(self, x: S) -> S {
+        self.select(self.neg(x), x, self.lt(x, self.zero()))
+    }
+
     /// Return `-x`.
     fn neg(self, x: S) -> S {
         self.sub(self.zero(), x)
@@ -380,182 +404,289 @@ pub trait SimdIntOps<S: Simd>: SimdOps<S> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::safe::{
         assert_simd_eq, test_simd_op, Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOp,
         SimdOps,
     };
 
-    #[test]
-    fn test_bin_ops_f32() {
-        test_simd_op!(isa, {
-            let ops = isa.f32();
+    // Generate tests for operations available on all numeric types.
+    macro_rules! test_num_ops {
+        ($modname:ident, $elem:ident) => {
+            mod $modname {
+                use super::{assert_simd_eq, test_simd_op, Isa, Mask, Simd, SimdOp, SimdOps};
 
-            let x = ops.splat(1.);
-            let y = ops.splat(2.);
+                #[test]
+                fn test_load_store() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-            // Add
-            let expected = ops.splat(3.);
-            let actual = ops.add(x, y);
-            assert_simd_eq!(actual, expected);
+                        let src: Vec<_> = (0..ops.len() * 4).map(|x| x as $elem).collect();
+                        let mut dst = vec![0 as $elem; src.len()];
 
-            // Sub
-            let expected = ops.splat(-1.);
-            let actual = ops.sub(x, y);
-            assert_simd_eq!(actual, expected);
+                        for (src_chunk, dst_chunk) in
+                            src.chunks(ops.len()).zip(dst.chunks_mut(ops.len()))
+                        {
+                            let x = ops.load(src_chunk);
+                            ops.store(x, dst_chunk);
+                        }
 
-            // Mul
-            let expected = ops.splat(2.);
-            let actual = ops.mul(x, y);
-            assert_simd_eq!(actual, expected);
+                        assert_eq!(dst, src);
+                    })
+                }
 
-            // Div
-            let expected = ops.splat(0.5);
-            let actual = ops.div(x, y);
-            assert_simd_eq!(actual, expected);
-        })
-    }
+                #[test]
+                fn test_load_pad() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-    #[test]
-    fn test_mul_add_f32() {
-        test_simd_op!(isa, {
-            let ops = isa.f32();
+                        // Array which is shorter than vector length for all ISAs.
+                        let src = [0, 1, 2].map(|x| x as $elem);
 
-            let a = ops.splat(2.);
-            let b = ops.splat(3.);
-            let c = ops.splat(4.);
+                        let (vec, _mask) = ops.load_pad(&src);
+                        let vec_array = vec.to_array();
+                        let vec_slice = vec_array.as_ref();
 
-            let actual = ops.mul_add(a, b, c);
-            let expected = ops.splat((2. * 3.) + 4.);
+                        assert_eq!(&vec_slice[..src.len()], &src);
+                        for i in ops.len()..vec_slice.len() {
+                            assert_eq!(vec_array[i], 0 as $elem);
+                        }
+                    })
+                }
 
-            assert_simd_eq!(actual, expected);
-        })
-    }
+                #[test]
+                fn test_bin_ops() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-    #[test]
-    fn test_sum_f32() {
-        test_simd_op!(isa, {
-            let ops = isa.f32();
+                        let a: $elem = (1u8).into();
+                        let b: $elem = (2u8).into();
 
-            let vec: Vec<_> = (0..ops.len()).map(|x| x as f32).collect();
-            let expected = vec.iter().sum::<f32>();
+                        let x = ops.splat(a);
+                        let y = ops.splat(b);
 
-            let x = ops.load(&vec);
-            let y = ops.sum(x);
+                        // Add
+                        let expected = ops.splat(a + b);
+                        let actual = ops.add(x, y);
+                        assert_simd_eq!(actual, expected);
 
-            assert_eq!(y, expected);
-        })
-    }
+                        // Sub
+                        let expected = ops.splat(b - a);
+                        let actual = ops.sub(y, x);
+                        assert_simd_eq!(actual, expected);
 
-    #[test]
-    fn test_sum_i32() {
-        test_simd_op!(isa, {
-            let ops = isa.i32();
+                        // Mul
+                        let expected = ops.splat(a * b);
+                        let actual = ops.mul(x, y);
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
 
-            let vec: Vec<_> = (0..ops.len()).map(|x| x as i32).collect();
-            let expected = vec.iter().sum::<i32>();
+                #[test]
+                fn test_cmp_ops() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-            let x = ops.load(&vec);
-            let y = ops.sum(x);
+                        let x = ops.splat(1 as $elem);
+                        let y = ops.splat(2 as $elem);
 
-            assert_eq!(y, expected);
-        })
-    }
+                        assert!(ops.eq(x, x).all_true());
+                        assert!(ops.eq(x, y).all_false());
+                        assert!(ops.le(x, x).all_true());
+                        assert!(ops.le(x, y).all_true());
+                        assert!(ops.le(y, x).all_false());
+                        assert!(ops.ge(x, x).all_true());
+                        assert!(ops.ge(x, y).all_false());
+                        assert!(ops.gt(x, y).all_false());
+                        assert!(ops.gt(y, x).all_true());
+                    })
+                }
 
-    #[test]
-    fn test_cmp_ops_f32() {
-        test_simd_op!(isa, {
-            let ops = isa.f32();
+                #[test]
+                fn test_mul_add() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-            let x = ops.splat(1.);
-            let y = ops.splat(2.);
+                        let a = ops.splat(2 as $elem);
+                        let b = ops.splat(3 as $elem);
+                        let c = ops.splat(4 as $elem);
 
-            assert!(ops.eq(x, x).all_true());
-            assert!(ops.eq(x, y).all_false());
-            assert!(ops.le(x, x).all_true());
-            assert!(ops.le(x, y).all_true());
-            assert!(ops.le(y, x).all_false());
-            assert!(ops.ge(x, x).all_true());
-            assert!(ops.ge(x, y).all_false());
-            assert!(ops.gt(x, y).all_false());
-            assert!(ops.gt(y, x).all_true());
-        })
-    }
+                        let actual = ops.mul_add(a, b, c);
+                        let expected = ops.splat(((2. * 3.) + 4.) as $elem);
 
-    #[test]
-    fn test_unary_ops_f32() {
-        test_simd_op!(isa, {
-            let ops = isa.f32();
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
 
-            let x = ops.splat(3.);
+                #[test]
+                fn test_sum() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-            // Neg
-            let expected = ops.splat(-3.);
-            let actual = ops.neg(x);
-            assert_simd_eq!(actual, expected);
-        })
-    }
+                        let vec: Vec<_> = (0..ops.len()).map(|x| x as $elem).collect();
+                        let expected = vec.iter().sum::<$elem>();
 
-    #[test]
-    fn test_bin_ops_i32() {
-        test_simd_op!(isa, {
-            let ops = isa.i32();
+                        let x = ops.load(&vec);
+                        let y = ops.sum(x);
 
-            let x = ops.splat(1);
-            let y = ops.splat(2);
+                        assert_eq!(y, expected);
+                    })
+                }
 
-            // Add
-            let expected = ops.splat(3);
-            let actual = ops.add(x, y);
-            assert_simd_eq!(actual, expected);
+                #[test]
+                fn test_poly_eval() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-            // Sub
-            let expected = ops.splat(-1);
-            let actual = ops.sub(x, y);
-            assert_simd_eq!(actual, expected);
+                        let coeffs = [2, 3, 4].map(|x| x as $elem);
+                        let x = 2 as $elem;
+                        let y = ops.poly_eval(ops.splat(x), &coeffs.map(|c| ops.splat(c)));
 
-            // Mul
-            let expected = ops.splat(2);
-            let actual = ops.mul(x, y);
-            assert_simd_eq!(actual, expected);
-        })
-    }
-
-    #[test]
-    fn test_load_store() {
-        test_simd_op!(isa, {
-            let ops = isa.i32();
-
-            let src: Vec<_> = (0..ops.len() * 4).map(|x| x as i32).collect();
-            let mut dst = vec![0; src.len()];
-
-            for (src_chunk, dst_chunk) in src.chunks(ops.len()).zip(dst.chunks_mut(ops.len())) {
-                let x = ops.load(src_chunk);
-                ops.store(x, dst_chunk);
+                        let expected =
+                            (x * coeffs[0]) + (x * x * coeffs[1]) + (x * x * x * coeffs[2]);
+                        assert_simd_eq!(y, ops.splat(expected));
+                    })
+                }
             }
-
-            assert_eq!(dst, src);
-        })
+        };
     }
 
-    #[test]
-    fn test_load_pad() {
-        test_simd_op!(isa, {
-            let ops = isa.i32();
+    test_num_ops!(num_ops_f32, f32);
+    test_num_ops!(num_ops_i32, i32);
+    test_num_ops!(num_ops_i16, i16);
 
-            // Array which is shorter than vector length for all ISAs.
-            let src = [0, 1, 2];
+    // Generate tests for operations available on all float types.
+    macro_rules! test_float_ops {
+        ($modname:ident, $elem:ident, $int_elem:ident) => {
+            mod $modname {
+                use super::{
+                    assert_simd_eq, test_simd_op, Isa, Simd, SimdFloatOps, SimdOp, SimdOps,
+                };
 
-            let (vec, _mask) = ops.load_pad(&src);
-            let vec_array = vec.to_array();
-            let vec_slice = vec_array.as_ref();
+                #[test]
+                fn test_div() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-            assert_eq!(&vec_slice[..src.len()], &src);
-            for i in ops.len()..vec_slice.len() {
-                assert_eq!(vec_array[i], 0);
+                        let x = ops.splat(1.);
+                        let y = ops.splat(2.);
+                        let expected = ops.splat(0.5);
+                        let actual = ops.div(x, y);
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+
+                #[test]
+                fn test_reciprocal() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let vals = [-5., -2., 2., 5.];
+                        for v in vals {
+                            let x = ops.splat(v);
+                            let y = ops.reciprocal(x);
+                            let expected = ops.splat(1. / v);
+                            assert_simd_eq!(y, expected);
+                        }
+                    })
+                }
+
+                #[test]
+                fn test_abs() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let vals = [-1., 0., 1.];
+                        for v in vals {
+                            let x = ops.splat(v);
+                            let y = ops.abs(x);
+                            let expected = ops.splat(v.abs());
+                            assert_simd_eq!(y, expected);
+                        }
+                    })
+                }
+
+                #[test]
+                fn test_neg() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(3 as $elem);
+
+                        let expected = ops.splat(-3 as $elem);
+                        let actual = ops.neg(x);
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+
+                #[test]
+                fn test_to_int_trunc() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(12.345);
+                        let y = ops.to_int_trunc(x);
+                        let expected = isa.$int_elem().splat(12);
+                        assert_simd_eq!(y, expected);
+                    })
+                }
             }
-        })
+        };
     }
+
+    test_float_ops!(float_ops_f32, f32, i32);
+
+    // Generate tests for operations available on signed integer types.
+    macro_rules! test_int_ops {
+        ($modname:ident, $elem:ident) => {
+            mod $modname {
+                use super::{assert_simd_eq, test_simd_op, Isa, Simd, SimdIntOps, SimdOp, SimdOps};
+
+                #[test]
+                fn test_abs() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let vals = [-1, 0, 1];
+                        for v in vals {
+                            let x = ops.splat(v);
+                            let y = ops.abs(x);
+                            let expected = ops.splat(v.abs());
+                            assert_simd_eq!(y, expected);
+                        }
+                    })
+                }
+
+                #[test]
+                fn test_shl() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(42);
+                        let y = ops.shift_left::<1>(x);
+                        let expected = ops.splat(42 << 1);
+                        assert_simd_eq!(y, expected);
+                    })
+                }
+
+                #[test]
+                fn test_neg() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(3 as $elem);
+
+                        let expected = ops.splat(-3 as $elem);
+                        let actual = ops.neg(x);
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+            }
+        };
+    }
+
+    test_int_ops!(int_ops_i32, i32);
+    test_int_ops!(int_ops_i16, i16);
 
     macro_rules! test_mask_ops {
         ($type:ident) => {
@@ -590,37 +721,8 @@ mod test {
     }
 
     #[test]
-    fn test_cmp_ops_i32() {
-        test_simd_op!(isa, {
-            let ops = isa.i32();
-
-            let x = ops.splat(1);
-            let y = ops.splat(2);
-
-            assert!(ops.eq(x, x).all_true());
-            assert!(ops.eq(x, y).all_false());
-            assert!(ops.le(x, x).all_true());
-            assert!(ops.le(x, y).all_true());
-            assert!(ops.le(y, x).all_false());
-            assert!(ops.ge(x, x).all_true());
-            assert!(ops.ge(x, y).all_false());
-            assert!(ops.gt(x, y).all_false());
-            assert!(ops.gt(y, x).all_true());
-        })
-    }
-
-    #[test]
-    fn test_unary_ops_i32() {
-        test_simd_op!(isa, {
-            let ops = isa.i32();
-
-            let x = ops.splat(3);
-
-            // Add
-            let expected = ops.splat(-3);
-            let actual = ops.neg(x);
-            assert_simd_eq!(actual, expected);
-        })
+    fn test_mask_ops_i16() {
+        test_mask_ops!(i16);
     }
 
     #[test]
@@ -634,74 +736,6 @@ mod test {
 
             let expected = isa.i32().splat(x_i32);
             assert_simd_eq!(y_vec, expected);
-        })
-    }
-
-    #[test]
-    fn test_shl() {
-        test_simd_op!(isa, {
-            let ops = isa.i32();
-
-            let x = ops.splat(42);
-            let y = ops.shift_left::<1>(x);
-            let expected = isa.i32().splat(42 << 1);
-            assert_simd_eq!(y, expected);
-        })
-    }
-
-    #[test]
-    fn test_abs_f32() {
-        test_simd_op!(isa, {
-            let ops = isa.f32();
-
-            let vals = [-1., 0., 1.];
-            for v in vals {
-                let x = ops.splat(v);
-                let y = ops.abs(x);
-                let expected = ops.splat(v.abs());
-                assert_simd_eq!(y, expected);
-            }
-        })
-    }
-
-    #[test]
-    fn test_reciprocal_f32() {
-        test_simd_op!(isa, {
-            let ops = isa.f32();
-
-            let vals = [-5., -2., 2., 5.];
-            for v in vals {
-                let x = ops.splat(v);
-                let y = ops.reciprocal(x);
-                let expected = ops.splat(1. / v);
-                assert_simd_eq!(y, expected);
-            }
-        })
-    }
-
-    #[test]
-    fn test_poly_eval_f32() {
-        test_simd_op!(isa, {
-            let ops = isa.f32();
-
-            let coeffs = [2., 3., 4.];
-            let x = 0.567;
-            let y = ops.poly_eval(ops.splat(x), &coeffs.map(|c| ops.splat(c)));
-
-            let expected = (x * coeffs[0]) + (x * x * coeffs[1]) + (x * x * x * coeffs[2]);
-            assert_simd_eq!(y, ops.splat(expected));
-        })
-    }
-
-    #[test]
-    fn test_f32_to_i32_trunc() {
-        test_simd_op!(isa, {
-            let ops = isa.f32();
-
-            let x = ops.splat(12.345);
-            let y = ops.to_int_trunc(x);
-            let expected = isa.i32().splat(12);
-            assert_simd_eq!(y, expected);
         })
     }
 }

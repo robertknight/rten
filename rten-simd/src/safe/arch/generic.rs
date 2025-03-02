@@ -3,15 +3,20 @@ use std::mem::transmute;
 
 use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
-const LEN: usize = 4;
+// Size of SIMD vector in 32-bit lanes.
+const LEN_X32: usize = 4;
 
 #[repr(align(16))]
 #[derive(Copy, Clone, Debug)]
-pub struct I32x4([i32; LEN]);
+pub struct F32x4([f32; LEN_X32]);
 
 #[repr(align(16))]
 #[derive(Copy, Clone, Debug)]
-pub struct F32x4([f32; LEN]);
+pub struct I32x4([i32; LEN_X32]);
+
+#[repr(align(16))]
+#[derive(Copy, Clone, Debug)]
+pub struct I16x8([i16; LEN_X32 * 2]);
 
 #[derive(Copy, Clone)]
 pub struct GenericIsa {
@@ -34,6 +39,7 @@ impl Default for GenericIsa {
 unsafe impl Isa for GenericIsa {
     type F32 = F32x4;
     type I32 = I32x4;
+    type I16 = I16x8;
     type Bits = I32x4;
 
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
@@ -43,24 +49,28 @@ unsafe impl Isa for GenericIsa {
     fn i32(self) -> impl SimdIntOps<Self::I32> {
         self
     }
+
+    fn i16(self) -> impl SimdIntOps<Self::I16> {
+        self
+    }
 }
 
-macro_rules! simd_ops_x32_common {
-    ($simd:ident, $elem:ty) => {
+macro_rules! simd_ops_common {
+    ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
         #[inline]
-        fn mask_ops(self) -> impl MaskOps<I32x4> {
+        fn mask_ops(self) -> impl MaskOps<$mask> {
             self
         }
 
         #[inline]
         fn len(self) -> usize {
-            LEN
+            $len
         }
 
         #[inline]
-        fn first_n_mask(self, n: usize) -> <$simd as Simd>::Mask {
-            let mask: [i32; LEN] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
-            I32x4(mask)
+        fn first_n_mask(self, n: usize) -> $mask {
+            let mask = std::array::from_fn(|i| if i < n { !0 } else { 0 });
+            $mask(mask)
         }
 
         #[inline]
@@ -120,21 +130,21 @@ macro_rules! simd_ops_x32_common {
         }
 
         #[inline]
-        fn eq(self, x: $simd, y: $simd) -> I32x4 {
-            let xs = array::from_fn(|i| if x.0[i] == y.0[i] { -1 } else { 0 });
-            I32x4(xs)
+        fn eq(self, x: $simd, y: $simd) -> $mask {
+            let xs = array::from_fn(|i| if x.0[i] == y.0[i] { !0 } else { 0 });
+            $mask(xs)
         }
 
         #[inline]
-        fn ge(self, x: $simd, y: $simd) -> I32x4 {
-            let xs = array::from_fn(|i| if x.0[i] >= y.0[i] { -1 } else { 0 });
-            I32x4(xs)
+        fn ge(self, x: $simd, y: $simd) -> $mask {
+            let xs = array::from_fn(|i| if x.0[i] >= y.0[i] { !0 } else { 0 });
+            $mask(xs)
         }
 
         #[inline]
-        fn gt(self, x: $simd, y: $simd) -> I32x4 {
-            let xs = array::from_fn(|i| if x.0[i] > y.0[i] { -1 } else { 0 });
-            I32x4(xs)
+        fn gt(self, x: $simd, y: $simd) -> $mask {
+            let xs = array::from_fn(|i| if x.0[i] > y.0[i] { !0 } else { 0 });
+            $mask(xs)
         }
 
         #[inline]
@@ -151,7 +161,7 @@ macro_rules! simd_ops_x32_common {
 
         #[inline]
         fn splat(self, x: $elem) -> $simd {
-            $simd([x; LEN])
+            $simd([x; $len])
         }
 
         #[inline]
@@ -168,7 +178,7 @@ macro_rules! simd_ops_x32_common {
 
         #[inline]
         unsafe fn store_ptr(self, x: $simd, ptr: *mut $elem) {
-            for i in 0..LEN {
+            for i in 0..$len {
                 *ptr.add(i) = x.0[i];
             }
         }
@@ -176,7 +186,7 @@ macro_rules! simd_ops_x32_common {
 }
 
 unsafe impl SimdOps<F32x4> for GenericIsa {
-    simd_ops_x32_common!(F32x4, f32);
+    simd_ops_common!(F32x4, f32, 4, I32x4);
 }
 
 impl SimdFloatOps<F32x4> for GenericIsa {
@@ -205,81 +215,92 @@ impl SimdFloatOps<F32x4> for GenericIsa {
         let xs = array::from_fn(|i| x.0[i] as i32);
         I32x4(xs)
     }
-}
-
-unsafe impl SimdOps<I32x4> for GenericIsa {
-    simd_ops_x32_common!(I32x4, i32);
-}
-
-impl SimdIntOps<I32x4> for GenericIsa {
-    #[inline]
-    fn neg(self, x: I32x4) -> I32x4 {
-        let xs = array::from_fn(|i| -x.0[i]);
-        I32x4(xs)
-    }
 
     #[inline]
-    fn shift_left<const SHIFT: i32>(self, x: I32x4) -> I32x4 {
-        let xs = array::from_fn(|i| x.0[i] << SHIFT);
+    fn to_int_round(self, x: F32x4) -> Self::Int {
+        let xs = array::from_fn(|i| x.0[i].round_ties_even() as i32);
         I32x4(xs)
     }
 }
 
-impl Mask for I32x4 {
-    type Array = [bool; LEN];
-
-    #[inline]
-    fn to_array(self) -> Self::Array {
-        let array = self.0;
-        std::array::from_fn(|i| array[i] != 0)
-    }
-}
-
-unsafe impl MaskOps<I32x4> for GenericIsa {
-    #[inline]
-    fn and(self, x: I32x4, y: I32x4) -> I32x4 {
-        I32x4(array::from_fn(|i| x.0[i] & y.0[i]))
-    }
-}
-
-macro_rules! simd_x32_common {
-    ($simd:ty, $elem:ty) => {
-        type Array = [$elem; LEN];
-        type Mask = I32x4;
-        type Isa = GenericIsa;
-
-        #[inline]
-        fn to_bits(self) -> <Self::Isa as Isa>::Bits {
-            #[allow(clippy::useless_transmute)]
-            I32x4(unsafe { transmute::<[$elem; LEN], [i32; LEN]>(self.0) })
+macro_rules! impl_simd_int_ops {
+    ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
+        unsafe impl SimdOps<$simd> for GenericIsa {
+            simd_ops_common!($simd, $elem, $len, $mask);
         }
 
-        #[inline]
-        fn from_bits(bits: <Self::Isa as Isa>::Bits) -> Self {
-            #[allow(clippy::useless_transmute)]
-            Self(unsafe { transmute::<[i32; LEN], [$elem; LEN]>(bits.0) })
+        impl SimdIntOps<$simd> for GenericIsa {
+            #[inline]
+            fn neg(self, x: $simd) -> $simd {
+                let xs = array::from_fn(|i| -x.0[i]);
+                $simd(xs)
+            }
+
+            #[inline]
+            fn shift_left<const SHIFT: i32>(self, x: $simd) -> $simd {
+                let xs = array::from_fn(|i| x.0[i] << SHIFT);
+                $simd(xs)
+            }
         }
     };
 }
 
-impl Simd for F32x4 {
-    type Elem = f32;
+impl_simd_int_ops!(I32x4, i32, 4, I32x4);
+impl_simd_int_ops!(I16x8, i16, 8, I16x8);
 
-    simd_x32_common!(F32x4, f32);
+macro_rules! impl_mask {
+    ($mask:ident, $len:expr) => {
+        impl Mask for $mask {
+            type Array = [bool; $len];
 
-    #[inline]
-    fn to_array(self) -> Self::Array {
-        self.0
-    }
+            #[inline]
+            fn to_array(self) -> Self::Array {
+                let array = self.0;
+                array::from_fn(|i| array[i] != 0)
+            }
+        }
+
+        unsafe impl MaskOps<$mask> for GenericIsa {
+            #[inline]
+            fn and(self, x: $mask, y: $mask) -> $mask {
+                let xs = array::from_fn(|i| x.0[i] & y.0[i]);
+                $mask(xs)
+            }
+        }
+    };
 }
 
-impl Simd for I32x4 {
-    type Elem = i32;
+impl_mask!(I32x4, LEN_X32);
+impl_mask!(I16x8, LEN_X32 * 2);
 
-    simd_x32_common!(I32x4, i32);
+macro_rules! impl_simd {
+    ($simd:ty, $elem:ty, $mask:ty, $len:expr) => {
+        impl Simd for $simd {
+            type Mask = $mask;
+            type Elem = $elem;
+            type Array = [$elem; $len];
+            type Isa = GenericIsa;
 
-    #[inline]
-    fn to_array(self) -> Self::Array {
-        self.0
-    }
+            #[inline]
+            fn to_bits(self) -> <Self::Isa as Isa>::Bits {
+                #[allow(clippy::useless_transmute)]
+                I32x4(unsafe { transmute::<[$elem; $len], [i32; LEN_X32]>(self.0) })
+            }
+
+            #[inline]
+            fn from_bits(bits: <Self::Isa as Isa>::Bits) -> Self {
+                #[allow(clippy::useless_transmute)]
+                Self(unsafe { transmute::<[i32; LEN_X32], [$elem; $len]>(bits.0) })
+            }
+
+            #[inline]
+            fn to_array(self) -> Self::Array {
+                self.0
+            }
+        }
+    };
 }
+
+impl_simd!(F32x4, f32, I32x4, 4);
+impl_simd!(I32x4, i32, I32x4, 4);
+impl_simd!(I16x8, i16, I16x8, 8);
