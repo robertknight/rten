@@ -9,9 +9,9 @@ pub struct Tanh {}
 
 impl SimdUnaryOp<f32> for Tanh {
     #[inline(always)]
-    fn eval<I: Isa>(&self, isa: I, x: I::Bits) -> I::Bits {
+    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
         let ops = isa.f32();
-        let x = I::F32::from_bits(x);
+        let x = x.same_cast();
 
         let x_negative = ops.le(x, ops.zero());
         let abs_x = ops.abs(x);
@@ -60,7 +60,7 @@ impl SimdUnaryOp<f32> for Tanh {
         let y = ops.select(abs_x, y, x_tiny);
 
         // Flip sign if input was negative.
-        ops.select(ops.neg(y), y, x_negative).to_bits()
+        ops.select(ops.neg(y), y, x_negative).same_cast()
     }
 }
 
