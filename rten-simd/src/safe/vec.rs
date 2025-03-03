@@ -240,6 +240,31 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
     /// Return a mask with the first `n` lanes set to true.
     fn first_n_mask(self, n: usize) -> S::Mask;
 
+    /// Load the first `self.len()` elements from a slice into a vector.
+    ///
+    /// Panics if `xs.len() < self.len()`.
+    #[inline]
+    fn load(self, xs: &[S::Elem]) -> S {
+        assert!(xs.len() >= self.len());
+        unsafe { self.load_ptr(xs.as_ptr()) }
+    }
+
+    /// Load elements from `xs` into a vector.
+    ///
+    /// If the vector length exceeds `xs.len()`, the tail is padded with zeros.
+    ///
+    /// Returns the padded vector and a mask of the lanes which were set.
+    #[inline]
+    fn load_pad(self, xs: &[S::Elem]) -> (S, S::Mask) {
+        let n = xs.len().min(self.len());
+        let mask = self.first_n_mask(n);
+
+        // Safety: `xs.add(i)` is valid for all positions where mask is set
+        let vec = unsafe { self.load_ptr_mask(xs.as_ptr(), mask) };
+
+        (vec, mask)
+    }
+
     /// Load vector of elements from `ptr`.
     ///
     /// `ptr` is not required to have any particular alignment.
@@ -271,6 +296,13 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
     ///
     /// `ptr` must point to `self.len()` elements.
     unsafe fn store_ptr(self, x: S, ptr: *mut S::Elem);
+
+    /// Store `x` into the first `self.len()` elements of `xs`.
+    #[inline]
+    fn store(self, x: S, xs: &mut [S::Elem]) {
+        assert!(xs.len() >= self.len());
+        unsafe { self.store_ptr(x, xs.as_mut_ptr()) }
+    }
 
     /// Store the values in this vector to a memory location, where the
     /// corresponding mask element is set.
@@ -431,6 +463,42 @@ mod test {
             let expected = ops.splat(2);
             let actual = ops.mul(x, y);
             assert_simd_eq!(actual, expected);
+        })
+    }
+
+    #[test]
+    fn test_load_store() {
+        test_simd_op!(isa, {
+            let ops = isa.i32();
+
+            let src: Vec<_> = (0..ops.len() * 4).map(|x| x as i32).collect();
+            let mut dst = vec![0; src.len()];
+
+            for (src_chunk, dst_chunk) in src.chunks(ops.len()).zip(dst.chunks_mut(ops.len())) {
+                let x = ops.load(src_chunk);
+                ops.store(x, dst_chunk);
+            }
+
+            assert_eq!(dst, src);
+        })
+    }
+
+    #[test]
+    fn test_load_pad() {
+        test_simd_op!(isa, {
+            let ops = isa.i32();
+
+            // Array which is shorter than vector length for all ISAs.
+            let src = [0, 1, 2];
+
+            let (vec, _mask) = ops.load_pad(&src);
+            let vec_array = vec.to_array();
+            let vec_slice = vec_array.as_ref();
+
+            assert_eq!(&vec_slice[..src.len()], &src);
+            for i in ops.len()..vec_slice.len() {
+                assert_eq!(vec_array[i], 0);
+            }
         })
     }
 

@@ -112,13 +112,7 @@ impl<'a, S: Simd, O: SimdOps<S>> Iter<'a, S, O> {
     pub fn tail(&self) -> Option<(S, S::Mask)> {
         let n = self.xs.len();
         if n > 0 {
-            let mask = self.ops.first_n_mask(n);
-
-            // Safety: `xs.add(i)` points to a valid element for all enabled
-            // mask lanes.
-            let x = unsafe { self.ops.load_ptr_mask(self.xs.as_ptr(), mask) };
-
-            Some((x, mask))
+            Some(self.ops.load_pad(self.xs))
         } else {
             None
         }
