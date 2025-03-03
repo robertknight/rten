@@ -126,7 +126,8 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
             (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
         };
 
-        let gemm = GemmDispatch::<float32x4_t, MR, NR_REGS>::new(
+        let gemm = GemmDispatch::<_, MR, NR_REGS>::new(
+            self.isa,
             dest_ptr,
             dest_row_stride,
             a,
@@ -169,10 +170,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         _a_quant: Option<QuantParams<f32>>,
         _b_quant: Option<QuantParams<f32>>,
     ) {
-        // Safety - float32x4_t is supported if this kernel was constructed.
-        unsafe {
-            simd_gemv::<float32x4_t, 4>(out, a, b, alpha, beta);
-        }
+        simd_gemv::<_, 4>(self.isa, out, a, b, alpha, beta);
     }
 }
 

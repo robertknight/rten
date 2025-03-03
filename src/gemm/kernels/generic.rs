@@ -122,7 +122,7 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
     ) {
         const MR: usize = GenericKernel::MR;
         const NR: usize = GenericKernel::NR;
-        const NR_REGS: usize = vec_count::<f32>(NR).unwrap();
+        const NR_REGS: usize = NR / 4;
 
         let b = cast_pod_slice(b).unwrap();
         let mut tmp_tile = TempTile::<f32, MR, NR>::new();
@@ -132,7 +132,8 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
             (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
         };
 
-        let gemm = GemmDispatch::<f32, MR, NR_REGS>::new(
+        let gemm = GemmDispatch::<_, MR, NR_REGS>::new(
+            self.isa,
             dest_ptr,
             dest_row_stride,
             a,
@@ -175,10 +176,7 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         _a_quant: Option<QuantParams<f32>>,
         _b_quant: Option<QuantParams<f32>>,
     ) {
-        // Safety - f32 "SIMD" type is always supported
-        unsafe {
-            simd_gemv::<f32, 4>(out, a, b, alpha, beta);
-        }
+        simd_gemv::<_, 1>(self.isa, out, a, b, alpha, beta);
     }
 }
 
