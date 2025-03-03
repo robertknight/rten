@@ -136,12 +136,10 @@ impl<T: Copy + Default> Im2Col<'_, T> {
         let mut out_offset = 0;
 
         for start_col in (0..col_y_offsets.len()).step_by(ops.len() * NR_REGS) {
-            let col_y_offset: [I::I32; NR_REGS] = std::array::from_fn(|i| unsafe {
-                ops.load_ptr(col_y_offsets.as_ptr().add(start_col + ops.len() * i))
-            });
-            let col_x_offset: [I::I32; NR_REGS] = std::array::from_fn(|i| unsafe {
-                ops.load_ptr(col_x_offsets.as_ptr().add(start_col + ops.len() * i))
-            });
+            let col_y_offset: [I::I32; NR_REGS] =
+                std::array::from_fn(|i| ops.load(&col_y_offsets[start_col + ops.len() * i..]));
+            let col_x_offset: [I::I32; NR_REGS] =
+                std::array::from_fn(|i| ops.load(&col_x_offsets[start_col + ops.len() * i..]));
             let max_x_offset = ops.splat(self.max_x_offset);
             let max_y_offset = ops.splat(self.max_y_offset);
 
@@ -279,12 +277,10 @@ impl Im2Col<'_, i8> {
         let mut out_offset = 0;
 
         for start_col in cols.step_by(ops.len() * NR_REGS) {
-            let col_y_offset: [I::I32; NR_REGS] = std::array::from_fn(|i| unsafe {
-                ops.load_ptr(col_y_offsets.get_unchecked(start_col + i * ops.len()))
-            });
-            let col_x_offset: [I::I32; NR_REGS] = std::array::from_fn(|i| unsafe {
-                ops.load_ptr(col_x_offsets.get_unchecked(start_col + i * ops.len()))
-            });
+            let col_y_offset: [I::I32; NR_REGS] =
+                std::array::from_fn(|i| ops.load(&col_y_offsets[start_col + i * ops.len()..]));
+            let col_x_offset: [I::I32; NR_REGS] =
+                std::array::from_fn(|i| ops.load(&col_x_offsets[start_col + i * ops.len()..]));
             let zero = ops.zero();
 
             let mut col_sums = [ops.zero().to_array(); NR_REGS];
