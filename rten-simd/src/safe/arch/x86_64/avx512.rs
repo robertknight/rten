@@ -3,10 +3,11 @@ use std::arch::x86_64::{
     _mm512_cmp_epi32_mask, _mm512_cmp_ps_mask, _mm512_cvttps_epi32, _mm512_div_ps, _mm512_fmadd_ps,
     _mm512_loadu_ps, _mm512_loadu_si512, _mm512_mask_blend_epi32, _mm512_mask_blend_ps,
     _mm512_mask_loadu_epi32, _mm512_mask_loadu_ps, _mm512_mask_storeu_epi32, _mm512_mask_storeu_ps,
-    _mm512_max_ps, _mm512_min_ps, _mm512_mul_ps, _mm512_mullo_epi32, _mm512_set1_epi32,
-    _mm512_set1_ps, _mm512_setzero_si512, _mm512_sllv_epi32, _mm512_storeu_ps, _mm512_storeu_si512,
-    _mm512_sub_epi32, _mm512_sub_ps, _mm512_xor_ps, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ,
-    _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_LE, _MM_CMPINT_LT,
+    _mm512_max_ps, _mm512_min_ps, _mm512_mul_ps, _mm512_mullo_epi32, _mm512_reduce_add_ps,
+    _mm512_set1_epi32, _mm512_set1_ps, _mm512_setzero_si512, _mm512_sllv_epi32, _mm512_storeu_ps,
+    _mm512_storeu_si512, _mm512_sub_epi32, _mm512_sub_ps, _mm512_xor_ps, _mm_prefetch, _CMP_EQ_OQ,
+    _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_LE, _MM_CMPINT_LT,
+    _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::mem::transmute;
 
@@ -61,6 +62,16 @@ macro_rules! simd_ops_x32_common {
                 mask |= 1 << i;
             }
             mask
+        }
+
+        #[inline]
+        fn prefetch(self, ptr: *const <$simd as Simd>::Elem) {
+            unsafe { _mm_prefetch(ptr as *const i8, _MM_HINT_T0) }
+        }
+
+        #[inline]
+        fn prefetch_write(self, ptr: *mut <$simd as Simd>::Elem) {
+            unsafe { _mm_prefetch(ptr as *const i8, _MM_HINT_ET0) }
         }
     };
 }
@@ -151,6 +162,11 @@ unsafe impl SimdOps<__m512> for Avx512Isa {
     #[inline]
     unsafe fn store_ptr(self, x: __m512, ptr: *mut f32) {
         unsafe { _mm512_storeu_ps(ptr, x) }
+    }
+
+    #[inline]
+    fn sum(self, x: __m512) -> f32 {
+        unsafe { _mm512_reduce_add_ps(x) }
     }
 }
 

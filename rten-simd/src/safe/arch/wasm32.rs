@@ -1,8 +1,9 @@
 use std::arch::wasm32::{
-    f32x4_abs, f32x4_add, f32x4_div, f32x4_eq, f32x4_ge, f32x4_gt, f32x4_le, f32x4_lt, f32x4_max,
-    f32x4_min, f32x4_mul, f32x4_neg, f32x4_splat, f32x4_sub, i32x4_add, i32x4_eq, i32x4_ge,
-    i32x4_gt, i32x4_le, i32x4_lt, i32x4_mul, i32x4_neg, i32x4_shl, i32x4_splat, i32x4_sub,
-    i32x4_trunc_sat_f32x4, v128, v128_and, v128_bitselect, v128_load, v128_store,
+    f32x4_abs, f32x4_add, f32x4_div, f32x4_eq, f32x4_extract_lane, f32x4_ge, f32x4_gt, f32x4_le,
+    f32x4_lt, f32x4_max, f32x4_min, f32x4_mul, f32x4_neg, f32x4_splat, f32x4_sub, i32x4_add,
+    i32x4_eq, i32x4_ge, i32x4_gt, i32x4_le, i32x4_lt, i32x4_mul, i32x4_neg, i32x4_shl,
+    i32x4_shuffle, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_and, v128_bitselect,
+    v128_load, v128_store,
 };
 use std::mem::transmute;
 
@@ -174,6 +175,18 @@ unsafe impl SimdOps<F32x4> for Wasm32Isa {
     #[inline]
     unsafe fn store_ptr(self, x: F32x4, ptr: *mut f32) {
         unsafe { v128_store(ptr as *mut v128, x.0) }
+    }
+
+    #[inline]
+    fn sum(self, x: F32x4) -> f32 {
+        // See https://github.com/WebAssembly/simd/issues/20.
+        let lo_2 = x.0;
+        let hi_2 = i32x4_shuffle::<2, 3, 0, 0>(x.0, x.0);
+        let sum_2 = f32x4_add(lo_2, hi_2);
+        let lo = sum_2;
+        let hi = i32x4_shuffle::<1, 0, 0, 0>(sum_2, sum_2);
+        let sum = f32x4_add(lo, hi);
+        f32x4_extract_lane::<0>(sum)
     }
 }
 
