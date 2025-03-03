@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 /// Types used as elements (or _lanes_) of SIMD vectors.
-pub trait Elem: Copy + Default {
+pub trait Elem: Copy + Default + std::ops::Add<Output = Self> {
     /// Return the 1 value of this type.
     fn one() -> Self;
 }
@@ -312,6 +312,25 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
     /// For each position `i` in the mask which is true, `ptr.add(i)` must point
     /// to a valid element of type `Self::Elem`.
     unsafe fn store_ptr_mask(self, x: S, ptr: *mut S::Elem, mask: S::Mask);
+
+    fn prefetch(self, ptr: *const S::Elem) {
+        // Default implementation does nothing
+        let _ = ptr;
+    }
+
+    fn prefetch_write(self, ptr: *mut S::Elem) {
+        // Default implementation does nothing
+        let _ = ptr;
+    }
+
+    /// Horizontally sum the elements in a vector.
+    fn sum(self, x: S) -> S::Elem {
+        let mut sum = S::Elem::default();
+        for elem in x.to_array() {
+            sum = sum + elem;
+        }
+        sum
+    }
 }
 
 /// Extends [`SimdOps`] with operations available on SIMD vectors with float
@@ -404,6 +423,36 @@ mod test {
             let expected = ops.splat((2. * 3.) + 4.);
 
             assert_simd_eq!(actual, expected);
+        })
+    }
+
+    #[test]
+    fn test_sum_f32() {
+        test_simd_op!(isa, {
+            let ops = isa.f32();
+
+            let vec: Vec<_> = (0..ops.len()).map(|x| x as f32).collect();
+            let expected = vec.iter().sum::<f32>();
+
+            let x = ops.load(&vec);
+            let y = ops.sum(x);
+
+            assert_eq!(y, expected);
+        })
+    }
+
+    #[test]
+    fn test_sum_i32() {
+        test_simd_op!(isa, {
+            let ops = isa.i32();
+
+            let vec: Vec<_> = (0..ops.len()).map(|x| x as i32).collect();
+            let expected = vec.iter().sum::<i32>();
+
+            let x = ops.load(&vec);
+            let y = ops.sum(x);
+
+            assert_eq!(y, expected);
         })
     }
 

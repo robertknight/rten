@@ -129,7 +129,8 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
             (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
         };
 
-        let gemm = GemmDispatch::<v128f, MR, NR_REGS>::new(
+        let gemm = GemmDispatch::<_, MR, NR_REGS>::new(
+            self.isa,
             dest_ptr,
             dest_row_stride,
             a,
@@ -172,10 +173,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
         _a_quant: Option<QuantParams<f32>>,
         _b_quant: Option<QuantParams<f32>>,
     ) {
-        // Safety - WASM SIMD types are supported if this kernel was constructed.
-        unsafe {
-            simd_gemv::<v128f, 4>(out, a, b, alpha, beta);
-        }
+        simd_gemv::<_, 4>(self.isa, out, a, b, alpha, beta);
     }
 }
 

@@ -185,7 +185,8 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
             (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
         };
 
-        let gemm = GemmDispatch::<__m256, MR, NR_REGS>::new(
+        let gemm = GemmDispatch::<_, MR, NR_REGS>::new(
+            self.isa,
             dest_ptr,
             dest_row_stride,
             a,
@@ -229,17 +230,18 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         #[target_feature(enable = "avx2")]
         #[target_feature(enable = "fma")]
         unsafe fn gemv_kernel_impl(
+            isa: Avx2Isa,
             out: &mut [MaybeUninit<f32>],
             a: &[f32],
             b: Matrix,
             alpha: f32,
             beta: f32,
         ) {
-            simd_gemv::<__m256, 4>(out, a, b, alpha, beta);
+            simd_gemv::<_, 4>(isa, out, a, b, alpha, beta);
         }
         // Safety: Kernel can only be constructed if supported.
         unsafe {
-            gemv_kernel_impl(out, a, b, alpha, beta);
+            gemv_kernel_impl(self.isa, out, a, b, alpha, beta);
         }
     }
 }
@@ -394,7 +396,8 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
             (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
         };
 
-        let gemm = GemmDispatch::<__m512, MR, NR_REGS>::new(
+        let gemm = GemmDispatch::<_, MR, NR_REGS>::new(
+            self.isa,
             dest_ptr,
             dest_row_stride,
             a,
@@ -438,17 +441,18 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         #[target_feature(enable = "avx512f")]
         #[target_feature(enable = "avx512vl")]
         unsafe fn gemv_kernel_impl(
+            isa: Avx512Isa,
             out: &mut [MaybeUninit<f32>],
             a: &[f32],
             b: Matrix,
             alpha: f32,
             beta: f32,
         ) {
-            simd_gemv::<__m512, 2>(out, a, b, alpha, beta);
+            simd_gemv::<_, 2>(isa, out, a, b, alpha, beta);
         }
         // Safety: Kernel can only be constructed if supported.
         unsafe {
-            gemv_kernel_impl(out, a, b, alpha, beta);
+            gemv_kernel_impl(self.isa, out, a, b, alpha, beta);
         }
     }
 }

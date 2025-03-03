@@ -1,12 +1,14 @@
 use std::arch::x86_64::{
     __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_and_ps, _mm256_and_si256,
-    _mm256_andnot_ps, _mm256_blendv_epi8, _mm256_blendv_ps, _mm256_cmp_ps, _mm256_cmpeq_epi32,
-    _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps, _mm256_fmadd_ps, _mm256_loadu_ps,
-    _mm256_loadu_si256, _mm256_maskload_epi32, _mm256_maskload_ps, _mm256_maskstore_epi32,
-    _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps, _mm256_mul_ps, _mm256_mullo_epi32,
-    _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setzero_si256, _mm256_slli_epi32,
-    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps, _mm256_xor_ps,
-    _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ,
+    _mm256_andnot_ps, _mm256_blendv_epi8, _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_cmp_ps,
+    _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
+    _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256,
+    _mm256_maskload_epi32, _mm256_maskload_ps, _mm256_maskstore_epi32, _mm256_maskstore_ps,
+    _mm256_max_ps, _mm256_min_ps, _mm256_mul_ps, _mm256_mullo_epi32, _mm256_or_si256,
+    _mm256_set1_epi32, _mm256_set1_ps, _mm256_setzero_si256, _mm256_slli_epi32, _mm256_storeu_ps,
+    _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps, _mm256_xor_ps, _mm_add_ps, _mm_cvtss_f32,
+    _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ,
+    _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
@@ -53,6 +55,16 @@ macro_rules! simd_ops_x32_common {
         #[inline]
         fn mask_ops(self) -> impl MaskOps<$mask> {
             self
+        }
+
+        #[inline]
+        fn prefetch(self, ptr: *const <$simd as Simd>::Elem) {
+            unsafe { _mm_prefetch(ptr as *const i8, _MM_HINT_T0) }
+        }
+
+        #[inline]
+        fn prefetch_write(self, ptr: *mut <$simd as Simd>::Elem) {
+            unsafe { _mm_prefetch(ptr as *const i8, _MM_HINT_ET0) }
         }
     };
 }
@@ -149,6 +161,23 @@ unsafe impl SimdOps<__m256> for Avx2Isa {
     #[inline]
     unsafe fn store_ptr(self, x: __m256, ptr: *mut f32) {
         unsafe { _mm256_storeu_ps(ptr, x) }
+    }
+
+    #[inline]
+    fn sum(self, x: __m256) -> f32 {
+        // See https://stackoverflow.com/a/13222410/434243
+        unsafe {
+            let hi_4 = _mm256_extractf128_ps(x, 1);
+            let lo_4 = _mm256_castps256_ps128(x);
+            let sum_4 = _mm_add_ps(lo_4, hi_4);
+            let lo_2 = sum_4;
+            let hi_2 = _mm_movehl_ps(sum_4, sum_4);
+            let sum_2 = _mm_add_ps(lo_2, hi_2);
+            let lo = sum_2;
+            let hi = _mm_shuffle_ps(sum_2, sum_2, 0x1);
+            let sum = _mm_add_ps(lo, hi);
+            _mm_cvtss_f32(sum)
+        }
     }
 }
 
