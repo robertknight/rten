@@ -13,6 +13,22 @@ use std::mem::transmute;
 
 use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
+macro_rules! simd_wrapper {
+    ($type:ident, $inner:ty) => {
+        #[derive(Copy, Clone, Debug)]
+        #[repr(transparent)]
+        pub struct $type($inner);
+
+        impl From<$inner> for $type {
+            fn from(val: $inner) -> Self {
+                Self(val)
+            }
+        }
+    };
+}
+simd_wrapper!(F32x16, __m512);
+simd_wrapper!(I32x16, __m512i);
+
 #[derive(Copy, Clone)]
 pub struct Avx512Isa {
     _private: (),
@@ -30,9 +46,9 @@ impl Avx512Isa {
 
 // Safety: AVX-512 is supported as `Avx512Isa::new` checks this.
 unsafe impl Isa for Avx512Isa {
-    type F32 = __m512;
-    type I32 = __m512i;
-    type Bits = __m512i;
+    type F32 = F32x16;
+    type I32 = I32x16;
+    type Bits = I32x16;
 
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
         self
@@ -43,11 +59,11 @@ unsafe impl Isa for Avx512Isa {
     }
 }
 
-macro_rules! simd_ops_x32_common {
+macro_rules! simd_ops_common {
     ($simd:ty, $mask:ty) => {
         #[inline]
         fn len(self) -> usize {
-            16
+            size_of::<$simd>() / size_of::<<$simd as Simd>::Elem>()
         }
 
         #[inline]
@@ -56,7 +72,7 @@ macro_rules! simd_ops_x32_common {
         }
 
         #[inline]
-        fn first_n_mask(self, n: usize) -> __mmask16 {
+        fn first_n_mask(self, n: usize) -> $mask {
             let mut mask = 0;
             for i in 0..n {
                 mask |= 1 << i;
@@ -76,208 +92,208 @@ macro_rules! simd_ops_x32_common {
     };
 }
 
-unsafe impl SimdOps<__m512> for Avx512Isa {
-    simd_ops_x32_common!(__m512, __mmask16);
+unsafe impl SimdOps<F32x16> for Avx512Isa {
+    simd_ops_common!(F32x16, __mmask16);
 
     #[inline]
-    fn add(self, x: __m512, y: __m512) -> __m512 {
-        unsafe { _mm512_add_ps(x, y) }
+    fn add(self, x: F32x16, y: F32x16) -> F32x16 {
+        unsafe { _mm512_add_ps(x.0, y.0) }.into()
     }
 
     #[inline]
-    fn sub(self, x: __m512, y: __m512) -> __m512 {
-        unsafe { _mm512_sub_ps(x, y) }
+    fn sub(self, x: F32x16, y: F32x16) -> F32x16 {
+        unsafe { _mm512_sub_ps(x.0, y.0) }.into()
     }
 
     #[inline]
-    fn mul(self, x: __m512, y: __m512) -> __m512 {
-        unsafe { _mm512_mul_ps(x, y) }
+    fn mul(self, x: F32x16, y: F32x16) -> F32x16 {
+        unsafe { _mm512_mul_ps(x.0, y.0) }.into()
     }
 
     #[inline]
-    fn mul_add(self, a: __m512, b: __m512, c: __m512) -> __m512 {
-        unsafe { _mm512_fmadd_ps(a, b, c) }
+    fn mul_add(self, a: F32x16, b: F32x16, c: F32x16) -> F32x16 {
+        unsafe { _mm512_fmadd_ps(a.0, b.0, c.0) }.into()
     }
 
     #[inline]
-    fn lt(self, x: __m512, y: __m512) -> __mmask16 {
-        unsafe { _mm512_cmp_ps_mask(x, y, _CMP_LT_OQ) }
+    fn lt(self, x: F32x16, y: F32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_ps_mask(x.0, y.0, _CMP_LT_OQ) }
     }
 
     #[inline]
-    fn le(self, x: __m512, y: __m512) -> __mmask16 {
-        unsafe { _mm512_cmp_ps_mask(x, y, _CMP_LE_OQ) }
+    fn le(self, x: F32x16, y: F32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_ps_mask(x.0, y.0, _CMP_LE_OQ) }
     }
 
     #[inline]
-    fn eq(self, x: __m512, y: __m512) -> __mmask16 {
-        unsafe { _mm512_cmp_ps_mask(x, y, _CMP_EQ_OQ) }
+    fn eq(self, x: F32x16, y: F32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_ps_mask(x.0, y.0, _CMP_EQ_OQ) }
     }
 
     #[inline]
-    fn ge(self, x: __m512, y: __m512) -> __mmask16 {
-        unsafe { _mm512_cmp_ps_mask(x, y, _CMP_GE_OQ) }
+    fn ge(self, x: F32x16, y: F32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_ps_mask(x.0, y.0, _CMP_GE_OQ) }
     }
 
     #[inline]
-    fn gt(self, x: __m512, y: __m512) -> __mmask16 {
-        unsafe { _mm512_cmp_ps_mask(x, y, _CMP_GT_OQ) }
+    fn gt(self, x: F32x16, y: F32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_ps_mask(x.0, y.0, _CMP_GT_OQ) }
     }
 
     #[inline]
-    fn min(self, x: __m512, y: __m512) -> __m512 {
-        unsafe { _mm512_min_ps(x, y) }
+    fn min(self, x: F32x16, y: F32x16) -> F32x16 {
+        unsafe { _mm512_min_ps(x.0, y.0) }.into()
     }
 
     #[inline]
-    fn max(self, x: __m512, y: __m512) -> __m512 {
-        unsafe { _mm512_max_ps(x, y) }
+    fn max(self, x: F32x16, y: F32x16) -> F32x16 {
+        unsafe { _mm512_max_ps(x.0, y.0) }.into()
     }
 
     #[inline]
-    fn splat(self, x: f32) -> __m512 {
-        unsafe { _mm512_set1_ps(x) }
+    fn splat(self, x: f32) -> F32x16 {
+        unsafe { _mm512_set1_ps(x) }.into()
     }
 
     #[inline]
-    unsafe fn load_ptr(self, ptr: *const f32) -> __m512 {
-        unsafe { _mm512_loadu_ps(ptr) }
+    unsafe fn load_ptr(self, ptr: *const f32) -> F32x16 {
+        unsafe { _mm512_loadu_ps(ptr) }.into()
     }
 
     #[inline]
-    fn select(self, x: __m512, y: __m512, mask: <__m512 as Simd>::Mask) -> __m512 {
-        unsafe { _mm512_mask_blend_ps(mask, y, x) }
+    fn select(self, x: F32x16, y: F32x16, mask: <F32x16 as Simd>::Mask) -> F32x16 {
+        unsafe { _mm512_mask_blend_ps(mask, y.0, x.0) }.into()
     }
 
     #[inline]
-    unsafe fn load_ptr_mask(self, ptr: *const f32, mask: __mmask16) -> __m512 {
-        unsafe { _mm512_mask_loadu_ps(self.zero(), mask, ptr) }
+    unsafe fn load_ptr_mask(self, ptr: *const f32, mask: __mmask16) -> F32x16 {
+        unsafe { _mm512_mask_loadu_ps(_mm512_set1_ps(0.), mask, ptr) }.into()
     }
 
     #[inline]
-    unsafe fn store_ptr_mask(self, x: __m512, ptr: *mut f32, mask: __mmask16) {
-        unsafe { _mm512_mask_storeu_ps(ptr, mask, x) }
+    unsafe fn store_ptr_mask(self, x: F32x16, ptr: *mut f32, mask: __mmask16) {
+        unsafe { _mm512_mask_storeu_ps(ptr, mask, x.0) }
     }
 
     #[inline]
-    unsafe fn store_ptr(self, x: __m512, ptr: *mut f32) {
-        unsafe { _mm512_storeu_ps(ptr, x) }
+    unsafe fn store_ptr(self, x: F32x16, ptr: *mut f32) {
+        unsafe { _mm512_storeu_ps(ptr, x.0) }
     }
 
     #[inline]
-    fn sum(self, x: __m512) -> f32 {
-        unsafe { _mm512_reduce_add_ps(x) }
+    fn sum(self, x: F32x16) -> f32 {
+        unsafe { _mm512_reduce_add_ps(x.0) }
     }
 }
 
-impl SimdFloatOps<__m512> for Avx512Isa {
+impl SimdFloatOps<F32x16> for Avx512Isa {
     type Int = <Self as Isa>::I32;
 
     #[inline]
-    fn div(self, x: __m512, y: __m512) -> __m512 {
-        unsafe { _mm512_div_ps(x, y) }
+    fn div(self, x: F32x16, y: F32x16) -> F32x16 {
+        unsafe { _mm512_div_ps(x.0, y.0) }.into()
     }
 
     #[inline]
-    fn abs(self, x: __m512) -> __m512 {
-        unsafe { _mm512_andnot_ps(_mm512_set1_ps(-0.0), x) }
+    fn abs(self, x: F32x16) -> F32x16 {
+        unsafe { _mm512_andnot_ps(_mm512_set1_ps(-0.0), x.0) }.into()
     }
 
     #[inline]
-    fn neg(self, x: __m512) -> __m512 {
-        unsafe { _mm512_xor_ps(x, _mm512_set1_ps(-0.0)) }
+    fn neg(self, x: F32x16) -> F32x16 {
+        unsafe { _mm512_xor_ps(x.0, _mm512_set1_ps(-0.0)) }.into()
     }
 
     #[inline]
-    fn to_int_trunc(self, x: __m512) -> Self::Int {
-        unsafe { _mm512_cvttps_epi32(x) }
+    fn to_int_trunc(self, x: F32x16) -> Self::Int {
+        unsafe { _mm512_cvttps_epi32(x.0) }.into()
     }
 }
 
-unsafe impl SimdOps<__m512i> for Avx512Isa {
-    simd_ops_x32_common!(__m512i, __mmask16);
+unsafe impl SimdOps<I32x16> for Avx512Isa {
+    simd_ops_common!(I32x16, __mmask16);
 
     #[inline]
-    fn add(self, x: __m512i, y: __m512i) -> __m512i {
-        unsafe { _mm512_add_epi32(x, y) }
+    fn add(self, x: I32x16, y: I32x16) -> I32x16 {
+        unsafe { _mm512_add_epi32(x.0, y.0) }.into()
     }
 
     #[inline]
-    fn sub(self, x: __m512i, y: __m512i) -> __m512i {
-        unsafe { _mm512_sub_epi32(x, y) }
+    fn sub(self, x: I32x16, y: I32x16) -> I32x16 {
+        unsafe { _mm512_sub_epi32(x.0, y.0) }.into()
     }
 
     #[inline]
-    fn mul(self, x: __m512i, y: __m512i) -> __m512i {
-        unsafe { _mm512_mullo_epi32(x, y) }
+    fn mul(self, x: I32x16, y: I32x16) -> I32x16 {
+        unsafe { _mm512_mullo_epi32(x.0, y.0) }.into()
     }
 
     #[inline]
-    fn splat(self, x: i32) -> __m512i {
-        unsafe { _mm512_set1_epi32(x) }
+    fn splat(self, x: i32) -> I32x16 {
+        unsafe { _mm512_set1_epi32(x) }.into()
     }
 
     #[inline]
-    fn lt(self, x: __m512i, y: __m512i) -> __mmask16 {
-        unsafe { _mm512_cmp_epi32_mask(x, y, _MM_CMPINT_LT) }
+    fn lt(self, x: I32x16, y: I32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_LT) }
     }
 
     #[inline]
-    fn le(self, x: __m512i, y: __m512i) -> __mmask16 {
-        unsafe { _mm512_cmp_epi32_mask(x, y, _MM_CMPINT_LE) }
+    fn le(self, x: I32x16, y: I32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_LE) }
     }
 
     #[inline]
-    fn eq(self, x: __m512i, y: __m512i) -> __mmask16 {
-        unsafe { _mm512_cmp_epi32_mask(x, y, _MM_CMPINT_EQ) }
+    fn eq(self, x: I32x16, y: I32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_EQ) }
     }
 
     #[inline]
-    fn ge(self, x: __m512i, y: __m512i) -> __mmask16 {
+    fn ge(self, x: I32x16, y: I32x16) -> __mmask16 {
         self.le(y, x)
     }
 
     #[inline]
-    fn gt(self, x: __m512i, y: __m512i) -> __mmask16 {
+    fn gt(self, x: I32x16, y: I32x16) -> __mmask16 {
         self.lt(y, x)
     }
 
     #[inline]
-    unsafe fn load_ptr(self, ptr: *const i32) -> __m512i {
-        unsafe { _mm512_loadu_si512(ptr as *const i32) }
+    unsafe fn load_ptr(self, ptr: *const i32) -> I32x16 {
+        unsafe { _mm512_loadu_si512(ptr as *const i32) }.into()
     }
 
     #[inline]
-    fn select(self, x: __m512i, y: __m512i, mask: <__m512i as Simd>::Mask) -> __m512i {
-        unsafe { _mm512_mask_blend_epi32(mask, y, x) }
+    fn select(self, x: I32x16, y: I32x16, mask: <I32x16 as Simd>::Mask) -> I32x16 {
+        unsafe { _mm512_mask_blend_epi32(mask, y.0, x.0) }.into()
     }
 
     #[inline]
-    unsafe fn store_ptr(self, x: __m512i, ptr: *mut i32) {
-        unsafe { _mm512_storeu_si512(ptr as *mut __m512i, x) }
+    unsafe fn store_ptr(self, x: I32x16, ptr: *mut i32) {
+        unsafe { _mm512_storeu_si512(ptr as *mut __m512i, x.0) }
     }
 
     #[inline]
-    unsafe fn load_ptr_mask(self, ptr: *const i32, mask: __mmask16) -> __m512i {
-        unsafe { _mm512_mask_loadu_epi32(self.zero(), mask, ptr) }
+    unsafe fn load_ptr_mask(self, ptr: *const i32, mask: __mmask16) -> I32x16 {
+        unsafe { _mm512_mask_loadu_epi32(_mm512_set1_epi32(0), mask, ptr) }.into()
     }
 
     #[inline]
-    unsafe fn store_ptr_mask(self, x: __m512i, ptr: *mut i32, mask: __mmask16) {
-        unsafe { _mm512_mask_storeu_epi32(ptr, mask, x) }
+    unsafe fn store_ptr_mask(self, x: I32x16, ptr: *mut i32, mask: __mmask16) {
+        unsafe { _mm512_mask_storeu_epi32(ptr, mask, x.0) }
     }
 }
 
-impl SimdIntOps<__m512i> for Avx512Isa {
+impl SimdIntOps<I32x16> for Avx512Isa {
     #[inline]
-    fn neg(self, x: __m512i) -> __m512i {
-        unsafe { _mm512_sub_epi32(_mm512_setzero_si512(), x) }
+    fn neg(self, x: I32x16) -> I32x16 {
+        unsafe { _mm512_sub_epi32(_mm512_setzero_si512(), x.0) }.into()
     }
 
     #[inline]
-    fn shift_left<const SHIFT: i32>(self, x: __m512i) -> __m512i {
-        let count = self.splat(SHIFT);
-        unsafe { _mm512_sllv_epi32(x, count) }
+    fn shift_left<const SHIFT: i32>(self, x: I32x16) -> I32x16 {
+        let count: I32x16 = self.splat(SHIFT);
+        unsafe { _mm512_sllv_epi32(x.0, count.0) }.into()
     }
 }
 
@@ -297,48 +313,37 @@ unsafe impl MaskOps<__mmask16> for Avx512Isa {
     }
 }
 
-macro_rules! simd_x32_common {
-    () => {
-        type Array = [Self::Elem; 16];
-        type Isa = Avx512Isa;
-        type Mask = __mmask16;
+macro_rules! impl_simd {
+    ($simd:ty, $elem:ty, $mask:ty) => {
+        impl Simd for $simd {
+            type Elem = $elem;
+            type Array = [Self::Elem; size_of::<Self>() / size_of::<$elem>()];
+            type Isa = Avx512Isa;
+            type Mask = $mask;
 
-        #[inline]
-        fn to_bits(self) -> <Self::Isa as Isa>::Bits {
-            #[allow(clippy::useless_transmute)]
-            unsafe {
-                transmute::<Self, __m512i>(self)
+            #[inline]
+            fn to_bits(self) -> <Self::Isa as Isa>::Bits {
+                #[allow(clippy::useless_transmute)]
+                unsafe {
+                    transmute::<Self, <Self::Isa as Isa>::Bits>(self)
+                }
             }
-        }
 
-        #[inline]
-        fn from_bits(bits: <Self::Isa as Isa>::Bits) -> Self {
-            #[allow(clippy::useless_transmute)]
-            unsafe {
-                transmute::<__m512i, Self>(bits)
+            #[inline]
+            fn from_bits(bits: <Self::Isa as Isa>::Bits) -> Self {
+                #[allow(clippy::useless_transmute)]
+                unsafe {
+                    transmute::<<Self::Isa as Isa>::Bits, Self>(bits)
+                }
+            }
+
+            #[inline]
+            fn to_array(self) -> Self::Array {
+                unsafe { transmute::<Self, Self::Array>(self) }
             }
         }
     };
 }
 
-impl Simd for __m512 {
-    type Elem = f32;
-
-    simd_x32_common!();
-
-    #[inline]
-    fn to_array(self) -> Self::Array {
-        unsafe { transmute::<__m512, Self::Array>(self) }
-    }
-}
-
-impl Simd for __m512i {
-    type Elem = i32;
-
-    simd_x32_common!();
-
-    #[inline]
-    fn to_array(self) -> Self::Array {
-        unsafe { transmute::<__m512i, Self::Array>(self) }
-    }
-}
+impl_simd!(F32x16, f32, __mmask16);
+impl_simd!(I32x16, i32, __mmask16);
