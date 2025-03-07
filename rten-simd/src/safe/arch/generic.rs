@@ -120,18 +120,6 @@ macro_rules! simd_ops_x32_common {
         }
 
         #[inline]
-        fn lt(self, x: $simd, y: $simd) -> I32x4 {
-            let xs = array::from_fn(|i| if x.0[i] < y.0[i] { -1 } else { 0 });
-            I32x4(xs)
-        }
-
-        #[inline]
-        fn le(self, x: $simd, y: $simd) -> I32x4 {
-            let xs = array::from_fn(|i| if x.0[i] <= y.0[i] { -1 } else { 0 });
-            I32x4(xs)
-        }
-
-        #[inline]
         fn eq(self, x: $simd, y: $simd) -> I32x4 {
             let xs = array::from_fn(|i| if x.0[i] == y.0[i] { -1 } else { 0 });
             I32x4(xs)

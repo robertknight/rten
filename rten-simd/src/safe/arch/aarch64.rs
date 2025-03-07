@@ -1,9 +1,9 @@
 use std::arch::aarch64::{
     float32x4_t, int32x4_t, uint32x4_t, vabsq_f32, vaddq_f32, vaddq_s32, vaddvq_f32, vandq_u32,
     vbslq_f32, vbslq_s32, vceqq_f32, vceqq_s32, vcgeq_f32, vcgeq_s32, vcgtq_f32, vcgtq_s32,
-    vcleq_f32, vcleq_s32, vcltq_f32, vcltq_s32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s32,
-    vfmaq_f32, vld1q_f32, vld1q_s32, vld1q_u32, vmaxq_f32, vminq_f32, vmulq_f32, vmulq_s32,
-    vnegq_f32, vnegq_s32, vshlq_n_s32, vst1q_f32, vst1q_s32, vsubq_f32, vsubq_s32,
+    vcleq_f32, vcltq_f32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s32, vfmaq_f32, vld1q_f32,
+    vld1q_s32, vld1q_u32, vmaxq_f32, vminq_f32, vmulq_f32, vmulq_s32, vnegq_f32, vnegq_s32,
+    vshlq_n_s32, vst1q_f32, vst1q_s32, vsubq_f32, vsubq_s32,
 };
 use std::mem::transmute;
 
@@ -221,16 +221,6 @@ unsafe impl SimdOps<int32x4_t> for ArmNeonIsa {
     #[inline]
     fn splat(self, x: i32) -> int32x4_t {
         unsafe { vdupq_n_s32(x) }
-    }
-
-    #[inline]
-    fn lt(self, x: int32x4_t, y: int32x4_t) -> uint32x4_t {
-        unsafe { vcltq_s32(x, y) }
-    }
-
-    #[inline]
-    fn le(self, x: int32x4_t, y: int32x4_t) -> uint32x4_t {
-        unsafe { vcleq_s32(x, y) }
     }
 
     #[inline]

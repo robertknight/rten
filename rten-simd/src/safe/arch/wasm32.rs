@@ -1,9 +1,8 @@
 use std::arch::wasm32::{
     f32x4_abs, f32x4_add, f32x4_div, f32x4_eq, f32x4_extract_lane, f32x4_ge, f32x4_gt, f32x4_le,
     f32x4_lt, f32x4_max, f32x4_min, f32x4_mul, f32x4_neg, f32x4_splat, f32x4_sub, i32x4_add,
-    i32x4_eq, i32x4_ge, i32x4_gt, i32x4_le, i32x4_lt, i32x4_mul, i32x4_neg, i32x4_shl,
-    i32x4_shuffle, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_and, v128_bitselect,
-    v128_load, v128_store,
+    i32x4_eq, i32x4_ge, i32x4_gt, i32x4_mul, i32x4_neg, i32x4_shl, i32x4_shuffle, i32x4_splat,
+    i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_and, v128_bitselect, v128_load, v128_store,
 };
 use std::mem::transmute;
 
@@ -235,16 +234,6 @@ unsafe impl SimdOps<I32x4> for Wasm32Isa {
     #[inline]
     fn splat(self, x: i32) -> I32x4 {
         I32x4(i32x4_splat(x))
-    }
-
-    #[inline]
-    fn lt(self, x: I32x4, y: I32x4) -> v128 {
-        i32x4_lt(x.0, y.0)
-    }
-
-    #[inline]
-    fn le(self, x: I32x4, y: I32x4) -> v128 {
-        i32x4_le(x.0, y.0)
     }
 
     #[inline]
