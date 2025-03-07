@@ -202,10 +202,16 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
     }
 
     /// Return a mask indicating whether elements in `x` are less than `y`.
-    fn lt(self, x: S, y: S) -> S::Mask;
+    #[inline]
+    fn lt(self, x: S, y: S) -> S::Mask {
+        self.gt(y, x)
+    }
 
     /// Return a mask indicating whether elements in `x` are less or equal to `y`.
-    fn le(self, x: S, y: S) -> S::Mask;
+    #[inline]
+    fn le(self, x: S, y: S) -> S::Mask {
+        self.ge(y, x)
+    }
 
     /// Return a mask indicating whether elements in `x` are equal to `y`.
     fn eq(self, x: S, y: S) -> S::Mask;

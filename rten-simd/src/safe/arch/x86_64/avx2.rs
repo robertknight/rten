@@ -252,17 +252,6 @@ unsafe impl SimdOps<I32x8> for Avx2Isa {
     }
 
     #[inline]
-    fn lt(self, x: I32x8, y: I32x8) -> I32x8 {
-        unsafe { _mm256_cmpgt_epi32(y.0, x.0) }.into()
-    }
-
-    #[inline]
-    fn le(self, x: I32x8, y: I32x8) -> I32x8 {
-        unsafe { _mm256_or_si256(_mm256_cmpgt_epi32(y.0, x.0), _mm256_cmpeq_epi32(x.0, y.0)) }
-            .into()
-    }
-
-    #[inline]
     fn eq(self, x: I32x8, y: I32x8) -> I32x8 {
         unsafe { _mm256_cmpeq_epi32(x.0, y.0) }.into()
     }

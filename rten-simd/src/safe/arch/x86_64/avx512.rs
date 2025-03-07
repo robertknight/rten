@@ -6,7 +6,7 @@ use std::arch::x86_64::{
     _mm512_max_ps, _mm512_min_ps, _mm512_mul_ps, _mm512_mullo_epi32, _mm512_reduce_add_ps,
     _mm512_set1_epi32, _mm512_set1_ps, _mm512_setzero_si512, _mm512_sllv_epi32, _mm512_storeu_ps,
     _mm512_storeu_si512, _mm512_sub_epi32, _mm512_sub_ps, _mm512_xor_ps, _mm_prefetch, _CMP_EQ_OQ,
-    _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_LE, _MM_CMPINT_LT,
+    _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT,
     _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::mem::transmute;
@@ -234,28 +234,18 @@ unsafe impl SimdOps<I32x16> for Avx512Isa {
     }
 
     #[inline]
-    fn lt(self, x: I32x16, y: I32x16) -> __mmask16 {
-        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_LT) }
-    }
-
-    #[inline]
-    fn le(self, x: I32x16, y: I32x16) -> __mmask16 {
-        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_LE) }
-    }
-
-    #[inline]
     fn eq(self, x: I32x16, y: I32x16) -> __mmask16 {
         unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_EQ) }
     }
 
     #[inline]
     fn ge(self, x: I32x16, y: I32x16) -> __mmask16 {
-        self.le(y, x)
+        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_NLT) }
     }
 
     #[inline]
     fn gt(self, x: I32x16, y: I32x16) -> __mmask16 {
-        self.lt(y, x)
+        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_NLE) }
     }
 
     #[inline]
