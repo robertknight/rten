@@ -1,10 +1,11 @@
 use std::arch::wasm32::{
     f32x4_abs, f32x4_add, f32x4_div, f32x4_eq, f32x4_extract_lane, f32x4_ge, f32x4_gt, f32x4_le,
     f32x4_lt, f32x4_max, f32x4_min, f32x4_mul, f32x4_nearest, f32x4_neg, f32x4_splat, f32x4_sub,
-    i16x8_add, i16x8_eq, i16x8_ge, i16x8_gt, i16x8_mul, i16x8_neg, i16x8_shl, i16x8_splat,
-    i16x8_sub, i32x4_add, i32x4_eq, i32x4_ge, i32x4_gt, i32x4_mul, i32x4_neg, i32x4_shl,
-    i32x4_shuffle, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_and, v128_bitselect,
-    v128_load, v128_store,
+    i16x8_add, i16x8_eq, i16x8_extmul_high_i8x16, i16x8_extmul_low_i8x16, i16x8_ge, i16x8_gt,
+    i16x8_mul, i16x8_neg, i16x8_shl, i16x8_splat, i16x8_sub, i32x4_add, i32x4_eq, i32x4_ge,
+    i32x4_gt, i32x4_mul, i32x4_neg, i32x4_shl, i32x4_shuffle, i32x4_splat, i32x4_sub,
+    i32x4_trunc_sat_f32x4, i8x16_add, i8x16_eq, i8x16_ge, i8x16_gt, i8x16_neg, i8x16_shl,
+    i8x16_shuffle, i8x16_splat, i8x16_sub, v128, v128_and, v128_bitselect, v128_load, v128_store,
 };
 use std::mem::transmute;
 
@@ -14,6 +15,7 @@ use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 simd_type!(F32x4, v128, f32, I32x4, Wasm32Isa);
 simd_type!(I32x4, v128, i32, I32x4, Wasm32Isa);
 simd_type!(I16x8, v128, i16, I16x8, Wasm32Isa);
+simd_type!(I8x16, v128, i8, I8x16, Wasm32Isa);
 
 #[derive(Copy, Clone)]
 pub struct Wasm32Isa {
@@ -32,6 +34,7 @@ unsafe impl Isa for Wasm32Isa {
     type F32 = F32x4;
     type I32 = I32x4;
     type I16 = I16x8;
+    type I8 = I8x16;
     type Bits = I32x4;
 
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
@@ -43,6 +46,10 @@ unsafe impl Isa for Wasm32Isa {
     }
 
     fn i16(self) -> impl SimdIntOps<Self::I16> {
+        self
+    }
+
+    fn i8(self) -> impl SimdIntOps<Self::I8> {
         self
     }
 }
@@ -325,6 +332,66 @@ impl SimdIntOps<I16x8> for Wasm32Isa {
     }
 }
 
+unsafe impl SimdOps<I8x16> for Wasm32Isa {
+    simd_ops_common!(I8x16, I8x16, i8);
+
+    #[inline]
+    fn add(self, x: I8x16, y: I8x16) -> I8x16 {
+        I8x16(i8x16_add(x.0, y.0))
+    }
+
+    #[inline]
+    fn sub(self, x: I8x16, y: I8x16) -> I8x16 {
+        I8x16(i8x16_sub(x.0, y.0))
+    }
+
+    #[inline]
+    fn mul(self, x: I8x16, y: I8x16) -> I8x16 {
+        let prod_low = i16x8_extmul_low_i8x16(x.0, y.0);
+        let prod_high = i16x8_extmul_high_i8x16(x.0, y.0);
+
+        // Select even bytes from low and high products. This obtains the
+        // i8 truncated product.
+        let prod_i8 = i8x16_shuffle::<0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30>(
+            prod_low, prod_high,
+        );
+
+        I8x16(prod_i8)
+    }
+
+    #[inline]
+    fn splat(self, x: i8) -> I8x16 {
+        I8x16(i8x16_splat(x))
+    }
+
+    #[inline]
+    fn eq(self, x: I8x16, y: I8x16) -> I8x16 {
+        I8x16(i8x16_eq(x.0, y.0))
+    }
+
+    #[inline]
+    fn ge(self, x: I8x16, y: I8x16) -> I8x16 {
+        I8x16(i8x16_ge(x.0, y.0))
+    }
+
+    #[inline]
+    fn gt(self, x: I8x16, y: I8x16) -> I8x16 {
+        I8x16(i8x16_gt(x.0, y.0))
+    }
+}
+
+impl SimdIntOps<I8x16> for Wasm32Isa {
+    #[inline]
+    fn neg(self, x: I8x16) -> I8x16 {
+        I8x16(i8x16_neg(x.0))
+    }
+
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: I8x16) -> I8x16 {
+        I8x16(i8x16_shl(x.0, SHIFT as u32))
+    }
+}
+
 macro_rules! mask_type {
     ($mask:ident, $elem:ty, $len: expr) => {
         impl Mask for $mask {
@@ -348,3 +415,4 @@ macro_rules! mask_type {
 
 mask_type!(I32x4, i32, 4);
 mask_type!(I16x8, i16, 8);
+mask_type!(I8x16, i8, 16);

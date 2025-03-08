@@ -18,6 +18,10 @@ pub struct I32x4([i32; LEN_X32]);
 #[derive(Copy, Clone, Debug)]
 pub struct I16x8([i16; LEN_X32 * 2]);
 
+#[repr(align(16))]
+#[derive(Copy, Clone, Debug)]
+pub struct I8x16([i8; LEN_X32 * 4]);
+
 #[derive(Copy, Clone)]
 pub struct GenericIsa {
     _private: (),
@@ -40,6 +44,7 @@ unsafe impl Isa for GenericIsa {
     type F32 = F32x4;
     type I32 = I32x4;
     type I16 = I16x8;
+    type I8 = I8x16;
     type Bits = I32x4;
 
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
@@ -51,6 +56,10 @@ unsafe impl Isa for GenericIsa {
     }
 
     fn i16(self) -> impl SimdIntOps<Self::I16> {
+        self
+    }
+
+    fn i8(self) -> impl SimdIntOps<Self::I8> {
         self
     }
 }
@@ -247,6 +256,7 @@ macro_rules! impl_simd_int_ops {
 
 impl_simd_int_ops!(I32x4, i32, 4, I32x4);
 impl_simd_int_ops!(I16x8, i16, 8, I16x8);
+impl_simd_int_ops!(I8x16, i8, 16, I8x16);
 
 macro_rules! impl_mask {
     ($mask:ident, $len:expr) => {
@@ -272,6 +282,7 @@ macro_rules! impl_mask {
 
 impl_mask!(I32x4, LEN_X32);
 impl_mask!(I16x8, LEN_X32 * 2);
+impl_mask!(I8x16, LEN_X32 * 4);
 
 macro_rules! impl_simd {
     ($simd:ty, $elem:ty, $mask:ty, $len:expr) => {
@@ -304,3 +315,4 @@ macro_rules! impl_simd {
 impl_simd!(F32x4, f32, I32x4, 4);
 impl_simd!(I32x4, i32, I32x4, 4);
 impl_simd!(I16x8, i16, I16x8, 8);
+impl_simd!(I8x16, i8, I8x16, 16);
