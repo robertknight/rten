@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 /// Types used as elements (or _lanes_) of SIMD vectors.
-pub trait Elem: Copy + Default + std::ops::Add<Output = Self> {
+pub trait Elem: Copy + Default + WrappingAdd<Output = Self> {
     /// Return the 1 value of this type.
     fn one() -> Self;
 }
@@ -26,6 +26,41 @@ impl_elem_for_int!(i32);
 impl_elem_for_int!(i16);
 impl_elem_for_int!(i8);
 impl_elem_for_int!(u8);
+
+/// Wrapping addition of numbers.
+///
+/// For float types, this is the same as [`std::ops::Add`]. For integer types,
+/// this is the same as the type's inherent `wrapping_add` method.
+pub trait WrappingAdd: Sized {
+    type Output;
+
+    fn wrapping_add(self, x: Self) -> Self;
+}
+
+macro_rules! impl_wrapping_add {
+    ($type:ty) => {
+        impl WrappingAdd for $type {
+            type Output = Self;
+
+            fn wrapping_add(self, x: Self) -> Self {
+                Self::wrapping_add(self, x)
+            }
+        }
+    };
+}
+
+impl_wrapping_add!(i32);
+impl_wrapping_add!(i16);
+impl_wrapping_add!(i8);
+impl_wrapping_add!(u8);
+
+impl WrappingAdd for f32 {
+    type Output = Self;
+
+    fn wrapping_add(self, x: f32) -> f32 {
+        self + x
+    }
+}
 
 /// Masks used or returned by SIMD operations.
 ///
@@ -135,6 +170,9 @@ pub unsafe trait Isa: Copy {
     /// SIMD vector with `i16` elements.
     type I16: Simd<Elem = i16, Isa = Self>;
 
+    /// SIMD vector with `i8` elements.
+    type I8: Simd<Elem = i8, Isa = Self>;
+
     /// Operations on SIMD vectors with `f32` elements.
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32>;
 
@@ -143,6 +181,9 @@ pub unsafe trait Isa: Copy {
 
     /// Operations on SIMD vectors with `i16` elements.
     fn i16(self) -> impl SimdIntOps<Self::I16>;
+
+    /// Operations on SIMD vectors with `i8` elements.
+    fn i8(self) -> impl SimdIntOps<Self::I8>;
 }
 
 /// SIMD operations on a [`Mask`] vector.
@@ -345,10 +386,14 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
     }
 
     /// Horizontally sum the elements in a vector.
+    ///
+    /// If the sum overflows, it will wrap. This choice was made to enable
+    /// consistency between native intrinsics for horizontal addition and the
+    /// generic implementation.
     fn sum(self, x: S) -> S::Elem {
         let mut sum = S::Elem::default();
         for elem in x.to_array() {
-            sum = sum + elem;
+            sum = sum.wrapping_add(elem);
         }
         sum
     }
@@ -405,6 +450,7 @@ pub trait SimdIntOps<S: Simd>: SimdOps<S> {
 
 #[cfg(test)]
 mod tests {
+    use super::WrappingAdd;
     use crate::safe::{
         assert_simd_eq, test_simd_op, Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOp,
         SimdOps,
@@ -414,7 +460,9 @@ mod tests {
     macro_rules! test_num_ops {
         ($modname:ident, $elem:ident) => {
             mod $modname {
-                use super::{assert_simd_eq, test_simd_op, Isa, Mask, Simd, SimdOp, SimdOps};
+                use super::{
+                    assert_simd_eq, test_simd_op, Isa, Mask, Simd, SimdOp, SimdOps, WrappingAdd,
+                };
 
                 #[test]
                 fn test_load_store() {
@@ -459,8 +507,8 @@ mod tests {
                     test_simd_op!(isa, {
                         let ops = isa.$elem();
 
-                        let a: $elem = (1u8).into();
-                        let b: $elem = (2u8).into();
+                        let a = 1 as $elem;
+                        let b = 2 as $elem;
 
                         let x = ops.splat(a);
                         let y = ops.splat(b);
@@ -524,7 +572,9 @@ mod tests {
                         let ops = isa.$elem();
 
                         let vec: Vec<_> = (0..ops.len()).map(|x| x as $elem).collect();
-                        let expected = vec.iter().sum::<$elem>();
+                        let expected = vec
+                            .iter()
+                            .fold(0 as $elem, |sum, x| WrappingAdd::wrapping_add(sum, *x));
 
                         let x = ops.load(&vec);
                         let y = ops.sum(x);
@@ -554,6 +604,7 @@ mod tests {
     test_num_ops!(num_ops_f32, f32);
     test_num_ops!(num_ops_i32, i32);
     test_num_ops!(num_ops_i16, i16);
+    test_num_ops!(num_ops_i8, i8);
 
     // Generate tests for operations available on all float types.
     macro_rules! test_float_ops {
@@ -687,6 +738,7 @@ mod tests {
 
     test_int_ops!(int_ops_i32, i32);
     test_int_ops!(int_ops_i16, i16);
+    test_int_ops!(int_ops_i8, i8);
 
     macro_rules! test_mask_ops {
         ($type:ident) => {
@@ -723,6 +775,11 @@ mod tests {
     #[test]
     fn test_mask_ops_i16() {
         test_mask_ops!(i16);
+    }
+
+    #[test]
+    fn test_mask_ops_i8() {
+        test_mask_ops!(i8);
     }
 
     #[test]

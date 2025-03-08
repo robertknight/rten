@@ -1,12 +1,14 @@
 use std::arch::aarch64::{
-    float32x4_t, int16x8_t, int32x4_t, uint16x8_t, uint32x4_t, vabsq_f32, vaddq_f32, vaddq_s16,
-    vaddq_s32, vaddvq_f32, vandq_u16, vandq_u32, vbslq_f32, vbslq_s16, vbslq_s32, vceqq_f32,
-    vceqq_s16, vceqq_s32, vcgeq_f32, vcgeq_s16, vcgeq_s32, vcgtq_f32, vcgtq_s16, vcgtq_s32,
-    vcleq_f32, vcleq_s16, vcltq_f32, vcltq_s16, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32,
-    vdupq_n_f32, vdupq_n_s16, vdupq_n_s32, vfmaq_f32, vld1q_f32, vld1q_s16, vld1q_s32, vld1q_u16,
-    vld1q_u32, vmaxq_f32, vminq_f32, vmulq_f32, vmulq_s16, vmulq_s32, vnegq_f32, vnegq_s16,
-    vnegq_s32, vshlq_n_s16, vshlq_n_s32, vst1q_f32, vst1q_s16, vst1q_s32, vsubq_f32, vsubq_s16,
-    vsubq_s32,
+    float32x4_t, int16x8_t, int32x4_t, int8x16_t, uint16x8_t, uint32x4_t, uint8x16_t, vabsq_f32,
+    vaddq_f32, vaddq_s16, vaddq_s32, vaddq_s8, vaddvq_f32, vandq_u16, vandq_u32, vandq_u8,
+    vbslq_f32, vbslq_s16, vbslq_s32, vbslq_s8, vceqq_f32, vceqq_s16, vceqq_s32, vceqq_s8,
+    vcgeq_f32, vcgeq_s16, vcgeq_s32, vcgeq_s8, vcgtq_f32, vcgtq_s16, vcgtq_s32, vcgtq_s8,
+    vcleq_f32, vcleq_s16, vcleq_s8, vcltq_f32, vcltq_s16, vcltq_s8, vcvtnq_s32_f32, vcvtq_s32_f32,
+    vdivq_f32, vdupq_n_f32, vdupq_n_s16, vdupq_n_s32, vdupq_n_s8, vfmaq_f32, vld1q_f32, vld1q_s16,
+    vld1q_s32, vld1q_s8, vld1q_u16, vld1q_u32, vld1q_u8, vmaxq_f32, vminq_f32, vmulq_f32,
+    vmulq_s16, vmulq_s32, vmulq_s8, vnegq_f32, vnegq_s16, vnegq_s32, vnegq_s8, vshlq_n_s16,
+    vshlq_n_s32, vshlq_n_s8, vst1q_f32, vst1q_s16, vst1q_s32, vst1q_s8, vsubq_f32, vsubq_s16,
+    vsubq_s32, vsubq_s8,
 };
 use std::mem::transmute;
 
@@ -28,6 +30,7 @@ unsafe impl Isa for ArmNeonIsa {
     type F32 = float32x4_t;
     type I32 = int32x4_t;
     type I16 = int16x8_t;
+    type I8 = int8x16_t;
     type Bits = int32x4_t;
 
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
@@ -39,6 +42,10 @@ unsafe impl Isa for ArmNeonIsa {
     }
 
     fn i16(self) -> impl SimdIntOps<Self::I16> {
+        self
+    }
+
+    fn i8(self) -> impl SimdIntOps<Self::I8> {
         self
     }
 }
@@ -363,6 +370,88 @@ impl SimdIntOps<int16x8_t> for ArmNeonIsa {
     }
 }
 
+unsafe impl SimdOps<int8x16_t> for ArmNeonIsa {
+    simd_ops_common!(int8x16_t, uint8x16_t);
+
+    #[inline]
+    fn add(self, x: int8x16_t, y: int8x16_t) -> int8x16_t {
+        unsafe { vaddq_s8(x, y) }
+    }
+
+    #[inline]
+    fn sub(self, x: int8x16_t, y: int8x16_t) -> int8x16_t {
+        unsafe { vsubq_s8(x, y) }
+    }
+
+    #[inline]
+    fn mul(self, x: int8x16_t, y: int8x16_t) -> int8x16_t {
+        unsafe { vmulq_s8(x, y) }
+    }
+
+    #[inline]
+    fn splat(self, x: i8) -> int8x16_t {
+        unsafe { vdupq_n_s8(x) }
+    }
+
+    #[inline]
+    fn lt(self, x: int8x16_t, y: int8x16_t) -> uint8x16_t {
+        unsafe { vcltq_s8(x, y) }
+    }
+
+    #[inline]
+    fn le(self, x: int8x16_t, y: int8x16_t) -> uint8x16_t {
+        unsafe { vcleq_s8(x, y) }
+    }
+
+    #[inline]
+    fn eq(self, x: int8x16_t, y: int8x16_t) -> uint8x16_t {
+        unsafe { vceqq_s8(x, y) }
+    }
+
+    #[inline]
+    fn ge(self, x: int8x16_t, y: int8x16_t) -> uint8x16_t {
+        unsafe { vcgeq_s8(x, y) }
+    }
+
+    #[inline]
+    fn gt(self, x: int8x16_t, y: int8x16_t) -> uint8x16_t {
+        unsafe { vcgtq_s8(x, y) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const i8) -> int8x16_t {
+        unsafe { vld1q_s8(ptr) }
+    }
+
+    #[inline]
+    fn first_n_mask(self, n: usize) -> uint8x16_t {
+        let mask: [u8; 16] = std::array::from_fn(|i| if i < n { u8::MAX } else { 0 });
+        unsafe { vld1q_u8(mask.as_ptr()) }
+    }
+
+    #[inline]
+    fn select(self, x: int8x16_t, y: int8x16_t, mask: <int8x16_t as Simd>::Mask) -> int8x16_t {
+        unsafe { vbslq_s8(mask, x, y) }
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: int8x16_t, ptr: *mut i8) {
+        unsafe { vst1q_s8(ptr, x) }
+    }
+}
+
+impl SimdIntOps<int8x16_t> for ArmNeonIsa {
+    #[inline]
+    fn neg(self, x: int8x16_t) -> int8x16_t {
+        unsafe { vnegq_s8(x) }
+    }
+
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: int8x16_t) -> int8x16_t {
+        unsafe { vshlq_n_s8::<SHIFT>(x) }
+    }
+}
+
 macro_rules! impl_mask {
     ($mask:ty, $elem:ty, $len:expr) => {
         impl Mask for $mask {
@@ -379,6 +468,7 @@ macro_rules! impl_mask {
 
 impl_mask!(uint32x4_t, u32, 4);
 impl_mask!(uint16x8_t, u16, 8);
+impl_mask!(uint8x16_t, u8, 16);
 
 unsafe impl MaskOps<uint32x4_t> for ArmNeonIsa {
     #[inline]
@@ -391,6 +481,13 @@ unsafe impl MaskOps<uint16x8_t> for ArmNeonIsa {
     #[inline]
     fn and(self, x: uint16x8_t, y: uint16x8_t) -> uint16x8_t {
         unsafe { vandq_u16(x, y) }
+    }
+}
+
+unsafe impl MaskOps<uint8x16_t> for ArmNeonIsa {
+    #[inline]
+    fn and(self, x: uint8x16_t, y: uint8x16_t) -> uint8x16_t {
+        unsafe { vandq_u8(x, y) }
     }
 }
 
@@ -436,3 +533,4 @@ macro_rules! impl_simd {
 impl_simd!(float32x4_t, f32, 4, uint32x4_t);
 impl_simd!(int32x4_t, i32, 4, uint32x4_t);
 impl_simd!(int16x8_t, i16, 8, uint16x8_t);
+impl_simd!(int8x16_t, i8, 16, uint8x16_t);
