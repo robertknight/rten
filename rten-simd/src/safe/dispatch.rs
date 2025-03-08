@@ -186,6 +186,7 @@ macro_rules! impl_simd_map_op {
 
 impl_simd_map_op!(f32, F32);
 impl_simd_map_op!(i32, I32);
+impl_simd_map_op!(i16, I16);
 
 /// Convenience macro for defining and evaluating a SIMD operation.
 #[cfg(test)]

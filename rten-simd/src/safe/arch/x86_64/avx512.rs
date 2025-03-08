@@ -1,33 +1,24 @@
 use std::arch::x86_64::{
-    __m512, __m512i, __mmask16, _mm512_add_epi32, _mm512_add_ps, _mm512_andnot_ps,
-    _mm512_cmp_epi32_mask, _mm512_cmp_ps_mask, _mm512_cvttps_epi32, _mm512_div_ps, _mm512_fmadd_ps,
-    _mm512_loadu_ps, _mm512_loadu_si512, _mm512_mask_blend_epi32, _mm512_mask_blend_ps,
-    _mm512_mask_loadu_epi32, _mm512_mask_loadu_ps, _mm512_mask_storeu_epi32, _mm512_mask_storeu_ps,
-    _mm512_max_ps, _mm512_min_ps, _mm512_mul_ps, _mm512_mullo_epi32, _mm512_reduce_add_ps,
-    _mm512_set1_epi32, _mm512_set1_ps, _mm512_setzero_si512, _mm512_sllv_epi32, _mm512_storeu_ps,
-    _mm512_storeu_si512, _mm512_sub_epi32, _mm512_sub_ps, _mm512_xor_ps, _mm_prefetch, _CMP_EQ_OQ,
-    _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT,
-    _MM_HINT_ET0, _MM_HINT_T0,
+    __m512, __m512i, __mmask16, __mmask32, _mm512_add_epi16, _mm512_add_epi32, _mm512_add_ps,
+    _mm512_andnot_ps, _mm512_cmp_epi16_mask, _mm512_cmp_epi32_mask, _mm512_cmp_ps_mask,
+    _mm512_cvtps_epi32, _mm512_cvttps_epi32, _mm512_div_ps, _mm512_fmadd_ps, _mm512_loadu_ps,
+    _mm512_loadu_si512, _mm512_mask_blend_epi16, _mm512_mask_blend_epi32, _mm512_mask_blend_ps,
+    _mm512_mask_loadu_epi16, _mm512_mask_loadu_epi32, _mm512_mask_loadu_ps,
+    _mm512_mask_storeu_epi16, _mm512_mask_storeu_epi32, _mm512_mask_storeu_ps, _mm512_max_ps,
+    _mm512_min_ps, _mm512_mul_ps, _mm512_mullo_epi16, _mm512_mullo_epi32, _mm512_reduce_add_ps,
+    _mm512_set1_epi16, _mm512_set1_epi32, _mm512_set1_ps, _mm512_setzero_si512, _mm512_sllv_epi16,
+    _mm512_sllv_epi32, _mm512_storeu_ps, _mm512_storeu_si512, _mm512_sub_epi16, _mm512_sub_epi32,
+    _mm512_sub_ps, _mm512_xor_ps, _mm_prefetch, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ,
+    _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT, _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::mem::transmute;
 
+use super::super::{lanes, simd_type};
 use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
-macro_rules! simd_wrapper {
-    ($type:ident, $inner:ty) => {
-        #[derive(Copy, Clone, Debug)]
-        #[repr(transparent)]
-        pub struct $type($inner);
-
-        impl From<$inner> for $type {
-            fn from(val: $inner) -> Self {
-                Self(val)
-            }
-        }
-    };
-}
-simd_wrapper!(F32x16, __m512);
-simd_wrapper!(I32x16, __m512i);
+simd_type!(F32x16, __m512, f32, __mmask16, Avx512Isa);
+simd_type!(I32x16, __m512i, i32, __mmask16, Avx512Isa);
+simd_type!(I16x32, __m512i, i16, __mmask32, Avx512Isa);
 
 #[derive(Copy, Clone)]
 pub struct Avx512Isa {
@@ -48,6 +39,7 @@ impl Avx512Isa {
 unsafe impl Isa for Avx512Isa {
     type F32 = F32x16;
     type I32 = I32x16;
+    type I16 = I16x32;
     type Bits = I32x16;
 
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
@@ -57,13 +49,17 @@ unsafe impl Isa for Avx512Isa {
     fn i32(self) -> impl SimdIntOps<Self::I32> {
         self
     }
+
+    fn i16(self) -> impl SimdIntOps<Self::I16> {
+        self
+    }
 }
 
 macro_rules! simd_ops_common {
     ($simd:ty, $mask:ty) => {
         #[inline]
         fn len(self) -> usize {
-            size_of::<$simd>() / size_of::<<$simd as Simd>::Elem>()
+            lanes::<$simd>()
         }
 
         #[inline]
@@ -208,6 +204,11 @@ impl SimdFloatOps<F32x16> for Avx512Isa {
     fn to_int_trunc(self, x: F32x16) -> Self::Int {
         unsafe { _mm512_cvttps_epi32(x.0) }.into()
     }
+
+    #[inline]
+    fn to_int_round(self, x: F32x16) -> Self::Int {
+        unsafe { _mm512_cvtps_epi32(x.0) }.into()
+    }
 }
 
 unsafe impl SimdOps<I32x16> for Avx512Isa {
@@ -287,53 +288,102 @@ impl SimdIntOps<I32x16> for Avx512Isa {
     }
 }
 
-impl Mask for __mmask16 {
-    type Array = [bool; 16];
+unsafe impl SimdOps<I16x32> for Avx512Isa {
+    simd_ops_common!(I16x32, __mmask32);
 
     #[inline]
-    fn to_array(self) -> Self::Array {
-        std::array::from_fn(|i| self & (1 << i) != 0)
+    fn add(self, x: I16x32, y: I16x32) -> I16x32 {
+        unsafe { _mm512_add_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn sub(self, x: I16x32, y: I16x32) -> I16x32 {
+        unsafe { _mm512_sub_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn mul(self, x: I16x32, y: I16x32) -> I16x32 {
+        unsafe { _mm512_mullo_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn splat(self, x: i16) -> I16x32 {
+        unsafe { _mm512_set1_epi16(x) }.into()
+    }
+
+    #[inline]
+    fn eq(self, x: I16x32, y: I16x32) -> __mmask32 {
+        unsafe { _mm512_cmp_epi16_mask(x.0, y.0, _MM_CMPINT_EQ) }
+    }
+
+    #[inline]
+    fn ge(self, x: I16x32, y: I16x32) -> __mmask32 {
+        unsafe { _mm512_cmp_epi16_mask(x.0, y.0, _MM_CMPINT_NLT) }
+    }
+
+    #[inline]
+    fn gt(self, x: I16x32, y: I16x32) -> __mmask32 {
+        unsafe { _mm512_cmp_epi16_mask(x.0, y.0, _MM_CMPINT_NLE) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const i16) -> I16x32 {
+        unsafe { _mm512_loadu_si512(ptr as *const i32) }.into()
+    }
+
+    #[inline]
+    fn select(self, x: I16x32, y: I16x32, mask: <I16x32 as Simd>::Mask) -> I16x32 {
+        unsafe { _mm512_mask_blend_epi16(mask, y.0, x.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: I16x32, ptr: *mut i16) {
+        unsafe { _mm512_storeu_si512(ptr as *mut __m512i, x.0) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr_mask(self, ptr: *const i16, mask: __mmask32) -> I16x32 {
+        unsafe { _mm512_mask_loadu_epi16(_mm512_set1_epi16(0), mask, ptr) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr_mask(self, x: I16x32, ptr: *mut i16, mask: __mmask32) {
+        unsafe { _mm512_mask_storeu_epi16(ptr, mask, x.0) }
     }
 }
 
-unsafe impl MaskOps<__mmask16> for Avx512Isa {
+impl SimdIntOps<I16x32> for Avx512Isa {
     #[inline]
-    fn and(self, x: __mmask16, y: __mmask16) -> __mmask16 {
-        x & y
+    fn neg(self, x: I16x32) -> I16x32 {
+        unsafe { _mm512_sub_epi16(_mm512_setzero_si512(), x.0) }.into()
+    }
+
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: I16x32) -> I16x32 {
+        let count: I16x32 = self.splat(SHIFT as i16);
+        unsafe { _mm512_sllv_epi16(x.0, count.0) }.into()
     }
 }
 
-macro_rules! impl_simd {
-    ($simd:ty, $elem:ty, $mask:ty) => {
-        impl Simd for $simd {
-            type Elem = $elem;
-            type Array = [Self::Elem; size_of::<Self>() / size_of::<$elem>()];
-            type Isa = Avx512Isa;
-            type Mask = $mask;
-
-            #[inline]
-            fn to_bits(self) -> <Self::Isa as Isa>::Bits {
-                #[allow(clippy::useless_transmute)]
-                unsafe {
-                    transmute::<Self, <Self::Isa as Isa>::Bits>(self)
-                }
-            }
-
-            #[inline]
-            fn from_bits(bits: <Self::Isa as Isa>::Bits) -> Self {
-                #[allow(clippy::useless_transmute)]
-                unsafe {
-                    transmute::<<Self::Isa as Isa>::Bits, Self>(bits)
-                }
-            }
+macro_rules! impl_mask {
+    ($mask:ty) => {
+        impl Mask for $mask {
+            type Array = [bool; size_of::<$mask>() * 8];
 
             #[inline]
             fn to_array(self) -> Self::Array {
-                unsafe { transmute::<Self, Self::Array>(self) }
+                std::array::from_fn(|i| self & (1 << i) != 0)
+            }
+        }
+
+        unsafe impl MaskOps<$mask> for Avx512Isa {
+            #[inline]
+            fn and(self, x: $mask, y: $mask) -> $mask {
+                x & y
             }
         }
     };
 }
 
-impl_simd!(F32x16, f32, __mmask16);
-impl_simd!(I32x16, i32, __mmask16);
+impl_mask!(__mmask16);
+impl_mask!(__mmask32);
