@@ -1,16 +1,18 @@
 use std::arch::x86_64::{
-    __m256, __m256i, _mm256_add_epi16, _mm256_add_epi32, _mm256_add_ps, _mm256_and_ps,
-    _mm256_and_si256, _mm256_andnot_ps, _mm256_blendv_epi8, _mm256_blendv_ps,
-    _mm256_castps256_ps128, _mm256_cmp_ps, _mm256_cmpeq_epi16, _mm256_cmpeq_epi32,
-    _mm256_cmpgt_epi16, _mm256_cmpgt_epi32, _mm256_cvtps_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
-    _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256,
-    _mm256_maskload_epi32, _mm256_maskload_ps, _mm256_maskstore_epi32, _mm256_maskstore_ps,
-    _mm256_max_ps, _mm256_min_ps, _mm256_movemask_epi8, _mm256_mul_ps, _mm256_mullo_epi16,
-    _mm256_mullo_epi32, _mm256_or_si256, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_ps,
+    __m256, __m256i, _mm256_add_epi16, _mm256_add_epi32, _mm256_add_epi8, _mm256_add_ps,
+    _mm256_and_ps, _mm256_and_si256, _mm256_andnot_ps, _mm256_blendv_epi8, _mm256_blendv_ps,
+    _mm256_castps256_ps128, _mm256_castsi256_si128, _mm256_cmp_ps, _mm256_cmpeq_epi16,
+    _mm256_cmpeq_epi32, _mm256_cmpeq_epi8, _mm256_cmpgt_epi16, _mm256_cmpgt_epi32,
+    _mm256_cmpgt_epi8, _mm256_cvtepi8_epi16, _mm256_cvtps_epi32, _mm256_cvttps_epi32,
+    _mm256_div_ps, _mm256_extractf128_ps, _mm256_extracti128_si256, _mm256_fmadd_ps,
+    _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32, _mm256_maskload_ps,
+    _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
+    _mm256_movemask_epi8, _mm256_mul_ps, _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_si256,
+    _mm256_packs_epi16, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_epi8, _mm256_set1_ps,
     _mm256_setzero_si256, _mm256_slli_epi16, _mm256_slli_epi32, _mm256_storeu_ps,
-    _mm256_storeu_si256, _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_ps, _mm256_xor_ps,
-    _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_EQ_OQ, _CMP_GE_OQ,
-    _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_storeu_si256, _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_epi8, _mm256_sub_ps,
+    _mm256_xor_ps, _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps,
+    _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
@@ -21,6 +23,7 @@ use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 simd_type!(F32x8, __m256, f32, F32x8, Avx2Isa);
 simd_type!(I32x8, __m256i, i32, I32x8, Avx2Isa);
 simd_type!(I16x16, __m256i, i16, I16x16, Avx2Isa);
+simd_type!(I8x32, __m256i, i8, I8x32, Avx2Isa);
 
 #[derive(Copy, Clone)]
 pub struct Avx2Isa {
@@ -42,6 +45,7 @@ unsafe impl Isa for Avx2Isa {
     type F32 = F32x8;
     type I32 = I32x8;
     type I16 = I16x16;
+    type I8 = I8x32;
     type Bits = I32x8;
 
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
@@ -53,6 +57,10 @@ unsafe impl Isa for Avx2Isa {
     }
 
     fn i16(self) -> impl SimdIntOps<Self::I16> {
+        self
+    }
+
+    fn i8(self) -> impl SimdIntOps<Self::I8> {
         self
     }
 }
@@ -335,17 +343,6 @@ unsafe impl SimdOps<I16x16> for Avx2Isa {
     }
 
     #[inline]
-    fn lt(self, x: I16x16, y: I16x16) -> I16x16 {
-        unsafe { _mm256_cmpgt_epi16(y.0, x.0) }.into()
-    }
-
-    #[inline]
-    fn le(self, x: I16x16, y: I16x16) -> I16x16 {
-        unsafe { _mm256_or_si256(_mm256_cmpgt_epi16(y.0, x.0), _mm256_cmpeq_epi16(x.0, y.0)) }
-            .into()
-    }
-
-    #[inline]
     fn eq(self, x: I16x16, y: I16x16) -> I16x16 {
         unsafe { _mm256_cmpeq_epi16(x.0, y.0) }.into()
     }
@@ -421,6 +418,140 @@ impl SimdIntOps<I16x16> for Avx2Isa {
     }
 }
 
+unsafe impl SimdOps<I8x32> for Avx2Isa {
+    simd_ops_common!(I8x32, I8x32);
+
+    #[inline]
+    fn first_n_mask(self, n: usize) -> I8x32 {
+        let mask: [i8; 32] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
+        unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) }.into()
+    }
+
+    #[inline]
+    fn add(self, x: I8x32, y: I8x32) -> I8x32 {
+        unsafe { _mm256_add_epi8(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn sub(self, x: I8x32, y: I8x32) -> I8x32 {
+        unsafe { _mm256_sub_epi8(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn mul(self, x: I8x32, y: I8x32) -> I8x32 {
+        unsafe {
+            // Extract low and high halves, sign-extend to i16.
+            let x_lo = _mm256_castsi256_si128(x.0);
+            let x_hi = _mm256_extracti128_si256(x.0, 1);
+            let y_lo = _mm256_castsi256_si128(y.0);
+            let y_hi = _mm256_extracti128_si256(y.0, 1);
+
+            let x_lo_i16 = _mm256_cvtepi8_epi16(x_lo);
+            let y_lo_i16 = _mm256_cvtepi8_epi16(y_lo);
+            let x_hi_i16 = _mm256_cvtepi8_epi16(x_hi);
+            let y_hi_i16 = _mm256_cvtepi8_epi16(y_hi);
+
+            // Multiply i16 values.
+            let prod_lo = _mm256_mullo_epi16(x_lo_i16, y_lo_i16);
+            let prod_hi = _mm256_mullo_epi16(x_hi_i16, y_hi_i16);
+
+            // Pack i16 values back into i8 using signed saturation.
+            _mm256_packs_epi16(prod_lo, prod_hi)
+        }
+        .into()
+    }
+
+    #[inline]
+    fn splat(self, x: i8) -> I8x32 {
+        unsafe { _mm256_set1_epi8(x) }.into()
+    }
+
+    #[inline]
+    fn eq(self, x: I8x32, y: I8x32) -> I8x32 {
+        unsafe { _mm256_cmpeq_epi8(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn ge(self, x: I8x32, y: I8x32) -> I8x32 {
+        unsafe { _mm256_or_si256(_mm256_cmpgt_epi8(x.0, y.0), _mm256_cmpeq_epi8(x.0, y.0)) }.into()
+    }
+
+    #[inline]
+    fn gt(self, x: I8x32, y: I8x32) -> I8x32 {
+        unsafe { _mm256_cmpgt_epi8(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const i8) -> I8x32 {
+        unsafe { _mm256_loadu_si256(ptr as *const __m256i) }.into()
+    }
+
+    #[inline]
+    fn select(self, x: I8x32, y: I8x32, mask: <I8x32 as Simd>::Mask) -> I8x32 {
+        unsafe { _mm256_blendv_epi8(y.0, x.0, mask.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: I8x32, ptr: *mut i8) {
+        unsafe { _mm256_storeu_si256(ptr as *mut __m256i, x.0) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr_mask(self, ptr: *const i8, mask: I8x32) -> I8x32 {
+        // There is no native masked-load instruction for i8, so fall back to
+        // scalar loads.
+        let mask = _mm256_movemask_epi8(mask.0) as u32;
+        let xs: [i8; 32] = std::array::from_fn(|i| {
+            let mask_bit = mask & (1 << i);
+            if mask_bit != 0 {
+                // Safety: Caller promises that `ptr.add(i)` is valid if mask[i] is set.
+                unsafe { *ptr.add(i) }
+            } else {
+                0
+            }
+        });
+        self.load_ptr(xs.as_ptr())
+    }
+
+    #[inline]
+    unsafe fn store_ptr_mask(self, x: I8x32, ptr: *mut i8, mask: I8x32) {
+        // There is no native masked-store instruction for i8, so fall back to
+        // scalar store.
+        let xs = Simd::to_array(x);
+        let mask = _mm256_movemask_epi8(mask.0) as u32;
+        for i in 0..32 {
+            let mask_bit = mask & (1 << i);
+            if mask_bit != 0 {
+                // Safety: Caller promises that `ptr.add(i)` is valid if mask[i] is set.
+                unsafe { *ptr.add(i) = xs[i] }
+            }
+        }
+    }
+}
+
+impl SimdIntOps<I8x32> for Avx2Isa {
+    #[inline]
+    fn neg(self, x: I8x32) -> I8x32 {
+        unsafe { _mm256_sub_epi8(_mm256_setzero_si256(), x.0) }.into()
+    }
+
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: I8x32) -> I8x32 {
+        unsafe {
+            let x_lo = _mm256_castsi256_si128(x.0);
+            let x_lo_i16 = _mm256_cvtepi8_epi16(x_lo);
+
+            let x_hi = _mm256_extracti128_si256(x.0, 1);
+            let x_hi_i16 = _mm256_cvtepi8_epi16(x_hi);
+
+            let y_lo = _mm256_slli_epi16(x_lo_i16, SHIFT);
+            let y_hi = _mm256_slli_epi16(x_hi_i16, SHIFT);
+            _mm256_packs_epi16(y_lo, y_hi)
+        }
+        .into()
+    }
+}
+
 macro_rules! impl_mask {
     ($mask:ty, $elem:ty) => {
         impl Mask for $mask {
@@ -438,6 +569,7 @@ macro_rules! impl_mask {
 impl_mask!(F32x8, f32);
 impl_mask!(I32x8, i32);
 impl_mask!(I16x16, i16);
+impl_mask!(I8x32, i8);
 
 macro_rules! impl_int_mask_ops {
     ($mask:ty) => {
@@ -451,6 +583,7 @@ macro_rules! impl_int_mask_ops {
 }
 impl_int_mask_ops!(I32x8);
 impl_int_mask_ops!(I16x16);
+impl_int_mask_ops!(I8x32);
 
 unsafe impl MaskOps<F32x8> for Avx2Isa {
     #[inline]
