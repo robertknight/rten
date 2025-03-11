@@ -5,7 +5,8 @@ use std::arch::wasm32::{
     i16x8_mul, i16x8_neg, i16x8_shl, i16x8_splat, i16x8_sub, i32x4_add, i32x4_eq, i32x4_ge,
     i32x4_gt, i32x4_mul, i32x4_neg, i32x4_shl, i32x4_shuffle, i32x4_splat, i32x4_sub,
     i32x4_trunc_sat_f32x4, i8x16_add, i8x16_eq, i8x16_ge, i8x16_gt, i8x16_neg, i8x16_shl,
-    i8x16_shuffle, i8x16_splat, i8x16_sub, v128, v128_and, v128_bitselect, v128_load, v128_store,
+    i8x16_shuffle, i8x16_splat, i8x16_sub, u16x8_add, u16x8_eq, u16x8_ge, u16x8_gt, u16x8_mul,
+    u16x8_splat, u16x8_sub, v128, v128_and, v128_bitselect, v128_load, v128_store,
 };
 use std::mem::transmute;
 
@@ -16,6 +17,7 @@ simd_type!(F32x4, v128, f32, M32, Wasm32Isa);
 simd_type!(I32x4, v128, i32, M32, Wasm32Isa);
 simd_type!(I16x8, v128, i16, M16, Wasm32Isa);
 simd_type!(I8x16, v128, i8, M8, Wasm32Isa);
+simd_type!(U16x8, v128, u16, M16, Wasm32Isa);
 
 #[derive(Copy, Clone)]
 pub struct Wasm32Isa {
@@ -35,6 +37,7 @@ unsafe impl Isa for Wasm32Isa {
     type I32 = I32x4;
     type I16 = I16x8;
     type I8 = I8x16;
+    type U16 = U16x8;
     type Bits = I32x4;
 
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
@@ -50,6 +53,10 @@ unsafe impl Isa for Wasm32Isa {
     }
 
     fn i8(self) -> impl SimdIntOps<Self::I8> {
+        self
+    }
+
+    fn u16(self) -> impl SimdOps<Self::U16> {
         self
     }
 }
@@ -69,7 +76,7 @@ macro_rules! simd_ops_common {
         #[inline]
         fn first_n_mask(self, n: usize) -> $mask {
             let mask: [$mask_elem; lanes::<$simd>()] =
-                std::array::from_fn(|i| if i < n { -1 } else { 0 });
+                std::array::from_fn(|i| if i < n { !0 } else { 0 });
             $mask(unsafe { v128_load(mask.as_ptr() as *const v128) })
         }
 
@@ -389,6 +396,45 @@ impl SimdIntOps<I8x16> for Wasm32Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I8x16) -> I8x16 {
         I8x16(i8x16_shl(x.0, SHIFT as u32))
+    }
+}
+
+unsafe impl SimdOps<U16x8> for Wasm32Isa {
+    simd_ops_common!(U16x8, M16, u16);
+
+    #[inline]
+    fn add(self, x: U16x8, y: U16x8) -> U16x8 {
+        U16x8(u16x8_add(x.0, y.0))
+    }
+
+    #[inline]
+    fn sub(self, x: U16x8, y: U16x8) -> U16x8 {
+        U16x8(u16x8_sub(x.0, y.0))
+    }
+
+    #[inline]
+    fn mul(self, x: U16x8, y: U16x8) -> U16x8 {
+        U16x8(u16x8_mul(x.0, y.0))
+    }
+
+    #[inline]
+    fn splat(self, x: u16) -> U16x8 {
+        U16x8(u16x8_splat(x))
+    }
+
+    #[inline]
+    fn eq(self, x: U16x8, y: U16x8) -> M16 {
+        M16(u16x8_eq(x.0, y.0))
+    }
+
+    #[inline]
+    fn ge(self, x: U16x8, y: U16x8) -> M16 {
+        M16(u16x8_ge(x.0, y.0))
+    }
+
+    #[inline]
+    fn gt(self, x: U16x8, y: U16x8) -> M16 {
+        M16(u16x8_gt(x.0, y.0))
     }
 }
 

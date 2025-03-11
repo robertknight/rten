@@ -11,9 +11,9 @@ use std::arch::x86_64::{
     _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_epi8, _mm256_set1_ps, _mm256_setr_m128i,
     _mm256_setzero_si256, _mm256_slli_epi16, _mm256_slli_epi32, _mm256_storeu_ps,
     _mm256_storeu_si256, _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_epi8, _mm256_sub_ps,
-    _mm256_xor_ps, _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_setr_epi8,
-    _mm_shuffle_epi8, _mm_shuffle_ps, _mm_unpacklo_epi64, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ,
-    _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_xor_ps, _mm256_xor_si256, _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch,
+    _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps, _mm_unpacklo_epi64, _CMP_EQ_OQ, _CMP_GE_OQ,
+    _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
@@ -26,6 +26,7 @@ simd_type!(F32x8, __m256, f32, F32x8, Avx2Isa);
 simd_type!(I32x8, __m256i, i32, I32x8, Avx2Isa);
 simd_type!(I16x16, __m256i, i16, I16x16, Avx2Isa);
 simd_type!(I8x32, __m256i, i8, I8x32, Avx2Isa);
+simd_type!(U16x16, __m256i, u16, I16x16, Avx2Isa);
 
 #[derive(Copy, Clone)]
 pub struct Avx2Isa {
@@ -48,6 +49,7 @@ unsafe impl Isa for Avx2Isa {
     type I32 = I32x8;
     type I16 = I16x16;
     type I8 = I8x32;
+    type U16 = U16x16;
     type Bits = I32x8;
 
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
@@ -63,6 +65,10 @@ unsafe impl Isa for Avx2Isa {
     }
 
     fn i8(self) -> impl SimdIntOps<Self::I8> {
+        self
+    }
+
+    fn u16(self) -> impl SimdOps<Self::U16> {
         self
     }
 }
@@ -534,6 +540,107 @@ impl SimdIntOps<I8x32> for Avx2Isa {
         let y_hi = i16_ops.shift_left::<SHIFT>(x_hi);
 
         self.narrow_truncate(y_lo, y_hi)
+    }
+}
+
+unsafe impl SimdOps<U16x16> for Avx2Isa {
+    simd_ops_common!(U16x16, I16x16);
+
+    #[inline]
+    fn first_n_mask(self, n: usize) -> I16x16 {
+        let mask: [i16; 16] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
+        unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) }.into()
+    }
+
+    #[inline]
+    fn add(self, x: U16x16, y: U16x16) -> U16x16 {
+        unsafe { _mm256_add_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn sub(self, x: U16x16, y: U16x16) -> U16x16 {
+        unsafe { _mm256_sub_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn mul(self, x: U16x16, y: U16x16) -> U16x16 {
+        unsafe { _mm256_mullo_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn splat(self, x: u16) -> U16x16 {
+        unsafe { _mm256_set1_epi16(x as i16) }.into()
+    }
+
+    #[inline]
+    fn eq(self, x: U16x16, y: U16x16) -> I16x16 {
+        unsafe { _mm256_cmpeq_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn ge(self, x: U16x16, y: U16x16) -> I16x16 {
+        let xy_eq = self.eq(x, y);
+        let xy_gt = self.gt(x, y);
+        unsafe { _mm256_or_si256(xy_eq.0, xy_gt.0) }.into()
+    }
+
+    #[inline]
+    fn gt(self, x: U16x16, y: U16x16) -> I16x16 {
+        // AVX2 lacks u16 comparison. Shift both values to i16 and use signed compare.
+        unsafe {
+            let mask = _mm256_set1_epi16(0x8000u16 as i16);
+            let x_i16 = _mm256_xor_si256(x.0, mask);
+            let y_i16 = _mm256_xor_si256(y.0, mask);
+            _mm256_cmpgt_epi16(x_i16, y_i16)
+        }
+        .into()
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const u16) -> U16x16 {
+        unsafe { _mm256_loadu_si256(ptr as *const __m256i) }.into()
+    }
+
+    #[inline]
+    fn select(self, x: U16x16, y: U16x16, mask: <I16x16 as Simd>::Mask) -> U16x16 {
+        unsafe { _mm256_blendv_epi8(y.0, x.0, mask.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: U16x16, ptr: *mut u16) {
+        unsafe { _mm256_storeu_si256(ptr as *mut __m256i, x.0) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr_mask(self, ptr: *const u16, mask: I16x16) -> U16x16 {
+        // There is no native masked-load instruction for i16, so fall back to
+        // scalar loads.
+        let mask = _mm256_movemask_epi8(mask.0) as u32;
+        let xs: [u16; 16] = std::array::from_fn(|i| {
+            let mask_bit = mask & (1 << (i * 2 + 1));
+            if mask_bit != 0 {
+                // Safety: Caller promises that `ptr.add(i)` is valid if mask[i] is set.
+                unsafe { *ptr.add(i) }
+            } else {
+                0
+            }
+        });
+        self.load_ptr(xs.as_ptr())
+    }
+
+    #[inline]
+    unsafe fn store_ptr_mask(self, x: U16x16, ptr: *mut u16, mask: I16x16) {
+        // There is no native masked-store instruction for i16, so fall back to
+        // scalar store.
+        let xs = Simd::to_array(x);
+        let mask = _mm256_movemask_epi8(mask.0) as u32;
+        for i in 0..16 {
+            let mask_bit = mask & (1 << (i * 2 + 1));
+            if mask_bit != 0 {
+                // Safety: Caller promises that `ptr.add(i)` is valid if mask[i] is set.
+                unsafe { *ptr.add(i) = xs[i] }
+            }
+        }
     }
 }
 
