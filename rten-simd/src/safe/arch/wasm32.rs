@@ -12,10 +12,10 @@ use std::mem::transmute;
 use super::{lanes, simd_type};
 use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
-simd_type!(F32x4, v128, f32, I32x4, Wasm32Isa);
-simd_type!(I32x4, v128, i32, I32x4, Wasm32Isa);
-simd_type!(I16x8, v128, i16, I16x8, Wasm32Isa);
-simd_type!(I8x16, v128, i8, I8x16, Wasm32Isa);
+simd_type!(F32x4, v128, f32, M32, Wasm32Isa);
+simd_type!(I32x4, v128, i32, M32, Wasm32Isa);
+simd_type!(I16x8, v128, i16, M16, Wasm32Isa);
+simd_type!(I8x16, v128, i8, M8, Wasm32Isa);
 
 #[derive(Copy, Clone)]
 pub struct Wasm32Isa {
@@ -119,7 +119,7 @@ macro_rules! simd_ops_common {
 }
 
 unsafe impl SimdOps<F32x4> for Wasm32Isa {
-    simd_ops_common!(F32x4, I32x4, i32);
+    simd_ops_common!(F32x4, M32, i32);
 
     #[inline]
     fn add(self, x: F32x4, y: F32x4) -> F32x4 {
@@ -149,28 +149,28 @@ unsafe impl SimdOps<F32x4> for Wasm32Isa {
     }
 
     #[inline]
-    fn lt(self, x: F32x4, y: F32x4) -> I32x4 {
-        I32x4(f32x4_lt(x.0, y.0))
+    fn lt(self, x: F32x4, y: F32x4) -> M32 {
+        M32(f32x4_lt(x.0, y.0))
     }
 
     #[inline]
-    fn le(self, x: F32x4, y: F32x4) -> I32x4 {
-        I32x4(f32x4_le(x.0, y.0))
+    fn le(self, x: F32x4, y: F32x4) -> M32 {
+        M32(f32x4_le(x.0, y.0))
     }
 
     #[inline]
-    fn eq(self, x: F32x4, y: F32x4) -> I32x4 {
-        I32x4(f32x4_eq(x.0, y.0))
+    fn eq(self, x: F32x4, y: F32x4) -> M32 {
+        M32(f32x4_eq(x.0, y.0))
     }
 
     #[inline]
-    fn ge(self, x: F32x4, y: F32x4) -> I32x4 {
-        I32x4(f32x4_ge(x.0, y.0))
+    fn ge(self, x: F32x4, y: F32x4) -> M32 {
+        M32(f32x4_ge(x.0, y.0))
     }
 
     #[inline]
-    fn gt(self, x: F32x4, y: F32x4) -> I32x4 {
-        I32x4(f32x4_gt(x.0, y.0))
+    fn gt(self, x: F32x4, y: F32x4) -> M32 {
+        M32(f32x4_gt(x.0, y.0))
     }
 
     #[inline]
@@ -231,7 +231,7 @@ impl SimdFloatOps<F32x4> for Wasm32Isa {
 }
 
 unsafe impl SimdOps<I32x4> for Wasm32Isa {
-    simd_ops_common!(I32x4, I32x4, i32);
+    simd_ops_common!(I32x4, M32, i32);
 
     #[inline]
     fn add(self, x: I32x4, y: I32x4) -> I32x4 {
@@ -254,18 +254,18 @@ unsafe impl SimdOps<I32x4> for Wasm32Isa {
     }
 
     #[inline]
-    fn eq(self, x: I32x4, y: I32x4) -> I32x4 {
-        I32x4(i32x4_eq(x.0, y.0))
+    fn eq(self, x: I32x4, y: I32x4) -> M32 {
+        M32(i32x4_eq(x.0, y.0))
     }
 
     #[inline]
-    fn ge(self, x: I32x4, y: I32x4) -> I32x4 {
-        I32x4(i32x4_ge(x.0, y.0))
+    fn ge(self, x: I32x4, y: I32x4) -> M32 {
+        M32(i32x4_ge(x.0, y.0))
     }
 
     #[inline]
-    fn gt(self, x: I32x4, y: I32x4) -> I32x4 {
-        I32x4(i32x4_gt(x.0, y.0))
+    fn gt(self, x: I32x4, y: I32x4) -> M32 {
+        M32(i32x4_gt(x.0, y.0))
     }
 }
 
@@ -282,7 +282,7 @@ impl SimdIntOps<I32x4> for Wasm32Isa {
 }
 
 unsafe impl SimdOps<I16x8> for Wasm32Isa {
-    simd_ops_common!(I16x8, I16x8, i16);
+    simd_ops_common!(I16x8, M16, i16);
 
     #[inline]
     fn add(self, x: I16x8, y: I16x8) -> I16x8 {
@@ -305,18 +305,18 @@ unsafe impl SimdOps<I16x8> for Wasm32Isa {
     }
 
     #[inline]
-    fn eq(self, x: I16x8, y: I16x8) -> I16x8 {
-        I16x8(i16x8_eq(x.0, y.0))
+    fn eq(self, x: I16x8, y: I16x8) -> M16 {
+        M16(i16x8_eq(x.0, y.0))
     }
 
     #[inline]
-    fn ge(self, x: I16x8, y: I16x8) -> I16x8 {
-        I16x8(i16x8_ge(x.0, y.0))
+    fn ge(self, x: I16x8, y: I16x8) -> M16 {
+        M16(i16x8_ge(x.0, y.0))
     }
 
     #[inline]
-    fn gt(self, x: I16x8, y: I16x8) -> I16x8 {
-        I16x8(i16x8_gt(x.0, y.0))
+    fn gt(self, x: I16x8, y: I16x8) -> M16 {
+        M16(i16x8_gt(x.0, y.0))
     }
 }
 
@@ -333,7 +333,7 @@ impl SimdIntOps<I16x8> for Wasm32Isa {
 }
 
 unsafe impl SimdOps<I8x16> for Wasm32Isa {
-    simd_ops_common!(I8x16, I8x16, i8);
+    simd_ops_common!(I8x16, M8, i8);
 
     #[inline]
     fn add(self, x: I8x16, y: I8x16) -> I8x16 {
@@ -365,18 +365,18 @@ unsafe impl SimdOps<I8x16> for Wasm32Isa {
     }
 
     #[inline]
-    fn eq(self, x: I8x16, y: I8x16) -> I8x16 {
-        I8x16(i8x16_eq(x.0, y.0))
+    fn eq(self, x: I8x16, y: I8x16) -> M8 {
+        M8(i8x16_eq(x.0, y.0))
     }
 
     #[inline]
-    fn ge(self, x: I8x16, y: I8x16) -> I8x16 {
-        I8x16(i8x16_ge(x.0, y.0))
+    fn ge(self, x: I8x16, y: I8x16) -> M8 {
+        M8(i8x16_ge(x.0, y.0))
     }
 
     #[inline]
-    fn gt(self, x: I8x16, y: I8x16) -> I8x16 {
-        I8x16(i8x16_gt(x.0, y.0))
+    fn gt(self, x: I8x16, y: I8x16) -> M8 {
+        M8(i8x16_gt(x.0, y.0))
     }
 }
 
@@ -394,6 +394,10 @@ impl SimdIntOps<I8x16> for Wasm32Isa {
 
 macro_rules! mask_type {
     ($mask:ident, $elem:ty, $len: expr) => {
+        #[derive(Copy, Clone, Debug)]
+        #[repr(transparent)]
+        pub struct $mask(v128);
+
         impl Mask for $mask {
             type Array = [bool; $len];
 
@@ -413,6 +417,7 @@ macro_rules! mask_type {
     };
 }
 
-mask_type!(I32x4, i32, 4);
-mask_type!(I16x8, i16, 8);
-mask_type!(I8x16, i8, 16);
+// Define mask vector types. `Mn` is a mask for a vector with n-bit lanes.
+mask_type!(M32, i32, 4);
+mask_type!(M16, i16, 8);
+mask_type!(M8, i8, 16);

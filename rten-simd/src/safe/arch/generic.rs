@@ -6,21 +6,24 @@ use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 // Size of SIMD vector in 32-bit lanes.
 const LEN_X32: usize = 4;
 
-#[repr(align(16))]
-#[derive(Copy, Clone, Debug)]
-pub struct F32x4([f32; LEN_X32]);
+macro_rules! simd_type {
+    ($simd:ident, $elem:ty, $len:expr) => {
+        #[repr(align(16))]
+        #[derive(Copy, Clone, Debug)]
+        pub struct $simd([$elem; $len]);
+    };
+}
 
-#[repr(align(16))]
-#[derive(Copy, Clone, Debug)]
-pub struct I32x4([i32; LEN_X32]);
+// Define SIMD vector types.
+simd_type!(F32x4, f32, LEN_X32);
+simd_type!(I32x4, i32, LEN_X32);
+simd_type!(I16x8, i16, LEN_X32 * 2);
+simd_type!(I8x16, i8, LEN_X32 * 4);
 
-#[repr(align(16))]
-#[derive(Copy, Clone, Debug)]
-pub struct I16x8([i16; LEN_X32 * 2]);
-
-#[repr(align(16))]
-#[derive(Copy, Clone, Debug)]
-pub struct I8x16([i8; LEN_X32 * 4]);
+// Define mask vector types. `Mn` is a mask for a vector with n-bit lanes.
+simd_type!(M32, i32, LEN_X32);
+simd_type!(M16, i16, LEN_X32 * 2);
+simd_type!(M8, i8, LEN_X32 * 4);
 
 #[derive(Copy, Clone)]
 pub struct GenericIsa {
@@ -195,7 +198,7 @@ macro_rules! simd_ops_common {
 }
 
 unsafe impl SimdOps<F32x4> for GenericIsa {
-    simd_ops_common!(F32x4, f32, 4, I32x4);
+    simd_ops_common!(F32x4, f32, 4, M32);
 }
 
 impl SimdFloatOps<F32x4> for GenericIsa {
@@ -254,9 +257,9 @@ macro_rules! impl_simd_int_ops {
     };
 }
 
-impl_simd_int_ops!(I32x4, i32, 4, I32x4);
-impl_simd_int_ops!(I16x8, i16, 8, I16x8);
-impl_simd_int_ops!(I8x16, i8, 16, I8x16);
+impl_simd_int_ops!(I32x4, i32, 4, M32);
+impl_simd_int_ops!(I16x8, i16, 8, M16);
+impl_simd_int_ops!(I8x16, i8, 16, M8);
 
 macro_rules! impl_mask {
     ($mask:ident, $len:expr) => {
@@ -280,9 +283,9 @@ macro_rules! impl_mask {
     };
 }
 
-impl_mask!(I32x4, LEN_X32);
-impl_mask!(I16x8, LEN_X32 * 2);
-impl_mask!(I8x16, LEN_X32 * 4);
+impl_mask!(M32, LEN_X32);
+impl_mask!(M16, LEN_X32 * 2);
+impl_mask!(M8, LEN_X32 * 4);
 
 macro_rules! impl_simd {
     ($simd:ty, $elem:ty, $mask:ty, $len:expr) => {
@@ -312,7 +315,7 @@ macro_rules! impl_simd {
     };
 }
 
-impl_simd!(F32x4, f32, I32x4, 4);
-impl_simd!(I32x4, i32, I32x4, 4);
-impl_simd!(I16x8, i16, I16x8, 8);
-impl_simd!(I8x16, i8, I8x16, 16);
+impl_simd!(F32x4, f32, M32, 4);
+impl_simd!(I32x4, i32, M32, 4);
+impl_simd!(I16x8, i16, M16, 8);
+impl_simd!(I8x16, i8, M8, 16);
