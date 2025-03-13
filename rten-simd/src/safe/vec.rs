@@ -786,6 +786,35 @@ mod tests {
                     })
                 }
 
+                // Add / Sub / Mul with a negative argument.
+                #[test]
+                fn test_bin_ops_neg() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let a = -2 as $elem;
+                        let b = 3 as $elem;
+
+                        let x = ops.splat(a);
+                        let y = ops.splat(b);
+
+                        // Add
+                        let expected = ops.splat(a + b);
+                        let actual = ops.add(x, y);
+                        assert_simd_eq!(actual, expected);
+
+                        // Sub
+                        let expected = ops.splat(b - a);
+                        let actual = ops.sub(y, x);
+                        assert_simd_eq!(actual, expected);
+
+                        // Mul
+                        let expected = ops.splat(a * b);
+                        let actual = ops.mul(x, y);
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+
                 #[test]
                 fn test_shl() {
                     test_simd_op!(isa, {
