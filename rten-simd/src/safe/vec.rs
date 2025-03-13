@@ -649,7 +649,7 @@ mod tests {
     test_num_ops!(num_ops_u8, u8);
     test_num_ops!(num_ops_u16, u16);
 
-    // Test that i8 multiply truncates result as expected.
+    // Test that x8 multiply truncates result as expected.
     #[test]
     fn test_i8_mul_truncate() {
         test_simd_op!(isa, {
@@ -657,6 +657,23 @@ mod tests {
 
             let x = 17i8;
             let y = 19i8;
+
+            let x_vec = ops.splat(x);
+            let y_vec = ops.splat(y);
+            let expected = ops.splat(x.wrapping_mul(y));
+            let actual = ops.mul(x_vec, y_vec);
+
+            assert_simd_eq!(actual, expected);
+        })
+    }
+
+    #[test]
+    fn test_u8_mul_truncate() {
+        test_simd_op!(isa, {
+            let ops = isa.u8();
+
+            let x = 17u8;
+            let y = 19u8;
 
             let x_vec = ops.splat(x);
             let y_vec = ops.splat(y);
@@ -809,6 +826,17 @@ mod tests {
             let ops = isa.u16();
             let x = ops.splat(i16::MAX as u16);
             let y = ops.splat(i16::MAX as u16 + 1);
+            assert!(ops.gt(y, x).all_true());
+            assert!(ops.ge(y, x).all_true());
+        });
+    }
+
+    #[test]
+    fn test_cmp_gt_ge_u8() {
+        test_simd_op!(isa, {
+            let ops = isa.u8();
+            let x = ops.splat(i8::MAX as u8);
+            let y = ops.splat(i8::MAX as u8 + 1);
             assert!(ops.gt(y, x).all_true());
             assert!(ops.ge(y, x).all_true());
         });
