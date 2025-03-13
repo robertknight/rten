@@ -5,8 +5,10 @@ use std::arch::wasm32::{
     i16x8_mul, i16x8_neg, i16x8_shl, i16x8_splat, i16x8_sub, i32x4_add, i32x4_eq, i32x4_ge,
     i32x4_gt, i32x4_mul, i32x4_neg, i32x4_shl, i32x4_shuffle, i32x4_splat, i32x4_sub,
     i32x4_trunc_sat_f32x4, i8x16_add, i8x16_eq, i8x16_ge, i8x16_gt, i8x16_neg, i8x16_shl,
-    i8x16_shuffle, i8x16_splat, i8x16_sub, u16x8_add, u16x8_eq, u16x8_ge, u16x8_gt, u16x8_mul,
-    u16x8_splat, u16x8_sub, v128, v128_and, v128_bitselect, v128_load, v128_store,
+    i8x16_shuffle, i8x16_splat, i8x16_sub, u16x8_add, u16x8_eq, u16x8_extmul_high_u8x16,
+    u16x8_extmul_low_u8x16, u16x8_ge, u16x8_gt, u16x8_mul, u16x8_splat, u16x8_sub, u8x16_add,
+    u8x16_eq, u8x16_ge, u8x16_gt, u8x16_shuffle, u8x16_splat, u8x16_sub, v128, v128_and,
+    v128_bitselect, v128_load, v128_store,
 };
 use std::mem::transmute;
 
@@ -17,6 +19,7 @@ simd_type!(F32x4, v128, f32, M32, Wasm32Isa);
 simd_type!(I32x4, v128, i32, M32, Wasm32Isa);
 simd_type!(I16x8, v128, i16, M16, Wasm32Isa);
 simd_type!(I8x16, v128, i8, M8, Wasm32Isa);
+simd_type!(U8x16, v128, u8, M8, Wasm32Isa);
 simd_type!(U16x8, v128, u16, M16, Wasm32Isa);
 
 #[derive(Copy, Clone)]
@@ -37,6 +40,7 @@ unsafe impl Isa for Wasm32Isa {
     type I32 = I32x4;
     type I16 = I16x8;
     type I8 = I8x16;
+    type U8 = U8x16;
     type U16 = U16x8;
     type Bits = I32x4;
 
@@ -53,6 +57,10 @@ unsafe impl Isa for Wasm32Isa {
     }
 
     fn i8(self) -> impl SimdIntOps<Self::I8> {
+        self
+    }
+
+    fn u8(self) -> impl SimdOps<Self::U8> {
         self
     }
 
@@ -396,6 +404,54 @@ impl SimdIntOps<I8x16> for Wasm32Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I8x16) -> I8x16 {
         I8x16(i8x16_shl(x.0, SHIFT as u32))
+    }
+}
+
+unsafe impl SimdOps<U8x16> for Wasm32Isa {
+    simd_ops_common!(U8x16, M8, i8);
+
+    #[inline]
+    fn add(self, x: U8x16, y: U8x16) -> U8x16 {
+        U8x16(u8x16_add(x.0, y.0))
+    }
+
+    #[inline]
+    fn sub(self, x: U8x16, y: U8x16) -> U8x16 {
+        U8x16(u8x16_sub(x.0, y.0))
+    }
+
+    #[inline]
+    fn mul(self, x: U8x16, y: U8x16) -> U8x16 {
+        let prod_low = u16x8_extmul_low_u8x16(x.0, y.0);
+        let prod_high = u16x8_extmul_high_u8x16(x.0, y.0);
+
+        // Select even bytes from low and high products. This obtains the
+        // u8 truncated product.
+        let prod_u8 = u8x16_shuffle::<0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30>(
+            prod_low, prod_high,
+        );
+
+        U8x16(prod_u8)
+    }
+
+    #[inline]
+    fn splat(self, x: u8) -> U8x16 {
+        U8x16(u8x16_splat(x))
+    }
+
+    #[inline]
+    fn eq(self, x: U8x16, y: U8x16) -> M8 {
+        M8(u8x16_eq(x.0, y.0))
+    }
+
+    #[inline]
+    fn ge(self, x: U8x16, y: U8x16) -> M8 {
+        M8(u8x16_ge(x.0, y.0))
+    }
+
+    #[inline]
+    fn gt(self, x: U8x16, y: U8x16) -> M8 {
+        M8(u8x16_gt(x.0, y.0))
     }
 }
 

@@ -175,6 +175,9 @@ pub unsafe trait Isa: Copy {
     /// SIMD vector with `i8` elements.
     type I8: Simd<Elem = i8, Isa = Self>;
 
+    /// SIMD vector with `u8` elements.
+    type U8: Simd<Elem = u8, Isa = Self>;
+
     /// SIMD vector with `u16` elements.
     type U16: Simd<Elem = u16, Isa = Self>;
 
@@ -189,6 +192,9 @@ pub unsafe trait Isa: Copy {
 
     /// Operations on SIMD vectors with `i8` elements.
     fn i8(self) -> impl SimdIntOps<Self::I8>;
+
+    /// Operations on SIMD vectors with `u8` elements.
+    fn u8(self) -> impl SimdOps<Self::U8>;
 
     /// Operations on SIMD vectors with `u16` elements.
     fn u16(self) -> impl SimdOps<Self::U16>;
@@ -640,6 +646,7 @@ mod tests {
     test_num_ops!(num_ops_i32, i32);
     test_num_ops!(num_ops_i16, i16);
     test_num_ops!(num_ops_i8, i8);
+    test_num_ops!(num_ops_u8, u8);
     test_num_ops!(num_ops_u16, u16);
 
     // Test that i8 multiply truncates result as expected.
