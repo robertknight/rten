@@ -26,6 +26,7 @@ impl_elem_for_int!(i32);
 impl_elem_for_int!(i16);
 impl_elem_for_int!(i8);
 impl_elem_for_int!(u8);
+impl_elem_for_int!(u16);
 
 /// Wrapping addition of numbers.
 ///
@@ -53,6 +54,7 @@ impl_wrapping_add!(i32);
 impl_wrapping_add!(i16);
 impl_wrapping_add!(i8);
 impl_wrapping_add!(u8);
+impl_wrapping_add!(u16);
 
 impl WrappingAdd for f32 {
     type Output = Self;
@@ -173,6 +175,9 @@ pub unsafe trait Isa: Copy {
     /// SIMD vector with `i8` elements.
     type I8: Simd<Elem = i8, Isa = Self>;
 
+    /// SIMD vector with `u16` elements.
+    type U16: Simd<Elem = u16, Isa = Self>;
+
     /// Operations on SIMD vectors with `f32` elements.
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32>;
 
@@ -184,6 +189,9 @@ pub unsafe trait Isa: Copy {
 
     /// Operations on SIMD vectors with `i8` elements.
     fn i8(self) -> impl SimdIntOps<Self::I8>;
+
+    /// Operations on SIMD vectors with `u16` elements.
+    fn u16(self) -> impl SimdOps<Self::U16>;
 }
 
 /// SIMD operations on a [`Mask`] vector.
@@ -534,8 +542,8 @@ mod tests {
                     test_simd_op!(isa, {
                         let ops = isa.$elem();
 
-                        let a = 1 as $elem;
-                        let b = 2 as $elem;
+                        let a = 2 as $elem;
+                        let b = 3 as $elem;
 
                         let x = ops.splat(a);
                         let y = ops.splat(b);
@@ -632,6 +640,7 @@ mod tests {
     test_num_ops!(num_ops_i32, i32);
     test_num_ops!(num_ops_i16, i16);
     test_num_ops!(num_ops_i8, i8);
+    test_num_ops!(num_ops_u16, u16);
 
     // Test that i8 multiply truncates result as expected.
     #[test]
@@ -733,7 +742,7 @@ mod tests {
     test_float_ops!(float_ops_f32, f32, i32);
 
     // Generate tests for operations available on signed integer types.
-    macro_rules! test_int_ops {
+    macro_rules! test_signed_int_ops {
         ($modname:ident, $elem:ident) => {
             mod $modname {
                 use super::{assert_simd_eq, test_simd_op, Isa, Simd, SimdIntOps, SimdOp, SimdOps};
@@ -781,9 +790,22 @@ mod tests {
         };
     }
 
-    test_int_ops!(int_ops_i32, i32);
-    test_int_ops!(int_ops_i16, i16);
-    test_int_ops!(int_ops_i8, i8);
+    test_signed_int_ops!(int_ops_i32, i32);
+    test_signed_int_ops!(int_ops_i16, i16);
+    test_signed_int_ops!(int_ops_i8, i8);
+
+    // For small positive values, signed comparison ops will work on unsigned
+    // values. Make sure we really are using unsigned comparison.
+    #[test]
+    fn test_cmp_gt_ge_u16() {
+        test_simd_op!(isa, {
+            let ops = isa.u16();
+            let x = ops.splat(i16::MAX as u16);
+            let y = ops.splat(i16::MAX as u16 + 1);
+            assert!(ops.gt(y, x).all_true());
+            assert!(ops.ge(y, x).all_true());
+        });
+    }
 
     macro_rules! test_mask_ops {
         ($type:ident) => {
