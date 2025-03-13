@@ -175,6 +175,9 @@ pub unsafe trait Isa: Copy {
     /// SIMD vector with `i8` elements.
     type I8: Simd<Elem = i8, Isa = Self>;
 
+    /// SIMD vector with `u8` elements.
+    type U8: Simd<Elem = u8, Isa = Self>;
+
     /// SIMD vector with `u16` elements.
     type U16: Simd<Elem = u16, Isa = Self>;
 
@@ -189,6 +192,9 @@ pub unsafe trait Isa: Copy {
 
     /// Operations on SIMD vectors with `i8` elements.
     fn i8(self) -> impl SimdIntOps<Self::I8>;
+
+    /// Operations on SIMD vectors with `u8` elements.
+    fn u8(self) -> impl SimdOps<Self::U8>;
 
     /// Operations on SIMD vectors with `u16` elements.
     fn u16(self) -> impl SimdOps<Self::U16>;
@@ -640,9 +646,10 @@ mod tests {
     test_num_ops!(num_ops_i32, i32);
     test_num_ops!(num_ops_i16, i16);
     test_num_ops!(num_ops_i8, i8);
+    test_num_ops!(num_ops_u8, u8);
     test_num_ops!(num_ops_u16, u16);
 
-    // Test that i8 multiply truncates result as expected.
+    // Test that x8 multiply truncates result as expected.
     #[test]
     fn test_i8_mul_truncate() {
         test_simd_op!(isa, {
@@ -650,6 +657,23 @@ mod tests {
 
             let x = 17i8;
             let y = 19i8;
+
+            let x_vec = ops.splat(x);
+            let y_vec = ops.splat(y);
+            let expected = ops.splat(x.wrapping_mul(y));
+            let actual = ops.mul(x_vec, y_vec);
+
+            assert_simd_eq!(actual, expected);
+        })
+    }
+
+    #[test]
+    fn test_u8_mul_truncate() {
+        test_simd_op!(isa, {
+            let ops = isa.u8();
+
+            let x = 17u8;
+            let y = 19u8;
 
             let x_vec = ops.splat(x);
             let y_vec = ops.splat(y);
@@ -762,6 +786,35 @@ mod tests {
                     })
                 }
 
+                // Add / Sub / Mul with a negative argument.
+                #[test]
+                fn test_bin_ops_neg() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let a = -2 as $elem;
+                        let b = 3 as $elem;
+
+                        let x = ops.splat(a);
+                        let y = ops.splat(b);
+
+                        // Add
+                        let expected = ops.splat(a + b);
+                        let actual = ops.add(x, y);
+                        assert_simd_eq!(actual, expected);
+
+                        // Sub
+                        let expected = ops.splat(b - a);
+                        let actual = ops.sub(y, x);
+                        assert_simd_eq!(actual, expected);
+
+                        // Mul
+                        let expected = ops.splat(a * b);
+                        let actual = ops.mul(x, y);
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+
                 #[test]
                 fn test_shl() {
                     test_simd_op!(isa, {
@@ -802,6 +855,17 @@ mod tests {
             let ops = isa.u16();
             let x = ops.splat(i16::MAX as u16);
             let y = ops.splat(i16::MAX as u16 + 1);
+            assert!(ops.gt(y, x).all_true());
+            assert!(ops.ge(y, x).all_true());
+        });
+    }
+
+    #[test]
+    fn test_cmp_gt_ge_u8() {
+        test_simd_op!(isa, {
+            let ops = isa.u8();
+            let x = ops.splat(i8::MAX as u8);
+            let y = ops.splat(i8::MAX as u8 + 1);
             assert!(ops.gt(y, x).all_true());
             assert!(ops.ge(y, x).all_true());
         });

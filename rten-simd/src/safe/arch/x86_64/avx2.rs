@@ -3,10 +3,10 @@ use std::arch::x86_64::{
     _mm256_and_ps, _mm256_and_si256, _mm256_andnot_ps, _mm256_blendv_epi8, _mm256_blendv_ps,
     _mm256_castps256_ps128, _mm256_castsi256_si128, _mm256_cmp_ps, _mm256_cmpeq_epi16,
     _mm256_cmpeq_epi32, _mm256_cmpeq_epi8, _mm256_cmpgt_epi16, _mm256_cmpgt_epi32,
-    _mm256_cmpgt_epi8, _mm256_cvtepi8_epi16, _mm256_cvtps_epi32, _mm256_cvttps_epi32,
-    _mm256_div_ps, _mm256_extractf128_ps, _mm256_extracti128_si256, _mm256_fmadd_ps,
-    _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32, _mm256_maskload_ps,
-    _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
+    _mm256_cmpgt_epi8, _mm256_cvtepi8_epi16, _mm256_cvtepu8_epi16, _mm256_cvtps_epi32,
+    _mm256_cvttps_epi32, _mm256_div_ps, _mm256_extractf128_ps, _mm256_extracti128_si256,
+    _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32,
+    _mm256_maskload_ps, _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
     _mm256_movemask_epi8, _mm256_mul_ps, _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_si256,
     _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_epi8, _mm256_set1_ps, _mm256_setr_m128i,
     _mm256_setzero_si256, _mm256_slli_epi16, _mm256_slli_epi32, _mm256_storeu_ps,
@@ -26,6 +26,7 @@ simd_type!(F32x8, __m256, f32, F32x8, Avx2Isa);
 simd_type!(I32x8, __m256i, i32, I32x8, Avx2Isa);
 simd_type!(I16x16, __m256i, i16, I16x16, Avx2Isa);
 simd_type!(I8x32, __m256i, i8, I8x32, Avx2Isa);
+simd_type!(U8x32, __m256i, u8, I8x32, Avx2Isa);
 simd_type!(U16x16, __m256i, u16, I16x16, Avx2Isa);
 
 #[derive(Copy, Clone)]
@@ -49,6 +50,7 @@ unsafe impl Isa for Avx2Isa {
     type I32 = I32x8;
     type I16 = I16x16;
     type I8 = I8x32;
+    type U8 = U8x32;
     type U16 = U16x16;
     type Bits = I32x8;
 
@@ -65,6 +67,10 @@ unsafe impl Isa for Avx2Isa {
     }
 
     fn i8(self) -> impl SimdIntOps<Self::I8> {
+        self
+    }
+
+    fn u8(self) -> impl SimdOps<Self::U8> {
         self
     }
 
@@ -543,6 +549,114 @@ impl SimdIntOps<I8x32> for Avx2Isa {
     }
 }
 
+unsafe impl SimdOps<U8x32> for Avx2Isa {
+    simd_ops_common!(U8x32, I8x32);
+
+    #[inline]
+    fn first_n_mask(self, n: usize) -> I8x32 {
+        let mask: [i8; 32] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
+        unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) }.into()
+    }
+
+    #[inline]
+    fn add(self, x: U8x32, y: U8x32) -> U8x32 {
+        unsafe { _mm256_add_epi8(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn sub(self, x: U8x32, y: U8x32) -> U8x32 {
+        unsafe { _mm256_sub_epi8(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn mul(self, x: U8x32, y: U8x32) -> U8x32 {
+        let (x_lo, x_hi) = self.extend(x);
+        let (y_lo, y_hi) = self.extend(y);
+
+        let u16_ops = self.u16();
+        let prod_lo = u16_ops.mul(x_lo, y_lo);
+        let prod_hi = u16_ops.mul(x_hi, y_hi);
+
+        self.narrow_truncate(prod_lo, prod_hi)
+    }
+
+    #[inline]
+    fn splat(self, x: u8) -> U8x32 {
+        unsafe { _mm256_set1_epi8(x as i8) }.into()
+    }
+
+    #[inline]
+    fn eq(self, x: U8x32, y: U8x32) -> I8x32 {
+        unsafe { _mm256_cmpeq_epi8(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn ge(self, x: U8x32, y: U8x32) -> I8x32 {
+        let xy_eq = self.eq(x, y);
+        let xy_gt = self.gt(x, y);
+        unsafe { _mm256_or_si256(xy_eq.0, xy_gt.0) }.into()
+    }
+
+    #[inline]
+    fn gt(self, x: U8x32, y: U8x32) -> I8x32 {
+        // AVX2 lacks u8 comparison. Shift both values to i8 and use signed compare.
+        unsafe {
+            let mask = _mm256_set1_epi8(0x80u8 as i8);
+            let x_i8 = _mm256_xor_si256(x.0, mask);
+            let y_i8 = _mm256_xor_si256(y.0, mask);
+            _mm256_cmpgt_epi8(x_i8, y_i8)
+        }
+        .into()
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const u8) -> U8x32 {
+        unsafe { _mm256_loadu_si256(ptr as *const __m256i) }.into()
+    }
+
+    #[inline]
+    fn select(self, x: U8x32, y: U8x32, mask: <U8x32 as Simd>::Mask) -> U8x32 {
+        unsafe { _mm256_blendv_epi8(y.0, x.0, mask.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: U8x32, ptr: *mut u8) {
+        unsafe { _mm256_storeu_si256(ptr as *mut __m256i, x.0) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr_mask(self, ptr: *const u8, mask: I8x32) -> U8x32 {
+        // There is no native masked-load instruction for u8, so fall back to
+        // scalar loads.
+        let mask = _mm256_movemask_epi8(mask.0) as u32;
+        let xs: [u8; 32] = std::array::from_fn(|i| {
+            let mask_bit = mask & (1 << i);
+            if mask_bit != 0 {
+                // Safety: Caller promises that `ptr.add(i)` is valid if mask[i] is set.
+                unsafe { *ptr.add(i) }
+            } else {
+                0
+            }
+        });
+        self.load_ptr(xs.as_ptr())
+    }
+
+    #[inline]
+    unsafe fn store_ptr_mask(self, x: U8x32, ptr: *mut u8, mask: I8x32) {
+        // There is no native masked-store instruction for u8, so fall back to
+        // scalar store.
+        let xs = Simd::to_array(x);
+        let mask = _mm256_movemask_epi8(mask.0) as u32;
+        for i in 0..32 {
+            let mask_bit = mask & (1 << i);
+            if mask_bit != 0 {
+                // Safety: Caller promises that `ptr.add(i)` is valid if mask[i] is set.
+                unsafe { *ptr.add(i) = xs[i] }
+            }
+        }
+    }
+}
+
 unsafe impl SimdOps<U16x16> for Avx2Isa {
     simd_ops_common!(U16x16, I16x16);
 
@@ -698,6 +812,20 @@ impl Extend<I8x32> for Avx2Isa {
     }
 }
 
+impl Extend<U8x32> for Avx2Isa {
+    type Output = U16x16;
+
+    #[inline]
+    fn extend(self, x: U8x32) -> (Self::Output, Self::Output) {
+        let (low_u16, high_u16) = unsafe {
+            let low = _mm256_castsi256_si128(x.0);
+            let high = _mm256_extracti128_si256(x.0, 1);
+            (_mm256_cvtepu8_epi16(low), _mm256_cvtepu8_epi16(high))
+        };
+        (U16x16(low_u16), U16x16(high_u16))
+    }
+}
+
 /// Extract bytes at even indices.
 ///
 /// Given an input with 16-bit lanes, this extracts truncated 8-bit values.
@@ -725,5 +853,17 @@ impl Narrow<I16x16> for Avx2Isa {
         let high_even = unsafe { extract_even_bytes(high.0) };
         let combined = unsafe { _mm256_setr_m128i(low_even, high_even) };
         I8x32(combined)
+    }
+}
+
+impl Narrow<U16x16> for Avx2Isa {
+    type Output = U8x32;
+
+    #[inline]
+    fn narrow_truncate(self, low: U16x16, high: U16x16) -> Self::Output {
+        let low_even = unsafe { extract_even_bytes(low.0) };
+        let high_even = unsafe { extract_even_bytes(high.0) };
+        let combined = unsafe { _mm256_setr_m128i(low_even, high_even) };
+        U8x32(combined)
     }
 }

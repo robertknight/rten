@@ -19,6 +19,7 @@ simd_type!(F32x4, f32, LEN_X32);
 simd_type!(I32x4, i32, LEN_X32);
 simd_type!(I16x8, i16, LEN_X32 * 2);
 simd_type!(I8x16, i8, LEN_X32 * 4);
+simd_type!(U8x16, u8, LEN_X32 * 4);
 simd_type!(U16x8, u16, LEN_X32 * 2);
 
 // Define mask vector types. `Mn` is a mask for a vector with n-bit lanes.
@@ -49,6 +50,7 @@ unsafe impl Isa for GenericIsa {
     type I32 = I32x4;
     type I16 = I16x8;
     type I8 = I8x16;
+    type U8 = U8x16;
     type U16 = U16x8;
     type Bits = I32x4;
 
@@ -65,6 +67,10 @@ unsafe impl Isa for GenericIsa {
     }
 
     fn i8(self) -> impl SimdIntOps<Self::I8> {
+        self
+    }
+
+    fn u8(self) -> impl SimdOps<Self::U8> {
         self
     }
 
@@ -274,6 +280,7 @@ macro_rules! impl_simd_unsigned_int_ops {
         }
     };
 }
+impl_simd_unsigned_int_ops!(U8x16, u8, 16, M8);
 impl_simd_unsigned_int_ops!(U16x8, u16, 8, M16);
 
 macro_rules! impl_mask {
@@ -334,4 +341,5 @@ impl_simd!(F32x4, f32, M32, 4);
 impl_simd!(I32x4, i32, M32, 4);
 impl_simd!(I16x8, i16, M16, 8);
 impl_simd!(I8x16, i8, M8, 16);
+impl_simd!(U8x16, u8, M8, 16);
 impl_simd!(U16x8, u16, M16, 8);
