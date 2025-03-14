@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::mem::MaybeUninit;
 
 /// Types used as elements (or _lanes_) of SIMD vectors.
 pub trait Elem: Copy + Default + WrappingAdd<Output = Self> {
@@ -380,6 +381,24 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
         unsafe { self.store_ptr(x, xs.as_mut_ptr()) }
     }
 
+    /// Store `x` into the first `self.len()` elements of `xs`.
+    ///
+    /// This is a variant of [`store`](SimdOps::store) which takes an
+    /// uninitialized slice as input and returns the initialized portion of the
+    /// slice.
+    #[inline]
+    fn store_uninit(self, x: S, xs: &mut [MaybeUninit<S::Elem>]) -> &mut [S::Elem] {
+        let len = self.len();
+        let xs_ptr = xs.as_mut_ptr() as *mut S::Elem;
+        assert!(xs.len() >= len);
+        unsafe {
+            self.store_ptr(x, xs_ptr);
+
+            // Safety: `store_ptr` initialized `len` elements of `xs`.
+            std::slice::from_raw_parts_mut(xs_ptr, len)
+        }
+    }
+
     /// Store the values in this vector to a memory location, where the
     /// corresponding mask element is set.
     ///
@@ -521,6 +540,21 @@ mod tests {
                         }
 
                         assert_eq!(dst, src);
+                    })
+                }
+
+                #[test]
+                fn test_store_uninit() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let src: Vec<_> = (0..ops.len() + 3).map(|x| x as $elem).collect();
+                        let mut dest = Vec::with_capacity(src.len());
+
+                        let x = ops.load(&src);
+
+                        let init = ops.store_uninit(x, dest.spare_capacity_mut());
+                        assert_eq!(init, &src[0..ops.len()]);
                     })
                 }
 
