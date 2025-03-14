@@ -5,16 +5,16 @@ use std::arch::aarch64::{
     vceqq_s16, vceqq_s32, vceqq_s8, vceqq_u16, vceqq_u8, vcgeq_f32, vcgeq_s16, vcgeq_s32, vcgeq_s8,
     vcgeq_u16, vcgeq_u8, vcgtq_f32, vcgtq_s16, vcgtq_s32, vcgtq_s8, vcgtq_u16, vcgtq_u8, vcleq_f32,
     vcleq_s16, vcleq_s8, vcleq_u16, vcleq_u8, vcltq_f32, vcltq_s16, vcltq_s8, vcltq_u16, vcltq_u8,
-    vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s16, vdupq_n_s32, vdupq_n_s8,
-    vdupq_n_u16, vdupq_n_u8, vfmaq_f32, vld1q_f32, vld1q_s16, vld1q_s32, vld1q_s8, vld1q_u16,
-    vld1q_u32, vld1q_u8, vmaxq_f32, vminq_f32, vmulq_f32, vmulq_s16, vmulq_s32, vmulq_s8,
-    vmulq_u16, vmulq_u8, vnegq_f32, vnegq_s16, vnegq_s32, vnegq_s8, vshlq_n_s16, vshlq_n_s32,
-    vshlq_n_s8, vst1q_f32, vst1q_s16, vst1q_s32, vst1q_s8, vst1q_u16, vst1q_u8, vsubq_f32,
-    vsubq_s16, vsubq_s32, vsubq_s8, vsubq_u16, vsubq_u8,
+    vcombine_s16, vcombine_u8, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s16,
+    vdupq_n_s32, vdupq_n_s8, vdupq_n_u16, vdupq_n_u8, vfmaq_f32, vld1q_f32, vld1q_s16, vld1q_s32,
+    vld1q_s8, vld1q_u16, vld1q_u32, vld1q_u8, vmaxq_f32, vminq_f32, vmulq_f32, vmulq_s16,
+    vmulq_s32, vmulq_s8, vmulq_u16, vmulq_u8, vnegq_f32, vnegq_s16, vnegq_s32, vnegq_s8,
+    vqmovn_s32, vqmovun_s16, vshlq_n_s16, vshlq_n_s32, vshlq_n_s8, vst1q_f32, vst1q_s16, vst1q_s32,
+    vst1q_s8, vst1q_u16, vst1q_u8, vsubq_f32, vsubq_s16, vsubq_s32, vsubq_s8, vsubq_u16, vsubq_u8,
 };
 use std::mem::transmute;
 
-use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+use crate::safe::{Isa, Mask, MaskOps, NarrowSaturate, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
 #[derive(Copy, Clone)]
 pub struct ArmNeonIsa {
@@ -41,11 +41,11 @@ unsafe impl Isa for ArmNeonIsa {
         self
     }
 
-    fn i32(self) -> impl SimdIntOps<Self::I32> {
+    fn i32(self) -> impl SimdIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
         self
     }
 
-    fn i16(self) -> impl SimdIntOps<Self::I16> {
+    fn i16(self) -> impl SimdIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
         self
     }
 
@@ -297,6 +297,28 @@ impl SimdIntOps<int32x4_t> for ArmNeonIsa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: int32x4_t) -> int32x4_t {
         unsafe { vshlq_n_s32::<SHIFT>(x) }
+    }
+}
+
+impl NarrowSaturate<int32x4_t, int16x8_t> for ArmNeonIsa {
+    #[inline]
+    fn narrow_saturate(self, low: int32x4_t, high: int32x4_t) -> int16x8_t {
+        unsafe {
+            let low = vqmovn_s32(low);
+            let high = vqmovn_s32(high);
+            vcombine_s16(low, high)
+        }
+    }
+}
+
+impl NarrowSaturate<int16x8_t, uint8x16_t> for ArmNeonIsa {
+    #[inline]
+    fn narrow_saturate(self, low: int16x8_t, high: int16x8_t) -> uint8x16_t {
+        unsafe {
+            let low = vqmovun_s16(low);
+            let high = vqmovun_s16(high);
+            vcombine_u8(low, high)
+        }
     }
 }
 

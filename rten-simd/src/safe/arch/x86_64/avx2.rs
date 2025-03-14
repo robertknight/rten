@@ -8,19 +8,20 @@ use std::arch::x86_64::{
     _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32,
     _mm256_maskload_ps, _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
     _mm256_movemask_epi8, _mm256_mul_ps, _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_si256,
-    _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_epi8, _mm256_set1_ps, _mm256_setr_m128i,
-    _mm256_setzero_si256, _mm256_slli_epi16, _mm256_slli_epi32, _mm256_storeu_ps,
-    _mm256_storeu_si256, _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_epi8, _mm256_sub_ps,
-    _mm256_xor_ps, _mm256_xor_si256, _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch,
-    _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps, _mm_unpacklo_epi64, _CMP_EQ_OQ, _CMP_GE_OQ,
-    _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_packs_epi32, _mm256_packus_epi16, _mm256_permute4x64_epi64, _mm256_set1_epi16,
+    _mm256_set1_epi32, _mm256_set1_epi8, _mm256_set1_ps, _mm256_setr_m128i, _mm256_setzero_si256,
+    _mm256_slli_epi16, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi16,
+    _mm256_sub_epi32, _mm256_sub_epi8, _mm256_sub_ps, _mm256_xor_ps, _mm256_xor_si256, _mm_add_ps,
+    _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps,
+    _mm_unpacklo_epi64, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0,
+    _MM_HINT_T0,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
 use crate::safe::vec::{Extend, Narrow};
-use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+use crate::safe::{Isa, Mask, MaskOps, NarrowSaturate, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
 simd_type!(F32x8, __m256, f32, F32x8, Avx2Isa);
 simd_type!(I32x8, __m256i, i32, I32x8, Avx2Isa);
@@ -58,11 +59,11 @@ unsafe impl Isa for Avx2Isa {
         self
     }
 
-    fn i32(self) -> impl SimdIntOps<Self::I32> {
+    fn i32(self) -> impl SimdIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
         self
     }
 
-    fn i16(self) -> impl SimdIntOps<Self::I16> {
+    fn i16(self) -> impl SimdIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
         self
     }
 
@@ -327,6 +328,26 @@ impl SimdIntOps<I32x8> for Avx2Isa {
     }
 }
 
+/// Copied from unstable `_MM_SHUFFLE` function in `core::arch::x86`.
+const fn _mm_shuffle(z: u32, y: u32, x: u32, w: u32) -> i32 {
+    ((z << 6) | (y << 4) | (x << 2) | w) as i32
+}
+
+impl NarrowSaturate<I32x8, I16x16> for Avx2Isa {
+    #[inline]
+    fn narrow_saturate(self, low: I32x8, high: I32x8) -> I16x16 {
+        unsafe {
+            // AVX2 pack functions treat each input as 2 128-bit lanes and
+            // interleave narrowed 64-bit blocks from each input. Shuffle the
+            // output to get narrowed lanes from `low` followed by lanes from
+            // high.
+            let packed = _mm256_packs_epi32(low.0, high.0);
+            _mm256_permute4x64_epi64(packed, _mm_shuffle(3, 1, 2, 0))
+        }
+        .into()
+    }
+}
+
 unsafe impl SimdOps<I16x16> for Avx2Isa {
     simd_ops_common!(I16x16, I16x16);
 
@@ -429,6 +450,21 @@ impl SimdIntOps<I16x16> for Avx2Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I16x16) -> I16x16 {
         unsafe { _mm256_slli_epi16(x.0, SHIFT) }.into()
+    }
+}
+
+impl NarrowSaturate<I16x16, U8x32> for Avx2Isa {
+    #[inline]
+    fn narrow_saturate(self, low: I16x16, high: I16x16) -> U8x32 {
+        unsafe {
+            // AVX2 pack functions treat each input as 2 128-bit lanes and
+            // interleave narrowed 64-bit blocks from each input. Shuffle the
+            // output to get narrowed lanes from `low` followed by lanes from
+            // high.
+            let packed = _mm256_packus_epi16(low.0, high.0);
+            _mm256_permute4x64_epi64(packed, _mm_shuffle(3, 1, 2, 0))
+        }
+        .into()
     }
 }
 

@@ -1,7 +1,7 @@
 use std::array;
 use std::mem::transmute;
 
-use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+use crate::safe::{Isa, Mask, MaskOps, NarrowSaturate, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
 // Size of SIMD vector in 32-bit lanes.
 const LEN_X32: usize = 4;
@@ -58,11 +58,11 @@ unsafe impl Isa for GenericIsa {
         self
     }
 
-    fn i32(self) -> impl SimdIntOps<Self::I32> {
+    fn i32(self) -> impl SimdIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
         self
     }
 
-    fn i16(self) -> impl SimdIntOps<Self::I16> {
+    fn i16(self) -> impl SimdIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
         self
     }
 
@@ -282,6 +282,39 @@ macro_rules! impl_simd_unsigned_int_ops {
 }
 impl_simd_unsigned_int_ops!(U8x16, u8, 16, M8);
 impl_simd_unsigned_int_ops!(U16x8, u16, 8, M16);
+
+trait NarrowSaturateElem<T> {
+    fn narrow_saturate(self) -> T;
+}
+
+impl NarrowSaturateElem<i16> for i32 {
+    fn narrow_saturate(self) -> i16 {
+        self.clamp(i16::MIN as i32, i16::MAX as i32) as i16
+    }
+}
+
+impl NarrowSaturateElem<u8> for i16 {
+    fn narrow_saturate(self) -> u8 {
+        self.clamp(u8::MIN as i16, u8::MAX as i16) as u8
+    }
+}
+
+macro_rules! impl_narrow {
+    ($from:ident, $to:ident) => {
+        impl NarrowSaturate<$from, $to> for GenericIsa {
+            fn narrow_saturate(self, lo: $from, hi: $from) -> $to {
+                let mid = lo.0.len() / 2;
+                let xs = array::from_fn(|i| {
+                    let x = if i < mid { lo.0[i] } else { hi.0[i] };
+                    x.narrow_saturate()
+                });
+                $to(xs)
+            }
+        }
+    };
+}
+impl_narrow!(I32x4, I16x8);
+impl_narrow!(I16x8, U8x16);
 
 macro_rules! impl_mask {
     ($mask:ident, $len:expr) => {

@@ -186,10 +186,10 @@ pub unsafe trait Isa: Copy {
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32>;
 
     /// Operations on SIMD vectors with `i32` elements.
-    fn i32(self) -> impl SimdIntOps<Self::I32>;
+    fn i32(self) -> impl SimdIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16>;
 
     /// Operations on SIMD vectors with `i16` elements.
-    fn i16(self) -> impl SimdIntOps<Self::I16>;
+    fn i16(self) -> impl SimdIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8>;
 
     /// Operations on SIMD vectors with `i8` elements.
     fn i8(self) -> impl SimdIntOps<Self::I8>;
@@ -526,12 +526,24 @@ pub(crate) trait Narrow<S: Simd> {
     fn narrow_truncate(self, low: S, high: S) -> Self::Output;
 }
 
+/// Narrow lanes to one with half the bit-width, using saturation.
+///
+/// Conceptually, this converts each element from `S1::Elem` to `S2::Elem` using
+/// `x.clamp(S2::Elem::MIN as S1::Elem, S2::Elem::MAX as S1::Elem) as S2::Elem`.
+pub trait NarrowSaturate<S1: Simd, S2: Simd> {
+    /// Narrow each lane in a pair of vectors to one with half the bit-width.
+    ///
+    /// Returns a vector containing the concatenation of the narrowed lanes
+    /// from `low` followed by the narrowed lanes from `high`.
+    fn narrow_saturate(self, low: S1, high: S1) -> S2;
+}
+
 #[cfg(test)]
 mod tests {
     use super::WrappingAdd;
     use crate::safe::{
-        assert_simd_eq, test_simd_op, Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOp,
-        SimdOps,
+        assert_simd_eq, test_simd_op, Isa, Mask, MaskOps, NarrowSaturate, Simd, SimdFloatOps,
+        SimdIntOps, SimdOp, SimdOps,
     };
 
     // Generate tests for operations available on all numeric types.
@@ -1002,6 +1014,32 @@ mod tests {
     fn test_mask_ops_i8() {
         test_mask_ops!(i8);
     }
+
+    macro_rules! test_narrow_saturate {
+        ($test_name:ident, $src:ident, $dest:ident) => {
+            #[test]
+            fn $test_name() {
+                test_simd_op!(isa, {
+                    let ops = isa.$src();
+
+                    let src: Vec<$src> = (0..ops.len() * 2).map(|x| x as $src).collect();
+                    let expected: Vec<$dest> = src
+                        .iter()
+                        .map(|&x| x.clamp($dest::MIN as $src, $dest::MAX as $src) as $dest)
+                        .collect();
+
+                    let x_low = ops.load(&src[..ops.len()]);
+                    let x_high = ops.load(&src[ops.len()..]);
+                    let y = ops.narrow_saturate(x_low, x_high);
+
+                    assert_eq!(y.to_array().as_ref(), expected);
+                });
+            }
+        };
+    }
+
+    test_narrow_saturate!(test_narrow_i32_i16, i32, i16);
+    test_narrow_saturate!(test_narrow_u16_u8, i16, u8);
 
     #[test]
     fn test_reinterpret_cast() {

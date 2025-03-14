@@ -10,8 +10,9 @@ use std::arch::x86_64::{
     _mm512_mask_blend_ps, _mm512_mask_loadu_epi16, _mm512_mask_loadu_epi32, _mm512_mask_loadu_epi8,
     _mm512_mask_loadu_ps, _mm512_mask_storeu_epi16, _mm512_mask_storeu_epi32,
     _mm512_mask_storeu_epi8, _mm512_mask_storeu_ps, _mm512_max_ps, _mm512_min_ps, _mm512_mul_ps,
-    _mm512_mullo_epi16, _mm512_mullo_epi32, _mm512_reduce_add_ps, _mm512_set1_epi16,
-    _mm512_set1_epi32, _mm512_set1_epi8, _mm512_set1_ps, _mm512_setzero_si512, _mm512_sllv_epi16,
+    _mm512_mullo_epi16, _mm512_mullo_epi32, _mm512_packs_epi32, _mm512_packus_epi16,
+    _mm512_permutexvar_epi64, _mm512_reduce_add_ps, _mm512_set1_epi16, _mm512_set1_epi32,
+    _mm512_set1_epi8, _mm512_set1_ps, _mm512_setr_epi64, _mm512_setzero_si512, _mm512_sllv_epi16,
     _mm512_sllv_epi32, _mm512_storeu_ps, _mm512_storeu_si512, _mm512_sub_epi16, _mm512_sub_epi32,
     _mm512_sub_epi8, _mm512_sub_ps, _mm512_xor_ps, _mm_prefetch, _CMP_EQ_OQ, _CMP_GE_OQ,
     _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT,
@@ -21,7 +22,7 @@ use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
 use crate::safe::vec::{Extend, Narrow};
-use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+use crate::safe::{Isa, Mask, MaskOps, NarrowSaturate, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
 simd_type!(F32x16, __m512, f32, __mmask16, Avx512Isa);
 simd_type!(I32x16, __m512i, i32, __mmask16, Avx512Isa);
@@ -59,11 +60,11 @@ unsafe impl Isa for Avx512Isa {
         self
     }
 
-    fn i32(self) -> impl SimdIntOps<Self::I32> {
+    fn i32(self) -> impl SimdIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
         self
     }
 
-    fn i16(self) -> impl SimdIntOps<Self::I16> {
+    fn i16(self) -> impl SimdIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
         self
     }
 
@@ -313,6 +314,22 @@ impl SimdIntOps<I32x16> for Avx512Isa {
     }
 }
 
+impl NarrowSaturate<I32x16, I16x32> for Avx512Isa {
+    #[inline]
+    fn narrow_saturate(self, low: I32x16, high: I32x16) -> I16x32 {
+        unsafe {
+            // _mm512_packs_epi32 treats each input as 4 128-bit lanes and
+            // interleaves narrowed 64-bit blocks from each input. Shuffle the
+            // output to get narrowed lanes from `low` followed by lanes from
+            // `high`.
+            let packed = _mm512_packs_epi32(low.0, high.0);
+            let permutation = _mm512_setr_epi64(0, 2, 4, 6, 1, 3, 5, 7);
+            _mm512_permutexvar_epi64(permutation, packed)
+        }
+        .into()
+    }
+}
+
 unsafe impl SimdOps<I16x32> for Avx512Isa {
     simd_ops_common!(I16x32, __mmask32);
 
@@ -387,6 +404,22 @@ impl SimdIntOps<I16x32> for Avx512Isa {
     fn shift_left<const SHIFT: i32>(self, x: I16x32) -> I16x32 {
         let count: I16x32 = self.splat(SHIFT as i16);
         unsafe { _mm512_sllv_epi16(x.0, count.0) }.into()
+    }
+}
+
+impl NarrowSaturate<I16x32, U8x64> for Avx512Isa {
+    #[inline]
+    fn narrow_saturate(self, low: I16x32, high: I16x32) -> U8x64 {
+        unsafe {
+            // _mm512_packus_epi16 treats each input as 4 128-bit lanes and
+            // interleaves narrowed 64-bit blocks from each input. Shuffle the
+            // output to get narrowed lanes from `low` followed by lanes from
+            // `high`.
+            let packed = _mm512_packus_epi16(low.0, high.0);
+            let permutation = _mm512_setr_epi64(0, 2, 4, 6, 1, 3, 5, 7);
+            _mm512_permutexvar_epi64(permutation, packed)
+        }
+        .into()
     }
 }
 
