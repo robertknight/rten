@@ -303,6 +303,12 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
         self.select(x, y, self.ge(x, y))
     }
 
+    /// Clamp values in `x` to minimum and maximum values from corresponding
+    /// lanes in `min` and `max`.
+    fn clamp(self, x: S, min: S, max: S) -> S {
+        self.min(self.max(x, min), max)
+    }
+
     /// Create a new vector with all lanes set to `x`.
     fn splat(self, x: S::Elem) -> S;
 
@@ -663,6 +669,31 @@ mod tests {
                         let expected = ops.splat(((2. * 3.) + 4.) as $elem);
 
                         assert_simd_eq!(actual, expected);
+                    })
+                }
+
+                #[test]
+                fn test_min_max() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(3 as $elem);
+
+                        // Min
+                        let y_min = ops.min(x, ops.splat(2 as $elem));
+                        let y_min_2 = ops.min(ops.splat(2 as $elem), x);
+                        assert_simd_eq!(y_min, y_min_2);
+                        assert_simd_eq!(y_min, ops.splat(2 as $elem));
+
+                        // Max
+                        let y_max = ops.max(x, ops.splat(4 as $elem));
+                        let y_max_2 = ops.max(ops.splat(4 as $elem), x);
+                        assert_simd_eq!(y_max, y_max_2);
+                        assert_simd_eq!(y_max, ops.splat(4 as $elem));
+
+                        // Clamp
+                        let y_clamped = ops.clamp(x, ops.splat(0 as $elem), ops.splat(4 as $elem));
+                        assert_simd_eq!(y_clamped, ops.splat(3 as $elem));
                     })
                 }
 
