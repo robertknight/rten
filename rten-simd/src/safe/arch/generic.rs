@@ -1,7 +1,7 @@
 use std::array;
 use std::mem::transmute;
 
-use crate::safe::{Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+use crate::safe::{Isa, Mask, MaskOps, Narrow, Simd, SimdFloatOps, SimdIntOps, SimdOps};
 
 // Size of SIMD vector in 32-bit lanes.
 const LEN_X32: usize = 4;
@@ -58,7 +58,7 @@ unsafe impl Isa for GenericIsa {
         self
     }
 
-    fn i32(self) -> impl SimdIntOps<Self::I32> {
+    fn i32(self) -> impl SimdIntOps<Self::I32> + Narrow<Self::I32, Output = Self::I16> {
         self
     }
 
@@ -74,7 +74,7 @@ unsafe impl Isa for GenericIsa {
         self
     }
 
-    fn u16(self) -> impl SimdOps<Self::U16> {
+    fn u16(self) -> impl SimdOps<Self::U16> + Narrow<Self::U16, Output = Self::U8> {
         self
     }
 }
@@ -282,6 +282,25 @@ macro_rules! impl_simd_unsigned_int_ops {
 }
 impl_simd_unsigned_int_ops!(U8x16, u8, 16, M8);
 impl_simd_unsigned_int_ops!(U16x8, u16, 8, M16);
+
+macro_rules! impl_narrow {
+    ($from:ident, $to:ident) => {
+        impl Narrow<$from> for GenericIsa {
+            type Output = $to;
+
+            fn narrow_truncate(self, lo: $from, hi: $from) -> $to {
+                let mid = lo.0.len() / 2;
+                let xs = array::from_fn(|i| {
+                    let x = if i < mid { lo.0[i] } else { hi.0[i] };
+                    x as <$to as Simd>::Elem
+                });
+                $to(xs)
+            }
+        }
+    };
+}
+impl_narrow!(I32x4, I16x8);
+impl_narrow!(U16x8, U8x16);
 
 macro_rules! impl_mask {
     ($mask:ident, $len:expr) => {

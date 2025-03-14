@@ -186,7 +186,7 @@ pub unsafe trait Isa: Copy {
     fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32>;
 
     /// Operations on SIMD vectors with `i32` elements.
-    fn i32(self) -> impl SimdIntOps<Self::I32>;
+    fn i32(self) -> impl SimdIntOps<Self::I32> + Narrow<Self::I32, Output = Self::I16>;
 
     /// Operations on SIMD vectors with `i16` elements.
     fn i16(self) -> impl SimdIntOps<Self::I16>;
@@ -198,7 +198,7 @@ pub unsafe trait Isa: Copy {
     fn u8(self) -> impl SimdOps<Self::U8>;
 
     /// Operations on SIMD vectors with `u16` elements.
-    fn u16(self) -> impl SimdOps<Self::U16>;
+    fn u16(self) -> impl SimdOps<Self::U16> + Narrow<Self::U16, Output = Self::U8>;
 }
 
 /// SIMD operations on a [`Mask`] vector.
@@ -503,8 +503,7 @@ pub(crate) trait Extend<S: Simd> {
 /// Narrow lanes to one with half the bit-width, using truncation.
 ///
 /// For integer types, the narrowed type has the same signed-ness.
-#[cfg(target_arch = "x86_64")]
-pub(crate) trait Narrow<S: Simd> {
+pub trait Narrow<S: Simd> {
     type Output;
 
     /// Truncate each lane in a pair of vectors to one with half the bit-width.
@@ -518,8 +517,8 @@ pub(crate) trait Narrow<S: Simd> {
 mod tests {
     use super::WrappingAdd;
     use crate::safe::{
-        assert_simd_eq, test_simd_op, Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOp,
-        SimdOps,
+        assert_simd_eq, test_simd_op, Isa, Mask, MaskOps, Narrow, Simd, SimdFloatOps, SimdIntOps,
+        SimdOp, SimdOps,
     };
 
     // Generate tests for operations available on all numeric types.
@@ -977,6 +976,29 @@ mod tests {
     fn test_mask_ops_i8() {
         test_mask_ops!(i8);
     }
+
+    macro_rules! test_narrow {
+        ($test_name:ident, $src:ident, $dest:ident) => {
+            #[test]
+            fn $test_name() {
+                test_simd_op!(isa, {
+                    let ops = isa.$src();
+
+                    let src: Vec<$src> = (0..ops.len() * 2).map(|x| x as $src).collect();
+                    let expected: Vec<$dest> = src.iter().map(|x| *x as $dest).collect();
+
+                    let x_low = ops.load(&src[..ops.len()]);
+                    let x_high = ops.load(&src[ops.len()..]);
+                    let y = ops.narrow_truncate(x_low, x_high);
+
+                    assert_eq!(y.to_array().as_ref(), expected);
+                });
+            }
+        };
+    }
+
+    test_narrow!(test_narrow_i32_i16, i32, i16);
+    test_narrow!(test_narrow_u16_u8, u16, u8);
 
     #[test]
     fn test_reinterpret_cast() {
