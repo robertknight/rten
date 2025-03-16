@@ -120,7 +120,7 @@ pub trait SimdUnaryOp<T: Elem> {
     fn map(&self, input: &[T], output: &mut [MaybeUninit<T>])
     where
         Self: Sized,
-        for<'a> SimdMapOp<'a, T, Self>: SimdOp,
+        for<'src, 'dst, 'op> SimdMapOp<'src, 'dst, 'op, T, Self>: SimdOp,
     {
         let wrapped_op = SimdMapOp::wrap((input, output).into(), self);
         dispatch(wrapped_op);
@@ -134,7 +134,7 @@ pub trait SimdUnaryOp<T: Elem> {
     fn map_mut(&self, input: &mut [T])
     where
         Self: Sized,
-        for<'a> SimdMapOp<'a, T, Self>: SimdOp,
+        for<'src, 'dst, 'op> SimdMapOp<'src, 'dst, 'op, T, Self>: SimdOp,
     {
         let wrapped_op = SimdMapOp::wrap(input.into(), self);
         dispatch(wrapped_op);
@@ -145,7 +145,7 @@ pub trait SimdUnaryOp<T: Elem> {
     fn scalar_eval(&self, x: T) -> T
     where
         Self: Sized,
-        for<'a> SimdMapOp<'a, T, Self>: SimdOp,
+        for<'src, 'dst, 'op> SimdMapOp<'src, 'dst, 'op, T, Self>: SimdOp,
     {
         let mut array = [x];
         self.map_mut(&mut array);
@@ -155,21 +155,23 @@ pub trait SimdUnaryOp<T: Elem> {
 
 /// SIMD operation which applies a unary operator `Op` to all elements in
 /// an input buffer using [`simd_map`].
-struct SimdMapOp<'a, T: Elem, Op: SimdUnaryOp<T>> {
-    src_dest: SrcDest<'a, T>,
-    op: &'a Op,
+struct SimdMapOp<'src, 'dst, 'op, T: Elem, Op: SimdUnaryOp<T>> {
+    src_dest: SrcDest<'src, 'dst, T>,
+    op: &'op Op,
 }
 
-impl<'a, T: Elem, Op: SimdUnaryOp<T>> SimdMapOp<'a, T, Op> {
-    pub fn wrap(src_dest: SrcDest<'a, T>, op: &'a Op) -> Self {
+impl<'src, 'dst, 'op, T: Elem, Op: SimdUnaryOp<T>> SimdMapOp<'src, 'dst, 'op, T, Op> {
+    pub fn wrap(src_dest: SrcDest<'src, 'dst, T>, op: &'op Op) -> Self {
         SimdMapOp { src_dest, op }
     }
 }
 
 macro_rules! impl_simd_map_op {
     ($type:ident, $cap_type:ident) => {
-        impl<'a, Op: SimdUnaryOp<$type>> SimdOp for SimdMapOp<'a, $type, Op> {
-            type Output = &'a mut [$type];
+        impl<'src, 'dst, 'op, Op: SimdUnaryOp<$type>> SimdOp
+            for SimdMapOp<'src, 'dst, 'op, $type, Op>
+        {
+            type Output = &'dst mut [$type];
 
             #[inline(always)]
             fn eval<I: Isa>(self, isa: I) -> Self::Output {

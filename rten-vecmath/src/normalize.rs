@@ -15,18 +15,18 @@ use rten_simd::span::SrcDest;
 /// # Panics
 ///
 /// Dispatching the operation panics if any of the slices have different lengths.
-pub struct Normalize<'a> {
-    src_dest: SrcDest<'a, f32>,
-    opts: NormalizeOptions<'a>,
+pub struct Normalize<'src, 'dst> {
+    src_dest: SrcDest<'src, 'dst, f32>,
+    opts: NormalizeOptions<'src>,
 }
 
-impl<'a> Normalize<'a> {
+impl<'src, 'dst> Normalize<'src, 'dst> {
     /// Create a normalize operation which reads `input` and writes the normalized
     /// output to `output`.
     pub fn new(
-        input: &'a [f32],
-        output: &'a mut [MaybeUninit<f32>],
-        opts: NormalizeOptions<'a>,
+        input: &'src [f32],
+        output: &'dst mut [MaybeUninit<f32>],
+        opts: NormalizeOptions<'src>,
     ) -> Self {
         Normalize {
             src_dest: (input, output).into(),
@@ -35,7 +35,10 @@ impl<'a> Normalize<'a> {
     }
 
     /// Create a normalize operation which normalizes `input` in-place.
-    pub fn new_mut(input: &'a mut [f32], opts: NormalizeOptions<'a>) -> Self {
+    pub fn new_mut(input: &'dst mut [f32], opts: NormalizeOptions<'src>) -> Self
+    where
+        'dst: 'src,
+    {
         Normalize {
             src_dest: input.into(),
             opts,
@@ -70,9 +73,9 @@ impl Default for NormalizeOptions<'_> {
     }
 }
 
-impl<'a> SimdOp for Normalize<'a> {
+impl<'dst> SimdOp for Normalize<'_, 'dst> {
     /// The normalized elements.
-    type Output = &'a mut [f32];
+    type Output = &'dst mut [f32];
 
     #[inline(always)]
     fn eval<I: Isa>(self, isa: I) -> Self::Output {

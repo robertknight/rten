@@ -18,10 +18,10 @@ use crate::{Simd, SimdMask};
 /// The caller must ensure that `S` is a supported SIMD vector type on the
 /// current system.
 #[inline(always)]
-pub unsafe fn simd_map<S: Simd, Op: FnMut(S) -> S>(
-    mut src_dest: SrcDest<S::Elem>,
+pub unsafe fn simd_map<'dst, S: Simd, Op: FnMut(S) -> S>(
+    mut src_dest: SrcDest<'_, 'dst, S::Elem>,
     mut op: Op,
-) -> &mut [S::Elem] {
+) -> &'dst mut [S::Elem] {
     let (mut in_ptr, mut out_ptr, mut n) = src_dest.src_dest_ptr();
 
     let v_len = S::len();
