@@ -326,6 +326,18 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
         unsafe { self.load_ptr(xs.as_ptr()) }
     }
 
+    /// Load `N` vectors from consecutive sub-slices of `xs`.
+    ///
+    /// Panics if `xs.len() < self.len() * N`.
+    #[inline]
+    fn load_many<const N: usize>(self, xs: &[S::Elem]) -> [S; N] {
+        let v_len = self.len();
+        assert!(xs.len() >= v_len * N);
+
+        // Safety: `xs.add(i * v_len)` points to at least `v_len` elements.
+        std::array::from_fn(|i| unsafe { self.load_ptr(xs.as_ptr().add(i * v_len)) })
+    }
+
     /// Load elements from `xs` into a vector.
     ///
     /// If the vector length exceeds `xs.len()`, the tail is padded with zeros.
@@ -555,6 +567,19 @@ mod tests {
 
                         let init = ops.store_uninit(x, dest.spare_capacity_mut());
                         assert_eq!(init, &src[0..ops.len()]);
+                    })
+                }
+
+                #[test]
+                fn test_load_many() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let src: Vec<_> = (0..ops.len() * 2).map(|x| x as $elem).collect();
+
+                        let xs = ops.load_many::<2>(&src);
+                        assert_simd_eq!(xs[0], ops.load(&src));
+                        assert_simd_eq!(xs[1], ops.load(&src[ops.len()..]));
                     })
                 }
 
