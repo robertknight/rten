@@ -68,7 +68,7 @@ impl WrappingAdd for f32 {
 /// Masks used or returned by SIMD operations.
 ///
 /// Most operations on masks are available via the [`MaskOps`] trait.
-/// Implementations are obtained via [`SimdOps::mask_ops`].
+/// Implementations are obtained via [`NumOps::mask_ops`].
 pub trait Mask: Copy + Debug {
     type Array: AsRef<[bool]>
         + Copy
@@ -183,22 +183,22 @@ pub unsafe trait Isa: Copy {
     type U16: Simd<Elem = u16, Isa = Self>;
 
     /// Operations on SIMD vectors with `f32` elements.
-    fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32>;
+    fn f32(self) -> impl FloatOps<Self::F32, Int = Self::I32>;
 
     /// Operations on SIMD vectors with `i32` elements.
-    fn i32(self) -> impl SimdIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16>;
+    fn i32(self) -> impl SignedIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16>;
 
     /// Operations on SIMD vectors with `i16` elements.
-    fn i16(self) -> impl SimdIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8>;
+    fn i16(self) -> impl SignedIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8>;
 
     /// Operations on SIMD vectors with `i8` elements.
-    fn i8(self) -> impl SimdIntOps<Self::I8>;
+    fn i8(self) -> impl SignedIntOps<Self::I8>;
 
     /// Operations on SIMD vectors with `u8` elements.
-    fn u8(self) -> impl SimdOps<Self::U8>;
+    fn u8(self) -> impl NumOps<Self::U8>;
 
     /// Operations on SIMD vectors with `u16` elements.
-    fn u16(self) -> impl SimdOps<Self::U16>;
+    fn u16(self) -> impl NumOps<Self::U16>;
 }
 
 /// SIMD operations on a [`Mask`] vector.
@@ -212,14 +212,22 @@ pub unsafe trait MaskOps<M: Mask>: Copy {
     fn and(self, x: M, y: M) -> M;
 }
 
-/// Trait for SIMD operations on a particular vector type.
+/// Operations available on all SIMD vector types.
+///
+/// This trait provides core operations available on all SIMD vector types:
+///
+/// - Load from and store into memory
+/// - Creating a new vector filled with zeros or a specific value
+/// - Combining elements from two vectors according to a mask
+/// - Add, subtract and multiply
+/// - Comparison (equality, less than, greater than etc.)
 ///
 /// # Safety
 ///
 /// Implementations must ensure they can only be constructed if the
 /// instruction set is supported on the current system.
 #[allow(clippy::len_without_is_empty)]
-pub unsafe trait SimdOps<S: Simd>: Copy {
+pub unsafe trait NumOps<S: Simd>: Copy {
     /// Convert `x` to an untyped vector of the same width.
     #[allow(clippy::wrong_self_convention)]
     fn from_bits(self, x: <S::Isa as Isa>::Bits) -> S {
@@ -401,7 +409,7 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
 
     /// Store `x` into the first `self.len()` elements of `xs`.
     ///
-    /// This is a variant of [`store`](SimdOps::store) which takes an
+    /// This is a variant of [`store`](NumOps::store) which takes an
     /// uninitialized slice as input and returns the initialized portion of the
     /// slice.
     #[inline]
@@ -450,9 +458,8 @@ pub unsafe trait SimdOps<S: Simd>: Copy {
     }
 }
 
-/// Extends [`SimdOps`] with operations available on SIMD vectors with float
-/// elements.
-pub trait SimdFloatOps<S: Simd>: SimdOps<S> {
+/// Operations available on SIMD vectors with float elements.
+pub trait FloatOps<S: Simd>: NumOps<S> {
     /// Integer SIMD vector of the same bit-width as this vector.
     type Int: Simd;
 
@@ -482,9 +489,8 @@ pub trait SimdFloatOps<S: Simd>: SimdOps<S> {
     fn to_int_round(self, x: S) -> Self::Int;
 }
 
-/// Extends [`SimdOps`] with operations available on SIMD vectors with signed
-/// integer elements.
-pub trait SimdIntOps<S: Simd>: SimdOps<S> {
+/// Operations on SIMD vectors with signed integer elements.
+pub trait SignedIntOps<S: Simd>: NumOps<S> {
     /// Shift each lane in `x` left by `SHIFT` bits.
     fn shift_left<const SHIFT: i32>(self, x: S) -> S;
 
@@ -542,8 +548,8 @@ pub trait NarrowSaturate<S1: Simd, S2: Simd> {
 mod tests {
     use super::WrappingAdd;
     use crate::safe::{
-        assert_simd_eq, test_simd_op, Isa, Mask, MaskOps, NarrowSaturate, Simd, SimdFloatOps,
-        SimdIntOps, SimdOp, SimdOps,
+        assert_simd_eq, test_simd_op, FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps,
+        SignedIntOps, Simd, SimdOp,
     };
 
     // Generate tests for operations available on all numeric types.
@@ -551,7 +557,7 @@ mod tests {
         ($modname:ident, $elem:ident) => {
             mod $modname {
                 use super::{
-                    assert_simd_eq, test_simd_op, Isa, Mask, Simd, SimdOp, SimdOps, WrappingAdd,
+                    assert_simd_eq, test_simd_op, Isa, Mask, NumOps, Simd, SimdOp, WrappingAdd,
                 };
 
                 #[test]
@@ -790,9 +796,7 @@ mod tests {
     macro_rules! test_float_ops {
         ($modname:ident, $elem:ident, $int_elem:ident) => {
             mod $modname {
-                use super::{
-                    assert_simd_eq, test_simd_op, Isa, Simd, SimdFloatOps, SimdOp, SimdOps,
-                };
+                use super::{assert_simd_eq, test_simd_op, FloatOps, Isa, NumOps, Simd, SimdOp};
 
                 #[test]
                 fn test_div() {
@@ -871,7 +875,9 @@ mod tests {
     macro_rules! test_signed_int_ops {
         ($modname:ident, $elem:ident) => {
             mod $modname {
-                use super::{assert_simd_eq, test_simd_op, Isa, Simd, SimdIntOps, SimdOp, SimdOps};
+                use super::{
+                    assert_simd_eq, test_simd_op, Isa, NumOps, SignedIntOps, Simd, SimdOp,
+                };
 
                 #[test]
                 fn test_abs() {

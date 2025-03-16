@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::safe::{Isa, SimdOps};
+use rten_simd::safe::{Isa, NumOps};
 use rten_simd::SimdInt;
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 

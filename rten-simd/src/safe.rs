@@ -20,7 +20,7 @@
 //! evaluates it on a vector of floats:
 //!
 //! ```
-//! use rten_simd::safe::{Isa, SimdOp, SimdOps};
+//! use rten_simd::safe::{Isa, SimdOp, NumOps};
 //! use rten_simd::safe::functional::simd_map;
 //!
 //! struct Square<'a> {
@@ -79,12 +79,12 @@
 //!
 //! An instance of the [`Isa`] trait is passed to the operation when it is
 //! evaluated. The type of ISA will depend on the selected instruction set.  The
-//! ISA provides access to different implementations of the [`SimdOps`] trait
+//! ISA provides access to different implementations of the [`NumOps`] trait
 //! and sub-traits. These in turn provide operations on SIMD vectors with
-//! different data types. The [`SimdOps`] trait provides operations that are
-//! available on all SIMD vectors. The sub-traits [`SimdFloatOps`] and
-//! [`SimdIntOps`] provide operations that are only available on SIMD vectors
-//! with float and integer elements respectively.
+//! different data types. The [`NumOps`] trait provides operations that are
+//! available on all SIMD vectors. The sub-traits [`FloatOps`] and
+//! [`SignedIntOps`] provide operations that are only available on SIMD vectors
+//! with float and signed integer elements respectively.
 //!
 //! ## Applying SIMD operations to slices
 //!
@@ -155,7 +155,7 @@ pub mod isa {
 
 pub use dispatch::{SimdOp, SimdUnaryOp};
 pub use iter::{Iter, SimdIterable};
-pub use vec::{Elem, Isa, Mask, MaskOps, NarrowSaturate, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+pub use vec::{Elem, FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd};
 pub use writer::SliceWriter;
 
 #[cfg(test)]
@@ -176,7 +176,7 @@ pub(crate) use assert_simd_eq;
 #[cfg(test)]
 mod tests {
     use super::functional::simd_map;
-    use super::{Isa, SimdOp, SimdOps};
+    use super::{Isa, NumOps, SimdOp};
 
     #[test]
     fn test_simd_f32_op() {

@@ -1,4 +1,4 @@
-use rten_simd::safe::{Isa, Simd, SimdIterable, SimdOp, SimdOps};
+use rten_simd::safe::{Isa, NumOps, Simd, SimdIterable, SimdOp};
 
 /// Computes the sum of a sequence of numbers.
 ///

@@ -14,7 +14,7 @@ use std::arch::aarch64::{
 };
 use std::mem::transmute;
 
-use crate::safe::{Isa, Mask, MaskOps, NarrowSaturate, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+use crate::safe::{FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd};
 
 #[derive(Copy, Clone)]
 pub struct ArmNeonIsa {
@@ -37,27 +37,27 @@ unsafe impl Isa for ArmNeonIsa {
     type U16 = uint16x8_t;
     type Bits = int32x4_t;
 
-    fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
+    fn f32(self) -> impl FloatOps<Self::F32, Int = Self::I32> {
         self
     }
 
-    fn i32(self) -> impl SimdIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
+    fn i32(self) -> impl SignedIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
         self
     }
 
-    fn i16(self) -> impl SimdIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
+    fn i16(self) -> impl SignedIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
         self
     }
 
-    fn i8(self) -> impl SimdIntOps<Self::I8> {
+    fn i8(self) -> impl SignedIntOps<Self::I8> {
         self
     }
 
-    fn u8(self) -> impl SimdOps<Self::U8> {
+    fn u8(self) -> impl NumOps<Self::U8> {
         self
     }
 
-    fn u16(self) -> impl SimdOps<Self::U16> {
+    fn u16(self) -> impl NumOps<Self::U16> {
         self
     }
 }
@@ -72,7 +72,7 @@ macro_rules! simd_ops_common {
         #[inline]
         unsafe fn load_ptr_mask(self, ptr: *const <$simd as Simd>::Elem, mask: $mask) -> $simd {
             let mask_array = Mask::to_array(mask);
-            let mut vec = Simd::to_array(<Self as SimdOps<$simd>>::zero(self));
+            let mut vec = Simd::to_array(<Self as NumOps<$simd>>::zero(self));
             for i in 0..mask_array.len() {
                 if mask_array[i] {
                     vec[i] = *ptr.add(i);
@@ -90,7 +90,7 @@ macro_rules! simd_ops_common {
         ) {
             let mask_array = Mask::to_array(mask);
             let x_array = Simd::to_array(x);
-            for i in 0..<Self as SimdOps<$simd>>::len(self) {
+            for i in 0..<Self as NumOps<$simd>>::len(self) {
                 if mask_array[i] {
                     *ptr.add(i) = x_array[i];
                 }
@@ -104,7 +104,7 @@ macro_rules! simd_ops_common {
     };
 }
 
-unsafe impl SimdOps<float32x4_t> for ArmNeonIsa {
+unsafe impl NumOps<float32x4_t> for ArmNeonIsa {
     simd_ops_common!(float32x4_t, uint32x4_t);
 
     #[inline]
@@ -199,7 +199,7 @@ unsafe impl SimdOps<float32x4_t> for ArmNeonIsa {
     }
 }
 
-impl SimdFloatOps<float32x4_t> for ArmNeonIsa {
+impl FloatOps<float32x4_t> for ArmNeonIsa {
     type Int = <Self as Isa>::I32;
 
     #[inline]
@@ -228,7 +228,7 @@ impl SimdFloatOps<float32x4_t> for ArmNeonIsa {
     }
 }
 
-unsafe impl SimdOps<int32x4_t> for ArmNeonIsa {
+unsafe impl NumOps<int32x4_t> for ArmNeonIsa {
     simd_ops_common!(int32x4_t, uint32x4_t);
 
     #[inline]
@@ -288,7 +288,7 @@ unsafe impl SimdOps<int32x4_t> for ArmNeonIsa {
     }
 }
 
-impl SimdIntOps<int32x4_t> for ArmNeonIsa {
+impl SignedIntOps<int32x4_t> for ArmNeonIsa {
     #[inline]
     fn neg(self, x: int32x4_t) -> int32x4_t {
         unsafe { vnegq_s32(x) }
@@ -322,7 +322,7 @@ impl NarrowSaturate<int16x8_t, uint8x16_t> for ArmNeonIsa {
     }
 }
 
-unsafe impl SimdOps<int16x8_t> for ArmNeonIsa {
+unsafe impl NumOps<int16x8_t> for ArmNeonIsa {
     simd_ops_common!(int16x8_t, uint16x8_t);
 
     #[inline]
@@ -392,7 +392,7 @@ unsafe impl SimdOps<int16x8_t> for ArmNeonIsa {
     }
 }
 
-impl SimdIntOps<int16x8_t> for ArmNeonIsa {
+impl SignedIntOps<int16x8_t> for ArmNeonIsa {
     #[inline]
     fn neg(self, x: int16x8_t) -> int16x8_t {
         unsafe { vnegq_s16(x) }
@@ -404,7 +404,7 @@ impl SimdIntOps<int16x8_t> for ArmNeonIsa {
     }
 }
 
-unsafe impl SimdOps<int8x16_t> for ArmNeonIsa {
+unsafe impl NumOps<int8x16_t> for ArmNeonIsa {
     simd_ops_common!(int8x16_t, uint8x16_t);
 
     #[inline]
@@ -474,7 +474,7 @@ unsafe impl SimdOps<int8x16_t> for ArmNeonIsa {
     }
 }
 
-impl SimdIntOps<int8x16_t> for ArmNeonIsa {
+impl SignedIntOps<int8x16_t> for ArmNeonIsa {
     #[inline]
     fn neg(self, x: int8x16_t) -> int8x16_t {
         unsafe { vnegq_s8(x) }
@@ -486,7 +486,7 @@ impl SimdIntOps<int8x16_t> for ArmNeonIsa {
     }
 }
 
-unsafe impl SimdOps<uint8x16_t> for ArmNeonIsa {
+unsafe impl NumOps<uint8x16_t> for ArmNeonIsa {
     simd_ops_common!(uint8x16_t, uint8x16_t);
 
     #[inline]
@@ -556,7 +556,7 @@ unsafe impl SimdOps<uint8x16_t> for ArmNeonIsa {
     }
 }
 
-unsafe impl SimdOps<uint16x8_t> for ArmNeonIsa {
+unsafe impl NumOps<uint16x8_t> for ArmNeonIsa {
     simd_ops_common!(uint16x8_t, uint16x8_t);
 
     #[inline]

@@ -1,6 +1,6 @@
 #![allow(clippy::excessive_precision)]
 
-use rten_simd::safe::{Isa, Simd, SimdFloatOps, SimdOps, SimdUnaryOp};
+use rten_simd::safe::{FloatOps, Isa, NumOps, Simd, SimdUnaryOp};
 
 use crate::Exp;
 

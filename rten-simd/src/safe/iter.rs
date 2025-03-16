@@ -1,6 +1,6 @@
 //! Tools for vectorized iteration over slices.
 
-use crate::safe::{Simd, SimdOps};
+use crate::safe::{NumOps, Simd};
 
 /// Methods for creating vectorized iterators.
 pub trait SimdIterable {
@@ -12,13 +12,13 @@ pub trait SimdIterable {
     /// If the input length is not divisble by the SIMD vector width, the
     /// iterator yields only the full chunks. The tail is accessible via the
     /// iterator's [`tail`](Iter::tail) method.
-    fn simd_iter<S: Simd<Elem = Self::Elem>, O: SimdOps<S>>(&self, ops: O) -> Iter<S, O>;
+    fn simd_iter<S: Simd<Elem = Self::Elem>, O: NumOps<S>>(&self, ops: O) -> Iter<S, O>;
 
     /// Iterate over SIMD-sized chunks of the input.
     ///
     /// If the input length is not divisble by the SIMD vector width, the final
     /// chunk will be padded with zeros.
-    fn simd_iter_pad<S: Simd<Elem = Self::Elem>, O: SimdOps<S>>(
+    fn simd_iter_pad<S: Simd<Elem = Self::Elem>, O: NumOps<S>>(
         &self,
         ops: O,
     ) -> impl ExactSizeIterator<Item = S>;
@@ -28,12 +28,12 @@ impl<T> SimdIterable for [T] {
     type Elem = T;
 
     #[inline]
-    fn simd_iter<S: Simd<Elem = T>, O: SimdOps<S>>(&self, ops: O) -> Iter<S, O> {
+    fn simd_iter<S: Simd<Elem = T>, O: NumOps<S>>(&self, ops: O) -> Iter<S, O> {
         Iter::new(ops, self)
     }
 
     #[inline]
-    fn simd_iter_pad<S: Simd<Elem = T>, O: SimdOps<S>>(
+    fn simd_iter_pad<S: Simd<Elem = T>, O: NumOps<S>>(
         &self,
         ops: O,
     ) -> impl ExactSizeIterator<Item = S> {
@@ -44,13 +44,13 @@ impl<T> SimdIterable for [T] {
 /// Iterator which yields chunks of a slice as a SIMD vector.
 ///
 /// This type is created by [`SimdIterable::simd_iter`].
-pub struct Iter<'a, S: Simd, O: SimdOps<S>> {
+pub struct Iter<'a, S: Simd, O: NumOps<S>> {
     ops: O,
     xs: &'a [S::Elem],
     n_full_chunks: usize,
 }
 
-impl<'a, S: Simd, O: SimdOps<S>> Iter<'a, S, O> {
+impl<'a, S: Simd, O: NumOps<S>> Iter<'a, S, O> {
     #[inline]
     fn new(ops: O, xs: &'a [S::Elem]) -> Self {
         let n_full_chunks = xs.len() / ops.len();
@@ -119,7 +119,7 @@ impl<'a, S: Simd, O: SimdOps<S>> Iter<'a, S, O> {
     }
 }
 
-impl<S: Simd, O: SimdOps<S>> Iterator for Iter<'_, S, O> {
+impl<S: Simd, O: NumOps<S>> Iterator for Iter<'_, S, O> {
     type Item = S;
 
     #[inline]
@@ -143,19 +143,19 @@ impl<S: Simd, O: SimdOps<S>> Iterator for Iter<'_, S, O> {
     }
 }
 
-impl<S: Simd, O: SimdOps<S>> ExactSizeIterator for Iter<'_, S, O> {}
+impl<S: Simd, O: NumOps<S>> ExactSizeIterator for Iter<'_, S, O> {}
 
-impl<S: Simd, O: SimdOps<S>> std::iter::FusedIterator for Iter<'_, S, O> {}
+impl<S: Simd, O: NumOps<S>> std::iter::FusedIterator for Iter<'_, S, O> {}
 
 /// Iterator which yields chunks of a slice as a SIMD vector.
 ///
 /// This type is created by [`SimdIterable::simd_iter_pad`].
-pub struct IterPad<'a, S: Simd, O: SimdOps<S>> {
+pub struct IterPad<'a, S: Simd, O: NumOps<S>> {
     iter: Iter<'a, S, O>,
     has_tail: bool,
 }
 
-impl<'a, S: Simd, O: SimdOps<S>> IterPad<'a, S, O> {
+impl<'a, S: Simd, O: NumOps<S>> IterPad<'a, S, O> {
     #[inline]
     fn new(ops: O, xs: &'a [S::Elem]) -> Self {
         let iter = Iter::new(ops, xs);
@@ -164,7 +164,7 @@ impl<'a, S: Simd, O: SimdOps<S>> IterPad<'a, S, O> {
     }
 }
 
-impl<S: Simd, O: SimdOps<S>> Iterator for IterPad<'_, S, O> {
+impl<S: Simd, O: NumOps<S>> Iterator for IterPad<'_, S, O> {
     type Item = S;
 
     #[inline]
@@ -188,15 +188,15 @@ impl<S: Simd, O: SimdOps<S>> Iterator for IterPad<'_, S, O> {
     }
 }
 
-impl<S: Simd, O: SimdOps<S>> ExactSizeIterator for IterPad<'_, S, O> {}
+impl<S: Simd, O: NumOps<S>> ExactSizeIterator for IterPad<'_, S, O> {}
 
-impl<S: Simd, O: SimdOps<S>> std::iter::FusedIterator for IterPad<'_, S, O> {}
+impl<S: Simd, O: NumOps<S>> std::iter::FusedIterator for IterPad<'_, S, O> {}
 
 #[cfg(test)]
 mod tests {
     use super::SimdIterable;
     use crate::safe::dispatch::test_simd_op;
-    use crate::safe::{Isa, Simd, SimdOp, SimdOps};
+    use crate::safe::{Isa, NumOps, Simd, SimdOp};
 
     // f32 vector length, chosen to exercise main and tail loops for all ISAs.
     const TEST_LEN: usize = 18;

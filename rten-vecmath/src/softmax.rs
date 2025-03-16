@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 
 use rten_simd::safe::functional::simd_map;
-use rten_simd::safe::{Isa, SimdFloatOps, SimdIterable, SimdOp, SimdOps, SimdUnaryOp};
+use rten_simd::safe::{FloatOps, Isa, NumOps, SimdIterable, SimdOp, SimdUnaryOp};
 use rten_simd::span::SrcDest;
 
 use crate::Exp;
