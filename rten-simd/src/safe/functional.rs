@@ -10,11 +10,14 @@ use crate::span::SrcDest;
 ///
 /// The map function must have the same input and output type.
 #[inline(always)]
-pub fn simd_map<'a, S: Simd, Op: FnMut(S) -> S>(
+pub fn simd_map<'src, 'dst, S: Simd, Op: FnMut(S) -> S>(
     ops: impl SimdOps<S>,
-    src_dest: impl Into<SrcDest<'a, S::Elem>>,
+    src_dest: impl Into<SrcDest<'src, 'dst, S::Elem>>,
     mut op: Op,
-) -> &'a mut [S::Elem] {
+) -> &'dst mut [S::Elem]
+where
+    S::Elem: 'static,
+{
     let mut src_dest = src_dest.into();
     let (mut in_ptr, mut out_ptr, mut n) = src_dest.src_dest_ptr();
 

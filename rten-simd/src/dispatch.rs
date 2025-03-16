@@ -163,19 +163,19 @@ pub trait SimdUnaryOp {
 
 /// SIMD operation which applies a unary operator `Op` to all elements in
 /// an input buffer using [`simd_map`].
-pub struct SimdMapOp<'a, Op: SimdUnaryOp> {
-    src_dest: SrcDest<'a, f32>,
-    op: &'a Op,
+pub struct SimdMapOp<'src, 'dst, 'op, Op: SimdUnaryOp> {
+    src_dest: SrcDest<'src, 'dst, f32>,
+    op: &'op Op,
 }
 
-impl<'a, Op: SimdUnaryOp> SimdMapOp<'a, Op> {
-    pub fn wrap(src_dest: SrcDest<'a, f32>, op: &'a Op) -> SimdMapOp<'a, Op> {
+impl<'src, 'dst, 'op, Op: SimdUnaryOp> SimdMapOp<'src, 'dst, 'op, Op> {
+    pub fn wrap(src_dest: SrcDest<'src, 'dst, f32>, op: &'op Op) -> Self {
         SimdMapOp { src_dest, op }
     }
 }
 
-impl<'a, Op: SimdUnaryOp> SimdOp for SimdMapOp<'a, Op> {
-    type Output = &'a mut [f32];
+impl<'dst, Op: SimdUnaryOp> SimdOp for SimdMapOp<'_, 'dst, '_, Op> {
+    type Output = &'dst mut [f32];
 
     #[inline(always)]
     unsafe fn eval<S: SimdFloat>(self) -> Self::Output {

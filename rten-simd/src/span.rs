@@ -2,9 +2,9 @@
 
 use std::mem::{transmute, MaybeUninit};
 
-enum SrcDestInner<'a, T> {
-    InOut(&'a [T], &'a mut [MaybeUninit<T>]),
-    InMut(&'a mut [T]),
+enum SrcDestInner<'src, 'dst, T> {
+    InOut(&'src [T], &'dst mut [MaybeUninit<T>]),
+    InMut(&'dst mut [T]),
 }
 
 /// Input-output buffer for vectorized operations.
@@ -13,11 +13,11 @@ enum SrcDestInner<'a, T> {
 /// in-place (`&mut [T]`) or a pair of input and output buffers where the
 /// output is uninitialized (`([T], &mut [MaybeUninit<T>])`) and both buffers
 /// must have the same length.
-pub struct SrcDest<'a, T: Copy> {
-    inner: SrcDestInner<'a, T>,
+pub struct SrcDest<'src, 'dst, T: Copy> {
+    inner: SrcDestInner<'src, 'dst, T>,
 }
 
-impl<'a, T: Copy> SrcDest<'a, T> {
+impl<'dst, T: Copy> SrcDest<'_, 'dst, T> {
     /// Return the source slice.
     pub fn src(&self) -> &[T] {
         match &self.inner {
@@ -57,7 +57,7 @@ impl<'a, T: Copy> SrcDest<'a, T> {
     ///
     /// If this instance was constructed with an uninitialized destination
     /// buffer, all elements must have been initialized before this is called.
-    pub unsafe fn dest_assume_init(self) -> &'a mut [T] {
+    pub unsafe fn dest_assume_init(self) -> &'dst mut [T] {
         match self.inner {
             SrcDestInner::InOut(_src, dest) => transmute::<&mut [MaybeUninit<T>], &mut [T]>(dest),
             SrcDestInner::InMut(src) => src,
@@ -65,8 +65,8 @@ impl<'a, T: Copy> SrcDest<'a, T> {
     }
 }
 
-impl<'a, T: Copy> From<(&'a [T], &'a mut [MaybeUninit<T>])> for SrcDest<'a, T> {
-    fn from(val: (&'a [T], &'a mut [MaybeUninit<T>])) -> Self {
+impl<'src, 'dst, T: Copy> From<(&'src [T], &'dst mut [MaybeUninit<T>])> for SrcDest<'src, 'dst, T> {
+    fn from(val: (&'src [T], &'dst mut [MaybeUninit<T>])) -> Self {
         let (src, dest) = val;
         assert_eq!(
             src.len(),
@@ -81,8 +81,8 @@ impl<'a, T: Copy> From<(&'a [T], &'a mut [MaybeUninit<T>])> for SrcDest<'a, T> {
     }
 }
 
-impl<'a, T: Copy> From<&'a mut [T]> for SrcDest<'a, T> {
-    fn from(val: &'a mut [T]) -> Self {
+impl<'dst, T: Copy> From<&'dst mut [T]> for SrcDest<'dst, 'dst, T> {
+    fn from(val: &'dst mut [T]) -> Self {
         SrcDest {
             inner: SrcDestInner::InMut(val),
         }

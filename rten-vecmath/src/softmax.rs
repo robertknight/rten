@@ -13,30 +13,33 @@ use crate::Exp;
 /// and <https://arxiv.org/abs/2001.04438>.
 ///
 /// [softmax]: <https://en.wikipedia.org/wiki/Softmax_function>
-pub struct Softmax<'a> {
-    src_dest: SrcDest<'a, f32>,
+pub struct Softmax<'src, 'dst> {
+    src_dest: SrcDest<'src, 'dst, f32>,
 }
 
-impl<'a> Softmax<'a> {
+impl<'src, 'dst> Softmax<'src, 'dst> {
     /// Construct a softmax operation which reads `input` and writes to to
     /// `output`.
-    pub fn new(input: &'a [f32], output: &'a mut [MaybeUninit<f32>]) -> Self {
+    pub fn new(input: &'src [f32], output: &'dst mut [MaybeUninit<f32>]) -> Self {
         Softmax {
             src_dest: (input, output).into(),
         }
     }
 
     /// Construct a softmax operation which updates `input` in place.
-    pub fn new_mut(input: &'a mut [f32]) -> Self {
+    pub fn new_mut(input: &'dst mut [f32]) -> Self
+    where
+        'dst: 'src,
+    {
         Softmax {
             src_dest: input.into(),
         }
     }
 }
 
-impl<'a> SimdOp for Softmax<'a> {
+impl<'dst> SimdOp for Softmax<'_, 'dst> {
     /// The normalized elements.
-    type Output = &'a mut [f32];
+    type Output = &'dst mut [f32];
 
     #[inline(always)]
     fn eval<I: Isa>(self, isa: I) -> Self::Output {
