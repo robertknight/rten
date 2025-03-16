@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 
 use rten_simd::safe::functional::simd_map;
-use rten_simd::safe::{Isa, SimdIterable, SimdOp, SimdOps};
+use rten_simd::safe::{Isa, NumOps, SimdIterable, SimdOp};
 use rten_simd::span::SrcDest;
 
 /// Normalize the mean and variance of elements in a slice.

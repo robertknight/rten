@@ -1,6 +1,6 @@
 //! Vectorized higher-order operations (map, fold etc.)
 
-use super::{Simd, SimdOps};
+use super::{NumOps, Simd};
 use crate::span::SrcDest;
 
 /// Transform a slice by applying a vectorized map function to its elements.
@@ -11,7 +11,7 @@ use crate::span::SrcDest;
 /// The map function must have the same input and output type.
 #[inline(always)]
 pub fn simd_map<'src, 'dst, S: Simd, Op: FnMut(S) -> S>(
-    ops: impl SimdOps<S>,
+    ops: impl NumOps<S>,
     src_dest: impl Into<SrcDest<'src, 'dst, S::Elem>>,
     mut op: Op,
 ) -> &'dst mut [S::Elem]
@@ -50,7 +50,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::safe::{Isa, SimdOp, SimdOps};
+    use crate::safe::{Isa, NumOps, SimdOp};
 
     use super::simd_map;
 

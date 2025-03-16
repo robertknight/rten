@@ -1,7 +1,7 @@
 use std::array;
 use std::mem::transmute;
 
-use crate::safe::{Isa, Mask, MaskOps, NarrowSaturate, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+use crate::safe::{FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd};
 
 // Size of SIMD vector in 32-bit lanes.
 const LEN_X32: usize = 4;
@@ -54,27 +54,27 @@ unsafe impl Isa for GenericIsa {
     type U16 = U16x8;
     type Bits = I32x4;
 
-    fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
+    fn f32(self) -> impl FloatOps<Self::F32, Int = Self::I32> {
         self
     }
 
-    fn i32(self) -> impl SimdIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
+    fn i32(self) -> impl SignedIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
         self
     }
 
-    fn i16(self) -> impl SimdIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
+    fn i16(self) -> impl SignedIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
         self
     }
 
-    fn i8(self) -> impl SimdIntOps<Self::I8> {
+    fn i8(self) -> impl SignedIntOps<Self::I8> {
         self
     }
 
-    fn u8(self) -> impl SimdOps<Self::U8> {
+    fn u8(self) -> impl NumOps<Self::U8> {
         self
     }
 
-    fn u16(self) -> impl SimdOps<Self::U16> {
+    fn u16(self) -> impl NumOps<Self::U16> {
         self
     }
 }
@@ -104,7 +104,7 @@ macro_rules! simd_ops_common {
             mask: <$simd as Simd>::Mask,
         ) -> $simd {
             let mask_array = mask.0;
-            let mut vec = <Self as SimdOps<$simd>>::zero(self).0;
+            let mut vec = <Self as NumOps<$simd>>::zero(self).0;
             for i in 0..mask_array.len() {
                 if mask_array[i] != 0 {
                     vec[i] = *ptr.add(i);
@@ -122,7 +122,7 @@ macro_rules! simd_ops_common {
         ) {
             let mask_array = mask.0;
             let x_array = x.0;
-            for i in 0..<Self as SimdOps<$simd>>::len(self) {
+            for i in 0..<Self as NumOps<$simd>>::len(self) {
                 if mask_array[i] != 0 {
                     *ptr.add(i) = x_array[i];
                 }
@@ -209,11 +209,11 @@ macro_rules! simd_ops_common {
     };
 }
 
-unsafe impl SimdOps<F32x4> for GenericIsa {
+unsafe impl NumOps<F32x4> for GenericIsa {
     simd_ops_common!(F32x4, f32, 4, M32);
 }
 
-impl SimdFloatOps<F32x4> for GenericIsa {
+impl FloatOps<F32x4> for GenericIsa {
     type Int = <Self as Isa>::I32;
 
     #[inline]
@@ -249,11 +249,11 @@ impl SimdFloatOps<F32x4> for GenericIsa {
 
 macro_rules! impl_simd_signed_int_ops {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
-        unsafe impl SimdOps<$simd> for GenericIsa {
+        unsafe impl NumOps<$simd> for GenericIsa {
             simd_ops_common!($simd, $elem, $len, $mask);
         }
 
-        impl SimdIntOps<$simd> for GenericIsa {
+        impl SignedIntOps<$simd> for GenericIsa {
             #[inline]
             fn neg(self, x: $simd) -> $simd {
                 let xs = array::from_fn(|i| -x.0[i]);
@@ -275,7 +275,7 @@ impl_simd_signed_int_ops!(I8x16, i8, 16, M8);
 
 macro_rules! impl_simd_unsigned_int_ops {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
-        unsafe impl SimdOps<$simd> for GenericIsa {
+        unsafe impl NumOps<$simd> for GenericIsa {
             simd_ops_common!($simd, $elem, $len, $mask);
         }
     };

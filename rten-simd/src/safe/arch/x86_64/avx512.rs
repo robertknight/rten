@@ -22,7 +22,7 @@ use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
 use crate::safe::vec::{Extend, Narrow};
-use crate::safe::{Isa, Mask, MaskOps, NarrowSaturate, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+use crate::safe::{FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd};
 
 simd_type!(F32x16, __m512, f32, __mmask16, Avx512Isa);
 simd_type!(I32x16, __m512i, i32, __mmask16, Avx512Isa);
@@ -56,27 +56,27 @@ unsafe impl Isa for Avx512Isa {
     type U16 = U16x32;
     type Bits = I32x16;
 
-    fn f32(self) -> impl SimdFloatOps<Self::F32, Int = Self::I32> {
+    fn f32(self) -> impl FloatOps<Self::F32, Int = Self::I32> {
         self
     }
 
-    fn i32(self) -> impl SimdIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
+    fn i32(self) -> impl SignedIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
         self
     }
 
-    fn i16(self) -> impl SimdIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
+    fn i16(self) -> impl SignedIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
         self
     }
 
-    fn i8(self) -> impl SimdIntOps<Self::I8> {
+    fn i8(self) -> impl SignedIntOps<Self::I8> {
         self
     }
 
-    fn u8(self) -> impl SimdOps<Self::U8> {
+    fn u8(self) -> impl NumOps<Self::U8> {
         self
     }
 
-    fn u16(self) -> impl SimdOps<Self::U16> {
+    fn u16(self) -> impl NumOps<Self::U16> {
         self
     }
 }
@@ -114,7 +114,7 @@ macro_rules! simd_ops_common {
     };
 }
 
-unsafe impl SimdOps<F32x16> for Avx512Isa {
+unsafe impl NumOps<F32x16> for Avx512Isa {
     simd_ops_common!(F32x16, __mmask16);
 
     #[inline]
@@ -208,7 +208,7 @@ unsafe impl SimdOps<F32x16> for Avx512Isa {
     }
 }
 
-impl SimdFloatOps<F32x16> for Avx512Isa {
+impl FloatOps<F32x16> for Avx512Isa {
     type Int = <Self as Isa>::I32;
 
     #[inline]
@@ -237,7 +237,7 @@ impl SimdFloatOps<F32x16> for Avx512Isa {
     }
 }
 
-unsafe impl SimdOps<I32x16> for Avx512Isa {
+unsafe impl NumOps<I32x16> for Avx512Isa {
     simd_ops_common!(I32x16, __mmask16);
 
     #[inline]
@@ -301,7 +301,7 @@ unsafe impl SimdOps<I32x16> for Avx512Isa {
     }
 }
 
-impl SimdIntOps<I32x16> for Avx512Isa {
+impl SignedIntOps<I32x16> for Avx512Isa {
     #[inline]
     fn neg(self, x: I32x16) -> I32x16 {
         unsafe { _mm512_sub_epi32(_mm512_setzero_si512(), x.0) }.into()
@@ -330,7 +330,7 @@ impl NarrowSaturate<I32x16, I16x32> for Avx512Isa {
     }
 }
 
-unsafe impl SimdOps<I16x32> for Avx512Isa {
+unsafe impl NumOps<I16x32> for Avx512Isa {
     simd_ops_common!(I16x32, __mmask32);
 
     #[inline]
@@ -394,7 +394,7 @@ unsafe impl SimdOps<I16x32> for Avx512Isa {
     }
 }
 
-impl SimdIntOps<I16x32> for Avx512Isa {
+impl SignedIntOps<I16x32> for Avx512Isa {
     #[inline]
     fn neg(self, x: I16x32) -> I16x32 {
         unsafe { _mm512_sub_epi16(_mm512_setzero_si512(), x.0) }.into()
@@ -423,7 +423,7 @@ impl NarrowSaturate<I16x32, U8x64> for Avx512Isa {
     }
 }
 
-unsafe impl SimdOps<I8x64> for Avx512Isa {
+unsafe impl NumOps<I8x64> for Avx512Isa {
     simd_ops_common!(I8x64, __mmask64);
 
     #[inline]
@@ -494,7 +494,7 @@ unsafe impl SimdOps<I8x64> for Avx512Isa {
     }
 }
 
-impl SimdIntOps<I8x64> for Avx512Isa {
+impl SignedIntOps<I8x64> for Avx512Isa {
     #[inline]
     fn neg(self, x: I8x64) -> I8x64 {
         unsafe { _mm512_sub_epi8(_mm512_setzero_si512(), x.0) }.into()
@@ -514,7 +514,7 @@ impl SimdIntOps<I8x64> for Avx512Isa {
     }
 }
 
-unsafe impl SimdOps<U8x64> for Avx512Isa {
+unsafe impl NumOps<U8x64> for Avx512Isa {
     simd_ops_common!(U8x64, __mmask64);
 
     #[inline]
@@ -647,7 +647,7 @@ impl Narrow<U16x32> for Avx512Isa {
     }
 }
 
-unsafe impl SimdOps<U16x32> for Avx512Isa {
+unsafe impl NumOps<U16x32> for Avx512Isa {
     simd_ops_common!(U16x32, __mmask32);
 
     #[inline]

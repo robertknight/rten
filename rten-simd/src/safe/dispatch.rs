@@ -84,7 +84,7 @@ pub trait SimdUnaryOp<T: Elem> {
     /// the specific type used by the ISA:
     ///
     /// ```
-    /// use rten_simd::safe::{Isa, Simd, SimdFloatOps, SimdOps, SimdUnaryOp};
+    /// use rten_simd::safe::{Isa, Simd, FloatOps, NumOps, SimdUnaryOp};
     ///
     /// struct Reciprocal {}
     ///
@@ -214,7 +214,7 @@ pub(crate) use test_simd_op;
 #[cfg(test)]
 mod tests {
     use super::SimdUnaryOp;
-    use crate::safe::{Isa, Simd, SimdFloatOps, SimdOps};
+    use crate::safe::{FloatOps, Isa, NumOps, Simd};
 
     #[test]
     fn test_unary_float_op() {
