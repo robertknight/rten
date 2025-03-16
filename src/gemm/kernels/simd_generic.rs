@@ -1,7 +1,6 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::safe::{Isa, NumOps};
-use rten_simd::SimdInt;
+use rten_simd::safe::{Extend, Interleave, Isa, NumOps, Simd};
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
 use super::Lhs;
@@ -414,7 +413,8 @@ pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROW
 /// initialized and the result will be added to it. If false, the `tile_ptr`
 /// may be uninitialized and will be initialized with the result.
 #[inline(always)]
-pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const NR_REGS: usize>(
+pub unsafe fn simd_int8_gemm<I: Isa, const MR: usize, const NR: usize, const NR_REGS: usize>(
+    isa: I,
     tile_ptr: *mut i32,
     tile_row_stride: usize,
     a: &[u8],
@@ -427,9 +427,12 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
     b_zero_points: [i32; NR],
     a_row_sums: &[i32; MR],
     b_col_sums: &[i32; NR],
-    dot_product: unsafe fn(S, S, S) -> S,
+    dot_product: unsafe fn(I::I8, I::I8, I::I32) -> I::I32,
 ) {
-    assert_eq!(S::len() * NR_REGS, NR);
+    let ops = isa.i32();
+    let i8_ops = isa.i8();
+
+    assert_eq!(ops.len() * NR_REGS, NR);
 
     // The value for each element in the output tile is computed as:
     //
@@ -455,16 +458,16 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
     let b_ptr = b.as_ptr();
 
     let n_depth_tiles = depth.div_ceil(4);
-    let b_zero: [S; NR_REGS] =
-        std::array::from_fn(|i| S::load(b_zero_points.as_ptr().add(i * S::len())));
+    let b_zero = ops.load_many::<NR_REGS>(&b_zero_points);
 
     // Initialize output tile with `k * a_zero_point[row] * b_zero_point[col]`
-    let k_mul_b_zero: [S; NR_REGS] = std::array::from_fn(|i| S::splat(depth as i32).mul(b_zero[i]));
+    let k_mul_b_zero: [I::I32; NR_REGS] =
+        std::array::from_fn(|i| ops.mul(ops.splat(depth as i32), b_zero[i]));
     let mut tmp = [k_mul_b_zero; MR];
     for row in 0..MR {
-        let a_zero = S::splat(a_zero_points[row]);
+        let a_zero = ops.splat(a_zero_points[row]);
         for i in 0..NR_REGS {
-            tmp[row][i] = tmp[row][i].mul(a_zero);
+            tmp[row][i] = ops.mul(tmp[row][i], a_zero);
         }
     }
 
@@ -472,39 +475,39 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
     // B.
     for k_block in 0..n_depth_tiles {
         // Load `[4, NR]` microtile from B
-        let b_vec: [S; NR_REGS] = std::array::from_fn(|i| {
-            S::load(b_ptr.add((k_block * NR + i * S::len()) * 4) as *const i32)
+        let b_vec: [I::I8; NR_REGS] = std::array::from_fn(|i| {
+            i8_ops.load_ptr(b_ptr.add((k_block * NR + i * ops.len()) * 4) as *const i8)
         });
 
         // Each iteration broadcasts 4x int 8 values from A, computes NR
         // dot products and accumulates into the output tile.
         for row in 0..MR {
             let a_val = *(a_ptr.add(k_block * MR * 4 + row * 4) as *const i32);
-            let a_vec = S::splat(a_val);
+            let a_vec = ops.splat(a_val).reinterpret_cast::<I::I8>();
             for i in 0..NR_REGS {
-                tmp[row][i] = dot_product(a_vec, b_vec[i], tmp[row][i]);
+                tmp[row][i] = unsafe { dot_product(a_vec, b_vec[i], tmp[row][i]) };
             }
         }
     }
 
     // Scale zero points by row and column sums and subtract from output tile.
-    let b_col_sums: [S; NR_REGS] =
-        std::array::from_fn(|i| S::load(b_col_sums.as_ptr().add(i * S::len())));
+    let b_col_sums: [I::I32; NR_REGS] =
+        std::array::from_fn(|i| ops.load_ptr(b_col_sums.as_ptr().add(i * ops.len())));
     for row in 0..MR {
-        let a_zero = S::splat(a_zero_points[row]);
-        let a_sum = S::splat(a_row_sums[row]);
+        let a_zero = ops.splat(a_zero_points[row]);
+        let a_sum = ops.splat(a_row_sums[row]);
 
         for i in 0..NR_REGS {
-            let a_sum_mul_b_zero = a_sum.mul(b_zero[i]);
-            let b_sum_mul_a_zero = b_col_sums[i].mul(a_zero);
-            let sum = a_sum_mul_b_zero.add(b_sum_mul_a_zero);
-            tmp[row][i] = tmp[row][i].sub(sum);
+            let a_sum_mul_b_zero = ops.mul(a_sum, b_zero[i]);
+            let b_sum_mul_a_zero = ops.mul(b_col_sums[i], a_zero);
+            let sum = ops.add(a_sum_mul_b_zero, b_sum_mul_a_zero);
+            tmp[row][i] = ops.sub(tmp[row][i], sum);
         }
     }
 
     // Write from accumulator in registers back to output.
     let output_tile_ptr =
-        |row, col_block| tile_ptr.add(row * tile_row_stride + col_block * S::len());
+        |row, col_block| tile_ptr.add(row * tile_row_stride + col_block * ops.len());
 
     #[allow(clippy::collapsible_else_if)]
     if !accumulate {
@@ -513,7 +516,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
             for row in 0..MR {
                 for c_block in 0..NR_REGS {
                     let tile_ptr = output_tile_ptr(row, c_block);
-                    tmp[row][c_block].store(tile_ptr);
+                    ops.store_ptr(tmp[row][c_block], tile_ptr);
                 }
             }
         } else {
@@ -521,7 +524,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
             for r in 0..used_rows {
                 for c_block in 0..NR_REGS {
                     let tile_ptr = output_tile_ptr(r, c_block);
-                    let used_cols = used_cols.saturating_sub(c_block * S::len()).min(S::len());
+                    let used_cols = used_cols.saturating_sub(c_block * ops.len()).min(ops.len());
                     let tmp = tmp[r][c_block].to_array();
 
                     for c in 0..used_cols {
@@ -536,8 +539,8 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
             for row in 0..MR {
                 for c_block in 0..NR_REGS {
                     let tile_ptr = output_tile_ptr(row, c_block);
-                    let out = S::load(tile_ptr).add(tmp[row][c_block]);
-                    out.store(tile_ptr);
+                    let out = ops.add(ops.load_ptr(tile_ptr), tmp[row][c_block]);
+                    ops.store_ptr(out, tile_ptr);
                 }
             }
         } else {
@@ -545,7 +548,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
             for r in 0..used_rows {
                 for c_block in 0..NR_REGS {
                     let tile_ptr = output_tile_ptr(r, c_block);
-                    let used_cols = used_cols.saturating_sub(c_block * S::len()).min(S::len());
+                    let used_cols = used_cols.saturating_sub(c_block * ops.len()).min(ops.len());
                     let tmp = tmp[r][c_block].to_array();
 
                     for c in 0..used_cols {
@@ -558,7 +561,7 @@ pub unsafe fn simd_int8_gemm<S: SimdInt, const MR: usize, const NR: usize, const
 }
 
 // Mask that when XOR-ed with packed i8 values shifts them to u8 by adding 128.
-const I8_U8_SHIFT_MASK: i32 = 0x80808080u32 as i32;
+const I8_U8_SHIFT_MASK: i8 = 0x80u8 as i8;
 
 /// Compute a vector-matrix product between a u8 vector and i8 matrix, producing
 /// an i32 vector.
@@ -574,21 +577,23 @@ const I8_U8_SHIFT_MASK: i32 = 0x80808080u32 as i32;
 ///
 /// - Instructions used by SIMD type `S` and `dot_product` must be supported.
 #[inline(always)]
-pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
+pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
+    isa: I,
     out: &mut [MaybeUninit<i32>],
     a: &[u8],
     b: Matrix<i8>,
     accumulate: bool,
     a_zero_point: u8,
     b_zero_points: Option<&[i8]>,
-    dot_product: unsafe fn(S, S, S) -> S,
+    dot_product: unsafe fn(I::I8, I::I8, I::I32) -> I::I32,
 ) {
     assert_eq!(out.len(), b.cols());
     assert_eq!(b.rows(), a.len());
     assert_eq!(a.as_ptr() as usize % align_of::<i32>(), 0);
 
     if b.row_stride() == 1 {
-        return simd_int8_gemv_transposed::<S, CAST_B_U8>(
+        return simd_int8_gemv_transposed::<_, CAST_B_U8>(
+            isa,
             out,
             a,
             b,
@@ -608,8 +613,12 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
         );
     }
 
+    let ops = isa.i32();
+    let i8_ops = isa.i8();
+    let i16_ops = isa.i16();
+
     let b_zero_shift = if CAST_B_U8 { 128 } else { 0 };
-    let bit_flip_mask = S::splat(I8_U8_SHIFT_MASK);
+    let bit_flip_mask = i8_ops.splat(I8_U8_SHIFT_MASK);
 
     let a_ptr = a.as_ptr();
     let depth = a.len();
@@ -620,18 +629,20 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
 
     // Iterate over `4 x S::LEN` columns at a time, which is one `i8` SIMD vec,
     // four `i32` vecs.
-    let mut col_tiles = range_chunks_exact(0..b.cols(), 4 * S::len());
+    let mut col_tiles = range_chunks_exact(0..b.cols(), 4 * ops.len());
     for col_tile in col_tiles.by_ref() {
         let b_ptr = b_ptr.add(col_tile.start);
-        let mut acc = [S::zero(); 4];
-        let mut col_sums = [S::zero(); 4];
-        let one_u8 = S::splat(i32::from_le_bytes([1; 4]));
+        let mut acc = [ops.zero(); 4];
+        let mut col_sums = [ops.zero(); 4];
+        let one_u8 = i8_ops.splat(1);
 
         // Loop over K tiles of size 4.
         let mut k = 0;
         while k + 4 <= depth {
             // Broadcast 4 values from A.
-            let a = S::splat(*(a_ptr.add(k) as *const i32));
+            let a = ops
+                .splat(*(a_ptr.add(k) as *const i32))
+                .reinterpret_cast::<I::I8>();
 
             // Load 4 rows of `S::LEN * 4` int8 elements from B and interleave
             // to give 4 transposed `[4, S::LEN]` tiles. eg. Given 4 rows A, B,
@@ -644,33 +655,34 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
             // D0 D1 D2 D3
             //
             // The second tile contains A4..A7 and so on.
-            let b_tile_ptr: [*const i32; 4] =
-                std::array::from_fn(|i| b_ptr.add((k + i) * b_row_stride) as *const i32);
-            let b0 = S::load(b_tile_ptr[0]);
-            let b1 = S::load(b_tile_ptr[1]);
-            let b2 = S::load(b_tile_ptr[2]);
-            let b3 = S::load(b_tile_ptr[3]);
+            let b_tile_ptr: [*const i8; 4] =
+                std::array::from_fn(|i| b_ptr.add((k + i) * b_row_stride) as *const i8);
+            let b0 = i8_ops.load_ptr(b_tile_ptr[0]);
+            let b1 = i8_ops.load_ptr(b_tile_ptr[1]);
+            let b2 = i8_ops.load_ptr(b_tile_ptr[2]);
+            let b3 = i8_ops.load_ptr(b_tile_ptr[3]);
 
-            let b01_lo = b0.zip_lo_i8(b1);
-            let b01_hi = b0.zip_hi_i8(b1);
-            let b23_lo = b2.zip_lo_i8(b3);
-            let b23_hi = b2.zip_hi_i8(b3);
+            let b01_lo = i8_ops.interleave_low(b0, b1).reinterpret_cast::<I::I16>();
+            let b01_hi = i8_ops.interleave_high(b0, b1).reinterpret_cast::<I::I16>();
+            let b23_lo = i8_ops.interleave_low(b2, b3).reinterpret_cast::<I::I16>();
+            let b23_hi = i8_ops.interleave_high(b2, b3).reinterpret_cast::<I::I16>();
 
             let b_tiles = [
-                b01_lo.zip_lo_i16(b23_lo),
-                b01_lo.zip_hi_i16(b23_lo),
-                b01_hi.zip_lo_i16(b23_hi),
-                b01_hi.zip_hi_i16(b23_hi),
-            ];
+                i16_ops.interleave_low(b01_lo, b23_lo),
+                i16_ops.interleave_high(b01_lo, b23_lo),
+                i16_ops.interleave_low(b01_hi, b23_hi),
+                i16_ops.interleave_high(b01_hi, b23_hi),
+            ]
+            .map(|t| t.reinterpret_cast::<I::I8>());
 
             // Pre-fetch the current block of 4 rows for the next column tile.
             for i in 0..4 {
-                S::prefetch(b_tile_ptr[i].add(S::len()));
+                i8_ops.prefetch(b_tile_ptr[i].add(i8_ops.len()));
             }
 
             for i in 0..4 {
                 let b_tile = if CAST_B_U8 {
-                    b_tiles[i].xor(bit_flip_mask)
+                    i8_ops.xor(b_tiles[i], bit_flip_mask)
                 } else {
                     b_tiles[i]
                 };
@@ -681,18 +693,24 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
         }
 
         while k < depth {
-            let a = S::splat((*a_ptr.add(k)).into());
+            let a = ops.splat((*a_ptr.add(k)).into());
+
+            let b = i8_ops.load_ptr(b_ptr.add(k * b_row_stride));
+            let (b01, b23) = i8_ops.extend(b);
+            let (b0, b1) = i16_ops.extend(b01);
+            let (b2, b3) = i16_ops.extend(b23);
+            let b_rows = [b0, b1, b2, b3];
 
             for i in 0..4 {
-                let b = S::load_extend_i8(b_ptr.add(k * b_row_stride + i * S::len()));
+                let b = b_rows[i];
                 let b = if CAST_B_U8 {
-                    b.add(S::splat(b_zero_shift))
+                    ops.add(b, ops.splat(b_zero_shift))
                 } else {
                     b
                 };
 
-                acc[i] = a.mul(b).add(acc[i]);
-                col_sums[i] = col_sums[i].add(b);
+                acc[i] = ops.mul_add(a, b, acc[i]);
+                col_sums[i] = ops.add(col_sums[i], b);
             }
             k += 1;
         }
@@ -700,29 +718,36 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
         // Subtract zero points. This is equivalent to doing
         // `acc += (a - a_zero) * (b - b_zero)` in the loop over K, but more
         // efficient.
-        let row_sum_vec = S::splat(row_sum);
-        let depth_vec = S::splat(depth as i32);
-        let a_zero_vec = S::splat(a_zero_point.into());
+        let row_sum_vec = ops.splat(row_sum);
+        let depth_vec = ops.splat(depth as i32);
+        let a_zero_vec = ops.splat(a_zero_point.into());
+
+        let b_zero_vec = if let Some(b_zero) = b_zero_points {
+            let b = i8_ops.load_ptr(b_zero.as_ptr().add(col_tile.start));
+            let (b01, b23) = i8_ops.extend(b);
+            let (b0, b1) = i16_ops.extend(b01);
+            let (b2, b3) = i16_ops.extend(b23);
+            [b0, b1, b2, b3]
+        } else {
+            [ops.zero(); 4]
+        };
 
         for i in 0..4 {
-            let b_zero_vec = if let Some(b_zero) = b_zero_points {
-                S::load_extend_i8(b_zero.as_ptr().add(col_tile.start + i * S::len()))
-            } else {
-                S::zero()
-            };
-            let b_zero_vec = b_zero_vec.add(S::splat(b_zero_shift));
-            acc[i] = depth_vec
-                .mul(a_zero_vec)
-                .mul(b_zero_vec)
-                .add(acc[i])
-                .sub(row_sum_vec.mul(b_zero_vec))
-                .sub(col_sums[i].mul(a_zero_vec));
+            let b_zero_vec = ops.add(b_zero_vec[i], ops.splat(b_zero_shift));
 
-            let out_ptr = out.as_ptr().add(col_tile.start + i * S::len()) as *mut i32;
+            let tmp = ops.mul(depth_vec, a_zero_vec);
+            let tmp = ops.mul(tmp, b_zero_vec);
+            let tmp = ops.add(tmp, acc[i]);
+            let tmp = ops.sub(tmp, ops.mul(row_sum_vec, b_zero_vec));
+            acc[i] = ops.sub(tmp, ops.mul(col_sums[i], a_zero_vec));
+
+            let out_ptr = out.as_ptr().add(col_tile.start + i * ops.len()) as *mut i32;
             if !accumulate {
-                acc[i].store(out_ptr);
+                ops.store_ptr(acc[i], out_ptr);
             } else {
-                S::load(out_ptr).add(acc[i]).store(out_ptr);
+                let tmp = ops.load_ptr(out_ptr);
+                let tmp = ops.add(tmp, acc[i]);
+                ops.store_ptr(tmp, out_ptr);
             }
         }
     }
@@ -757,44 +782,52 @@ pub unsafe fn simd_int8_gemv<S: SimdInt, const CAST_B_U8: bool>(
 
 /// Variant of [`simd_int8_gemv`] for the case where the RHS has unit row stride.
 #[inline(always)]
-unsafe fn simd_int8_gemv_transposed<S: SimdInt, const CAST_B_U8: bool>(
+unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
+    isa: I,
     out: &mut [MaybeUninit<i32>],
     a: &[u8],
     b: Matrix<i8>,
     accumulate: bool,
     a_zero_point: u8,
     b_zero_points: Option<&[i8]>,
-    dot_product: unsafe fn(S, S, S) -> S,
+    dot_product: unsafe fn(I::I8, I::I8, I::I32) -> I::I32,
 ) {
-    let bit_flip_mask = S::splat(I8_U8_SHIFT_MASK);
+    let ops = isa.i32();
+    let i8_ops = isa.i8();
+
+    let bit_flip_mask = i8_ops.splat(I8_U8_SHIFT_MASK);
     let b_zero_shift = if CAST_B_U8 { 128 } else { 0 };
     let depth = a.len();
 
     let row_sum: i32 = a.iter().map(|x| *x as i32).sum();
     let a_ptr = a.as_ptr();
     let b_ptr = b.storage().as_ptr();
-    let one_u8 = S::splat(i32::from_le_bytes([1; 4]));
+    let one_u8 = i8_ops.splat(1);
 
     for col in 0..b.cols() {
         let b_ptr = b_ptr.add(col * b.col_stride());
-        let mut acc = S::zero();
-        let mut col_sum = S::zero();
+        let mut acc = ops.zero();
+        let mut col_sum = ops.zero();
 
         // nb. `S::LEN` refers to `i32` values, but `depth` is a count of u8/i8
         // values.
-        let mut k_tiles = range_chunks_exact(0..depth, S::len() * 4);
+        let mut k_tiles = range_chunks_exact(0..depth, ops.len() * 4);
 
         for k_tile in k_tiles.by_ref() {
-            let a = S::load(a_ptr.add(k_tile.start) as *const i32);
-            let b = S::load(b_ptr.add(k_tile.start) as *const i32);
-            let b = if CAST_B_U8 { b.xor(bit_flip_mask) } else { b };
+            let a = i8_ops.load_ptr(a_ptr.add(k_tile.start) as *const i8);
+            let b = i8_ops.load_ptr(b_ptr.add(k_tile.start) as *const i8);
+            let b = if CAST_B_U8 {
+                i8_ops.xor(b, bit_flip_mask)
+            } else {
+                b
+            };
 
             acc = dot_product(a, b, acc);
             col_sum = dot_product(one_u8, b, col_sum);
         }
 
-        let mut acc = acc.sum();
-        let mut col_sum = col_sum.sum();
+        let mut acc = ops.sum(acc);
+        let mut col_sum = ops.sum(col_sum);
 
         for k in k_tiles.remainder() {
             let a = *a_ptr.add(k) as i32;

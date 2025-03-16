@@ -1,12 +1,7 @@
-use std::arch::x86_64::{__m256, __m256i};
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-#[cfg(feature = "avx512")]
-use std::arch::x86_64::{__m512, __m512i};
-
-use rten_simd::safe::isa::Avx2Isa;
-use rten_simd::vec_count;
+use rten_simd::safe::{isa::Avx2Isa, Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
 #[cfg(feature = "avx512")]
@@ -31,6 +26,13 @@ impl FmaKernel {
     // execution ports.
     const NR: usize = 16;
 }
+
+/// Number of 32-bit lanes in an AVX2 SIMD vector.
+const AVX2_X32_LANES: usize = 8;
+
+/// Number of 32-bit lanes in an AVX-512 SIMD vector.
+#[cfg(feature = "avx512")]
+const AVX512_X32_LANES: usize = 16;
 
 /// Wrapper for `pack_a_block` which enables AVX instructions.
 #[target_feature(enable = "avx2")]
@@ -134,7 +136,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        const NR_REGS: usize = vec_count::<__m256i>(FmaKernel::NR).unwrap();
+        const NR_REGS: usize = FmaKernel::NR / AVX2_X32_LANES;
 
         #[target_feature(enable = "avx2")]
         #[target_feature(enable = "fma")]
@@ -173,7 +175,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
     ) {
         const MR: usize = FmaKernel::MR;
         const NR: usize = FmaKernel::NR;
-        const NR_REGS: usize = vec_count::<__m256>(NR).unwrap();
+        const NR_REGS: usize = NR / AVX2_X32_LANES;
 
         let b = cast_pod_slice(b).unwrap();
 
@@ -357,7 +359,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
             image.pack_block::<_, NR_REGS>(isa, out, NR, rows, cols);
         }
 
-        const NR_REGS: usize = vec_count::<__m512i>(Avx512Kernel::NR).unwrap();
+        const NR_REGS: usize = Avx512Kernel::NR / AVX512_X32_LANES;
 
         // Safety: Kernel can only be constructed if AVX-512 is supported.
         let out = cast_pod_mut_slice(out).unwrap();
@@ -384,7 +386,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
     ) {
         const MR: usize = Avx512Kernel::MR;
         const NR: usize = Avx512Kernel::NR;
-        const NR_REGS: usize = vec_count::<__m512>(NR).unwrap();
+        const NR_REGS: usize = NR / AVX512_X32_LANES;
 
         let b = cast_pod_slice(b).unwrap();
 
@@ -551,7 +553,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             rows: Range<usize>,
             cols: Range<usize>,
         ) {
-            const NR_REGS: usize = vec_count::<__m256i>(Avx2Int8Kernel::NR).unwrap();
+            const NR_REGS: usize = Avx2Int8Kernel::NR / AVX2_X32_LANES;
 
             let out = cast_pod_mut_slice(out).unwrap();
             image.pack_block_i8_dot::<_, NR_REGS>(isa, out, rows, cols);
@@ -587,8 +589,9 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        const NR_REGS: usize = vec_count::<__m256i>(Avx2Int8Kernel::NR).unwrap();
+        const NR_REGS: usize = Avx2Int8Kernel::NR / AVX2_X32_LANES;
         simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
+            self.isa,
             tile_ptr,
             tile_row_stride,
             a_data,
@@ -620,6 +623,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
 
         #[target_feature(enable = "avx2")]
         unsafe fn gemv_impl(
+            isa: Avx2Isa,
             out: &mut [MaybeUninit<i32>],
             a: &[u8],
             b: Matrix<i8>,
@@ -628,6 +632,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             b_zero: Option<&[i8]>,
         ) {
             simd_int8_gemv::<_, false /* CAST_B_U8 */>(
+                isa,
                 out,
                 a,
                 b,
@@ -641,20 +646,23 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         let accumulate = beta != 0;
 
         // Safety: AVX2 is supported if this kernel was constructed.
-        unsafe { gemv_impl(out, a, b, accumulate, a_zero, b_zero) }
+        unsafe { gemv_impl(self.isa, out, a, b, accumulate, a_zero, b_zero) }
     }
 }
+
+type I8x32 = <Avx2Isa as Isa>::I8;
+type I32x8 = <Avx2Isa as Isa>::I32;
 
 /// Compute 8x dot products between `u8` values in `a`, `i8` values in `b` and
 /// add the `i32` results to `c`.
 #[inline(always)]
-unsafe fn avx2_u8i8i32_dot_product(a: __m256i, b: __m256i, c: __m256i) -> __m256i {
+unsafe fn avx2_u8i8i32_dot_product(a: I8x32, b: I8x32, c: I32x8) -> I32x8 {
     use core::arch::x86_64::{
         _mm256_add_epi32, _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16,
     };
-    let tmp = _mm256_maddubs_epi16(a, b);
+    let tmp = _mm256_maddubs_epi16(a.0, b.0);
     let tmp = _mm256_madd_epi16(tmp, _mm256_set1_epi16(1));
-    _mm256_add_epi32(c, tmp)
+    _mm256_add_epi32(c.0, tmp).into()
 }
 
 #[cfg(feature = "avx512")]
@@ -760,7 +768,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             rows: Range<usize>,
             cols: Range<usize>,
         ) {
-            const NR_REGS: usize = vec_count::<__m512i>(Avx512Int8Kernel::NR).unwrap();
+            const NR_REGS: usize = Avx512Int8Kernel::NR / AVX512_X32_LANES;
 
             let out = cast_pod_mut_slice(out).unwrap();
             image.pack_block_i8_dot::<_, NR_REGS>(isa, out, rows, cols);
@@ -797,9 +805,10 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        const NR_REGS: usize = vec_count::<__m512i>(Avx512Int8Kernel::NR).unwrap();
+        const NR_REGS: usize = Avx512Int8Kernel::NR / AVX512_X32_LANES;
         if self.have_vnni {
             simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
+                self.isa,
                 tile_ptr,
                 tile_row_stride,
                 a_data,
@@ -816,6 +825,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             )
         } else {
             simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
+                self.isa,
                 tile_ptr,
                 tile_row_stride,
                 a_data,
@@ -850,6 +860,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         #[target_feature(enable = "avx512vl")]
         #[target_feature(enable = "avx512bw")]
         unsafe fn gemv_impl(
+            isa: Avx512Isa,
             out: &mut [MaybeUninit<i32>],
             a: &[u8],
             b: Matrix<i8>,
@@ -858,6 +869,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             b_zero: Option<&[i8]>,
         ) {
             simd_int8_gemv::<_, false /* CAST_B_U8 */>(
+                isa,
                 out,
                 a,
                 b,
@@ -870,22 +882,27 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
 
         // Safety: AVX512 is supported if this kernel was constructed.
         unsafe {
-            gemv_impl(out, a, b, beta != 0, a_zero, b_zero);
+            gemv_impl(self.isa, out, a, b, beta != 0, a_zero, b_zero);
         }
     }
 }
+
+#[cfg(feature = "avx512")]
+type I8x64 = <Avx512Isa as Isa>::I8;
+#[cfg(feature = "avx512")]
+type I32x16 = <Avx512Isa as Isa>::I32;
 
 /// Compute 16 dot products between `u8` values in `a`, `i8` values in `b` and
 /// add the `i32` results to `c`.
 #[cfg(feature = "avx512")]
 #[inline(always)]
-unsafe fn avx512_u8i8i32_dot_product(a: __m512i, b: __m512i, c: __m512i) -> __m512i {
+unsafe fn avx512_u8i8i32_dot_product(a: I8x64, b: I8x64, c: I32x16) -> I32x16 {
     use core::arch::x86_64::{
         _mm512_add_epi32, _mm512_madd_epi16, _mm512_maddubs_epi16, _mm512_set1_epi16,
     };
-    let tmp = _mm512_maddubs_epi16(a, b);
+    let tmp = _mm512_maddubs_epi16(a.0, b.0);
     let tmp = _mm512_madd_epi16(tmp, _mm512_set1_epi16(1));
-    _mm512_add_epi32(c, tmp)
+    _mm512_add_epi32(c.0, tmp).into()
 }
 
 /// Compute 16 dot products between `u8` values in `a`, `i8` values in `b` and
@@ -897,7 +914,7 @@ unsafe fn avx512_u8i8i32_dot_product(a: __m512i, b: __m512i, c: __m512i) -> __m5
 #[cfg(feature = "avx512")]
 #[target_feature(enable = "avx512f")]
 #[inline]
-unsafe fn avx512_vnni_u8i8i32_dot_product(a: __m512i, b: __m512i, mut c: __m512i) -> __m512i {
+unsafe fn avx512_vnni_u8i8i32_dot_product(a: I8x64, b: I8x64, mut c: I32x16) -> I32x16 {
     // Use inline asm rather than an intrinsic here to avoid needing to mark
     // this function as using the `avx512vnni` feature. If we did that, the
     // entire kernel function needs to have the same target feature statically
@@ -910,12 +927,12 @@ unsafe fn avx512_vnni_u8i8i32_dot_product(a: __m512i, b: __m512i, mut c: __m512i
     use std::arch::asm;
     asm! {
         "vpdpbusd {result}, {a}, {b}",
-        result = inout(zmm_reg) c,
-        a = in(zmm_reg) a,
-        b = in(zmm_reg) b,
+        result = inout(zmm_reg) c.0,
+        a = in(zmm_reg) a.0,
+        b = in(zmm_reg) b.0,
         options(nostack)
     }
-    c
+    c.into()
 }
 
 /// Detect availability of AVX-512 VNNI instructions using cpuid.
