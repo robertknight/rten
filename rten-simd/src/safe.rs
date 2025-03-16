@@ -95,6 +95,10 @@
 //! The [`functional`] module provides utilities for defining vectorized
 //! transforms on slices (eg. [`simd_map`](functional::simd_map)).
 //!
+//! The [`SliceWriter`] utility provides a way to incrementally initialize the
+//! contents of a slice with the results of SIMD operations, by writing one
+//! SIMD vector at a time.
+//!
 //! ## The importance of inlining
 //!
 //! In the above example `#[inline(always)]` attributes are applied to ensure
@@ -123,6 +127,7 @@ mod dispatch;
 pub mod functional;
 mod iter;
 mod vec;
+mod writer;
 
 /// Target-specific [`Isa`] implementations.
 ///
@@ -151,6 +156,7 @@ pub mod isa {
 pub use dispatch::{SimdOp, SimdUnaryOp};
 pub use iter::{Iter, SimdIterable};
 pub use vec::{Elem, Isa, Mask, MaskOps, Simd, SimdFloatOps, SimdIntOps, SimdOps};
+pub use writer::SliceWriter;
 
 #[cfg(test)]
 pub(crate) use dispatch::test_simd_op;
