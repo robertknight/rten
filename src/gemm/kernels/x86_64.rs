@@ -8,7 +8,9 @@ use rten_tensor::{Matrix, MatrixLayout};
 use rten_simd::isa::Avx512Isa;
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
-use super::{extract_zero_points, Kernel, Lhs, PackedLayout, QuantParams, TempTile};
+use super::{
+    extract_zero_points, Int8DotProduct, Kernel, Lhs, PackedLayout, QuantParams, TempTile,
+};
 use crate::gemm::packing;
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
@@ -604,7 +606,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             b_zero_points,
             a_row_sums,
             b_col_sums,
-            avx2_u8i8i32_dot_product,
+            self.isa,
         )
     }
 
@@ -632,14 +634,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             b_zero: Option<&[i8]>,
         ) {
             simd_int8_gemv::<_, false /* CAST_B_U8 */>(
-                isa,
-                out,
-                a,
-                b,
-                accumulate,
-                a_zero,
-                b_zero,
-                avx2_u8i8i32_dot_product,
+                isa, out, a, b, accumulate, a_zero, b_zero, isa,
             )
         }
 
@@ -653,24 +648,34 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
 type I8x32 = <Avx2Isa as Isa>::I8;
 type I32x8 = <Avx2Isa as Isa>::I32;
 
-/// Compute 8x dot products between `u8` values in `a`, `i8` values in `b` and
-/// add the `i32` results to `c`.
-#[inline(always)]
-unsafe fn avx2_u8i8i32_dot_product(a: I8x32, b: I8x32, c: I32x8) -> I32x8 {
-    use core::arch::x86_64::{
-        _mm256_add_epi32, _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16,
-    };
-    let tmp = _mm256_maddubs_epi16(a.0, b.0);
-    let tmp = _mm256_madd_epi16(tmp, _mm256_set1_epi16(1));
-    _mm256_add_epi32(c.0, tmp).into()
+/// `u8 x i8 -> i32` dot product for AVX2.
+///
+/// Safety: Avx2Isa can only be constructed if AVX2 is supported.
+unsafe impl Int8DotProduct for Avx2Isa {
+    type X8 = I8x32;
+    type I32 = I32x8;
+
+    /// Compute 8x dot products between `u8` values in `a`, `i8` values in `b` and
+    /// add the `i32` results to `c`.
+    #[inline]
+    fn dot_product(self, a: Self::X8, b: Self::X8, c: Self::I32) -> Self::I32 {
+        use core::arch::x86_64::{
+            _mm256_add_epi32, _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16,
+        };
+
+        unsafe {
+            let tmp = _mm256_maddubs_epi16(a.0, b.0);
+            let tmp = _mm256_madd_epi16(tmp, _mm256_set1_epi16(1));
+            _mm256_add_epi32(c.0, tmp).into()
+        }
+    }
 }
 
 #[cfg(feature = "avx512")]
 pub struct Avx512Int8Kernel {
     isa: Avx512Isa,
-
-    /// True if VNNI ("DL Boost") int8 dot product instructions are supported.
-    have_vnni: bool,
+    /// VNNI ("DL Boost") int8 dot product, if supported.
+    vnni_dot: Option<Avx512VnniDotProduct>,
 }
 
 #[cfg(feature = "avx512")]
@@ -683,8 +688,8 @@ impl Avx512Int8Kernel {
 unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
     fn new() -> Option<Self> {
         let isa = Avx512Isa::new()?;
-        let have_vnni = detect_avx512_vnni();
-        Some(Avx512Int8Kernel { isa, have_vnni })
+        let vnni_dot = Avx512VnniDotProduct::new();
+        Some(Avx512Int8Kernel { isa, vnni_dot })
     }
 
     fn name(&self) -> &'static str {
@@ -700,7 +705,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
     }
 
     fn may_saturate(&self) -> bool {
-        !self.have_vnni
+        self.vnni_dot.is_none()
     }
 
     fn im2col_row_count_step(&self) -> usize {
@@ -806,7 +811,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
         const NR_REGS: usize = Avx512Int8Kernel::NR / AVX512_X32_LANES;
-        if self.have_vnni {
+        if let Some(vnni_dot) = self.vnni_dot {
             simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
                 self.isa,
                 tile_ptr,
@@ -821,7 +826,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
                 b_zero_points,
                 a_row_sums,
                 b_col_sums,
-                avx512_vnni_u8i8i32_dot_product,
+                vnni_dot,
             )
         } else {
             simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
@@ -838,7 +843,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
                 b_zero_points,
                 a_row_sums,
                 b_col_sums,
-                avx512_u8i8i32_dot_product,
+                self.isa, // Use non-VNNI dot product
             )
         }
     }
@@ -869,14 +874,9 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             b_zero: Option<&[i8]>,
         ) {
             simd_int8_gemv::<_, false /* CAST_B_U8 */>(
+                isa, out, a, b, accumulate, a_zero, b_zero,
+                // TODO - Use VNNI here if available
                 isa,
-                out,
-                a,
-                b,
-                accumulate,
-                a_zero,
-                b_zero,
-                avx512_u8i8i32_dot_product,
             )
         }
 
@@ -892,25 +892,61 @@ type I8x64 = <Avx512Isa as Isa>::I8;
 #[cfg(feature = "avx512")]
 type I32x16 = <Avx512Isa as Isa>::I32;
 
-/// Compute 16 dot products between `u8` values in `a`, `i8` values in `b` and
-/// add the `i32` results to `c`.
+// Safety: Avx512Isa can only be constructed if AVX-512 is supported.
 #[cfg(feature = "avx512")]
-#[inline(always)]
-unsafe fn avx512_u8i8i32_dot_product(a: I8x64, b: I8x64, c: I32x16) -> I32x16 {
-    use core::arch::x86_64::{
-        _mm512_add_epi32, _mm512_madd_epi16, _mm512_maddubs_epi16, _mm512_set1_epi16,
-    };
-    let tmp = _mm512_maddubs_epi16(a.0, b.0);
-    let tmp = _mm512_madd_epi16(tmp, _mm512_set1_epi16(1));
-    _mm512_add_epi32(c.0, tmp).into()
+unsafe impl Int8DotProduct for Avx512Isa {
+    type X8 = I8x64;
+    type I32 = I32x16;
+
+    /// Compute 16 dot products between `u8` values in `a`, `i8` values in `b` and
+    /// add the `i32` results to `c`.
+    #[inline]
+    fn dot_product(self, a: I8x64, b: I8x64, c: I32x16) -> I32x16 {
+        use core::arch::x86_64::{
+            _mm512_add_epi32, _mm512_madd_epi16, _mm512_maddubs_epi16, _mm512_set1_epi16,
+        };
+
+        unsafe {
+            let tmp = _mm512_maddubs_epi16(a.0, b.0);
+            let tmp = _mm512_madd_epi16(tmp, _mm512_set1_epi16(1));
+            _mm512_add_epi32(c.0, tmp).into()
+        }
+    }
 }
 
-/// Compute 16 dot products between `u8` values in `a`, `i8` values in `b` and
-/// add the `i32` results to `c`.
-///
-/// This uses AVX-512 VNNI instructions for better performance and to avoid
-/// saturation issue that `VPMADDUBSW` has. See
-/// https://www.intel.com/content/www/us/en/developer/articles/guide/deep-learning-with-avx512-and-dl-boost.html.
+/// Eight-bit integer dot product using AVX512 VNNI instructions.
+#[cfg(feature = "avx512")]
+#[derive(Copy, Clone)]
+struct Avx512VnniDotProduct {
+    _private: (),
+}
+
+#[cfg(feature = "avx512")]
+impl Avx512VnniDotProduct {
+    pub fn new() -> Option<Self> {
+        detect_avx512_vnni().then_some(Self { _private: () })
+    }
+}
+
+// Safety: Avx512VnniDotProduct can only be constructed if AVX512-VNNI is
+// supported.
+#[cfg(feature = "avx512")]
+unsafe impl Int8DotProduct for Avx512VnniDotProduct {
+    type X8 = I8x64;
+    type I32 = I32x16;
+
+    /// Compute 16 dot products between `u8` values in `a`, `i8` values in `b` and
+    /// add the `i32` results to `c`.
+    ///
+    /// This uses AVX-512 VNNI instructions for better performance and to avoid
+    /// saturation issue that `VPMADDUBSW` has. See
+    /// https://www.intel.com/content/www/us/en/developer/articles/guide/deep-learning-with-avx512-and-dl-boost.html.
+    #[inline]
+    fn dot_product(self, a: I8x64, b: I8x64, c: I32x16) -> I32x16 {
+        unsafe { avx512_vnni_u8i8i32_dot_product(a, b, c) }
+    }
+}
+
 #[cfg(feature = "avx512")]
 #[target_feature(enable = "avx512f")]
 #[inline]
