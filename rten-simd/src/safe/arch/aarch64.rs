@@ -12,11 +12,12 @@ use std::arch::aarch64::{
     vmulq_s8, vmulq_u16, vmulq_u8, vnegq_f32, vnegq_s16, vnegq_s32, vnegq_s8, vqmovn_s32,
     vqmovun_s16, vshlq_n_s16, vshlq_n_s32, vshlq_n_s8, vst1q_f32, vst1q_s16, vst1q_s32, vst1q_s8,
     vst1q_u16, vst1q_u8, vsubq_f32, vsubq_s16, vsubq_s32, vsubq_s8, vsubq_u16, vsubq_u8,
+    vzip1q_s16, vzip1q_s8, vzip2q_s16, vzip2q_s8,
 };
 use std::mem::transmute;
 
 use crate::safe::{
-    Extend, FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
+    Extend, FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
 };
 
 #[derive(Copy, Clone)]
@@ -52,11 +53,15 @@ unsafe impl Isa for ArmNeonIsa {
         self,
     ) -> impl SignedIntOps<Self::I16>
            + NarrowSaturate<Self::I16, Self::U8>
-           + Extend<Self::I16, Output = Self::I32> {
+           + Extend<Self::I16, Output = Self::I32>
+           + Interleave<Self::I16> {
         self
     }
 
-    fn i8(self) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> {
+    fn i8(
+        self,
+    ) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> + Interleave<Self::I8>
+    {
         self
     }
 
@@ -424,6 +429,18 @@ impl Extend<int16x8_t> for ArmNeonIsa {
     }
 }
 
+impl Interleave<int16x8_t> for ArmNeonIsa {
+    #[inline]
+    fn interleave_low(self, a: int16x8_t, b: int16x8_t) -> int16x8_t {
+        unsafe { vzip1q_s16(a, b) }
+    }
+
+    #[inline]
+    fn interleave_high(self, a: int16x8_t, b: int16x8_t) -> int16x8_t {
+        unsafe { vzip2q_s16(a, b) }
+    }
+}
+
 unsafe impl NumOps<int8x16_t> for ArmNeonIsa {
     simd_ops_common!(int8x16_t, uint8x16_t);
 
@@ -516,6 +533,18 @@ impl Extend<int8x16_t> for ArmNeonIsa {
             let high = vmovl_high_s8(x);
             (low, high)
         }
+    }
+}
+
+impl Interleave<int8x16_t> for ArmNeonIsa {
+    #[inline]
+    fn interleave_low(self, a: int8x16_t, b: int8x16_t) -> int8x16_t {
+        unsafe { vzip1q_s8(a, b) }
+    }
+
+    #[inline]
+    fn interleave_high(self, a: int8x16_t, b: int8x16_t) -> int8x16_t {
+        unsafe { vzip2q_s8(a, b) }
     }
 }
 

@@ -5,23 +5,27 @@ use std::arch::x86_64::{
     _mm256_cmpeq_epi32, _mm256_cmpeq_epi8, _mm256_cmpgt_epi16, _mm256_cmpgt_epi32,
     _mm256_cmpgt_epi8, _mm256_cvtepi16_epi32, _mm256_cvtepi8_epi16, _mm256_cvtepu8_epi16,
     _mm256_cvtps_epi32, _mm256_cvttps_epi32, _mm256_div_ps, _mm256_extractf128_ps,
-    _mm256_extracti128_si256, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256,
-    _mm256_maskload_epi32, _mm256_maskload_ps, _mm256_maskstore_epi32, _mm256_maskstore_ps,
-    _mm256_max_ps, _mm256_min_ps, _mm256_movemask_epi8, _mm256_mul_ps, _mm256_mullo_epi16,
-    _mm256_mullo_epi32, _mm256_or_si256, _mm256_packs_epi32, _mm256_packus_epi16,
-    _mm256_permute4x64_epi64, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_epi8,
-    _mm256_set1_ps, _mm256_setr_m128i, _mm256_setzero_si256, _mm256_slli_epi16, _mm256_slli_epi32,
-    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_epi8,
-    _mm256_sub_ps, _mm256_xor_ps, _mm256_xor_si256, _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps,
-    _mm_prefetch, _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps, _mm_unpacklo_epi64, _CMP_EQ_OQ,
-    _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_extracti128_si256, _mm256_fmadd_ps, _mm256_insertf128_si256, _mm256_loadu_ps,
+    _mm256_loadu_si256, _mm256_maskload_epi32, _mm256_maskload_ps, _mm256_maskstore_epi32,
+    _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps, _mm256_movemask_epi8, _mm256_mul_ps,
+    _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_si256, _mm256_packs_epi32,
+    _mm256_packus_epi16, _mm256_permute2x128_si256, _mm256_permute4x64_epi64, _mm256_set1_epi16,
+    _mm256_set1_epi32, _mm256_set1_epi8, _mm256_set1_ps, _mm256_setr_m128i, _mm256_setzero_si256,
+    _mm256_slli_epi16, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi16,
+    _mm256_sub_epi32, _mm256_sub_epi8, _mm256_sub_ps, _mm256_unpackhi_epi16, _mm256_unpackhi_epi8,
+    _mm256_unpacklo_epi16, _mm256_unpacklo_epi8, _mm256_xor_ps, _mm256_xor_si256, _mm_add_ps,
+    _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps,
+    _mm_unpacklo_epi64, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0,
+    _MM_HINT_T0,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
 use crate::safe::vec::{Extend, Narrow};
-use crate::safe::{FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd};
+use crate::safe::{
+    FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
+};
 
 simd_type!(F32x8, __m256, f32, F32x8, Avx2Isa);
 simd_type!(I32x8, __m256i, i32, I32x8, Avx2Isa);
@@ -67,11 +71,15 @@ unsafe impl Isa for Avx2Isa {
         self,
     ) -> impl SignedIntOps<Self::I16>
            + NarrowSaturate<Self::I16, Self::U8>
-           + Extend<Self::I16, Output = Self::I32> {
+           + Extend<Self::I16, Output = Self::I32>
+           + Interleave<Self::I16> {
         self
     }
 
-    fn i8(self) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> {
+    fn i8(
+        self,
+    ) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> + Interleave<Self::I8>
+    {
         self
     }
 
@@ -472,6 +480,30 @@ impl NarrowSaturate<I16x16, U8x32> for Avx2Isa {
     }
 }
 
+impl Interleave<I16x16> for Avx2Isa {
+    #[inline]
+    fn interleave_low(self, a: I16x16, b: I16x16) -> I16x16 {
+        unsafe {
+            // AB{N} = Interleaved Nth 64-bit block.
+            let lo = _mm256_unpacklo_epi16(a.0, b.0); // AB0 AB2
+            let hi = _mm256_unpackhi_epi16(a.0, b.0); // AB1 AB3
+            _mm256_insertf128_si256(lo, _mm256_castsi256_si128(hi), 1) // AB0 AB1
+        }
+        .into()
+    }
+
+    #[inline]
+    fn interleave_high(self, a: I16x16, b: I16x16) -> I16x16 {
+        unsafe {
+            // AB{N} = Interleaved Nth 64-bit block.
+            let lo = _mm256_unpacklo_epi16(a.0, b.0); // AB0 AB2
+            let hi = _mm256_unpackhi_epi16(a.0, b.0); // AB1 AB3
+            _mm256_permute2x128_si256(lo, hi, 0x31) // AB2 AB3
+        }
+        .into()
+    }
+}
+
 unsafe impl NumOps<I8x32> for Avx2Isa {
     simd_ops_common!(I8x32, I8x32);
 
@@ -586,6 +618,30 @@ impl SignedIntOps<I8x32> for Avx2Isa {
         let y_hi = i16_ops.shift_left::<SHIFT>(x_hi);
 
         self.narrow_truncate(y_lo, y_hi)
+    }
+}
+
+impl Interleave<I8x32> for Avx2Isa {
+    #[inline]
+    fn interleave_low(self, a: I8x32, b: I8x32) -> I8x32 {
+        unsafe {
+            // AB{N} = Interleaved Nth 64-bit block.
+            let lo = _mm256_unpacklo_epi8(a.0, b.0); // AB0 AB2
+            let hi = _mm256_unpackhi_epi8(a.0, b.0); // AB1 AB3
+            _mm256_insertf128_si256(lo, _mm256_castsi256_si128(hi), 1) // AB0 AB1
+        }
+        .into()
+    }
+
+    #[inline]
+    fn interleave_high(self, a: I8x32, b: I8x32) -> I8x32 {
+        unsafe {
+            // AB{N} = Interleaved Nth 64-bit block.
+            let lo = _mm256_unpacklo_epi8(a.0, b.0); // AB0 AB2
+            let hi = _mm256_unpackhi_epi8(a.0, b.0); // AB1 AB3
+            _mm256_permute2x128_si256(lo, hi, 0x31) // AB2 AB3
+        }
+        .into()
     }
 }
 

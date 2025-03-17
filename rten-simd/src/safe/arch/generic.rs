@@ -2,7 +2,7 @@ use std::array;
 use std::mem::transmute;
 
 use crate::safe::{
-    Extend, FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
+    Extend, FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
 };
 
 // Size of SIMD vector in 32-bit lanes.
@@ -74,11 +74,15 @@ unsafe impl Isa for GenericIsa {
         self,
     ) -> impl SignedIntOps<Self::I16>
            + NarrowSaturate<Self::I16, Self::U8>
-           + Extend<Self::I16, Output = Self::I32> {
+           + Extend<Self::I16, Output = Self::I32>
+           + Interleave<Self::I16> {
         self
     }
 
-    fn i8(self) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> {
+    fn i8(
+        self,
+    ) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> + Interleave<Self::I8>
+    {
         self
     }
 
@@ -301,6 +305,30 @@ macro_rules! impl_extend {
 }
 impl_extend!(I8x16, I16x8);
 impl_extend!(I16x8, I32x4);
+
+macro_rules! impl_interleave {
+    ($simd:ty) => {
+        impl Interleave<$simd> for GenericIsa {
+            fn interleave_low(self, a: $simd, b: $simd) -> $simd {
+                array::from_fn(|i| if i % 2 == 0 { a.0[i / 2] } else { b.0[i / 2] }).into()
+            }
+
+            fn interleave_high(self, a: $simd, b: $simd) -> $simd {
+                let start = a.0.len() / 2;
+                array::from_fn(|i| {
+                    if i % 2 == 0 {
+                        a.0[start + i / 2]
+                    } else {
+                        b.0[start + i / 2]
+                    }
+                })
+                .into()
+            }
+        }
+    };
+}
+impl_interleave!(I8x16);
+impl_interleave!(I16x8);
 
 macro_rules! impl_simd_unsigned_int_ops {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {

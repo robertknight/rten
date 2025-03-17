@@ -156,7 +156,8 @@ pub mod isa {
 pub use dispatch::{SimdOp, SimdUnaryOp};
 pub use iter::{Iter, SimdIterable};
 pub use vec::{
-    Elem, Extend, FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
+    Elem, Extend, FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+    Simd,
 };
 pub use writer::SliceWriter;
 

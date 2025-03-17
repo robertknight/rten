@@ -193,10 +193,13 @@ pub unsafe trait Isa: Copy {
         self,
     ) -> impl SignedIntOps<Self::I16>
            + NarrowSaturate<Self::I16, Self::U8>
-           + Extend<Self::I16, Output = Self::I32>;
+           + Extend<Self::I16, Output = Self::I32>
+           + Interleave<Self::I16>;
 
     /// Operations on SIMD vectors with `i8` elements.
-    fn i8(self) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16>;
+    fn i8(
+        self,
+    ) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> + Interleave<Self::I8>;
 
     /// Operations on SIMD vectors with `u8` elements.
     fn u8(self) -> impl NumOps<Self::U8>;
@@ -521,6 +524,16 @@ pub trait Extend<S: Simd> {
     fn extend(self, x: S) -> (Self::Output, Self::Output);
 }
 
+/// Interleave elements from the low or high halves of two vectors to form a
+/// new vector.
+pub trait Interleave<S: Simd> {
+    /// Interleave elements from the low halves of two vectors.
+    fn interleave_low(self, a: S, b: S) -> S;
+
+    /// Interleave elements from the high halves of two vectors.
+    fn interleave_high(self, a: S, b: S) -> S;
+}
+
 /// Narrow lanes to one with half the bit-width, using truncation.
 ///
 /// For integer types, the narrowed type has the same signed-ness.
@@ -551,8 +564,8 @@ pub trait NarrowSaturate<S1: Simd, S2: Simd> {
 mod tests {
     use super::WrappingAdd;
     use crate::safe::{
-        assert_simd_eq, test_simd_op, Extend, FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps,
-        SignedIntOps, Simd, SimdOp,
+        assert_simd_eq, test_simd_op, Extend, FloatOps, Interleave, Isa, Mask, MaskOps,
+        NarrowSaturate, NumOps, SignedIntOps, Simd, SimdOp,
     };
 
     // Generate tests for operations available on all numeric types.
@@ -1071,6 +1084,35 @@ mod tests {
     }
     test_extend!(test_extend_i8_i16, i8, i16);
     test_extend!(test_extend_i16_i32, i16, i32);
+
+    macro_rules! test_interleave {
+        ($test_name:ident, $elem:ident) => {
+            #[test]
+            fn $test_name() {
+                test_simd_op!(isa, {
+                    let ops = isa.$elem();
+
+                    let even: Vec<_> = (0..ops.len()).map(|x| x as $elem * 2).collect();
+                    let even = ops.load(&even);
+
+                    let odd: Vec<_> = (0..ops.len()).map(|x| 1 + (x as $elem * 2)).collect();
+                    let odd = ops.load(&odd);
+
+                    let expected_low: Vec<_> = (0..ops.len()).map(|x| x as $elem).collect();
+                    let expected_high: Vec<_> = (0..ops.len())
+                        .map(|x| ops.len() as $elem + x as $elem)
+                        .collect();
+
+                    let y_low = ops.interleave_low(even, odd);
+                    let y_high = ops.interleave_high(even, odd);
+                    assert_eq!(y_low.to_array().as_ref(), expected_low);
+                    assert_eq!(y_high.to_array().as_ref(), expected_high);
+                });
+            }
+        };
+    }
+    test_interleave!(test_interleave_i16, i16);
+    test_interleave!(test_interleave_i8, i8);
 
     #[test]
     fn test_reinterpret_cast() {

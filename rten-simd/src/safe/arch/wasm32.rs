@@ -3,7 +3,7 @@ use std::arch::wasm32::{
     f32x4_lt, f32x4_max, f32x4_min, f32x4_mul, f32x4_nearest, f32x4_neg, f32x4_splat, f32x4_sub,
     i16x8_add, i16x8_eq, i16x8_extend_high_i8x16, i16x8_extend_low_i8x16, i16x8_extmul_high_i8x16,
     i16x8_extmul_low_i8x16, i16x8_ge, i16x8_gt, i16x8_mul, i16x8_narrow_i32x4, i16x8_neg,
-    i16x8_shl, i16x8_splat, i16x8_sub, i32x4_add, i32x4_eq, i32x4_extend_high_i16x8,
+    i16x8_shl, i16x8_shuffle, i16x8_splat, i16x8_sub, i32x4_add, i32x4_eq, i32x4_extend_high_i16x8,
     i32x4_extend_low_i16x8, i32x4_ge, i32x4_gt, i32x4_mul, i32x4_neg, i32x4_shl, i32x4_shuffle,
     i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, i8x16_add, i8x16_eq, i8x16_ge, i8x16_gt,
     i8x16_neg, i8x16_shl, i8x16_shuffle, i8x16_splat, i8x16_sub, u16x8_add, u16x8_eq,
@@ -15,7 +15,7 @@ use std::mem::transmute;
 
 use super::{lanes, simd_type};
 use crate::safe::{
-    Extend, FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
+    Extend, FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
 };
 
 simd_type!(F32x4, v128, f32, M32, Wasm32Isa);
@@ -59,11 +59,15 @@ unsafe impl Isa for Wasm32Isa {
         self,
     ) -> impl SignedIntOps<Self::I16>
            + NarrowSaturate<Self::I16, Self::U8>
-           + Extend<Self::I16, Output = Self::I32> {
+           + Extend<Self::I16, Output = Self::I32>
+           + Interleave<Self::I16> {
         self
     }
 
-    fn i8(self) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> {
+    fn i8(
+        self,
+    ) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> + Interleave<Self::I8>
+    {
         self
     }
 
@@ -372,6 +376,18 @@ impl Extend<I16x8> for Wasm32Isa {
     }
 }
 
+impl Interleave<I16x8> for Wasm32Isa {
+    #[inline]
+    fn interleave_low(self, a: I16x8, b: I16x8) -> I16x8 {
+        i16x8_shuffle::<0, 8, 1, 9, 2, 10, 3, 11>(a.0, b.0).into()
+    }
+
+    #[inline]
+    fn interleave_high(self, a: I16x8, b: I16x8) -> I16x8 {
+        i16x8_shuffle::<4, 12, 5, 13, 6, 14, 7, 15>(a.0, b.0).into()
+    }
+}
+
 impl NarrowSaturate<I16x8, U8x16> for Wasm32Isa {
     #[inline]
     fn narrow_saturate(self, low: I16x8, high: I16x8) -> U8x16 {
@@ -447,6 +463,19 @@ impl Extend<I8x16> for Wasm32Isa {
         let low = i16x8_extend_low_i8x16(x.0);
         let high = i16x8_extend_high_i8x16(x.0);
         (low.into(), high.into())
+    }
+}
+
+impl Interleave<I8x16> for Wasm32Isa {
+    #[inline]
+    fn interleave_low(self, a: I8x16, b: I8x16) -> I8x16 {
+        i8x16_shuffle::<0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23>(a.0, b.0).into()
+    }
+
+    #[inline]
+    fn interleave_high(self, a: I8x16, b: I8x16) -> I8x16 {
+        i8x16_shuffle::<8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31>(a.0, b.0)
+            .into()
     }
 }
 
