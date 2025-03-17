@@ -5,6 +5,7 @@ use rten_simd::safe::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
+use rten_vecmath::ExtendInit;
 
 use crate::ops::static_dims;
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
@@ -70,23 +71,23 @@ impl Default for NormalizeOptions<'_> {
     }
 }
 
-enum NormalizeData<'a> {
+enum NormalizeData<'src, 'dst> {
     /// Read from a source slice and write normalized data to an output slice
     /// of the same length.
-    SrcDest((&'a [f32], &'a mut [MaybeUninit<f32>])),
+    SrcDest((&'src [f32], &'dst mut [MaybeUninit<f32>])),
 
     /// Normalize elements of a slice in place.
-    InPlace(&'a mut [f32]),
+    InPlace(&'dst mut [f32]),
 }
 
-impl<'a> From<&'a mut [f32]> for NormalizeData<'a> {
-    fn from(val: &'a mut [f32]) -> Self {
+impl<'dst> From<&'dst mut [f32]> for NormalizeData<'dst, 'dst> {
+    fn from(val: &'dst mut [f32]) -> Self {
         NormalizeData::InPlace(val)
     }
 }
 
-impl<'a> From<(&'a [f32], &'a mut [MaybeUninit<f32>])> for NormalizeData<'a> {
-    fn from(val: (&'a [f32], &'a mut [MaybeUninit<f32>])) -> Self {
+impl<'src, 'dst> From<(&'src [f32], &'dst mut [MaybeUninit<f32>])> for NormalizeData<'src, 'dst> {
+    fn from(val: (&'src [f32], &'dst mut [MaybeUninit<f32>])) -> Self {
         NormalizeData::SrcDest(val)
     }
 }
@@ -95,7 +96,10 @@ impl<'a> From<(&'a [f32], &'a mut [MaybeUninit<f32>])> for NormalizeData<'a> {
 /// and bias to the result.
 ///
 /// Returns the normalized elements.
-fn normalize_slice<'a>(data: NormalizeData<'a>, opts: NormalizeOptions<'a>) -> &'a mut [f32] {
+fn normalize_slice<'src, 'dst>(
+    data: NormalizeData<'src, 'dst>,
+    opts: NormalizeOptions<'src>,
+) -> &'dst mut [f32] {
     let NormalizeOptions {
         mean_normalize,
         epsilon,
@@ -469,29 +473,19 @@ fn layer_normalization_impl(
     let scale = scale.to_contiguous_in(pool);
     let scale_data = scale.data().unwrap();
 
-    let mut n_init = 0;
-    for (in_chunk, out_chunk) in input
-        .data()
-        .unwrap()
-        .chunks(chunk_size)
-        .zip(output.spare_capacity_mut().chunks_mut(chunk_size))
-    {
-        normalize_slice(
-            (in_chunk, out_chunk).into(),
-            NormalizeOptions {
-                mean_normalize,
-                epsilon,
-                element_scale: Some(scale_data),
-                element_bias: bias_data,
-                ..Default::default()
-            },
-        );
-        n_init += in_chunk.len();
-    }
-
-    // Safety: We initialized `n_init` elements.
-    unsafe {
-        output.set_len(n_init);
+    for in_chunk in input.data().unwrap().chunks(chunk_size) {
+        output.extend_init(|out_chunk| {
+            normalize_slice(
+                (in_chunk, &mut out_chunk[..chunk_size]).into(),
+                NormalizeOptions {
+                    mean_normalize,
+                    epsilon,
+                    element_scale: Some(scale_data),
+                    element_bias: bias_data,
+                    ..Default::default()
+                },
+            )
+        })
     }
 
     Ok(Tensor::from_data(input.shape(), output))

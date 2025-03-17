@@ -4,6 +4,7 @@ use rten_simd::safe::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{AssumeInit, NdTensor, NdTensorView, Scalar, Tensor, TensorView};
 use rten_vecmath as vecmath;
+use rten_vecmath::ExtendInit;
 
 use crate::ops::{
     resolve_axis, DataType, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
@@ -200,14 +201,9 @@ where
 
             if let Some(data) = input.data() {
                 let mut buf = pool.alloc(data.len());
-                let buf_data = &mut buf.spare_capacity_mut()[..data.len()];
-
-                Quantize::quantize_slice(data, buf_data, inv_scale, zero_point);
-
-                // Safety: `quantize_slice` initialized `data.len()` elements
-                unsafe {
-                    buf.set_len(data.len());
-                }
+                buf.extend_init(|buf_data| {
+                    Quantize::quantize_slice(data, buf_data, inv_scale, zero_point)
+                });
                 Ok(Tensor::from_data(input.shape(), buf))
             } else {
                 Ok(input.map_in(pool, |x| x.quantize(inv_scale, zero_point)))
