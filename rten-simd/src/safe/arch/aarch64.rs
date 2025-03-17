@@ -6,15 +6,18 @@ use std::arch::aarch64::{
     vcgeq_u16, vcgeq_u8, vcgtq_f32, vcgtq_s16, vcgtq_s32, vcgtq_s8, vcgtq_u16, vcgtq_u8, vcleq_f32,
     vcleq_s16, vcleq_s8, vcleq_u16, vcleq_u8, vcltq_f32, vcltq_s16, vcltq_s8, vcltq_u16, vcltq_u8,
     vcombine_s16, vcombine_u8, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s16,
-    vdupq_n_s32, vdupq_n_s8, vdupq_n_u16, vdupq_n_u8, vfmaq_f32, vld1q_f32, vld1q_s16, vld1q_s32,
-    vld1q_s8, vld1q_u16, vld1q_u32, vld1q_u8, vmaxq_f32, vminq_f32, vmulq_f32, vmulq_s16,
-    vmulq_s32, vmulq_s8, vmulq_u16, vmulq_u8, vnegq_f32, vnegq_s16, vnegq_s32, vnegq_s8,
-    vqmovn_s32, vqmovun_s16, vshlq_n_s16, vshlq_n_s32, vshlq_n_s8, vst1q_f32, vst1q_s16, vst1q_s32,
-    vst1q_s8, vst1q_u16, vst1q_u8, vsubq_f32, vsubq_s16, vsubq_s32, vsubq_s8, vsubq_u16, vsubq_u8,
+    vdupq_n_s32, vdupq_n_s8, vdupq_n_u16, vdupq_n_u8, vfmaq_f32, vget_low_s16, vget_low_s8,
+    vld1q_f32, vld1q_s16, vld1q_s32, vld1q_s8, vld1q_u16, vld1q_u32, vld1q_u8, vmaxq_f32,
+    vminq_f32, vmovl_high_s16, vmovl_high_s8, vmovl_s16, vmovl_s8, vmulq_f32, vmulq_s16, vmulq_s32,
+    vmulq_s8, vmulq_u16, vmulq_u8, vnegq_f32, vnegq_s16, vnegq_s32, vnegq_s8, vqmovn_s32,
+    vqmovun_s16, vshlq_n_s16, vshlq_n_s32, vshlq_n_s8, vst1q_f32, vst1q_s16, vst1q_s32, vst1q_s8,
+    vst1q_u16, vst1q_u8, vsubq_f32, vsubq_s16, vsubq_s32, vsubq_s8, vsubq_u16, vsubq_u8,
 };
 use std::mem::transmute;
 
-use crate::safe::{FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd};
+use crate::safe::{
+    Extend, FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
+};
 
 #[derive(Copy, Clone)]
 pub struct ArmNeonIsa {
@@ -45,11 +48,15 @@ unsafe impl Isa for ArmNeonIsa {
         self
     }
 
-    fn i16(self) -> impl SignedIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
+    fn i16(
+        self,
+    ) -> impl SignedIntOps<Self::I16>
+           + NarrowSaturate<Self::I16, Self::U8>
+           + Extend<Self::I16, Output = Self::I32> {
         self
     }
 
-    fn i8(self) -> impl SignedIntOps<Self::I8> {
+    fn i8(self) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> {
         self
     }
 
@@ -404,6 +411,19 @@ impl SignedIntOps<int16x8_t> for ArmNeonIsa {
     }
 }
 
+impl Extend<int16x8_t> for ArmNeonIsa {
+    type Output = int32x4_t;
+
+    #[inline]
+    fn extend(self, x: int16x8_t) -> (int32x4_t, int32x4_t) {
+        unsafe {
+            let low = vmovl_s16(vget_low_s16(x));
+            let high = vmovl_high_s16(x);
+            (low, high)
+        }
+    }
+}
+
 unsafe impl NumOps<int8x16_t> for ArmNeonIsa {
     simd_ops_common!(int8x16_t, uint8x16_t);
 
@@ -483,6 +503,19 @@ impl SignedIntOps<int8x16_t> for ArmNeonIsa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: int8x16_t) -> int8x16_t {
         unsafe { vshlq_n_s8::<SHIFT>(x) }
+    }
+}
+
+impl Extend<int8x16_t> for ArmNeonIsa {
+    type Output = int16x8_t;
+
+    #[inline]
+    fn extend(self, x: int8x16_t) -> (int16x8_t, int16x8_t) {
+        unsafe {
+            let low = vmovl_s8(vget_low_s8(x));
+            let high = vmovl_high_s8(x);
+            (low, high)
+        }
     }
 }
 
