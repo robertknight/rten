@@ -96,6 +96,8 @@ mod ulp;
 #[cfg(test)]
 mod testing;
 
+mod extend_init;
+
 // Unary functions.
 pub use erf::{Erf, Gelu};
 pub use exp::{Exp, Sigmoid, Silu, Swish};
@@ -107,3 +109,6 @@ pub use min_max::MinMax;
 pub use normalize::{Normalize, NormalizeOptions};
 pub use softmax::Softmax;
 pub use sum::{Sum, SumSquare, SumSquareSub};
+
+// Utilities
+pub use extend_init::ExtendInit;
