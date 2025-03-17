@@ -8,18 +8,25 @@
 //! The operations are implemented by structs which implement the SIMD operation
 //! traits from [rten-simd](rten_simd). To apply an operation to data, first
 //! construct the operation using the struct from this crate, then use a
-//! dispatch method from the [`SimdOp`](rten_simd::dispatch::SimdOp) or
-//! [`SimdUnaryOp`](rten_simd::dispatch::SimdUnaryOp) traits to execute the
-//! operation using the preferred SIMD instruction set.
+//! dispatch method from the [`SimdOp`](rten_simd::safe::SimdOp) or
+//! [`SimdUnaryOp`](rten_simd::safe::SimdUnaryOp) traits to execute
+//! the operation.
 //!
-//! ## In-place versus mutating operations
+//! ## In-place and non in-place operations
 //!
 //! Some operations support both updating data in place or reading input from
 //! one slice and writing to another. For unary operations this is controlled by
-//! dispatching with either [`map`](rten_simd::dispatch::SimdUnaryOp::map) or
-//! [`map_mut`](rten_simd::dispatch::SimdUnaryOp::map_mut). For other operations
+//! dispatching with either [`map`](rten_simd::safe::SimdUnaryOp::map) or
+//! [`map_mut`](rten_simd::safe::SimdUnaryOp::map_mut). For other operations
 //! this is handled by exposing different constructors for the in-place and
 //! mutating cases, such as [`Softmax::new`] and [`Softmax::new_mut`].
+//!
+//! For operations which use a separate source and destination, the destination
+//! is expected to be an uninitialized slice (`[MaybeUninit<T>]`). This allows
+//! the caller to control allocation of the buffer and avoid the overhead of
+//! initializing elements which the operation will overwrite. The [`ExtendInit`]
+//! trait provides a safe API for the common task of filling a new `Vec` with
+//! the result of the operation.
 //!
 //! ## Examples
 //!
@@ -44,6 +51,8 @@
 //!
 //! ### Applying softmax in place
 //!
+//! This example applies the softmax function in-place to a mutable slice.
+//!
 //! ```
 //! use rten_simd::safe::SimdOp;
 //! use rten_vecmath::Softmax;
@@ -55,20 +64,24 @@
 //! ### Applying softmax with separate input and output buffers
 //!
 //! This example reads data from an input and writes to an uninitialized output
-//! buffer. The softmax operation returns the initialized slice.
+//! buffer (`&mut [MaybeUninit<f32>]`), obtained from the uninitialized portion
+//! of a `Vec<f32>`. To update the length of the `Vec<f32>` after it is
+//! initialized, the helper `ExtendInit` trait is used.
 //!
 //! ```
 //! use rten_simd::safe::SimdOp;
-//! use rten_vecmath::Softmax;
+//! use rten_vecmath::{Softmax, ExtendInit};
 //!
 //! let data = [1., 0.5, 2.0];
 //! let mut output = Vec::with_capacity(data.len());
-//! let output_uninit = &mut output.spare_capacity_mut()[..data.len()];
-//! let output_init = Softmax::new(&data, output_uninit).dispatch();
-//!
-//! // Safety: The softmax operation initialized all output elements.
-//! let init_len = output_init.len();
-//! unsafe { output.set_len(init_len) };
+//! output.extend_init(|output_uninit| {
+//!     // `output_uninit` is the uninitialized part of `output`, as returned by
+//!     // `output.spare_capacity_mut()`.
+//!     //
+//!     // The `dispatch` call initializes it and returns the initialized slice.
+//!     Softmax::new(&data, output_uninit).dispatch()
+//! });
+//! assert_eq!(output.len(), 3);
 //! ```
 //!
 //! ### Computing the sum of a list of floats
