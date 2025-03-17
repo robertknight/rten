@@ -173,8 +173,17 @@ macro_rules! assert_simd_eq {
     };
 }
 
+/// Test that two [`Simd`] vectors are not equal according to a [`PartialEq`]
+/// comparison of their array representations.
 #[cfg(test)]
-pub(crate) use assert_simd_eq;
+macro_rules! assert_simd_ne {
+    ($x:expr, $y:expr) => {
+        assert_ne!($x.to_array(), $y.to_array());
+    };
+}
+
+#[cfg(test)]
+pub(crate) use {assert_simd_eq, assert_simd_ne};
 
 #[cfg(test)]
 mod tests {

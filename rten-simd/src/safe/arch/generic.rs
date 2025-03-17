@@ -225,8 +225,32 @@ macro_rules! simd_ops_common {
     };
 }
 
+macro_rules! simd_int_ops_common {
+    ($simd:ty) => {
+        #[inline]
+        fn xor(self, x: $simd, y: $simd) -> $simd {
+            array::from_fn(|i| x.0[i] ^ y.0[i]).into()
+        }
+
+        #[inline]
+        fn not(self, x: $simd) -> $simd {
+            array::from_fn(|i| !x.0[i]).into()
+        }
+    };
+}
+
 unsafe impl NumOps<F32x4> for GenericIsa {
     simd_ops_common!(F32x4, f32, 4, M32);
+
+    #[inline]
+    fn xor(self, x: F32x4, y: F32x4) -> F32x4 {
+        array::from_fn(|i| f32::from_bits(x.0[i].to_bits() ^ y.0[i].to_bits())).into()
+    }
+
+    #[inline]
+    fn not(self, x: F32x4) -> F32x4 {
+        array::from_fn(|i| f32::from_bits(!x.0[i].to_bits())).into()
+    }
 }
 
 impl FloatOps<F32x4> for GenericIsa {
@@ -267,6 +291,7 @@ macro_rules! impl_simd_signed_int_ops {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
         unsafe impl NumOps<$simd> for GenericIsa {
             simd_ops_common!($simd, $elem, $len, $mask);
+            simd_int_ops_common!($simd);
         }
 
         impl SignedIntOps<$simd> for GenericIsa {
@@ -334,6 +359,7 @@ macro_rules! impl_simd_unsigned_int_ops {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
         unsafe impl NumOps<$simd> for GenericIsa {
             simd_ops_common!($simd, $elem, $len, $mask);
+            simd_int_ops_common!($simd);
         }
     };
 }

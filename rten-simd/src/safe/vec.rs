@@ -324,6 +324,12 @@ pub unsafe trait NumOps<S: Simd>: Copy {
         self.min(self.max(x, min), max)
     }
 
+    /// Return the bitwise NOT of `x`.
+    fn not(self, x: S) -> S;
+
+    /// Return the bitwise XOR of `x` and `y`.
+    fn xor(self, x: S, y: S) -> S;
+
     /// Create a new vector with all lanes set to `x`.
     fn splat(self, x: S::Elem) -> S;
 
@@ -564,8 +570,8 @@ pub trait NarrowSaturate<S1: Simd, S2: Simd> {
 mod tests {
     use super::WrappingAdd;
     use crate::safe::{
-        assert_simd_eq, test_simd_op, Extend, FloatOps, Interleave, Isa, Mask, MaskOps,
-        NarrowSaturate, NumOps, SignedIntOps, Simd, SimdOp,
+        assert_simd_eq, assert_simd_ne, test_simd_op, Extend, FloatOps, Interleave, Isa, Mask,
+        MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd, SimdOp,
     };
 
     // Generate tests for operations available on all numeric types.
@@ -573,7 +579,8 @@ mod tests {
         ($modname:ident, $elem:ident) => {
             mod $modname {
                 use super::{
-                    assert_simd_eq, test_simd_op, Isa, Mask, NumOps, Simd, SimdOp, WrappingAdd,
+                    assert_simd_eq, assert_simd_ne, test_simd_op, Isa, Mask, NumOps, Simd, SimdOp,
+                    WrappingAdd,
                 };
 
                 #[test]
@@ -728,6 +735,38 @@ mod tests {
                         // Clamp
                         let y_clamped = ops.clamp(x, ops.splat(0 as $elem), ops.splat(4 as $elem));
                         assert_simd_eq!(y_clamped, ops.splat(3 as $elem));
+                    })
+                }
+
+                #[test]
+                fn test_not() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+                        let zeros = ops.zero();
+                        let ones = ops.not(zeros);
+                        assert_simd_ne!(zeros, ones);
+
+                        let zeros_2 = ops.not(ones);
+                        assert_simd_eq!(zeros_2, zeros);
+                    })
+                }
+
+                #[test]
+                fn test_xor() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let zeros = ops.zero();
+                        let ones = ops.not(zeros);
+
+                        assert_simd_eq!(ops.xor(zeros, zeros), zeros);
+                        assert_simd_eq!(ops.xor(ones, ones), zeros);
+
+                        // Cast to bits here because all-ones is a NaN if the
+                        // element type is a float, and NaNs are not equal to
+                        // themselves.
+                        assert_simd_eq!(ops.xor(zeros, ones).to_bits(), ones.to_bits());
+                        assert_simd_eq!(ops.xor(ones, zeros).to_bits(), ones.to_bits());
                     })
                 }
 

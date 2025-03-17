@@ -9,7 +9,8 @@ use std::arch::wasm32::{
     i8x16_neg, i8x16_shl, i8x16_shuffle, i8x16_splat, i8x16_sub, u16x8_add, u16x8_eq,
     u16x8_extmul_high_u8x16, u16x8_extmul_low_u8x16, u16x8_ge, u16x8_gt, u16x8_mul, u16x8_splat,
     u16x8_sub, u8x16_add, u8x16_eq, u8x16_ge, u8x16_gt, u8x16_narrow_i16x8, u8x16_shuffle,
-    u8x16_splat, u8x16_sub, v128, v128_and, v128_bitselect, v128_load, v128_store,
+    u8x16_splat, u8x16_sub, v128, v128_and, v128_bitselect, v128_load, v128_not, v128_store,
+    v128_xor,
 };
 use std::mem::transmute;
 
@@ -140,6 +141,16 @@ macro_rules! simd_ops_common {
         #[inline]
         fn select(self, x: $simd, y: $simd, mask: <$simd as Simd>::Mask) -> $simd {
             $simd(v128_bitselect(x.0, y.0, mask.0))
+        }
+
+        #[inline]
+        fn xor(self, x: $simd, y: $simd) -> $simd {
+            v128_xor(x.0, y.0).into()
+        }
+
+        #[inline]
+        fn not(self, x: $simd) -> $simd {
+            v128_not(x.0).into()
         }
     };
 }
