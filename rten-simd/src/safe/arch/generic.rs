@@ -1,7 +1,9 @@
 use std::array;
 use std::mem::transmute;
 
-use crate::safe::{FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd};
+use crate::safe::{
+    Extend, FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
+};
 
 // Size of SIMD vector in 32-bit lanes.
 const LEN_X32: usize = 4;
@@ -11,6 +13,12 @@ macro_rules! simd_type {
         #[repr(align(16))]
         #[derive(Copy, Clone, Debug)]
         pub struct $simd([$elem; $len]);
+
+        impl From<[$elem; $len]> for $simd {
+            fn from(val: [$elem; $len]) -> $simd {
+                $simd(val)
+            }
+        }
     };
 }
 
@@ -62,11 +70,15 @@ unsafe impl Isa for GenericIsa {
         self
     }
 
-    fn i16(self) -> impl SignedIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
+    fn i16(
+        self,
+    ) -> impl SignedIntOps<Self::I16>
+           + NarrowSaturate<Self::I16, Self::U8>
+           + Extend<Self::I16, Output = Self::I32> {
         self
     }
 
-    fn i8(self) -> impl SignedIntOps<Self::I8> {
+    fn i8(self) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> {
         self
     }
 
@@ -272,6 +284,23 @@ macro_rules! impl_simd_signed_int_ops {
 impl_simd_signed_int_ops!(I32x4, i32, 4, M32);
 impl_simd_signed_int_ops!(I16x8, i16, 8, M16);
 impl_simd_signed_int_ops!(I8x16, i8, 16, M8);
+
+macro_rules! impl_extend {
+    ($src:ty, $dst:ty) => {
+        impl Extend<$src> for GenericIsa {
+            type Output = $dst;
+
+            fn extend(self, x: $src) -> ($dst, $dst) {
+                let extended = x.0.map(|x| x as <$dst as Simd>::Elem);
+                let low = array::from_fn(|i| extended[i]);
+                let high = array::from_fn(|i| extended[i + extended.len() / 2]);
+                (low.into(), high.into())
+            }
+        }
+    };
+}
+impl_extend!(I8x16, I16x8);
+impl_extend!(I16x8, I32x4);
 
 macro_rules! impl_simd_unsigned_int_ops {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {

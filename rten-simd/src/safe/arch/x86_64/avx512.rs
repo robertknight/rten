@@ -3,9 +3,9 @@ use std::arch::x86_64::{
     _mm512_add_epi8, _mm512_add_ps, _mm512_andnot_ps, _mm512_castsi256_si512,
     _mm512_cmp_epi16_mask, _mm512_cmp_epi32_mask, _mm512_cmp_epu16_mask, _mm512_cmp_ps_mask,
     _mm512_cmpeq_epi8_mask, _mm512_cmpeq_epu8_mask, _mm512_cmpge_epi8_mask, _mm512_cmpge_epu8_mask,
-    _mm512_cmpgt_epi8_mask, _mm512_cmpgt_epu8_mask, _mm512_cvtepi16_epi8, _mm512_cvtepi8_epi16,
-    _mm512_cvtepu8_epi16, _mm512_cvtps_epi32, _mm512_cvttps_epi32, _mm512_div_ps,
-    _mm512_extracti64x4_epi64, _mm512_fmadd_ps, _mm512_inserti64x4, _mm512_loadu_ps,
+    _mm512_cmpgt_epi8_mask, _mm512_cmpgt_epu8_mask, _mm512_cvtepi16_epi32, _mm512_cvtepi16_epi8,
+    _mm512_cvtepi8_epi16, _mm512_cvtepu8_epi16, _mm512_cvtps_epi32, _mm512_cvttps_epi32,
+    _mm512_div_ps, _mm512_extracti64x4_epi64, _mm512_fmadd_ps, _mm512_inserti64x4, _mm512_loadu_ps,
     _mm512_loadu_si512, _mm512_mask_blend_epi16, _mm512_mask_blend_epi32, _mm512_mask_blend_epi8,
     _mm512_mask_blend_ps, _mm512_mask_loadu_epi16, _mm512_mask_loadu_epi32, _mm512_mask_loadu_epi8,
     _mm512_mask_loadu_ps, _mm512_mask_storeu_epi16, _mm512_mask_storeu_epi32,
@@ -64,11 +64,15 @@ unsafe impl Isa for Avx512Isa {
         self
     }
 
-    fn i16(self) -> impl SignedIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8> {
+    fn i16(
+        self,
+    ) -> impl SignedIntOps<Self::I16>
+           + NarrowSaturate<Self::I16, Self::U8>
+           + Extend<Self::I16, Output = Self::I32> {
         self
     }
 
-    fn i8(self) -> impl SignedIntOps<Self::I8> {
+    fn i8(self) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> {
         self
     }
 
@@ -585,20 +589,35 @@ unsafe impl NumOps<U8x64> for Avx512Isa {
     }
 }
 
+impl Extend<I16x32> for Avx512Isa {
+    type Output = I32x16;
+
+    #[inline]
+    fn extend(self, x: I16x32) -> (Self::Output, Self::Output) {
+        unsafe {
+            let lo = _mm512_extracti64x4_epi64(x.0, 0);
+            let lo = _mm512_cvtepi16_epi32(lo);
+
+            let hi = _mm512_extracti64x4_epi64(x.0, 1);
+            let hi = _mm512_cvtepi16_epi32(hi);
+            (lo.into(), hi.into())
+        }
+    }
+}
+
 impl Extend<I8x64> for Avx512Isa {
     type Output = I16x32;
 
     #[inline]
     fn extend(self, x: I8x64) -> (I16x32, I16x32) {
-        let (lo, hi) = unsafe {
+        unsafe {
             let lo = _mm512_extracti64x4_epi64(x.0, 0);
             let lo = _mm512_cvtepi8_epi16(lo);
 
             let hi = _mm512_extracti64x4_epi64(x.0, 1);
             let hi = _mm512_cvtepi8_epi16(hi);
-            (lo, hi)
-        };
-        (I16x32(lo), I16x32(hi))
+            (lo.into(), hi.into())
+        }
     }
 }
 
@@ -607,15 +626,14 @@ impl Extend<U8x64> for Avx512Isa {
 
     #[inline]
     fn extend(self, x: U8x64) -> (U16x32, U16x32) {
-        let (lo, hi) = unsafe {
+        unsafe {
             let lo = _mm512_extracti64x4_epi64(x.0, 0);
             let lo = _mm512_cvtepu8_epi16(lo);
 
             let hi = _mm512_extracti64x4_epi64(x.0, 1);
             let hi = _mm512_cvtepu8_epi16(hi);
-            (lo, hi)
-        };
-        (U16x32(lo), U16x32(hi))
+            (lo.into(), hi.into())
+        }
     }
 }
 

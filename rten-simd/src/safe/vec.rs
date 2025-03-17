@@ -189,10 +189,14 @@ pub unsafe trait Isa: Copy {
     fn i32(self) -> impl SignedIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16>;
 
     /// Operations on SIMD vectors with `i16` elements.
-    fn i16(self) -> impl SignedIntOps<Self::I16> + NarrowSaturate<Self::I16, Self::U8>;
+    fn i16(
+        self,
+    ) -> impl SignedIntOps<Self::I16>
+           + NarrowSaturate<Self::I16, Self::U8>
+           + Extend<Self::I16, Output = Self::I32>;
 
     /// Operations on SIMD vectors with `i8` elements.
-    fn i8(self) -> impl SignedIntOps<Self::I8>;
+    fn i8(self) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16>;
 
     /// Operations on SIMD vectors with `u8` elements.
     fn u8(self) -> impl NumOps<Self::U8>;
@@ -508,8 +512,7 @@ pub trait SignedIntOps<S: Simd>: NumOps<S> {
 /// Widen lanes to a type with twice the width.
 ///
 /// For integer types, the extended type has the same signed-ness.
-#[cfg(target_arch = "x86_64")]
-pub(crate) trait Extend<S: Simd> {
+pub trait Extend<S: Simd> {
     type Output;
 
     /// Extend each lane to a type with twice the width.
@@ -548,7 +551,7 @@ pub trait NarrowSaturate<S1: Simd, S2: Simd> {
 mod tests {
     use super::WrappingAdd;
     use crate::safe::{
-        assert_simd_eq, test_simd_op, FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps,
+        assert_simd_eq, test_simd_op, Extend, FloatOps, Isa, Mask, MaskOps, NarrowSaturate, NumOps,
         SignedIntOps, Simd, SimdOp,
     };
 
@@ -1046,6 +1049,28 @@ mod tests {
 
     test_narrow_saturate!(test_narrow_i32_i16, i32, i16);
     test_narrow_saturate!(test_narrow_u16_u8, i16, u8);
+
+    macro_rules! test_extend {
+        ($test_name:ident, $src:ident, $dest:ident) => {
+            #[test]
+            fn $test_name() {
+                test_simd_op!(isa, {
+                    let ops = isa.$src();
+                    let dst_ops = isa.$dest();
+
+                    let src: Vec<$src> = (0..ops.len()).map(|x| x as $src).collect();
+                    let expected: Vec<$dest> = src.iter().map(|&x| x as $dest).collect();
+
+                    let x = ops.load(&src);
+                    let (y_low, y_high) = ops.extend(x);
+                    assert_eq!(y_low.to_array().as_ref(), &expected[..dst_ops.len()]);
+                    assert_eq!(y_high.to_array().as_ref(), &expected[dst_ops.len()..]);
+                });
+            }
+        };
+    }
+    test_extend!(test_extend_i8_i16, i8, i16);
+    test_extend!(test_extend_i16_i32, i16, i32);
 
     #[test]
     fn test_reinterpret_cast() {
