@@ -1,6 +1,6 @@
 use std::arch::x86_64::{
     __m512, __m512i, __mmask16, __mmask32, __mmask64, _mm512_add_epi16, _mm512_add_epi32,
-    _mm512_add_epi8, _mm512_add_ps, _mm512_andnot_ps, _mm512_castsi256_si512,
+    _mm512_add_epi8, _mm512_add_ps, _mm512_andnot_ps, _mm512_andnot_si512, _mm512_castsi256_si512,
     _mm512_cmp_epi16_mask, _mm512_cmp_epi32_mask, _mm512_cmp_epu16_mask, _mm512_cmp_ps_mask,
     _mm512_cmpeq_epi8_mask, _mm512_cmpeq_epu8_mask, _mm512_cmpge_epi8_mask, _mm512_cmpge_epu8_mask,
     _mm512_cmpgt_epi8_mask, _mm512_cmpgt_epu8_mask, _mm512_cvtepi16_epi32, _mm512_cvtepi16_epi8,
@@ -16,8 +16,8 @@ use std::arch::x86_64::{
     _mm512_setzero_si512, _mm512_sllv_epi16, _mm512_sllv_epi32, _mm512_storeu_ps,
     _mm512_storeu_si512, _mm512_sub_epi16, _mm512_sub_epi32, _mm512_sub_epi8, _mm512_sub_ps,
     _mm512_unpackhi_epi16, _mm512_unpackhi_epi8, _mm512_unpacklo_epi16, _mm512_unpacklo_epi8,
-    _mm512_xor_ps, _mm_prefetch, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ,
-    _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm512_xor_ps, _mm512_xor_si512, _mm_prefetch, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ,
+    _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT, _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::mem::transmute;
 
@@ -125,6 +125,20 @@ macro_rules! simd_ops_common {
     };
 }
 
+macro_rules! simd_int_ops_common {
+    ($simd:ty) => {
+        #[inline]
+        fn xor(self, x: $simd, y: $simd) -> $simd {
+            unsafe { _mm512_xor_si512(x.0, y.0) }.into()
+        }
+
+        #[inline]
+        fn not(self, x: $simd) -> $simd {
+            unsafe { _mm512_andnot_si512(x.0, _mm512_set1_epi8(-1)) }.into()
+        }
+    };
+}
+
 unsafe impl NumOps<F32x16> for Avx512Isa {
     simd_ops_common!(F32x16, __mmask16);
 
@@ -181,6 +195,17 @@ unsafe impl NumOps<F32x16> for Avx512Isa {
     #[inline]
     fn max(self, x: F32x16, y: F32x16) -> F32x16 {
         unsafe { _mm512_max_ps(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn xor(self, x: F32x16, y: F32x16) -> F32x16 {
+        unsafe { _mm512_xor_ps(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn not(self, x: F32x16) -> F32x16 {
+        let all_ones: F32x16 = self.splat(f32::from_bits(0xFFFFFFFF));
+        unsafe { _mm512_andnot_ps(x.0, all_ones.0) }.into()
     }
 
     #[inline]
@@ -250,6 +275,7 @@ impl FloatOps<F32x16> for Avx512Isa {
 
 unsafe impl NumOps<I32x16> for Avx512Isa {
     simd_ops_common!(I32x16, __mmask16);
+    simd_int_ops_common!(I32x16);
 
     #[inline]
     fn add(self, x: I32x16, y: I32x16) -> I32x16 {
@@ -343,6 +369,7 @@ impl NarrowSaturate<I32x16, I16x32> for Avx512Isa {
 
 unsafe impl NumOps<I16x32> for Avx512Isa {
     simd_ops_common!(I16x32, __mmask32);
+    simd_int_ops_common!(I16x32);
 
     #[inline]
     fn add(self, x: I16x32, y: I16x32) -> I16x32 {
@@ -463,6 +490,7 @@ impl Interleave<I16x32> for Avx512Isa {
 
 unsafe impl NumOps<I8x64> for Avx512Isa {
     simd_ops_common!(I8x64, __mmask64);
+    simd_int_ops_common!(I8x64);
 
     #[inline]
     fn add(self, x: I8x64, y: I8x64) -> I8x64 {
@@ -581,6 +609,7 @@ impl Interleave<I8x64> for Avx512Isa {
 
 unsafe impl NumOps<U8x64> for Avx512Isa {
     simd_ops_common!(U8x64, __mmask64);
+    simd_int_ops_common!(U8x64);
 
     #[inline]
     fn add(self, x: U8x64, y: U8x64) -> U8x64 {
@@ -728,6 +757,7 @@ impl Narrow<U16x32> for Avx512Isa {
 
 unsafe impl NumOps<U16x32> for Avx512Isa {
     simd_ops_common!(U16x32, __mmask32);
+    simd_int_ops_common!(U16x32);
 
     #[inline]
     fn add(self, x: U16x32, y: U16x32) -> U16x32 {
