@@ -21,9 +21,14 @@ const fn lanes<S: Simd>() -> usize {
 #[allow(unused_macros)] // Not used on some platforms
 macro_rules! simd_type {
     ($type:ident, $inner:ty, $elem:ty, $mask:ty, $isa:ty) => {
+        // The platform intrinsic is exposed as a public field so that
+        // downstream crates can implement custom SIMD operations. It might be
+        // better to support an `Into` conversion from the wrapper to the
+        // platform type instead?
+
         #[derive(Copy, Clone, Debug)]
         #[repr(transparent)]
-        pub struct $type($inner);
+        pub struct $type(pub $inner);
 
         impl From<$inner> for $type {
             fn from(val: $inner) -> Self {
