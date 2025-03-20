@@ -1,6 +1,6 @@
 use std::mem::{transmute, MaybeUninit};
 
-use super::{NumOps, Simd};
+use super::{Elem, NumOps};
 
 /// Utility for incrementally filling an uninitialized slice, one SIMD vector
 /// at a time.
@@ -9,7 +9,7 @@ pub struct SliceWriter<'a, T> {
     n_init: usize,
 }
 
-impl<'a, T> SliceWriter<'a, T> {
+impl<'a, T: Elem> SliceWriter<'a, T> {
     /// Create a writer which initializes elements of `buf`.
     pub fn new(buf: &'a mut [MaybeUninit<T>]) -> Self {
         SliceWriter { buf, n_init: 0 }
@@ -19,7 +19,7 @@ impl<'a, T> SliceWriter<'a, T> {
     /// of SIMD vector `xs`.
     ///
     /// Panics if the slice does not have space for `ops.len()` elements.
-    pub fn write_vec<S: Simd<Elem = T>>(&mut self, ops: impl NumOps<S>, xs: S) {
+    pub fn write_vec<O: NumOps<T>>(&mut self, ops: O, xs: O::Simd) {
         let written = ops.store_uninit(xs, &mut self.buf[self.n_init..]);
         self.n_init += written.len();
     }

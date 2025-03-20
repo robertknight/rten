@@ -57,17 +57,19 @@ unsafe impl Isa for Avx2Isa {
     type U16 = U16x16;
     type Bits = I32x8;
 
-    fn f32(self) -> impl FloatOps<Self::F32, Int = Self::I32> {
+    fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32> {
         self
     }
 
-    fn i32(self) -> impl SignedIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
+    fn i32(
+        self,
+    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
         self
     }
 
     fn i16(
         self,
-    ) -> impl SignedIntOps<Self::I16>
+    ) -> impl SignedIntOps<i16, Simd = Self::I16>
            + NarrowSaturate<Self::I16, Self::U8>
            + Extend<Self::I16, Output = Self::I32>
            + Interleave<Self::I16> {
@@ -76,22 +78,25 @@ unsafe impl Isa for Avx2Isa {
 
     fn i8(
         self,
-    ) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> + Interleave<Self::I8>
-    {
+    ) -> impl SignedIntOps<i8, Simd = Self::I8>
+           + Extend<Self::I8, Output = Self::I16>
+           + Interleave<Self::I8> {
         self
     }
 
-    fn u8(self) -> impl NumOps<Self::U8> {
+    fn u8(self) -> impl NumOps<u8, Simd = Self::U8> {
         self
     }
 
-    fn u16(self) -> impl NumOps<Self::U16> {
+    fn u16(self) -> impl NumOps<u16, Simd = Self::U16> {
         self
     }
 }
 
 macro_rules! simd_ops_common {
     ($simd:ty, $mask:ty) => {
+        type Simd = $simd;
+
         #[inline]
         fn len(self) -> usize {
             lanes::<$simd>()
@@ -128,7 +133,7 @@ macro_rules! simd_int_ops_common {
     };
 }
 
-unsafe impl NumOps<F32x8> for Avx2Isa {
+unsafe impl NumOps<f32> for Avx2Isa {
     simd_ops_common!(F32x8, F32x8);
 
     #[inline]
@@ -251,7 +256,7 @@ unsafe impl NumOps<F32x8> for Avx2Isa {
     }
 }
 
-impl FloatOps<F32x8> for Avx2Isa {
+impl FloatOps<f32> for Avx2Isa {
     type Int = <Self as Isa>::I32;
 
     #[inline]
@@ -280,7 +285,7 @@ impl FloatOps<F32x8> for Avx2Isa {
     }
 }
 
-unsafe impl NumOps<I32x8> for Avx2Isa {
+unsafe impl NumOps<i32> for Avx2Isa {
     simd_ops_common!(I32x8, I32x8);
     simd_int_ops_common!(I32x8);
 
@@ -352,7 +357,7 @@ unsafe impl NumOps<I32x8> for Avx2Isa {
     }
 }
 
-impl SignedIntOps<I32x8> for Avx2Isa {
+impl SignedIntOps<i32> for Avx2Isa {
     #[inline]
     fn neg(self, x: I32x8) -> I32x8 {
         unsafe { _mm256_sub_epi32(_mm256_setzero_si256(), x.0) }.into()
@@ -384,7 +389,7 @@ impl NarrowSaturate<I32x8, I16x16> for Avx2Isa {
     }
 }
 
-unsafe impl NumOps<I16x16> for Avx2Isa {
+unsafe impl NumOps<i16> for Avx2Isa {
     simd_ops_common!(I16x16, I16x16);
     simd_int_ops_common!(I16x16);
 
@@ -478,7 +483,7 @@ unsafe impl NumOps<I16x16> for Avx2Isa {
     }
 }
 
-impl SignedIntOps<I16x16> for Avx2Isa {
+impl SignedIntOps<i16> for Avx2Isa {
     #[inline]
     fn neg(self, x: I16x16) -> I16x16 {
         unsafe { _mm256_sub_epi16(_mm256_setzero_si256(), x.0) }.into()
@@ -529,7 +534,7 @@ impl Interleave<I16x16> for Avx2Isa {
     }
 }
 
-unsafe impl NumOps<I8x32> for Avx2Isa {
+unsafe impl NumOps<i8> for Avx2Isa {
     simd_ops_common!(I8x32, I8x32);
     simd_int_ops_common!(I8x32);
 
@@ -629,7 +634,7 @@ unsafe impl NumOps<I8x32> for Avx2Isa {
     }
 }
 
-impl SignedIntOps<I8x32> for Avx2Isa {
+impl SignedIntOps<i8> for Avx2Isa {
     #[inline]
     fn neg(self, x: I8x32) -> I8x32 {
         unsafe { _mm256_sub_epi8(_mm256_setzero_si256(), x.0) }.into()
@@ -671,7 +676,7 @@ impl Interleave<I8x32> for Avx2Isa {
     }
 }
 
-unsafe impl NumOps<U8x32> for Avx2Isa {
+unsafe impl NumOps<u8> for Avx2Isa {
     simd_ops_common!(U8x32, I8x32);
     simd_int_ops_common!(U8x32);
 
@@ -715,8 +720,8 @@ unsafe impl NumOps<U8x32> for Avx2Isa {
 
     #[inline]
     fn ge(self, x: U8x32, y: U8x32) -> I8x32 {
-        let xy_eq = self.eq(x, y);
-        let xy_gt = self.gt(x, y);
+        let xy_eq = <Self as NumOps<u8>>::eq(self, x, y);
+        let xy_gt = <Self as NumOps<u8>>::gt(self, x, y);
         unsafe { _mm256_or_si256(xy_eq.0, xy_gt.0) }.into()
     }
 
@@ -780,7 +785,7 @@ unsafe impl NumOps<U8x32> for Avx2Isa {
     }
 }
 
-unsafe impl NumOps<U16x16> for Avx2Isa {
+unsafe impl NumOps<u16> for Avx2Isa {
     simd_ops_common!(U16x16, I16x16);
     simd_int_ops_common!(U16x16);
 
@@ -817,8 +822,8 @@ unsafe impl NumOps<U16x16> for Avx2Isa {
 
     #[inline]
     fn ge(self, x: U16x16, y: U16x16) -> I16x16 {
-        let xy_eq = self.eq(x, y);
-        let xy_gt = self.gt(x, y);
+        let xy_eq = <Self as NumOps<u16>>::eq(self, x, y);
+        let xy_gt = <Self as NumOps<u16>>::gt(self, x, y);
         unsafe { _mm256_or_si256(xy_eq.0, xy_gt.0) }.into()
     }
 

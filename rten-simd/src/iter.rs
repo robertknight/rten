@@ -1,42 +1,39 @@
 //! Tools for vectorized iteration over slices.
 
-use crate::{NumOps, Simd};
+use crate::{Elem, NumOps, Simd};
 
 /// Methods for creating vectorized iterators.
 pub trait SimdIterable {
     /// Element type in the slice.
-    type Elem;
+    type Elem: Elem;
 
     /// Iterate over SIMD-sized chunks of the input.
     ///
     /// If the input length is not divisble by the SIMD vector width, the
     /// iterator yields only the full chunks. The tail is accessible via the
     /// iterator's [`tail`](Iter::tail) method.
-    fn simd_iter<S: Simd<Elem = Self::Elem>, O: NumOps<S>>(&self, ops: O) -> Iter<S, O>;
+    fn simd_iter<O: NumOps<Self::Elem>>(&self, ops: O) -> Iter<Self::Elem, O>;
 
     /// Iterate over SIMD-sized chunks of the input.
     ///
     /// If the input length is not divisble by the SIMD vector width, the final
     /// chunk will be padded with zeros.
-    fn simd_iter_pad<S: Simd<Elem = Self::Elem>, O: NumOps<S>>(
+    fn simd_iter_pad<O: NumOps<Self::Elem>>(
         &self,
         ops: O,
-    ) -> impl ExactSizeIterator<Item = S>;
+    ) -> impl ExactSizeIterator<Item = O::Simd>;
 }
 
-impl<T> SimdIterable for [T] {
+impl<T: Elem> SimdIterable for [T] {
     type Elem = T;
 
     #[inline]
-    fn simd_iter<S: Simd<Elem = T>, O: NumOps<S>>(&self, ops: O) -> Iter<S, O> {
+    fn simd_iter<O: NumOps<T>>(&self, ops: O) -> Iter<T, O> {
         Iter::new(ops, self)
     }
 
     #[inline]
-    fn simd_iter_pad<S: Simd<Elem = T>, O: NumOps<S>>(
-        &self,
-        ops: O,
-    ) -> impl ExactSizeIterator<Item = S> {
+    fn simd_iter_pad<O: NumOps<T>>(&self, ops: O) -> impl ExactSizeIterator<Item = O::Simd> {
         IterPad::new(ops, self)
     }
 }
@@ -44,15 +41,15 @@ impl<T> SimdIterable for [T] {
 /// Iterator which yields chunks of a slice as a SIMD vector.
 ///
 /// This type is created by [`SimdIterable::simd_iter`].
-pub struct Iter<'a, S: Simd, O: NumOps<S>> {
+pub struct Iter<'a, T: Elem, O: NumOps<T>> {
     ops: O,
-    xs: &'a [S::Elem],
+    xs: &'a [T],
     n_full_chunks: usize,
 }
 
-impl<'a, S: Simd, O: NumOps<S>> Iter<'a, S, O> {
+impl<'a, T: Elem, O: NumOps<T>> Iter<'a, T, O> {
     #[inline]
-    fn new(ops: O, xs: &'a [S::Elem]) -> Self {
+    fn new(ops: O, xs: &'a [T]) -> Self {
         let n_full_chunks = xs.len() / ops.len();
         Iter {
             ops,
@@ -68,7 +65,11 @@ impl<'a, S: Simd, O: NumOps<S>> Iter<'a, S, O> {
     /// multiple of the SIMD vector length, the final vector will be padded with
     /// zeros.
     #[inline]
-    pub fn fold<F: FnMut(S, S) -> S>(mut self, mut accum: S, mut fold: F) -> S {
+    pub fn fold<F: FnMut(O::Simd, O::Simd) -> O::Simd>(
+        mut self,
+        mut accum: O::Simd,
+        mut fold: F,
+    ) -> O::Simd {
         for chunk in &mut self {
             accum = fold(accum, chunk);
         }
@@ -86,9 +87,9 @@ impl<'a, S: Simd, O: NumOps<S>> Iter<'a, S, O> {
     #[inline]
     pub fn fold_n<const N: usize>(
         mut self,
-        mut accum: [S; N],
-        mut fold: impl FnMut([S; N], S) -> [S; N],
-    ) -> [S; N] {
+        mut accum: [O::Simd; N],
+        mut fold: impl FnMut([O::Simd; N], O::Simd) -> [O::Simd; N],
+    ) -> [O::Simd; N] {
         for chunk in &mut self {
             accum = fold(accum, chunk);
         }
@@ -109,7 +110,7 @@ impl<'a, S: Simd, O: NumOps<S>> Iter<'a, S, O> {
     /// Elements of the SIMD vector that correspond to positions where the mask
     /// is false will be set to zero.
     #[inline]
-    pub fn tail(&self) -> Option<(S, S::Mask)> {
+    pub fn tail(&self) -> Option<(O::Simd, <O::Simd as Simd>::Mask)> {
         let n = self.xs.len();
         if n > 0 {
             Some(self.ops.load_pad(self.xs))
@@ -119,8 +120,8 @@ impl<'a, S: Simd, O: NumOps<S>> Iter<'a, S, O> {
     }
 }
 
-impl<S: Simd, O: NumOps<S>> Iterator for Iter<'_, S, O> {
-    type Item = S;
+impl<T: Elem, O: NumOps<T>> Iterator for Iter<'_, T, O> {
+    type Item = O::Simd;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -143,29 +144,29 @@ impl<S: Simd, O: NumOps<S>> Iterator for Iter<'_, S, O> {
     }
 }
 
-impl<S: Simd, O: NumOps<S>> ExactSizeIterator for Iter<'_, S, O> {}
+impl<T: Elem, O: NumOps<T>> ExactSizeIterator for Iter<'_, T, O> {}
 
-impl<S: Simd, O: NumOps<S>> std::iter::FusedIterator for Iter<'_, S, O> {}
+impl<T: Elem, O: NumOps<T>> std::iter::FusedIterator for Iter<'_, T, O> {}
 
 /// Iterator which yields chunks of a slice as a SIMD vector.
 ///
 /// This type is created by [`SimdIterable::simd_iter_pad`].
-pub struct IterPad<'a, S: Simd, O: NumOps<S>> {
-    iter: Iter<'a, S, O>,
+pub struct IterPad<'a, T: Elem, O: NumOps<T>> {
+    iter: Iter<'a, T, O>,
     has_tail: bool,
 }
 
-impl<'a, S: Simd, O: NumOps<S>> IterPad<'a, S, O> {
+impl<'a, T: Elem, O: NumOps<T>> IterPad<'a, T, O> {
     #[inline]
-    fn new(ops: O, xs: &'a [S::Elem]) -> Self {
+    fn new(ops: O, xs: &'a [T]) -> Self {
         let iter = Iter::new(ops, xs);
         let has_tail = xs.len() % ops.len() != 0;
         Self { iter, has_tail }
     }
 }
 
-impl<S: Simd, O: NumOps<S>> Iterator for IterPad<'_, S, O> {
-    type Item = S;
+impl<T: Elem, O: NumOps<T>> Iterator for IterPad<'_, T, O> {
+    type Item = O::Simd;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -188,9 +189,9 @@ impl<S: Simd, O: NumOps<S>> Iterator for IterPad<'_, S, O> {
     }
 }
 
-impl<S: Simd, O: NumOps<S>> ExactSizeIterator for IterPad<'_, S, O> {}
+impl<T: Elem, O: NumOps<T>> ExactSizeIterator for IterPad<'_, T, O> {}
 
-impl<S: Simd, O: NumOps<S>> std::iter::FusedIterator for IterPad<'_, S, O> {}
+impl<T: Elem, O: NumOps<T>> std::iter::FusedIterator for IterPad<'_, T, O> {}
 
 #[cfg(test)]
 mod tests {

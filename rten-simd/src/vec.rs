@@ -183,15 +183,16 @@ pub unsafe trait Isa: Copy {
     type U16: Simd<Elem = u16, Isa = Self>;
 
     /// Operations on SIMD vectors with `f32` elements.
-    fn f32(self) -> impl FloatOps<Self::F32, Int = Self::I32>;
+    fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>;
 
     /// Operations on SIMD vectors with `i32` elements.
-    fn i32(self) -> impl SignedIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16>;
+    fn i32(self)
+        -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<Self::I32, Self::I16>;
 
     /// Operations on SIMD vectors with `i16` elements.
     fn i16(
         self,
-    ) -> impl SignedIntOps<Self::I16>
+    ) -> impl SignedIntOps<i16, Simd = Self::I16>
            + NarrowSaturate<Self::I16, Self::U8>
            + Extend<Self::I16, Output = Self::I32>
            + Interleave<Self::I16>;
@@ -199,13 +200,15 @@ pub unsafe trait Isa: Copy {
     /// Operations on SIMD vectors with `i8` elements.
     fn i8(
         self,
-    ) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> + Interleave<Self::I8>;
+    ) -> impl SignedIntOps<i8, Simd = Self::I8>
+           + Extend<Self::I8, Output = Self::I16>
+           + Interleave<Self::I8>;
 
     /// Operations on SIMD vectors with `u8` elements.
-    fn u8(self) -> impl NumOps<Self::U8>;
+    fn u8(self) -> impl NumOps<u8, Simd = Self::U8>;
 
     /// Operations on SIMD vectors with `u16` elements.
-    fn u16(self) -> impl NumOps<Self::U16>;
+    fn u16(self) -> impl NumOps<u16, Simd = Self::U16>;
 }
 
 /// SIMD operations on a [`Mask`] vector.
@@ -221,7 +224,7 @@ pub unsafe trait MaskOps<M: Mask>: Copy {
 
 /// Operations available on all SIMD vector types.
 ///
-/// This trait provides core operations available on all SIMD vector types:
+/// This trait provides core operations available on all SIMD vector types.
 ///
 /// - Load from and store into memory
 /// - Creating a new vector filled with zeros or a specific value
@@ -234,44 +237,47 @@ pub unsafe trait MaskOps<M: Mask>: Copy {
 /// Implementations must ensure they can only be constructed if the
 /// instruction set is supported on the current system.
 #[allow(clippy::len_without_is_empty)]
-pub unsafe trait NumOps<S: Simd>: Copy {
+pub unsafe trait NumOps<T: Elem>: Copy {
+    /// SIMD vector containing lanes of type `T`.
+    type Simd: Simd<Elem = T>;
+
     /// Convert `x` to an untyped vector of the same width.
     #[allow(clippy::wrong_self_convention)]
-    fn from_bits(self, x: <S::Isa as Isa>::Bits) -> S {
-        S::from_bits(x)
+    fn from_bits(self, x: <<Self::Simd as Simd>::Isa as Isa>::Bits) -> Self::Simd {
+        Self::Simd::from_bits(x)
     }
 
     /// Return the implementation of mask operations for the mask vector used
     /// by this SIMD type.
-    fn mask_ops(self) -> impl MaskOps<S::Mask>;
+    fn mask_ops(self) -> impl MaskOps<<Self::Simd as Simd>::Mask>;
 
     /// Return the number of elements in the vector.
     fn len(self) -> usize;
 
     /// Compute `x + y`.
-    fn add(self, x: S, y: S) -> S;
+    fn add(self, x: Self::Simd, y: Self::Simd) -> Self::Simd;
 
     /// Compute `x - y`.
-    fn sub(self, x: S, y: S) -> S;
+    fn sub(self, x: Self::Simd, y: Self::Simd) -> Self::Simd;
 
     /// Compute `x * y`.
-    fn mul(self, x: S, y: S) -> S;
+    fn mul(self, x: Self::Simd, y: Self::Simd) -> Self::Simd;
 
     /// Create a new vector with all lanes set to zero.
-    fn zero(self) -> S {
-        self.splat(S::Elem::default())
+    fn zero(self) -> Self::Simd {
+        self.splat(T::default())
     }
 
     /// Create a new vector with all lanes set to one.
-    fn one(self) -> S {
-        self.splat(S::Elem::one())
+    fn one(self) -> Self::Simd {
+        self.splat(T::one())
     }
 
     /// Compute `a * b + c`.
     ///
     /// This will use fused multiply-add instructions if available. For float
     /// element types, this may use one or two roundings.
-    fn mul_add(self, a: S, b: S, c: S) -> S {
+    fn mul_add(self, a: Self::Simd, b: Self::Simd, c: Self::Simd) -> Self::Simd {
         self.add(self.mul(a, b), c)
     }
 
@@ -279,7 +285,7 @@ pub unsafe trait NumOps<S: Simd>: Copy {
     ///
     /// Computes `x * coeffs[0] + x^2 * coeffs[1] ... x^n * coeffs[N]`
     #[inline]
-    fn poly_eval(self, x: S, coeffs: &[S]) -> S {
+    fn poly_eval(self, x: Self::Simd, coeffs: &[Self::Simd]) -> Self::Simd {
         let mut y = coeffs[coeffs.len() - 1];
         for i in (0..coeffs.len() - 1).rev() {
             y = self.mul_add(y, x, coeffs[i]);
@@ -289,66 +295,66 @@ pub unsafe trait NumOps<S: Simd>: Copy {
 
     /// Return a mask indicating whether elements in `x` are less than `y`.
     #[inline]
-    fn lt(self, x: S, y: S) -> S::Mask {
+    fn lt(self, x: Self::Simd, y: Self::Simd) -> <Self::Simd as Simd>::Mask {
         self.gt(y, x)
     }
 
     /// Return a mask indicating whether elements in `x` are less or equal to `y`.
     #[inline]
-    fn le(self, x: S, y: S) -> S::Mask {
+    fn le(self, x: Self::Simd, y: Self::Simd) -> <Self::Simd as Simd>::Mask {
         self.ge(y, x)
     }
 
     /// Return a mask indicating whether elements in `x` are equal to `y`.
-    fn eq(self, x: S, y: S) -> S::Mask;
+    fn eq(self, x: Self::Simd, y: Self::Simd) -> <Self::Simd as Simd>::Mask;
 
     /// Return a mask indicating whether elements in `x` are greater or equal to `y`.
-    fn ge(self, x: S, y: S) -> S::Mask;
+    fn ge(self, x: Self::Simd, y: Self::Simd) -> <Self::Simd as Simd>::Mask;
 
     /// Return a mask indicating whether elements in `x` are greater than `y`.
-    fn gt(self, x: S, y: S) -> S::Mask;
+    fn gt(self, x: Self::Simd, y: Self::Simd) -> <Self::Simd as Simd>::Mask;
 
     /// Return the minimum of `x` and `y` for each lane.
-    fn min(self, x: S, y: S) -> S {
+    fn min(self, x: Self::Simd, y: Self::Simd) -> Self::Simd {
         self.select(x, y, self.le(x, y))
     }
 
     /// Return the maximum of `x` and `y` for each lane.
-    fn max(self, x: S, y: S) -> S {
+    fn max(self, x: Self::Simd, y: Self::Simd) -> Self::Simd {
         self.select(x, y, self.ge(x, y))
     }
 
     /// Clamp values in `x` to minimum and maximum values from corresponding
     /// lanes in `min` and `max`.
-    fn clamp(self, x: S, min: S, max: S) -> S {
+    fn clamp(self, x: Self::Simd, min: Self::Simd, max: Self::Simd) -> Self::Simd {
         self.min(self.max(x, min), max)
     }
 
     /// Return the bitwise NOT of `x`.
-    fn not(self, x: S) -> S;
+    fn not(self, x: Self::Simd) -> Self::Simd;
 
     /// Return the bitwise XOR of `x` and `y`.
-    fn xor(self, x: S, y: S) -> S;
+    fn xor(self, x: Self::Simd, y: Self::Simd) -> Self::Simd;
 
     /// Create a new vector with all lanes set to `x`.
-    fn splat(self, x: S::Elem) -> S;
+    fn splat(self, x: T) -> Self::Simd;
 
     /// Reduce the elements in `x` to a single value using `f`, then
     /// return a new vector with the accumulated value broadcast to each lane.
     #[inline]
-    fn fold_splat<F: Fn(S::Elem, S::Elem) -> S::Elem>(self, x: S, accum: S::Elem, f: F) -> S {
+    fn fold_splat<F: Fn(T, T) -> T>(self, x: Self::Simd, accum: T, f: F) -> Self::Simd {
         let reduced = x.to_array().into_iter().fold(accum, f);
         self.splat(reduced)
     }
 
     /// Return a mask with the first `n` lanes set to true.
-    fn first_n_mask(self, n: usize) -> S::Mask;
+    fn first_n_mask(self, n: usize) -> <Self::Simd as Simd>::Mask;
 
     /// Load the first `self.len()` elements from a slice into a vector.
     ///
     /// Panics if `xs.len() < self.len()`.
     #[inline]
-    fn load(self, xs: &[S::Elem]) -> S {
+    fn load(self, xs: &[T]) -> Self::Simd {
         assert!(xs.len() >= self.len());
         unsafe { self.load_ptr(xs.as_ptr()) }
     }
@@ -357,7 +363,7 @@ pub unsafe trait NumOps<S: Simd>: Copy {
     ///
     /// Panics if `xs.len() < self.len() * N`.
     #[inline]
-    fn load_many<const N: usize>(self, xs: &[S::Elem]) -> [S; N] {
+    fn load_many<const N: usize>(self, xs: &[T]) -> [Self::Simd; N] {
         let v_len = self.len();
         assert!(xs.len() >= v_len * N);
 
@@ -371,7 +377,7 @@ pub unsafe trait NumOps<S: Simd>: Copy {
     ///
     /// Returns the padded vector and a mask of the lanes which were set.
     #[inline]
-    fn load_pad(self, xs: &[S::Elem]) -> (S, S::Mask) {
+    fn load_pad(self, xs: &[T]) -> (Self::Simd, <Self::Simd as Simd>::Mask) {
         let n = xs.len().min(self.len());
         let mask = self.first_n_mask(n);
 
@@ -387,8 +393,8 @@ pub unsafe trait NumOps<S: Simd>: Copy {
     ///
     /// # Safety
     ///
-    /// `ptr` must point to `self.len()` initialized elements of type `S::Elem`.
-    unsafe fn load_ptr(self, ptr: *const S::Elem) -> S;
+    /// `ptr` must point to `self.len()` initialized elements of type `T`.
+    unsafe fn load_ptr(self, ptr: *const T) -> Self::Simd;
 
     /// Load vector elements from `ptr` using a mask.
     ///
@@ -397,25 +403,25 @@ pub unsafe trait NumOps<S: Simd>: Copy {
     /// # Safety
     ///
     /// For each mask position `i` which is true, `ptr.add(i)` must point to
-    /// an initialized element of type `S::Elem`.
-    unsafe fn load_ptr_mask(self, ptr: *const S::Elem, mask: S::Mask) -> S;
+    /// an initialized element of type `T`.
+    unsafe fn load_ptr_mask(self, ptr: *const T, mask: <Self::Simd as Simd>::Mask) -> Self::Simd;
 
     /// Select elements from `x` or `y` according to a mask.
     ///
     /// Elements are selected from `x` where the corresponding mask element
     /// is one or `y` if zero.
-    fn select(self, x: S, y: S, mask: S::Mask) -> S;
+    fn select(self, x: Self::Simd, y: Self::Simd, mask: <Self::Simd as Simd>::Mask) -> Self::Simd;
 
     /// Store the values in this vector to a memory location.
     ///
     /// # Safety
     ///
     /// `ptr` must point to `self.len()` elements.
-    unsafe fn store_ptr(self, x: S, ptr: *mut S::Elem);
+    unsafe fn store_ptr(self, x: Self::Simd, ptr: *mut T);
 
     /// Store `x` into the first `self.len()` elements of `xs`.
     #[inline]
-    fn store(self, x: S, xs: &mut [S::Elem]) {
+    fn store(self, x: Self::Simd, xs: &mut [T]) {
         assert!(xs.len() >= self.len());
         unsafe { self.store_ptr(x, xs.as_mut_ptr()) }
     }
@@ -426,9 +432,9 @@ pub unsafe trait NumOps<S: Simd>: Copy {
     /// uninitialized slice as input and returns the initialized portion of the
     /// slice.
     #[inline]
-    fn store_uninit(self, x: S, xs: &mut [MaybeUninit<S::Elem>]) -> &mut [S::Elem] {
+    fn store_uninit(self, x: Self::Simd, xs: &mut [MaybeUninit<T>]) -> &mut [T] {
         let len = self.len();
-        let xs_ptr = xs.as_mut_ptr() as *mut S::Elem;
+        let xs_ptr = xs.as_mut_ptr() as *mut T;
         assert!(xs.len() >= len);
         unsafe {
             self.store_ptr(x, xs_ptr);
@@ -445,14 +451,16 @@ pub unsafe trait NumOps<S: Simd>: Copy {
     ///
     /// For each position `i` in the mask which is true, `ptr.add(i)` must point
     /// to a valid element of type `Self::Elem`.
-    unsafe fn store_ptr_mask(self, x: S, ptr: *mut S::Elem, mask: S::Mask);
+    unsafe fn store_ptr_mask(self, x: Self::Simd, ptr: *mut T, mask: <Self::Simd as Simd>::Mask);
 
-    fn prefetch(self, ptr: *const S::Elem) {
+    /// Pre-fetch the cache line containing `ptr` for reading.
+    fn prefetch(self, ptr: *const T) {
         // Default implementation does nothing
         let _ = ptr;
     }
 
-    fn prefetch_write(self, ptr: *mut S::Elem) {
+    /// Pre-fetch the cache line containing `ptr` for writing.
+    fn prefetch_write(self, ptr: *mut T) {
         // Default implementation does nothing
         let _ = ptr;
     }
@@ -462,8 +470,8 @@ pub unsafe trait NumOps<S: Simd>: Copy {
     /// If the sum overflows, it will wrap. This choice was made to enable
     /// consistency between native intrinsics for horizontal addition and the
     /// generic implementation.
-    fn sum(self, x: S) -> S::Elem {
-        let mut sum = S::Elem::default();
+    fn sum(self, x: Self::Simd) -> T {
+        let mut sum = T::default();
         for elem in x.to_array() {
             sum = sum.wrapping_add(elem);
         }
@@ -472,48 +480,48 @@ pub unsafe trait NumOps<S: Simd>: Copy {
 }
 
 /// Operations available on SIMD vectors with float elements.
-pub trait FloatOps<S: Simd>: NumOps<S> {
+pub trait FloatOps<T: Elem>: NumOps<T> {
     /// Integer SIMD vector of the same bit-width as this vector.
     type Int: Simd;
 
     /// Compute x / y
-    fn div(self, x: S, y: S) -> S;
+    fn div(self, x: Self::Simd, y: Self::Simd) -> Self::Simd;
 
     /// Compute 1. / x
-    fn reciprocal(self, x: S) -> S {
+    fn reciprocal(self, x: Self::Simd) -> Self::Simd {
         self.div(self.one(), x)
     }
 
     /// Compute `-x`
-    fn neg(self, x: S) -> S {
+    fn neg(self, x: Self::Simd) -> Self::Simd {
         self.sub(self.zero(), x)
     }
 
     /// Compute the absolute value of `x`
-    fn abs(self, x: S) -> S {
+    fn abs(self, x: Self::Simd) -> Self::Simd {
         self.select(self.neg(x), x, self.lt(x, self.zero()))
     }
 
     /// Convert each lane to an integer of the same width, rounding towards zero.
-    fn to_int_trunc(self, x: S) -> Self::Int;
+    fn to_int_trunc(self, x: Self::Simd) -> Self::Int;
 
     /// Convert each lane to an integer of the same width, rounding to nearest
     /// with ties to even.
-    fn to_int_round(self, x: S) -> Self::Int;
+    fn to_int_round(self, x: Self::Simd) -> Self::Int;
 }
 
 /// Operations on SIMD vectors with signed integer elements.
-pub trait SignedIntOps<S: Simd>: NumOps<S> {
+pub trait SignedIntOps<T: Elem>: NumOps<T> {
     /// Shift each lane in `x` left by `SHIFT` bits.
-    fn shift_left<const SHIFT: i32>(self, x: S) -> S;
+    fn shift_left<const SHIFT: i32>(self, x: Self::Simd) -> Self::Simd;
 
     /// Compute the absolute value of `x`
-    fn abs(self, x: S) -> S {
+    fn abs(self, x: Self::Simd) -> Self::Simd {
         self.select(self.neg(x), x, self.lt(x, self.zero()))
     }
 
     /// Return `-x`.
-    fn neg(self, x: S) -> S {
+    fn neg(self, x: Self::Simd) -> Self::Simd {
         self.sub(self.zero(), x)
     }
 }
