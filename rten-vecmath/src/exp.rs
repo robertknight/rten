@@ -2,7 +2,7 @@
 
 #![allow(clippy::excessive_precision)]
 
-use rten_simd::safe::{FloatOps, Isa, NumOps, SignedIntOps, Simd, SimdUnaryOp};
+use rten_simd::{FloatOps, Isa, NumOps, SignedIntOps, Simd, SimdUnaryOp};
 
 const INV_LOG2: f32 = std::f32::consts::LOG2_E; // aka. 1 / ln2
 const ROUNDING_MAGIC: f32 = 12582912.; // 0x3 << 22
@@ -187,7 +187,7 @@ impl SimdUnaryOp<f32> for Swish {
 mod tests {
     use std::mem::MaybeUninit;
 
-    use rten_simd::safe::SimdUnaryOp;
+    use rten_simd::SimdUnaryOp;
 
     use crate::testing::{
         arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,

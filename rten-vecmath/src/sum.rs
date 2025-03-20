@@ -1,4 +1,4 @@
-use rten_simd::safe::{Isa, NumOps, Simd, SimdIterable, SimdOp};
+use rten_simd::{Isa, NumOps, Simd, SimdIterable, SimdOp};
 
 /// Computes the sum of a sequence of numbers.
 ///
@@ -99,7 +99,7 @@ mod tests {
     use crate::ulp::assert_ulp_diff_le;
 
     use super::{Sum, SumSquare, SumSquareSub};
-    use rten_simd::safe::SimdOp;
+    use rten_simd::SimdOp;
 
     // Chosen to not be a multiple of vector size, so that tail handling is
     // exercised.

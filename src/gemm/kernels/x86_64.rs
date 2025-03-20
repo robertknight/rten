@@ -1,11 +1,11 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::safe::{isa::Avx2Isa, Isa};
+use rten_simd::{isa::Avx2Isa, Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
 #[cfg(feature = "avx512")]
-use rten_simd::safe::isa::Avx512Isa;
+use rten_simd::isa::Avx512Isa;
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
 use super::{extract_zero_points, Kernel, Lhs, PackedLayout, QuantParams, TempTile};

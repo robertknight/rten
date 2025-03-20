@@ -4,7 +4,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::mem::MaybeUninit;
 
-use rten_simd::safe::SimdUnaryOp;
+use rten_simd::SimdUnaryOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;

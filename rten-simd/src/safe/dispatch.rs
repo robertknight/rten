@@ -88,7 +88,7 @@ pub trait SimdUnaryOp<T: Elem> {
     /// the specific type used by the ISA:
     ///
     /// ```
-    /// use rten_simd::safe::{Isa, Simd, FloatOps, NumOps, SimdUnaryOp};
+    /// use rten_simd::{Isa, Simd, FloatOps, NumOps, SimdUnaryOp};
     ///
     /// struct Reciprocal {}
     ///

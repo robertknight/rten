@@ -20,8 +20,8 @@
 //! evaluates it on a vector of floats:
 //!
 //! ```
-//! use rten_simd::safe::{Isa, SimdOp, NumOps};
-//! use rten_simd::safe::functional::simd_map;
+//! use rten_simd::{Isa, SimdOp, NumOps};
+//! use rten_simd::functional::simd_map;
 //!
 //! struct Square<'a> {
 //!     xs: &'a mut [f32],

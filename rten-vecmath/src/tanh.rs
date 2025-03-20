@@ -1,6 +1,6 @@
 #![allow(clippy::excessive_precision)]
 
-use rten_simd::safe::{FloatOps, Isa, NumOps, Simd, SimdUnaryOp};
+use rten_simd::{FloatOps, Isa, NumOps, Simd, SimdUnaryOp};
 
 use crate::Exp;
 
@@ -66,7 +66,7 @@ impl SimdUnaryOp<f32> for Tanh {
 
 #[cfg(test)]
 mod tests {
-    use rten_simd::safe::SimdUnaryOp;
+    use rten_simd::SimdUnaryOp;
 
     use crate::testing::{
         arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,

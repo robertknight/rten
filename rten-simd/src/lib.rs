@@ -28,8 +28,10 @@
 )]
 
 pub mod isa_detection;
-pub mod safe;
 pub mod span;
+
+mod safe;
+pub use safe::*;
 
 #[cfg(feature = "avx512")]
 #[cfg(target_arch = "x86_64")]

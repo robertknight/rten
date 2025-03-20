@@ -8,16 +8,16 @@
 //! The operations are implemented by structs which implement the SIMD operation
 //! traits from [rten-simd](rten_simd). To apply an operation to data, first
 //! construct the operation using the struct from this crate, then use a
-//! dispatch method from the [`SimdOp`](rten_simd::safe::SimdOp) or
-//! [`SimdUnaryOp`](rten_simd::safe::SimdUnaryOp) traits to execute
+//! dispatch method from the [`SimdOp`](rten_simd::SimdOp) or
+//! [`SimdUnaryOp`](rten_simd::SimdUnaryOp) traits to execute
 //! the operation.
 //!
 //! ## In-place and non in-place operations
 //!
 //! Some operations support both updating data in place or reading input from
 //! one slice and writing to another. For unary operations this is controlled by
-//! dispatching with either [`map`](rten_simd::safe::SimdUnaryOp::map) or
-//! [`map_mut`](rten_simd::safe::SimdUnaryOp::map_mut). For other operations
+//! dispatching with either [`map`](rten_simd::SimdUnaryOp::map) or
+//! [`map_mut`](rten_simd::SimdUnaryOp::map_mut). For other operations
 //! this is handled by exposing different constructors for the in-place and
 //! mutating cases, such as [`Softmax::new`] and [`Softmax::new_mut`].
 //!
@@ -35,7 +35,7 @@
 //! ```
 //! use std::mem::MaybeUninit;
 //!
-//! use rten_simd::safe::SimdUnaryOp;
+//! use rten_simd::SimdUnaryOp;
 //! use rten_vecmath::Erf;
 //!
 //! // Apply the error function to each element of `data`.
@@ -54,7 +54,7 @@
 //! This example applies the softmax function in-place to a mutable slice.
 //!
 //! ```
-//! use rten_simd::safe::SimdOp;
+//! use rten_simd::SimdOp;
 //! use rten_vecmath::Softmax;
 //!
 //! let mut data = [1., 0.5, 2.0];
@@ -69,7 +69,7 @@
 //! initialized, the helper `ExtendInit` trait is used.
 //!
 //! ```
-//! use rten_simd::safe::SimdOp;
+//! use rten_simd::SimdOp;
 //! use rten_vecmath::{Softmax, ExtendInit};
 //!
 //! let data = [1., 0.5, 2.0];
@@ -87,7 +87,7 @@
 //! ### Computing the sum of a list of floats
 //!
 //! ```
-//! use rten_simd::safe::SimdOp;
+//! use rten_simd::SimdOp;
 //! use rten_vecmath::Sum;
 //!
 //! let data = [1., 0.5, 2.0];

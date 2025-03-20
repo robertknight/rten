@@ -1,8 +1,8 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::safe::functional::simd_map;
-use rten_simd::safe::{Isa, NumOps, SimdIterable, SimdOp};
+use rten_simd::functional::simd_map;
 use rten_simd::span::SrcDest;
+use rten_simd::{Isa, NumOps, SimdIterable, SimdOp};
 
 /// Normalize the mean and variance of elements in a slice.
 ///
@@ -130,7 +130,7 @@ impl<'dst> SimdOp for Normalize<'_, 'dst> {
 #[cfg(test)]
 mod tests {
     use super::{Normalize, NormalizeOptions};
-    use rten_simd::safe::SimdOp;
+    use rten_simd::SimdOp;
 
     fn reference_normalize_mut(
         data: &mut [f32],
