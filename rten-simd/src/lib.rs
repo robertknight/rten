@@ -27,17 +27,9 @@
     feature(avx512_target_feature)
 )]
 
-pub mod arch;
-
-pub mod dispatch;
-pub mod functional;
 pub mod isa_detection;
-pub mod span;
-mod vec;
-
 pub mod safe;
-
-pub use vec::{vec_count, Simd, SimdFloat, SimdInt, SimdMask};
+pub mod span;
 
 #[cfg(feature = "avx512")]
 #[cfg(target_arch = "x86_64")]
