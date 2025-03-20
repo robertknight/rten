@@ -35,8 +35,11 @@ pub fn dispatch<Op: SimdOp>(op: Op) -> Op::Output {
     {
         #[cfg(feature = "avx512")]
         {
+            // The target features enabled here must match those tested for by `Avx512Isa::new`.
             #[target_feature(enable = "avx512f")]
             #[target_feature(enable = "avx512vl")]
+            #[target_feature(enable = "avx512bw")]
+            #[target_feature(enable = "avx512dq")]
             unsafe fn dispatch_avx512<Op: SimdOp>(isa: impl Isa, op: Op) -> Op::Output {
                 op.eval(isa)
             }
@@ -49,6 +52,7 @@ pub fn dispatch<Op: SimdOp>(op: Op) -> Op::Output {
             }
         }
 
+        // The target features enabled here must match those tested for by `Avx2Isa::new`.
         #[target_feature(enable = "avx2")]
         #[target_feature(enable = "avx")]
         #[target_feature(enable = "fma")]
