@@ -1,9 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::arch::wasm::{v128f, v128i};
-use rten_simd::safe::isa::Wasm32Isa;
-use rten_simd::vec_count;
+use rten_simd::safe::{isa::Wasm32Isa, Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
@@ -20,6 +18,9 @@ impl WasmKernel {
     const MR: usize = 8;
     const NR: usize = 8;
 }
+
+/// Number of 32-bit lanes in a WASM SIMD vector.
+const X32_LANES: usize = 4;
 
 // Safety - Support for used WASM instructions is checked by the runtime when
 // the WASM binary is loaded.
@@ -96,7 +97,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        const NR_REGS: usize = vec_count::<v128f>(WasmKernel::NR).unwrap();
+        const NR_REGS: usize = WasmKernel::NR / X32_LANES;
 
         // Safety: WASM SIMD types are supported
         let out = cast_pod_mut_slice(out).unwrap();
@@ -119,7 +120,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
     ) {
         const MR: usize = WasmKernel::MR;
         const NR: usize = WasmKernel::NR;
-        const NR_REGS: usize = vec_count::<v128f>(NR).unwrap();
+        const NR_REGS: usize = NR / X32_LANES;
 
         let b = cast_pod_slice(b).unwrap();
         let mut tmp_tile = TempTile::<f32, MR, NR>::new();
@@ -258,7 +259,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        const NR_REGS: usize = vec_count::<v128f>(WasmInt8Kernel::NR).unwrap();
+        const NR_REGS: usize = WasmInt8Kernel::NR / X32_LANES;
         image.pack_block_i8_dot_cast_u8::<_, NR_REGS>(self.isa, out, rows, cols);
     }
 
@@ -286,8 +287,9 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        const NR_REGS: usize = vec_count::<v128f>(WasmInt8Kernel::NR).unwrap();
+        const NR_REGS: usize = WasmInt8Kernel::NR / X32_LANES;
         simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
+            self.isa,
             tile_ptr,
             tile_row_stride,
             a_data,
@@ -321,6 +323,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         // Safety: Target features were checked when kernel was constructed.
         unsafe {
             simd_int8_gemv::<_, true /* CAST_B_U8 */>(
+                self.isa,
                 out,
                 a,
                 b,
@@ -337,13 +340,16 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
 /// was shifted from i8 to u8 when packing.
 const I8_U8_SHIFT: i32 = 128;
 
+type I8Vec = <Wasm32Isa as Isa>::I8;
+type I32Vec = <Wasm32Isa as Isa>::I32;
+
 /// Compute i32 dot product of each group of 4 u8 integers in `a` and `b` and
 /// add to i32x4 accumulator in `c`.
 ///
 /// Adapted from the reference lowing of `i32x4.dot_i8x16_i7x16_add_s` given
 /// in https://github.com/WebAssembly/relaxed-simd/issues/52.
 #[inline]
-fn wasm_u8u8_i32_dot_product(a: v128i, b: v128i, c: v128i) -> v128i {
+fn wasm_u8u8_i32_dot_product(a: I8Vec, b: I8Vec, c: I32Vec) -> I32Vec {
     use std::arch::wasm32::{
         i32x4_add, i32x4_extadd_pairwise_u16x8, i32x4_shuffle, u16x8_extmul_high_u8x16,
         u16x8_extmul_low_u8x16,
@@ -359,5 +365,5 @@ fn wasm_u8u8_i32_dot_product(a: v128i, b: v128i, c: v128i) -> v128i {
     let pair_sum_odd = i32x4_shuffle::<1, 3, 5, 7>(pair_sum_lo, pair_sum_hi);
 
     let quad_sum = i32x4_add(pair_sum_even, pair_sum_odd);
-    v128i(i32x4_add(quad_sum, c.0))
+    i32x4_add(quad_sum, c.0).into()
 }

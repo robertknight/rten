@@ -1,9 +1,8 @@
-use std::arch::aarch64::{float32x4_t, int32x4_t};
+use std::arch::aarch64::{int32x4_t, int8x16_t};
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_simd::safe::isa::ArmNeonIsa;
-use rten_simd::vec_count;
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
@@ -20,6 +19,9 @@ impl ArmNeonKernel {
     const MR: usize = 8;
     const NR: usize = 8;
 }
+
+/// Number of 32-bit lanes in an Arm Neon SIMD vector.
+const X32_LANES: usize = 4;
 
 // Safety - We assume that Rust code on Arm is always compiled with Arm Neon
 // available.
@@ -92,7 +94,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        const NR_REGS: usize = vec_count::<float32x4_t>(ArmNeonKernel::NR).unwrap();
+        const NR_REGS: usize = ArmNeonKernel::NR / X32_LANES;
 
         // Safety: Arm Neon instructions are supported
         let out = cast_pod_mut_slice(out).unwrap();
@@ -115,7 +117,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
     ) {
         const MR: usize = ArmNeonKernel::MR;
         const NR: usize = ArmNeonKernel::NR;
-        const NR_REGS: usize = vec_count::<float32x4_t>(NR).unwrap();
+        const NR_REGS: usize = NR / X32_LANES;
 
         let b = cast_pod_slice(b).unwrap();
 
@@ -240,7 +242,7 @@ macro_rules! impl_arm_int8_common {
             cols: Range<usize>,
         ) {
             // Safety: Arm Neon is supported
-            const NR_REGS: usize = vec_count::<int32x4_t>(<$self_type>::NR).unwrap();
+            const NR_REGS: usize = <$self_type>::NR / X32_LANES;
             image.pack_block_i8_dot_cast_u8::<_, NR_REGS>(self.isa, out, rows, cols)
         }
     };
@@ -295,8 +297,9 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        const NR_REGS: usize = vec_count::<int32x4_t>(ArmInt8DotKernel::NR).unwrap();
+        const NR_REGS: usize = ArmInt8DotKernel::NR / X32_LANES;
         simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
+            self.isa,
             tile_ptr,
             tile_row_stride,
             a_data,
@@ -329,6 +332,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
 
         #[target_feature(enable = "dotprod")]
         unsafe fn gemv_impl(
+            isa: ArmNeonIsa,
             out: &mut [MaybeUninit<i32>],
             a: &[u8],
             b: Matrix<i8>,
@@ -336,12 +340,14 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
             a_zero: u8,
             b_zero: Option<&[i8]>,
         ) {
-            simd_int8_gemv::<_, true /* CAST_B_U8 */>(out, a, b, accumulate, a_zero, b_zero, udot)
+            simd_int8_gemv::<_, true /* CAST_B_U8 */>(
+                isa, out, a, b, accumulate, a_zero, b_zero, udot,
+            )
         }
 
         // Safety: Target features were checked when this kernel was constructed.
         unsafe {
-            gemv_impl(out, a, b, accumulate, a_zero, b_zero);
+            gemv_impl(self.isa, out, a, b, accumulate, a_zero, b_zero);
         }
     }
 }
@@ -392,8 +398,9 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
         let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
-        const NR_REGS: usize = vec_count::<int32x4_t>(ArmInt8Kernel::NR).unwrap();
+        const NR_REGS: usize = ArmInt8Kernel::NR / X32_LANES;
         simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
+            self.isa,
             tile_ptr,
             tile_row_stride,
             a_data,
@@ -427,6 +434,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
         // Safety: Target features were checked when kernel was constructed.
         unsafe {
             simd_int8_gemv::<_, true /* CAST_B_U8 */>(
+                self.isa,
                 out,
                 a,
                 b,
@@ -446,15 +454,16 @@ const I8_U8_SHIFT: i32 = 128;
 /// Compute dot product of groups of 4 u8 ints from `a` and `b` and add to
 /// 4 i32 values from `c`.
 ///
-/// `a` and `b` are interpreted as `uint8x16_t`.
+/// Note: `a` and `b` are interpreted as `uint8x16_t`, but use a signed type
+/// for consistency with other architectures.
 #[target_feature(enable = "dotprod")]
 #[inline]
-unsafe fn udot(a: int32x4_t, b: int32x4_t, c: int32x4_t) -> int32x4_t {
-    use core::arch::aarch64::{vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s32};
+unsafe fn udot(a: int8x16_t, b: int8x16_t, c: int32x4_t) -> int32x4_t {
+    use core::arch::aarch64::{vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s8};
     use core::arch::asm;
 
-    let a = vreinterpretq_u8_s32(a);
-    let b = vreinterpretq_u8_s32(b);
+    let a = vreinterpretq_u8_s8(a);
+    let b = vreinterpretq_u8_s8(b);
     let mut c = vreinterpretq_u32_s32(c);
 
     // Use inline asm here because the `vdotq_u32` intrinsic is not
@@ -473,14 +482,14 @@ unsafe fn udot(a: int32x4_t, b: int32x4_t, c: int32x4_t) -> int32x4_t {
 /// Fallback implementation of [`udot`] for older Arm CPUs which don't support
 /// dot product instructions.
 #[inline(always)]
-unsafe fn fallback_udot(a: int32x4_t, b: int32x4_t, c: int32x4_t) -> int32x4_t {
+unsafe fn fallback_udot(a: int8x16_t, b: int8x16_t, c: int32x4_t) -> int32x4_t {
     use core::arch::aarch64::{
         vaddq_u32, vget_low_u8, vmull_high_u8, vmull_u8, vpaddlq_u16, vpaddq_u32,
-        vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s32,
+        vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s8,
     };
 
-    let a = vreinterpretq_u8_s32(a);
-    let b = vreinterpretq_u8_s32(b);
+    let a = vreinterpretq_u8_s8(a);
+    let b = vreinterpretq_u8_s8(b);
     let c = vreinterpretq_u32_s32(c);
 
     let mul_lo = vmull_u8(vget_low_u8(a), vget_low_u8(b));

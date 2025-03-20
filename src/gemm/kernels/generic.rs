@@ -1,8 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::safe::isa::GenericIsa;
-use rten_simd::vec_count;
+use rten_simd::safe::{isa::GenericIsa, Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, GemmDispatch};
@@ -26,6 +25,8 @@ impl GenericKernel {
     // that.
     const NR: usize = 4;
 }
+
+const X32_LANES: usize = size_of::<<GenericIsa as Isa>::I32>() / size_of::<i32>();
 
 // Safety - Base kernel is always supported
 unsafe impl Kernel<f32, f32, f32> for GenericKernel {
@@ -99,7 +100,7 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        const NR_REGS: usize = vec_count::<f32>(GenericKernel::NR).unwrap();
+        const NR_REGS: usize = GenericKernel::NR / X32_LANES;
 
         // Safety: Scalar "SIMD" types are always supported
         let out = cast_pod_mut_slice(out).unwrap();
