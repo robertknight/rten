@@ -20,6 +20,7 @@ pub mod macos {
             // avx512f, as that is implied if the extensions are supported.
             sysctl_bool(c"hw.optional.avx512vl").unwrap_or(false)
                 && sysctl_bool(c"hw.optional.avx512bw").unwrap_or(false)
+                && sysctl_bool(c"hw.optional.avx512dq").unwrap_or(false)
         })
     }
 
@@ -79,6 +80,7 @@ pub mod macos {
 ///  - AVX512F
 ///  - AVX512VL
 ///  - AVX512BW
+///  - AVX512DQ
 ///
 /// These features are available on Skylake (2016) and later.
 /// See <https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#AVX-512_CPU_compatibility_table>.
@@ -90,6 +92,7 @@ pub fn is_avx512_supported() -> bool {
     if is_x86_feature_detected!("avx512f")
         && is_x86_feature_detected!("avx512vl")
         && is_x86_feature_detected!("avx512bw")
+        && is_x86_feature_detected!("avx512dq")
     {
         true
     } else {
