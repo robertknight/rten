@@ -1,8 +1,8 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::safe::functional::simd_map;
-use rten_simd::safe::{FloatOps, Isa, NumOps, SimdIterable, SimdOp, SimdUnaryOp};
+use rten_simd::functional::simd_map;
 use rten_simd::span::SrcDest;
+use rten_simd::{FloatOps, Isa, NumOps, SimdIterable, SimdOp, SimdUnaryOp};
 
 use crate::Exp;
 
@@ -91,7 +91,7 @@ impl<'dst> SimdOp for Softmax<'_, 'dst> {
 
 #[cfg(test)]
 mod tests {
-    use rten_simd::safe::SimdOp;
+    use rten_simd::SimdOp;
 
     use super::Softmax;
     use crate::testing::{benchmark_op, check_f32s_are_equal_ulps, triples, AsUninit};

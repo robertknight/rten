@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::safe::{isa::GenericIsa, Isa};
+use rten_simd::{isa::GenericIsa, Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, GemmDispatch};

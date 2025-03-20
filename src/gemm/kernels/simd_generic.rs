@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::safe::{Extend, Interleave, Isa, NumOps, Simd};
+use rten_simd::{Extend, Interleave, Isa, NumOps, Simd};
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
 use super::Lhs;

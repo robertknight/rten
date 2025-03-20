@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::safe::SimdOp;
+use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{AssumeInit, NdTensor, NdTensorView, Scalar, Tensor, TensorView};
 use rten_vecmath as vecmath;

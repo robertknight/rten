@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::safe::{FloatOps, Isa, NarrowSaturate, NumOps, SimdOp, SliceWriter};
+use rten_simd::{FloatOps, Isa, NarrowSaturate, NumOps, SimdOp, SliceWriter};
 
 /// Quantize a slice of `f32` elements to 8-bit integers using the formula:
 ///
@@ -77,7 +77,7 @@ impl<'d> SimdOp for Quantize<'_, 'd, u8> {
 
 #[cfg(test)]
 mod tests {
-    use rten_simd::safe::{Isa, NumOps, SimdOp};
+    use rten_simd::{Isa, NumOps, SimdOp};
 
     use super::Quantize;
 

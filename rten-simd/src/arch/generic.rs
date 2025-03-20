@@ -1,7 +1,7 @@
 use std::array;
 use std::mem::transmute;
 
-use crate::safe::{
+use crate::{
     Extend, FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
 };
 

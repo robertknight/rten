@@ -1,505 +1,1169 @@
-//! Traits to support writing portable SIMD code.
-//!
-//! Unlike [std::simd] (as of Rust v1.75.0), this compiles against stable Rust.
-//!
-//! This module provides traits to support writing generic SIMD code which
-//! can be compiled to work with different instruction sets. These traits are
-//! implemented for architecture-specific SIMD types (or wrappers around them,
-//! in some cases). There is also a generic implementation for Rust primitives
-//! (eg. f32, i32) which treats the primitive as a single-element SIMD type.
-//! This is useful both as a fallback implementation and for debugging.
-//!
-//! ## Inlining and target features
-//!
-//! Correct use of inlining and target features, in impls of these traits and
-//! generic functions using them, are critical to getting the performance
-//! benefits. If an intrinic is not inlined, the function call overhead can
-//! negate the benefits of using SIMD in the first place.
-//!
-//! Implementations of SIMD traits should add `#[inline]` and
-//! `#[target_feature(enable = "feature"]` attributes, where the feature names
-//! match the wrapped architecture-specific intrinics. An exception is for
-//! intrinsics which are always available in a given build configuration (eg.
-//! we assume SSE is always available under x86_64 and Neon under Arm).
-//!
-//! Generic functions which use SIMD traits must have `#[inline(always)]`
-//! annotations, including on any closures in their bodies. These generic
-//! functions must then be wrapped in target feature-specific wrappers which
-//! have `#[target_feature]`s that are a union of all those used in the
-//! implementation.
-//!
-//! # Safety
-//!
-//! The caller must ensure that the SIMD instructions used by a type
-//! implementing a SIMD trait are available on the current system.
-//!
-//! All architecture-specific functions in SIMD traits are unsafe due to
-//! limitations of Rust's `#[target_feature]` macro. See
-//! <https://rust-lang.github.io/rfcs/2396-target-feature-1.1.html>. Also as a
-//! consequence of this, standard operations like add, multiply etc. are
-//! implemented as functions in this trait rather than using the standard trait
-//! from `std::ops`.
+use std::fmt::Debug;
+use std::mem::MaybeUninit;
 
-/// Base trait for SIMD vectors.
+/// Types used as elements (or _lanes_) of SIMD vectors.
+pub trait Elem: Copy + Default + WrappingAdd<Output = Self> {
+    /// Return the 1 value of this type.
+    fn one() -> Self;
+}
+
+impl Elem for f32 {
+    fn one() -> Self {
+        1.
+    }
+}
+
+macro_rules! impl_elem_for_int {
+    ($int:ty) => {
+        impl Elem for $int {
+            fn one() -> Self {
+                1
+            }
+        }
+    };
+}
+
+impl_elem_for_int!(i32);
+impl_elem_for_int!(i16);
+impl_elem_for_int!(i8);
+impl_elem_for_int!(u8);
+impl_elem_for_int!(u16);
+
+/// Wrapping addition of numbers.
 ///
-/// This provides common associated types and methods that are applicable for
-/// all SIMD vectors.
-#[allow(clippy::missing_safety_doc)]
-pub trait Simd: Copy {
-    type Elem: Copy + Default;
+/// For float types, this is the same as [`std::ops::Add`]. For integer types,
+/// this is the same as the type's inherent `wrapping_add` method.
+pub trait WrappingAdd: Sized {
+    type Output;
 
-    /// The number of elements in the SIMD vector, if known at compile time.
-    const LEN: Option<usize>;
+    fn wrapping_add(self, x: Self) -> Self;
+}
 
-    /// The type used by operations that use or return masks.
-    ///
-    /// This should be the same for all vector types with a given number of
-    /// lanes in a particular architecture.
-    type Mask: SimdMask;
+macro_rules! impl_wrapping_add {
+    ($type:ty) => {
+        impl WrappingAdd for $type {
+            type Output = Self;
 
-    /// The contents of a vector as an array.
-    ///
-    /// This type should always be `[Self::ELEM; Self::LEN]`. The `to_array`
-    /// method returns this associated type rather than a concrete array due to
-    /// const generics limitations.
-    type Array: Copy
-        + std::fmt::Debug
+            fn wrapping_add(self, x: Self) -> Self {
+                Self::wrapping_add(self, x)
+            }
+        }
+    };
+}
+
+impl_wrapping_add!(i32);
+impl_wrapping_add!(i16);
+impl_wrapping_add!(i8);
+impl_wrapping_add!(u8);
+impl_wrapping_add!(u16);
+
+impl WrappingAdd for f32 {
+    type Output = Self;
+
+    fn wrapping_add(self, x: f32) -> f32 {
+        self + x
+    }
+}
+
+/// Masks used or returned by SIMD operations.
+///
+/// Most operations on masks are available via the [`MaskOps`] trait.
+/// Implementations are obtained via [`NumOps::mask_ops`].
+pub trait Mask: Copy + Debug {
+    type Array: AsRef<[bool]>
+        + Copy
+        + Debug
+        + IntoIterator<Item = bool>
+        + PartialEq<Self::Array>
+        + std::ops::Index<usize, Output = bool>;
+
+    /// Convert this mask to a bool array.
+    fn to_array(self) -> Self::Array;
+
+    /// Return true if all lanes in the mask are one.
+    fn all_true(self) -> bool {
+        self.to_array().as_ref().iter().all(|&x| x)
+    }
+
+    /// Return true if all lanes in the mask are false.
+    fn all_false(self) -> bool {
+        self.to_array().as_ref().iter().all(|&x| !x)
+    }
+}
+
+/// SIMD vector type.
+#[allow(clippy::len_without_is_empty)]
+pub trait Simd: Copy + Debug {
+    /// Representation of this vector as a `[Self::Elem; N]` array.
+    type Array: AsRef<[Self::Elem]>
+        + Copy
+        + Debug
+        + IntoIterator<Item = Self::Elem>
+        + PartialEq<Self::Array>
         + std::ops::Index<usize, Output = Self::Elem>
-        + std::ops::IndexMut<usize, Output = Self::Elem>
-        + AsRef<[Self::Elem]>
-        + IntoIterator<Item = Self::Elem>;
+        + std::ops::IndexMut<usize, Output = Self::Elem>;
 
-    /// Return the number of elements in the SIMD vector.
-    ///
-    /// This value is a constant which may be known either at compile time
-    /// (eg. AVX2, Arm Neon) or only at runtime (eg. Arm SVE).
-    unsafe fn len() -> usize {
-        Self::LEN.unwrap()
-    }
+    /// Type of data held in each SIMD lane.
+    type Elem: Elem;
 
-    /// Combine elements of `self` and `other` according to a mask.
-    ///
-    /// For each lane, if the mask value is one, return the element from
-    /// `self`, otherwise return the value from `other`.
-    unsafe fn select(self, other: Self, mask: Self::Mask) -> Self;
+    /// Mask with the same number of elements as this vector.
+    type Mask: Mask;
 
-    /// Broadcast `val` to all elements in a new vector.
-    ///
-    /// # Safety
-    /// The caller must ensure SIMD operations on this type are supported.
-    unsafe fn splat(val: Self::Elem) -> Self;
+    /// The ISA associated with this SIMD vector.
+    type Isa: Isa;
 
-    /// Load `Self::LEN` values from the memory address at `ptr`.
-    ///
-    /// Implementations must not require `ptr` to be aligned.
-    ///
-    /// Safety: The caller must ensure `ptr` points to at least `Self::LEN`
-    /// values.
-    unsafe fn load(ptr: *const Self::Elem) -> Self;
+    /// Convert this SIMD vector to the common "bits" type used by all vectors
+    /// in this family.
+    fn to_bits(self) -> <Self::Isa as Isa>::Bits;
 
-    /// Load `len` values from `ptr` into a vector and zero the unused lanes.
-    ///
-    /// Panics if `len > Self::LEN`.
-    #[inline]
-    unsafe fn load_partial(ptr: *const Self::Elem, len: usize) -> Self {
-        assert!(len <= Self::len());
-        let mut remainder = Self::zero().to_array();
-        for i in 0..len {
-            remainder[i] = *ptr.add(i);
-        }
-        Self::load(remainder.as_ref().as_ptr())
-    }
+    /// Convert this SIMD vector from the common "bits" type used by all vectors
+    /// in this family.
+    fn from_bits(bits: <Self::Isa as Isa>::Bits) -> Self;
 
-    /// Prefetch the cache line containing `data`, for reading.
-    #[inline]
-    unsafe fn prefetch(_data: *const Self::Elem) {
-        // Noop
-    }
-
-    /// Prefetch the cache line containing `data`, for writing.
-    #[inline]
-    unsafe fn prefetch_write(_data: *mut Self::Elem) {
-        // Noop
-    }
-
-    /// Store `Self::LEN` values to the memory address at `ptr`.
-    ///
-    /// Implementations must not require `ptr` to be aligned.
-    ///
-    /// Safety: The caller must ensure `ptr` points to a buffer with space for
-    /// at least `Self::LEN` values.
-    unsafe fn store(self, ptr: *mut Self::Elem);
-
-    /// Store the first `len` lanes from `self` into `dest`.
-    ///
-    /// Panics if `len > Self::LEN`.
-    #[inline]
-    unsafe fn store_partial(self, dest: *mut Self::Elem, len: usize) {
-        assert!(len <= Self::len());
-        let remainder = self.to_array();
-        for i in 0..len {
-            dest.add(i).write(remainder[i]);
-        }
-    }
-
-    /// Return the contents of this vector as an array.
-    ///
-    /// This is a cheap transmute for most implementations because the SIMD
-    /// type and the array have the same layout. The converse is not true
-    /// because the SIMD type may have greater alignment.
-    unsafe fn to_array(self) -> Self::Array;
-
-    /// Return a new vector with all elements set to zero.
-    #[inline]
-    unsafe fn zero() -> Self
+    /// Reinterpret the bits of this vector as another vector from the same
+    /// family.
+    fn reinterpret_cast<T>(self) -> T
     where
-        Self::Elem: Default,
+        T: Simd<Isa = Self::Isa>,
     {
-        Self::splat(Self::Elem::default())
-    }
-}
-
-/// Return the number of SIMD vectors required to hold `count` elements.
-pub const fn vec_count<S: Simd>(count: usize) -> Option<usize> {
-    if let Some(len) = S::LEN {
-        Some(count.div_ceil(len))
-    } else {
-        None
-    }
-}
-
-/// Trait implemented by SIMD masks.
-#[allow(clippy::missing_safety_doc)]
-pub trait SimdMask: Copy {
-    /// A representation of this mask as a bool array.
-    type Array: Copy + Default + std::ops::Index<usize, Output = bool> + std::ops::IndexMut<usize>;
-
-    /// Return a bitwise AND of self and `rhs`.
-    unsafe fn and(self, rhs: Self) -> Self;
-
-    /// Return a mask with the first `n` lanes set.
-    unsafe fn first_n(n: usize) -> Self {
-        let mut array = Self::Array::default();
-        for i in 0..n {
-            array[i] = true;
-        }
-        Self::from_array(array)
+        T::from_bits(self.to_bits())
     }
 
-    /// Convert this SIMD mask to a boolean array.
+    /// Cast this vector to another with the same ISA and element type.
     ///
-    /// Unlike [`Simd::to_array`] this is not a simple transmute because
-    /// the elements need to be converted from the architecture-specific
-    /// representation of a mask to a `bool` array.
-    unsafe fn to_array(self) -> Self::Array;
+    /// This cast is a no-op which doesn't generate any code. It is needed in
+    /// some cases to downcast a `Simd` type to one of an `Isa`s associated
+    /// types, or vice-versa.
+    fn same_cast<T>(self) -> T
+    where
+        T: Simd<Elem = Self::Elem, Isa = Self::Isa>,
+    {
+        T::from_bits(self.to_bits())
+    }
 
-    /// Create a SIMD mask from a boolean array.
-    unsafe fn from_array(mask: Self::Array) -> Self;
+    /// Convert `self` to a SIMD array.
+    ///
+    /// This is a cheap transmute in most cases, since SIMD vectors usually
+    /// have the same layout as `[S::Elem; N]` but a greater alignment.
+    fn to_array(self) -> Self::Array;
 }
 
-/// Trait for SIMD vectors containing 32-bit integers.
-#[allow(clippy::missing_safety_doc)]
-pub trait SimdInt: Simd<Elem = i32> {
-    /// The type produced by an operation that converts each element in this
-    /// vector to a float.
-    type Float: SimdFloat<Int = Self, Mask = Self::Mask>;
+/// Entry point for performing SIMD operations using a particular Instruction
+/// Set Architecture (ISA).
+///
+/// Implementations of this trait are types which can only be instantiated
+/// if the instruction set is available. They are usually zero-sized and thus
+/// free to copy.
+///
+/// # Safety
+///
+/// Implementations must ensure they can only be constructed if the
+/// instruction set is supported on the current system.
+pub unsafe trait Isa: Copy {
+    /// SIMD vector with an unspecified element type. This is used for
+    /// bitwise casting between different vector types.
+    type Bits: Simd;
 
-    /// Return a mask indicating whether `self > other`.
-    unsafe fn gt(self, other: Self) -> Self::Mask;
+    /// SIMD vector with `f32` elements.
+    type F32: Simd<Elem = f32, Isa = Self>;
 
-    /// Return a mask indicating whether `self >= other`.
-    unsafe fn ge(self, other: Self) -> Self::Mask;
+    /// SIMD vector with `i32` elements.
+    type I32: Simd<Elem = i32, Isa = Self>;
 
-    /// Return a mask indicating whether `self <= other`.
-    unsafe fn le(self, other: Self) -> Self::Mask;
+    /// SIMD vector with `i16` elements.
+    type I16: Simd<Elem = i16, Isa = Self>;
 
-    /// Return a mask indicating whether `self < other`.
-    unsafe fn lt(self, other: Self) -> Self::Mask;
+    /// SIMD vector with `i8` elements.
+    type I8: Simd<Elem = i8, Isa = Self>;
 
-    /// Return a mask indicating where `self == other`.
-    unsafe fn eq(self, other: Self) -> Self::Mask;
+    /// SIMD vector with `u8` elements.
+    type U8: Simd<Elem = u8, Isa = Self>;
 
-    /// Compute `self + rhs`.
-    unsafe fn add(self, rhs: Self) -> Self;
+    /// SIMD vector with `u16` elements.
+    type U16: Simd<Elem = u16, Isa = Self>;
 
-    /// Compute `self * rhs`, keeping the low 32-bits of each result.
-    unsafe fn mul(self, rhs: Self) -> Self;
+    /// Operations on SIMD vectors with `f32` elements.
+    fn f32(self) -> impl FloatOps<Self::F32, Int = Self::I32>;
 
-    /// Compute `self - rhs`.
-    unsafe fn sub(self, rhs: Self) -> Self;
+    /// Operations on SIMD vectors with `i32` elements.
+    fn i32(self) -> impl SignedIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16>;
 
-    /// Compute minimum of self and `rhs`.
-    unsafe fn min(self, rhs: Self) -> Self;
+    /// Operations on SIMD vectors with `i16` elements.
+    fn i16(
+        self,
+    ) -> impl SignedIntOps<Self::I16>
+           + NarrowSaturate<Self::I16, Self::U8>
+           + Extend<Self::I16, Output = Self::I32>
+           + Interleave<Self::I16>;
 
-    /// Compute maximum of self and `rhs`.
-    unsafe fn max(self, rhs: Self) -> Self;
+    /// Operations on SIMD vectors with `i8` elements.
+    fn i8(
+        self,
+    ) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> + Interleave<Self::I8>;
 
-    /// Shift the bits in each element left by `count`.
-    unsafe fn shl<const COUNT: i32>(self) -> Self;
+    /// Operations on SIMD vectors with `u8` elements.
+    fn u8(self) -> impl NumOps<Self::U8>;
 
-    /// Reinterpret the bits of each element as a float.
-    unsafe fn reinterpret_as_float(self) -> Self::Float;
-
-    /// Convert each lane in `self` to a `u8` value with saturation.
-    unsafe fn saturating_cast_u8(self) -> impl Simd<Elem = u8>;
-
-    /// Load `S::LEN` i8 values from `ptr` and sign-extend to i32.
-    unsafe fn load_extend_i8(ptr: *const i8) -> Self;
-
-    /// Interleave i8 values from the low half of `self` and `rhs`.
-    unsafe fn zip_lo_i8(self, rhs: Self) -> Self;
-
-    /// Interleave i8 values from the high half of `self` and `rhs`.
-    unsafe fn zip_hi_i8(self, rhs: Self) -> Self;
-
-    /// Interleave i16 values from the low half of `self` and `rhs`.
-    unsafe fn zip_lo_i16(self, rhs: Self) -> Self;
-
-    /// Interleave i16 values from the high half of `self` and `rhs`.
-    unsafe fn zip_hi_i16(self, rhs: Self) -> Self;
-
-    /// Horizontally sum the lanes in this vector.
-    unsafe fn sum(self) -> i32 {
-        let mut acc = 0;
-        for x in self.to_array().as_ref() {
-            acc += x;
-        }
-        acc
-    }
-
-    /// Bitwise XOR this value with `rhs`.
-    unsafe fn xor(self, rhs: Self) -> Self;
+    /// Operations on SIMD vectors with `u16` elements.
+    fn u16(self) -> impl NumOps<Self::U16>;
 }
 
-/// Trait for SIMD vectors containing single-precision floats.
-#[allow(clippy::missing_safety_doc)]
-pub trait SimdFloat: Simd<Elem = f32> {
-    /// The type of vector produced by operations that convert this vector
-    /// to a vector of ints.
-    type Int: SimdInt<Float = Self, Mask = Self::Mask>;
+/// SIMD operations on a [`Mask`] vector.
+///
+/// # Safety
+///
+/// Implementations must ensure they can only be constructed if the
+/// instruction set is supported on the current system.
+pub unsafe trait MaskOps<M: Mask>: Copy {
+    /// Compute `x & y`.
+    fn and(self, x: M, y: M) -> M;
+}
 
-    /// Shorthand for `Self::splat(1.0)`.
-    #[inline]
-    unsafe fn one() -> Self {
-        Self::splat(1.0)
+/// Operations available on all SIMD vector types.
+///
+/// This trait provides core operations available on all SIMD vector types:
+///
+/// - Load from and store into memory
+/// - Creating a new vector filled with zeros or a specific value
+/// - Combining elements from two vectors according to a mask
+/// - Add, subtract and multiply
+/// - Comparison (equality, less than, greater than etc.)
+///
+/// # Safety
+///
+/// Implementations must ensure they can only be constructed if the
+/// instruction set is supported on the current system.
+#[allow(clippy::len_without_is_empty)]
+pub unsafe trait NumOps<S: Simd>: Copy {
+    /// Convert `x` to an untyped vector of the same width.
+    #[allow(clippy::wrong_self_convention)]
+    fn from_bits(self, x: <S::Isa as Isa>::Bits) -> S {
+        S::from_bits(x)
     }
 
-    /// Compute `-self`.
-    #[inline]
-    unsafe fn neg(self) -> Self {
-        Self::zero().sub(self)
+    /// Return the implementation of mask operations for the mask vector used
+    /// by this SIMD type.
+    fn mask_ops(self) -> impl MaskOps<S::Mask>;
+
+    /// Return the number of elements in the vector.
+    fn len(self) -> usize;
+
+    /// Compute `x + y`.
+    fn add(self, x: S, y: S) -> S;
+
+    /// Compute `x - y`.
+    fn sub(self, x: S, y: S) -> S;
+
+    /// Compute `x * y`.
+    fn mul(self, x: S, y: S) -> S;
+
+    /// Create a new vector with all lanes set to zero.
+    fn zero(self) -> S {
+        self.splat(S::Elem::default())
     }
 
-    /// Compute `1. / self`.
-    #[inline]
-    unsafe fn reciprocal(self) -> Self {
-        Self::one().div(self)
+    /// Create a new vector with all lanes set to one.
+    fn one(self) -> S {
+        self.splat(S::Elem::one())
     }
 
-    /// Return the absolute value of `self`.
-    unsafe fn abs(self) -> Self;
-
-    /// Compute `self * a + b` as a single operation.
-    unsafe fn mul_add(self, a: Self, b: Self) -> Self;
-
-    /// Compute `self + rhs`.
-    unsafe fn add(self, rhs: Self) -> Self;
-
-    /// Compute `self - rhs`.
-    unsafe fn sub(self, rhs: Self) -> Self;
-
-    /// Convert each f32 lane to an i32 with truncation.
-    unsafe fn to_int_trunc(self) -> Self::Int;
-
-    /// Convert each f32 lane to an i32 with rounding.
-    unsafe fn to_int_round(self) -> Self::Int;
-
-    /// Compute `self * rhs`.
-    unsafe fn mul(self, rhs: Self) -> Self;
-
-    /// Compute `self / rhs`.
-    unsafe fn div(self, rhs: Self) -> Self;
-
-    /// Compute a mask containing `self >= rhs`.
-    unsafe fn ge(self, rhs: Self) -> Self::Mask;
-
-    /// Compute a mask containing `self <= rhs`.
-    unsafe fn le(self, rhs: Self) -> Self::Mask;
-
-    /// Compute a mask containing `self < rhs`.
-    unsafe fn lt(self, rhs: Self) -> Self::Mask;
-
-    /// Compute the minimum of `self` and `rhs`.
-    unsafe fn min(self, rhs: Self) -> Self;
-
-    /// Compute the maximum of `self` and `rhs`.
-    unsafe fn max(self, rhs: Self) -> Self;
+    /// Compute `a * b + c`.
+    ///
+    /// This will use fused multiply-add instructions if available. For float
+    /// element types, this may use one or two roundings.
+    fn mul_add(self, a: S, b: S, c: S) -> S {
+        self.add(self.mul(a, b), c)
+    }
 
     /// Evaluate a polynomial using Horner's method.
     ///
-    /// Computes `self * coeffs[0] + self^2 * coeffs[1] ... self^n * coeffs[N]`
+    /// Computes `x * coeffs[0] + x^2 * coeffs[1] ... x^n * coeffs[N]`
     #[inline]
-    unsafe fn poly_eval(self, coeffs: &[Self]) -> Self {
+    fn poly_eval(self, x: S, coeffs: &[S]) -> S {
         let mut y = coeffs[coeffs.len() - 1];
         for i in (0..coeffs.len() - 1).rev() {
-            y = y.mul_add(self, coeffs[i]);
+            y = self.mul_add(y, x, coeffs[i]);
         }
-        y.mul(self)
+        self.mul(y, x)
     }
 
-    /// Sum all the lanes in this vector.
-    ///
-    /// The ordering of the summation is not specified. This can lead to small
-    /// differences in results depending on the architecture.
-    unsafe fn sum(self) -> f32;
+    /// Return a mask indicating whether elements in `x` are less than `y`.
+    #[inline]
+    fn lt(self, x: S, y: S) -> S::Mask {
+        self.gt(y, x)
+    }
 
-    /// Reduce the elements in this vector to a single value using `f`, then
+    /// Return a mask indicating whether elements in `x` are less or equal to `y`.
+    #[inline]
+    fn le(self, x: S, y: S) -> S::Mask {
+        self.ge(y, x)
+    }
+
+    /// Return a mask indicating whether elements in `x` are equal to `y`.
+    fn eq(self, x: S, y: S) -> S::Mask;
+
+    /// Return a mask indicating whether elements in `x` are greater or equal to `y`.
+    fn ge(self, x: S, y: S) -> S::Mask;
+
+    /// Return a mask indicating whether elements in `x` are greater than `y`.
+    fn gt(self, x: S, y: S) -> S::Mask;
+
+    /// Return the minimum of `x` and `y` for each lane.
+    fn min(self, x: S, y: S) -> S {
+        self.select(x, y, self.le(x, y))
+    }
+
+    /// Return the maximum of `x` and `y` for each lane.
+    fn max(self, x: S, y: S) -> S {
+        self.select(x, y, self.ge(x, y))
+    }
+
+    /// Clamp values in `x` to minimum and maximum values from corresponding
+    /// lanes in `min` and `max`.
+    fn clamp(self, x: S, min: S, max: S) -> S {
+        self.min(self.max(x, min), max)
+    }
+
+    /// Return the bitwise NOT of `x`.
+    fn not(self, x: S) -> S;
+
+    /// Return the bitwise XOR of `x` and `y`.
+    fn xor(self, x: S, y: S) -> S;
+
+    /// Create a new vector with all lanes set to `x`.
+    fn splat(self, x: S::Elem) -> S;
+
+    /// Reduce the elements in `x` to a single value using `f`, then
     /// return a new vector with the accumulated value broadcast to each lane.
     #[inline]
-    unsafe fn fold_splat<F: Fn(f32, f32) -> f32>(self, accum: f32, f: F) -> Self {
-        let reduced = self.to_array().into_iter().fold(accum, f);
-        Self::splat(reduced)
+    fn fold_splat<F: Fn(S::Elem, S::Elem) -> S::Elem>(self, x: S, accum: S::Elem, f: F) -> S {
+        let reduced = x.to_array().into_iter().fold(accum, f);
+        self.splat(reduced)
+    }
+
+    /// Return a mask with the first `n` lanes set to true.
+    fn first_n_mask(self, n: usize) -> S::Mask;
+
+    /// Load the first `self.len()` elements from a slice into a vector.
+    ///
+    /// Panics if `xs.len() < self.len()`.
+    #[inline]
+    fn load(self, xs: &[S::Elem]) -> S {
+        assert!(xs.len() >= self.len());
+        unsafe { self.load_ptr(xs.as_ptr()) }
+    }
+
+    /// Load `N` vectors from consecutive sub-slices of `xs`.
+    ///
+    /// Panics if `xs.len() < self.len() * N`.
+    #[inline]
+    fn load_many<const N: usize>(self, xs: &[S::Elem]) -> [S; N] {
+        let v_len = self.len();
+        assert!(xs.len() >= v_len * N);
+
+        // Safety: `xs.add(i * v_len)` points to at least `v_len` elements.
+        std::array::from_fn(|i| unsafe { self.load_ptr(xs.as_ptr().add(i * v_len)) })
+    }
+
+    /// Load elements from `xs` into a vector.
+    ///
+    /// If the vector length exceeds `xs.len()`, the tail is padded with zeros.
+    ///
+    /// Returns the padded vector and a mask of the lanes which were set.
+    #[inline]
+    fn load_pad(self, xs: &[S::Elem]) -> (S, S::Mask) {
+        let n = xs.len().min(self.len());
+        let mask = self.first_n_mask(n);
+
+        // Safety: `xs.add(i)` is valid for all positions where mask is set
+        let vec = unsafe { self.load_ptr_mask(xs.as_ptr(), mask) };
+
+        (vec, mask)
+    }
+
+    /// Load vector of elements from `ptr`.
+    ///
+    /// `ptr` is not required to have any particular alignment.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to `self.len()` initialized elements of type `S::Elem`.
+    unsafe fn load_ptr(self, ptr: *const S::Elem) -> S;
+
+    /// Load vector elements from `ptr` using a mask.
+    ///
+    /// `ptr` is not required to have any particular alignment.
+    ///
+    /// # Safety
+    ///
+    /// For each mask position `i` which is true, `ptr.add(i)` must point to
+    /// an initialized element of type `S::Elem`.
+    unsafe fn load_ptr_mask(self, ptr: *const S::Elem, mask: S::Mask) -> S;
+
+    /// Select elements from `x` or `y` according to a mask.
+    ///
+    /// Elements are selected from `x` where the corresponding mask element
+    /// is one or `y` if zero.
+    fn select(self, x: S, y: S, mask: S::Mask) -> S;
+
+    /// Store the values in this vector to a memory location.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to `self.len()` elements.
+    unsafe fn store_ptr(self, x: S, ptr: *mut S::Elem);
+
+    /// Store `x` into the first `self.len()` elements of `xs`.
+    #[inline]
+    fn store(self, x: S, xs: &mut [S::Elem]) {
+        assert!(xs.len() >= self.len());
+        unsafe { self.store_ptr(x, xs.as_mut_ptr()) }
+    }
+
+    /// Store `x` into the first `self.len()` elements of `xs`.
+    ///
+    /// This is a variant of [`store`](NumOps::store) which takes an
+    /// uninitialized slice as input and returns the initialized portion of the
+    /// slice.
+    #[inline]
+    fn store_uninit(self, x: S, xs: &mut [MaybeUninit<S::Elem>]) -> &mut [S::Elem] {
+        let len = self.len();
+        let xs_ptr = xs.as_mut_ptr() as *mut S::Elem;
+        assert!(xs.len() >= len);
+        unsafe {
+            self.store_ptr(x, xs_ptr);
+
+            // Safety: `store_ptr` initialized `len` elements of `xs`.
+            std::slice::from_raw_parts_mut(xs_ptr, len)
+        }
+    }
+
+    /// Store the values in this vector to a memory location, where the
+    /// corresponding mask element is set.
+    ///
+    /// # Safety
+    ///
+    /// For each position `i` in the mask which is true, `ptr.add(i)` must point
+    /// to a valid element of type `Self::Elem`.
+    unsafe fn store_ptr_mask(self, x: S, ptr: *mut S::Elem, mask: S::Mask);
+
+    fn prefetch(self, ptr: *const S::Elem) {
+        // Default implementation does nothing
+        let _ = ptr;
+    }
+
+    fn prefetch_write(self, ptr: *mut S::Elem) {
+        // Default implementation does nothing
+        let _ = ptr;
+    }
+
+    /// Horizontally sum the elements in a vector.
+    ///
+    /// If the sum overflows, it will wrap. This choice was made to enable
+    /// consistency between native intrinsics for horizontal addition and the
+    /// generic implementation.
+    fn sum(self, x: S) -> S::Elem {
+        let mut sum = S::Elem::default();
+        for elem in x.to_array() {
+            sum = sum.wrapping_add(elem);
+        }
+        sum
     }
 }
 
+/// Operations available on SIMD vectors with float elements.
+pub trait FloatOps<S: Simd>: NumOps<S> {
+    /// Integer SIMD vector of the same bit-width as this vector.
+    type Int: Simd;
+
+    /// Compute x / y
+    fn div(self, x: S, y: S) -> S;
+
+    /// Compute 1. / x
+    fn reciprocal(self, x: S) -> S {
+        self.div(self.one(), x)
+    }
+
+    /// Compute `-x`
+    fn neg(self, x: S) -> S {
+        self.sub(self.zero(), x)
+    }
+
+    /// Compute the absolute value of `x`
+    fn abs(self, x: S) -> S {
+        self.select(self.neg(x), x, self.lt(x, self.zero()))
+    }
+
+    /// Convert each lane to an integer of the same width, rounding towards zero.
+    fn to_int_trunc(self, x: S) -> Self::Int;
+
+    /// Convert each lane to an integer of the same width, rounding to nearest
+    /// with ties to even.
+    fn to_int_round(self, x: S) -> Self::Int;
+}
+
+/// Operations on SIMD vectors with signed integer elements.
+pub trait SignedIntOps<S: Simd>: NumOps<S> {
+    /// Shift each lane in `x` left by `SHIFT` bits.
+    fn shift_left<const SHIFT: i32>(self, x: S) -> S;
+
+    /// Compute the absolute value of `x`
+    fn abs(self, x: S) -> S {
+        self.select(self.neg(x), x, self.lt(x, self.zero()))
+    }
+
+    /// Return `-x`.
+    fn neg(self, x: S) -> S {
+        self.sub(self.zero(), x)
+    }
+}
+
+/// Widen lanes to a type with twice the width.
+///
+/// For integer types, the extended type has the same signed-ness.
+pub trait Extend<S: Simd> {
+    type Output;
+
+    /// Extend each lane to a type with twice the width.
+    ///
+    /// Returns a tuple containing the extended low and high half of the input.
+    fn extend(self, x: S) -> (Self::Output, Self::Output);
+}
+
+/// Interleave elements from the low or high halves of two vectors to form a
+/// new vector.
+pub trait Interleave<S: Simd> {
+    /// Interleave elements from the low halves of two vectors.
+    fn interleave_low(self, a: S, b: S) -> S;
+
+    /// Interleave elements from the high halves of two vectors.
+    fn interleave_high(self, a: S, b: S) -> S;
+}
+
+/// Narrow lanes to one with half the bit-width, using truncation.
+///
+/// For integer types, the narrowed type has the same signed-ness.
+#[cfg(target_arch = "x86_64")]
+pub(crate) trait Narrow<S: Simd> {
+    type Output;
+
+    /// Truncate each lane in a pair of vectors to one with half the bit-width.
+    ///
+    /// Returns a vector containing the concatenation of the narrowed lanes
+    /// from `low` followed by the narrowed lanes from `high`.
+    fn narrow_truncate(self, low: S, high: S) -> Self::Output;
+}
+
+/// Narrow lanes to one with half the bit-width, using saturation.
+///
+/// Conceptually, this converts each element from `S1::Elem` to `S2::Elem` using
+/// `x.clamp(S2::Elem::MIN as S1::Elem, S2::Elem::MAX as S1::Elem) as S2::Elem`.
+pub trait NarrowSaturate<S1: Simd, S2: Simd> {
+    /// Narrow each lane in a pair of vectors to one with half the bit-width.
+    ///
+    /// Returns a vector containing the concatenation of the narrowed lanes
+    /// from `low` followed by the narrowed lanes from `high`.
+    fn narrow_saturate(self, low: S1, high: S1) -> S2;
+}
+
 #[cfg(test)]
-pub mod tests {
-    /// Generate tests for a `SimdInt` implementation.
-    macro_rules! test_simdint {
-        ($modname:ident, $type_import_path:ty) => {
+mod tests {
+    use super::WrappingAdd;
+    use crate::{
+        assert_simd_eq, assert_simd_ne, test_simd_op, Extend, FloatOps, Interleave, Isa, Mask,
+        MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd, SimdOp,
+    };
+
+    // Generate tests for operations available on all numeric types.
+    macro_rules! test_num_ops {
+        ($modname:ident, $elem:ident) => {
             mod $modname {
-                use crate::vec::{Simd, SimdInt};
-                use $type_import_path as SimdVec;
-
-                const LEN: usize = <SimdVec as Simd>::LEN.unwrap();
+                use super::{
+                    assert_simd_eq, assert_simd_ne, test_simd_op, Isa, Mask, NumOps, Simd, SimdOp,
+                    WrappingAdd,
+                };
 
                 #[test]
-                fn test_load_extend_i8() {
-                    let src: Vec<i8> = (0..).take(LEN).collect();
-                    let vec = unsafe { <SimdVec as SimdInt>::load_extend_i8(src.as_ptr()) };
-                    let actual = unsafe { vec.to_array() };
-                    let expected: Vec<_> = src.iter().map(|x| *x as i32).collect();
-                    assert_eq!(actual.as_ref(), expected);
+                fn test_load_store() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let src: Vec<_> = (0..ops.len() * 4).map(|x| x as $elem).collect();
+                        let mut dst = vec![0 as $elem; src.len()];
+
+                        for (src_chunk, dst_chunk) in
+                            src.chunks(ops.len()).zip(dst.chunks_mut(ops.len()))
+                        {
+                            let x = ops.load(src_chunk);
+                            ops.store(x, dst_chunk);
+                        }
+
+                        assert_eq!(dst, src);
+                    })
                 }
 
                 #[test]
-                fn test_zip_lo_i8() {
-                    let a_start = 0i8;
-                    // `bstart` is not i8 to avoid overflow when `LEN` is 64.
-                    let b_start = LEN * 4;
-                    let a: Vec<_> = (a_start..).take(LEN * 4).collect();
-                    let b: Vec<_> = (b_start..).map(|x| x as i8).take(LEN * 4).collect();
+                fn test_store_uninit() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-                    let a_vec = unsafe { SimdVec::load(a.as_ptr() as *const i32) };
-                    let b_vec = unsafe { SimdVec::load(b.as_ptr() as *const i32) };
+                        let src: Vec<_> = (0..ops.len() + 3).map(|x| x as $elem).collect();
+                        let mut dest = Vec::with_capacity(src.len());
 
-                    let i8_lo = unsafe { a_vec.zip_lo_i8(b_vec) };
+                        let x = ops.load(&src);
 
-                    let mut actual_i8_lo = [0i8; LEN * 4];
-                    unsafe { i8_lo.store(actual_i8_lo.as_mut_ptr() as *mut i32) }
-
-                    let expected_i8_lo: Vec<_> = (a_start..)
-                        .zip(b_start..)
-                        .flat_map(|(a, b)| [a, b as i8])
-                        .take(LEN * 4)
-                        .collect();
-                    assert_eq!(actual_i8_lo, expected_i8_lo.as_slice());
+                        let init = ops.store_uninit(x, dest.spare_capacity_mut());
+                        assert_eq!(init, &src[0..ops.len()]);
+                    })
                 }
 
                 #[test]
-                fn test_zip_hi_i8() {
-                    let a_start = 0i8;
-                    // `bstart` is not i8 to avoid overflow when `LEN` is 64.
-                    let b_start = LEN * 4;
-                    let a: Vec<_> = (a_start..).take(LEN * 4).collect();
-                    let b: Vec<_> = (b_start..).map(|x| x as i8).take(LEN * 4).collect();
+                fn test_load_many() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-                    let a_vec = unsafe { SimdVec::load(a.as_ptr() as *const i32) };
-                    let b_vec = unsafe { SimdVec::load(b.as_ptr() as *const i32) };
+                        let src: Vec<_> = (0..ops.len() * 2).map(|x| x as $elem).collect();
 
-                    let i8_hi = unsafe { a_vec.zip_hi_i8(b_vec) };
-
-                    let mut actual_i8_hi = [0i8; LEN * 4];
-                    unsafe { i8_hi.store(actual_i8_hi.as_mut_ptr() as *mut i32) }
-
-                    let expected_i8_hi: Vec<_> = (a_start + LEN as i8 * 2..)
-                        .zip(b_start + LEN * 2..)
-                        .flat_map(|(a, b)| [a, b as i8])
-                        .take(LEN * 4)
-                        .collect();
-                    assert_eq!(actual_i8_hi, expected_i8_hi.as_slice());
+                        let xs = ops.load_many::<2>(&src);
+                        assert_simd_eq!(xs[0], ops.load(&src));
+                        assert_simd_eq!(xs[1], ops.load(&src[ops.len()..]));
+                    })
                 }
 
                 #[test]
-                fn test_zip_lo_i16() {
-                    let a_start = 0i16;
-                    let b_start = LEN as i16 * 2;
-                    let a: Vec<_> = (a_start..).take(LEN * 2).collect();
-                    let b: Vec<_> = (b_start..).take(LEN * 2).collect();
+                fn test_load_pad() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-                    let a_vec = unsafe { SimdVec::load(a.as_ptr() as *const i32) };
-                    let b_vec = unsafe { SimdVec::load(b.as_ptr() as *const i32) };
+                        // Array which is shorter than vector length for all ISAs.
+                        let src = [0, 1, 2].map(|x| x as $elem);
 
-                    let i16_lo = unsafe { a_vec.zip_lo_i16(b_vec) };
+                        let (vec, _mask) = ops.load_pad(&src);
+                        let vec_array = vec.to_array();
+                        let vec_slice = vec_array.as_ref();
 
-                    let mut actual_i16_lo = [0i16; LEN * 2];
-                    unsafe { i16_lo.store(actual_i16_lo.as_mut_ptr() as *mut i32) }
-
-                    let expected_i16_lo: Vec<_> = (a_start..)
-                        .zip(b_start..)
-                        .flat_map(|(a, b)| [a, b])
-                        .take(LEN * 2)
-                        .collect();
-                    assert_eq!(actual_i16_lo, expected_i16_lo.as_slice());
+                        assert_eq!(&vec_slice[..src.len()], &src);
+                        for i in ops.len()..vec_slice.len() {
+                            assert_eq!(vec_array[i], 0 as $elem);
+                        }
+                    })
                 }
 
                 #[test]
-                fn test_zip_hi_i16() {
-                    let a_start = 0i16;
-                    let b_start = LEN as i16 * 2;
-                    let a: Vec<_> = (a_start..).take(LEN * 2).collect();
-                    let b: Vec<_> = (b_start..).take(LEN * 2).collect();
+                fn test_bin_ops() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-                    let a_vec = unsafe { SimdVec::load(a.as_ptr() as *const i32) };
-                    let b_vec = unsafe { SimdVec::load(b.as_ptr() as *const i32) };
+                        let a = 2 as $elem;
+                        let b = 3 as $elem;
 
-                    let i16_hi = unsafe { a_vec.zip_hi_i16(b_vec) };
+                        let x = ops.splat(a);
+                        let y = ops.splat(b);
 
-                    let mut actual_i16_hi = [0i16; LEN * 2];
-                    unsafe { i16_hi.store(actual_i16_hi.as_mut_ptr() as *mut i32) }
+                        // Add
+                        let expected = ops.splat(a + b);
+                        let actual = ops.add(x, y);
+                        assert_simd_eq!(actual, expected);
 
-                    let expected_i16_hi: Vec<_> = (a_start + LEN as i16..)
-                        .zip(b_start + LEN as i16..)
-                        .flat_map(|(a, b)| [a, b])
-                        .take(LEN * 2)
-                        .collect();
-                    assert_eq!(actual_i16_hi, expected_i16_hi.as_slice());
+                        // Sub
+                        let expected = ops.splat(b - a);
+                        let actual = ops.sub(y, x);
+                        assert_simd_eq!(actual, expected);
+
+                        // Mul
+                        let expected = ops.splat(a * b);
+                        let actual = ops.mul(x, y);
+                        assert_simd_eq!(actual, expected);
+                    })
                 }
 
                 #[test]
-                fn test_saturating_cast_u8() {
-                    let src: Vec<i32> = [0, 1, -1, 256].iter().cycle().take(LEN).copied().collect();
-                    let expected: Vec<u8> = src
-                        .iter()
-                        .map(|&x| x.clamp(0, u8::MAX as i32) as u8)
-                        .collect();
-                    let vec = unsafe { <SimdVec as Simd>::load(src.as_ptr()) };
-                    let vec_u8 = unsafe { vec.saturating_cast_u8().to_array() };
+                fn test_cmp_ops() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
 
-                    assert_eq!(vec_u8.as_ref(), expected);
+                        let x = ops.splat(1 as $elem);
+                        let y = ops.splat(2 as $elem);
+
+                        assert!(ops.eq(x, x).all_true());
+                        assert!(ops.eq(x, y).all_false());
+                        assert!(ops.le(x, x).all_true());
+                        assert!(ops.le(x, y).all_true());
+                        assert!(ops.le(y, x).all_false());
+                        assert!(ops.ge(x, x).all_true());
+                        assert!(ops.ge(x, y).all_false());
+                        assert!(ops.gt(x, y).all_false());
+                        assert!(ops.gt(y, x).all_true());
+                    })
+                }
+
+                #[test]
+                fn test_mul_add() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let a = ops.splat(2 as $elem);
+                        let b = ops.splat(3 as $elem);
+                        let c = ops.splat(4 as $elem);
+
+                        let actual = ops.mul_add(a, b, c);
+                        let expected = ops.splat(((2. * 3.) + 4.) as $elem);
+
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+
+                #[test]
+                fn test_min_max() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(3 as $elem);
+
+                        // Min
+                        let y_min = ops.min(x, ops.splat(2 as $elem));
+                        let y_min_2 = ops.min(ops.splat(2 as $elem), x);
+                        assert_simd_eq!(y_min, y_min_2);
+                        assert_simd_eq!(y_min, ops.splat(2 as $elem));
+
+                        // Max
+                        let y_max = ops.max(x, ops.splat(4 as $elem));
+                        let y_max_2 = ops.max(ops.splat(4 as $elem), x);
+                        assert_simd_eq!(y_max, y_max_2);
+                        assert_simd_eq!(y_max, ops.splat(4 as $elem));
+
+                        // Clamp
+                        let y_clamped = ops.clamp(x, ops.splat(0 as $elem), ops.splat(4 as $elem));
+                        assert_simd_eq!(y_clamped, ops.splat(3 as $elem));
+                    })
+                }
+
+                #[test]
+                fn test_not() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+                        let zeros = ops.zero();
+                        let ones = ops.not(zeros);
+                        assert_simd_ne!(zeros, ones);
+
+                        let zeros_2 = ops.not(ones);
+                        assert_simd_eq!(zeros_2, zeros);
+                    })
+                }
+
+                #[test]
+                fn test_xor() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let zeros = ops.zero();
+                        let ones = ops.not(zeros);
+
+                        assert_simd_eq!(ops.xor(zeros, zeros), zeros);
+                        assert_simd_eq!(ops.xor(ones, ones), zeros);
+
+                        // Cast to bits here because all-ones is a NaN if the
+                        // element type is a float, and NaNs are not equal to
+                        // themselves.
+                        assert_simd_eq!(ops.xor(zeros, ones).to_bits(), ones.to_bits());
+                        assert_simd_eq!(ops.xor(ones, zeros).to_bits(), ones.to_bits());
+                    })
                 }
 
                 #[test]
                 fn test_sum() {
-                    let src: Vec<i32> = (0..).take(LEN).collect();
-                    let vec = unsafe { <SimdVec as Simd>::load(src.as_ptr()) };
-                    let actual = unsafe { vec.sum() };
-                    let expected: i32 = src.iter().sum();
-                    assert_eq!(actual, expected);
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let vec: Vec<_> = (0..ops.len()).map(|x| x as $elem).collect();
+                        let expected = vec
+                            .iter()
+                            .fold(0 as $elem, |sum, x| WrappingAdd::wrapping_add(sum, *x));
+
+                        let x = ops.load(&vec);
+                        let y = ops.sum(x);
+
+                        assert_eq!(y, expected);
+                    })
+                }
+
+                #[test]
+                fn test_poly_eval() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let coeffs = [2, 3, 4].map(|x| x as $elem);
+                        let x = 2 as $elem;
+                        let y = ops.poly_eval(ops.splat(x), &coeffs.map(|c| ops.splat(c)));
+
+                        let expected =
+                            (x * coeffs[0]) + (x * x * coeffs[1]) + (x * x * x * coeffs[2]);
+                        assert_simd_eq!(y, ops.splat(expected));
+                    })
                 }
             }
         };
     }
 
-    pub(crate) use test_simdint;
+    test_num_ops!(num_ops_f32, f32);
+    test_num_ops!(num_ops_i32, i32);
+    test_num_ops!(num_ops_i16, i16);
+    test_num_ops!(num_ops_i8, i8);
+    test_num_ops!(num_ops_u8, u8);
+    test_num_ops!(num_ops_u16, u16);
+
+    // Test that x8 multiply truncates result as expected.
+    #[test]
+    fn test_i8_mul_truncate() {
+        test_simd_op!(isa, {
+            let ops = isa.i8();
+
+            let x = 17i8;
+            let y = 19i8;
+
+            let x_vec = ops.splat(x);
+            let y_vec = ops.splat(y);
+            let expected = ops.splat(x.wrapping_mul(y));
+            let actual = ops.mul(x_vec, y_vec);
+
+            assert_simd_eq!(actual, expected);
+        })
+    }
+
+    #[test]
+    fn test_u8_mul_truncate() {
+        test_simd_op!(isa, {
+            let ops = isa.u8();
+
+            let x = 17u8;
+            let y = 19u8;
+
+            let x_vec = ops.splat(x);
+            let y_vec = ops.splat(y);
+            let expected = ops.splat(x.wrapping_mul(y));
+            let actual = ops.mul(x_vec, y_vec);
+
+            assert_simd_eq!(actual, expected);
+        })
+    }
+
+    // Generate tests for operations available on all float types.
+    macro_rules! test_float_ops {
+        ($modname:ident, $elem:ident, $int_elem:ident) => {
+            mod $modname {
+                use super::{assert_simd_eq, test_simd_op, FloatOps, Isa, NumOps, Simd, SimdOp};
+
+                #[test]
+                fn test_div() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(1.);
+                        let y = ops.splat(2.);
+                        let expected = ops.splat(0.5);
+                        let actual = ops.div(x, y);
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+
+                #[test]
+                fn test_reciprocal() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let vals = [-5., -2., 2., 5.];
+                        for v in vals {
+                            let x = ops.splat(v);
+                            let y = ops.reciprocal(x);
+                            let expected = ops.splat(1. / v);
+                            assert_simd_eq!(y, expected);
+                        }
+                    })
+                }
+
+                #[test]
+                fn test_abs() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let vals = [-1., 0., 1.];
+                        for v in vals {
+                            let x = ops.splat(v);
+                            let y = ops.abs(x);
+                            let expected = ops.splat(v.abs());
+                            assert_simd_eq!(y, expected);
+                        }
+                    })
+                }
+
+                #[test]
+                fn test_neg() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(3 as $elem);
+
+                        let expected = ops.splat(-3 as $elem);
+                        let actual = ops.neg(x);
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+
+                #[test]
+                fn test_to_int_trunc() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(12.345);
+                        let y = ops.to_int_trunc(x);
+                        let expected = isa.$int_elem().splat(12);
+                        assert_simd_eq!(y, expected);
+                    })
+                }
+            }
+        };
+    }
+
+    test_float_ops!(float_ops_f32, f32, i32);
+
+    // Generate tests for operations available on signed integer types.
+    macro_rules! test_signed_int_ops {
+        ($modname:ident, $elem:ident) => {
+            mod $modname {
+                use super::{
+                    assert_simd_eq, test_simd_op, Isa, NumOps, SignedIntOps, Simd, SimdOp,
+                };
+
+                #[test]
+                fn test_abs() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let vals = [-1, 0, 1];
+                        for v in vals {
+                            let x = ops.splat(v);
+                            let y = ops.abs(x);
+                            let expected = ops.splat(v.abs());
+                            assert_simd_eq!(y, expected);
+                        }
+                    })
+                }
+
+                // Add / Sub / Mul with a negative argument.
+                #[test]
+                fn test_bin_ops_neg() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let a = -2 as $elem;
+                        let b = 3 as $elem;
+
+                        let x = ops.splat(a);
+                        let y = ops.splat(b);
+
+                        // Add
+                        let expected = ops.splat(a + b);
+                        let actual = ops.add(x, y);
+                        assert_simd_eq!(actual, expected);
+
+                        // Sub
+                        let expected = ops.splat(b - a);
+                        let actual = ops.sub(y, x);
+                        assert_simd_eq!(actual, expected);
+
+                        // Mul
+                        let expected = ops.splat(a * b);
+                        let actual = ops.mul(x, y);
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+
+                #[test]
+                fn test_shl() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(42);
+                        let y = ops.shift_left::<1>(x);
+                        let expected = ops.splat(42 << 1);
+                        assert_simd_eq!(y, expected);
+                    })
+                }
+
+                #[test]
+                fn test_neg() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(3 as $elem);
+
+                        let expected = ops.splat(-3 as $elem);
+                        let actual = ops.neg(x);
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+            }
+        };
+    }
+
+    test_signed_int_ops!(int_ops_i32, i32);
+    test_signed_int_ops!(int_ops_i16, i16);
+    test_signed_int_ops!(int_ops_i8, i8);
+
+    // For small positive values, signed comparison ops will work on unsigned
+    // values. Make sure we really are using unsigned comparison.
+    #[test]
+    fn test_cmp_gt_ge_u16() {
+        test_simd_op!(isa, {
+            let ops = isa.u16();
+            let x = ops.splat(i16::MAX as u16);
+            let y = ops.splat(i16::MAX as u16 + 1);
+            assert!(ops.gt(y, x).all_true());
+            assert!(ops.ge(y, x).all_true());
+        });
+    }
+
+    #[test]
+    fn test_cmp_gt_ge_u8() {
+        test_simd_op!(isa, {
+            let ops = isa.u8();
+            let x = ops.splat(i8::MAX as u8);
+            let y = ops.splat(i8::MAX as u8 + 1);
+            assert!(ops.gt(y, x).all_true());
+            assert!(ops.ge(y, x).all_true());
+        });
+    }
+
+    macro_rules! test_mask_ops {
+        ($type:ident) => {
+            test_simd_op!(isa, {
+                let ops = isa.$type();
+                let mask_ops = ops.mask_ops();
+
+                // First-n mask
+                let ones = ops.first_n_mask(ops.len());
+                let zeros = ops.first_n_mask(0);
+                let first = ops.first_n_mask(1);
+
+                assert!(ones.all_true());
+                assert!(zeros.all_false());
+
+                // Bitwise and
+                assert_simd_eq!(mask_ops.and(ones, ones), ones);
+                assert_simd_eq!(mask_ops.and(first, ones), first);
+                assert_simd_eq!(mask_ops.and(first, zeros), zeros);
+            });
+        };
+    }
+
+    #[test]
+    fn test_mask_ops_f32() {
+        test_mask_ops!(f32);
+    }
+
+    #[test]
+    fn test_mask_ops_i32() {
+        test_mask_ops!(i32);
+    }
+
+    #[test]
+    fn test_mask_ops_i16() {
+        test_mask_ops!(i16);
+    }
+
+    #[test]
+    fn test_mask_ops_i8() {
+        test_mask_ops!(i8);
+    }
+
+    macro_rules! test_narrow_saturate {
+        ($test_name:ident, $src:ident, $dest:ident) => {
+            #[test]
+            fn $test_name() {
+                test_simd_op!(isa, {
+                    let ops = isa.$src();
+
+                    let src: Vec<$src> = (0..ops.len() * 2).map(|x| x as $src).collect();
+                    let expected: Vec<$dest> = src
+                        .iter()
+                        .map(|&x| x.clamp($dest::MIN as $src, $dest::MAX as $src) as $dest)
+                        .collect();
+
+                    let x_low = ops.load(&src[..ops.len()]);
+                    let x_high = ops.load(&src[ops.len()..]);
+                    let y = ops.narrow_saturate(x_low, x_high);
+
+                    assert_eq!(y.to_array().as_ref(), expected);
+                });
+            }
+        };
+    }
+
+    test_narrow_saturate!(test_narrow_i32_i16, i32, i16);
+    test_narrow_saturate!(test_narrow_u16_u8, i16, u8);
+
+    macro_rules! test_extend {
+        ($test_name:ident, $src:ident, $dest:ident) => {
+            #[test]
+            fn $test_name() {
+                test_simd_op!(isa, {
+                    let ops = isa.$src();
+                    let dst_ops = isa.$dest();
+
+                    let src: Vec<$src> = (0..ops.len()).map(|x| x as $src).collect();
+                    let expected: Vec<$dest> = src.iter().map(|&x| x as $dest).collect();
+
+                    let x = ops.load(&src);
+                    let (y_low, y_high) = ops.extend(x);
+                    assert_eq!(y_low.to_array().as_ref(), &expected[..dst_ops.len()]);
+                    assert_eq!(y_high.to_array().as_ref(), &expected[dst_ops.len()..]);
+                });
+            }
+        };
+    }
+    test_extend!(test_extend_i8_i16, i8, i16);
+    test_extend!(test_extend_i16_i32, i16, i32);
+
+    macro_rules! test_interleave {
+        ($test_name:ident, $elem:ident) => {
+            #[test]
+            fn $test_name() {
+                test_simd_op!(isa, {
+                    let ops = isa.$elem();
+
+                    let even: Vec<_> = (0..ops.len()).map(|x| x as $elem * 2).collect();
+                    let even = ops.load(&even);
+
+                    let odd: Vec<_> = (0..ops.len()).map(|x| 1 + (x as $elem * 2)).collect();
+                    let odd = ops.load(&odd);
+
+                    let expected_low: Vec<_> = (0..ops.len()).map(|x| x as $elem).collect();
+                    let expected_high: Vec<_> = (0..ops.len())
+                        .map(|x| ops.len() as $elem + x as $elem)
+                        .collect();
+
+                    let y_low = ops.interleave_low(even, odd);
+                    let y_high = ops.interleave_high(even, odd);
+                    assert_eq!(y_low.to_array().as_ref(), expected_low);
+                    assert_eq!(y_high.to_array().as_ref(), expected_high);
+                });
+            }
+        };
+    }
+    test_interleave!(test_interleave_i16, i16);
+    test_interleave!(test_interleave_i8, i8);
+
+    #[test]
+    fn test_reinterpret_cast() {
+        test_simd_op!(isa, {
+            let x = 1.456f32;
+            let x_i32 = x.to_bits() as i32;
+
+            let x_vec = isa.f32().splat(x);
+            let y_vec: I::I32 = x_vec.reinterpret_cast();
+
+            let expected = isa.i32().splat(x_i32);
+            assert_simd_eq!(y_vec, expected);
+        })
+    }
 }

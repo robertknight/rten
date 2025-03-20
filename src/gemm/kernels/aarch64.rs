@@ -2,7 +2,7 @@ use std::arch::aarch64::{int32x4_t, int8x16_t};
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::safe::isa::ArmNeonIsa;
+use rten_simd::isa::ArmNeonIsa;
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};

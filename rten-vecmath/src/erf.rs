@@ -4,7 +4,7 @@
 
 use std::f32::consts::SQRT_2;
 
-use rten_simd::safe::{FloatOps, Isa, NumOps, Simd, SimdUnaryOp};
+use rten_simd::{FloatOps, Isa, NumOps, Simd, SimdUnaryOp};
 
 use crate::Exp;
 
@@ -77,7 +77,7 @@ impl SimdUnaryOp<f32> for Gelu {
 
 #[cfg(test)]
 mod tests {
-    use rten_simd::safe::SimdUnaryOp;
+    use rten_simd::SimdUnaryOp;
 
     use super::{Erf, Gelu};
     use crate::testing::{

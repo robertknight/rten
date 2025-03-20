@@ -1,4 +1,4 @@
-use rten_simd::safe::{Isa, NumOps, Simd, SimdIterable, SimdOp};
+use rten_simd::{Isa, NumOps, Simd, SimdIterable, SimdOp};
 
 /// Compute the minimum and maximum values in a slice of floats.
 pub struct MinMax<'a> {
@@ -39,7 +39,7 @@ impl SimdOp for MinMax<'_> {
 #[cfg(test)]
 mod tests {
     use super::MinMax;
-    use rten_simd::safe::SimdOp;
+    use rten_simd::SimdOp;
 
     // Chosen to not be a multiple of vector size, so that tail handling is
     // exercised.
