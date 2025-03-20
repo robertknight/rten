@@ -15,7 +15,7 @@ use std::arch::wasm32::{
 use std::mem::transmute;
 
 use super::{lanes, simd_type};
-use crate::safe::{
+use crate::{
     Extend, FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
 };
 

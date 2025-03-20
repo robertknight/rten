@@ -50,7 +50,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::safe::{Isa, NumOps, SimdOp};
+    use crate::{Isa, NumOps, SimdOp};
 
     use super::simd_map;
 

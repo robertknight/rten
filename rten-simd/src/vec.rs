@@ -569,7 +569,7 @@ pub trait NarrowSaturate<S1: Simd, S2: Simd> {
 #[cfg(test)]
 mod tests {
     use super::WrappingAdd;
-    use crate::safe::{
+    use crate::{
         assert_simd_eq, assert_simd_ne, test_simd_op, Extend, FloatOps, Interleave, Isa, Mask,
         MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd, SimdOp,
     };

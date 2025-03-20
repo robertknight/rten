@@ -218,7 +218,7 @@ pub(crate) use test_simd_op;
 #[cfg(test)]
 mod tests {
     use super::SimdUnaryOp;
-    use crate::safe::{FloatOps, Isa, NumOps, Simd};
+    use crate::{FloatOps, Isa, NumOps, Simd};
 
     #[test]
     fn test_unary_float_op() {
