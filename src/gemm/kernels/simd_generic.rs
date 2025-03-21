@@ -656,7 +656,7 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
             //
             // The second tile contains A4..A7 and so on.
             let b_tile_ptr: [*const i8; 4] =
-                std::array::from_fn(|i| b_ptr.add((k + i) * b_row_stride) as *const i8);
+                std::array::from_fn(|i| b_ptr.add((k + i) * b_row_stride));
             let b0 = i8_ops.load_ptr(b_tile_ptr[0]);
             let b1 = i8_ops.load_ptr(b_tile_ptr[1]);
             let b2 = i8_ops.load_ptr(b_tile_ptr[2]);
@@ -815,7 +815,7 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
 
         for k_tile in k_tiles.by_ref() {
             let a = i8_ops.load_ptr(a_ptr.add(k_tile.start) as *const i8);
-            let b = i8_ops.load_ptr(b_ptr.add(k_tile.start) as *const i8);
+            let b = i8_ops.load_ptr(b_ptr.add(k_tile.start));
             let b = if CAST_B_U8 {
                 i8_ops.xor(b, bit_flip_mask)
             } else {
