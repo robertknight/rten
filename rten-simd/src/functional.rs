@@ -20,11 +20,14 @@ pub fn simd_map<'src, 'dst, T: Elem + 'static, O: NumOps<T>, Op: FnMut(O::Simd) 
 
     let v_len = ops.len();
     while n >= v_len {
-        // Safety: `in_ptr` points at >= `v_len` elements.
+        // Safety: `in_ptr` and `out_ptr` point to a buffer with at least `v_len`
+        // elements.
         let x = unsafe { ops.load_ptr(in_ptr) };
         let y = op(x);
-        unsafe { ops.store_ptr(y, out_ptr as *mut S::Elem) };
+        unsafe { ops.store_ptr(y, out_ptr as *mut T) };
 
+        // Safety: `in_ptr` and `out_ptr` are pointers into buffers of the same
+        // length, with at least `v_len` elements.
         n -= v_len;
         unsafe {
             in_ptr = in_ptr.add(v_len);
@@ -34,10 +37,13 @@ pub fn simd_map<'src, 'dst, T: Elem + 'static, O: NumOps<T>, Op: FnMut(O::Simd) 
 
     if n > 0 {
         let mask = ops.first_n_mask(n);
+
+        // Safety: Mask bit `i` is only set if `in_ptr.add(i)` and
+        // `out_ptr.add(i)` are valid.
         let x = unsafe { ops.load_ptr_mask(in_ptr, mask) };
         let y = op(x);
         unsafe {
-            ops.store_ptr_mask(y, out_ptr as *mut S::Elem, mask);
+            ops.store_ptr_mask(y, out_ptr as *mut T, mask);
         }
     }
 
