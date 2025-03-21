@@ -48,17 +48,19 @@ unsafe impl Isa for Wasm32Isa {
     type U16 = U16x8;
     type Bits = I32x4;
 
-    fn f32(self) -> impl FloatOps<Self::F32, Int = Self::I32> {
+    fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32> {
         self
     }
 
-    fn i32(self) -> impl SignedIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
+    fn i32(
+        self,
+    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
         self
     }
 
     fn i16(
         self,
-    ) -> impl SignedIntOps<Self::I16>
+    ) -> impl SignedIntOps<i16, Simd = Self::I16>
            + NarrowSaturate<Self::I16, Self::U8>
            + Extend<Self::I16, Output = Self::I32>
            + Interleave<Self::I16> {
@@ -67,22 +69,25 @@ unsafe impl Isa for Wasm32Isa {
 
     fn i8(
         self,
-    ) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> + Interleave<Self::I8>
-    {
+    ) -> impl SignedIntOps<i8, Simd = Self::I8>
+           + Extend<Self::I8, Output = Self::I16>
+           + Interleave<Self::I8> {
         self
     }
 
-    fn u8(self) -> impl NumOps<Self::U8> {
+    fn u8(self) -> impl NumOps<u8, Simd = Self::U8> {
         self
     }
 
-    fn u16(self) -> impl NumOps<Self::U16> {
+    fn u16(self) -> impl NumOps<u16, Simd = Self::U16> {
         self
     }
 }
 
 macro_rules! simd_ops_common {
     ($simd:ident, $mask:ident, $mask_elem:ty) => {
+        type Simd = $simd;
+
         #[inline]
         fn mask_ops(self) -> impl MaskOps<<$simd as Simd>::Mask> {
             self
@@ -112,8 +117,9 @@ macro_rules! simd_ops_common {
 
         #[inline]
         unsafe fn load_ptr_mask(self, ptr: *const <$simd as Simd>::Elem, mask: $mask) -> $simd {
+            type Elem = <$simd as Simd>::Elem;
             let mask_array = Mask::to_array(mask);
-            let mut vec = Simd::to_array(<Self as NumOps<$simd>>::zero(self));
+            let mut vec = Simd::to_array(NumOps::<Elem>::zero(self));
             for i in 0..mask_array.len() {
                 if mask_array[i] {
                     vec[i] = *ptr.add(i);
@@ -129,9 +135,11 @@ macro_rules! simd_ops_common {
             ptr: *mut <$simd as Simd>::Elem,
             mask: <$simd as Simd>::Mask,
         ) {
+            type Elem = <$simd as Simd>::Elem;
+
             let mask_array = Mask::to_array(mask);
             let x_array = Simd::to_array(x);
-            for i in 0..<Self as NumOps<$simd>>::len(self) {
+            for i in 0..NumOps::<Elem>::len(self) {
                 if mask_array[i] {
                     *ptr.add(i) = x_array[i];
                 }
@@ -155,7 +163,7 @@ macro_rules! simd_ops_common {
     };
 }
 
-unsafe impl NumOps<F32x4> for Wasm32Isa {
+unsafe impl NumOps<f32> for Wasm32Isa {
     simd_ops_common!(F32x4, M32, i32);
 
     #[inline]
@@ -238,7 +246,7 @@ unsafe impl NumOps<F32x4> for Wasm32Isa {
     }
 }
 
-impl FloatOps<F32x4> for Wasm32Isa {
+impl FloatOps<f32> for Wasm32Isa {
     type Int = <Self as Isa>::I32;
 
     #[inline]
@@ -267,7 +275,7 @@ impl FloatOps<F32x4> for Wasm32Isa {
     }
 }
 
-unsafe impl NumOps<I32x4> for Wasm32Isa {
+unsafe impl NumOps<i32> for Wasm32Isa {
     simd_ops_common!(I32x4, M32, i32);
 
     #[inline]
@@ -306,7 +314,7 @@ unsafe impl NumOps<I32x4> for Wasm32Isa {
     }
 }
 
-impl SignedIntOps<I32x4> for Wasm32Isa {
+impl SignedIntOps<i32> for Wasm32Isa {
     #[inline]
     fn neg(self, x: I32x4) -> I32x4 {
         I32x4(i32x4_neg(x.0))
@@ -325,7 +333,7 @@ impl NarrowSaturate<I32x4, I16x8> for Wasm32Isa {
     }
 }
 
-unsafe impl NumOps<I16x8> for Wasm32Isa {
+unsafe impl NumOps<i16> for Wasm32Isa {
     simd_ops_common!(I16x8, M16, i16);
 
     #[inline]
@@ -364,7 +372,7 @@ unsafe impl NumOps<I16x8> for Wasm32Isa {
     }
 }
 
-impl SignedIntOps<I16x8> for Wasm32Isa {
+impl SignedIntOps<i16> for Wasm32Isa {
     #[inline]
     fn neg(self, x: I16x8) -> I16x8 {
         I16x8(i16x8_neg(x.0))
@@ -406,7 +414,7 @@ impl NarrowSaturate<I16x8, U8x16> for Wasm32Isa {
     }
 }
 
-unsafe impl NumOps<I8x16> for Wasm32Isa {
+unsafe impl NumOps<i8> for Wasm32Isa {
     simd_ops_common!(I8x16, M8, i8);
 
     #[inline]
@@ -454,7 +462,7 @@ unsafe impl NumOps<I8x16> for Wasm32Isa {
     }
 }
 
-impl SignedIntOps<I8x16> for Wasm32Isa {
+impl SignedIntOps<i8> for Wasm32Isa {
     #[inline]
     fn neg(self, x: I8x16) -> I8x16 {
         I8x16(i8x16_neg(x.0))
@@ -490,7 +498,7 @@ impl Interleave<I8x16> for Wasm32Isa {
     }
 }
 
-unsafe impl NumOps<U8x16> for Wasm32Isa {
+unsafe impl NumOps<u8> for Wasm32Isa {
     simd_ops_common!(U8x16, M8, i8);
 
     #[inline]
@@ -538,7 +546,7 @@ unsafe impl NumOps<U8x16> for Wasm32Isa {
     }
 }
 
-unsafe impl NumOps<U16x8> for Wasm32Isa {
+unsafe impl NumOps<u16> for Wasm32Isa {
     simd_ops_common!(U16x8, M16, u16);
 
     #[inline]

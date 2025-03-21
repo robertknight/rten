@@ -62,17 +62,19 @@ unsafe impl Isa for GenericIsa {
     type U16 = U16x8;
     type Bits = I32x4;
 
-    fn f32(self) -> impl FloatOps<Self::F32, Int = Self::I32> {
+    fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32> {
         self
     }
 
-    fn i32(self) -> impl SignedIntOps<Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
+    fn i32(
+        self,
+    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
         self
     }
 
     fn i16(
         self,
-    ) -> impl SignedIntOps<Self::I16>
+    ) -> impl SignedIntOps<i16, Simd = Self::I16>
            + NarrowSaturate<Self::I16, Self::U8>
            + Extend<Self::I16, Output = Self::I32>
            + Interleave<Self::I16> {
@@ -81,16 +83,17 @@ unsafe impl Isa for GenericIsa {
 
     fn i8(
         self,
-    ) -> impl SignedIntOps<Self::I8> + Extend<Self::I8, Output = Self::I16> + Interleave<Self::I8>
-    {
+    ) -> impl SignedIntOps<i8, Simd = Self::I8>
+           + Extend<Self::I8, Output = Self::I16>
+           + Interleave<Self::I8> {
         self
     }
 
-    fn u8(self) -> impl NumOps<Self::U8> {
+    fn u8(self) -> impl NumOps<u8, Simd = Self::U8> {
         self
     }
 
-    fn u16(self) -> impl NumOps<Self::U16> {
+    fn u16(self) -> impl NumOps<u16, Simd = Self::U16> {
         self
     }
 }
@@ -120,7 +123,7 @@ macro_rules! simd_ops_common {
             mask: <$simd as Simd>::Mask,
         ) -> $simd {
             let mask_array = mask.0;
-            let mut vec = <Self as NumOps<$simd>>::zero(self).0;
+            let mut vec = <Self as NumOps<$elem>>::zero(self).0;
             for i in 0..mask_array.len() {
                 if mask_array[i] != 0 {
                     vec[i] = *ptr.add(i);
@@ -138,7 +141,7 @@ macro_rules! simd_ops_common {
         ) {
             let mask_array = mask.0;
             let x_array = x.0;
-            for i in 0..<Self as NumOps<$simd>>::len(self) {
+            for i in 0..<Self as NumOps<$elem>>::len(self) {
                 if mask_array[i] != 0 {
                     *ptr.add(i) = x_array[i];
                 }
@@ -239,7 +242,9 @@ macro_rules! simd_int_ops_common {
     };
 }
 
-unsafe impl NumOps<F32x4> for GenericIsa {
+unsafe impl NumOps<f32> for GenericIsa {
+    type Simd = F32x4;
+
     simd_ops_common!(F32x4, f32, 4, M32);
 
     #[inline]
@@ -253,7 +258,7 @@ unsafe impl NumOps<F32x4> for GenericIsa {
     }
 }
 
-impl FloatOps<F32x4> for GenericIsa {
+impl FloatOps<f32> for GenericIsa {
     type Int = <Self as Isa>::I32;
 
     #[inline]
@@ -289,12 +294,14 @@ impl FloatOps<F32x4> for GenericIsa {
 
 macro_rules! impl_simd_signed_int_ops {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
-        unsafe impl NumOps<$simd> for GenericIsa {
+        unsafe impl NumOps<$elem> for GenericIsa {
+            type Simd = $simd;
+
             simd_ops_common!($simd, $elem, $len, $mask);
             simd_int_ops_common!($simd);
         }
 
-        impl SignedIntOps<$simd> for GenericIsa {
+        impl SignedIntOps<$elem> for GenericIsa {
             #[inline]
             fn neg(self, x: $simd) -> $simd {
                 let xs = array::from_fn(|i| -x.0[i]);
@@ -357,7 +364,9 @@ impl_interleave!(I16x8);
 
 macro_rules! impl_simd_unsigned_int_ops {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
-        unsafe impl NumOps<$simd> for GenericIsa {
+        unsafe impl NumOps<$elem> for GenericIsa {
+            type Simd = $simd;
+
             simd_ops_common!($simd, $elem, $len, $mask);
             simd_int_ops_common!($simd);
         }

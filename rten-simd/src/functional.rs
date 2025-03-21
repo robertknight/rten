@@ -1,6 +1,6 @@
 //! Vectorized higher-order operations (map, fold etc.)
 
-use super::{NumOps, Simd};
+use super::{Elem, NumOps};
 use crate::span::SrcDest;
 
 /// Transform a slice by applying a vectorized map function to its elements.
@@ -10,24 +10,24 @@ use crate::span::SrcDest;
 ///
 /// The map function must have the same input and output type.
 #[inline(always)]
-pub fn simd_map<'src, 'dst, S: Simd, Op: FnMut(S) -> S>(
-    ops: impl NumOps<S>,
-    src_dest: impl Into<SrcDest<'src, 'dst, S::Elem>>,
+pub fn simd_map<'src, 'dst, T: Elem + 'static, O: NumOps<T>, Op: FnMut(O::Simd) -> O::Simd>(
+    ops: O,
+    src_dest: impl Into<SrcDest<'src, 'dst, T>>,
     mut op: Op,
-) -> &'dst mut [S::Elem]
-where
-    S::Elem: 'static,
-{
+) -> &'dst mut [T] {
     let mut src_dest = src_dest.into();
     let (mut in_ptr, mut out_ptr, mut n) = src_dest.src_dest_ptr();
 
     let v_len = ops.len();
     while n >= v_len {
-        // Safety: `in_ptr` points at >= `v_len` elements.
+        // Safety: `in_ptr` and `out_ptr` point to a buffer with at least `v_len`
+        // elements.
         let x = unsafe { ops.load_ptr(in_ptr) };
         let y = op(x);
-        unsafe { ops.store_ptr(y, out_ptr as *mut S::Elem) };
+        unsafe { ops.store_ptr(y, out_ptr as *mut T) };
 
+        // Safety: `in_ptr` and `out_ptr` are pointers into buffers of the same
+        // length, with at least `v_len` elements.
         n -= v_len;
         unsafe {
             in_ptr = in_ptr.add(v_len);
@@ -37,10 +37,13 @@ where
 
     if n > 0 {
         let mask = ops.first_n_mask(n);
+
+        // Safety: Mask bit `i` is only set if `in_ptr.add(i)` and
+        // `out_ptr.add(i)` are valid.
         let x = unsafe { ops.load_ptr_mask(in_ptr, mask) };
         let y = op(x);
         unsafe {
-            ops.store_ptr_mask(y, out_ptr as *mut S::Elem, mask);
+            ops.store_ptr_mask(y, out_ptr as *mut T, mask);
         }
     }
 
