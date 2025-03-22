@@ -126,6 +126,9 @@ impl TensorPool {
     }
 
     /// Allocate an empty vec with a given capacity from the pool.
+    ///
+    /// The returned buffer will have a [`capacity`](Vec::capacity) of at least
+    /// the requested size, but _may have more_.
     pub fn alloc<T>(&self, capacity: usize) -> Vec<T> {
         *self.alloc_count.borrow_mut() += 1;
 

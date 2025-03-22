@@ -202,7 +202,12 @@ where
             if let Some(data) = input.data() {
                 let mut buf = pool.alloc(data.len());
                 buf.extend_init(|buf_data| {
-                    Quantize::quantize_slice(data, buf_data, inv_scale, zero_point)
+                    Quantize::quantize_slice(
+                        data,
+                        &mut buf_data[..data.len()],
+                        inv_scale,
+                        zero_point,
+                    )
                 });
                 Ok(Tensor::from_data(input.shape(), buf))
             } else {
