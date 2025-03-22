@@ -184,8 +184,8 @@ fn simd_gemv_transposed<I: Isa>(
 /// can benefit from the kernel's instruction set (eg. for FMA operations).
 #[inline(always)]
 fn simd_gemv_fallback(out: &mut [MaybeUninit<f32>], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
-    assert!(a.len() == b.rows());
-    assert!(out.len() == b.cols());
+    assert_eq!(a.len(), b.rows());
+    assert_eq!(out.len(), b.cols());
 
     for (col, out) in out.iter_mut().enumerate() {
         let mut acc = 0.;
@@ -575,7 +575,7 @@ const I8_U8_SHIFT_MASK: i8 = 0x80u8 as i8;
 ///
 /// # Safety
 ///
-/// - Instructions used by SIMD type `S` and `dot_product` must be supported.
+/// - Instructions used by `dot_product` must be supported.
 #[inline(always)]
 pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
     isa: I,
@@ -781,6 +781,13 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
 }
 
 /// Variant of [`simd_int8_gemv`] for the case where the RHS has unit row stride.
+///
+/// # Safety
+///
+/// - Length of `out` must match columns of `b`
+/// - Length of `a` must match rows of `b`
+/// - `out` must be initialized if `accumulate` is true
+/// - `dot_product` must only use instructions supported on current system
 #[inline(always)]
 unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
     isa: I,
@@ -854,8 +861,12 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
 
 /// Fallback for [`simd_int8_gemv`] when RHS has neither unit column stride nor
 /// unit row stride.
+///
+/// # Safety
+///
+/// - `out` must be initialized if `accumulate` is true.
 #[inline(always)]
-fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
+unsafe fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
     out: &mut [MaybeUninit<i32>],
     a: &[u8],
     b: Matrix<i8>,
@@ -863,8 +874,10 @@ fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
     a_zero_point: u8,
     b_zero_points: Option<&[i8]>,
 ) {
-    let b_zero_shift = if CAST_B_U8 { 128 } else { 0 };
     let depth = a.len();
+    assert_eq!(b.rows(), depth);
+
+    let b_zero_shift = if CAST_B_U8 { 128 } else { 0 };
     for (out, col) in out.iter_mut().zip(0..b.cols()) {
         let b_zero = b_zero_points
             .map(|bz| bz[col] as i32 + b_zero_shift)
@@ -873,8 +886,8 @@ fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
         let mut row_sum = 0;
         let mut col_sum = 0;
 
-        for k in 0..depth {
-            let a_el = unsafe { *a.get_unchecked(k) } as i32;
+        for (k, &a_el) in a.iter().enumerate() {
+            let a_el = a_el as i32;
             let b_el = unsafe { *b.get_unchecked([k, col]) } as i32;
             let b_el = if CAST_B_U8 { b_el + b_zero_shift } else { b_el };
             acc += a_el * b_el;
@@ -892,9 +905,7 @@ fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
             out.write(acc);
         } else {
             // Safety: Output is initialized when `accumulate` is true
-            unsafe {
-                out.write(out.assume_init() + acc);
-            }
+            out.write(unsafe { out.assume_init() } + acc);
         }
     }
 }
