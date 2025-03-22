@@ -63,24 +63,24 @@ unsafe impl Isa for Avx512Isa {
 
     fn i32(
         self,
-    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
+    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<i32, i16, Output = Self::I16>
+    {
         self
     }
 
     fn i16(
         self,
     ) -> impl SignedIntOps<i16, Simd = Self::I16>
-           + NarrowSaturate<Self::I16, Self::U8>
-           + Extend<Self::I16, Output = Self::I32>
-           + Interleave<Self::I16> {
+           + NarrowSaturate<i16, u8, Output = Self::U8>
+           + Extend<i16, Output = Self::I32>
+           + Interleave<i16> {
         self
     }
 
     fn i8(
         self,
-    ) -> impl SignedIntOps<i8, Simd = Self::I8>
-           + Extend<Self::I8, Output = Self::I16>
-           + Interleave<Self::I8> {
+    ) -> impl SignedIntOps<i8, Simd = Self::I8> + Extend<i8, Output = Self::I16> + Interleave<i8>
+    {
         self
     }
 
@@ -354,7 +354,9 @@ impl SignedIntOps<i32> for Avx512Isa {
     }
 }
 
-impl NarrowSaturate<I32x16, I16x32> for Avx512Isa {
+impl NarrowSaturate<i32, i16> for Avx512Isa {
+    type Output = I16x32;
+
     #[inline]
     fn narrow_saturate(self, low: I32x16, high: I32x16) -> I16x32 {
         unsafe {
@@ -448,7 +450,9 @@ impl SignedIntOps<i16> for Avx512Isa {
     }
 }
 
-impl NarrowSaturate<I16x32, U8x64> for Avx512Isa {
+impl NarrowSaturate<i16, u8> for Avx512Isa {
+    type Output = U8x64;
+
     #[inline]
     fn narrow_saturate(self, low: I16x32, high: I16x32) -> U8x64 {
         unsafe {
@@ -464,7 +468,7 @@ impl NarrowSaturate<I16x32, U8x64> for Avx512Isa {
     }
 }
 
-impl Interleave<I16x32> for Avx512Isa {
+impl Interleave<i16> for Avx512Isa {
     #[inline]
     fn interleave_low(self, a: I16x32, b: I16x32) -> I16x32 {
         unsafe {
@@ -507,8 +511,8 @@ unsafe impl NumOps<i8> for Avx512Isa {
 
     #[inline]
     fn mul(self, x: I8x64, y: I8x64) -> I8x64 {
-        let (x_lo, x_hi) = self.extend(x);
-        let (y_lo, y_hi) = self.extend(y);
+        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
+        let (y_lo, y_hi) = Extend::<i8>::extend(self, y);
 
         let i16_ops = self.i16();
         let prod_lo = i16_ops.mul(x_lo, y_lo);
@@ -571,7 +575,7 @@ impl SignedIntOps<i8> for Avx512Isa {
 
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I8x64) -> I8x64 {
-        let (x_lo, x_hi) = self.extend(x);
+        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
 
         let i16_ops = self.i16();
         let (y_lo, y_hi) = (
@@ -583,7 +587,7 @@ impl SignedIntOps<i8> for Avx512Isa {
     }
 }
 
-impl Interleave<I8x64> for Avx512Isa {
+impl Interleave<i8> for Avx512Isa {
     #[inline]
     fn interleave_low(self, a: I8x64, b: I8x64) -> I8x64 {
         unsafe {
@@ -626,8 +630,8 @@ unsafe impl NumOps<u8> for Avx512Isa {
 
     #[inline]
     fn mul(self, x: U8x64, y: U8x64) -> U8x64 {
-        let (x_lo, x_hi) = self.extend(x);
-        let (y_lo, y_hi) = self.extend(y);
+        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
+        let (y_lo, y_hi) = Extend::<u8>::extend(self, y);
 
         let u16_ops = self.u16();
         let prod_lo = u16_ops.mul(x_lo, y_lo);
@@ -682,7 +686,7 @@ unsafe impl NumOps<u8> for Avx512Isa {
     }
 }
 
-impl Extend<I16x32> for Avx512Isa {
+impl Extend<i16> for Avx512Isa {
     type Output = I32x16;
 
     #[inline]
@@ -698,7 +702,7 @@ impl Extend<I16x32> for Avx512Isa {
     }
 }
 
-impl Extend<I8x64> for Avx512Isa {
+impl Extend<i8> for Avx512Isa {
     type Output = I16x32;
 
     #[inline]
@@ -714,7 +718,7 @@ impl Extend<I8x64> for Avx512Isa {
     }
 }
 
-impl Extend<U8x64> for Avx512Isa {
+impl Extend<u8> for Avx512Isa {
     type Output = U16x32;
 
     #[inline]
