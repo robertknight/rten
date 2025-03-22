@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 
 use super::functional::simd_map;
-use super::{Elem, Isa, Simd};
+use super::{Elem, GetNumOps, Isa, Simd};
 use crate::span::SrcDest;
 
 /// A vectorized operation which can be instantiated for different instruction
@@ -124,7 +124,7 @@ pub trait SimdUnaryOp<T: Elem> {
     fn map(&self, input: &[T], output: &mut [MaybeUninit<T>])
     where
         Self: Sized,
-        for<'src, 'dst, 'op> SimdMapOp<'src, 'dst, 'op, T, Self>: SimdOp,
+        T: GetNumOps,
     {
         let wrapped_op = SimdMapOp::wrap((input, output).into(), self);
         dispatch(wrapped_op);
@@ -138,7 +138,7 @@ pub trait SimdUnaryOp<T: Elem> {
     fn map_mut(&self, input: &mut [T])
     where
         Self: Sized,
-        for<'src, 'dst, 'op> SimdMapOp<'src, 'dst, 'op, T, Self>: SimdOp,
+        T: GetNumOps,
     {
         let wrapped_op = SimdMapOp::wrap(input.into(), self);
         dispatch(wrapped_op);
@@ -149,7 +149,7 @@ pub trait SimdUnaryOp<T: Elem> {
     fn scalar_eval(&self, x: T) -> T
     where
         Self: Sized,
-        for<'src, 'dst, 'op> SimdMapOp<'src, 'dst, 'op, T, Self>: SimdOp,
+        T: GetNumOps,
     {
         let mut array = [x];
         self.map_mut(&mut array);
@@ -170,29 +170,19 @@ impl<'src, 'dst, 'op, T: Elem, Op: SimdUnaryOp<T>> SimdMapOp<'src, 'dst, 'op, T,
     }
 }
 
-macro_rules! impl_simd_map_op {
-    ($type:ident, $cap_type:ident) => {
-        impl<'src, 'dst, 'op, Op: SimdUnaryOp<$type>> SimdOp
-            for SimdMapOp<'src, 'dst, 'op, $type, Op>
-        {
-            type Output = &'dst mut [$type];
+impl<'dst, T: GetNumOps, Op: SimdUnaryOp<T>> SimdOp for SimdMapOp<'_, 'dst, '_, T, Op> {
+    type Output = &'dst mut [T];
 
+    #[inline(always)]
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        simd_map(
+            T::num_ops(isa),
+            self.src_dest,
             #[inline(always)]
-            fn eval<I: Isa>(self, isa: I) -> Self::Output {
-                simd_map(
-                    isa.$type(),
-                    self.src_dest,
-                    #[inline(always)]
-                    |x| self.op.eval(isa, x),
-                )
-            }
-        }
-    };
+            |x| self.op.eval(isa, x),
+        )
+    }
 }
-
-impl_simd_map_op!(f32, F32);
-impl_simd_map_op!(i32, I32);
-impl_simd_map_op!(i16, I16);
 
 /// Convenience macro for defining and evaluating a SIMD operation.
 #[cfg(test)]
@@ -218,7 +208,7 @@ pub(crate) use test_simd_op;
 #[cfg(test)]
 mod tests {
     use super::SimdUnaryOp;
-    use crate::{FloatOps, Isa, NumOps, Simd};
+    use crate::{FloatOps, GetNumOps, Isa, NumOps, Simd};
 
     #[test]
     fn test_unary_float_op() {
@@ -243,26 +233,19 @@ mod tests {
     fn test_unary_generic_op() {
         struct Double {}
 
-        macro_rules! impl_double {
-            ($elem:ident) => {
-                impl SimdUnaryOp<$elem> for Double {
-                    fn eval<I: Isa, S: Simd<Elem = $elem, Isa = I>>(&self, isa: I, x: S) -> S {
-                        let ops = isa.$elem();
-                        let x = x.same_cast();
-                        ops.add(x, x).same_cast()
-                    }
-                }
-            };
+        impl<T: GetNumOps> SimdUnaryOp<T> for Double {
+            fn eval<I: Isa, S: Simd<Elem = T, Isa = I>>(&self, isa: I, x: S) -> S {
+                let ops = T::num_ops(isa);
+                let x = x.same_cast();
+                ops.add(x, x).same_cast()
+            }
         }
 
-        impl_double!(i32);
-        impl_double!(f32);
-
-        let mut buf = [1, 2, 3, 4];
+        let mut buf = [1i32, 2, 3, 4];
         Double {}.map_mut(&mut buf);
         assert_eq!(buf, [2, 4, 6, 8]);
 
-        let mut buf = [1., 2., 3., 4.];
+        let mut buf = [1.0f32, 2., 3., 4.];
         Double {}.map_mut(&mut buf);
         assert_eq!(buf, [2., 4., 6., 8.]);
     }

@@ -211,6 +211,95 @@ pub unsafe trait Isa: Copy {
     fn u16(self) -> impl NumOps<u16, Simd = Self::U16>;
 }
 
+/// Get the [`NumOps`] implementation from an [`Isa`] for a given element type.
+///
+/// This trait is useful for writing SIMD operations which are generic over the
+/// element type. It is implemented for all of the element types supported in
+/// SIMD vectors.
+///
+/// # Example
+///
+/// This example shows how to use [`GetNumOps`] to write a vectorized `Sum`
+/// operation.
+///
+/// ```
+/// use rten_simd::{GetNumOps, NumOps, Isa, SimdIterable, SimdOp};
+///
+/// struct Sum<'a, T>(&'a [T]);
+///
+/// impl<T: std::ops::Add<Output=T> + GetNumOps> SimdOp for Sum<'_, T> {
+///   type Output = T;
+///   
+///   #[inline(always)]
+///   fn eval<I: Isa>(self, isa: I) -> Self::Output {
+///     let ops = T::num_ops(isa);
+///
+///     // Build `ops.len()` partial sums in parallel. If the slice length is
+///     // not a multiple of `ops.len()` it will be padded with zeros.
+///     let mut sum = ops.zero();
+///     for chunk in self.0.simd_iter_pad(ops) {
+///         sum = ops.add(sum, chunk);
+///     }
+///
+///     // Horizontally reduce the SIMD vector containing partial sums to a
+///     // single value.
+///     ops.sum(sum)
+///   }
+/// }
+///
+/// let vals: Vec<_> = (1..20i32).collect();
+/// let sum = Sum(&vals).dispatch();
+/// assert_eq!(sum, vals.iter().sum());
+/// ```
+pub trait GetNumOps
+where
+    Self: Elem + 'static,
+{
+    /// Return the [`NumOps`] implementation from a SIMD [`Isa`] that provides
+    /// operations on vectors containing elements of type `Self`.
+    fn num_ops<I: Isa>(isa: I) -> impl NumOps<Self, Simd: Simd<Isa = I>>;
+}
+
+macro_rules! impl_get_ops {
+    ($trait:ty, $method:ident, $ops:ident, $type:ident) => {
+        impl $trait for $type {
+            fn $method<I: Isa>(isa: I) -> impl $ops<Self, Simd: Simd<Isa = I>> {
+                isa.$type()
+            }
+        }
+    };
+}
+impl_get_ops!(GetNumOps, num_ops, NumOps, f32);
+impl_get_ops!(GetNumOps, num_ops, NumOps, i16);
+impl_get_ops!(GetNumOps, num_ops, NumOps, i32);
+impl_get_ops!(GetNumOps, num_ops, NumOps, i8);
+impl_get_ops!(GetNumOps, num_ops, NumOps, u16);
+impl_get_ops!(GetNumOps, num_ops, NumOps, u8);
+
+/// Get the [`FloatOps`] implementation from an [`Isa`] for a given element type.
+///
+/// This is a specialization of [`GetNumOps`] for float element types.
+pub trait GetFloatOps
+where
+    Self: Elem,
+{
+    fn float_ops<I: Isa>(isa: I) -> impl FloatOps<Self, Simd: Simd<Isa = I>>;
+}
+impl_get_ops!(GetFloatOps, float_ops, FloatOps, f32);
+
+/// Get the [`SignedIntOps`] implementation from an [`Isa`] for a given element type.
+///
+/// This is a specialization of [`GetNumOps`] for signed integer element types.
+pub trait GetSignedIntOps
+where
+    Self: Elem,
+{
+    fn signed_int_ops<I: Isa>(isa: I) -> impl SignedIntOps<Self, Simd: Simd<Isa = I>>;
+}
+impl_get_ops!(GetSignedIntOps, signed_int_ops, SignedIntOps, i32);
+impl_get_ops!(GetSignedIntOps, signed_int_ops, SignedIntOps, i16);
+impl_get_ops!(GetSignedIntOps, signed_int_ops, SignedIntOps, i8);
+
 /// SIMD operations on a [`Mask`] vector.
 ///
 /// # Safety
