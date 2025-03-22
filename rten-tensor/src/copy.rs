@@ -1,8 +1,9 @@
-use std::mem::{transmute, MaybeUninit};
+use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use smallvec::SmallVec;
 
+use crate::assume_init::AssumeInit;
 use crate::slice_range::{IndexRange, SliceItem};
 use crate::{AsView, Layout};
 use crate::{
@@ -190,7 +191,7 @@ pub fn copy_into_slice<'a, T: Clone>(
         assert!(n_init == dest.len());
 
         // Safety: Loop above initialized all elements of `dest`.
-        return unsafe { transmute::<&mut [MaybeUninit<T>], &[T]>(dest) };
+        return unsafe { dest.assume_init() };
     }
 
     while src.ndim() < 4 {
@@ -206,17 +207,16 @@ pub fn copy_into_slice<'a, T: Clone>(
     let use_blocked_copy = src.stride(3) % 16 == 0 && src.stride(3) >= 32;
 
     if use_blocked_copy {
-        let mut dest = NdTensorViewMut::from_data(src.shape(), dest);
+        let mut dest_mat = NdTensorViewMut::from_data(src.shape(), &mut dest[..]);
         for i0 in 0..src.size(0) {
             for i1 in 0..src.size(1) {
                 let src = src.slice([i0, i1]);
-                let dest = dest.slice_mut([i0, i1]);
+                let dest = dest_mat.slice_mut([i0, i1]);
                 copy_blocked(src, dest);
             }
         }
         // Safety: Loop above initialized all elements of `dest`.
-        let data = dest.data().unwrap();
-        unsafe { transmute::<&[MaybeUninit<T>], &[T]>(data) }
+        unsafe { dest.assume_init() }
     } else {
         let mut dest_offset = 0;
         for i0 in 0..src.size(0) {
@@ -233,7 +233,7 @@ pub fn copy_into_slice<'a, T: Clone>(
             }
         }
         // Safety: Loop above initialized all elements of `dest`.
-        unsafe { transmute::<&[MaybeUninit<T>], &[T]>(dest) }
+        unsafe { dest.assume_init() }
     }
 }
 
