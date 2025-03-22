@@ -54,24 +54,24 @@ unsafe impl Isa for Wasm32Isa {
 
     fn i32(
         self,
-    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
+    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<i32, i16, Output = Self::I16>
+    {
         self
     }
 
     fn i16(
         self,
     ) -> impl SignedIntOps<i16, Simd = Self::I16>
-           + NarrowSaturate<Self::I16, Self::U8>
-           + Extend<Self::I16, Output = Self::I32>
-           + Interleave<Self::I16> {
+           + NarrowSaturate<i16, u8, Output = Self::U8>
+           + Extend<i16, Output = Self::I32>
+           + Interleave<i16> {
         self
     }
 
     fn i8(
         self,
-    ) -> impl SignedIntOps<i8, Simd = Self::I8>
-           + Extend<Self::I8, Output = Self::I16>
-           + Interleave<Self::I8> {
+    ) -> impl SignedIntOps<i8, Simd = Self::I8> + Extend<i8, Output = Self::I16> + Interleave<i8>
+    {
         self
     }
 
@@ -326,7 +326,9 @@ impl SignedIntOps<i32> for Wasm32Isa {
     }
 }
 
-impl NarrowSaturate<I32x4, I16x8> for Wasm32Isa {
+impl NarrowSaturate<i32, i16> for Wasm32Isa {
+    type Output = I16x8;
+
     #[inline]
     fn narrow_saturate(self, low: I32x4, high: I32x4) -> I16x8 {
         I16x8(i16x8_narrow_i32x4(low.0, high.0))
@@ -384,7 +386,7 @@ impl SignedIntOps<i16> for Wasm32Isa {
     }
 }
 
-impl Extend<I16x8> for Wasm32Isa {
+impl Extend<i16> for Wasm32Isa {
     type Output = I32x4;
 
     #[inline]
@@ -395,7 +397,7 @@ impl Extend<I16x8> for Wasm32Isa {
     }
 }
 
-impl Interleave<I16x8> for Wasm32Isa {
+impl Interleave<i16> for Wasm32Isa {
     #[inline]
     fn interleave_low(self, a: I16x8, b: I16x8) -> I16x8 {
         i16x8_shuffle::<0, 8, 1, 9, 2, 10, 3, 11>(a.0, b.0).into()
@@ -407,7 +409,9 @@ impl Interleave<I16x8> for Wasm32Isa {
     }
 }
 
-impl NarrowSaturate<I16x8, U8x16> for Wasm32Isa {
+impl NarrowSaturate<i16, u8> for Wasm32Isa {
+    type Output = U8x16;
+
     #[inline]
     fn narrow_saturate(self, low: I16x8, high: I16x8) -> U8x16 {
         U8x16(u8x16_narrow_i16x8(low.0, high.0))
@@ -474,7 +478,7 @@ impl SignedIntOps<i8> for Wasm32Isa {
     }
 }
 
-impl Extend<I8x16> for Wasm32Isa {
+impl Extend<i8> for Wasm32Isa {
     type Output = I16x8;
 
     #[inline]
@@ -485,7 +489,7 @@ impl Extend<I8x16> for Wasm32Isa {
     }
 }
 
-impl Interleave<I8x16> for Wasm32Isa {
+impl Interleave<i8> for Wasm32Isa {
     #[inline]
     fn interleave_low(self, a: I8x16, b: I8x16) -> I8x16 {
         i8x16_shuffle::<0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23>(a.0, b.0).into()

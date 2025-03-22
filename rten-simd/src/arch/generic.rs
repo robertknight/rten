@@ -68,24 +68,24 @@ unsafe impl Isa for GenericIsa {
 
     fn i32(
         self,
-    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
+    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<i32, i16, Output = Self::I16>
+    {
         self
     }
 
     fn i16(
         self,
     ) -> impl SignedIntOps<i16, Simd = Self::I16>
-           + NarrowSaturate<Self::I16, Self::U8>
-           + Extend<Self::I16, Output = Self::I32>
-           + Interleave<Self::I16> {
+           + NarrowSaturate<i16, u8, Output = Self::U8>
+           + Extend<i16, Output = Self::I32>
+           + Interleave<i16> {
         self
     }
 
     fn i8(
         self,
-    ) -> impl SignedIntOps<i8, Simd = Self::I8>
-           + Extend<Self::I8, Output = Self::I16>
-           + Interleave<Self::I8> {
+    ) -> impl SignedIntOps<i8, Simd = Self::I8> + Extend<i8, Output = Self::I16> + Interleave<i8>
+    {
         self
     }
 
@@ -322,8 +322,8 @@ impl_simd_signed_int_ops!(I16x8, i16, 8, M16);
 impl_simd_signed_int_ops!(I8x16, i8, 16, M8);
 
 macro_rules! impl_extend {
-    ($src:ty, $dst:ty) => {
-        impl Extend<$src> for GenericIsa {
+    ($src:ty, $elem:ty, $dst:ty) => {
+        impl Extend<$elem> for GenericIsa {
             type Output = $dst;
 
             fn extend(self, x: $src) -> ($dst, $dst) {
@@ -335,12 +335,12 @@ macro_rules! impl_extend {
         }
     };
 }
-impl_extend!(I8x16, I16x8);
-impl_extend!(I16x8, I32x4);
+impl_extend!(I8x16, i8, I16x8);
+impl_extend!(I16x8, i16, I32x4);
 
 macro_rules! impl_interleave {
-    ($simd:ty) => {
-        impl Interleave<$simd> for GenericIsa {
+    ($elem:ty, $simd:ty) => {
+        impl Interleave<$elem> for GenericIsa {
             fn interleave_low(self, a: $simd, b: $simd) -> $simd {
                 array::from_fn(|i| if i % 2 == 0 { a.0[i / 2] } else { b.0[i / 2] }).into()
             }
@@ -359,8 +359,8 @@ macro_rules! impl_interleave {
         }
     };
 }
-impl_interleave!(I8x16);
-impl_interleave!(I16x8);
+impl_interleave!(i8, I8x16);
+impl_interleave!(i16, I16x8);
 
 macro_rules! impl_simd_unsigned_int_ops {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
@@ -392,8 +392,10 @@ impl NarrowSaturateElem<u8> for i16 {
 }
 
 macro_rules! impl_narrow {
-    ($from:ident, $to:ident) => {
-        impl NarrowSaturate<$from, $to> for GenericIsa {
+    ($from:ident, $from_elem:ty, $to:ident, $to_elem:ty) => {
+        impl NarrowSaturate<$from_elem, $to_elem> for GenericIsa {
+            type Output = $to;
+
             fn narrow_saturate(self, lo: $from, hi: $from) -> $to {
                 let mid = lo.0.len() / 2;
                 let xs = array::from_fn(|i| {
@@ -405,8 +407,8 @@ macro_rules! impl_narrow {
         }
     };
 }
-impl_narrow!(I32x4, I16x8);
-impl_narrow!(I16x8, U8x16);
+impl_narrow!(I32x4, i32, I16x8, i16);
+impl_narrow!(I16x8, i16, U8x16, u8);
 
 macro_rules! impl_mask {
     ($mask:ident, $len:expr) => {

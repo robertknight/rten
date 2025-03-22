@@ -47,24 +47,24 @@ unsafe impl Isa for ArmNeonIsa {
 
     fn i32(
         self,
-    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<Self::I32, Self::I16> {
+    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<i32, i16, Output = Self::I16>
+    {
         self
     }
 
     fn i16(
         self,
     ) -> impl SignedIntOps<i16, Simd = Self::I16>
-           + NarrowSaturate<Self::I16, Self::U8>
-           + Extend<Self::I16, Output = Self::I32>
-           + Interleave<Self::I16> {
+           + NarrowSaturate<i16, u8, Output = Self::U8>
+           + Extend<i16, Output = Self::I32>
+           + Interleave<i16> {
         self
     }
 
     fn i8(
         self,
-    ) -> impl SignedIntOps<i8, Simd = Self::I8>
-           + Extend<Self::I8, Output = Self::I16>
-           + Interleave<Self::I8> {
+    ) -> impl SignedIntOps<i8, Simd = Self::I8> + Extend<i8, Output = Self::I16> + Interleave<i8>
+    {
         self
     }
 
@@ -343,7 +343,9 @@ impl SignedIntOps<i32> for ArmNeonIsa {
     }
 }
 
-impl NarrowSaturate<int32x4_t, int16x8_t> for ArmNeonIsa {
+impl NarrowSaturate<i32, i16> for ArmNeonIsa {
+    type Output = int16x8_t;
+
     #[inline]
     fn narrow_saturate(self, low: int32x4_t, high: int32x4_t) -> int16x8_t {
         unsafe {
@@ -354,7 +356,9 @@ impl NarrowSaturate<int32x4_t, int16x8_t> for ArmNeonIsa {
     }
 }
 
-impl NarrowSaturate<int16x8_t, uint8x16_t> for ArmNeonIsa {
+impl NarrowSaturate<i16, u8> for ArmNeonIsa {
+    type Output = uint8x16_t;
+
     #[inline]
     fn narrow_saturate(self, low: int16x8_t, high: int16x8_t) -> uint8x16_t {
         unsafe {
@@ -447,7 +451,7 @@ impl SignedIntOps<i16> for ArmNeonIsa {
     }
 }
 
-impl Extend<int16x8_t> for ArmNeonIsa {
+impl Extend<i16> for ArmNeonIsa {
     type Output = int32x4_t;
 
     #[inline]
@@ -460,7 +464,7 @@ impl Extend<int16x8_t> for ArmNeonIsa {
     }
 }
 
-impl Interleave<int16x8_t> for ArmNeonIsa {
+impl Interleave<i16> for ArmNeonIsa {
     #[inline]
     fn interleave_low(self, a: int16x8_t, b: int16x8_t) -> int16x8_t {
         unsafe { vzip1q_s16(a, b) }
@@ -554,7 +558,7 @@ impl SignedIntOps<i8> for ArmNeonIsa {
     }
 }
 
-impl Extend<int8x16_t> for ArmNeonIsa {
+impl Extend<i8> for ArmNeonIsa {
     type Output = int16x8_t;
 
     #[inline]
@@ -567,7 +571,7 @@ impl Extend<int8x16_t> for ArmNeonIsa {
     }
 }
 
-impl Interleave<int8x16_t> for ArmNeonIsa {
+impl Interleave<i8> for ArmNeonIsa {
     #[inline]
     fn interleave_low(self, a: int8x16_t, b: int8x16_t) -> int8x16_t {
         unsafe { vzip1q_s8(a, b) }

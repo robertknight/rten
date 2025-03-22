@@ -186,23 +186,22 @@ pub unsafe trait Isa: Copy {
     fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>;
 
     /// Operations on SIMD vectors with `i32` elements.
-    fn i32(self)
-        -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<Self::I32, Self::I16>;
+    fn i32(
+        self,
+    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<i32, i16, Output = Self::I16>;
 
     /// Operations on SIMD vectors with `i16` elements.
     fn i16(
         self,
     ) -> impl SignedIntOps<i16, Simd = Self::I16>
-           + NarrowSaturate<Self::I16, Self::U8>
-           + Extend<Self::I16, Output = Self::I32>
-           + Interleave<Self::I16>;
+           + NarrowSaturate<i16, u8, Output = Self::U8>
+           + Extend<i16, Output = Self::I32>
+           + Interleave<i16>;
 
     /// Operations on SIMD vectors with `i8` elements.
     fn i8(
         self,
-    ) -> impl SignedIntOps<i8, Simd = Self::I8>
-           + Extend<Self::I8, Output = Self::I16>
-           + Interleave<Self::I8>;
+    ) -> impl SignedIntOps<i8, Simd = Self::I8> + Extend<i8, Output = Self::I16> + Interleave<i8>;
 
     /// Operations on SIMD vectors with `u8` elements.
     fn u8(self) -> impl NumOps<u8, Simd = Self::U8>;
@@ -618,23 +617,23 @@ pub trait SignedIntOps<T: Elem>: NumOps<T> {
 /// Widen lanes to a type with twice the width.
 ///
 /// For integer types, the extended type has the same signed-ness.
-pub trait Extend<S: Simd> {
+pub trait Extend<T: Elem>: NumOps<T> {
     type Output;
 
     /// Extend each lane to a type with twice the width.
     ///
     /// Returns a tuple containing the extended low and high half of the input.
-    fn extend(self, x: S) -> (Self::Output, Self::Output);
+    fn extend(self, x: Self::Simd) -> (Self::Output, Self::Output);
 }
 
 /// Interleave elements from the low or high halves of two vectors to form a
 /// new vector.
-pub trait Interleave<S: Simd> {
+pub trait Interleave<T: Elem>: NumOps<T> {
     /// Interleave elements from the low halves of two vectors.
-    fn interleave_low(self, a: S, b: S) -> S;
+    fn interleave_low(self, a: Self::Simd, b: Self::Simd) -> Self::Simd;
 
     /// Interleave elements from the high halves of two vectors.
-    fn interleave_high(self, a: S, b: S) -> S;
+    fn interleave_high(self, a: Self::Simd, b: Self::Simd) -> Self::Simd;
 }
 
 /// Narrow lanes to one with half the bit-width, using truncation.
@@ -655,12 +654,14 @@ pub(crate) trait Narrow<S: Simd> {
 ///
 /// Conceptually, this converts each element from `S1::Elem` to `S2::Elem` using
 /// `x.clamp(S2::Elem::MIN as S1::Elem, S2::Elem::MAX as S1::Elem) as S2::Elem`.
-pub trait NarrowSaturate<S1: Simd, S2: Simd> {
+pub trait NarrowSaturate<T: Elem, U: Elem>: NumOps<T> {
+    type Output: Simd<Elem = U>;
+
     /// Narrow each lane in a pair of vectors to one with half the bit-width.
     ///
     /// Returns a vector containing the concatenation of the narrowed lanes
     /// from `low` followed by the narrowed lanes from `high`.
-    fn narrow_saturate(self, low: S1, high: S1) -> S2;
+    fn narrow_saturate(self, low: Self::Simd, high: Self::Simd) -> Self::Output;
 }
 
 #[cfg(test)]
