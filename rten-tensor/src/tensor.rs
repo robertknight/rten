@@ -1705,7 +1705,7 @@ impl<T, S: Storage<Elem = T>, L: MutLayout + Clone> AsView for TensorBase<S, L> 
             dest.copy_from_slice(src_uninit);
             // Safety: `copy_from_slice` initializes the whole slice or panics
             // if there is a length mismatch.
-            unsafe { std::mem::transmute::<&[MaybeUninit<T>], &[T]>(dest) }
+            unsafe { dest.assume_init() }
         } else {
             copy_into_slice(self.as_dyn(), dest)
         }
