@@ -5,7 +5,7 @@ use rten_simd::{isa::GenericIsa, Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, GemmDispatch};
-use super::{Kernel, Lhs, PackedLayout, QuantParams, TempTile};
+use super::{Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
 use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
@@ -169,15 +169,14 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
 
     fn gemv_kernel(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: MatVecOutput<f32>,
         a: &[f32],
         b: Matrix,
         alpha: f32,
-        beta: f32,
         _a_quant: Option<QuantParams<f32>>,
         _b_quant: Option<QuantParams<f32>>,
     ) {
-        simd_gemv::<_, 1>(self.isa, out, a, b, alpha, beta);
+        simd_gemv::<_, 1>(self.isa, out, a, b, alpha);
     }
 }
 
@@ -355,37 +354,35 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
 
     fn gemv_kernel(
         &self,
-        out: &mut [MaybeUninit<i32>],
+        out: MatVecOutput<i32>,
         a: &[u8],
         b: Matrix<i8>,
         alpha: f32,
-        beta: i32,
         a_quant: Option<QuantParams<u8>>,
         b_quant: Option<QuantParams<i8>>,
     ) {
-        int8_gemv(out, a, b, alpha, beta, a_quant, b_quant)
+        int8_gemv(out, a, b, alpha, a_quant, b_quant)
     }
 }
 
 /// Generic implementation of [`Kernel::gemv`] for u8 x i8 -> i32 kernels.
 pub fn int8_gemv(
-    out: &mut [MaybeUninit<i32>],
+    out: MatVecOutput<i32>,
     a: &[u8],
     b: Matrix<i8>,
     alpha: f32,
-    beta: i32,
     a_quant: Option<QuantParams<u8>>,
     b_quant: Option<QuantParams<i8>>,
 ) {
-    assert!(beta == 0 || beta == 1);
+    assert!(out.beta == 0 || out.beta == 1);
     assert_eq!(alpha, 1.);
     assert_eq!(b.rows(), a.len());
-    assert_eq!(out.len(), b.cols());
+    assert_eq!(out.data.len(), b.cols());
 
     let a_zero = a_quant.map(|aq| aq.zero_point[0] as i32).unwrap_or(0);
     let depth = a.len();
 
-    for (out, col) in out.iter_mut().zip(0..b.cols()) {
+    for (out_el, col) in out.data.iter_mut().zip(0..b.cols()) {
         let b_zero = b_quant.map(|bq| bq.zero_point[col] as i32).unwrap_or(0);
         let mut acc = 0;
         let mut row_sum = 0;
@@ -404,12 +401,12 @@ pub fn int8_gemv(
         // efficient.
         acc = depth as i32 * a_zero * b_zero + acc - row_sum * b_zero - col_sum * a_zero;
 
-        if beta == 0 {
-            out.write(acc);
+        if out.beta == 0 {
+            out_el.write(acc);
         } else {
             // Safety: Output is initialized when beta is non-zero
             unsafe {
-                out.write(out.assume_init() + acc);
+                out_el.write(out_el.assume_init() + acc);
             }
         }
     }

@@ -279,11 +279,10 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     /// be initialized.
     fn gemv_kernel(
         &self,
-        out: &mut [MaybeUninit<OutT>],
+        out: MatVecOutput<OutT>,
         a: &[LhsT],
         b: Matrix<RhsT>,
         alpha: f32,
-        beta: OutT,
         a_quant: Option<QuantParams<LhsT>>,
         b_quant: Option<QuantParams<RhsT>>,
     );
@@ -405,4 +404,52 @@ unsafe trait Int8DotProduct {
     ///
     /// The signed-ness of `a` and `b` depends on the implementation.
     fn dot_product(self, a: Self::X8, b: Self::X8, c: Self::I32) -> Self::I32;
+}
+
+/// Output for matrix-vector multiplication.
+///
+/// This consists of:
+///
+/// - An output data slice
+/// - An accumulation scale factor (`beta`), used as `C = beta * C + AB`. If
+///   `beta` is zero, the output data may be uninitialized.
+pub struct MatVecOutput<'a, T, B = T> {
+    data: &'a mut [MaybeUninit<T>],
+    beta: B,
+}
+
+impl<'a, T, B: Copy + Default + PartialEq> MatVecOutput<'a, T, B> {
+    /// Create matrix-vector product output from an uninitialized slice.
+    ///
+    /// `beta` is implicitly set to zero.
+    pub fn from_uninit_slice(data: &'a mut [MaybeUninit<T>]) -> Self {
+        MatVecOutput {
+            data,
+            beta: B::default(),
+        }
+    }
+
+    /// Create matrix-vector product output from a slice and beta value.
+    pub fn from_slice(data: &'a mut [T], beta: B) -> Self {
+        let data = unsafe { std::mem::transmute::<&'a mut [T], &'a mut [MaybeUninit<T>]>(data) };
+        MatVecOutput { data, beta }
+    }
+
+    pub fn slice_mut(&mut self, range: Range<usize>) -> MatVecOutput<T, B> {
+        MatVecOutput {
+            data: &mut self.data[range],
+            beta: self.beta,
+        }
+    }
+
+    /// Convert the accumulation scale (beta) to a boolean.
+    ///
+    /// This effectively changes the operation from `C = C * beta + AB` to
+    /// `C = AB` or `C += AB` depending on the value of beta.
+    pub fn as_bool_beta(&mut self) -> MatVecOutput<T, bool> {
+        MatVecOutput {
+            data: self.data,
+            beta: self.beta != B::default(),
+        }
+    }
 }

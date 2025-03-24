@@ -9,7 +9,8 @@ use rten_simd::isa::Avx512Isa;
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
 use super::{
-    extract_zero_points, Int8DotProduct, Kernel, Lhs, PackedLayout, QuantParams, TempTile,
+    extract_zero_points, Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams,
+    TempTile,
 };
 use crate::gemm::packing;
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
@@ -223,11 +224,10 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
 
     fn gemv_kernel(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: MatVecOutput<f32>,
         a: &[f32],
         b: Matrix,
         alpha: f32,
-        beta: f32,
         _a_quant: Option<QuantParams<f32>>,
         _b_quant: Option<QuantParams<f32>>,
     ) {
@@ -235,17 +235,16 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         #[target_feature(enable = "fma")]
         unsafe fn gemv_kernel_impl(
             isa: Avx2Isa,
-            out: &mut [MaybeUninit<f32>],
+            out: MatVecOutput<f32>,
             a: &[f32],
             b: Matrix,
             alpha: f32,
-            beta: f32,
         ) {
-            simd_gemv::<_, 4>(isa, out, a, b, alpha, beta);
+            simd_gemv::<_, 4>(isa, out, a, b, alpha);
         }
         // Safety: Kernel can only be constructed if supported.
         unsafe {
-            gemv_kernel_impl(self.isa, out, a, b, alpha, beta);
+            gemv_kernel_impl(self.isa, out, a, b, alpha);
         }
     }
 }
@@ -434,11 +433,10 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
 
     fn gemv_kernel(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: MatVecOutput<f32>,
         a: &[f32],
         b: Matrix,
         alpha: f32,
-        beta: f32,
         _a_quant: Option<QuantParams<f32>>,
         _b_quant: Option<QuantParams<f32>>,
     ) {
@@ -446,17 +444,16 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         #[target_feature(enable = "avx512vl")]
         unsafe fn gemv_kernel_impl(
             isa: Avx512Isa,
-            out: &mut [MaybeUninit<f32>],
+            out: MatVecOutput<f32>,
             a: &[f32],
             b: Matrix,
             alpha: f32,
-            beta: f32,
         ) {
-            simd_gemv::<_, 2>(isa, out, a, b, alpha, beta);
+            simd_gemv::<_, 2>(isa, out, a, b, alpha);
         }
         // Safety: Kernel can only be constructed if supported.
         unsafe {
-            gemv_kernel_impl(self.isa, out, a, b, alpha, beta);
+            gemv_kernel_impl(self.isa, out, a, b, alpha);
         }
     }
 }
@@ -612,36 +609,31 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
 
     fn gemv_kernel(
         &self,
-        out: &mut [MaybeUninit<i32>],
+        mut out: MatVecOutput<i32>,
         a: &[u8],
         b: Matrix<i8>,
         _alpha: f32,
-        beta: i32,
         a_quant: Option<QuantParams<u8>>,
         b_quant: Option<QuantParams<i8>>,
     ) {
         let a_zero = a_quant.map(|aq| aq.zero_point[0]).unwrap_or(0);
         let b_zero = b_quant.map(|bq| bq.zero_point);
+        let out = out.as_bool_beta();
 
         #[target_feature(enable = "avx2")]
         unsafe fn gemv_impl(
             isa: Avx2Isa,
-            out: &mut [MaybeUninit<i32>],
+            out: MatVecOutput<i32, bool>,
             a: &[u8],
             b: Matrix<i8>,
-            accumulate: bool,
             a_zero: u8,
             b_zero: Option<&[i8]>,
         ) {
-            simd_int8_gemv::<_, false /* CAST_B_U8 */>(
-                isa, out, a, b, accumulate, a_zero, b_zero, isa,
-            )
+            simd_int8_gemv::<_, false /* CAST_B_U8 */>(isa, out, a, b, a_zero, b_zero, isa)
         }
 
-        let accumulate = beta != 0;
-
         // Safety: AVX2 is supported if this kernel was constructed.
-        unsafe { gemv_impl(self.isa, out, a, b, accumulate, a_zero, b_zero) }
+        unsafe { gemv_impl(self.isa, out, a, b, a_zero, b_zero) }
     }
 }
 
@@ -850,39 +842,37 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
 
     fn gemv_kernel(
         &self,
-        out: &mut [MaybeUninit<i32>],
+        mut out: MatVecOutput<i32>,
         a: &[u8],
         b: Matrix<i8>,
         _alpha: f32,
-        beta: i32,
         a_quant: Option<QuantParams<u8>>,
         b_quant: Option<QuantParams<i8>>,
     ) {
         let a_zero = a_quant.map(|aq| aq.zero_point[0]).unwrap_or(0);
         let b_zero = b_quant.map(|bq| bq.zero_point);
+        let out = out.as_bool_beta();
 
         #[target_feature(enable = "avx512f")]
         #[target_feature(enable = "avx512vl")]
         #[target_feature(enable = "avx512bw")]
         unsafe fn gemv_impl(
             isa: Avx512Isa,
-            out: &mut [MaybeUninit<i32>],
+            out: MatVecOutput<i32, bool>,
             a: &[u8],
             b: Matrix<i8>,
-            accumulate: bool,
             a_zero: u8,
             b_zero: Option<&[i8]>,
         ) {
             simd_int8_gemv::<_, false /* CAST_B_U8 */>(
-                isa, out, a, b, accumulate, a_zero, b_zero,
-                // TODO - Use VNNI here if available
+                isa, out, a, b, a_zero, b_zero, // TODO - Use VNNI here if available
                 isa,
             )
         }
 
         // Safety: AVX512 is supported if this kernel was constructed.
         unsafe {
-            gemv_impl(self.isa, out, a, b, beta != 0, a_zero, b_zero);
+            gemv_impl(self.isa, out, a, b, a_zero, b_zero);
         }
     }
 }
