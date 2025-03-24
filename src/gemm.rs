@@ -30,8 +30,8 @@ mod tiles;
 pub use errors::GemmError;
 pub use im2col::{ColOffsets, Im2Col, RowOffsets};
 use kernels::generic::GenericKernel;
-use kernels::Kernel;
 pub use kernels::QuantParams;
+use kernels::{Kernel, MatVecOutput};
 use packing::PackingBuffer;
 pub use prepack::{PackedAMatrix, PackedBMatrix};
 use tiles::OutputTiles;
@@ -73,6 +73,7 @@ impl GemmInT for f32 {}
 /// Trait implemented by GEMM output types.
 pub trait GemmOutT:
     Copy
+    + Default
     + PartialEq
     + Send
     + Sync
@@ -587,15 +588,14 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 range_chunks(0..a_cols, k_block_size).zip(a_data.chunks(k_block_size))
             {
                 let b_block = b.slice((k_block, col_block.clone()));
-                kernel.gemv_kernel(
-                    out_chunk,
-                    a_block,
-                    b_block,
-                    alpha,
-                    effective_beta,
-                    a_quant,
-                    b_quant,
-                );
+                let mat_vec_out = if effective_beta == OutT::zero() {
+                    MatVecOutput::from_uninit_slice(out_chunk)
+                } else {
+                    // Safety: Output is initialized if `effective_beta` is non-zero.
+                    MatVecOutput::from_slice(unsafe { out_chunk.assume_init() }, effective_beta)
+                };
+
+                kernel.gemv_kernel(mat_vec_out, a_block, b_block, alpha, a_quant, b_quant);
 
                 // Reset `beta` so that subsequent updates for each column
                 // accumulate into the first update.

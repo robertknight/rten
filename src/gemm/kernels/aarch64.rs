@@ -7,7 +7,8 @@ use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
 use super::{
-    extract_zero_points, Int8DotProduct, Kernel, Lhs, PackedLayout, QuantParams, TempTile,
+    extract_zero_points, Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams,
+    TempTile,
 };
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::{packing, Im2Col};
@@ -166,15 +167,14 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
 
     fn gemv_kernel(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: MatVecOutput<f32>,
         a: &[f32],
         b: Matrix,
         alpha: f32,
-        beta: f32,
         _a_quant: Option<QuantParams<f32>>,
         _b_quant: Option<QuantParams<f32>>,
     ) {
-        simd_gemv::<_, 4>(self.isa, out, a, b, alpha, beta);
+        simd_gemv::<_, 4>(self.isa, out, a, b, alpha);
     }
 }
 
@@ -320,17 +320,16 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
 
     fn gemv_kernel(
         &self,
-        out: &mut [MaybeUninit<i32>],
+        mut out: MatVecOutput<i32>,
         a: &[u8],
         b: Matrix<i8>,
         _alpha: f32,
-        beta: i32,
         a_quant: Option<QuantParams<u8>>,
         b_quant: Option<QuantParams<i8>>,
     ) {
         let a_zero = a_quant.map(|aq| aq.zero_point[0]).unwrap_or(0);
         let b_zero = b_quant.map(|bq| bq.zero_point);
-        let accumulate = beta != 0;
+        let out = out.as_bool_beta();
 
         // Safety: Target features were checked when this kernel was constructed.
         unsafe {
@@ -339,7 +338,6 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
                 out,
                 a,
                 b,
-                accumulate,
                 a_zero,
                 b_zero,
                 self.dot_isa,
@@ -415,17 +413,16 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
 
     fn gemv_kernel(
         &self,
-        out: &mut [MaybeUninit<i32>],
+        mut out: MatVecOutput<i32>,
         a: &[u8],
         b: Matrix<i8>,
         _alpha: f32,
-        beta: i32,
         a_quant: Option<QuantParams<u8>>,
         b_quant: Option<QuantParams<i8>>,
     ) {
         let a_zero = a_quant.map(|aq| aq.zero_point[0]).unwrap_or(0);
         let b_zero = b_quant.map(|bq| bq.zero_point);
-        let accumulate = beta != 0;
+        let out = out.as_bool_beta();
 
         // Safety: Target features were checked when kernel was constructed.
         unsafe {
@@ -434,7 +431,6 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
                 out,
                 a,
                 b,
-                accumulate,
                 a_zero,
                 b_zero,
                 NeonDotProd {},

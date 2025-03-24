@@ -1,9 +1,7 @@
-use std::mem::MaybeUninit;
-
 use rten_simd::{Extend, Interleave, Isa, NumOps, Simd};
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
-use super::{Int8DotProduct, Lhs};
+use super::{Int8DotProduct, Lhs, MatVecOutput};
 use crate::iter_util::{range_chunks_exact, unroll_loop, unroll_loop_x4};
 
 /// Compute an output block of a vector-matrix product ("gemv" in BLAS APIs).
@@ -16,26 +14,25 @@ use crate::iter_util::{range_chunks_exact, unroll_loop, unroll_loop_x4};
 #[inline(always)]
 pub fn simd_gemv<I: Isa, const NR_REGS: usize>(
     isa: I,
-    out: &mut [MaybeUninit<f32>],
+    out: MatVecOutput<f32, f32>,
     a: &[f32],
     b: Matrix,
     alpha: f32,
-    beta: f32,
 ) {
     // Handle cases where `b` does not have unit stride.
     if b.row_stride() == 1 {
-        return simd_gemv_transposed(isa, out, a, b, alpha, beta);
+        return simd_gemv_transposed(isa, out, a, b, alpha);
     } else if b.col_stride() != 1 {
-        return simd_gemv_fallback(out, a, b, alpha, beta);
+        return simd_gemv_fallback(out, a, b, alpha);
     }
 
     let ops = isa.f32();
 
     assert!(b.col_stride() == 1);
     assert!(a.len() == b.rows());
-    assert!(out.len() == b.cols());
+    assert!(out.data.len() == b.cols());
 
-    let out_ptr = out.as_mut_ptr();
+    let out_ptr = out.data.as_mut_ptr();
     let a_ptr = a.as_ptr();
     let b_ptr = b.storage().as_ptr();
     let b_row_stride = b.row_stride();
@@ -68,13 +65,13 @@ pub fn simd_gemv<I: Isa, const NR_REGS: usize>(
 
         let get_out_tile_ptr = |i| unsafe { out_ptr.add(b_tile.start + i * v_len) };
 
-        if beta == 0. {
+        if out.beta == 0. {
             for i in 0..NR_REGS {
                 unsafe {
                     ops.store_ptr(acc[i], get_out_tile_ptr(i) as *mut f32);
                 }
             }
-        } else if beta == 1. {
+        } else if out.beta == 1. {
             for i in 0..NR_REGS {
                 let out_tile_ptr = get_out_tile_ptr(i);
                 let out_tile = unsafe { ops.load_ptr(out_tile_ptr as *mut f32) };
@@ -82,7 +79,7 @@ pub fn simd_gemv<I: Isa, const NR_REGS: usize>(
                 unsafe { ops.store_ptr(out_tile, out_tile_ptr as *mut f32) };
             }
         } else {
-            let beta_vec = ops.splat(beta);
+            let beta_vec = ops.splat(out.beta);
             for i in 0..NR_REGS {
                 let out_tile_ptr = get_out_tile_ptr(i);
                 let out_tile = unsafe { ops.load_ptr(out_tile_ptr as *mut f32) };
@@ -97,13 +94,13 @@ pub fn simd_gemv<I: Isa, const NR_REGS: usize>(
         for (k, ax) in a.iter().enumerate() {
             acc += ax * unsafe { *b_ptr.add(k * b_row_stride + c) };
         }
-        let out_el = unsafe { out.get_unchecked_mut(c) };
-        let tmp = if beta == 0. {
+        let out_el = unsafe { out.data.get_unchecked_mut(c) };
+        let tmp = if out.beta == 0. {
             0.
         } else {
             unsafe { out_el.assume_init() }
         };
-        out_el.write(beta * tmp + acc * alpha);
+        out_el.write(out.beta * tmp + acc * alpha);
     }
 }
 
@@ -111,15 +108,14 @@ pub fn simd_gemv<I: Isa, const NR_REGS: usize>(
 #[inline(always)]
 fn simd_gemv_transposed<I: Isa>(
     isa: I,
-    out: &mut [MaybeUninit<f32>],
+    mut out: MatVecOutput<f32>,
     a: &[f32],
     b: Matrix,
     alpha: f32,
-    beta: f32,
 ) {
     assert!(b.row_stride() == 1);
     assert!(a.len() == b.rows());
-    assert!(out.len() == b.cols());
+    assert!(out.data.len() == b.cols());
 
     let ops = isa.f32();
     let b_ptr = b.storage().as_ptr();
@@ -151,16 +147,16 @@ fn simd_gemv_transposed<I: Isa>(
             }
         }
 
-        if beta == 0. {
+        if out.beta == 0. {
             for i in 0..COL_TILE {
-                out[col_tile.start + i].write(alpha * acc[i]);
+                out.data[col_tile.start + i].write(alpha * acc[i]);
             }
         } else {
             for i in 0..COL_TILE {
                 // Safety: Output is initialized when `beta` is non-zero.
-                let out_val =
-                    alpha * acc[i] + beta * unsafe { out[col_tile.start + i].assume_init() };
-                out[col_tile.start + i].write(out_val);
+                let out_val = alpha * acc[i]
+                    + out.beta * unsafe { out.data[col_tile.start + i].assume_init() };
+                out.data[col_tile.start + i].write(out_val);
             }
         }
     }
@@ -168,11 +164,10 @@ fn simd_gemv_transposed<I: Isa>(
     let last_col_tile = col_tiles.remainder();
     if !last_col_tile.is_empty() {
         simd_gemv_fallback(
-            &mut out[last_col_tile.clone()],
+            out.slice_mut(last_col_tile.clone()),
             a,
             b.slice((.., last_col_tile)),
             alpha,
-            beta,
         );
     }
 }
@@ -183,22 +178,22 @@ fn simd_gemv_transposed<I: Isa>(
 /// This doesn't benefit from SIMD operations. It is at least inlined so it
 /// can benefit from the kernel's instruction set (eg. for FMA operations).
 #[inline(always)]
-fn simd_gemv_fallback(out: &mut [MaybeUninit<f32>], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+fn simd_gemv_fallback(out: MatVecOutput<f32>, a: &[f32], b: Matrix, alpha: f32) {
     assert!(a.len() == b.rows());
-    assert!(out.len() == b.cols());
+    assert!(out.data.len() == b.cols());
 
-    for (col, out) in out.iter_mut().enumerate() {
+    for (col, out_el) in out.data.iter_mut().enumerate() {
         let mut acc = 0.;
         for (k, ak) in (0..a.len()).zip(a.iter()) {
             let bk = unsafe { *b.get_unchecked([k, col]) };
             acc = ak.mul_add(bk, acc);
         }
         acc *= alpha;
-        if beta == 0. {
-            out.write(acc);
+        if out.beta == 0. {
+            out_el.write(acc);
         } else {
             // Safety: Output is initialized when `beta` is non-zero.
-            out.write(acc + beta * unsafe { out.assume_init() });
+            out_el.write(acc + out.beta * unsafe { out_el.assume_init() });
         }
     }
 }
@@ -580,15 +575,14 @@ const I8_U8_SHIFT_MASK: i8 = 0x80u8 as i8;
 #[inline(always)]
 pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
     isa: I,
-    out: &mut [MaybeUninit<i32>],
+    out: MatVecOutput<i32, bool>,
     a: &[u8],
     b: Matrix<i8>,
-    accumulate: bool,
     a_zero_point: u8,
     b_zero_points: Option<&[i8]>,
     dot: impl Int8DotProduct<X8 = I::I8, I32 = I::I32> + Copy,
 ) {
-    assert_eq!(out.len(), b.cols());
+    assert_eq!(out.data.len(), b.cols());
     assert_eq!(b.rows(), a.len());
     assert_eq!(a.as_ptr() as usize % align_of::<i32>(), 0);
 
@@ -598,20 +592,12 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
             out,
             a,
             b,
-            accumulate,
             a_zero_point,
             b_zero_points,
             dot,
         );
     } else if b.col_stride() != 1 {
-        return simd_int8_gemv_fallback::<CAST_B_U8>(
-            out,
-            a,
-            b,
-            accumulate,
-            a_zero_point,
-            b_zero_points,
-        );
+        return simd_int8_gemv_fallback::<CAST_B_U8>(out, a, b, a_zero_point, b_zero_points);
     }
 
     let ops = isa.i32();
@@ -742,8 +728,8 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
             let tmp = ops.sub(tmp, ops.mul(row_sum_vec, b_zero_vec));
             acc[i] = ops.sub(tmp, ops.mul(col_sums[i], a_zero_vec));
 
-            let out_ptr = out.as_ptr().add(col_tile.start + i * ops.len()) as *mut i32;
-            if !accumulate {
+            let out_ptr = out.data.as_ptr().add(col_tile.start + i * ops.len()) as *mut i32;
+            if !out.beta {
                 ops.store_ptr(acc[i], out_ptr);
             } else {
                 let tmp = ops.load_ptr(out_ptr);
@@ -772,11 +758,11 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
         let b_zero = b_zero_points.map(|bq| bq[col] as i32).unwrap_or(0) + b_zero_shift;
         acc = depth as i32 * a_zero * b_zero + acc - row_sum * b_zero - col_sum * a_zero;
 
-        let out = out.as_ptr().add(col) as *mut i32;
-        if !accumulate {
-            out.write(acc);
+        let out_el = out.data.as_ptr().add(col) as *mut i32;
+        if !out.beta {
+            out_el.write(acc);
         } else {
-            *out += acc;
+            *out_el += acc;
         }
     }
 }
@@ -789,10 +775,9 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
 #[inline(always)]
 unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
     isa: I,
-    out: &mut [MaybeUninit<i32>],
+    out: MatVecOutput<i32, bool>,
     a: &[u8],
     b: Matrix<i8>,
-    accumulate: bool,
     a_zero_point: u8,
     b_zero_points: Option<&[i8]>,
     dot: impl Int8DotProduct<X8 = I::I8, I32 = I::I32> + Copy,
@@ -848,8 +833,8 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
             .unwrap_or(b_zero_shift);
         let acc = (depth as i32 * a_zero * b_zero) + acc - row_sum * b_zero - col_sum * a_zero;
 
-        let out_ptr = out.get_unchecked_mut(col);
-        if !accumulate {
+        let out_ptr = out.data.get_unchecked_mut(col);
+        if !out.beta {
             out_ptr.write(acc);
         } else {
             out_ptr.write(out_ptr.assume_init() + acc);
@@ -865,16 +850,15 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
 /// - `out` must be initialized if `accumulate` is true
 #[inline(always)]
 unsafe fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
-    out: &mut [MaybeUninit<i32>],
+    out: MatVecOutput<i32, bool>,
     a: &[u8],
     b: Matrix<i8>,
-    accumulate: bool,
     a_zero_point: u8,
     b_zero_points: Option<&[i8]>,
 ) {
     let b_zero_shift = if CAST_B_U8 { 128 } else { 0 };
     let depth = a.len();
-    for (out, col) in out.iter_mut().zip(0..b.cols()) {
+    for (out_el, col) in out.data.iter_mut().zip(0..b.cols()) {
         let b_zero = b_zero_points
             .map(|bz| bz[col] as i32 + b_zero_shift)
             .unwrap_or(0);
@@ -897,12 +881,12 @@ unsafe fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
         let a_zero = a_zero_point as i32;
         acc = depth as i32 * a_zero * b_zero + acc - row_sum * b_zero - col_sum * a_zero;
 
-        if !accumulate {
-            out.write(acc);
+        if !out.beta {
+            out_el.write(acc);
         } else {
-            // Safety: Output is initialized when `accumulate` is true
+            // Safety: Output is initialized when `beta` is true
             unsafe {
-                out.write(out.assume_init() + acc);
+                out_el.write(out_el.assume_init() + acc);
             }
         }
     }
