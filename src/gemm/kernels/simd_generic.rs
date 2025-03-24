@@ -3,7 +3,7 @@ use std::mem::MaybeUninit;
 use rten_simd::{Extend, Interleave, Isa, NumOps, Simd};
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
-use super::Lhs;
+use super::{Int8DotProduct, Lhs};
 use crate::iter_util::{range_chunks_exact, unroll_loop, unroll_loop_x4};
 
 /// Compute an output block of a vector-matrix product ("gemv" in BLAS APIs).
@@ -265,8 +265,9 @@ impl<'a, I: Isa, const MR: usize, const NR_REGS: usize> GemmDispatch<'a, I, MR, 
 ///
 /// # Safety
 ///
-/// `tile_ptr.add(tile_row_stride * row + col)` must be a valid pointer for
-/// `row ∈ [0, MR)` and `col ∈ [0, NR]`.
+/// - `tile_ptr.add(tile_row_stride * row + col)` must be a valid pointer for
+///   `row ∈ [0, MR)` and `col ∈ [0, NR)`.
+/// - Values pointed to by `tile_ptr` must be initialized if `beta` is non-zero
 #[inline(always)]
 pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROWS: usize>(
     isa: I,
@@ -400,18 +401,18 @@ pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROW
 }
 
 /// Compute an i32 matrix multiplication tile with maximum size `MR x NR` using
-/// packed blocks of A and B int8 inputs. `NR` must equal `NR_REGS * S::LEN`.
+/// packed blocks of A and B int8 inputs. `NR` must equal `NR_REGS * isa.i32().len()`.
 ///
 /// Whether int8 values in `a` and `b` are treated as signed depends on the
-/// `dot_product` function.
+/// `dot` implementation.
 ///
-/// `dot_product(a, b, c)` is a function that computes `c + dot(a, b)` where
-/// `c` contains packed i32 values and `a` and `b` contain groups of 4 packed
-/// 8-bit integers.
+/// # Safety
 ///
-/// If `accumulate` is true, the output referenced by `tile_ptr` must be
-/// initialized and the result will be added to it. If false, the `tile_ptr`
-/// may be uninitialized and will be initialized with the result.
+/// - `tile_ptr.add(tile_row_stride * i)` for `0 <= i < used_rows` must be a
+///   valid pointer to `used_cols` i32 values.
+/// - If `accumulate` is true, the output referenced by `tile_ptr` must be
+///   initialized and the result will be added to it. If false, the `tile_ptr`
+///   may be uninitialized and will be initialized with the result.
 #[inline(always)]
 pub unsafe fn simd_int8_gemm<I: Isa, const MR: usize, const NR: usize, const NR_REGS: usize>(
     isa: I,
@@ -427,7 +428,7 @@ pub unsafe fn simd_int8_gemm<I: Isa, const MR: usize, const NR: usize, const NR_
     b_zero_points: [i32; NR],
     a_row_sums: &[i32; MR],
     b_col_sums: &[i32; NR],
-    dot_product: unsafe fn(I::I8, I::I8, I::I32) -> I::I32,
+    dot: impl Int8DotProduct<X8 = I::I8, I32 = I::I32> + Copy,
 ) {
     let ops = isa.i32();
     let i8_ops = isa.i8();
@@ -485,7 +486,7 @@ pub unsafe fn simd_int8_gemm<I: Isa, const MR: usize, const NR: usize, const NR_
             let a_val = *(a_ptr.add(k_block * MR * 4 + row * 4) as *const i32);
             let a_vec = ops.splat(a_val).reinterpret_cast::<I::I8>();
             for i in 0..NR_REGS {
-                tmp[row][i] = unsafe { dot_product(a_vec, b_vec[i], tmp[row][i]) };
+                tmp[row][i] = dot.dot_product(a_vec, b_vec[i], tmp[row][i]);
             }
         }
     }
@@ -569,13 +570,13 @@ const I8_U8_SHIFT_MASK: i8 = 0x80u8 as i8;
 /// This is a specialization of [`simd_int8_gemm`] for the case where the LHS
 /// input is a vector. In this case the kernel inputs are not packed.
 ///
-/// `CAST_B_U8` specifies that the `dot_product` function expects its second
+/// `CAST_B_U8` specifies that the dot product implementation expects its second
 /// argument to contain `u8` rather than `i8` values. If true, the values of
 /// B are shifted by 128 and the same adjustment is applied to zero points.
 ///
 /// # Safety
 ///
-/// - Instructions used by SIMD type `S` and `dot_product` must be supported.
+/// - `out` must be initialized if `accumulate` is true
 #[inline(always)]
 pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
     isa: I,
@@ -585,7 +586,7 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
     accumulate: bool,
     a_zero_point: u8,
     b_zero_points: Option<&[i8]>,
-    dot_product: unsafe fn(I::I8, I::I8, I::I32) -> I::I32,
+    dot: impl Int8DotProduct<X8 = I::I8, I32 = I::I32> + Copy,
 ) {
     assert_eq!(out.len(), b.cols());
     assert_eq!(b.rows(), a.len());
@@ -600,7 +601,7 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
             accumulate,
             a_zero_point,
             b_zero_points,
-            dot_product,
+            dot,
         );
     } else if b.col_stride() != 1 {
         return simd_int8_gemv_fallback::<CAST_B_U8>(
@@ -686,8 +687,8 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
                 } else {
                     b_tiles[i]
                 };
-                acc[i] = dot_product(a, b_tile, acc[i]);
-                col_sums[i] = dot_product(one_u8, b_tile, col_sums[i]);
+                acc[i] = dot.dot_product(a, b_tile, acc[i]);
+                col_sums[i] = dot.dot_product(one_u8, b_tile, col_sums[i]);
             }
             k += 4;
         }
@@ -781,6 +782,10 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
 }
 
 /// Variant of [`simd_int8_gemv`] for the case where the RHS has unit row stride.
+///
+/// # Safety
+///
+/// - `out` must be initialized if `accumulate` is true
 #[inline(always)]
 unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
     isa: I,
@@ -790,7 +795,7 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
     accumulate: bool,
     a_zero_point: u8,
     b_zero_points: Option<&[i8]>,
-    dot_product: unsafe fn(I::I8, I::I8, I::I32) -> I::I32,
+    dot: impl Int8DotProduct<X8 = I::I8, I32 = I::I32> + Copy,
 ) {
     let ops = isa.i32();
     let i8_ops = isa.i8();
@@ -822,8 +827,8 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
                 b
             };
 
-            acc = dot_product(a, b, acc);
-            col_sum = dot_product(one_u8, b, col_sum);
+            acc = dot.dot_product(a, b, acc);
+            col_sum = dot.dot_product(one_u8, b, col_sum);
         }
 
         let mut acc = ops.sum(acc);
@@ -854,8 +859,12 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
 
 /// Fallback for [`simd_int8_gemv`] when RHS has neither unit column stride nor
 /// unit row stride.
+///
+/// # Safety
+///
+/// - `out` must be initialized if `accumulate` is true
 #[inline(always)]
-fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
+unsafe fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
     out: &mut [MaybeUninit<i32>],
     a: &[u8],
     b: Matrix<i8>,

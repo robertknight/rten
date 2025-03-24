@@ -6,7 +6,9 @@ use rten_simd::isa::ArmNeonIsa;
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
-use super::{extract_zero_points, Kernel, Lhs, PackedLayout, QuantParams, TempTile};
+use super::{
+    extract_zero_points, Int8DotProduct, Kernel, Lhs, PackedLayout, QuantParams, TempTile,
+};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::{packing, Im2Col};
 use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
@@ -252,6 +254,7 @@ macro_rules! impl_arm_int8_common {
 /// instructions.
 pub struct ArmInt8DotKernel {
     isa: ArmNeonIsa,
+    dot_isa: NeonNativeDotProd,
 }
 
 impl ArmInt8DotKernel {
@@ -261,10 +264,9 @@ impl ArmInt8DotKernel {
 
 unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
     fn new() -> Option<Self> {
-        if !std::arch::is_aarch64_feature_detected!("dotprod") {
-            return None;
-        }
-        ArmNeonIsa::new().map(|isa| ArmInt8DotKernel { isa })
+        let isa = ArmNeonIsa::new()?;
+        let dot_isa = NeonNativeDotProd::new()?;
+        Some(ArmInt8DotKernel { isa, dot_isa })
     }
 
     fn name(&self) -> &'static str {
@@ -312,7 +314,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
             b_zero_points,
             a_row_sums,
             b_col_sums,
-            udot,
+            self.dot_isa,
         )
     }
 
@@ -330,24 +332,18 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         let b_zero = b_quant.map(|bq| bq.zero_point);
         let accumulate = beta != 0;
 
-        #[target_feature(enable = "dotprod")]
-        unsafe fn gemv_impl(
-            isa: ArmNeonIsa,
-            out: &mut [MaybeUninit<i32>],
-            a: &[u8],
-            b: Matrix<i8>,
-            accumulate: bool,
-            a_zero: u8,
-            b_zero: Option<&[i8]>,
-        ) {
-            simd_int8_gemv::<_, true /* CAST_B_U8 */>(
-                isa, out, a, b, accumulate, a_zero, b_zero, udot,
-            )
-        }
-
         // Safety: Target features were checked when this kernel was constructed.
         unsafe {
-            gemv_impl(self.isa, out, a, b, accumulate, a_zero, b_zero);
+            simd_int8_gemv::<_, true /* CAST_B_U8 */>(
+                self.isa,
+                out,
+                a,
+                b,
+                accumulate,
+                a_zero,
+                b_zero,
+                self.dot_isa,
+            )
         }
     }
 }
@@ -413,7 +409,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
             b_zero_points,
             a_row_sums,
             b_col_sums,
-            fallback_udot,
+            NeonDotProd {},
         )
     }
 
@@ -441,7 +437,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
                 accumulate,
                 a_zero,
                 b_zero,
-                fallback_udot,
+                NeonDotProd {},
             )
         }
     }
@@ -451,51 +447,81 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
 /// was shifted from i8 to u8 when packing.
 const I8_U8_SHIFT: i32 = 128;
 
-/// Compute dot product of groups of 4 u8 ints from `a` and `b` and add to
-/// 4 i32 values from `c`.
-///
-/// Note: `a` and `b` are interpreted as `uint8x16_t`, but use a signed type
-/// for consistency with other architectures.
-#[target_feature(enable = "dotprod")]
-#[inline]
-unsafe fn udot(a: int8x16_t, b: int8x16_t, c: int32x4_t) -> int32x4_t {
-    use core::arch::aarch64::{vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s8};
-    use core::arch::asm;
-
-    let a = vreinterpretq_u8_s8(a);
-    let b = vreinterpretq_u8_s8(b);
-    let mut c = vreinterpretq_u32_s32(c);
-
-    // Use inline asm here because the `vdotq_u32` intrinsic is not
-    // stabilized yet.
-    asm! {
-        "udot {result:v}.4s, {a:v}.16b, {b:v}.16b",
-        result = inout(vreg) c,
-        a = in(vreg) a,
-        b = in(vreg) b,
-        options(nostack)
-    }
-
-    vreinterpretq_s32_u32(c)
+/// Implementation of int8 dot product using the native UDOT / SDOT instructions.
+#[derive(Copy, Clone)]
+struct NeonNativeDotProd {
+    _private: (),
 }
 
-/// Fallback implementation of [`udot`] for older Arm CPUs which don't support
-/// dot product instructions.
-#[inline(always)]
-unsafe fn fallback_udot(a: int8x16_t, b: int8x16_t, c: int32x4_t) -> int32x4_t {
-    use core::arch::aarch64::{
-        vaddq_u32, vget_low_u8, vmull_high_u8, vmull_u8, vpaddlq_u16, vpaddq_u32,
-        vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s8,
-    };
+impl NeonNativeDotProd {
+    fn new() -> Option<Self> {
+        if !std::arch::is_aarch64_feature_detected!("dotprod") {
+            return None;
+        }
+        Some(NeonNativeDotProd { _private: () })
+    }
+}
 
-    let a = vreinterpretq_u8_s8(a);
-    let b = vreinterpretq_u8_s8(b);
-    let c = vreinterpretq_u32_s32(c);
+// Safety: Constructor checked for "dotprod" feature support.
+unsafe impl Int8DotProduct for NeonNativeDotProd {
+    type X8 = int8x16_t;
+    type I32 = int32x4_t;
 
-    let mul_lo = vmull_u8(vget_low_u8(a), vget_low_u8(b));
-    let mul_hi = vmull_high_u8(a, b);
-    let tmp_lo = vpaddlq_u16(mul_lo);
-    let tmp_hi = vpaddlq_u16(mul_hi);
-    let dot_prod = vpaddq_u32(tmp_lo, tmp_hi);
-    vreinterpretq_s32_u32(vaddq_u32(dot_prod, c))
+    #[inline]
+    fn dot_product(self, a: Self::X8, b: Self::X8, c: Self::I32) -> Self::I32 {
+        unsafe {
+            use core::arch::aarch64::{
+                vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s8,
+            };
+            use core::arch::asm;
+
+            let a = vreinterpretq_u8_s8(a);
+            let b = vreinterpretq_u8_s8(b);
+            let mut c = vreinterpretq_u32_s32(c);
+
+            // Use inline asm here because the `vdotq_u32` intrinsic is not
+            // stabilized yet.
+            asm! {
+                "udot {result:v}.4s, {a:v}.16b, {b:v}.16b",
+                result = inout(vreg) c,
+                a = in(vreg) a,
+                b = in(vreg) b,
+                options(nostack)
+            }
+
+            vreinterpretq_s32_u32(c)
+        }
+    }
+}
+
+/// Fallback implementation of u8 dot product for older Arm CPUs which don't
+/// support dot product instructions (UDOT, SDOT).
+#[derive(Copy, Clone)]
+struct NeonDotProd;
+
+// Safety: Neon instructions used are always supported on aarch64.
+unsafe impl Int8DotProduct for NeonDotProd {
+    type X8 = int8x16_t;
+    type I32 = int32x4_t;
+
+    #[inline]
+    fn dot_product(self, a: Self::X8, b: Self::X8, c: Self::I32) -> Self::I32 {
+        unsafe {
+            use core::arch::aarch64::{
+                vaddq_u32, vget_low_u8, vmull_high_u8, vmull_u8, vpaddlq_u16, vpaddq_u32,
+                vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s8,
+            };
+
+            let a = vreinterpretq_u8_s8(a);
+            let b = vreinterpretq_u8_s8(b);
+            let c = vreinterpretq_u32_s32(c);
+
+            let mul_lo = vmull_u8(vget_low_u8(a), vget_low_u8(b));
+            let mul_hi = vmull_high_u8(a, b);
+            let tmp_lo = vpaddlq_u16(mul_lo);
+            let tmp_hi = vpaddlq_u16(mul_hi);
+            let dot_prod = vpaddq_u32(tmp_lo, tmp_hi);
+            vreinterpretq_s32_u32(vaddq_u32(dot_prod, c))
+        }
+    }
 }

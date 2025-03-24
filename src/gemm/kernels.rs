@@ -382,3 +382,27 @@ fn extract_zero_points<T: Copy + Into<i32>, const MAX_LEN: usize>(
     }
     zero_points
 }
+
+/// Trait for computing dot products of SIMD vectors containing 8-bit integers.
+///
+/// This should use native instructions where available (VNNI on x64, UDOT/SDOT
+/// on Arm etc.) or a fallback otherwise.
+///
+/// # Safety
+///
+/// Types implementing this trait must ensure they can only be constructed if
+/// the instructions are supported.
+unsafe trait Int8DotProduct {
+    /// SIMD vector with `i8` or `u8` elements. The signed-ness depends on the
+    /// implementation.
+    type X8;
+
+    /// SIMD vector with `i32` elements.
+    type I32;
+
+    /// Compute the dot product of groups of 4 8-bit integers in `a` and `b`,
+    /// accumulating into 32-bit integers in `c`.
+    ///
+    /// The signed-ness of `a` and `b` depends on the implementation.
+    fn dot_product(self, a: Self::X8, b: Self::X8, c: Self::I32) -> Self::I32;
+}

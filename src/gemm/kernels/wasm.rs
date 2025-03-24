@@ -5,7 +5,9 @@ use rten_simd::{isa::Wasm32Isa, Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
-use super::{extract_zero_points, Kernel, Lhs, PackedLayout, QuantParams, TempTile};
+use super::{
+    extract_zero_points, Int8DotProduct, Kernel, Lhs, PackedLayout, QuantParams, TempTile,
+};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::{packing, Im2Col};
 use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
@@ -302,7 +304,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
             b_zero_points,
             a_row_sums,
             b_col_sums,
-            wasm_u8u8_i32_dot_product,
+            self.isa,
         )
     }
 
@@ -323,14 +325,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         // Safety: Target features were checked when kernel was constructed.
         unsafe {
             simd_int8_gemv::<_, true /* CAST_B_U8 */>(
-                self.isa,
-                out,
-                a,
-                b,
-                accumulate,
-                a_zero,
-                b_zero,
-                wasm_u8u8_i32_dot_product,
+                self.isa, out, a, b, accumulate, a_zero, b_zero, self.isa,
             )
         }
     }
@@ -340,30 +335,33 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
 /// was shifted from i8 to u8 when packing.
 const I8_U8_SHIFT: i32 = 128;
 
-type I8Vec = <Wasm32Isa as Isa>::I8;
-type I32Vec = <Wasm32Isa as Isa>::I32;
+// Safety: This module is only compiled if WASM SIMD is enabled at compile time.
+unsafe impl Int8DotProduct for Wasm32Isa {
+    type X8 = <Wasm32Isa as Isa>::I8;
+    type I32 = <Wasm32Isa as Isa>::I32;
 
-/// Compute i32 dot product of each group of 4 u8 integers in `a` and `b` and
-/// add to i32x4 accumulator in `c`.
-///
-/// Adapted from the reference lowing of `i32x4.dot_i8x16_i7x16_add_s` given
-/// in https://github.com/WebAssembly/relaxed-simd/issues/52.
-#[inline]
-fn wasm_u8u8_i32_dot_product(a: I8Vec, b: I8Vec, c: I32Vec) -> I32Vec {
-    use std::arch::wasm32::{
-        i32x4_add, i32x4_extadd_pairwise_u16x8, i32x4_shuffle, u16x8_extmul_high_u8x16,
-        u16x8_extmul_low_u8x16,
-    };
+    /// Compute i32 dot product of each group of 4 u8 integers in `a` and `b` and
+    /// add to i32x4 accumulator in `c`.
+    ///
+    /// Adapted from the reference lowering of `i32x4.dot_i8x16_i7x16_add_s` given
+    /// in https://github.com/WebAssembly/relaxed-simd/issues/52.
+    #[inline]
+    fn dot_product(self, a: Self::X8, b: Self::X8, c: Self::I32) -> Self::I32 {
+        use std::arch::wasm32::{
+            i32x4_add, i32x4_extadd_pairwise_u16x8, i32x4_shuffle, u16x8_extmul_high_u8x16,
+            u16x8_extmul_low_u8x16,
+        };
 
-    let mul_lo = u16x8_extmul_low_u8x16(a.0, b.0);
-    let mul_hi = u16x8_extmul_high_u8x16(a.0, b.0);
+        let mul_lo = u16x8_extmul_low_u8x16(a.0, b.0);
+        let mul_hi = u16x8_extmul_high_u8x16(a.0, b.0);
 
-    let pair_sum_lo = i32x4_extadd_pairwise_u16x8(mul_lo);
-    let pair_sum_hi = i32x4_extadd_pairwise_u16x8(mul_hi);
+        let pair_sum_lo = i32x4_extadd_pairwise_u16x8(mul_lo);
+        let pair_sum_hi = i32x4_extadd_pairwise_u16x8(mul_hi);
 
-    let pair_sum_even = i32x4_shuffle::<0, 2, 4, 6>(pair_sum_lo, pair_sum_hi);
-    let pair_sum_odd = i32x4_shuffle::<1, 3, 5, 7>(pair_sum_lo, pair_sum_hi);
+        let pair_sum_even = i32x4_shuffle::<0, 2, 4, 6>(pair_sum_lo, pair_sum_hi);
+        let pair_sum_odd = i32x4_shuffle::<1, 3, 5, 7>(pair_sum_lo, pair_sum_hi);
 
-    let quad_sum = i32x4_add(pair_sum_even, pair_sum_odd);
-    i32x4_add(quad_sum, c.0).into()
+        let quad_sum = i32x4_add(pair_sum_even, pair_sum_odd);
+        i32x4_add(quad_sum, c.0).into()
+    }
 }
