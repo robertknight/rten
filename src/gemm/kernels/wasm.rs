@@ -320,11 +320,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         let a_zero = a_quant.map(|aq| aq.zero_point[0]).unwrap_or(0);
         let b_zero = b_quant.map(|bq| bq.zero_point);
         let out = out.as_bool_beta();
-
-        // Safety: Target features were checked when kernel was constructed.
-        unsafe {
-            simd_int8_gemv::<_, true /* CAST_B_U8 */>(self.isa, out, a, b, a_zero, b_zero, self.isa)
-        }
+        simd_int8_gemv::<_, true /* CAST_B_U8 */>(self.isa, out, a, b, a_zero, b_zero, self.isa)
     }
 }
 
