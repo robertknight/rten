@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+This release is largely an internal refactoring to reduce the amount of unsafe
+code in SIMD vectorized kernels and prepare for supporting more data types in
+future. This has been achieved by creating a new portable SIMD API in the
+rten-simd crate, which uses witness types to enable writing vectorized
+operations with safe code. See the rten-simd crate docs for more details.
+
+### rten
+
+- Fixed broken links to model files in ImageNet example (https://github.com/robertknight/rten/pull/603)
+
+- Fixed broken `ArgMin` operator (https://github.com/robertknight/rten/pull/592)
+
+- Support vector inputs in `MatMulInteger` (https://github.com/robertknight/rten/pull/589)
+
+- Reduced use of unsafe code in vectorized SIMD kernels. See tracking issue
+  in https://github.com/robertknight/rten/issues/549.
+
 ## [0.16.0] - 2025-02-08
 
 This release adds support for running models that have been quantized to int8,
