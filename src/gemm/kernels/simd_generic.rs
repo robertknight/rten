@@ -399,11 +399,11 @@ pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROW
 ///
 /// # Safety
 ///
-/// - `tile_ptr.add(tile_row_stride * i)` for `0 <= i < used_rows` must be a
-///   valid pointer to `used_cols` i32 values.
+/// - `tile_ptr.add(tile_row_stride * row + col)` must be a valid pointer where
+///   `row < used_rows` and `col < used_cols`.
 /// - If `accumulate` is true, the output referenced by `tile_ptr` must be
-///   initialized and the result will be added to it. If false, the `tile_ptr`
-///   may be uninitialized and will be initialized with the result.
+///   initialized and the result will be added to it. If false, `tile_ptr` may
+///   point to uninitialized data and will be initialized with the result.
 #[inline(always)]
 pub unsafe fn simd_int8_gemm<I: Isa, const MR: usize, const NR: usize, const NR_REGS: usize>(
     isa: I,
@@ -425,6 +425,11 @@ pub unsafe fn simd_int8_gemm<I: Isa, const MR: usize, const NR: usize, const NR_
     let i8_ops = isa.i8();
 
     assert_eq!(ops.len() * NR_REGS, NR);
+
+    // Packed buffers contain `[MR, 4]` microtiles of A and transposed `[4, NR]`
+    // microtiles of B.
+    assert_eq!(a.len(), MR * depth.next_multiple_of(4));
+    assert_eq!(b.len(), NR * depth.next_multiple_of(4));
 
     // The value for each element in the output tile is computed as:
     //
