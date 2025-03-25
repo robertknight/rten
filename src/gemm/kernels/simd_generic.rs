@@ -566,7 +566,7 @@ const I8_U8_SHIFT_MASK: i8 = 0x80u8 as i8;
 /// argument to contain `u8` rather than `i8` values. If true, the values of
 /// B are shifted by 128 and the same adjustment is applied to zero points.
 #[inline(always)]
-pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
+pub fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
     isa: I,
     out: MatVecOutput<i32, bool>,
     a: &[u8],
@@ -575,22 +575,35 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
     b_zero_points: Option<&[i8]>,
     dot: impl Int8DotProduct<X8 = I::I8, I32 = I::I32> + Copy,
 ) {
+    // Verify that input and output dimensions are compatible.
     assert_eq!(out.data.len(), b.cols());
     assert_eq!(b.rows(), a.len());
+    assert_eq!(
+        b_zero_points.map(|zp| zp.len()).unwrap_or(b.cols()),
+        b.cols()
+    );
+
+    // Inner loop loads 4x u8 values at a time as an i32.
     assert_eq!(a.as_ptr() as usize % align_of::<i32>(), 0);
 
     if b.row_stride() == 1 {
-        return simd_int8_gemv_transposed::<_, CAST_B_U8>(
-            isa,
-            out,
-            a,
-            b,
-            a_zero_point,
-            b_zero_points,
-            dot,
-        );
+        // Safety: Input and output dimensions are compatible.
+        unsafe {
+            return simd_int8_gemv_transposed::<_, CAST_B_U8>(
+                isa,
+                out,
+                a,
+                b,
+                a_zero_point,
+                b_zero_points,
+                dot,
+            );
+        }
     } else if b.col_stride() != 1 {
-        return simd_int8_gemv_fallback::<CAST_B_U8>(out, a, b, a_zero_point, b_zero_points);
+        // Safety: Input and output dimensions are compatible.
+        unsafe {
+            return simd_int8_gemv_fallback::<CAST_B_U8>(out, a, b, a_zero_point, b_zero_points);
+        }
     }
 
     let ops = isa.i32();
@@ -611,7 +624,7 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
     // i32 vecs.
     let mut col_tiles = range_chunks_exact(0..b.cols(), i8_ops.len());
     for col_tile in col_tiles.by_ref() {
-        let b_ptr = b_ptr.add(col_tile.start);
+        let b_ptr = unsafe { b_ptr.add(col_tile.start) };
         let mut acc = [ops.zero(); 4];
         let mut col_sums = [ops.zero(); 4];
         let one_u8 = i8_ops.splat(1);
@@ -620,9 +633,8 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
         let mut k = 0;
         while k + 4 <= depth {
             // Broadcast 4 values from A.
-            let a = ops
-                .splat(*(a_ptr.add(k) as *const i32))
-                .reinterpret_cast::<I::I8>();
+            let a_block = unsafe { *(a_ptr.add(k) as *const i32) };
+            let a = ops.splat(a_block).reinterpret_cast::<I::I8>();
 
             // Load 4 rows of int8 elements from B and interleave to give 4
             // transposed `[4, MR]` tiles. eg. Given 4 rows A, B, C, D if `MR` =
@@ -635,11 +647,11 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
             //
             // The second tile contains A4..A7 and so on.
             let b_tile_ptr: [*const i8; 4] =
-                std::array::from_fn(|i| b_ptr.add((k + i) * b_row_stride));
-            let b0 = i8_ops.load_ptr(b_tile_ptr[0]);
-            let b1 = i8_ops.load_ptr(b_tile_ptr[1]);
-            let b2 = i8_ops.load_ptr(b_tile_ptr[2]);
-            let b3 = i8_ops.load_ptr(b_tile_ptr[3]);
+                std::array::from_fn(|i| unsafe { b_ptr.add((k + i) * b_row_stride) });
+            let b0 = unsafe { i8_ops.load_ptr(b_tile_ptr[0]) };
+            let b1 = unsafe { i8_ops.load_ptr(b_tile_ptr[1]) };
+            let b2 = unsafe { i8_ops.load_ptr(b_tile_ptr[2]) };
+            let b3 = unsafe { i8_ops.load_ptr(b_tile_ptr[3]) };
 
             let b01_lo = i8_ops.interleave_low(b0, b1).reinterpret_cast::<I::I16>();
             let b01_hi = i8_ops.interleave_high(b0, b1).reinterpret_cast::<I::I16>();
@@ -656,7 +668,7 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
 
             // Pre-fetch the current block of 4 rows for the next column tile.
             for i in 0..4 {
-                i8_ops.prefetch(b_tile_ptr[i].add(i8_ops.len()));
+                i8_ops.prefetch(unsafe { b_tile_ptr[i].add(i8_ops.len()) });
             }
 
             for i in 0..4 {
@@ -672,9 +684,11 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
         }
 
         while k < depth {
-            let a = ops.splat((*a_ptr.add(k)).into());
+            let a_block = unsafe { (*a_ptr.add(k)).into() };
+            let a = ops.splat(a_block);
 
-            let b = i8_ops.load_ptr(b_ptr.add(k * b_row_stride));
+            // Load one `i8` vec, sign-extend each quarter to give 4 `i32` vecs.
+            let b = unsafe { i8_ops.load_ptr(b_ptr.add(k * b_row_stride)) };
             let (b01, b23) = i8_ops.extend(b);
             let (b0, b1) = i16_ops.extend(b01);
             let (b2, b3) = i16_ops.extend(b23);
@@ -702,7 +716,8 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
         let a_zero_vec = ops.splat(a_zero_point.into());
 
         let b_zero_vec = if let Some(b_zero) = b_zero_points {
-            let b = i8_ops.load_ptr(b_zero.as_ptr().add(col_tile.start));
+            // Load one `i8` vec, sign-extend each quarter to give 4 `i32` vecs.
+            let b = unsafe { i8_ops.load_ptr(b_zero.as_ptr().add(col_tile.start)) };
             let (b01, b23) = i8_ops.extend(b);
             let (b0, b1) = i16_ops.extend(b01);
             let (b2, b3) = i16_ops.extend(b23);
@@ -720,13 +735,18 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
             let tmp = ops.sub(tmp, ops.mul(row_sum_vec, b_zero_vec));
             acc[i] = ops.sub(tmp, ops.mul(col_sums[i], a_zero_vec));
 
-            let out_ptr = out.data.as_ptr().add(col_tile.start + i * ops.len()) as *mut i32;
+            let out_ptr =
+                unsafe { out.data.as_ptr().add(col_tile.start + i * ops.len()) as *mut i32 };
             if !out.beta {
-                ops.store_ptr(acc[i], out_ptr);
+                unsafe {
+                    ops.store_ptr(acc[i], out_ptr);
+                }
             } else {
-                let tmp = ops.load_ptr(out_ptr);
+                let tmp = unsafe { ops.load_ptr(out_ptr) };
                 let tmp = ops.add(tmp, acc[i]);
-                ops.store_ptr(tmp, out_ptr);
+                unsafe {
+                    ops.store_ptr(tmp, out_ptr);
+                }
             }
         }
     }
@@ -735,7 +755,7 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
         let mut acc = 0;
         let mut col_sum = 0;
         for (k, &a) in a.iter().enumerate() {
-            let mut b_val = *b.get_unchecked([k, col]) as i32;
+            let mut b_val = unsafe { *b.get_unchecked([k, col]) as i32 };
             if CAST_B_U8 {
                 b_val += b_zero_shift;
             }
@@ -750,16 +770,19 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
         let b_zero = b_zero_points.map(|bq| bq[col] as i32).unwrap_or(0) + b_zero_shift;
         acc = depth as i32 * a_zero * b_zero + acc - row_sum * b_zero - col_sum * a_zero;
 
-        let out_el = out.data.as_ptr().add(col) as *mut i32;
+        let out_el = unsafe { out.data.as_ptr().add(col) as *mut i32 };
         if !out.beta {
-            out_el.write(acc);
+            unsafe { out_el.write(acc) };
         } else {
-            *out_el += acc;
+            unsafe { *out_el += acc };
         }
     }
 }
 
 /// Variant of [`simd_int8_gemv`] for the case where the RHS has unit row stride.
+///
+/// This is unsafe as it assumes compatibility of input and output dimensions
+/// has been checked by `simd_int8_gemv`.
 #[inline(always)]
 unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
     isa: I,
@@ -829,6 +852,9 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
 
 /// Fallback for [`simd_int8_gemv`] when RHS has neither unit column stride nor
 /// unit row stride.
+///
+/// This is unsafe as it assumes compatibility of input and output dimensions
+/// has been checked by `simd_int8_gemv`.
 #[inline(always)]
 unsafe fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
     out: MatVecOutput<i32, bool>,
