@@ -23,12 +23,11 @@ pub fn simd_gemv<I: Isa, const NR_REGS: usize>(
         return simd_gemv_fallback(out, a, b, alpha);
     }
 
+    assert_eq!(a.len(), b.rows());
+    assert_eq!(out.data.len(), b.cols());
+    assert_eq!(b.col_stride(), 1);
+
     let ops = isa.f32();
-
-    assert!(b.col_stride() == 1);
-    assert!(a.len() == b.rows());
-    assert!(out.data.len() == b.cols());
-
     let out_ptr = out.data.as_mut_ptr();
     let a_ptr = a.as_ptr();
     let b_ptr = b.storage().as_ptr();
@@ -110,9 +109,9 @@ fn simd_gemv_transposed<I: Isa>(
     b: Matrix,
     alpha: f32,
 ) {
-    assert!(b.row_stride() == 1);
-    assert!(a.len() == b.rows());
-    assert!(out.data.len() == b.cols());
+    assert_eq!(b.row_stride(), 1);
+    assert_eq!(a.len(), b.rows());
+    assert_eq!(out.data.len(), b.cols());
 
     let ops = isa.f32();
     let b_ptr = b.storage().as_ptr();
@@ -176,8 +175,8 @@ fn simd_gemv_transposed<I: Isa>(
 /// can benefit from the kernel's instruction set (eg. for FMA operations).
 #[inline(always)]
 fn simd_gemv_fallback(out: MatVecOutput<f32>, a: &[f32], b: Matrix, alpha: f32) {
-    assert!(a.len() == b.rows());
-    assert!(out.data.len() == b.cols());
+    assert_eq!(a.len(), b.rows());
+    assert_eq!(out.data.len(), b.cols());
 
     for (col, out_el) in out.data.iter_mut().enumerate() {
         let mut acc = 0.;
