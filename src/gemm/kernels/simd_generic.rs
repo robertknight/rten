@@ -8,9 +8,6 @@ use crate::iter_util::{range_chunks_exact, unroll_loop, unroll_loop_x4};
 ///
 /// Multiple output columns are computed at a time, using `NR_REGS` SIMD
 /// registers of type `I::F32`. See [`Kernel::gemv_kernel`].
-///
-/// If `beta` is zero the output may be uninitialized. The output will always
-/// be initialized after the kernel has run.
 #[inline(always)]
 pub fn simd_gemv<I: Isa, const NR_REGS: usize>(
     isa: I,
@@ -253,7 +250,7 @@ impl<'a, I: Isa, const MR: usize, const NR_REGS: usize> GemmDispatch<'a, I, MR, 
 /// Compute a tile of matrix-multiplication output.
 ///
 /// - `MR` is the number of rows in a full tile
-/// - `NR_REGS` is the width of a full tile as a multiple of `S::LEN`
+/// - `NR_REGS` is the width of a full tile as a multiple of `isa.i32().len()`
 /// - `ROWS` is the number of rows that are actually used.
 ///
 /// See [`Kernel::kernel`].
@@ -568,10 +565,6 @@ const I8_U8_SHIFT_MASK: i8 = 0x80u8 as i8;
 /// `CAST_B_U8` specifies that the dot product implementation expects its second
 /// argument to contain `u8` rather than `i8` values. If true, the values of
 /// B are shifted by 128 and the same adjustment is applied to zero points.
-///
-/// # Safety
-///
-/// - `out` must be initialized if `accumulate` is true
 #[inline(always)]
 pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
     isa: I,
@@ -614,9 +607,9 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
 
     let row_sum: i32 = a.iter().map(|x| *x as i32).sum();
 
-    // Iterate over `4 x S::LEN` columns at a time, which is one `i8` SIMD vec,
-    // four `i32` vecs.
-    let mut col_tiles = range_chunks_exact(0..b.cols(), 4 * ops.len());
+    // Iterate over one SIMD vec of int8 input columns at a time, or 4x output
+    // i32 vecs.
+    let mut col_tiles = range_chunks_exact(0..b.cols(), i8_ops.len());
     for col_tile in col_tiles.by_ref() {
         let b_ptr = b_ptr.add(col_tile.start);
         let mut acc = [ops.zero(); 4];
@@ -631,10 +624,9 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
                 .splat(*(a_ptr.add(k) as *const i32))
                 .reinterpret_cast::<I::I8>();
 
-            // Load 4 rows of `S::LEN * 4` int8 elements from B and interleave
-            // to give 4 transposed `[4, S::LEN]` tiles. eg. Given 4 rows A, B,
-            // C, D if `S::LEN` = 4, the first tile is stored in column-major
-            // order and contains:
+            // Load 4 rows of int8 elements from B and interleave to give 4
+            // transposed `[4, MR]` tiles. eg. Given 4 rows A, B, C, D if `MR` =
+            // 4, the first tile is stored in column-major order and contains:
             //
             // A0 A1 A2 A3
             // B0 B1 B2 B3
@@ -768,10 +760,6 @@ pub unsafe fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
 }
 
 /// Variant of [`simd_int8_gemv`] for the case where the RHS has unit row stride.
-///
-/// # Safety
-///
-/// - `out` must be initialized if `accumulate` is true
 #[inline(always)]
 unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
     isa: I,
@@ -798,10 +786,7 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
         let b_ptr = b_ptr.add(col * b.col_stride());
         let mut acc = ops.zero();
         let mut col_sum = ops.zero();
-
-        // nb. `S::LEN` refers to `i32` values, but `depth` is a count of u8/i8
-        // values.
-        let mut k_tiles = range_chunks_exact(0..depth, ops.len() * 4);
+        let mut k_tiles = range_chunks_exact(0..depth, i8_ops.len());
 
         for k_tile in k_tiles.by_ref() {
             let a = i8_ops.load_ptr(a_ptr.add(k_tile.start) as *const i8);
@@ -844,10 +829,6 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
 
 /// Fallback for [`simd_int8_gemv`] when RHS has neither unit column stride nor
 /// unit row stride.
-///
-/// # Safety
-///
-/// - `out` must be initialized if `accumulate` is true
 #[inline(always)]
 unsafe fn simd_int8_gemv_fallback<const CAST_B_U8: bool>(
     out: MatVecOutput<i32, bool>,
