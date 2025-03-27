@@ -1,4 +1,4 @@
-//! Vectorized higher-order operations (map, fold etc.)
+//! Vectorized higher-order operations (map etc.)
 
 use super::{Elem, NumOps};
 use crate::span::SrcDest;
