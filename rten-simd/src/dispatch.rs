@@ -7,6 +7,7 @@ use crate::span::SrcDest;
 /// A vectorized operation which can be instantiated for different instruction
 /// sets.
 pub trait SimdOp {
+    /// The type of the operation's result.
     type Output;
 
     /// Evaluate the operation using the given instruction set.
