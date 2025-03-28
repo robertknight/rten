@@ -1,8 +1,9 @@
 use std::mem::MaybeUninit;
 
 use rten_simd::functional::simd_map;
+use rten_simd::ops::NumOps;
 use rten_simd::span::SrcDest;
-use rten_simd::{Isa, NumOps, SimdIterable, SimdOp};
+use rten_simd::{Isa, SimdIterable, SimdOp};
 
 /// Normalize the mean and variance of elements in a slice.
 ///

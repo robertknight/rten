@@ -10,7 +10,7 @@ pub mod wasm32;
 
 pub mod generic;
 
-use super::vec::Simd;
+use crate::simd::Simd;
 
 /// Return the number of lanes in a SIMD vector with compile-time known size.
 const fn lanes<S: Simd>() -> usize {

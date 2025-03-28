@@ -1,4 +1,5 @@
-use rten_simd::{Extend, Interleave, Isa, NumOps, Simd};
+use rten_simd::ops::{Extend, Interleave, NumOps};
+use rten_simd::{Isa, Simd};
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
 use super::{Int8DotProduct, Lhs, MatVecOutput};

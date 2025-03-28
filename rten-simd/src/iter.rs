@@ -1,6 +1,7 @@
 //! Tools for vectorized iteration over slices.
 
-use crate::{Elem, NumOps, Simd};
+use crate::ops::NumOps;
+use crate::{Elem, Simd};
 
 /// Methods for creating vectorized iterators.
 pub trait SimdIterable {
@@ -197,7 +198,8 @@ impl<T: Elem, O: NumOps<T>> std::iter::FusedIterator for IterPad<'_, T, O> {}
 mod tests {
     use super::SimdIterable;
     use crate::dispatch::test_simd_op;
-    use crate::{Isa, NumOps, Simd, SimdOp};
+    use crate::ops::NumOps;
+    use crate::{Isa, Simd, SimdOp};
 
     // f32 vector length, chosen to exercise main and tail loops for all ISAs.
     const TEST_LEN: usize = 18;

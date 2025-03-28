@@ -1,8 +1,9 @@
 use std::mem::MaybeUninit;
 
-use super::functional::simd_map;
-use super::{Elem, GetNumOps, Isa, Simd};
+use crate::functional::simd_map;
+use crate::ops::GetNumOps;
 use crate::span::SrcDest;
+use crate::{Elem, Isa, Simd};
 
 /// A vectorized operation which can be instantiated for different instruction
 /// sets.
@@ -89,7 +90,8 @@ pub trait SimdUnaryOp<T: Elem> {
     /// the specific type used by the ISA:
     ///
     /// ```
-    /// use rten_simd::{Isa, Simd, FloatOps, NumOps, SimdUnaryOp};
+    /// use rten_simd::{Isa, Simd, SimdUnaryOp};
+    /// use rten_simd::ops::{FloatOps, NumOps};
     ///
     /// struct Reciprocal {}
     ///
@@ -209,7 +211,8 @@ pub(crate) use test_simd_op;
 #[cfg(test)]
 mod tests {
     use super::SimdUnaryOp;
-    use crate::{FloatOps, GetNumOps, Isa, NumOps, Simd};
+    use crate::ops::{FloatOps, GetNumOps, NumOps};
+    use crate::{Isa, Simd};
 
     #[test]
     fn test_unary_float_op() {

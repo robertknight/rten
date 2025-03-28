@@ -16,9 +16,8 @@ use std::arch::aarch64::{
 };
 use std::mem::transmute;
 
-use crate::{
-    Extend, FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
-};
+use crate::ops::{Extend, FloatOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps};
+use crate::{Isa, Mask, Simd};
 
 #[derive(Copy, Clone)]
 pub struct ArmNeonIsa {

@@ -1,9 +1,8 @@
 use std::array;
 use std::mem::transmute;
 
-use crate::{
-    Extend, FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
-};
+use crate::ops::{Extend, FloatOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps};
+use crate::{Isa, Mask, Simd};
 
 // Size of SIMD vector in 32-bit lanes.
 const LEN_X32: usize = 4;
