@@ -2,7 +2,8 @@
 
 #![allow(clippy::excessive_precision)]
 
-use rten_simd::{FloatOps, Isa, NumOps, SignedIntOps, Simd, SimdUnaryOp};
+use rten_simd::ops::{FloatOps, NumOps, SignedIntOps};
+use rten_simd::{Isa, Simd, SimdUnaryOp};
 
 const INV_LOG2: f32 = std::f32::consts::LOG2_E; // aka. 1 / ln2
 const ROUNDING_MAGIC: f32 = 12582912.; // 0x3 << 22

@@ -22,8 +22,10 @@ use std::is_x86_feature_detected;
 use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
-use crate::vec::{Extend, Narrow};
-use crate::{FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd};
+use crate::ops::{
+    Extend, FloatOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps, SignedIntOps,
+};
+use crate::{Isa, Mask, Simd};
 
 simd_type!(F32x8, __m256, f32, F32x8, Avx2Isa);
 simd_type!(I32x8, __m256i, i32, I32x8, Avx2Isa);

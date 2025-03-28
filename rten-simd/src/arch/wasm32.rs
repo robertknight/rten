@@ -15,9 +15,8 @@ use std::arch::wasm32::{
 use std::mem::transmute;
 
 use super::{lanes, simd_type};
-use crate::{
-    Extend, FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
-};
+use crate::ops::{Extend, FloatOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps};
+use crate::{Isa, Mask, Simd};
 
 simd_type!(F32x4, v128, f32, M32, Wasm32Isa);
 simd_type!(I32x4, v128, i32, M32, Wasm32Isa);

@@ -22,8 +22,10 @@ use std::arch::x86_64::{
 use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
-use crate::vec::{Extend, Narrow};
-use crate::{FloatOps, Interleave, Isa, Mask, MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd};
+use crate::ops::{
+    Extend, FloatOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps, SignedIntOps,
+};
+use crate::{Isa, Mask, Simd};
 
 simd_type!(F32x16, __m512, f32, __mmask16, Avx512Isa);
 simd_type!(I32x16, __m512i, i32, __mmask16, Avx512Isa);

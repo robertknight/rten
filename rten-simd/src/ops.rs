@@ -1,152 +1,20 @@
-use std::fmt::Debug;
+//! Traits for operations on SIMD vectors.
+//!
+//! The entry point is the [`Isa`] trait, an implementation of which is passed
+//! to SIMD operations when evaluated. This has methods for each of the
+//! supported element types which returns the implementation of operations on
+//! SIMD vectors with that element type.
+//!
+//! The [`NumOps`] trait provides operations available on all element types. The
+//! sub-traits [`FloatOps`] and [`SignedIntOps`] provide additional operations
+//! on float and signed integer element types. Additionally there are traits for
+//! individual operations such as [`Extend`] or [`NarrowSaturate`] which are
+//! available on a subset of element types.
+
 use std::mem::MaybeUninit;
 
-/// Types used as elements (or _lanes_) of SIMD vectors.
-pub trait Elem: Copy + Default + WrappingAdd<Output = Self> {
-    /// Return the 1 value of this type.
-    fn one() -> Self;
-}
-
-impl Elem for f32 {
-    fn one() -> Self {
-        1.
-    }
-}
-
-macro_rules! impl_elem_for_int {
-    ($int:ty) => {
-        impl Elem for $int {
-            fn one() -> Self {
-                1
-            }
-        }
-    };
-}
-
-impl_elem_for_int!(i32);
-impl_elem_for_int!(i16);
-impl_elem_for_int!(i8);
-impl_elem_for_int!(u8);
-impl_elem_for_int!(u16);
-
-/// Wrapping addition of numbers.
-///
-/// For float types, this is the same as [`std::ops::Add`]. For integer types,
-/// this is the same as the type's inherent `wrapping_add` method.
-pub trait WrappingAdd: Sized {
-    type Output;
-
-    fn wrapping_add(self, x: Self) -> Self;
-}
-
-macro_rules! impl_wrapping_add {
-    ($type:ty) => {
-        impl WrappingAdd for $type {
-            type Output = Self;
-
-            fn wrapping_add(self, x: Self) -> Self {
-                Self::wrapping_add(self, x)
-            }
-        }
-    };
-}
-
-impl_wrapping_add!(i32);
-impl_wrapping_add!(i16);
-impl_wrapping_add!(i8);
-impl_wrapping_add!(u8);
-impl_wrapping_add!(u16);
-
-impl WrappingAdd for f32 {
-    type Output = Self;
-
-    fn wrapping_add(self, x: f32) -> f32 {
-        self + x
-    }
-}
-
-/// Masks used or returned by SIMD operations.
-///
-/// Most operations on masks are available via the [`MaskOps`] trait.
-/// Implementations are obtained via [`NumOps::mask_ops`].
-pub trait Mask: Copy + Debug {
-    type Array: AsRef<[bool]>
-        + Copy
-        + Debug
-        + IntoIterator<Item = bool>
-        + PartialEq<Self::Array>
-        + std::ops::Index<usize, Output = bool>;
-
-    /// Convert this mask to a bool array.
-    fn to_array(self) -> Self::Array;
-
-    /// Return true if all lanes in the mask are one.
-    fn all_true(self) -> bool {
-        self.to_array().as_ref().iter().all(|&x| x)
-    }
-
-    /// Return true if all lanes in the mask are false.
-    fn all_false(self) -> bool {
-        self.to_array().as_ref().iter().all(|&x| !x)
-    }
-}
-
-/// SIMD vector type.
-#[allow(clippy::len_without_is_empty)]
-pub trait Simd: Copy + Debug {
-    /// Representation of this vector as a `[Self::Elem; N]` array.
-    type Array: AsRef<[Self::Elem]>
-        + Copy
-        + Debug
-        + IntoIterator<Item = Self::Elem>
-        + PartialEq<Self::Array>
-        + std::ops::Index<usize, Output = Self::Elem>
-        + std::ops::IndexMut<usize, Output = Self::Elem>;
-
-    /// Type of data held in each SIMD lane.
-    type Elem: Elem;
-
-    /// Mask with the same number of elements as this vector.
-    type Mask: Mask;
-
-    /// The ISA associated with this SIMD vector.
-    type Isa: Isa;
-
-    /// Convert this SIMD vector to the common "bits" type used by all vectors
-    /// in this family.
-    fn to_bits(self) -> <Self::Isa as Isa>::Bits;
-
-    /// Convert this SIMD vector from the common "bits" type used by all vectors
-    /// in this family.
-    fn from_bits(bits: <Self::Isa as Isa>::Bits) -> Self;
-
-    /// Reinterpret the bits of this vector as another vector from the same
-    /// family.
-    fn reinterpret_cast<T>(self) -> T
-    where
-        T: Simd<Isa = Self::Isa>,
-    {
-        T::from_bits(self.to_bits())
-    }
-
-    /// Cast this vector to another with the same ISA and element type.
-    ///
-    /// This cast is a no-op which doesn't generate any code. It is needed in
-    /// some cases to downcast a `Simd` type to one of an `Isa`s associated
-    /// types, or vice-versa.
-    fn same_cast<T>(self) -> T
-    where
-        T: Simd<Elem = Self::Elem, Isa = Self::Isa>,
-    {
-        T::from_bits(self.to_bits())
-    }
-
-    /// Convert `self` to a SIMD array.
-    ///
-    /// This is a cheap transmute in most cases, since SIMD vectors usually
-    /// have the same layout as `[S::Elem; N]` but a greater alignment.
-    fn to_array(self) -> Self::Array;
-}
+use crate::elem::Elem;
+use crate::simd::{Mask, Simd};
 
 /// Entry point for performing SIMD operations using a particular Instruction
 /// Set Architecture (ISA).
@@ -222,7 +90,8 @@ pub unsafe trait Isa: Copy {
 /// operation.
 ///
 /// ```
-/// use rten_simd::{GetNumOps, NumOps, Isa, SimdIterable, SimdOp};
+/// use rten_simd::{Isa, SimdIterable, SimdOp};
+/// use rten_simd::ops::{GetNumOps, NumOps};
 ///
 /// struct Sum<'a, T>(&'a [T]);
 ///
@@ -618,6 +487,8 @@ pub trait SignedIntOps<T: Elem>: NumOps<T> {
 ///
 /// For integer types, the extended type has the same signed-ness.
 pub trait Extend<T: Elem>: NumOps<T> {
+    /// SIMD vector type with elements that have twice the bit-width of
+    /// those in `Self::SIMD`.
     type Output;
 
     /// Extend each lane to a type with twice the width.
@@ -666,11 +537,9 @@ pub trait NarrowSaturate<T: Elem, U: Elem>: NumOps<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::WrappingAdd;
-    use crate::{
-        assert_simd_eq, assert_simd_ne, test_simd_op, Extend, FloatOps, Interleave, Isa, Mask,
-        MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd, SimdOp,
-    };
+    use crate::elem::WrappingAdd;
+    use crate::ops::{Extend, FloatOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps};
+    use crate::{assert_simd_eq, assert_simd_ne, test_simd_op, Isa, Mask, Simd, SimdOp};
 
     // Generate tests for operations available on all numeric types.
     macro_rules! test_num_ops {

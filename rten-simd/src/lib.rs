@@ -57,7 +57,8 @@
 //! evaluates it on a vector of floats:
 //!
 //! ```
-//! use rten_simd::{Isa, SimdOp, NumOps};
+//! use rten_simd::{Isa, SimdOp};
+//! use rten_simd::ops::NumOps;
 //! use rten_simd::functional::simd_map;
 //!
 //! struct Square<'a> {
@@ -112,20 +113,21 @@
 //!
 //! An implementation of the [`Isa`] trait is passed to [`SimdOp::eval`]. The
 //! [`Isa`] is the entry point for operations on SIMD vectors. It provides
-//! access to implementations of the [`NumOps`] trait and sub-traits for each
-//! element type. For example [`Isa::f32`] provides operations on SIMD vectors
-//! with `f32` elements.
+//! access to implementations of the [`NumOps`](ops::NumOps) trait and
+//! sub-traits for each element type. For example [`Isa::f32`] provides
+//! operations on SIMD vectors with `f32` elements.
 //!
-//! The [`NumOps`] trait provides operations that are available on all SIMD
-//! vectors. The sub-traits [`FloatOps`] and [`SignedIntOps`] provide operations
-//! that are only available on SIMD vectors with float and signed integer
-//! elements respectively.
+//! The [`NumOps`](ops::NumOps) trait provides operations that are available on
+//! all SIMD vectors. The sub-traits [`FloatOps`](ops::FloatOps) and
+//! [`SignedIntOps`](ops::SignedIntOps) provide operations that are only
+//! available on SIMD vectors with float and signed integer elements
+//! respectively.
 //!
-//! SIMD operations (eg. [`NumOps::add`]) take SIMD vectors as arguments. These
-//! vectors are either platform-specific types (eg. `float32x4_t` on Arm)
-//! or transparent wrappers around them. The [`Simd`] trait is implemented for
-//! all vector types. The [`Elem`] trait is implemented for supported element
-//! types, providing required numeric operations.
+//! SIMD operations (eg. [`NumOps::add`](ops::NumOps::add) take SIMD vectors as
+//! arguments. These vectors are either platform-specific types (eg.
+//! `float32x4_t` on Arm) or transparent wrappers around them. The [`Simd`]
+//! trait is implemented for all vector types. The [`Elem`] trait is implemented
+//! for supported element types, providing required numeric operations.
 //!
 //! ## Use with slices
 //!
@@ -169,18 +171,20 @@
 //!
 //! ## Generic operations
 //!
-//! It is possible to define operations which are generic over the element
-//! type by using the [`GetNumOps`] trait and related traits. These are
-//! implemented for supported element types and provide a way to get the
-//! [`NumOps`] implementation for that element type from an `Isa`. This can
-//! be used to define [`SimdOp`]s which are generic over the element type.
+//! It is possible to define operations which are generic over the element type
+//! by using the [`GetNumOps`](ops::GetNumOps) trait and related traits. These
+//! are implemented for supported element types and provide a way to get the
+//! [`NumOps`](ops::NumOps) implementation for that element type from an `Isa`.
+//! This can be used to define [`SimdOp`]s which are generic over the element
+//! type.
 //!
 //! This example defines an operation which can sum a slice of any supported
 //! element type:
 //!
 //! ```
 //! use std::iter::Sum;
-//! use rten_simd::{GetNumOps, NumOps, Isa, Simd, SimdIterable, SimdOp};
+//! use rten_simd::{Isa, Simd, SimdIterable, SimdOp};
+//! use rten_simd::ops::{GetNumOps, NumOps};
 //!
 //! struct SimdSum<'a, T>(&'a [T]);
 //!
@@ -211,11 +215,13 @@
 
 mod arch;
 mod dispatch;
+mod elem;
 pub mod functional;
 pub mod isa_detection;
 mod iter;
+pub mod ops;
+mod simd;
 pub mod span;
-mod vec;
 mod writer;
 
 /// Target-specific [`Isa`] implementations.
@@ -243,11 +249,10 @@ pub mod isa {
 }
 
 pub use dispatch::{SimdOp, SimdUnaryOp};
+pub use elem::Elem;
 pub use iter::{Iter, SimdIterable};
-pub use vec::{
-    Elem, Extend, FloatOps, GetFloatOps, GetNumOps, GetSignedIntOps, Interleave, Isa, Mask,
-    MaskOps, NarrowSaturate, NumOps, SignedIntOps, Simd,
-};
+pub use ops::Isa;
+pub use simd::{Mask, Simd};
 pub use writer::SliceWriter;
 
 #[cfg(feature = "avx512")]
@@ -281,7 +286,8 @@ pub(crate) use {assert_simd_eq, assert_simd_ne};
 #[cfg(test)]
 mod tests {
     use super::functional::simd_map;
-    use super::{Isa, NumOps, SimdOp};
+    use super::ops::NumOps;
+    use super::{Isa, SimdOp};
 
     #[test]
     fn test_simd_f32_op() {

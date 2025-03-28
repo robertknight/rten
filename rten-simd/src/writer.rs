@@ -1,6 +1,7 @@
 use std::mem::{transmute, MaybeUninit};
 
-use super::{Elem, NumOps};
+use crate::ops::NumOps;
+use crate::Elem;
 
 /// Utility for incrementally filling an uninitialized slice, one SIMD vector
 /// at a time.
@@ -45,7 +46,8 @@ impl<'a, T: Elem> SliceWriter<'a, T> {
 mod tests {
     use std::mem::MaybeUninit;
 
-    use crate::{Isa, NumOps, SimdOp, SliceWriter};
+    use crate::ops::NumOps;
+    use crate::{Isa, SimdOp, SliceWriter};
 
     #[test]
     fn test_slice_writer() {

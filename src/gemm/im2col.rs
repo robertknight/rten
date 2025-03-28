@@ -1,7 +1,8 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::{Isa, Mask, MaskOps, NumOps, Simd};
+use rten_simd::ops::{MaskOps, NumOps};
+use rten_simd::{Isa, Mask, Simd};
 use rten_tensor::{NdTensorView, Storage};
 
 use super::packing::int8::shift_cast_i8_u8;
