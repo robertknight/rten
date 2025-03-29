@@ -8,15 +8,16 @@ use std::arch::x86_64::{
     _mm256_extractf128_ps, _mm256_extracti128_si256, _mm256_fmadd_ps, _mm256_insertf128_si256,
     _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32, _mm256_maskload_ps,
     _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
-    _mm256_movemask_epi8, _mm256_mul_ps, _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_si256,
-    _mm256_packs_epi32, _mm256_packus_epi16, _mm256_permute2x128_si256, _mm256_permute4x64_epi64,
-    _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_epi8, _mm256_set1_ps, _mm256_setr_m128i,
-    _mm256_setzero_si256, _mm256_slli_epi16, _mm256_slli_epi32, _mm256_storeu_ps,
-    _mm256_storeu_si256, _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_epi8, _mm256_sub_ps,
-    _mm256_unpackhi_epi16, _mm256_unpackhi_epi8, _mm256_unpacklo_epi16, _mm256_unpacklo_epi8,
-    _mm256_xor_ps, _mm256_xor_si256, _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch,
-    _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps, _mm_unpacklo_epi64, _CMP_EQ_OQ, _CMP_GE_OQ,
-    _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_movemask_epi8, _mm256_mul_ps, _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_ps,
+    _mm256_or_si256, _mm256_packs_epi32, _mm256_packus_epi16, _mm256_permute2x128_si256,
+    _mm256_permute4x64_epi64, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_epi8,
+    _mm256_set1_ps, _mm256_setr_m128i, _mm256_setzero_si256, _mm256_slli_epi16, _mm256_slli_epi32,
+    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_epi8,
+    _mm256_sub_ps, _mm256_unpackhi_epi16, _mm256_unpackhi_epi8, _mm256_unpacklo_epi16,
+    _mm256_unpacklo_epi8, _mm256_xor_ps, _mm256_xor_si256, _mm_add_ps, _mm_cvtss_f32,
+    _mm_movehl_ps, _mm_prefetch, _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps,
+    _mm_unpacklo_epi64, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0,
+    _MM_HINT_T0,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
@@ -124,6 +125,16 @@ macro_rules! simd_ops_common {
 macro_rules! simd_int_ops_common {
     ($simd:ty) => {
         #[inline]
+        fn and(self, x: $simd, y: $simd) -> $simd {
+            unsafe { _mm256_and_si256(x.0, y.0) }.into()
+        }
+
+        #[inline]
+        fn or(self, x: $simd, y: $simd) -> $simd {
+            unsafe { _mm256_or_si256(x.0, y.0) }.into()
+        }
+
+        #[inline]
         fn xor(self, x: $simd, y: $simd) -> $simd {
             unsafe { _mm256_xor_si256(x.0, y.0) }.into()
         }
@@ -200,14 +211,24 @@ unsafe impl NumOps<f32> for Avx2Isa {
     }
 
     #[inline]
-    fn xor(self, x: F32x8, y: F32x8) -> F32x8 {
-        unsafe { _mm256_xor_ps(x.0, y.0) }.into()
+    fn and(self, x: F32x8, y: F32x8) -> F32x8 {
+        unsafe { _mm256_and_ps(x.0, y.0) }.into()
     }
 
     #[inline]
     fn not(self, x: F32x8) -> F32x8 {
         let all_ones: F32x8 = self.splat(f32::from_bits(0xFFFFFFFF));
         unsafe { _mm256_andnot_ps(x.0, all_ones.0) }.into()
+    }
+
+    #[inline]
+    fn or(self, x: F32x8, y: F32x8) -> F32x8 {
+        unsafe { _mm256_or_ps(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn xor(self, x: F32x8, y: F32x8) -> F32x8 {
+        unsafe { _mm256_xor_ps(x.0, y.0) }.into()
     }
 
     #[inline]

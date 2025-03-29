@@ -10,9 +10,9 @@ use std::arch::aarch64::{
     vget_low_s8, vld1q_f32, vld1q_s16, vld1q_s32, vld1q_s8, vld1q_u16, vld1q_u32, vld1q_u8,
     vmaxq_f32, vminq_f32, vmovl_high_s16, vmovl_high_s8, vmovl_s16, vmovl_s8, vmulq_f32, vmulq_s16,
     vmulq_s32, vmulq_s8, vmulq_u16, vmulq_u8, vmvnq_u32, vnegq_f32, vnegq_s16, vnegq_s32, vnegq_s8,
-    vqmovn_s32, vqmovun_s16, vshlq_n_s16, vshlq_n_s32, vshlq_n_s8, vst1q_f32, vst1q_s16, vst1q_s32,
-    vst1q_s8, vst1q_u16, vst1q_u8, vsubq_f32, vsubq_s16, vsubq_s32, vsubq_s8, vsubq_u16, vsubq_u8,
-    vzip1q_s16, vzip1q_s8, vzip2q_s16, vzip2q_s8,
+    vorrq_u32, vqmovn_s32, vqmovun_s16, vshlq_n_s16, vshlq_n_s32, vshlq_n_s8, vst1q_f32, vst1q_s16,
+    vst1q_s32, vst1q_s8, vst1q_u16, vst1q_u8, vsubq_f32, vsubq_s16, vsubq_s32, vsubq_s8, vsubq_u16,
+    vsubq_u8, vzip1q_s16, vzip1q_s8, vzip2q_s16, vzip2q_s8,
 };
 use std::mem::transmute;
 
@@ -124,13 +124,24 @@ macro_rules! simd_ops_common {
 
         // Since bitwise ops work on individual bits, we can use the same
         // implementation regardless of numeric type.
-
         #[inline]
-        fn xor(self, x: $simd, y: $simd) -> $simd {
+        fn and(self, x: $simd, y: $simd) -> $simd {
             unsafe {
                 let x = transmute::<$simd, uint32x4_t>(x);
                 let y = transmute::<$simd, uint32x4_t>(y);
-                let tmp = veorq_u32(x, y);
+                let tmp = vandq_u32(x, y);
+                transmute::<uint32x4_t, $simd>(tmp)
+            }
+        }
+
+        // Since bitwise ops work on individual bits, we can use the same
+        // implementation regardless of numeric type.
+        #[inline]
+        fn or(self, x: $simd, y: $simd) -> $simd {
+            unsafe {
+                let x = transmute::<$simd, uint32x4_t>(x);
+                let y = transmute::<$simd, uint32x4_t>(y);
+                let tmp = vorrq_u32(x, y);
                 transmute::<uint32x4_t, $simd>(tmp)
             }
         }
@@ -140,6 +151,16 @@ macro_rules! simd_ops_common {
             unsafe {
                 let x = transmute::<$simd, uint32x4_t>(x);
                 let tmp = vmvnq_u32(x);
+                transmute::<uint32x4_t, $simd>(tmp)
+            }
+        }
+
+        #[inline]
+        fn xor(self, x: $simd, y: $simd) -> $simd {
+            unsafe {
+                let x = transmute::<$simd, uint32x4_t>(x);
+                let y = transmute::<$simd, uint32x4_t>(y);
+                let tmp = veorq_u32(x, y);
                 transmute::<uint32x4_t, $simd>(tmp)
             }
         }
