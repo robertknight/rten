@@ -287,8 +287,14 @@ pub unsafe trait NumOps<T: Elem>: Copy {
         self.min(self.max(x, min), max)
     }
 
+    /// Return the bitwise AND of `x` and `y`.
+    fn and(self, x: Self::Simd, y: Self::Simd) -> Self::Simd;
+
     /// Return the bitwise NOT of `x`.
     fn not(self, x: Self::Simd) -> Self::Simd;
+
+    /// Return the bitwise OR of `x` and `y`.
+    fn or(self, x: Self::Simd, y: Self::Simd) -> Self::Simd;
 
     /// Return the bitwise XOR of `x` and `y`.
     fn xor(self, x: Self::Simd, y: Self::Simd) -> Self::Simd;
@@ -706,6 +712,22 @@ mod tests {
                 }
 
                 #[test]
+                fn test_and() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+                        let zeros = ops.zero();
+                        let ones = ops.not(zeros);
+
+                        // Cast to bits here because all-ones is a NaN if elements
+                        // are floats, and NaNs are not equal to themselves.
+                        assert_simd_eq!(ops.and(zeros, zeros).to_bits(), zeros.to_bits());
+                        assert_simd_eq!(ops.and(zeros, ones).to_bits(), zeros.to_bits());
+                        assert_simd_eq!(ops.and(ones, zeros).to_bits(), zeros.to_bits());
+                        assert_simd_eq!(ops.and(ones, ones).to_bits(), ones.to_bits());
+                    })
+                }
+
+                #[test]
                 fn test_not() {
                     test_simd_op!(isa, {
                         let ops = isa.$elem();
@@ -719,6 +741,22 @@ mod tests {
                 }
 
                 #[test]
+                fn test_or() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+                        let zeros = ops.zero();
+                        let ones = ops.not(zeros);
+
+                        // Cast to bits here because all-ones is a NaN if elements
+                        // are floats, and NaNs are not equal to themselves.
+                        assert_simd_eq!(ops.or(zeros, zeros).to_bits(), zeros.to_bits());
+                        assert_simd_eq!(ops.or(zeros, ones).to_bits(), ones.to_bits());
+                        assert_simd_eq!(ops.or(ones, zeros).to_bits(), ones.to_bits());
+                        assert_simd_eq!(ops.or(ones, ones).to_bits(), ones.to_bits());
+                    })
+                }
+
+                #[test]
                 fn test_xor() {
                     test_simd_op!(isa, {
                         let ops = isa.$elem();
@@ -726,12 +764,11 @@ mod tests {
                         let zeros = ops.zero();
                         let ones = ops.not(zeros);
 
-                        assert_simd_eq!(ops.xor(zeros, zeros), zeros);
-                        assert_simd_eq!(ops.xor(ones, ones), zeros);
-
                         // Cast to bits here because all-ones is a NaN if the
                         // element type is a float, and NaNs are not equal to
                         // themselves.
+                        assert_simd_eq!(ops.xor(zeros, zeros).to_bits(), zeros.to_bits());
+                        assert_simd_eq!(ops.xor(ones, ones).to_bits(), zeros.to_bits());
                         assert_simd_eq!(ops.xor(zeros, ones).to_bits(), ones.to_bits());
                         assert_simd_eq!(ops.xor(ones, zeros).to_bits(), ones.to_bits());
                     })
