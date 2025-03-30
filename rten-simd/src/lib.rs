@@ -119,9 +119,12 @@
 //!
 //! The [`NumOps`](ops::NumOps) trait provides operations that are available on
 //! all SIMD vectors. The sub-traits [`FloatOps`](ops::FloatOps) and
-//! [`SignedIntOps`](ops::SignedIntOps) provide operations that are only
-//! available on SIMD vectors with float and signed integer elements
-//! respectively.
+//! [`IntOps`](ops::IntOps) provide operations that are only available on SIMD
+//! vectors with float and integer elements respectively. There is also
+//! [`SignedIntOps`](ops::SignedIntOps) for signed integer operations. Finally
+//! there are additional traits for operations only available for other subsets
+//! of element types. For example [`Extend`](ops::Extend) widens each lane to
+//! one with twice the bit-width.
 //!
 //! SIMD operations (eg. [`NumOps::add`](ops::NumOps::add) take SIMD vectors as
 //! arguments. These vectors are either platform-specific types (eg.

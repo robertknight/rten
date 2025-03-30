@@ -1,7 +1,9 @@
 use std::array;
 use std::mem::transmute;
 
-use crate::ops::{Extend, FloatOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps};
+use crate::ops::{
+    Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+};
 use crate::{Isa, Mask, Simd};
 
 // Size of SIMD vector in 32-bit lanes.
@@ -320,16 +322,18 @@ macro_rules! impl_simd_signed_int_ops {
             simd_int_ops_common!($simd);
         }
 
+        impl IntOps<$elem> for GenericIsa {
+            #[inline]
+            fn shift_left<const SHIFT: i32>(self, x: $simd) -> $simd {
+                let xs = array::from_fn(|i| x.0[i] << SHIFT);
+                $simd(xs)
+            }
+        }
+
         impl SignedIntOps<$elem> for GenericIsa {
             #[inline]
             fn neg(self, x: $simd) -> $simd {
                 let xs = array::from_fn(|i| -x.0[i]);
-                $simd(xs)
-            }
-
-            #[inline]
-            fn shift_left<const SHIFT: i32>(self, x: $simd) -> $simd {
-                let xs = array::from_fn(|i| x.0[i] << SHIFT);
                 $simd(xs)
             }
         }

@@ -15,7 +15,9 @@ use std::arch::wasm32::{
 use std::mem::transmute;
 
 use super::{lanes, simd_type};
-use crate::ops::{Extend, FloatOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps};
+use crate::ops::{
+    Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+};
 use crate::{Isa, Mask, Simd};
 
 simd_type!(F32x4, v128, f32, M32, Wasm32Isa);
@@ -323,15 +325,17 @@ unsafe impl NumOps<i32> for Wasm32Isa {
     }
 }
 
+impl IntOps<i32> for Wasm32Isa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: I32x4) -> I32x4 {
+        I32x4(i32x4_shl(x.0, SHIFT as u32))
+    }
+}
+
 impl SignedIntOps<i32> for Wasm32Isa {
     #[inline]
     fn neg(self, x: I32x4) -> I32x4 {
         I32x4(i32x4_neg(x.0))
-    }
-
-    #[inline]
-    fn shift_left<const SHIFT: i32>(self, x: I32x4) -> I32x4 {
-        I32x4(i32x4_shl(x.0, SHIFT as u32))
     }
 }
 
@@ -383,15 +387,17 @@ unsafe impl NumOps<i16> for Wasm32Isa {
     }
 }
 
+impl IntOps<i16> for Wasm32Isa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: I16x8) -> I16x8 {
+        I16x8(i16x8_shl(x.0, SHIFT as u32))
+    }
+}
+
 impl SignedIntOps<i16> for Wasm32Isa {
     #[inline]
     fn neg(self, x: I16x8) -> I16x8 {
         I16x8(i16x8_neg(x.0))
-    }
-
-    #[inline]
-    fn shift_left<const SHIFT: i32>(self, x: I16x8) -> I16x8 {
-        I16x8(i16x8_shl(x.0, SHIFT as u32))
     }
 }
 
@@ -475,15 +481,17 @@ unsafe impl NumOps<i8> for Wasm32Isa {
     }
 }
 
+impl IntOps<i8> for Wasm32Isa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: I8x16) -> I8x16 {
+        I8x16(i8x16_shl(x.0, SHIFT as u32))
+    }
+}
+
 impl SignedIntOps<i8> for Wasm32Isa {
     #[inline]
     fn neg(self, x: I8x16) -> I8x16 {
         I8x16(i8x16_neg(x.0))
-    }
-
-    #[inline]
-    fn shift_left<const SHIFT: i32>(self, x: I8x16) -> I8x16 {
-        I8x16(i8x16_shl(x.0, SHIFT as u32))
     }
 }
 

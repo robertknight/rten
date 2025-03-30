@@ -16,7 +16,9 @@ use std::arch::aarch64::{
 };
 use std::mem::transmute;
 
-use crate::ops::{Extend, FloatOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps};
+use crate::ops::{
+    Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+};
 use crate::{Isa, Mask, Simd};
 
 #[derive(Copy, Clone)]
@@ -351,15 +353,17 @@ unsafe impl NumOps<i32> for ArmNeonIsa {
     }
 }
 
+impl IntOps<i32> for ArmNeonIsa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: int32x4_t) -> int32x4_t {
+        unsafe { vshlq_n_s32::<SHIFT>(x) }
+    }
+}
+
 impl SignedIntOps<i32> for ArmNeonIsa {
     #[inline]
     fn neg(self, x: int32x4_t) -> int32x4_t {
         unsafe { vnegq_s32(x) }
-    }
-
-    #[inline]
-    fn shift_left<const SHIFT: i32>(self, x: int32x4_t) -> int32x4_t {
-        unsafe { vshlq_n_s32::<SHIFT>(x) }
     }
 }
 
@@ -459,15 +463,17 @@ unsafe impl NumOps<i16> for ArmNeonIsa {
     }
 }
 
+impl IntOps<i16> for ArmNeonIsa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: int16x8_t) -> int16x8_t {
+        unsafe { vshlq_n_s16::<SHIFT>(x) }
+    }
+}
+
 impl SignedIntOps<i16> for ArmNeonIsa {
     #[inline]
     fn neg(self, x: int16x8_t) -> int16x8_t {
         unsafe { vnegq_s16(x) }
-    }
-
-    #[inline]
-    fn shift_left<const SHIFT: i32>(self, x: int16x8_t) -> int16x8_t {
-        unsafe { vshlq_n_s16::<SHIFT>(x) }
     }
 }
 
@@ -566,15 +572,17 @@ unsafe impl NumOps<i8> for ArmNeonIsa {
     }
 }
 
+impl IntOps<i8> for ArmNeonIsa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: int8x16_t) -> int8x16_t {
+        unsafe { vshlq_n_s8::<SHIFT>(x) }
+    }
+}
+
 impl SignedIntOps<i8> for ArmNeonIsa {
     #[inline]
     fn neg(self, x: int8x16_t) -> int8x16_t {
         unsafe { vnegq_s8(x) }
-    }
-
-    #[inline]
-    fn shift_left<const SHIFT: i32>(self, x: int8x16_t) -> int8x16_t {
-        unsafe { vshlq_n_s8::<SHIFT>(x) }
     }
 }
 

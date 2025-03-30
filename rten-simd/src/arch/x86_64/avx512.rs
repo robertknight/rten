@@ -24,7 +24,7 @@ use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
 use crate::ops::{
-    Extend, FloatOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps, SignedIntOps,
+    Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps, SignedIntOps,
 };
 use crate::{Isa, Mask, Simd};
 
@@ -364,16 +364,18 @@ unsafe impl NumOps<i32> for Avx512Isa {
     }
 }
 
-impl SignedIntOps<i32> for Avx512Isa {
-    #[inline]
-    fn neg(self, x: I32x16) -> I32x16 {
-        unsafe { _mm512_sub_epi32(_mm512_setzero_si512(), x.0) }.into()
-    }
-
+impl IntOps<i32> for Avx512Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I32x16) -> I32x16 {
         let count: I32x16 = self.splat(SHIFT);
         unsafe { _mm512_sllv_epi32(x.0, count.0) }.into()
+    }
+}
+
+impl SignedIntOps<i32> for Avx512Isa {
+    #[inline]
+    fn neg(self, x: I32x16) -> I32x16 {
+        unsafe { _mm512_sub_epi32(_mm512_setzero_si512(), x.0) }.into()
     }
 }
 
@@ -460,16 +462,18 @@ unsafe impl NumOps<i16> for Avx512Isa {
     }
 }
 
-impl SignedIntOps<i16> for Avx512Isa {
-    #[inline]
-    fn neg(self, x: I16x32) -> I16x32 {
-        unsafe { _mm512_sub_epi16(_mm512_setzero_si512(), x.0) }.into()
-    }
-
+impl IntOps<i16> for Avx512Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I16x32) -> I16x32 {
         let count: I16x32 = self.splat(SHIFT as i16);
         unsafe { _mm512_sllv_epi16(x.0, count.0) }.into()
+    }
+}
+
+impl SignedIntOps<i16> for Avx512Isa {
+    #[inline]
+    fn neg(self, x: I16x32) -> I16x32 {
+        unsafe { _mm512_sub_epi16(_mm512_setzero_si512(), x.0) }.into()
     }
 }
 
@@ -590,12 +594,7 @@ unsafe impl NumOps<i8> for Avx512Isa {
     }
 }
 
-impl SignedIntOps<i8> for Avx512Isa {
-    #[inline]
-    fn neg(self, x: I8x64) -> I8x64 {
-        unsafe { _mm512_sub_epi8(_mm512_setzero_si512(), x.0) }.into()
-    }
-
+impl IntOps<i8> for Avx512Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I8x64) -> I8x64 {
         let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
@@ -607,6 +606,13 @@ impl SignedIntOps<i8> for Avx512Isa {
         );
 
         self.narrow_truncate(y_lo, y_hi)
+    }
+}
+
+impl SignedIntOps<i8> for Avx512Isa {
+    #[inline]
+    fn neg(self, x: I8x64) -> I8x64 {
+        unsafe { _mm512_sub_epi8(_mm512_setzero_si512(), x.0) }.into()
     }
 }
 
