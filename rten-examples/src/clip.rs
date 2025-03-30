@@ -130,13 +130,13 @@ fn preprocess_image(
 ///
 /// ```
 /// optimum-cli export onnx --model openai/clip-vit-base-patch32 clip-vit-base-patch32
-/// rten-convert clip-vit-base-patch32/model.onnx clip.rten
+/// rten-convert clip-vit-base-patch32/model.onnx
 /// ```
 ///
 /// Run this program specifying at least one image and at least one caption:
 ///
 /// ```
-/// cargo run --release --bin clip clip.rten -i ../tools/test-images/horses.jpeg -c "horses" -c "ducks"
+/// cargo run --release --bin clip clip-vit-base-patch32/model.rten clip-vit-base-patch32/tokenizer.json -i ../tools/test-images/horses.jpeg -c "horses" -c "ducks"
 /// ```
 ///
 /// [^1]: https://github.com/openai/CLIP
