@@ -75,7 +75,7 @@ pub unsafe trait Isa: Copy {
     fn u8(self) -> impl NumOps<u8, Simd = Self::U8>;
 
     /// Operations on SIMD vectors with `u16` elements.
-    fn u16(self) -> impl NumOps<u16, Simd = Self::U16>;
+    fn u16(self) -> impl IntOps<u16, Simd = Self::U16>;
 }
 
 /// Get the [`NumOps`] implementation from an [`Isa`] for a given element type.
@@ -167,7 +167,8 @@ where
 impl_get_ops!(GetIntOps, int_ops, IntOps, i16);
 impl_get_ops!(GetIntOps, int_ops, IntOps, i32);
 impl_get_ops!(GetIntOps, int_ops, IntOps, i8);
-// TODO: Implement `IntOps` for unsigned types and add them here.
+impl_get_ops!(GetIntOps, int_ops, IntOps, u16);
+// TODO: Implement `IntOps` for u8
 
 /// Get the [`SignedIntOps`] implementation from an [`Isa`] for a given element type.
 ///
@@ -949,6 +950,29 @@ mod tests {
 
     test_float_ops!(float_ops_f32, f32, i32);
 
+    // Generate tests for operations available on unsigned integer types.
+    macro_rules! test_unsigned_int_ops {
+        ($modname:ident, $elem:ident) => {
+            mod $modname {
+                use super::{assert_simd_eq, test_simd_op, IntOps, Isa, NumOps, Simd, SimdOp};
+
+                #[test]
+                fn test_shift_left() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(42);
+                        let y = ops.shift_left::<1>(x);
+                        let expected = ops.splat(42 << 1);
+                        assert_simd_eq!(y, expected);
+                    })
+                }
+            }
+        };
+    }
+
+    test_unsigned_int_ops!(uint_ops_u16, u16);
+
     // Generate tests for operations available on signed integer types.
     macro_rules! test_signed_int_ops {
         ($modname:ident, $elem:ident) => {
@@ -1002,7 +1026,7 @@ mod tests {
                 }
 
                 #[test]
-                fn test_shl() {
+                fn test_shift_left() {
                     test_simd_op!(isa, {
                         let ops = isa.$elem();
 

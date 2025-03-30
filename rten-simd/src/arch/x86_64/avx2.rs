@@ -91,7 +91,7 @@ unsafe impl Isa for Avx2Isa {
         self
     }
 
-    fn u16(self) -> impl NumOps<u16, Simd = Self::U16> {
+    fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
         self
     }
 }
@@ -917,6 +917,13 @@ unsafe impl NumOps<u16> for Avx2Isa {
                 unsafe { *ptr.add(i) = xs[i] }
             }
         }
+    }
+}
+
+impl IntOps<u16> for Avx2Isa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: U16x16) -> U16x16 {
+        unsafe { _mm256_slli_epi16(x.0, SHIFT) }.into()
     }
 }
 

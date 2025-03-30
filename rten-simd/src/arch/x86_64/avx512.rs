@@ -91,7 +91,7 @@ unsafe impl Isa for Avx512Isa {
         self
     }
 
-    fn u16(self) -> impl NumOps<u16, Simd = Self::U16> {
+    fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
         self
     }
 }
@@ -853,6 +853,14 @@ unsafe impl NumOps<u16> for Avx512Isa {
     #[inline]
     unsafe fn store_ptr_mask(self, x: U16x32, ptr: *mut u16, mask: __mmask32) {
         unsafe { _mm512_mask_storeu_epi16(ptr as *mut i16, mask, x.0) }
+    }
+}
+
+impl IntOps<u16> for Avx512Isa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: U16x32) -> U16x32 {
+        let count: I16x32 = self.splat(SHIFT as i16);
+        unsafe { _mm512_sllv_epi16(x.0, count.0) }.into()
     }
 }
 
