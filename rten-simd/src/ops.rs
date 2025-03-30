@@ -75,7 +75,7 @@ pub unsafe trait Isa: Copy {
     fn u8(self) -> impl NumOps<u8, Simd = Self::U8>;
 
     /// Operations on SIMD vectors with `u16` elements.
-    fn u16(self) -> impl NumOps<u16, Simd = Self::U16>;
+    fn u16(self) -> impl IntOps<u16, Simd = Self::U16>;
 }
 
 /// Get the [`NumOps`] implementation from an [`Isa`] for a given element type.
@@ -154,6 +154,21 @@ where
     fn float_ops<I: Isa>(isa: I) -> impl FloatOps<Self, Simd: Simd<Isa = I>>;
 }
 impl_get_ops!(GetFloatOps, float_ops, FloatOps, f32);
+
+/// Get the [`IntOps`] implementation from an [`Isa`] for a given element type.
+///
+/// This is a specialization of [`GetNumOps`] for signed integer element types.
+pub trait GetIntOps
+where
+    Self: Elem,
+{
+    fn int_ops<I: Isa>(isa: I) -> impl IntOps<Self, Simd: Simd<Isa = I>>;
+}
+impl_get_ops!(GetIntOps, int_ops, IntOps, i16);
+impl_get_ops!(GetIntOps, int_ops, IntOps, i32);
+impl_get_ops!(GetIntOps, int_ops, IntOps, i8);
+impl_get_ops!(GetIntOps, int_ops, IntOps, u16);
+// TODO: Implement `IntOps` for u8
 
 /// Get the [`SignedIntOps`] implementation from an [`Isa`] for a given element type.
 ///
@@ -473,11 +488,14 @@ pub trait FloatOps<T: Elem>: NumOps<T> {
     fn to_int_round(self, x: Self::Simd) -> Self::Int;
 }
 
-/// Operations on SIMD vectors with signed integer elements.
-pub trait SignedIntOps<T: Elem>: NumOps<T> {
+/// Operations on SIMD vectors with integer elements.
+pub trait IntOps<T: Elem>: NumOps<T> {
     /// Shift each lane in `x` left by `SHIFT` bits.
     fn shift_left<const SHIFT: i32>(self, x: Self::Simd) -> Self::Simd;
+}
 
+/// Operations on SIMD vectors with signed integer elements.
+pub trait SignedIntOps<T: Elem>: IntOps<T> {
     /// Compute the absolute value of `x`
     fn abs(self, x: Self::Simd) -> Self::Simd {
         self.select(self.neg(x), x, self.lt(x, self.zero()))
@@ -544,7 +562,9 @@ pub trait NarrowSaturate<T: Elem, U: Elem>: NumOps<T> {
 #[cfg(test)]
 mod tests {
     use crate::elem::WrappingAdd;
-    use crate::ops::{Extend, FloatOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps};
+    use crate::ops::{
+        Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+    };
     use crate::{assert_simd_eq, assert_simd_ne, test_simd_op, Isa, Mask, Simd, SimdOp};
 
     // Generate tests for operations available on all numeric types.
@@ -930,12 +950,35 @@ mod tests {
 
     test_float_ops!(float_ops_f32, f32, i32);
 
+    // Generate tests for operations available on unsigned integer types.
+    macro_rules! test_unsigned_int_ops {
+        ($modname:ident, $elem:ident) => {
+            mod $modname {
+                use super::{assert_simd_eq, test_simd_op, IntOps, Isa, NumOps, Simd, SimdOp};
+
+                #[test]
+                fn test_shift_left() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(42);
+                        let y = ops.shift_left::<1>(x);
+                        let expected = ops.splat(42 << 1);
+                        assert_simd_eq!(y, expected);
+                    })
+                }
+            }
+        };
+    }
+
+    test_unsigned_int_ops!(uint_ops_u16, u16);
+
     // Generate tests for operations available on signed integer types.
     macro_rules! test_signed_int_ops {
         ($modname:ident, $elem:ident) => {
             mod $modname {
                 use super::{
-                    assert_simd_eq, test_simd_op, Isa, NumOps, SignedIntOps, Simd, SimdOp,
+                    assert_simd_eq, test_simd_op, IntOps, Isa, NumOps, SignedIntOps, Simd, SimdOp,
                 };
 
                 #[test]
@@ -983,7 +1026,7 @@ mod tests {
                 }
 
                 #[test]
-                fn test_shl() {
+                fn test_shift_left() {
                     test_simd_op!(isa, {
                         let ops = isa.$elem();
 

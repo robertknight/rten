@@ -1,7 +1,9 @@
 use std::array;
 use std::mem::transmute;
 
-use crate::ops::{Extend, FloatOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps};
+use crate::ops::{
+    Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+};
 use crate::{Isa, Mask, Simd};
 
 // Size of SIMD vector in 32-bit lanes.
@@ -92,7 +94,7 @@ unsafe impl Isa for GenericIsa {
         self
     }
 
-    fn u16(self) -> impl NumOps<u16, Simd = Self::U16> {
+    fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
         self
     }
 }
@@ -311,7 +313,7 @@ impl FloatOps<f32> for GenericIsa {
     }
 }
 
-macro_rules! impl_simd_signed_int_ops {
+macro_rules! impl_simd_int_ops {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
         unsafe impl NumOps<$elem> for GenericIsa {
             type Simd = $simd;
@@ -320,16 +322,24 @@ macro_rules! impl_simd_signed_int_ops {
             simd_int_ops_common!($simd);
         }
 
+        impl IntOps<$elem> for GenericIsa {
+            #[inline]
+            fn shift_left<const SHIFT: i32>(self, x: $simd) -> $simd {
+                let xs = array::from_fn(|i| x.0[i] << SHIFT);
+                $simd(xs)
+            }
+        }
+    };
+}
+
+macro_rules! impl_simd_signed_int_ops {
+    ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
+        impl_simd_int_ops!($simd, $elem, $len, $mask);
+
         impl SignedIntOps<$elem> for GenericIsa {
             #[inline]
             fn neg(self, x: $simd) -> $simd {
                 let xs = array::from_fn(|i| -x.0[i]);
-                $simd(xs)
-            }
-
-            #[inline]
-            fn shift_left<const SHIFT: i32>(self, x: $simd) -> $simd {
-                let xs = array::from_fn(|i| x.0[i] << SHIFT);
                 $simd(xs)
             }
         }
@@ -381,18 +391,8 @@ macro_rules! impl_interleave {
 impl_interleave!(i8, I8x16);
 impl_interleave!(i16, I16x8);
 
-macro_rules! impl_simd_unsigned_int_ops {
-    ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
-        unsafe impl NumOps<$elem> for GenericIsa {
-            type Simd = $simd;
-
-            simd_ops_common!($simd, $elem, $len, $mask);
-            simd_int_ops_common!($simd);
-        }
-    };
-}
-impl_simd_unsigned_int_ops!(U8x16, u8, 16, M8);
-impl_simd_unsigned_int_ops!(U16x8, u16, 8, M16);
+impl_simd_int_ops!(U8x16, u8, 16, M8);
+impl_simd_int_ops!(U16x8, u16, 8, M16);
 
 trait NarrowSaturateElem<T> {
     fn narrow_saturate(self) -> T;
