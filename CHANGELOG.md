@@ -24,6 +24,27 @@ operations with safe code. See the rten-simd crate docs for more details.
 - Reduced use of unsafe code in vectorized SIMD kernels. See tracking issue
   in https://github.com/robertknight/rten/issues/549.
 
+### rten-tensor
+
+- Export `AssumeInit` utility trait (https://github.com/robertknight/rten/pull/598)
+
+- Add `CowTensor` and `CowNdTensor` alias for maybe-owned tensors (https://github.com/robertknight/rten/pull/568)
+
+- Make `Tensor::broadcast` panic error message more helpful (https://github.com/robertknight/rten/pull/588)
+
+- Provide more detailed messages in debug builds if argument to
+  `Tensor::{size, stride}` is invalid (https://github.com/robertknight/rten/pull/565)
+
+### rten-simd
+
+The APIs for this internal crate have changed completely to support defining
+operations without `unsafe`.
+
+### rten-vecmath
+
+Operations in this internal crate were changed to use the new safe SIMD API in
+rten-simd.
+
 ## [0.16.0] - 2025-02-08
 
 This release adds support for running models that have been quantized to int8,
