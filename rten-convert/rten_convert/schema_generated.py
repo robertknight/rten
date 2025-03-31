@@ -118,6 +118,7 @@ class OperatorType(object):
     MatMulInteger = 108
     DepthToSpace = 109
     ConvInteger = 110
+    CastLike = 111
 
 
 class RNNDirection(object):
@@ -201,6 +202,7 @@ class OperatorAttrs(object):
     DequantizeLinearAttrs = 41
     QuantizeLinearAttrs = 42
     DepthToSpaceAttrs = 43
+    CastLikeAttrs = 44
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -292,6 +294,8 @@ def OperatorAttrsCreator(unionType, table):
         return QuantizeLinearAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.DepthToSpaceAttrs:
         return DepthToSpaceAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.CastLikeAttrs:
+        return CastLikeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -871,6 +875,71 @@ class CastAttrsT(object):
         CastAttrsAddTo(builder, self.to)
         castAttrs = CastAttrsEnd(builder)
         return castAttrs
+
+
+class CastLikeAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = CastLikeAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsCastLikeAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def CastLikeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # CastLikeAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+def CastLikeAttrsStart(builder):
+    builder.StartObject(0)
+
+def CastLikeAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class CastLikeAttrsT(object):
+
+    # CastLikeAttrsT
+    def __init__(self):
+        pass
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        castLikeAttrs = CastLikeAttrs()
+        castLikeAttrs.Init(buf, pos)
+        return cls.InitFromObj(castLikeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, castLikeAttrs):
+        x = CastLikeAttrsT()
+        x._UnPack(castLikeAttrs)
+        return x
+
+    # CastLikeAttrsT
+    def _UnPack(self, castLikeAttrs):
+        if castLikeAttrs is None:
+            return
+
+    # CastLikeAttrsT
+    def Pack(self, builder):
+        CastLikeAttrsStart(builder)
+        castLikeAttrs = CastLikeAttrsEnd(builder)
+        return castLikeAttrs
 
 
 class ConcatAttrs(object):
@@ -5153,7 +5222,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

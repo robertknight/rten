@@ -72,7 +72,7 @@ pub use binary_elementwise::{
 pub use concat::{concat, tile, Concat, Tile};
 pub use control_flow::If;
 pub use conv::{conv, conv_integer, conv_transpose, Conv, ConvInteger, ConvTranspose};
-pub use convert::Cast;
+pub use convert::{Cast, CastLike};
 pub use einsum::{einsum, Einsum};
 pub use gather::{
     gather, gather_elements, gather_nd, scatter_elements, scatter_nd, Gather, GatherElements,
@@ -255,6 +255,16 @@ pub enum Input<'a> {
 }
 
 impl Input<'_> {
+    /// Return the data type of elements in this tensor.
+    pub fn dtype(&self) -> DataType {
+        match self {
+            Self::FloatTensor(_) => DataType::Float,
+            Self::Int32Tensor(_) => DataType::Int32,
+            Self::Int8Tensor(_) => DataType::Int8,
+            Self::UInt8Tensor(_) => DataType::UInt8,
+        }
+    }
+
     pub fn to_output(&self) -> Output {
         match self {
             Input::FloatTensor(t) => t.to_tensor().into(),

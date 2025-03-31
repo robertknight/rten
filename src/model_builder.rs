@@ -6,13 +6,13 @@ use crate::graph::{Dimension, NodeId};
 use crate::header::Header;
 use crate::number::LeBytes;
 use crate::ops::{
-    ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, Concat, ConstantOfShape, Conv,
-    ConvInteger, ConvTranspose, CoordTransformMode, DataType, DepthToSpace, DepthToSpaceMode,
-    DequantizeLinear, Einsum, Elu, Flatten, Gather, GatherElements, GatherND, Gelu, Gemm,
-    HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu, LogSoftmax, MaxPool, Mod,
-    NearestMode, NonMaxSuppression, OneHot, Padding, QuantizeLinear, ReduceMax, ReduceMean,
-    ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode, Scalar,
-    ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
+    ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, CastLike, Concat,
+    ConstantOfShape, Conv, ConvInteger, ConvTranspose, CoordTransformMode, DataType, DepthToSpace,
+    DepthToSpaceMode, DequantizeLinear, Einsum, Elu, Flatten, Gather, GatherElements, GatherND,
+    Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu, LogSoftmax,
+    MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, QuantizeLinear, ReduceMax,
+    ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode,
+    Scalar, ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
 };
 use crate::schema_generated as sg;
 
@@ -39,6 +39,7 @@ pub enum OpType<'a> {
     AveragePool(AveragePool),
     BatchNormalization(BatchNormalization),
     Cast(Cast),
+    CastLike(CastLike),
     Ceil,
     Clip,
     Concat(Concat),
@@ -449,6 +450,9 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                     to: convert_dtype(args.to),
                 }
             ),
+            OpType::CastLike(_args) => {
+                op_with_attrs!(CastLike, CastLikeAttrs, sg::CastLikeAttrsArgs {})
+            }
             OpType::Ceil => op!(Ceil),
             OpType::Clip => op!(Clip),
             OpType::Concat(args) => op_with_attrs!(

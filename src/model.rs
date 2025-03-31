@@ -1330,6 +1330,7 @@ mod tests {
         );
 
         add_operator!(Cast, [input_node], { to: ops::DataType::Float });
+        add_operator!(CastLike, [input_node, input_node], {});
         add_operator!(Ceil, [input_node]);
 
         let clip_min = graph_builder.add_constant(Tensor::from(1.).view());
