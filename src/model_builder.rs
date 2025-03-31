@@ -796,6 +796,9 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                     CoordTransformMode::Asymmetric => sg::CoordTransformMode::Asymmetric,
                     CoordTransformMode::HalfPixel => sg::CoordTransformMode::HalfPixel,
                     CoordTransformMode::AlignCorners => sg::CoordTransformMode::AlignCorners,
+                    CoordTransformMode::PytorchHalfPixel => {
+                        sg::CoordTransformMode::PytorchHalfPixel
+                    }
                 };
                 let nearest_mode = match args.nearest_mode {
                     NearestMode::Ceil => sg::NearestMode::Ceil,

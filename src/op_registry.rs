@@ -817,6 +817,7 @@ impl_read_op!(Resize, attrs_as_resize_attrs, |attrs: sg::ResizeAttrs| {
         sg::CoordTransformMode::Asymmetric => CoordTransformMode::Asymmetric,
         sg::CoordTransformMode::HalfPixel => CoordTransformMode::HalfPixel,
         sg::CoordTransformMode::AlignCorners => CoordTransformMode::AlignCorners,
+        sg::CoordTransformMode::PytorchHalfPixel => CoordTransformMode::PytorchHalfPixel,
         _ => CoordTransformMode::default(),
     };
 

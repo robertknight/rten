@@ -155,7 +155,8 @@ enum DataType: ubyte {
 enum CoordTransformMode: ubyte {
   HalfPixel,
   Asymmetric,
-  AlignCorners
+  AlignCorners,
+  PytorchHalfPixel,
 }
 
 // Rounding modes supported by Resize operator when `ResizeMode` is `Nearest`.
