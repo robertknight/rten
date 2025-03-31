@@ -124,6 +124,7 @@ enum OperatorType: ubyte {
   MatMulInteger,
   DepthToSpace,
   ConvInteger,
+  CastLike,
 }
 
 enum RNNDirection: ubyte {
@@ -218,6 +219,7 @@ union OperatorAttrs {
   DequantizeLinearAttrs,
   QuantizeLinearAttrs,
   DepthToSpaceAttrs,
+  CastLikeAttrs,
 }
 
 table ArgMaxAttrs {
@@ -244,6 +246,8 @@ table BatchNormalizationAttrs {
 table CastAttrs {
   to:DataType;
 }
+
+table CastLikeAttrs {}
 
 table ConcatAttrs {
   axis:int;

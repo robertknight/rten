@@ -92,6 +92,7 @@ impl OpRegistry {
         register_op!(AveragePool);
         register_op!(BatchNormalization);
         register_op!(Cast);
+        register_op!(CastLike);
         register_op!(Ceil);
         register_op!(Clip);
         register_op!(Concat);
@@ -438,6 +439,11 @@ impl_read_op!(Cast, attrs_as_cast_attrs, |attrs: sg::CastAttrs| {
     let to = convert_dtype(attrs.to())?;
     Ok(ops::Cast { to })
 });
+impl_read_op!(
+    CastLike,
+    attrs_as_cast_like_attrs,
+    |_attrs: sg::CastLikeAttrs| { Ok(ops::CastLike {}) }
+);
 impl_read_op!(Ceil);
 impl_read_op!(Clip);
 impl_read_op!(Concat, attrs_as_concat_attrs, axis);

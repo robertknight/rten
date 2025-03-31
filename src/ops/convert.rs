@@ -79,13 +79,49 @@ impl Operator for Cast {
     }
 }
 
+#[derive(Debug)]
+pub struct CastLike {}
+
+impl Operator for CastLike {
+    fn name(&self) -> &str {
+        "CastLike"
+    }
+
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+        let input = inputs.require(0)?;
+        let to_type = inputs.require(1)?.dtype();
+        cast(pool, input, to_type).into_op_result()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(
+        &self,
+        pool: &TensorPool,
+        input: Output,
+        other: InputList,
+    ) -> Result<Output, OpError> {
+        let to_type = other.require(0)?.dtype();
+
+        if input.dtype() == to_type {
+            Ok(input)
+        } else {
+            let converted = cast(pool, input.as_input(), to_type)?;
+            input.add_to_pool(pool);
+            Ok(converted)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{Cast, DataType, Operator, Output};
+    use crate::ops::{Cast, CastLike, DataType, Operator, Output};
 
     #[test]
     fn test_cast() {
@@ -156,6 +192,38 @@ mod tests {
             let pool = new_pool();
             let cast_op = Cast { to: case.dtype };
             let result = cast_op.run(&pool, (&case.input).into()).unwrap().remove(0);
+            assert_eq!(result, case.expected);
+        })
+    }
+
+    #[test]
+    fn test_cast_like() {
+        #[derive(Debug)]
+        struct Case {
+            input: Output,
+            other: Output,
+            expected: Output,
+        }
+
+        // `CastLike` uses the same conversions as the `Cast` operator,
+        // so these tests don't check all data type combinations, only that the
+        // target type is taken from the second argument.
+        let cases = [
+            // i32 -> f32
+            Case {
+                input: Tensor::from([0i32, 1, 2]).into(),
+                other: Tensor::from([0f32]).into(),
+                expected: Tensor::from([0., 1., 2.]).into(),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let cast_op = CastLike {};
+            let result = cast_op
+                .run(&pool, (&case.input, &case.other).into())
+                .unwrap()
+                .remove(0);
             assert_eq!(result, case.expected);
         })
     }

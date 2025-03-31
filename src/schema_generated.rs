@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 110;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 111;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 111] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 112] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -136,6 +136,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 111] = [
     OperatorType::MatMulInteger,
     OperatorType::DepthToSpace,
     OperatorType::ConvInteger,
+    OperatorType::CastLike,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -254,9 +255,10 @@ impl OperatorType {
     pub const MatMulInteger: Self = Self(108);
     pub const DepthToSpace: Self = Self(109);
     pub const ConvInteger: Self = Self(110);
+    pub const CastLike: Self = Self(111);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 110;
+    pub const ENUM_MAX: u8 = 111;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -369,6 +371,7 @@ impl OperatorType {
         Self::MatMulInteger,
         Self::DepthToSpace,
         Self::ConvInteger,
+        Self::CastLike,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -484,6 +487,7 @@ impl OperatorType {
             Self::MatMulInteger => Some("MatMulInteger"),
             Self::DepthToSpace => Some("DepthToSpace"),
             Self::ConvInteger => Some("ConvInteger"),
+            Self::CastLike => Some("CastLike"),
             _ => None,
         }
     }
@@ -1119,13 +1123,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 43;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 44;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 44] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 45] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1170,6 +1174,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 44] = [
     OperatorAttrs::DequantizeLinearAttrs,
     OperatorAttrs::QuantizeLinearAttrs,
     OperatorAttrs::DepthToSpaceAttrs,
+    OperatorAttrs::CastLikeAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1221,9 +1226,10 @@ impl OperatorAttrs {
     pub const DequantizeLinearAttrs: Self = Self(41);
     pub const QuantizeLinearAttrs: Self = Self(42);
     pub const DepthToSpaceAttrs: Self = Self(43);
+    pub const CastLikeAttrs: Self = Self(44);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 43;
+    pub const ENUM_MAX: u8 = 44;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1269,6 +1275,7 @@ impl OperatorAttrs {
         Self::DequantizeLinearAttrs,
         Self::QuantizeLinearAttrs,
         Self::DepthToSpaceAttrs,
+        Self::CastLikeAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1317,6 +1324,7 @@ impl OperatorAttrs {
             Self::DequantizeLinearAttrs => Some("DequantizeLinearAttrs"),
             Self::QuantizeLinearAttrs => Some("QuantizeLinearAttrs"),
             Self::DepthToSpaceAttrs => Some("DepthToSpaceAttrs"),
+            Self::CastLikeAttrs => Some("CastLikeAttrs"),
             _ => None,
         }
     }
@@ -2710,6 +2718,85 @@ impl core::fmt::Debug for CastAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("CastAttrs");
         ds.field("to", &self.to());
+        ds.finish()
+    }
+}
+pub enum CastLikeAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct CastLikeAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for CastLikeAttrs<'a> {
+    type Inner = CastLikeAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> CastLikeAttrs<'a> {
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        CastLikeAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        _args: &'args CastLikeAttrsArgs,
+    ) -> flatbuffers::WIPOffset<CastLikeAttrs<'bldr>> {
+        let mut builder = CastLikeAttrsBuilder::new(_fbb);
+        builder.finish()
+    }
+}
+
+impl flatbuffers::Verifiable for CastLikeAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?.finish();
+        Ok(())
+    }
+}
+pub struct CastLikeAttrsArgs {}
+impl<'a> Default for CastLikeAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        CastLikeAttrsArgs {}
+    }
+}
+
+pub struct CastLikeAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> CastLikeAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> CastLikeAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        CastLikeAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<CastLikeAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for CastLikeAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("CastLikeAttrs");
         ds.finish()
     }
 }
@@ -8726,6 +8813,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_cast_like_attrs(&self) -> Option<CastLikeAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::CastLikeAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { CastLikeAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -8782,6 +8884,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::DequantizeLinearAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DequantizeLinearAttrs>>("OperatorAttrs::DequantizeLinearAttrs", pos),
           OperatorAttrs::QuantizeLinearAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<QuantizeLinearAttrs>>("OperatorAttrs::QuantizeLinearAttrs", pos),
           OperatorAttrs::DepthToSpaceAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DepthToSpaceAttrs>>("OperatorAttrs::DepthToSpaceAttrs", pos),
+          OperatorAttrs::CastLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<CastLikeAttrs>>("OperatorAttrs::CastLikeAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -9289,6 +9392,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::DepthToSpaceAttrs => {
                 if let Some(x) = self.attrs_as_depth_to_space_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::CastLikeAttrs => {
+                if let Some(x) = self.attrs_as_cast_like_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
