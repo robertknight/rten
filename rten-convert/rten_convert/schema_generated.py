@@ -204,6 +204,7 @@ class OperatorAttrs(object):
     QuantizeLinearAttrs = 42
     DepthToSpaceAttrs = 43
     CastLikeAttrs = 44
+    ShapeAttrs = 45
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -297,6 +298,8 @@ def OperatorAttrsCreator(unionType, table):
         return DepthToSpaceAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.CastLikeAttrs:
         return CastLikeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.ShapeAttrs:
+        return ShapeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -4631,6 +4634,96 @@ class ScatterNDAttrsT(object):
         return scatterNdattrs
 
 
+class ShapeAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ShapeAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsShapeAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ShapeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # ShapeAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ShapeAttrs
+    def Start(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return None
+
+    # ShapeAttrs
+    def End(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return None
+
+def ShapeAttrsStart(builder):
+    builder.StartObject(2)
+
+def ShapeAttrsAddStart(builder, start):
+    builder.PrependInt32Slot(0, start, None)
+
+def ShapeAttrsAddEnd(builder, end):
+    builder.PrependInt32Slot(1, end, None)
+
+def ShapeAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class ShapeAttrsT(object):
+
+    # ShapeAttrsT
+    def __init__(self):
+        self.start = None  # type: Optional[int]
+        self.end = None  # type: Optional[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        shapeAttrs = ShapeAttrs()
+        shapeAttrs.Init(buf, pos)
+        return cls.InitFromObj(shapeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, shapeAttrs):
+        x = ShapeAttrsT()
+        x._UnPack(shapeAttrs)
+        return x
+
+    # ShapeAttrsT
+    def _UnPack(self, shapeAttrs):
+        if shapeAttrs is None:
+            return
+        self.start = shapeAttrs.Start()
+        self.end = shapeAttrs.End()
+
+    # ShapeAttrsT
+    def Pack(self, builder):
+        ShapeAttrsStart(builder)
+        ShapeAttrsAddStart(builder, self.start)
+        ShapeAttrsAddEnd(builder, self.end)
+        shapeAttrs = ShapeAttrsEnd(builder)
+        return shapeAttrs
+
+
 class SoftmaxAttrs(object):
     __slots__ = ['_tab']
 
@@ -5223,7 +5316,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

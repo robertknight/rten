@@ -847,7 +847,21 @@ impl_read_op!(
         })
     }
 );
-impl_read_op!(Shape);
+
+impl ReadOp for ops::Shape {
+    fn op_type() -> sg::OperatorType {
+        OperatorType::Shape
+    }
+
+    fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+        // Shape attributes are optional for backwards compatibility
+        let attrs = op.attrs_as_shape_attrs();
+        let start = attrs.and_then(|a| a.start());
+        let end = attrs.and_then(|a| a.end());
+        Ok(ops::Shape { start, end })
+    }
+}
+
 impl_read_op!(Sigmoid);
 impl_read_op!(Sign);
 impl_read_op!(Sin);

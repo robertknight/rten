@@ -887,7 +887,7 @@ mod tests {
     use crate::ops;
     use crate::ops::{
         BoxOrder, CoordTransformMode, DataType, DepthToSpaceMode, NearestMode, OpError, Output,
-        ResizeMode, Scalar,
+        ResizeMode, Scalar, Shape,
     };
     use crate::{ModelLoadError, OpRegistry, ReadOpError};
 
@@ -1214,7 +1214,12 @@ mod tests {
 
         let output_node = graph_builder.add_value("output", None, None);
         graph_builder.add_output(output_node);
-        graph_builder.add_operator("shape", OpType::Shape, &[None], &[output_node]);
+        graph_builder.add_operator(
+            "shape",
+            OpType::Shape(Shape::default()),
+            &[None],
+            &[output_node],
+        );
 
         let graph = graph_builder.finish();
         builder.set_graph(graph);
@@ -1597,7 +1602,10 @@ mod tests {
 
         add_operator!(Round, [input_node]);
 
-        add_operator!(Shape, [input_node]);
+        add_operator!(Shape, [input_node], {
+            start: Some(1),
+            end: Some(-1),
+        });
         add_operator!(Sigmoid, [input_node]);
         add_operator!(Sign, [input_node]);
         add_operator!(Sin, [input_node]);
