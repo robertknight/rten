@@ -51,6 +51,18 @@ fn input_coord(
         Ctm::AlignCorners => {
             dest_coord as f32 * (length_original - 1) as f32 / (length_resized - 1) as f32
         }
+        Ctm::PytorchHalfPixel => {
+            // There are some queries over this transform mode, see
+            // https://github.com/onnx/onnx/issues/4275 (applies to cubic interpolation only)
+            // and https://github.com/onnx/onnx/issues/4276 (comparison with
+            // PyTorch behavior). This implementation does however match
+            // ONNX Runtime (https://github.com/microsoft/onnxruntime/blob/24620e70d9f14956a0dc84bb8a332dcd64c95a94/onnxruntime/core/providers/cpu/tensor/upsamplebase.h#L331)
+            if length_resized > 1 {
+                (dest_coord as f32 + 0.5) / scale - 0.5
+            } else {
+                0.
+            }
+        }
     }
 }
 
@@ -73,6 +85,7 @@ pub enum CoordTransformMode {
     HalfPixel,
     Asymmetric,
     AlignCorners,
+    PytorchHalfPixel,
 }
 
 const CHAN_GROUP_SIZE: usize = 4;
@@ -648,17 +661,24 @@ mod tests {
                 coord_transform_mode: None,
                 expected: Tensor::from_data(&[1, 1, 0, 0], vec![]),
             },
-            // Scale width and height by 0.5x
+            // Scale to output width and height less than 2, using `HalfPixel`
+            // `coord_transform_mode`.
+            //
+            // When the output size is < 2, `half_pixel` and `pytorch_half_pixel`
+            // produce different results. Otherwise they are the same.
             Case {
                 image,
                 scales: vec![1., 1., 0.5, 0.5],
-                coord_transform_mode: None,
-
-                // OpenCV and PyTorch produce different results for this case.
-                // This result matches OpenCV. This relates to the `half_pixel`
-                // vs `pytorch_half_pixel` values for the `coordinate_transformation_mode`
-                // attribute in the ONNX op.
+                coord_transform_mode: Some(CoordTransformMode::HalfPixel),
                 expected: Tensor::from_data(&[1, 1, 1, 1], vec![0.5]),
+            },
+            // Scale to output width and height less than 2, using `PytorchHalfPixel`
+            // `coord_transform_mode`.
+            Case {
+                image,
+                scales: vec![1., 1., 0.5, 0.5],
+                coord_transform_mode: Some(CoordTransformMode::PytorchHalfPixel),
+                expected: Tensor::from_data(&[1, 1, 1, 1], vec![0.2]),
             },
             // Scale width and height by 1x
             Case {
