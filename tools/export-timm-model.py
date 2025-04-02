@@ -51,7 +51,7 @@ def print_predictions(scores: torch.Tensor):
         print(f"  {label_desc} ({prob:.2f})")
 
 
-def export_timm_model(config: str, onnx_path: str):
+def export_timm_model(config: str, onnx_path: str, dynamo: bool = False):
     """
     Export a PyTorch model from timm to ONNX.
 
@@ -89,16 +89,13 @@ def export_timm_model(config: str, onnx_path: str):
     print_predictions(output)
 
     print(f"Exporting model to {onnx_path}")
-    torch.onnx.export(model, input_img, onnx_path)
+    torch.onnx.export(model, input_img, onnx_path, dynamo=dynamo)
 
     # Test exported model with ONNX Runtime as a reference implementation.
     #
     # We test both with graph optimizations disabled and enabled, to show the
     # impact of running the ONNX model "as is" vs. with the various fusions that
     # ONNX Runtime does.
-    #
-    # RTen currently doesn't do any fusions, so the unoptimized performance
-    # is a "fairer" comparison.
     print(f"Testing model with ONNX Runtime (unoptimized)...")
     sess_options = ort.SessionOptions()
     sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
@@ -145,6 +142,12 @@ available models.
         help="Name of the model configuration or Hugging Face model URL or path",
     )
     parser.add_argument("onnx_path", nargs="?", help="Path to ONNX file")
+    parser.add_argument(
+        "-d",
+        "--dynamo",
+        action="store_true",
+        help="Use PyTorch's newer TorchDynamo-based ONNX exporter",
+    )
     args = parser.parse_args()
 
     config_name = extract_config_name(args.model_config)
@@ -152,7 +155,7 @@ available models.
     if onnx_path is None:
         onnx_path = config_name + ".onnx"
 
-    export_timm_model(config_name, onnx_path)
+    export_timm_model(config_name, onnx_path, dynamo=args.dynamo)
 
 
 if __name__ == "__main__":
