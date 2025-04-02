@@ -64,7 +64,7 @@ class ConstantNode(Node):
 
         shape_numel = np.prod(shape)
         if shape_numel != data.size:
-            raise ValueError(
+            raise ConversionError(
                 f'Shape {shape} product {shape_numel} does not match data length {data.size} in node "{name}"'
             )
 
@@ -74,7 +74,7 @@ class ConstantNode(Node):
                 pass
             case _:
                 dtype_name: str = data.dtype.name  # type:ignore[union-attr]
-                raise ValueError(
+                raise ConversionError(
                     f'Tried to construct ConstantNode "{name}" with unsupported data type {dtype_name}'
                 )
 
@@ -259,7 +259,7 @@ class AttributeReader:
         for attr in self.onnx_op.attribute:
             if attr.name == name:
                 if attr.type != type_code:
-                    raise Exception(
+                    raise ConversionError(
                         f"Attribute {name} type does not match {expected_type}"
                     )
                 val = getattr(attr, value_fields[type_code])
@@ -319,7 +319,7 @@ class AttributeReader:
                     f'Replacing unsupported value "{val}" for "{name}" attr in {op} op with "{fallback}"'
                 )
                 return convert_attr(fallback)
-            raise ValueError(f'Unsupported value "{val}" for "{name}" attr')
+            raise ConversionError(f'Unsupported value "{val}" for "{name}" attr')
 
     def ignore_attr(self, name: str):
         """
@@ -333,7 +333,7 @@ class AttributeReader:
         """Get the value of a required operator attribute."""
         val = self.get_attr(name, expected_type, default=None)
         if val is None:
-            raise Exception(f"Missing required attribute {name}")
+            raise ConversionError(f"Missing required attribute {name}")
         return val
 
     def generate_input_from_attr(
@@ -356,7 +356,7 @@ class AttributeReader:
             return
 
         if input_index < len(self.input_indexes):
-            raise Exception(
+            raise ConversionError(
                 f'Operator has both an attribute "{attr_name}" and corresponding input at index {input_index}'
             )
 
@@ -374,7 +374,7 @@ class AttributeReader:
                 shape = [len(attr_val)]
                 data = np.array([attr_val]).astype(np.int32)
             case _:
-                raise ValueError(
+                raise ConversionError(
                     f'Unable to generate input from "{attr_name}" attribute of type "{attr_type}"'
                 )
 
@@ -414,7 +414,7 @@ class AttributeReader:
         if val not in default:
             msg = f"Unsupported value {val} for attribute {name}. Default is {default}"
             if on_mismatch == "raise":
-                raise Exception(msg)
+                raise ConversionError(msg)
             else:
                 warn_once(msg)
 
@@ -436,7 +436,7 @@ def check_ints_length(name: str, ints: list[int], allowed_length: int):
     supports.
     """
     if len(ints) != allowed_length:
-        raise Exception(f'Attribute "{name}" must have {allowed_length} values')
+        raise ConversionError(f'Attribute "{name}" must have {allowed_length} values')
 
 
 def constant_node_from_onnx_initializer(
@@ -485,11 +485,29 @@ def constant_node_from_onnx_initializer(
             data = data.clip(i32.min, i32.max).astype(np.int32)
 
         case _:
-            raise ValueError(
+            raise ConversionError(
                 f"Unsupported tensor data type {data.dtype.name} for operator {op_name}"
             )
 
     return ConstantNode(name=tensor.name, shape=dims, data=data)
+
+
+class ConversionError(Exception):
+    """Errors when converting ONNX models to .rten format."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
+class UnsupportedOperatorError(ConversionError):
+    """Conversion failed because an operator is unsupported."""
+
+    op_type: str
+    """The name of the unsupported operator, eg. `Conv`"""
+
+    def __init__(self, op_type: str):
+        self.op_type = op_type
+        super().__init__(f'Unsupported operator "{op_type}"')
 
 
 def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> ConstantNode:
@@ -497,7 +515,7 @@ def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> Constant
         raise ValueError("Not implemented")
 
     if not len(onnx_op.output):
-        raise Exception(f'Operator "{onnx_op.name}" has no outputs')
+        raise ConversionError(f'Operator "{onnx_op.name}" has no outputs')
 
     output_name = onnx_op.output[0]
 
@@ -519,7 +537,7 @@ def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> Constant
             data = np.array(floats).astype(np.float32)
         else:
             # Unsupported attributes: value_string, value_strings
-            raise Exception(
+            raise ConversionError(
                 f'Unable to get value from "Constant" operator "{onnx_op.name}"'
             )
         const_node = ConstantNode("dummy_name", shape, data)
@@ -569,7 +587,7 @@ def read_pads(attr_reader: AttributeReader, attrs: PadAttrs) -> None:
             auto_pad = sg.AutoPad.NotSet
             pads = attr_reader.get_attr("pads", "ints", [0, 0, 0, 0])
             if len(pads) not in [2, 4]:
-                raise Exception('"padding" attribute must have 2 or 4 values')
+                raise ConversionError('"padding" attribute must have 2 or 4 values')
         case "VALID":
             # "VALID" means no padding. Map this to fixed padding of zero,
             # using `kernel_shape` to infer the number of dimensions.
@@ -578,7 +596,7 @@ def read_pads(attr_reader: AttributeReader, attrs: PadAttrs) -> None:
             pads = [0, 0] * len(kernel_shape)
 
         case other:
-            raise Exception(f"Unsupported auto_pad value {other}")
+            raise ConversionError(f"Unsupported auto_pad value {other}")
 
     attrs.autoPad = auto_pad
     if auto_pad == sg.AutoPad.NotSet:
@@ -593,7 +611,7 @@ def read_strides(
     """
     strides = attr_reader.get_attr("strides", "ints", [1, 1])
     if len(strides) not in [1, 2]:
-        raise Exception('"strides" attribute must have 1 or 2 values')
+        raise ConversionError('"strides" attribute must have 1 or 2 values')
     return strides
 
 
@@ -605,7 +623,7 @@ def read_dilations(
     """
     dilations = attr_reader.get_attr("dilations", "ints", [1, 1])
     if len(dilations) not in [1, 2]:
-        raise Exception('"dilations" attribute must have 1 or 2 values')
+        raise ConversionError('"dilations" attribute must have 1 or 2 values')
     return dilations
 
 
@@ -630,7 +648,7 @@ def convert_data_type(onnx_dtype: int) -> int:
         case TensorProto.DataType.UINT8:  # type:ignore[attr-defined]
             return sg.DataType.UInt8
         case _:
-            raise Exception(f"Unsupported data type {onnx_dtype}")
+            raise ConversionError(f"Unsupported data type {onnx_dtype}")
 
 
 def op_node_from_onnx_operator(
@@ -658,7 +676,7 @@ def op_node_from_onnx_operator(
         if input_name:
             index = node_index_from_name.get(input_name)
             if index is None:
-                raise Exception(
+                raise ConversionError(
                     f'Unable to find input "{input_name}" for operator {onnx_op.name}'
                 )
         else:
@@ -673,7 +691,7 @@ def op_node_from_onnx_operator(
     for output_name in onnx_op.output:
         index = node_index_from_name.get(output_name)
         if index is None:
-            raise Exception(
+            raise ConversionError(
                 f'Unable to find output "{output_name}" for operator {onnx_op.name}'
             )
         output_indexes.append(index)
@@ -740,7 +758,7 @@ def op_node_from_onnx_operator(
             const_node = constant_node_from_onnx_initializer(tensor, onnx_op.name)
 
             if len(const_node.data) != 1:
-                raise Exception(
+                raise ConversionError(
                     "Expected ConstantOfShape value to be a 1-element tensor"
                 )
 
@@ -754,7 +772,7 @@ def op_node_from_onnx_operator(
                 scalar = sg.IntScalarT()
                 scalar.value = const_node.data.item()  # type:ignore[assignment]
             else:
-                raise ValueError(
+                raise ConversionError(
                     f"Unsupported value type {const_node.data.dtype.name} for ConstantOfShape"
                 )
 
@@ -1051,7 +1069,7 @@ def op_node_from_onnx_operator(
             attr_reader.generate_input_from_attr(1, "axes", "ints")
 
     if not hasattr(sg.OperatorType, op_type):
-        raise Exception(f"Unsupported operator {op_type}")
+        raise UnsupportedOperatorError(op_type)
 
     # Display a warning for any attributes that were not handled above.
     for attr in attr_reader.unhandled_attrs():
@@ -1114,7 +1132,9 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
 
         if not isinstance(node, OperatorNode) and node.name:
             if node.name in value_name_to_index:
-                raise Exception(f'Node name "{node.name}" conflicts with another node')
+                raise ConversionError(
+                    f'Node name "{node.name}" conflicts with another node'
+                )
             value_name_to_index[node.name] = node_index
 
         if isinstance(node, ConstantNode):
@@ -1145,7 +1165,7 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
     # If conversion of any tensors failed, then conversion of any operators
     # which use those tensors will also fail, so we bail early.
     if conversion_errors > 0:
-        raise ValueError(
+        raise ConversionError(
             f"Errors occurred when converting {conversion_errors} constants"
         )
 
@@ -1167,6 +1187,9 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
 
     for value_info in onnx_graph.output:
         add_value_node(value_info)
+
+    # Names of unsupported operators that have been encountered.
+    unsupported_op_types: set[str] = set()
 
     for operator in onnx_graph.node:
         if operator.op_type == "Constant":
@@ -1196,26 +1219,34 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
             )
             add_node(op_node)
         except Exception as ex:
-            print(
-                f"Error converting {operator.op_type} operator {operator.name}: {ex}",
-                file=sys.stderr,
-            )
+            skip_warning = False
+            if isinstance(ex, UnsupportedOperatorError):
+                if ex.op_type in unsupported_op_types:
+                    skip_warning = True
+                else:
+                    unsupported_op_types.add(ex.op_type)
+
+            if not skip_warning:
+                print(
+                    f'Error converting operator "{operator.name}": {ex}',
+                    file=sys.stderr,
+                )
             conversion_errors += 1
 
     if conversion_errors > 0:
-        raise ValueError(
+        raise ConversionError(
             f"Errors occurred when converting {conversion_errors} operators"
         )
 
     dup_inputs = duplicate_node_names(list(onnx_graph.input))
     if dup_inputs:
-        raise ValueError(
+        raise ConversionError(
             f"ONNX graph contains duplicate input names: {', '.join(dup_inputs)}"
         )
 
     dup_outputs = duplicate_node_names(list(onnx_graph.output))
     if dup_outputs:
-        raise ValueError(
+        raise ConversionError(
             f"ONNX graph contains duplicate output names: {', '.join(dup_outputs)}"
         )
 
@@ -1252,7 +1283,7 @@ def build_constant_node(
             inline_data_type = sg.ConstantData.UInt8Data
             dtype = sg.ConstantDataType.UInt8
         case _:
-            raise ValueError(
+            raise ConversionError(
                 f"Unsupported data array type {constant.data.dtype.name}"  # type:ignore[union-attr]
             )
 
@@ -1284,7 +1315,7 @@ def build_constant_node(
                 sg.UInt8DataAddData(builder, inline_data_vec)
                 inline_data = sg.UInt8DataEnd(builder)
             case _:
-                raise ValueError(
+                raise ConversionError(
                     f"Unsupported data type for inline storage {constant.data.dtype.name}"  # type:ignore
                 )
     else:
@@ -1326,7 +1357,7 @@ def write_vec(
             case "offset":
                 builder.PrependUOffsetTRelative(item)
             case _:
-                raise ValueError("Unsupported data type")
+                raise ConversionError("Unsupported data type")
     return builder.EndVector()
 
 
@@ -1465,7 +1496,7 @@ def build_graph(
                 data_type = sg.NodeKind.ValueNode
                 data = build_value_node(builder, node)
             case _:
-                raise Exception("Unsupported node type")
+                raise ConversionError("Unsupported node type")
 
         name_str = builder.CreateString(node.name)
         sg.NodeStart(builder)
