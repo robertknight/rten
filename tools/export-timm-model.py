@@ -96,9 +96,6 @@ def export_timm_model(config: str, onnx_path: str, dynamo: bool = False):
     # We test both with graph optimizations disabled and enabled, to show the
     # impact of running the ONNX model "as is" vs. with the various fusions that
     # ONNX Runtime does.
-    #
-    # RTen currently doesn't do any fusions, so the unoptimized performance
-    # is a "fairer" comparison.
     print(f"Testing model with ONNX Runtime (unoptimized)...")
     sess_options = ort.SessionOptions()
     sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
