@@ -1369,7 +1369,7 @@ mod tests {
         let input_b_id = g.add_value(Some("input_b"), None, None);
 
         let (add_op, add_out) = g.add_simple_op("add", Add {}, &[input_a_id, input_b_id]);
-        let (shape_op, shape_out) = g.add_simple_op("shape", Shape {}, &[input_a_id]);
+        let (shape_op, shape_out) = g.add_simple_op("shape", Shape::default(), &[input_a_id]);
 
         // The execution plan could run operators in either order and produce
         // the correct output. Since the `Add` op has the _potential_ to run in
@@ -1624,7 +1624,12 @@ mod tests {
         // as opposed to passing a shorter input list. This enables omitting
         // an input but still providing subsequent ones.
         let output = g.add_value(None, None, None);
-        g.add_op(Some("shape"), Box::new(Shape {}), &[None], &[Some(output)]);
+        g.add_op(
+            Some("shape"),
+            Box::new(Shape::default()),
+            &[None],
+            &[Some(output)],
+        );
 
         let results = g.run(vec![], &[output], None, None);
 

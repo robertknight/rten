@@ -1130,13 +1130,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 44;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 45;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 45] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 46] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1182,6 +1182,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 45] = [
     OperatorAttrs::QuantizeLinearAttrs,
     OperatorAttrs::DepthToSpaceAttrs,
     OperatorAttrs::CastLikeAttrs,
+    OperatorAttrs::ShapeAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1234,9 +1235,10 @@ impl OperatorAttrs {
     pub const QuantizeLinearAttrs: Self = Self(42);
     pub const DepthToSpaceAttrs: Self = Self(43);
     pub const CastLikeAttrs: Self = Self(44);
+    pub const ShapeAttrs: Self = Self(45);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 44;
+    pub const ENUM_MAX: u8 = 45;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1283,6 +1285,7 @@ impl OperatorAttrs {
         Self::QuantizeLinearAttrs,
         Self::DepthToSpaceAttrs,
         Self::CastLikeAttrs,
+        Self::ShapeAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1332,6 +1335,7 @@ impl OperatorAttrs {
             Self::QuantizeLinearAttrs => Some("QuantizeLinearAttrs"),
             Self::DepthToSpaceAttrs => Some("DepthToSpaceAttrs"),
             Self::CastLikeAttrs => Some("CastLikeAttrs"),
+            Self::ShapeAttrs => Some("ShapeAttrs"),
             _ => None,
         }
     }
@@ -7506,6 +7510,129 @@ impl core::fmt::Debug for ScatterNDAttrs<'_> {
         ds.finish()
     }
 }
+pub enum ShapeAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ShapeAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ShapeAttrs<'a> {
+    type Inner = ShapeAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> ShapeAttrs<'a> {
+    pub const VT_START: flatbuffers::VOffsetT = 4;
+    pub const VT_END: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        ShapeAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args ShapeAttrsArgs,
+    ) -> flatbuffers::WIPOffset<ShapeAttrs<'bldr>> {
+        let mut builder = ShapeAttrsBuilder::new(_fbb);
+        if let Some(x) = args.end {
+            builder.add_end(x);
+        }
+        if let Some(x) = args.start {
+            builder.add_start(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn start(&self) -> Option<i32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<i32>(ShapeAttrs::VT_START, None) }
+    }
+    #[inline]
+    pub fn end(&self) -> Option<i32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<i32>(ShapeAttrs::VT_END, None) }
+    }
+}
+
+impl flatbuffers::Verifiable for ShapeAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<i32>("start", Self::VT_START, false)?
+            .visit_field::<i32>("end", Self::VT_END, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct ShapeAttrsArgs {
+    pub start: Option<i32>,
+    pub end: Option<i32>,
+}
+impl<'a> Default for ShapeAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        ShapeAttrsArgs {
+            start: None,
+            end: None,
+        }
+    }
+}
+
+pub struct ShapeAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShapeAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_start(&mut self, start: i32) {
+        self.fbb_
+            .push_slot_always::<i32>(ShapeAttrs::VT_START, start);
+    }
+    #[inline]
+    pub fn add_end(&mut self, end: i32) {
+        self.fbb_.push_slot_always::<i32>(ShapeAttrs::VT_END, end);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> ShapeAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        ShapeAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<ShapeAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for ShapeAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("ShapeAttrs");
+        ds.field("start", &self.start());
+        ds.field("end", &self.end());
+        ds.finish()
+    }
+}
 pub enum SoftmaxAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -8835,6 +8962,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_shape_attrs(&self) -> Option<ShapeAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ShapeAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ShapeAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -8892,6 +9034,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::QuantizeLinearAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<QuantizeLinearAttrs>>("OperatorAttrs::QuantizeLinearAttrs", pos),
           OperatorAttrs::DepthToSpaceAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DepthToSpaceAttrs>>("OperatorAttrs::DepthToSpaceAttrs", pos),
           OperatorAttrs::CastLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<CastLikeAttrs>>("OperatorAttrs::CastLikeAttrs", pos),
+          OperatorAttrs::ShapeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ShapeAttrs>>("OperatorAttrs::ShapeAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -9409,6 +9552,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::CastLikeAttrs => {
                 if let Some(x) = self.attrs_as_cast_like_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::ShapeAttrs => {
+                if let Some(x) = self.attrs_as_shape_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

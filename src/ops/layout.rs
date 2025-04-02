@@ -385,8 +385,11 @@ impl Operator for Reshape {
     }
 }
 
-#[derive(Debug)]
-pub struct Shape {}
+#[derive(Debug, Default)]
+pub struct Shape {
+    pub start: Option<i32>,
+    pub end: Option<i32>,
+}
 
 impl Operator for Shape {
     fn name(&self) -> &str {
@@ -395,14 +398,41 @@ impl Operator for Shape {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
+        let ndim = input.ndim() as i32;
+
+        // Convert `start` and `end` to positive values in `[0, ndim]`, clamping
+        // if out of range.
+        //
+        // The spec says to clamp to `[0, r-1]` but this is incorrect as the end
+        // bound is exclusive and so needs to be `r` to include the entire range.
+        // See https://github.com/onnx/onnx/issues/6862.
+        let start = self
+            .start
+            .map(|start| {
+                let start = if start < 0 { start + ndim } else { start };
+                start.clamp(0, ndim) as usize
+            })
+            .unwrap_or(0);
+
+        let end = self
+            .end
+            .map(|end| {
+                let end = if end < 0 { end + ndim } else { end };
+                end.clamp(0, ndim) as usize
+            })
+            .unwrap_or(input.ndim())
+            // Spec doesn't say how to handle the case where `start > end`,
+            // we clamp `end` to prevent this.
+            .max(start);
+
+        let shape_slice = &input.shape()[start..end];
 
         // Allocate output from pool for consistency with other operators,
         // even though the buffer is tiny, so there is no performance benefit.
         let mut data = pool.alloc(input.ndim());
-        data.extend(input.shape().iter().map(|&el| el as i32));
+        data.extend(shape_slice.iter().map(|&el| el as i32));
 
-        let shape = Tensor::from_data(&[input.ndim()], data);
-        shape.into_op_result()
+        Tensor::from_data(&[shape_slice.len()], data).into_op_result()
     }
 }
 
@@ -641,7 +671,7 @@ mod tests {
         unsqueeze, Reshape, Shape, Size,
     };
     use crate::ops::tests::new_pool;
-    use crate::ops::{OpError, Operator};
+    use crate::ops::{OpError, Operator, Output};
 
     #[test]
     fn test_depth_to_space() {
@@ -1024,30 +1054,81 @@ mod tests {
 
     #[test]
     fn test_shape() {
-        let pool = new_pool();
-        let op = Shape {};
+        #[derive(Debug)]
+        struct Case {
+            input: Output,
+            op: Shape,
+            expected: Vec<i32>,
+        }
 
-        // Float input
-        let input = Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-        let result = op
-            .run(&pool, (&input).into())
-            .unwrap()
-            .remove(0)
-            .into_tensor::<i32>()
-            .unwrap();
-        assert_eq!(result.shape(), &[4]);
-        assert_eq!(result.to_vec(), &[1, 1, 2, 2]);
+        let cases = [
+            // No `start` or `end` offsets.
+            Case {
+                input: Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]).into(),
+                op: Shape::default(),
+                expected: [1, 1, 2, 2].into(),
+            },
+            Case {
+                input: Tensor::<i32>::zeros(&[1, 2, 3, 4]).into(),
+                op: Shape::default(),
+                expected: [1, 2, 3, 4].into(),
+            },
+            // Positive offsets.
+            Case {
+                input: Tensor::<i32>::zeros(&[1, 2, 3, 4]).into(),
+                op: Shape {
+                    start: Some(1),
+                    end: Some(3),
+                },
+                expected: [2, 3].into(),
+            },
+            // Negative offsets.
+            Case {
+                input: Tensor::<i32>::zeros(&[1, 2, 3, 4]).into(),
+                op: Shape {
+                    start: Some(-3),
+                    end: Some(-1),
+                },
+                expected: [2, 3].into(),
+            },
+            // Out of bound offsets.
+            Case {
+                input: Tensor::<i32>::zeros(&[1, 2, 3, 4]).into(),
+                op: Shape {
+                    start: Some(-6),
+                    end: Some(7),
+                },
+                expected: [1, 2, 3, 4].into(),
+            },
+            // Start > end
+            Case {
+                input: Tensor::<i32>::zeros(&[1, 2, 3, 4]).into(),
+                op: Shape {
+                    start: Some(2),
+                    end: Some(1),
+                },
+                expected: [].into(),
+            },
+            // Scalar tensor
+            Case {
+                input: Tensor::from(1i32).into(),
+                op: Shape::default(),
+                expected: [].into(),
+            },
+        ];
 
-        // Int input
-        let input = Tensor::from_data(&[1, 1, 2, 2], vec![1, 2, 3, 4]);
-        let result = op
-            .run(&pool, (&input).into())
-            .unwrap()
-            .remove(0)
-            .into_tensor::<i32>()
-            .unwrap();
-        assert_eq!(result.shape(), &[4]);
-        assert_eq!(result.to_vec(), &[1, 1, 2, 2]);
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let result = case
+                .op
+                .run(&pool, (&case.input).into())
+                .unwrap()
+                .remove(0)
+                .into_tensor::<i32>()
+                .unwrap();
+            assert_eq!(result.shape(), &[case.expected.len()]);
+            assert_eq!(result.to_vec(), case.expected);
+        });
     }
 
     #[test]

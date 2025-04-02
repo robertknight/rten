@@ -221,6 +221,7 @@ union OperatorAttrs {
   QuantizeLinearAttrs,
   DepthToSpaceAttrs,
   CastLikeAttrs,
+  ShapeAttrs,
 }
 
 table ArgMaxAttrs {
@@ -465,6 +466,11 @@ table ScatterElementsAttrs {
 
 table ScatterNDAttrs {
   reduction:ScatterReduction;
+}
+
+table ShapeAttrs {
+  start:int = null;
+  end:int = null;
 }
 
 table SoftmaxAttrs {

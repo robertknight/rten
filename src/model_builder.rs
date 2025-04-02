@@ -12,7 +12,7 @@ use crate::ops::{
     Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu, LogSoftmax,
     MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, QuantizeLinear, ReduceMax,
     ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode,
-    Scalar, ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
+    Scalar, ScatterElements, ScatterReduction, Shape, Softmax, Split, TopK, Transpose, Trilu,
 };
 use crate::schema_generated as sg;
 
@@ -119,7 +119,7 @@ pub enum OpType<'a> {
     Round,
     QuantizeLinear(QuantizeLinear),
     ScatterElements(ScatterElements),
-    Shape,
+    Shape(Shape),
     Sigmoid,
     Sign,
     Sin,
@@ -828,7 +828,12 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                     }
                 })
             }
-            OpType::Shape => op!(Shape),
+            OpType::Shape(args) => op_with_attrs!(Shape, ShapeAttrs, {
+                sg::ShapeAttrsArgs {
+                    start: args.start,
+                    end: args.end,
+                }
+            }),
             OpType::Sigmoid => op!(Sigmoid),
             OpType::Slice => op!(Slice),
             OpType::Sin => op!(Sin),

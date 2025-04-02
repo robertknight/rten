@@ -991,8 +991,13 @@ def op_node_from_onnx_operator(
             )
 
         case "Shape":
-            op_reader.check_attr("end", "int", 0)
-            op_reader.check_attr("start", "int", 0)
+            attrs = sg.ShapeAttrsT()
+            start = op_reader.get_attr("start", "int", None)
+            if start is not None:
+                attrs.start = start
+            end = op_reader.get_attr("end", "int", None)
+            if end is not None:
+                attrs.end = end
 
         case "Softmax":
             attrs = sg.SoftmaxAttrsT()
