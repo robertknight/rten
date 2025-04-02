@@ -210,7 +210,7 @@ def snake_case_to_pascal_case(s: str) -> str:
 
 class ONNXOperatorReader:
     """
-    Utiliy for extracting attribute and input values from an ONNX operator.
+    Utility for extracting attribute and input values from an ONNX operator.
 
     This keeps track of which attributes have been read so that we can warn about
     any unhandled ones.
@@ -501,10 +501,29 @@ def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> Constant
 
     output_name = onnx_op.output[0]
 
-    tensor = ONNXOperatorReader(
-        onnx_op, input_indexes=[], add_node=noop_add_node
-    ).require_attr("value", "tensor")
-    const_node = constant_node_from_onnx_initializer(tensor, output_name)
+    attrs = ONNXOperatorReader(onnx_op, input_indexes=[], add_node=noop_add_node)
+    if (tensor := attrs.get_attr("value", "tensor", None)) is not None:
+        const_node = constant_node_from_onnx_initializer(tensor, output_name)
+    else:
+        if (int_ := attrs.get_attr("value_int", "int", None)) is not None:
+            shape = []
+            data = np.array(int_).astype(np.int32)
+        elif (ints := attrs.get_attr("value_ints", "ints", None)) is not None:
+            shape = [len(ints)]
+            data = np.array(ints).astype(np.int32)
+        elif (float_ := attrs.get_attr("value_float", "float", None)) is not None:
+            shape = []
+            data = np.array(float_).astype(np.float32)
+        elif (floats := attrs.get_attr("value_floats", "floats", None)) is not None:
+            shape = [len(floats)]
+            data = np.array(floats).astype(np.float32)
+        else:
+            # Unsupported attributes: value_string, value_strings
+            raise Exception(
+                f'Unable to get value from "Constant" operator "{onnx_op.name}"'
+            )
+        const_node = ConstantNode("dummy_name", shape, data)
+
     const_node.name = output_name
 
     return const_node
