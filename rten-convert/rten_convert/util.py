@@ -1,5 +1,6 @@
 import math
 from typing import BinaryIO
+import sys
 
 
 def round_up(value: int, base: int) -> int:
@@ -22,3 +23,19 @@ def write_padding(fp: BinaryIO, n: int, max_padding=1024):
     if n == 0:
         return
     fp.write(b"\x00" * n)
+
+
+EMITTED_WARNINGS: set[str] = set()
+
+
+def warn_once(msg: str):
+    """
+    Emit a warning if not already emitted.
+
+    This is used to reduce output noise if the same problem arises many times
+    when converting a model.
+    """
+    if msg in EMITTED_WARNINGS:
+        return
+    EMITTED_WARNINGS.add(msg)
+    print(f"WARNING: {msg}", file=sys.stderr)
