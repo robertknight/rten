@@ -17,7 +17,7 @@ use crate::ops::{
 use crate::schema_generated as sg;
 
 #[cfg(feature = "random")]
-use crate::ops::{RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
+use crate::ops::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
 
 /// Struct like `crate::ops::If` with subgraph attributes replaced by
 /// pre-serialized graphs.
@@ -51,6 +51,8 @@ pub enum OpType<'a> {
     DequantizeLinear(DequantizeLinear),
     DepthToSpace(DepthToSpace),
     Div,
+    #[cfg(feature = "random")]
+    Dropout(Dropout),
     DynamicQuantizeLinear,
     Einsum(Einsum),
     Elu(Elu),
@@ -546,6 +548,12 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 }
             ),
             OpType::Div => op!(Div),
+            #[cfg(feature = "random")]
+            OpType::Dropout(args) => op_with_attrs!(
+                Dropout,
+                DropoutAttrs,
+                sg::DropoutAttrsArgs { seed: args.seed }
+            ),
             OpType::DynamicQuantizeLinear => op!(DynamicQuantizeLinear),
             OpType::Einsum(args) => {
                 let equation = self.builder.create_string(&args.equation);

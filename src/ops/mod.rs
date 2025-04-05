@@ -101,7 +101,7 @@ pub use quantize::{
 };
 
 #[cfg(feature = "random")]
-pub use random::{RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
+pub use random::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
 
 pub use reduce::{
     arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
@@ -950,6 +950,13 @@ impl<'a> InputList<'a> {
     /// This will copy the existing inputs into a new owned vector.
     pub fn push<I: Into<Input<'a>>>(&mut self, inp: I) {
         self.inputs.to_mut().push(Some(inp.into()))
+    }
+
+    /// Append an optional input to the list.
+    ///
+    /// This will copy the existing inputs into a new owned vector.
+    pub fn push_optional<I: Into<Input<'a>>>(&mut self, inp: Option<I>) {
+        self.inputs.to_mut().push(inp.map(|inp| inp.into()))
     }
 
     /// Construct an input list from a slice of non-optional inputs.

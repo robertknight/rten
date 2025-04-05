@@ -1387,6 +1387,17 @@ mod tests {
         });
 
         add_operator!(Div, [input_node, input_node]);
+        #[cfg(feature = "random")]
+        {
+            let dropout_out = graph_builder.add_value("Dropout_out", None, None);
+            let dropout_out_mask = graph_builder.add_value("Dropout_out_mask", None, None);
+            graph_builder.add_operator(
+                "Dropout",
+                OpType::Dropout(ops::Dropout { seed: None }),
+                &[input_2d].map(Some),
+                &[dropout_out, dropout_out_mask],
+            );
+        }
         add_operator!(Elu, [input_node], { alpha: 1.0 });
         add_operator!(Equal, [input_node, input_node]);
         add_operator!(Erf, [input_node]);
@@ -1697,6 +1708,8 @@ mod tests {
 
         for output in op_outputs {
             if [
+                "Dropout_out",
+                "Dropout_out_mask",
                 "Gemm_out",
                 "MatMul_out",
                 "Range_out",
@@ -1753,8 +1766,10 @@ mod tests {
             assert_eq!(result.len(), 1);
         }
 
-        // Outputs of ops tested with a 2D input.
-        let outputs = vec![
+        // Outputs of ops which either have multiple outputs, or which are tested
+        // with a 2D input.
+        #[allow(unused_mut)]
+        let mut outputs = vec![
             "Gemm_out",
             "MatMul_out",
             "Split_out_1",
@@ -1762,6 +1777,12 @@ mod tests {
             "TopK_out_indices",
             "TopK_out_values",
         ];
+
+        #[cfg(feature = "random")]
+        {
+            outputs.extend(["Dropout_out", "Dropout_out_mask"]);
+        }
+
         let input = Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         for output in outputs {

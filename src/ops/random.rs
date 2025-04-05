@@ -3,7 +3,7 @@ use fastrand_contrib::RngExt;
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
 
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList};
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::TensorPool;
 
 #[derive(Debug)]
@@ -137,6 +137,82 @@ impl Operator for RandomNormalLike {
     }
 }
 
+#[derive(Debug)]
+pub struct Dropout {
+    pub seed: Option<i32>,
+}
+
+impl Operator for Dropout {
+    fn name(&self) -> &str {
+        "Dropout"
+    }
+
+    fn is_deterministic(&self) -> bool {
+        self.seed.is_some()
+    }
+
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+        let input = inputs.require_as::<f32>(0)?;
+
+        // The spec (https://onnx.ai/onnx/operators/onnx__Dropout.html) says "If
+        // this input was not set, or if it was set to 0, the output would be a
+        // simple copy of the input", implying the default should be 0, but also
+        // "It is an optional value, if not specified it will default to 0.5.".
+        // The latter sentence matches the reference and ONNX Runtime.
+        let ratio = inputs.get_as_scalar(1)?.unwrap_or(0.5);
+        #[allow(clippy::manual_range_contains)]
+        if ratio < 0. || ratio >= 1.0 {
+            return Err(OpError::InvalidValue("ratio must be in the range [0, 1)"));
+        }
+
+        let training_mode = inputs.get_as_scalar::<i32>(2)?.unwrap_or(0) != 0;
+
+        let (output, mask) = if !training_mode || ratio == 0. {
+            let mask = Tensor::<i32>::full(input.shape(), 1);
+            (input.to_tensor(), mask)
+        } else {
+            let mut rng = if let Some(seed) = self.seed {
+                Rng::with_seed(seed as u64)
+            } else {
+                Rng::new()
+            };
+            let scale = 1. / (1. - ratio);
+
+            let mask =
+                Tensor::<i32>::from_simple_fn(
+                    input.shape(),
+                    || if rng.f32() < ratio { 0 } else { 1 },
+                );
+            let input = input.to_contiguous_in(pool);
+
+            let output = Tensor::from_data(
+                input.shape(),
+                input
+                    .data()
+                    .unwrap()
+                    .iter()
+                    .zip(mask.data().unwrap())
+                    .map(|(&x, &mask)| x * scale * mask as f32)
+                    .collect::<Vec<_>>(),
+            );
+            (output, mask)
+        };
+
+        Ok([Output::from(output), Output::from(mask)]
+            .into_iter()
+            .collect())
+    }
+
+    // Ideally this operator should support running in place if:
+    //
+    // 1. The mask output is unused
+    // 2. `ratio` is zero or `training_mode` is false, in which case the output
+    //    is a copy of the input
+    //
+    // Operators currently do not have a way to check if an output is unused, so
+    // we can't check condition (1).
+}
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
@@ -147,7 +223,7 @@ mod tests {
     use crate::ops::tests::{new_pool, run_op};
     use crate::ops::{InputList, Operator};
 
-    use super::{RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
+    use super::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
 
     #[test]
     fn test_random_uniform() {
@@ -361,5 +437,109 @@ mod tests {
         };
         let output: Tensor<f32> = run_op(&op, input.view()).unwrap();
         assert_eq!(output.shape(), &[5, 5]);
+    }
+
+    #[test]
+    fn test_dropout_noop() {
+        #[derive(Debug)]
+        struct Case {
+            ratio: Option<f32>,
+            training_mode: Option<bool>,
+        }
+
+        let cases = [
+            // No ratio or training_mode. training_mode defaults to false.
+            Case {
+                ratio: None,
+                training_mode: None,
+            },
+            // Dropout ratio of zero.
+            Case {
+                ratio: Some(0.),
+                training_mode: Some(true),
+            },
+            // Non-zero dropout, but training mode is disabled.
+            Case {
+                ratio: Some(0.5),
+                training_mode: Some(false),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let data = Tensor::from([[1., 2.], [3., 4.]]);
+            let ratio_input = case.ratio.map(Tensor::from);
+            let training_mode_input = case
+                .training_mode
+                .map(|tm| Tensor::from(if tm { 1i32 } else { 0 }));
+
+            let op = Dropout { seed: None };
+            let mut inputs = InputList::new();
+            inputs.push(&data);
+            inputs.push_optional(ratio_input.as_ref());
+            inputs.push_optional(training_mode_input.as_ref());
+
+            let mut outputs = op.run(&new_pool(), inputs).unwrap();
+            let output: Tensor<f32> = outputs.remove(0).try_into().unwrap();
+            assert_eq!(output, data);
+
+            let mask: Tensor<i32> = outputs.remove(0).try_into().unwrap();
+            assert_eq!(mask, Tensor::full(data.shape(), 1));
+        });
+    }
+
+    #[test]
+    fn test_dropout_active() {
+        #[derive(Debug)]
+        struct Case {
+            ratio: Option<f32>,
+            expected_dropout_ratio: f32, // Expected ratio in [0, 1]
+            tolerance: f32,              // Tolerance for comparing actual vs expected
+                                         // dropout ratio
+        }
+
+        let cases = [
+            Case {
+                // The spec disallows setting the dropout ratio to exactly 1.
+                ratio: Some(0.99999),
+                expected_dropout_ratio: 1.,
+                tolerance: 0.,
+            },
+            Case {
+                ratio: None, // Default ratio is 0.5
+                expected_dropout_ratio: 0.5,
+                tolerance: 0.1,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let data = Tensor::full(&[10, 10], 1.0);
+            let ratio_input = case.ratio.map(Tensor::from);
+            let training_mode_input = Tensor::from(1i32);
+
+            let op = Dropout {
+                // Seed a fixed seed for consistent results
+                seed: Some(1),
+            };
+            let mut inputs = InputList::new();
+            inputs.push(&data);
+            inputs.push_optional(ratio_input.as_ref());
+            inputs.push(&training_mode_input);
+
+            let mut outputs = op.run(&new_pool(), inputs).unwrap();
+            let output: Tensor<f32> = outputs.remove(0).try_into().unwrap();
+            let dropout_ratio =
+                output.iter().filter(|x| **x == 0.0).count() as f32 / data.len() as f32;
+            assert!(
+                (dropout_ratio - case.expected_dropout_ratio).abs() <= case.tolerance,
+                "dropout ratio {} is not close enough to {}",
+                dropout_ratio,
+                case.expected_dropout_ratio
+            );
+
+            let mask: Tensor<i32> = outputs.remove(0).try_into().unwrap();
+            let mask_dropout_ratio =
+                mask.iter().filter(|x| **x == 0).count() as f32 / data.len() as f32;
+            assert_eq!(mask_dropout_ratio, dropout_ratio);
+        });
     }
 }
