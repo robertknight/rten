@@ -125,6 +125,7 @@ enum OperatorType: ubyte {
   DepthToSpace,
   ConvInteger,
   CastLike,
+  Dropout,
 }
 
 enum RNNDirection: ubyte {
@@ -222,6 +223,7 @@ union OperatorAttrs {
   DepthToSpaceAttrs,
   CastLikeAttrs,
   ShapeAttrs,
+  DropoutAttrs,
 }
 
 table ArgMaxAttrs {
@@ -265,6 +267,10 @@ enum DepthToSpaceMode: ubyte {
 table DepthToSpaceAttrs {
   mode:DepthToSpaceMode;
   block_size:uint;
+}
+
+table DropoutAttrs {
+  seed:int = null;
 }
 
 union Scalar {

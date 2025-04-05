@@ -816,6 +816,10 @@ def op_node_from_onnx_operator(
             attrs.blockSize = attr_reader.require_attr("blocksize", "int")
             attrs.mode = attr_reader.get_enum_attr("mode", sg.DepthToSpaceMode, "dcr")
 
+        case "Dropout":
+            attrs = sg.DropoutAttrsT()
+            attrs.seed = attr_reader.get_attr("seed", "int", None)
+
         case "Einsum":
             attrs = sg.EinsumAttrsT()
             attrs.equation = attr_reader.require_attr("equation", "string")

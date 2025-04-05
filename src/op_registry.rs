@@ -105,6 +105,10 @@ impl OpRegistry {
         register_op!(DequantizeLinear);
         register_op!(DepthToSpace);
         register_op!(Div);
+
+        #[cfg(feature = "random")]
+        register_op!(Dropout);
+
         register_op!(DynamicQuantizeLinear);
         register_op!(Einsum);
         register_op!(Elu);
@@ -154,13 +158,12 @@ impl OpRegistry {
         register_op!(QuantizeLinear);
 
         #[cfg(feature = "random")]
-        register_op!(RandomNormal);
-        #[cfg(feature = "random")]
-        register_op!(RandomNormalLike);
-        #[cfg(feature = "random")]
-        register_op!(RandomUniform);
-        #[cfg(feature = "random")]
-        register_op!(RandomUniformLike);
+        {
+            register_op!(RandomNormal);
+            register_op!(RandomNormalLike);
+            register_op!(RandomUniform);
+            register_op!(RandomUniformLike);
+        }
 
         register_op!(Range);
         register_op!(Reciprocal);
@@ -511,6 +514,14 @@ impl_read_op!(
     }
 );
 impl_read_op!(Div);
+
+#[cfg(feature = "random")]
+impl_read_op!(
+    Dropout,
+    attrs_as_dropout_attrs,
+    |attrs: sg::DropoutAttrs| { Ok(ops::Dropout { seed: attrs.seed() }) }
+);
+
 impl_read_op!(DynamicQuantizeLinear);
 impl_read_op!(Einsum, attrs_as_einsum_attrs, |attrs: sg::EinsumAttrs| {
     Ok(ops::Einsum {

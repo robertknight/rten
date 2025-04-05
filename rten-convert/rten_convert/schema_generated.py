@@ -119,6 +119,7 @@ class OperatorType(object):
     DepthToSpace = 109
     ConvInteger = 110
     CastLike = 111
+    Dropout = 112
 
 
 class RNNDirection(object):
@@ -205,6 +206,7 @@ class OperatorAttrs(object):
     DepthToSpaceAttrs = 43
     CastLikeAttrs = 44
     ShapeAttrs = 45
+    DropoutAttrs = 46
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -300,6 +302,8 @@ def OperatorAttrsCreator(unionType, table):
         return CastLikeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.ShapeAttrs:
         return ShapeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.DropoutAttrs:
+        return DropoutAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -1111,6 +1115,83 @@ class DepthToSpaceAttrsT(object):
         DepthToSpaceAttrsAddBlockSize(builder, self.blockSize)
         depthToSpaceAttrs = DepthToSpaceAttrsEnd(builder)
         return depthToSpaceAttrs
+
+
+class DropoutAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = DropoutAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsDropoutAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def DropoutAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # DropoutAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # DropoutAttrs
+    def Seed(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return None
+
+def DropoutAttrsStart(builder):
+    builder.StartObject(1)
+
+def DropoutAttrsAddSeed(builder, seed):
+    builder.PrependInt32Slot(0, seed, None)
+
+def DropoutAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class DropoutAttrsT(object):
+
+    # DropoutAttrsT
+    def __init__(self):
+        self.seed = None  # type: Optional[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        dropoutAttrs = DropoutAttrs()
+        dropoutAttrs.Init(buf, pos)
+        return cls.InitFromObj(dropoutAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, dropoutAttrs):
+        x = DropoutAttrsT()
+        x._UnPack(dropoutAttrs)
+        return x
+
+    # DropoutAttrsT
+    def _UnPack(self, dropoutAttrs):
+        if dropoutAttrs is None:
+            return
+        self.seed = dropoutAttrs.Seed()
+
+    # DropoutAttrsT
+    def Pack(self, builder):
+        DropoutAttrsStart(builder)
+        DropoutAttrsAddSeed(builder, self.seed)
+        dropoutAttrs = DropoutAttrsEnd(builder)
+        return dropoutAttrs
 
 
 class IntScalar(object):
@@ -5316,7 +5397,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
