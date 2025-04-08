@@ -31,7 +31,9 @@ pub enum ResizeTarget<'a> {
 /// - `length_resized` is the size of the axis in the output
 ///
 /// See https://github.com/onnx/onnx/blob/v1.15.0/docs/Operators.md#resize
-/// for the formulae for different transform modes.
+/// for the formulae for different transform modes. Note that `scale` here is
+/// the inverse of the `scale` used in the spec, in order to replace division
+/// with multiplication.
 ///
 /// The default is half pixel, and is is consistent with how OpenCV
 /// (`cv2.resize`) and PyTorch (`torch.nn.functional.interpolate`) work. See
@@ -58,7 +60,7 @@ fn input_coord(
             // PyTorch behavior). This implementation does however match
             // ONNX Runtime (https://github.com/microsoft/onnxruntime/blob/24620e70d9f14956a0dc84bb8a332dcd64c95a94/onnxruntime/core/providers/cpu/tensor/upsamplebase.h#L331)
             if length_resized > 1 {
-                (dest_coord as f32 + 0.5) / scale - 0.5
+                scale * (dest_coord as f32 + 0.5) - 0.5
             } else {
                 0.
             }
@@ -692,29 +694,35 @@ mod tests {
                 image,
                 scales: vec![1., 1., 1.5, 1.5],
                 coord_transform_mode: None,
-                expected: Tensor::from_data(
-                    &[1, 1, 3, 3],
-                    vec![
-                        0.2, 0.45, 0.7, // Y=0
-                        0.25, 0.5, 0.75, // Y=1
-                        0.3, 0.55, 0.8, // Y=2
-                    ],
-                ),
+                expected: Tensor::from([[0.2, 0.45, 0.7], [0.25, 0.5, 0.75], [0.3, 0.55, 0.8]])
+                    .into_shape([1, 1, 3, 3].as_slice()),
             },
-            // Scale width and height by 2x
+            // Scale width and height by 2x, using `half_pixel`.
             Case {
                 image,
                 scales: vec![1., 1., 2., 2.],
                 coord_transform_mode: None,
-                expected: Tensor::from_data(
-                    &[1, 1, 4, 4],
-                    vec![
-                        0.2, 0.325, 0.575, 0.7, // Y=0
-                        0.225, 0.35, 0.6, 0.725, // Y=1
-                        0.275, 0.4, 0.65, 0.775, // Y=2
-                        0.3, 0.425, 0.675, 0.8, // Y=3
-                    ],
-                ),
+                expected: Tensor::from([
+                    [0.2, 0.325, 0.575, 0.7],
+                    [0.225, 0.35, 0.6, 0.725],
+                    [0.275, 0.4, 0.65, 0.775],
+                    [0.3, 0.425, 0.675, 0.8],
+                ])
+                .into_shape([1, 1, 4, 4].as_slice()),
+            },
+            // Scale width and height by 2x, using `pytorch_half_pixel`. This
+            // should give the same result as for `half_pixel`.
+            Case {
+                image,
+                scales: vec![1., 1., 2., 2.],
+                coord_transform_mode: Some(CoordTransformMode::PytorchHalfPixel),
+                expected: Tensor::from([
+                    [0.2, 0.325, 0.575, 0.7],
+                    [0.225, 0.35, 0.6, 0.725],
+                    [0.275, 0.4, 0.65, 0.775],
+                    [0.3, 0.425, 0.675, 0.8],
+                ])
+                .into_shape([1, 1, 4, 4].as_slice()),
             },
             // Scale width and height by 2x, align corners.
             Case {
@@ -737,17 +745,15 @@ mod tests {
                 image,
                 scales: vec![1., 1., 3., 3.],
                 coord_transform_mode: None,
-                expected: Tensor::from_data(
-                    &[1, 1, 6, 6],
-                    vec![
-                        0.2000, 0.2000, 0.3667, 0.5333, 0.7000, 0.7000, // Y=0
-                        0.2000, 0.2000, 0.3667, 0.5333, 0.7000, 0.7000, // Y=1
-                        0.2333, 0.2333, 0.4000, 0.5667, 0.7333, 0.7333, // Y=2
-                        0.2667, 0.2667, 0.4333, 0.6000, 0.7667, 0.7667, // Y=3
-                        0.3000, 0.3000, 0.4667, 0.6333, 0.8000, 0.8000, // Y=4
-                        0.3000, 0.3000, 0.4667, 0.6333, 0.8000, 0.8000, // Y=5
-                    ],
-                ),
+                expected: Tensor::from([
+                    [0.2000, 0.2000, 0.3667, 0.5333, 0.7000, 0.7000],
+                    [0.2000, 0.2000, 0.3667, 0.5333, 0.7000, 0.7000],
+                    [0.2333, 0.2333, 0.4000, 0.5667, 0.7333, 0.7333],
+                    [0.2667, 0.2667, 0.4333, 0.6000, 0.7667, 0.7667],
+                    [0.3000, 0.3000, 0.4667, 0.6333, 0.8000, 0.8000],
+                    [0.3000, 0.3000, 0.4667, 0.6333, 0.8000, 0.8000],
+                ])
+                .into_shape([1, 1, 6, 6].as_slice()),
             },
         ];
 
