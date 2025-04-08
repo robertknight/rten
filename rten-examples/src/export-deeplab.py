@@ -1,3 +1,5 @@
+from argparse import ArgumentParser
+
 import torch
 from torchvision.models.segmentation import (
     deeplabv3_mobilenet_v3_large,
@@ -16,12 +18,32 @@ preprocess = weights.transforms()
 img = torch.rand((3, 480, 640))
 batch = preprocess(img).unsqueeze(0)
 
-# Export to ONNX
-torch.onnx.export(
-    model,
-    args=(batch),
-    f="deeplab.onnx",
-    verbose=False,
-    input_names=["input"],
-    output_names=["output"],
+parser = ArgumentParser()
+parser.add_argument("-f", "--filename", default="deeplab.onnx")
+parser.add_argument(
+    "--dynamo", action="store_true", help="Use TorchDynamo-based exporter"
 )
+args = parser.parse_args()
+
+if args.dynamo:
+    print("Exporting model using TorchDynamo...")
+    onnx_prog = torch.onnx.export(
+        model,
+        args=(batch),
+        verbose=False,
+        input_names=["input"],
+        output_names=["output"],
+        dynamo=True,
+    )
+    onnx_prog.optimize()
+    onnx_prog.save(args.filename)
+else:
+    print("Exporting model using TorchScript...")
+    torch.onnx.export(
+        model,
+        args=(batch),
+        f=args.filename,
+        verbose=False,
+        input_names=["input"],
+        output_names=["output"],
+    )
