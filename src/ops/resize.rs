@@ -31,7 +31,9 @@ pub enum ResizeTarget<'a> {
 /// - `length_resized` is the size of the axis in the output
 ///
 /// See https://github.com/onnx/onnx/blob/v1.15.0/docs/Operators.md#resize
-/// for the formulae for different transform modes.
+/// for the formulae for different transform modes. Note that `scale` here is
+/// the inverse of the `scale` used in the spec, in order to replace division
+/// with multiplication.
 ///
 /// The default is half pixel, and is is consistent with how OpenCV
 /// (`cv2.resize`) and PyTorch (`torch.nn.functional.interpolate`) work. See
@@ -58,7 +60,7 @@ fn input_coord(
             // PyTorch behavior). This implementation does however match
             // ONNX Runtime (https://github.com/microsoft/onnxruntime/blob/24620e70d9f14956a0dc84bb8a332dcd64c95a94/onnxruntime/core/providers/cpu/tensor/upsamplebase.h#L331)
             if length_resized > 1 {
-                (dest_coord as f32 + 0.5) / scale - 0.5
+                scale * (dest_coord as f32 + 0.5) - 0.5
             } else {
                 0.
             }
@@ -701,20 +703,32 @@ mod tests {
                     ],
                 ),
             },
-            // Scale width and height by 2x
+            // Scale width and height by 2x, using `half_pixel`.
             Case {
                 image,
                 scales: vec![1., 1., 2., 2.],
                 coord_transform_mode: None,
-                expected: Tensor::from_data(
-                    &[1, 1, 4, 4],
-                    vec![
-                        0.2, 0.325, 0.575, 0.7, // Y=0
-                        0.225, 0.35, 0.6, 0.725, // Y=1
-                        0.275, 0.4, 0.65, 0.775, // Y=2
-                        0.3, 0.425, 0.675, 0.8, // Y=3
-                    ],
-                ),
+                expected: Tensor::from([
+                    [0.2, 0.325, 0.575, 0.7],
+                    [0.225, 0.35, 0.6, 0.725],
+                    [0.275, 0.4, 0.65, 0.775],
+                    [0.3, 0.425, 0.675, 0.8],
+                ])
+                .into_shape([1, 1, 4, 4].as_slice()),
+            },
+            // Scale width and height by 2x, using `pytorch_half_pixel`. This
+            // should give the same result as for `half_pixel`.
+            Case {
+                image,
+                scales: vec![1., 1., 2., 2.],
+                coord_transform_mode: Some(CoordTransformMode::PytorchHalfPixel),
+                expected: Tensor::from([
+                    [0.2, 0.325, 0.575, 0.7],
+                    [0.225, 0.35, 0.6, 0.725],
+                    [0.275, 0.4, 0.65, 0.775],
+                    [0.3, 0.425, 0.675, 0.8],
+                ])
+                .into_shape([1, 1, 4, 4].as_slice()),
             },
             // Scale width and height by 2x, align corners.
             Case {
