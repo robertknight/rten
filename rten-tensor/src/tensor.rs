@@ -321,6 +321,15 @@ pub trait AsView: Layout {
         self.view().slice(range)
     }
 
+    /// Slice this tensor along a given axis.
+    fn slice_axis(
+        &self,
+        axis: usize,
+        range: Range<usize>,
+    ) -> TensorBase<ViewData<Self::Elem>, Self::Layout> {
+        self.view().slice_axis(axis, range)
+    }
+
     /// A variant of [`slice`](Self::slice) that returns a result
     /// instead of panicking.
     #[allow(clippy::type_complexity)]
@@ -791,14 +800,13 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
     }
 
     /// Slice this tensor along a given axis.
-    fn slice_axis_mut(
+    pub fn slice_axis_mut(
         &mut self,
         axis: usize,
         range: Range<usize>,
     ) -> TensorBase<ViewMutData<S::Elem>, L> {
-        let (offset_range, sliced_layout) = self.layout.slice_axis(axis, range.clone());
+        let (offset_range, sliced_layout) = self.layout.slice_axis(axis, range.clone()).unwrap();
         debug_assert_eq!(sliced_layout.size(axis), range.len());
-
         TensorBase {
             data: self.data.slice_mut(offset_range),
             layout: sliced_layout,
@@ -1484,6 +1492,16 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         L: SliceWith<R, R::Count>,
     {
         self.try_slice(range).expect("slice failed")
+    }
+
+    /// Slice this tensor along a given axis.
+    pub fn slice_axis(&self, axis: usize, range: Range<usize>) -> TensorBase<ViewData<'a, T>, L> {
+        let (offset_range, sliced_layout) = self.layout.slice_axis(axis, range.clone()).unwrap();
+        debug_assert_eq!(sliced_layout.size(axis), range.len());
+        TensorBase {
+            data: self.data.slice(offset_range),
+            layout: sliced_layout,
+        }
     }
 
     /// A variant of [`slice`](Self::slice) that returns a result
@@ -3456,6 +3474,25 @@ mod tests {
         let row = data.slice((0, 0));
         assert_eq!(row.shape(), [3usize]);
         assert_eq!(row.data().unwrap(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_slice_axis() {
+        let data = NdTensor::from([[1, 2, 3], [4, 5, 6]]);
+        let row = data.slice_axis(0, 0..1);
+        let col = data.slice_axis(1, 1..2);
+        assert_eq!(row, data.slice((0..1, ..)));
+        assert_eq!(col, data.slice((.., 1..2)));
+    }
+
+    #[test]
+    fn test_slice_axis_mut() {
+        let mut data = NdTensor::from([[1, 2, 3], [4, 5, 6]]);
+        let mut row = data.slice_axis_mut(0, 0..1);
+        row.fill(8);
+        let mut col = data.slice_axis_mut(1, 1..2);
+        col.fill(9);
+        assert_eq!(data, NdTensor::from([[8, 9, 8], [4, 9, 6]]));
     }
 
     #[test]

@@ -56,6 +56,10 @@ pub enum SliceError {
         range_ndim: usize,
     },
 
+    /// The slice spec specified an axis that is equal to or greater than the
+    /// dimension count.
+    InvalidAxis { axis: usize },
+
     /// An index in the slice spec is out of bounds for the corresponding tensor
     /// dimension.
     InvalidIndex {
@@ -105,6 +109,7 @@ impl Display for SliceError {
                     range_ndim, ndim
                 )
             }
+            SliceError::InvalidAxis { axis } => write!(f, "slice axis {} is invalid", axis),
             SliceError::InvalidIndex { axis, index, size } => write!(
                 f,
                 "slice index {} is invalid for axis ({}) of size {}",
