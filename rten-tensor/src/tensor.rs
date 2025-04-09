@@ -1531,7 +1531,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         }
     }
 
-    /// Divide this tensor into two mutable views along a given axis.
+    /// Divide this tensor into two views along a given axis.
     ///
     /// Returns a `(left, right)` tuple of views, where the `left` view
     /// contains the slice from `[0, mid)` along `axis` and the `right`
