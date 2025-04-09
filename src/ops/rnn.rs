@@ -807,7 +807,7 @@ mod tests {
         let splits = &[size as i32; 4];
 
         // Split input into seperate tensor for each of the gates.
-        let ifco = split(&pool, x.view(), axis, &splits.into()).expect("split failed");
+        let ifco = split(&pool, x.view(), axis, splits.as_slice().into()).expect("split failed");
 
         // Recombine in a new gate order.
         concat(
@@ -831,7 +831,7 @@ mod tests {
         let splits = &[size as i32; 3];
 
         // Split input into seperate tensor for each of the gates.
-        let ruh = split(&pool, x.view(), axis, &splits.into()).expect("split failed");
+        let ruh = split(&pool, x.view(), axis, splits.as_slice().into()).expect("split failed");
 
         // Recombine in a new gate order.
         concat(&pool, &[ruh[1].view(), ruh[0].view(), ruh[2].view()], axis).expect("concat failed")

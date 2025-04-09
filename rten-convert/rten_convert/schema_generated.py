@@ -4911,11 +4911,21 @@ class SplitAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
+    # SplitAttrs
+    def NumOutputs(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return None
+
 def SplitAttrsStart(builder):
-    builder.StartObject(1)
+    builder.StartObject(2)
 
 def SplitAttrsAddAxis(builder, axis):
     builder.PrependInt32Slot(0, axis, 0)
+
+def SplitAttrsAddNumOutputs(builder, numOutputs):
+    builder.PrependInt32Slot(1, numOutputs, None)
 
 def SplitAttrsEnd(builder):
     return builder.EndObject()
@@ -4927,6 +4937,7 @@ class SplitAttrsT(object):
     # SplitAttrsT
     def __init__(self):
         self.axis = 0  # type: int
+        self.numOutputs = None  # type: Optional[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4950,11 +4961,13 @@ class SplitAttrsT(object):
         if splitAttrs is None:
             return
         self.axis = splitAttrs.Axis()
+        self.numOutputs = splitAttrs.NumOutputs()
 
     # SplitAttrsT
     def Pack(self, builder):
         SplitAttrsStart(builder)
         SplitAttrsAddAxis(builder, self.axis)
+        SplitAttrsAddNumOutputs(builder, self.numOutputs)
         splitAttrs = SplitAttrsEnd(builder)
         return splitAttrs
 

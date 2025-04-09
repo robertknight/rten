@@ -858,6 +858,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
             OpType::Split(args) => op_with_attrs!(Split, SplitAttrs, {
                 sg::SplitAttrsArgs {
                     axis: args.axis as i32,
+                    num_outputs: args.num_outputs.map(|n| n as i32),
                 }
             }),
             OpType::Sqrt => op!(Sqrt),
