@@ -89,7 +89,13 @@ def export_timm_model(config: str, onnx_path: str, dynamo: bool = False):
     print_predictions(output)
 
     print(f"Exporting model to {onnx_path}")
-    torch.onnx.export(model, input_img, onnx_path, dynamo=dynamo)
+    if dynamo:
+        onnx_prog = torch.onnx.export(model, input_img, dynamo=True)
+        # Optimize model to inline functions. See https://github.com/robertknight/rten/issues/655.
+        onnx_prog.optimize()
+        onnx_prog.save(onnx_path)
+    else:
+        torch.onnx.export(model, input_img, onnx_path)
 
     # Test exported model with ONNX Runtime as a reference implementation.
     #
