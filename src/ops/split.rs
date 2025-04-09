@@ -1,5 +1,5 @@
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
+use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::ops::{
     map_input, resolve_axis, static_dims, Input, InputList, OpError, Operator, OutputList,
@@ -29,19 +29,9 @@ pub fn split<T: Copy>(
         .iter()
         .map(|&split_size| {
             let split_size = split_size as usize;
-            let slice_range: Vec<SliceItem> = (0..input.ndim())
-                .map(|dim| {
-                    if dim == axis {
-                        (split_start..split_start + split_size).into()
-                    } else {
-                        SliceItem::full_range()
-                    }
-                })
-                .collect();
-
+            let split_range = split_start..split_start + split_size;
             split_start += split_size;
-
-            input.slice(slice_range.as_slice()).to_tensor_in(pool)
+            input.slice_axis(axis, split_range).to_tensor_in(pool)
         })
         .collect();
 

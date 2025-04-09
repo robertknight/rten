@@ -970,8 +970,21 @@ pub trait MutLayout: Layout + Clone {
     /// Slice the layout along a given axis.
     ///
     /// Returns a tuple of `(offset_range, sliced_layout)`.
-    fn slice_axis(&self, axis: usize, range: Range<usize>) -> (Range<usize>, Self) {
-        assert!(range.end >= range.start);
+    fn slice_axis(
+        &self,
+        axis: usize,
+        range: Range<usize>,
+    ) -> Result<(Range<usize>, Self), SliceError> {
+        if axis >= self.ndim() {
+            return Err(SliceError::InvalidAxis { axis });
+        }
+        if range.end < range.start || range.end > self.size(axis) {
+            return Err(SliceError::InvalidRange {
+                axis,
+                range: range.into(),
+                size: self.size(axis),
+            });
+        }
 
         let mut sliced_layout = self.clone();
         sliced_layout.resize_dim(axis, range.len());
@@ -982,7 +995,7 @@ pub trait MutLayout: Layout + Clone {
             let end_offset = start_offset + sliced_layout.min_data_len();
             start_offset..end_offset
         };
-        (range, sliced_layout)
+        Ok((range, sliced_layout))
     }
 
     /// Return a layout with all size-one dimensions removed.
@@ -1782,10 +1795,46 @@ mod tests {
             } = case;
 
             let layout = DynLayout::from_shape(shape);
-            let (offset_range, sliced_layout) = layout.slice_axis(axis, range);
+            let (offset_range, sliced_layout) = layout.slice_axis(axis, range).unwrap();
             assert_eq!(sliced_layout.shape(), sliced_shape);
             assert_eq!(sliced_layout.strides(), layout.strides());
             assert_eq!(offset_range, offsets);
+        })
+    }
+
+    #[test]
+    fn test_slice_axis_invalid() {
+        #[derive(Debug)]
+        struct Case<'a> {
+            shape: &'a [usize],
+            axis: usize,
+            range: Range<usize>,
+            expected: SliceError,
+        }
+
+        let cases = [
+            Case {
+                shape: &[1, 2, 3],
+                axis: 4,
+                range: 0..1,
+                expected: SliceError::InvalidAxis { axis: 4 },
+            },
+            Case {
+                shape: &[1, 2, 3],
+                axis: 0,
+                range: 0..2,
+                expected: SliceError::InvalidRange {
+                    axis: 0,
+                    range: (0..2).into(),
+                    size: 1,
+                },
+            },
+        ];
+
+        cases.test_each(|case| {
+            let layout = DynLayout::from_shape(case.shape);
+            let result = layout.slice_axis(case.axis, case.range.clone());
+            assert_eq!(result, Err(case.expected.clone()));
         })
     }
 
