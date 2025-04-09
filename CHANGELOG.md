@@ -15,6 +15,24 @@ operations with safe code. See the rten-simd crate docs for more details.
 
 ### rten
 
+- Support `num_outputs` attribute in `Split` operator (https://github.com/robertknight/rten/pull/658)
+
+- Support `Dropout` operator (inference mode only) (https://github.com/robertknight/rten/pull/652)
+
+- Added option to use TorchDynamo ONNX export in `tools/export-timm-model.py`
+  script (https://github.com/robertknight/rten/pull/651)
+
+- Support `value_{float, floats, int, ints}` attributes in
+  `Constant` operator (https://github.com/robertknight/rten/pull/649)
+
+- Support `start` and `end` attributes for `Shape` operator (https://github.com/robertknight/rten/pull/648)
+
+- Support `pytorch_half_pixel` value for `coordinate_transform_mode` in `Resize`
+  operator (https://github.com/robertknight/rten/pull/647,
+  https://github.com/robertknight/rten/pull/654)
+
+- Support `CastLike` operator (https://github.com/robertknight/rten/pull/646)
+
 - Fixed broken links to model files in ImageNet example (https://github.com/robertknight/rten/pull/603)
 
 - Fixed broken `ArgMin` operator (https://github.com/robertknight/rten/pull/592)
@@ -25,6 +43,8 @@ operations with safe code. See the rten-simd crate docs for more details.
   in https://github.com/robertknight/rten/issues/549.
 
 ### rten-tensor
+
+- Add `Tensor::{slice_axis, slice_axis_mut}` methods (https://github.com/robertknight/rten/pull/657)
 
 - Export `AssumeInit` utility trait (https://github.com/robertknight/rten/pull/598)
 
