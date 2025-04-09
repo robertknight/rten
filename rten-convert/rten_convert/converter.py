@@ -653,7 +653,7 @@ def op_node_from_onnx_operator(
         case "Split":
             attrs = sg.SplitAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", 0)
-            attr_reader.check_attr("num_outputs", "int", 0)
+            attrs.numOutputs = attr_reader.get_attr("num_outputs", "int", None)
             attr_reader.generate_input_from_attr(1, "split", "ints")
 
         case "Squeeze":

@@ -485,6 +485,7 @@ table SoftmaxAttrs {
 
 table SplitAttrs {
   axis:int;
+  num_outputs:int = null;
 }
 
 table TopKAttrs {

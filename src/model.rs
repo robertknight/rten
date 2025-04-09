@@ -1646,7 +1646,10 @@ mod tests {
         let split_out_2 = graph_builder.add_value("Split_out_2", None, None);
         graph_builder.add_operator(
             "Split",
-            OpType::Split(ops::Split { axis: 1 }),
+            OpType::Split(ops::Split {
+                axis: 1,
+                num_outputs: None,
+            }),
             &[input_2d, split_splits].map(Some),
             &[split_out_1, split_out_2],
         );

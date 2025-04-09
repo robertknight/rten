@@ -880,7 +880,11 @@ impl_read_op!(Size);
 impl_read_op!(Slice);
 impl_read_op!(Softmax, attrs_as_softmax_attrs, axis);
 impl_read_op!(Softplus);
-impl_read_op!(Split, attrs_as_split_attrs, axis);
+impl_read_op!(Split, attrs_as_split_attrs, |attrs: sg::SplitAttrs| {
+    let axis = attrs.axis() as isize;
+    let num_outputs = attrs.num_outputs().map(|n| n as u32);
+    Ok(ops::Split { axis, num_outputs })
+});
 impl_read_op!(Sqrt);
 impl_read_op!(Squeeze);
 impl_read_op!(Sub);

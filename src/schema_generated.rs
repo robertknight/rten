@@ -7865,6 +7865,7 @@ impl<'a> flatbuffers::Follow<'a> for SplitAttrs<'a> {
 
 impl<'a> SplitAttrs<'a> {
     pub const VT_AXIS: flatbuffers::VOffsetT = 4;
+    pub const VT_NUM_OUTPUTS: flatbuffers::VOffsetT = 6;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -7876,6 +7877,9 @@ impl<'a> SplitAttrs<'a> {
         args: &'args SplitAttrsArgs,
     ) -> flatbuffers::WIPOffset<SplitAttrs<'bldr>> {
         let mut builder = SplitAttrsBuilder::new(_fbb);
+        if let Some(x) = args.num_outputs {
+            builder.add_num_outputs(x);
+        }
         builder.add_axis(args.axis);
         builder.finish()
     }
@@ -7886,6 +7890,13 @@ impl<'a> SplitAttrs<'a> {
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe { self._tab.get::<i32>(SplitAttrs::VT_AXIS, Some(0)).unwrap() }
+    }
+    #[inline]
+    pub fn num_outputs(&self) -> Option<i32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<i32>(SplitAttrs::VT_NUM_OUTPUTS, None) }
     }
 }
 
@@ -7898,17 +7909,22 @@ impl flatbuffers::Verifiable for SplitAttrs<'_> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
             .visit_field::<i32>("axis", Self::VT_AXIS, false)?
+            .visit_field::<i32>("num_outputs", Self::VT_NUM_OUTPUTS, false)?
             .finish();
         Ok(())
     }
 }
 pub struct SplitAttrsArgs {
     pub axis: i32,
+    pub num_outputs: Option<i32>,
 }
 impl<'a> Default for SplitAttrsArgs {
     #[inline]
     fn default() -> Self {
-        SplitAttrsArgs { axis: 0 }
+        SplitAttrsArgs {
+            axis: 0,
+            num_outputs: None,
+        }
     }
 }
 
@@ -7920,6 +7936,11 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SplitAttrsBuilder<'a, 'b, A> {
     #[inline]
     pub fn add_axis(&mut self, axis: i32) {
         self.fbb_.push_slot::<i32>(SplitAttrs::VT_AXIS, axis, 0);
+    }
+    #[inline]
+    pub fn add_num_outputs(&mut self, num_outputs: i32) {
+        self.fbb_
+            .push_slot_always::<i32>(SplitAttrs::VT_NUM_OUTPUTS, num_outputs);
     }
     #[inline]
     pub fn new(
@@ -7942,6 +7963,7 @@ impl core::fmt::Debug for SplitAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("SplitAttrs");
         ds.field("axis", &self.axis());
+        ds.field("num_outputs", &self.num_outputs());
         ds.finish()
     }
 }
