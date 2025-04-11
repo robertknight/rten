@@ -14,7 +14,7 @@ use crate::ops::{
     OutputList,
 };
 use crate::slice_reductions::slice_sum;
-use crate::tensor_pool::{AutoReturn, TensorPool};
+use crate::tensor_pool::TensorPool;
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
@@ -226,6 +226,38 @@ impl Operator for NonZero {
     }
 }
 
+/// Manages a scratch buffer allocated from a pool.
+struct TempBuffer<'a, T> {
+    pool: &'a TensorPool,
+    buf: Vec<T>,
+}
+
+impl<'a, T> TempBuffer<'a, T> {
+    fn new(pool: &'a TensorPool) -> Self {
+        TempBuffer {
+            pool,
+            buf: Vec::new(),
+        }
+    }
+
+    /// Prepare the buffer by allocating it from the pool and clearing it.
+    fn reserve(&mut self, capacity: usize) -> &mut Vec<T> {
+        self.buf.clear();
+        if self.buf.capacity() < capacity {
+            self.buf = self.pool.alloc(capacity);
+        }
+        &mut self.buf
+    }
+}
+
+impl<T> Drop for TempBuffer<'_, T> {
+    fn drop(&mut self) {
+        if self.buf.capacity() > 0 {
+            self.pool.add(std::mem::take(&mut self.buf))
+        }
+    }
+}
+
 /// Kernel that handles reducing a single slice of the input.
 trait ReduceKernel<T> {
     /// Reduce a contiguous slice of values to a single value.
@@ -250,15 +282,9 @@ fn reduce<T: Copy>(
     };
     resolved_axes.sort();
 
-    // Allocate temporary buffer where slices of the input to be reduced are
-    // packed first if non-contiguous.
-    let mut tmp_buf = if !input.is_contiguous() {
-        let reduced_slice_len = resolved_axes.iter().map(|&dim| input.size(dim)).product();
-        pool.alloc(reduced_slice_len)
-    } else {
-        Vec::new()
-    }
-    .auto_return(pool);
+    // Temporary buffer where slices of the input to be reduced are packed first
+    // if non-contiguous.
+    let mut tmp_buf = TempBuffer::new(pool);
 
     if input.ndim() == 0 {
         let item = input.item().unwrap();
@@ -316,9 +342,9 @@ fn reduce<T: Copy>(
                     if let Some(lane_slice) = lane.as_slice() {
                         kernel.reduce_slice(lane_slice)
                     } else {
-                        tmp_buf.clear();
-                        tmp_buf.extend(lane.copied());
-                        kernel.reduce_slice(&tmp_buf)
+                        let buf = tmp_buf.reserve(lane.len());
+                        buf.extend(lane.copied());
+                        kernel.reduce_slice(buf)
                     }
                 }));
             } else {
@@ -334,8 +360,8 @@ fn reduce<T: Copy>(
                     let reduced = if let Some(data) = slice.data() {
                         kernel.reduce_slice(data)
                     } else {
-                        tmp_buf.clear();
-                        let tmp_uninit = &mut tmp_buf.spare_capacity_mut()[..slice.len()];
+                        let buf = tmp_buf.reserve(slice.len());
+                        let tmp_uninit = &mut buf.spare_capacity_mut()[..slice.len()];
                         let tmp = slice.copy_into_slice(tmp_uninit);
                         kernel.reduce_slice(tmp)
                     };
@@ -1092,6 +1118,17 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.to_vec(), &[0.5, 4.5]);
+
+        // Reduce multiple non-contiguous (outer) dimensions in contiguous tensor
+        let tensor = Tensor::from([[[1., 2.], [3., 4.]], [[5., 6.], [7., 8.]]]);
+        let result = reduce_mean(
+            &pool,
+            tensor.view(),
+            Some(&[0, 1]),
+            false, /* keep_dims */
+        )
+        .unwrap();
+        assert_eq!(result.to_vec(), &[4., 5.]);
 
         Ok(())
     }
