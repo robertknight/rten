@@ -177,7 +177,7 @@ fn normalize_each_channel<'a>(
     }
 }
 
-/// Perform in-place batch normalization on the `NC*` tensor `out`.
+/// Perform in-place batch normalization on an `NC*` tensor.
 ///
 /// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm_in_place(
@@ -206,7 +206,7 @@ pub fn batch_norm_in_place(
     Ok(())
 }
 
-/// Perform batch normalization on the `NC*` tensor `input`.
+/// Perform batch normalization on an `NC*` tensor.
 ///
 /// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm(
