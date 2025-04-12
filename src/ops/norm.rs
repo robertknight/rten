@@ -176,14 +176,16 @@ pub fn batch_norm_in_place(
 
     input.make_contiguous();
 
-    for n in 0..batch {
+    let chunk_len = input.len() / (batch * chans);
+    let mut chunks = input.data_mut().unwrap().chunks_mut(chunk_len);
+
+    for _ in 0..batch {
         for c in 0..chans {
             let chan_mean = mean[c];
             let chan_var = var[c];
             let chan_scale = scale[c];
             let chan_bias = bias[c];
-            let mut chan = input.slice_mut([n, c]);
-            let chan_data = chan.data_mut().unwrap();
+            let chan_data = chunks.next().unwrap();
 
             normalize_slice(
                 chan_data.into(),
