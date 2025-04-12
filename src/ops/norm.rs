@@ -156,7 +156,28 @@ fn normalize_slice<'src, 'dst>(
     op.dispatch()
 }
 
-/// Perform in-place batch normalization on the `NC*` tensor `out`.
+/// Normalize each channel separately in an `(N, C, ...)` tensor.
+fn normalize_each_channel<'a>(
+    input: &mut Tensor,
+    chan_opts: impl Fn(usize) -> NormalizeOptions<'a>,
+) {
+    let batch = input.size(0);
+    let chans = input.size(1);
+
+    input.make_contiguous();
+    let chunk_len = input.len() / (batch * chans);
+    let mut chunks = input.data_mut().unwrap().chunks_mut(chunk_len);
+
+    for _ in 0..batch {
+        for c in 0..chans {
+            let chan_data = chunks.next().unwrap();
+            let opts = chan_opts(c);
+            normalize_slice(chan_data.into(), opts);
+        }
+    }
+}
+
+/// Perform in-place batch normalization on an `NC*` tensor.
 ///
 /// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm_in_place(
@@ -171,42 +192,21 @@ pub fn batch_norm_in_place(
         return Err(OpError::InvalidValue("Input must have at least 3 dims"));
     }
 
-    let batch = input.size(0);
-    let chans = input.size(1);
-
-    input.make_contiguous();
-
-    let chunk_len = input.len() / (batch * chans);
-    let mut chunks = input.data_mut().unwrap().chunks_mut(chunk_len);
-
-    for _ in 0..batch {
-        for c in 0..chans {
-            let chan_mean = mean[c];
-            let chan_var = var[c];
-            let chan_scale = scale[c];
-            let chan_bias = bias[c];
-            let chan_data = chunks.next().unwrap();
-
-            normalize_slice(
-                chan_data.into(),
-                NormalizeOptions {
-                    mean_normalize: MeanNormalize::Static {
-                        mean: chan_mean,
-                        variance: chan_var,
-                    },
-                    epsilon,
-                    scale: chan_scale,
-                    bias: chan_bias,
-                    ..Default::default()
-                },
-            );
-        }
-    }
+    normalize_each_channel(input, |chan| NormalizeOptions {
+        mean_normalize: MeanNormalize::Static {
+            mean: mean[chan],
+            variance: var[chan],
+        },
+        epsilon,
+        scale: scale[chan],
+        bias: bias[chan],
+        ..Default::default()
+    });
 
     Ok(())
 }
 
-/// Perform batch normalization on the `NC*` tensor `input`.
+/// Perform batch normalization on an `NC*` tensor.
 ///
 /// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm(
@@ -300,7 +300,7 @@ pub fn instance_normalization_in_place(
     bias: NdTensorView<f32, 1>,
     epsilon: Option<f32>,
 ) -> Result<(), OpError> {
-    let &[batch, chans, ..] = input.shape() else {
+    let &[_batch, chans, ..] = input.shape() else {
         return Err(OpError::InvalidValue("expected input with >= 2 dims"));
     };
 
@@ -319,25 +319,12 @@ pub fn instance_normalization_in_place(
         ));
     }
 
-    // Needed for `vec_*` ops below.
-    input.make_contiguous();
-
-    for n in 0..batch {
-        for c in 0..chans {
-            let mut slice = input.slice_mut([n, c]);
-            let chan_data = slice.data_mut().unwrap();
-
-            normalize_slice(
-                chan_data.into(),
-                NormalizeOptions {
-                    epsilon,
-                    scale: scale[c],
-                    bias: bias[c],
-                    ..Default::default()
-                },
-            );
-        }
-    }
+    normalize_each_channel(input, |chan| NormalizeOptions {
+        epsilon,
+        scale: scale[chan],
+        bias: bias[chan],
+        ..Default::default()
+    });
 
     Ok(())
 }
