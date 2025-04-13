@@ -162,7 +162,10 @@ fn normalize_each_channel<'a>(
     chan_opts: impl Fn(usize) -> NormalizeOptions<'a>,
 ) {
     let batch = input.size(0);
-    let chans = input.size(1);
+
+    // Per BatchNormalization spec: "The op also accepts single dimension input
+    // of size N in which case C is assumed to be 1"
+    let chans = if input.ndim() >= 2 { input.size(1) } else { 1 };
 
     input.make_contiguous();
     let chunk_len = input.len() / (batch * chans);
@@ -188,8 +191,8 @@ pub fn batch_norm_in_place(
     var: &NdTensorView<f32, 1>,
     epsilon: f32,
 ) -> Result<(), OpError> {
-    if input.ndim() < 3 {
-        return Err(OpError::InvalidValue("Input must have at least 3 dims"));
+    if input.ndim() < 1 {
+        return Err(OpError::InvalidValue("Input must have at least 1 dim"));
     }
 
     normalize_each_channel(input, |chan| NormalizeOptions {
@@ -729,6 +732,14 @@ mod tests {
             Case {
                 input: Tensor::from_data(&[1, 2, 1], vec![1.0, 2.0]),
             },
+            // 2D input
+            Case {
+                input: Tensor::from_data(&[1, 2], vec![1.0, 2.0]),
+            },
+            // 1D input. Channel count is implicitly 1.
+            Case {
+                input: Tensor::from([1.0, 2.0]),
+            },
         ];
 
         cases.test_each(|Case { input }| {
@@ -737,14 +748,17 @@ mod tests {
             let bias = &[0.1, 0.2];
             let mean = &[0.5, -0.5];
             let var = &[1.0, 2.0];
-
             let epsilon = 1e-5 as f32;
 
-            let flattened = input.reshaped([input.len()]);
+            let expected = if input.ndim() >= 2 {
+                let flattened = input.reshaped([input.len()]);
+                let y1 = (flattened[0] - mean[0]) / (var[0] + epsilon).sqrt() * scale[0] + bias[0];
+                let y2 = (flattened[1] - mean[1]) / (var[1] + epsilon).sqrt() * scale[1] + bias[1];
+                Tensor::from_data(input.shape(), vec![y1, y2])
+            } else {
+                input.map(|&x| (x - mean[0]) / (var[0] + epsilon).sqrt() * scale[0] + bias[0])
+            };
 
-            let y1 = (flattened[0] - mean[0]) / (var[0] + epsilon).sqrt() * scale[0] + bias[0];
-            let y2 = (flattened[1] - mean[1]) / (var[1] + epsilon).sqrt() * scale[1] + bias[1];
-            let expected = Tensor::from_data(input.shape(), vec![y1, y2]);
             let result = batch_norm(
                 &pool,
                 input.view(),
@@ -767,7 +781,7 @@ mod tests {
         let mean = &[0.5, -0.5];
         let var = &[1.0, 2.0];
         let epsilon = 1e-5 as f32;
-        let input = Tensor::zeros(&[2]);
+        let input = Tensor::from(5.0);
 
         let pool = new_pool();
         let result = batch_norm(
@@ -782,7 +796,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(OpError::InvalidValue("Input must have at least 3 dims"))
+            Err(OpError::InvalidValue("Input must have at least 1 dim"))
         );
     }
 
