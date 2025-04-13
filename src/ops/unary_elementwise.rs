@@ -179,10 +179,10 @@ fn par_unary_op_in_place<T: Copy + Send, VF: Fn(&mut [T]) + Send + Sync, SF: Fn(
     }
 }
 
-/// Define an operator which supports float tensors and is optimize using SIMD
+/// Define an operator which supports float tensors and is optimized using SIMD
 /// and multithreading.
 macro_rules! parallel_unary_float_op {
-    ($op_name:ident, $func_name:ident, $in_place_func_name:ident, $impl_func:expr, $impl_in_place_func:expr, $impl_scalar:expr) => {
+    ($op_name:ident, $func_name:ident, $in_place_func_name:ident, $simd_kernel:expr) => {
         #[derive(Debug)]
         pub struct $op_name {}
 
@@ -214,11 +214,13 @@ macro_rules! parallel_unary_float_op {
         }
 
         pub fn $func_name(pool: &TensorPool, input: TensorView) -> Tensor {
-            par_unary_op(pool, input, $impl_func)
+            let kernel = $simd_kernel;
+            par_unary_op(pool, input, |src, dst| kernel.map(src, dst))
         }
 
         pub fn $in_place_func_name(input: TensorViewMut) {
-            par_unary_op_in_place(input, $impl_in_place_func, $impl_scalar);
+            let kernel = $simd_kernel;
+            par_unary_op_in_place(input, |dst| kernel.map_mut(dst), |x| kernel.scalar_eval(x));
         }
     };
 }
@@ -399,32 +401,11 @@ pub fn elu_in_place(input: TensorViewMut, alpha: f32) {
     Elu { alpha }.apply(input)
 }
 
-parallel_unary_float_op!(
-    Erf,
-    erf,
-    erf_in_place,
-    |src, dest| vecmath::Erf {}.map(src, dest),
-    |src| vecmath::Erf {}.map_mut(src),
-    |x| vecmath::Erf {}.scalar_eval(x)
-);
-parallel_unary_float_op!(
-    Exp,
-    exp,
-    exp_in_place,
-    |src, dest| vecmath::Exp {}.map(src, dest),
-    |src| vecmath::Exp {}.map_mut(src),
-    |x| vecmath::Exp {}.scalar_eval(x)
-);
+parallel_unary_float_op!(Erf, erf, erf_in_place, vecmath::Erf {});
+parallel_unary_float_op!(Exp, exp, exp_in_place, vecmath::Exp {});
 unary_float_op!(Floor, floor, floor_in_place, |val: f32| val.floor());
 
-parallel_unary_float_op!(
-    Gelu,
-    gelu,
-    gelu_in_place,
-    |src, dest| vecmath::Gelu {}.map(src, dest),
-    |src| vecmath::Gelu {}.map_mut(src),
-    |x| vecmath::Gelu {}.scalar_eval(x)
-);
+parallel_unary_float_op!(Gelu, gelu, gelu_in_place, vecmath::Gelu {});
 
 #[derive(Debug)]
 pub struct HardSigmoid {
@@ -575,14 +556,7 @@ pub fn round_in_place(x: TensorViewMut) {
     Round {}.apply(x)
 }
 
-parallel_unary_float_op!(
-    Sigmoid,
-    sigmoid,
-    sigmoid_in_place,
-    |src, dest| vecmath::Sigmoid {}.map(src, dest),
-    |src| vecmath::Sigmoid {}.map_mut(src),
-    |x| vecmath::Sigmoid {}.scalar_eval(x)
-);
+parallel_unary_float_op!(Sigmoid, sigmoid, sigmoid_in_place, vecmath::Sigmoid {});
 
 // Sigmoid Linear Unit (SiLU) function.
 //
@@ -591,14 +565,7 @@ parallel_unary_float_op!(
 //
 // Not an official ONNX operator, but used in popular object detection models.
 // See https://github.com/onnx/onnx/issues/4854.
-parallel_unary_float_op!(
-    Silu,
-    silu,
-    silu_in_place,
-    |src, dest| vecmath::Silu {}.map(src, dest),
-    |src| vecmath::Silu {}.map_mut(src),
-    |x| vecmath::Silu {}.scalar_eval(x)
-);
+parallel_unary_float_op!(Silu, silu, silu_in_place, vecmath::Silu {});
 
 /// Swish function (<https://en.wikipedia.org/wiki/Swish_function>).
 ///
@@ -682,14 +649,7 @@ unary_float_op!(Softplus, softplus, softplus_in_place, |val: f32| {
     val.exp().ln_1p()
 });
 unary_float_op!(Tan, tan, tan_in_place, |val: f32| val.tan());
-parallel_unary_float_op!(
-    Tanh,
-    tanh,
-    tanh_in_place,
-    |src, dest| vecmath::Tanh {}.map(src, dest),
-    |src| vecmath::Tanh {}.map_mut(src),
-    |x| vecmath::Tanh {}.scalar_eval(x)
-);
+parallel_unary_float_op!(Tanh, tanh, tanh_in_place, vecmath::Tanh {});
 
 #[cfg(test)]
 mod tests {
