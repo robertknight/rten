@@ -145,19 +145,27 @@ where
         assert!(chans.into_iter().all(|c| c < out_chans && c < in_chans));
 
         for out_y in 0..out_h {
+            // Compute min/max input Y coordinates for this output position.
+            let min_in_y = out_y * stride_h;
+            let max_in_y = min_in_y + kernel_h.saturating_sub(1);
+            let y_non_pad_region = min_in_y >= pad_top && max_in_y < in_h + pad_top;
+
             for out_x in 0..out_w {
+                // Compute min/max input X coordinates for this output position.
+                let min_in_x = out_x * stride_w;
+                let max_in_x = min_in_x + kernel_w.saturating_sub(1);
+                let x_non_pad_region = min_in_x >= pad_left && max_in_x < in_w + pad_left;
+
                 let mut accumulator = [fold_init; N];
                 let mut non_pad_elements = 0;
 
-                for k_y in 0..kernel_h {
-                    for k_x in 0..kernel_w {
-                        let in_y = out_y * stride_h + k_y;
-                        let in_x = out_x * stride_w + k_x;
-                        if in_y >= pad_top
-                            && in_y < in_h + pad_top
-                            && in_x >= pad_left
-                            && in_x < in_w + pad_left
-                        {
+                // Use faster path with fewer branches for non-padding region.
+                if y_non_pad_region && x_non_pad_region {
+                    non_pad_elements = kernel_h * kernel_w;
+                    for k_y in 0..kernel_h {
+                        for k_x in 0..kernel_w {
+                            let in_y = out_y * stride_h + k_y;
+                            let in_x = out_x * stride_w + k_x;
                             for (i, chan) in chans.into_iter().enumerate() {
                                 // Safety:
                                 //  - We checked all `chans` are in-bounds
@@ -167,10 +175,37 @@ where
                                 };
                                 accumulator[i] = fold(accumulator[i], val);
                             }
-                            non_pad_elements += 1;
+                        }
+                    }
+                } else {
+                    for k_y in 0..kernel_h {
+                        for k_x in 0..kernel_w {
+                            let in_y = out_y * stride_h + k_y;
+                            let in_x = out_x * stride_w + k_x;
+                            if in_y >= pad_top
+                                && in_y < in_h + pad_top
+                                && in_x >= pad_left
+                                && in_x < in_w + pad_left
+                            {
+                                for (i, chan) in chans.into_iter().enumerate() {
+                                    // Safety:
+                                    //  - We checked all `chans` are in-bounds
+                                    //  - `in_y` and `in_x` are >= pad_top and pad_left
+                                    let val = unsafe {
+                                        *in_view.get_unchecked([
+                                            chan,
+                                            in_y - pad_top,
+                                            in_x - pad_left,
+                                        ])
+                                    };
+                                    accumulator[i] = fold(accumulator[i], val);
+                                }
+                                non_pad_elements += 1;
+                            }
                         }
                     }
                 }
+
                 for (i, chan) in chans.into_iter().enumerate() {
                     // Safety:
                     //  - We checked all `chans` are in-bounds
