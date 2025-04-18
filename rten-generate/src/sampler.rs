@@ -29,11 +29,18 @@ impl ArgMaxSampler {
 impl Sampler for ArgMaxSampler {
     fn sample(&self, logits: NdTensorView<f32, 1>) -> TokenId {
         let next_id = logits
-            .arg_max(-1, false /* keep_dims */)
+            .to_slice() // For slightly faster iteration, assuming `logits` is contiguous.
+            .iter()
+            .enumerate()
+            .reduce(|(max_i, max_val), (i, val)| {
+                if val > max_val {
+                    (i, val)
+                } else {
+                    (max_i, max_val)
+                }
+            })
             .expect("logits should be non-empty")
-            .item()
-            .copied()
-            .expect("result should be scalar");
+            .0;
         next_id as TokenId
     }
 }
