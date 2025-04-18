@@ -19,8 +19,8 @@ pub struct ArmNeonKernel {
 }
 
 impl ArmNeonKernel {
-    const MR: usize = 8;
-    const NR: usize = 8;
+    const MR: usize = 4;
+    const NR: usize = 16;
 }
 
 /// Number of 32-bit lanes in an Arm Neon SIMD vector.
@@ -142,11 +142,8 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
             dest_beta,
         );
 
+        debug_assert_eq!(MR, 4);
         match used_rows {
-            8 => gemm.dispatch::<8>(),
-            7 => gemm.dispatch::<7>(),
-            6 => gemm.dispatch::<6>(),
-            5 => gemm.dispatch::<5>(),
             4 => gemm.dispatch::<4>(),
             3 => gemm.dispatch::<3>(),
             2 => gemm.dispatch::<2>(),
