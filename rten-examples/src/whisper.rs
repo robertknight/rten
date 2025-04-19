@@ -86,15 +86,13 @@ fn read_wav_file(path: &str, expected_sample_rate: u32) -> Result<Vec<f32>, houn
         );
     }
 
-    let mut samples = Vec::new();
-    for sample in reader.samples::<i16>() {
-        samples.push(sample?);
-    }
-    let float_samples: Vec<f32> = samples
-        .into_iter()
-        .map(|x| (x as f32) / i16::MAX as f32)
-        .collect();
-    Ok(float_samples)
+    reader
+        .samples::<i16>()
+        .map(|sample| {
+            // Convert sample value in [i16::MIN, i16::MAX] to [-1, 1]
+            Ok((sample? as f32) / (i16::MAX as f32))
+        })
+        .collect()
 }
 
 /// Compute the Hann window function.
