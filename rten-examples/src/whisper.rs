@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::error::Error;
 use std::path::PathBuf;
@@ -85,15 +86,13 @@ fn read_wav_file(path: &str, expected_sample_rate: u32) -> Result<Vec<f32>, houn
         );
     }
 
-    let mut samples = Vec::new();
-    for sample in reader.samples::<i16>() {
-        samples.push(sample?);
-    }
-    let float_samples: Vec<f32> = samples
-        .into_iter()
-        .map(|x| (x as f32) / i16::MAX as f32)
-        .collect();
-    Ok(float_samples)
+    reader
+        .samples::<i16>()
+        .map(|sample| {
+            // Convert sample value in [i16::MIN, i16::MAX] to [-1, 1]
+            Ok((sample? as f32) / (i16::MAX as f32))
+        })
+        .collect()
 }
 
 /// Compute the Hann window function.
@@ -160,6 +159,8 @@ fn resource_path(path: &str) -> PathBuf {
     abs_path
 }
 
+const N_FFT: usize = 400;
+
 /// Compute the log-mel spectrogram of an audio waveform.
 ///
 /// This is a Rust implementation of the `log_mel_spectrogram` function from
@@ -170,27 +171,31 @@ fn log_mel_spectrogram(
     n_mels: u32,
     sample_rate: u32,
     mel_filter_map: &MelFilters,
+    hann_window: NdTensorView<f32, 1>,
 ) -> Result<NdTensor<f32, 2>, Box<dyn Error>> {
     let hop_length = 160;
-    let n_fft = 400;
 
-    // Pad input with zero samples.
+    // Pad input with zero samples if needed.
     let n_pad = padded_len.saturating_sub(audio.len());
-    let padded_audio: Vec<f32> = audio
-        .iter()
-        .copied()
-        .chain(std::iter::repeat(0.).take(n_pad))
-        .collect();
+    let padded_audio = match n_pad {
+        0 => Cow::Borrowed(audio),
+        _ => Cow::Owned(
+            audio
+                .iter()
+                .copied()
+                .chain(std::iter::repeat(0.).take(n_pad))
+                .collect(),
+        ),
+    };
 
     // Compute Fourier transform of input, with a Hann window applied to prevent
     // spectral leakage.
-    let window = hann_window(n_fft);
-    let audio_fft = stft(&padded_audio, n_fft, hop_length, Some(window.view()));
+    let audio_fft = stft(&padded_audio, N_FFT, hop_length, Some(hann_window));
 
     // Get power spectrum of input.
     let magnitudes: NdTensor<f32, 2> = audio_fft.map(|&x| x.norm_sqr());
 
-    let mel_filters: NdTensorView<f32, 2> = match (n_mels, sample_rate, n_fft) {
+    let mel_filters: NdTensorView<f32, 2> = match (n_mels, sample_rate, N_FFT) {
         (80, 16_000, 400) => mel_filter_map.mel_80.view(),
         (128, 16_000, 400) => mel_filter_map.mel_128.view(),
         _ => return Err("unsupported mel filter parameters".into()),
@@ -198,12 +203,17 @@ fn log_mel_spectrogram(
 
     // Convert from hz to mels.
     let mels = mel_filters.matmul(magnitudes.as_dyn()).unwrap();
-    let mels = mels.nd_view::<2>();
+    let mels: NdTensor<f32, 2> = mels.try_into().unwrap();
 
     // Convert amplitudes to log scale
-    let log_mels = mels.map(|x| x.max(1e-10).log10());
-    let log_mels_max = log_mels.iter().copied().max_by(f32::total_cmp).unwrap();
-    let log_mels = log_mels.map(|x| {
+    let mut log_mels = mels;
+    log_mels.apply(|x| x.max(1e-10).log10());
+    let log_mels_max = log_mels
+        .iter()
+        .copied()
+        .reduce(|max, x| x.max(max))
+        .unwrap();
+    log_mels.apply(|x| {
         let x = x.max(log_mels_max - 8.0);
         (x + 4.0) / 4.0
     });
@@ -260,54 +270,58 @@ impl LogitsFilter for TimestampFilter {
         // - Enforce that timestamp tokens appear in pairs, except before EOT.
 
         let probs = logits.softmax(-1).unwrap();
-        let sum_timestamp_probs: f32 = probs
-            .iter()
-            .enumerate()
-            .filter(|(i, _x)| self.is_timestamp_token(*i as u32))
-            .map(|(_i, x)| *x)
-            .sum();
-        let max_non_timestamp_prob = probs
-            .iter()
-            .enumerate()
-            .filter(|(i, _x)| !self.is_timestamp_token(*i as u32))
-            .map(|(_i, x)| *x)
-            .max_by(f32::total_cmp)?;
+        let mut sum_timestamp_probs = 0.;
+        let mut max_non_timestamp_prob = 0.0f32;
+
+        for (i, prob) in probs.iter().enumerate() {
+            if self.is_timestamp_token(i as u32) {
+                sum_timestamp_probs += prob;
+            } else {
+                max_non_timestamp_prob = max_non_timestamp_prob.max(*prob);
+            }
+        }
         let suppress_non_timestamp_tokens = sum_timestamp_probs > max_non_timestamp_prob;
 
         // Get the token ID of the most recently sampled timestamp token,
         // excluding any that appear in the prompt, as that may contain part
         // of the transcription for a previous chunk.
-        let prev_timestamp = prev_tokens
+        let prev_timestamp = prev_tokens[self.prompt_len..]
             .iter()
-            .skip(self.prompt_len)
+            .rev()
             .filter(|t| self.is_timestamp_token(**t))
-            .last()
+            .next()
             .copied()
             .unwrap_or(self.timestamp_min);
 
-        Some(NdTensor::from_fn(logits.shape(), |[i]| {
-            // If the total probability of a timestamp is greater than a
-            // non-timestamp, pick the timestamp.
-            let mut suppress = if suppress_non_timestamp_tokens {
-                !self.is_timestamp_token(i as u32)
-            } else {
-                false
-            };
+        let filtered_logits: Vec<_> = logits
+            .to_slice()
+            .iter()
+            .enumerate()
+            .map(|(i, &logit)| {
+                // If the total probability of a timestamp is greater than a
+                // non-timestamp, pick the timestamp.
+                let mut suppress = if suppress_non_timestamp_tokens {
+                    !self.is_timestamp_token(i as u32)
+                } else {
+                    false
+                };
 
-            // The `<|notimestamps|>` token must never occur in output.
-            suppress = suppress || i as u32 == self.no_timestamps;
+                // The `<|notimestamps|>` token must never occur in output.
+                suppress = suppress || i as u32 == self.no_timestamps;
 
-            // Timestamps must increase within a segment.
-            if self.is_timestamp_token(i as u32) && (i as u32) < prev_timestamp {
-                suppress = true;
-            }
+                // Timestamps must increase within a segment.
+                if self.is_timestamp_token(i as u32) && (i as u32) < prev_timestamp {
+                    suppress = true;
+                }
 
-            if !suppress {
-                logits[[i]]
-            } else {
-                f32::NEG_INFINITY
-            }
-        }))
+                if !suppress {
+                    logit
+                } else {
+                    f32::NEG_INFINITY
+                }
+            })
+            .collect();
+        Some(NdTensor::from_data([logits.len()], filtered_logits))
     }
 }
 
@@ -391,6 +405,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // matrices are quite small and static, so exporting them was easier.
     let mel_filters_json = std::fs::read_to_string(resource_path("mel_filters.json"))?;
     let mel_filters: MelFilters = serde_json::from_str(&mel_filters_json)?;
+    let hann_window = hann_window(N_FFT);
 
     let audio: Vec<f32> = read_wav_file(&args.audio_path, sample_rate)?;
 
@@ -420,6 +435,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             n_mels,
             sample_rate,
             &mel_filters,
+            hann_window.view(),
         )?
         .into_dyn();
         mel_spec.insert_axis(0); // Add batch dim
