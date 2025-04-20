@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, TensorViewMut};
+use smallvec::SmallVec;
 
 use crate::ops::{static_dims, InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
 use crate::tensor_pool::TensorPool;
@@ -102,8 +103,8 @@ const CHAN_GROUP_SIZE: usize = 4;
 fn pool_impl<T: Copy + Send, F: Fn(T, T) -> T + Sync, A: Fn(T, usize) -> T + Sync>(
     pool: &TensorPool,
     input: TensorView<T>,
-    kernel_size: [usize; 2],
-    strides: [usize; 2],
+    kernel_size: &[usize],
+    strides: &[usize],
     padding: Padding,
     fold_init: T,
     fold: &F,
@@ -114,6 +115,47 @@ where
     for<'a> TensorView<'a, T>: Send,
     for<'a> &'a T: Sync,
 {
+    let spatial_dims = input.ndim().saturating_sub(2);
+    if kernel_size.len() != spatial_dims {
+        return Err(OpError::InvalidValue(
+            "kernel_size len does not match spatial dims",
+        ));
+    }
+    if strides.len() != spatial_dims {
+        return Err(OpError::InvalidValue(
+            "strides len does not match spatial dims",
+        ));
+    }
+
+    match spatial_dims {
+        1 => {
+            let mut input_2d = input.view();
+            input_2d.insert_axis(2); // Insert H axis
+            let padding_2d = padding.expand_1d_to_2d()?;
+
+            let mut result_2d = pool_impl(
+                pool,
+                input_2d,
+                &[1, kernel_size[0]],
+                &[1, strides[0]],
+                padding_2d,
+                fold_init,
+                fold,
+                average,
+            )?;
+            result_2d.remove_axis(2); // Remove H axis
+            return Ok(result_2d);
+        }
+        2 => { /* handled below */ }
+        _ => {
+            return Err(OpError::UnsupportedValue(
+                "Only inputs with 1 or 2 spatial dims are supported",
+            ));
+        }
+    }
+
+    let kernel_size: [usize; 2] = kernel_size.try_into().unwrap();
+    let strides: [usize; 2] = strides.try_into().unwrap();
     let input = static_dims!(input, 4, "NCHW")?;
     let [batch, in_c, in_h, in_w] = input.shape();
     let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
@@ -275,12 +317,12 @@ where
 pub fn average_pool(
     pool: &TensorPool,
     input: TensorView,
-    kernel_size: [usize; 2],
-    strides: [usize; 2],
+    kernel_size: &[usize],
+    strides: &[usize],
     padding: Padding,
     count_include_pad: bool,
 ) -> Result<Tensor, OpError> {
-    let kernel_len = kernel_size[0] * kernel_size[1];
+    let kernel_len: usize = kernel_size.iter().product();
     pool_impl(
         pool,
         input,
@@ -301,10 +343,10 @@ pub fn average_pool(
 
 #[derive(Debug)]
 pub struct AveragePool {
-    pub kernel_size: [usize; 2],
+    pub kernel_size: SmallVec<[usize; 2]>,
     pub padding: Padding,
     pub count_include_pad: bool,
-    pub strides: [usize; 2],
+    pub strides: SmallVec<[usize; 2]>,
 }
 
 impl Operator for AveragePool {
@@ -317,8 +359,8 @@ impl Operator for AveragePool {
         average_pool(
             pool,
             input,
-            self.kernel_size,
-            self.strides,
+            &self.kernel_size,
+            &self.strides,
             self.padding.clone(),
             self.count_include_pad,
         )
@@ -393,8 +435,8 @@ impl Operator for GlobalAveragePool {
 pub fn max_pool(
     pool: &TensorPool,
     input: TensorView,
-    kernel_size: [usize; 2],
-    strides: [usize; 2],
+    kernel_size: &[usize],
+    strides: &[usize],
     padding: Padding,
 ) -> Result<Tensor, OpError> {
     pool_impl(
@@ -411,9 +453,9 @@ pub fn max_pool(
 
 #[derive(Debug)]
 pub struct MaxPool {
-    pub kernel_size: [usize; 2],
+    pub kernel_size: SmallVec<[usize; 2]>,
     pub padding: Padding,
-    pub strides: [usize; 2],
+    pub strides: SmallVec<[usize; 2]>,
 }
 
 impl Operator for MaxPool {
@@ -426,8 +468,8 @@ impl Operator for MaxPool {
         max_pool(
             pool,
             input,
-            self.kernel_size,
-            self.strides,
+            &self.kernel_size,
+            &self.strides,
             self.padding.clone(),
         )
         .into_op_result()
@@ -440,7 +482,7 @@ mod tests {
 
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::Tensor;
+    use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
     use super::calc_output_size_and_padding;
@@ -450,46 +492,56 @@ mod tests {
 
     #[test]
     fn test_average_pool() {
-        let input = Tensor::from_data(
-            &[1, 1, 4, 4],
-            vec![
-                0.1, 0.2, 0.3, 0.4, // Y=0
-                0.5, 0.6, 0.7, 0.8, // Y=1
-                0.1, 0.2, 0.3, 0.4, // Y=2
-                0.6, 0.7, 0.8, 0.9, // Y=3
-            ],
-        );
+        let input = Tensor::from([
+            [0.1, 0.2, 0.3, 0.4],
+            [0.5, 0.6, 0.7, 0.8],
+            [0.1, 0.2, 0.3, 0.4],
+            [0.6, 0.7, 0.8, 0.9],
+        ])
+        .into_shape([1, 1, 4, 4])
+        .into_dyn();
+
+        let input_1d = input.slice((.., .., 0, ..));
 
         #[derive(Debug)]
-        struct Case {
-            kernel_size: [usize; 2],
-            strides: [usize; 2],
+        struct Case<'a> {
+            input: TensorView<'a>,
+            kernel_size: Vec<usize>,
+            strides: Vec<usize>,
+            padding: Padding,
             expected: Tensor,
         }
-
         let cases = [
             // Most common case of uniform stride and kernel size
             Case {
-                kernel_size: [2, 2],
-                strides: [2, 2],
+                input: input.view(),
+                kernel_size: [2, 2].into(),
+                strides: [2, 2].into(),
+                padding: [0, 0, 0, 0].into(),
                 expected: Tensor::from_data(&[1, 1, 2, 2], vec![0.35, 0.55, 0.4, 0.6]),
             },
             // Large uniform kernel size and stride
             Case {
-                kernel_size: [4, 4],
-                strides: [4, 4],
+                input: input.view(),
+                kernel_size: [4, 4].into(),
+                strides: [4, 4].into(),
+                padding: [0, 0, 0, 0].into(),
                 expected: Tensor::from_data(&[1, 1, 1, 1], vec![0.475]),
             },
             // Kernel height > kernel width
             Case {
-                kernel_size: [2, 4],
-                strides: [2, 4],
+                input: input.view(),
+                kernel_size: [2, 4].into(),
+                strides: [2, 4].into(),
+                padding: [0, 0, 0, 0].into(),
                 expected: Tensor::from_data(&[1, 1, 2, 1], vec![0.45, 0.5]),
             },
             // W stride > H stride
             Case {
-                kernel_size: [2, 2],
-                strides: [1, 2],
+                input: input.view(),
+                kernel_size: [2, 2].into(),
+                strides: [1, 2].into(),
+                padding: [0, 0, 0, 0].into(),
                 expected: Tensor::from_data(
                     &[1, 1, 3, 2],
                     vec![
@@ -501,8 +553,10 @@ mod tests {
             },
             // H stride > W stride
             Case {
-                kernel_size: [2, 2],
-                strides: [2, 1],
+                input: input.view(),
+                kernel_size: [2, 2].into(),
+                strides: [2, 1].into(),
+                padding: [0, 0, 0, 0].into(),
                 expected: Tensor::from_data(
                     &[1, 1, 2, 3],
                     vec![
@@ -512,16 +566,24 @@ mod tests {
                     ],
                 ),
             },
+            // One spatial dim
+            Case {
+                input: input_1d.view(),
+                kernel_size: [2].into(),
+                strides: [2].into(),
+                padding: [0, 0].into(),
+                expected: Tensor::from_data(&[1, 1, 2], vec![0.15, 0.35]),
+            },
         ];
 
         cases.test_each(|case| {
             let pool = new_pool();
             let result = average_pool(
                 &pool,
-                input.view(),
-                case.kernel_size,
-                case.strides,
-                [0, 0, 0, 0].into(),
+                case.input.view(),
+                &case.kernel_size,
+                &case.strides,
+                case.padding.clone(),
                 false, /* count_include_pad */
             )
             .unwrap();
@@ -559,8 +621,8 @@ mod tests {
         let result = average_pool(
             &pool,
             input.as_dyn(),
-            [2, 2],
-            [2, 2], /* stride */
+            &[2, 2],
+            &[2, 2], /* stride */
             [1, 1, 1, 1].into(),
             false, /* count_include_pad */
         )
@@ -578,8 +640,8 @@ mod tests {
         let result = average_pool(
             &pool,
             input.as_dyn(),
-            [2, 2],
-            [2, 2], /* stride */
+            &[2, 2],
+            &[2, 2], /* stride */
             [1, 1, 1, 1].into(),
             true, /* count_include_pad */
         )
@@ -601,46 +663,57 @@ mod tests {
 
     #[test]
     fn test_max_pool() {
-        let input = Tensor::from_data(
-            &[1, 1, 4, 4],
-            vec![
-                0.1, 0.2, 0.3, 0.4, // Y=0
-                0.5, 0.6, 0.7, 0.8, // Y=1
-                0.1, 0.2, 0.3, 0.4, // Y=2
-                0.6, 0.7, 0.8, 0.9, // Y=3
-            ],
-        );
+        let input = Tensor::from([
+            [0.1, 0.2, 0.3, 0.4],
+            [0.5, 0.6, 0.7, 0.8],
+            [0.1, 0.2, 0.3, 0.4],
+            [0.6, 0.7, 0.8, 0.9],
+        ])
+        .into_shape([1, 1, 4, 4])
+        .into_dyn();
+
+        let input_1d = input.slice((.., .., 0, ..));
 
         #[derive(Debug)]
-        struct Case {
-            kernel_size: [usize; 2],
-            strides: [usize; 2],
+        struct Case<'a> {
+            input: TensorView<'a>,
+            kernel_size: Vec<usize>,
+            strides: Vec<usize>,
+            padding: Padding,
             expected: Tensor,
         }
 
         let cases = [
             // Most common case of uniform stride and kernel size
             Case {
-                kernel_size: [2, 2],
-                strides: [2, 2],
+                input: input.view(),
+                kernel_size: [2, 2].into(),
+                strides: [2, 2].into(),
+                padding: [0, 0, 0, 0].into(),
                 expected: Tensor::from_data(&[1, 1, 2, 2], vec![0.6, 0.8, 0.7, 0.9]),
             },
             // Large uniform kernel size and stride
             Case {
-                kernel_size: [4, 4],
-                strides: [4, 4],
+                input: input.view(),
+                kernel_size: [4, 4].into(),
+                strides: [4, 4].into(),
+                padding: [0, 0, 0, 0].into(),
                 expected: Tensor::from_data(&[1, 1, 1, 1], vec![0.9]),
             },
             // Kernel height > kernel width
             Case {
-                kernel_size: [2, 4],
-                strides: [2, 4],
+                input: input.view(),
+                kernel_size: [2, 4].into(),
+                strides: [2, 4].into(),
+                padding: [0, 0, 0, 0].into(),
                 expected: Tensor::from_data(&[1, 1, 2, 1], vec![0.8, 0.9]),
             },
             // W stride > H stride
             Case {
-                kernel_size: [2, 2],
-                strides: [1, 2],
+                input: input.view(),
+                kernel_size: [2, 2].into(),
+                strides: [1, 2].into(),
+                padding: [0, 0, 0, 0].into(),
                 expected: Tensor::from_data(
                     &[1, 1, 3, 2],
                     vec![
@@ -652,8 +725,10 @@ mod tests {
             },
             // H stride > W stride
             Case {
-                kernel_size: [2, 2],
-                strides: [2, 1],
+                input: input.view(),
+                kernel_size: [2, 2].into(),
+                strides: [2, 1].into(),
+                padding: [0, 0, 0, 0].into(),
                 expected: Tensor::from_data(
                     &[1, 1, 2, 3],
                     vec![
@@ -662,16 +737,24 @@ mod tests {
                     ],
                 ),
             },
+            // One spatial dim
+            Case {
+                input: input_1d.view(),
+                kernel_size: [2].into(),
+                strides: [2].into(),
+                padding: [0, 0].into(),
+                expected: Tensor::from_data(&[1, 1, 2], vec![0.2, 0.4]),
+            },
         ];
 
         cases.test_each(|case| {
             let pool = new_pool();
             let result = max_pool(
                 &pool,
-                input.view(),
-                case.kernel_size,
-                case.strides,
-                [0, 0, 0, 0].into(),
+                case.input.view(),
+                &case.kernel_size,
+                &case.strides,
+                case.padding.clone(),
             )
             .unwrap();
             expect_equal(&result, &case.expected).unwrap();
@@ -683,19 +766,19 @@ mod tests {
         let pool = new_pool();
         let input = Tensor::zeros(&[1, 1, 9, 9]);
 
-        let result = max_pool(&pool, input.view(), [2, 2], [2, 2], [0, 0, 0, 0].into()).unwrap();
+        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], [0, 0, 0, 0].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 4, 4]);
 
-        let result = max_pool(&pool, input.view(), [2, 2], [2, 2], [1, 1, 1, 1].into()).unwrap();
+        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], [1, 1, 1, 1].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&pool, input.view(), [2, 2], [2, 2], [2, 2, 2, 2].into()).unwrap();
+        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], [2, 2, 2, 2].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 6, 6]);
 
-        let result = max_pool(&pool, input.view(), [2, 2], [2, 2], Padding::Same).unwrap();
+        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], Padding::Same).unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&pool, input.view(), [2, 2], [3, 3], Padding::Same).unwrap();
+        let result = max_pool(&pool, input.view(), &[2, 2], &[3, 3], Padding::Same).unwrap();
         assert_eq!(result.shape(), &[1, 1, 3, 3]);
     }
 
