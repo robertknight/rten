@@ -288,8 +288,7 @@ impl LogitsFilter for TimestampFilter {
         let prev_timestamp = prev_tokens[self.prompt_len..]
             .iter()
             .rev()
-            .filter(|t| self.is_timestamp_token(**t))
-            .next()
+            .find(|t| self.is_timestamp_token(**t))
             .copied()
             .unwrap_or(self.timestamp_min);
 
