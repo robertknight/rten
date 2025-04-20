@@ -428,8 +428,8 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
             OpType::AveragePool(args) => op_with_attrs!(AveragePool, AveragePoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
-                let kernel_size = self.create_vec(Some(args.kernel_size.into()), |sz| sz as u32);
-                let strides = self.create_vec(Some(args.strides.into()), |s| s as u32);
+                let kernel_size = self.create_vec(Some(args.kernel_size.to_vec()), |sz| sz as u32);
+                let strides = self.create_vec(Some(args.strides.to_vec()), |s| s as u32);
                 sg::AveragePoolAttrsArgs {
                     kernel_size,
                     auto_pad: pad_args.auto_pad,
@@ -669,8 +669,8 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
             OpType::MaxPool(args) => op_with_attrs!(MaxPool, MaxPoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
-                let kernel_size = self.create_vec(Some(args.kernel_size.into()), |sz| sz as u32);
-                let strides = self.create_vec(Some(args.strides.into()), |s| s as u32);
+                let kernel_size = self.create_vec(Some(args.kernel_size.to_vec()), |sz| sz as u32);
+                let strides = self.create_vec(Some(args.strides.to_vec()), |s| s as u32);
                 sg::MaxPoolAttrsArgs {
                     kernel_size,
                     auto_pad: pad_args.auto_pad,

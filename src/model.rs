@@ -1312,8 +1312,8 @@ mod tests {
         add_operator!(Asin, [input_node]);
         add_operator!(Atan, [input_node]);
         add_operator!(AveragePool, [input_node], {
-            kernel_size: [2, 2],
-            strides: [2, 2],
+            kernel_size: [2, 2].into(),
+            strides: [2, 2].into(),
             padding: [0, 0, 0, 0].into(),
             count_include_pad: false,
         });
@@ -1493,8 +1493,8 @@ mod tests {
 
         add_operator!(Max, [input_node, input_node]);
         add_operator!(MaxPool, [input_node], {
-            kernel_size: [2, 2],
-            strides: [2, 2],
+            kernel_size: [2, 2].into(),
+            strides: [2, 2].into(),
             padding: [0, 0, 0, 0].into(),
         });
         add_operator!(Mean, [input_node, input_node]);

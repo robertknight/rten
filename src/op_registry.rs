@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use smallvec::smallvec;
+use smallvec::{smallvec, SmallVec};
 
 use crate::graph::Graph;
 use crate::ops;
@@ -264,19 +264,6 @@ fn padding_from_attrs(auto_pad: AutoPad, pads: Option<flatbuffers::Vector<'_, u3
     }
 }
 
-/// Read the first N items from `iter` into an array.
-///
-/// Panics if the iterator yields fewer than N items.
-fn array_from_iter<const N: usize, T: Default + Copy, I: Iterator<Item = T>>(
-    mut iter: I,
-) -> [T; N] {
-    let mut result = [T::default(); N];
-    for i in 0..N {
-        result[i] = iter.next().expect("incorrect array size");
-    }
-    result
-}
-
 fn vec_from_attr(attr: Option<flatbuffers::Vector<u32>>, default: &[usize]) -> Vec<usize> {
     attr.map(|val| val.iter().map(|x| x as usize).collect())
         .unwrap_or_else(|| default.to_vec())
@@ -414,12 +401,12 @@ impl_read_op!(
     AveragePool,
     attrs_as_average_pool_attrs,
     |attrs: sg::AveragePoolAttrs| {
-        let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
+        let kernel_size: SmallVec<_> = attrs.kernel_size().iter().map(|x| x as usize).collect();
         let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
         let strides = attrs
             .strides()
-            .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
-            .unwrap_or([1, 1]);
+            .map(|stride| stride.iter().map(|x| x as usize).collect())
+            .unwrap_or(std::iter::repeat(1).take(kernel_size.len()).collect());
 
         Ok(ops::AveragePool {
             kernel_size,
@@ -661,12 +648,12 @@ impl_read_op!(
     MaxPool,
     attrs_as_max_pool_attrs,
     |attrs: sg::MaxPoolAttrs| {
-        let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
+        let kernel_size: SmallVec<_> = attrs.kernel_size().iter().map(|x| x as usize).collect();
         let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
         let strides = attrs
             .strides()
-            .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
-            .unwrap_or([1, 1]);
+            .map(|stride| stride.iter().map(|x| x as usize).collect())
+            .unwrap_or(std::iter::repeat(1).take(kernel_size.len()).collect());
 
         Ok(ops::MaxPool {
             kernel_size,

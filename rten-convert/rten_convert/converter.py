@@ -49,7 +49,7 @@ class Metadata:
     run_url: Optional[str] = None
 
 
-def check_ints_length(name: str, ints: list[int], allowed_length: int):
+def check_ints_length(name: str, ints: list[int], allowed_lengths: list[int]):
     """
     Check that an ints attribute has a fixed length.
 
@@ -57,8 +57,10 @@ def check_ints_length(name: str, ints: list[int], allowed_length: int):
     values (eg. for strides, dilations, padding...) than this library currently
     supports.
     """
-    if len(ints) != allowed_length:
-        raise ConversionError(f'Attribute "{name}" must have {allowed_length} values')
+    if len(ints) not in allowed_lengths:
+        raise ConversionError(
+            f'Attribute "{name}" length must be one of {allowed_lengths}'
+        )
 
 
 def constant_node_from_onnx_initializer(
@@ -320,7 +322,7 @@ def op_node_from_onnx_operator(
 
         case "AveragePool":
             kernel_shape = attr_reader.require_attr("kernel_shape", "ints")
-            check_ints_length("kernel_shape", kernel_shape, 2)
+            check_ints_length("kernel_shape", kernel_shape, [1, 2])
             attr_reader.check_attr("ceil_mode", "int", 0)
 
             attrs = sg.AveragePoolAttrsT()
@@ -518,7 +520,7 @@ def op_node_from_onnx_operator(
         case "MaxPool":
             attrs = sg.MaxPoolAttrsT()
             kernel_shape = attr_reader.require_attr("kernel_shape", "ints")
-            check_ints_length("kernel_shape", kernel_shape, 2)
+            check_ints_length("kernel_shape", kernel_shape, [1, 2])
             attrs.kernelSize = kernel_shape
             read_pads(attr_reader, attrs)
             attrs.strides = read_strides(attr_reader)
