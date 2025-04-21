@@ -23,10 +23,11 @@ impl SimdOp for Sum<'_> {
     #[inline(always)]
     fn eval<I: Isa>(self, isa: I) -> Self::Output {
         let ops = isa.f32();
-        let vec_sum = self
-            .input
-            .simd_iter(ops)
-            .fold(ops.zero(), |sum, x| ops.add(sum, x));
+        let vec_sum = self.input.simd_iter(ops).fold_unroll::<4>(
+            ops.zero(),
+            |sum, x| ops.add(sum, x),
+            |sum, x| ops.add(sum, x),
+        );
         vec_sum.to_array().into_iter().sum()
     }
 }
@@ -54,10 +55,11 @@ impl SimdOp for SumSquare<'_> {
     #[inline(always)]
     fn eval<I: Isa>(self, isa: I) -> Self::Output {
         let ops = isa.f32();
-        let vec_sum = self
-            .input
-            .simd_iter(ops)
-            .fold(ops.zero(), |sum, x| ops.mul_add(x, x, sum));
+        let vec_sum = self.input.simd_iter(ops).fold_unroll::<4>(
+            ops.zero(),
+            |sum, x| ops.mul_add(x, x, sum),
+            |sum, x| ops.add(sum, x),
+        );
         vec_sum.to_array().into_iter().sum()
     }
 }
@@ -86,10 +88,14 @@ impl SimdOp for SumSquareSub<'_> {
         let ops = isa.f32();
         let offset_vec = ops.splat(self.offset);
 
-        let vec_sum = self.input.simd_iter(ops).fold(ops.zero(), |sum, x| {
-            let x_offset = ops.sub(x, offset_vec);
-            ops.mul_add(x_offset, x_offset, sum)
-        });
+        let vec_sum = self.input.simd_iter(ops).fold_unroll::<4>(
+            ops.zero(),
+            |sum, x| {
+                let x_offset = ops.sub(x, offset_vec);
+                ops.mul_add(x_offset, x_offset, sum)
+            },
+            |sum, x| ops.add(sum, x),
+        );
 
         vec_sum.to_array().into_iter().sum()
     }

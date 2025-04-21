@@ -83,6 +83,40 @@ impl<'a, T: Elem, O: NumOps<T>> Iter<'a, T, O> {
         accum
     }
 
+    /// Variant of [`fold`](Self::fold) which is unrolled `UNROLL` times.
+    ///
+    /// In each iteration, `UNROLL` SIMD vectors are loaded and used to update
+    /// `UNROLL` separate accumulators via `fold(acc[i], x[i])`. The
+    /// accumulators are reduced to a single SIMD vector at the end using
+    /// `fold_acc`.
+    ///
+    /// When the `fold` operation is simple, this can improve performance over
+    /// `self.fold` by achieving better instruction level parallelism.
+    pub fn fold_unroll<const UNROLL: usize>(
+        mut self,
+        accum: O::Simd,
+        mut fold: impl FnMut(O::Simd, O::Simd) -> O::Simd,
+        mut fold_acc: impl FnMut(O::Simd, O::Simd) -> O::Simd,
+    ) -> O::Simd {
+        let mut acc = [accum; UNROLL];
+        let v_len = self.ops.len();
+
+        while let Some((chunk, tail)) = self.xs.split_at_checked(v_len * UNROLL) {
+            let xs: [_; UNROLL] = std::array::from_fn(|i| unsafe {
+                // Safety: `i < UNROLL` and `chunk` length is `v_len * UNROLL`
+                self.ops.load_ptr(chunk.as_ptr().add(v_len * i))
+            });
+            for i in 0..UNROLL {
+                acc[i] = fold(acc[i], xs[i]);
+            }
+            self.xs = tail;
+        }
+        for i in 1..UNROLL {
+            acc[0] = fold_acc(acc[0], acc[i]);
+        }
+        self.fold(acc[0], fold)
+    }
+
     /// Variant of [`fold`](Self::fold) that computes multiple accumulator
     /// values in a single pass.
     #[inline]
@@ -262,6 +296,38 @@ mod tests {
         let expected = (buf.len() as f32 * buf[buf.len() - 1]) / 2.;
 
         let sum = Sum { xs: &buf }.dispatch();
+        assert_eq!(sum, expected);
+    }
+
+    #[test]
+    fn test_fold_unroll() {
+        const UNROLL: usize = 4;
+
+        struct SumSquare<'a> {
+            xs: &'a [i32],
+        }
+
+        impl<'a> SimdOp for SumSquare<'a> {
+            type Output = i32;
+
+            fn eval<I: Isa>(self, isa: I) -> Self::Output {
+                let ops = isa.i32();
+                let vec_sum = self.xs.simd_iter(ops).fold_unroll::<UNROLL>(
+                    ops.zero(),
+                    |sum, x| ops.mul_add(x, x, sum),
+                    |sum, x| ops.add(sum, x),
+                );
+                vec_sum.to_array().into_iter().fold(0, |sum, x| sum + x)
+            }
+        }
+
+        let buf: Vec<_> = (0..TEST_LEN * UNROLL).map(|x| x as i32).collect();
+        let expected = buf.iter().fold(0, |acc, &x| {
+            let x = x as i32;
+            (x * x) + acc
+        });
+
+        let sum = SumSquare { xs: &buf }.dispatch();
         assert_eq!(sum, expected);
     }
 

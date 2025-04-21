@@ -46,8 +46,10 @@ impl<'dst> SimdOp for Softmax<'_, 'dst> {
     fn eval<I: Isa>(self, isa: I) -> Self::Output {
         let ops = isa.f32();
 
-        let max_val = self.src_dest.src().simd_iter(ops).fold(
+        let max_val = self.src_dest.src().simd_iter(ops).fold_unroll::<4>(
             ops.splat(f32::MIN),
+            #[inline(always)]
+            |max, x| ops.max(max, x),
             #[inline(always)]
             |max, x| ops.max(max, x),
         );
