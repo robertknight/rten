@@ -101,30 +101,42 @@ impl<'dst> SimdOp for Normalize<'_, 'dst> {
             assert_eq!(bias.len(), src_dest.len());
         }
 
-        let mut scale_iter = element_scale.map(|s| s.simd_iter_pad(ops));
-        let mut bias_iter = element_bias.map(|b| b.simd_iter_pad(ops));
-
         let one = ops.one();
         let zero = ops.zero();
         let const_scale_vec = ops.splat(scale);
         let const_bias_vec = ops.splat(bias);
         let pre_scale_bias_vec = ops.splat(pre_scale_bias);
 
-        simd_map(
-            ops,
-            src_dest,
-            #[inline(always)]
-            |x| {
-                let scale_vec = scale_iter.as_mut().and_then(|s| s.next()).unwrap_or(one);
-                let scale_vec = ops.mul(scale_vec, const_scale_vec);
+        if element_scale.is_none() && element_bias.is_none() {
+            // Fast path for normalization with only per-channel scale/bias
+            simd_map(
+                ops,
+                src_dest,
+                #[inline(always)]
+                |x| {
+                    let y = ops.sub(x, pre_scale_bias_vec);
+                    ops.mul_add(y, const_scale_vec, const_bias_vec)
+                },
+            )
+        } else {
+            let mut scale_iter = element_scale.map(|s| s.simd_iter_pad(ops));
+            let mut bias_iter = element_bias.map(|b| b.simd_iter_pad(ops));
+            simd_map(
+                ops,
+                src_dest,
+                #[inline(always)]
+                |x| {
+                    let scale_vec = scale_iter.as_mut().and_then(|s| s.next()).unwrap_or(one);
+                    let scale_vec = ops.mul(scale_vec, const_scale_vec);
 
-                let bias_vec = bias_iter.as_mut().and_then(|b| b.next()).unwrap_or(zero);
-                let bias_vec = ops.add(bias_vec, const_bias_vec);
+                    let bias_vec = bias_iter.as_mut().and_then(|b| b.next()).unwrap_or(zero);
+                    let bias_vec = ops.add(bias_vec, const_bias_vec);
 
-                let y = ops.sub(x, pre_scale_bias_vec);
-                ops.mul_add(y, scale_vec, bias_vec)
-            },
-        )
+                    let y = ops.sub(x, pre_scale_bias_vec);
+                    ops.mul_add(y, scale_vec, bias_vec)
+                },
+            )
+        }
     }
 }
 
