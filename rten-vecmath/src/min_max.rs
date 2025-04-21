@@ -18,10 +18,12 @@ impl SimdOp for MinMax<'_> {
     #[inline(always)]
     fn eval<I: Isa>(self, isa: I) -> Self::Output {
         let ops = isa.f32();
-        let [vec_min, vec_max] = self.input.simd_iter(ops).fold_n(
+        let [vec_min, vec_max] = self.input.simd_iter(ops).fold_n_unroll::<2, 4>(
             [ops.splat(f32::MAX), ops.splat(f32::MIN)],
             #[inline(always)]
             |[min, max], x| [ops.min(x, min), ops.max(x, max)],
+            #[inline(always)]
+            |[min_a, max_a], [min_b, max_b]| [ops.min(min_a, min_b), ops.max(max_a, max_b)],
         );
         let min = vec_min
             .to_array()
