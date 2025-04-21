@@ -446,7 +446,9 @@ unsafe impl Int8DotProduct for NeonNativeDotProd {
 
     #[inline]
     fn dot_product(self, a: Self::X8, b: Self::X8, c: Self::I32) -> Self::I32 {
-        unsafe {
+        #[target_feature(enable = "dotprod")]
+        #[inline]
+        unsafe fn dot_product(a: int8x16_t, b: int8x16_t, c: int32x4_t) -> int32x4_t {
             use core::arch::aarch64::{
                 vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s8,
             };
@@ -468,6 +470,7 @@ unsafe impl Int8DotProduct for NeonNativeDotProd {
 
             vreinterpretq_s32_u32(c)
         }
+        unsafe { dot_product(a, b, c) }
     }
 }
 
