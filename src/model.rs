@@ -445,7 +445,9 @@ impl Model {
                         tensor_data_offset,
                     )?
                 } else {
-                    return Err(ModelLoadError::GraphError("unknown node type".to_string()));
+                    return Err(ModelLoadError::GraphError(
+                        NodeError::for_node(node.name(), "unknown node type").into(),
+                    ));
                 };
                 node_id_from_index.insert(node_index, graph_node);
             }
@@ -500,9 +502,9 @@ impl Model {
         let ctx = LoadContext {
             load_graph: &load_subgraph,
         };
-        let op = registry
-            .read_op(&operator, &ctx)
-            .map_err(ModelLoadError::OperatorInvalid)?;
+        let op = registry.read_op(&operator, &ctx).map_err(|err| {
+            ModelLoadError::OperatorInvalid(NodeError::for_node(name, err).into())
+        })?;
 
         let mut inputs: Vec<Option<NodeId>> = Vec::new();
         if let Some(op_input_ids) = operator.inputs() {
@@ -516,7 +518,7 @@ impl Model {
                     inputs.push(Some(*node_id))
                 } else {
                     return Err(ModelLoadError::GraphError(
-                        "operator input is invalid".to_string(),
+                        NodeError::for_node(name, "operator input is invalid").into(),
                     ));
                 }
             }
@@ -534,7 +536,7 @@ impl Model {
                     outputs.push(Some(*node_id))
                 } else {
                     return Err(ModelLoadError::GraphError(
-                        "operator output is invalid".to_string(),
+                        NodeError::for_node(name, "operator output is invalid").into(),
                     ));
                 }
             }
@@ -565,7 +567,9 @@ impl Model {
             .dtype()
             .map(convert_dtype)
             .transpose()
-            .map_err(ModelLoadError::OperatorInvalid)?;
+            .map_err(|err| {
+                ModelLoadError::OperatorInvalid(NodeError::for_node(name, err).into())
+            })?;
         let graph_node = graph.add_value(name, shape, dtype);
         Ok(graph_node)
     }
@@ -584,7 +588,7 @@ impl Model {
 
             let Some(tensor_data_offset) = tensor_data_offset else {
                 return Err(ModelLoadError::GraphError(
-                    "tensor data section missing".to_string(),
+                    "tensor data section missing".into(),
                 ));
             };
             let data_offset = (tensor_data_offset + data_offset) as usize;
@@ -612,7 +616,8 @@ impl Model {
                 }
                 _ => {
                     return Err(ModelLoadError::GraphError(
-                        "unsupported data type for external constant".to_string(),
+                        NodeError::for_node(name, "unsupported data type for external constant")
+                            .into(),
                     ));
                 }
             };
@@ -637,7 +642,7 @@ impl Model {
                 graph.add_constant(name, const_data)
             } else {
                 return Err(ModelLoadError::GraphError(
-                    "unsupported data type for inline constant".to_string(),
+                    NodeError::for_node(name, "unsupported data type for inline constant").into(),
                 ));
             };
             Ok(graph_node)
@@ -785,11 +790,11 @@ pub enum ModelLoadError {
     ParseFailed(flatbuffers::InvalidFlatbuffer),
 
     /// An error occurred deserializing an operator.
-    OperatorInvalid(ReadOpError),
+    OperatorInvalid(Box<dyn Error + Send + Sync>),
 
     /// An error occurred while traversing the model's graph to instantiate
     /// nodes and connections.
-    GraphError(String),
+    GraphError(Box<dyn Error + Send + Sync>),
 
     /// An error occurred while optimizing the graph.
     OptimizeError(Box<dyn Error + Send + Sync>),
@@ -814,6 +819,35 @@ impl Display for ModelLoadError {
 
 impl Error for ModelLoadError {}
 
+/// A model error which pertains to a specific node.
+#[derive(Debug)]
+struct NodeError<E: Display> {
+    name: Option<String>,
+    inner: E,
+}
+
+impl<E: Display> NodeError<E> {
+    fn for_node(name: Option<&str>, inner: E) -> Self {
+        NodeError {
+            name: name.map(|s| s.to_string()),
+            inner,
+        }
+    }
+}
+
+impl<E: Display> Display for NodeError<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "in node \"{}\": {}",
+            self.name.as_deref().unwrap_or_default(),
+            self.inner
+        )
+    }
+}
+
+impl<E: std::fmt::Debug + Display> Error for NodeError<E> {}
+
 /// Transmute a `[u8]` to `[T]` provided it is correctly aligned and we're on
 /// a little-endian system.
 fn cast_le_bytes<T: Pod>(bytes: &[u8]) -> Option<&[T]> {
@@ -837,7 +871,7 @@ fn constant_data_from_storage_offset<T: LeBytes + Pod>(
 
     let Some(bytes) = storage.data().get(offset..offset + byte_len) else {
         return Err(ModelLoadError::GraphError(
-            "invalid tensor data offset".to_string(),
+            "invalid tensor data offset".into(),
         ));
     };
 
@@ -889,7 +923,7 @@ mod tests {
         BoxOrder, CoordTransformMode, DataType, DepthToSpaceMode, NearestMode, OpError, Output,
         ResizeMode, Scalar, Shape,
     };
-    use crate::{ModelLoadError, OpRegistry, ReadOpError};
+    use crate::OpRegistry;
 
     fn generate_model_buffer(format: ModelFormat) -> Vec<u8> {
         let mut builder = ModelBuilder::new(format);
@@ -976,16 +1010,10 @@ mod tests {
         let buffer = generate_model_buffer(ModelFormat::V2);
         let registry = OpRegistry::new();
         let result = ModelOptions::with_ops(registry).load(buffer);
-
-        let matches = match result.err() {
-            Some(ModelLoadError::OperatorInvalid(ReadOpError::UnsupportedOperator(op)))
-                if op == "Concat" =>
-            {
-                true
-            }
-            _ => false,
-        };
-        assert!(matches);
+        assert_eq!(
+            result.err().map(|err| err.to_string()).as_deref(),
+            Some("operator error: in node \"concat\": operator Concat is not supported or not enabled")
+        );
     }
 
     #[test]
