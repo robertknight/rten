@@ -210,8 +210,15 @@ impl OpRegistry {
 /// Error type for errors that occur when de-serializing an operator.
 #[derive(Debug)]
 pub enum ReadOpError {
-    /// The operator attributes were missing or of the wrong type.
-    AttrError,
+    /// The `attrs` field for this operator is not set or has the wrong type.
+    AttrsMissingError,
+    /// An attribute has an unsupported or invalid value.
+    AttrError {
+        /// Name of the attribute.
+        attr: &'static str,
+        /// Description of the attribute error.
+        error: &'static str,
+    },
     /// The operator type is incorrect or unsupported.
     UnsupportedOperator(String),
     /// An error occurred deserializing a subgraph.
@@ -221,7 +228,10 @@ pub enum ReadOpError {
 impl Display for ReadOpError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReadOpError::AttrError => write!(f, "invalid attributes for operator"),
+            ReadOpError::AttrsMissingError => write!(f, "attributes are missing"),
+            ReadOpError::AttrError { attr, error } => {
+                write!(f, "error in attribute \"{}\": {}", attr, error)
+            }
             ReadOpError::SubgraphError(err) => write!(f, "subgraph error: {}", err),
             ReadOpError::UnsupportedOperator(name) => {
                 write!(f, "operator {name} is not supported or not enabled")
@@ -232,17 +242,23 @@ impl Display for ReadOpError {
 
 impl Error for ReadOpError {}
 
-pub fn convert_dtype(dtype: sg::DataType) -> Result<DataType, ReadOpError> {
+pub fn convert_dtype(attr: &'static str, dtype: sg::DataType) -> Result<DataType, ReadOpError> {
     match dtype {
         sg::DataType::Int32 => Ok(DataType::Int32),
         sg::DataType::Float => Ok(DataType::Float),
         sg::DataType::UInt8 => Ok(DataType::UInt8),
         sg::DataType::Int8 => Ok(DataType::Int8),
-        _ => Err(ReadOpError::AttrError),
+        _ => Err(ReadOpError::AttrError {
+            attr,
+            error: "unknown value",
+        }),
     }
 }
 
-fn convert_reduction(r: sg::ScatterReduction) -> Result<Option<ScatterReduction>, ReadOpError> {
+fn convert_reduction(
+    attr: &'static str,
+    r: sg::ScatterReduction,
+) -> Result<Option<ScatterReduction>, ReadOpError> {
     let reduction = match r {
         sg::ScatterReduction::None => None,
         sg::ScatterReduction::Add => Some(ScatterReduction::Add),
@@ -250,7 +266,10 @@ fn convert_reduction(r: sg::ScatterReduction) -> Result<Option<ScatterReduction>
         sg::ScatterReduction::Min => Some(ScatterReduction::Min),
         sg::ScatterReduction::Max => Some(ScatterReduction::Max),
         _ => {
-            return Err(ReadOpError::AttrError);
+            return Err(ReadOpError::AttrError {
+                attr,
+                error: "unknown value",
+            });
         }
     };
     Ok(reduction)
@@ -329,7 +348,7 @@ macro_rules! impl_read_op {
             }
 
             fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
-                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
+                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrsMissingError)?;
                 let op = ops::$op {
                     axis: attrs.axis() as isize,
                 };
@@ -345,7 +364,7 @@ macro_rules! impl_read_op {
             }
 
             fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
-                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
+                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrsMissingError)?;
                 let op = ops::$op {
                     axis: attrs.axis() as isize,
                     keep_dims: attrs.keep_dims(),
@@ -362,7 +381,7 @@ macro_rules! impl_read_op {
             }
 
             fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
-                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
+                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrsMissingError)?;
                 let axes = attrs.axes().map(|axes| axes.iter().collect());
                 let op = ops::$op {
                     axes,
@@ -380,7 +399,7 @@ macro_rules! impl_read_op {
             }
 
             fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
-                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
+                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrsMissingError)?;
                 #[allow(clippy::redundant_closure_call)]
                 let op = { $read_op(attrs)? };
                 Ok(op)
@@ -426,7 +445,7 @@ impl_read_op!(
     }
 );
 impl_read_op!(Cast, attrs_as_cast_attrs, |attrs: sg::CastAttrs| {
-    let to = convert_dtype(attrs.to())?;
+    let to = convert_dtype("to", attrs.to())?;
     Ok(ops::Cast { to })
 });
 impl_read_op!(
@@ -494,7 +513,12 @@ impl_read_op!(
         let mode = match attrs.mode() {
             sg::DepthToSpaceMode::DCR => DepthToSpaceMode::DepthColumnRow,
             sg::DepthToSpaceMode::CRD => DepthToSpaceMode::ColumnRowDepth,
-            _ => return Err(ReadOpError::AttrError)?,
+            _ => {
+                return Err(ReadOpError::AttrError {
+                    attr: "mode",
+                    error: "unknown value",
+                })?
+            }
         };
         let block_size = attrs.block_size();
         Ok(ops::DepthToSpace { mode, block_size })
@@ -585,9 +609,17 @@ impl ReadOp for ops::If {
     }
 
     fn read(op: &OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
-        let attrs = op.attrs_as_if_attrs().ok_or(ReadOpError::AttrError)?;
-        let then_branch = ctx.load_graph(attrs.then_branch().ok_or(ReadOpError::AttrError)?)?;
-        let else_branch = ctx.load_graph(attrs.else_branch().ok_or(ReadOpError::AttrError)?)?;
+        let attrs = op
+            .attrs_as_if_attrs()
+            .ok_or(ReadOpError::AttrsMissingError)?;
+        let then_branch = ctx.load_graph(attrs.then_branch().ok_or(ReadOpError::AttrError {
+            attr: "then",
+            error: "missing branch",
+        })?)?;
+        let else_branch = ctx.load_graph(attrs.else_branch().ok_or(ReadOpError::AttrError {
+            attr: "else",
+            error: "missing branch",
+        })?)?;
 
         Ok(ops::If {
             then_branch,
@@ -697,7 +729,12 @@ impl ReadOp for ops::Pad {
         let mode = match attrs.map(|a| a.mode()).unwrap_or(sg::PadMode::Constant) {
             sg::PadMode::Constant => PadMode::Constant,
             sg::PadMode::Reflect => PadMode::Reflect,
-            _ => return Err(ReadOpError::AttrError),
+            _ => {
+                return Err(ReadOpError::AttrError {
+                    attr: "mode",
+                    error: "unknown value",
+                })
+            }
         };
         Ok(ops::Pad { mode })
     }
@@ -709,7 +746,10 @@ impl_read_op!(
     QuantizeLinear,
     attrs_as_quantize_linear_attrs,
     |attrs: sg::QuantizeLinearAttrs| {
-        let output_dtype = attrs.output_dtype().map(convert_dtype).transpose()?;
+        let output_dtype = attrs
+            .output_dtype()
+            .map(|dtype| convert_dtype("output_dtype", dtype))
+            .transpose()?;
         Ok(ops::QuantizeLinear {
             axis: attrs.axis() as isize,
             output_dtype,
@@ -832,7 +872,7 @@ impl_read_op!(
     |attrs: sg::ScatterElementsAttrs| {
         Ok(ops::ScatterElements {
             axis: attrs.axis() as isize,
-            reduction: convert_reduction(attrs.reduction())?,
+            reduction: convert_reduction("reduction", attrs.reduction())?,
         })
     }
 );
@@ -841,7 +881,7 @@ impl_read_op!(
     attrs_as_scatter_ndattrs,
     |attrs: sg::ScatterNDAttrs| {
         Ok(ops::ScatterND {
-            reduction: convert_reduction(attrs.reduction())?,
+            reduction: convert_reduction("reduction", attrs.reduction())?,
         })
     }
 );
