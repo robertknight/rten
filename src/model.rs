@@ -565,7 +565,7 @@ impl Model {
         });
         let dtype = value
             .dtype()
-            .map(convert_dtype)
+            .map(|dtype| convert_dtype("", dtype))
             .transpose()
             .map_err(|err| {
                 ModelLoadError::OperatorInvalid(NodeError::for_node(name, err).into())
