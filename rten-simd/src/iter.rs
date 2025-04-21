@@ -139,6 +139,33 @@ impl<'a, T: Elem, O: NumOps<T>> Iter<'a, T, O> {
         accum
     }
 
+    /// Variant of [`fold_n`](Self::fold_n) which unrolls computation `UNROLL`
+    /// times, like [`fold_unroll`](Self::fold_unroll).
+    pub fn fold_n_unroll<const N: usize, const UNROLL: usize>(
+        mut self,
+        accum: [O::Simd; N],
+        mut fold: impl FnMut([O::Simd; N], O::Simd) -> [O::Simd; N],
+        mut fold_acc: impl FnMut([O::Simd; N], [O::Simd; N]) -> [O::Simd; N],
+    ) -> [O::Simd; N] {
+        let mut acc = [accum; UNROLL];
+        let v_len = self.ops.len();
+
+        while let Some((chunk, tail)) = self.xs.split_at_checked(v_len * UNROLL) {
+            let xs: [_; UNROLL] = std::array::from_fn(|i| unsafe {
+                // Safety: `i < UNROLL` and `chunk` length is `v_len * UNROLL`
+                self.ops.load_ptr(chunk.as_ptr().add(v_len * i))
+            });
+            for i in 0..UNROLL {
+                acc[i] = fold(acc[i], xs[i]);
+            }
+            self.xs = tail;
+        }
+        for i in 1..UNROLL {
+            acc[0] = fold_acc(acc[0], acc[i]);
+        }
+        self.fold_n(acc[0], fold)
+    }
+
     /// Return a SIMD vector and mask for the left-over elements in the
     /// slice after iterating over all full SIMD chunks.
     ///
@@ -331,39 +358,65 @@ mod tests {
         assert_eq!(sum, expected);
     }
 
-    #[test]
-    fn test_fold_n() {
-        struct MinMax<'a> {
-            xs: &'a [f32],
-        }
+    const UNROLL: usize = 4;
 
-        impl<'a> SimdOp for MinMax<'a> {
-            type Output = (f32, f32);
+    struct MinMax<'a> {
+        xs: &'a [f32],
+        unroll: bool,
+    }
 
-            fn eval<I: Isa>(self, isa: I) -> Self::Output {
-                let ops = isa.f32();
-                let [vec_min, vec_max] = self.xs.simd_iter(ops).fold_n(
+    impl<'a> SimdOp for MinMax<'a> {
+        type Output = (f32, f32);
+
+        fn eval<I: Isa>(self, isa: I) -> Self::Output {
+            let ops = isa.f32();
+            let [vec_min, vec_max] = if self.unroll {
+                self.xs.simd_iter(ops).fold_n_unroll::<2, UNROLL>(
                     [ops.splat(f32::MAX), ops.splat(f32::MIN)],
                     |[min, max], x| [ops.min(min, x), ops.max(max, x)],
-                );
-                let min = vec_min
-                    .to_array()
-                    .into_iter()
-                    .reduce(|min, x| min.min(x))
-                    .unwrap();
-                let max = vec_max
-                    .to_array()
-                    .into_iter()
-                    .reduce(|max, x| max.max(x))
-                    .unwrap();
-                (min, max)
-            }
+                    |[min_a, max_a], [min_b, max_b]| [ops.min(min_a, min_b), ops.max(max_a, max_b)],
+                )
+            } else {
+                self.xs.simd_iter(ops).fold_n(
+                    [ops.splat(f32::MAX), ops.splat(f32::MIN)],
+                    |[min, max], x| [ops.min(min, x), ops.max(max, x)],
+                )
+            };
+            let min = vec_min
+                .to_array()
+                .into_iter()
+                .reduce(|min, x| min.min(x))
+                .unwrap();
+            let max = vec_max
+                .to_array()
+                .into_iter()
+                .reduce(|max, x| max.max(x))
+                .unwrap();
+            (min, max)
         }
+    }
 
+    #[test]
+    fn test_fold_n() {
         let buf: Vec<_> = (0..TEST_LEN).map(|x| x as f32).collect();
-
-        let (min, max) = MinMax { xs: &buf }.dispatch();
+        let (min, max) = MinMax {
+            xs: &buf,
+            unroll: false,
+        }
+        .dispatch();
         assert_eq!(min, 0. as f32);
         assert_eq!(max, (TEST_LEN - 1) as f32);
+    }
+
+    #[test]
+    fn test_fold_n_unroll() {
+        let buf: Vec<_> = (0..TEST_LEN * UNROLL).map(|x| x as f32).collect();
+        let (min, max) = MinMax {
+            xs: &buf,
+            unroll: false,
+        }
+        .dispatch();
+        assert_eq!(min, 0. as f32);
+        assert_eq!(max, (TEST_LEN * UNROLL - 1) as f32);
     }
 }
