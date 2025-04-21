@@ -351,6 +351,9 @@ def op_node_from_onnx_operator(
             )
             attrs.to = convert_data_type(to)
 
+        case "CastLike":
+            attrs = sg.CastLikeAttrsT()
+
         case "Clip":
             attr_reader.generate_input_from_attr(1, "min", "float")
             attr_reader.generate_input_from_attr(2, "max", "float")
