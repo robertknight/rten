@@ -1,11 +1,11 @@
 use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
-use rten_vecmath::ExtendInit;
 
 use crate::ops::static_dims;
 use crate::ops::{
@@ -469,10 +469,16 @@ fn layer_normalization_impl(
     let scale = scale.to_contiguous_in(pool);
     let scale_data = scale.data().unwrap();
 
-    for in_chunk in input.data().unwrap().chunks(chunk_size) {
-        output.extend_init(|out_chunk| {
-            normalize_slice(
-                (in_chunk, &mut out_chunk[..chunk_size]).into(),
+    let n_init = AtomicUsize::new(0);
+    let out_uninit = &mut output.spare_capacity_mut()[..input.len()];
+    input
+        .data()
+        .unwrap()
+        .par_chunks(chunk_size)
+        .zip(out_uninit.par_chunks_mut(chunk_size))
+        .for_each(|(in_chunk, out_chunk)| {
+            let normalized = normalize_slice(
+                (in_chunk, out_chunk).into(),
                 NormalizeOptions {
                     mean_normalize,
                     epsilon,
@@ -480,8 +486,13 @@ fn layer_normalization_impl(
                     element_bias: bias_data,
                     ..Default::default()
                 },
-            )
-        })
+            );
+            n_init.fetch_add(normalized.len(), Ordering::SeqCst);
+        });
+
+    assert_eq!(n_init.load(Ordering::SeqCst), input.len());
+    unsafe {
+        output.set_len(input.len());
     }
 
     Ok(Tensor::from_data(input.shape(), output))
