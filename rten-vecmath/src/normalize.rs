@@ -49,10 +49,14 @@ impl<'src, 'dst> Normalize<'src, 'dst> {
 
 /// Configuration for the [`Normalize`] operation.
 pub struct NormalizeOptions<'a> {
-    /// Bias to subtract before scaling.
+    /// Bias to subtract before scaling. This is usually the mean of the data.
     pub pre_scale_bias: f32,
 
+    /// Constant scale to multiply each element by. This is usually the inverse
+    /// standard deviation of the data.
     pub scale: f32,
+
+    /// Per-element scale to multiply each element by.
     pub element_scale: Option<&'a [f32]>,
 
     /// Constant bias to add after scaling
@@ -103,39 +107,65 @@ impl<'dst> SimdOp for Normalize<'_, 'dst> {
 
         let one = ops.one();
         let zero = ops.zero();
-        let const_scale_vec = ops.splat(scale);
-        let const_bias_vec = ops.splat(bias);
         let pre_scale_bias_vec = ops.splat(pre_scale_bias);
 
-        if element_scale.is_none() && element_bias.is_none() {
-            // Fast path for normalization with only per-channel scale/bias
-            simd_map(
-                ops,
-                src_dest,
-                #[inline(always)]
-                |x| {
-                    let y = ops.sub(x, pre_scale_bias_vec);
-                    ops.mul_add(y, const_scale_vec, const_bias_vec)
-                },
-            )
-        } else {
-            let mut scale_iter = element_scale.map(|s| s.simd_iter_pad(ops));
-            let mut bias_iter = element_bias.map(|b| b.simd_iter_pad(ops));
-            simd_map(
-                ops,
-                src_dest,
-                #[inline(always)]
-                |x| {
-                    let scale_vec = scale_iter.as_mut().and_then(|s| s.next()).unwrap_or(one);
-                    let scale_vec = ops.mul(scale_vec, const_scale_vec);
+        match (element_scale, element_bias, scale, bias) {
+            (None, None, scale, bias) => {
+                // Per channel scale and bias only. Used for BatchNormalization.
+                let const_scale_vec = ops.splat(scale);
+                let const_bias_vec = ops.splat(bias);
 
-                    let bias_vec = bias_iter.as_mut().and_then(|b| b.next()).unwrap_or(zero);
-                    let bias_vec = ops.add(bias_vec, const_bias_vec);
+                simd_map(
+                    ops,
+                    src_dest,
+                    #[inline(always)]
+                    |x| {
+                        let y = ops.sub(x, pre_scale_bias_vec);
+                        ops.mul_add(y, const_scale_vec, const_bias_vec)
+                    },
+                )
+            }
+            (Some(scale), None, const_scale, 0.) => {
+                // Scale only. Used by eg. LayerNormalization when there is no
+                // bias and RMS normalization.
+                let const_scale_vec = ops.splat(const_scale);
+                let mut scale_iter = scale.simd_iter_pad(ops);
 
-                    let y = ops.sub(x, pre_scale_bias_vec);
-                    ops.mul_add(y, scale_vec, bias_vec)
-                },
-            )
+                simd_map(
+                    ops,
+                    src_dest,
+                    #[inline(always)]
+                    |x| {
+                        let scale_vec = scale_iter.next().unwrap();
+                        let scale_vec = ops.mul(scale_vec, const_scale_vec);
+
+                        let y = ops.sub(x, pre_scale_bias_vec);
+                        ops.mul(y, scale_vec)
+                    },
+                )
+            }
+            (element_scale, element_bias, const_scale, const_bias) => {
+                let const_scale_vec = ops.splat(const_scale);
+                let const_bias_vec = ops.splat(const_bias);
+                let mut scale_iter = element_scale.map(|s| s.simd_iter_pad(ops));
+                let mut bias_iter = element_bias.map(|b| b.simd_iter_pad(ops));
+
+                simd_map(
+                    ops,
+                    src_dest,
+                    #[inline(always)]
+                    |x| {
+                        let scale_vec = scale_iter.as_mut().and_then(|s| s.next()).unwrap_or(one);
+                        let scale_vec = ops.mul(scale_vec, const_scale_vec);
+
+                        let bias_vec = bias_iter.as_mut().and_then(|b| b.next()).unwrap_or(zero);
+                        let bias_vec = ops.add(bias_vec, const_bias_vec);
+
+                        let y = ops.sub(x, pre_scale_bias_vec);
+                        ops.mul_add(y, scale_vec, bias_vec)
+                    },
+                )
+            }
         }
     }
 }
@@ -169,7 +199,7 @@ mod tests {
         let bias = 0.3;
         let element_bias: Vec<_> = (0..data.len()).map(|i| -0.5 + i as f32 * 0.2).collect();
 
-        // With per-element scale and bias
+        // Per-element scale and bias
         let mut expected = data.clone();
         reference_normalize_mut(
             &mut expected[..],
@@ -194,7 +224,32 @@ mod tests {
         .dispatch();
         assert_eq!(actual, expected);
 
-        // Without per-element scale and bias
+        // Per-element scale, but no bias
+        let mut expected = data.clone();
+        reference_normalize_mut(
+            &mut expected[..],
+            pre_scale_bias,
+            scale,
+            Some(&element_scale),
+            0.,
+            None,
+        );
+
+        let mut actual = data.clone();
+        Normalize::new_mut(
+            &mut actual[..],
+            NormalizeOptions {
+                pre_scale_bias,
+                scale,
+                element_scale: Some(&element_scale),
+                bias: 0.,
+                element_bias: None,
+            },
+        )
+        .dispatch();
+        assert_eq!(actual, expected);
+
+        // Per-channel (ie. constant) scale and bias only
         let mut expected = data.clone();
         reference_normalize_mut(&mut expected[..], pre_scale_bias, scale, None, bias, None);
 
