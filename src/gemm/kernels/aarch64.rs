@@ -144,10 +144,10 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
 
         debug_assert_eq!(MR, 4);
         match used_rows {
-            4 => gemm.dispatch::<4>(),
-            3 => gemm.dispatch::<3>(),
-            2 => gemm.dispatch::<2>(),
-            1 => gemm.dispatch::<1>(),
+            4 => gemm.dispatch_broadcast_lane::<4>(),
+            3 => gemm.dispatch_broadcast_lane::<3>(),
+            2 => gemm.dispatch_broadcast_lane::<2>(),
+            1 => gemm.dispatch_broadcast_lane::<1>(),
             _ => panic!("unsupported `used_rows` {}", used_rows),
         }
 

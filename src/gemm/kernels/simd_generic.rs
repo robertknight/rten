@@ -245,6 +245,26 @@ impl<'a, I: Isa, const MR: usize, const NR_REGS: usize> GemmDispatch<'a, I, MR, 
             self.beta,
         )
     }
+
+    /// Run the kernel to update an output tile with `ROWS` rows.
+    ///
+    /// This is a variant of `dispatch` for architectures (Arm) which can
+    /// efficiently broadcast a lane from one vector into a new vector used
+    /// as an FMA operand.
+    #[cfg(target_arch = "aarch64")]
+    #[inline(always)]
+    pub unsafe fn dispatch_broadcast_lane<const ROWS: usize>(&self) {
+        simd_gemm_broadcast_lane::<I, MR, NR_REGS, ROWS>(
+            self.isa,
+            self.tile_ptr,
+            self.tile_row_stride,
+            self.a,
+            self.b,
+            self.depth,
+            self.alpha,
+            self.beta,
+        )
+    }
 }
 
 /// Compute a tile of matrix-multiplication output.
@@ -342,6 +362,152 @@ pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROW
         for j in 0..NR_REGS {
             tmp[i][j] = ops.mul_add(a_broadcast, b_rows[j], tmp[i][j]);
         }
+    }
+
+    let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j * ops.len());
+
+    // Write to output tile.
+    //
+    // We have special cases for zero/one values of alpha and beta, both for
+    // performance in the common cases where (alpha, beta) are (0, 1) or (1, 1)
+    // and because when beta is zero, the destination may be uninitialized and
+    // must not be read.
+    if beta == 0. && alpha == 1. {
+        for i in 0..ROWS {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                ops.store_ptr(tmp[i][j], out_ptr);
+            }
+        }
+    } else if beta == 1. && alpha == 1. {
+        for i in 0..ROWS {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                let out_val = ops.add(ops.load_ptr(out_ptr), tmp[i][j]);
+                ops.store_ptr(out_val, out_ptr);
+            }
+        }
+    } else if beta == 0. {
+        let alpha_broadcast = ops.splat(alpha);
+
+        for i in 0..ROWS {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                let out_val = ops.mul(tmp[i][j], alpha_broadcast);
+                ops.store_ptr(out_val, out_ptr);
+            }
+        }
+    } else {
+        let alpha_broadcast = ops.splat(alpha);
+        let beta_broadcast = ops.splat(beta);
+
+        for i in 0..ROWS {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                let out_val = ops.mul(ops.load_ptr(out_ptr), beta_broadcast);
+                let out_val = ops.mul_add(tmp[i][j], alpha_broadcast, out_val);
+                ops.store_ptr(out_val, out_ptr);
+            }
+        }
+    }
+}
+
+/// Variant of [`simd_gemm`] for architectures (Arm) which can efficiently
+/// broadcast a lane from a vector to a new vector used as an operand for
+/// FMA.
+///
+/// On Arm, the combination of broadcast lane + FMA will be fused into
+/// FMLA by element [^1].
+///
+/// [^1]: https://developer.arm.com/documentation/dui0801/g/A64-SIMD-Vector-Instructions/FMLA--vector--by-element-?lang=en
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub unsafe fn simd_gemm_broadcast_lane<
+    I: Isa,
+    const MR: usize,
+    const NR_REGS: usize,
+    const ROWS: usize,
+>(
+    isa: I,
+    tile_ptr: *mut f32,
+    tile_row_stride: usize,
+    a: Lhs<f32>,
+    b: &[f32],
+    depth: usize,
+    alpha: f32,
+    beta: f32,
+) {
+    let ops = isa.f32();
+
+    assert!(b.len() >= depth * NR_REGS * ops.len());
+    assert!(depth > 0);
+    let (a_ptr, a_row_stride) = match a {
+        Lhs::Packed(data) => {
+            let min_len = depth * MR * size_of::<f32>();
+            assert!(
+                data.len() >= min_len,
+                "packed data len {} smaller than required {}",
+                data.len(),
+                min_len
+            );
+            (data.as_ptr() as *const f32, depth)
+        }
+        Lhs::Unpacked {
+            data,
+            len,
+            row_stride,
+        } => {
+            // Offset 1 past last element we'll access.
+            let end_offset = (ROWS - 1) * row_stride + depth;
+            assert!(len >= end_offset);
+            (data, row_stride)
+        }
+    };
+    let b_ptr = b.as_ptr();
+
+    let mut tmp = [[ops.zero(); NR_REGS]; ROWS];
+    let mut b_rows = [ops.zero(); NR_REGS];
+    let mut a_tiles = [ops.zero(); ROWS];
+
+    let v_len = ops.len();
+
+    macro_rules! k_step {
+        ($k_base:ident, $k_offset:literal) => {
+            let b_off = ($k_base + $k_offset) * NR_REGS * v_len;
+            for i in 0..NR_REGS {
+                b_rows[i] = ops.load_ptr(b_ptr.add(b_off + i * v_len));
+            }
+            for i in 0..ROWS {
+                // On Arm, the `broadcast_lane` and `mul_add` operations can be
+                // fused into a single FMLA (by element) operation.
+                let a_broadcast = ops.broadcast_lane::<$k_offset>(a_tiles[i]);
+                for j in 0..NR_REGS {
+                    tmp[i][j] = ops.mul_add(a_broadcast, b_rows[j], tmp[i][j]);
+                }
+            }
+        };
+    }
+
+    // Columns of A we can load into a register at once.
+    const VEC_LEN: usize = 4;
+    let mut k_base = 0;
+    while depth - k_base >= VEC_LEN {
+        for i in 0..ROWS {
+            a_tiles[i] = ops.load_ptr(a_ptr.add(i * a_row_stride + k_base));
+        }
+        k_step!(k_base, 0);
+        k_step!(k_base, 1);
+        k_step!(k_base, 2);
+        k_step!(k_base, 3);
+        k_base += VEC_LEN;
+    }
+    while k_base < depth {
+        for i in 0..ROWS {
+            let a_val = *a_ptr.add(i * a_row_stride + k_base);
+            a_tiles[i] = ops.splat(a_val);
+        }
+        k_step!(k_base, 0);
+        k_base += 1;
     }
 
     let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j * ops.len());
