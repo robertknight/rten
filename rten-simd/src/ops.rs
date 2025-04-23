@@ -253,6 +253,13 @@ pub unsafe trait NumOps<T: Elem>: Copy {
         self.add(self.mul(a, b), c)
     }
 
+    /// Broadcast the element from one lane of a vector to all lanes of a new
+    /// vector.
+    fn broadcast_lane<const LANE: i32>(self, x: Self::Simd) -> Self::Simd {
+        let val = x.to_array()[LANE as usize];
+        self.splat(val)
+    }
+
     /// Evaluate a polynomial using Horner's method.
     ///
     /// Computes `x * coeffs[0] + x^2 * coeffs[1] ... x^n * coeffs[N]`
@@ -824,6 +831,28 @@ mod tests {
                             (x * coeffs[0]) + (x * x * coeffs[1]) + (x * x * x * coeffs[2]);
                         assert_simd_eq!(y, ops.splat(expected));
                     })
+                }
+
+                #[test]
+                fn test_broadcast_lane() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let vec: Vec<_> = (0..ops.len()).map(|x| x as $elem).collect();
+                        let xs = ops.load(&vec);
+
+                        let ys = ops.broadcast_lane::<0>(xs);
+                        assert_simd_eq!(ops.splat(0 as $elem), ys);
+
+                        let ys = ops.broadcast_lane::<1>(xs);
+                        assert_simd_eq!(ops.splat(1 as $elem), ys);
+
+                        let ys = ops.broadcast_lane::<2>(xs);
+                        assert_simd_eq!(ops.splat(2 as $elem), ys);
+
+                        let ys = ops.broadcast_lane::<3>(xs);
+                        assert_simd_eq!(ops.splat(3 as $elem), ys);
+                    });
                 }
             }
         };
