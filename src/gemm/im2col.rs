@@ -96,10 +96,6 @@ impl<T: Copy + Default> Im2Col<'_, T> {
     /// `NR_REGS` specifies the width of each column panel as a multiple of
     /// `S::LEN` elements. In other words, `panel_width` must exactly equal
     /// `NR_REGS * S::LEN`.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure SIMD type is supported.
     #[inline(always)]
     pub(super) fn pack_block<I: Isa, const NR_REGS: usize>(
         &self,
