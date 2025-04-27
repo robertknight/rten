@@ -340,7 +340,7 @@ unsafe impl NumOps<i32> for Avx512Isa {
 
     #[inline]
     unsafe fn load_ptr(self, ptr: *const i32) -> I32x16 {
-        unsafe { _mm512_loadu_si512(ptr as *const i32) }.into()
+        unsafe { _mm512_loadu_si512(ptr as *const __m512i) }.into()
     }
 
     #[inline]
@@ -438,7 +438,7 @@ unsafe impl NumOps<i16> for Avx512Isa {
 
     #[inline]
     unsafe fn load_ptr(self, ptr: *const i16) -> I16x32 {
-        unsafe { _mm512_loadu_si512(ptr as *const i32) }.into()
+        unsafe { _mm512_loadu_si512(ptr as *const __m512i) }.into()
     }
 
     #[inline]
@@ -570,7 +570,7 @@ unsafe impl NumOps<i8> for Avx512Isa {
 
     #[inline]
     unsafe fn load_ptr(self, ptr: *const i8) -> I8x64 {
-        unsafe { _mm512_loadu_si512(ptr as *const i32) }.into()
+        unsafe { _mm512_loadu_si512(ptr as *const __m512i) }.into()
     }
 
     #[inline]
@@ -691,7 +691,7 @@ unsafe impl NumOps<u8> for Avx512Isa {
 
     #[inline]
     unsafe fn load_ptr(self, ptr: *const u8) -> U8x64 {
-        unsafe { _mm512_loadu_si512(ptr as *const i32) }.into()
+        unsafe { _mm512_loadu_si512(ptr as *const __m512i) }.into()
     }
 
     #[inline]
@@ -832,7 +832,7 @@ unsafe impl NumOps<u16> for Avx512Isa {
 
     #[inline]
     unsafe fn load_ptr(self, ptr: *const u16) -> U16x32 {
-        unsafe { _mm512_loadu_si512(ptr as *const i32) }.into()
+        unsafe { _mm512_loadu_si512(ptr as *const __m512i) }.into()
     }
 
     #[inline]
