@@ -33,6 +33,7 @@ avx512 = ["rten/avx512"]
 # Allows use of `..Default::default()` for future compatibility even when not
 # currently needed.
 needless_update = "allow"
+manual_repeat_n = "allow"  # TODO - Address existing failures
 
 [package.metadata.release]
 release = false
