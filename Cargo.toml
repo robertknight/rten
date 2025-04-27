@@ -87,6 +87,7 @@ assertions_on_constants = "allow"
 # potentially less efficient.
 needless_range_loop = "allow"
 too_many_arguments = "allow"
+manual_repeat_n = "allow"  # TODO - Address existing failures
 
 [package.metadata.docs.rs]
 # These features should match the features enabled by `make docs`.
