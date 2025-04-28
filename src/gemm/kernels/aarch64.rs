@@ -255,8 +255,8 @@ pub struct ArmInt8DotKernel {
 }
 
 impl ArmInt8DotKernel {
-    const MR: usize = 8;
-    const NR: usize = 8;
+    const MR: usize = 4;
+    const NR: usize = 16;
 }
 
 unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
@@ -297,7 +297,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
         const NR_REGS: usize = ArmInt8DotKernel::NR / X32_LANES;
-        simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
+        simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
             self.isa,
             tile_ptr,
             tile_row_stride,
@@ -378,7 +378,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
         const NR_REGS: usize = ArmInt8Kernel::NR / X32_LANES;
-        simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
+        simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
             self.isa,
             tile_ptr,
             tile_row_stride,
@@ -445,6 +445,11 @@ unsafe impl Int8DotProduct for NeonNativeDotProd {
     type I32 = int32x4_t;
 
     #[inline]
+    fn supports_indexed_dot_product() -> bool {
+        true
+    }
+
+    #[inline]
     fn dot_product(self, a: Self::X8, b: Self::X8, c: Self::I32) -> Self::I32 {
         #[target_feature(enable = "dotprod")]
         #[inline]
@@ -471,6 +476,45 @@ unsafe impl Int8DotProduct for NeonNativeDotProd {
             vreinterpretq_s32_u32(c)
         }
         unsafe { dot_product(a, b, c) }
+    }
+
+    #[inline]
+    fn indexed_dot_product<const IDX: u32>(
+        self,
+        a: Self::X8,
+        b: Self::X8,
+        c: Self::I32,
+    ) -> Self::I32 {
+        #[target_feature(enable = "dotprod")]
+        #[inline]
+        unsafe fn dot_product<const IDX: u32>(
+            a: int8x16_t,
+            b: int8x16_t,
+            c: int32x4_t,
+        ) -> int32x4_t {
+            use core::arch::aarch64::{
+                vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s8,
+            };
+            use core::arch::asm;
+
+            let a = vreinterpretq_u8_s8(a);
+            let b = vreinterpretq_u8_s8(b);
+            let mut c = vreinterpretq_u32_s32(c);
+
+            // Use inline asm here because the `vdotq_laneq_u32` intrinsic is not
+            // stabilized yet.
+            asm! {
+                "udot {result:v}.4s, {a:v}.16b, {b:v}.4B[{idx}]",
+                result = inout(vreg) c,
+                a = in(vreg) a,
+                b = in(vreg) b,
+                idx = const IDX,
+                options(nostack)
+            }
+
+            vreinterpretq_s32_u32(c)
+        }
+        unsafe { dot_product::<IDX>(a, b, c) }
     }
 }
 

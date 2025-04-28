@@ -399,11 +399,33 @@ unsafe trait Int8DotProduct {
     /// SIMD vector with `i32` elements.
     type I32;
 
+    /// Return true if [`indexed_dot_product`](Int8DotProduct::indexed_dot_product)
+    /// is supported.
+    fn supports_indexed_dot_product() -> bool {
+        false
+    }
+
     /// Compute the dot product of groups of 4 8-bit integers in `a` and `b`,
     /// accumulating into 32-bit integers in `c`.
     ///
     /// The signed-ness of `a` and `b` depends on the implementation.
     fn dot_product(self, a: Self::X8, b: Self::X8, c: Self::I32) -> Self::I32;
+
+    /// Broadcast 4 8-bit integers from a 32-bit lane of `b` selected by `IDX`
+    /// and then compute the dot product as with
+    /// [`dot_product`](Int8DotProduct::dot_product).
+    #[allow(unused_variables)]
+    fn indexed_dot_product<const IDX: u32>(
+        self,
+        a: Self::X8,
+        b: Self::X8,
+        c: Self::I32,
+    ) -> Self::I32
+    where
+        Self: Sized,
+    {
+        unimplemented!("indexed_dot_product not supported")
+    }
 }
 
 /// Output for matrix-vector multiplication.

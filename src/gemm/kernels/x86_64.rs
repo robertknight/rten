@@ -589,7 +589,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
         const NR_REGS: usize = Avx2Int8Kernel::NR / AVX2_X32_LANES;
-        simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
+        simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
             self.isa,
             tile_ptr,
             tile_row_stride,
@@ -804,7 +804,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
 
         const NR_REGS: usize = Avx512Int8Kernel::NR / AVX512_X32_LANES;
         if let Some(vnni_dot) = self.vnni_dot {
-            simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
+            simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
                 self.isa,
                 tile_ptr,
                 tile_row_stride,
@@ -821,7 +821,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
                 vnni_dot,
             )
         } else {
-            simd_int8_gemm::<_, { Self::MR }, { Self::NR }, NR_REGS>(
+            simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
                 self.isa,
                 tile_ptr,
                 tile_row_stride,

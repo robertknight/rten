@@ -572,7 +572,7 @@ pub unsafe fn simd_gemm_broadcast_lane<
 ///   initialized and the result will be added to it. If false, `tile_ptr` may
 ///   point to uninitialized data and will be initialized with the result.
 #[inline(always)]
-pub unsafe fn simd_int8_gemm<I: Isa, const MR: usize, const NR: usize, const NR_REGS: usize>(
+pub unsafe fn simd_int8_gemm<I: Isa, D, const MR: usize, const NR: usize, const NR_REGS: usize>(
     isa: I,
     tile_ptr: *mut i32,
     tile_row_stride: usize,
@@ -586,8 +586,10 @@ pub unsafe fn simd_int8_gemm<I: Isa, const MR: usize, const NR: usize, const NR_
     b_zero_points: [i32; NR],
     a_row_sums: &[i32; MR],
     b_col_sums: &[i32; NR],
-    dot: impl Int8DotProduct<X8 = I::I8, I32 = I::I32> + Copy,
-) {
+    dot: D,
+) where
+    D: Int8DotProduct<X8 = I::I8, I32 = I::I32> + Copy,
+{
     let ops = isa.i32();
     let i8_ops = isa.i8();
 
@@ -643,13 +645,41 @@ pub unsafe fn simd_int8_gemm<I: Isa, const MR: usize, const NR: usize, const NR_
             i8_ops.load_ptr(b_ptr.add((k_block * NR + i * ops.len()) * 4) as *const i8)
         });
 
-        // Each iteration broadcasts 4x int 8 values from A, computes NR
-        // dot products and accumulates into the output tile.
-        for row in 0..MR {
-            let a_val = *(a_ptr.add(k_block * MR * 4 + row * 4) as *const i32);
-            let a_vec = ops.splat(a_val).reinterpret_cast::<I::I8>();
-            for i in 0..NR_REGS {
-                tmp[row][i] = dot.dot_product(a_vec, b_vec[i], tmp[row][i]);
+        // Multiply a MRx4 tile of A with a 4xNR tile of B.
+        //
+        // On Arm we can load the A tile with one instruction and then use an
+        // indexed dot product for each row to multiply one row of A from that
+        // tile by all columns of B. On other architectures we use a separate
+        // scalar load for each row of A and broadcast to a 4x4 tile which is
+        // then multiplied by the columns of B.
+
+        if D::supports_indexed_dot_product() {
+            let a_tile = unsafe { ops.load_ptr(a_ptr.add(k_block * MR * 4) as *const i32) }
+                .reinterpret_cast::<I::I8>();
+
+            macro_rules! k_step {
+                ($row:literal) => {
+                    for i in 0..NR_REGS {
+                        tmp[$row][i] =
+                            dot.indexed_dot_product::<$row>(b_vec[i], a_tile, tmp[$row][i]);
+                    }
+                };
+            }
+
+            // This code path is currently only used on Arm Neon, where MR=4.
+            debug_assert_eq!(MR, 4);
+            k_step!(0);
+            k_step!(1);
+            k_step!(2);
+            k_step!(3);
+        } else {
+            for row in 0..MR {
+                let a_val = unsafe { *(a_ptr.add(k_block * MR * 4 + row * 4) as *const i32) };
+                let a_vec = ops.splat(a_val).reinterpret_cast::<I::I8>();
+
+                for i in 0..NR_REGS {
+                    tmp[row][i] = dot.dot_product(a_vec, b_vec[i], tmp[row][i]);
+                }
             }
         }
     }
