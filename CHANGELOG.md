@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### rten
+
+- Optimized int8 matrix multiplication on Arm using indexed UDOT instructions
+  (https://github.com/robertknight/rten/pull/680)
+
+- Optimized normalization operators with fast paths in kernels
+  (https://github.com/robertknight/rten/pull/677, https://github.com/robertknight/rten/pull/678)
+
+- Optimized min/max reductions in `DynamicQuantizeLinear` (https://github.com/robertknight/rten/pull/676)
+
+- Fixed deserialization of `CastLike` operators (https://github.com/robertknight/rten/pull/673)
+
+- Improved model load errors by adding node names and more attribute details
+  (https://github.com/robertknight/rten/pull/672, https://github.com/robertknight/rten/pull/674)
+
+- Optimized reductions in `LayerNormalization` and `Softmax` operators by
+  improving instruction level parallelism (https://github.com/robertknight/rten/pull/671)
+
+- Fixed "instruction requires: dotprod" error in Linux build on Arm and added
+  Arm Linux CI (https://github.com/robertknight/rten/pull/670,
+  https://github.com/robertknight/rten/pull/669)
+
+- Optimized f32 matrix multiplication on Arm by adjusting tile size and using
+  indexed FMLA instructions (https://github.com/robertknight/rten/pull/666,
+  https://github.com/robertknight/rten/pull/679)
+
+- Optimized `AveragePool` and `MaxPool` by using separate loops for padding and
+  non-padding regions of input (https://github.com/robertknight/rten/pull/665)
+
+- Support 1D and 2D inputs in `BatchNormalization` (https://github.com/robertknight/rten/pull/663)
+
+- Optimized `BatchNormalization` and `InstanceNormalization` by removing tensor
+  slicing overhead (https://github.com/robertknight/rten/pull/661,
+  https://github.com/robertknight/rten/pull/662)
+
+- Fixed error when reducing multiple axes if reduced chunks are not contiguous
+  (https://github.com/robertknight/rten/pull/660)
+
+### rten-generate
+
+- Improved performance of ArgMax sampler (https://github.com/robertknight/rten/pull/667)
+
 ## [0.17.0] - 2025-04-09
 
 This release is largely an internal refactoring to reduce the amount of unsafe
