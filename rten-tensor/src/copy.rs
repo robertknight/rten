@@ -5,6 +5,7 @@ use smallvec::SmallVec;
 
 use crate::assume_init::AssumeInit;
 use crate::slice_range::{IndexRange, SliceItem};
+use crate::storage::{Storage, StorageMut};
 use crate::{AsView, Layout};
 use crate::{
     Matrix, MatrixLayout, MatrixMut, NdTensorView, NdTensorViewMut, TensorView, TensorViewMut,
@@ -108,6 +109,30 @@ const TILE_SIZE: usize = 4;
 /// for 32-bit values.
 const BLOCK_SIZE: usize = 64;
 
+/// Transpose a square tile of size `TILE_SIZE`.
+///
+/// Safety: Caller must ensure that `src` points to a buffer of size
+/// `src_col_stride * (TILE_SIZE - 1) + TILE_SIZE` and `dest` points to a buffer
+/// of size `dest_row_stride * (TILE_SIZE - 1) + TILE_SIZE`.
+unsafe fn transpose_tile<T: Clone, const TILE_SIZE: usize>(
+    src: *const T,
+    dest: *mut T,
+    src_col_stride: usize,
+    dest_row_stride: usize,
+) {
+    let src_tile: [[T; TILE_SIZE]; TILE_SIZE] = std::array::from_fn(|x| {
+        std::array::from_fn(|y| unsafe { (*src.add(x * src_col_stride + y)).clone() })
+    });
+    for y in 0..TILE_SIZE {
+        for x in 0..TILE_SIZE {
+            let val = src_tile[x][y].clone();
+            unsafe {
+                dest.add(y * dest_row_stride + x).write(val);
+            }
+        }
+    }
+}
+
 /// Copy elements from `src` into `dest`.
 ///
 /// `src` and `dest` must have the same shape but can (should) have different
@@ -117,21 +142,48 @@ fn copy_blocked<T: Clone>(src: Matrix<T>, mut dest: MatrixMut<MaybeUninit<T>>) {
     // Ensure src and dest have same index range.
     assert!(src.shape() == dest.shape());
 
+    let transpose = src.row_stride() == 1 && dest.col_stride() == 1;
+
     for row_block in range_chunks(0..dest.rows(), BLOCK_SIZE) {
         for col_block in range_chunks(0..dest.cols(), BLOCK_SIZE) {
             let mut row_tiles = range_chunks_exact(row_block.clone(), TILE_SIZE);
             for row_tile in row_tiles.by_ref() {
                 // Handle full height + width tiles.
                 let mut col_tiles = range_chunks_exact(col_block.clone(), TILE_SIZE);
-                for col_tile in col_tiles.by_ref() {
-                    for y in 0..TILE_SIZE {
-                        for x in 0..TILE_SIZE {
-                            // Safety: Max values of `idx` are in-bounds for
-                            // `src` and `dest`.
-                            unsafe {
-                                let idx = [row_tile.start + y, col_tile.start + x];
-                                let src_el = src.get_unchecked(idx).clone();
-                                dest.get_unchecked_mut(idx).write(src_el);
+
+                if transpose {
+                    let src_ptr = src.storage().as_ptr();
+                    let dest_ptr = dest.storage_mut().as_mut_ptr();
+                    let src_col_stride = src.col_stride();
+                    let dest_row_stride = dest.row_stride();
+
+                    for col_tile in col_tiles.by_ref() {
+                        // Safety: `col_tile` and `row_tile` are valid ranges
+                        // for `src` and `dst` of size `TILE_SIZE`.
+                        unsafe {
+                            let src_ptr =
+                                src_ptr.add(col_tile.start * src_col_stride + row_tile.start);
+                            let dest_ptr =
+                                dest_ptr.add(row_tile.start * dest_row_stride + col_tile.start);
+                            transpose_tile::<T, TILE_SIZE>(
+                                src_ptr,
+                                dest_ptr as *mut T,
+                                src_col_stride,
+                                dest_row_stride,
+                            );
+                        }
+                    }
+                } else {
+                    for col_tile in col_tiles.by_ref() {
+                        for y in 0..TILE_SIZE {
+                            for x in 0..TILE_SIZE {
+                                // Safety: Max values of `idx` are in-bounds for
+                                // `src` and `dest`.
+                                unsafe {
+                                    let idx = [row_tile.start + y, col_tile.start + x];
+                                    let src_el = src.get_unchecked(idx).clone();
+                                    dest.get_unchecked_mut(idx).write(src_el);
+                                }
                             }
                         }
                     }
@@ -177,6 +229,11 @@ pub fn copy_into_slice<'a, T: Clone>(
 ) -> &'a [T] {
     assert!(dest.len() == src.len());
 
+    if dest.is_empty() {
+        // Safety: Destination is empty so already initialized.
+        return unsafe { dest.assume_init() };
+    }
+
     // Merge axes to increase the chance that we can use the fast path and
     // also maximize the iteration count of the innermost loops.
     src.merge_axes();
@@ -207,6 +264,7 @@ pub fn copy_into_slice<'a, T: Clone>(
     let use_blocked_copy = src.stride(3) % 16 == 0 && src.stride(3) >= 32;
 
     if use_blocked_copy {
+        // Source is transposed or otherwise not contiguous in the last lane
         let mut dest_mat = NdTensorViewMut::from_data(src.shape(), &mut dest[..]);
         for i0 in 0..src.size(0) {
             for i1 in 0..src.size(1) {
@@ -215,9 +273,36 @@ pub fn copy_into_slice<'a, T: Clone>(
                 copy_blocked(src, dest);
             }
         }
-        // Safety: Loop above initialized all elements of `dest`.
-        unsafe { dest.assume_init() }
+    } else if src.stride(3) == 1 {
+        // Inner lane of source is contiguous
+        let inner_lane_size = src.size(3);
+        let mut dest_chunks = dest.chunks_mut(inner_lane_size);
+
+        let src_ptr = src.storage().as_ptr();
+
+        for i0 in 0..src.size(0) {
+            for i1 in 0..src.size(1) {
+                for i2 in 0..src.size(2) {
+                    let dest_lane = dest_chunks.next().unwrap();
+
+                    // Safety: `[i0, i1, i2]` is a valid index for the outer axes of `src` and the
+                    // inner axis is contiguous and has the same size as `dest_lane`.
+                    let src_lane = unsafe {
+                        src_ptr.add(i0 * src.stride(0) + i1 * src.stride(1) + i2 * src.stride(2))
+                    };
+
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            src_lane,
+                            dest_lane.as_mut_ptr() as *mut T,
+                            dest_lane.len(),
+                        );
+                    }
+                }
+            }
+        }
     } else {
+        // General case
         let mut dest_offset = 0;
         for i0 in 0..src.size(0) {
             for i1 in 0..src.size(1) {
@@ -232,9 +317,10 @@ pub fn copy_into_slice<'a, T: Clone>(
                 }
             }
         }
-        // Safety: Loop above initialized all elements of `dest`.
-        unsafe { dest.assume_init() }
     }
+
+    // Safety: Loop above initialized all elements of `dest`.
+    unsafe { dest.assume_init() }
 }
 
 /// Clone elements of `src` into `dest`.
@@ -459,14 +545,7 @@ mod tests {
     use crate::rng::XorShiftRng;
     use crate::{AsView, Layout, NdTensor, SliceItem, Tensor, TensorView};
 
-    /// Return the elements of `src` as a contiguous vector, in the same order they
-    /// would be yielded by `src.iter()`.
-    ///
-    /// This function assumes that the caller has already checked if `src` is
-    /// contiguous and used more efficient methods to copy the data in that case.
-    ///
-    /// This is equivalent to `src.iter().cloned().collect::<Vec<_>>()` but
-    /// faster.
+    /// Wrapper around `copy_into_slice` that allocates a Vec to hold the result.
     fn copy_into_vec<T: Clone>(src: TensorView<T>) -> Vec<T> {
         let src_len = src.len();
         let mut result = Vec::with_capacity(src_len);
@@ -511,15 +590,19 @@ mod tests {
 
     #[test]
     fn test_copy_into_slice() {
-        // <= 4 dims
+        // Contiguous and non-contiguous tensors with <= 4 dims.
         let x = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
         assert_eq!(copy_into_vec(x.view()), [1, 2, 3, 4]);
         assert_eq!(copy_into_vec(x.transposed()), [1, 3, 2, 4]);
 
-        // > 4 dims
+        // Contiguous and non-contiguous tensors with > 4 dims.
         let x = Tensor::from_data(&[1, 1, 1, 2, 2], vec![1, 2, 3, 4]);
         assert_eq!(copy_into_vec(x.view()), [1, 2, 3, 4]);
         assert_eq!(copy_into_vec(x.transposed()), [1, 3, 2, 4]);
+
+        // Contiguous tensor with zero-size inner dim.
+        let x = Tensor::<i32>::zeros(&[3, 4, 0]);
+        assert_eq!(copy_into_vec(x.view()), [0i32; 0]);
 
         // Transposed matrices of varying sizes. This includes:
         //
