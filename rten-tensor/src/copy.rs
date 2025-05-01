@@ -177,6 +177,11 @@ pub fn copy_into_slice<'a, T: Clone>(
 ) -> &'a [T] {
     assert!(dest.len() == src.len());
 
+    if dest.is_empty() {
+        // Safety: Destination is empty so already initialized.
+        return unsafe { dest.assume_init() };
+    }
+
     // Merge axes to increase the chance that we can use the fast path and
     // also maximize the iteration count of the innermost loops.
     src.merge_axes();
