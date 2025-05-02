@@ -128,6 +128,72 @@ impl SimdUnaryOp<f32> for Exp {
     }
 }
 
+/// Cutoff value chosen such that if `k = round(x / ln2)`, `2**k` is a normal
+/// number.
+const EXP_LOWER_CUTOFF: f32 = -126.5 * std::f32::consts::LN_2 + 0.01; // ~87.67
+
+/// A simplified and faster version of [`Exp`] with a reduced domain and range.
+///
+/// 1. The input value must be <= 0
+/// 2. The lower cutoff for which `exp(x)` returns 0 is higher (~87.67 instead of ~104).
+#[derive(Default)]
+pub struct ReducedRangeExp {}
+
+impl SimdUnaryOp<f32> for ReducedRangeExp {
+    #[inline(always)]
+    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
+        let ops = isa.f32();
+        let int_ops = isa.i32();
+
+        let x = x.same_cast();
+
+        // Load constants
+        let inv_log_2 = ops.splat(INV_LOG2);
+        let rounding_magic = ops.splat(ROUNDING_MAGIC);
+        let ln2_hi = ops.splat(LOG2_HI);
+        let ln2_lo = ops.splat(LOG2_LO);
+
+        let p6 = ops.splat(EXP_POLY_6);
+        let p5 = ops.splat(EXP_POLY_5);
+        let p4 = ops.splat(EXP_POLY_4);
+        let p3 = ops.splat(EXP_POLY_3);
+        let p2 = ops.splat(EXP_POLY_2);
+        let p1 = ops.splat(EXP_POLY_1);
+        let p0 = ops.splat(EXP_POLY_0);
+
+        // Compute `k = rintf(x / ln2), r = x - k * ln2`.
+        //
+        // Since x <= 0, also k <= 0.
+        let j = ops.mul_add(x, inv_log_2, rounding_magic);
+        let j = ops.sub(j, rounding_magic);
+        let r = ops.mul_add(j, ln2_hi, x);
+        let r = ops.mul_add(j, ln2_lo, r);
+        let k = ops.to_int_trunc(j);
+
+        // Approximate `exp(r)` on interval [-ln2 / 2, +ln2 / 2]
+        let mut tmp = p6;
+        tmp = ops.mul_add(tmp, r, p5);
+        tmp = ops.mul_add(tmp, r, p4);
+        tmp = ops.mul_add(tmp, r, p3);
+        tmp = ops.mul_add(tmp, r, p2);
+        tmp = ops.mul_add(tmp, r, p1);
+        let r = ops.mul_add(tmp, r, p0);
+
+        // Reconstruct `exp(x) = 2**k * exp(r)`.
+        //
+        // This is valid as long as `k >= -126`, so that `2**k` as f32 is a
+        // normal number.
+        let exponent_bias = int_ops.splat(127);
+        let k_pow2 = int_ops.shift_left::<23>(int_ops.add(k, exponent_bias));
+        let k_pow2: I::F32 = k_pow2.reinterpret_cast();
+        let r = ops.mul(r, k_pow2);
+
+        // Handle underflow. We don't need to handle overflow since x <= 0.
+        let underflow_mask = ops.lt(x, ops.splat(EXP_LOWER_CUTOFF));
+        ops.select(ops.zero(), r, underflow_mask).same_cast()
+    }
+}
+
 /// Computes the [sigmoid function][sigmoid], aka. the standard logistic function, `1. /
 /// (1. + (-x).exp())`.
 ///
@@ -190,6 +256,7 @@ mod tests {
 
     use rten_simd::SimdUnaryOp;
 
+    use super::{ReducedRangeExp, EXP_LOWER_CUTOFF};
     use crate::testing::{
         arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,
     };
@@ -269,6 +336,16 @@ mod tests {
             f32::exp,
             MAX_EXP_ERROR_ULPS,
             arange(-6., 6., 0.001f32),
+        );
+    }
+
+    #[test]
+    fn test_reduced_range_exp() {
+        check_simd_vs_reference(
+            |src, dest| ReducedRangeExp {}.map(src, dest),
+            f32::exp,
+            MAX_EXP_ERROR_ULPS,
+            arange(EXP_LOWER_CUTOFF, 0., 0.015f32),
         );
     }
 

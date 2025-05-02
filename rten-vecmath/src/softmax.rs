@@ -3,9 +3,9 @@ use std::mem::MaybeUninit;
 use rten_simd::functional::simd_map;
 use rten_simd::ops::{FloatOps, NumOps};
 use rten_simd::span::SrcDest;
-use rten_simd::{Isa, SimdIterable, SimdOp, SimdUnaryOp};
+use rten_simd::{Isa, Simd, SimdIterable, SimdOp, SimdUnaryOp};
 
-use crate::Exp;
+use crate::exp::ReducedRangeExp;
 
 /// Computes the [softmax][softmax] function over a slice of floats.
 ///
@@ -53,32 +53,16 @@ impl<'dst> SimdOp for Softmax<'_, 'dst> {
             #[inline(always)]
             |max, x| ops.max(max, x),
         );
-        let max_val = ops.fold_splat(max_val, f32::MIN, |max: f32, x: f32| max.max(x));
+        let max_val = max_val
+            .to_array()
+            .into_iter()
+            .fold(f32::MIN, |max, x| max.max(x));
 
-        // *x = (*x - max_val).exp()
-        let mut prev_exp_sum = ops.zero();
-        let mut exp_sum = ops.zero();
-        let dest = simd_map(
-            ops,
-            self.src_dest,
-            #[inline(always)]
-            |x| {
-                let y = Exp::apply(isa, ops.sub(x, max_val));
-                prev_exp_sum = exp_sum;
-                exp_sum = ops.add(exp_sum, y);
-                y
-            },
-        );
+        // Compute `y = exp(x - max(x))` and `sum(y)`.
+        let (dest, exp_sum) = exp_sum_minus_max(isa, self.src_dest, max_val);
 
-        // Undo the last update to `exp_sum` for unused lanes.
-        let remainder = dest.len() % ops.len();
-        if remainder != 0 {
-            let remainder_mask = ops.first_n_mask(remainder);
-            exp_sum = ops.select(exp_sum, prev_exp_sum, remainder_mask);
-        }
-
-        // *x /= exp_sum
-        let exp_sum = ops.fold_splat(exp_sum, 0., |sum, x| sum + x);
+        // Divide by `exp_sum`.
+        let exp_sum = ops.splat(exp_sum);
         let inv_exp_sum = ops.reciprocal(exp_sum);
 
         let dest = simd_map(
@@ -90,6 +74,44 @@ impl<'dst> SimdOp for Softmax<'_, 'dst> {
 
         dest
     }
+}
+
+/// Computes `y = exp(x - max(x))` and `sum(y)` in a single pass.
+#[inline(always)]
+fn exp_sum_minus_max<'dst, I: Isa>(
+    isa: I,
+    src_dest: SrcDest<'_, 'dst, f32>,
+    max_val: f32,
+) -> (&'dst mut [f32], f32) {
+    let ops = isa.f32();
+
+    let max_val = ops.splat(max_val);
+
+    // *x = (*x - max_val).exp()
+    let mut prev_exp_sum = ops.zero();
+    let mut exp_sum = ops.zero();
+    let dest = simd_map(
+        ops,
+        src_dest,
+        #[inline(always)]
+        |x| {
+            // Use faster `exp(x)` since input is known to be <= 0.
+            let y = ReducedRangeExp::apply(isa, ops.sub(x, max_val));
+            prev_exp_sum = exp_sum;
+            exp_sum = ops.add(exp_sum, y);
+            y
+        },
+    );
+
+    // Undo the last update to `exp_sum` for unused lanes.
+    let remainder = dest.len() % ops.len();
+    if remainder != 0 {
+        let remainder_mask = ops.first_n_mask(remainder);
+        exp_sum = ops.select(exp_sum, prev_exp_sum, remainder_mask);
+    }
+    let exp_sum = exp_sum.to_array().into_iter().sum();
+
+    (dest, exp_sum)
 }
 
 #[cfg(test)]
