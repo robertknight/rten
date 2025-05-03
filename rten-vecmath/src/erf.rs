@@ -7,7 +7,7 @@ use std::f32::consts::SQRT_2;
 use rten_simd::ops::{FloatOps, NumOps};
 use rten_simd::{Isa, Simd, SimdUnaryOp};
 
-use crate::Exp;
+use crate::exp::ReducedRangeExp;
 
 /// Vectorized error function (erf).
 ///
@@ -43,9 +43,10 @@ impl SimdUnaryOp<f32> for Erf {
         let t = ops.reciprocal(ops.mul_add(x, p, ops.one()));
         let at = ops.poly_eval(t, &[a0, a1, a2, a3, a4]);
 
-        // exp_mx2 = e^(-x^2)
+        // exp_mx2 = e^(-x^2). `-(x^2)` is always <= 0, so we can use
+        // reduced-range exp.
         let x_m2 = ops.neg(ops.mul(x, x));
-        let exp_mx2 = Exp::apply(isa, x_m2);
+        let exp_mx2 = ReducedRangeExp::apply(isa, x_m2);
 
         // y = 1. - at * exp_mx2;
         let y = ops.sub(ops.one(), ops.mul(at, exp_mx2));
