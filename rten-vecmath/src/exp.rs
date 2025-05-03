@@ -262,12 +262,10 @@ mod tests {
     };
     use crate::{Exp, Sigmoid, Silu, Swish};
 
-    // Maximum error of `vec_expf` compared to Rust standard library
-    // implementation.
+    // Maximum error of `Exp` compared to Rust standard library implementation.
     const MAX_EXP_ERROR_ULPS: f32 = 1.0;
 
-    // Maximum error of `vec_sigmoid` compared to reference implementation
-    // below.
+    // Maximum error of `Sigmoid` compared to reference implementation below.
     const MAX_SIGMOID_ERROR_ULPS: f32 = 4.0;
 
     fn reference_sigmoid(x: f32) -> f32 {
@@ -308,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn test_expf() {
+    fn test_exp_basic() {
         // A few simple test cases, including "typical" +/-ve inputs with
         // |x| above/below ln2, zero and values below/above min/max cutoffs.
         let cases = [-2.0f32, -1., -0.5, 0.1, 0., 0.1, 0.5, 1., 2., -105., 105.];
@@ -330,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_expf() {
+    fn test_exp() {
         check_simd_vs_reference(
             |src, dest| Exp {}.map(src, dest),
             f32::exp,
@@ -351,7 +349,7 @@ mod tests {
 
     #[test]
     #[ignore] // Ignored by default due to long runtime
-    fn test_expf_exhaustive() {
+    fn test_exp_exhaustive() {
         let exp_op = Exp {};
         check_with_all_f32s(
             |x| (exp_op.scalar_eval(x), x.exp()),
@@ -416,7 +414,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn bench_expf() {
+    fn bench_exp() {
         benchmark_op(
             |xs, ys| xs.iter().zip(ys.iter_mut()).for_each(|(x, y)| *y = x.exp()),
             |xs, ys| Exp {}.map(xs, ys),
