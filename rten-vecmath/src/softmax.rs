@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::functional::simd_map;
+use rten_simd::functional::{simd_apply, simd_map};
 use rten_simd::ops::{FloatOps, NumOps};
 use rten_simd::span::SrcDest;
 use rten_simd::{Isa, Simd, SimdIterable, SimdOp, SimdUnaryOp};
@@ -64,8 +64,8 @@ impl<'dst> SimdOp for Softmax<'_, 'dst> {
         // Divide by `exp_sum`.
         let exp_sum = ops.splat(exp_sum);
         let inv_exp_sum = ops.reciprocal(exp_sum);
-
-        let dest = simd_map(
+        const UNROLL: usize = 2;
+        simd_apply::<_, _, _, UNROLL>(
             ops,
             dest,
             #[inline(always)]
