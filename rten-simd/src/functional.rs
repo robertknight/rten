@@ -6,6 +6,9 @@ use crate::Elem;
 
 /// Transform a slice by applying a vectorized map function to its elements.
 ///
+/// This function can be applied both in-place (mutable destination) and
+/// with separate source/destination buffers.
+///
 /// If the slice is not a multiple of the vector length, the final call to
 /// `op` will use a vector padded with zeros.
 ///
@@ -52,12 +55,66 @@ pub fn simd_map<'src, 'dst, T: Elem + 'static, O: NumOps<T>, Op: FnMut(O::Simd) 
     unsafe { src_dest.dest_assume_init() }
 }
 
+/// Transform a slice in-place by applying a vectorized map function to its
+/// elements.
+///
+/// If the slice is not a multiple of the vector length, the final call to
+/// `op` will use a vector padded with zeros.
+///
+/// `UNROLL` specifies a loop unrolling factor. When the operation is very
+/// cheap, explicit unrolling can improve instruction level parallelism.
+#[inline(always)]
+pub fn simd_apply<
+    T: Elem + 'static,
+    O: NumOps<T>,
+    Op: FnMut(O::Simd) -> O::Simd,
+    const UNROLL: usize,
+>(
+    ops: O,
+    dest: &mut [T],
+    mut op: Op,
+) -> &mut [T] {
+    let v_len = ops.len();
+    let mut chunks = dest.chunks_exact_mut(v_len * UNROLL);
+    for chunk in &mut chunks {
+        for i in 0..UNROLL {
+            // Safety: Sliced chunk points to `v_len` elements.
+            let x = unsafe { ops.load_ptr(chunk.as_ptr().add(i * v_len)) };
+            let y = op(x);
+            unsafe {
+                ops.store_ptr(y, chunk.as_mut_ptr().add(i * v_len));
+            }
+        }
+    }
+
+    let mut tail_chunks = chunks.into_remainder().chunks_exact_mut(v_len);
+    for chunk in &mut tail_chunks {
+        let x = ops.load(chunk);
+        let y = op(x);
+        ops.store(y, chunk);
+    }
+
+    let tail = tail_chunks.into_remainder();
+    if !tail.is_empty() {
+        let mask = ops.first_n_mask(tail.len());
+
+        // Safety: `mask[i]` is true where `tail.add(i)` is valid.
+        let x = unsafe { ops.load_ptr_mask(tail.as_ptr(), mask) };
+        let y = op(x);
+        unsafe {
+            ops.store_ptr_mask(y, tail.as_mut_ptr(), mask);
+        }
+    }
+
+    dest
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ops::NumOps;
     use crate::{Isa, SimdOp};
 
-    use super::simd_map;
+    use super::{simd_apply, simd_map};
 
     // f32 vector length, chosen to exercise main and tail loops for all ISAs.
     const TEST_LEN: usize = 18;
@@ -78,6 +135,32 @@ mod tests {
         }
 
         let mut buf: Vec<_> = (0..TEST_LEN).map(|x| x as f32).collect();
+        let expected: Vec<_> = buf.iter().map(|x| *x * *x).collect();
+
+        let squared = Square { xs: &mut buf }.dispatch();
+
+        assert_eq!(squared, &expected);
+    }
+
+    #[test]
+    fn test_simd_apply() {
+        struct Square<'a> {
+            xs: &'a mut [f32],
+        }
+
+        impl<'a> SimdOp for Square<'a> {
+            type Output = &'a mut [f32];
+
+            fn eval<I: Isa>(self, isa: I) -> Self::Output {
+                let ops = isa.f32();
+                const UNROLL: usize = 2;
+                simd_apply::<_, _, _, UNROLL>(ops, self.xs, |x| ops.mul(x, x))
+            }
+        }
+
+        // Extend `TEST_LEN` to test the unrolled loops in `simd_apply`.
+        let test_len = TEST_LEN * 4;
+        let mut buf: Vec<_> = (0..test_len).map(|x| x as f32).collect();
         let expected: Vec<_> = buf.iter().map(|x| *x * *x).collect();
 
         let squared = Square { xs: &mut buf }.dispatch();
