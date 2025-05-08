@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten
 
+- Optimized `Softmax`, `Erf` and `Gelu` using reduced-range exp function
+  (https://github.com/robertknight/rten/pull/682,
+  https://github.com/robertknight/rten/pull/684)
+
+- Optimized copying of transposed and partly-contiguous tensors
+  (https://github.com/robertknight/rten/pull/681)
+
 - Optimized int8 matrix multiplication on Arm using indexed UDOT instructions
   (https://github.com/robertknight/rten/pull/680)
 
@@ -23,7 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (https://github.com/robertknight/rten/pull/672, https://github.com/robertknight/rten/pull/674)
 
 - Optimized reductions in `LayerNormalization` and `Softmax` operators by
-  improving instruction level parallelism (https://github.com/robertknight/rten/pull/671)
+  improving instruction level parallelism (https://github.com/robertknight/rten/pull/671,
+  https://github.com/robertknight/rten/pull/683)
 
 - Fixed "instruction requires: dotprod" error in Linux build on Arm and added
   Arm Linux CI (https://github.com/robertknight/rten/pull/670,
