@@ -376,7 +376,7 @@ checksum = "7a66a03ae7c801facd77a29370b4faec201768915ac14a721ba36f20bc9c209b"
 
 [[package]]
 name = "rten"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "fastrand",
  "fastrand-contrib",
@@ -402,7 +402,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rten-cli"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "fastrand",
  "lexopt",
@@ -434,7 +434,7 @@ dependencies = [
 
 [[package]]
 name = "rten-generate"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "fastrand",
  "rten",
@@ -445,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "rten-imageio"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "image",
  "png",
@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "rten-imageproc"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "rten-bench",
  "rten-tensor",
@@ -464,11 +464,11 @@ dependencies = [
 
 [[package]]
 name = "rten-simd"
-version = "0.17.0"
+version = "0.18.0"
 
 [[package]]
 name = "rten-tensor"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "rten-testing",
  "serde",
@@ -482,7 +482,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rten-text"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "fancy-regex",
  "rten-testing",
@@ -494,7 +494,7 @@ dependencies = [
 
 [[package]]
 name = "rten-vecmath"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "fastrand",
  "libm",

@@ -1,6 +1,6 @@
 [package]
 name = "rten-tensor"
-version = "0.17.0"
+version = "0.18.0"
 edition = "2021"
 authors = ["Robert Knight"]
 description = "Tensor library for the RTen machine learning runtime"
