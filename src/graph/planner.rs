@@ -66,13 +66,16 @@ impl CachedPlan {
     }
 }
 
-/// Return true if all elements in `xs` are unique according to the comparison
-/// function `eq`.
-///
-/// `xs` is assumed to be small enough that comparing all pairs is still fast.
-fn all_unique<T, F: Fn(&T, &T) -> bool>(xs: &[T], eq: F) -> bool {
-    xs.iter()
-        .all(|x| xs.iter().filter(|y| eq(x, y)).count() == 1)
+/// Return the first element in `xs` which is a duplicate of an earlier element.
+fn first_duplicate_by<T, F: Fn(&T, &T) -> bool>(xs: &[T], eq: F) -> Option<&T> {
+    for (i, x) in xs.iter().enumerate() {
+        for y in &xs[i + 1..] {
+            if eq(x, y) {
+                return Some(y);
+            }
+        }
+    }
+    None
 }
 
 /// Planner creates execution plans for graph runs.
@@ -103,31 +106,41 @@ impl<'a> Planner<'a> {
         outputs: &[NodeId],
         options: PlanOptions,
     ) -> Result<Vec<NodeId>, RunError> {
-        if !all_unique(outputs, |x, y| x == y) {
-            return Err(RunError::PlanningError("output IDs are not unique".into()));
+        if let Some(dupe_id) = first_duplicate_by(outputs, |x, y| x == y) {
+            let name = self.graph.node_name(*dupe_id);
+            return Err(RunError::PlanningError(format!(
+                "Outputs are not unique. Output \"{}\" is duplicated.",
+                name
+            )));
         }
         for (output_index, output_id) in outputs.iter().enumerate() {
             match self.graph.get_node(*output_id) {
                 Some(Node::Value(_) | Node::Constant(_)) => {}
                 _ => {
+                    let name = self.graph.node_name(*output_id);
                     return Err(RunError::PlanningError(format!(
-                        "output ID at index {} is not a value node in the graph",
-                        output_index
+                        "Output {} (\"{}\") is not a value node in the graph.",
+                        output_index, name
                     )));
                 }
             }
         }
 
-        if !all_unique(inputs, |x_id, y_id| x_id == y_id) {
-            return Err(RunError::PlanningError("input IDs are not unique".into()));
+        if let Some(dupe_id) = first_duplicate_by(inputs, |x, y| x == y) {
+            let name = self.graph.node_name(*dupe_id);
+            return Err(RunError::PlanningError(format!(
+                "Inputs are not unique. Input \"{}\" is duplicated.",
+                name
+            )));
         }
         for (input_index, input_id) in inputs.iter().enumerate() {
             match self.graph.get_node(*input_id) {
                 Some(Node::Value(_)) => {}
                 _ => {
+                    let name = self.graph.node_name(*input_id);
                     return Err(RunError::PlanningError(format!(
-                        "input ID at index {} is not a value node in the graph",
-                        input_index
+                        "Input {} (\"{}\") is not a value node in the graph.",
+                        input_index, name
                     )));
                 }
             }
