@@ -1540,7 +1540,9 @@ mod tests {
         );
         assert_eq!(
             result,
-            Err(RunError::PlanningError("input IDs are not unique".into()))
+            Err(RunError::PlanningError(
+                "Inputs are not unique. Input \"input\" is duplicated.".into()
+            ))
         );
     }
 
@@ -1562,7 +1564,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(RunError::PlanningError("output IDs are not unique".into()))
+            Err(RunError::PlanningError(
+                "Outputs are not unique. Output \"op_a_out\" is duplicated.".into()
+            ))
         );
     }
 
@@ -1595,11 +1599,13 @@ mod tests {
                 None,
                 None,
             );
+            let name = g.node_name(wrong_input_id);
             assert_eq!(
                 result,
-                Err(RunError::PlanningError(
-                    "input ID at index 0 is not a value node in the graph".into(),
-                ))
+                Err(RunError::PlanningError(format!(
+                    "Input 0 (\"{}\") is not a value node in the graph.",
+                    name
+                ),))
             );
         }
     }
@@ -1620,11 +1626,13 @@ mod tests {
                 None,
                 None,
             );
+            let name = g.node_name(wrong_output_id);
             assert_eq!(
                 result,
-                Err(RunError::PlanningError(
-                    "output ID at index 0 is not a value node in the graph".into(),
-                ))
+                Err(RunError::PlanningError(format!(
+                    "Output 0 (\"{}\") is not a value node in the graph.",
+                    name
+                )))
             );
         }
     }
