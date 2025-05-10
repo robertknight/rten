@@ -1567,6 +1567,19 @@ mod tests {
     }
 
     #[test]
+    fn test_no_source_for_output() {
+        let mut g = Graph::new();
+        let output_id = g.add_value(Some("output"), None, None);
+        let err = g.run(vec![], &[output_id], None, None);
+        assert_eq!(
+            err,
+            Err(RunError::PlanningError(
+                "Source node not found for output \"output\"".into()
+            ))
+        );
+    }
+
+    #[test]
     fn test_invalid_input_id() {
         let mut g = Graph::new();
 

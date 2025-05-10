@@ -267,7 +267,8 @@ impl<'a> Planner<'a> {
                     if let Some((op_node_id, op_node)) = self.graph.get_source_node(*output_id) {
                         self.visit(op_node_id, op_node)?;
                     } else {
-                        let msg = format!("Missing output {}", output_id);
+                        let output_name = self.graph.node_name(*output_id);
+                        let msg = format!("Source node not found for output \"{}\"", output_name);
                         return Err(RunError::PlanningError(msg));
                     }
                 }
