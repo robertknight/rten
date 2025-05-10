@@ -785,11 +785,16 @@ pub(crate) use static_dims;
 pub struct OpRunContext<'a, 'i> {
     pool: &'a TensorPool,
     inputs: &'a InputList<'i>,
+    n_outputs: Option<u32>,
 }
 
 impl<'a, 'i> OpRunContext<'a, 'i> {
     pub fn new(pool: &'a TensorPool, inputs: &'a InputList<'i>) -> Self {
-        OpRunContext { pool, inputs }
+        OpRunContext {
+            pool,
+            inputs,
+            n_outputs: None,
+        }
     }
 
     /// The pool which should be used to allocate large buffers.
@@ -800,6 +805,15 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     /// Inputs to the operator execution.
     pub fn inputs(&self) -> &InputList<'i> {
         self.inputs
+    }
+
+    pub fn set_num_outputs(&mut self, n: u32) {
+        self.n_outputs = Some(n);
+    }
+
+    /// The number of requested outputs.
+    pub fn num_outputs(&self) -> Option<u32> {
+        self.n_outputs
     }
 }
 
