@@ -780,6 +780,29 @@ macro_rules! static_dims {
 
 pub(crate) use static_dims;
 
+/// Context passed to [`Operator::run`] containing the information needed for
+/// the operator to execute.
+pub struct OpRunContext<'a, 'i> {
+    pool: &'a TensorPool,
+    inputs: &'a InputList<'i>,
+}
+
+impl<'a, 'i> OpRunContext<'a, 'i> {
+    pub fn new(pool: &'a TensorPool, inputs: &'a InputList<'i>) -> Self {
+        OpRunContext { pool, inputs }
+    }
+
+    /// The pool which should be used to allocate large buffers.
+    pub fn pool(&self) -> &TensorPool {
+        self.pool
+    }
+
+    /// Inputs to the operator execution.
+    pub fn inputs(&self) -> &InputList<'i> {
+        self.inputs
+    }
+}
+
 /// Outputs from an operator.
 ///
 /// This avoids allocations in the common case where an operator produces
@@ -797,11 +820,11 @@ pub trait Operator: Any + Debug {
     /// Return a display name for the operator.
     fn name(&self) -> &str;
 
-    /// Execute the operator with the given inputs.
+    /// Execute the operator.
     ///
-    /// The output, and any large intermediate buffers used by the operation,
-    /// should be allocated from `pool`.
-    fn run(&self, pool: &TensorPool, input: InputList) -> Result<OutputList, OpError>;
+    /// `ctx` provides access to operator inputs and the [`TensorPool`] from
+    /// which the output and temporary buffers should be allocated.
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError>;
 
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
@@ -896,17 +919,15 @@ pub trait Operator: Any + Debug {
     /// the operator as a subgraph with a single node.
     fn run_subgraph(
         &self,
-        pool: &TensorPool,
-        input: InputList,
+        ctx: &OpRunContext,
         #[allow(unused)] captures: CaptureEnv,
         #[allow(unused)] weight_cache: Option<&[WeightCache]>,
         #[allow(unused)] run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
-        self.run(pool, input)
-            .map_err(|error| RunError::OperatorError {
-                name: self.name().to_string(),
-                error,
-            })
+        self.run(ctx).map_err(|error| RunError::OperatorError {
+            name: self.name().to_string(),
+            error,
+        })
     }
 }
 
@@ -920,6 +941,7 @@ impl_downcastdyn!(Operator);
 ///
 /// An InputList can be constructed from a tensor reference or tuple of tensor
 /// references using `into`.
+#[derive(Clone)]
 pub struct InputList<'a> {
     inputs: Cow<'a, [Option<Input<'a>>]>,
 
@@ -1202,7 +1224,7 @@ mod tests {
     use rten_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
     use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
-    use super::{Input, InputList, OpError, Operator, Output};
+    use super::{Input, InputList, OpError, OpRunContext, Operator, Output};
     use crate::downcast::DowncastDyn;
     use crate::ops::{Add, Sub};
     use crate::tensor_pool::TensorPool;
@@ -1240,7 +1262,9 @@ mod tests {
         inputs: I,
     ) -> Result<O, OpError> {
         let pool = new_pool();
-        op.run(&pool, inputs.into())?.remove(0).try_into()
+        let inputs = inputs.into();
+        let ctx = OpRunContext::new(&pool, &inputs);
+        op.run(&ctx)?.remove(0).try_into()
     }
 
     #[test]

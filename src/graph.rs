@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 
 use crate::env::env_flag;
 use crate::ops::{
-    DataType, Input, InputList, InputOrOutput, OpError, Operator, Output, OutputList,
+    DataType, Input, InputList, InputOrOutput, OpError, OpRunContext, Operator, Output, OutputList,
     PrepackedInput,
 };
 use crate::tensor_pool::TensorPool;
@@ -827,9 +827,10 @@ impl Graph {
                     Some(&temp_values),
                     by_value_captures,
                 );
+                let inputs = InputList::from_optional(&op_inputs);
+                let ctx = OpRunContext::new(pool, &inputs);
                 op_node.operator().run_subgraph(
-                    pool,
-                    InputList::from_optional(&op_inputs),
+                    &ctx,
                     capture_env,
                     weight_cache.and_then(|wc| wc.get_subgraph_caches(op_node_id)),
                     Some(opts.clone()),
@@ -847,7 +848,7 @@ impl Graph {
                     InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
                 op_node
                     .operator()
-                    .run(pool, input_list)
+                    .run(&OpRunContext::new(pool, &input_list))
                     .map_err(op_error_to_run_error)
             };
             std::mem::drop(op_inputs);
@@ -1090,7 +1091,7 @@ mod tests {
     use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TypedConstant};
     use crate::ops::{
         Add, Concat, Conv, DataType, Identity, If, Input, InputList, IntoOpResult, MatMul, Mul,
-        OpError, Operator, Output, OutputList, PrepackedInput, Relu, Shape,
+        OpError, OpRunContext, Operator, Output, OutputList, PrepackedInput, Relu, Shape,
     };
     use crate::tensor_pool::TensorPool;
     use crate::weight_cache::WeightCache;
@@ -1137,12 +1138,12 @@ mod tests {
             self.inner.is_commutative()
         }
 
-        fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
             {
                 let mut m = self.metrics.lock().unwrap();
                 m.run_count += 1;
             }
-            self.inner.run(pool, inputs)
+            self.inner.run(ctx)
         }
 
         fn run_in_place(
@@ -1316,8 +1317,8 @@ mod tests {
             "AddOne"
         }
 
-        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-            let input: TensorView<f32> = inputs.require_as(0)?;
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+            let input: TensorView<f32> = ctx.inputs().require_as(0)?;
             let output_data: Vec<f32> = input.iter().map(|x| x + 1.0).collect();
             Tensor::<f32>::from_data(input.shape().into(), output_data).into_op_result()
         }
@@ -1679,11 +1680,11 @@ mod tests {
             true
         }
 
-        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
             // An operator should normally have the same behavior in `run`
             // and `run_in_place`. Here we use different behavior to make it
             // possible to distinguish which path was used.
-            let input: TensorView<f32> = inputs.require_as(0)?;
+            let input: TensorView<f32> = ctx.inputs().require_as(0)?;
             input.to_tensor().into_op_result()
         }
 
@@ -1829,13 +1830,13 @@ mod tests {
             "Split"
         }
 
-        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
             {
                 let mut rc = self.run_count.lock().unwrap();
                 *rc += 1;
             }
 
-            let input: TensorView<f32> = inputs.require_as(0)?;
+            let input: TensorView<f32> = ctx.inputs().require_as(0)?;
             let left_split_len = input.len() / 2;
             let left_split = Tensor::from_vec(input.iter().take(left_split_len).copied().collect());
             let right_split =
@@ -1948,7 +1949,7 @@ mod tests {
             false
         }
 
-        fn run(&self, _pool: &TensorPool, _inputs: InputList) -> Result<OutputList, OpError> {
+        fn run(&self, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
             let count = self.count.fetch_add(1, Ordering::SeqCst);
             Ok([Tensor::from(count).into()].into())
         }
@@ -2026,7 +2027,7 @@ mod tests {
             "Subgraph"
         }
 
-        fn run(&self, _pool: &TensorPool, _inputs: InputList) -> Result<OutputList, OpError> {
+        fn run(&self, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
             Err(OpError::InvalidValue(
                 "operator must be run with `run_subgraph`",
             ))
@@ -2038,8 +2039,7 @@ mod tests {
 
         fn run_subgraph(
             &self,
-            pool: &TensorPool,
-            inputs: InputList,
+            ctx: &OpRunContext,
             captures: CaptureEnv,
             weight_caches: Option<&[WeightCache]>,
             options: Option<RunOptions>,
@@ -2049,14 +2049,14 @@ mod tests {
                 .input_ids()
                 .iter()
                 .copied()
-                .zip(inputs.iter().map(|i| i.into()))
+                .zip(ctx.inputs().iter().map(|i| i.into()))
                 .collect();
             self.graph
                 .run_subgraph(
                     inputs,
                     self.graph.output_ids(),
                     captures,
-                    Some(pool),
+                    Some(ctx.pool()),
                     weight_caches.map(|wcs| &wcs[0]),
                     options,
                 )
@@ -2380,10 +2380,10 @@ mod tests {
             self.inner.prepack(index, input)
         }
 
-        fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-            let prepacked = inputs.get_prepacked(1);
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+            let prepacked = ctx.inputs().get_prepacked(1);
             assert!(prepacked.is_some());
-            self.inner.run(pool, inputs)
+            self.inner.run(ctx)
         }
     }
 

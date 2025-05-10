@@ -7,8 +7,8 @@ use smallvec::SmallVec;
 
 use crate::ops::static_dims;
 use crate::ops::{
-    map_input, map_output, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
-    OutputList,
+    map_input, map_output, resolve_axis, Input, InputList, IntoOpResult, OpError, OpRunContext,
+    Operator, Output, OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -110,11 +110,12 @@ impl Operator for Concat {
         "Concat"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let first = inputs.require(0)?;
         map_input!(first, first, [FloatTensor, Int32Tensor], {
-            let typed_inputs = typed_inputs(&inputs, first)?;
-            concat(pool, &typed_inputs, self.axis).into_op_result()
+            let typed_inputs = typed_inputs(inputs, first)?;
+            concat(ctx.pool(), &typed_inputs, self.axis).into_op_result()
         })
     }
 
@@ -251,13 +252,14 @@ impl Operator for Tile {
         "Tile"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let repeats = inputs.require_as::<i32>(1)?;
         let repeats = static_dims!(repeats, 1)?;
 
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            tile(pool, input, repeats).into_op_result()
+            tile(ctx.pool(), input, repeats).into_op_result()
         })
     }
 

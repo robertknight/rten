@@ -11,7 +11,8 @@ use rten_vecmath as vecmath;
 
 use crate::number::AsBool;
 use crate::ops::{
-    map_input, map_output, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+    map_input, map_output, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output,
+    OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -39,9 +40,9 @@ impl<Op: Any + Debug + UnaryFloatOp> Operator for Op {
         self.name()
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as(0)?;
-        self.map(pool, input).into_op_result()
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        self.map(ctx.pool(), input).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -77,10 +78,10 @@ macro_rules! unary_numeric_op {
                 stringify!($name)
             }
 
-            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-                let input = inputs.require(0)?;
+            fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+                let input = ctx.inputs().require(0)?;
                 map_input!(input, input, [FloatTensor, Int32Tensor], {
-                    $view_impl(pool, input).into_op_result()
+                    $view_impl(ctx.pool(), input).into_op_result()
                 })
             }
 
@@ -195,8 +196,8 @@ macro_rules! parallel_unary_float_op {
                 true
             }
 
-            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-                $func_name(pool, inputs.require_as(0)?).into_op_result()
+            fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+                $func_name(ctx.pool(), ctx.inputs().require_as(0)?).into_op_result()
             }
 
             fn run_in_place(
@@ -336,12 +337,13 @@ impl Operator for Clip {
         "Clip"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
             let min = inputs.get_as_scalar(1)?;
             let max = inputs.get_as_scalar(2)?;
-            clip(pool, input, min, max).into_op_result()
+            clip(ctx.pool(), input, min, max).into_op_result()
         })
     }
 
@@ -506,9 +508,9 @@ impl Operator for Not {
         "Not"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as::<i32>(0)?;
-        not(pool, input).into_op_result()
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as::<i32>(0)?;
+        not(ctx.pool(), input).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -585,8 +587,8 @@ impl Operator for Swish {
         true
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        swish(pool, inputs.require_as(0)?, self.beta).into_op_result()
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        swish(ctx.pool(), ctx.inputs().require_as(0)?, self.beta).into_op_result()
     }
 
     fn run_in_place(

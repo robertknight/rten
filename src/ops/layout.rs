@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{
     map_input, map_output, resolve_axes, resolve_axis, static_dims, Input, InputList, IntoOpResult,
-    OpError, Operator, Output, OutputList,
+    OpError, OpRunContext, Operator, Output, OutputList,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -69,9 +69,9 @@ impl Operator for DepthToSpace {
         "DepthToSpace"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as(0)?;
-        depth_to_space::<f32>(pool, input, self.block_size, self.mode).into_op_result()
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        depth_to_space::<f32>(ctx.pool(), input, self.block_size, self.mode).into_op_result()
     }
 }
 
@@ -150,12 +150,13 @@ impl Operator for Expand {
         "Expand"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
         let shape = static_dims!(shape, 1)?;
 
-        map_input!(input, x, { expand(pool, x, &shape).into_op_result() })
+        map_input!(input, x, { expand(ctx.pool(), x, &shape).into_op_result() })
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -227,9 +228,11 @@ impl Operator for Flatten {
         "Flatten"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
-        map_input!(input, x, { flatten(pool, x, self.axis).into_op_result() })
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
+        map_input!(input, x, {
+            flatten(ctx.pool(), x, self.axis).into_op_result()
+        })
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -355,13 +358,14 @@ impl Operator for Reshape {
         "Reshape"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
         let shape = static_dims!(shape, 1)?;
 
         map_input!(input, x, {
-            reshape(pool, x, &shape, self.allow_zero).into_op_result()
+            reshape(ctx.pool(), x, &shape, self.allow_zero).into_op_result()
         })
     }
 
@@ -396,8 +400,8 @@ impl Operator for Shape {
         "Shape"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
         let ndim = input.ndim() as i32;
 
         // Convert `start` and `end` to positive values in `[0, ndim]`, clamping
@@ -429,7 +433,7 @@ impl Operator for Shape {
 
         // Allocate output from pool for consistency with other operators,
         // even though the buffer is tiny, so there is no performance benefit.
-        let mut data = pool.alloc(input.ndim());
+        let mut data = ctx.pool().alloc(input.ndim());
         data.extend(shape_slice.iter().map(|&el| el as i32));
 
         Tensor::from_data(&[shape_slice.len()], data).into_op_result()
@@ -444,13 +448,13 @@ impl Operator for Size {
         "Size"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
         let len = input.len() as i32;
 
         // Allocate output from pool for consistency with other operators,
         // even though the buffer is tiny, so there is no performance benefit.
-        let mut output = Tensor::zeros_in(pool, &[]);
+        let mut output = Tensor::zeros_in(ctx.pool(), &[]);
         output[[]] = len;
 
         output.into_op_result()
@@ -511,12 +515,13 @@ impl Operator for Squeeze {
         "Squeeze"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = inputs.get_as(1)?;
         let axes = axes.map(|axes| static_dims!(axes, 1)).transpose()?;
 
-        map_input!(input, x, { squeeze(pool, x, axes).into_op_result() })
+        map_input!(input, x, { squeeze(ctx.pool(), x, axes).into_op_result() })
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -572,12 +577,12 @@ impl Operator for Transpose {
         "Transpose"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
         let perm_slice = self.perm.as_deref();
 
         map_input!(input, x, {
-            transpose(pool, x, perm_slice).into_op_result()
+            transpose(ctx.pool(), x, perm_slice).into_op_result()
         })
     }
 }
@@ -627,12 +632,15 @@ impl Operator for Unsqueeze {
         "Unsqueeze"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = inputs.require_as(1)?;
         let axes = static_dims!(axes, 1)?;
 
-        map_input!(input, x, { unsqueeze(pool, x, &axes).into_op_result() })
+        map_input!(input, x, {
+            unsqueeze(ctx.pool(), x, &axes).into_op_result()
+        })
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -668,7 +676,7 @@ mod tests {
     use super::{depth_to_space, DepthToSpaceMode};
     use crate::ops::layout::{
         expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
-        unsqueeze, Reshape, Shape, Size,
+        unsqueeze, OpRunContext, Reshape, Shape, Size,
     };
     use crate::ops::tests::new_pool;
     use crate::ops::{OpError, Operator, Output};
@@ -1040,8 +1048,10 @@ mod tests {
         let expected = input.to_shape([4].as_slice());
 
         let op = Reshape { allow_zero: false };
+        let inputs = (&input, &shape).into();
+        let ctx = OpRunContext::new(&pool, &inputs);
         let result = op
-            .run(&pool, (&input, &shape).into())
+            .run(&ctx)
             .unwrap()
             .remove(0)
             .into_tensor::<f32>()
@@ -1119,9 +1129,11 @@ mod tests {
 
         cases.test_each(|case| {
             let pool = new_pool();
+            let inputs = (&case.input).into();
+            let ctx = OpRunContext::new(&pool, &inputs);
             let result = case
                 .op
-                .run(&pool, (&case.input).into())
+                .run(&ctx)
                 .unwrap()
                 .remove(0)
                 .into_tensor::<i32>()
@@ -1136,8 +1148,10 @@ mod tests {
         let pool = new_pool();
         let op = Size {};
         let input = Tensor::from([[1, 2], [3, 4]]);
+        let inputs = (&input).into();
+        let ctx = OpRunContext::new(&pool, &inputs);
         let result = op
-            .run(&pool, (&input).into())
+            .run(&ctx)
             .unwrap()
             .remove(0)
             .into_tensor::<i32>()
