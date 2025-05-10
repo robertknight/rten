@@ -807,11 +807,17 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
         self.inputs
     }
 
+    /// Set the requested number of outputs.
+    ///
+    /// This can be used to skip generating outputs that are unused, or in
+    /// the rare cases that the output count cannot be determined from the
+    /// operator's inputs and attributes alone.
     pub fn set_num_outputs(&mut self, n: u32) {
         self.n_outputs = Some(n);
     }
 
-    /// The number of requested outputs.
+    /// Return the number of requested outputs or `None` if this has not been
+    /// specified.
     pub fn num_outputs(&self) -> Option<u32> {
         self.n_outputs
     }
