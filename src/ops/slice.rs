@@ -43,7 +43,15 @@ fn slice_ranges(
         };
 
         let step = steps.map(|s| s[i]).unwrap_or(1);
-        ranges[axis] = SliceRange::new(*start as isize, Some(*end as isize), step as isize);
+        let range = SliceRange::new(*start as isize, Some(*end as isize), step as isize);
+
+        // ONNX models represent ranges that are unbounded on one side by using
+        // `INT_MAX` or `INT_MIN` (when slicing backwards with negative steps)
+        // as the end point. This relies on the ranges being clamped to valid
+        // bounds.
+        let range = range.clamp(input_shape[axis]);
+
+        ranges[axis] = range;
     }
     Ok(ranges)
 }
