@@ -6,7 +6,7 @@ use rten_tensor::{NdTensor, Tensor, TensorView};
 
 use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::{
-    add_in_place, mul_in_place, sigmoid, static_dims, tanh, InputList, IntoOpResult, OpError,
+    add_in_place, mul_in_place, sigmoid, static_dims, tanh, IntoOpResult, OpError, OpRunContext,
     Operator, OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
@@ -327,7 +327,8 @@ impl Operator for GRU {
         "GRU"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
         let weights = inputs.require_as(1)?;
         let recurrent_weights = inputs.require_as(2)?;
@@ -336,7 +337,7 @@ impl Operator for GRU {
         let initial_hidden = inputs.get_as(5)?;
 
         gru(
-            pool,
+            ctx.pool(),
             self.direction,
             input,
             weights,
@@ -573,7 +574,8 @@ impl Operator for LSTM {
         "LSTM"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
         let weights = inputs.require_as(1)?;
         let recurrent_weights = inputs.require_as(2)?;
@@ -583,7 +585,7 @@ impl Operator for LSTM {
         let initial_cell = inputs.get_as(6)?;
 
         lstm(
-            pool,
+            ctx.pool(),
             self.direction,
             input,
             weights,

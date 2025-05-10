@@ -3,8 +3,7 @@ use fastrand_contrib::RngExt;
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
 
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, OutputList};
-use crate::tensor_pool::TensorPool;
+use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList};
 
 #[derive(Debug)]
 pub struct RandomUniform {
@@ -28,7 +27,7 @@ impl Operator for RandomUniform {
         false
     }
 
-    fn run(&self, pool: &TensorPool, _inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let scale_value = |val: f32| self.low + val * (self.high - self.low);
         let shape = self.shape.as_slice();
 
@@ -37,7 +36,7 @@ impl Operator for RandomUniform {
         } else {
             Rng::new()
         };
-        Tensor::from_simple_fn_in(pool, shape, || scale_value(rng.f32())).into_op_result()
+        Tensor::from_simple_fn_in(ctx.pool(), shape, || scale_value(rng.f32())).into_op_result()
     }
 }
 
@@ -59,15 +58,15 @@ impl Operator for RandomUniformLike {
         false
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
         let op = RandomUniform {
             low: self.low,
             high: self.high,
             seed: self.seed,
             shape: input.shape().to_vec(),
         };
-        op.run(pool, InputList::new())
+        op.run(ctx)
     }
 }
 
@@ -93,7 +92,7 @@ impl Operator for RandomNormal {
         false
     }
 
-    fn run(&self, pool: &TensorPool, _inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let shape = self.shape.as_slice();
 
         let mut rng = if let Some(seed) = self.seed {
@@ -102,7 +101,7 @@ impl Operator for RandomNormal {
             Rng::new()
         };
 
-        Tensor::from_simple_fn_in(pool, shape, || rng.f32_normal(self.mean, self.scale))
+        Tensor::from_simple_fn_in(ctx.pool(), shape, || rng.f32_normal(self.mean, self.scale))
             .into_op_result()
     }
 }
@@ -125,15 +124,15 @@ impl Operator for RandomNormalLike {
         false
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
         let op = RandomNormal {
             mean: self.mean,
             scale: self.scale,
             seed: self.seed,
             shape: input.shape().to_vec(),
         };
-        op.run(pool, InputList::new())
+        op.run(ctx)
     }
 }
 
@@ -151,7 +150,8 @@ impl Operator for Dropout {
         self.seed.is_some()
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as::<f32>(0)?;
 
         // The spec (https://onnx.ai/onnx/operators/onnx__Dropout.html) says "If
@@ -183,7 +183,7 @@ impl Operator for Dropout {
                     input.shape(),
                     || if rng.f32() < ratio { 0 } else { 1 },
                 );
-            let input = input.to_contiguous_in(pool);
+            let input = input.to_contiguous_in(ctx.pool());
 
             let output = Tensor::from_data(
                 input.shape(),
@@ -221,7 +221,7 @@ mod tests {
 
     use crate::ops::operators::{FloatOperators, Operators};
     use crate::ops::tests::{new_pool, run_op};
-    use crate::ops::{InputList, Operator};
+    use crate::ops::{InputList, OpRunContext, Operator};
 
     use super::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
 
@@ -279,7 +279,9 @@ mod tests {
                 shape,
                 seed,
             };
-            let output = op.run(&pool, InputList::new()).unwrap().remove(0);
+            let inputs = InputList::new();
+            let ctx = OpRunContext::new(&pool, &inputs);
+            let output = op.run(&ctx).unwrap().remove(0);
             let output: Tensor = output.try_into().unwrap();
 
             assert_eq!(output.shape(), op.shape);
@@ -318,7 +320,9 @@ mod tests {
 
             // Test that repeated generation produces the same output if the
             // seed is fixed, or different output otherwise.
-            let output_2 = op.run(&pool, InputList::new()).unwrap().remove(0);
+            let inputs = InputList::new();
+            let ctx = OpRunContext::new(&pool, &inputs);
+            let output_2 = op.run(&ctx).unwrap().remove(0);
             let output_2: Tensor = output_2.try_into().unwrap();
             if let Some(_seed) = seed {
                 assert_eq!(output, output_2);
@@ -477,8 +481,9 @@ mod tests {
             inputs.push(&data);
             inputs.push_optional(ratio_input.as_ref());
             inputs.push_optional(training_mode_input.as_ref());
-
-            let mut outputs = op.run(&new_pool(), inputs).unwrap();
+            let pool = new_pool();
+            let ctx = OpRunContext::new(&pool, &inputs);
+            let mut outputs = op.run(&ctx).unwrap();
             let output: Tensor<f32> = outputs.remove(0).try_into().unwrap();
             assert_eq!(output, data);
 
@@ -524,8 +529,10 @@ mod tests {
             inputs.push(&data);
             inputs.push_optional(ratio_input.as_ref());
             inputs.push(&training_mode_input);
+            let pool = new_pool();
+            let ctx = OpRunContext::new(&pool, &inputs);
 
-            let mut outputs = op.run(&new_pool(), inputs).unwrap();
+            let mut outputs = op.run(&ctx).unwrap();
             let output: Tensor<f32> = outputs.remove(0).try_into().unwrap();
             let dropout_ratio =
                 output.iter().filter(|x| **x == 0.0).count() as f32 / data.len() as f32;

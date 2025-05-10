@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 
 use crate::ops::{
     map_input, map_output, resolve_axis, static_dims, Input, InputList, IntoOpResult, OpError,
-    Operator, Output, OutputList,
+    OpRunContext, Operator, Output, OutputList,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -117,7 +117,8 @@ impl Operator for Slice {
         "Slice"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
 
         let starts = inputs.require_as::<i32>(1)?;
@@ -137,7 +138,7 @@ impl Operator for Slice {
             .transpose()?;
 
         let result: Result<Output, OpError> = map_input!(input, x, {
-            slice(pool, x, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
+            slice(ctx.pool(), x, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
         });
         result.into_op_result()
     }
@@ -178,9 +179,9 @@ impl Operator for Slice {
                     inputs.push(x);
                 }
 
-                return self
-                    .run(pool, InputList::from(&inputs))
-                    .map(|mut outputs| outputs.remove(0));
+                let input_list = InputList::from(&inputs);
+                let ctx = OpRunContext::new(pool, &input_list);
+                return self.run(&ctx).map(|mut outputs| outputs.remove(0));
             }
         }
 

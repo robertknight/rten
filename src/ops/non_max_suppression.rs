@@ -1,7 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
-use crate::ops::{static_dims, InputList, IntoOpResult, OpError, Operator, OutputList};
+use crate::ops::{static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -191,7 +191,8 @@ impl Operator for NonMaxSuppression {
         "NonMaxSuppression"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let boxes = inputs.require_as(0)?;
         let boxes = static_dims!(boxes, 3, "ND4")?;
 
@@ -203,7 +204,7 @@ impl Operator for NonMaxSuppression {
         let score_threshold = inputs.get_as_scalar(4)?;
 
         let selected_box_indices = non_max_suppression(
-            pool,
+            ctx.pool(),
             boxes,
             scores,
             self.box_order,

@@ -7,7 +7,8 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::iter_util::range_chunks;
 use crate::ops::{
-    static_dims, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+    static_dims, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output,
+    OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -416,16 +417,17 @@ impl Operator for Resize {
         "Resize"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
 
         // The `roi` input is only used if the `coordinate_transformation_mode`
         // ONNX attr is `tf_crop_and_resize`, which is not currently supported.
-        let _roi = get_optional_input::<f32>(&inputs, 1)?;
-        let target = target_from_scale_size_inputs(&inputs, 2)?;
+        let _roi = get_optional_input::<f32>(inputs, 1)?;
+        let target = target_from_scale_size_inputs(inputs, 2)?;
 
         resize(
-            pool,
+            ctx.pool(),
             input,
             target,
             self.mode,
@@ -480,8 +482,8 @@ mod tests {
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
     use crate::ops::{
-        resize, CoordTransformMode, InputList, NearestMode, OpError, Operator, Resize, ResizeMode,
-        ResizeTarget,
+        resize, CoordTransformMode, InputList, NearestMode, OpError, OpRunContext, Operator,
+        Resize, ResizeMode, ResizeTarget,
     };
 
     // Reference values for these tests can be computed with either OpenCV
@@ -893,7 +895,9 @@ mod tests {
                 case.scales.as_ref().map(|t| t.into()),
                 case.sizes.as_ref().map(|t| t.into()),
             ];
-            let result = op.run(&pool, InputList::from_optional(&inputs));
+            let inputs = InputList::from_optional(&inputs);
+            let ctx = OpRunContext::new(&pool, &inputs);
+            let result = op.run(&ctx);
             match (&case.expected, result) {
                 (CaseOutput::Shape(shape), Ok(out)) => {
                     assert_eq!(out[0].shape(), *&shape);

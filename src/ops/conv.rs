@@ -13,7 +13,7 @@ use crate::gemm::{
 use crate::ops::matmul::zero_point_to_vec;
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{
-    static_dims, Input, InputList, IntoOpResult, OpError, Operator, OutputList, Padding,
+    static_dims, Input, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding,
 };
 use crate::shift_cast::ShiftCast;
 use crate::tensor_pool::{AutoReturn, PoolRef, TensorPool};
@@ -363,12 +363,13 @@ impl Operator for Conv {
         "Conv"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
         conv::<f32, f32, f32>(
-            pool,
+            ctx.pool(),
             input,
             weight,
             bias,
@@ -496,7 +497,8 @@ impl Operator for ConvInteger {
         "ConvInteger"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let weight = inputs.require(1)?;
 
@@ -505,7 +507,7 @@ impl Operator for ConvInteger {
                 let input_zero = inputs.get_as(2)?;
                 let weight_zero = inputs.get_as(3)?;
                 conv_integer(
-                    pool,
+                    ctx.pool(),
                     $x,
                     $w,
                     self.padding.clone(),
@@ -795,12 +797,13 @@ impl Operator for ConvTranspose {
         "ConvTranspose"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
         conv_transpose(
-            pool,
+            ctx.pool(),
             input,
             weight,
             bias,
@@ -825,7 +828,9 @@ mod tests {
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
-    use crate::ops::{conv, conv_integer, conv_transpose, Conv, OpError, Operator, Padding};
+    use crate::ops::{
+        conv, conv_integer, conv_transpose, Conv, OpError, OpRunContext, Operator, Padding,
+    };
     use crate::tensor_pool::AutoReturn;
 
     use super::conv_transpose_output_size_and_padding;
@@ -1092,8 +1097,10 @@ mod tests {
             strides: vec![1, 1],
             dilations: vec![1, 1],
         };
+        let inputs = (&input, &kernel).into();
+        let ctx = OpRunContext::new(&pool, &inputs);
         let result = op
-            .run(&pool, (&input, &kernel).into())
+            .run(&ctx)
             .unwrap()
             .remove(0)
             .into_tensor::<f32>()

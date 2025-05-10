@@ -6,7 +6,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
 
-use crate::ops::{static_dims, InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
+use crate::ops::{static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding};
 use crate::tensor_pool::TensorPool;
 
 /// Calculate the output size and padding for a convolution or pooling operation.
@@ -354,10 +354,10 @@ impl Operator for AveragePool {
         "AveragePool"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
         average_pool(
-            pool,
+            ctx.pool(),
             input,
             &self.kernel_size,
             &self.strides,
@@ -426,9 +426,9 @@ impl Operator for GlobalAveragePool {
         "GlobalAveragePool"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as(0)?;
-        global_average_pool(pool, input).into_op_result()
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        global_average_pool(ctx.pool(), input).into_op_result()
     }
 }
 
@@ -463,10 +463,10 @@ impl Operator for MaxPool {
         "MaxPool"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
         max_pool(
-            pool,
+            ctx.pool(),
             input,
             &self.kernel_size,
             &self.strides,

@@ -6,7 +6,9 @@ use rten_tensor::{DynLayout, OverlapPolicy, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::ops::layout::expand_to;
-use crate::ops::{matmul, mul, reduce_sum, InputList, IntoOpResult, OpError, Operator, OutputList};
+use crate::ops::{
+    matmul, mul, reduce_sum, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
+};
 use crate::tensor_pool::{AutoReturn, PoolRef, TensorPool};
 
 /// A parsed equation for an Einsum operator.
@@ -133,12 +135,13 @@ impl Operator for Einsum {
         "Einsum"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let mut typed_inputs: SmallVec<[TensorView; 2]> = SmallVec::with_capacity(inputs.len());
         for i in 0..inputs.len() {
             typed_inputs.push(inputs.require_as(i)?);
         }
-        einsum(pool, &typed_inputs, &self.equation).into_op_result()
+        einsum(ctx.pool(), &typed_inputs, &self.equation).into_op_result()
     }
 }
 

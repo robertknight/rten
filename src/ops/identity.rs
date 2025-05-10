@@ -2,7 +2,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::ops::{
-    map_input, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+    map_input, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -18,9 +18,9 @@ impl Operator for Identity {
         "Identity"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
-        map_input!(input, x, { identity(pool, x).into_op_result() })
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
+        map_input!(input, x, { identity(ctx.pool(), x).into_op_result() })
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -45,7 +45,7 @@ mod tests {
     use rten_tensor::Tensor;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{Identity, Operator};
+    use crate::ops::{Identity, OpRunContext, Operator};
 
     #[test]
     fn test_identity() -> Result<(), Box<dyn Error>> {
@@ -53,8 +53,10 @@ mod tests {
         let id_op = Identity {};
 
         let int_input = Tensor::from([1, 2, 3]);
+        let inputs = (&int_input).into();
+        let ctx = OpRunContext::new(&pool, &inputs);
         let result = id_op
-            .run(&pool, (&int_input).into())
+            .run(&ctx)
             .unwrap()
             .remove(0)
             .into_tensor::<i32>()
@@ -62,8 +64,10 @@ mod tests {
         assert_eq!(result, int_input);
 
         let float_input = Tensor::from([1.0, 2.0, 3.0]);
+        let inputs = (&float_input).into();
+        let ctx = OpRunContext::new(&pool, &inputs);
         let result = id_op
-            .run(&pool, (&float_input).into())
+            .run(&ctx)
             .unwrap()
             .remove(0)
             .into_tensor::<f32>()

@@ -8,7 +8,9 @@ use rten_vecmath as vecmath;
 use rten_vecmath::ExtendInit;
 
 use crate::ops::static_dims;
-use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
+use crate::ops::{
+    resolve_axis, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
+};
 use crate::slice_reductions::slice_max;
 use crate::tensor_pool::TensorPool;
 
@@ -236,7 +238,8 @@ impl Operator for BatchNormalization {
         "BatchNormalization"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
 
         let scale = inputs.require_as(1)?;
@@ -251,7 +254,7 @@ impl Operator for BatchNormalization {
         let var = inputs.require_as(4)?;
         let var = static_dims!(var, 1)?;
 
-        batch_norm(pool, input, &scale, &bias, &mean, &var, self.epsilon).into_op_result()
+        batch_norm(ctx.pool(), input, &scale, &bias, &mean, &var, self.epsilon).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -342,7 +345,8 @@ impl Operator for InstanceNormalization {
         "InstanceNormalization"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
 
         let scale = inputs.require_as(1)?;
@@ -351,7 +355,7 @@ impl Operator for InstanceNormalization {
         let bias = inputs.require_as(2)?;
         let bias = static_dims!(bias, 1)?;
 
-        instance_normalization(pool, input, scale, bias, self.epsilon).into_op_result()
+        instance_normalization(ctx.pool(), input, scale, bias, self.epsilon).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -494,13 +498,21 @@ impl Operator for LayerNormalization {
         "LayerNormalization"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
         let scale = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
 
-        layer_normalization(pool, input.view(), scale, bias, self.axis, self.epsilon)
-            .into_op_result()
+        layer_normalization(
+            ctx.pool(),
+            input.view(),
+            scale,
+            bias,
+            self.axis,
+            self.epsilon,
+        )
+        .into_op_result()
     }
 }
 
@@ -522,11 +534,12 @@ impl Operator for RmsNormalization {
         "RmsNormalization"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
         let scale = inputs.require_as(1)?;
 
-        rms_normalization(pool, input.view(), scale, self.axis, self.epsilon).into_op_result()
+        rms_normalization(ctx.pool(), input.view(), scale, self.axis, self.epsilon).into_op_result()
     }
 }
 
@@ -629,9 +642,9 @@ impl Operator for LogSoftmax {
         "LogSoftmax"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as(0)?;
-        log_softmax(pool, input.view(), self.axis).into_op_result()
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        log_softmax(ctx.pool(), input.view(), self.axis).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -675,9 +688,9 @@ impl Operator for Softmax {
         "Softmax"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as(0)?;
-        softmax(pool, input.view(), self.axis).into_op_result()
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        softmax(ctx.pool(), input.view(), self.axis).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
