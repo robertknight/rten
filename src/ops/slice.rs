@@ -9,6 +9,14 @@ use crate::ops::{
 };
 use crate::tensor_pool::TensorPool;
 
+macro_rules! check_input {
+    ($cond:expr, $msg:literal) => {
+        if !$cond {
+            return Err(OpError::InvalidValue($msg));
+        }
+    };
+}
+
 /// Compute the effective starts, ends and steps for each input dimension in
 /// a Slice operation.
 ///
@@ -20,14 +28,29 @@ fn slice_ranges(
     axes: Option<&NdTensorView<i32, 1>>,
     steps: Option<&NdTensorView<i32, 1>>,
 ) -> Result<SmallVec<[SliceRange; 4]>, OpError> {
-    // FIXME: Verify that `starts`, `ends`, `axes` and `steps` have compatible
-    // lengths.
+    if let Some(axes) = axes {
+        check_input!(
+            axes.len() <= input_shape.len(),
+            "`axes` length must be <= input rank"
+        );
+    }
+
+    // Per spec: "If axes are omitted, they are set to [0, ..., r-1]"
+    let n_axes = axes.map(|x| x.len()).unwrap_or(input_shape.len());
+
+    check_input!(
+        starts.len() == n_axes,
+        "`starts` length must match axis count"
+    );
+    check_input!(ends.len() == n_axes, "`ends` length must match axis count");
 
     if let Some(steps) = steps {
+        check_input!(
+            steps.len() == n_axes,
+            "`steps` length must match axis count"
+        );
         for &step in steps.iter() {
-            if step == 0 {
-                return Err(OpError::InvalidValue("steps must be non-zero"));
-            }
+            check_input!(step != 0, "steps must be non-zero");
         }
     }
 
@@ -179,7 +202,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{slice, slice_in_place};
+    use crate::ops::{slice, slice_in_place, OpError};
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
@@ -523,5 +546,66 @@ mod tests {
                 Tensor::from_data(case.expected_shape, case.expected_elements.to_vec())
             );
         })
+    }
+
+    #[test]
+    fn test_slice_invalid_lengths() {
+        #[derive(Debug)]
+        struct Case<'a> {
+            starts: &'a [i32],
+            ends: &'a [i32],
+            axes: &'a [i32],
+            steps: &'a [i32],
+            expected: &'a str,
+        }
+
+        let valid = [1, 1, 1].as_slice();
+        let invalid = [0, 0].as_slice();
+
+        let cases = [
+            Case {
+                starts: invalid,
+                ends: valid,
+                axes: valid,
+                steps: valid,
+                expected: "`starts` length must match axis count",
+            },
+            Case {
+                starts: valid,
+                ends: invalid,
+                axes: valid,
+                steps: valid,
+                expected: "`ends` length must match axis count",
+            },
+            Case {
+                starts: valid,
+                ends: valid,
+                axes: valid,
+                steps: invalid,
+                expected: "`steps` length must match axis count",
+            },
+            Case {
+                starts: valid,
+                ends: valid,
+                axes: [1, 2, 3, 4].as_slice(),
+                steps: valid,
+                expected: "`axes` length must be <= input rank",
+            },
+        ];
+
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let input = Tensor::<f32>::zeros(&[1, 2, 3]);
+            let err = slice(
+                &pool,
+                input.view(),
+                &case.starts.into(),
+                &case.ends.into(),
+                Some(&case.axes.into()),
+                Some(&case.steps.into()),
+            )
+            .err();
+            assert_eq!(err, Some(OpError::InvalidValue(case.expected)));
+        });
     }
 }
