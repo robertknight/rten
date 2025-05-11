@@ -3,7 +3,7 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::iter_util::range_chunks;
 use crate::ops::{
-    map_input, resolve_axis, static_dims, Input, InputList, OpError, Operator, OutputList,
+    map_input, resolve_axis, static_dims, Input, OpError, OpRunContext, Operator, OutputList,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -84,9 +84,9 @@ impl Operator for Split {
         "Split"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
-        let splits = inputs.get_as::<i32>(1)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
+        let splits = ctx.inputs().get_as::<i32>(1)?;
 
         let split_sizes = if let Some(splits) = splits {
             let splits = static_dims!(splits, 1)?;
@@ -100,7 +100,7 @@ impl Operator for Split {
         };
 
         map_input!(input, x, {
-            split(pool, x, self.axis, split_sizes)
+            split(ctx.pool(), x, self.axis, split_sizes)
                 .map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
         })
     }

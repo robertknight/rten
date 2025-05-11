@@ -1,6 +1,8 @@
 use rten_tensor::prelude::*;
 
-use crate::ops::{DataType, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
+use crate::ops::{
+    DataType, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
+};
 use crate::tensor_pool::TensorPool;
 
 fn cast(pool: &TensorPool, input: Input, dtype: DataType) -> Result<Output, OpError> {
@@ -54,9 +56,9 @@ impl Operator for Cast {
         "Cast"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
-        cast(pool, input, self.to).into_op_result()
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
+        cast(ctx.pool(), input, self.to).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -87,10 +89,11 @@ impl Operator for CastLike {
         "CastLike"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let to_type = inputs.require(1)?.dtype();
-        cast(pool, input, to_type).into_op_result()
+        cast(ctx.pool(), input, to_type).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -120,8 +123,7 @@ mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use crate::ops::tests::new_pool;
-    use crate::ops::{Cast, CastLike, DataType, Operator, Output};
+    use crate::ops::{Cast, CastLike, DataType, OperatorExt, Output};
 
     #[test]
     fn test_cast() {
@@ -189,9 +191,8 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
             let cast_op = Cast { to: case.dtype };
-            let result = cast_op.run(&pool, (&case.input).into()).unwrap().remove(0);
+            let result: Output = cast_op.run_simple_no_cast(&case.input).unwrap();
             assert_eq!(result, case.expected);
         })
     }
@@ -218,12 +219,10 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
             let cast_op = CastLike {};
             let result = cast_op
-                .run(&pool, (&case.input, &case.other).into())
-                .unwrap()
-                .remove(0);
+                .run_simple_no_cast((&case.input, &case.other))
+                .unwrap();
             assert_eq!(result, case.expected);
         })
     }

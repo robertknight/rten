@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 use crate::number::IsNaN;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
-    map_input, resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator,
+    map_input, resolve_axis, resolve_index, Input, IntoOpResult, OpError, OpRunContext, Operator,
     OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
@@ -134,12 +134,13 @@ impl Operator for Gather {
         "Gather"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
 
         map_input!(input, x, {
-            gather(pool, x, self.axis, indices).into_op_result()
+            gather(ctx.pool(), x, self.axis, indices).into_op_result()
         })
     }
 }
@@ -277,12 +278,13 @@ impl Operator for GatherElements {
         "GatherElements"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
 
         map_input!(input, x, {
-            gather_elements(pool, x, indices, self.axis).into_op_result()
+            gather_elements(ctx.pool(), x, indices, self.axis).into_op_result()
         })
     }
 }
@@ -394,12 +396,13 @@ impl Operator for GatherND {
         "GatherND"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
 
         map_input!(input, x, {
-            gather_nd(pool, x, indices, self.batch_dims).into_op_result()
+            gather_nd(ctx.pool(), x, indices, self.batch_dims).into_op_result()
         })
     }
 }
@@ -502,13 +505,15 @@ impl Operator for ScatterElements {
         "ScatterElements"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let data = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
 
         map_input!(data, x, {
             let updates = inputs.require_as(2)?;
-            scatter_elements(pool, x, indices, updates, self.axis, self.reduction).into_op_result()
+            scatter_elements(ctx.pool(), x, indices, updates, self.axis, self.reduction)
+                .into_op_result()
         })
     }
 }
@@ -592,13 +597,14 @@ impl Operator for ScatterND {
         "ScatterND"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let data = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
 
         map_input!(data, x, {
             let updates = inputs.require_as(2)?;
-            scatter_nd(pool, x, indices, updates, self.reduction).into_op_result()
+            scatter_nd(ctx.pool(), x, indices, updates, self.reduction).into_op_result()
         })
     }
 }

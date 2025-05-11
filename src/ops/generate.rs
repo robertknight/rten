@@ -4,8 +4,8 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::ops::{
-    map_input, resolve_axis, resolve_index, static_dims, Input, InputList, IntoOpResult, OpError,
-    Operator, OutputList, Scalar,
+    map_input, resolve_axis, resolve_index, static_dims, Input, IntoOpResult, OpError,
+    OpRunContext, Operator, OutputList, Scalar,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -28,8 +28,9 @@ impl Operator for ConstantOfShape {
         "ConstantOfShape"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let shape = inputs.require_as::<i32>(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let pool = ctx.pool();
+        let shape = ctx.inputs().require_as::<i32>(0)?;
         let shape = static_dims!(shape, 1)?;
 
         match self.value {
@@ -86,7 +87,8 @@ impl Operator for OneHot {
         "OneHot"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let indices = inputs.require_as::<i32>(0)?;
         let depth = inputs.require_as::<i32>(1)?;
         let depth = depth
@@ -98,7 +100,7 @@ impl Operator for OneHot {
         map_input!(values, values, [Int32Tensor, FloatTensor], {
             let values = static_dims!(values, 1)?;
             let (on_value, off_value) = extract_on_off_values(values)?;
-            onehot(pool, indices, self.axis, depth, on_value, off_value).into_op_result()
+            onehot(ctx.pool(), indices, self.axis, depth, on_value, off_value).into_op_result()
         })
     }
 }
@@ -132,7 +134,8 @@ impl Operator for Range {
         "Range"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let start = inputs.require(0)?;
         let limit = inputs.require(1)?;
         let delta = inputs.require(2)?;
@@ -156,22 +159,15 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{onehot, range, ConstantOfShape, OpError, Operator, Scalar};
+    use crate::ops::{onehot, range, ConstantOfShape, OpError, OperatorExt, Scalar};
 
     #[test]
     fn test_constant_of_shape() {
-        let pool = new_pool();
         let op = ConstantOfShape {
             value: Scalar::Int(42),
         };
         let shape = Tensor::from([1, 5, 10]);
-
-        let result = op
-            .run(&pool, (&shape).into())
-            .unwrap()
-            .remove(0)
-            .into_tensor::<i32>()
-            .unwrap();
+        let result: Tensor<i32> = op.run_simple(&shape).unwrap();
 
         assert_eq!(result.shape(), &[1, 5, 10]);
         assert_eq!(result.to_vec(), vec![42; result.shape().iter().product()]);

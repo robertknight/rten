@@ -10,8 +10,8 @@ use rten_vecmath as vecmath;
 use crate::number::{Identities, IsNaN};
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
-    map_input, resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator,
-    OutputList,
+    map_input, resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, OpRunContext,
+    Operator, OutputList,
 };
 use crate::slice_reductions::slice_sum;
 use crate::tensor_pool::TensorPool;
@@ -94,10 +94,10 @@ impl Operator for ArgMax {
         "ArgMax"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            arg_max(pool, input, self.axis, self.keep_dims).into_op_result()
+            arg_max(ctx.pool(), input, self.axis, self.keep_dims).into_op_result()
         })
     }
 }
@@ -130,10 +130,10 @@ impl Operator for ArgMin {
         "ArgMin"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            arg_min(pool, input, self.axis, self.keep_dims).into_op_result()
+            arg_min(ctx.pool(), input, self.axis, self.keep_dims).into_op_result()
         })
     }
 }
@@ -175,11 +175,12 @@ impl Operator for CumSum {
         "CumSum"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axis: i32 = inputs.require_as_scalar(1)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            cum_sum(pool, input, axis as isize).into_op_result()
+            cum_sum(ctx.pool(), input, axis as isize).into_op_result()
         })
     }
 }
@@ -218,10 +219,10 @@ impl Operator for NonZero {
         "NonZero"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            nonzero(pool, input).into_op_result()
+            nonzero(ctx.pool(), input).into_op_result()
         })
     }
 }
@@ -409,11 +410,12 @@ impl Operator for ReduceMean {
         "ReduceMean"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
-        let axes = get_axes(&inputs, &self.axes)?;
+        let axes = get_axes(inputs, &self.axes)?;
         reduce_mean(
-            pool,
+            ctx.pool(),
             input,
             axes.as_ref().map(|axis| &axis[..]),
             self.keep_dims,
@@ -449,11 +451,12 @@ impl Operator for ReduceL2 {
         "ReduceL2"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
-        let axes = get_axes(&inputs, &self.axes)?;
+        let axes = get_axes(inputs, &self.axes)?;
         reduce_l2(
-            pool,
+            ctx.pool(),
             input,
             axes.as_ref().map(|axis| &axis[..]),
             self.keep_dims,
@@ -548,11 +551,12 @@ impl Operator for ReduceMin {
         "ReduceMin"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let axes = get_axes(&inputs, &self.axes)?;
+        let axes = get_axes(inputs, &self.axes)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            reduce_min(pool, input, axes.as_deref(), self.keep_dims).into_op_result()
+            reduce_min(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
 }
@@ -577,11 +581,12 @@ impl Operator for ReduceMax {
         "ReduceMax"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let axes = get_axes(&inputs, &self.axes)?;
+        let axes = get_axes(inputs, &self.axes)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            reduce_max(pool, input, axes.as_deref(), self.keep_dims).into_op_result()
+            reduce_max(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
 }
@@ -612,11 +617,12 @@ impl Operator for ReduceProd {
         "ReduceProd"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let axes = get_axes(&inputs, &self.axes)?;
+        let axes = get_axes(inputs, &self.axes)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            reduce_prod(pool, input, axes.as_deref(), self.keep_dims).into_op_result()
+            reduce_prod(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
 }
@@ -647,11 +653,12 @@ impl Operator for ReduceSum {
         "ReduceSum"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let axes = get_axes(&inputs, &self.axes)?;
+        let axes = get_axes(inputs, &self.axes)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            reduce_sum(pool, input, axes.as_deref(), self.keep_dims).into_op_result()
+            reduce_sum(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
 }
@@ -682,11 +689,12 @@ impl Operator for ReduceSumSquare {
         "ReduceSumSquare"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let axes = get_axes(&inputs, &self.axes)?;
+        let axes = get_axes(inputs, &self.axes)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            reduce_sum_square(pool, input, axes.as_deref(), self.keep_dims).into_op_result()
+            reduce_sum_square(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
 }
@@ -775,7 +783,8 @@ impl Operator for TopK {
         "TopK"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let values = inputs.require(0)?;
         let k = inputs.require_as_scalar::<i32>(1).and_then(|k| {
             if k < 0 {
@@ -786,7 +795,8 @@ impl Operator for TopK {
         })?;
 
         map_input!(values, values, [FloatTensor, Int32Tensor], {
-            let (values, indices) = topk(pool, values, k, self.axis, self.largest, self.sorted)?;
+            let (values, indices) =
+                topk(ctx.pool(), values, k, self.axis, self.largest, self.sorted)?;
             Ok([values.into(), indices.into()].into_iter().collect())
         })
     }
@@ -801,11 +811,11 @@ mod tests {
     use rten_tensor::{NdTensor, SliceRange, Tensor};
     use rten_testing::TestCases;
 
-    use crate::ops::tests::{new_pool, run_op};
+    use crate::ops::tests::new_pool;
     use crate::ops::{
         arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
-        reduce_prod, reduce_sum, reduce_sum_square, topk, OpError, Operator, ReduceL2, ReduceMax,
-        ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare,
+        reduce_prod, reduce_sum, reduce_sum_square, topk, OpError, Operator, OperatorExt, ReduceL2,
+        ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare,
     };
 
     #[test]
@@ -983,13 +993,11 @@ mod tests {
         cases.test_each(|case| {
             let input = NdTensor::from([[0., 1., 2.], [3., 4., 5.]]);
             let axes = Tensor::from([0]);
-            let result: NdTensor<f32, 2> =
-                run_op(&*case.op.0, (input.view(), axes.view())).unwrap();
+            let result: NdTensor<f32, 2> = case.op.run_simple((input.view(), axes.view())).unwrap();
             assert_eq!(result.shape(), [1, 3]);
 
             let axes = Tensor::from([1]);
-            let result: NdTensor<f32, 2> =
-                run_op(&*case.op.0, (input.view(), axes.view())).unwrap();
+            let result: NdTensor<f32, 2> = case.op.run_simple((input.view(), axes.view())).unwrap();
             assert_eq!(result.shape(), [2, 1]);
         })
     }

@@ -780,6 +780,29 @@ macro_rules! static_dims {
 
 pub(crate) use static_dims;
 
+/// Context passed to [`Operator::run`] containing the information needed for
+/// the operator to execute.
+pub struct OpRunContext<'a, 'i> {
+    pool: &'a TensorPool,
+    inputs: &'a InputList<'i>,
+}
+
+impl<'a, 'i> OpRunContext<'a, 'i> {
+    pub fn new(pool: &'a TensorPool, inputs: &'a InputList<'i>) -> Self {
+        OpRunContext { pool, inputs }
+    }
+
+    /// The pool which should be used to allocate large buffers.
+    pub fn pool(&self) -> &TensorPool {
+        self.pool
+    }
+
+    /// Inputs to the operator execution.
+    pub fn inputs(&self) -> &InputList<'i> {
+        self.inputs
+    }
+}
+
 /// Outputs from an operator.
 ///
 /// This avoids allocations in the common case where an operator produces
@@ -797,11 +820,11 @@ pub trait Operator: Any + Debug {
     /// Return a display name for the operator.
     fn name(&self) -> &str;
 
-    /// Execute the operator with the given inputs.
+    /// Execute the operator.
     ///
-    /// The output, and any large intermediate buffers used by the operation,
-    /// should be allocated from `pool`.
-    fn run(&self, pool: &TensorPool, input: InputList) -> Result<OutputList, OpError>;
+    /// `ctx` provides access to operator inputs and the [`TensorPool`] from
+    /// which the output and temporary buffers should be allocated.
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError>;
 
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
@@ -896,21 +919,46 @@ pub trait Operator: Any + Debug {
     /// the operator as a subgraph with a single node.
     fn run_subgraph(
         &self,
-        pool: &TensorPool,
-        input: InputList,
+        ctx: &OpRunContext,
         #[allow(unused)] captures: CaptureEnv,
         #[allow(unused)] weight_cache: Option<&[WeightCache]>,
         #[allow(unused)] run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
-        self.run(pool, input)
-            .map_err(|error| RunError::OperatorError {
-                name: self.name().to_string(),
-                error,
-            })
+        self.run(ctx).map_err(|error| RunError::OperatorError {
+            name: self.name().to_string(),
+            error,
+        })
     }
 }
 
 impl_downcastdyn!(Operator);
+
+/// Convenience methods that make it easier to run operators in tests.
+pub trait OperatorExt: Operator {
+    /// Run an operator and extract the first output as a tensor with a given
+    /// type.
+    ///
+    /// `inputs` is a tuple of tensor references or other values that can be
+    /// converted to [`Input`].
+    fn run_simple<'a, I: Into<InputList<'a>>, O: TryFrom<Output, Error = OpError>>(
+        &self,
+        inputs: I,
+    ) -> Result<O, OpError> {
+        self.run_simple_no_cast(inputs)
+            .and_then(|output| output.try_into())
+    }
+
+    /// Run an operator and extract the first output.
+    fn run_simple_no_cast<'a, I: Into<InputList<'a>>>(&self, inputs: I) -> Result<Output, OpError> {
+        let pool = TensorPool::new();
+        let inputs = inputs.into();
+        let ctx = OpRunContext::new(&pool, &inputs);
+        let mut outputs = self.run(&ctx)?;
+        Ok(outputs.remove(0))
+    }
+}
+
+impl<O: ?Sized + Operator> OperatorExt for O {}
 
 /// List of inputs for an operator evaluation.
 ///
@@ -920,6 +968,7 @@ impl_downcastdyn!(Operator);
 ///
 /// An InputList can be constructed from a tensor reference or tuple of tensor
 /// references using `into`.
+#[derive(Clone)]
 pub struct InputList<'a> {
     inputs: Cow<'a, [Option<Input<'a>>]>,
 
@@ -1202,7 +1251,7 @@ mod tests {
     use rten_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
     use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
-    use super::{Input, InputList, OpError, Operator, Output};
+    use super::{Input, OpError, Operator, Output};
     use crate::downcast::DowncastDyn;
     use crate::ops::{Add, Sub};
     use crate::tensor_pool::TensorPool;
@@ -1225,22 +1274,6 @@ mod tests {
         expected: &V,
     ) -> Result<(), ExpectEqualError> {
         expect_equal_with_tolerance(result, expected, 1e-4, 0.)
-    }
-
-    /// Utility to simplify running a single-output [`Operator`] with a list of
-    /// typed inputs.
-    ///
-    /// Usage is:
-    ///
-    /// ```text
-    /// let result: NdTensor<f32, 2> = run_op(&op, (data.view(), arg.view()))
-    /// ```
-    pub fn run_op<'a, I: Into<InputList<'a>>, O: TryFrom<Output, Error = OpError>>(
-        op: &dyn Operator,
-        inputs: I,
-    ) -> Result<O, OpError> {
-        let pool = new_pool();
-        op.run(&pool, inputs.into())?.remove(0).try_into()
     }
 
     #[test]

@@ -7,7 +7,8 @@ use rten_vecmath as vecmath;
 use rten_vecmath::ExtendInit;
 
 use crate::ops::{
-    resolve_axis, DataType, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+    resolve_axis, DataType, Input, IntoOpResult, OpError, OpRunContext, Operator, Output,
+    OutputList,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -97,18 +98,19 @@ impl Operator for DequantizeLinear {
         "DequantizeLinear"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let scale = inputs.require_as(1)?;
 
         match input {
             Input::Int8Tensor(x) => {
                 let zero_point = inputs.get_as(2)?;
-                dequantize_linear(pool, x, scale, zero_point, self.axis).into_op_result()
+                dequantize_linear(ctx.pool(), x, scale, zero_point, self.axis).into_op_result()
             }
             Input::UInt8Tensor(x) => {
                 let zero_point = inputs.get_as(2)?;
-                dequantize_linear(pool, x, scale, zero_point, self.axis).into_op_result()
+                dequantize_linear(ctx.pool(), x, scale, zero_point, self.axis).into_op_result()
             }
             _ => Err(OpError::UnsupportedType),
         }
@@ -258,7 +260,9 @@ impl Operator for QuantizeLinear {
         "QuantizeLinear"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let pool = ctx.pool();
         let input = inputs.require_as(0)?;
         let y_scale = inputs.require_as(1)?;
         let y_zero_point = inputs.get(2);
@@ -395,14 +399,14 @@ impl Operator for DynamicQuantizeLinear {
         "DynamicQuantizeLinear"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as(0)?;
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
 
         let DynamicQuantizeOutput {
             quantized,
             scale,
             zero_point,
-        } = dynamic_quantize_linear::<u8>(pool, input)?;
+        } = dynamic_quantize_linear::<u8>(ctx.pool(), input)?;
 
         let quantized: Output = quantized.into();
         let scale: Output = scale.into();

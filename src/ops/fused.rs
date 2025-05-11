@@ -3,8 +3,7 @@ use std::sync::Arc;
 use rten_tensor::prelude::*;
 use smallvec::SmallVec;
 
-use crate::ops::{Input, InputList, OpError, Operator, OutputList, PrepackedInput};
-use crate::tensor_pool::TensorPool;
+use crate::ops::{Input, InputList, OpError, OpRunContext, Operator, OutputList, PrepackedInput};
 
 /// Specifies a permutation to an operator input.
 #[derive(Clone, Debug, PartialEq)]
@@ -71,9 +70,11 @@ impl Operator for FusedTranspose {
         &self.name
     }
 
-    fn run(&self, pool: &TensorPool, mut inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let mut inputs = ctx.inputs().clone();
         self.perm.apply(&mut inputs)?;
-        self.inner.run(pool, inputs)
+        let inner_ctx = OpRunContext::new(ctx.pool(), &inputs);
+        self.inner.run(&inner_ctx)
     }
 
     fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
@@ -94,8 +95,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::FusedTranspose;
-    use crate::ops::tests::new_pool;
-    use crate::ops::{InputList, Operator, Sub};
+    use crate::ops::{OperatorExt, Sub};
 
     #[test]
     fn test_fused_transpose() {
@@ -142,12 +142,7 @@ mod tests {
             let fused_transpose =
                 FusedTranspose::wrap(Arc::new(sub_op), *transpose_input, Some(&[1, 0]));
 
-            let pool = new_pool();
-            let mut outputs = fused_transpose
-                .run(&pool, InputList::from(&[a.view().into(), b.view().into()]))
-                .unwrap();
-
-            let output: Tensor<i32> = outputs.remove(0).try_into().unwrap();
+            let output: Tensor<i32> = fused_transpose.run_simple((a.view(), b.view())).unwrap();
 
             assert_eq!(output, *expected);
         })

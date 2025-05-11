@@ -7,7 +7,8 @@ use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::number::{AsBool, Identities, IsInt};
 use crate::ops::{
-    map_input, map_output, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+    map_input, map_output, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output,
+    OutputList,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -381,8 +382,8 @@ impl Operator for Add {
         "Add"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        run_typed_op!(pool, inputs, add)
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        run_typed_op!(ctx.pool(), ctx.inputs(), add)
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -432,10 +433,11 @@ macro_rules! logical_boolean_op {
                 true
             }
 
-            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+            fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+                let inputs = ctx.inputs();
                 let a: TensorView<i32> = inputs.require_as(0)?;
                 let b: TensorView<i32> = inputs.require_as(1)?;
-                $op_fn(pool, a, b).into_op_result()
+                $op_fn(ctx.pool(), a, b).into_op_result()
             }
         }
     };
@@ -489,8 +491,8 @@ impl Operator for Div {
         "Div"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        run_typed_op!(pool, inputs, div)
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        run_typed_op!(ctx.pool(), ctx.inputs(), div)
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -559,8 +561,8 @@ macro_rules! boolean_cmp_op {
                 stringify!($name) == "Equal"
             }
 
-            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-                run_typed_op!(pool, inputs, $func)
+            fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+                run_typed_op!(ctx.pool(), ctx.inputs(), $func)
             }
         }
     };
@@ -636,7 +638,8 @@ impl Operator for Mod {
         "Mod"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let a = inputs.require(0)?;
         let mode = if self.fmod {
             DivMode::TruncDiv
@@ -646,7 +649,7 @@ impl Operator for Mod {
 
         map_input!(a, a, [FloatTensor, Int32Tensor], {
             let b = inputs.require_as(1)?;
-            mod_op(pool, a, b, mode).into_op_result()
+            mod_op(ctx.pool(), a, b, mode).into_op_result()
         })
     }
 }
@@ -676,8 +679,8 @@ impl Operator for Mul {
         "Mul"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        run_typed_op!(pool, inputs, mul)
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        run_typed_op!(ctx.pool(), ctx.inputs(), mul)
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -735,10 +738,11 @@ impl Operator for Pow {
         "Pow"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
-        pow(pool, a, b).into_op_result()
+        pow(ctx.pool(), a, b).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -790,8 +794,8 @@ impl Operator for Sub {
         "Sub"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        run_typed_op!(pool, inputs, sub)
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        run_typed_op!(ctx.pool(), ctx.inputs(), sub)
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -877,13 +881,14 @@ impl Operator for Where {
         "Where"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let condition = inputs.require_as::<i32>(0)?;
         let x = inputs.require(1)?;
 
         map_input!(x, x, [FloatTensor, Int32Tensor], {
             let y = inputs.require_as(2)?;
-            where_op(pool, condition, x, y).into_op_result()
+            where_op(ctx.pool(), condition, x, y).into_op_result()
         })
     }
 }
@@ -902,7 +907,7 @@ mod tests {
     use crate::ops::{
         add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
         less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
-        where_op, xor, Add, DivMode, OpError, Operator, Output,
+        where_op, xor, Add, DivMode, OpError, Operator, OperatorExt, Output,
     };
 
     #[test]
@@ -1081,12 +1086,11 @@ mod tests {
 
     #[test]
     fn test_add_invalid_broadcast() {
-        let pool = new_pool();
         let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let b = Tensor::from_data(&[2, 3], vec![1., 2., 3., 4., 5., 6.]);
 
         let op = Add {};
-        let result = op.run(&pool, (&a, &b).into());
+        let result: Result<Tensor<f32>, _> = op.run_simple((&a, &b));
 
         assert_eq!(
             result.err(),

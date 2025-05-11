@@ -10,7 +10,7 @@ use crate::gemm::{
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
 use crate::ops::{
-    static_dims, Input, InputList, IntoOpResult, OpError, Operator, OutputList, PrepackedInput,
+    static_dims, Input, IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -100,12 +100,13 @@ impl Operator for Gemm {
         "Gemm"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         let c = inputs.get_as(2)?;
         gemm_op::<f32, f32, f32>(
-            pool,
+            ctx.pool(),
             a,
             b,
             c,
@@ -353,14 +354,15 @@ impl Operator for MatMul {
         "MatMul"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         let packed_b = match inputs.get_prepacked(1) {
             Some(PrepackedInput::FloatBMatrix(pb)) => Some(pb),
             _ => None,
         };
-        matmul::<f32, f32, f32>(pool, a, b, packed_b).into_op_result()
+        matmul::<f32, f32, f32>(ctx.pool(), a, b, packed_b).into_op_result()
     }
 
     fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
@@ -412,7 +414,8 @@ impl Operator for FusedMatMul {
         "FusedMatMul"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         let packed_b = match inputs.get_prepacked(1) {
@@ -424,10 +427,10 @@ impl Operator for FusedMatMul {
             .get_as::<f32>(2)?
             .map(|bias| static_dims!(bias, 1, "N"))
             .transpose()?
-            .map(|b| b.to_contiguous_in(pool));
+            .map(|b| b.to_contiguous_in(ctx.pool()));
         let bias = bias.as_ref().map(|b| BiasVector::Row(b.data().unwrap()));
 
-        matmul_fused(pool, a, b, packed_b, bias, self.alpha).into_op_result()
+        matmul_fused(ctx.pool(), a, b, packed_b, bias, self.alpha).into_op_result()
     }
 
     fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
@@ -522,7 +525,8 @@ impl Operator for MatMulInteger {
         "MatMulInteger"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
         let a = inputs.require(0)?;
         let b = inputs.require(1)?;
 
@@ -533,7 +537,8 @@ impl Operator for MatMulInteger {
                 let packed_b = inputs
                     .get_prepacked(1)
                     .and_then(|packed| packed.try_into().ok());
-                matmul_integer(pool, $a, $b, a_zero_point, b_zero_point, packed_b).into_op_result()
+                matmul_integer(ctx.pool(), $a, $b, a_zero_point, b_zero_point, packed_b)
+                    .into_op_result()
             }};
         }
 
@@ -583,7 +588,7 @@ mod tests {
 
     use super::{
         gemm_op, matmul, matmul_fused, matmul_impl, matmul_integer, FusedMatMul, MatMul,
-        MatMulInteger, MatmulStrategy, OpError,
+        MatMulInteger, MatmulStrategy, OpError, OpRunContext,
     };
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -931,7 +936,8 @@ mod tests {
                 inputs.push(bias.view());
             }
 
-            let mut result = op.run(&pool, inputs).unwrap();
+            let ctx = OpRunContext::new(&pool, &inputs);
+            let mut result = op.run(&ctx).unwrap();
             let result: Tensor<f32> = result.remove(0).try_into().unwrap();
 
             expect_equal(&result, &expected)?;
@@ -1266,7 +1272,8 @@ mod tests {
         };
         let inputs =
             InputList::from(&[a.view().into(), b.view().into()]).with_prepacked(&get_prepacked);
-        let mut result = op.run(&pool, inputs).unwrap();
+        let ctx = OpRunContext::new(&pool, &inputs);
+        let mut result = op.run(&ctx).unwrap();
         let result: Tensor<i32> = result.remove(0).try_into().unwrap();
 
         expect_equal(&result, &expected)?;
