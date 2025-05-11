@@ -933,6 +933,33 @@ pub trait Operator: Any + Debug {
 
 impl_downcastdyn!(Operator);
 
+/// Convenience methods that make it easier to run operators in tests.
+pub trait OperatorExt: Operator {
+    /// Run an operator and extract the first output as a tensor with a given
+    /// type.
+    ///
+    /// `inputs` is a tuple of tensor references or other values that can be
+    /// converted to [`Input`].
+    fn run_simple<'a, I: Into<InputList<'a>>, O: TryFrom<Output, Error = OpError>>(
+        &self,
+        inputs: I,
+    ) -> Result<O, OpError> {
+        self.run_simple_no_cast(inputs)
+            .and_then(|output| output.try_into())
+    }
+
+    /// Run an operator and extract the first output.
+    fn run_simple_no_cast<'a, I: Into<InputList<'a>>>(&self, inputs: I) -> Result<Output, OpError> {
+        let pool = TensorPool::new();
+        let inputs = inputs.into();
+        let ctx = OpRunContext::new(&pool, &inputs);
+        let mut outputs = self.run(&ctx)?;
+        Ok(outputs.remove(0))
+    }
+}
+
+impl<O: ?Sized + Operator> OperatorExt for O {}
+
 /// List of inputs for an operator evaluation.
 ///
 /// Conceptually this is a `Cow<[Option<Input>]>` with methods to conveniently
@@ -1224,7 +1251,7 @@ mod tests {
     use rten_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
     use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
-    use super::{Input, InputList, OpError, OpRunContext, Operator, Output};
+    use super::{Input, OpError, Operator, Output};
     use crate::downcast::DowncastDyn;
     use crate::ops::{Add, Sub};
     use crate::tensor_pool::TensorPool;
@@ -1247,24 +1274,6 @@ mod tests {
         expected: &V,
     ) -> Result<(), ExpectEqualError> {
         expect_equal_with_tolerance(result, expected, 1e-4, 0.)
-    }
-
-    /// Utility to simplify running a single-output [`Operator`] with a list of
-    /// typed inputs.
-    ///
-    /// Usage is:
-    ///
-    /// ```text
-    /// let result: NdTensor<f32, 2> = run_op(&op, (data.view(), arg.view()))
-    /// ```
-    pub fn run_op<'a, I: Into<InputList<'a>>, O: TryFrom<Output, Error = OpError>>(
-        op: &dyn Operator,
-        inputs: I,
-    ) -> Result<O, OpError> {
-        let pool = new_pool();
-        let inputs = inputs.into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-        op.run(&ctx)?.remove(0).try_into()
     }
 
     #[test]

@@ -828,9 +828,7 @@ mod tests {
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
-    use crate::ops::{
-        conv, conv_integer, conv_transpose, Conv, OpError, OpRunContext, Operator, Padding,
-    };
+    use crate::ops::{conv, conv_integer, conv_transpose, Conv, OpError, OperatorExt, Padding};
     use crate::tensor_pool::AutoReturn;
 
     use super::conv_transpose_output_size_and_padding;
@@ -1090,21 +1088,13 @@ mod tests {
             ],
         );
 
-        let pool = new_pool();
         let op = Conv {
             padding: Padding::Same,
             groups: 1,
             strides: vec![1, 1],
             dilations: vec![1, 1],
         };
-        let inputs = (&input, &kernel).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-        let result = op
-            .run(&ctx)
-            .unwrap()
-            .remove(0)
-            .into_tensor::<f32>()
-            .unwrap();
+        let result: Tensor<f32> = op.run_simple((&input, &kernel)).unwrap();
         let reference_result = reference_conv(
             input.view(),
             kernel.view(),

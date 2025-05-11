@@ -207,7 +207,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{pad, OpError, OpRunContext, Operator, Pad, PadMode};
+    use crate::ops::{pad, OpError, OperatorExt, Pad, PadMode};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
@@ -406,18 +406,10 @@ mod tests {
             ],
         );
 
-        let pool = new_pool();
-        let inputs = (&input, &pads).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
         let op = Pad {
             mode: PadMode::Constant,
         };
-        let result = op
-            .run(&ctx)
-            .unwrap()
-            .remove(0)
-            .into_tensor::<f32>()
-            .unwrap();
+        let result: Tensor<f32> = op.run_simple((&input, &pads)).unwrap();
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -425,7 +417,6 @@ mod tests {
 
     #[test]
     fn test_pad_invalid_inputs() {
-        let pool = new_pool();
         let input = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let op = Pad {
             mode: PadMode::Constant,
@@ -433,9 +424,7 @@ mod tests {
 
         // Wrong padding vector length.
         let invalid_pads = from_slice(&[1]);
-        let inputs = (&input, &invalid_pads).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-        let result = op.run(&ctx);
+        let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads));
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue(
@@ -445,9 +434,7 @@ mod tests {
 
         // Unsupported padding amounts.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let inputs = (&input, &invalid_pads).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-        let result = op.run(&ctx);
+        let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads));
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Pad only supports positive pads"))
@@ -456,17 +443,13 @@ mod tests {
         // Wrong constant value type.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
         let const_int = Tensor::from(1);
-        let inputs = (&input, &invalid_pads, &const_int).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-        let result = op.run(&ctx);
+        let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads, &const_int));
         assert_eq!(result.err(), Some(OpError::IncorrectInputType));
 
         // Constant value not a scalar.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
         let int_vec = from_slice(&[1.0, 2.0]);
-        let inputs = (&input, &invalid_pads, &int_vec).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-        let result = op.run(&ctx);
+        let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads, &int_vec));
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Expected scalar value"))

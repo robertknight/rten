@@ -95,8 +95,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::FusedTranspose;
-    use crate::ops::tests::new_pool;
-    use crate::ops::{InputList, OpRunContext, Operator, Sub};
+    use crate::ops::{OperatorExt, Sub};
 
     #[test]
     fn test_fused_transpose() {
@@ -143,12 +142,7 @@ mod tests {
             let fused_transpose =
                 FusedTranspose::wrap(Arc::new(sub_op), *transpose_input, Some(&[1, 0]));
 
-            let pool = new_pool();
-            let inputs = InputList::from(&[a.view().into(), b.view().into()]);
-            let ctx = OpRunContext::new(&pool, &inputs);
-            let mut outputs = fused_transpose.run(&ctx).unwrap();
-
-            let output: Tensor<i32> = outputs.remove(0).try_into().unwrap();
+            let output: Tensor<i32> = fused_transpose.run_simple((a.view(), b.view())).unwrap();
 
             assert_eq!(output, *expected);
         })

@@ -907,7 +907,7 @@ mod tests {
     use crate::ops::{
         add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
         less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
-        where_op, xor, Add, DivMode, OpError, OpRunContext, Operator, Output,
+        where_op, xor, Add, DivMode, OpError, Operator, OperatorExt, Output,
     };
 
     #[test]
@@ -1086,14 +1086,11 @@ mod tests {
 
     #[test]
     fn test_add_invalid_broadcast() {
-        let pool = new_pool();
         let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let b = Tensor::from_data(&[2, 3], vec![1., 2., 3., 4., 5., 6.]);
 
         let op = Add {};
-        let inputs = (&a, &b).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-        let result = op.run(&ctx);
+        let result: Result<Tensor<f32>, _> = op.run_simple((&a, &b));
 
         assert_eq!(
             result.err(),

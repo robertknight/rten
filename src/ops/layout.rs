@@ -676,10 +676,10 @@ mod tests {
     use super::{depth_to_space, DepthToSpaceMode};
     use crate::ops::layout::{
         expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
-        unsqueeze, OpRunContext, Reshape, Shape, Size,
+        unsqueeze, Reshape, Shape, Size,
     };
     use crate::ops::tests::new_pool;
-    use crate::ops::{OpError, Operator, Output};
+    use crate::ops::{OpError, OperatorExt, Output};
 
     #[test]
     fn test_depth_to_space() {
@@ -1042,20 +1042,12 @@ mod tests {
 
     #[test]
     fn test_reshape_op() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = Tensor::from([4]);
         let expected = input.to_shape([4].as_slice());
 
         let op = Reshape { allow_zero: false };
-        let inputs = (&input, &shape).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-        let result = op
-            .run(&ctx)
-            .unwrap()
-            .remove(0)
-            .into_tensor::<f32>()
-            .unwrap();
+        let result: Tensor<f32> = op.run_simple((&input, &shape))?;
 
         expect_equal(&result, &expected)?;
 
@@ -1128,16 +1120,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
-            let inputs = (&case.input).into();
-            let ctx = OpRunContext::new(&pool, &inputs);
-            let result = case
-                .op
-                .run(&ctx)
-                .unwrap()
-                .remove(0)
-                .into_tensor::<i32>()
-                .unwrap();
+            let result: Tensor<i32> = case.op.run_simple(&case.input).unwrap();
             assert_eq!(result.shape(), &[case.expected.len()]);
             assert_eq!(result.to_vec(), case.expected);
         });
@@ -1145,17 +1128,9 @@ mod tests {
 
     #[test]
     fn test_size() {
-        let pool = new_pool();
         let op = Size {};
         let input = Tensor::from([[1, 2], [3, 4]]);
-        let inputs = (&input).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-        let result = op
-            .run(&ctx)
-            .unwrap()
-            .remove(0)
-            .into_tensor::<i32>()
-            .unwrap();
+        let result: Tensor<i32> = op.run_simple(&input).unwrap();
         assert_eq!(result.ndim(), 0);
         assert_eq!(result.item(), Some(&4));
     }

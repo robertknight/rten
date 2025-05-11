@@ -123,8 +123,7 @@ mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use crate::ops::tests::new_pool;
-    use crate::ops::{Cast, CastLike, DataType, OpRunContext, Operator, Output};
+    use crate::ops::{Cast, CastLike, DataType, OperatorExt, Output};
 
     #[test]
     fn test_cast() {
@@ -192,11 +191,8 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
             let cast_op = Cast { to: case.dtype };
-            let inputs = (&case.input).into();
-            let ctx = OpRunContext::new(&pool, &inputs);
-            let result = cast_op.run(&ctx).unwrap().remove(0);
+            let result: Output = cast_op.run_simple_no_cast(&case.input).unwrap();
             assert_eq!(result, case.expected);
         })
     }
@@ -223,11 +219,10 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
             let cast_op = CastLike {};
-            let inputs = (&case.input, &case.other).into();
-            let ctx = OpRunContext::new(&pool, &inputs);
-            let result = cast_op.run(&ctx).unwrap().remove(0);
+            let result = cast_op
+                .run_simple_no_cast((&case.input, &case.other))
+                .unwrap();
             assert_eq!(result, case.expected);
         })
     }

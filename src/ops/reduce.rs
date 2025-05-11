@@ -811,11 +811,11 @@ mod tests {
     use rten_tensor::{NdTensor, SliceRange, Tensor};
     use rten_testing::TestCases;
 
-    use crate::ops::tests::{new_pool, run_op};
+    use crate::ops::tests::new_pool;
     use crate::ops::{
         arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
-        reduce_prod, reduce_sum, reduce_sum_square, topk, OpError, Operator, ReduceL2, ReduceMax,
-        ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare,
+        reduce_prod, reduce_sum, reduce_sum_square, topk, OpError, Operator, OperatorExt, ReduceL2,
+        ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare,
     };
 
     #[test]
@@ -993,13 +993,11 @@ mod tests {
         cases.test_each(|case| {
             let input = NdTensor::from([[0., 1., 2.], [3., 4., 5.]]);
             let axes = Tensor::from([0]);
-            let result: NdTensor<f32, 2> =
-                run_op(&*case.op.0, (input.view(), axes.view())).unwrap();
+            let result: NdTensor<f32, 2> = case.op.run_simple((input.view(), axes.view())).unwrap();
             assert_eq!(result.shape(), [1, 3]);
 
             let axes = Tensor::from([1]);
-            let result: NdTensor<f32, 2> =
-                run_op(&*case.op.0, (input.view(), axes.view())).unwrap();
+            let result: NdTensor<f32, 2> = case.op.run_simple((input.view(), axes.view())).unwrap();
             assert_eq!(result.shape(), [2, 1]);
         })
     }

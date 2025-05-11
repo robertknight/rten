@@ -159,24 +159,15 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{onehot, range, ConstantOfShape, OpError, OpRunContext, Operator, Scalar};
+    use crate::ops::{onehot, range, ConstantOfShape, OpError, OperatorExt, Scalar};
 
     #[test]
     fn test_constant_of_shape() {
-        let pool = new_pool();
         let op = ConstantOfShape {
             value: Scalar::Int(42),
         };
         let shape = Tensor::from([1, 5, 10]);
-        let inputs = (&shape).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-
-        let result = op
-            .run(&ctx)
-            .unwrap()
-            .remove(0)
-            .into_tensor::<i32>()
-            .unwrap();
+        let result: Tensor<i32> = op.run_simple(&shape).unwrap();
 
         assert_eq!(result.shape(), &[1, 5, 10]);
         assert_eq!(result.to_vec(), vec![42; result.shape().iter().product()]);

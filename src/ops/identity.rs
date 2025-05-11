@@ -44,34 +44,18 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
 
-    use crate::ops::tests::new_pool;
-    use crate::ops::{Identity, OpRunContext, Operator};
+    use crate::ops::{Identity, OperatorExt};
 
     #[test]
     fn test_identity() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
         let id_op = Identity {};
 
         let int_input = Tensor::from([1, 2, 3]);
-        let inputs = (&int_input).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-        let result = id_op
-            .run(&ctx)
-            .unwrap()
-            .remove(0)
-            .into_tensor::<i32>()
-            .unwrap();
+        let result: Tensor<i32> = id_op.run_simple(&int_input).unwrap();
         assert_eq!(result, int_input);
 
         let float_input = Tensor::from([1.0, 2.0, 3.0]);
-        let inputs = (&float_input).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
-        let result = id_op
-            .run(&ctx)
-            .unwrap()
-            .remove(0)
-            .into_tensor::<f32>()
-            .unwrap();
+        let result: Tensor<f32> = id_op.run_simple(&float_input).unwrap();
         expect_equal(&result, &float_input)?;
 
         Ok(())

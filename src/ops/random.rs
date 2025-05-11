@@ -220,8 +220,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::ops::operators::{FloatOperators, Operators};
-    use crate::ops::tests::{new_pool, run_op};
-    use crate::ops::{InputList, OpRunContext, Operator};
+    use crate::ops::tests::new_pool;
+    use crate::ops::{InputList, OpRunContext, Operator, OperatorExt};
 
     use super::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
 
@@ -272,17 +272,13 @@ mod tests {
             seed,
         }|
         {
-            let pool = new_pool();
             let op = RandomUniform {
                 low,
                 high,
                 shape,
                 seed,
             };
-            let inputs = InputList::new();
-            let ctx = OpRunContext::new(&pool, &inputs);
-            let output = op.run(&ctx).unwrap().remove(0);
-            let output: Tensor = output.try_into().unwrap();
+            let output: Tensor = op.run_simple(InputList::new()).unwrap();
 
             assert_eq!(output.shape(), op.shape);
 
@@ -320,10 +316,7 @@ mod tests {
 
             // Test that repeated generation produces the same output if the
             // seed is fixed, or different output otherwise.
-            let inputs = InputList::new();
-            let ctx = OpRunContext::new(&pool, &inputs);
-            let output_2 = op.run(&ctx).unwrap().remove(0);
-            let output_2: Tensor = output_2.try_into().unwrap();
+            let output_2: Tensor = op.run_simple(InputList::new()).unwrap();
             if let Some(_seed) = seed {
                 assert_eq!(output, output_2);
             } else {
@@ -340,7 +333,7 @@ mod tests {
             high: 2.,
             seed: None,
         };
-        let output: Tensor<f32> = run_op(&op, input.view()).unwrap();
+        let output: Tensor<f32> = op.run_simple(input.view()).unwrap();
         assert_eq!(output.shape(), &[5, 5]);
     }
 
@@ -392,7 +385,7 @@ mod tests {
                 shape,
                 seed,
             };
-            let output: Tensor = run_op(&op, InputList::new()).unwrap();
+            let output: Tensor = op.run_simple(InputList::new()).unwrap();
             assert_eq!(output.shape(), op.shape);
 
             // Test that outputs have expected distribution.
@@ -422,7 +415,7 @@ mod tests {
 
             // Test that repeated generation produces the same output if the
             // seed is fixed, or different output otherwise.
-            let output_2: Tensor = run_op(&op, InputList::new()).unwrap();
+            let output_2: Tensor = op.run_simple(InputList::new()).unwrap();
             if let Some(_seed) = seed {
                 assert_eq!(output, output_2);
             } else {
@@ -439,7 +432,7 @@ mod tests {
             scale: 5.,
             seed: None,
         };
-        let output: Tensor<f32> = run_op(&op, input.view()).unwrap();
+        let output: Tensor<f32> = op.run_simple(input.view()).unwrap();
         assert_eq!(output.shape(), &[5, 5]);
     }
 
