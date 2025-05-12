@@ -785,11 +785,16 @@ pub(crate) use static_dims;
 pub struct OpRunContext<'a, 'i> {
     pool: &'a TensorPool,
     inputs: &'a InputList<'i>,
+    n_outputs: Option<u32>,
 }
 
 impl<'a, 'i> OpRunContext<'a, 'i> {
     pub fn new(pool: &'a TensorPool, inputs: &'a InputList<'i>) -> Self {
-        OpRunContext { pool, inputs }
+        OpRunContext {
+            pool,
+            inputs,
+            n_outputs: None,
+        }
     }
 
     /// The pool which should be used to allocate large buffers.
@@ -800,6 +805,21 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     /// Inputs to the operator execution.
     pub fn inputs(&self) -> &InputList<'i> {
         self.inputs
+    }
+
+    /// Set the requested number of outputs.
+    ///
+    /// This can be used to skip generating outputs that are unused, or in
+    /// the rare cases that the output count cannot be determined from the
+    /// operator's inputs and attributes alone.
+    pub fn set_num_outputs(&mut self, n: u32) {
+        self.n_outputs = Some(n);
+    }
+
+    /// Return the number of requested outputs or `None` if this has not been
+    /// specified.
+    pub fn num_outputs(&self) -> Option<u32> {
+        self.n_outputs
     }
 }
 

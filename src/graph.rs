@@ -846,10 +846,9 @@ impl Graph {
                 };
                 let input_list =
                     InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
-                op_node
-                    .operator()
-                    .run(&OpRunContext::new(pool, &input_list))
-                    .map_err(op_error_to_run_error)
+                let mut ctx = OpRunContext::new(pool, &input_list);
+                ctx.set_num_outputs(op_node.output_ids().len() as u32);
+                op_node.operator().run(&ctx).map_err(op_error_to_run_error)
             };
             std::mem::drop(op_inputs);
 
@@ -1157,6 +1156,35 @@ mod tests {
                 m.run_in_place_count += 1;
             }
             self.inner.run_in_place(pool, output, inputs)
+        }
+    }
+
+    /// Operator that wraps a function.
+    ///
+    /// Useful for tests that want to inspect operator inputs.
+    struct RunFn<F: Fn(&OpRunContext) -> Result<OutputList, OpError> + 'static> {
+        run: F,
+    }
+
+    impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> RunFn<F> {
+        fn new(run: F) -> Self {
+            Self { run }
+        }
+    }
+
+    impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> std::fmt::Debug for RunFn<F> {
+        fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(fmt, "RunFn")
+        }
+    }
+
+    impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> Operator for RunFn<F> {
+        fn name(&self) -> &str {
+            "RunFn"
+        }
+
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+            (self.run)(ctx)
         }
     }
 
@@ -2444,6 +2472,24 @@ mod tests {
                 Some(&cache),
                 None,
             )
+            .unwrap();
+    }
+
+    #[test]
+    fn test_run_context_num_outputs() {
+        let mut g = Graph::new();
+        let input_id = g.add_value(Some("input"), None, None);
+        let (_, op_out) = g.add_simple_op(
+            "test_op",
+            RunFn::new(|ctx| {
+                assert_eq!(ctx.num_outputs(), Some(1));
+                let output: Output = Tensor::from_scalar(0.).into();
+                Ok([output].into())
+            }),
+            &[input_id],
+        );
+        let input = Tensor::from([1, 2, 3]);
+        g.run(vec![(input_id, input.into())], &[op_out], None, None)
             .unwrap();
     }
 }

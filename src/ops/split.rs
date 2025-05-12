@@ -86,12 +86,21 @@ impl Operator for Split {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
+
+        // In Split v18+, the operator should specify either a vector of split
+        // sizes or a count of outputs to produce. Older versions of the Split
+        // operator could omit both of these, in which case the number of
+        // outputs was determined by looking at the operator node's number of
+        // outputs.
+        //
+        // See https://github.com/robertknight/rten/issues/689.
         let splits = ctx.inputs().get_as::<i32>(1)?;
+        let num_outputs = self.num_outputs.or(ctx.num_outputs());
 
         let split_sizes = if let Some(splits) = splits {
             let splits = static_dims!(splits, 1)?;
             SplitSizes::Sizes(splits)
-        } else if let Some(num_outputs) = self.num_outputs {
+        } else if let Some(num_outputs) = num_outputs {
             SplitSizes::NumSplits(num_outputs)
         } else {
             return Err(OpError::InvalidValue(
@@ -109,50 +118,61 @@ impl Operator for Split {
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
-    use rten_tensor::Tensor;
+    use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{split, OpError};
+    use crate::ops::{split, InputList, OpError, OpRunContext, Operator};
 
-    use super::SplitSizes;
+    use super::{Split, SplitSizes};
 
     #[test]
     fn test_split() {
         let input = Tensor::from([[0., 1.], [2., 3.], [4., 5.], [6., 7.], [8., 9.]]);
 
         #[derive(Debug)]
-        struct Case<'a> {
+        struct Case {
             axis: isize,
-            splits: SplitSizes<'a>,
+            splits: Option<NdTensor<i32, 1>>,
+            num_outputs: Option<u32>,
+
+            // Number of outputs the Split node has in the graph.
+            graph_outputs: Option<u32>,
+
             expected: Vec<Tensor>,
         }
 
         let cases = [
-            // Positive axis
+            // Positive axis, splits specified via input.
             Case {
                 axis: 1,
-                splits: [1, 1].as_slice().into(),
+                splits: Some([1, 1].into()),
+                num_outputs: None,
+                graph_outputs: None,
                 expected: [
                     Tensor::from([[0.], [2.], [4.], [6.], [8.]]),
                     Tensor::from([[1.], [3.], [5.], [7.], [9.]]),
                 ]
                 .into(),
             },
-            // Negative axis
+            // Negative axis, splits specified via input.
             Case {
                 axis: -1,
-                splits: [1, 1].as_slice().into(),
+                splits: Some([1, 1].into()),
+                num_outputs: None,
+                graph_outputs: None,
                 expected: [
                     Tensor::from([[0.], [2.], [4.], [6.], [8.]]),
                     Tensor::from([[1.], [3.], [5.], [7.], [9.]]),
                 ]
                 .into(),
             },
-            // Splits specified as count
+            // Split count specified via `num_outputs` attribute.
             Case {
                 axis: 0,
-                splits: SplitSizes::NumSplits(3),
+                splits: None,
+                num_outputs: Some(3),
+                graph_outputs: None,
                 expected: [
                     Tensor::from([[0., 1.], [2., 3.]]),
                     Tensor::from([[4., 5.], [6., 7.]]),
@@ -160,14 +180,41 @@ mod tests {
                 ]
                 .into(),
             },
+            // Split count inferred from graph outputs
+            Case {
+                axis: 1,
+                splits: None,
+                num_outputs: None,
+                graph_outputs: Some(2),
+                expected: [
+                    Tensor::from([[0.], [2.], [4.], [6.], [8.]]),
+                    Tensor::from([[1.], [3.], [5.], [7.], [9.]]),
+                ]
+                .into(),
+            },
         ];
 
         cases.test_each(|case| {
+            let split_op = Split {
+                axis: case.axis,
+                num_outputs: case.num_outputs,
+            };
+
+            let mut inputs: InputList = input.view().into();
+            inputs.push_optional(case.splits.as_ref().map(|s| s.view()));
             let pool = new_pool();
-            let results = split(&pool, input.view(), case.axis, case.splits.clone()).unwrap();
-            let expected_splits = match case.splits {
-                SplitSizes::NumSplits(n) => n as usize,
-                SplitSizes::Sizes(sizes) => sizes.len(),
+            let mut ctx = OpRunContext::new(&pool, &inputs);
+            if let Some(n_outputs) = case.graph_outputs {
+                ctx.set_num_outputs(n_outputs);
+            }
+            let results = split_op.run(&ctx).unwrap();
+            let results: Vec<Tensor> = results.into_iter().map(|o| o.try_into().unwrap()).collect();
+
+            let expected_splits = match (case.splits.as_ref(), case.num_outputs) {
+                (None, Some(n)) => n as usize,
+                (Some(sizes), None) => sizes.len(),
+                (None, None) => case.graph_outputs.unwrap() as usize,
+                (Some(_), Some(_)) => 0,
             };
             assert_eq!(results.len(), expected_splits);
             assert_eq!(results, case.expected);
