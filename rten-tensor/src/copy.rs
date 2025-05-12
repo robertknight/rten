@@ -60,6 +60,7 @@ pub struct RangeChunksExact {
 
 impl RangeChunksExact {
     /// Return the part of the range that has not yet been visited.
+    #[inline]
     pub fn remainder(&self) -> Range<usize> {
         self.remainder.clone()
     }
