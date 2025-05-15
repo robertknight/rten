@@ -71,7 +71,7 @@ pub fn pad<T: Copy>(
                 ));
             }
 
-            if input.shape()[batch_dims..].iter().any(|&size| size == 0) {
+            if input.shape()[batch_dims..].contains(&0) {
                 return Err(OpError::InvalidValue(
                     "Padded dimension for reflect padding is empty",
                 ));

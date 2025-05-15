@@ -93,7 +93,7 @@ pub trait Layout {
     /// Return true if iterating over elements in this layout will visit
     /// elements multiple times.
     fn is_broadcast(&self) -> bool {
-        !self.is_empty() && self.strides().as_ref().iter().any(|&stride| stride == 0)
+        !self.is_empty() && self.strides().as_ref().contains(&0)
     }
 
     /// Returns true if the array has no elements.
@@ -183,7 +183,7 @@ pub trait Layout {
     /// Return the minimum length required for the element data buffer used
     /// with this layout.
     fn min_data_len(&self) -> usize {
-        if self.shape().as_ref().iter().any(|&size| size == 0) {
+        if self.shape().as_ref().contains(&0) {
             return 0;
         }
         let max_offset: usize = self
@@ -357,7 +357,7 @@ fn slice_layout<I: AsRef<[usize]>, O: AsMut<[usize]>>(
         }
     }
 
-    if out_shape.iter().any(|size| *size == 0) {
+    if out_shape.contains(&0) {
         offset = 0;
     }
 
