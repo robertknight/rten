@@ -43,7 +43,7 @@ pub fn is_contiguous<S: AsRef<[usize]>>(shape: S, strides: S) -> bool {
 pub fn may_have_internal_overlap(shape: &[usize], strides: &[usize]) -> bool {
     // If the tensor is empty (ie. there are no valid indices), there can't be
     // any overlap.
-    if shape.iter().any(|&size| size == 0) {
+    if shape.contains(&0) {
         return false;
     }
 
