@@ -102,13 +102,6 @@ impl OperatorNode {
         &self.outputs
     }
 
-    pub fn output_id(&self) -> Option<NodeId> {
-        match &self.outputs[..] {
-            [Some(id)] => Some(*id),
-            _ => None,
-        }
-    }
-
     pub fn operator(&self) -> &dyn Operator {
         self.operator.as_ref()
     }

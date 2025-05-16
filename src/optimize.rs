@@ -86,22 +86,15 @@ impl GraphMutator {
         self.graph.add_constant_node(const_node)
     }
 
-    /// Add a new operator to the graph with a single output node.
-    ///
-    /// `op_output_id` specifies the ID of the output node. If not specified,
-    /// a new value node is created.
-    ///
-    /// Returns the ID of the output node.
+    /// Add a new operator to the graph.
     fn add_operator(
         &mut self,
         name: Option<&str>,
         op: Box<dyn Operator + Send + Sync>,
         inputs: &[Option<NodeId>],
-        op_output_id: Option<NodeId>,
-    ) -> NodeId {
-        let op_output_id = op_output_id.unwrap_or(self.graph.add_value(None, None, None));
-        let op_id = self.graph.add_op(name, op, inputs, &[Some(op_output_id)]);
-
+        outputs: &[Option<NodeId>],
+    ) {
+        let op_id = self.graph.add_op(name, op, inputs, outputs);
         for input_id in inputs.iter().filter_map(|id| *id) {
             if let Some(op_ids) = self.edges.get_mut(&input_id) {
                 op_ids.push(op_id);
@@ -109,8 +102,6 @@ impl GraphMutator {
                 self.edges.insert(input_id, vec![op_id]);
             }
         }
-
-        op_output_id
     }
 
     /// Return a reference to the graph.
@@ -150,10 +141,10 @@ impl GraphMutator {
             name,
             fused_op,
             input_ids,
-            output_id,
+            output_ids,
         } in fusions
         {
-            self.add_operator(name.as_deref(), fused_op, &input_ids, Some(output_id));
+            self.add_operator(name.as_deref(), fused_op, &input_ids, &output_ids);
         }
     }
 
@@ -223,7 +214,7 @@ struct Fusion {
     name: Option<String>,
     fused_op: Box<dyn Operator + Send + Sync>,
     input_ids: Vec<Option<NodeId>>,
-    output_id: NodeId,
+    output_ids: Vec<Option<NodeId>>,
 }
 
 impl Fusion {
@@ -235,13 +226,13 @@ impl Fusion {
         name: Option<&str>,
         op: Op,
         input_ids: &[Option<NodeId>],
-        output_id: NodeId,
+        output_ids: &[Option<NodeId>],
     ) -> Fusion {
         Fusion {
             name: name.map(|s| s.to_string()),
             fused_op: Box::new(op),
             input_ids: input_ids.to_vec(),
-            output_id,
+            output_ids: output_ids.to_vec(),
         }
     }
 }
@@ -408,12 +399,6 @@ impl GraphOptimizer {
                 return None;
             }
 
-            // Only single-output operators are currently supported.
-            let target_output = match transpose_target.output_ids() {
-                [Some(output)] => Some(*output),
-                _ => None,
-            }?;
-
             // Replace transpose output with transpose input in the fused
             // operator's inputs.
             let fused_input_idx = transpose_target
@@ -434,7 +419,7 @@ impl GraphOptimizer {
                 transpose_target.name(),
                 fused_op,
                 &fused_input,
-                target_output,
+                transpose_target.output_ids(),
             ))
         });
 
@@ -449,13 +434,12 @@ impl GraphOptimizer {
         graph.apply_fusion(|graph, op_node_id, op_node| {
             let silu_match = silu_pattern.test(op_node_id, graph.graph())?;
             let silu_input = silu_match.node_id("x").expect("missing symbol");
-            let op_output = op_node.output_id()?;
 
             Some(Fusion::from_op(
                 op_node.name(),
                 Silu {},
                 &[Some(silu_input)],
-                op_output,
+                op_node.output_ids(),
             ))
         });
 
@@ -473,13 +457,12 @@ impl GraphOptimizer {
             let swish_input = swish_match.node_id("x").expect("missing symbol");
             let beta_input = swish_match.node_id("beta").expect("missing symbol");
             let beta = graph.get_scalar(beta_input)?;
-            let op_output = op_node.output_id()?;
 
             Some(Fusion::from_op(
                 op_node.name(),
                 Swish { beta },
                 &[Some(swish_input)],
-                op_output,
+                op_node.output_ids(),
             ))
         });
 
@@ -503,7 +486,6 @@ impl GraphOptimizer {
             let a_input = matmul_add_match.node_id("a").unwrap();
             let b_input = matmul_add_match.node_id("b").unwrap();
             let bias_input = matmul_add_match.node_id("bias").unwrap();
-            let op_output = op_node.output_id()?;
 
             let is_bias_a_vector = match graph.graph().get_node(bias_input) {
                 Some(Node::Constant(const_node)) => const_node.shape().len() == 1,
@@ -518,7 +500,7 @@ impl GraphOptimizer {
                 op_node.name(),
                 FusedMatMul { alpha: None },
                 &[Some(a_input), Some(b_input), Some(bias_input)],
-                op_output,
+                op_node.output_ids(),
             ))
         });
 
@@ -573,8 +555,6 @@ impl GraphOptimizer {
             // and outputs.
             let mut alpha = 1.0;
 
-            let op_output = op_node.output_id()?;
-
             // Check if this is a Mul/Div node scaling the output of a MatMul.
             let matmul_node = if ["Mul", "Div"].contains(&op_node.operator().name()) {
                 let (output_scale, scale_input) = get_scale_factor(graph, op_node)?;
@@ -621,7 +601,7 @@ impl GraphOptimizer {
                 matmul_node.name(),
                 FusedMatMul { alpha: Some(alpha) },
                 &[Some(lhs_input), Some(rhs_input)],
-                op_output,
+                op_node.output_ids(),
             ))
         });
 
@@ -641,13 +621,12 @@ impl GraphOptimizer {
         graph.apply_fusion(|graph, op_node_id, op_node| {
             let gelu_match = gelu_pattern.test(op_node_id, graph.graph())?;
             let gelu_input = gelu_match.node_id("x").expect("missing symbol");
-            let op_output = op_node.output_id()?;
 
             Some(Fusion::from_op(
                 op_node.name(),
                 Gelu {},
                 &[Some(gelu_input)],
-                op_output,
+                op_node.output_ids(),
             ))
         });
 
@@ -682,7 +661,6 @@ impl GraphOptimizer {
             let epsilon = graph.get_scalar(epsilon_input)?;
             let scale_input = rms_match.node_id("scale").unwrap();
             let norm_mean = rms_match.node_id("norm_mean").unwrap();
-            let op_output = op_node.output_id()?;
 
             if !mean_op_reduces_last_axis(graph.graph(), norm_mean) {
                 return None;
@@ -695,7 +673,7 @@ impl GraphOptimizer {
                     epsilon: Some(epsilon),
                 },
                 &[Some(x_input), Some(scale_input)],
-                op_output,
+                op_node.output_ids(),
             ))
         });
 
@@ -762,7 +740,6 @@ impl GraphOptimizer {
                 return None;
             }
 
-            let op_output = op_node.output_id()?;
             let epsilon = graph.get_scalar(epsilon_input)?;
 
             Some(Fusion::from_op(
@@ -772,7 +749,7 @@ impl GraphOptimizer {
                     epsilon: Some(epsilon),
                 },
                 &[Some(center_input), Some(scale_input), bias_input],
-                op_output,
+                op_node.output_ids(),
             ))
         });
 
