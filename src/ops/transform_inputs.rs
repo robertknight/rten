@@ -2,13 +2,12 @@ use std::sync::Arc;
 
 use rten_tensor::prelude::*;
 
-use crate::ops::{Input, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{map_input, Input, OpError, OpRunContext, Operator, OutputList};
 
 trait TransformInput {
     fn transform(&self, input: &mut Input) -> Result<(), OpError>;
 }
 
-/// Specifies a permutation to an operator input.
 #[derive(Clone, Debug, PartialEq)]
 struct PermuteInput {
     /// New order for axes, or `None` to reverse the axes.
@@ -16,25 +15,14 @@ struct PermuteInput {
 }
 
 impl TransformInput for PermuteInput {
-    /// Apply the permutation to the matching operator input in `inputs`.
     fn transform(&self, input: &mut Input) -> Result<(), OpError> {
-        macro_rules! permute {
-            ($t:ident) => {
-                if let Some(perm) = self.perm.as_ref() {
-                    $t.permute(perm);
-                } else {
-                    $t.transpose();
-                }
-            };
-        }
-
-        match input {
-            Input::Int32Tensor(ref mut t) => permute!(t),
-            Input::FloatTensor(ref mut t) => permute!(t),
-            Input::Int8Tensor(ref mut t) => permute!(t),
-            Input::UInt8Tensor(ref mut t) => permute!(t),
-        }
-
+        map_input!(input, tensor, {
+            if let Some(perm) = self.perm.as_ref() {
+                tensor.permute(perm);
+            } else {
+                tensor.transpose();
+            }
+        });
         Ok(())
     }
 }
