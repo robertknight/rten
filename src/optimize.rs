@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use rten_tensor::Tensor;
+use rten_tensor::{Layout, Tensor, TensorView};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::downcast::DowncastDyn;
@@ -10,8 +10,8 @@ use crate::graph::{
 };
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, RmsNormalization, Silu, Swish,
-    Transpose,
+    FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, RmsNormalization, Silu, Slice,
+    Swish, Transpose,
 };
 use crate::Output;
 
@@ -337,6 +337,7 @@ impl GraphOptimizer {
         self.fuse_matmul_add(&mut graph_mut)?;
         self.fuse_matmul_scaled(&mut graph_mut)?;
         self.fuse_transpose(&mut graph_mut)?;
+        self.fuse_slice(&mut graph_mut)?;
 
         Ok(graph_mut.finalize_graph())
     }
@@ -414,7 +415,7 @@ impl GraphOptimizer {
         Ok(())
     }
 
-    /// Fuse `Op(Transpose(X), Y, ...) -> Z` into `FusedTranspose<Op>(X, Y, ...) -> Z`.
+    /// Fuse transpose operations into downstream operator.
     ///
     /// This avoids materializing the transposed input for operators which can
     /// efficiently handle the input being non-contiguous.
@@ -455,6 +456,84 @@ impl GraphOptimizer {
 
                 fused_op = fused_op.permute(i, transpose.perm.clone());
                 fused_inputs[i] = transpose_input;
+            }
+
+            Some(Fusion::from_op(
+                op_node.name(),
+                fused_op.build(),
+                &fused_inputs,
+                op_node.output_ids(),
+            ))
+        });
+
+        Ok(())
+    }
+
+    /// Fuse slice operations into downstream operator.
+    ///
+    /// This avoids materializing the sliced input for operators which can
+    /// efficiently handle the input being non-contiguous.
+    fn fuse_slice(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
+        graph.apply_fusion(|graph, _op_node_id, op_node| {
+            let has_sliced_input = op_node.input_ids().iter().any(|input| {
+                input
+                    .and_then(|input| graph.graph().get_source_node(input))
+                    .and_then(|(_, src_op)| src_op.operator().downcast_ref::<Slice>())
+                    .is_some()
+            });
+            if !has_sliced_input {
+                return None;
+            }
+
+            let mut fused_op = TransformInputsBuilder::new(op_node.clone_operator());
+            let mut fused_inputs = op_node.input_ids().to_vec();
+
+            for (i, input) in op_node.input_ids().iter().enumerate() {
+                let Some((_, source_node)) =
+                    input.and_then(|input| graph.graph().get_source_node(input))
+                else {
+                    continue;
+                };
+
+                let &[Some(slice_input), Some(starts_id), Some(ends_id), Some(axes_id)] =
+                    source_node.input_ids()
+                else {
+                    continue;
+                };
+                if !source_node.operator().is::<Slice>() {
+                    continue;
+                };
+
+                // Extract the first item from a constant 1D input.
+                let get_constant_item = |node_id: NodeId| -> Option<isize> {
+                    match graph.graph().get_node(node_id) {
+                        Some(Node::Constant(constant)) => {
+                            let tensor: Result<TensorView<i32>, _> = constant.as_input().try_into();
+                            let Ok(tensor) = tensor else {
+                                return None;
+                            };
+                            if tensor.ndim() == 1 && tensor.size(0) == 1 {
+                                Some(tensor[[0]] as isize)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                };
+
+                let Some(start) = get_constant_item(starts_id) else {
+                    continue;
+                };
+                let Some(end) = get_constant_item(ends_id) else {
+                    continue;
+                };
+                let Some(axis) = get_constant_item(axes_id) else {
+                    continue;
+                };
+
+                fused_op = fused_op.slice(i, axis, start, end);
+                fused_inputs[i] = Some(slice_input);
             }
 
             Some(Fusion::from_op(
