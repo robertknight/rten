@@ -20,7 +20,7 @@ use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion, IdentityFusion,
     LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
     PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion, RmsNormalizationFusion,
-    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
+    ShapeSliceToConstant, SiluFusion, SwishFusion, TransformInputFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -377,7 +377,7 @@ impl GraphOptimizer {
             // Attention fusions
             &DynFusion(AddSoftmaxFusion {}.into_visitor()),
             // Layout fusions
-            &DynFusion(TransposeFusion {}),
+            &DynFusion(TransformInputFusion {}),
         ];
 
         let max_iters = 3;

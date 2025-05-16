@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
 use rten_tensor::prelude::*;
+use rten_tensor::{SliceItem, SliceRange};
 
-use crate::ops::{map_value_view, OpError, OpRunContext, Operator, OutputList, Value, ValueView};
+use crate::ops::{
+    map_value_view, resolve_axis, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
+};
 
 trait TransformInput {
     fn transform(&self, input: &mut ValueView) -> Result<(), OpError>;
@@ -28,14 +31,42 @@ impl TransformInput for PermuteInput {
 }
 
 #[derive(Clone, Debug)]
+pub struct SliceInput {
+    axis: isize,
+    start: isize,
+    end: isize,
+}
+
+impl TransformInput for SliceInput {
+    fn transform(&self, input: &mut ValueView) -> Result<(), OpError> {
+        let mut ranges: Vec<SliceItem> =
+            (0..input.ndim()).map(|_| SliceItem::full_range()).collect();
+        let axis = resolve_axis(input.ndim(), self.axis)?;
+        ranges[axis] = SliceRange::new(self.start, Some(self.end), 1)
+            .clamp(input.size(axis))
+            .into();
+
+        map_value_view!(input, tensor, {
+            *tensor = tensor
+                .try_slice(ranges.as_slice())
+                .map_err(|_| OpError::InvalidValue("Invalid slice operand"))?;
+        });
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
 enum Transform {
     Permute(PermuteInput),
+    Slice(SliceInput),
 }
 
 impl TransformInput for Transform {
     fn transform(&self, input: &mut ValueView) -> Result<(), OpError> {
         match self {
             Self::Permute(spec) => spec.transform(input),
+            Self::Slice(spec) => spec.transform(input),
         }
     }
 }
@@ -65,6 +96,14 @@ impl TransformInputsBuilder {
         self.transforms.push(TransformIndex {
             input_index,
             transform: Transform::Permute(PermuteInput { perm }),
+        });
+        self
+    }
+
+    pub fn slice(mut self, input_index: usize, axis: isize, start: isize, end: isize) -> Self {
+        self.transforms.push(TransformIndex {
+            input_index,
+            transform: Transform::Slice(SliceInput { axis, start, end }),
         });
         self
     }

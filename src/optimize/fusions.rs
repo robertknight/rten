@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use rten_tensor::{NdTensorView, SliceRange, Tensor};
+use rten_tensor::{Layout, NdTensorView, SliceRange, Tensor, TensorView};
 
 use crate::graph::{
     Constant, ConstantNode, ConstantNodeData, Dimension, Graph, Node, NodeId, OperatorNode,
@@ -12,7 +12,8 @@ use crate::graph::{
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     AddSoftmax, DynamicQuantizeLinear, FusedMatMul, Gelu, LayerNormalization, MatMulIntegerToFloat,
-    Mul, Operator, Reciprocal, ReduceMean, RmsNormalization, Silu, Softmax, Swish, Transpose,
+    Mul, Operator, Reciprocal, ReduceMean, RmsNormalization, Silu, Slice, Softmax, Swish,
+    Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 
@@ -806,15 +807,36 @@ impl PatternFusion for MatMulIntegerToFloatFusion {
     }
 }
 
-/// Fuses transpose operations on an operator's inputs.
+/// Return true if layout operations (transpose, slice) should be fused with
+/// this operator.
 ///
-/// A Transpose operator on its own will move data around in memory. In the
-/// fused operator, the strides of the input tensor view are just permuted
-/// before calling the underlying operator. This is cheaper provided that the
-/// underlying operator can efficiently handle non-contiguous inputs.
-pub struct TransposeFusion {}
+/// Layout fusions are only worthwhile if the operator can efficiently handle
+/// potentially non-contiguous inputs.
+fn enable_layout_op_fusion(op_node: &OperatorNode) -> bool {
+    [
+        // Operators which pack blocks of non-contiguous inputs before
+        // computing with them.
+        "MatMul",
+        "FusedMatMul",
+        // Operators which copy chunks of the input using methods that can
+        // efficiently handle transposed layouts.
+        "Concat",
+        "Expand",
+        "Slice",
+        "Split",
+    ]
+    .contains(&op_node.operator().name())
+}
 
-impl FusionVisitor for TransposeFusion {
+/// Fuses transpose or slice operations on an operator's inputs.
+///
+/// Transpose or Slice operators on their own will move data around in memory.
+/// In the fused operator, cheap layout operations are applied to the input
+/// tensor view before calling the underlying operator. This is cheaper provided
+/// that the underlying operator can efficiently handle non-contiguous inputs.
+pub struct TransformInputFusion {}
+
+impl FusionVisitor for TransformInputFusion {
     type State = ();
 
     fn prepare(&self, _: &Graph) {}
@@ -826,22 +848,7 @@ impl FusionVisitor for TransposeFusion {
         _op_node_id: NodeId,
         op_node: &OperatorNode,
     ) -> Option<Fusion> {
-        // Filter against a set of operators which are known to efficiently
-        // handle transposed inputs.
-        if ![
-            // Operators which pack blocks of non-contiguous inputs before
-            // computing with them.
-            "MatMul",
-            "FusedMatMul",
-            // Operators which copy chunks of the input using methods that can
-            // efficiently handle transposed layouts.
-            "Concat",
-            "Expand",
-            "Slice",
-            "Split",
-        ]
-        .contains(&op_node.operator().name())
-        {
+        if !enable_layout_op_fusion(op_node) {
             return None;
         }
 
@@ -864,6 +871,47 @@ impl FusionVisitor for TransposeFusion {
                 };
                 fused_op = fused_op.permute(i, transpose.perm.clone());
                 fused_inputs.to_mut()[i] = transpose_input;
+            } else if source_node.operator().downcast_ref::<Slice>().is_some() {
+                // Slice has three required inputs (data, starts, ends) followed
+                // by two optional inputs (axes, steps).
+                let Some([Some(slice_input), Some(starts_id), Some(ends_id), Some(axes_id)]) =
+                    source_node.input_ids().get(..4)
+                else {
+                    continue;
+                };
+
+                // Extract the first item from a constant 1D input.
+                let get_constant_item = |node_id: NodeId| -> Option<isize> {
+                    match graph.get_node(node_id) {
+                        Some(Node::Constant(constant)) => {
+                            let tensor: Result<TensorView<i32>, _> = constant.as_view().try_into();
+                            let Ok(tensor) = tensor else {
+                                return None;
+                            };
+                            if tensor.ndim() == 1 && tensor.size(0) == 1 {
+                                Some(tensor[[0]] as isize)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                };
+
+                let Some(start) = get_constant_item(*starts_id) else {
+                    continue;
+                };
+                let Some(end) = get_constant_item(*ends_id) else {
+                    continue;
+                };
+                let Some(axis) = get_constant_item(*axes_id) else {
+                    continue;
+                };
+
+                // TODO - Check that if `steps` were provided, the value is 1.
+
+                fused_op = fused_op.slice(i, axis, start, end);
+                fused_inputs.to_mut()[i] = Some(*slice_input);
             }
         }
 
