@@ -17,7 +17,7 @@ mod pattern_matcher;
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion,
     LayerNormalizationFusion, MatMulAddFusion, MatMulScaleFusion, PatternFusion,
-    RmsNormalizationFusion, SiluFusion, SwishFusion, TransposeFusion,
+    RmsNormalizationFusion, SiluFusion, SliceFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -320,6 +320,7 @@ impl GraphOptimizer {
             &DynFusion(MatMulScaleFusion {}),
             &DynFusion(AddSoftmaxFusion {}.into_visitor()),
             &DynFusion(TransposeFusion {}),
+            &DynFusion(SliceFusion {}),
         ];
 
         let max_iters = 3;

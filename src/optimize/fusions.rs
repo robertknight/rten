@@ -1,11 +1,13 @@
 //! Traits for defining operator fusions and implementations of fusions.
 
+use rten_tensor::{Layout, TensorView};
+
 use crate::downcast::DowncastDyn;
 use crate::graph::{Graph, Node, NodeId, OperatorNode, TypedConstant};
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     AddSoftmax, FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, RmsNormalization,
-    Silu, Softmax, Swish, Transpose,
+    Silu, Slice, Softmax, Swish, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 
@@ -552,6 +554,27 @@ impl FusionVisitor for MatMulScaleFusion {
     }
 }
 
+/// Return true if layout operations (transpose, slice) should be fused with
+/// this operator.
+///
+/// Layout fusions are only worthwhile if the operator can efficiently handle
+/// potentially non-contiguous inputs.
+fn enable_layout_op_fusion(op_node: &OperatorNode) -> bool {
+    [
+        // Operators which pack blocks of non-contiguous inputs before
+        // computing with them.
+        "MatMul",
+        "FusedMatMul",
+        // Operators which copy chunks of the input using methods that can
+        // efficiently handle transposed layouts.
+        "Concat",
+        "Expand",
+        "Slice",
+        "Split",
+    ]
+    .contains(&op_node.operator().name())
+}
+
 pub struct TransposeFusion {}
 
 impl FusionVisitor for TransposeFusion {
@@ -566,22 +589,7 @@ impl FusionVisitor for TransposeFusion {
         _op_node_id: NodeId,
         op_node: &OperatorNode,
     ) -> Option<Fusion> {
-        // Filter against a set of operators which are known to efficiently
-        // handle transposed inputs.
-        if ![
-            // Operators which pack blocks of non-contiguous inputs before
-            // computing with them.
-            "MatMul",
-            "FusedMatMul",
-            // Operators which copy chunks of the input using methods that can
-            // efficiently handle transposed layouts.
-            "Concat",
-            "Expand",
-            "Slice",
-            "Split",
-        ]
-        .contains(&op_node.operator().name())
-        {
+        if !enable_layout_op_fusion(op_node) {
             return None;
         }
 
@@ -613,6 +621,97 @@ impl FusionVisitor for TransposeFusion {
 
             fused_op = fused_op.permute(i, transpose.perm.clone());
             fused_inputs[i] = transpose_input;
+        }
+
+        Some(Fusion::from_op(
+            op_node.name(),
+            Box::new(fused_op.build()),
+            &fused_inputs,
+            op_node.output_ids(),
+        ))
+    }
+}
+
+/// Fuse slice operations into downstream operator.
+///
+/// This avoids materializing the sliced input for operators which can
+/// efficiently handle the input being non-contiguous.
+pub struct SliceFusion {}
+
+impl FusionVisitor for SliceFusion {
+    type State = ();
+
+    fn prepare(&self, _: &Graph) {}
+
+    fn maybe_fuse(
+        &self,
+        _state: &Self::State,
+        graph: &Graph,
+        _op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        let has_sliced_input = op_node.input_ids().iter().any(|input| {
+            input
+                .and_then(|input| graph.get_source_node(input))
+                .and_then(|(_, src_op)| src_op.operator().downcast_ref::<Slice>())
+                .is_some()
+        });
+        if !has_sliced_input {
+            return None;
+        }
+
+        if !enable_layout_op_fusion(op_node) {
+            return None;
+        }
+
+        let mut fused_op = TransformInputsBuilder::new(op_node.clone_operator());
+        let mut fused_inputs = op_node.input_ids().to_vec();
+
+        for (i, input) in op_node.input_ids().iter().enumerate() {
+            let Some((_, source_node)) = input.and_then(|input| graph.get_source_node(input))
+            else {
+                continue;
+            };
+
+            let &[Some(slice_input), Some(starts_id), Some(ends_id), Some(axes_id)] =
+                source_node.input_ids()
+            else {
+                continue;
+            };
+            if !source_node.operator().is::<Slice>() {
+                continue;
+            };
+
+            // Extract the first item from a constant 1D input.
+            let get_constant_item = |node_id: NodeId| -> Option<isize> {
+                match graph.get_node(node_id) {
+                    Some(Node::Constant(constant)) => {
+                        let tensor: Result<TensorView<i32>, _> = constant.as_view().try_into();
+                        let Ok(tensor) = tensor else {
+                            return None;
+                        };
+                        if tensor.ndim() == 1 && tensor.size(0) == 1 {
+                            Some(tensor[[0]] as isize)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            };
+
+            let Some(start) = get_constant_item(starts_id) else {
+                continue;
+            };
+            let Some(end) = get_constant_item(ends_id) else {
+                continue;
+            };
+            let Some(axis) = get_constant_item(axes_id) else {
+                continue;
+            };
+
+            fused_op = fused_op.slice(i, axis, start, end);
+            fused_inputs[i] = Some(slice_input);
         }
 
         Some(Fusion::from_op(
