@@ -8,7 +8,7 @@ use crate::downcast::DowncastDyn;
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError, TypedConstant,
 };
-use crate::ops::fused::FusedTranspose;
+use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, RmsNormalization, Silu, Swish,
     Transpose,
@@ -152,22 +152,6 @@ impl GraphMutator {
         &self.output_ids
     }
 
-    /// Return the operator node in `graph` that has an incoming edge from a
-    /// value node.
-    ///
-    /// Returns `None` if there are zero or many such operators.
-    fn find_operator_with_input(&self, value_node_id: NodeId) -> Option<&OperatorNode> {
-        let targets = self.edges.get(&value_node_id).map(|v| v.as_slice())?;
-        let target = match targets {
-            &[op_id] => Some(op_id),
-            _ => None,
-        };
-        target.map(|id| match self.graph.get_node(id) {
-            Some(Node::Operator(op_node)) => op_node,
-            _ => panic!("expected operator"),
-        })
-    }
-
     /// Get the scalar value of a constant node, or `None` if the node is
     /// not a constant or the value is not a scalar.
     fn get_scalar(&self, node_id: NodeId) -> Option<f32> {
@@ -234,38 +218,6 @@ impl Fusion {
             input_ids: input_ids.to_vec(),
             output_ids: output_ids.to_vec(),
         }
-    }
-}
-
-/// Utilities for matching patterns in a graph.
-trait OperatorMatch {
-    /// Test if an operator node matches a given operator and has N inputs and
-    /// M outputs.
-    fn match_type<Op: Operator, const N: usize, const M: usize>(
-        &self,
-    ) -> Option<(&Op, [NodeId; N], [NodeId; M])>;
-}
-
-impl OperatorMatch for OperatorNode {
-    fn match_type<Op: Operator, const N: usize, const M: usize>(
-        &self,
-    ) -> Option<(&Op, [NodeId; N], [NodeId; M])> {
-        let op = self.operator().downcast_ref::<Op>()?;
-
-        let input_ids = self.input_ids();
-        if input_ids.len() != N || input_ids.iter().any(|n| n.is_none()) {
-            return None;
-        }
-
-        let output_ids = self.output_ids();
-        if output_ids.len() != M || output_ids.iter().any(|n| n.is_none()) {
-            return None;
-        }
-
-        let input_ids: [NodeId; N] = std::array::from_fn(|i| input_ids[i].unwrap());
-        let output_ids: [NodeId; M] = std::array::from_fn(|i| output_ids[i].unwrap());
-
-        Some((op, input_ids, output_ids))
     }
 }
 
@@ -387,39 +339,49 @@ impl GraphOptimizer {
     /// This avoids materializing the transposed input for operators which can
     /// efficiently handle the input being non-contiguous.
     fn fuse_transpose(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        graph.apply_fusion(|edges, _op_node_id, op_node| {
-            let (transpose_op, [transpose_input], [transpose_output]) =
-                op_node.match_type::<Transpose, 1, 1>()?;
-
-            let transpose_target = edges.find_operator_with_input(transpose_output)?;
-
+        graph.apply_fusion(|graph, _op_node_id, op_node| {
             // Filter against a set of operators which are known to efficiently
             // handle transposed inputs.
-            if !["MatMul", "FusedMatMul"].contains(&transpose_target.operator().name()) {
+            if !["MatMul", "FusedMatMul"].contains(&op_node.operator().name()) {
                 return None;
             }
 
-            // Replace transpose output with transpose input in the fused
-            // operator's inputs.
-            let fused_input_idx = transpose_target
-                .input_ids()
-                .iter()
-                .position(|&input_id| input_id == Some(transpose_output))
-                .expect("fused input missing");
-            let mut fused_input = transpose_target.input_ids().to_vec();
-            fused_input[fused_input_idx] = Some(transpose_input);
+            let has_transposed_input = op_node.input_ids().iter().any(|input| {
+                input
+                    .and_then(|input| graph.graph().get_source_node(input))
+                    .and_then(|(_, src_op)| src_op.operator().downcast_ref::<Transpose>())
+                    .is_some()
+            });
+            if !has_transposed_input {
+                return None;
+            }
 
-            let fused_op = FusedTranspose::wrap(
-                transpose_target.clone_operator(),
-                fused_input_idx,
-                transpose_op.perm.as_deref(),
-            );
+            let mut fused_op = TransformInputsBuilder::new(op_node.clone_operator());
+            let mut fused_inputs = op_node.input_ids().to_vec();
+
+            for (i, input) in op_node.input_ids().iter().enumerate() {
+                let Some((_, source_node)) =
+                    input.and_then(|input| graph.graph().get_source_node(input))
+                else {
+                    continue;
+                };
+
+                let &[transpose_input] = source_node.input_ids() else {
+                    continue;
+                };
+                let Some(transpose) = source_node.operator().downcast_ref::<Transpose>() else {
+                    continue;
+                };
+
+                fused_op = fused_op.permute(i, transpose.perm.clone());
+                fused_inputs[i] = transpose_input;
+            }
 
             Some(Fusion::from_op(
-                transpose_target.name(),
-                fused_op,
-                &fused_input,
-                transpose_target.output_ids(),
+                op_node.name(),
+                fused_op.build(),
+                &fused_inputs,
+                op_node.output_ids(),
             ))
         });
 
@@ -970,13 +932,22 @@ mod tests {
         let graph = {
             let x = Expr::value("x");
             let y = Expr::value("y");
-            x.transpose().matmul(y).build_graph(["x", "y"])
+            x.transpose().matmul(y.transpose()).build_graph(["x", "y"])
         };
 
         let graph = optimize_graph(graph).unwrap();
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
-        assert_eq!(op.operator().name(), "FusedTranspose(MatMul)");
+        assert_eq!(op.operator().name(), "TransformInputs(MatMul)");
+        assert_eq!(
+            op.input_ids(),
+            graph
+                .input_ids()
+                .iter()
+                .copied()
+                .map(Some)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -1174,7 +1145,7 @@ mod tests {
 
         // Verify that optimizer did change the graph
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
-        assert_eq!(op.operator().name(), "FusedTranspose(MatMul)");
+        assert_eq!(op.operator().name(), "TransformInputs(MatMul)");
 
         // The IDs of the input and output nodes should be the same after
         // optimization.

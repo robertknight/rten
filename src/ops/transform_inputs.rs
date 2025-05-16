@@ -1,24 +1,23 @@
 use std::sync::Arc;
 
 use rten_tensor::prelude::*;
-use smallvec::SmallVec;
 
-use crate::ops::{Input, InputList, OpError, OpRunContext, Operator, OutputList, PrepackedInput};
+use crate::ops::{Input, OpError, OpRunContext, Operator, OutputList};
+
+trait TransformInput {
+    fn transform(&self, input: &mut Input) -> Result<(), OpError>;
+}
 
 /// Specifies a permutation to an operator input.
 #[derive(Clone, Debug, PartialEq)]
-struct PermuteSpec {
-    index: usize,
+struct PermuteInput {
+    /// New order for axes, or `None` to reverse the axes.
     perm: Option<Vec<usize>>,
 }
 
-impl PermuteSpec {
+impl TransformInput for PermuteInput {
     /// Apply the permutation to the matching operator input in `inputs`.
-    fn apply(&self, inputs: &mut InputList) -> Result<(), OpError> {
-        let Some(input) = inputs.get_mut(self.index) else {
-            return Err(OpError::MissingInputs);
-        };
-
+    fn transform(&self, input: &mut Input) -> Result<(), OpError> {
         macro_rules! permute {
             ($t:ident) => {
                 if let Some(perm) = self.perm.as_ref() {
@@ -32,57 +31,82 @@ impl PermuteSpec {
         match input {
             Input::Int32Tensor(ref mut t) => permute!(t),
             Input::FloatTensor(ref mut t) => permute!(t),
-            _ => return Err(OpError::UnsupportedType),
+            Input::Int8Tensor(ref mut t) => permute!(t),
+            Input::UInt8Tensor(ref mut t) => permute!(t),
         }
 
         Ok(())
     }
 }
 
-/// Operator which wraps another operator to permute one or more input views
-/// before evaluating the wrapped operator.
-#[derive(Debug)]
-pub struct FusedTranspose {
-    inner: Arc<dyn Operator + Send + Sync>,
-    perm: PermuteSpec,
-    name: String,
+#[derive(Clone, Debug)]
+enum Transform {
+    Permute(PermuteInput),
 }
 
-impl FusedTranspose {
-    pub fn wrap(
-        op: Arc<dyn Operator + Send + Sync>,
-        input_index: usize,
-        permutation: Option<&[usize]>,
-    ) -> FusedTranspose {
-        FusedTranspose {
-            perm: PermuteSpec {
-                index: input_index,
-                perm: permutation.map(|slice| slice.to_vec()),
-            },
-            name: format!("FusedTranspose({})", op.name()),
-            inner: op,
+impl TransformInput for Transform {
+    fn transform(&self, input: &mut Input) -> Result<(), OpError> {
+        match self {
+            Self::Permute(spec) => spec.transform(input),
         }
     }
 }
 
-impl Operator for FusedTranspose {
+pub struct TransformInputsBuilder {
+    op: Arc<dyn Operator + Send + Sync>,
+    transforms: Vec<(usize, Transform)>,
+}
+
+impl TransformInputsBuilder {
+    pub fn new(op: Arc<dyn Operator + Send + Sync>) -> Self {
+        Self {
+            op,
+            transforms: Vec::new(),
+        }
+    }
+
+    pub fn permute(mut self, input_index: usize, perm: Option<Vec<usize>>) -> Self {
+        self.transforms
+            .push((input_index, Transform::Permute(PermuteInput { perm })));
+        self
+    }
+
+    pub fn build(self) -> TransformInputs {
+        TransformInputs {
+            name: format!("TransformInputs({})", self.op.name()),
+            inner: self.op,
+            transforms: self.transforms,
+        }
+    }
+}
+
+/// Operator which wraps another operator to (cheaply) transform one or more
+/// inputs before evaluating the wrapped operator.
+#[derive(Debug)]
+pub struct TransformInputs {
+    name: String,
+
+    inner: Arc<dyn Operator + Send + Sync>,
+
+    /// (input_index, transform) list of transforms to apply.
+    transforms: Vec<(usize, Transform)>,
+}
+
+impl Operator for TransformInputs {
     fn name(&self) -> &str {
         &self.name
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut inputs = ctx.inputs().clone();
-        self.perm.apply(&mut inputs)?;
+        for (index, transform) in &self.transforms {
+            let Some(input) = inputs.get_mut(*index) else {
+                return Err(OpError::MissingInputs);
+            };
+            transform.transform(input)?;
+        }
         let inner_ctx = OpRunContext::new(ctx.pool(), &inputs);
         self.inner.run(&inner_ctx)
-    }
-
-    fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
-        self.inner.prepack_inputs()
-    }
-
-    fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
-        self.inner.prepack(index, input)
     }
 }
 
@@ -94,7 +118,7 @@ mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use super::FusedTranspose;
+    use super::TransformInputsBuilder;
     use crate::ops::{OperatorExt, Sub};
 
     #[test]
@@ -139,8 +163,9 @@ mod tests {
             // nb. `Sub` operator chosen because it is a simple non-commutative
             // binary op.
             let sub_op = Sub {};
-            let fused_transpose =
-                FusedTranspose::wrap(Arc::new(sub_op), *transpose_input, Some(&[1, 0]));
+            let fused_transpose = TransformInputsBuilder::new(Arc::new(sub_op))
+                .permute(*transpose_input, Some([1, 0].into()))
+                .build();
 
             let output: Tensor<i32> = fused_transpose.run_simple((a.view(), b.view())).unwrap();
 

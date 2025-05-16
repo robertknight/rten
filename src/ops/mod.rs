@@ -60,8 +60,8 @@ mod trilu;
 mod unary_elementwise;
 mod variadic_elementwise;
 
-// Fused operators.
-pub(crate) mod fused;
+// Fused operations
+pub(crate) mod transform_inputs;
 
 pub use binary_elementwise::{
     add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
