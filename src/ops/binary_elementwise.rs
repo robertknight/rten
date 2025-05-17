@@ -10,7 +10,7 @@ use crate::ops::{
     map_input, map_output, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output,
     OutputList,
 };
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Given the shapes of two inputs to a binary operation, return the shape
 /// that will result from broadcasting them following NumPy rules or `None`
@@ -351,6 +351,7 @@ macro_rules! run_typed_op_in_place {
                 $in_place_op_func(a.view_mut(), b);
                 Ok(a.into())
             } else {
+                let a = a.auto_return($pool);
                 $op_func($pool, a.view(), b.view()).map(|t| t.into())
             }
         })
