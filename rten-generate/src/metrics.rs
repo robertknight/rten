@@ -51,6 +51,15 @@ impl Metrics {
         &self.durations
     }
 
+    /// Return the total number of tokens that were generated.
+    pub fn token_count(&self) -> usize {
+        if self.warmup_duration.is_none() {
+            0
+        } else {
+            1 + self.durations.len()
+        }
+    }
+
     /// Return the total duration, including the warmup.
     pub fn total_duration(&self) -> Duration {
         self.durations.iter().sum::<Duration>() + self.warmup_duration.unwrap_or(Duration::ZERO)
@@ -118,6 +127,7 @@ mod tests {
         assert_eq!(metrics.total_duration(), ms(400));
         assert_eq!(metrics.total_main_duration(), ms(200));
         assert_approx_eq!(metrics.mean_duration(), 100.0, 1e-5);
+        assert_eq!(metrics.token_count(), 3);
         assert_approx_eq!(metrics.tokens_per_second(), 10.0, 1e-5);
     }
 }
