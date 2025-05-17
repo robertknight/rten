@@ -3,6 +3,7 @@ use std::error::Error;
 use std::io::prelude::*;
 
 use rten::{FloatOperators, Model};
+use rten_generate::metrics::Metrics;
 use rten_generate::{Generator, GeneratorUtils};
 use rten_imageio::read_image;
 use rten_imageproc::normalize_image;
@@ -116,10 +117,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let max_tokens = 2_000;
 
     let prompt = [decoder_start_token];
+    let mut metrics = Metrics::new();
     let generator = Generator::from_model(&decoder_model)?
         .with_prompt(&prompt)
         .with_constant_input(encoder_hidden_states_id, encoded_image.view().into())
         .stop_on_tokens([eos_token])
+        .profile(&mut metrics)
         .take(max_tokens)
         .decode(&tokenizer);
 
@@ -129,6 +132,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         print!("{}", token);
         let _ = std::io::stdout().flush();
     }
+    println!("\n");
+    println!(
+        "Generated {} tokens in {:.2}s ({:.2} tokens/sec).",
+        metrics.token_count(),
+        metrics.total_duration().as_secs_f64(),
+        metrics.tokens_per_second()
+    );
 
     Ok(())
 }
