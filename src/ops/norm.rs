@@ -733,12 +733,12 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::SOFTMAX_GRAIN_SIZE;
-    use crate::ops::tests::{expect_eq_1e4, new_pool};
-    use crate::ops::OpError;
-    use crate::ops::{
+    use super::{
         batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
         rms_normalization, softmax,
     };
+    use crate::ops::tests::{expect_eq_1e4, new_pool};
+    use crate::ops::OpError;
 
     #[test]
     fn test_batch_norm() {

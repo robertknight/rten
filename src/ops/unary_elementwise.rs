@@ -105,13 +105,9 @@ macro_rules! unary_numeric_op {
 }
 
 macro_rules! unary_float_funcs {
-    ($name:ident, $func_name:ident, $in_place_func_name:ident) => {
+    ($name:ident, $func_name:ident) => {
         pub fn $func_name(pool: &TensorPool, input: TensorView) -> Tensor {
             $name {}.map(pool, input)
-        }
-
-        pub fn $in_place_func_name(input: TensorViewMut) {
-            $name {}.apply(input)
         }
     };
 }
@@ -122,8 +118,8 @@ macro_rules! unary_float_funcs {
 /// The operator is defined by the names for the operator struct and associated
 /// functions, and a closure which evaluates the operator for a single function.
 macro_rules! unary_float_op {
-    ($name:ident, $func_name:ident, $in_place_func_name:ident, $expr:expr) => {
-        unary_float_funcs!($name, $func_name, $in_place_func_name);
+    ($name:ident, $func_name:ident, $expr:expr) => {
+        unary_float_funcs!($name, $func_name);
 
         #[derive(Debug)]
         pub struct $name {}
@@ -251,10 +247,10 @@ pub fn abs_in_place<T: AbsValue>(mut input: TensorViewMut<T>) {
 }
 
 unary_numeric_op!(Abs, abs, abs_in_place);
-unary_float_op!(Acos, acos, acos_in_place, |val: f32| val.acos());
-unary_float_op!(Asin, asin, asin_in_place, |val: f32| val.asin());
-unary_float_op!(Atan, atan, atan_in_place, |val: f32| val.atan());
-unary_float_op!(Ceil, ceil, ceil_in_place, |val: f32| val.ceil());
+unary_float_op!(Acos, acos, |val: f32| val.acos());
+unary_float_op!(Asin, asin, |val: f32| val.asin());
+unary_float_op!(Atan, atan, |val: f32| val.atan());
+unary_float_op!(Ceil, ceil, |val: f32| val.ceil());
 
 /// Numeric value with a finite minimum and maximum and operations to clamp
 /// values.
@@ -366,7 +362,7 @@ impl Operator for Clip {
     }
 }
 
-unary_float_op!(Cos, cos, cos_in_place, |val: f32| val.cos());
+unary_float_op!(Cos, cos, |val: f32| val.cos());
 
 #[derive(Debug)]
 pub struct Elu {
@@ -399,13 +395,9 @@ pub fn elu(pool: &TensorPool, input: TensorView, alpha: f32) -> Tensor {
     Elu { alpha }.map(pool, input)
 }
 
-pub fn elu_in_place(input: TensorViewMut, alpha: f32) {
-    Elu { alpha }.apply(input)
-}
-
 parallel_unary_float_op!(Erf, erf, erf_in_place, vecmath::Erf {});
 parallel_unary_float_op!(Exp, exp, exp_in_place, vecmath::Exp {});
-unary_float_op!(Floor, floor, floor_in_place, |val: f32| val.floor());
+unary_float_op!(Floor, floor, |val: f32| val.floor());
 
 parallel_unary_float_op!(Gelu, gelu, gelu_in_place, vecmath::Gelu {});
 
@@ -429,10 +421,6 @@ pub fn hard_sigmoid(pool: &TensorPool, input: TensorView, alpha: f32, beta: f32)
     HardSigmoid { alpha, beta }.map(pool, input)
 }
 
-pub fn hard_sigmoid_in_place(input: TensorViewMut, alpha: f32, beta: f32) {
-    HardSigmoid { alpha, beta }.apply(input)
-}
-
 #[derive(Debug)]
 pub struct HardSwish {}
 
@@ -448,14 +436,10 @@ impl UnaryFloatOp for HardSwish {
     }
 }
 
-unary_float_funcs!(HardSwish, hard_swish, hard_swish_in_place);
+unary_float_funcs!(HardSwish, hard_swish);
 
 pub fn leaky_relu(pool: &TensorPool, input: TensorView, alpha: f32) -> Tensor {
     LeakyRelu { alpha }.map(pool, input)
-}
-
-pub fn leaky_relu_in_place(input: TensorViewMut, alpha: f32) {
-    LeakyRelu { alpha }.apply(input)
 }
 
 #[derive(Debug)]
@@ -477,7 +461,7 @@ impl UnaryFloatOp for LeakyRelu {
     }
 }
 
-unary_float_op!(Log, log, log_in_place, |val: f32| val.ln());
+unary_float_op!(Log, log, |val: f32| val.ln());
 
 pub fn neg<T: Copy + std::ops::Neg<Output = T>>(
     pool: &TensorPool,
@@ -531,9 +515,8 @@ impl Operator for Not {
     }
 }
 
-unary_float_op!(Reciprocal, reciprocal, reciprocal_in_place, |val: f32| 1.
-    / val);
-unary_float_op!(Relu, relu, relu_in_place, |val: f32| val.max(0.));
+unary_float_op!(Reciprocal, reciprocal, |val: f32| 1. / val);
+unary_float_op!(Relu, relu, |val: f32| val.max(0.));
 
 /// Round float values to the nearest integer. Values with a fractional part
 /// of 0.5 are rounded to the nearest even number, like `round` in Python and
@@ -552,10 +535,6 @@ impl UnaryFloatOp for Round {
 
 pub fn round(pool: &TensorPool, x: TensorView) -> Tensor {
     Round {}.map(pool, x)
-}
-
-pub fn round_in_place(x: TensorViewMut) {
-    Round {}.apply(x)
 }
 
 parallel_unary_float_op!(Sigmoid, sigmoid, sigmoid_in_place, vecmath::Sigmoid {});
@@ -615,7 +594,7 @@ pub fn swish_in_place(input: TensorViewMut, beta: f32) {
     par_unary_op_in_place(input, |src| swish.map_mut(src), |x| swish.scalar_eval(x));
 }
 
-unary_float_op!(Sin, sin, sin_in_place, |val: f32| val.sin());
+unary_float_op!(Sin, sin, |val: f32| val.sin());
 
 /// Trait for obtaining the sign of a number (-1, 0 or 1) as a value of the
 /// same type.
@@ -646,11 +625,9 @@ pub fn sign_in_place<T: Signum>(mut input: TensorViewMut<T>) {
 }
 
 unary_numeric_op!(Sign, sign, sign_in_place);
-unary_float_op!(Sqrt, sqrt, sqrt_in_place, |val: f32| val.sqrt());
-unary_float_op!(Softplus, softplus, softplus_in_place, |val: f32| {
-    val.exp().ln_1p()
-});
-unary_float_op!(Tan, tan, tan_in_place, |val: f32| val.tan());
+unary_float_op!(Sqrt, sqrt, |val: f32| val.sqrt());
+unary_float_op!(Softplus, softplus, |val: f32| { val.exp().ln_1p() });
+unary_float_op!(Tan, tan, |val: f32| val.tan());
 parallel_unary_float_op!(Tanh, tanh, tanh_in_place, vecmath::Tanh {});
 
 #[cfg(test)]
@@ -660,40 +637,57 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{eq_with_nans, expect_equal, expect_equal_with_tolerance};
-    use rten_tensor::{RandomSource, Tensor};
+    use rten_tensor::{RandomSource, Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use crate::ops::tests::new_pool;
-    use crate::ops::{
-        abs, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil, clip,
-        clip_in_place, cos, cos_in_place, elu, elu_in_place, erf, erf_in_place, exp, exp_in_place,
-        floor, gelu, gelu_in_place, hard_sigmoid, hard_swish, leaky_relu, leaky_relu_in_place, log,
-        log_in_place, neg, neg_in_place, not, not_in_place, reciprocal, relu, relu_in_place, round,
-        round_in_place, sigmoid, sigmoid_in_place, sign, sign_in_place, silu, silu_in_place, sin,
-        sin_in_place, softplus, softplus_in_place, sqrt, sqrt_in_place, swish, swish_in_place, tan,
-        tan_in_place, tanh, tanh_in_place,
+    use super::{
+        ceil, clip, clip_in_place, erf, floor, hard_sigmoid, hard_swish, leaky_relu, round, Abs,
+        Acos, Asin, Atan, Cos, Elu, Exp, Gelu, Log, Neg, Not, Reciprocal, Relu, Sigmoid, Sign,
+        Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
     };
+    use crate::ops::tests::new_pool;
+    use crate::ops::{Input, OpError, Operator, OperatorExt, Output};
+    use rten_tensor::test_util::ApproxEq;
 
-    /// Define a test for a simple unary operator which applies the function
+    fn test_unary_op_impl<T: Clone + std::fmt::Debug + ApproxEq>(
+        op: impl Operator,
+        reference_op: impl Fn(&T) -> T,
+        input: Tensor<T>,
+    ) -> Result<(), Box<dyn Error>>
+    where
+        for<'a> TensorView<'a, T>: Into<Input<'a>>,
+        Tensor<T>: Into<Output> + TryFrom<Output, Error = OpError>,
+    {
+        // Test copying variant.
+        let expected = input.map(reference_op);
+        let result: Tensor<T> = op.run_simple(input.view()).unwrap();
+        expect_equal(&result, &expected)?;
+
+        // Test in-place variant.
+        let input_mut = input.clone();
+        let result: Tensor<T> = op.run_simple_in_place(input_mut).unwrap();
+        expect_equal(&result, &expected)?;
+
+        Ok(())
+    }
+
+    /// Define a test for a unary operator which applies the function
     /// `$gen_expected` to each input element.
     macro_rules! test_unary_op {
-        ($test_name:ident, $op:expr, $in_place_op:expr, $gen_expected:expr) => {
+        ($test_name:ident, $op:expr, $gen_expected:expr) => {
             #[test]
             fn $test_name() -> Result<(), Box<dyn Error>> {
-                let pool = new_pool();
-
                 // Test inputs here chosen to be in the domain of inverse trig
                 // operators (ie. (-1, 1)).
                 let input = Tensor::from([0., 0.1, -0.1, 0.9, -0.9]);
-                let expected = input.map($gen_expected);
-                let result = $op(&pool, input.view());
-                expect_equal(&result, &expected)?;
+                test_unary_op_impl($op, $gen_expected, input)
+            }
+        };
 
-                let mut input = input.clone();
-                $in_place_op(input.view_mut());
-                expect_equal(&input, &expected)?;
-
-                Ok(())
+        ($test_name:ident, $op:expr, $gen_expected:expr, $input:expr) => {
+            #[test]
+            fn $test_name() -> Result<(), Box<dyn Error>> {
+                test_unary_op_impl($op, $gen_expected, $input)
             }
         };
     }
@@ -734,22 +728,13 @@ mod tests {
 
     #[test]
     fn test_abs() {
-        let pool = new_pool();
-
-        // Float tensor
-        let x: Tensor<f32> = Tensor::from([1., -1., 0.]);
-        let result = abs(&pool, x.view());
-        assert_eq!(result, Tensor::from([1., 1., 0.]));
-
-        // Int tensor
-        let x: Tensor<i32> = Tensor::from([1, -1, 0]);
-        let result = abs(&pool, x.view());
-        assert_eq!(result, Tensor::from([1, 1, 0]));
+        test_unary_op_impl(Abs {}, |x| x.abs(), [1., -1., 0.].into()).unwrap();
+        test_unary_op_impl(Abs {}, |x| x.abs(), [1, -1, 0].into()).unwrap();
     }
 
-    test_unary_op!(test_acos, acos, acos_in_place, |x: &f32| x.acos());
-    test_unary_op!(test_asin, asin, asin_in_place, |x: &f32| x.asin());
-    test_unary_op!(test_atan, atan, atan_in_place, |x: &f32| x.atan());
+    test_unary_op!(test_acos, Acos {}, |x: &f32| x.acos());
+    test_unary_op!(test_asin, Asin {}, |x: &f32| x.asin());
+    test_unary_op!(test_atan, Atan {}, |x: &f32| x.atan());
 
     #[test]
     fn test_ceil() {
@@ -820,10 +805,7 @@ mod tests {
         })
     }
 
-    // TODO: Eliminate the duplication for tests that apply the operator
-    // in-place vs returning a new tensor.
-
-    test_unary_op!(test_cos, cos, cos_in_place, |x: &f32| x.cos());
+    test_unary_op!(test_cos, Cos {}, |x: &f32| x.cos());
 
     #[test]
     fn test_elu() {
@@ -835,16 +817,9 @@ mod tests {
         let cases = [Case { alpha: 1.0 }, Case { alpha: 0.5 }];
 
         cases.test_each(|Case { alpha }| {
-            let pool = new_pool();
             let input = Tensor::from([-5., -2., -1., -0.5, 0., 0.5, 1., 2., 5.]);
-            let expected = input.map(|&x: &f32| if x >= 0. { x } else { *alpha * (x.exp() - 1.) });
-
-            let actual = elu(&pool, input.view(), *alpha);
-            expect_equal(&actual, &expected).unwrap();
-
-            let mut input = input.clone();
-            elu_in_place(input.view_mut(), *alpha);
-            expect_equal(&input, &expected).unwrap();
+            let reference_op = |&x: &f32| if x >= 0. { x } else { *alpha * (x.exp() - 1.) };
+            test_unary_op_impl(Elu { alpha: *alpha }, reference_op, input).unwrap();
         })
     }
 
@@ -886,48 +861,12 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_erf_in_place() -> Result<(), Box<dyn Error>> {
-        let mut input = Tensor::from([-2.0, -0.5, 0.5, 2.0]);
-        let expected = Tensor::from([
-            -0.9953222650189527,
-            -0.5204998778130465,
-            0.5204998778130465,
-            0.9953222650189527,
-        ]);
-        erf_in_place(input.view_mut());
-        expect_equal(&input, &expected)?;
-        Ok(())
-    }
-
-    #[test]
-    fn test_exp() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
-        let input = Tensor::from([-2.0, -0.5, 0.5, 2.0]);
-        let expected = Tensor::from([
-            0.1353352832366127,
-            0.6065306597126334,
-            1.6487212707001282,
-            7.38905609893065,
-        ]);
-        let result = exp(&pool, input.view());
-        expect_equal(&result, &expected)?;
-        Ok(())
-    }
-
-    #[test]
-    fn test_exp_in_place() -> Result<(), Box<dyn Error>> {
-        let mut input = Tensor::from([-2.0, -0.5, 0.5, 2.0]);
-        let expected = Tensor::from([
-            0.1353352832366127,
-            0.6065306597126334,
-            1.6487212707001282,
-            7.38905609893065,
-        ]);
-        exp_in_place(input.view_mut());
-        expect_equal(&input, &expected)?;
-        Ok(())
-    }
+    test_unary_op!(
+        test_exp,
+        Exp {},
+        |x| x.exp(),
+        Tensor::from([-2., -0.5, 0.5, 2.0])
+    );
 
     #[test]
     fn test_floor() {
@@ -959,7 +898,7 @@ mod tests {
     fn reference_gelu(x: f32) -> f32 {
         0.5 * x * (1. + libm::erff(x / (2.0f32).sqrt()))
     }
-    test_unary_op!(test_gelu, gelu, gelu_in_place, |x| reference_gelu(*x));
+    test_unary_op!(test_gelu, Gelu {}, |x| reference_gelu(*x));
 
     #[test]
     fn test_hard_sigmoid() -> Result<(), Box<dyn Error>> {
@@ -994,102 +933,35 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_leaky_relu_in_place() -> Result<(), Box<dyn Error>> {
-        let mut input = Tensor::from_data(&[2, 2], vec![-5., -2., 3., 20.]);
-        let alpha = 0.1;
-        let expected = Tensor::from_data(&[2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
-        leaky_relu_in_place(input.view_mut(), alpha);
-        expect_equal(&input, &expected)?;
-        Ok(())
-    }
+    test_unary_op!(
+        test_log,
+        Log {},
+        |x| x.ln(),
+        Tensor::from([0.1, 0.5, 1., 10.])
+    );
 
-    #[test]
-    fn test_log() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
-        let input = Tensor::from([0.1, 0.5, 1., 10.]);
-        let expected = Tensor::from([
-            -2.3025850929940455,
-            -0.6931471805599453,
-            0.,
-            2.302585092994046,
-        ]);
-        let result = log(&pool, input.view());
-        expect_equal(&result, &expected)?;
-        Ok(())
-    }
+    test_unary_op!(test_neg, Neg {}, |x| -x, Tensor::from([0, 1, -1, 2]));
 
-    #[test]
-    fn test_log_in_place() -> Result<(), Box<dyn Error>> {
-        let mut input = Tensor::from([0.1, 0.5, 1., 10.]);
-        let expected = Tensor::from([
-            -2.3025850929940455,
-            -0.6931471805599453,
-            0.,
-            2.302585092994046,
-        ]);
-        log_in_place(input.view_mut());
-        expect_equal(&input, &expected)?;
-        Ok(())
-    }
+    test_unary_op!(
+        test_not,
+        Not {},
+        |x| i32::from(*x == 0),
+        Tensor::from([0, 1, 1, 0])
+    );
 
-    #[test]
-    fn test_neg() {
-        let pool = new_pool();
-        let input = Tensor::from([0, 1, -1, 2]);
-        let expected = Tensor::from([0, -1, 1, -2]);
-        let result = neg(&pool, input.view());
-        assert_eq!(result, expected);
-    }
+    test_unary_op!(
+        test_reciprocal,
+        Reciprocal {},
+        |x| 1. / x,
+        Tensor::from([1., 2., 0.5, 0.])
+    );
 
-    #[test]
-    fn test_neg_in_place() {
-        let mut input = Tensor::from([0, 1, -1, 2]);
-        let expected = Tensor::from([0, -1, 1, -2]);
-        neg_in_place(input.view_mut());
-        assert_eq!(input, expected);
-    }
-
-    #[test]
-    fn test_not() {
-        let pool = new_pool();
-        let input = Tensor::from([0, 1, 1, 0]);
-        let expected = Tensor::from([1, 0, 0, 1]);
-        let result = not(&pool, input.view());
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_not_in_place() {
-        let mut input = Tensor::from([0, 1, 1, 0]);
-        let expected = Tensor::from([1, 0, 0, 1]);
-        not_in_place(input.view_mut());
-        assert_eq!(input, expected);
-    }
-
-    #[test]
-    fn test_reciprocal() {
-        let pool = new_pool();
-        let input = Tensor::from([1., 2., 0.5, 0.]);
-        let expected = input.map(|x| 1. / x);
-        let result = reciprocal(&pool, input.view());
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_relu() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
-        let input = Tensor::from_data(&[2, 2, 1], vec![-0.5, 0.5, 3.0, -5.5]);
-        let expected = Tensor::from_data(&[2, 2, 1], vec![0.0, 0.5, 3.0, 0.0]);
-
-        let result = relu(&pool, input.view());
-        expect_equal(&result, &expected)?;
-
-        let mut result = input.clone();
-        relu_in_place(result.view_mut());
-        expect_equal(&result, &expected)?;
-        Ok(())
-    }
+    test_unary_op!(
+        test_relu,
+        Relu {},
+        |x| x.max(0.),
+        Tensor::from([-0.5, 0.5, 3.0, -5.5])
+    );
 
     #[test]
     fn test_round() -> Result<(), Box<dyn Error>> {
@@ -1101,10 +973,6 @@ mod tests {
         let result = round(&pool, input.view());
         expect_equal(&result, &expected)?;
 
-        let mut input = input.clone();
-        round_in_place(input.view_mut());
-        expect_equal(&input, &expected)?;
-
         // Per spec, integral, zero, NaN and infinities are unchanged.
         let input = Tensor::from([1., 0., -0., f32::NAN, f32::INFINITY, f32::NEG_INFINITY]);
         let result = round(&pool, input.view());
@@ -1113,60 +981,29 @@ mod tests {
         Ok(())
     }
 
+    test_unary_op!(test_sign, Sign {}, |x: &f32| x.signum());
+
     fn reference_sigmoid(x: f32) -> f32 {
         1. / (1. + (-x).exp())
     }
 
-    #[test]
-    fn test_sigmoid() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
-        let input: Tensor<f32> =
-            Tensor::from([-500.0, -3.0, -1.0, -0.5, 0.0, 0.5, 1.0, 3.0, 500.0]);
-        let expected = input.map(|x| reference_sigmoid(*x));
-
-        let result = sigmoid(&pool, input.view());
-        expect_equal(&result, &expected)?;
-
-        let mut result = input.clone();
-        sigmoid_in_place(result.view_mut());
-        expect_equal(&result, &expected)?;
-
-        Ok(())
-    }
-
-    test_unary_op!(test_silu, silu, silu_in_place, |x: &f32| x
-        * reference_sigmoid(*x));
     test_unary_op!(
-        test_swish,
-        |pool, input| swish(pool, input, 0.5),
-        |input| swish_in_place(input, 0.5),
-        |x: &f32| x * reference_sigmoid(0.5 * *x)
+        test_sigmoid,
+        Sigmoid {},
+        |x| reference_sigmoid(*x),
+        Tensor::from([-500.0, -3.0, -1.0, -0.5, 0.0, 0.5, 1.0, 3.0, 500.0])
     );
-    test_unary_op!(test_sign, sign, sign_in_place, |x: &f32| x.signum());
-    test_unary_op!(test_sin, sin, sin_in_place, |x: &f32| x.sin());
-    test_unary_op!(test_softplus, softplus, softplus_in_place, |x: &f32| {
-        x.exp().ln_1p()
-    });
-
-    #[test]
-    fn test_sqrt() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
-        let input = Tensor::from([4., 9., 16.]);
-        let expected = Tensor::from([2., 3., 4.]);
-        let result = sqrt(&pool, input.view());
-        expect_equal(&result, &expected)?;
-        Ok(())
-    }
-
-    #[test]
-    fn test_sqrt_in_place() -> Result<(), Box<dyn Error>> {
-        let mut input = Tensor::from([4., 9., 16.]);
-        let expected = Tensor::from([2., 3., 4.]);
-        sqrt_in_place(input.view_mut());
-        expect_equal(&input, &expected)?;
-        Ok(())
-    }
-
-    test_unary_op!(test_tan, tan, tan_in_place, |x: &f32| x.tan());
-    test_unary_op!(test_tanh, tanh, tanh_in_place, |x: &f32| x.tanh());
+    test_unary_op!(test_silu, Silu {}, |x: &f32| x * reference_sigmoid(*x));
+    test_unary_op!(test_sin, Sin {}, |x: &f32| x.sin());
+    test_unary_op!(test_softplus, Softplus {}, |x: &f32| { x.exp().ln_1p() });
+    test_unary_op!(
+        test_sqrt,
+        Sqrt {},
+        |x: &f32| x.sqrt(),
+        Tensor::from([4., 9., 16.])
+    );
+    test_unary_op!(test_swish, Swish { beta: 0.5 }, |x: &f32| x
+        * reference_sigmoid(0.5 * *x));
+    test_unary_op!(test_tan, Tan {}, |x: &f32| x.tan());
+    test_unary_op!(test_tanh, Tanh {}, |x: &f32| x.tanh());
 }
