@@ -904,12 +904,13 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::fast_broadcast_cycles_repeats;
-    use crate::ops::tests::new_pool;
-    use crate::ops::{
+    use super::{
         add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
         less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
-        where_op, xor, Add, DivMode, OpError, Operator, OperatorExt, Output,
+        where_op, xor, Add, DivMode,
     };
+    use crate::ops::tests::new_pool;
+    use crate::ops::{OpError, Operator, OperatorExt, Output};
 
     #[test]
     fn test_fast_broadcast_cycles_repeats() {

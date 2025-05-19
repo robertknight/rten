@@ -56,7 +56,12 @@ impl ApproxEq for f32 {
 
     #[inline]
     fn approx_eq_with_atol_rtol(&self, other: &f32, atol: f32, rtol: f32) -> bool {
-        (self - other).abs() <= atol + rtol * other.abs()
+        if self == other {
+            // This handles infinities.
+            true
+        } else {
+            (self - other).abs() <= atol + rtol * other.abs()
+        }
     }
 }
 
@@ -229,6 +234,12 @@ mod tests {
             let not_close = val + 2e-8 + val * 2e-5;
             assert_ne!(val, not_close);
             assert!(!val.approx_eq(&not_close));
+        }
+
+        // Infinities
+        let vals = [f32::NEG_INFINITY, f32::INFINITY];
+        for val in vals {
+            assert!(val.approx_eq(&val));
         }
     }
 }

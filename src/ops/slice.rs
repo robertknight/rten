@@ -202,8 +202,9 @@ mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
+    use super::{slice, slice_in_place};
     use crate::ops::tests::new_pool;
-    use crate::ops::{slice, slice_in_place, OpError};
+    use crate::ops::OpError;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())

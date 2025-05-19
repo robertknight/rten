@@ -64,10 +64,9 @@ mod variadic_elementwise;
 pub(crate) mod transform_inputs;
 
 pub use binary_elementwise::{
-    add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
-    less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place, where_op,
-    xor, Add, And, Div, DivMode, Equal, Greater, GreaterOrEqual, Less, LessOrEqual, Mod, Mul, Or,
-    Pow, Sub, Where, Xor,
+    add, and, div, equal, greater, greater_or_equal, less, less_or_equal, mod_op, mul, or, pow,
+    sub, where_op, xor, Add, And, Div, DivMode, Equal, Greater, GreaterOrEqual, Less, LessOrEqual,
+    Mod, Mul, Or, Pow, Sub, Where, Xor,
 };
 pub use concat::{concat, tile, Concat, Tile};
 pub use control_flow::If;
@@ -81,15 +80,15 @@ pub use gather::{
 pub use generate::{constant_of_shape, onehot, range, ConstantOfShape, OneHot, Range};
 pub use identity::Identity;
 pub use layout::{
-    depth_to_space, expand, flatten, reshape, squeeze, squeeze_in_place, DepthToSpace,
-    DepthToSpaceMode, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
+    depth_to_space, expand, flatten, reshape, squeeze, DepthToSpace, DepthToSpaceMode, Expand,
+    Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
 };
 pub use matmul::{gemm_op, matmul, FusedMatMul, Gemm, MatMul, MatMulInteger};
 pub use non_max_suppression::{non_max_suppression, BoxOrder, NonMaxSuppression};
 pub use norm::{
-    batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
-    rms_normalization, softmax, BatchNormalization, InstanceNormalization, LayerNormalization,
-    LogSoftmax, RmsNormalization, Softmax,
+    batch_norm, instance_normalization, layer_normalization, log_softmax, rms_normalization,
+    softmax, BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax,
+    RmsNormalization, Softmax,
 };
 pub use pad::{pad, Pad, PadMode};
 pub use pooling::{
@@ -112,20 +111,15 @@ pub use resize::{
     resize, resize_image, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget,
 };
 pub use rnn::{gru, lstm, Direction, GRU, LSTM};
-pub use slice::{slice, slice_in_place, Slice};
+pub use slice::{slice, Slice};
 pub use split::{split, Split};
 pub use trilu::{trilu, Trilu};
 pub use unary_elementwise::{
-    abs, abs_in_place, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil,
-    ceil_in_place, clip, clip_in_place, cos, cos_in_place, elu, elu_in_place, erf, erf_in_place,
-    exp, exp_in_place, floor, floor_in_place, gelu, gelu_in_place, hard_sigmoid,
-    hard_sigmoid_in_place, hard_swish, hard_swish_in_place, leaky_relu, leaky_relu_in_place, log,
-    log_in_place, neg, neg_in_place, not, not_in_place, reciprocal, reciprocal_in_place, relu,
-    relu_in_place, round, round_in_place, sigmoid, sigmoid_in_place, sign, sign_in_place, silu,
-    silu_in_place, sin, sin_in_place, softplus, softplus_in_place, sqrt, sqrt_in_place, swish,
-    swish_in_place, tan, tan_in_place, tanh, tanh_in_place, Abs, Acos, Asin, Atan, Ceil, Clip, Cos,
-    Elu, Erf, Exp, Floor, Gelu, HardSigmoid, HardSwish, LeakyRelu, Log, Neg, Not, Reciprocal, Relu,
-    Round, Sigmoid, Sign, Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
+    abs, acos, asin, atan, ceil, clip, cos, elu, erf, exp, floor, gelu, hard_sigmoid, hard_swish,
+    leaky_relu, log, neg, not, reciprocal, relu, round, sigmoid, sign, silu, sin, softplus, sqrt,
+    swish, tan, tanh, Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Elu, Erf, Exp, Floor, Gelu,
+    HardSigmoid, HardSwish, LeakyRelu, Log, Neg, Not, Reciprocal, Relu, Round, Sigmoid, Sign, Silu,
+    Sin, Softplus, Sqrt, Swish, Tan, Tanh,
 };
 pub use variadic_elementwise::{max, mean, min, sum, Max, Mean, Min, Sum};
 
@@ -975,6 +969,15 @@ pub trait OperatorExt: Operator {
         let ctx = OpRunContext::new(&pool, &inputs);
         let mut outputs = self.run(&ctx)?;
         Ok(outputs.remove(0))
+    }
+
+    fn run_simple_in_place<I: Into<Output>, O: TryFrom<Output, Error = OpError>>(
+        &self,
+        input: I,
+    ) -> Result<O, OpError> {
+        let pool = TensorPool::new();
+        let output = self.run_in_place(&pool, input.into(), InputList::new())?;
+        output.try_into()
     }
 }
 
