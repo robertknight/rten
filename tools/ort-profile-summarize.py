@@ -7,7 +7,7 @@ class TypeShape(TypedDict):
     """
     Type and shape for a tensor.
 
-    There will be one key specifying the type, and it's value is the shape.
+    There will be one key specifying the type, and its value is the shape.
     """
 
     float: list[int]

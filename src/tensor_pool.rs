@@ -93,7 +93,7 @@ impl Drop for Buffer {
 /// will be satisfied from the pool if there is a suitable buffer available, or
 /// it will fall back to the global allocator otherwise.
 ///
-/// When a tensor is no longer needed, it's buffer can be added to the pool
+/// When a tensor is no longer needed, its buffer can be added to the pool
 /// using `pool.add(tensor.extract_buffer())`, making it available for future
 /// allocations. A more convenient method is to wrap the tensor in a [`PoolRef`]
 /// smart pointer which will auto-return the tensor to the pool when dropped. A
@@ -214,7 +214,7 @@ impl Default for TensorPool {
 pub trait ExtractBuffer {
     type Elem;
 
-    /// Consume `self` and return it's data buffer if it was uniquely owned, or
+    /// Consume `self` and return its data buffer if it was uniquely owned, or
     /// `None` otherwise.
     fn extract_buffer(self) -> Option<Vec<Self::Elem>>;
 }
