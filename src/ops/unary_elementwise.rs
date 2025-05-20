@@ -2,9 +2,9 @@ use rayon::prelude::*;
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::mem::MaybeUninit;
 
-use rten_simd::SimdUnaryOp;
+use rten_simd::ops::GetNumOps;
+use rten_simd::{Elem, SimdUnaryOp};
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;
@@ -91,13 +91,13 @@ macro_rules! unary_numeric_op {
 
             fn run_in_place(
                 &self,
-                _pool: &TensorPool,
+                pool: &TensorPool,
                 input: Output,
                 _: InputList,
             ) -> Result<Output, OpError> {
                 map_output!(input, input, [FloatTensor, Int32Tensor], {
-                    $mut_impl(input.view_mut());
-                    Ok(input.into())
+                    let result = $mut_impl(pool, input);
+                    Ok(result.into())
                 })
             }
         }
@@ -141,13 +141,10 @@ macro_rules! unary_float_op {
 const CHUNK_SIZE: usize = 32 * 1024;
 
 /// Apply a unary operation in parallel to contiguous slices of `input`.
-fn par_unary_op<
-    T: Copy + Default + Send + Sync,
-    F: Fn(&[T], &mut [MaybeUninit<T>]) + Send + Sync,
->(
+fn par_unary_op<T: GetNumOps + Elem + Send + Sync>(
     pool: &TensorPool,
     input: TensorView<T>,
-    op: F,
+    op: impl SimdUnaryOp<T> + Send + Sync,
 ) -> Tensor<T> {
     let input = input.to_contiguous_in(pool).auto_return(pool);
     let mut output = Tensor::uninit_in(pool, input.shape());
@@ -156,7 +153,7 @@ fn par_unary_op<
     let out_chunks = output.data_mut().unwrap().par_chunks_mut(CHUNK_SIZE);
     in_chunks
         .zip(out_chunks)
-        .for_each(|(in_chunk, out_chunk)| op(in_chunk, out_chunk));
+        .for_each(|(in_chunk, out_chunk)| op.map(in_chunk, out_chunk));
 
     // Safety: `op` initialized each chunk of `out_chunks`.
     unsafe { output.assume_init() }
@@ -164,22 +161,24 @@ fn par_unary_op<
 
 /// Apply a unary operation in parallel to contiguous slices of `input`,
 /// writing the results in-place.
-fn par_unary_op_in_place<T: Copy + Send, VF: Fn(&mut [T]) + Send + Sync, SF: Fn(T) -> T>(
-    mut input: TensorViewMut<T>,
-    vec_op: VF,
-    scalar_op: SF,
-) {
+fn par_unary_op_in_place<T: GetNumOps + Elem + Send + Sync>(
+    pool: &TensorPool,
+    mut input: Tensor<T>,
+    op: impl SimdUnaryOp<T> + Send + Sync,
+) -> Tensor<T> {
     if let Some(data) = input.data_mut() {
-        data.par_chunks_mut(CHUNK_SIZE).for_each(vec_op);
+        data.par_chunks_mut(CHUNK_SIZE)
+            .for_each(|chunk| op.map_mut(chunk));
+        input
     } else {
-        input.apply(|x| scalar_op(*x));
+        par_unary_op(pool, input.view(), op)
     }
 }
 
 /// Define an operator which supports float tensors and is optimized using SIMD
 /// and multithreading.
 macro_rules! parallel_unary_float_op {
-    ($op_name:ident, $func_name:ident, $in_place_func_name:ident, $simd_kernel:expr) => {
+    ($op_name:ident, $func_name:ident, $simd_kernel:expr) => {
         #[derive(Debug)]
         pub struct $op_name {}
 
@@ -198,26 +197,22 @@ macro_rules! parallel_unary_float_op {
 
             fn run_in_place(
                 &self,
-                _pool: &TensorPool,
+                pool: &TensorPool,
                 input: Output,
                 _: InputList,
             ) -> Result<Output, OpError> {
-                let mut tensor = input
+                let tensor = input
                     .into_tensor::<f32>()
                     .ok_or(OpError::IncorrectInputType)?;
-                $in_place_func_name(tensor.view_mut());
-                Ok(tensor.into())
+                let kernel = $simd_kernel;
+                let result = par_unary_op_in_place(pool, tensor, kernel);
+                Ok(result.into())
             }
         }
 
         pub fn $func_name(pool: &TensorPool, input: TensorView) -> Tensor {
             let kernel = $simd_kernel;
-            par_unary_op(pool, input, |src, dst| kernel.map(src, dst))
-        }
-
-        pub fn $in_place_func_name(input: TensorViewMut) {
-            let kernel = $simd_kernel;
-            par_unary_op_in_place(input, |dst| kernel.map_mut(dst), |x| kernel.scalar_eval(x));
+            par_unary_op(pool, input, kernel)
         }
     };
 }
@@ -242,8 +237,9 @@ pub fn abs<T: AbsValue>(pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
     input.map_in(pool, |x| x.abs())
 }
 
-pub fn abs_in_place<T: AbsValue>(mut input: TensorViewMut<T>) {
-    input.apply(|x| x.abs())
+pub fn abs_in_place<T: AbsValue>(_pool: &TensorPool, mut input: Tensor<T>) -> Tensor<T> {
+    input.apply(|x| x.abs());
+    input
 }
 
 unary_numeric_op!(Abs, abs, abs_in_place);
@@ -395,11 +391,11 @@ pub fn elu(pool: &TensorPool, input: TensorView, alpha: f32) -> Tensor {
     Elu { alpha }.map(pool, input)
 }
 
-parallel_unary_float_op!(Erf, erf, erf_in_place, vecmath::Erf {});
-parallel_unary_float_op!(Exp, exp, exp_in_place, vecmath::Exp {});
+parallel_unary_float_op!(Erf, erf, vecmath::Erf {});
+parallel_unary_float_op!(Exp, exp, vecmath::Exp {});
 unary_float_op!(Floor, floor, |val: f32| val.floor());
 
-parallel_unary_float_op!(Gelu, gelu, gelu_in_place, vecmath::Gelu {});
+parallel_unary_float_op!(Gelu, gelu, vecmath::Gelu {});
 
 #[derive(Debug)]
 pub struct HardSigmoid {
@@ -470,8 +466,12 @@ pub fn neg<T: Copy + std::ops::Neg<Output = T>>(
     input.map_in(pool, |x| x.neg())
 }
 
-pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(mut input: TensorViewMut<T>) {
-    input.apply(|x| x.neg())
+pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(
+    _pool: &TensorPool,
+    mut input: Tensor<T>,
+) -> Tensor<T> {
+    input.apply(|x| x.neg());
+    input
 }
 
 unary_numeric_op!(Neg, neg, neg_in_place);
@@ -537,7 +537,7 @@ pub fn round(pool: &TensorPool, x: TensorView) -> Tensor {
     Round {}.map(pool, x)
 }
 
-parallel_unary_float_op!(Sigmoid, sigmoid, sigmoid_in_place, vecmath::Sigmoid {});
+parallel_unary_float_op!(Sigmoid, sigmoid, vecmath::Sigmoid {});
 
 // Sigmoid Linear Unit (SiLU) function.
 //
@@ -546,7 +546,7 @@ parallel_unary_float_op!(Sigmoid, sigmoid, sigmoid_in_place, vecmath::Sigmoid {}
 //
 // Not an official ONNX operator, but used in popular object detection models.
 // See https://github.com/onnx/onnx/issues/4854.
-parallel_unary_float_op!(Silu, silu, silu_in_place, vecmath::Silu {});
+parallel_unary_float_op!(Silu, silu, vecmath::Silu {});
 
 /// Swish function (<https://en.wikipedia.org/wiki/Swish_function>).
 ///
@@ -572,26 +572,24 @@ impl Operator for Swish {
 
     fn run_in_place(
         &self,
-        _pool: &TensorPool,
+        pool: &TensorPool,
         input: Output,
         _: InputList,
     ) -> Result<Output, OpError> {
-        let mut tensor = input
+        let tensor = input
             .into_tensor::<f32>()
             .ok_or(OpError::IncorrectInputType)?;
-        swish_in_place(tensor.view_mut(), self.beta);
-        Ok(tensor.into())
+        let output = swish_in_place(pool, tensor, self.beta);
+        Ok(output.into())
     }
 }
 
 pub fn swish(pool: &TensorPool, input: TensorView, beta: f32) -> Tensor {
-    let swish = vecmath::Swish { beta };
-    par_unary_op(pool, input, |src, dest| swish.map(src, dest))
+    par_unary_op(pool, input, vecmath::Swish { beta })
 }
 
-pub fn swish_in_place(input: TensorViewMut, beta: f32) {
-    let swish = vecmath::Swish { beta };
-    par_unary_op_in_place(input, |src| swish.map_mut(src), |x| swish.scalar_eval(x));
+pub fn swish_in_place(pool: &TensorPool, input: Tensor, beta: f32) -> Tensor {
+    par_unary_op_in_place(pool, input, vecmath::Swish { beta })
 }
 
 unary_float_op!(Sin, sin, |val: f32| val.sin());
@@ -620,15 +618,16 @@ pub fn sign<T: Signum>(pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
     input.map_in(pool, |x| x.signum())
 }
 
-pub fn sign_in_place<T: Signum>(mut input: TensorViewMut<T>) {
-    input.apply(|x| x.signum())
+pub fn sign_in_place<T: Signum>(_pool: &TensorPool, mut input: Tensor<T>) -> Tensor<T> {
+    input.apply(|x| x.signum());
+    input
 }
 
 unary_numeric_op!(Sign, sign, sign_in_place);
 unary_float_op!(Sqrt, sqrt, |val: f32| val.sqrt());
 unary_float_op!(Softplus, softplus, |val: f32| { val.exp().ln_1p() });
 unary_float_op!(Tan, tan, |val: f32| val.tan());
-parallel_unary_float_op!(Tanh, tanh, tanh_in_place, vecmath::Tanh {});
+parallel_unary_float_op!(Tanh, tanh, vecmath::Tanh {});
 
 #[cfg(test)]
 mod tests {
