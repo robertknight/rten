@@ -703,51 +703,30 @@ pub unsafe fn simd_int8_gemm<I: Isa, D, const MR: usize, const NR: usize, const 
     let output_tile_ptr =
         |row, col_block| tile_ptr.add(row * tile_row_stride + col_block * ops.len());
 
-    #[allow(clippy::collapsible_else_if)]
-    if !accumulate {
-        if used_rows == MR && used_cols == NR {
-            // Full output tile
-            for row in 0..MR {
-                for c_block in 0..NR_REGS {
-                    let tile_ptr = output_tile_ptr(row, c_block);
-                    ops.store_ptr(tmp[row][c_block], tile_ptr);
+    if used_rows == MR && used_cols == NR {
+        // Full output tile
+        for row in 0..MR {
+            for c_block in 0..NR_REGS {
+                let tile_ptr = output_tile_ptr(row, c_block);
+                if accumulate {
+                    tmp[row][c_block] = ops.add(ops.load_ptr(tile_ptr), tmp[row][c_block]);
                 }
-            }
-        } else {
-            // Partial output tile
-            for r in 0..used_rows {
-                for c_block in 0..NR_REGS {
-                    let tile_ptr = output_tile_ptr(r, c_block);
-                    let used_cols = used_cols.saturating_sub(c_block * ops.len()).min(ops.len());
-                    let tmp = tmp[r][c_block].to_array();
-
-                    for c in 0..used_cols {
-                        tile_ptr.add(c).write(tmp[c]);
-                    }
-                }
+                ops.store_ptr(tmp[row][c_block], tile_ptr);
             }
         }
     } else {
-        if used_rows == MR && used_cols == NR {
-            // Full output tile
-            for row in 0..MR {
-                for c_block in 0..NR_REGS {
-                    let tile_ptr = output_tile_ptr(row, c_block);
-                    let out = ops.add(ops.load_ptr(tile_ptr), tmp[row][c_block]);
-                    ops.store_ptr(out, tile_ptr);
-                }
-            }
-        } else {
-            // Partial output tile
-            for r in 0..used_rows {
-                for c_block in 0..NR_REGS {
-                    let tile_ptr = output_tile_ptr(r, c_block);
-                    let used_cols = used_cols.saturating_sub(c_block * ops.len()).min(ops.len());
-                    let tmp = tmp[r][c_block].to_array();
+        // Partial output tile
+        for r in 0..used_rows {
+            for c_block in 0..NR_REGS {
+                let tile_ptr = output_tile_ptr(r, c_block);
+                let used_cols = used_cols.saturating_sub(c_block * ops.len()).min(ops.len());
+                let mut tmp = tmp[r][c_block].to_array();
 
-                    for c in 0..used_cols {
-                        *tile_ptr.add(c) += tmp[c];
+                for c in 0..used_cols {
+                    if accumulate {
+                        tmp[c] += *tile_ptr.add(c);
                     }
+                    tile_ptr.add(c).write(tmp[c]);
                 }
             }
         }
