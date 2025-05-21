@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### rten
+
+- Fix performance regression in int8 model inference on Arm under Rust v1.87+
+  (https://github.com/robertknight/rten/pull/706)
+
+- Fix issue where performance of vectorized unary operators could significantly
+  degrade in certain contexts (https://github.com/robertknight/rten/pull/705)
+
+- Remove the `{operation}_in_place` functions for most unary operators
+  (https://github.com/robertknight/rten/pull/703)
+
+- Parallelize `LayerNormalization`, `RmsNormalization` operators
+  (https://github.com/robertknight/rten/pull/698)
+
+- Support fusing `Transpose` + `MatMul` subgraphs where both inputs are
+  transposed (https://github.com/robertknight/rten/pull/696)
+
+- Support `Split` v13 operators that don't specify the expected number of
+  outputs (https://github.com/robertknight/rten/pull/692)
+
+- Improve execution planning error messages, e.g. when there is no way to
+  compute the requested outputs given the inputs (https://github.com/robertknight/rten/pull/688,
+  https://github.com/robertknight/rten/pull/690)
+
+- Improve input validation in `Slice` op (https://github.com/robertknight/rten/pull/687)
+
+- Fixed issue where fast paths were not always used in `Slice` op
+  (https://github.com/robertknight/rten/pull/686)
+
+### rten-generate
+
+- Add `Metrics::token_count` API which provides a convenient way to get the
+  total number of generated tokens (https://github.com/robertknight/rten/pull/699)
+
 ## [0.18.0] - 2025-05-08
 
 ### rten
