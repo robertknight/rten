@@ -132,19 +132,59 @@ impl GraphMutator {
         &mut self,
         create_fusion: F,
     ) {
+        struct Replacement {
+            unfused_ops: Vec<NodeId>,
+            fusion: Fusion,
+        }
+
         let fusions: Vec<_> = self
             .iter_operators()
-            .filter_map(|(op_node_id, op_node)| create_fusion(self, op_node_id, op_node))
+            .filter_map(|(op_node_id, op_node)| {
+                let fusion = create_fusion(self, op_node_id, op_node)?;
+
+                // Check for outputs of intermediate steps in the fused subgraph
+                // used by operators outside of the subgraph. If any are found,
+                // we can't fuse the subgraph as the intermediate value would no
+                // longer be available.
+                let input_ids: Vec<_> = fusion.input_ids.iter().flatten().copied().collect();
+                let output_ids: Vec<_> = fusion.output_ids.iter().flatten().copied().collect();
+                let unfused_ops = self.graph.execution_plan(&input_ids, &output_ids).unwrap();
+                let reused_output = find_operator_output_used_outside_subgraph(
+                    &self.graph,
+                    &self.edges,
+                    &unfused_ops,
+                    &output_ids,
+                );
+                if reused_output.is_some() {
+                    return None;
+                }
+
+                Some(Replacement {
+                    fusion,
+                    unfused_ops,
+                })
+            })
             .collect();
 
-        for Fusion {
-            name,
-            fused_op,
-            input_ids,
-            output_ids,
+        for Replacement {
+            fusion,
+            unfused_ops,
         } in fusions
         {
-            self.add_operator(name.as_deref(), fused_op, &input_ids, &output_ids);
+            // Remove all the nodes from the unfused subgraph.
+            self.graph.remove_nodes(&unfused_ops);
+            for consumer_ops in self.edges.values_mut() {
+                consumer_ops.retain(|op_id| !unfused_ops.contains(op_id));
+            }
+
+            // Add the fused operator. We do this afterwards to avoid node name
+            // conflicts.
+            self.add_operator(
+                fusion.name.as_deref(),
+                fusion.fused_op,
+                &fusion.input_ids,
+                &fusion.output_ids,
+            );
         }
     }
 
@@ -191,6 +231,46 @@ impl GraphMutator {
             self.edges.insert(new_value_id, old_value_op_ids);
         }
     }
+}
+
+/// Find an operator output in a subgraph which is used outside the subgraph,
+/// excluding outputs listed in `output_ids`, which are the final outputs of the
+/// subgraph.
+fn find_operator_output_used_outside_subgraph(
+    graph: &Graph,
+    edges: &FxHashMap<NodeId, Vec<NodeId>>,
+    subgraph_ops: &[NodeId],
+    output_ids: &[NodeId],
+) -> Option<NodeId> {
+    for op_id in subgraph_ops {
+        let op = graph
+            .get_node(*op_id)
+            .and_then(|n| n.as_operator())
+            .expect("node ID should be a valid operator ID");
+
+        for output in op.output_ids().iter().flatten() {
+            if output_ids.contains(output) {
+                continue;
+            }
+
+            // Check for intermediate output used as graph output.
+            if graph.output_ids().contains(output) {
+                return Some(*output);
+            }
+
+            // Check for intermediate output used as input to operator node
+            // outside subgraph.
+            let Some(consumers) = edges.get(output) else {
+                continue;
+            };
+            for consumer in consumers {
+                if !subgraph_ops.contains(consumer) {
+                    return Some(*output);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Defines a fused operator which replaces a subgraph.
@@ -765,7 +845,7 @@ mod tests {
     use crate::graph::builder::Expr;
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
     use crate::ops::{
-        Add, Erf, FusedMatMul, LayerNormalization, MatMul, Pow, ReduceMean, RmsNormalization,
+        Add, Erf, FusedMatMul, LayerNormalization, MatMul, Neg, Pow, ReduceMean, RmsNormalization,
         Sigmoid, Sqrt, Swish, Transpose,
     };
 
@@ -1166,5 +1246,81 @@ mod tests {
         graph.set_output_ids(&[invalid_id]);
         let result = optimizer.optimize(graph, None);
         assert!(matches!(result, Err(OptimizeError::RunError(_))));
+    }
+
+    #[test]
+    fn test_optimize_removes_unfused_ops() {
+        let graph = {
+            let x = Expr::value("x");
+            let sqrt_2 = (2.0f32).sqrt();
+            let expr = x.clone() * ((x / sqrt_2).erf() + 1.0) * 0.5;
+            expr.build_graph(["x"])
+        };
+
+        // Intermediate nodes of Gelu op. These should be removed after fusion.
+        let ops = ["Mul", "Erf", "Div", "Add"];
+        for op in ops {
+            assert!(graph.get_node_id(op).is_some());
+        }
+
+        let optimized = optimize_graph(graph).unwrap();
+        for op in ops {
+            assert!(optimized.get_node_id(op).is_none());
+        }
+        let fused_op = optimized
+            .get_node_id("Mul_1")
+            .and_then(|id| optimized.get_node(id))
+            .and_then(|n| n.as_operator())
+            .unwrap();
+        assert_eq!(fused_op.operator().name(), "Gelu");
+    }
+
+    #[test]
+    fn test_optimize_does_not_fuse_if_intermediate_outputs_reused() {
+        let mut graph = {
+            let x = Expr::value("x");
+            let sqrt_2 = (2.0f32).sqrt();
+            let expr = x.clone() * ((x / sqrt_2).erf() + 1.0) * 0.5;
+            expr.build_graph(["x"])
+        };
+
+        // Add an operator which reuses an intermediate value from the Gelu
+        // subgraph. This should prevent fusion.
+        let erf_out = graph.get_node_id("Erf_out").unwrap();
+        graph.add_simple_op("neg", Neg {}, &[erf_out]);
+
+        let optimized = optimize_graph(graph).unwrap();
+        let fused_op = optimized
+            .get_node_id("Mul_1")
+            .and_then(|id| optimized.get_node(id))
+            .and_then(|n| n.as_operator())
+            .unwrap();
+        assert_eq!(fused_op.operator().name(), "Mul");
+    }
+
+    #[test]
+    fn test_optimize_does_not_fuse_if_intermediate_output_is_graph_output() {
+        let mut graph = {
+            let x = Expr::value("x");
+            let sqrt_2 = (2.0f32).sqrt();
+            let expr = x.clone() * ((x / sqrt_2).erf() + 1.0) * 0.5;
+            expr.build_graph(["x"])
+        };
+
+        // Add intermediate output as an output of the graph. This should
+        // prevent fusion.
+        let erf_out = graph.get_node_id("Erf_out").unwrap();
+        let mut output_ids = graph.output_ids().to_vec();
+        output_ids.push(erf_out);
+        graph.set_output_ids(&output_ids);
+
+        let optimized = optimize_graph(graph).unwrap();
+
+        let fused_op = optimized
+            .get_node_id("Mul_1")
+            .and_then(|id| optimized.get_node(id))
+            .and_then(|n| n.as_operator())
+            .unwrap();
+        assert_eq!(fused_op.operator().name(), "Mul");
     }
 }

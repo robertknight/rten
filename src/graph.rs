@@ -533,8 +533,7 @@ impl Graph {
         inputs: &[NodeId],
         outputs: &[NodeId],
     ) -> Result<Vec<NodeId>, RunError> {
-        let plan = self.get_cached_plan(inputs, outputs, false /* is_subgraph */)?;
-        Ok(plan.plan().to_vec())
+        self.create_plan(inputs, outputs, false /* is_subgraph */)
     }
 
     /// Compute a set of output values given a set of inputs, using the
@@ -602,20 +601,29 @@ impl Graph {
         let plan = match cached_plan.as_ref() {
             Some(plan) if plan.matches(inputs, outputs) => plan.clone(),
             _ => {
-                let planner = Planner::with_graph(self);
-                let plan = planner.create_plan(
-                    inputs,
-                    outputs,
-                    PlanOptions {
-                        allow_missing_inputs: false,
-                        captures_available: is_subgraph,
-                    },
-                )?;
+                let plan = self.create_plan(inputs, outputs, is_subgraph)?;
                 *cached_plan = Some(Arc::new(CachedPlan::new(inputs, outputs, plan)));
                 cached_plan.clone().unwrap()
             }
         };
         Ok(plan)
+    }
+
+    fn create_plan(
+        &self,
+        inputs: &[NodeId],
+        outputs: &[NodeId],
+        is_subgraph: bool,
+    ) -> Result<Vec<NodeId>, RunError> {
+        let planner = Planner::with_graph(self);
+        planner.create_plan(
+            inputs,
+            outputs,
+            PlanOptions {
+                allow_missing_inputs: false,
+                captures_available: is_subgraph,
+            },
+        )
     }
 
     fn run_plan(
