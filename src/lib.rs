@@ -109,11 +109,7 @@
 //! [onnx_operators]: https://onnx.ai/onnx/operators/
 //! [schema_fbs]: https://github.com/robertknight/rten/blob/main/src/schema.fbs
 //! [file_format]: https://github.com/robertknight/rten/blob/main/docs/rten-file-format.md
-#![cfg_attr(
-    feature = "avx512",
-    feature(stdarch_x86_avx512),
-    feature(avx512_target_feature)
-)]
+#![cfg_attr(feature = "avx512", feature(stdarch_x86_avx512))]
 
 #[allow(unused)] // Docs only
 use rten_tensor::{NdTensor, Tensor};
