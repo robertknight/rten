@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
+use std::hash::BuildHasherDefault;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -33,6 +34,8 @@ use node::ValueNode;
 pub use node::{
     Constant, ConstantNode, ConstantNodeData, Dimension, Node, OperatorNode, TypedConstant,
 };
+mod noop_hash;
+use noop_hash::NoopHashMap;
 mod planner;
 use planner::{CachedPlan, PlanOptions, Planner};
 
@@ -173,7 +176,9 @@ pub struct RunOptions {
 pub struct Graph {
     /// Nodes that make up the graph. The graph's edges are stored as part of
     /// operator nodes.
-    nodes: Vec<Node>,
+    nodes: NoopHashMap<NodeId, Node>,
+
+    next_node_id: u32,
 
     /// The plan that was used for the most recent execution of the graph.
     cached_plan: Mutex<Option<Arc<CachedPlan>>>,
@@ -203,7 +208,8 @@ impl Graph {
     /// Create a new graph with pre-allocated storage space for nodes.
     pub fn with_capacity(n_nodes: usize) -> Graph {
         Graph {
-            nodes: Vec::with_capacity(n_nodes),
+            nodes: HashMap::with_capacity_and_hasher(n_nodes, BuildHasherDefault::new()),
+            next_node_id: 0,
             cached_plan: Mutex::new(None),
             source_ids: FxHashMap::default(),
             input_ids: Vec::new(),
@@ -257,7 +263,7 @@ impl Graph {
             .filter_map(|&cap_node_id| self.get_node(cap_node_id).and_then(|n| n.name()))
             .collect();
 
-        for node in self.nodes.iter() {
+        for node in self.nodes.values() {
             if let Node::Operator(op) = node {
                 for subgraph in op.operator().subgraphs() {
                     captures.extend(subgraph.capture_names())
@@ -273,10 +279,11 @@ impl Graph {
     /// This contains the common logic for adding different types of node to
     /// the graph.
     fn add_node(&mut self, node: Node) -> NodeId {
-        let node_id = NodeId::from_u32(self.nodes.len() as u32);
-        self.nodes.push(node);
+        let node_id = NodeId::from_u32(self.next_node_id);
+        self.nodes.insert(node_id, node);
+        self.next_node_id += 1;
 
-        if let Some(name) = self.nodes[node_id.as_usize()].name() {
+        if let Some(name) = self.nodes.get(&node_id).unwrap().name() {
             self.node_id_from_name.insert(name.to_string(), node_id);
         }
 
@@ -442,10 +449,7 @@ impl Graph {
 
     /// Return an iterator over nodes in the graph.
     pub fn iter(&self) -> impl Iterator<Item = (NodeId, &Node)> {
-        self.nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| (NodeId::from_u32(i as u32), node))
+        self.nodes.iter().map(|(id, node)| (*id, node))
     }
 
     /// Return the debug name for a node.
@@ -458,7 +462,7 @@ impl Graph {
 
     /// Retrieve a node by ID
     pub fn get_node(&self, id: NodeId) -> Option<&Node> {
-        self.nodes.get(id.as_usize())
+        self.nodes.get(&id)
     }
 
     /// Look up a node ID given its unique name
@@ -478,14 +482,14 @@ impl Graph {
 
     /// Retrieve a node by ID
     pub fn get_node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
-        self.nodes.get_mut(id.as_usize())
+        self.nodes.get_mut(&id)
     }
 
     /// Return the total number of parameters in all constant nodes in this
     /// graph and subgraphs.
     pub fn total_params(&self) -> usize {
         self.nodes
-            .iter()
+            .values()
             .map(|node| match node {
                 Node::Operator(op_node) => op_node
                     .operator()
@@ -627,7 +631,7 @@ impl Graph {
 
         let inputs_by_id: FxHashMap<NodeId, InputOrOutput> = inputs.iter().cloned().collect();
         let get_value_from_constant_or_input = |node_id: NodeId| -> Option<Input> {
-            match self.nodes.get(node_id.as_usize()) {
+            match self.nodes.get(&node_id) {
                 Some(Node::Constant(constant)) => Some(constant.as_input()),
                 Some(Node::Value(_)) => inputs_by_id.get(&node_id).map(|input| input.as_input()),
                 _ => {
@@ -637,11 +641,11 @@ impl Graph {
         };
 
         fn get_value_from_capture<'a>(
-            nodes: &[Node],
+            nodes: &NoopHashMap<NodeId, Node>,
             captures: Option<&'a CaptureEnv>,
             node_id: NodeId,
         ) -> Option<Input<'a>> {
-            let name = nodes.get(node_id.as_usize()).and_then(|n| n.name())?;
+            let name = nodes.get(&node_id).and_then(|n| n.name())?;
             captures.and_then(|cap| cap.get_input(name))
         }
 
@@ -649,13 +653,13 @@ impl Graph {
         // when no longer needed.
         let mut temp_value_refcount = NodeRefCount::with_capacity(self.nodes.len());
         for &op_node_id in plan.iter() {
-            let Some(Node::Operator(op_node)) = self.nodes.get(op_node_id.as_usize()) else {
+            let Some(Node::Operator(op_node)) = self.nodes.get(&op_node_id) else {
                 return Err(RunError::PlanningError(
                     "operator node not found".to_string(),
                 ));
             };
             for node_id in self.operator_dependencies(op_node) {
-                if let Some(Node::Value(_)) = self.nodes.get(node_id.as_usize()) {
+                if let Some(Node::Value(_)) = self.nodes.get(&node_id) {
                     temp_value_refcount.inc(node_id);
                 }
             }
@@ -687,7 +691,7 @@ impl Graph {
         let mut op_start = Instant::now();
 
         for (step, &op_node_id) in plan.iter().enumerate() {
-            let Some(Node::Operator(op_node)) = self.nodes.get(op_node_id.as_usize()) else {
+            let Some(Node::Operator(op_node)) = self.nodes.get(&op_node_id) else {
                 return Err(RunError::PlanningError(
                     "operator node not found".to_string(),
                 ));
@@ -731,7 +735,7 @@ impl Graph {
                     if let Some(value) = temp_values.remove(&node_id) {
                         Some(value)
                     } else if self.captures.contains(&node_id) {
-                        let name = self.nodes.get(node_id.as_usize()).and_then(|n| n.name())?;
+                        let name = self.nodes.get(&node_id).and_then(|n| n.name())?;
                         captures.as_mut().and_then(|cap| cap.take_input(name))
                     } else {
                         None
