@@ -651,7 +651,7 @@ impl Graph {
 
         // Count how often each temporary output is used, so we can free them
         // when no longer needed.
-        let mut temp_value_refcount = NodeRefCount::with_capacity(self.nodes.len());
+        let mut temp_value_refcount = NodeRefCount::with_capacity(self.next_node_id as usize);
         for &op_node_id in plan.iter() {
             let Some(Node::Operator(op_node)) = self.nodes.get(&op_node_id) else {
                 return Err(RunError::PlanningError(
