@@ -1,7 +1,7 @@
 //! Tools to simplify building graphs in tests.
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
@@ -88,17 +88,24 @@ struct OperatorExpr {
 }
 
 struct NodeNameGenerator {
-    next_id: u32,
+    used_names: HashSet<String>,
 }
 
 impl NodeNameGenerator {
-    fn new(next_id: u32) -> NodeNameGenerator {
-        NodeNameGenerator { next_id }
+    fn new() -> NodeNameGenerator {
+        NodeNameGenerator {
+            used_names: HashSet::new(),
+        }
     }
 
     fn generate(&mut self, prefix: &str) -> String {
-        let name = format!("{}_{}", prefix, self.next_id);
-        self.next_id += 1;
+        let mut name = prefix.to_string();
+        let mut suffix = 0;
+        while self.used_names.contains(&name) {
+            suffix += 1;
+            name = format!("{}_{}", prefix, suffix);
+        }
+        self.used_names.insert(name.clone());
         name
     }
 }
@@ -142,7 +149,7 @@ impl Expr {
     pub fn build_graph<'a, I: AsRef<[&'a str]>>(self, inputs: I) -> Graph {
         let mut graph = Graph::new();
         let mut expr_output_ids = HashMap::new();
-        let mut name_gen = NodeNameGenerator::new(1);
+        let mut name_gen = NodeNameGenerator::new();
         let output_id = self.add_to_graph(&mut graph, &mut name_gen, &mut expr_output_ids);
 
         let input_ids: Vec<NodeId> = inputs

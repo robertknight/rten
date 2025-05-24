@@ -252,6 +252,25 @@ impl Graph {
         &self.captures
     }
 
+    /// Remove nodes from the graph.
+    ///
+    /// This method accepts a list of node IDs as it is more efficient to
+    /// remove nodes in batches.
+    pub fn remove_nodes(&mut self, node_ids: &[NodeId]) {
+        self.clear_cached_plan();
+        self.input_ids.retain(|id| !node_ids.contains(id));
+        self.output_ids.retain(|id| !node_ids.contains(id));
+        self.captures.retain(|id| !node_ids.contains(id));
+        self.source_ids
+            .retain(|val_id, op_id| !node_ids.contains(val_id) && !node_ids.contains(op_id));
+        for node_id in node_ids {
+            if let Some(name) = self.nodes.get(node_id).and_then(|n| n.name()) {
+                self.node_id_from_name.remove(name);
+            }
+            self.nodes.remove(node_id);
+        }
+    }
+
     /// Return an iterator over the names of nodes whose values are captured
     /// from the parent graph.
     ///
@@ -514,8 +533,7 @@ impl Graph {
         inputs: &[NodeId],
         outputs: &[NodeId],
     ) -> Result<Vec<NodeId>, RunError> {
-        let plan = self.get_cached_plan(inputs, outputs, false /* is_subgraph */)?;
-        Ok(plan.plan().to_vec())
+        self.create_plan(inputs, outputs, false /* is_subgraph */)
     }
 
     /// Compute a set of output values given a set of inputs, using the
@@ -583,20 +601,29 @@ impl Graph {
         let plan = match cached_plan.as_ref() {
             Some(plan) if plan.matches(inputs, outputs) => plan.clone(),
             _ => {
-                let planner = Planner::with_graph(self);
-                let plan = planner.create_plan(
-                    inputs,
-                    outputs,
-                    PlanOptions {
-                        allow_missing_inputs: false,
-                        captures_available: is_subgraph,
-                    },
-                )?;
+                let plan = self.create_plan(inputs, outputs, is_subgraph)?;
                 *cached_plan = Some(Arc::new(CachedPlan::new(inputs, outputs, plan)));
                 cached_plan.clone().unwrap()
             }
         };
         Ok(plan)
+    }
+
+    fn create_plan(
+        &self,
+        inputs: &[NodeId],
+        outputs: &[NodeId],
+        is_subgraph: bool,
+    ) -> Result<Vec<NodeId>, RunError> {
+        let planner = Planner::with_graph(self);
+        planner.create_plan(
+            inputs,
+            outputs,
+            PlanOptions {
+                allow_missing_inputs: false,
+                captures_available: is_subgraph,
+            },
+        )
     }
 
     fn run_plan(
@@ -651,7 +678,7 @@ impl Graph {
 
         // Count how often each temporary output is used, so we can free them
         // when no longer needed.
-        let mut temp_value_refcount = NodeRefCount::with_capacity(self.nodes.len());
+        let mut temp_value_refcount = NodeRefCount::with_capacity(self.next_node_id as usize);
         for &op_node_id in plan.iter() {
             let Some(Node::Operator(op_node)) = self.nodes.get(&op_node_id) else {
                 return Err(RunError::PlanningError(
@@ -1620,12 +1647,11 @@ mod tests {
     fn test_invalid_input_id() {
         let mut g = Graph::new();
 
-        let const_id = g.add_constant(None, Tensor::<f32>::zeros(&[5, 5]));
         let (op_id, op_out) = g.add_simple_op("op", AddOne {}, &[]);
         let input = Tensor::from([1.]);
         let invalid_id = NodeId::from_u32(1234);
 
-        for wrong_input_id in [const_id, op_id, invalid_id] {
+        for wrong_input_id in [op_id, invalid_id] {
             let result = g.run(
                 [(wrong_input_id, input.view().into())].into(),
                 &[op_out],
@@ -2495,5 +2521,32 @@ mod tests {
         let input = Tensor::from([1, 2, 3]);
         g.run(vec![(input_id, input.into())], &[op_out], None, None)
             .unwrap();
+    }
+
+    #[test]
+    fn test_remove_nodes() {
+        let mut g = Graph::new();
+        let val_id = g.add_value(Some("value"), None, None);
+        g.set_input_ids(&[val_id]);
+        g.set_output_ids(&[val_id]);
+
+        assert!(g.get_node(val_id).is_some());
+        assert!(g.get_node_id("value").is_some());
+
+        g.remove_nodes(&[val_id]);
+
+        assert!(g.get_node(val_id).is_none());
+        assert!(g.get_node_id("value").is_none());
+        assert!(g.input_ids().is_empty());
+        assert!(g.output_ids().is_empty());
+
+        // Removing an operator should remove it as the source node for its outputs.
+        let val_id = g.add_value(Some("value2"), None, None);
+        let (op_id, out_id) = g.add_simple_op("Mul", Mul {}, &[val_id, val_id]);
+        assert!(g.get_source_node(out_id).is_some());
+
+        g.remove_nodes(&[op_id]);
+
+        assert!(g.get_source_node(out_id).is_none());
     }
 }

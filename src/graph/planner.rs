@@ -135,7 +135,7 @@ impl<'a> Planner<'a> {
         }
         for (input_index, input_id) in inputs.iter().enumerate() {
             match self.graph.get_node(*input_id) {
-                Some(Node::Value(_)) => {}
+                Some(Node::Value(_) | Node::Constant(_)) => {}
                 _ => {
                     let name = self.graph.node_name(*input_id);
                     return Err(RunError::PlanningError(format!(

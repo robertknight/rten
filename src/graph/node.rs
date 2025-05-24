@@ -52,6 +52,14 @@ impl Node {
             Node::Operator(_) => None,
         }
     }
+
+    /// Return the contained operator, if this an operator node.
+    pub fn as_operator(&self) -> Option<&OperatorNode> {
+        match self {
+            Node::Operator(op) => Some(op),
+            _ => None,
+        }
+    }
 }
 
 /// Represents the size of a dimension of a runtime-provided value, such as
