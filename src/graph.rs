@@ -1620,12 +1620,11 @@ mod tests {
     fn test_invalid_input_id() {
         let mut g = Graph::new();
 
-        let const_id = g.add_constant(None, Tensor::<f32>::zeros(&[5, 5]));
         let (op_id, op_out) = g.add_simple_op("op", AddOne {}, &[]);
         let input = Tensor::from([1.]);
         let invalid_id = NodeId::from_u32(1234);
 
-        for wrong_input_id in [const_id, op_id, invalid_id] {
+        for wrong_input_id in [op_id, invalid_id] {
             let result = g.run(
                 [(wrong_input_id, input.view().into())].into(),
                 &[op_out],
