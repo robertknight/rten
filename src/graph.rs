@@ -252,6 +252,25 @@ impl Graph {
         &self.captures
     }
 
+    /// Remove nodes from the graph.
+    ///
+    /// This method accepts a list of node IDs as it is more efficient to
+    /// remove nodes in batches.
+    pub fn remove_nodes(&mut self, node_ids: &[NodeId]) {
+        self.clear_cached_plan();
+        self.input_ids.retain(|id| !node_ids.contains(id));
+        self.output_ids.retain(|id| !node_ids.contains(id));
+        self.captures.retain(|id| !node_ids.contains(id));
+        self.source_ids
+            .retain(|val_id, op_id| !node_ids.contains(val_id) && !node_ids.contains(op_id));
+        for node_id in node_ids {
+            if let Some(name) = self.nodes.get(node_id).and_then(|n| n.name()) {
+                self.node_id_from_name.remove(name);
+            }
+            self.nodes.remove(node_id);
+        }
+    }
+
     /// Return an iterator over the names of nodes whose values are captured
     /// from the parent graph.
     ///
@@ -2494,5 +2513,32 @@ mod tests {
         let input = Tensor::from([1, 2, 3]);
         g.run(vec![(input_id, input.into())], &[op_out], None, None)
             .unwrap();
+    }
+
+    #[test]
+    fn test_remove_nodes() {
+        let mut g = Graph::new();
+        let val_id = g.add_value(Some("value"), None, None);
+        g.set_input_ids(&[val_id]);
+        g.set_output_ids(&[val_id]);
+
+        assert!(g.get_node(val_id).is_some());
+        assert!(g.get_node_id("value").is_some());
+
+        g.remove_nodes(&[val_id]);
+
+        assert!(g.get_node(val_id).is_none());
+        assert!(g.get_node_id("value").is_none());
+        assert!(g.input_ids().is_empty());
+        assert!(g.output_ids().is_empty());
+
+        // Removing an operator should remove it as the source node for its outputs.
+        let val_id = g.add_value(Some("value2"), None, None);
+        let (op_id, out_id) = g.add_simple_op("Mul", Mul {}, &[val_id, val_id]);
+        assert!(g.get_source_node(out_id).is_some());
+
+        g.remove_nodes(&[op_id]);
+
+        assert!(g.get_source_node(out_id).is_none());
     }
 }
