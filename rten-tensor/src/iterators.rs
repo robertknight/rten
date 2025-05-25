@@ -58,115 +58,200 @@ impl<'d, 'l, T, L: Layout> MutViewRef<'d, 'l, T, L> {
     }
 }
 
-/// IterPos tracks the position within a single dimension of an IndexingIter.
-#[derive(Copy, Clone, Debug)]
+/// Tracks the iteration position within a single dimension.
+#[derive(Copy, Clone, Debug, Default)]
 struct IterPos {
-    /// Steps remaining along this dimension before we reset. Each step
-    /// corresponds to advancing one or more indexes either forwards or backwards.
-    ///
-    /// This starts at `steps - 1` in each iteration, since the first step is
-    /// effectively taken when we reset.
-    steps_remaining: usize,
+    /// Remaining steps along this dimension before it needs to be reset.
+    remaining: usize,
 
-    /// Number of steps in each iteration over this dimension.
-    steps: usize,
+    /// Current index in this dimension pre-multiplied by stride.
+    offset: usize,
 
-    /// Data offset adjustment for each step along this dimension.
-    offset_step: isize,
+    /// Update to `offset` for each step.
+    stride: usize,
+
+    /// Maximum value of `self.remaining`. Used when resetting position.
+    max_remaining: usize,
 }
 
 impl IterPos {
-    fn new(steps: usize, offset_step: isize) -> IterPos {
-        IterPos {
-            steps_remaining: steps.saturating_sub(1),
-            steps,
-            offset_step,
-        }
-    }
-
-    /// Take one step along this dimension or reset if we reached the end.
     #[inline(always)]
     fn step(&mut self) -> bool {
-        if self.steps_remaining != 0 {
-            self.steps_remaining -= 1;
+        if self.remaining != 0 {
+            self.remaining -= 1;
+            self.offset += self.stride;
             true
         } else {
-            self.steps_remaining = self.steps.saturating_sub(1);
+            self.remaining = self.max_remaining;
+            self.offset = 0;
             false
         }
     }
 }
 
+const INNER_NDIM: usize = 2;
+
 /// Helper for iterating over offsets of elements in a tensor.
 #[derive(Clone, Debug)]
 struct IndexingIterBase {
-    /// Remaining elements to visit
+    /// Remaining number of elements this iterator will yield.
+    ///
+    /// The offsets and positions in other fields are only valid if this is
+    /// non-zero.
     len: usize,
 
-    /// Offset of the next element to return from the tensor's element buffer.
-    offset: isize,
+    /// Component of next element offset from innermost (fastest-changing) dims.
+    inner_offset: usize,
 
-    /// Current position within each dimension.
-    pos: Vec<IterPos>,
+    /// Current position in innermost dims.
+    inner_pos: [IterPos; INNER_NDIM],
+
+    /// Component of next element offset from outermost (slowest-changing) dims.
+    outer_offset: usize,
+
+    /// Current position in outermost dims.
+    ///
+    /// Optimization note: The number of outermost dims will usually be small,
+    /// so you might be tempted to use `SmallVec`. However this resulted in
+    /// worse performance for `IndexingIterBase::step`, as the compiler was
+    /// less likely/able to unroll iteration loops.
+    outer_pos: Vec<IterPos>,
 }
 
 impl IndexingIterBase {
     /// Create an iterator over element offsets in `tensor`.
     fn new<L: Layout>(layout: &L) -> IndexingIterBase {
-        let dims = layout
-            .shape()
-            .as_ref()
-            .iter()
-            .enumerate()
-            .map(|(dim, &len)| IterPos::new(len, layout.stride(dim) as isize))
+        let inner_pos_pad = INNER_NDIM.saturating_sub(layout.ndim());
+        let mut inner_pos = [IterPos::default(); INNER_NDIM];
+
+        let mut dim = 0;
+        while dim < inner_pos_pad {
+            inner_pos[dim] = IterPos {
+                offset: 0,
+                stride: 0,
+                max_remaining: 0,
+                remaining: 0,
+            };
+            dim += 1;
+        }
+
+        let n_outer = layout.ndim().saturating_sub(INNER_NDIM);
+
+        while dim < inner_pos.len() {
+            let stride = layout.stride(n_outer + dim - inner_pos_pad);
+            let remaining = layout.size(n_outer + dim - inner_pos_pad).saturating_sub(1);
+            inner_pos[dim] = IterPos {
+                offset: 0,
+                remaining,
+                max_remaining: remaining,
+                stride,
+            };
+            dim += 1;
+        }
+
+        let outer_pos = (0..n_outer)
+            .map(|i| {
+                let stride = layout.stride(i);
+                let remaining = layout.size(i).saturating_sub(1);
+
+                IterPos {
+                    offset: 0,
+                    remaining,
+                    stride,
+                    max_remaining: remaining,
+                }
+            })
             .collect();
 
         IndexingIterBase {
             len: layout.len(),
-            offset: 0,
-            pos: dims,
+            inner_pos,
+            inner_offset: 0,
+            outer_pos,
+            outer_offset: 0,
         }
     }
 
-    /// Advance the iterator by stepping along dimension `dim`.
+    /// Return the offset of the next element in the storage.
+    fn offset(&self) -> Option<usize> {
+        if self.len > 0 {
+            Some(self.outer_offset + self.inner_offset)
+        } else {
+            None
+        }
+    }
+
+    /// Advance to the next element offset.
     ///
-    /// The caller must calculate `stride`, the number of indices being stepped
-    /// over.
-    #[inline(always)]
-    fn step_dim(&mut self, mut dim: usize, stride: usize) {
-        self.len -= stride;
-        let mut pos = &mut self.pos[dim];
-        while !pos.step() {
-            // End of range reached for dimension `dim`. Rewind offset by
-            // amount it moved since iterating from the start of this dimension.
-            self.offset -= pos.offset_step * (pos.steps as isize - 1);
-
-            if dim == 0 {
-                break;
-            }
-
-            dim -= 1;
-            pos = &mut self.pos[dim];
-        }
-        self.offset += pos.offset_step;
-    }
-
-    /// Advance iterator by one index.
+    /// After calling this `self.offset()` will return the offset of the next
+    /// element in storage.
     #[inline(always)]
     fn step(&mut self) {
-        self.step_dim(self.pos.len() - 1, 1);
+        self.len -= 1;
+
+        // Optimistically update offset, assuming we haven't reached the
+        // end of the last dimension.
+        self.inner_offset += self.inner_pos[1].stride;
+
+        // Use a fast path to step inner dimensions and fall back to the slower
+        // path to step the outer dimensions only when we reach the end.
+        if !self.inner_pos[1].step() {
+            if !self.inner_pos[0].step() {
+                self.step_outer_pos();
+            }
+
+            // `inner_offset` is the sum of `inner_pos[i].offset`. It only
+            // contains two entries, and we know `inner_pos[1].offset` is zero
+            // since `inner_pos[1].step()` returned false. Hence we can use
+            // an assignment.
+            self.inner_offset = self.inner_pos[0].offset;
+        }
+    }
+
+    fn step_outer_pos(&mut self) {
+        let n_outer = self.outer_pos.len();
+        if n_outer > 0 {
+            let mut dim = n_outer - 1;
+            while !self.outer_pos[dim].step() && dim > 0 {
+                dim -= 1;
+            }
+            self.outer_offset = self.outer_pos.iter().map(|p| p.offset).sum();
+        }
+    }
+
+    fn pos(&self, dim: usize) -> IterPos {
+        let outer_ndim = self.outer_pos.len();
+        if dim >= outer_ndim {
+            self.inner_pos[dim - outer_ndim]
+        } else {
+            self.outer_pos[dim]
+        }
+    }
+
+    fn pos_mut(&mut self, dim: usize) -> &mut IterPos {
+        let outer_ndim = self.outer_pos.len();
+        if dim >= outer_ndim {
+            &mut self.inner_pos[dim - outer_ndim]
+        } else {
+            &mut self.outer_pos[dim]
+        }
     }
 
     /// Advance iterator by up to `n` indices.
     fn step_by(&mut self, n: usize) {
+        let ndim = self.outer_pos.len() + self.inner_pos.len();
+
+        // Advance positions in each dimension, equivalent to calling `step`
+        // `n` times.
         let mut n = n.min(self.len);
         while n > 0 {
             // Find the outermost dimension that we can step along which will
             // advance the iterator by <= N elements.
-            let mut dim = self.pos.len() - 1;
+            let mut dim = ndim - 1;
             let mut stride = 1;
             while dim > 0 {
-                let next_stride = stride * self.pos[dim].steps;
+                let size = self.pos(dim).max_remaining + 1;
+                let next_stride = stride * size;
                 if next_stride >= n {
                     break;
                 }
@@ -176,11 +261,21 @@ impl IndexingIterBase {
 
             // Step along the selected dimension.
             let n_steps = n / stride;
+            n -= n_steps * stride;
+            self.len -= n_steps * stride;
+
             for _ in 0..n_steps {
-                n -= stride;
-                self.step_dim(dim, stride);
+                let mut pos = self.pos_mut(dim);
+                while !pos.step() && dim > 0 {
+                    dim -= 1;
+                    pos = self.pos_mut(dim);
+                }
             }
         }
+
+        // Update offset of next element.
+        self.inner_offset = self.inner_pos.iter().map(|p| p.offset).sum();
+        self.outer_offset = self.outer_pos.iter().map(|p| p.offset).sum();
     }
 }
 
@@ -292,14 +387,13 @@ impl<'a, T> Iterator for IndexingIter<'a, T> {
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.base.len == 0 {
-            return None;
-        }
+        let offset = self.base.offset()?;
         let element = unsafe {
             // Safety: See comments in Storage trait.
-            self.data.get(self.base.offset as usize).unwrap()
+            self.data.get(offset).unwrap()
         };
         self.base.step();
+
         Some(element)
     }
 
@@ -401,12 +495,10 @@ impl<'a, T> Iterator for IndexingIterMut<'a, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.base.len == 0 {
-            return None;
-        }
+        let offset = self.base.offset()?;
         let element = unsafe {
             // Safety: See comments in Storage trait.
-            let el = self.data.get_mut(self.base.offset as usize).unwrap();
+            let el = self.data.get_mut(offset).unwrap();
 
             // Safety: IndexingIterBase never yields the same offset more than
             // once as long as we're not broadcasting, which was checked in the
@@ -448,12 +540,9 @@ impl Iterator for Offsets {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.base.len == 0 {
-            return None;
-        }
-        let offset = self.base.offset;
+        let offset = self.base.offset()?;
         self.base.step();
-        Some(offset as usize)
+        Some(offset)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1108,7 +1197,7 @@ pub fn for_each_mut<T, F: Fn(&mut T)>(mut view: TensorViewMut<T>, f: F) {
 // tests on tensor methods.
 #[cfg(test)]
 mod tests {
-    use crate::{AsView, AxisChunks, AxisChunksMut, Lanes, LanesMut, NdTensor, Tensor};
+    use crate::{AsView, AxisChunks, AxisChunksMut, Lanes, LanesMut, Layout, NdTensor, Tensor};
 
     #[test]
     fn test_axis_chunks_empty() {
@@ -1168,6 +1257,37 @@ mod tests {
         let mut x = Tensor::<i32>::zeros(&[5, 0]);
         assert!(LanesMut::new(x.mut_view_ref(), 0).next().is_none());
         assert!(LanesMut::new(x.mut_view_ref(), 1).next().is_none());
+    }
+
+    #[test]
+    fn test_iter_step_by() {
+        let tensor = Tensor::<f32>::full(&[1, 3, 16, 8], 1.);
+
+        // Take a non-contiguous slice so we don't use the fast path for
+        // contiguous tensors.
+        let tensor = tensor.slice((.., .., 1.., ..));
+
+        let sum = tensor.iter().sum::<f32>();
+        for n_skip in 0..tensor.len() {
+            let sum_skip = tensor.iter().skip(n_skip).sum::<f32>();
+            assert_eq!(
+                sum_skip,
+                sum - n_skip as f32,
+                "wrong sum for n_skip={}",
+                n_skip
+            );
+        }
+    }
+
+    #[test]
+    fn test_iter_broadcast() {
+        let tensor = Tensor::<f32>::full(&[1], 1.);
+        let broadcast = tensor.broadcast([1, 3, 16, 8]);
+        assert_eq!(broadcast.iter().len(), broadcast.len());
+        let count = broadcast.iter().count();
+        assert_eq!(count, broadcast.len());
+        let sum = broadcast.iter().sum::<f32>();
+        assert_eq!(sum, broadcast.len() as f32);
     }
 
     #[test]
