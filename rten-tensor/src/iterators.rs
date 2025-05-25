@@ -1169,4 +1169,42 @@ mod tests {
         assert!(LanesMut::new(x.mut_view_ref(), 0).next().is_none());
         assert!(LanesMut::new(x.mut_view_ref(), 1).next().is_none());
     }
+
+    #[test]
+    #[ignore]
+    fn bench_iter() {
+        use crate::Layout;
+        use rten_bench::run_bench;
+
+        let tensor = std::hint::black_box(Tensor::<f32>::full(&[1, 6, 768, 64], 1.));
+        let n_trials = 1000;
+        let mut result = 0.;
+
+        fn reduce<'a>(iter: impl Iterator<Item = &'a f32>) -> f32 {
+            iter.sum()
+        }
+
+        // Iterate directly over data slice.
+        run_bench(n_trials, Some("slice iter"), || {
+            result = reduce(tensor.data().unwrap().iter());
+        });
+        println!("sum {}", result);
+
+        // Use tensor iterator with contiguous tensor. This will use the fast
+        // path which wraps a slice iterator.
+        run_bench(n_trials, Some("contiguous iter"), || {
+            result = reduce(tensor.iter());
+        });
+        println!("sum {}", result);
+
+        // Use tensor iterator with non-contiguous slice. This will fall back
+        // to indexed iteration.
+        let slice = tensor.slice((.., .., 1.., ..));
+        assert!(!slice.is_contiguous());
+        let n_trials = 1000;
+        run_bench(n_trials, Some("non-contiguous iter"), || {
+            result = reduce(slice.iter());
+        });
+        println!("sum {}", result);
+    }
 }
