@@ -25,8 +25,8 @@ struct Args {
     /// Run model and don't produce other output
     quiet: bool,
 
-    /// Show operator timing stats.
-    timing: bool,
+    /// Record and display operator timing stats.
+    profile: bool,
 
     /// Enable verbose logging for model execution.
     verbose: bool,
@@ -52,7 +52,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut mmap = false;
     let mut n_iters = 1;
     let mut quiet = false;
-    let mut timing = false;
+    let mut profile = false;
     let mut verbose = false;
     let mut input_sizes = Vec::new();
     let mut optimize = true;
@@ -63,7 +63,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
         let value = parser.value()?.string()?;
         value
             .parse()
-            .map_err(|_| format!("Unable to parse `{}`", opt_name).into())
+            .map_err(|_| format!("Unable to parse numeric value for option '{}'", opt_name).into())
     };
 
     let mut parser = lexopt::Parser::from_env();
@@ -75,17 +75,17 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                 n_iters = parse_uint(&mut parser, "num-iters")?;
             }
             Long("no-optimize") => optimize = false,
-            Long("num-threads") => {
+            Short('t') | Long("num-threads") => {
                 num_threads = Some(parse_uint(&mut parser, "num-threads")?);
             }
-            Short('p') | Long("prepack") => prepack_weights = true,
+            Short('k') | Long("prepack") => prepack_weights = true,
+            Short('p') | Long("profile") => profile = true,
             Short('q') | Long("quiet") => quiet = true,
             Short('v') | Long("verbose") => verbose = true,
             Short('V') | Long("version") => {
                 println!("rten {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
-            Short('t') | Long("timing") => timing = true,
             Short('s') | Long("shape") => {
                 let value = parser.value()?.string()?;
                 let size =
@@ -112,18 +112,19 @@ Options:
 
   --no-optimize  Disable graph optimizations
 
-  --num-threads  Specify number of threads to use
-
   -q, --quiet    Run model and don't produce other output
 
-  -p, --prepack  Enable prepacking of weights.
+  -k, --prepack  Enable prepacking of weights.
                  This requires additional memory but makes inference faster.
+
+  -p, --profile  Record and display operator timings
 
   -s, --size <spec>
                  Specify size for a dynamic dimension in the form `dim_name=size`
                  or `input_name.dim_name=size`
 
-  -t, --timing   Output timing info
+  -t, --num-threads
+                 Specify number of threads to use
 
   -v, --verbose  Enable verbose logging
   -V, --version  Display RTen version
@@ -149,7 +150,7 @@ Options:
         optimize,
         prepack_weights,
         quiet,
-        timing,
+        profile,
         verbose,
     })
 }
@@ -501,7 +502,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let run_opts = RunOptions {
-        timing: args.timing,
+        timing: args.profile,
         verbose: args.verbose,
         thread_pool: args
             .num_threads
