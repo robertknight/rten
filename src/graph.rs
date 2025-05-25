@@ -130,7 +130,7 @@ impl NodeRefCount {
 
 /// Options that control logging and other behaviors when executing a
 /// [`Model`](crate::Model).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Default)]
 pub struct RunOptions {
     /// Whether to log times spent in different operators when run completes.
     pub timing: bool,
@@ -147,6 +147,43 @@ pub struct RunOptions {
     /// including input shapes and execution time. This will slow down
     /// execution.
     pub verbose: bool,
+
+    /// The thread pool to execute the model on. By default the model is
+    /// executed on the global thread pool.
+    pub thread_pool: Option<Arc<threading::ThreadPool>>,
+}
+
+impl RunOptions {
+    /// Return the thread pool to use for inference.
+    ///
+    /// This is either the pool specified via the `thread_pool` field or the
+    /// global thread pool.
+    pub(crate) fn thread_pool(&self) -> &threading::ThreadPool {
+        self.thread_pool
+            .as_deref()
+            .unwrap_or(threading::thread_pool())
+    }
+}
+
+impl std::fmt::Debug for RunOptions {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.debug_struct("RunOptions")
+            .field("timing", &self.timing)
+            .field("timing_sort", &self.timing_sort)
+            .field("timing_by_shape", &self.timing_by_shape)
+            .field("verbose", &self.verbose)
+            .finish()
+    }
+}
+
+// PartialEq impl that ignores non-comparable fields.
+impl PartialEq<Self> for RunOptions {
+    fn eq(&self, other: &Self) -> bool {
+        self.timing == other.timing
+            && self.timing_sort == other.timing_sort
+            && self.timing_by_shape == other.timing_by_shape
+            && self.verbose == other.verbose
+    }
 }
 
 /// A graph defines how to produce output values from a set of dynamic input
@@ -547,7 +584,8 @@ impl Graph {
     ) -> Result<Vec<Output>, RunError> {
         let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
         let plan = self.get_cached_plan(&input_ids, outputs, false /* is_subgraph */)?;
-        threading::thread_pool().run(|| {
+        let opts = opts.unwrap_or_default();
+        opts.thread_pool().run(|| {
             self.run_plan(
                 inputs,
                 plan.plan(),
@@ -555,7 +593,7 @@ impl Graph {
                 None, /* captures */
                 None, /* pool */
                 weight_cache,
-                opts,
+                &opts,
             )
         })
     }
@@ -575,6 +613,7 @@ impl Graph {
     ) -> Result<Vec<Output>, RunError> {
         let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
         let plan = self.get_cached_plan(&input_ids, outputs, true /* is_subgraph */)?;
+        let opts = opts.unwrap_or_default();
         self.run_plan(
             inputs,
             plan.plan(),
@@ -582,7 +621,7 @@ impl Graph {
             Some(captures),
             pool,
             weight_cache,
-            opts,
+            &opts,
         )
     }
 
@@ -634,10 +673,8 @@ impl Graph {
         mut captures: Option<CaptureEnv>,
         pool: Option<&TensorPool>,
         weight_cache: Option<&WeightCache>,
-        opts: Option<RunOptions>,
+        opts: &RunOptions,
     ) -> Result<Vec<Output>, RunError> {
-        let opts = opts.unwrap_or_default();
-
         let mut temp_values: FxHashMap<NodeId, Output> = FxHashMap::default();
 
         // Extract all owned tensor inputs into the owned value map.
@@ -933,7 +970,7 @@ impl Graph {
         }
 
         if opts.timing {
-            self.print_run_timing(plan, pool, &op_timing_records, &opts);
+            self.print_run_timing(plan, pool, &op_timing_records, opts);
         }
 
         // Return the requested outputs
@@ -1054,7 +1091,8 @@ impl Graph {
             },
         )?;
         let (pruned_plan, pruned_plan_output_ids) = planner.prune_plan(&plan, &input_ids, outputs);
-        let outputs = threading::thread_pool().run(|| {
+        let opts = opts.unwrap_or_default();
+        let outputs = opts.thread_pool().run(|| {
             self.run_plan(
                 inputs,
                 &pruned_plan,
@@ -1062,7 +1100,7 @@ impl Graph {
                 None, /* captures */
                 None, /* pool */
                 None, /* weight cache */
-                opts,
+                &opts,
             )
         })?;
         let output_ids_and_values: Vec<_> =

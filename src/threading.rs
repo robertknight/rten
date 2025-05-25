@@ -22,6 +22,16 @@ impl ThreadPool {
             op()
         }
     }
+
+    /// Create a thread pool with a given number of threads.
+    pub fn with_num_threads(num_threads: usize) -> ThreadPool {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(num_threads)
+            .thread_name(|index| format!("rten-{}", index))
+            .build();
+
+        ThreadPool { pool: pool.ok() }
+    }
 }
 
 /// Return the optimal number of cores to use for maximum performance.
@@ -53,6 +63,9 @@ fn optimal_core_count() -> u32 {
 /// `RTEN_NUM_THREADS` environment variable, whose value must be a number
 /// between 1 and the logical core count.
 ///
+/// The thread count can be overridden for each model run by configuring a
+/// custom thread pool in [`RunOptions`](crate::RunOptions).
+///
 /// To run your own tasks in this thread pool, you can use
 /// [`ThreadPool::run`].
 ///
@@ -72,12 +85,7 @@ pub fn thread_pool() -> &'static ThreadPool {
             physical_cpus
         };
 
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(num_threads as usize)
-            .thread_name(|index| format!("rten-{}", index))
-            .build();
-
-        ThreadPool { pool: pool.ok() }
+        ThreadPool::with_num_threads(num_threads as usize)
     })
 }
 

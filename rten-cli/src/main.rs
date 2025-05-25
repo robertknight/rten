@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use rten::{
     DataType, Dimension, InputOrOutput, Model, ModelMetadata, ModelOptions, NodeId, Output,
-    RunOptions,
+    RunOptions, ThreadPool,
 };
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
@@ -25,8 +25,8 @@ struct Args {
     /// Run model and don't produce other output
     quiet: bool,
 
-    /// Show operator timing stats.
-    timing: bool,
+    /// Record and display operator timing stats.
+    profile: bool,
 
     /// Enable verbose logging for model execution.
     verbose: bool,
@@ -39,6 +39,9 @@ struct Args {
 
     /// Load model using `Model::load_mmap`.
     mmap: bool,
+
+    /// Number of threads to use.
+    num_threads: Option<u32>,
 }
 
 fn parse_args() -> Result<Args, lexopt::Error> {
@@ -49,32 +52,40 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut mmap = false;
     let mut n_iters = 1;
     let mut quiet = false;
-    let mut timing = false;
+    let mut profile = false;
     let mut verbose = false;
     let mut input_sizes = Vec::new();
     let mut optimize = true;
     let mut prepack_weights = false;
+    let mut num_threads = None;
+
+    let parse_uint = |parser: &mut lexopt::Parser, opt_name| -> Result<u32, lexopt::Error> {
+        let value = parser.value()?.string()?;
+        value
+            .parse()
+            .map_err(|_| format!("Unable to parse numeric value for option '{}'", opt_name).into())
+    };
 
     let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
         match arg {
             Value(val) => values.push_back(val.string()?),
             Long("mmap") => mmap = true,
-            Short('n') | Long("n_iters") => {
-                let value = parser.value()?.string()?;
-                n_iters = value
-                    .parse()
-                    .map_err(|_| "Unable to parse `n_iters`".to_string())?;
+            Short('n') | Long("num-iters") => {
+                n_iters = parse_uint(&mut parser, "num-iters")?;
             }
             Long("no-optimize") => optimize = false,
-            Short('p') | Long("prepack") => prepack_weights = true,
+            Short('t') | Long("num-threads") => {
+                num_threads = Some(parse_uint(&mut parser, "num-threads")?);
+            }
+            Short('k') | Long("prepack") => prepack_weights = true,
+            Short('p') | Long("profile") => profile = true,
             Short('q') | Long("quiet") => quiet = true,
             Short('v') | Long("verbose") => verbose = true,
             Short('V') | Long("version") => {
                 println!("rten {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
-            Short('t') | Long("timing") => timing = true,
             Short('s') | Long("shape") => {
                 let value = parser.value()?.string()?;
                 let size =
@@ -96,21 +107,24 @@ Options:
 
   --mmap         Load model via memory mapping
 
-  -n, --n_iters <n>
+  -n, --num-iters <n>
                  Number of times to evaluate model
 
   --no-optimize  Disable graph optimizations
 
   -q, --quiet    Run model and don't produce other output
 
-  -p, --prepack  Enable prepacking of weights.
+  -k, --prepack  Enable prepacking of weights.
                  This requires additional memory but makes inference faster.
+
+  -p, --profile  Record and display operator timings
 
   -s, --size <spec>
                  Specify size for a dynamic dimension in the form `dim_name=size`
                  or `input_name.dim_name=size`
 
-  -t, --timing   Output timing info
+  -t, --num-threads
+                 Specify number of threads to use
 
   -v, --verbose  Enable verbose logging
   -V, --version  Display RTen version
@@ -132,10 +146,11 @@ Options:
         mmap,
         model,
         n_iters,
+        num_threads,
         optimize,
         prepack_weights,
         quiet,
-        timing,
+        profile,
         verbose,
     })
 }
@@ -486,14 +501,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Running model with random inputs...");
     }
 
+    let run_opts = RunOptions {
+        timing: args.profile,
+        verbose: args.verbose,
+        thread_pool: args
+            .num_threads
+            .map(|nt| ThreadPool::with_num_threads(nt as usize).into()),
+        ..Default::default()
+    };
+
     if let Err(err) = run_with_random_input(
         &model,
         &args.input_sizes,
-        RunOptions {
-            timing: args.timing,
-            verbose: args.verbose,
-            ..Default::default()
-        },
+        run_opts,
         args.n_iters,
         args.quiet,
     ) {
