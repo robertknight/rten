@@ -170,16 +170,18 @@ pub trait MaybeParIter {
     fn maybe_par_iter(self, parallel: bool) -> MaybeParallel<Self::ParIter, Self::Iter>;
 }
 
-impl MaybeParIter for Range<usize> {
-    type Item = usize;
-    type ParIter = rayon::range::Iter<usize>;
-    type Iter = Range<usize>;
+impl<Item, I: rayon::iter::IntoParallelIterator<Item = Item> + IntoIterator<Item = Item>>
+    MaybeParIter for I
+{
+    type Item = Item;
+    type ParIter = I::Iter;
+    type Iter = I::IntoIter;
 
     fn maybe_par_iter(self, parallel: bool) -> MaybeParallel<Self::ParIter, Self::Iter> {
         if parallel {
             MaybeParallel::Parallel(self.into_par_iter())
         } else {
-            MaybeParallel::Serial(self)
+            MaybeParallel::Serial(self.into_iter())
         }
     }
 }
