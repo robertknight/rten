@@ -470,6 +470,7 @@ version = "0.18.0"
 name = "rten-tensor"
 version = "0.18.0"
 dependencies = [
+ "rten-bench",
  "rten-testing",
  "serde",
  "serde_json",
