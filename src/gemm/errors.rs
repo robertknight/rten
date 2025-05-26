@@ -5,6 +5,8 @@ use std::fmt::Display;
 /// Errors with matrix multiplication inputs.
 #[derive(Clone, Debug, PartialEq)]
 pub enum GemmError {
+    /// Number of LHS and RHS batch inputs do not match.
+    BatchSizeMismatch,
     /// Number of columns in LHS does not match rows of RHS.
     KSizeMismatch,
     /// Bias vector length does not match the corresponding output matrix size.
@@ -24,6 +26,9 @@ pub enum GemmError {
 impl Display for GemmError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::BatchSizeMismatch => {
+                write!(fmt, "batches of `a` and `b` matrices must have same length")
+            }
             Self::KSizeMismatch => {
                 write!(fmt, "columns of matrix `a` must match rows of matrix `b`")
             }

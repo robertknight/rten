@@ -306,6 +306,59 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         )
     }
 
+    /// Perform a batched matrix multiplication.
+    ///
+    /// This performs a series of matrix multiplications between `M x K` sized
+    /// matrices in `a` and `K x N` sized matrices in `b`, writing `M x N`-sized
+    /// results into `out_data`.
+    pub fn batched_gemm_uninit<'a>(
+        &self,
+        out_data: &'a mut [MaybeUninit<OutT>],
+        a: &[GemmInputA<LhsT>],
+        b: &[GemmInputB<RhsT>],
+        alpha: f32,
+        bias: Option<BiasVector<OutT>>,
+        a_quant: Option<QuantParams<LhsT>>,
+        b_quant: Option<QuantParams<RhsT>>,
+    ) -> GemmResult<&'a mut [OutT]> {
+        if a.len() != b.len() {
+            return Err(GemmError::BatchSizeMismatch);
+        }
+
+        let out_mat_stride = match (a, b) {
+            ([a, ..], [b, ..]) => a.rows() * b.cols(),
+            _ => 0,
+        };
+
+        if a.len() * out_mat_stride != out_data.len() {
+            return Err(GemmError::OutputSizeMismatch);
+        }
+
+        match (a, b) {
+            ([], []) => {
+                // Safety: Output is empty and thus already initialized.
+                Ok(unsafe { out_data.assume_init() })
+            }
+            ([a], [b]) => {
+                // Skip parallel iteration for batch size of 1
+                self.gemm_uninit(out_data, *a, *b, alpha, bias, a_quant, b_quant)
+            }
+            (a, b) => {
+                a.par_iter()
+                    .zip(b)
+                    .zip(out_data.par_chunks_mut(out_mat_stride))
+                    .try_for_each(|((a_mat, b_mat), out_mat)| {
+                        self.gemm_uninit(out_mat, *a_mat, *b_mat, alpha, bias, a_quant, b_quant)
+                            .map(|_| ())
+                    })?;
+
+                // Safety: All elements in `out_data` have been initialized by calls to
+                // `gemm_uninit`.
+                Ok(unsafe { out_data.assume_init() })
+            }
+        }
+    }
+
     /// Return true if the GEMM kernel may encounter saturation in a data type
     /// that is smaller than the output.
     ///
@@ -1291,6 +1344,7 @@ mod tests {
             a_quant,
             b_quant,
         )
+        .map(|_| ())
     }
 
     fn run_matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT + Default>(
