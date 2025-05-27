@@ -7,14 +7,24 @@ use std::mem::MaybeUninit;
 ///
 /// This means an arbitrary byte sequence can be converted to this type, as
 /// long as the byte sequence length is a multiple of the type's size.
-pub trait Pod: Copy {}
-impl Pod for i8 {}
-impl Pod for u8 {}
-impl Pod for f32 {}
-impl Pod for i32 {}
-impl Pod for u32 {}
-impl Pod for u64 {}
-impl<T: Pod> Pod for MaybeUninit<T> {}
+///
+/// # Safety
+///
+/// This type must only be implemented for types which are initialized and for
+/// which any bit pattern is valid.
+pub unsafe trait Pod: Copy {}
+
+macro_rules! impl_pod {
+    ($type:ty) => {
+        unsafe impl Pod for $type {}
+    };
+}
+impl_pod!(i8);
+impl_pod!(u8);
+impl_pod!(f32);
+impl_pod!(i32);
+impl_pod!(u32);
+impl_pod!(u64);
 
 /// Return the length of a slice transmuted from `Src` to `Dst`, or `None` if
 /// the transmute is not possible.
@@ -52,6 +62,7 @@ pub fn cast_pod_slice<Src: Pod, Dst: Pod>(src: &[Src]) -> Option<&[Dst]> {
 ///
 /// Returns `None` if the source pointer is not correctly aligned for the
 /// destination type.
+#[allow(unused)]
 pub fn cast_pod_mut_slice<Src: Pod, Dst: Pod>(src: &mut [Src]) -> Option<&mut [Dst]> {
     let new_len = transmuted_slice_len::<_, Dst>(src)?;
 
@@ -61,9 +72,28 @@ pub fn cast_pod_mut_slice<Src: Pod, Dst: Pod>(src: &mut [Src]) -> Option<&mut [D
     Some(unsafe { std::slice::from_raw_parts_mut(src.as_mut_ptr() as *mut Dst, new_len) })
 }
 
+/// Transmute a mutable slice of elements from one uninitialized [`Pod`] type to another.
+///
+/// Returns `None` if the source pointer is not correctly aligned for the
+/// destination type.
+pub fn cast_uninit_pod_mut_slice<Src: Pod, Dst: Pod>(
+    src: &mut [MaybeUninit<Src>],
+) -> Option<&mut [MaybeUninit<Dst>]> {
+    let new_len = transmuted_slice_len::<_, Dst>(src)?;
+
+    // Safety:
+    // - Pointer cast is safe since any bit pattern is valid for POD types
+    // - Length has been adjusted for `Dst` type
+    Some(unsafe {
+        std::slice::from_raw_parts_mut(src.as_mut_ptr() as *mut MaybeUninit<Dst>, new_len)
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{cast_pod_mut_slice, cast_pod_slice};
+    use std::mem::MaybeUninit;
+
+    use super::{cast_pod_mut_slice, cast_pod_slice, cast_uninit_pod_mut_slice};
 
     #[test]
     fn test_cast_pod_slice() {
@@ -101,6 +131,15 @@ mod tests {
         let i32s_ptr = i32s.as_ptr();
         let i8s = cast_pod_mut_slice::<i32, i8>(&mut i32s).unwrap();
         assert_eq!(i8s.as_ptr(), i32s_ptr as *const i8);
+        assert_eq!(i8s.len(), i32s.len() * 4);
+    }
+
+    #[test]
+    fn test_cast_uninit_pod_mut_slice() {
+        let mut i32s = [1, 2, 3].map(MaybeUninit::new);
+        let i32s_ptr = i32s.as_ptr();
+        let i8s = cast_uninit_pod_mut_slice::<i32, i8>(&mut i32s).unwrap();
+        assert_eq!(i8s.as_ptr(), i32s_ptr as *const MaybeUninit<i8>);
         assert_eq!(i8s.len(), i32s.len() * 4);
     }
 }

@@ -5,7 +5,7 @@ use rten_tensor::{Alloc, Matrix, MatrixLayout, Storage};
 
 use super::kernels::PackedLayout;
 use crate::iter_util::range_chunks;
-use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
+use crate::slice_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 
 pub mod int8;
 
@@ -239,7 +239,7 @@ impl PackingBuffer {
         self.used_len = 0;
 
         let uninit_data = &mut self.buf.spare_capacity_mut()[..buf_len];
-        cast_pod_mut_slice(uninit_data).unwrap()
+        cast_uninit_pod_mut_slice(uninit_data).unwrap()
     }
 
     /// Clear the buffer and allocate a new one using `alloc`.
@@ -260,7 +260,7 @@ impl PackingBuffer {
         self.used_len = 0;
 
         let uninit_data = &mut self.buf.spare_capacity_mut()[..buf_len];
-        cast_pod_mut_slice(uninit_data).unwrap()
+        cast_uninit_pod_mut_slice(uninit_data).unwrap()
     }
 
     /// Set the number of bytes in the buffer which have been initialized.

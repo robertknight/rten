@@ -12,7 +12,7 @@ use super::{
 };
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::{packing, Im2Col};
-use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
+use crate::slice_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 
 pub struct ArmNeonKernel {
     isa: ArmNeonIsa,
@@ -65,7 +65,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
+        let out = cast_uninit_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
         pack_a_block::<f32, { Self::MR }>(out, a, rows, cols);
     }
 
@@ -86,7 +86,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
+        let out = cast_uninit_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
         pack_b_block::<f32, { Self::NR }>(out, b, rows, cols);
     }
 
@@ -100,7 +100,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         const NR_REGS: usize = ArmNeonKernel::NR / X32_LANES;
 
         // Safety: Arm Neon instructions are supported
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         image.pack_block::<_, NR_REGS>(self.isa, out, Self::NR, rows, cols);
     }
 
@@ -209,7 +209,7 @@ macro_rules! impl_arm_int8_common {
             cols: Range<usize>,
             _quant: Option<QuantParams<u8>>,
         ) {
-            let out = cast_pod_mut_slice(out).unwrap();
+            let out = cast_uninit_pod_mut_slice(out).unwrap();
             packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
         }
 

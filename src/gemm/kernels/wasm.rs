@@ -11,7 +11,7 @@ use super::{
 };
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::{packing, Im2Col};
-use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
+use crate::slice_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 
 pub struct WasmKernel {
     isa: Wasm32Isa,
@@ -68,7 +68,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         pack_a_block::<f32, { Self::MR }>(out, a, rows, cols);
     }
 
@@ -89,7 +89,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         pack_b_block::<f32, { Self::NR }>(out, b, rows, cols);
     }
 
@@ -103,7 +103,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
         const NR_REGS: usize = WasmKernel::NR / X32_LANES;
 
         // Safety: WASM SIMD types are supported
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         image.pack_block::<_, NR_REGS>(self.isa, out, Self::NR, rows, cols);
     }
 
@@ -230,7 +230,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<u8>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
     }
 

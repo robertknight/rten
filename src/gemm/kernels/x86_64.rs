@@ -15,7 +15,7 @@ use super::{
 use crate::gemm::packing;
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
-use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
+use crate::slice_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
 pub struct FmaKernel {
@@ -99,7 +99,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
+        let out = cast_uninit_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
 
         // Safety: Kernel can only be constructed if AVX is supported.
         unsafe {
@@ -124,7 +124,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
 
         // Safety: Kernel can only be constructed if AVX is supported.
         unsafe {
@@ -154,7 +154,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         }
 
         // Safety: Kernel can only be constructed if AVX is supported
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         unsafe {
             pack_im2col_avx::<NR_REGS, { Self::NR }>(self.isa, out, image, rows, cols);
         }
@@ -307,7 +307,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
+        let out = cast_uninit_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
 
         // Safety: AVX-512 implies availability of AVX 2.
         unsafe {
@@ -332,7 +332,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
+        let out = cast_uninit_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
 
         // Safety: We assume AVX-512 implies availability of AVX 2.
         unsafe {
@@ -363,7 +363,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         const NR_REGS: usize = Avx512Kernel::NR / AVX512_X32_LANES;
 
         // Safety: Kernel can only be constructed if AVX-512 is supported.
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         unsafe {
             pack_im2col_avx512::<NR_REGS, { Self::NR }>(self.isa, out, image, rows, cols);
         }
@@ -512,7 +512,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<u8>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
     }
 
@@ -533,7 +533,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<i8>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         packing::int8::pack_b::<{ Self::NR }>(out, b.slice((rows, cols)))
     }
 
@@ -554,7 +554,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         ) {
             const NR_REGS: usize = Avx2Int8Kernel::NR / AVX2_X32_LANES;
 
-            let out = cast_pod_mut_slice(out).unwrap();
+            let out = cast_uninit_pod_mut_slice(out).unwrap();
             image.pack_block_i8_dot::<_, NR_REGS>(isa, out, rows, cols);
         }
 
@@ -724,7 +724,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<u8>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
     }
 
@@ -745,7 +745,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<i8>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         packing::int8::pack_b::<{ Self::NR }>(out, b.slice((rows, cols)))
     }
 
@@ -767,7 +767,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         ) {
             const NR_REGS: usize = Avx512Int8Kernel::NR / AVX512_X32_LANES;
 
-            let out = cast_pod_mut_slice(out).unwrap();
+            let out = cast_uninit_pod_mut_slice(out).unwrap();
             image.pack_block_i8_dot::<_, NR_REGS>(isa, out, rows, cols);
         }
 
