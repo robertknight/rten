@@ -6,6 +6,7 @@ use rten_simd::{Isa, Simd, SimdUnaryOp};
 use crate::Exp;
 
 /// Vectorized tanh implementation.
+#[derive(Default)]
 pub struct Tanh {}
 
 impl SimdUnaryOp<f32> for Tanh {
