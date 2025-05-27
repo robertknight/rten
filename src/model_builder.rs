@@ -601,7 +601,17 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                     batch_dims: args.batch_dims as i32,
                 }
             ),
-            OpType::Gelu(_args) => op_with_attrs!(Gelu, GeluAttrs, sg::GeluAttrsArgs {}),
+            OpType::Gelu(args) => op_with_attrs!(
+                Gelu,
+                GeluAttrs,
+                sg::GeluAttrsArgs {
+                    approximate: if args.approximate {
+                        sg::GeluApproximation::Tanh
+                    } else {
+                        sg::GeluApproximation::None
+                    }
+                }
+            ),
             OpType::Gemm(args) => op_with_attrs!(
                 Gemm,
                 GemmAttrs,

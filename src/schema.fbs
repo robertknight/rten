@@ -340,8 +340,14 @@ table GatherNDAttrs {
   batch_dims:int;
 }
 
-// Reserved for supporting `approximate` attr in future.
-table GeluAttrs {}
+enum GeluApproximation: ubyte {
+  None,
+  Tanh,
+}
+
+table GeluAttrs {
+  approximate:GeluApproximation = None;
+}
 
 table GemmAttrs {
   alpha:float;

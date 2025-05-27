@@ -561,8 +561,18 @@ impl_read_op!(
         })
     }
 );
-impl_read_op!(Gelu, attrs_as_gelu_attrs, |_attrs: sg::GeluAttrs| {
-    Ok(ops::Gelu {})
+impl_read_op!(Gelu, attrs_as_gelu_attrs, |attrs: sg::GeluAttrs| {
+    let approximate = match attrs.approximate() {
+        sg::GeluApproximation::None => false,
+        sg::GeluApproximation::Tanh => true,
+        _ => {
+            return Err(ReadOpError::AttrError {
+                attr: "approximate",
+                error: "unsupported gelu approximation",
+            });
+        }
+    };
+    Ok(ops::Gelu { approximate })
 });
 impl_read_op!(Gemm, attrs_as_gemm_attrs, |attrs: sg::GemmAttrs| {
     Ok(ops::Gemm {

@@ -1589,6 +1589,96 @@ pub struct ScalarUnionTableOffset {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
+pub const ENUM_MIN_GELU_APPROXIMATION: u8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_GELU_APPROXIMATION: u8 = 1;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_GELU_APPROXIMATION: [GeluApproximation; 2] =
+    [GeluApproximation::None, GeluApproximation::Tanh];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct GeluApproximation(pub u8);
+#[allow(non_upper_case_globals)]
+impl GeluApproximation {
+    pub const None: Self = Self(0);
+    pub const Tanh: Self = Self(1);
+
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 1;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::None, Self::Tanh];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::None => Some("None"),
+            Self::Tanh => Some("Tanh"),
+            _ => None,
+        }
+    }
+}
+impl core::fmt::Debug for GeluApproximation {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for GeluApproximation {
+    type Inner = Self;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
+        Self(b)
+    }
+}
+
+impl flatbuffers::Push for GeluApproximation {
+    type Output = GeluApproximation;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for GeluApproximation {
+    type Scalar = u8;
+    #[inline]
+    fn to_little_endian(self) -> u8 {
+        self.0.to_le()
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
+        Self(b)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for GeluApproximation {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        u8::run_verifier(v, pos)
+    }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for GeluApproximation {}
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
 pub const ENUM_MIN_NMSBOX_ORDER: u8 = 0;
 #[deprecated(
     since = "2.0.0",
@@ -4702,6 +4792,8 @@ impl<'a> flatbuffers::Follow<'a> for GeluAttrs<'a> {
 }
 
 impl<'a> GeluAttrs<'a> {
+    pub const VT_APPROXIMATE: flatbuffers::VOffsetT = 4;
+
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         GeluAttrs { _tab: table }
@@ -4709,10 +4801,23 @@ impl<'a> GeluAttrs<'a> {
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-        _args: &'args GeluAttrsArgs,
+        args: &'args GeluAttrsArgs,
     ) -> flatbuffers::WIPOffset<GeluAttrs<'bldr>> {
         let mut builder = GeluAttrsBuilder::new(_fbb);
+        builder.add_approximate(args.approximate);
         builder.finish()
+    }
+
+    #[inline]
+    pub fn approximate(&self) -> GeluApproximation {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<GeluApproximation>(GeluAttrs::VT_APPROXIMATE, Some(GeluApproximation::None))
+                .unwrap()
+        }
     }
 }
 
@@ -4723,15 +4828,21 @@ impl flatbuffers::Verifiable for GeluAttrs<'_> {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        v.visit_table(pos)?.finish();
+        v.visit_table(pos)?
+            .visit_field::<GeluApproximation>("approximate", Self::VT_APPROXIMATE, false)?
+            .finish();
         Ok(())
     }
 }
-pub struct GeluAttrsArgs {}
+pub struct GeluAttrsArgs {
+    pub approximate: GeluApproximation,
+}
 impl<'a> Default for GeluAttrsArgs {
     #[inline]
     fn default() -> Self {
-        GeluAttrsArgs {}
+        GeluAttrsArgs {
+            approximate: GeluApproximation::None,
+        }
     }
 }
 
@@ -4740,6 +4851,14 @@ pub struct GeluAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> GeluAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_approximate(&mut self, approximate: GeluApproximation) {
+        self.fbb_.push_slot::<GeluApproximation>(
+            GeluAttrs::VT_APPROXIMATE,
+            approximate,
+            GeluApproximation::None,
+        );
+    }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> GeluAttrsBuilder<'a, 'b, A> {
         let start = _fbb.start_table();
@@ -4758,6 +4877,7 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> GeluAttrsBuilder<'a, 'b, A> {
 impl core::fmt::Debug for GeluAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("GeluAttrs");
+        ds.field("approximate", &self.approximate());
         ds.finish()
     }
 }

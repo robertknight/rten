@@ -395,7 +395,49 @@ parallel_unary_float_op!(Erf, erf, vecmath::Erf {});
 parallel_unary_float_op!(Exp, exp, vecmath::Exp {});
 unary_float_op!(Floor, floor, |val: f32| val.floor());
 
-parallel_unary_float_op!(Gelu, gelu, vecmath::Gelu {});
+#[derive(Debug)]
+pub struct Gelu {
+    pub approximate: bool,
+}
+
+impl Operator for Gelu {
+    fn name(&self) -> &str {
+        "Gelu"
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        gelu(ctx.pool(), ctx.inputs().require_as(0)?, self.approximate).into_op_result()
+    }
+
+    fn run_in_place(
+        &self,
+        pool: &TensorPool,
+        input: Output,
+        _: InputList,
+    ) -> Result<Output, OpError> {
+        let tensor = input
+            .into_tensor::<f32>()
+            .ok_or(OpError::IncorrectInputType)?;
+        let result = if self.approximate {
+            par_unary_op_in_place(pool, tensor, vecmath::ApproxGelu {})
+        } else {
+            par_unary_op_in_place(pool, tensor, vecmath::Gelu {})
+        };
+        Ok(result.into())
+    }
+}
+
+pub fn gelu(pool: &TensorPool, input: TensorView, approximate: bool) -> Tensor {
+    if approximate {
+        par_unary_op(pool, input, vecmath::ApproxGelu {})
+    } else {
+        par_unary_op(pool, input, vecmath::Gelu {})
+    }
+}
 
 #[derive(Debug)]
 pub struct HardSigmoid {
@@ -897,7 +939,19 @@ mod tests {
     fn reference_gelu(x: f32) -> f32 {
         0.5 * x * (1. + libm::erff(x / (2.0f32).sqrt()))
     }
-    test_unary_op!(test_gelu, Gelu {}, |x| reference_gelu(*x));
+
+    fn reference_approx_gelu(x: f32) -> f32 {
+        let x_cubed = x * x * x;
+        let approx_erf = ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044715 * x_cubed)).tanh();
+        0.5 * x * (1. + approx_erf)
+    }
+
+    test_unary_op!(test_gelu, Gelu { approximate: false }, |x| reference_gelu(
+        *x
+    ));
+    test_unary_op!(test_approx_gelu, Gelu { approximate: true }, |x| {
+        reference_approx_gelu(*x)
+    });
 
     #[test]
     fn test_hard_sigmoid() -> Result<(), Box<dyn Error>> {

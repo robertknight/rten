@@ -838,7 +838,7 @@ impl PatternFusion for GeluFusion {
     }
 
     fn create_fused_op(&self, _: &Match, _: &Graph) -> FuseResult {
-        Ok(Box::new(Gelu {}))
+        Ok(Box::new(Gelu { approximate: false }))
     }
 }
 
