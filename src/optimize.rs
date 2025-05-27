@@ -338,7 +338,12 @@ impl GraphOptimizer {
         // Fuse patterns for unary operators.
         self.fuse_patterns(
             &mut graph_mut,
-            &[&SiluFusion {}, &SwishFusion {}, &GeluFusion {}],
+            &[
+                &SiluFusion {},
+                &SwishFusion {},
+                &GeluFusion {},
+                &ApproxGeluFusion {},
+            ],
         )?;
 
         self.fuse_layer_norm(&mut graph_mut)?;
@@ -838,7 +843,29 @@ impl PatternFusion for GeluFusion {
     }
 
     fn create_fused_op(&self, _: &Match, _: &Graph) -> FuseResult {
-        Ok(Box::new(Gelu {}))
+        Ok(Box::new(Gelu { approximate: false }))
+    }
+}
+
+struct ApproxGeluFusion {}
+
+impl PatternFusion for ApproxGeluFusion {
+    fn pattern(&self) -> Pattern {
+        // Pattern for tanh approximate of gelu. See
+        // https://onnx.ai/onnx/operators/onnx__Gelu.html.
+        let sqrt_2_pi = (2.0f32 / std::f32::consts::PI).sqrt();
+        let x = symbol("x");
+        x.clone()
+            * 0.5
+            * (1.
+                + unary_op(
+                    "Tanh",
+                    sqrt_2_pi * (x.clone() + binary_op("Pow", x.clone(), 3.0) * 0.044715),
+                ))
+    }
+
+    fn create_fused_op(&self, _: &Match, _: &Graph) -> FuseResult {
+        Ok(Box::new(Gelu { approximate: true }))
     }
 }
 
@@ -887,8 +914,8 @@ mod tests {
     use crate::graph::builder::Expr;
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
     use crate::ops::{
-        Add, Erf, FusedMatMul, LayerNormalization, MatMul, Neg, Pow, ReduceMean, RmsNormalization,
-        Sigmoid, Sqrt, Swish, Transpose,
+        Add, Erf, FusedMatMul, Gelu, LayerNormalization, MatMul, Neg, Pow, ReduceMean,
+        RmsNormalization, Sigmoid, Sqrt, Swish, Tanh, Transpose,
     };
 
     fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
@@ -921,11 +948,13 @@ mod tests {
     /// node with `a` and `b` as inputs.
     trait OpExprs {
         fn erf(&self) -> Expr;
+        fn pow(&self, rhs: Expr) -> Expr;
         fn matmul(&self, rhs: Expr) -> Expr;
         fn mean(&self) -> Expr;
         fn sigmoid(&self) -> Expr;
         fn square(&self) -> Expr;
         fn sqrt(&self) -> Expr;
+        fn tanh(&self) -> Expr;
         fn transpose(&self) -> Expr;
     }
 
@@ -945,6 +974,10 @@ mod tests {
             })
         }
 
+        fn pow(&self, rhs: Expr) -> Expr {
+            self.binary(Pow {}, rhs)
+        }
+
         fn sigmoid(&self) -> Expr {
             self.unary(Sigmoid {})
         }
@@ -955,6 +988,10 @@ mod tests {
 
         fn sqrt(&self) -> Expr {
             self.unary(Sqrt {})
+        }
+
+        fn tanh(&self) -> Expr {
+            self.unary(Tanh {})
         }
 
         fn transpose(&self) -> Expr {
@@ -1187,7 +1224,27 @@ mod tests {
         let graph = optimize_graph(graph).unwrap();
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
-        assert_eq!(op.operator().name(), "Gelu");
+        let gelu = op.operator().downcast_ref::<Gelu>().unwrap();
+        assert_eq!(gelu.approximate, false);
+    }
+
+    #[test]
+    fn test_fuse_approx_gelu() {
+        let graph = {
+            let x = Expr::value("x");
+            let sqrt_2_pi = Expr::constant((2.0f32 / std::f32::consts::PI).sqrt());
+            let expr = x.clone()
+                * 0.5
+                * (Expr::constant(1.)
+                    + (sqrt_2_pi * (x.clone() + x.pow(Expr::constant(3.0)) * 0.044715)).tanh());
+            expr.build_graph(["x"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        let gelu = op.operator().downcast_ref::<Gelu>().unwrap();
+        assert_eq!(gelu.approximate, true);
     }
 
     fn layer_norm_graph(with_bias: bool) -> Graph {

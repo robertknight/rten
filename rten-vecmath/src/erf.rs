@@ -8,6 +8,7 @@ use rten_simd::ops::{FloatOps, NumOps};
 use rten_simd::{Isa, Simd, SimdUnaryOp};
 
 use crate::exp::ReducedRangeExp;
+use crate::tanh::Tanh;
 
 /// Vectorized error function (erf).
 ///
@@ -77,17 +78,50 @@ impl SimdUnaryOp<f32> for Gelu {
     }
 }
 
+// sqrt(2 / pi)
+const SQRT_2_PI: f32 = 0.7978845608028654;
+
+/// Approximate Gelu function.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Gelu.html>.
+pub struct ApproxGelu {}
+
+impl SimdUnaryOp<f32> for ApproxGelu {
+    #[inline(always)]
+    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
+        let ops = isa.f32();
+        let x = x.same_cast();
+
+        // 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+        let half_x = ops.mul(x, ops.splat(0.5));
+        let x_cubed = ops.mul(ops.mul(x, x), x);
+        let y = ops.mul_add(x_cubed, ops.splat(0.044715), x);
+        let y = ops.mul(y, ops.splat(SQRT_2_PI));
+        let y = Tanh::apply(isa, y);
+        let y = ops.add(y, ops.splat(1.));
+        let y = ops.mul(half_x, y);
+
+        y.same_cast()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_simd::SimdUnaryOp;
 
-    use super::{Erf, Gelu};
+    use super::{ApproxGelu, Erf, Gelu};
     use crate::testing::{
         arange, benchmark_op, check_f32s_are_equal_atol, triples, AllF32s, AsUninit, Progress,
     };
 
     fn reference_gelu(x: f32) -> f32 {
         0.5 * x * (1. + libm::erff(x / (2.0f32).sqrt()))
+    }
+
+    fn reference_approx_gelu(x: f32) -> f32 {
+        let x_cubed = x * x * x;
+        let approx_erf = ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044715 * x_cubed)).tanh();
+        0.5 * x * (1. + approx_erf)
     }
 
     // Maximum difference between our erf function and `libm::erf` found
@@ -135,6 +169,18 @@ mod tests {
 
         // Gelu uses erf, so its error is constrained by this.
         check_f32s_are_equal_atol(triples(&input, &actual, &expected), MAX_EXPECTED_DIFF);
+    }
+
+    #[test]
+    fn test_approx_gelu() {
+        let input: Vec<_> = arange(-6., 6., 0.001f32).collect();
+        let mut actual = vec![0.; input.len()];
+        let expected: Vec<_> = input.iter().copied().map(reference_approx_gelu).collect();
+
+        ApproxGelu {}.map(&input, actual.as_mut_slice().as_uninit());
+
+        let max_diff = 5e-7;
+        check_f32s_are_equal_atol(triples(&input, &actual, &expected), max_diff);
     }
 
     #[test]

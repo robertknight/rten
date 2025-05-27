@@ -328,6 +328,11 @@ def ScalarCreator(unionType, table):
     return None
 
 
+class GeluApproximation(object):
+    None_ = 0
+    Tanh = 1
+
+
 class NMSBoxOrder(object):
     TopLeftBottomRight = 0
     CenterWidthHeight = 1
@@ -2455,8 +2460,18 @@ class GeluAttrs(object):
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
+    # GeluAttrs
+    def Approximate(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
+        return 0
+
 def GeluAttrsStart(builder):
-    builder.StartObject(0)
+    builder.StartObject(1)
+
+def GeluAttrsAddApproximate(builder, approximate):
+    builder.PrependUint8Slot(0, approximate, 0)
 
 def GeluAttrsEnd(builder):
     return builder.EndObject()
@@ -2467,7 +2482,7 @@ class GeluAttrsT(object):
 
     # GeluAttrsT
     def __init__(self):
-        pass
+        self.approximate = 0  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2490,10 +2505,12 @@ class GeluAttrsT(object):
     def _UnPack(self, geluAttrs):
         if geluAttrs is None:
             return
+        self.approximate = geluAttrs.Approximate()
 
     # GeluAttrsT
     def Pack(self, builder):
         GeluAttrsStart(builder)
+        GeluAttrsAddApproximate(builder, self.approximate)
         geluAttrs = GeluAttrsEnd(builder)
         return geluAttrs
 
