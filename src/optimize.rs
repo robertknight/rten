@@ -17,7 +17,7 @@ use crate::Output;
 
 mod pattern_matcher;
 
-use pattern_matcher::{binary_op, const_symbol, symbol, unary_op, unary_op_key};
+use pattern_matcher::{binary_op, const_symbol, symbol, unary_op, unary_op_key, Match, Pattern};
 
 /// Errors that occur while applying graph optimizations.
 #[derive(Debug, PartialEq)]
@@ -36,6 +36,21 @@ impl Display for OptimizeError {
 }
 
 impl Error for OptimizeError {}
+
+/// Additional graph querying methods used by the optimizer.
+trait GraphExt {
+    /// Extract the scalar value from a constant node.
+    fn get_scalar(&self, node_id: NodeId) -> Option<f32>;
+}
+
+impl GraphExt for Graph {
+    fn get_scalar(&self, node_id: NodeId) -> Option<f32> {
+        self.get_node(node_id).and_then(|node| match node {
+            Node::Constant(const_node) => const_node.as_scalar(),
+            _ => None,
+        })
+    }
+}
 
 /// Holds a [`Graph`] and associated data structures while it is being mutated
 /// by an optimizer, and provides operations to update the graph.
@@ -192,15 +207,6 @@ impl GraphMutator {
         &self.output_ids
     }
 
-    /// Get the scalar value of a constant node, or `None` if the node is
-    /// not a constant or the value is not a scalar.
-    fn get_scalar(&self, node_id: NodeId) -> Option<f32> {
-        self.graph.get_node(node_id).and_then(|node| match node {
-            Node::Constant(const_node) => const_node.as_scalar(),
-            _ => None,
-        })
-    }
-
     fn set_captures(&mut self, captures: &[NodeId]) {
         self.graph.set_captures(captures)
     }
@@ -286,15 +292,15 @@ impl Fusion {
     ///
     /// `output_id` specifies the output ID of the subgraph that this fusion
     /// replaces.
-    fn from_op<Op: Operator + Send + Sync>(
+    fn from_op(
         name: Option<&str>,
-        op: Op,
+        fused_op: Box<dyn Operator + Send + Sync>,
         input_ids: &[Option<NodeId>],
         output_ids: &[Option<NodeId>],
     ) -> Fusion {
         Fusion {
             name: name.map(|s| s.to_string()),
-            fused_op: Box::new(op),
+            fused_op,
             input_ids: input_ids.to_vec(),
             output_ids: output_ids.to_vec(),
         }
@@ -329,9 +335,12 @@ impl GraphOptimizer {
         }
         self.propagate_constants(&mut graph_mut)?;
 
-        self.fuse_silu(&mut graph_mut)?;
-        self.fuse_swish(&mut graph_mut)?;
-        self.fuse_gelu(&mut graph_mut)?;
+        // Fuse patterns for unary operators.
+        self.fuse_patterns(
+            &mut graph_mut,
+            &[&SiluFusion {}, &SwishFusion {}, &GeluFusion {}],
+        )?;
+
         self.fuse_layer_norm(&mut graph_mut)?;
         self.fuse_rms_norm(&mut graph_mut)?;
         self.fuse_matmul_add(&mut graph_mut)?;
@@ -459,7 +468,7 @@ impl GraphOptimizer {
 
             Some(Fusion::from_op(
                 op_node.name(),
-                fused_op.build(),
+                Box::new(fused_op.build()),
                 &fused_inputs,
                 op_node.output_ids(),
             ))
@@ -468,46 +477,38 @@ impl GraphOptimizer {
         Ok(())
     }
 
-    /// Fuse `x * Sigmoid(x)` into `Silu(x)`.
-    fn fuse_silu(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        let x = symbol("x");
-        let silu_pattern = x.clone() * unary_op("Sigmoid", x.clone());
+    /// Find matches for unary operator fusion patterns and replace them with
+    /// fused operators.
+    ///
+    /// This method walks the graph once and tests each operator against
+    /// the fusion patterns, applying the first one that matches.
+    fn fuse_patterns(
+        &self,
+        graph: &mut GraphMutator,
+        fusions: &[&dyn PatternFusion],
+    ) -> Result<(), OptimizeError> {
+        // Create the patterns once outside the loop over operators.
+        let patterns: Vec<_> = fusions.iter().map(|f| f.pattern()).collect();
 
         graph.apply_fusion(|graph, op_node_id, op_node| {
-            let silu_match = silu_pattern.test(op_node_id, graph.graph())?;
-            let silu_input = silu_match.node_id("x").expect("missing symbol");
+            for (fusion, pattern) in fusions.iter().zip(&patterns) {
+                if let Some(pat_match) = pattern.test(op_node_id, graph.graph()) {
+                    let input_id = pat_match.node_id("x").expect("missing symbol");
+                    let Ok(fused_op) = fusion.create_fused_op(&pat_match, graph.graph()) else {
+                        continue;
+                    };
+                    let fusion = Fusion::from_op(
+                        op_node.name(),
+                        fused_op,
+                        &[Some(input_id)],
+                        op_node.output_ids(),
+                    );
+                    return Some(fusion);
+                }
+            }
 
-            Some(Fusion::from_op(
-                op_node.name(),
-                Silu {},
-                &[Some(silu_input)],
-                op_node.output_ids(),
-            ))
+            None
         });
-
-        Ok(())
-    }
-
-    /// Fuse `x * Sigmoid(beta * x)` into `Swish(x, beta)`.
-    fn fuse_swish(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        let x = symbol("x");
-        let beta = const_symbol("beta");
-        let swish_pattern = x.clone() * unary_op("Sigmoid", beta * x.clone());
-
-        graph.apply_fusion(|graph, op_node_id, op_node| {
-            let swish_match = swish_pattern.test(op_node_id, graph.graph())?;
-            let swish_input = swish_match.node_id("x").expect("missing symbol");
-            let beta_input = swish_match.node_id("beta").expect("missing symbol");
-            let beta = graph.get_scalar(beta_input)?;
-
-            Some(Fusion::from_op(
-                op_node.name(),
-                Swish { beta },
-                &[Some(swish_input)],
-                op_node.output_ids(),
-            ))
-        });
-
         Ok(())
     }
 
@@ -540,7 +541,7 @@ impl GraphOptimizer {
 
             Some(Fusion::from_op(
                 op_node.name(),
-                FusedMatMul { alpha: None },
+                Box::new(FusedMatMul { alpha: None }),
                 &[Some(a_input), Some(b_input), Some(bias_input)],
                 op_node.output_ids(),
             ))
@@ -575,8 +576,8 @@ impl GraphOptimizer {
                 }
 
                 let [lhs, rhs] = binary_op_input_ids(op_node)?;
-                let lhs_scalar = graph.get_scalar(lhs);
-                let rhs_scalar = graph.get_scalar(rhs);
+                let lhs_scalar = graph.graph().get_scalar(lhs);
+                let rhs_scalar = graph.graph().get_scalar(rhs);
 
                 match op_type {
                     "Mul" => match (lhs_scalar, rhs_scalar) {
@@ -641,33 +642,8 @@ impl GraphOptimizer {
 
             Some(Fusion::from_op(
                 matmul_node.name(),
-                FusedMatMul { alpha: Some(alpha) },
+                Box::new(FusedMatMul { alpha: Some(alpha) }),
                 &[Some(lhs_input), Some(rhs_input)],
-                op_node.output_ids(),
-            ))
-        });
-
-        Ok(())
-    }
-
-    /// Fuse `0.5 * X * (1 + Erf(X / Sqrt(2)))` into `Gelu(X)`.
-    fn fuse_gelu(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        // The expression for GELU is usually written as `x * 0.5 * (...)`
-        // instead of `x * (...) * 0.5`. Ideally our graph pattern matcher
-        // would be smart enough to let us write one pattern and have it match
-        // either structure. However it isn't. The pattern used matches PyTorch's
-        // `nn.GELU`.
-        let x = symbol("x");
-        let gelu_pattern = x.clone() * (unary_op("Erf", x.clone() / (2.0f32).sqrt()) + 1.0) * 0.5;
-
-        graph.apply_fusion(|graph, op_node_id, op_node| {
-            let gelu_match = gelu_pattern.test(op_node_id, graph.graph())?;
-            let gelu_input = gelu_match.node_id("x").expect("missing symbol");
-
-            Some(Fusion::from_op(
-                op_node.name(),
-                Gelu {},
-                &[Some(gelu_input)],
                 op_node.output_ids(),
             ))
         });
@@ -700,7 +676,7 @@ impl GraphOptimizer {
             let rms_match = rms_pat.test(op_node_id, graph.graph())?;
             let x_input = rms_match.node_id("x").unwrap();
             let epsilon_input = rms_match.node_id("epsilon").unwrap();
-            let epsilon = graph.get_scalar(epsilon_input)?;
+            let epsilon = graph.graph().get_scalar(epsilon_input)?;
             let scale_input = rms_match.node_id("scale").unwrap();
             let norm_mean = rms_match.node_id("norm_mean").unwrap();
 
@@ -710,10 +686,10 @@ impl GraphOptimizer {
 
             Some(Fusion::from_op(
                 op_node.name(),
-                RmsNormalization {
+                Box::new(RmsNormalization {
                     axis: -1,
                     epsilon: Some(epsilon),
-                },
+                }),
                 &[Some(x_input), Some(scale_input)],
                 op_node.output_ids(),
             ))
@@ -782,14 +758,14 @@ impl GraphOptimizer {
                 return None;
             }
 
-            let epsilon = graph.get_scalar(epsilon_input)?;
+            let epsilon = graph.graph().get_scalar(epsilon_input)?;
 
             Some(Fusion::from_op(
                 op_node.name(),
-                LayerNormalization {
+                Box::new(LayerNormalization {
                     axis: -1,
                     epsilon: Some(epsilon),
-                },
+                }),
                 &[Some(center_input), Some(scale_input), bias_input],
                 op_node.output_ids(),
             ))
@@ -828,6 +804,72 @@ fn mean_op_reduces_last_axis(graph: &Graph, node_id: NodeId) -> bool {
             }
         }
         _ => false,
+    }
+}
+
+type FuseResult = Result<Box<dyn Operator + Send + Sync>, ()>;
+
+/// Defines a fusion that matches a graph pattern and replaces it with a fused
+/// operator.
+trait PatternFusion {
+    /// Return the graph pattern to match.
+    ///
+    /// The pattern expression should have a single input named "x".
+    fn pattern(&self) -> Pattern;
+
+    /// Create a fused operator given a successful match for the pattern.
+    ///
+    /// This can fail if there are additional requirements which cannot be
+    /// expressed in the pattern.
+    fn create_fused_op(&self, pat_match: &Match, g: &Graph) -> FuseResult;
+}
+
+struct GeluFusion {}
+
+impl PatternFusion for GeluFusion {
+    fn pattern(&self) -> Pattern {
+        // The expression for GELU is usually written as `x * 0.5 * (...)`
+        // instead of `x * (...) * 0.5`. Ideally our graph pattern matcher
+        // would be smart enough to let us write one pattern and have it match
+        // either structure. However it isn't. The pattern used matches PyTorch's
+        // `nn.GELU`.
+        let x = symbol("x");
+        x.clone() * (unary_op("Erf", x.clone() / (2.0f32).sqrt()) + 1.0) * 0.5
+    }
+
+    fn create_fused_op(&self, _: &Match, _: &Graph) -> FuseResult {
+        Ok(Box::new(Gelu {}))
+    }
+}
+
+struct SiluFusion {}
+
+impl PatternFusion for SiluFusion {
+    fn pattern(&self) -> Pattern {
+        let x = symbol("x");
+        x.clone() * unary_op("Sigmoid", x.clone())
+    }
+
+    fn create_fused_op(&self, _: &Match, _: &Graph) -> FuseResult {
+        Ok(Box::new(Silu {}))
+    }
+}
+
+struct SwishFusion {}
+
+impl PatternFusion for SwishFusion {
+    fn pattern(&self) -> Pattern {
+        let x = symbol("x");
+        let beta = const_symbol("beta");
+        x.clone() * unary_op("Sigmoid", beta * x.clone())
+    }
+
+    fn create_fused_op(&self, pat_match: &Match, g: &Graph) -> FuseResult {
+        let beta_input = pat_match.node_id("beta").expect("missing symbol");
+        let Some(beta) = g.get_scalar(beta_input) else {
+            return Err(());
+        };
+        Ok(Box::new(Swish { beta }))
     }
 }
 
