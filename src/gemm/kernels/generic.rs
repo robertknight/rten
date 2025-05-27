@@ -8,7 +8,7 @@ use super::simd_generic::{simd_gemv, GemmDispatch};
 use super::{Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
-use crate::slice_cast::{cast_pod_mut_slice, cast_pod_slice};
+use crate::slice_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 
 /// This is the base kernel that does not use architecture-specific intrinsics
 /// but is autovectorization-friendly. It is expected to perform the same as
@@ -68,7 +68,7 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         pack_a_block::<f32, { Self::MR }>(out, a, rows, cols);
     }
 
@@ -89,7 +89,7 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         pack_b_block::<f32, { Self::NR }>(out, b, rows, cols);
     }
 
@@ -103,7 +103,7 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         const NR_REGS: usize = GenericKernel::NR / X32_LANES;
 
         // Safety: Scalar "SIMD" types are always supported
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         image.pack_block::<_, NR_REGS>(self.isa, out, Self::NR, rows, cols);
     }
 
@@ -219,7 +219,7 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<u8>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         pack_a_block::<u8, { Self::MR }>(out, a, rows, cols);
     }
 
@@ -240,7 +240,7 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<i8>>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         pack_b_block::<i8, { Self::NR }>(out, b, rows, cols);
     }
 
@@ -254,7 +254,7 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         const NR_REGS: usize = GenericKernel::NR / 4;
 
         // Safety: Scalar "SIMD" types are always supported
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         image.pack_block::<_, NR_REGS>(self.isa, out, Self::NR, rows, cols);
     }
 

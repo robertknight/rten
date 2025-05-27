@@ -6,7 +6,7 @@ use rten_simd::{Isa, Mask, Simd};
 use rten_tensor::{NdTensorView, Storage};
 
 use super::packing::int8::shift_cast_i8_u8;
-use crate::slice_cast::cast_pod_mut_slice;
+use crate::slice_cast::cast_uninit_pod_mut_slice;
 
 /// Maps rows of an [`Im2Col`] matrix to locations in the source image.
 ///
@@ -231,7 +231,7 @@ impl Im2Col<'_, i8> {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        let out = cast_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
         self.pack_block_int8::<_, NR_REGS, true>(isa, out, rows, cols);
     }
 
