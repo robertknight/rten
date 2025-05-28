@@ -123,7 +123,7 @@ impl Alloc for GlobalAlloc {
 pub use assume_init::AssumeInit;
 pub use index_iterator::{DynIndices, Indices, NdIndices};
 pub use iterators::{
-    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut, Iter, IterMut,
+    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut, Iter, IterMut, Lane,
     Lanes, LanesMut,
 };
 pub use layout::{
