@@ -625,6 +625,7 @@ impl Offsets {
 impl Iterator for Offsets {
     type Item = usize;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let offset = self.base.offset()?;
         self.base.step();
@@ -696,6 +697,7 @@ impl LaneRanges {
 impl Iterator for LaneRanges {
     type Item = Range<usize>;
 
+    #[inline]
     fn next(&mut self) -> Option<Range<usize>> {
         self.offsets
             .next()
@@ -814,6 +816,7 @@ impl<'a, T> Iterator for Lanes<'a, T> {
     type Item = Lane<'a, T>;
 
     /// Yield the next slice over the target dimension.
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.ranges
             .next()
@@ -919,6 +922,7 @@ impl<T> ExactSizeIterator for LaneMut<'_, T> {}
 impl<'a, T> Iterator for LanesMut<'a, T> {
     type Item = LaneMut<'a, T>;
 
+    #[inline]
     fn next(&mut self) -> Option<LaneMut<'a, T>> {
         self.ranges.next().map(|range| {
             // Safety: Each iteration yields a lane that does not overlap with
