@@ -731,6 +731,7 @@ pub struct Lanes<'a, T> {
 }
 
 /// Iterator over items in a 1D slice of a tensor.
+#[derive(Clone)]
 pub struct Lane<'a, T> {
     data: ViewData<'a, T>,
     index: usize,
@@ -748,6 +749,16 @@ impl<'a, T> Lane<'a, T> {
                 Some(unsafe { remainder.as_slice() })
             }
             _ => None,
+        }
+    }
+
+    /// Return the item at a given index in this lane.
+    pub fn get(&self, idx: usize) -> Option<&'a T> {
+        if idx < self.size {
+            // Safety: `idx * self.stride` is a valid offset since `idx < self.size`.
+            Some(unsafe { self.data.get_unchecked(idx * self.stride) })
+        } else {
+            None
         }
     }
 }
