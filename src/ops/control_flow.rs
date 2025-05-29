@@ -45,7 +45,7 @@ impl Operator for If {
         run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
         let node_name = ctx.name().unwrap_or_default();
-        let cond: TensorView<i32> = ctx
+        let cond: TensorView<bool> = ctx
             .inputs()
             .require_as(0)
             .map_err(|e| RunError::op_error(node_name, e, ctx))?;
@@ -57,7 +57,7 @@ impl Operator for If {
             ));
         };
 
-        if cond_bool != 0 {
+        if cond_bool {
             self.then_branch
                 .run_subgraph(
                     Vec::new(),

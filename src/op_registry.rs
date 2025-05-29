@@ -248,6 +248,7 @@ pub fn convert_dtype(attr: &'static str, dtype: sg::DataType) -> Result<DataType
         sg::DataType::Float => Ok(DataType::Float),
         sg::DataType::UInt8 => Ok(DataType::UInt8),
         sg::DataType::Int8 => Ok(DataType::Int8),
+        sg::DataType::Bool => Ok(DataType::Bool),
         _ => Err(ReadOpError::AttrError {
             attr,
             error: "unknown value",

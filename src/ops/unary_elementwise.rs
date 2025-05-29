@@ -9,7 +9,6 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;
 
-use crate::number::AsBool;
 use crate::ops::{
     map_value, map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
     ValueView,
@@ -487,12 +486,15 @@ pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(
 
 unary_numeric_op!(Neg, neg, neg_in_place);
 
-pub fn not<T: AsBool + PartialEq>(pool: &TensorPool, input: TensorView<T>) -> Tensor<i32> {
-    input.map_in(pool, |x| i32::from(!x.as_bool()))
+pub fn not<T: std::ops::Not<Output = bool> + Copy + PartialEq>(
+    pool: &TensorPool,
+    input: TensorView<T>,
+) -> Tensor<bool> {
+    input.map_in(pool, |x| !*x)
 }
 
-pub fn not_in_place(mut input: TensorViewMut<i32>) {
-    input.apply(|x| i32::from(!x.as_bool()));
+pub fn not_in_place(mut input: TensorViewMut<bool>) {
+    input.apply(|x| !x);
 }
 
 #[derive(Debug)]
@@ -504,7 +506,7 @@ impl Operator for Not {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let input: TensorView<i32> = ctx.inputs().require_as(0)?;
+        let input: TensorView<bool> = ctx.inputs().require_as(0)?;
         not(ctx.pool(), input).into_op_result()
     }
 
@@ -513,7 +515,7 @@ impl Operator for Not {
     }
 
     fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
-        let mut output: Tensor<i32> = input.try_into()?;
+        let mut output: Tensor<bool> = input.try_into()?;
         not_in_place(output.view_mut());
         Ok(output.into())
     }
@@ -953,8 +955,8 @@ mod tests {
     test_unary_op!(
         test_not,
         Not {},
-        |x| i32::from(*x == 0),
-        Tensor::from([0, 1, 1, 0])
+        |x| !x,
+        Tensor::from([false, true, true, false])
     );
 
     test_unary_op!(

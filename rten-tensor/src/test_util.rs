@@ -82,6 +82,23 @@ impl ApproxEq for i32 {
     }
 }
 
+impl ApproxEq for bool {
+    #[inline]
+    fn default_abs_tolerance() -> bool {
+        false
+    }
+
+    #[inline]
+    fn default_rel_tolerance() -> bool {
+        false
+    }
+
+    #[inline]
+    fn approx_eq_with_atol_rtol(&self, other: &bool, _atol: bool, _rtol: bool) -> bool {
+        self == other
+    }
+}
+
 /// Return the N-dimensional index in a tensor with a given `shape` that
 /// corresponds to a linear index (ie. the index if the tensor was flattened to
 /// 1D).

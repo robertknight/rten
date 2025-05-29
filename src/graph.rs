@@ -2258,7 +2258,7 @@ mod tests {
             .run(
                 vec![
                     (input, Tensor::from(2.).into()),
-                    (cond, Tensor::from(1).into()),
+                    (cond, Tensor::from(true).into()),
                 ],
                 &[if_out],
                 None,
@@ -2273,7 +2273,7 @@ mod tests {
             .run(
                 vec![
                     (input, Tensor::from(2.).into()),
-                    (cond, Tensor::from(0).into()),
+                    (cond, Tensor::from(false).into()),
                 ],
                 &[if_out],
                 None,

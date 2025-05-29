@@ -1464,7 +1464,7 @@ mod tests {
         add_operator!(Identity, [input_node]);
 
         // If operator
-        let if_cond_val = Tensor::from(1);
+        let if_cond_val = Tensor::from(true);
         let if_cond = graph_builder.add_constant(if_cond_val.view());
 
         let mut then_branch_builder = graph_builder.subgraph_builder();
@@ -1729,7 +1729,7 @@ mod tests {
         //
         // A few require different shapes are tested separately.
         let input = Tensor::from_data(&input_shape, vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-        let input_bool_data: Tensor<i32> = Tensor::from([0, 1, 1]);
+        let input_bool_data: Tensor<bool> = Tensor::from([false, true, true]);
         let input_u8_data = input.map(|&x| x as u8);
         let input_2d_u8_data = Tensor::from([[1u8, 2], [3, 4]]);
         let input_2d_i8_data = Tensor::from([[1i8, 2], [3, 4]]);
@@ -1839,7 +1839,7 @@ mod tests {
         assert_eq!(result.len(), 1);
 
         // Where op
-        let cond = Tensor::from(1);
+        let cond = Tensor::from(true);
         let x = Tensor::from([1, 2, 3]);
         let y = Tensor::from([4, 5, 6]);
         let result = model

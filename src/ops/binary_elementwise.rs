@@ -5,7 +5,7 @@ use std::iter::repeat;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
-use crate::number::{AsBool, Identities, IsInt};
+use crate::number::{Identities, IsInt};
 use crate::ops::{
     map_value, map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
     ValueView,
@@ -402,16 +402,16 @@ impl Operator for Add {
 
 /// Define a logical boolean operator.
 ///
-/// These accept two i32 tensors and produce an i32 result.
+/// These accept two bool tensors and produce a bool result.
 macro_rules! logical_boolean_op {
     ($op:ident, $op_fn:ident, $expr:expr) => {
-        pub fn $op_fn<T: AsBool + Copy + Debug>(
+        pub fn $op_fn(
             pool: &TensorPool,
-            a: TensorView<T>,
-            b: TensorView<T>,
-        ) -> Result<Tensor<i32>, OpError> {
+            a: TensorView<bool>,
+            b: TensorView<bool>,
+        ) -> Result<Tensor<bool>, OpError> {
             #[allow(clippy::redundant_closure_call)]
-            binary_op(pool, a, b, |x, y| $expr(x.as_bool(), y.as_bool()).into())
+            binary_op(pool, a, b, |x, y| $expr(x, y).into())
         }
 
         #[derive(Debug)]
@@ -431,8 +431,8 @@ macro_rules! logical_boolean_op {
 
             fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
                 let inputs = ctx.inputs();
-                let a: TensorView<i32> = inputs.require_as(0)?;
-                let b: TensorView<i32> = inputs.require_as(1)?;
+                let a: TensorView<bool> = inputs.require_as(0)?;
+                let b: TensorView<bool> = inputs.require_as(1)?;
                 $op_fn(ctx.pool(), a, b).into_op_result()
             }
         }
@@ -513,15 +513,13 @@ fn boolean_op<T: Copy + Debug + PartialEq + PartialOrd>(
     a: TensorView<T>,
     b: TensorView<T>,
     op: BooleanOp,
-) -> Result<Tensor<i32>, OpError> {
-    binary_op(pool, a, b, |x, y| {
-        i32::from(match op {
-            BooleanOp::Equal => x == y,
-            BooleanOp::Less => x < y,
-            BooleanOp::LessOrEqual => x <= y,
-            BooleanOp::Greater => x > y,
-            BooleanOp::GreaterOrEqual => x >= y,
-        })
+) -> Result<Tensor<bool>, OpError> {
+    binary_op(pool, a, b, |x, y| match op {
+        BooleanOp::Equal => x == y,
+        BooleanOp::Less => x < y,
+        BooleanOp::LessOrEqual => x <= y,
+        BooleanOp::Greater => x > y,
+        BooleanOp::GreaterOrEqual => x >= y,
     })
 }
 
@@ -533,7 +531,7 @@ macro_rules! boolean_cmp_op {
             pool: &TensorPool,
             a: TensorView<T>,
             b: TensorView<T>,
-        ) -> Result<Tensor<i32>, OpError> {
+        ) -> Result<Tensor<bool>, OpError> {
             boolean_op(pool, a, b, BooleanOp::$name)
         }
 
@@ -825,7 +823,7 @@ impl Operator for Sub {
 
 pub fn where_op<T: Copy>(
     pool: &TensorPool,
-    cond: TensorView<i32>,
+    cond: TensorView<bool>,
     x: TensorView<T>,
     y: TensorView<T>,
 ) -> Result<Tensor<T>, OpError> {
@@ -865,7 +863,7 @@ pub fn where_op<T: Copy>(
                                 let cond_elt = *cond.get_unchecked([i0, i1, i2, i3]);
                                 let x_elt = *x.get_unchecked([i0, i1, i2, i3]);
                                 let y_elt = *y.get_unchecked([i0, i1, i2, i3]);
-                                let out_elt = if cond_elt != 0 { x_elt } else { y_elt };
+                                let out_elt = if cond_elt { x_elt } else { y_elt };
                                 out_uninit.get_unchecked_mut(out_offset).write(out_elt);
                                 out_offset += 1;
                             }
@@ -894,7 +892,7 @@ impl Operator for Where {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
-        let condition = inputs.require_as(0)?;
+        let condition: TensorView<bool> = inputs.require_as(0)?;
         let x = inputs.require(1)?;
 
         map_value_view!(x, x, [FloatTensor, Int32Tensor], {
@@ -1111,9 +1109,9 @@ mod tests {
     #[test]
     fn test_and() {
         let pool = new_pool();
-        let a = Tensor::from([0, 1, 0, 1]);
-        let b = Tensor::from([0, 0, 1, 1]);
-        let expected = Tensor::from([0, 0, 0, 1]);
+        let a = Tensor::from([false, true, false, true]);
+        let b = Tensor::from([false, false, true, true]);
+        let expected = Tensor::from([false, false, false, true]);
         let result = and(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1193,14 +1191,14 @@ mod tests {
         // Int tensor
         let a = Tensor::from([1, 2]);
         let b = Tensor::from([1, 3]);
-        let expected = Tensor::from([1, 0]);
+        let expected = Tensor::from([true, false]);
         let result = equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
         let a = Tensor::from([1., 2.]);
         let b = Tensor::from([1., 3.]);
-        let expected = Tensor::from([1, 0]);
+        let expected = Tensor::from([true, false]);
         let result = equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1212,14 +1210,14 @@ mod tests {
         // Int tensor
         let a = Tensor::from([1, 2, 5]);
         let b = Tensor::from([1, 3, 4]);
-        let expected = Tensor::from([0, 0, 1]);
+        let expected = Tensor::from([false, false, true]);
         let result = greater(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
         let a = Tensor::from([1., 2., 5.]);
         let b = Tensor::from([1., 3., 4.]);
-        let expected = Tensor::from([0, 0, 1]);
+        let expected = Tensor::from([false, false, true]);
         let result = greater(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1231,14 +1229,14 @@ mod tests {
         // Int tensor
         let a = Tensor::from([1, 2, 5]);
         let b = Tensor::from([1, 3, 4]);
-        let expected = Tensor::from([1, 0, 1]);
+        let expected = Tensor::from([true, false, true]);
         let result = greater_or_equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
         let a = Tensor::from([1., 2., 5.]);
         let b = Tensor::from([1., 3., 4.]);
-        let expected = Tensor::from([1, 0, 1]);
+        let expected = Tensor::from([true, false, true]);
         let result = greater_or_equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1250,14 +1248,14 @@ mod tests {
         // Int tensor
         let a = Tensor::from([1, 2]);
         let b = Tensor::from([1, 3]);
-        let expected = Tensor::from([0, 1]);
+        let expected = Tensor::from([false, true]);
         let result = less(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
         let a = Tensor::from([1., 2.]);
         let b = Tensor::from([1., 3.]);
-        let expected = Tensor::from([0, 1]);
+        let expected = Tensor::from([false, true]);
         let result = less(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1269,14 +1267,14 @@ mod tests {
         // Int tensor
         let a = Tensor::from([1, 2, 5]);
         let b = Tensor::from([1, 3, 4]);
-        let expected = Tensor::from([1, 1, 0]);
+        let expected = Tensor::from([true, true, false]);
         let result = less_or_equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
         let a = Tensor::from([1., 2., 5.]);
         let b = Tensor::from([1., 3., 4.]);
-        let expected = Tensor::from([1, 1, 0]);
+        let expected = Tensor::from([true, true, false]);
         let result = less_or_equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1353,9 +1351,9 @@ mod tests {
     #[test]
     fn test_or() {
         let pool = new_pool();
-        let a = Tensor::from([0, 1, 0, 1]);
-        let b = Tensor::from([0, 0, 1, 1]);
-        let expected = Tensor::from([0, 1, 1, 1]);
+        let a = Tensor::from([false, true, false, true]);
+        let b = Tensor::from([false, false, true, true]);
+        let expected = Tensor::from([false, true, true, true]);
         let result = or(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1507,7 +1505,7 @@ mod tests {
         let pool = new_pool();
 
         // Float tensor with exact matching shapes
-        let cond = Tensor::from_data(&[2, 2], vec![1, 0, 0, 1]);
+        let cond = Tensor::from_data(&[2, 2], vec![true, false, false, true]);
         let x = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let y = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
@@ -1515,7 +1513,7 @@ mod tests {
         assert_eq!(&result, &expected);
 
         // Float tensor broadcasting `x` and `y`
-        let cond = Tensor::from([1, 1, 0, 0]);
+        let cond = Tensor::from([true, true, false, false]);
         let x = Tensor::from(1.);
         let y = Tensor::from(2.);
         let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
@@ -1523,7 +1521,7 @@ mod tests {
         assert_eq!(&result, &expected);
 
         // Float tensor broadcasting `cond`
-        let cond = Tensor::from(1);
+        let cond = Tensor::from(true);
         let x = Tensor::from([1., 2.]);
         let y = Tensor::from([3., 4.]);
         let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
@@ -1531,7 +1529,7 @@ mod tests {
         assert_eq!(&result, &expected);
 
         // Int tensor broadcasting `x` and `y`
-        let cond = Tensor::from([1, 1, 0, 0]);
+        let cond = Tensor::from([true, true, false, false]);
         let x = Tensor::from(3);
         let y = Tensor::from(4);
         let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
@@ -1541,7 +1539,7 @@ mod tests {
         // Int tensor broadcasting `x` and `y`, and broadcasting involves
         // repeating the last dimension, not just cycling. This exercises a
         // fallback path.
-        let cond = Tensor::from([[1, 0], [1, 0]]);
+        let cond = Tensor::from([[true, false], [true, false]]);
         let x = Tensor::from([[1], [2]]);
         let y = Tensor::from([[3], [4]]);
         let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
@@ -1553,7 +1551,7 @@ mod tests {
     fn test_where_invalid_inputs() {
         let pool = new_pool();
 
-        let cond = Tensor::from([1, 1]);
+        let cond = Tensor::from([true, true]);
         let x = Tensor::from([1, 2, 3]);
         let y = Tensor::from([2, 2]);
 
@@ -1575,9 +1573,9 @@ mod tests {
     #[test]
     fn test_xor() {
         let pool = new_pool();
-        let a = Tensor::from([0, 1, 0, 1]);
-        let b = Tensor::from([0, 0, 1, 1]);
-        let expected = Tensor::from([0, 1, 1, 0]);
+        let a = Tensor::from([false, true, false, true]);
+        let b = Tensor::from([false, false, true, true]);
+        let expected = Tensor::from([false, true, true, false]);
         let result = xor(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
