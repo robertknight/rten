@@ -29,6 +29,7 @@ use crate::downcast::impl_downcastdyn;
 use crate::gemm::PackedBMatrix;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::tensor_pool::{ExtractBuffer, TensorPool};
+use crate::timing::Profiler;
 use crate::weight_cache::WeightCache;
 
 mod binary_elementwise;
@@ -931,11 +932,12 @@ pub trait Operator: Any + Debug {
     ///
     /// The default implementation delegates to `run`. In other words it treats
     /// the operator as a subgraph with a single node.
-    fn run_subgraph(
-        &self,
+    fn run_subgraph<'a>(
+        &'a self,
         ctx: &OpRunContext,
         #[allow(unused)] captures: CaptureEnv,
         #[allow(unused)] weight_cache: Option<&[WeightCache]>,
+        #[allow(unused)] profiler: Option<&mut Profiler<'a>>,
         #[allow(unused)] run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
         self.run(ctx).map_err(|error| RunError::OperatorError {
