@@ -72,12 +72,12 @@ def constant_node_from_onnx_initializer(
 
     match dtype_name:
         # Types that don't need to change
-        case "float32" | "int8" | "int32" | "uint8":
+        case "float32" | "int8" | "int32" | "uint8" | "bool":
             pass
 
         # Int types that are not supported natively, but can be widened to
         # int32.
-        case "bool" | "int16":
+        case "int16":
             data = data.astype(np.int32)
 
         # Float types that are not supported natively, but can be widened to
@@ -250,8 +250,7 @@ def convert_data_type(onnx_dtype: int) -> int:
         case TensorProto.DataType.FLOAT:  # type:ignore[attr-defined]
             return sg.DataType.Float
         case (
-            TensorProto.DataType.BOOL  # type:ignore[attr-defined]
-            | TensorProto.DataType.INT32  # type:ignore[attr-defined]
+            TensorProto.DataType.INT32  # type:ignore[attr-defined]
             | TensorProto.DataType.INT64  # type:ignore[attr-defined]
         ):
             return sg.DataType.Int32
@@ -259,6 +258,8 @@ def convert_data_type(onnx_dtype: int) -> int:
             return sg.DataType.Int8
         case TensorProto.DataType.UINT8:  # type:ignore[attr-defined]
             return sg.DataType.UInt8
+        case TensorProto.DataType.BOOL:
+            return sg.DataType.Bool
         case _:
             raise ConversionError(f"Unsupported data type {onnx_dtype}")
 
