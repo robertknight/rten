@@ -426,6 +426,7 @@ impl GraphOptimizer {
                 Value::Int32Tensor(tensor) => graph.add_constant(const_name, tensor),
                 Value::Int8Tensor(tensor) => graph.add_constant(const_name, tensor),
                 Value::UInt8Tensor(tensor) => graph.add_constant(const_name, tensor),
+                Value::BoolTensor(tensor) => graph.add_constant(const_name, tensor),
             };
             graph.replace_value(value_node_id, const_id);
         }

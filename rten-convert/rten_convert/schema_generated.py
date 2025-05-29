@@ -138,6 +138,7 @@ class DataType(object):
     Float = 1
     Int8 = 2
     UInt8 = 3
+    Bool = 4
 
 
 class CoordTransformMode(object):

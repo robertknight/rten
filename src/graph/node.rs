@@ -158,6 +158,7 @@ pub enum Constant {
     Int32(ConstantNode<i32>),
     Int8(ConstantNode<i8>),
     UInt8(ConstantNode<u8>),
+    Bool(ConstantNode<bool>),
 }
 
 impl Constant {
@@ -167,6 +168,7 @@ impl Constant {
             Constant::Int32(i) => i.name.as_deref(),
             Constant::Int8(i) => i.name.as_deref(),
             Constant::UInt8(i) => i.name.as_deref(),
+            Constant::Bool(b) => b.name.as_deref(),
         }
     }
 
@@ -182,6 +184,7 @@ impl Constant {
             Constant::Int32(i) => i.clone_ref().map(Constant::Int32),
             Constant::Int8(i) => i.clone_ref().map(Constant::Int8),
             Constant::UInt8(i) => i.clone_ref().map(Constant::UInt8),
+            Constant::Bool(b) => b.clone_ref().map(Constant::Bool),
         }
     }
 
@@ -191,6 +194,7 @@ impl Constant {
             Constant::Int32(i) => i.layout(),
             Constant::Int8(i) => i.layout(),
             Constant::UInt8(i) => i.layout(),
+            Constant::Bool(b) => b.layout(),
         }
     }
 
@@ -201,6 +205,7 @@ impl Constant {
             Constant::Int32(i) => ValueView::Int32Tensor(i.view()),
             Constant::Int8(i) => ValueView::Int8Tensor(i.view()),
             Constant::UInt8(i) => ValueView::UInt8Tensor(i.view()),
+            Constant::Bool(i) => ValueView::BoolTensor(i.view()),
         }
     }
 
@@ -210,6 +215,7 @@ impl Constant {
             Constant::Int32(_) => DataType::Int32,
             Constant::Int8(_) => DataType::Int8,
             Constant::UInt8(_) => DataType::UInt8,
+            Constant::Bool(_) => DataType::Bool,
         }
     }
 }
@@ -265,6 +271,7 @@ impl_constant_node!(f32, Float);
 impl_constant_node!(i32, Int32);
 impl_constant_node!(i8, Int8);
 impl_constant_node!(u8, UInt8);
+impl_constant_node!(bool, Bool);
 
 /// Data for a constant node (ie. model weights) in a [`Graph`].
 #[derive(Debug)]

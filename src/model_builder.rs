@@ -234,6 +234,7 @@ fn convert_dtype(dtype: DataType) -> sg::DataType {
         DataType::Float => sg::DataType::Float,
         DataType::Int8 => sg::DataType::Int8,
         DataType::UInt8 => sg::DataType::UInt8,
+        DataType::Bool => sg::DataType::Bool,
     }
 }
 

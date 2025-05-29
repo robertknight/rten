@@ -512,11 +512,16 @@ impl Operator for ScatterElements {
         let data = inputs.require(0)?;
         let indices = inputs.require_as(1)?;
 
-        map_value_view!(data, x, {
-            let updates = inputs.require_as(2)?;
-            scatter_elements(ctx.pool(), x, indices, updates, self.axis, self.reduction)
-                .into_op_result()
-        })
+        map_value_view!(
+            data,
+            x,
+            [FloatTensor, Int32Tensor, Int8Tensor, UInt8Tensor],
+            {
+                let updates = inputs.require_as(2)?;
+                scatter_elements(ctx.pool(), x, indices, updates, self.axis, self.reduction)
+                    .into_op_result()
+            }
+        )
     }
 }
 
@@ -604,10 +609,15 @@ impl Operator for ScatterND {
         let data = inputs.require(0)?;
         let indices = inputs.require_as(1)?;
 
-        map_value_view!(data, x, {
-            let updates = inputs.require_as(2)?;
-            scatter_nd(ctx.pool(), x, indices, updates, self.reduction).into_op_result()
-        })
+        map_value_view!(
+            data,
+            x,
+            [FloatTensor, Int32Tensor, Int8Tensor, UInt8Tensor],
+            {
+                let updates = inputs.require_as(2)?;
+                scatter_nd(ctx.pool(), x, indices, updates, self.reduction).into_op_result()
+            }
+        )
     }
 }
 

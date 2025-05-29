@@ -741,17 +741,18 @@ pub const ENUM_MIN_DATA_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_DATA_TYPE: u8 = 3;
+pub const ENUM_MAX_DATA_TYPE: u8 = 4;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_DATA_TYPE: [DataType; 4] = [
+pub const ENUM_VALUES_DATA_TYPE: [DataType; 5] = [
     DataType::Int32,
     DataType::Float,
     DataType::Int8,
     DataType::UInt8,
+    DataType::Bool,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -763,10 +764,17 @@ impl DataType {
     pub const Float: Self = Self(1);
     pub const Int8: Self = Self(2);
     pub const UInt8: Self = Self(3);
+    pub const Bool: Self = Self(4);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 3;
-    pub const ENUM_VALUES: &'static [Self] = &[Self::Int32, Self::Float, Self::Int8, Self::UInt8];
+    pub const ENUM_MAX: u8 = 4;
+    pub const ENUM_VALUES: &'static [Self] = &[
+        Self::Int32,
+        Self::Float,
+        Self::Int8,
+        Self::UInt8,
+        Self::Bool,
+    ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
@@ -774,6 +782,7 @@ impl DataType {
             Self::Float => Some("Float"),
             Self::Int8 => Some("Int8"),
             Self::UInt8 => Some("UInt8"),
+            Self::Bool => Some("Bool"),
             _ => None,
         }
     }

@@ -150,6 +150,7 @@ enum DataType: ubyte {
   Float,
   Int8,
   UInt8,
+  Bool,
 }
 
 // Coordinate transform modes for Resize operator.

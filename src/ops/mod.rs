@@ -175,6 +175,7 @@ pub enum DataType {
     Float,
     Int8,
     UInt8,
+    Bool,
 }
 
 /// Get the [`DataType`] that corresponds to a given type.
@@ -197,6 +198,7 @@ impl_data_type_of!(f32, Float);
 impl_data_type_of!(i32, Int32);
 impl_data_type_of!(i8, Int8);
 impl_data_type_of!(u8, UInt8);
+impl_data_type_of!(bool, Bool);
 
 impl std::fmt::Display for DataType {
     /// Format this enum value in the style of the corresponding Rust type (eg.
@@ -210,6 +212,7 @@ impl std::fmt::Display for DataType {
                 DataType::Int32 => "i32",
                 DataType::Int8 => "i8",
                 DataType::UInt8 => "u8",
+                DataType::Bool => "bool",
             }
         )
     }
@@ -329,6 +332,7 @@ pub enum ValueView<'a> {
     Int32Tensor(TensorView<'a, i32>),
     Int8Tensor(TensorView<'a, i8>),
     UInt8Tensor(TensorView<'a, u8>),
+    BoolTensor(TensorView<'a, bool>),
 }
 
 impl ValueView<'_> {
@@ -339,6 +343,7 @@ impl ValueView<'_> {
             Self::Int32Tensor(_) => DataType::Int32,
             Self::Int8Tensor(_) => DataType::Int8,
             Self::UInt8Tensor(_) => DataType::UInt8,
+            Self::BoolTensor(_) => DataType::Bool,
         }
     }
 
@@ -348,6 +353,7 @@ impl ValueView<'_> {
             ValueView::Int32Tensor(t) => t.to_tensor().into(),
             ValueView::Int8Tensor(t) => t.to_tensor().into(),
             ValueView::UInt8Tensor(t) => t.to_tensor().into(),
+            ValueView::BoolTensor(t) => t.to_tensor().into(),
         }
     }
 
@@ -365,6 +371,7 @@ impl ValueView<'_> {
             ValueView::Int32Tensor(t) => t.layout(),
             ValueView::Int8Tensor(t) => t.layout(),
             ValueView::UInt8Tensor(t) => t.layout(),
+            ValueView::BoolTensor(t) => t.layout(),
         }
     }
 }
@@ -447,14 +454,16 @@ impl_input_conversions!(FloatTensor, f32);
 impl_input_conversions!(Int32Tensor, i32);
 impl_input_conversions!(Int8Tensor, i8);
 impl_input_conversions!(UInt8Tensor, u8);
+impl_input_conversions!(BoolTensor, bool);
 
 impl<'a> From<&'a Value> for ValueView<'a> {
-    fn from(output: &'a Value) -> ValueView<'a> {
-        match output {
+    fn from(value: &'a Value) -> ValueView<'a> {
+        match value {
             Value::FloatTensor(t) => ValueView::FloatTensor(t.view()),
             Value::Int32Tensor(t) => ValueView::Int32Tensor(t.view()),
             Value::Int8Tensor(t) => ValueView::Int8Tensor(t.view()),
             Value::UInt8Tensor(t) => ValueView::UInt8Tensor(t.view()),
+            Value::BoolTensor(t) => ValueView::BoolTensor(t.view()),
         }
     }
 }
@@ -513,6 +522,7 @@ pub enum Value {
     Int32Tensor(Tensor<i32>),
     Int8Tensor(Tensor<i8>),
     UInt8Tensor(Tensor<u8>),
+    BoolTensor(Tensor<bool>),
 }
 
 impl Value {
@@ -523,6 +533,7 @@ impl Value {
             Self::Int32Tensor(_) => DataType::Int32,
             Self::Int8Tensor(_) => DataType::Int8,
             Self::UInt8Tensor(_) => DataType::UInt8,
+            Self::BoolTensor(_) => DataType::Bool,
         }
     }
 
@@ -533,6 +544,7 @@ impl Value {
             Self::Int32Tensor(it) => ValueView::Int32Tensor(it.view()),
             Self::Int8Tensor(it) => ValueView::Int8Tensor(it.view()),
             Self::UInt8Tensor(it) => ValueView::UInt8Tensor(it.view()),
+            Self::BoolTensor(bt) => ValueView::BoolTensor(bt.view()),
         }
     }
 
@@ -551,6 +563,7 @@ impl Value {
             Self::Int32Tensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
             Self::Int8Tensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
             Self::UInt8Tensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
+            Self::BoolTensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
         };
     }
 
@@ -581,6 +594,7 @@ impl Value {
             Value::Int8Tensor(t) => t.layout(),
             Value::UInt8Tensor(t) => t.layout(),
             Value::FloatTensor(t) => t.layout(),
+            Value::BoolTensor(t) => t.layout(),
         }
     }
 }
@@ -671,6 +685,7 @@ impl_value_conversions!(FloatTensor, f32);
 impl_value_conversions!(Int32Tensor, i32);
 impl_value_conversions!(Int8Tensor, i8);
 impl_value_conversions!(UInt8Tensor, u8);
+impl_value_conversions!(BoolTensor, bool);
 
 /// A value that is either a tensor view ([`ValueView`]) or an owned tensor
 /// ([`Value`]).
@@ -1383,6 +1398,7 @@ macro_rules! map_value_view {
             ValueView::Int32Tensor($typed_input) => $block,
             ValueView::UInt8Tensor($typed_input) => $block,
             ValueView::Int8Tensor($typed_input) => $block,
+            ValueView::BoolTensor($typed_input) => $block,
         }
     };
 
@@ -1416,6 +1432,8 @@ macro_rules! map_value {
             Value::UInt8Tensor(mut $typed_input) => $block,
             #[allow(unused_mut)]
             Value::Int8Tensor(mut $typed_input) => $block,
+            #[allow(unused_mut)]
+            Value::BoolTensor(mut $typed_input) => $block,
         }
     };
 

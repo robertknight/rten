@@ -11,8 +11,16 @@ fn cast(pool: &TensorPool, input: ValueView, dtype: DataType) -> Result<Value, O
             $x.to_tensor_in(pool).into()
         };
 
+        ($x:ident, bool, $zero:expr) => {
+            $x.map_in(pool, |x| *x != $zero).into()
+        };
+
         ($x:ident, $dest_ty:ty) => {
             $x.map_in(pool, |x| *x as $dest_ty).into()
+        };
+
+        ($x:ident, $tmp_ty:ty, $dest_ty:ty) => {
+            $x.map_in(pool, |x| *x as $tmp_ty as $dest_ty).into()
         };
     }
 
@@ -22,24 +30,35 @@ fn cast(pool: &TensorPool, input: ValueView, dtype: DataType) -> Result<Value, O
             ValueView::FloatTensor(t) => cast_as!(t, i32),
             ValueView::Int8Tensor(t) => cast_as!(t, i32),
             ValueView::UInt8Tensor(t) => cast_as!(t, i32),
+            ValueView::BoolTensor(t) => cast_as!(t, i32),
         },
         DataType::Float => match input {
             ValueView::FloatTensor(t) => cast_as!(t),
             ValueView::Int32Tensor(t) => cast_as!(t, f32),
             ValueView::Int8Tensor(t) => cast_as!(t, f32),
             ValueView::UInt8Tensor(t) => cast_as!(t, f32),
+            ValueView::BoolTensor(t) => cast_as!(t, i32, f32),
         },
         DataType::Int8 => match input {
             ValueView::Int8Tensor(t) => cast_as!(t),
             ValueView::FloatTensor(t) => cast_as!(t, i8),
             ValueView::Int32Tensor(t) => cast_as!(t, i8),
             ValueView::UInt8Tensor(t) => cast_as!(t, i8),
+            ValueView::BoolTensor(t) => cast_as!(t, i8),
         },
         DataType::UInt8 => match input {
             ValueView::UInt8Tensor(t) => cast_as!(t),
             ValueView::FloatTensor(t) => cast_as!(t, u8),
             ValueView::Int32Tensor(t) => cast_as!(t, u8),
             ValueView::Int8Tensor(t) => cast_as!(t, u8),
+            ValueView::BoolTensor(t) => cast_as!(t, u8),
+        },
+        DataType::Bool => match input {
+            ValueView::UInt8Tensor(t) => cast_as!(t, bool, 0),
+            ValueView::FloatTensor(t) => cast_as!(t, bool, 0.),
+            ValueView::Int32Tensor(t) => cast_as!(t, bool, 0),
+            ValueView::Int8Tensor(t) => cast_as!(t, bool, 0),
+            ValueView::BoolTensor(t) => cast_as!(t),
         },
     };
 
