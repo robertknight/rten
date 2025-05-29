@@ -271,6 +271,7 @@ fn run_with_random_input(
                     Some(DataType::Int32) => random_ints(&resolved_shape, || rng.i32(0..256)),
                     Some(DataType::Int8) => random_ints(&resolved_shape, || rng.i8(0..=127)),
                     Some(DataType::UInt8) => random_ints(&resolved_shape, || rng.u8(0..=255)),
+                    Some(DataType::Bool) => random_ints(&resolved_shape, || rng.bool()),
                 },
             };
 
@@ -408,6 +409,7 @@ fn run_with_random_input(
                 Value::Int32Tensor(_) => "i32",
                 Value::Int8Tensor(_) => "i8",
                 Value::UInt8Tensor(_) => "u8",
+                Value::BoolTensor(_) => "bool",
             };
             println!(
                 "  Output {i} \"{name}\" data type {} shape: {:?}",
