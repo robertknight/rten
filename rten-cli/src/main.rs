@@ -240,11 +240,24 @@ fn run_with_random_input(
                 Tensor::from_simple_fn(shape, gen).into()
             }
 
+            fn full<T: Copy>(shape: &[usize], value: T) -> Value
+            where
+                Value: From<Tensor<T>>,
+            {
+                Tensor::full(shape, value).into()
+            }
+
             // Guess suitable content for the input based on its name.
-            let tensor = match name {
+            let tensor: Value = match name {
                 // If this is a mask, use all ones on the assumption that we
                 // don't want to mask anything out.
-                name if name.ends_with("_mask") => Value::from(Tensor::full(&resolved_shape, 1i32)),
+                name if name.ends_with("_mask") => match dtype {
+                    Some(DataType::Float) => full(&resolved_shape, 1.),
+                    Some(DataType::Int32) | None => full(&resolved_shape, 1),
+                    Some(DataType::Int8) => full(&resolved_shape, 1),
+                    Some(DataType::UInt8) => full(&resolved_shape, 1),
+                    Some(DataType::Bool) => full(&resolved_shape, true),
+                },
 
                 // Inputs such as `token_type_ids`, `position_ids`, `input_ids`.
                 // We use zero as a value that is likely to be valid for all
@@ -257,7 +270,7 @@ fn run_with_random_input(
                 // branches. One accepts KV-cache inputs and the other does not.
                 // Set this to false as a "safer" value because we don't have
                 // cached outputs from a previous run.
-                "use_cache_branch" => Value::from(Tensor::from(0i32)),
+                "use_cache_branch" => Value::from(Tensor::from(false)),
 
                 // For anything else, random values.
                 _ => match dtype {
