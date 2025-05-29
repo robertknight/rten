@@ -21,7 +21,7 @@ use crate::ops::{
 };
 use crate::tensor_pool::TensorPool;
 use crate::threading;
-use crate::timing::{InputShape, Instant, RunTiming, TimingRecord, TimingSort};
+use crate::timing::{InputShape, Instant, ProfileFormat, Profiler, TimingRecord, TimingSort};
 use crate::weight_cache::WeightCache;
 
 #[cfg(test)]
@@ -586,15 +586,29 @@ impl Graph {
         let plan = self.get_cached_plan(&input_ids, outputs, false /* is_subgraph */)?;
         let opts = opts.unwrap_or_default();
         opts.thread_pool().run(|| {
-            self.run_plan(
+            let mut profiler =
+                (opts.timing || opts.verbose).then(|| Profiler::with_capacity(plan.plan().len()));
+
+            let result = self.run_plan(
                 inputs,
                 plan.plan(),
                 outputs,
                 None, /* captures */
                 None, /* pool */
                 weight_cache,
+                profiler.as_mut(),
                 &opts,
-            )
+            );
+
+            if let Some(profiler) = &profiler {
+                let print_opts = ProfileFormat {
+                    timing_sort: opts.timing_sort.clone(),
+                    timing_by_shape: opts.timing_by_shape,
+                };
+                profiler.print(print_opts);
+            }
+
+            result
         })
     }
 
@@ -602,13 +616,14 @@ impl Graph {
     ///
     /// This method is like [`run`](Self::run) but has a `captures` argument
     /// which allows the subgraph to access values in the parent scope.
-    pub fn run_subgraph(
-        &self,
+    pub fn run_subgraph<'a>(
+        &'a self,
         inputs: Vec<(NodeId, InputOrOutput)>,
         outputs: &[NodeId],
         captures: CaptureEnv,
         pool: Option<&TensorPool>,
         weight_cache: Option<&WeightCache>,
+        profiler: Option<&mut Profiler<'a>>,
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
         let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
@@ -621,6 +636,7 @@ impl Graph {
             Some(captures),
             pool,
             weight_cache,
+            profiler,
             &opts,
         )
     }
@@ -665,14 +681,15 @@ impl Graph {
         )
     }
 
-    fn run_plan(
-        &self,
+    fn run_plan<'a>(
+        &'a self,
         mut inputs: Vec<(NodeId, InputOrOutput)>,
         plan: &[NodeId],
         outputs: &[NodeId],
         mut captures: Option<CaptureEnv>,
         pool: Option<&TensorPool>,
         weight_cache: Option<&WeightCache>,
+        mut profiler: Option<&mut Profiler<'a>>,
         opts: &RunOptions,
     ) -> Result<Vec<Output>, RunError> {
         let mut temp_values: FxHashMap<NodeId, Output> = FxHashMap::default();
@@ -745,13 +762,6 @@ impl Graph {
         let use_pool = env_flag("RTEN_USE_POOL", true);
 
         // Execute the plan
-        let record_timing = opts.timing || opts.verbose;
-        let mut op_timing_records: Vec<TimingRecord> = if record_timing {
-            Vec::with_capacity(plan.len())
-        } else {
-            Vec::new()
-        };
-
         let mut op_start = Instant::now();
 
         for (step, &op_node_id) in plan.iter().enumerate() {
@@ -901,6 +911,7 @@ impl Graph {
                     &ctx,
                     capture_env,
                     weight_cache.and_then(|wc| wc.get_subgraph_caches(op_node_id)),
+                    profiler.as_deref_mut(),
                     Some(opts.clone()),
                 )
             } else {
@@ -955,12 +966,12 @@ impl Graph {
                 }
             }
 
-            if record_timing {
+            if let Some(profiler) = &mut profiler {
                 let op_end = Instant::now();
                 let op_duration = op_end - op_start;
                 op_start = op_end;
 
-                op_timing_records.push(TimingRecord {
+                profiler.add_record(TimingRecord {
                     name: op_node.operator().name(),
                     input_shapes,
                     elapsed: op_duration,
@@ -969,8 +980,9 @@ impl Graph {
             }
         }
 
-        if opts.timing {
-            self.print_run_timing(plan, pool, &op_timing_records, opts);
+        // Record memory allocation metrics
+        if let Some(profiler) = &mut profiler {
+            profiler.add_pool_metrics(pool.alloc_count(), pool.hit_count());
         }
 
         // Return the requested outputs
@@ -1034,36 +1046,6 @@ impl Graph {
         println!("  time: {:.3}ms", op_duration.as_secs_f64() * 1000.0);
     }
 
-    /// Print a profiling summary at the end of the run.
-    fn print_run_timing(
-        &self,
-        plan: &[NodeId],
-        pool: &TensorPool,
-        op_timing_records: &[TimingRecord],
-        opts: &RunOptions,
-    ) {
-        let run_duration: Duration = op_timing_records.iter().map(|r| r.elapsed).sum();
-        let run_duration_ms = run_duration.as_secs_f64() * 1000.0;
-        println!(
-            "Graph run of {} ops finished in {:.3}ms",
-            plan.len(),
-            run_duration_ms,
-        );
-        println!(
-            "Pool allocs {} hits {}",
-            pool.alloc_count(),
-            pool.hit_count()
-        );
-        let timing = RunTiming {
-            records: op_timing_records,
-            total_time: run_duration,
-        };
-        print!(
-            "{}",
-            timing.display(opts.timing_sort.clone(), opts.timing_by_shape)
-        );
-    }
-
     /// Run part of the graph required to produce `outputs`, given an
     /// incomplete set of `inputs`.
     ///
@@ -1093,15 +1075,29 @@ impl Graph {
         let (pruned_plan, pruned_plan_output_ids) = planner.prune_plan(&plan, &input_ids, outputs);
         let opts = opts.unwrap_or_default();
         let outputs = opts.thread_pool().run(|| {
-            self.run_plan(
+            let mut profiler =
+                (opts.timing || opts.verbose).then(|| Profiler::with_capacity(pruned_plan.len()));
+
+            let result = self.run_plan(
                 inputs,
                 &pruned_plan,
                 &pruned_plan_output_ids,
                 None, /* captures */
                 None, /* pool */
                 None, /* weight cache */
+                profiler.as_mut(),
                 &opts,
-            )
+            );
+
+            if let Some(profiler) = &profiler {
+                let print_opts = ProfileFormat {
+                    timing_sort: opts.timing_sort.clone(),
+                    timing_by_shape: opts.timing_by_shape,
+                };
+                profiler.print(print_opts);
+            }
+
+            result
         })?;
         let output_ids_and_values: Vec<_> =
             pruned_plan_output_ids.into_iter().zip(outputs).collect();
@@ -1162,6 +1158,7 @@ mod tests {
         OpError, OpRunContext, Operator, Output, OutputList, PrepackedInput, Relu, Shape,
     };
     use crate::tensor_pool::TensorPool;
+    use crate::timing::Profiler;
     use crate::weight_cache::WeightCache;
 
     #[derive(Clone, Debug, Default)]
@@ -2141,11 +2138,12 @@ mod tests {
             SmallVec::from_slice(&[&self.graph])
         }
 
-        fn run_subgraph(
-            &self,
+        fn run_subgraph<'a>(
+            &'a self,
             ctx: &OpRunContext,
             captures: CaptureEnv,
             weight_caches: Option<&[WeightCache]>,
+            profiler: Option<&mut Profiler<'a>>,
             options: Option<RunOptions>,
         ) -> Result<OutputList, RunError> {
             let inputs = self
@@ -2162,6 +2160,7 @@ mod tests {
                     captures,
                     Some(ctx.pool()),
                     weight_caches.map(|wcs| &wcs[0]),
+                    profiler,
                     options,
                 )
                 .map(|xs| xs.into_iter().collect())

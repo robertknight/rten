@@ -408,3 +408,68 @@ pub enum TimingSort {
     #[default]
     ByTime,
 }
+
+/// Formatting options for use with [`Profiler::print`].
+pub struct ProfileFormat {
+    pub timing_sort: TimingSort,
+
+    /// Whether to break down operator timings by the shape of inputs.
+    pub timing_by_shape: bool,
+}
+
+/// Profiler that collects operator timing and memory allocation metrics
+/// during a graph run.
+pub struct Profiler<'a> {
+    records: Vec<TimingRecord<'a>>,
+
+    /// Total number of memory allocations from a shared pool.
+    pool_allocs: usize,
+
+    /// Number of allocations from the shared pool that were fulfilled from
+    /// the pool rather than the OS.
+    pool_hits: usize,
+}
+
+impl<'a> Profiler<'a> {
+    /// Create a profiler with initial capacity for `num_records` records for
+    /// individual operator timings.
+    pub fn with_capacity(num_records: usize) -> Self {
+        Profiler {
+            records: Vec::with_capacity(num_records),
+            pool_allocs: 0,
+            pool_hits: 0,
+        }
+    }
+
+    /// Add a timing record for a single operator execution.
+    pub fn add_record(&mut self, record: TimingRecord<'a>) {
+        self.records.push(record);
+    }
+
+    /// Update memory allocation metrics.
+    pub fn add_pool_metrics(&mut self, allocs: usize, hits: usize) {
+        self.pool_allocs += allocs;
+        self.pool_hits += hits;
+    }
+
+    /// Print a summary of the profile to stdout.
+    pub fn print(&self, opts: ProfileFormat) {
+        let run_duration: Duration = self.records.iter().map(|r| r.elapsed).sum();
+        let run_duration_ms = run_duration.as_secs_f64() * 1000.0;
+        println!(
+            "Graph run of {} ops finished in {:.3}ms",
+            self.records.len(),
+            run_duration_ms,
+        );
+        println!("Pool allocs {} hits {}", self.pool_allocs, self.pool_hits,);
+
+        let timing = RunTiming {
+            records: &self.records,
+            total_time: run_duration,
+        };
+        print!(
+            "{}",
+            timing.display(opts.timing_sort.clone(), opts.timing_by_shape)
+        );
+    }
+}

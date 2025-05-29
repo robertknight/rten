@@ -3,6 +3,7 @@ use smallvec::SmallVec;
 
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::ops::{OpError, OpRunContext, Operator, Output, OutputList};
+use crate::timing::Profiler;
 use crate::weight_cache::WeightCache;
 
 fn output_list_from_vec(xs: Vec<Output>) -> OutputList {
@@ -42,11 +43,12 @@ impl Operator for If {
         [&self.then_branch, &self.else_branch].into()
     }
 
-    fn run_subgraph(
-        &self,
+    fn run_subgraph<'a>(
+        &'a self,
         ctx: &OpRunContext,
         captures: CaptureEnv,
         weight_caches: Option<&[WeightCache]>,
+        profiler: Option<&mut Profiler<'a>>,
         run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
         let cond: TensorView<i32> = ctx
@@ -67,6 +69,7 @@ impl Operator for If {
                     captures,
                     Some(ctx.pool()),
                     weight_caches.map(|wcs| &wcs[0]),
+                    profiler,
                     run_opts,
                 )
                 .map(output_list_from_vec)
@@ -78,6 +81,7 @@ impl Operator for If {
                     captures,
                     Some(ctx.pool()),
                     weight_caches.map(|wcs| &wcs[1]),
+                    profiler,
                     run_opts,
                 )
                 .map(output_list_from_vec)
