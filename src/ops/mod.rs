@@ -169,7 +169,7 @@ impl<S: AsRef<[usize]>> From<S> for Padding {
 }
 
 /// Enum specifying the data type of a tensor.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum DataType {
     Int32,
     Float,
@@ -239,6 +239,16 @@ macro_rules! impl_proxy_layout {
     };
 }
 
+/// Metadata about a tensor.
+///
+/// This is used in profiling and errors which need to contain metadata about
+/// a tensor but not the content.
+#[derive(Debug, Eq, PartialEq)]
+pub struct InputMeta {
+    dtype: DataType,
+    shape: Vec<usize>,
+}
+
 /// Enum of the different types of tensor view that can be used as a model or
 /// operator input.
 #[derive(Clone)]
@@ -266,6 +276,13 @@ impl Input<'_> {
             Input::Int32Tensor(t) => t.to_tensor().into(),
             Input::Int8Tensor(t) => t.to_tensor().into(),
             Input::UInt8Tensor(t) => t.to_tensor().into(),
+        }
+    }
+
+    pub fn to_meta(&self) -> InputMeta {
+        InputMeta {
+            shape: self.shape().to_vec(),
+            dtype: self.dtype(),
         }
     }
 
@@ -940,10 +957,8 @@ pub trait Operator: Any + Debug {
         #[allow(unused)] profiler: Option<&mut Profiler<'a>>,
         #[allow(unused)] run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
-        self.run(ctx).map_err(|error| RunError::OperatorError {
-            name: self.name().to_string(),
-            error,
-        })
+        self.run(ctx)
+            .map_err(|error| RunError::op_error(self.name(), error, Some(ctx)))
     }
 }
 

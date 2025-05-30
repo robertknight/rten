@@ -16,8 +16,8 @@ use smallvec::SmallVec;
 
 use crate::env::env_flag;
 use crate::ops::{
-    DataType, Input, InputList, InputOrOutput, OpError, OpRunContext, Operator, Output, OutputList,
-    PrepackedInput,
+    DataType, Input, InputList, InputMeta, InputOrOutput, OpError, OpRunContext, Operator, Output,
+    OutputList, PrepackedInput,
 };
 use crate::tensor_pool::TensorPool;
 use crate::threading;
@@ -60,11 +60,22 @@ pub enum RunError {
         /// Name of the operator node.
         name: String,
         error: OpError,
+        inputs: Option<Vec<InputMeta>>,
     },
 
     /// The output of a graph operator did not match expectations (eg. the
     /// count, types or shapes of outputs did not match what was expected.)
     OutputMismatch(&'static str),
+}
+
+impl RunError {
+    pub(crate) fn op_error(name: &str, error: OpError, ctx: Option<&OpRunContext>) -> Self {
+        RunError::OperatorError {
+            name: name.to_string(),
+            error,
+            inputs: ctx.map(|ctx| ctx.inputs().iter().map(|inp| inp.to_meta()).collect()),
+        }
+    }
 }
 
 impl fmt::Display for RunError {
@@ -76,7 +87,12 @@ impl fmt::Display for RunError {
             RunError::OperatorError {
                 name,
                 error: ref err,
-            } => write!(f, "operator \"{}\" failed: {:?}", name, err),
+                inputs,
+            } => write!(
+                f,
+                "operator \"{}\" failed: {:?}. Inputs {:?}",
+                name, err, inputs
+            ),
             RunError::OutputMismatch(err) => write!(f, "output mismatch {:?}", err),
         }
     }
@@ -885,18 +901,17 @@ impl Graph {
                 Vec::new()
             };
 
-            let op_error_to_run_error = |op_error| RunError::OperatorError {
-                name: op_node.name().unwrap_or("").to_string(),
-                error: op_error,
-            };
-
             // Run the operation.
             let op_result = if let Some(input) = in_place_input {
+                let inputs = InputList::from_optional(&op_inputs);
                 op_node
                     .operator()
-                    .run_in_place(pool, input, InputList::from_optional(&op_inputs))
+                    .run_in_place(pool, input, inputs)
                     .map(|out| [out].into())
-                    .map_err(op_error_to_run_error)
+                    .map_err(|e| {
+                        // The error here is currently missing information about operator inputs.
+                        RunError::op_error(op_node.name().unwrap_or_default(), e, None)
+                    })
             } else if has_subgraph {
                 let capture_env = CaptureEnv::new(
                     captures.as_ref(),
@@ -927,7 +942,9 @@ impl Graph {
                     InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
                 let mut ctx = OpRunContext::new(pool, &input_list);
                 ctx.set_num_outputs(op_node.output_ids().len() as u32);
-                op_node.operator().run(&ctx).map_err(op_error_to_run_error)
+                op_node.operator().run(&ctx).map_err(|e| {
+                    RunError::op_error(op_node.name().unwrap_or_default(), e, Some(&ctx))
+                })
             };
             std::mem::drop(op_inputs);
 

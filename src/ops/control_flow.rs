@@ -10,13 +10,6 @@ fn output_list_from_vec(xs: Vec<Output>) -> OutputList {
     xs.into_iter().collect()
 }
 
-fn run_error_from_op_error(error: OpError) -> RunError {
-    RunError::OperatorError {
-        name: "If".to_string(),
-        error,
-    }
-}
-
 pub struct If {
     pub then_branch: Graph,
     pub else_branch: Graph,
@@ -51,14 +44,18 @@ impl Operator for If {
         profiler: Option<&mut Profiler<'a>>,
         run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
+        // TODO - This should contain the name of the "If" node.
+        let node_name = "";
         let cond: TensorView<i32> = ctx
             .inputs()
             .require_as(0)
-            .map_err(run_error_from_op_error)?;
+            .map_err(|e| RunError::op_error(node_name, e, Some(ctx)))?;
         let Some(cond_bool) = cond.item().copied() else {
-            return Err(run_error_from_op_error(OpError::InvalidValue(
-                "cond must be a single value",
-            )));
+            return Err(RunError::op_error(
+                node_name,
+                OpError::InvalidValue("cond must be a single value"),
+                Some(ctx),
+            ));
         };
 
         if cond_bool != 0 {
