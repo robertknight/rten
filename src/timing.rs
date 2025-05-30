@@ -6,7 +6,7 @@ use std::time::Duration;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use std::time;
 
-use smallvec::SmallVec;
+use crate::ops::InputMeta;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 type Seconds = f64;
@@ -250,13 +250,12 @@ fn shape_to_string(shape: &[usize]) -> String {
 }
 
 /// Format a list of operator input shapes as a string.
-fn shapes_to_string(shapes: &[InputShape]) -> String {
-    let formatted_shapes: Vec<_> = shapes
+fn shapes_to_string(meta: &[Option<InputMeta>]) -> String {
+    let formatted_shapes: Vec<_> = meta
         .iter()
-        .map(|shape| {
-            shape
-                .as_ref()
-                .map(|s| shape_to_string(s))
+        .map(|meta| {
+            meta.as_ref()
+                .map(|m| shape_to_string(&m.shape))
                 .unwrap_or("_".to_string())
         })
         .collect();
@@ -281,14 +280,13 @@ impl FormattedRunTiming<'_> {
             .iter()
             .filter(|record| record.name == op_name)
             .fold(HashMap::new(), |mut timings, record| {
-                let formatted_shapes = shapes_to_string(&record.input_shapes);
+                let formatted_shapes = shapes_to_string(&record.input_meta);
                 let input_elements = record
-                    .input_shapes
+                    .input_meta
                     .iter()
-                    .map(|shape| {
-                        shape
-                            .as_ref()
-                            .map(|s| s.iter().product::<usize>())
+                    .map(|meta| {
+                        meta.as_ref()
+                            .map(|meta| meta.shape.iter().product::<usize>())
                             .unwrap_or(0)
                     })
                     .sum::<usize>();
@@ -379,10 +377,6 @@ impl fmt::Display for FormattedRunTiming<'_> {
     }
 }
 
-/// Shape of a single input to an operator. May be `None` if this is a
-/// positional input that was not provided.
-pub type InputShape = Option<SmallVec<[usize; 4]>>;
-
 /// Timing record for a single graph computation step.
 pub struct TimingRecord<'a> {
     /// Operator name (eg. `MatMul`)
@@ -392,7 +386,7 @@ pub struct TimingRecord<'a> {
     pub node_name: &'a str,
 
     /// Shapes of the operator's inputs
-    pub input_shapes: Vec<InputShape>,
+    pub input_meta: Vec<Option<InputMeta>>,
 
     /// Execution time of this step
     pub elapsed: Duration,

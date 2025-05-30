@@ -245,8 +245,8 @@ macro_rules! impl_proxy_layout {
 /// a tensor but not the content.
 #[derive(Debug, Eq, PartialEq)]
 pub struct InputMeta {
-    dtype: DataType,
-    shape: Vec<usize>,
+    pub(crate) dtype: DataType,
+    pub(crate) shape: Vec<usize>,
 }
 
 /// Enum of the different types of tensor view that can be used as a model or
@@ -279,6 +279,7 @@ impl Input<'_> {
         }
     }
 
+    /// Extract shape and data type information from this tensor.
     pub fn to_meta(&self) -> InputMeta {
         InputMeta {
             shape: self.shape().to_vec(),
@@ -422,6 +423,14 @@ impl Output {
             Self::Int32Tensor(it) => Input::Int32Tensor(it.view()),
             Self::Int8Tensor(it) => Input::Int8Tensor(it.view()),
             Self::UInt8Tensor(it) => Input::UInt8Tensor(it.view()),
+        }
+    }
+
+    /// Extract shape and data type information from this tensor.
+    pub fn to_meta(&self) -> InputMeta {
+        InputMeta {
+            shape: self.shape().to_vec(),
+            dtype: self.dtype(),
         }
     }
 

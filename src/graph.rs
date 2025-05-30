@@ -21,7 +21,7 @@ use crate::ops::{
 };
 use crate::tensor_pool::TensorPool;
 use crate::threading;
-use crate::timing::{InputShape, Instant, ProfileFormat, Profiler, TimingRecord, TimingSort};
+use crate::timing::{Instant, ProfileFormat, Profiler, TimingRecord, TimingSort};
 use crate::weight_cache::WeightCache;
 
 #[cfg(test)]
@@ -887,16 +887,16 @@ impl Graph {
                 }
             }
 
-            // Collect input shapes if we'll need them for timing or logging.
-            let input_shapes = if opts.timing_by_shape || opts.verbose {
-                let mut shapes: Vec<InputShape> = Vec::new();
+            // Collect input metadata if we'll need it for timing or logging.
+            let input_meta = if opts.timing_by_shape || opts.verbose {
+                let mut meta: Vec<Option<InputMeta>> = Vec::new();
                 if let Some(ref input) = in_place_input {
-                    shapes.push(Some(input.shape().into()));
+                    meta.push(Some(input.to_meta()));
                 }
                 for input in &op_inputs {
-                    shapes.push(input.as_ref().map(|i| i.shape().into()))
+                    meta.push(input.as_ref().map(|i| i.to_meta()))
                 }
-                shapes
+                meta
             } else {
                 Vec::new()
             };
@@ -953,7 +953,7 @@ impl Graph {
             // in the event of an error.
             if opts.verbose {
                 let op_duration = Instant::now() - op_start;
-                self.print_op_timing(step, op_node, &op_result, op_duration, &input_shapes);
+                self.print_op_timing(step, op_node, &op_result, op_duration, &input_meta);
             }
 
             // Extract outputs or fail if an error occurred.
@@ -990,7 +990,7 @@ impl Graph {
 
                 profiler.add_record(TimingRecord {
                     name: op_node.operator().name(),
-                    input_shapes,
+                    input_meta,
                     elapsed: op_duration,
                     node_name: op_node.name().unwrap_or(""),
                 });
@@ -1038,7 +1038,7 @@ impl Graph {
         op_node: &OperatorNode,
         op_result: &Result<OutputList, RunError>,
         op_duration: Duration,
-        input_shapes: &[InputShape],
+        input_meta: &[Option<InputMeta>],
     ) {
         println!(
             "#{} {} ({})",
@@ -1046,10 +1046,13 @@ impl Graph {
             op_node.operator().name(),
             op_node.name().unwrap_or("")
         );
-        for (index, (id, shape)) in op_node.input_ids().iter().zip(input_shapes).enumerate() {
-            if let (Some(id), Some(shape)) = (id, shape) {
+        for (index, (id, meta)) in op_node.input_ids().iter().zip(input_meta).enumerate() {
+            if let (Some(id), Some(meta)) = (id, meta) {
                 let name = self.node_name(*id);
-                println!("  input {}: {} ({:?})", index, name, shape);
+                println!(
+                    "  input {}: {} ({} {:?})",
+                    index, name, meta.dtype, meta.shape
+                );
             }
         }
 
@@ -1769,7 +1772,8 @@ mod tests {
             results.err(),
             Some(RunError::OperatorError {
                 name: "shape".to_string(),
-                error: OpError::MissingInputs
+                error: OpError::MissingInputs,
+                inputs: Some(Vec::new()),
             })
         );
     }
