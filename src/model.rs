@@ -1266,7 +1266,8 @@ mod tests {
             result.err(),
             Some(RunError::OperatorError {
                 name: "shape".to_string(),
-                error: OpError::MissingInputs
+                error: OpError::MissingInputs,
+                inputs: Some([None].into()),
             })
         );
     }

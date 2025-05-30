@@ -16,12 +16,12 @@ use smallvec::SmallVec;
 
 use crate::env::env_flag;
 use crate::ops::{
-    DataType, Input, InputList, InputOrOutput, OpError, OpRunContext, Operator, Output, OutputList,
-    PrepackedInput,
+    DataType, Input, InputList, InputMeta, InputOrOutput, OpError, OpRunContext, Operator, Output,
+    OutputList, PrepackedInput,
 };
 use crate::tensor_pool::TensorPool;
 use crate::threading;
-use crate::timing::{InputShape, Instant, ProfileFormat, Profiler, TimingRecord, TimingSort};
+use crate::timing::{Instant, ProfileFormat, Profiler, TimingRecord, TimingSort};
 use crate::weight_cache::WeightCache;
 
 #[cfg(test)]
@@ -60,11 +60,32 @@ pub enum RunError {
         /// Name of the operator node.
         name: String,
         error: OpError,
+
+        /// Shape and dtype of operator inputs.
+        ///
+        /// This can be `None` if input metadata was not captured. Individual
+        /// inputs can be `None` if it is a missing optional input.
+        inputs: Option<Vec<Option<InputMeta>>>,
     },
 
     /// The output of a graph operator did not match expectations (eg. the
     /// count, types or shapes of outputs did not match what was expected.)
     OutputMismatch(&'static str),
+}
+
+impl RunError {
+    pub(crate) fn op_error(name: &str, error: OpError, ctx: Option<&OpRunContext>) -> Self {
+        RunError::OperatorError {
+            name: name.to_string(),
+            error,
+            inputs: ctx.map(|ctx| {
+                ctx.inputs()
+                    .iter()
+                    .map(|inp| inp.map(|inp| inp.to_meta()))
+                    .collect()
+            }),
+        }
+    }
 }
 
 impl fmt::Display for RunError {
@@ -76,7 +97,12 @@ impl fmt::Display for RunError {
             RunError::OperatorError {
                 name,
                 error: ref err,
-            } => write!(f, "operator \"{}\" failed: {:?}", name, err),
+                inputs,
+            } => write!(
+                f,
+                "operator \"{}\" failed: {:?}. Inputs {:?}",
+                name, err, inputs
+            ),
             RunError::OutputMismatch(err) => write!(f, "output mismatch {:?}", err),
         }
     }
@@ -871,32 +897,31 @@ impl Graph {
                 }
             }
 
-            // Collect input shapes if we'll need them for timing or logging.
-            let input_shapes = if opts.timing_by_shape || opts.verbose {
-                let mut shapes: Vec<InputShape> = Vec::new();
+            // Collect input metadata if we'll need it for timing or logging.
+            let input_meta = if opts.timing_by_shape || opts.verbose {
+                let mut meta: Vec<Option<InputMeta>> = Vec::new();
                 if let Some(ref input) = in_place_input {
-                    shapes.push(Some(input.shape().into()));
+                    meta.push(Some(input.to_meta()));
                 }
                 for input in &op_inputs {
-                    shapes.push(input.as_ref().map(|i| i.shape().into()))
+                    meta.push(input.as_ref().map(|i| i.to_meta()))
                 }
-                shapes
+                meta
             } else {
                 Vec::new()
             };
 
-            let op_error_to_run_error = |op_error| RunError::OperatorError {
-                name: op_node.name().unwrap_or("").to_string(),
-                error: op_error,
-            };
-
             // Run the operation.
             let op_result = if let Some(input) = in_place_input {
+                let inputs = InputList::from_optional(&op_inputs);
                 op_node
                     .operator()
-                    .run_in_place(pool, input, InputList::from_optional(&op_inputs))
+                    .run_in_place(pool, input, inputs)
                     .map(|out| [out].into())
-                    .map_err(op_error_to_run_error)
+                    .map_err(|e| {
+                        // The error here is currently missing information about operator inputs.
+                        RunError::op_error(op_node.name().unwrap_or_default(), e, None)
+                    })
             } else if has_subgraph {
                 let capture_env = CaptureEnv::new(
                     captures.as_ref(),
@@ -927,7 +952,9 @@ impl Graph {
                     InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
                 let mut ctx = OpRunContext::new(pool, &input_list);
                 ctx.set_num_outputs(op_node.output_ids().len() as u32);
-                op_node.operator().run(&ctx).map_err(op_error_to_run_error)
+                op_node.operator().run(&ctx).map_err(|e| {
+                    RunError::op_error(op_node.name().unwrap_or_default(), e, Some(&ctx))
+                })
             };
             std::mem::drop(op_inputs);
 
@@ -936,7 +963,7 @@ impl Graph {
             // in the event of an error.
             if opts.verbose {
                 let op_duration = Instant::now() - op_start;
-                self.print_op_timing(step, op_node, &op_result, op_duration, &input_shapes);
+                self.print_op_timing(step, op_node, &op_result, op_duration, &input_meta);
             }
 
             // Extract outputs or fail if an error occurred.
@@ -973,7 +1000,7 @@ impl Graph {
 
                 profiler.add_record(TimingRecord {
                     name: op_node.operator().name(),
-                    input_shapes,
+                    input_meta,
                     elapsed: op_duration,
                     node_name: op_node.name().unwrap_or(""),
                 });
@@ -1021,7 +1048,7 @@ impl Graph {
         op_node: &OperatorNode,
         op_result: &Result<OutputList, RunError>,
         op_duration: Duration,
-        input_shapes: &[InputShape],
+        input_meta: &[Option<InputMeta>],
     ) {
         println!(
             "#{} {} ({})",
@@ -1029,10 +1056,13 @@ impl Graph {
             op_node.operator().name(),
             op_node.name().unwrap_or("")
         );
-        for (index, (id, shape)) in op_node.input_ids().iter().zip(input_shapes).enumerate() {
-            if let (Some(id), Some(shape)) = (id, shape) {
+        for (index, (id, meta)) in op_node.input_ids().iter().zip(input_meta).enumerate() {
+            if let (Some(id), Some(meta)) = (id, meta) {
                 let name = self.node_name(*id);
-                println!("  input {}: {} ({:?})", index, name, shape);
+                println!(
+                    "  input {}: {} ({} {:?})",
+                    index, name, meta.dtype, meta.shape
+                );
             }
         }
 
@@ -1752,7 +1782,8 @@ mod tests {
             results.err(),
             Some(RunError::OperatorError {
                 name: "shape".to_string(),
-                error: OpError::MissingInputs
+                error: OpError::MissingInputs,
+                inputs: Some([None].into()),
             })
         );
     }
@@ -2151,7 +2182,7 @@ mod tests {
                 .input_ids()
                 .iter()
                 .copied()
-                .zip(ctx.inputs().iter().map(|i| i.into()))
+                .zip(ctx.inputs().iter().flatten().map(|i| i.into()))
                 .collect();
             self.graph
                 .run_subgraph(

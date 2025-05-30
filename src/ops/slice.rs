@@ -175,7 +175,7 @@ impl Operator for Slice {
 
                 // `inputs.extend(other.iter())` not used here as it triggers
                 // a borrow-checking error.
-                for x in other.iter() {
+                for x in other.iter().flatten() {
                     inputs.push(x);
                 }
 

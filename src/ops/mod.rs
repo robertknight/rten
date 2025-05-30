@@ -169,7 +169,7 @@ impl<S: AsRef<[usize]>> From<S> for Padding {
 }
 
 /// Enum specifying the data type of a tensor.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum DataType {
     Int32,
     Float,
@@ -239,6 +239,16 @@ macro_rules! impl_proxy_layout {
     };
 }
 
+/// Metadata about a tensor.
+///
+/// This is used in profiling and errors which need to contain metadata about
+/// a tensor but not the content.
+#[derive(Debug, Eq, PartialEq)]
+pub struct InputMeta {
+    pub(crate) dtype: DataType,
+    pub(crate) shape: Vec<usize>,
+}
+
 /// Enum of the different types of tensor view that can be used as a model or
 /// operator input.
 #[derive(Clone)]
@@ -266,6 +276,14 @@ impl Input<'_> {
             Input::Int32Tensor(t) => t.to_tensor().into(),
             Input::Int8Tensor(t) => t.to_tensor().into(),
             Input::UInt8Tensor(t) => t.to_tensor().into(),
+        }
+    }
+
+    /// Extract shape and data type information from this tensor.
+    pub fn to_meta(&self) -> InputMeta {
+        InputMeta {
+            shape: self.shape().to_vec(),
+            dtype: self.dtype(),
         }
     }
 
@@ -405,6 +423,14 @@ impl Output {
             Self::Int32Tensor(it) => Input::Int32Tensor(it.view()),
             Self::Int8Tensor(it) => Input::Int8Tensor(it.view()),
             Self::UInt8Tensor(it) => Input::UInt8Tensor(it.view()),
+        }
+    }
+
+    /// Extract shape and data type information from this tensor.
+    pub fn to_meta(&self) -> InputMeta {
+        InputMeta {
+            shape: self.shape().to_vec(),
+            dtype: self.dtype(),
         }
     }
 
@@ -940,10 +966,8 @@ pub trait Operator: Any + Debug {
         #[allow(unused)] profiler: Option<&mut Profiler<'a>>,
         #[allow(unused)] run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
-        self.run(ctx).map_err(|error| RunError::OperatorError {
-            name: self.name().to_string(),
-            error,
-        })
+        self.run(ctx)
+            .map_err(|error| RunError::op_error(self.name(), error, Some(ctx)))
     }
 }
 
@@ -1127,10 +1151,9 @@ impl<'a> InputList<'a> {
 
     /// Return an iterator over provided inputs.
     ///
-    /// If the InputList was constructed with `from_optional`, this will skip
-    /// over any missing inputs.
-    pub fn iter<'b>(&'b self) -> impl Iterator<Item = Input<'a>> + 'b {
-        self.inputs.iter().filter_map(|inp| inp.clone())
+    /// Use [`Iterator::flatten`] to skip missing optional inputs.
+    pub fn iter<'b>(&'b self) -> impl Iterator<Item = Option<Input<'a>>> + 'b {
+        self.inputs.iter().cloned()
     }
 }
 
