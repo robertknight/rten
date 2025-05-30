@@ -60,7 +60,12 @@ pub enum RunError {
         /// Name of the operator node.
         name: String,
         error: OpError,
-        inputs: Option<Vec<InputMeta>>,
+
+        /// Shape and dtype of operator inputs.
+        ///
+        /// This can be `None` if input metadata was not captured. Individual
+        /// inputs can be `None` if it is a missing optional input.
+        inputs: Option<Vec<Option<InputMeta>>>,
     },
 
     /// The output of a graph operator did not match expectations (eg. the
@@ -73,7 +78,12 @@ impl RunError {
         RunError::OperatorError {
             name: name.to_string(),
             error,
-            inputs: ctx.map(|ctx| ctx.inputs().iter().map(|inp| inp.to_meta()).collect()),
+            inputs: ctx.map(|ctx| {
+                ctx.inputs()
+                    .iter()
+                    .map(|inp| inp.map(|inp| inp.to_meta()))
+                    .collect()
+            }),
         }
     }
 }
@@ -1773,7 +1783,7 @@ mod tests {
             Some(RunError::OperatorError {
                 name: "shape".to_string(),
                 error: OpError::MissingInputs,
-                inputs: Some(Vec::new()),
+                inputs: Some([None].into()),
             })
         );
     }
@@ -2172,7 +2182,7 @@ mod tests {
                 .input_ids()
                 .iter()
                 .copied()
-                .zip(ctx.inputs().iter().map(|i| i.into()))
+                .zip(ctx.inputs().iter().flatten().map(|i| i.into()))
                 .collect();
             self.graph
                 .run_subgraph(

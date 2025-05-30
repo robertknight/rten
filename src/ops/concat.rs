@@ -50,7 +50,7 @@ where
     TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
 {
     let mut typed_inputs: SmallVec<_> = SmallVec::with_capacity(inputs.len());
-    for input in inputs.iter() {
+    for input in inputs.iter().flatten() {
         typed_inputs.push(input.try_into()?);
     }
     Ok(typed_inputs)

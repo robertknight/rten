@@ -42,10 +42,13 @@ fn typed_views<'a, T>(
 where
     Input<'a>: TryInto<TensorView<'a, T>, Error = OpError>,
 {
-    inputs.iter().try_fold(Vec::new(), |mut acc, input| {
-        acc.push(input.try_into()?);
-        Ok(acc)
-    })
+    inputs
+        .iter()
+        .flatten()
+        .try_fold(Vec::new(), |mut acc, input| {
+            acc.push(input.try_into()?);
+            Ok(acc)
+        })
 }
 
 pub fn max<T: Copy + PartialOrd + IsNaN>(
