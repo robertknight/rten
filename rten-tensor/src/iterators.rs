@@ -87,6 +87,13 @@ impl IterPos {
             false
         }
     }
+
+    /// Return the size of this dimension.
+    fn size(&self) -> usize {
+        // nb. The size is always > 0 since if any dim has zero size, the
+        // iterator will have a length of zero.
+        self.max_remaining + 1
+    }
 }
 
 const INNER_NDIM: usize = 2;
@@ -277,6 +284,40 @@ impl IndexingIterBase {
         self.inner_offset = self.inner_pos.iter().map(|p| p.offset).sum();
         self.outer_offset = self.outer_pos.iter().map(|p| p.offset).sum();
     }
+
+    fn ndim(&self) -> usize {
+        self.outer_pos.len() + self.inner_pos.len()
+    }
+
+    /// Compute the storage offset of an element given a linear index into a
+    /// tensor's element sequence.
+    fn offset_from_linear_index(&self, index: usize) -> usize {
+        let mut offset = 0;
+        let mut shape_product = 1;
+        for dim in (0..self.ndim()).rev() {
+            let pos = self.pos(dim);
+            let dim_index = (index / shape_product) % pos.size();
+            shape_product *= pos.size();
+            offset += dim_index * pos.stride;
+        }
+        offset
+    }
+
+    /// Return the offset of the last item in this iterator, or `None` if there
+    /// are no more items left.
+    fn step_back(&mut self) -> Option<usize> {
+        if self.len == 0 {
+            return None;
+        }
+
+        // This is inefficient compared to forward iteration, but that's OK
+        // because reverse iteration is not performance critical.
+        let index = self.len - 1;
+        let offset = self.offset_from_linear_index(index);
+        self.len -= 1;
+
+        Some(offset)
+    }
 }
 
 /// Alternate implementations of [`Iter`].
@@ -353,6 +394,15 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
+impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        match self.iter {
+            IterKind::Direct(ref mut iter) => iter.next_back(),
+            IterKind::Indexing(ref mut iter) => iter.next_back(),
+        }
+    }
+}
+
 impl<T> ExactSizeIterator for Iter<'_, T> {}
 
 impl<T> FusedIterator for Iter<'_, T> {}
@@ -399,6 +449,17 @@ impl<'a, T> Iterator for IndexingIter<'a, T> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.base.len, Some(self.base.len))
+    }
+}
+
+impl<'a, T> DoubleEndedIterator for IndexingIter<'a, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let offset = self.base.step_back()?;
+        let element = unsafe {
+            // Safety: See comments in Storage trait.
+            self.data.get(offset).unwrap()
+        };
+        Some(element)
     }
 }
 
@@ -466,6 +527,15 @@ impl<'a, T> Iterator for IterMut<'a, T> {
     }
 }
 
+impl<T> DoubleEndedIterator for IterMut<'_, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        match self.iter {
+            IterMutKind::Direct(ref mut iter) => iter.next_back(),
+            IterMutKind::Indexing(ref mut iter) => iter.next_back(),
+        }
+    }
+}
+
 impl<T> ExactSizeIterator for IterMut<'_, T> {}
 
 impl<T> FusedIterator for IterMut<'_, T> {}
@@ -514,6 +584,22 @@ impl<'a, T> Iterator for IndexingIterMut<'a, T> {
     }
 }
 
+impl<'a, T> DoubleEndedIterator for IndexingIterMut<'a, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let offset = self.base.step_back()?;
+        let element = unsafe {
+            // Safety: See comments in Storage trait.
+            let el = self.data.get_mut(offset).unwrap();
+
+            // Safety: IndexingIterBase never yields the same offset more than
+            // once as long as we're not broadcasting, which was checked in the
+            // constructor.
+            std::mem::transmute::<&'_ mut T, &'a mut T>(el)
+        };
+        Some(element)
+    }
+}
+
 impl<T> ExactSizeIterator for IndexingIterMut<'_, T> {}
 
 impl<T> FusedIterator for IndexingIterMut<'_, T> {}
@@ -555,6 +641,12 @@ impl Iterator for Offsets {
     }
 }
 
+impl DoubleEndedIterator for Offsets {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.base.step_back()
+    }
+}
+
 impl ExactSizeIterator for Offsets {}
 
 impl FusedIterator for Offsets {}
@@ -590,22 +682,36 @@ impl LaneRanges {
             dim_stride: layout.stride(dim),
         }
     }
+
+    /// Return the range of storage offsets for a 1D lane where the first
+    /// element is at `start_offset`.
+    fn lane_offset_range(&self, start_offset: usize) -> Range<usize> {
+        // nb. `dim_size` should be >= 1 here as otherwise the tensor
+        // has no elements and `self.offsets` should therefore yield no
+        // items.
+        start_offset..start_offset + (self.dim_size - 1) * self.dim_stride + 1
+    }
 }
 
 impl Iterator for LaneRanges {
     type Item = Range<usize>;
 
     fn next(&mut self) -> Option<Range<usize>> {
-        self.offsets.next().map(|offset| {
-            // nb. `dim_size` should be >= 1 here as otherwise the tensor
-            // has no elements and `self.offsets` should therefore yield no
-            // items.
-            offset..offset + (self.dim_size - 1) * self.dim_stride + 1
-        })
+        self.offsets
+            .next()
+            .map(|offset| self.lane_offset_range(offset))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.offsets.size_hint()
+    }
+}
+
+impl DoubleEndedIterator for LaneRanges {
+    fn next_back(&mut self) -> Option<Range<usize>> {
+        self.offsets
+            .next_back()
+            .map(|offset| self.lane_offset_range(offset))
     }
 }
 
@@ -682,6 +788,15 @@ impl<'a, T> Lanes<'a, T> {
             stride: view.layout.stride(dim),
         }
     }
+
+    fn lane_for_offset_range(&self, offsets: Range<usize>) -> Lane<'a, T> {
+        Lane {
+            data: self.data.slice(offsets),
+            index: 0,
+            stride: self.stride,
+            size: self.size,
+        }
+    }
 }
 
 impl<'a, T> Iterator for Lanes<'a, T> {
@@ -689,16 +804,21 @@ impl<'a, T> Iterator for Lanes<'a, T> {
 
     /// Yield the next slice over the target dimension.
     fn next(&mut self) -> Option<Self::Item> {
-        self.ranges.next().map(|range| Lane {
-            data: self.data.slice(range),
-            index: 0,
-            stride: self.stride,
-            size: self.size,
-        })
+        self.ranges
+            .next()
+            .map(|range| self.lane_for_offset_range(range))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.ranges.size_hint()
+    }
+}
+
+impl<T> DoubleEndedIterator for Lanes<'_, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.ranges
+            .next_back()
+            .map(|range| self.lane_for_offset_range(range))
     }
 }
 
@@ -732,6 +852,19 @@ impl<'a, T> LanesMut<'a, T> {
             data: view.data,
             size: view.layout.size(dim),
             stride: view.layout.stride(dim),
+        }
+    }
+
+    /// Safety: Caller must ensure that this function is never called with
+    /// the same offset ranges more than once, so that each lane contains an
+    /// independent set of elements.
+    unsafe fn lane_for_offset_range(&mut self, offsets: Range<usize>) -> LaneMut<'a, T> {
+        let data = self.data.slice_mut(offsets);
+        LaneMut {
+            data: unsafe { transmute::<ViewMutData<'_, T>, ViewMutData<'a, T>>(data) },
+            size: self.size,
+            stride: self.stride,
+            index: 0,
         }
     }
 }
@@ -777,13 +910,19 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
 
     fn next(&mut self) -> Option<LaneMut<'a, T>> {
         self.ranges.next().map(|range| {
-            let data = self.data.slice_mut(range);
-            LaneMut {
-                data: unsafe { transmute::<ViewMutData<'_, T>, ViewMutData<'a, T>>(data) },
-                size: self.size,
-                stride: self.stride,
-                index: 0,
-            }
+            // Safety: Each iteration yields a lane that does not overlap with
+            // any previous lane.
+            unsafe { self.lane_for_offset_range(range) }
+        })
+    }
+}
+
+impl<'a, T> DoubleEndedIterator for LanesMut<'a, T> {
+    fn next_back(&mut self) -> Option<LaneMut<'a, T>> {
+        self.ranges.next_back().map(|range| {
+            // Safety: Each iteration yields a lane that does not overlap with
+            // any previous lane.
+            unsafe { self.lane_for_offset_range(range) }
         })
     }
 }
@@ -1233,6 +1372,30 @@ mod tests {
     }
 
     #[test]
+    fn test_lanes_rev() {
+        let x = NdTensor::from([[1, 2], [3, 4]]);
+        let mut lanes = x.lanes(0).rev();
+        assert_eq!(lanes.next().unwrap().copied().collect::<Vec<_>>(), &[2, 4]);
+        assert_eq!(lanes.next().unwrap().copied().collect::<Vec<_>>(), &[1, 3]);
+        assert!(lanes.next().is_none());
+    }
+
+    #[test]
+    fn test_lanes_mut_rev() {
+        let mut x = NdTensor::from([[1, 2], [3, 4]]);
+        let mut lanes = x.lanes_mut(0).rev();
+        assert_eq!(
+            lanes.next().unwrap().map(|x| *x).collect::<Vec<_>>(),
+            &[2, 4]
+        );
+        assert_eq!(
+            lanes.next().unwrap().map(|x| *x).collect::<Vec<_>>(),
+            &[1, 3]
+        );
+        assert!(lanes.next().is_none());
+    }
+
+    #[test]
     fn test_lane_as_slice() {
         // Contiguous lane
         let x = NdTensor::from([0, 1, 2]);
@@ -1291,6 +1454,28 @@ mod tests {
     }
 
     #[test]
+    fn test_iter_rev() {
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]]]);
+
+        // Reverse iteration using non-indexed iterator.
+        let rev_items: Vec<_> = tensor.iter().rev().copied().collect();
+        assert_eq!(rev_items, &[4, 3, 2, 1]);
+
+        // Reverse iteration using indexed iterator.
+        let transposed = tensor.transposed();
+        let rev_items: Vec<_> = transposed.iter().rev().copied().collect();
+        assert_eq!(rev_items, &[4, 2, 3, 1]);
+
+        // Reverse iteration using mutable indexed iterator.
+        let mut transposed_mut = tensor.permuted_mut([2, 1, 0]);
+        for x in transposed_mut.iter_mut().rev() {
+            *x += 1;
+        }
+        let items: Vec<_> = tensor.iter().copied().collect();
+        assert_eq!(items, &[2, 3, 4, 5]);
+    }
+
+    #[test]
     #[ignore]
     fn bench_iter() {
         use crate::Layout;
@@ -1317,6 +1502,11 @@ mod tests {
         });
         println!("sum {}", result);
 
+        run_bench(n_trials, Some("contiguous reverse iter"), || {
+            result = reduce(tensor.iter().rev());
+        });
+        println!("sum {}", result);
+
         // Use tensor iterator with non-contiguous slice. This will fall back
         // to indexed iteration.
         let slice = tensor.slice((.., .., 1.., ..));
@@ -1324,6 +1514,14 @@ mod tests {
         let n_trials = 1000;
         run_bench(n_trials, Some("non-contiguous iter"), || {
             result = reduce(slice.iter());
+        });
+        println!("sum {}", result);
+
+        // Reverse iteration with non-contiguous slice. This is much slower
+        // because it translates linear indexes into offsets using division.
+        let n_trials = 100;
+        run_bench(n_trials, Some("non-contiguous reverse iter"), || {
+            result = reduce(slice.iter().rev());
         });
         println!("sum {}", result);
     }
