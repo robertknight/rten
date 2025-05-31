@@ -49,12 +49,12 @@ impl Operator for If {
         let cond: TensorView<i32> = ctx
             .inputs()
             .require_as(0)
-            .map_err(|e| RunError::op_error(node_name, e, Some(ctx)))?;
+            .map_err(|e| RunError::op_error(node_name, e, ctx))?;
         let Some(cond_bool) = cond.item().copied() else {
             return Err(RunError::op_error(
                 node_name,
                 OpError::InvalidValue("cond must be a single value"),
-                Some(ctx),
+                ctx,
             ));
         };
 
