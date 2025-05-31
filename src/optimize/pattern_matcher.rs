@@ -60,9 +60,9 @@ pub struct Match {
 }
 
 impl Match {
-    /// Return the node ID that a symbol was resolved to.
-    pub fn node_id(&self, symbol_name: &str) -> Option<NodeId> {
-        self.symbols.find(symbol_name)
+    /// Return the node ID that a symbol or operator was resolved to.
+    pub fn node_id(&self, name: &str) -> Option<NodeId> {
+        self.symbols.find(name)
     }
 }
 
@@ -93,8 +93,8 @@ pub struct OpPattern {
     /// Patterns that the inputs must match.
     inputs: Vec<Pattern>,
 
-    /// Unique identifier for this pattern. Used to look up the resolved
-    /// operator node ID after a successful match.
+    /// Identifier which can be used to look up the operator node ID after a
+    /// successful match.
     key: Option<&'static str>,
 }
 
@@ -151,22 +151,90 @@ pub struct SymbolPattern {
 /// (variables). These are matched against a node in in a [`Graph`]. The node
 /// matches if it is the output of a subgraph that matches the pattern.
 ///
-/// Patterns are created using functions in this module such as [`constant`],
-/// [`symbol`], [`binary_op`] and [`unary_op`]. They are combined using either
-/// the `_op` functions or using mathematical expressions. For example
-/// [`constant(1.0) + symbol("x")`] describes a graph with an `Add` operator
-/// that takes the float constant `1.0` and a free variable `x` as inputs.
+/// Patterns are created using constructor methods and combined to form patterns
+/// that can match sub-graphs within a graph. For example
+/// `Pattern::constant(1.0) + Pattern::symbol("x")` describes a graph with an
+/// `Add` operator that takes the float constant `1.0` and a free variable `x`
+/// as inputs.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pattern {
-    /// Expression which matches an operator.
+    /// Matches an operator.
     Operator(OpPattern),
-    /// Expression which matches a constant value.
+    /// Matches a constant value.
     Constant(ConstantPattern),
-    /// Expression which matches either a constant or a value.
+    /// Matches either a constant or a value.
     Symbol(SymbolPattern),
 }
 
 impl Pattern {
+    /// Create a pattern that matches an operator.
+    pub fn operator<I: Into<Vec<Pattern>>>(name: &'static str, inputs: I) -> Pattern {
+        Pattern::Operator(OpPattern {
+            name,
+            inputs: inputs.into(),
+            key: None,
+        })
+    }
+
+    /// Create a pattern that matches a binary operator.
+    pub fn binary_op<A: Into<Pattern>, B: Into<Pattern>>(
+        name: &'static str,
+        input_a: A,
+        input_b: B,
+    ) -> Pattern {
+        let inputs: [Pattern; 2] = [input_a.into(), input_b.into()];
+        Pattern::operator(name, inputs)
+    }
+
+    /// Create a pattern that matches a unary operator.
+    pub fn unary_op<I: Into<Pattern>>(name: &'static str, input: I) -> Pattern {
+        let inputs: [Pattern; 1] = [input.into()];
+        Pattern::operator(name, inputs)
+    }
+
+    /// Set the identifier for a pattern, used to look up the node ID in a
+    /// match using [`Match::node_id`].
+    pub fn with_name(self, name: &'static str) -> Pattern {
+        match self {
+            Pattern::Operator(mut op) => {
+                op.key = Some(name);
+                Pattern::Operator(op)
+            }
+            Pattern::Symbol(mut symbol) => {
+                symbol.name = name;
+                Pattern::Symbol(symbol)
+            }
+            // Constants don't currently support keys.
+            Pattern::Constant(constant) => Pattern::Constant(constant),
+        }
+    }
+
+    /// Create a pattern that matches a constant node with a given value.
+    pub fn constant(value: f32) -> Pattern {
+        Pattern::Constant(ConstantPattern { value })
+    }
+
+    /// Create a pattern that matches any value.
+    ///
+    /// In order for a pattern to match a node, all symbols with the same name
+    /// must resolve to the same node.
+    pub fn symbol(name: &'static str) -> Pattern {
+        Pattern::Symbol(SymbolPattern {
+            name,
+            constant: false,
+        })
+    }
+
+    /// Create a pattern that matches a constant.
+    ///
+    /// Unlike [`constant`](Self::constant), the value of the constant is not specified.
+    pub fn const_symbol(name: &'static str) -> Pattern {
+        Pattern::Symbol(SymbolPattern {
+            name,
+            constant: true,
+        })
+    }
+
     /// Test this pattern is a subgraph of a graph.
     ///
     /// The matching starts from `node_id`, which specifies the output of
@@ -240,7 +308,7 @@ impl Pattern {
 
 impl From<f32> for Pattern {
     fn from(val: f32) -> Pattern {
-        constant(val)
+        Pattern::constant(val)
     }
 }
 
@@ -250,7 +318,7 @@ macro_rules! impl_binop_for_pattern {
             type Output = Pattern;
 
             fn $method(self, rhs: I) -> Pattern {
-                binary_op($op_name, self, rhs.into())
+                Pattern::binary_op($op_name, self, rhs.into())
             }
         }
 
@@ -258,7 +326,7 @@ macro_rules! impl_binop_for_pattern {
             type Output = Pattern;
 
             fn $method(self, rhs: Pattern) -> Pattern {
-                binary_op($op_name, constant(self), rhs)
+                Pattern::binary_op($op_name, Pattern::constant(self), rhs)
             }
         }
     };
@@ -272,76 +340,13 @@ impl Neg for Pattern {
     type Output = Pattern;
 
     fn neg(self) -> Pattern {
-        unary_op("Neg", self)
+        Pattern::unary_op("Neg", self)
     }
-}
-
-/// Create a pattern that matches an operator.
-pub fn operator<I: Into<Vec<Pattern>>>(
-    name: &'static str,
-    inputs: I,
-    key: Option<&'static str>,
-) -> Pattern {
-    Pattern::Operator(OpPattern {
-        name,
-        inputs: inputs.into(),
-        key,
-    })
-}
-
-/// Create a pattern that matches a binary operator.
-pub fn binary_op<A: Into<Pattern>, B: Into<Pattern>>(
-    name: &'static str,
-    input_a: A,
-    input_b: B,
-) -> Pattern {
-    let inputs: [Pattern; 2] = [input_a.into(), input_b.into()];
-    operator(name, inputs, None)
-}
-
-/// Create a pattern that matches a unary operator.
-pub fn unary_op<I: Into<Pattern>>(name: &'static str, input: I) -> Pattern {
-    let inputs: [Pattern; 1] = [input.into()];
-    operator(name, inputs, None)
-}
-
-/// Create a pattern that matches a unary operator.
-///
-/// The operator is associated with a key so it can be looked up after the match.
-pub fn unary_op_key<I: Into<Pattern>>(name: &'static str, input: I, key: &'static str) -> Pattern {
-    let inputs: [Pattern; 1] = [input.into()];
-    operator(name, inputs, Some(key))
-}
-
-/// Create a pattern that matches a constant node with a given value.
-pub fn constant(value: f32) -> Pattern {
-    Pattern::Constant(ConstantPattern { value })
-}
-
-/// Create a pattern that matches any value.
-///
-/// In order for a pattern to match a node, all symbols with the same name
-/// must resolve to the same node.
-pub fn symbol(name: &'static str) -> Pattern {
-    Pattern::Symbol(SymbolPattern {
-        name,
-        constant: false,
-    })
-}
-
-/// Create a pattern that matches a constant.
-///
-/// Unlike [`constant`], the value of the constant is not specified.
-pub fn const_symbol(name: &'static str) -> Pattern {
-    Pattern::Symbol(SymbolPattern {
-        name,
-        constant: true,
-    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{const_symbol, symbol, unary_op, unary_op_key, Pattern};
+    use super::Pattern;
     use crate::graph::builder::Expr;
     use crate::graph::{Graph, Node};
     use crate::ops::Abs;
@@ -361,8 +366,9 @@ mod tests {
             expect_match: bool,
         }
 
-        let x = symbol("x");
-        let c = const_symbol("c");
+        let x = Pattern::symbol("x");
+        let c = Pattern::const_symbol("c");
+        let unary_op = Pattern::unary_op;
 
         let cases = [
             Case {
@@ -447,8 +453,8 @@ mod tests {
     fn test_operator_with_key() {
         let graph = softsign_graph();
         let output = graph.output_ids()[0];
-        let x = symbol("x");
-        let pat = x.clone() / (1.0 + unary_op_key("Abs", x.clone(), "abs_op"));
+        let x = Pattern::symbol("x");
+        let pat = x.clone() / (1.0 + Pattern::unary_op("Abs", x.clone()).with_name("abs_op"));
         let pat_match = pat.test(output, &graph).unwrap();
         let abs_node_id = pat_match.node_id("abs_op").unwrap();
         let abs_op = graph.get_node(abs_node_id).unwrap();

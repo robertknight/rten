@@ -18,7 +18,7 @@ use crate::Output;
 
 mod pattern_matcher;
 
-use pattern_matcher::{binary_op, const_symbol, symbol, unary_op, unary_op_key, Match, Pattern};
+use pattern_matcher::{Match, Pattern};
 
 /// Errors that occur while applying graph optimizations.
 #[derive(Debug, PartialEq)]
@@ -533,8 +533,8 @@ impl UnaryOpFusion for GeluFusion {
         // would be smart enough to let us write one pattern and have it match
         // either structure. However it isn't. The pattern used matches PyTorch's
         // `nn.GELU`.
-        let x = symbol("x");
-        x.clone() * (unary_op("Erf", x.clone() / (2.0f32).sqrt()) + 1.0) * 0.5
+        let x = Pattern::symbol("x");
+        x.clone() * (Pattern::unary_op("Erf", x.clone() / (2.0f32).sqrt()) + 1.0) * 0.5
     }
 
     fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Self::Operator, ()> {
@@ -551,13 +551,13 @@ impl UnaryOpFusion for ApproxGeluFusion {
         // Pattern for tanh approximate of gelu. See
         // https://onnx.ai/onnx/operators/onnx__Gelu.html.
         let sqrt_2_pi = (2.0f32 / std::f32::consts::PI).sqrt();
-        let x = symbol("x");
+        let x = Pattern::symbol("x");
         x.clone()
             * 0.5
             * (1.
-                + unary_op(
+                + Pattern::unary_op(
                     "Tanh",
-                    sqrt_2_pi * (x.clone() + binary_op("Pow", x.clone(), 3.0) * 0.044715),
+                    sqrt_2_pi * (x.clone() + Pattern::binary_op("Pow", x.clone(), 3.0) * 0.044715),
                 ))
     }
 
@@ -572,8 +572,8 @@ impl UnaryOpFusion for SiluFusion {
     type Operator = Silu;
 
     fn pattern(&self) -> Pattern {
-        let x = symbol("x");
-        x.clone() * unary_op("Sigmoid", x.clone())
+        let x = Pattern::symbol("x");
+        x.clone() * Pattern::unary_op("Sigmoid", x.clone())
     }
 
     fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Silu, ()> {
@@ -587,9 +587,9 @@ impl UnaryOpFusion for SwishFusion {
     type Operator = Swish;
 
     fn pattern(&self) -> Pattern {
-        let x = symbol("x");
-        let beta = const_symbol("beta");
-        x.clone() * unary_op("Sigmoid", beta * x.clone())
+        let x = Pattern::symbol("x");
+        let beta = Pattern::const_symbol("beta");
+        x.clone() * Pattern::unary_op("Sigmoid", beta * x.clone())
     }
 
     fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Swish, ()> {
@@ -662,26 +662,29 @@ struct LayerNormFusionState {
 
 impl FusionVisitor for LayerNormalizationFusion {
     fn prepare(&self, _graph: &Graph) -> Box<dyn Any> {
-        let x = symbol("x");
+        let x = Pattern::symbol("x");
 
         // LayerNormalization has three steps. Pattern matching only supports a
         // single expression, so we use three patterns and match them in reverse
         // order (ie. starting from the output of the final step).
 
         // First step: Center values
-        let center_pat = x.clone() - unary_op_key("ReduceMean", x.clone(), "center_mean");
+        let center_pat =
+            x.clone() - Pattern::unary_op("ReduceMean", x.clone()).with_name("center_mean");
 
         // Middle step: Normalize variance
-        let epsilon = const_symbol("epsilon");
+        let epsilon = Pattern::const_symbol("epsilon");
         let normalize_variance_pat = x.clone()
-            / unary_op(
+            / Pattern::unary_op(
                 "Sqrt",
-                epsilon + unary_op_key("ReduceMean", binary_op("Pow", x.clone(), 2.0), "norm_mean"),
+                epsilon
+                    + Pattern::unary_op("ReduceMean", Pattern::binary_op("Pow", x.clone(), 2.0))
+                        .with_name("norm_mean"),
             );
 
         // Final step: Scale, and optionally shift, the normalized values
-        let bias = const_symbol("bias");
-        let scale = const_symbol("scale");
+        let bias = Pattern::const_symbol("bias");
+        let scale = Pattern::const_symbol("scale");
         let shift_scale_pat = (x.clone() * scale.clone()) + bias;
         let scale_pat = x.clone() * scale;
 
@@ -762,9 +765,9 @@ struct RmsNormalizationFusion {}
 
 impl FusionVisitor for RmsNormalizationFusion {
     fn prepare(&self, _: &Graph) -> Box<dyn Any> {
-        let x = symbol("x");
-        let scale = const_symbol("scale");
-        let epsilon = const_symbol("epsilon");
+        let x = Pattern::symbol("x");
+        let scale = Pattern::const_symbol("scale");
+        let epsilon = Pattern::const_symbol("epsilon");
 
         // The scaling of the input is canonically written as `x / (sqrt(rms) + epsilon)`.
         //
@@ -772,10 +775,14 @@ impl FusionVisitor for RmsNormalizationFusion {
         // observed pattern in models like T5. Ideally we would recognize both.
         let pattern = x.clone()
             * (1.
-                / unary_op(
+                / Pattern::unary_op(
                     "Sqrt",
                     epsilon
-                        + unary_op_key("ReduceMean", binary_op("Pow", x.clone(), 2.0), "norm_mean"),
+                        + Pattern::unary_op(
+                            "ReduceMean",
+                            Pattern::binary_op("Pow", x.clone(), 2.0),
+                        )
+                        .with_name("norm_mean"),
                 ))
             * scale;
         Box::new(pattern)
@@ -817,12 +824,12 @@ struct MatMulAddFusion {}
 
 impl FusionVisitor for MatMulAddFusion {
     fn prepare(&self, _: &Graph) -> Box<dyn Any> {
-        let a = symbol("a");
-        let b = symbol("b");
-        let bias = const_symbol("bias");
-        let matmul_add_pat = binary_op(
+        let a = Pattern::symbol("a");
+        let b = Pattern::symbol("b");
+        let bias = Pattern::const_symbol("bias");
+        let matmul_add_pat = Pattern::binary_op(
             "Add",
-            binary_op("MatMul", a.clone(), b.clone()),
+            Pattern::binary_op("MatMul", a.clone(), b.clone()),
             bias.clone(),
         );
         Box::new(matmul_add_pat)
