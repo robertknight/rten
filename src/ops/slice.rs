@@ -147,12 +147,8 @@ impl Operator for Slice {
         true
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        input: Output,
-        other: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+        let other = ctx.inputs();
         let starts = other.require_as::<i32>(0)?;
         let starts = static_dims!(starts, 1)?;
 
@@ -180,7 +176,7 @@ impl Operator for Slice {
                 }
 
                 let input_list = InputList::from(&inputs);
-                let ctx = OpRunContext::new(pool, &input_list);
+                let ctx = OpRunContext::new(ctx.pool(), &input_list);
                 return self.run(&ctx).map(|mut outputs| outputs.remove(0));
             }
         }

@@ -824,6 +824,9 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     }
 
     /// Inputs to the operator execution.
+    ///
+    /// For in-place execution via [`Operator::run_in_place`] this contains
+    /// the non in-place inputs.
     pub fn inputs(&self) -> &InputList<'i> {
         self.inputs
     }
@@ -904,7 +907,7 @@ pub trait Operator: Any + Debug {
     /// This may only be called if `can_run_in_place` returns true.
     ///
     /// `input` is the first input, which the implementation may modify and
-    /// return as the output. `other` are the remaining inputs.
+    /// return as the output. `ctx.inputs()` contains the remaining inputs.
     ///
     /// Operators may fall back to allocating a new output if some property of
     /// the input data or shapes means in-place operation is not possible. In
@@ -913,11 +916,10 @@ pub trait Operator: Any + Debug {
     /// temporary buffers created during execution.
     fn run_in_place(
         &self,
-        _pool: &TensorPool,
-        _input: Output,
-        _other: InputList,
+        #[allow(unused)] input: Output,
+        #[allow(unused)] ctx: &OpRunContext,
     ) -> Result<Output, OpError> {
-        unimplemented!("in-place execution not supported")
+        Err(OpError::InvalidValue("In-place execution not supported"))
     }
 
     /// Return true if this operator executes a subgraph.
@@ -1002,7 +1004,9 @@ pub trait OperatorExt: Operator {
         input: I,
     ) -> Result<O, OpError> {
         let pool = TensorPool::new();
-        let output = self.run_in_place(&pool, input.into(), InputList::new())?;
+        let inputs = InputList::new();
+        let ctx = OpRunContext::new(&pool, &inputs);
+        let output = self.run_in_place(input.into(), &ctx)?;
         output.try_into()
     }
 }

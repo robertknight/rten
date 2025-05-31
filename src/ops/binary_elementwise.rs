@@ -7,8 +7,7 @@ use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::number::{AsBool, Identities, IsInt};
 use crate::ops::{
-    map_input, map_output, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output,
-    OutputList,
+    map_input, map_output, Input, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -395,13 +394,8 @@ impl Operator for Add {
         true
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        input: Output,
-        other: InputList,
-    ) -> Result<Output, OpError> {
-        run_typed_op_in_place!(pool, input, other, add_in_place, add)
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+        run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), add_in_place, add)
     }
 }
 
@@ -500,13 +494,8 @@ impl Operator for Div {
         true
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        input: Output,
-        other: InputList,
-    ) -> Result<Output, OpError> {
-        run_typed_op_in_place!(pool, input, other, div_in_place, div)
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+        run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), div_in_place, div)
     }
 }
 
@@ -692,13 +681,8 @@ impl Operator for Mul {
         true
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        input: Output,
-        other: InputList,
-    ) -> Result<Output, OpError> {
-        run_typed_op_in_place!(pool, input, other, mul_in_place, mul)
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+        run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), mul_in_place, mul)
     }
 }
 
@@ -750,22 +734,17 @@ impl Operator for Pow {
         true
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        input: Output,
-        other: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
         let mut a = input
             .into_tensor::<f32>()
             .ok_or(OpError::IncorrectInputType)?;
-        let b = other.require_as(0)?;
+        let b = ctx.inputs().require_as(0)?;
 
         if can_run_binary_op_in_place(&a, &b) {
             pow_in_place(a.view_mut(), b);
             Ok(a.into())
         } else {
-            pow(pool, a.view(), b).map(|t| t.into())
+            pow(ctx.pool(), a.view(), b).map(|t| t.into())
         }
     }
 }
@@ -803,13 +782,8 @@ impl Operator for Sub {
         true
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        input: Output,
-        other: InputList,
-    ) -> Result<Output, OpError> {
-        run_typed_op_in_place!(pool, input, other, sub_in_place, sub)
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+        run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), sub_in_place, sub)
     }
 }
 
@@ -910,7 +884,7 @@ mod tests {
         where_op, xor, Add, DivMode,
     };
     use crate::ops::tests::new_pool;
-    use crate::ops::{OpError, Operator, OperatorExt, Output};
+    use crate::ops::{InputList, OpError, OpRunContext, Operator, OperatorExt, Output};
 
     #[test]
     fn test_fast_broadcast_cycles_repeats() {
@@ -1049,18 +1023,16 @@ mod tests {
 
         // Run `Add` operator in place with inputs that support in-place addition.
         let op = Add {};
-        let result = op
-            .run_in_place(&pool, Output::FloatTensor(a_copy), (&b).into())
-            .unwrap();
+        let inputs: InputList = (&b).into();
+        let ctx = OpRunContext::new(&pool, &inputs);
+        let result = op.run_in_place(Output::FloatTensor(a_copy), &ctx).unwrap();
         expect_equal(&result.as_tensor_view().unwrap(), &expected.view())?;
 
         // Run `Add` operator in-place with inputs that don't support in-place
         // addition. The operator should fall back to creating a new output tensor.
         let scalar = Tensor::from(1.0);
         let expected = Tensor::from_data(&[2, 2], vec![11., 21., 31., 41.]);
-        let result = op
-            .run_in_place(&pool, Output::FloatTensor(scalar), (&b).into())
-            .unwrap();
+        let result = op.run_in_place(Output::FloatTensor(scalar), &ctx).unwrap();
         expect_equal(&result.as_tensor_view().unwrap(), &expected.view())?;
 
         // In-place addition where the second input must be broadcast to the

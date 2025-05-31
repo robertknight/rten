@@ -443,15 +443,11 @@ impl Operator for Resize {
         true
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        input: Output,
-        other: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
         // See note in `run` about the `roi` input.
 
-        let target = target_from_scale_size_inputs(&other, 1)?;
+        let other = ctx.inputs();
+        let target = target_from_scale_size_inputs(other, 1)?;
         let output_size = calc_output_size(input.shape(), target)?;
 
         // If this is a no-op resize, just return the input.
@@ -459,9 +455,9 @@ impl Operator for Resize {
             return Ok(input);
         }
 
-        let input = Tensor::<f32>::try_from(input)?.auto_return(pool);
+        let input = Tensor::<f32>::try_from(input)?.auto_return(ctx.pool());
         resize_impl(
-            pool,
+            ctx.pool(),
             input.view(),
             &output_size,
             self.mode,
