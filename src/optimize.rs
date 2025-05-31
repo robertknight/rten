@@ -1044,6 +1044,7 @@ mod tests {
         Add, Erf, FusedMatMul, Gelu, LayerNormalization, MatMul, Neg, Pow, ReduceMean,
         RmsNormalization, Sigmoid, Sqrt, Swish, Tanh, Transpose,
     };
+    use crate::slice_cast::cast_pod_slice;
 
     fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
         let optimizer = GraphOptimizer::new();
@@ -1055,14 +1056,7 @@ mod tests {
         let const_storage = Arc::new(ConstantStorage::Buffer(const_data));
         let slice = ArcSlice::new(
             const_storage.clone(),
-            // Safety: We are transmuting a `u8` slice created from an `f32` slice
-            // back to an `f32` slice.
-            unsafe {
-                std::slice::from_raw_parts(
-                    const_storage.data().as_ptr() as *const f32,
-                    const_storage.data().len() / std::mem::size_of::<f32>(),
-                )
-            },
+            cast_pod_slice(const_storage.data()).unwrap(),
         )
         .unwrap();
         ArcTensorView::from_data(&[], slice)
