@@ -137,10 +137,10 @@ pub fn fast_broadcast_cycles_repeats(
 /// Compute the result of applying the binary operation `op` to corresponding
 /// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
 /// matching shape if necessary.
-pub fn binary_op<T: Copy, R, F: Fn(T, T) -> R>(
+pub fn binary_op<T: Copy, U: Copy, R, F: Fn(T, U) -> R>(
     pool: &TensorPool,
     a: TensorView<T>,
-    b: TensorView<T>,
+    b: TensorView<U>,
     op: F,
 ) -> Result<Tensor<R>, OpError> {
     let out_shape = broadcast_shapes(a.shape(), b.shape())
@@ -240,9 +240,9 @@ pub fn binary_op<T: Copy, R, F: Fn(T, T) -> R>(
 /// Perform an elementwise binary operation in-place.
 ///
 /// This requires that `b` can be broadcast to the shape of `a`.
-fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
+fn binary_op_in_place<T: Copy + Debug, U: Copy + Debug, F: Fn(T, U) -> T>(
     mut a: TensorViewMut<T>,
-    b: TensorView<T>,
+    b: TensorView<U>,
     op: F,
 ) {
     // Fast path for when LHS and RHS are contiguous, and fast broadcasting is
@@ -686,32 +686,67 @@ impl Operator for Mul {
     }
 }
 
-/// Like [`f32::powf`] but with fast paths for common values.
-fn powf(x: f32, y: f32) -> f32 {
-    if y == 2. {
-        x * x
-    } else if y == 3. {
-        x * x * x
-    } else {
-        x.powf(y)
+/// Raise a value to a power, with fast paths for common values.
+///
+/// The ONNX spec (https://onnx.ai/onnx/operators/onnx__Pow.html) allows for
+/// the base and exponent having different types, but does not state the semantics.
+/// The ONNX Runtime implementation uses `static_cast<T>(std::pow(base, exp))`
+/// which means:
+///
+///  - Convert `base` and `exp` to a common floating point type.
+///  - Compute `base^exp` in the common type
+///  - Convert the result back to the type of `base`. If this is an integer
+///    type, use truncation with rounding towards zero.
+///
+/// See also https://github.com/onnx/onnx/issues/5852.
+pub trait FastPow<Exp>: Copy {
+    /// Raise `self` to the power of `exponent`.
+    fn fast_pow(self, exponent: Exp) -> Self;
+}
+
+impl FastPow<f32> for f32 {
+    fn fast_pow(self, exponent: f32) -> Self {
+        if exponent == 2. {
+            self * self
+        } else if exponent == 3. {
+            self * self * self
+        } else {
+            self.powf(exponent)
+        }
     }
 }
 
-/// Raise elements of `a` to powers of corresponding elements in `b`.
-pub fn pow(pool: &TensorPool, a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
-    if let Some(&exp) = b.item() {
-        Ok(a.map_in(pool, |x| powf(*x, exp)))
-    } else {
-        binary_op(pool, a, b, powf)
+impl FastPow<f32> for i32 {
+    fn fast_pow(self, exponent: f32) -> Self {
+        (self as f32).fast_pow(exponent) as i32
     }
 }
 
-/// Perform in-place raise of elements of `a` to power of corresponding elements in `b`.
-pub fn pow_in_place(mut a: TensorViewMut, b: TensorView) {
-    if let Some(exp) = b.item() {
-        a.apply(|x| powf(*x, *exp))
+/// Raise elements of `base` to powers of corresponding elements in `exp`.
+///
+/// When `T` and `E` are different, values are converted to a common float
+/// type then converted back to T using truncation afterwards.
+pub fn pow<E: Copy, T: FastPow<E>>(
+    pool: &TensorPool,
+    base: TensorView<T>,
+    exp: TensorView<E>,
+) -> Result<Tensor<T>, OpError> {
+    if let Some(&exp) = exp.item() {
+        Ok(base.map_in(pool, |x| x.fast_pow(exp)))
     } else {
-        binary_op_in_place(a, b, powf);
+        binary_op(pool, base, exp, |b, e| b.fast_pow(e))
+    }
+}
+
+/// Perform in-place raise of elements of `base` to power of corresponding elements in `exp`.
+pub fn pow_in_place<E: Copy + Debug, T: Copy + Debug + FastPow<E>>(
+    mut base: TensorViewMut<T>,
+    exp: TensorView<E>,
+) {
+    if let Some(exp) = exp.item() {
+        base.apply(|x| x.fast_pow(*exp))
+    } else {
+        binary_op_in_place(base, exp, |b, e| b.fast_pow(e));
     }
 }
 
@@ -725,9 +760,11 @@ impl Operator for Pow {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
-        let a = inputs.require_as(0)?;
-        let b = inputs.require_as(1)?;
-        pow(ctx.pool(), a, b).into_op_result()
+        let base = inputs.require(0)?;
+        map_input!(base, base, [FloatTensor, Int32Tensor], {
+            let exponent = inputs.require_as(1)?;
+            pow(ctx.pool(), base, exponent).into_op_result()
+        })
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -735,17 +772,15 @@ impl Operator for Pow {
     }
 
     fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-        let mut a = input
-            .into_tensor::<f32>()
-            .ok_or(OpError::IncorrectInputType)?;
-        let b = ctx.inputs().require_as(0)?;
-
-        if can_run_binary_op_in_place(&a, &b) {
-            pow_in_place(a.view_mut(), b);
-            Ok(a.into())
-        } else {
-            pow(ctx.pool(), a.view(), b).map(|t| t.into())
-        }
+        map_output!(input, base, [FloatTensor, Int32Tensor], {
+            let exponent = ctx.inputs().require_as(0)?;
+            if can_run_binary_op_in_place(&base, &exponent) {
+                pow_in_place(base.view_mut(), exponent);
+                Ok(base.into())
+            } else {
+                pow(ctx.pool(), base.view(), exponent).map(|t| t.into())
+            }
+        })
     }
 }
 
@@ -1328,49 +1363,74 @@ mod tests {
     fn test_pow() {
         #[derive(Debug)]
         struct Case {
-            a: Tensor<f32>,
-            b: Tensor<f32>,
-            expected: Tensor<f32>,
+            a: Output,
+            b: Output,
+            expected: Output,
         }
 
         let cases = [
             // Square input
             Case {
-                a: [2., 3., 4.].into(),
-                b: (2.).into(),
-                expected: [4., 9., 16.].into(),
+                a: Tensor::from([2., 3., 4.]).into(),
+                b: Tensor::from(2.).into(),
+                expected: Tensor::from([4., 9., 16.]).into(),
             },
             // Cube input
             Case {
-                a: [2., 3., 4.].into(),
-                b: (3.).into(),
-                expected: [8., 27., 64.].into(),
+                a: Tensor::from([2., 3., 4.]).into(),
+                b: Tensor::from(3.).into(),
+                expected: Tensor::from([8., 27., 64.]).into(),
             },
             // Raise all inputs to scalar
             Case {
-                a: [2., 3., 4.].into(),
-                b: (0.256).into(),
-                expected: [(2f32).powf(0.256), (3f32).powf(0.256), (4f32).powf(0.256)].into(),
+                a: Tensor::from([2., 3., 4.]).into(),
+                b: Tensor::from(0.256).into(),
+                expected: Tensor::from([
+                    (2f32).powf(0.256),
+                    (3f32).powf(0.256),
+                    (4f32).powf(0.256),
+                ])
+                .into(),
             },
             // Raise each input to different powers
             Case {
-                a: [2., 3., 4.].into(),
-                b: [1., 2., 3.].into(),
-                expected: [2., 9., 64.].into(),
+                a: Tensor::from([2., 3., 4.]).into(),
+                b: Tensor::from([1., 2., 3.]).into(),
+                expected: Tensor::from([2., 9., 64.]).into(),
+            },
+            // i32 input with f32 exponent
+            Case {
+                a: Tensor::from(16i32).into(),
+                b: Tensor::from(0.5).into(),
+                expected: Tensor::from(4i32).into(),
             },
         ];
 
         cases.test_each(|case| {
             let pool = new_pool();
 
-            // Copying variant
-            let result = pow(&pool, case.a.view(), case.b.view()).unwrap();
-            expect_equal(&result, &case.expected).unwrap();
+            macro_rules! test_case {
+                ($a:expr, $b:expr, $expected:expr) => {
+                    // Copying variant
+                    let result = pow(&pool, $a.view(), $b.view()).unwrap();
+                    expect_equal(&result, $expected).unwrap();
 
-            // In-place variant
-            let mut a = case.a.clone();
-            pow_in_place(a.view_mut(), case.b.view());
-            expect_equal(&a, &case.expected).unwrap();
+                    // In-place variant
+                    let mut a = $a.clone();
+                    pow_in_place(a.view_mut(), $b.view());
+                    expect_equal(&a, $expected).unwrap();
+                };
+            }
+
+            match (&case.a, &case.b, &case.expected) {
+                (Output::FloatTensor(a), Output::FloatTensor(b), Output::FloatTensor(expected)) => {
+                    test_case!(a, b, expected);
+                }
+                (Output::Int32Tensor(a), Output::FloatTensor(b), Output::Int32Tensor(expected)) => {
+                    test_case!(a, b, expected);
+                }
+                _ => unimplemented!("unsupported types"),
+            }
         })
     }
 
