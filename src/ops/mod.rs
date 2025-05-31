@@ -969,7 +969,7 @@ pub trait Operator: Any + Debug {
         #[allow(unused)] run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
         self.run(ctx)
-            .map_err(|error| RunError::op_error(self.name(), error, Some(ctx)))
+            .map_err(|error| RunError::op_error(self.name(), error, ctx))
     }
 }
 

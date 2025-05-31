@@ -63,9 +63,9 @@ pub enum RunError {
 
         /// Shape and dtype of operator inputs.
         ///
-        /// This can be `None` if input metadata was not captured. Individual
-        /// inputs can be `None` if it is a missing optional input.
-        inputs: Option<Vec<Option<InputMeta>>>,
+        /// Inputs can be `None` if they are optional inputs which were not
+        /// provided.
+        inputs: Vec<Option<InputMeta>>,
     },
 
     /// The output of a graph operator did not match expectations (eg. the
@@ -74,16 +74,35 @@ pub enum RunError {
 }
 
 impl RunError {
-    pub(crate) fn op_error(name: &str, error: OpError, ctx: Option<&OpRunContext>) -> Self {
+    pub(crate) fn op_error(name: &str, error: OpError, ctx: &OpRunContext) -> Self {
         RunError::OperatorError {
             name: name.to_string(),
             error,
-            inputs: ctx.map(|ctx| {
-                ctx.inputs()
-                    .iter()
-                    .map(|inp| inp.map(|inp| inp.to_meta()))
-                    .collect()
-            }),
+            inputs: ctx
+                .inputs()
+                .iter()
+                .map(|inp| inp.map(|inp| inp.to_meta()))
+                .collect(),
+        }
+    }
+
+    pub(crate) fn in_place_op_error(
+        name: &str,
+        error: OpError,
+        ctx: &OpRunContext,
+        main_input_dtype: DataType,
+        main_input_shape: &[usize],
+    ) -> Self {
+        let meta = InputMeta {
+            dtype: main_input_dtype,
+            shape: main_input_shape.to_vec(),
+        };
+        let mut inputs: Vec<_> = [Some(meta)].into();
+        inputs.extend(ctx.inputs().iter().map(|inp| inp.map(|inp| inp.to_meta())));
+        RunError::OperatorError {
+            name: name.to_string(),
+            error,
+            inputs,
         }
     }
 }
@@ -912,16 +931,34 @@ impl Graph {
             };
 
             // Run the operation.
+            let get_prepacked = |input_index: usize| -> Option<&PrepackedInput> {
+                op_node
+                    .input_ids()
+                    .get(input_index)
+                    .copied()
+                    .flatten()
+                    .and_then(|node_id| weight_cache.and_then(|wc| wc.get(node_id)))
+            };
+            let inputs = InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
+            let mut ctx = OpRunContext::new(pool, &inputs);
+            ctx.set_num_outputs(op_node.output_ids().len() as u32);
+
             let op_result = if let Some(input) = in_place_input {
-                let inputs = InputList::from_optional(&op_inputs);
-                let ctx = OpRunContext::new(pool, &inputs);
+                let input_dtype = input.dtype();
+                let input_shape: SmallVec<[usize; 4]> = SmallVec::from_slice(input.shape());
                 op_node
                     .operator()
                     .run_in_place(input, &ctx)
                     .map(|out| [out].into())
                     .map_err(|e| {
                         // The error here is currently missing information about operator inputs.
-                        RunError::op_error(op_node.name().unwrap_or_default(), e, None)
+                        RunError::in_place_op_error(
+                            op_node.name().unwrap_or_default(),
+                            e,
+                            &ctx,
+                            input_dtype,
+                            &input_shape,
+                        )
                     })
             } else if has_subgraph {
                 let capture_env = CaptureEnv::new(
@@ -931,8 +968,6 @@ impl Graph {
                     Some(&temp_values),
                     by_value_captures,
                 );
-                let inputs = InputList::from_optional(&op_inputs);
-                let ctx = OpRunContext::new(pool, &inputs);
                 op_node.operator().run_subgraph(
                     &ctx,
                     capture_env,
@@ -941,20 +976,10 @@ impl Graph {
                     Some(opts.clone()),
                 )
             } else {
-                let get_prepacked = |input_index: usize| -> Option<&PrepackedInput> {
-                    op_node
-                        .input_ids()
-                        .get(input_index)
-                        .copied()
-                        .flatten()
-                        .and_then(|node_id| weight_cache.and_then(|wc| wc.get(node_id)))
-                };
-                let inputs = InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
-                let mut ctx = OpRunContext::new(pool, &inputs);
-                ctx.set_num_outputs(op_node.output_ids().len() as u32);
-                op_node.operator().run(&ctx).map_err(|e| {
-                    RunError::op_error(op_node.name().unwrap_or_default(), e, Some(&ctx))
-                })
+                op_node
+                    .operator()
+                    .run(&ctx)
+                    .map_err(|e| RunError::op_error(op_node.name().unwrap_or_default(), e, &ctx))
             };
             std::mem::drop(op_inputs);
 
@@ -1777,7 +1802,7 @@ mod tests {
             Some(RunError::OperatorError {
                 name: "shape".to_string(),
                 error: OpError::MissingInputs,
-                inputs: Some([None].into()),
+                inputs: [None].into(),
             })
         );
     }
