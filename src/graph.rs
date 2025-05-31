@@ -914,9 +914,10 @@ impl Graph {
             // Run the operation.
             let op_result = if let Some(input) = in_place_input {
                 let inputs = InputList::from_optional(&op_inputs);
+                let ctx = OpRunContext::new(pool, &inputs);
                 op_node
                     .operator()
-                    .run_in_place(pool, input, inputs)
+                    .run_in_place(input, &ctx)
                     .map(|out| [out].into())
                     .map_err(|e| {
                         // The error here is currently missing information about operator inputs.
@@ -948,9 +949,8 @@ impl Graph {
                         .flatten()
                         .and_then(|node_id| weight_cache.and_then(|wc| wc.get(node_id)))
                 };
-                let input_list =
-                    InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
-                let mut ctx = OpRunContext::new(pool, &input_list);
+                let inputs = InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
+                let mut ctx = OpRunContext::new(pool, &inputs);
                 ctx.set_num_outputs(op_node.output_ids().len() as u32);
                 op_node.operator().run(&ctx).map_err(|e| {
                     RunError::op_error(op_node.name().unwrap_or_default(), e, Some(&ctx))
@@ -1184,10 +1184,9 @@ mod tests {
     use super::{CachedPlan, CaptureEnv};
     use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TypedConstant};
     use crate::ops::{
-        Add, Concat, Conv, DataType, Identity, If, Input, InputList, IntoOpResult, MatMul, Mul,
-        OpError, OpRunContext, Operator, Output, OutputList, PrepackedInput, Relu, Shape,
+        Add, Concat, Conv, DataType, Identity, If, Input, IntoOpResult, MatMul, Mul, OpError,
+        OpRunContext, Operator, Output, OutputList, PrepackedInput, Relu, Shape,
     };
-    use crate::tensor_pool::TensorPool;
     use crate::timing::Profiler;
     use crate::weight_cache::WeightCache;
 
@@ -1241,17 +1240,12 @@ mod tests {
             self.inner.run(ctx)
         }
 
-        fn run_in_place(
-            &self,
-            pool: &TensorPool,
-            output: Output,
-            inputs: InputList,
-        ) -> Result<Output, OpError> {
+        fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
             {
                 let mut m = self.metrics.lock().unwrap();
                 m.run_in_place_count += 1;
             }
-            self.inner.run_in_place(pool, output, inputs)
+            self.inner.run_in_place(input, ctx)
         }
     }
 
@@ -1820,12 +1814,7 @@ mod tests {
             input.to_tensor().into_op_result()
         }
 
-        fn run_in_place(
-            &self,
-            _pool: &TensorPool,
-            input: Output,
-            _other: InputList,
-        ) -> Result<Output, OpError> {
+        fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
             let mut output = input.into_tensor::<f32>().unwrap();
             for x in output.iter_mut() {
                 *x = *x + 1.0;

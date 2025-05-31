@@ -1,7 +1,7 @@
 use rten_tensor::prelude::*;
 
 use crate::ops::{
-    DataType, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
+    DataType, Input, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -65,17 +65,12 @@ impl Operator for Cast {
         true
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        input: Output,
-        _: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
         if input.dtype() == self.to {
             Ok(input)
         } else {
-            let converted = cast(pool, input.as_input(), self.to)?;
-            input.add_to_pool(pool);
+            let converted = cast(ctx.pool(), input.as_input(), self.to)?;
+            input.add_to_pool(ctx.pool());
             Ok(converted)
         }
     }
@@ -100,19 +95,14 @@ impl Operator for CastLike {
         true
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        input: Output,
-        other: InputList,
-    ) -> Result<Output, OpError> {
-        let to_type = other.require(0)?.dtype();
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+        let to_type = ctx.inputs().require(0)?.dtype();
 
         if input.dtype() == to_type {
             Ok(input)
         } else {
-            let converted = cast(pool, input.as_input(), to_type)?;
-            input.add_to_pool(pool);
+            let converted = cast(ctx.pool(), input.as_input(), to_type)?;
+            input.add_to_pool(ctx.pool());
             Ok(converted)
         }
     }

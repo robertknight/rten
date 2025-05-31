@@ -132,15 +132,10 @@ impl Operator for Concat {
         true
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        first: Output,
-        rest: InputList,
-    ) -> Result<Output, OpError> {
-        map_output!(first, first, [FloatTensor, Int32Tensor], {
-            let typed_inputs = typed_inputs(&rest, first.view())?;
-            concat_in_place(pool, first, &typed_inputs, self.axis).map(|t| t.into())
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+        map_output!(input, input, [FloatTensor, Int32Tensor], {
+            let typed_inputs = typed_inputs(ctx.inputs(), input.view())?;
+            concat_in_place(ctx.pool(), input, &typed_inputs, self.axis).map(|t| t.into())
         })
     }
 }
@@ -268,21 +263,16 @@ impl Operator for Tile {
         true
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        output: Output,
-        inputs: InputList,
-    ) -> Result<Output, OpError> {
-        let repeats = inputs.require_as::<i32>(0)?;
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+        let repeats = ctx.inputs().require_as::<i32>(0)?;
         let repeats = static_dims!(repeats, 1)?;
 
         if repeats.iter().all(|n| *n == 1) {
-            return Ok(output);
+            return Ok(input);
         }
 
-        map_output!(output, input, [FloatTensor, Int32Tensor], {
-            tile(pool, input.view(), repeats).map(|t| t.into())
+        map_output!(input, input, [FloatTensor, Int32Tensor], {
+            tile(ctx.pool(), input.view(), repeats).map(|t| t.into())
         })
     }
 }

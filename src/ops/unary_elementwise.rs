@@ -11,8 +11,7 @@ use rten_vecmath as vecmath;
 
 use crate::number::AsBool;
 use crate::ops::{
-    map_input, map_output, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output,
-    OutputList,
+    map_input, map_output, Input, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -49,12 +48,7 @@ impl<Op: Any + Debug + UnaryFloatOp> Operator for Op {
         true
     }
 
-    fn run_in_place(
-        &self,
-        _pool: &TensorPool,
-        input: Output,
-        _: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
         let mut output = input
             .into_tensor::<f32>()
             .ok_or(OpError::IncorrectInputType)?;
@@ -89,14 +83,9 @@ macro_rules! unary_numeric_op {
                 true
             }
 
-            fn run_in_place(
-                &self,
-                pool: &TensorPool,
-                input: Output,
-                _: InputList,
-            ) -> Result<Output, OpError> {
+            fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
                 map_output!(input, input, [FloatTensor, Int32Tensor], {
-                    let result = $mut_impl(pool, input);
+                    let result = $mut_impl(ctx.pool(), input);
                     Ok(result.into())
                 })
             }
@@ -195,17 +184,12 @@ macro_rules! parallel_unary_float_op {
                 $func_name(ctx.pool(), ctx.inputs().require_as(0)?).into_op_result()
             }
 
-            fn run_in_place(
-                &self,
-                pool: &TensorPool,
-                input: Output,
-                _: InputList,
-            ) -> Result<Output, OpError> {
+            fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
                 let tensor = input
                     .into_tensor::<f32>()
                     .ok_or(OpError::IncorrectInputType)?;
                 let kernel = $simd_kernel;
-                let result = par_unary_op_in_place(pool, tensor, kernel);
+                let result = par_unary_op_in_place(ctx.pool(), tensor, kernel);
                 Ok(result.into())
             }
         }
@@ -343,15 +327,10 @@ impl Operator for Clip {
         true
     }
 
-    fn run_in_place(
-        &self,
-        _pool: &TensorPool,
-        input: Output,
-        other: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
         map_output!(input, input, [FloatTensor, Int32Tensor], {
-            let min = other.get_as_scalar(0)?;
-            let max = other.get_as_scalar(1)?;
+            let min = ctx.inputs().get_as_scalar(0)?;
+            let max = ctx.inputs().get_as_scalar(1)?;
             clip_in_place(&mut input, min, max);
             Ok(input.into())
         })
@@ -413,19 +392,14 @@ impl Operator for Gelu {
         gelu(ctx.pool(), ctx.inputs().require_as(0)?, self.approximate).into_op_result()
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        input: Output,
-        _: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
         let tensor = input
             .into_tensor::<f32>()
             .ok_or(OpError::IncorrectInputType)?;
         let result = if self.approximate {
-            par_unary_op_in_place(pool, tensor, vecmath::ApproxGelu {})
+            par_unary_op_in_place(ctx.pool(), tensor, vecmath::ApproxGelu {})
         } else {
-            par_unary_op_in_place(pool, tensor, vecmath::Gelu {})
+            par_unary_op_in_place(ctx.pool(), tensor, vecmath::Gelu {})
         };
         Ok(result.into())
     }
@@ -543,12 +517,7 @@ impl Operator for Not {
         true
     }
 
-    fn run_in_place(
-        &self,
-        _pool: &TensorPool,
-        input: Output,
-        _: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
         let mut output = input
             .into_tensor::<i32>()
             .ok_or(OpError::IncorrectInputType)?;
@@ -612,16 +581,11 @@ impl Operator for Swish {
         swish(ctx.pool(), ctx.inputs().require_as(0)?, self.beta).into_op_result()
     }
 
-    fn run_in_place(
-        &self,
-        pool: &TensorPool,
-        input: Output,
-        _: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
         let tensor = input
             .into_tensor::<f32>()
             .ok_or(OpError::IncorrectInputType)?;
-        let output = swish_in_place(pool, tensor, self.beta);
+        let output = swish_in_place(ctx.pool(), tensor, self.beta);
         Ok(output.into())
     }
 }

@@ -8,9 +8,7 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::ops::static_dims;
-use crate::ops::{
-    resolve_axis, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
-};
+use crate::ops::{resolve_axis, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList};
 use crate::slice_reductions::slice_max;
 use crate::tensor_pool::TensorPool;
 
@@ -261,25 +259,21 @@ impl Operator for BatchNormalization {
         true
     }
 
-    fn run_in_place(
-        &self,
-        _pool: &TensorPool,
-        input: Output,
-        other: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+        let inputs = ctx.inputs();
         let mut output = input
             .into_tensor::<f32>()
             .ok_or(OpError::IncorrectInputType)?;
-        let scale = other.require_as(0)?;
+        let scale = inputs.require_as(0)?;
         let scale = static_dims!(scale, 1)?;
 
-        let bias = other.require_as(1)?;
+        let bias = inputs.require_as(1)?;
         let bias = static_dims!(bias, 1)?;
 
-        let mean = other.require_as(2)?;
+        let mean = inputs.require_as(2)?;
         let mean = static_dims!(mean, 1)?;
 
-        let var = other.require_as(3)?;
+        let var = inputs.require_as(3)?;
         let var = static_dims!(var, 1)?;
 
         batch_norm_in_place(&mut output, &scale, &bias, &mean, &var, self.epsilon)?;
@@ -362,16 +356,12 @@ impl Operator for InstanceNormalization {
         true
     }
 
-    fn run_in_place(
-        &self,
-        _pool: &TensorPool,
-        output: Output,
-        inputs: InputList,
-    ) -> Result<Output, OpError> {
-        let mut output = output
+    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+        let mut output = input
             .into_tensor::<f32>()
             .ok_or(OpError::IncorrectInputType)?;
 
+        let inputs = ctx.inputs();
         let scale = inputs.require_as(0)?;
         let scale = static_dims!(scale, 1)?;
 
@@ -662,12 +652,7 @@ impl Operator for LogSoftmax {
         true
     }
 
-    fn run_in_place(
-        &self,
-        _pool: &TensorPool,
-        input: Output,
-        _other: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
         let mut output = input
             .into_tensor::<f32>()
             .ok_or(OpError::IncorrectInputType)?;
@@ -708,12 +693,7 @@ impl Operator for Softmax {
         true
     }
 
-    fn run_in_place(
-        &self,
-        _pool: &TensorPool,
-        input: Output,
-        _other: InputList,
-    ) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
         let mut output = input
             .into_tensor::<f32>()
             .ok_or(OpError::IncorrectInputType)?;
