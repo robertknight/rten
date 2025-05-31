@@ -9,16 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten
 
-- Fix performance regression in int8 model inference on Arm under Rust v1.87+
+- Support `Pow` operator with different base and exponent types
+  (https://github.com/robertknight/rten/pull/724)
+
+- Added information about operator input shapes and data types to operator
+  errors (https://github.com/robertknight/rten/pull/721,
+  https://github.com/robertknight/rten/pull/723)
+
+- Combined profiling outputs for main graph and subgraphs (https://github.com/robertknight/rten/pull/718)
+
+- Added support for `approximate="tanh"` attribute in `Gelu` operator and
+  support fusing approximate Gelu subgraphs (https://github.com/robertknight/rten/pull/717)
+
+- Improved efficiency of applying unary op fusions to graphs
+  (https://github.com/robertknight/rten/pull/716)
+
+- Added API and CLI options to set number of threads used for inference
+  (https://github.com/robertknight/rten/pull/712)
+
+- Updated AVX-512 support for latest Rust nightly (https://github.com/robertknight/rten/pull/711)
+
+- Fixed optimizer issue where optimized graph could run the same operator
+  multiple times if intermediate values in fused subgraphs were used outside
+  the subgraph (https://github.com/robertknight/rten/pull/709)
+
+- Fixed performance regression in int8 model inference on Arm under Rust v1.87+
   (https://github.com/robertknight/rten/pull/706)
 
-- Fix issue where performance of vectorized unary operators could significantly
+- Fixed issue where performance of vectorized unary operators could significantly
   degrade in certain contexts (https://github.com/robertknight/rten/pull/705)
 
-- Remove the `{operation}_in_place` functions for most unary operators
+- Removed the `{operation}_in_place` functions for most unary operators
   (https://github.com/robertknight/rten/pull/703)
 
-- Parallelize `LayerNormalization`, `RmsNormalization` operators
+- Parallelized `LayerNormalization`, `RmsNormalization` operators
   (https://github.com/robertknight/rten/pull/698)
 
 - Support fusing `Transpose` + `MatMul` subgraphs where both inputs are
@@ -27,19 +51,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support `Split` v13 operators that don't specify the expected number of
   outputs (https://github.com/robertknight/rten/pull/692)
 
-- Improve execution planning error messages, e.g. when there is no way to
+- Improved execution planning error messages, e.g. when there is no way to
   compute the requested outputs given the inputs (https://github.com/robertknight/rten/pull/688,
   https://github.com/robertknight/rten/pull/690)
 
-- Improve input validation in `Slice` op (https://github.com/robertknight/rten/pull/687)
+- Improved input validation in `Slice` op (https://github.com/robertknight/rten/pull/687)
 
 - Fixed issue where fast paths were not always used in `Slice` op
   (https://github.com/robertknight/rten/pull/686)
 
 ### rten-generate
 
-- Add `Metrics::token_count` API which provides a convenient way to get the
+- Added `Metrics::token_count` API which provides a convenient way to get the
   total number of generated tokens (https://github.com/robertknight/rten/pull/699)
+
+### rten-tensor
+
+- Added `DoubleEndedIterator` support to several iterators (https://github.com/robertknight/rten/pull/720)
+
+- Optimized tensor iteration for non-contiguous tensors (https://github.com/robertknight/rten/pull/713)
 
 ## [0.18.0] - 2025-05-08
 
