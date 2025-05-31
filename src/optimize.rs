@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -335,22 +336,26 @@ impl GraphOptimizer {
         }
         self.propagate_constants(&mut graph_mut)?;
 
-        // Fuse patterns for unary operators.
-        self.fuse_patterns(
+        // Fuse operators.
+        //
+        // The ordering is significant as fusions are tried in turn until a
+        // match is found.
+        self.apply_fusions(
             &mut graph_mut,
             &[
-                &SiluFusion {},
-                &SwishFusion {},
-                &GeluFusion {},
-                &ApproxGeluFusion {},
+                &SiluFusion {}.into_visitor(),
+                &SwishFusion {}.into_visitor(),
+                &GeluFusion {}.into_visitor(),
+                &ApproxGeluFusion {}.into_visitor(),
+                &LayerNormalizationFusion {},
+                &RmsNormalizationFusion {},
+                &MatMulAddFusion {},
+                &MatMulScaleFusion {},
             ],
         )?;
 
-        self.fuse_layer_norm(&mut graph_mut)?;
-        self.fuse_rms_norm(&mut graph_mut)?;
-        self.fuse_matmul_add(&mut graph_mut)?;
-        self.fuse_matmul_scaled(&mut graph_mut)?;
-        self.fuse_transpose(&mut graph_mut)?;
+        // Fuse view operations (transpose etc.) with computations.
+        self.apply_fusions(&mut graph_mut, &[&TransposeFusion {}])?;
 
         Ok(graph_mut.finalize_graph())
     }
@@ -428,352 +433,30 @@ impl GraphOptimizer {
         Ok(())
     }
 
-    /// Fuse `Op(Transpose(X), Y, ...) -> Z` into `FusedTranspose<Op>(X, Y, ...) -> Z`.
+    /// Traverse the graph and test each operator node against a sequence of
+    /// fusion visitors, applying the first returned fusion if any.
     ///
-    /// This avoids materializing the transposed input for operators which can
-    /// efficiently handle the input being non-contiguous.
-    fn fuse_transpose(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        graph.apply_fusion(|graph, _op_node_id, op_node| {
-            // Filter against a set of operators which are known to efficiently
-            // handle transposed inputs.
-            if !["MatMul", "FusedMatMul"].contains(&op_node.operator().name()) {
-                return None;
-            }
-
-            let has_transposed_input = op_node.input_ids().iter().any(|input| {
-                input
-                    .and_then(|input| graph.graph().get_source_node(input))
-                    .and_then(|(_, src_op)| src_op.operator().downcast_ref::<Transpose>())
-                    .is_some()
-            });
-            if !has_transposed_input {
-                return None;
-            }
-
-            let mut fused_op = TransformInputsBuilder::new(op_node.clone_operator());
-            let mut fused_inputs = op_node.input_ids().to_vec();
-
-            for (i, input) in op_node.input_ids().iter().enumerate() {
-                let Some((_, source_node)) =
-                    input.and_then(|input| graph.graph().get_source_node(input))
-                else {
-                    continue;
-                };
-
-                let &[transpose_input] = source_node.input_ids() else {
-                    continue;
-                };
-                let Some(transpose) = source_node.operator().downcast_ref::<Transpose>() else {
-                    continue;
-                };
-
-                fused_op = fused_op.permute(i, transpose.perm.clone());
-                fused_inputs[i] = transpose_input;
-            }
-
-            Some(Fusion::from_op(
-                op_node.name(),
-                Box::new(fused_op.build()),
-                &fused_inputs,
-                op_node.output_ids(),
-            ))
-        });
-
-        Ok(())
-    }
-
-    /// Find matches for unary operator fusion patterns and replace them with
-    /// fused operators.
-    ///
-    /// This method walks the graph once and tests each operator against
-    /// the fusion patterns, applying the first one that matches.
-    fn fuse_patterns(
+    /// This function visits each operator only once, so won't combine multiple
+    /// fusions. Fusions that can be combined must be applied in separate
+    /// passes.
+    fn apply_fusions(
         &self,
         graph: &mut GraphMutator,
-        fusions: &[&dyn PatternFusion],
+        visitors: &[&dyn FusionVisitor],
     ) -> Result<(), OptimizeError> {
-        // Create the patterns once outside the loop over operators.
-        let patterns: Vec<_> = fusions.iter().map(|f| f.pattern()).collect();
+        // Create the prepared state once and then re-use it for each operator
+        // visited.
+        let prepared_state: Vec<_> = visitors.iter().map(|f| f.prepare(graph.graph())).collect();
 
         graph.apply_fusion(|graph, op_node_id, op_node| {
-            for (fusion, pattern) in fusions.iter().zip(&patterns) {
-                if let Some(pat_match) = pattern.test(op_node_id, graph.graph()) {
-                    let input_id = pat_match.node_id("x").expect("missing symbol");
-                    let Ok(fused_op) = fusion.create_fused_op(&pat_match, graph.graph()) else {
-                        continue;
-                    };
-                    let fusion = Fusion::from_op(
-                        op_node.name(),
-                        fused_op,
-                        &[Some(input_id)],
-                        op_node.output_ids(),
-                    );
+            for (visitor, state) in visitors.iter().zip(&prepared_state) {
+                if let Some(fusion) =
+                    visitor.maybe_fuse(state.as_ref(), graph.graph(), op_node_id, op_node)
+                {
                     return Some(fusion);
                 }
             }
-
             None
-        });
-        Ok(())
-    }
-
-    /// Fuse `Add(MatMul(a, b), bias)` into `MatMulAdd(a, b, bias)`.
-    fn fuse_matmul_add(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        let a = symbol("a");
-        let b = symbol("b");
-        let bias = const_symbol("bias");
-        let matmul_add_pat = binary_op(
-            "Add",
-            binary_op("MatMul", a.clone(), b.clone()),
-            bias.clone(),
-        );
-
-        graph.apply_fusion(|graph, op_node_id, op_node| {
-            let matmul_add_match = matmul_add_pat.test(op_node_id, graph.graph())?;
-
-            let a_input = matmul_add_match.node_id("a").unwrap();
-            let b_input = matmul_add_match.node_id("b").unwrap();
-            let bias_input = matmul_add_match.node_id("bias").unwrap();
-
-            let is_bias_a_vector = match graph.graph().get_node(bias_input) {
-                Some(Node::Constant(const_node)) => const_node.shape().len() == 1,
-                _ => false,
-            };
-
-            if !is_bias_a_vector {
-                return None;
-            }
-
-            Some(Fusion::from_op(
-                op_node.name(),
-                Box::new(FusedMatMul { alpha: None }),
-                &[Some(a_input), Some(b_input), Some(bias_input)],
-                op_node.output_ids(),
-            ))
-        });
-
-        Ok(())
-    }
-
-    /// Fuse multiplication or division of MatMul inputs and outputs by
-    /// scalars.
-    ///
-    /// A subgraph of the form `Mul(MatMul(Mul(X, c), Mul(Y, d)), e)` where c, d
-    /// and e are constants can be rewritten as `FusedMatMul(X, Y, alpha=c * d *
-    /// e)`. Each `Mul(X, c)` can also be expressed as `Div(X, 1/c)`.
-    fn fuse_matmul_scaled(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        let binary_op_input_ids = |op: &OperatorNode| -> Option<[NodeId; 2]> {
-            match op.input_ids() {
-                [Some(lhs_id), Some(rhs_id)] => Some([*lhs_id, *rhs_id]),
-                _ => None,
-            }
-        };
-
-        // Test if `op_node` is a Mul or Div node with one constant scalar
-        // input and one non-constant input. If so, returns the constant scalar
-        // which the node multiplies the other input by and the ID of the other
-        // input.
-        let get_scale_factor =
-            |graph: &GraphMutator, op_node: &OperatorNode| -> Option<(f32, NodeId)> {
-                let op_type = op_node.operator().name();
-                if !["Mul", "Div"].contains(&op_type) {
-                    return None;
-                }
-
-                let [lhs, rhs] = binary_op_input_ids(op_node)?;
-                let lhs_scalar = graph.graph().get_scalar(lhs);
-                let rhs_scalar = graph.graph().get_scalar(rhs);
-
-                match op_type {
-                    "Mul" => match (lhs_scalar, rhs_scalar) {
-                        (Some(lhs_scale), None) => Some((lhs_scale, rhs)),
-                        (None, Some(rhs_scale)) => Some((rhs_scale, lhs)),
-                        _ => None,
-                    },
-                    "Div" => match (lhs_scalar, rhs_scalar) {
-                        (None, Some(rhs_scale)) => Some((1. / rhs_scale, lhs)),
-                        _ => None,
-                    },
-                    _ => None,
-                }
-            };
-
-        graph.apply_fusion(|graph, _op_node_id, op_node| {
-            // Accumulated scale factor from scalings applied to MatMul inputs
-            // and outputs.
-            let mut alpha = 1.0;
-
-            // Check if this is a Mul/Div node scaling the output of a MatMul.
-            let matmul_node = if ["Mul", "Div"].contains(&op_node.operator().name()) {
-                let (output_scale, scale_input) = get_scale_factor(graph, op_node)?;
-                alpha *= output_scale;
-                let (_, scale_input_op) = graph.graph().get_source_node(scale_input)?;
-                scale_input_op
-            } else {
-                op_node
-            };
-
-            if matmul_node.operator().name() != "MatMul" {
-                return None;
-            }
-
-            let [matmul_lhs, matmul_rhs] = binary_op_input_ids(matmul_node)?;
-            let lhs_input =
-                if let Some((_, lhs_source_op)) = graph.graph().get_source_node(matmul_lhs) {
-                    let (lhs_scale, lhs_input) =
-                        get_scale_factor(graph, lhs_source_op).unwrap_or((1.0, matmul_lhs));
-                    alpha *= lhs_scale;
-                    lhs_input
-                } else {
-                    // MatMul LHS is not computed by an upstream operator.
-                    matmul_lhs
-                };
-
-            let rhs_input =
-                if let Some((_, rhs_source_op)) = graph.graph().get_source_node(matmul_rhs) {
-                    let (rhs_scale, rhs_input) =
-                        get_scale_factor(graph, rhs_source_op).unwrap_or((1.0, matmul_rhs));
-                    alpha *= rhs_scale;
-                    rhs_input
-                } else {
-                    // MatMul RHS is not computed by an upstream operator.
-                    matmul_rhs
-                };
-
-            if alpha == 1.0 {
-                // Scale factor of 1 has no effect.
-                return None;
-            }
-
-            Some(Fusion::from_op(
-                matmul_node.name(),
-                Box::new(FusedMatMul { alpha: Some(alpha) }),
-                &[Some(lhs_input), Some(rhs_input)],
-                op_node.output_ids(),
-            ))
-        });
-
-        Ok(())
-    }
-
-    /// Fuse `RMSNormalization(x)`.
-    ///
-    /// See https://pytorch.org/docs/stable/generated/torch.nn.modules.normalization.RMSNorm.html.
-    fn fuse_rms_norm(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        let x = symbol("x");
-        let scale = const_symbol("scale");
-        let epsilon = const_symbol("epsilon");
-
-        // The scaling of the input is canonically written as `x / (sqrt(rms) + epsilon)`.
-        //
-        // Here we test for `x * 1/(sqrt(rms) + epsilon)` because that is the
-        // observed pattern in models like T5. Ideally we would recognize both.
-        let rms_pat = x.clone()
-            * (1.
-                / unary_op(
-                    "Sqrt",
-                    epsilon
-                        + unary_op_key("ReduceMean", binary_op("Pow", x.clone(), 2.0), "norm_mean"),
-                ))
-            * scale;
-
-        graph.apply_fusion(|graph, op_node_id, op_node| {
-            let rms_match = rms_pat.test(op_node_id, graph.graph())?;
-            let x_input = rms_match.node_id("x").unwrap();
-            let epsilon_input = rms_match.node_id("epsilon").unwrap();
-            let epsilon = graph.graph().get_scalar(epsilon_input)?;
-            let scale_input = rms_match.node_id("scale").unwrap();
-            let norm_mean = rms_match.node_id("norm_mean").unwrap();
-
-            if !mean_op_reduces_last_axis(graph.graph(), norm_mean) {
-                return None;
-            }
-
-            Some(Fusion::from_op(
-                op_node.name(),
-                Box::new(RmsNormalization {
-                    axis: -1,
-                    epsilon: Some(epsilon),
-                }),
-                &[Some(x_input), Some(scale_input)],
-                op_node.output_ids(),
-            ))
-        });
-
-        Ok(())
-    }
-
-    /// Identify and fuse common patterns for `LayerNormalization(X)`.
-    fn fuse_layer_norm(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        let x = symbol("x");
-
-        // LayerNormalization has three steps. Pattern matching only supports a
-        // single expression, so we use three patterns and match them in reverse
-        // order (ie. starting from the output of the final step).
-
-        // First step: Center values
-        let center_pat = x.clone() - unary_op_key("ReduceMean", x.clone(), "center_mean");
-
-        // Middle step: Normalize variance
-        let epsilon = const_symbol("epsilon");
-        let normalize_variance_pat = x.clone()
-            / unary_op(
-                "Sqrt",
-                epsilon + unary_op_key("ReduceMean", binary_op("Pow", x.clone(), 2.0), "norm_mean"),
-            );
-
-        // Final step: Scale, and optionally shift, the normalized values
-        let bias = const_symbol("bias");
-        let scale = const_symbol("scale");
-        let shift_scale_pat = (x.clone() * scale.clone()) + bias;
-        let scale_pat = x.clone() * scale;
-
-        graph.apply_fusion(|graph, op_node_id, op_node| {
-            let (shift_scale_input, bias_input, scale_input) =
-                if let Some(shift_scale_match) = shift_scale_pat.test(op_node_id, graph.graph()) {
-                    // Found match for scale + bias.
-                    let shift_scale_input = shift_scale_match.node_id("x").unwrap();
-                    let bias_input = shift_scale_match.node_id("bias").unwrap();
-                    let scale_input = shift_scale_match.node_id("scale").unwrap();
-                    (shift_scale_input, Some(bias_input), scale_input)
-                } else if let Some(scale_match) = scale_pat.test(op_node_id, graph.graph()) {
-                    // Found match for scale only.
-                    let x_input = scale_match.node_id("x").unwrap();
-                    let scale_input = scale_match.node_id("scale").unwrap();
-                    (x_input, None, scale_input)
-                } else {
-                    return None;
-                };
-
-            let norm_match = normalize_variance_pat.test(shift_scale_input, graph.graph())?;
-            let norm_input = norm_match.node_id("x").unwrap();
-            let epsilon_input = norm_match.node_id("epsilon").unwrap();
-            let norm_mean = norm_match.node_id("norm_mean").unwrap();
-            if !mean_op_reduces_last_axis(graph.graph(), norm_mean) {
-                // The LayerNormalization operator supports taking the mean over
-                // multiple trailing axes. However this fusion only supports the
-                // common case of taking the mean over one axis.
-                return None;
-            }
-
-            let center_match = center_pat.test(norm_input, graph.graph())?;
-            let center_input = center_match.node_id("x").unwrap();
-            let center_mean = center_match.node_id("center_mean").unwrap();
-            if !mean_op_reduces_last_axis(graph.graph(), center_mean) {
-                return None;
-            }
-
-            let epsilon = graph.graph().get_scalar(epsilon_input)?;
-
-            Some(Fusion::from_op(
-                op_node.name(),
-                Box::new(LayerNormalization {
-                    axis: -1,
-                    epsilon: Some(epsilon),
-                }),
-                &[Some(center_input), Some(scale_input), bias_input],
-                op_node.output_ids(),
-            ))
         });
 
         Ok(())
@@ -812,11 +495,13 @@ fn mean_op_reduces_last_axis(graph: &Graph, node_id: NodeId) -> bool {
     }
 }
 
-type FuseResult = Result<Box<dyn Operator + Send + Sync>, ()>;
-
 /// Defines a fusion that matches a graph pattern and replaces it with a fused
 /// operator.
-trait PatternFusion {
+///
+/// This is a simplified version of [`FusionVisitor`].
+trait UnaryOpFusion {
+    type Operator: Operator + Send + Sync;
+
     /// Return the graph pattern to match.
     ///
     /// The pattern expression should have a single input named "x".
@@ -826,12 +511,22 @@ trait PatternFusion {
     ///
     /// This can fail if there are additional requirements which cannot be
     /// expressed in the pattern.
-    fn create_fused_op(&self, pat_match: &Match, g: &Graph) -> FuseResult;
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Self::Operator, ()>;
+
+    /// Wrap this fusion into a [`FusionVisitor`].
+    fn into_visitor(self) -> impl FusionVisitor
+    where
+        Self: Sized + 'static,
+    {
+        UnaryOpFusionVisitor(self)
+    }
 }
 
 struct GeluFusion {}
 
-impl PatternFusion for GeluFusion {
+impl UnaryOpFusion for GeluFusion {
+    type Operator = Gelu;
+
     fn pattern(&self) -> Pattern {
         // The expression for GELU is usually written as `x * 0.5 * (...)`
         // instead of `x * (...) * 0.5`. Ideally our graph pattern matcher
@@ -842,14 +537,16 @@ impl PatternFusion for GeluFusion {
         x.clone() * (unary_op("Erf", x.clone() / (2.0f32).sqrt()) + 1.0) * 0.5
     }
 
-    fn create_fused_op(&self, _: &Match, _: &Graph) -> FuseResult {
-        Ok(Box::new(Gelu { approximate: false }))
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Self::Operator, ()> {
+        Ok(Gelu { approximate: false })
     }
 }
 
 struct ApproxGeluFusion {}
 
-impl PatternFusion for ApproxGeluFusion {
+impl UnaryOpFusion for ApproxGeluFusion {
+    type Operator = Gelu;
+
     fn pattern(&self) -> Pattern {
         // Pattern for tanh approximate of gelu. See
         // https://onnx.ai/onnx/operators/onnx__Gelu.html.
@@ -864,39 +561,469 @@ impl PatternFusion for ApproxGeluFusion {
                 ))
     }
 
-    fn create_fused_op(&self, _: &Match, _: &Graph) -> FuseResult {
-        Ok(Box::new(Gelu { approximate: true }))
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Self::Operator, ()> {
+        Ok(Gelu { approximate: true })
     }
 }
 
 struct SiluFusion {}
 
-impl PatternFusion for SiluFusion {
+impl UnaryOpFusion for SiluFusion {
+    type Operator = Silu;
+
     fn pattern(&self) -> Pattern {
         let x = symbol("x");
         x.clone() * unary_op("Sigmoid", x.clone())
     }
 
-    fn create_fused_op(&self, _: &Match, _: &Graph) -> FuseResult {
-        Ok(Box::new(Silu {}))
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Silu, ()> {
+        Ok(Silu {})
     }
 }
 
 struct SwishFusion {}
 
-impl PatternFusion for SwishFusion {
+impl UnaryOpFusion for SwishFusion {
+    type Operator = Swish;
+
     fn pattern(&self) -> Pattern {
         let x = symbol("x");
         let beta = const_symbol("beta");
         x.clone() * unary_op("Sigmoid", beta * x.clone())
     }
 
-    fn create_fused_op(&self, pat_match: &Match, g: &Graph) -> FuseResult {
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Swish, ()> {
         let beta_input = pat_match.node_id("beta").expect("missing symbol");
         let Some(beta) = g.get_scalar(beta_input) else {
             return Err(());
         };
-        Ok(Box::new(Swish { beta }))
+        Ok(Swish { beta })
+    }
+}
+
+/// Wraps a [`UnaryOpFusion`] to implement [`FusionVisitor`].
+struct UnaryOpFusionVisitor<F: UnaryOpFusion + 'static>(F);
+
+impl<U: UnaryOpFusion + 'static> FusionVisitor for UnaryOpFusionVisitor<U> {
+    fn prepare(&self, _: &Graph) -> Box<dyn Any> {
+        Box::new(self.0.pattern())
+    }
+
+    fn maybe_fuse(
+        &self,
+        state: &dyn Any,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        let pattern: &Pattern = state.downcast_ref().unwrap();
+        let pat_match = pattern.test(op_node_id, graph)?;
+        let input_id = pat_match.node_id("x").expect("missing symbol");
+        let fused_op = self.0.maybe_fuse(&pat_match, graph).ok()?;
+        let fusion = Fusion::from_op(
+            op_node.name(),
+            Box::new(fused_op),
+            &[Some(input_id)],
+            op_node.output_ids(),
+        );
+        Some(fusion)
+    }
+}
+
+/// Interface for graph visitors which match graph patterns and return fused
+/// operations.
+trait FusionVisitor {
+    /// Prepare for a graph traversal by creating pattern matchers or other
+    /// required state.
+    fn prepare(&self, graph: &Graph) -> Box<dyn Any>;
+
+    /// Visit an operator in the graph and potentially return a fusion for it.
+    ///
+    /// `state` is the result of a call to [`prepare`](FusionVisitor::prepare)
+    /// before traversing the graph.
+    fn maybe_fuse(
+        &self,
+        state: &dyn Any,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion>;
+}
+
+/// Identify and fuse common patterns for `LayerNormalization(X)`.
+struct LayerNormalizationFusion {}
+
+struct LayerNormFusionState {
+    center_pat: Pattern,
+    normalize_variance_pat: Pattern,
+    scale_pat: Pattern,
+    shift_scale_pat: Pattern,
+}
+
+impl FusionVisitor for LayerNormalizationFusion {
+    fn prepare(&self, _graph: &Graph) -> Box<dyn Any> {
+        let x = symbol("x");
+
+        // LayerNormalization has three steps. Pattern matching only supports a
+        // single expression, so we use three patterns and match them in reverse
+        // order (ie. starting from the output of the final step).
+
+        // First step: Center values
+        let center_pat = x.clone() - unary_op_key("ReduceMean", x.clone(), "center_mean");
+
+        // Middle step: Normalize variance
+        let epsilon = const_symbol("epsilon");
+        let normalize_variance_pat = x.clone()
+            / unary_op(
+                "Sqrt",
+                epsilon + unary_op_key("ReduceMean", binary_op("Pow", x.clone(), 2.0), "norm_mean"),
+            );
+
+        // Final step: Scale, and optionally shift, the normalized values
+        let bias = const_symbol("bias");
+        let scale = const_symbol("scale");
+        let shift_scale_pat = (x.clone() * scale.clone()) + bias;
+        let scale_pat = x.clone() * scale;
+
+        Box::new(LayerNormFusionState {
+            center_pat,
+            normalize_variance_pat,
+            shift_scale_pat,
+            scale_pat,
+        })
+    }
+
+    fn maybe_fuse(
+        &self,
+        state: &dyn Any,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        let LayerNormFusionState {
+            center_pat,
+            normalize_variance_pat,
+            scale_pat,
+            shift_scale_pat,
+        } = state.downcast_ref().unwrap();
+
+        let (shift_scale_input, bias_input, scale_input) =
+            if let Some(shift_scale_match) = shift_scale_pat.test(op_node_id, graph) {
+                // Found match for scale + bias.
+                let shift_scale_input = shift_scale_match.node_id("x").unwrap();
+                let bias_input = shift_scale_match.node_id("bias").unwrap();
+                let scale_input = shift_scale_match.node_id("scale").unwrap();
+                (shift_scale_input, Some(bias_input), scale_input)
+            } else if let Some(scale_match) = scale_pat.test(op_node_id, graph) {
+                // Found match for scale only.
+                let x_input = scale_match.node_id("x").unwrap();
+                let scale_input = scale_match.node_id("scale").unwrap();
+                (x_input, None, scale_input)
+            } else {
+                return None;
+            };
+
+        let norm_match = normalize_variance_pat.test(shift_scale_input, graph)?;
+        let norm_input = norm_match.node_id("x").unwrap();
+        let epsilon_input = norm_match.node_id("epsilon").unwrap();
+        let norm_mean = norm_match.node_id("norm_mean").unwrap();
+        if !mean_op_reduces_last_axis(graph, norm_mean) {
+            // The LayerNormalization operator supports taking the mean over
+            // multiple trailing axes. However this fusion only supports the
+            // common case of taking the mean over one axis.
+            return None;
+        }
+
+        let center_match = center_pat.test(norm_input, graph)?;
+        let center_input = center_match.node_id("x").unwrap();
+        let center_mean = center_match.node_id("center_mean").unwrap();
+        if !mean_op_reduces_last_axis(graph, center_mean) {
+            return None;
+        }
+
+        let epsilon = graph.get_scalar(epsilon_input)?;
+
+        Some(Fusion::from_op(
+            op_node.name(),
+            Box::new(LayerNormalization {
+                axis: -1,
+                epsilon: Some(epsilon),
+            }),
+            &[Some(center_input), Some(scale_input), bias_input],
+            op_node.output_ids(),
+        ))
+    }
+}
+
+/// Fuse `RMSNormalization(x)`.
+///
+/// See https://pytorch.org/docs/stable/generated/torch.nn.modules.normalization.RMSNorm.html.
+struct RmsNormalizationFusion {}
+
+impl FusionVisitor for RmsNormalizationFusion {
+    fn prepare(&self, _: &Graph) -> Box<dyn Any> {
+        let x = symbol("x");
+        let scale = const_symbol("scale");
+        let epsilon = const_symbol("epsilon");
+
+        // The scaling of the input is canonically written as `x / (sqrt(rms) + epsilon)`.
+        //
+        // Here we test for `x * 1/(sqrt(rms) + epsilon)` because that is the
+        // observed pattern in models like T5. Ideally we would recognize both.
+        let pattern = x.clone()
+            * (1.
+                / unary_op(
+                    "Sqrt",
+                    epsilon
+                        + unary_op_key("ReduceMean", binary_op("Pow", x.clone(), 2.0), "norm_mean"),
+                ))
+            * scale;
+        Box::new(pattern)
+    }
+
+    fn maybe_fuse(
+        &self,
+        state: &dyn Any,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        let pattern: &Pattern = state.downcast_ref().unwrap();
+        let rms_match = pattern.test(op_node_id, graph)?;
+        let x_input = rms_match.node_id("x").unwrap();
+        let epsilon_input = rms_match.node_id("epsilon").unwrap();
+        let epsilon = graph.get_scalar(epsilon_input)?;
+        let scale_input = rms_match.node_id("scale").unwrap();
+        let norm_mean = rms_match.node_id("norm_mean").unwrap();
+
+        if !mean_op_reduces_last_axis(graph, norm_mean) {
+            return None;
+        }
+
+        Some(Fusion::from_op(
+            op_node.name(),
+            Box::new(RmsNormalization {
+                axis: -1,
+                epsilon: Some(epsilon),
+            }),
+            &[Some(x_input), Some(scale_input)],
+            op_node.output_ids(),
+        ))
+    }
+}
+
+/// Fuse `Add(MatMul(a, b), bias)` into `FusedMatMul(a, b, bias)`.
+struct MatMulAddFusion {}
+
+impl FusionVisitor for MatMulAddFusion {
+    fn prepare(&self, _: &Graph) -> Box<dyn Any> {
+        let a = symbol("a");
+        let b = symbol("b");
+        let bias = const_symbol("bias");
+        let matmul_add_pat = binary_op(
+            "Add",
+            binary_op("MatMul", a.clone(), b.clone()),
+            bias.clone(),
+        );
+        Box::new(matmul_add_pat)
+    }
+
+    fn maybe_fuse(
+        &self,
+        pattern: &dyn Any,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        let pattern: &Pattern = pattern.downcast_ref().unwrap();
+        let matmul_add_match = pattern.test(op_node_id, graph)?;
+
+        let a_input = matmul_add_match.node_id("a").unwrap();
+        let b_input = matmul_add_match.node_id("b").unwrap();
+        let bias_input = matmul_add_match.node_id("bias").unwrap();
+
+        let is_bias_a_vector = match graph.get_node(bias_input) {
+            Some(Node::Constant(const_node)) => const_node.shape().len() == 1,
+            _ => false,
+        };
+
+        if !is_bias_a_vector {
+            return None;
+        }
+
+        Some(Fusion::from_op(
+            op_node.name(),
+            Box::new(FusedMatMul { alpha: None }),
+            &[Some(a_input), Some(b_input), Some(bias_input)],
+            op_node.output_ids(),
+        ))
+    }
+}
+
+/// Fuse multiplication or division of MatMul inputs and outputs by
+/// scalars.
+///
+/// A subgraph of the form `Mul(MatMul(Mul(X, c), Mul(Y, d)), e)` where c, d
+/// and e are constants can be rewritten as `FusedMatMul(X, Y, alpha=c * d *
+/// e)`. Each `Mul(X, c)` can also be expressed as `Div(X, 1/c)`.
+struct MatMulScaleFusion {}
+
+impl FusionVisitor for MatMulScaleFusion {
+    fn prepare(&self, _: &Graph) -> Box<dyn Any> {
+        Box::new(())
+    }
+
+    fn maybe_fuse(
+        &self,
+        _state: &dyn Any,
+        graph: &Graph,
+        _op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        let binary_op_input_ids = |op: &OperatorNode| -> Option<[NodeId; 2]> {
+            match op.input_ids() {
+                [Some(lhs_id), Some(rhs_id)] => Some([*lhs_id, *rhs_id]),
+                _ => None,
+            }
+        };
+
+        // Test if `op_node` is a Mul or Div node with one constant scalar
+        // input and one non-constant input. If so, returns the constant scalar
+        // which the node multiplies the other input by and the ID of the other
+        // input.
+        let get_scale_factor = |graph: &Graph, op_node: &OperatorNode| -> Option<(f32, NodeId)> {
+            let op_type = op_node.operator().name();
+            if !["Mul", "Div"].contains(&op_type) {
+                return None;
+            }
+
+            let [lhs, rhs] = binary_op_input_ids(op_node)?;
+            let lhs_scalar = graph.get_scalar(lhs);
+            let rhs_scalar = graph.get_scalar(rhs);
+
+            match op_type {
+                "Mul" => match (lhs_scalar, rhs_scalar) {
+                    (Some(lhs_scale), None) => Some((lhs_scale, rhs)),
+                    (None, Some(rhs_scale)) => Some((rhs_scale, lhs)),
+                    _ => None,
+                },
+                "Div" => match (lhs_scalar, rhs_scalar) {
+                    (None, Some(rhs_scale)) => Some((1. / rhs_scale, lhs)),
+                    _ => None,
+                },
+                _ => None,
+            }
+        };
+
+        // Accumulated scale factor from scalings applied to MatMul inputs
+        // and outputs.
+        let mut alpha = 1.0;
+
+        // Check if this is a Mul/Div node scaling the output of a MatMul.
+        let matmul_node = if ["Mul", "Div"].contains(&op_node.operator().name()) {
+            let (output_scale, scale_input) = get_scale_factor(graph, op_node)?;
+            alpha *= output_scale;
+            let (_, scale_input_op) = graph.get_source_node(scale_input)?;
+            scale_input_op
+        } else {
+            op_node
+        };
+
+        if matmul_node.operator().name() != "MatMul" {
+            return None;
+        }
+
+        let [matmul_lhs, matmul_rhs] = binary_op_input_ids(matmul_node)?;
+        let lhs_input = if let Some((_, lhs_source_op)) = graph.get_source_node(matmul_lhs) {
+            let (lhs_scale, lhs_input) =
+                get_scale_factor(graph, lhs_source_op).unwrap_or((1.0, matmul_lhs));
+            alpha *= lhs_scale;
+            lhs_input
+        } else {
+            // MatMul LHS is not computed by an upstream operator.
+            matmul_lhs
+        };
+
+        let rhs_input = if let Some((_, rhs_source_op)) = graph.get_source_node(matmul_rhs) {
+            let (rhs_scale, rhs_input) =
+                get_scale_factor(graph, rhs_source_op).unwrap_or((1.0, matmul_rhs));
+            alpha *= rhs_scale;
+            rhs_input
+        } else {
+            // MatMul RHS is not computed by an upstream operator.
+            matmul_rhs
+        };
+
+        if alpha == 1.0 {
+            // Scale factor of 1 has no effect.
+            return None;
+        }
+
+        Some(Fusion::from_op(
+            matmul_node.name(),
+            Box::new(FusedMatMul { alpha: Some(alpha) }),
+            &[Some(lhs_input), Some(rhs_input)],
+            op_node.output_ids(),
+        ))
+    }
+}
+
+struct TransposeFusion {}
+
+impl FusionVisitor for TransposeFusion {
+    fn prepare(&self, _: &Graph) -> Box<dyn Any> {
+        Box::new(())
+    }
+
+    fn maybe_fuse(
+        &self,
+        _state: &dyn Any,
+        graph: &Graph,
+        _op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        // Filter against a set of operators which are known to efficiently
+        // handle transposed inputs.
+        if !["MatMul", "FusedMatMul"].contains(&op_node.operator().name()) {
+            return None;
+        }
+
+        let has_transposed_input = op_node.input_ids().iter().any(|input| {
+            input
+                .and_then(|input| graph.get_source_node(input))
+                .and_then(|(_, src_op)| src_op.operator().downcast_ref::<Transpose>())
+                .is_some()
+        });
+        if !has_transposed_input {
+            return None;
+        }
+
+        let mut fused_op = TransformInputsBuilder::new(op_node.clone_operator());
+        let mut fused_inputs = op_node.input_ids().to_vec();
+
+        for (i, input) in op_node.input_ids().iter().enumerate() {
+            let Some((_, source_node)) = input.and_then(|input| graph.get_source_node(input))
+            else {
+                continue;
+            };
+
+            let &[transpose_input] = source_node.input_ids() else {
+                continue;
+            };
+            let Some(transpose) = source_node.operator().downcast_ref::<Transpose>() else {
+                continue;
+            };
+
+            fused_op = fused_op.permute(i, transpose.perm.clone());
+            fused_inputs[i] = transpose_input;
+        }
+
+        Some(Fusion::from_op(
+            op_node.name(),
+            Box::new(fused_op.build()),
+            &fused_inputs,
+            op_node.output_ids(),
+        ))
     }
 }
 
