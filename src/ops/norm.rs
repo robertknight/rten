@@ -7,7 +7,6 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
-use crate::ops::static_dims;
 use crate::ops::{resolve_axis, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList};
 use crate::slice_reductions::slice_max;
 use crate::tensor_pool::TensorPool;
@@ -239,18 +238,10 @@ impl Operator for BatchNormalization {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
-
         let scale = inputs.require_as(1)?;
-        let scale = static_dims!(scale, 1)?;
-
         let bias = inputs.require_as(2)?;
-        let bias = static_dims!(bias, 1)?;
-
         let mean = inputs.require_as(3)?;
-        let mean = static_dims!(mean, 1)?;
-
         let var = inputs.require_as(4)?;
-        let var = static_dims!(var, 1)?;
 
         batch_norm(ctx.pool(), input, &scale, &bias, &mean, &var, self.epsilon).into_op_result()
     }
@@ -265,16 +256,9 @@ impl Operator for BatchNormalization {
             .into_tensor::<f32>()
             .ok_or(OpError::IncorrectInputType)?;
         let scale = inputs.require_as(0)?;
-        let scale = static_dims!(scale, 1)?;
-
         let bias = inputs.require_as(1)?;
-        let bias = static_dims!(bias, 1)?;
-
         let mean = inputs.require_as(2)?;
-        let mean = static_dims!(mean, 1)?;
-
         let var = inputs.require_as(3)?;
-        let var = static_dims!(var, 1)?;
 
         batch_norm_in_place(&mut output, &scale, &bias, &mean, &var, self.epsilon)?;
 
@@ -344,10 +328,7 @@ impl Operator for InstanceNormalization {
         let input = inputs.require_as(0)?;
 
         let scale = inputs.require_as(1)?;
-        let scale = static_dims!(scale, 1)?;
-
         let bias = inputs.require_as(2)?;
-        let bias = static_dims!(bias, 1)?;
 
         instance_normalization(ctx.pool(), input, scale, bias, self.epsilon).into_op_result()
     }
@@ -363,10 +344,7 @@ impl Operator for InstanceNormalization {
 
         let inputs = ctx.inputs();
         let scale = inputs.require_as(0)?;
-        let scale = static_dims!(scale, 1)?;
-
         let bias = inputs.require_as(1)?;
-        let bias = static_dims!(bias, 1)?;
 
         instance_normalization_in_place(&mut output, scale, bias, self.epsilon)?;
 
@@ -505,15 +483,8 @@ impl Operator for LayerNormalization {
         let scale = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
 
-        layer_normalization(
-            ctx.pool(),
-            input.view(),
-            scale,
-            bias,
-            self.axis,
-            self.epsilon,
-        )
-        .into_op_result()
+        layer_normalization(ctx.pool(), input, scale, bias, self.axis, self.epsilon)
+            .into_op_result()
     }
 }
 
@@ -540,7 +511,7 @@ impl Operator for RmsNormalization {
         let input = inputs.require_as(0)?;
         let scale = inputs.require_as(1)?;
 
-        rms_normalization(ctx.pool(), input.view(), scale, self.axis, self.epsilon).into_op_result()
+        rms_normalization(ctx.pool(), input, scale, self.axis, self.epsilon).into_op_result()
     }
 }
 
@@ -645,7 +616,7 @@ impl Operator for LogSoftmax {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require_as(0)?;
-        log_softmax(ctx.pool(), input.view(), self.axis).into_op_result()
+        log_softmax(ctx.pool(), input, self.axis).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -686,7 +657,7 @@ impl Operator for Softmax {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require_as(0)?;
-        softmax(ctx.pool(), input.view(), self.axis).into_op_result()
+        softmax(ctx.pool(), input, self.axis).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {

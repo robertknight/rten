@@ -384,7 +384,9 @@ fn get_optional_input<'a, T>(
 where
     TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
 {
-    let tensor = inputs.get_as(index)?.filter(|t| !t.is_empty());
+    let tensor = inputs
+        .get_as::<TensorView<T>>(index)?
+        .filter(|t| !t.is_empty());
     Ok(tensor)
 }
 

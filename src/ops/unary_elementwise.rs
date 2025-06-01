@@ -317,8 +317,8 @@ impl Operator for Clip {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            let min = inputs.get_as_scalar(1)?;
-            let max = inputs.get_as_scalar(2)?;
+            let min = inputs.get_as(1)?;
+            let max = inputs.get_as(2)?;
             clip(ctx.pool(), input, min, max).into_op_result()
         })
     }
@@ -329,8 +329,8 @@ impl Operator for Clip {
 
     fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
         map_output!(input, input, [FloatTensor, Int32Tensor], {
-            let min = ctx.inputs().get_as_scalar(0)?;
-            let max = ctx.inputs().get_as_scalar(1)?;
+            let min = ctx.inputs().get_as(0)?;
+            let max = ctx.inputs().get_as(1)?;
             clip_in_place(&mut input, min, max);
             Ok(input.into())
         })
@@ -509,7 +509,7 @@ impl Operator for Not {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let input = ctx.inputs().require_as::<i32>(0)?;
+        let input: TensorView<i32> = ctx.inputs().require_as(0)?;
         not(ctx.pool(), input).into_op_result()
     }
 

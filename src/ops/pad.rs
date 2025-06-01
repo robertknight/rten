@@ -1,9 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
-use crate::ops::{
-    map_input, static_dims, Input, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
-};
+use crate::ops::{map_input, Input, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -180,9 +178,8 @@ impl Operator for Pad {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let pads = inputs.require_as::<i32>(1)?;
-        let pads = static_dims!(pads, 1)?;
-        let axes = inputs.get_as::<i32>(3)?;
+        let pads = inputs.require_as(1)?;
+        let axes: Option<NdTensorView<i32, 1>> = inputs.get_as(3)?;
 
         if axes.is_some() {
             return Err(OpError::UnsupportedValue(
@@ -191,7 +188,7 @@ impl Operator for Pad {
         }
 
         map_input!(input, x, {
-            let const_val = inputs.get_as_scalar(2)?.unwrap_or_default();
+            let const_val = inputs.get_as(2)?.unwrap_or_default();
             pad(ctx.pool(), x, &pads, self.mode, const_val).into_op_result()
         })
     }

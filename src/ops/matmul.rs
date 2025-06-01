@@ -424,9 +424,7 @@ impl Operator for FusedMatMul {
         };
 
         let bias = inputs
-            .get_as::<f32>(2)?
-            .map(|bias| static_dims!(bias, 1, "N"))
-            .transpose()?
+            .get_as::<NdTensorView<f32, 1>>(2)?
             .map(|b| b.to_contiguous_in(ctx.pool()));
         let bias = bias.as_ref().map(|b| BiasVector::Row(b.data().unwrap()));
 

@@ -46,7 +46,7 @@ impl Operator for Trilu {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let k = inputs.get_as_scalar(1)?.unwrap_or(0);
+        let k = inputs.get_as(1)?.unwrap_or(0);
 
         map_input!(input, input, [FloatTensor, Int32Tensor], {
             trilu(ctx.pool(), input, k, self.upper).into_op_result()

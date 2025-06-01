@@ -1,7 +1,7 @@
 use fastrand::Rng;
 use fastrand_contrib::RngExt;
 use rten_tensor::prelude::*;
-use rten_tensor::Tensor;
+use rten_tensor::{Tensor, TensorView};
 
 use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList};
 
@@ -152,20 +152,20 @@ impl Operator for Dropout {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
-        let input = inputs.require_as::<f32>(0)?;
+        let input: TensorView<f32> = inputs.require_as(0)?;
 
         // The spec (https://onnx.ai/onnx/operators/onnx__Dropout.html) says "If
         // this input was not set, or if it was set to 0, the output would be a
         // simple copy of the input", implying the default should be 0, but also
         // "It is an optional value, if not specified it will default to 0.5.".
         // The latter sentence matches the reference and ONNX Runtime.
-        let ratio = inputs.get_as_scalar(1)?.unwrap_or(0.5);
+        let ratio = inputs.get_as(1)?.unwrap_or(0.5);
         #[allow(clippy::manual_range_contains)]
         if ratio < 0. || ratio >= 1.0 {
             return Err(OpError::InvalidValue("ratio must be in the range [0, 1)"));
         }
 
-        let training_mode = inputs.get_as_scalar::<i32>(2)?.unwrap_or(0) != 0;
+        let training_mode = inputs.get_as::<i32>(2)?.unwrap_or(0) != 0;
 
         let (output, mask) = if !training_mode || ratio == 0. {
             let mask = Tensor::<i32>::full(input.shape(), 1);

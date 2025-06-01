@@ -314,6 +314,23 @@ macro_rules! impl_input_conversions {
             }
         }
 
+        impl<'a, const N: usize> TryFrom<Input<'a>> for NdTensorView<'a, $element_type, N> {
+            type Error = OpError;
+
+            fn try_from(
+                input: Input<'a>,
+            ) -> Result<NdTensorView<'a, $element_type, N>, Self::Error> {
+                let ndim = input.ndim();
+                match input {
+                    Input::$variant(t) => t.try_into().map_err(|_| OpError::IncorrectInputRank {
+                        actual: ndim,
+                        expected: N,
+                    }),
+                    _ => Err(OpError::IncorrectInputType),
+                }
+            }
+        }
+
         impl<'a> TryFrom<Input<'a>> for $element_type {
             type Error = OpError;
 
@@ -699,6 +716,9 @@ pub enum OpError {
     /// Could not convert operator output to the expected type.
     IncorrectOutputType,
 
+    /// Could not convert operator input to the expected static rank.
+    IncorrectInputRank { actual: usize, expected: usize },
+
     /// Could not convert operator output to the expected static rank.
     IncorrectOutputRank { actual: usize, expected: usize },
 
@@ -724,6 +744,13 @@ impl Display for OpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             OpError::IncorrectInputType => write!(f, "incorrect or unsupported input type"),
+            OpError::IncorrectInputRank { actual, expected } => {
+                write!(
+                    f,
+                    "expected input to have {} dims but it has {}",
+                    expected, actual
+                )
+            }
             OpError::IncorrectOutputRank { actual, expected } => {
                 write!(
                     f,
@@ -1109,27 +1136,12 @@ impl<'a> InputList<'a> {
         self.inputs.to_mut().get_mut(index)?.as_mut()
     }
 
-    /// Get an optional input as a tensor.
-    pub fn get_as<T>(&self, index: usize) -> Result<Option<TensorView<'a, T>>, OpError>
+    /// Convert an optional input into a tensor or scalar.
+    pub fn get_as<T>(&self, index: usize) -> Result<Option<T>, OpError>
     where
-        TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
+        T: TryFrom<Input<'a>, Error = OpError>,
     {
         self.get(index).map(|input| input.try_into()).transpose()
-    }
-
-    /// Get an optional input as a scalar value.
-    pub fn get_as_scalar<T: Copy + 'a>(&self, index: usize) -> Result<Option<T>, OpError>
-    where
-        TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
-    {
-        let tensor = self.get_as::<T>(index)?;
-        tensor
-            .map(|t| {
-                t.item()
-                    .copied()
-                    .ok_or(OpError::InvalidValue("Expected scalar value"))
-            })
-            .transpose()
     }
 
     /// Get a required operator input.
@@ -1137,18 +1149,10 @@ impl<'a> InputList<'a> {
         self.get(index).ok_or(OpError::MissingInputs)
     }
 
-    /// Get a required operator input as a tensor.
-    pub fn require_as<T>(&self, index: usize) -> Result<TensorView<'a, T>, OpError>
+    /// Convert a required input into a tensor or scalar.
+    pub fn require_as<T>(&self, index: usize) -> Result<T, OpError>
     where
-        TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
-    {
-        self.require(index).and_then(|input| input.try_into())
-    }
-
-    /// Get a required input as a scalar value.
-    pub fn require_as_scalar<T>(&self, index: usize) -> Result<T, OpError>
-    where
-        T: 'a + Copy + TryFrom<Input<'a>, Error = OpError>,
+        T: TryFrom<Input<'a>, Error = OpError>,
     {
         self.require(index).and_then(|input| input.try_into())
     }

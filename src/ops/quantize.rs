@@ -269,14 +269,8 @@ impl Operator for QuantizeLinear {
 
         match (y_zero_point, self.output_dtype) {
             (Some(Input::UInt8Tensor(y_zero_point)), Some(DataType::UInt8) | None) => {
-                quantize_linear(
-                    pool,
-                    input.view(),
-                    y_scale.view(),
-                    Some(y_zero_point.view()),
-                    self.axis,
-                )
-                .into_op_result()
+                quantize_linear(pool, input, y_scale, Some(y_zero_point.view()), self.axis)
+                    .into_op_result()
             }
             (None, Some(DataType::UInt8)) => {
                 quantize_linear::<u8>(pool, input.view(), y_scale.view(), None, self.axis)

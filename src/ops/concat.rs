@@ -5,7 +5,6 @@ use rten_tensor::{AssumeInit, NdTensorView, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
-use crate::ops::static_dims;
 use crate::ops::{
     map_input, map_output, resolve_axis, Input, InputList, IntoOpResult, OpError, OpRunContext,
     Operator, Output, OutputList,
@@ -250,8 +249,7 @@ impl Operator for Tile {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let repeats = inputs.require_as::<i32>(1)?;
-        let repeats = static_dims!(repeats, 1)?;
+        let repeats = inputs.require_as(1)?;
 
         map_input!(input, input, [FloatTensor, Int32Tensor], {
             tile(ctx.pool(), input, repeats).into_op_result()
@@ -264,8 +262,7 @@ impl Operator for Tile {
     }
 
     fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-        let repeats = ctx.inputs().require_as::<i32>(0)?;
-        let repeats = static_dims!(repeats, 1)?;
+        let repeats: NdTensorView<i32, 1> = ctx.inputs().require_as(0)?;
 
         if repeats.iter().all(|n| *n == 1) {
             return Ok(input);

@@ -137,7 +137,7 @@ impl Operator for Gather {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let indices = inputs.require_as::<i32>(1)?;
+        let indices = inputs.require_as(1)?;
 
         map_input!(input, x, {
             gather(ctx.pool(), x, self.axis, indices).into_op_result()
@@ -281,7 +281,7 @@ impl Operator for GatherElements {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let indices = inputs.require_as::<i32>(1)?;
+        let indices = inputs.require_as(1)?;
 
         map_input!(input, x, {
             gather_elements(ctx.pool(), x, indices, self.axis).into_op_result()
@@ -399,7 +399,7 @@ impl Operator for GatherND {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let indices = inputs.require_as::<i32>(1)?;
+        let indices = inputs.require_as(1)?;
 
         map_input!(input, x, {
             gather_nd(ctx.pool(), x, indices, self.batch_dims).into_op_result()
@@ -508,7 +508,7 @@ impl Operator for ScatterElements {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let data = inputs.require(0)?;
-        let indices = inputs.require_as::<i32>(1)?;
+        let indices = inputs.require_as(1)?;
 
         map_input!(data, x, {
             let updates = inputs.require_as(2)?;
@@ -600,7 +600,7 @@ impl Operator for ScatterND {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let data = inputs.require(0)?;
-        let indices = inputs.require_as::<i32>(1)?;
+        let indices = inputs.require_as(1)?;
 
         map_input!(data, x, {
             let updates = inputs.require_as(2)?;
