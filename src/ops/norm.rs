@@ -252,9 +252,7 @@ impl Operator for BatchNormalization {
 
     fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
         let inputs = ctx.inputs();
-        let mut output = input
-            .into_tensor::<f32>()
-            .ok_or(OpError::IncorrectInputType)?;
+        let mut output: Tensor = input.try_into()?;
         let scale = inputs.require_as(0)?;
         let bias = inputs.require_as(1)?;
         let mean = inputs.require_as(2)?;
@@ -338,10 +336,7 @@ impl Operator for InstanceNormalization {
     }
 
     fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-        let mut output = input
-            .into_tensor::<f32>()
-            .ok_or(OpError::IncorrectInputType)?;
-
+        let mut output: Tensor = input.try_into()?;
         let inputs = ctx.inputs();
         let scale = inputs.require_as(0)?;
         let bias = inputs.require_as(1)?;
@@ -624,9 +619,7 @@ impl Operator for LogSoftmax {
     }
 
     fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
-        let mut output = input
-            .into_tensor::<f32>()
-            .ok_or(OpError::IncorrectInputType)?;
+        let mut output: Tensor = input.try_into()?;
         log_softmax_in_place(&mut output, self.axis)?;
         Ok(output.into())
     }
@@ -665,9 +658,7 @@ impl Operator for Softmax {
     }
 
     fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
-        let mut output = input
-            .into_tensor::<f32>()
-            .ok_or(OpError::IncorrectInputType)?;
+        let mut output = input.try_into()?;
         softmax_in_place(&mut output, self.axis)?;
         Ok(output.into())
     }

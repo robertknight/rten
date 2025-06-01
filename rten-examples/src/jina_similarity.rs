@@ -135,9 +135,7 @@ fn embed_sentence_batch(
 
     let output_id = model.node_id("last_hidden_state")?;
     let [last_hidden_state] = model.run_n(inputs, [output_id], None)?;
-    let last_hidden_state = last_hidden_state
-        .into_tensor::<f32>()
-        .ok_or("wrong output type")?;
+    let last_hidden_state: Tensor = last_hidden_state.try_into()?;
 
     // Mean pool each item in the batch. We process each batch item separately
     // since they can have different lengths.

@@ -49,9 +49,7 @@ impl<Op: Any + Debug + UnaryFloatOp> Operator for Op {
     }
 
     fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
-        let mut output = input
-            .into_tensor::<f32>()
-            .ok_or(OpError::IncorrectInputType)?;
+        let mut output: Tensor = input.try_into()?;
         self.apply(output.view_mut());
         Ok(output.into())
     }
@@ -185,9 +183,7 @@ macro_rules! parallel_unary_float_op {
             }
 
             fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-                let tensor = input
-                    .into_tensor::<f32>()
-                    .ok_or(OpError::IncorrectInputType)?;
+                let tensor: Tensor = input.try_into()?;
                 let kernel = $simd_kernel;
                 let result = par_unary_op_in_place(ctx.pool(), tensor, kernel);
                 Ok(result.into())
@@ -393,9 +389,7 @@ impl Operator for Gelu {
     }
 
     fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-        let tensor = input
-            .into_tensor::<f32>()
-            .ok_or(OpError::IncorrectInputType)?;
+        let tensor: Tensor = input.try_into()?;
         let result = if self.approximate {
             par_unary_op_in_place(ctx.pool(), tensor, vecmath::ApproxGelu {})
         } else {
@@ -518,9 +512,7 @@ impl Operator for Not {
     }
 
     fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
-        let mut output = input
-            .into_tensor::<i32>()
-            .ok_or(OpError::IncorrectInputType)?;
+        let mut output: Tensor<i32> = input.try_into()?;
         not_in_place(output.view_mut());
         Ok(output.into())
     }
@@ -582,9 +574,7 @@ impl Operator for Swish {
     }
 
     fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-        let tensor = input
-            .into_tensor::<f32>()
-            .ok_or(OpError::IncorrectInputType)?;
+        let tensor: Tensor = input.try_into()?;
         let output = swish_in_place(ctx.pool(), tensor, self.beta);
         Ok(output.into())
     }

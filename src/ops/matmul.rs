@@ -548,7 +548,7 @@ impl Operator for MatMulInteger {
             (Input::Int8Tensor(_), Input::UInt8Tensor(_)) => Err(OpError::UnsupportedType),
             (Input::UInt8Tensor(_), Input::UInt8Tensor(_)) => Err(OpError::UnsupportedType),
 
-            _ => Err(OpError::IncorrectInputType),
+            _ => Err(OpError::UnsupportedType),
         }
     }
 
