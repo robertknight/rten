@@ -465,17 +465,31 @@ fn print_input_output_list(model: &Model, node_ids: &[NodeId]) {
 ///
 /// To get detailed timing information set the `RTEN_TIMING` env var before
 /// running. See `docs/profiling.md`.
-fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+fn main() {
+    let args = match parse_args() {
+        Ok(args) => args,
+        Err(err) => {
+            eprintln!("Invalid arguments: {}", err);
+            std::process::exit(1);
+        }
+    };
 
     let mut model_opts = ModelOptions::with_all_ops();
     model_opts.enable_optimization(args.optimize);
     model_opts.prepack_weights(args.prepack_weights);
 
     let model = if args.mmap {
-        unsafe { model_opts.load_mmap(args.model)? }
+        unsafe { model_opts.load_mmap(&args.model) }
     } else {
-        model_opts.load_file(args.model)?
+        model_opts.load_file(&args.model)
+    };
+
+    let model = match model {
+        Ok(model) => model,
+        Err(err) => {
+            eprintln!("Failed to load model \"{}\": {}", args.model, err);
+            std::process::exit(1);
+        }
     };
 
     if !args.quiet {
@@ -520,8 +534,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // For readability, add a blank line after any output before the final
         // error.
         println!();
-        return Err(err);
+        eprintln!("Model run failed: {}", err);
+        std::process::exit(1);
     }
-
-    Ok(())
 }
