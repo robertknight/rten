@@ -260,6 +260,49 @@ macro_rules! impl_proxy_layout {
     };
 }
 
+/// Errors when casting an [`Input`] or [`Output`] to a tensor of a specific
+/// type and/or rank.
+#[derive(Debug, Eq, PartialEq)]
+pub enum CastError {
+    /// The number of dimensions does not match.
+    WrongRank { actual: usize, expected: usize },
+
+    /// The data type of elements does not match.
+    WrongType {
+        actual: DataType,
+        expected: DataType,
+    },
+}
+
+impl Display for CastError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WrongRank { actual, expected } => {
+                write!(
+                    f,
+                    "expected tensor with {} dims must has {} dims",
+                    expected, actual
+                )
+            }
+            Self::WrongType { actual, expected } => {
+                write!(
+                    f,
+                    "expected tensor with type {} but has type {}",
+                    expected, actual
+                )
+            }
+        }
+    }
+}
+
+impl Error for CastError {}
+
+impl From<CastError> for OpError {
+    fn from(val: CastError) -> OpError {
+        OpError::CastFailed(val)
+    }
+}
+
 /// Metadata about a tensor.
 ///
 /// This is used in profiling and errors which need to contain metadata about
@@ -325,12 +368,12 @@ impl Layout for Input<'_> {
 macro_rules! impl_input_conversions {
     ($variant:ident, $element_type:ty) => {
         impl<'a> TryFrom<Input<'a>> for TensorView<'a, $element_type> {
-            type Error = OpError;
+            type Error = CastError;
 
             fn try_from(input: Input<'a>) -> Result<TensorView<'a, $element_type>, Self::Error> {
                 match input {
                     Input::$variant(t) => Ok(t),
-                    _ => Err(OpError::IncorrectType {
+                    _ => Err(CastError::WrongType {
                         actual: input.dtype(),
                         expected: <$element_type as DataTypeOf>::dtype_of(),
                     }),
@@ -339,18 +382,18 @@ macro_rules! impl_input_conversions {
         }
 
         impl<'a, const N: usize> TryFrom<Input<'a>> for NdTensorView<'a, $element_type, N> {
-            type Error = OpError;
+            type Error = CastError;
 
             fn try_from(
                 input: Input<'a>,
             ) -> Result<NdTensorView<'a, $element_type, N>, Self::Error> {
                 let ndim = input.ndim();
                 match input {
-                    Input::$variant(t) => t.try_into().map_err(|_| OpError::IncorrectRank {
+                    Input::$variant(t) => t.try_into().map_err(|_| CastError::WrongRank {
                         actual: ndim,
                         expected: N,
                     }),
-                    _ => Err(OpError::IncorrectType {
+                    _ => Err(CastError::WrongType {
                         actual: input.dtype(),
                         expected: <$element_type as DataTypeOf>::dtype_of(),
                     }),
@@ -359,14 +402,14 @@ macro_rules! impl_input_conversions {
         }
 
         impl<'a> TryFrom<Input<'a>> for $element_type {
-            type Error = OpError;
+            type Error = CastError;
 
             fn try_from(input: Input<'a>) -> Result<$element_type, Self::Error> {
                 let tensor: TensorView<'a, _> = input.try_into()?;
-                tensor
-                    .item()
-                    .copied()
-                    .ok_or(OpError::InvalidValue("Expected scalar value"))
+                tensor.item().copied().ok_or(CastError::WrongRank {
+                    actual: tensor.ndim(),
+                    expected: 0,
+                })
             }
         }
 
@@ -434,12 +477,12 @@ macro_rules! impl_prepacked_input_conversions {
         }
 
         impl<'a> TryFrom<&'a PrepackedInput> for &'a PackedBMatrix<$type> {
-            type Error = OpError;
+            type Error = CastError;
 
-            fn try_from(ppi: &'a PrepackedInput) -> Result<Self, OpError> {
+            fn try_from(ppi: &'a PrepackedInput) -> Result<Self, Self::Error> {
                 match ppi {
                     PrepackedInput::$variant(packed) => Ok(packed),
-                    _ => Err(OpError::IncorrectType {
+                    _ => Err(CastError::WrongType {
                         actual: ppi.dtype(),
                         expected: <$type as DataTypeOf>::dtype_of(),
                     }),
@@ -554,13 +597,13 @@ macro_rules! impl_output_conversions {
 
         // Output => Tensor<T>
         impl TryFrom<Output> for Tensor<$element_type> {
-            type Error = OpError;
+            type Error = CastError;
 
-            fn try_from(o: Output) -> Result<Tensor<$element_type>, OpError> {
+            fn try_from(o: Output) -> Result<Tensor<$element_type>, Self::Error> {
                 let dtype = o.dtype();
                 match o {
                     Output::$variant(t) => Ok(t),
-                    _ => Err(OpError::IncorrectType {
+                    _ => Err(CastError::WrongType {
                         actual: dtype,
                         expected: <$element_type as DataTypeOf>::dtype_of(),
                     }),
@@ -570,12 +613,12 @@ macro_rules! impl_output_conversions {
 
         // Output => NdTensor<T, N>
         impl<const N: usize> TryFrom<Output> for NdTensor<$element_type, N> {
-            type Error = OpError;
+            type Error = CastError;
 
-            fn try_from(o: Output) -> Result<NdTensor<$element_type, N>, OpError> {
+            fn try_from(o: Output) -> Result<NdTensor<$element_type, N>, CastError> {
                 let tensor: Tensor<_> = o.try_into()?;
                 let ndim = tensor.ndim();
-                tensor.try_into().map_err(|_| OpError::IncorrectRank {
+                tensor.try_into().map_err(|_| CastError::WrongRank {
                     actual: ndim,
                     expected: N,
                 })
@@ -584,12 +627,12 @@ macro_rules! impl_output_conversions {
 
         // Output => TensorView<T>
         impl<'a> TryFrom<&'a Output> for TensorView<'a, $element_type> {
-            type Error = OpError;
+            type Error = CastError;
 
-            fn try_from(o: &'a Output) -> Result<TensorView<'a, $element_type>, OpError> {
+            fn try_from(o: &'a Output) -> Result<TensorView<'a, $element_type>, CastError> {
                 match o {
                     Output::$variant(t) => Ok(t.view()),
-                    _ => Err(OpError::IncorrectType {
+                    _ => Err(CastError::WrongType {
                         actual: o.dtype(),
                         expected: <$element_type as DataTypeOf>::dtype_of(),
                     }),
@@ -599,12 +642,12 @@ macro_rules! impl_output_conversions {
 
         // Output => NdTensorView<T, N>
         impl<'a, const N: usize> TryFrom<&'a Output> for NdTensorView<'a, $element_type, N> {
-            type Error = OpError;
+            type Error = CastError;
 
-            fn try_from(o: &'a Output) -> Result<NdTensorView<'a, $element_type, N>, OpError> {
+            fn try_from(o: &'a Output) -> Result<NdTensorView<'a, $element_type, N>, CastError> {
                 let view: TensorView<'a, _> = o.try_into()?;
                 let ndim = view.ndim();
-                view.try_into().map_err(|_| OpError::IncorrectRank {
+                view.try_into().map_err(|_| CastError::WrongRank {
                     actual: ndim,
                     expected: N,
                 })
@@ -755,17 +798,14 @@ where
 /// Possible reasons why an operator may fail on a given input.
 #[derive(Eq, PartialEq, Debug)]
 pub enum OpError {
-    /// A tensor does not have the expected type.
-    IncorrectType {
-        actual: DataType,
-        expected: DataType,
-    },
+    /// Casting a tensor to an expected type or rank failed.
+    CastFailed(CastError),
+
+    /// Casting an input to an expected type or rank failed.
+    InputCastFailed { index: usize, error: CastError },
 
     /// A tensor has an unsupported type.
     UnsupportedType,
-
-    /// A tensor does not have the expected rank
-    IncorrectRank { actual: usize, expected: usize },
 
     /// Input tensor shapes are not compatible with each other or operator
     /// attributes.
@@ -784,17 +824,9 @@ pub enum OpError {
 impl Display for OpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            OpError::IncorrectType { actual, expected } => write!(
-                f,
-                "expected tensor to have type {} but it has type {}",
-                actual, expected
-            ),
-            OpError::IncorrectRank { actual, expected } => {
-                write!(
-                    f,
-                    "expected tensor to have {} dims but it has {}",
-                    expected, actual
-                )
+            OpError::CastFailed(err) => write!(f, "{}", err),
+            OpError::InputCastFailed { index, error } => {
+                write!(f, "conversion error for input {}: {}", index, error)
             }
             OpError::IncompatibleInputShapes(details) => {
                 write!(f, "incompatible input shapes: {}", details)
@@ -1046,12 +1078,13 @@ pub trait OperatorExt: Operator {
     ///
     /// `inputs` is a tuple of tensor references or other values that can be
     /// converted to [`Input`].
-    fn run_simple<'a, I: Into<InputList<'a>>, O: TryFrom<Output, Error = OpError>>(
+    fn run_simple<'a, I: Into<InputList<'a>>, O: TryFrom<Output, Error = CastError>>(
         &self,
         inputs: I,
     ) -> Result<O, OpError> {
-        self.run_simple_no_cast(inputs)
-            .and_then(|output| output.try_into())
+        let result = self.run_simple_no_cast(inputs)?;
+        let typed_result = result.try_into()?;
+        Ok(typed_result)
     }
 
     /// Run an operator and extract the first output.
@@ -1063,7 +1096,7 @@ pub trait OperatorExt: Operator {
         Ok(outputs.remove(0))
     }
 
-    fn run_simple_in_place<I: Into<Output>, O: TryFrom<Output, Error = OpError>>(
+    fn run_simple_in_place<I: Into<Output>, O: TryFrom<Output, Error = CastError>>(
         &self,
         input: I,
     ) -> Result<O, OpError> {
@@ -1071,7 +1104,8 @@ pub trait OperatorExt: Operator {
         let inputs = InputList::new();
         let ctx = OpRunContext::new(&pool, &inputs);
         let output = self.run_in_place(input.into(), &ctx)?;
-        output.try_into()
+        let typed_output = output.try_into()?;
+        Ok(typed_output)
     }
 }
 
@@ -1176,9 +1210,15 @@ impl<'a> InputList<'a> {
     /// Convert an optional input into a tensor or scalar.
     pub fn get_as<T>(&self, index: usize) -> Result<Option<T>, OpError>
     where
-        T: TryFrom<Input<'a>, Error = OpError>,
+        T: TryFrom<Input<'a>, Error = CastError>,
     {
-        self.get(index).map(|input| input.try_into()).transpose()
+        self.get(index)
+            .map(|input| {
+                input
+                    .try_into()
+                    .map_err(|error| OpError::InputCastFailed { index, error })
+            })
+            .transpose()
     }
 
     /// Get a required operator input.
@@ -1189,9 +1229,13 @@ impl<'a> InputList<'a> {
     /// Convert a required input into a tensor or scalar.
     pub fn require_as<T>(&self, index: usize) -> Result<T, OpError>
     where
-        T: TryFrom<Input<'a>, Error = OpError>,
+        T: TryFrom<Input<'a>, Error = CastError>,
     {
-        self.require(index).and_then(|input| input.try_into())
+        self.require(index).and_then(|input| {
+            input
+                .try_into()
+                .map_err(|error| OpError::InputCastFailed { index, error })
+        })
     }
 
     /// Return an iterator over provided inputs.
@@ -1344,7 +1388,7 @@ mod tests {
     use rten_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
     use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
-    use super::{Input, OpError, Operator, Output};
+    use super::{CastError, Input, Operator, Output};
     use crate::downcast::DowncastDyn;
     use crate::ops::{Add, DataType, Sub};
     use crate::tensor_pool::TensorPool;
@@ -1396,7 +1440,7 @@ mod tests {
         let err: Result<NdTensor<i32, 2>, _> = output.clone().try_into();
         assert_eq!(
             err,
-            Err(OpError::IncorrectType {
+            Err(CastError::WrongType {
                 actual: DataType::Float,
                 expected: DataType::Int32,
             })
@@ -1405,7 +1449,7 @@ mod tests {
         let err: Result<NdTensor<f32, 3>, _> = output.clone().try_into();
         assert_eq!(
             err,
-            Err(OpError::IncorrectRank {
+            Err(CastError::WrongRank {
                 actual: 2,
                 expected: 3
             })
@@ -1426,7 +1470,7 @@ mod tests {
         let err: Result<NdTensorView<i32, 2>, _> = (&output).try_into();
         assert_eq!(
             err,
-            Err(OpError::IncorrectType {
+            Err(CastError::WrongType {
                 actual: DataType::Float,
                 expected: DataType::Int32,
             })
@@ -1435,7 +1479,7 @@ mod tests {
         let err: Result<NdTensorView<f32, 3>, _> = (&output).try_into();
         assert_eq!(
             err,
-            Err(OpError::IncorrectRank {
+            Err(CastError::WrongRank {
                 actual: 2,
                 expected: 3
             })

@@ -6,8 +6,8 @@ use rten_tensor::{AssumeInit, NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::ops::{
-    map_input, map_output, resolve_axis, Input, InputList, IntoOpResult, OpError, OpRunContext,
-    Operator, Output, OutputList,
+    map_input, map_output, resolve_axis, CastError, Input, InputList, IntoOpResult, OpError,
+    OpRunContext, Operator, Output, OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -46,7 +46,7 @@ fn typed_inputs<'a, T>(
     _: TensorView<T>,
 ) -> Result<SmallVec<[TensorView<'a, T>; 4]>, OpError>
 where
-    TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
+    TensorView<'a, T>: TryFrom<Input<'a>, Error = CastError>,
 {
     let mut typed_inputs: SmallVec<_> = SmallVec::with_capacity(inputs.len());
     for input in inputs.iter().flatten() {

@@ -7,7 +7,8 @@ use crate::number::IsNaN;
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
-    map_input, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
+    map_input, CastError, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator,
+    OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -40,7 +41,7 @@ fn typed_views<'a, T>(
     _: TensorView<T>,
 ) -> Result<Vec<TensorView<'a, T>>, OpError>
 where
-    Input<'a>: TryInto<TensorView<'a, T>, Error = OpError>,
+    Input<'a>: TryInto<TensorView<'a, T>, Error = CastError>,
 {
     inputs
         .iter()

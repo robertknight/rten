@@ -641,7 +641,7 @@ mod tests {
         Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
     };
     use crate::ops::tests::new_pool;
-    use crate::ops::{Input, OpError, Operator, OperatorExt, Output};
+    use crate::ops::{CastError, Input, Operator, OperatorExt, Output};
     use rten_tensor::test_util::ApproxEq;
 
     fn test_unary_op_impl<T: Clone + std::fmt::Debug + ApproxEq>(
@@ -651,7 +651,7 @@ mod tests {
     ) -> Result<(), Box<dyn Error>>
     where
         for<'a> TensorView<'a, T>: Into<Input<'a>>,
-        Tensor<T>: Into<Output> + TryFrom<Output, Error = OpError>,
+        Tensor<T>: Into<Output> + TryFrom<Output, Error = CastError>,
     {
         // Test copying variant.
         let expected = input.map(reference_op);

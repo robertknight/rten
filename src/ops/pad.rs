@@ -204,7 +204,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{pad, DataType, OpError, OperatorExt, Pad, PadMode};
+    use crate::ops::{pad, CastError, DataType, OpError, OperatorExt, Pad, PadMode};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
@@ -443,9 +443,12 @@ mod tests {
         let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads, &const_int));
         assert_eq!(
             result.err(),
-            Some(OpError::IncorrectType {
-                actual: DataType::Int32,
-                expected: DataType::Float,
+            Some(OpError::InputCastFailed {
+                index: 2,
+                error: CastError::WrongType {
+                    actual: DataType::Int32,
+                    expected: DataType::Float,
+                },
             })
         );
 
@@ -455,7 +458,13 @@ mod tests {
         let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads, &int_vec));
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("Expected scalar value"))
+            Some(OpError::InputCastFailed {
+                index: 2,
+                error: CastError::WrongRank {
+                    actual: 1,
+                    expected: 0,
+                }
+            })
         );
     }
 }
