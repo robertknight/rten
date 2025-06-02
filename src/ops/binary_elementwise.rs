@@ -893,7 +893,7 @@ impl Operator for Where {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
-        let condition = inputs.require_as::<i32>(0)?;
+        let condition = inputs.require_as(0)?;
         let x = inputs.require(1)?;
 
         map_input!(x, x, [FloatTensor, Int32Tensor], {

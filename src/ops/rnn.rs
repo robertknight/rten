@@ -332,7 +332,7 @@ impl Operator for GRU {
         let weights = inputs.require_as(1)?;
         let recurrent_weights = inputs.require_as(2)?;
         let bias = inputs.get_as(3)?;
-        let _seq_len = inputs.get_as::<i32>(4)?;
+        let _seq_len = inputs.get_as::<TensorView<i32>>(4)?;
         let initial_hidden = inputs.get_as(5)?;
 
         gru(
@@ -579,7 +579,7 @@ impl Operator for LSTM {
         let weights = inputs.require_as(1)?;
         let recurrent_weights = inputs.require_as(2)?;
         let bias = inputs.get_as(3)?;
-        let _seq_len = inputs.get_as::<i32>(4)?;
+        let _seq_len = inputs.get_as::<TensorView<i32>>(4)?;
         let initial_hidden = inputs.get_as(5)?;
         let initial_cell = inputs.get_as(6)?;
 

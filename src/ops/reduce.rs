@@ -178,7 +178,7 @@ impl Operator for CumSum {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let axis: i32 = inputs.require_as_scalar(1)?;
+        let axis: i32 = inputs.require_as(1)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
             cum_sum(ctx.pool(), input, axis as isize).into_op_result()
         })
@@ -525,7 +525,7 @@ fn get_axes<'a>(
     attr: &'a Option<Vec<i32>>,
 ) -> Result<Option<Cow<'a, [i32]>>, OpError> {
     let axes = inputs
-        .get_as::<i32>(1)?
+        .get_as::<TensorView<i32>>(1)?
         .map(|x| x.to_slice())
         .or(attr.as_ref().map(|a| Cow::Borrowed(a.as_slice())));
     Ok(axes)
@@ -786,7 +786,7 @@ impl Operator for TopK {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let values = inputs.require(0)?;
-        let k = inputs.require_as_scalar::<i32>(1).and_then(|k| {
+        let k = inputs.require_as::<i32>(1).and_then(|k| {
             if k < 0 {
                 Err(OpError::InvalidValue("k must be positive"))
             } else {

@@ -49,9 +49,7 @@ impl<Op: Any + Debug + UnaryFloatOp> Operator for Op {
     }
 
     fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
-        let mut output = input
-            .into_tensor::<f32>()
-            .ok_or(OpError::IncorrectInputType)?;
+        let mut output: Tensor = input.try_into()?;
         self.apply(output.view_mut());
         Ok(output.into())
     }
@@ -185,9 +183,7 @@ macro_rules! parallel_unary_float_op {
             }
 
             fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-                let tensor = input
-                    .into_tensor::<f32>()
-                    .ok_or(OpError::IncorrectInputType)?;
+                let tensor: Tensor = input.try_into()?;
                 let kernel = $simd_kernel;
                 let result = par_unary_op_in_place(ctx.pool(), tensor, kernel);
                 Ok(result.into())
@@ -317,8 +313,8 @@ impl Operator for Clip {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         map_input!(input, input, [FloatTensor, Int32Tensor], {
-            let min = inputs.get_as_scalar(1)?;
-            let max = inputs.get_as_scalar(2)?;
+            let min = inputs.get_as(1)?;
+            let max = inputs.get_as(2)?;
             clip(ctx.pool(), input, min, max).into_op_result()
         })
     }
@@ -329,8 +325,8 @@ impl Operator for Clip {
 
     fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
         map_output!(input, input, [FloatTensor, Int32Tensor], {
-            let min = ctx.inputs().get_as_scalar(0)?;
-            let max = ctx.inputs().get_as_scalar(1)?;
+            let min = ctx.inputs().get_as(0)?;
+            let max = ctx.inputs().get_as(1)?;
             clip_in_place(&mut input, min, max);
             Ok(input.into())
         })
@@ -393,9 +389,7 @@ impl Operator for Gelu {
     }
 
     fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-        let tensor = input
-            .into_tensor::<f32>()
-            .ok_or(OpError::IncorrectInputType)?;
+        let tensor: Tensor = input.try_into()?;
         let result = if self.approximate {
             par_unary_op_in_place(ctx.pool(), tensor, vecmath::ApproxGelu {})
         } else {
@@ -509,7 +503,7 @@ impl Operator for Not {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let input = ctx.inputs().require_as::<i32>(0)?;
+        let input: TensorView<i32> = ctx.inputs().require_as(0)?;
         not(ctx.pool(), input).into_op_result()
     }
 
@@ -518,9 +512,7 @@ impl Operator for Not {
     }
 
     fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
-        let mut output = input
-            .into_tensor::<i32>()
-            .ok_or(OpError::IncorrectInputType)?;
+        let mut output: Tensor<i32> = input.try_into()?;
         not_in_place(output.view_mut());
         Ok(output.into())
     }
@@ -582,9 +574,7 @@ impl Operator for Swish {
     }
 
     fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-        let tensor = input
-            .into_tensor::<f32>()
-            .ok_or(OpError::IncorrectInputType)?;
+        let tensor: Tensor = input.try_into()?;
         let output = swish_in_place(ctx.pool(), tensor, self.beta);
         Ok(output.into())
     }
@@ -651,7 +641,7 @@ mod tests {
         Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
     };
     use crate::ops::tests::new_pool;
-    use crate::ops::{Input, OpError, Operator, OperatorExt, Output};
+    use crate::ops::{CastError, Input, Operator, OperatorExt, Output};
     use rten_tensor::test_util::ApproxEq;
 
     fn test_unary_op_impl<T: Clone + std::fmt::Debug + ApproxEq>(
@@ -661,7 +651,7 @@ mod tests {
     ) -> Result<(), Box<dyn Error>>
     where
         for<'a> TensorView<'a, T>: Into<Input<'a>>,
-        Tensor<T>: Into<Output> + TryFrom<Output, Error = OpError>,
+        Tensor<T>: Into<Output> + TryFrom<Output, Error = CastError>,
     {
         // Test copying variant.
         let expected = input.map(reference_op);

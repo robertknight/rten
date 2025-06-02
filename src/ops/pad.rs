@@ -1,9 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
-use crate::ops::{
-    map_input, static_dims, Input, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
-};
+use crate::ops::{map_input, Input, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -180,9 +178,8 @@ impl Operator for Pad {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        let pads = inputs.require_as::<i32>(1)?;
-        let pads = static_dims!(pads, 1)?;
-        let axes = inputs.get_as::<i32>(3)?;
+        let pads = inputs.require_as(1)?;
+        let axes: Option<NdTensorView<i32, 1>> = inputs.get_as(3)?;
 
         if axes.is_some() {
             return Err(OpError::UnsupportedValue(
@@ -191,7 +188,7 @@ impl Operator for Pad {
         }
 
         map_input!(input, x, {
-            let const_val = inputs.get_as_scalar(2)?.unwrap_or_default();
+            let const_val = inputs.get_as(2)?.unwrap_or_default();
             pad(ctx.pool(), x, &pads, self.mode, const_val).into_op_result()
         })
     }
@@ -207,7 +204,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{pad, OpError, OperatorExt, Pad, PadMode};
+    use crate::ops::{pad, CastError, DataType, OpError, OperatorExt, Pad, PadMode};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
@@ -444,7 +441,16 @@ mod tests {
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
         let const_int = Tensor::from(1);
         let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads, &const_int));
-        assert_eq!(result.err(), Some(OpError::IncorrectInputType));
+        assert_eq!(
+            result.err(),
+            Some(OpError::InputCastFailed {
+                index: 2,
+                error: CastError::WrongType {
+                    actual: DataType::Int32,
+                    expected: DataType::Float,
+                },
+            })
+        );
 
         // Constant value not a scalar.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
@@ -452,7 +458,13 @@ mod tests {
         let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads, &int_vec));
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("Expected scalar value"))
+            Some(OpError::InputCastFailed {
+                index: 2,
+                error: CastError::WrongRank {
+                    actual: 1,
+                    expected: 0,
+                }
+            })
         );
     }
 }

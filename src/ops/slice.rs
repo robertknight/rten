@@ -4,8 +4,8 @@ use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::ops::{
-    map_input, map_output, resolve_axis, static_dims, Input, InputList, IntoOpResult, OpError,
-    OpRunContext, Operator, Output, OutputList,
+    map_input, map_output, resolve_axis, Input, InputList, IntoOpResult, OpError, OpRunContext,
+    Operator, Output, OutputList,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -121,21 +121,11 @@ impl Operator for Slice {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
 
-        let starts = inputs.require_as::<i32>(1)?;
-        let starts = static_dims!(starts, 1)?;
+        let starts = inputs.require_as(1)?;
+        let ends = inputs.require_as(2)?;
 
-        let ends = inputs.require_as::<i32>(2)?;
-        let ends = static_dims!(ends, 1)?;
-
-        let axes = inputs
-            .get_as::<i32>(3)?
-            .map(|axes| static_dims!(axes, 1))
-            .transpose()?;
-
-        let steps = inputs
-            .get_as::<i32>(4)?
-            .map(|steps| static_dims!(steps, 1))
-            .transpose()?;
+        let axes = inputs.get_as(3)?;
+        let steps = inputs.get_as(4)?;
 
         let result: Result<Output, OpError> = map_input!(input, x, {
             slice(ctx.pool(), x, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
@@ -149,20 +139,11 @@ impl Operator for Slice {
 
     fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
         let other = ctx.inputs();
-        let starts = other.require_as::<i32>(0)?;
-        let starts = static_dims!(starts, 1)?;
+        let starts = other.require_as(0)?;
+        let ends = other.require_as(1)?;
 
-        let ends = other.require_as::<i32>(1)?;
-        let ends = static_dims!(ends, 1)?;
-
-        let axes = other
-            .get_as::<i32>(2)?
-            .map(|axes| static_dims!(axes, 1))
-            .transpose()?;
-        let steps = other
-            .get_as::<i32>(3)?
-            .map(|steps| static_dims!(steps, 1))
-            .transpose()?;
+        let axes = other.get_as(2)?;
+        let steps = other.get_as::<NdTensorView<i32, 1>>(3)?;
 
         // Fall back to copying if non-default steps are given.
         if let Some(steps) = steps {

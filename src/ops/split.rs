@@ -2,9 +2,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::iter_util::range_chunks;
-use crate::ops::{
-    map_input, resolve_axis, static_dims, Input, OpError, OpRunContext, Operator, OutputList,
-};
+use crate::ops::{map_input, resolve_axis, Input, OpError, OpRunContext, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
 
 #[derive(Clone, Debug)]
@@ -94,11 +92,10 @@ impl Operator for Split {
         // outputs.
         //
         // See https://github.com/robertknight/rten/issues/689.
-        let splits = ctx.inputs().get_as::<i32>(1)?;
+        let splits = ctx.inputs().get_as(1)?;
         let num_outputs = self.num_outputs.or(ctx.num_outputs());
 
         let split_sizes = if let Some(splits) = splits {
-            let splits = static_dims!(splits, 1)?;
             SplitSizes::Sizes(splits)
         } else if let Some(num_outputs) = num_outputs {
             SplitSizes::NumSplits(num_outputs)

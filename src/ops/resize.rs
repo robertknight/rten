@@ -7,8 +7,8 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::iter_util::range_chunks;
 use crate::ops::{
-    static_dims, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator, Output,
-    OutputList,
+    static_dims, CastError, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator,
+    Output, OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -382,9 +382,11 @@ fn get_optional_input<'a, T>(
     index: usize,
 ) -> Result<Option<TensorView<'a, T>>, OpError>
 where
-    TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
+    TensorView<'a, T>: TryFrom<Input<'a>, Error = CastError>,
 {
-    let tensor = inputs.get_as(index)?.filter(|t| !t.is_empty());
+    let tensor = inputs
+        .get_as::<TensorView<T>>(index)?
+        .filter(|t| !t.is_empty());
     Ok(tensor)
 }
 

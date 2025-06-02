@@ -526,7 +526,7 @@ impl Operator for ConvInteger {
             (Input::Int8Tensor(x), Input::UInt8Tensor(w)) => conv_integer!(x, w),
             (Input::UInt8Tensor(x), Input::Int8Tensor(w)) => conv_integer!(x, w),
             (Input::UInt8Tensor(x), Input::UInt8Tensor(w)) => conv_integer!(x, w),
-            _ => Err(OpError::IncorrectInputType),
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }

@@ -30,8 +30,7 @@ impl Operator for ConstantOfShape {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let pool = ctx.pool();
-        let shape = ctx.inputs().require_as::<i32>(0)?;
-        let shape = static_dims!(shape, 1)?;
+        let shape = ctx.inputs().require_as(0)?;
 
         match self.value {
             Scalar::Int(value) => constant_of_shape(pool, value, &shape).into_op_result(),
@@ -89,8 +88,8 @@ impl Operator for OneHot {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
-        let indices = inputs.require_as::<i32>(0)?;
-        let depth = inputs.require_as::<i32>(1)?;
+        let indices = inputs.require_as(0)?;
+        let depth: TensorView<i32> = inputs.require_as(1)?;
         let depth = depth
             .item()
             .and_then(|&val| if val > 0 { Some(val as usize) } else { None })
