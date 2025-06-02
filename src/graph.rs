@@ -117,11 +117,17 @@ impl fmt::Display for RunError {
                 name,
                 error: ref err,
                 inputs,
-            } => write!(
-                f,
-                "operator \"{}\" failed: {:?}. Inputs {:?}",
-                name, err, inputs
-            ),
+            } => {
+                write!(f, "operator \"{}\" failed: {}. Inputs were [", name, err,)?;
+                for input in inputs {
+                    if let Some(meta) = input {
+                        write!(f, "({})", meta)?;
+                    } else {
+                        write!(f, "-")?;
+                    }
+                }
+                write!(f, "]")
+            }
             RunError::OutputMismatch(err) => write!(f, "output mismatch {:?}", err),
         }
     }

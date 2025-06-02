@@ -313,6 +313,12 @@ pub struct InputMeta {
     pub(crate) shape: Vec<usize>,
 }
 
+impl Display for InputMeta {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}, {:?}", self.dtype, self.shape)
+    }
+}
+
 /// Enum of the different types of tensor view that can be used as a model or
 /// operator input.
 #[derive(Clone)]
