@@ -164,6 +164,12 @@ fn tile_inner<T: Copy>(
     input_shape: &[usize],
     repeats: &[usize],
 ) {
+    // Fast path for when remaining dimensions are not repeated.
+    if repeats.iter().all(|n| *n == 1) {
+        write_slice(output, input);
+        return;
+    }
+
     let mut n_init = 0;
     match (input_shape, repeats) {
         ([size], [repeats]) => {
