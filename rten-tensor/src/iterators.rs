@@ -625,6 +625,7 @@ impl Offsets {
 impl Iterator for Offsets {
     type Item = usize;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let offset = self.base.offset()?;
         self.base.step();
@@ -696,6 +697,7 @@ impl LaneRanges {
 impl Iterator for LaneRanges {
     type Item = Range<usize>;
 
+    #[inline]
     fn next(&mut self) -> Option<Range<usize>> {
         self.offsets
             .next()
@@ -731,6 +733,7 @@ pub struct Lanes<'a, T> {
 }
 
 /// Iterator over items in a 1D slice of a tensor.
+#[derive(Clone)]
 pub struct Lane<'a, T> {
     data: ViewData<'a, T>,
     index: usize,
@@ -748,6 +751,16 @@ impl<'a, T> Lane<'a, T> {
                 Some(unsafe { remainder.as_slice() })
             }
             _ => None,
+        }
+    }
+
+    /// Return the item at a given index in this lane.
+    pub fn get(&self, idx: usize) -> Option<&'a T> {
+        if idx < self.size {
+            // Safety: `idx * self.stride` is a valid offset since `idx < self.size`.
+            Some(unsafe { self.data.get_unchecked(idx * self.stride) })
+        } else {
+            None
         }
     }
 }
@@ -803,6 +816,7 @@ impl<'a, T> Iterator for Lanes<'a, T> {
     type Item = Lane<'a, T>;
 
     /// Yield the next slice over the target dimension.
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.ranges
             .next()
@@ -908,6 +922,7 @@ impl<T> ExactSizeIterator for LaneMut<'_, T> {}
 impl<'a, T> Iterator for LanesMut<'a, T> {
     type Item = LaneMut<'a, T>;
 
+    #[inline]
     fn next(&mut self) -> Option<LaneMut<'a, T>> {
         self.ranges.next().map(|range| {
             // Safety: Each iteration yields a lane that does not overlap with

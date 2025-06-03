@@ -1,7 +1,9 @@
+use rayon::prelude::*;
+use std::mem::MaybeUninit;
+
 use rten_tensor::prelude::*;
 use rten_tensor::{
-    to_slice_items, NdTensorView, ResizeLayout, SliceItem, StorageMut, Tensor, TensorView,
-    TensorViewMut,
+    to_slice_items, Lane, ResizeLayout, SliceItem, StorageMut, Tensor, TensorView, TensorViewMut,
 };
 use smallvec::SmallVec;
 
@@ -14,6 +16,38 @@ use crate::ops::{
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 const INVALID_INDEX_ERR: OpError = OpError::InvalidValue("Entry in `indices` is out of range");
+
+/// Trait for random-access to 1D slices.
+trait GetItem {
+    type Item;
+
+    fn get(&self, index: usize) -> Option<&Self::Item>;
+    fn len(&self) -> usize;
+}
+
+impl<T> GetItem for &[T] {
+    type Item = T;
+
+    fn get(&self, index: usize) -> Option<&T> {
+        <[T]>::get(self, index)
+    }
+
+    fn len(&self) -> usize {
+        <[T]>::len(self)
+    }
+}
+
+impl<T> GetItem for Lane<'_, T> {
+    type Item = T;
+
+    fn get(&self, index: usize) -> Option<&T> {
+        self.get(index)
+    }
+
+    fn len(&self) -> usize {
+        <Self as ExactSizeIterator>::len(self)
+    }
+}
 
 /// Gather elements from `input` specified by `indices`.
 ///
@@ -145,76 +179,7 @@ impl Operator for Gather {
     }
 }
 
-/// Optimized implementation of `gather_elements` for tensor with static rank.
-/// Index iteration is much faster in this case.
-fn gather_elements_4d<T: Copy + Default>(
-    pool: &TensorPool,
-    mut output: TensorViewMut<T>,
-    input: NdTensorView<T, 4>,
-    indices: NdTensorView<i32, 4>,
-    axis: usize,
-) -> Result<(), OpError> {
-    assert!(axis < input.ndim());
-    assert!(output.shape() == indices.shape());
-
-    // This allows for faster iteration, and the tensor is likely already contiguous.
-    let indices = indices.to_contiguous_in(pool).auto_return(pool);
-    let indices = indices.view();
-
-    // nb. We iterate over the underlying data slices for efficiency.
-    let mut out_index_iter = output
-        .data_mut()
-        .unwrap()
-        .iter_mut()
-        .zip(indices.data().unwrap().iter());
-    let mut indices_valid = true;
-
-    let indices_shape = indices.shape();
-    let axis_size = input.size(axis) as isize;
-
-    // Use nested loops to iterate over indices in `indices` as this is faster
-    // than `indices.indices()`.
-    for i0 in 0..indices_shape[0] {
-        for i1 in 0..indices_shape[1] {
-            for i2 in 0..indices_shape[2] {
-                for i3 in 0..indices_shape[3] {
-                    let (out_el, index) = out_index_iter.next().unwrap();
-
-                    // nb. If axis_val is < -axis_size, it will wrap around to a value
-                    // that is still out of range.
-                    let index = *index as isize;
-
-                    let mut in_index = [i0, i1, i2, i3];
-                    in_index[axis] = if index < 0 {
-                        (index + axis_size) as usize
-                    } else {
-                        index as usize
-                    };
-
-                    let maybe_el = input.get(in_index).copied();
-                    *out_el = maybe_el.unwrap_or_default();
-                    indices_valid &= maybe_el.is_some();
-                }
-            }
-        }
-    }
-
-    if !indices_valid {
-        return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
-    }
-
-    Ok(())
-}
-
-/// Expand a tensor to 4 dims by inserting `n` axes at the front.
-fn unsqueeze_n<T>(mut view: TensorView<T>, n: usize) -> TensorView<T> {
-    for _ in 0..n {
-        view.insert_axis(0);
-    }
-    view
-}
-
-pub fn gather_elements<T: Copy + Default>(
+pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
     pool: &TensorPool,
     input: TensorView<T>,
     indices: TensorView<i32>,
@@ -226,44 +191,81 @@ pub fn gather_elements<T: Copy + Default>(
         ));
     }
     let axis = resolve_axis(input.ndim(), axis)?;
-    let mut output = Tensor::zeros_in(pool, indices.shape());
 
-    // For the common case of tensors with <= 4 dims, expand input to 4 dims
-    // and then use a fast path for static-rank tensors.
-    const FAST_PATH_NDIM: usize = 4;
-    if indices.ndim() <= FAST_PATH_NDIM {
-        let pad = FAST_PATH_NDIM - input.ndim();
-        let mut output = output.view_mut();
-        for _ in 0..pad {
-            output.insert_axis(0);
-        }
-        gather_elements_4d(
-            pool,
-            output.view_mut(),
-            unsqueeze_n(input, pad).nd_view(),
-            unsqueeze_n(indices, pad).nd_view(),
-            axis + pad,
-        )?;
-    } else {
-        let axis_size = input.size(axis) as isize;
-        let mut indices_valid = true;
-        for ((mut in_index, out_el), index) in
-            output.indices().zip(output.iter_mut()).zip(indices.iter())
-        {
-            // nb. If axis_val is < -axis_size, it will wrap around to a value
-            // that is still out of range.
-            let index = *index as isize;
-            let axis_val = if index < 0 { index + axis_size } else { index };
-            in_index[axis] = axis_val as usize;
-
-            let maybe_el = input.get(in_index).copied();
-            *out_el = maybe_el.unwrap_or_default();
-            indices_valid &= maybe_el.is_some();
-        }
-        if !indices_valid {
-            return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
+    // Dimensions in `indices` other than `axis` can be smaller than the
+    // corresponding input dimension, but not larger.
+    for d in 0..input.ndim() {
+        if d != axis && indices.size(d) > input.size(d) {
+            return Err(OpError::IncompatibleInputShapes(
+                "`indices` size must be <= input size in non-axis dimensions",
+            ));
         }
     }
+
+    // Trim the non-axis dimensions of the input to match indices, so that
+    // we iterate over matching 1D lanes.
+    let slice_ranges: Vec<_> = (0..input.ndim())
+        .map(|d| {
+            if d == axis {
+                SliceItem::full_range()
+            } else {
+                SliceItem::range(0, Some(indices.size(d) as isize), 1)
+            }
+        })
+        .collect();
+    let input = input.slice(slice_ranges.as_slice());
+
+    fn gather_lane<'a, T: Copy + 'a>(
+        data: impl GetItem<Item = T>,
+        indices: impl Iterator<Item = &'a i32>,
+        output: impl Iterator<Item = &'a mut MaybeUninit<T>>,
+    ) -> Result<(), OpError> {
+        let axis_size = data.len() as i32;
+        for (&idx, out) in indices.zip(output) {
+            let idx = if idx < 0 { idx + axis_size } else { idx };
+            if let Some(el) = data.get(idx as usize) {
+                out.write(*el);
+            } else {
+                return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
+            }
+        }
+        Ok(())
+    }
+
+    let mut output = Tensor::uninit_in(pool, indices.shape());
+    if output.is_empty() {
+        // Safety: Output has zero elements, so is fully "initialized".
+        return Ok(unsafe { output.assume_init() });
+    }
+
+    // When gathering from a stride-1 axis in a contiguous tensor, we can get
+    // the 1D lanes by just splitting the data into chunks.
+    if let (Some(input_data), 1, Some(indices_data), 1) = (
+        input.data(),
+        input.stride(axis),
+        indices.data(),
+        indices.stride(axis),
+    ) {
+        let idx_size = indices.size(axis);
+        input_data
+            .par_chunks(input.size(axis))
+            .zip(indices_data.par_chunks(idx_size))
+            .zip(output.data_mut().unwrap().par_chunks_mut(idx_size))
+            .try_for_each(|((data_lane, index_lane), out_lane)| {
+                gather_lane(data_lane, index_lane.iter(), out_lane.iter_mut())
+            })?;
+    } else {
+        for ((data_lane, index_lane), out_lane) in input
+            .lanes(axis)
+            .zip(indices.lanes(axis))
+            .zip(output.lanes_mut(axis))
+        {
+            gather_lane(data_lane, index_lane, out_lane)?;
+        }
+    }
+
+    // Safety: All elements of `output` have been initialized.
+    let output = unsafe { output.assume_init() };
 
     Ok(output)
 }
@@ -742,90 +744,127 @@ mod tests {
 
     #[test]
     fn test_gather_elements() {
-        let pool = new_pool();
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<i32>,
+            indices: Tensor<i32>,
+            expected: Tensor<i32>,
+            axis: isize,
+        }
 
-        // Example #1 from ONNX spec
-        let input = Tensor::from([[1, 2], [3, 4]]);
-        let indices = Tensor::from([[0, 0], [1, 0]]);
-        let axis = 1;
-        let expected = Tensor::from([[1, 1], [4, 3]]);
-        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
-        assert_eq!(result, expected);
+        let cases = [
+            // Example #1 from ONNX spec
+            Case {
+                input: [[1, 2], [3, 4]].into(),
+                indices: [[0, 0], [1, 0]].into(),
+                axis: 1,
+                expected: [[1, 1], [4, 3]].into(),
+            },
+            // Example #2 from ONNX spec
+            Case {
+                input: [[1, 2, 3], [4, 5, 6], [7, 8, 9]].into(),
+                indices: [[1, 2, 0], [2, 0, 0]].into(),
+                axis: 0,
+                expected: [[4, 8, 3], [7, 2, 3]].into(),
+            },
+            // Negative indices
+            Case {
+                input: [1, 2, 3].into(),
+                indices: [-1, -1, -2, -2].into(),
+                axis: 0,
+                expected: [3, 3, 2, 2].into(),
+            },
+            // Input with > 4 dims.
+            Case {
+                input: Tensor::from([1, 2, 3, 4]).into_shape([1, 1, 1, 2, 2].as_slice()),
+                indices: Tensor::from([1, 1, 0, 0]).into_shape([1, 1, 1, 2, 2].as_slice()),
+                axis: 4,
+                expected: Tensor::from([2, 2, 3, 3]).into_shape([1, 1, 1, 2, 2].as_slice()),
+            },
+            // Empty input and indices
+            Case {
+                input: [0; 0].into(),
+                indices: [0; 0].into(),
+                axis: 0,
+                expected: [0; 0].into(),
+            },
+            // Empty indices
+            Case {
+                input: [1, 2, 3].into(),
+                indices: [0; 0].into(),
+                axis: 0,
+                expected: [0; 0].into(),
+            },
+            // Case where `input` and `indices` have dims < axis that have different
+            // strides.
+            Case {
+                input: [[1, 2, 3], [3, 4, 5]].into(),
+                indices: [[0], [2]].into(),
+                axis: 1,
+                expected: [[1], [5]].into(),
+            },
+            // Case where `indices` has dims > axis which are smaller than the
+            // corresponding dims in `input`.
+            Case {
+                input: [[1, 2, 3], [4, 5, 6], [7, 8, 9]].into(),
+                indices: [[1], [2]].into(),
+                axis: 0,
+                expected: [[4], [7]].into(),
+            },
+        ];
 
-        // Example #2 from ONNX spec
-        let input = Tensor::from([[1, 2, 3], [4, 5, 6], [7, 8, 9]]);
-        let indices = Tensor::from([[1, 2, 0], [2, 0, 0]]);
-        let axis = 0;
-        let expected = Tensor::from([[4, 8, 3], [7, 2, 3]]);
-        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
-        assert_eq!(result, expected);
-
-        // Negative indices
-        let input = Tensor::from([1, 2, 3]);
-        let indices = Tensor::from([-1, -1, -2, -2]);
-        let axis = 0;
-        let expected = Tensor::from([3, 3, 2, 2]);
-        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
-        assert_eq!(result, expected);
-
-        // Input with > 4 dims.
-        let input = Tensor::from([1, 2, 3, 4]).into_shape([1, 1, 1, 2, 2].as_slice());
-        let indices = Tensor::from([1, 1, 0, 0]).into_shape([1, 1, 1, 2, 2].as_slice());
-        let axis = 4;
-        let expected = Tensor::from([2, 2, 3, 3]).into_shape([1, 1, 1, 2, 2].as_slice());
-        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
-        assert_eq!(result, expected);
-
-        // Empty input and indices
-        let input = Tensor::from([0; 0]);
-        let indices = Tensor::from([0; 0]);
-        let axis = 0;
-        let expected = Tensor::from([0; 0]);
-        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
-        assert_eq!(result, expected);
-
-        // Empty indices
-        let input: Tensor<i32> = Tensor::from([1, 2, 3]);
-        let indices = Tensor::from([0; 0]);
-        let axis = 0;
-        let expected = Tensor::from([0; 0]);
-        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
-        assert_eq!(result, expected);
-
-        // Case where `input` and `indices` have dims < axis that have different
-        // strides.
-        let input = Tensor::from([[1, 2], [3, 4]]);
-        let indices = Tensor::from([[0], [0]]);
-        let axis = 1;
-        let expected = Tensor::from([[1], [3]]);
-        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
-        assert_eq!(result, expected);
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let result =
+                gather_elements(&pool, case.input.view(), case.indices.view(), case.axis).unwrap();
+            assert_eq!(result, case.expected);
+        });
     }
 
     #[test]
     fn test_gather_elements_invalid_inputs() {
-        let pool = new_pool();
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<i32>,
+            indices: Tensor<i32>,
+            expected: OpError,
+            axis: isize,
+        }
 
-        let input = Tensor::from([[1, 2], [3, 4]]);
-        let indices = Tensor::from([[0, 0], [1, 0]]);
-        let result = gather_elements(&pool, input.view(), indices.view(), 2 /* axis */);
-        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
+        let cases = [
+            Case {
+                input: [[1, 2], [3, 4]].into(),
+                indices: [[0, 0], [1, 0]].into(),
+                axis: 2,
+                expected: OpError::InvalidValue("Axis is invalid"),
+            },
+            Case {
+                input: [[1, 2], [3, 4]].into(),
+                indices: [[0, 0], [1, 3]].into(),
+                axis: 1,
+                expected: OpError::InvalidValue("Entry in `indices` is out of range"),
+            },
+            Case {
+                input: [[1, 2], [3, 4]].into(),
+                indices: [1, 2, 3].into(),
+                axis: 1,
+                expected: OpError::IncompatibleInputShapes("Input and indices must have same rank"),
+            },
+            Case {
+                input: [[1, 2], [3, 4]].into(),
+                indices: [[1, 2, 3], [4, 5, 6]].into(),
+                axis: 0,
+                expected: OpError::IncompatibleInputShapes(
+                    "`indices` size must be <= input size in non-axis dimensions",
+                ),
+            },
+        ];
 
-        let indices = Tensor::from([[0, 0], [1, 3]]);
-        let result = gather_elements(&pool, input.view(), indices.view(), 1 /* axis */);
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue("Entry in `indices` is out of range"))
-        );
-
-        let indices = Tensor::from([1, 2, 3]);
-        let result = gather_elements(&pool, input.view(), indices.view(), 1 /* axis */);
-        assert_eq!(
-            result.err(),
-            Some(OpError::IncompatibleInputShapes(
-                "Input and indices must have same rank"
-            ))
-        );
+        cases.test_each_value(|case| {
+            let pool = new_pool();
+            let result = gather_elements(&pool, case.input.view(), case.indices.view(), case.axis);
+            assert_eq!(result.err(), Some(case.expected));
+        });
     }
 
     #[test]
