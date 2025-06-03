@@ -10,7 +10,7 @@ use crate::ops::{
     map_value, map_value_view, resolve_axes, resolve_axis, static_dims, IntoOpResult, OpError,
     OpRunContext, Operator, OutputList, Value, ValueView,
 };
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DepthToSpaceMode {
@@ -172,8 +172,9 @@ impl Operator for Expand {
             return Ok(input);
         }
 
-        map_value!(input, x, {
-            let output = expand_to(ctx.pool(), x.view(), &out_shape);
+        map_value!(input, input, {
+            let input = input.auto_return(ctx.pool());
+            let output = expand_to(ctx.pool(), input.view(), &out_shape);
             Ok(output.into())
         })
     }
