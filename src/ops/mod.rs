@@ -1135,6 +1135,11 @@ pub struct InputList<'a> {
     /// Callback that retrieves the pre-packed copy of an input with a given
     /// index.
     get_prepacked: Option<&'a dyn Fn(usize) -> Option<&'a PrepackedInput>>,
+
+    /// True if the input list does not contain the first operator input because
+    /// it is being passed separately. In this case input indices are offset by
+    /// one (eg. `inputs.require(0)` will return the second input to the operator).
+    first_input_omitted: bool,
 }
 
 impl<'a> InputList<'a> {
@@ -1143,7 +1148,18 @@ impl<'a> InputList<'a> {
         InputList {
             inputs: Cow::Owned(vec![]),
             get_prepacked: None,
+            first_input_omitted: false,
         }
+    }
+
+    /// Mark this input list as not containing the first input to the operator.
+    ///
+    /// This is used together with [`Operator::run_in_place`] where the first
+    /// input is passed separately. When this flag is set the input index is
+    /// adjusted in errors to reflect the real index.
+    pub fn with_first_input_omitted(mut self, offset: bool) -> Self {
+        self.first_input_omitted = offset;
+        self
     }
 
     pub fn len(&self) -> usize {
@@ -1176,6 +1192,7 @@ impl<'a> InputList<'a> {
         InputList {
             inputs: inputs.iter().cloned().map(Some).collect(),
             get_prepacked: None,
+            first_input_omitted: false,
         }
     }
 
@@ -1186,6 +1203,7 @@ impl<'a> InputList<'a> {
         InputList {
             inputs: Cow::Borrowed(inputs),
             get_prepacked: None,
+            first_input_omitted: false,
         }
     }
 
@@ -1223,9 +1241,10 @@ impl<'a> InputList<'a> {
     {
         self.get(index)
             .map(|input| {
-                input
-                    .try_into()
-                    .map_err(|error| OpError::InputCastFailed { index, error })
+                input.try_into().map_err(|error| OpError::InputCastFailed {
+                    index: self.to_real_index(index),
+                    error,
+                })
             })
             .transpose()
     }
@@ -1241,9 +1260,10 @@ impl<'a> InputList<'a> {
         T: TryFrom<ValueView<'a>, Error = CastError>,
     {
         self.require(index).and_then(|input| {
-            input
-                .try_into()
-                .map_err(|error| OpError::InputCastFailed { index, error })
+            input.try_into().map_err(|error| OpError::InputCastFailed {
+                index: self.to_real_index(index),
+                error,
+            })
         })
     }
 
@@ -1252,6 +1272,16 @@ impl<'a> InputList<'a> {
     /// Use [`Iterator::flatten`] to skip missing optional inputs.
     pub fn iter<'b>(&'b self) -> impl Iterator<Item = Option<ValueView<'a>>> + 'b {
         self.inputs.iter().cloned()
+    }
+
+    /// Map an index into this input list back to an index in the full
+    /// sequence of operator inputs.
+    fn to_real_index(&self, index: usize) -> usize {
+        if self.first_input_omitted {
+            index + 1
+        } else {
+            index
+        }
     }
 }
 
@@ -1399,7 +1429,7 @@ mod tests {
 
     use super::{CastError, Operator, Value, ValueView};
     use crate::downcast::DowncastDyn;
-    use crate::ops::{Add, DataType, Sub};
+    use crate::ops::{Add, DataType, InputList, OpError, Sub};
     use crate::tensor_pool::TensorPool;
 
     /// Create an empty tensor pool.
@@ -1433,6 +1463,19 @@ mod tests {
         let input: ValueView = tensor.view().into();
         assert!(matches!(input, ValueView::FloatTensor(_)));
         assert_eq!(input.shape(), &[5, 5]);
+    }
+
+    #[test]
+    fn test_input_list_first_input_omitted() {
+        let tensor = Tensor::<f32>::zeros(&[2, 2]);
+
+        let inputs = InputList::from(&[tensor.view().into()]).with_first_input_omitted(false);
+        let err = inputs.require_as::<TensorView<i32>>(0).err().unwrap();
+        assert!(matches!(err, OpError::InputCastFailed { index: 0, .. }));
+
+        let inputs = InputList::from(&[tensor.view().into()]).with_first_input_omitted(true);
+        let err = inputs.require_as::<TensorView<i32>>(0).err().unwrap();
+        assert!(matches!(err, OpError::InputCastFailed { index: 1, .. }));
     }
 
     #[test]
