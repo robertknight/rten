@@ -239,7 +239,7 @@ pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
     }
 
     // When gathering from a stride-1 axis in a contiguous tensor, we can get
-    // the 1D lanes just splitting the data into chunks.
+    // the 1D lanes by just splitting the data into chunks.
     if let (Some(input_data), 1, Some(indices_data), 1) = (
         input.data(),
         input.stride(axis),
@@ -796,15 +796,21 @@ mod tests {
 
         // Case where `input` and `indices` have dims < axis that have different
         // strides.
-        let input = Tensor::from([[1, 2], [3, 4]]);
-        let indices = Tensor::from([[0], [0]]);
+        let input = Tensor::from([[1, 2, 3], [3, 4, 5]]);
+        let indices = Tensor::from([[0], [2]]);
         let axis = 1;
-        let expected = Tensor::from([[1], [3]]);
+        let expected = Tensor::from([[1], [5]]);
         let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
 
-        // TODO - Add test case where indices inner dim is smaller than input
-        // inner dim.
+        // Case where `indices` has dims > axis which are smaller than the
+        // corresponding dims in `input`.
+        let input = Tensor::from([[1, 2, 3], [4, 5, 6], [7, 8, 9]]);
+        let indices = Tensor::from([[1], [2]]);
+        let axis = 0;
+        let expected = Tensor::from([[4], [7]]);
+        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
+        assert_eq!(result, expected);
     }
 
     #[test]
