@@ -945,7 +945,9 @@ impl Graph {
                     .flatten()
                     .and_then(|node_id| weight_cache.and_then(|wc| wc.get(node_id)))
             };
-            let inputs = InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
+            let inputs = InputList::from_optional(&op_inputs)
+                .with_prepacked(&get_prepacked)
+                .with_first_input_omitted(in_place_input.is_some());
             let mut ctx = OpRunContext::new(pool, &inputs);
             ctx.set_num_outputs(op_node.output_ids().len() as u32);
 
