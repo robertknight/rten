@@ -7,8 +7,8 @@ use crate::number::IsNaN;
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
-    map_input, CastError, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator,
-    OutputList,
+    map_value_view, CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator,
+    OutputList, ValueView,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -41,7 +41,7 @@ fn typed_views<'a, T>(
     _: TensorView<T>,
 ) -> Result<Vec<TensorView<'a, T>>, OpError>
 where
-    Input<'a>: TryInto<TensorView<'a, T>, Error = CastError>,
+    ValueView<'a>: TryInto<TensorView<'a, T>, Error = CastError>,
 {
     inputs
         .iter()
@@ -73,7 +73,7 @@ impl Operator for Max {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let first = inputs.require(0)?;
-        map_input!(first, first, [FloatTensor, Int32Tensor], {
+        map_value_view!(first, first, [FloatTensor, Int32Tensor], {
             let inputs = typed_views(inputs, first)?;
             max(ctx.pool(), &inputs).into_op_result()
         })
@@ -123,7 +123,7 @@ impl Operator for Min {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let first = inputs.require(0)?;
-        map_input!(first, first, [FloatTensor, Int32Tensor], {
+        map_value_view!(first, first, [FloatTensor, Int32Tensor], {
             let inputs = typed_views(inputs, first)?;
             min(ctx.pool(), &inputs).into_op_result()
         })
@@ -148,7 +148,7 @@ impl Operator for Sum {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let first = inputs.require(0)?;
-        map_input!(first, first, [FloatTensor, Int32Tensor], {
+        map_value_view!(first, first, [FloatTensor, Int32Tensor], {
             let inputs = typed_views(inputs, first)?;
             sum(ctx.pool(), &inputs).into_op_result()
         })
@@ -164,11 +164,11 @@ mod tests {
 
     use crate::ops::tests::new_pool;
     use crate::ops::{
-        max, mean, min, sum, Input, InputList, Max, Min, OpError, OpRunContext, Operator, Sum,
+        max, mean, min, sum, InputList, Max, Min, OpError, OpRunContext, Operator, Sum, ValueView,
     };
 
     fn run_operator<Op: Operator>(op: &Op, inputs: &[TensorView]) -> Tensor {
-        let inputs: Vec<Input> = inputs.iter().cloned().map(|i| i.into()).collect();
+        let inputs: Vec<ValueView> = inputs.iter().cloned().map(|i| i.into()).collect();
         let inputs = InputList::from(inputs.as_slice());
         let pool = new_pool();
         let ctx = OpRunContext::new(&pool, &inputs);

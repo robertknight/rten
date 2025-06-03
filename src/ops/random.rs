@@ -3,7 +3,7 @@ use fastrand_contrib::RngExt;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
-use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList};
+use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value};
 
 #[derive(Debug)]
 pub struct RandomUniform {
@@ -198,7 +198,7 @@ impl Operator for Dropout {
             (output, mask)
         };
 
-        Ok([Output::from(output), Output::from(mask)]
+        Ok([Value::from(output), Value::from(mask)]
             .into_iter()
             .collect())
     }

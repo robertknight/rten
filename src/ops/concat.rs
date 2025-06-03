@@ -6,8 +6,8 @@ use rten_tensor::{AssumeInit, NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::ops::{
-    map_input, map_output, resolve_axis, CastError, Input, InputList, IntoOpResult, OpError,
-    OpRunContext, Operator, Output, OutputList,
+    map_value, map_value_view, resolve_axis, CastError, InputList, IntoOpResult, OpError,
+    OpRunContext, Operator, OutputList, Value, ValueView,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -46,7 +46,7 @@ fn typed_inputs<'a, T>(
     _: TensorView<T>,
 ) -> Result<SmallVec<[TensorView<'a, T>; 4]>, OpError>
 where
-    TensorView<'a, T>: TryFrom<Input<'a>, Error = CastError>,
+    TensorView<'a, T>: TryFrom<ValueView<'a>, Error = CastError>,
 {
     let mut typed_inputs: SmallVec<_> = SmallVec::with_capacity(inputs.len());
     for input in inputs.iter().flatten() {
@@ -112,7 +112,7 @@ impl Operator for Concat {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let first = inputs.require(0)?;
-        map_input!(first, first, [FloatTensor, Int32Tensor], {
+        map_value_view!(first, first, [FloatTensor, Int32Tensor], {
             let typed_inputs = typed_inputs(inputs, first)?;
             concat(ctx.pool(), &typed_inputs, self.axis).into_op_result()
         })
@@ -131,8 +131,8 @@ impl Operator for Concat {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-        map_output!(input, input, [FloatTensor, Int32Tensor], {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+        map_value!(input, input, [FloatTensor, Int32Tensor], {
             let typed_inputs = typed_inputs(ctx.inputs(), input.view())?;
             concat_in_place(ctx.pool(), input, &typed_inputs, self.axis).map(|t| t.into())
         })
@@ -251,7 +251,7 @@ impl Operator for Tile {
         let input = inputs.require(0)?;
         let repeats = inputs.require_as(1)?;
 
-        map_input!(input, input, [FloatTensor, Int32Tensor], {
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             tile(ctx.pool(), input, repeats).into_op_result()
         })
     }
@@ -261,14 +261,14 @@ impl Operator for Tile {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let repeats: NdTensorView<i32, 1> = ctx.inputs().require_as(0)?;
 
         if repeats.iter().all(|n| *n == 1) {
             return Ok(input);
         }
 
-        map_output!(input, input, [FloatTensor, Int32Tensor], {
+        map_value!(input, input, [FloatTensor, Int32Tensor], {
             tile(ctx.pool(), input.view(), repeats).map(|t| t.into())
         })
     }

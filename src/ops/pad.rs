@@ -1,7 +1,9 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
-use crate::ops::{map_input, Input, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{
+    map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView,
+};
 use crate::tensor_pool::TensorPool;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -187,7 +189,7 @@ impl Operator for Pad {
             ));
         }
 
-        map_input!(input, x, {
+        map_value_view!(input, x, {
             let const_val = inputs.get_as(2)?.unwrap_or_default();
             pad(ctx.pool(), x, &pads, self.mode, const_val).into_op_result()
         })

@@ -5,7 +5,7 @@ use rten_tensor::{DynLayout, Tensor, TensorView};
 
 use super::NodeId;
 use crate::constant_storage::ArcTensorView;
-use crate::ops::{DataType, Input, Operator};
+use crate::ops::{DataType, Operator, ValueView};
 
 #[derive(Debug)]
 pub enum Node {
@@ -195,12 +195,12 @@ impl Constant {
     }
 
     /// Return the data for this constant as a tensor view.
-    pub fn as_input(&self) -> Input {
+    pub fn as_view(&self) -> ValueView {
         match self {
-            Constant::Float(f) => Input::FloatTensor(f.view()),
-            Constant::Int32(i) => Input::Int32Tensor(i.view()),
-            Constant::Int8(i) => Input::Int8Tensor(i.view()),
-            Constant::UInt8(i) => Input::UInt8Tensor(i.view()),
+            Constant::Float(f) => ValueView::FloatTensor(f.view()),
+            Constant::Int32(i) => ValueView::Int32Tensor(i.view()),
+            Constant::Int8(i) => ValueView::Int8Tensor(i.view()),
+            Constant::UInt8(i) => ValueView::UInt8Tensor(i.view()),
         }
     }
 
@@ -312,15 +312,14 @@ macro_rules! impl_typed_constant {
             }
 
             fn as_scalar(&self) -> Option<$type> {
-                self.as_view().and_then(|view| view.item().copied())
+                TypedConstant::as_view(self).and_then(|view| view.item().copied())
             }
 
             fn as_vector(&self) -> Option<&[$type]> {
-                self.as_view()
-                    .and_then(|view| match (view.ndim(), view.data()) {
-                        (1, Some(vec_data)) => Some(vec_data),
-                        _ => None,
-                    })
+                TypedConstant::as_view(self).and_then(|view| match (view.ndim(), view.data()) {
+                    (1, Some(vec_data)) => Some(vec_data),
+                    _ => None,
+                })
             }
         }
     };

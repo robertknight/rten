@@ -7,8 +7,8 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::iter_util::range_chunks;
 use crate::ops::{
-    static_dims, CastError, Input, InputList, IntoOpResult, OpError, OpRunContext, Operator,
-    Output, OutputList,
+    static_dims, CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
+    Value, ValueView,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -382,7 +382,7 @@ fn get_optional_input<'a, T>(
     index: usize,
 ) -> Result<Option<TensorView<'a, T>>, OpError>
 where
-    TensorView<'a, T>: TryFrom<Input<'a>, Error = CastError>,
+    TensorView<'a, T>: TryFrom<ValueView<'a>, Error = CastError>,
 {
     let tensor = inputs
         .get_as::<TensorView<T>>(index)?
@@ -445,7 +445,7 @@ impl Operator for Resize {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         // See note in `run` about the `roi` input.
 
         let other = ctx.inputs();

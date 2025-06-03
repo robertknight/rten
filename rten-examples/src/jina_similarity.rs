@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 
 use rten::ops::concat;
-use rten::{FloatOperators, InputOrOutput, Model, NodeId, Operators, TensorPool};
+use rten::{FloatOperators, Model, NodeId, Operators, TensorPool, ValueOrView};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 use rten_text::tokenizer::{EncodeOptions, Tokenizer};
@@ -120,7 +120,7 @@ fn embed_sentence_batch(
     let input_ids_id = model.node_id("input_ids")?;
     let attention_mask_id = model.node_id("attention_mask")?;
 
-    let mut inputs: Vec<(NodeId, InputOrOutput)> = vec![
+    let mut inputs: Vec<(NodeId, ValueOrView)> = vec![
         (input_ids_id, input_ids.view().into()),
         (attention_mask_id, attention_mask.view().into()),
     ];

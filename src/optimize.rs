@@ -14,7 +14,7 @@ use crate::ops::{
     FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, RmsNormalization, Silu, Swish,
     Transpose,
 };
-use crate::Output;
+use crate::Value;
 
 mod pattern_matcher;
 
@@ -422,10 +422,10 @@ impl GraphOptimizer {
             let const_name = const_name.as_deref();
 
             let const_id = match output {
-                Output::FloatTensor(tensor) => graph.add_constant(const_name, tensor),
-                Output::Int32Tensor(tensor) => graph.add_constant(const_name, tensor),
-                Output::Int8Tensor(tensor) => graph.add_constant(const_name, tensor),
-                Output::UInt8Tensor(tensor) => graph.add_constant(const_name, tensor),
+                Value::FloatTensor(tensor) => graph.add_constant(const_name, tensor),
+                Value::Int32Tensor(tensor) => graph.add_constant(const_name, tensor),
+                Value::Int8Tensor(tensor) => graph.add_constant(const_name, tensor),
+                Value::UInt8Tensor(tensor) => graph.add_constant(const_name, tensor),
             };
             graph.replace_value(value_node_id, const_id);
         }

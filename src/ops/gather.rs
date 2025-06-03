@@ -8,8 +8,8 @@ use smallvec::SmallVec;
 use crate::number::IsNaN;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
-    map_input, resolve_axis, resolve_index, Input, IntoOpResult, OpError, OpRunContext, Operator,
-    OutputList,
+    map_value_view, resolve_axis, resolve_index, IntoOpResult, OpError, OpRunContext, Operator,
+    OutputList, ValueView,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -139,7 +139,7 @@ impl Operator for Gather {
         let input = inputs.require(0)?;
         let indices = inputs.require_as(1)?;
 
-        map_input!(input, x, {
+        map_value_view!(input, x, {
             gather(ctx.pool(), x, self.axis, indices).into_op_result()
         })
     }
@@ -283,7 +283,7 @@ impl Operator for GatherElements {
         let input = inputs.require(0)?;
         let indices = inputs.require_as(1)?;
 
-        map_input!(input, x, {
+        map_value_view!(input, x, {
             gather_elements(ctx.pool(), x, indices, self.axis).into_op_result()
         })
     }
@@ -401,7 +401,7 @@ impl Operator for GatherND {
         let input = inputs.require(0)?;
         let indices = inputs.require_as(1)?;
 
-        map_input!(input, x, {
+        map_value_view!(input, x, {
             gather_nd(ctx.pool(), x, indices, self.batch_dims).into_op_result()
         })
     }
@@ -510,7 +510,7 @@ impl Operator for ScatterElements {
         let data = inputs.require(0)?;
         let indices = inputs.require_as(1)?;
 
-        map_input!(data, x, {
+        map_value_view!(data, x, {
             let updates = inputs.require_as(2)?;
             scatter_elements(ctx.pool(), x, indices, updates, self.axis, self.reduction)
                 .into_op_result()
@@ -602,7 +602,7 @@ impl Operator for ScatterND {
         let data = inputs.require(0)?;
         let indices = inputs.require_as(1)?;
 
-        map_input!(data, x, {
+        map_value_view!(data, x, {
             let updates = inputs.require_as(2)?;
             scatter_nd(ctx.pool(), x, indices, updates, self.reduction).into_op_result()
         })

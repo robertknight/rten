@@ -7,8 +7,8 @@ use smallvec::SmallVec;
 
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{
-    map_input, map_output, resolve_axes, resolve_axis, static_dims, Input, IntoOpResult, OpError,
-    OpRunContext, Operator, Output, OutputList,
+    map_value, map_value_view, resolve_axes, resolve_axis, static_dims, IntoOpResult, OpError,
+    OpRunContext, Operator, OutputList, Value, ValueView,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -155,7 +155,7 @@ impl Operator for Expand {
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
 
-        map_input!(input, x, { expand(ctx.pool(), x, &shape).into_op_result() })
+        map_value_view!(input, x, { expand(ctx.pool(), x, &shape).into_op_result() })
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -164,7 +164,7 @@ impl Operator for Expand {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let shape = ctx.inputs().require_as(0)?;
 
         let out_shape = expand_output_shape(input.shape(), &shape)?;
@@ -172,7 +172,7 @@ impl Operator for Expand {
             return Ok(input);
         }
 
-        map_output!(input, x, {
+        map_value!(input, x, {
             let output = expand_to(ctx.pool(), x.view(), &out_shape);
             Ok(output.into())
         })
@@ -223,7 +223,7 @@ impl Operator for Flatten {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
-        map_input!(input, x, {
+        map_value_view!(input, x, {
             flatten(ctx.pool(), x, self.axis).into_op_result()
         })
     }
@@ -232,8 +232,8 @@ impl Operator for Flatten {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-        map_output!(input, x, {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+        map_value!(input, x, {
             flatten_in_place(ctx.pool(), &mut x, self.axis)?;
             Ok(x.into())
         })
@@ -351,7 +351,7 @@ impl Operator for Reshape {
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
 
-        map_input!(input, x, {
+        map_value_view!(input, x, {
             reshape(ctx.pool(), x, &shape, self.allow_zero).into_op_result()
         })
     }
@@ -360,10 +360,10 @@ impl Operator for Reshape {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let shape = ctx.inputs().require_as(0)?;
 
-        map_output!(input, output, {
+        map_value!(input, output, {
             reshape_in_place(ctx.pool(), &mut output, &shape, self.allow_zero)?;
             Ok(output.into())
         })
@@ -501,17 +501,17 @@ impl Operator for Squeeze {
         let input = inputs.require(0)?;
         let axes = inputs.get_as(1)?;
 
-        map_input!(input, x, { squeeze(ctx.pool(), x, axes).into_op_result() })
+        map_value_view!(input, x, { squeeze(ctx.pool(), x, axes).into_op_result() })
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let axes = ctx.inputs().get_as(0)?;
 
-        map_output!(input, output, {
+        map_value!(input, output, {
             squeeze_in_place(&mut output, axes)?;
             Ok(output.into())
         })
@@ -555,7 +555,7 @@ impl Operator for Transpose {
         let input = ctx.inputs().require(0)?;
         let perm_slice = self.perm.as_deref();
 
-        map_input!(input, x, {
+        map_value_view!(input, x, {
             transpose(ctx.pool(), x, perm_slice).into_op_result()
         })
     }
@@ -611,7 +611,7 @@ impl Operator for Unsqueeze {
         let input = inputs.require(0)?;
         let axes = inputs.require_as(1)?;
 
-        map_input!(input, x, {
+        map_value_view!(input, x, {
             unsqueeze(ctx.pool(), x, &axes).into_op_result()
         })
     }
@@ -620,10 +620,10 @@ impl Operator for Unsqueeze {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let axes = ctx.inputs().require_as(0)?;
 
-        map_output!(input, output, {
+        map_value!(input, output, {
             Ok(unsqueeze_in_place(output, &axes)?.into())
         })
     }
@@ -646,7 +646,7 @@ mod tests {
         unsqueeze, Reshape, Shape, Size,
     };
     use crate::ops::tests::new_pool;
-    use crate::ops::{OpError, OperatorExt, Output};
+    use crate::ops::{OpError, OperatorExt, Value};
 
     #[test]
     fn test_depth_to_space() {
@@ -1025,7 +1025,7 @@ mod tests {
     fn test_shape() {
         #[derive(Debug)]
         struct Case {
-            input: Output,
+            input: Value,
             op: Shape,
             expected: Vec<i32>,
         }

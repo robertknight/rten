@@ -7,7 +7,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
-use crate::ops::{resolve_axis, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList};
+use crate::ops::{resolve_axis, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value};
 use crate::slice_reductions::slice_max;
 use crate::tensor_pool::TensorPool;
 
@@ -250,7 +250,7 @@ impl Operator for BatchNormalization {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let inputs = ctx.inputs();
         let mut output: Tensor = input.try_into()?;
         let scale = inputs.require_as(0)?;
@@ -335,7 +335,7 @@ impl Operator for InstanceNormalization {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let mut output: Tensor = input.try_into()?;
         let inputs = ctx.inputs();
         let scale = inputs.require_as(0)?;
@@ -618,7 +618,7 @@ impl Operator for LogSoftmax {
         true
     }
 
-    fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
         let mut output: Tensor = input.try_into()?;
         log_softmax_in_place(&mut output, self.axis)?;
         Ok(output.into())
@@ -657,7 +657,7 @@ impl Operator for Softmax {
         true
     }
 
-    fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
         let mut output = input.try_into()?;
         softmax_in_place(&mut output, self.axis)?;
         Ok(output.into())

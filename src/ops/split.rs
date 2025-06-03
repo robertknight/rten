@@ -2,7 +2,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::iter_util::range_chunks;
-use crate::ops::{map_input, resolve_axis, Input, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{
+    map_value_view, resolve_axis, OpError, OpRunContext, Operator, OutputList, ValueView,
+};
 use crate::tensor_pool::TensorPool;
 
 #[derive(Clone, Debug)]
@@ -105,7 +107,7 @@ impl Operator for Split {
             ));
         };
 
-        map_input!(input, x, {
+        map_value_view!(input, x, {
             split(ctx.pool(), x, self.axis, split_sizes)
                 .map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
         })
