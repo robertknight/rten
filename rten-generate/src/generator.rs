@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt;
 use std::ops::Range;
 
-use rten::{Dimension, Input, InputOrOutput, NodeId, Output, RunOptions};
+use rten::{Dimension, NodeId, RunOptions, Value, ValueOrView, ValueView};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
@@ -356,17 +356,17 @@ pub struct Generator<'a> {
 
     /// Additional constant model inputs (eg. encoder outputs) passed to the
     /// model at each step.
-    constant_inputs: Vec<(NodeId, InputOrOutput<'a>)>,
+    constant_inputs: Vec<(NodeId, ValueOrView<'a>)>,
 
     /// Additional model inputs computed using constant propagation. This
     /// effectively caches parts of the graph that don't change in each
     /// generation step. This is `None` if the cache is out of date.
-    constant_prop_inputs: Option<Vec<(NodeId, Output)>>,
+    constant_prop_inputs: Option<Vec<(NodeId, Value)>>,
 
     /// Additional varying model inputs computed and passed to the model at
     /// each step. The functions receive `(batch_size, sequence_positions)` as inputs.
     #[allow(clippy::type_complexity)]
-    varying_inputs: Vec<(NodeId, &'a dyn Fn(usize, Range<usize>) -> InputOrOutput<'a>)>,
+    varying_inputs: Vec<(NodeId, &'a dyn Fn(usize, Range<usize>) -> ValueOrView<'a>)>,
 
     /// Input token IDs for the next run of the model.
     input_ids: Vec<TokenId>,
@@ -624,7 +624,7 @@ impl<'a> Generator<'a> {
     ///
     /// A common use case is to pass the outputs of an encoder model to
     /// an auto-regressive decoder.
-    pub fn with_constant_input(mut self, input_id: NodeId, value: Input<'a>) -> Self {
+    pub fn with_constant_input(mut self, input_id: NodeId, value: ValueView<'a>) -> Self {
         self.constant_prop_inputs = None;
         self.constant_inputs.push((input_id, value.into()));
         self
@@ -637,7 +637,7 @@ impl<'a> Generator<'a> {
     ///
     /// A common use case is to pass position embeddings, if they are not
     /// computed internally by the model.
-    pub fn with_varying_input<F: Fn(usize, Range<usize>) -> InputOrOutput<'a>>(
+    pub fn with_varying_input<F: Fn(usize, Range<usize>) -> ValueOrView<'a>>(
         mut self,
         input_id: NodeId,
         value_fn: &'a F,
@@ -688,7 +688,7 @@ impl<'a> Generator<'a> {
 
         let input_positions = self.input_offset..self.input_offset + self.input_ids.len();
 
-        let mut model_inputs: Vec<(NodeId, InputOrOutput)> =
+        let mut model_inputs: Vec<(NodeId, ValueOrView)> =
             vec![(self.input_ids_input, input_ids.view().into())];
 
         // Propagate constants on the first run.
@@ -713,7 +713,7 @@ impl<'a> Generator<'a> {
             model_inputs.extend(
                 constants
                     .iter()
-                    .map(|(node_id, output)| (*node_id, output.as_input().into())),
+                    .map(|(node_id, output)| (*node_id, output.as_view().into())),
             );
         }
 
@@ -930,7 +930,7 @@ mod tests {
     use std::error::Error;
     use std::rc::Rc;
 
-    use rten::{Dimension, InputOrOutput, NodeId, Output, RunOptions};
+    use rten::{Dimension, NodeId, RunOptions, Value, ValueOrView};
     use rten_tensor::prelude::*;
     use rten_tensor::{NdTensor, NdTensorView};
 
@@ -948,10 +948,10 @@ mod tests {
         step: Cell<usize>,
 
         // Inference outputs for each step
-        outputs: Vec<HashMap<NodeId, Output>>,
+        outputs: Vec<HashMap<NodeId, Value>>,
 
         // Inference inputs for each step
-        inputs: RefCell<Vec<HashMap<NodeId, Output>>>,
+        inputs: RefCell<Vec<HashMap<NodeId, Value>>>,
 
         // Run options for most recent inference
         run_opts: Cell<Option<RunOptions>>,
@@ -980,12 +980,12 @@ mod tests {
         }
 
         /// Add inference outputs for one run of the model.
-        fn add_outputs(&mut self, outputs: HashMap<NodeId, Output>) {
+        fn add_outputs(&mut self, outputs: HashMap<NodeId, Value>) {
             self.outputs.push(outputs)
         }
 
         /// Get an input for the `step`th run of the model.
-        fn get_inputs(&self, step: usize, node_id: NodeId) -> Option<Output> {
+        fn get_inputs(&self, step: usize, node_id: NodeId) -> Option<Value> {
             self.inputs
                 .borrow()
                 .get(step)
@@ -1013,10 +1013,10 @@ mod tests {
 
         fn run(
             &self,
-            inputs: Vec<(NodeId, InputOrOutput)>,
+            inputs: Vec<(NodeId, ValueOrView)>,
             outputs: &[NodeId],
             opts: Option<RunOptions>,
-        ) -> Result<Vec<Output>, Box<dyn Error>> {
+        ) -> Result<Vec<Value>, Box<dyn Error>> {
             if let Some((input_id, _)) = inputs.iter().find(|(id, _)| !self.input_ids.contains(id))
             {
                 return Err(format!("invalid input ID {}", input_id).into());
@@ -1034,7 +1034,7 @@ mod tests {
             self.inputs.borrow_mut().push(
                 inputs
                     .into_iter()
-                    .map(|(id, input_or_output)| (id, input_or_output.to_output()))
+                    .map(|(id, input_or_output)| (id, input_or_output.to_owned()))
                     .collect(),
             );
 
@@ -1061,10 +1061,10 @@ mod tests {
 
         fn partial_run(
             &self,
-            _inputs: Vec<(NodeId, InputOrOutput)>,
+            _inputs: Vec<(NodeId, ValueOrView)>,
             _outputs: &[NodeId],
             _opts: Option<RunOptions>,
-        ) -> Result<Vec<(NodeId, Output)>, Box<dyn Error>> {
+        ) -> Result<Vec<(NodeId, Value)>, Box<dyn Error>> {
             Ok(Vec::new())
         }
     }
@@ -1208,7 +1208,7 @@ mod tests {
             };
 
             let mut outputs = HashMap::new();
-            outputs.insert(logits_id, Output::FloatTensor(logits.into()));
+            outputs.insert(logits_id, Value::FloatTensor(logits.into()));
 
             // Add KV cache outputs
             for kv_output in kv_cache_output_names.iter() {
@@ -1237,7 +1237,7 @@ mod tests {
 
                 outputs.insert(
                     kv_output_id,
-                    Output::FloatTensor(
+                    Value::FloatTensor(
                         NdTensor::zeros([1, n_heads, context_len, output_n_embed]).into(),
                     ),
                 );

@@ -7,7 +7,8 @@ use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::number::{AsBool, Identities, IsInt};
 use crate::ops::{
-    map_input, map_output, Input, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
+    map_value, map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
+    ValueView,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -329,7 +330,7 @@ fn binary_commutative_op<T: Copy + Debug + Default, F: Fn(T, T) -> T>(
 macro_rules! run_typed_op {
     ($pool:expr, $inputs:expr, $op_func:ident) => {{
         let a = $inputs.require(0)?;
-        map_input!(a, a, [FloatTensor, Int32Tensor], {
+        map_value_view!(a, a, [FloatTensor, Int32Tensor], {
             let b = $inputs.require_as(1)?;
             $op_func($pool, a, b).into_op_result()
         })
@@ -344,7 +345,7 @@ macro_rules! run_typed_op {
 /// on the tensor type.
 macro_rules! run_typed_op_in_place {
     ($pool:expr, $input:expr, $other: expr, $in_place_op_func:ident, $op_func:ident) => {{
-        map_output!($input, a, [FloatTensor, Int32Tensor], {
+        map_value!($input, a, [FloatTensor, Int32Tensor], {
             let b = $other.require_as(0)?;
             if can_run_binary_op_in_place(&a, &b) {
                 $in_place_op_func(a.view_mut(), b);
@@ -394,7 +395,7 @@ impl Operator for Add {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), add_in_place, add)
     }
 }
@@ -494,7 +495,7 @@ impl Operator for Div {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), div_in_place, div)
     }
 }
@@ -637,7 +638,7 @@ impl Operator for Mod {
             DivMode::FloorDiv
         };
 
-        map_input!(a, a, [FloatTensor, Int32Tensor], {
+        map_value_view!(a, a, [FloatTensor, Int32Tensor], {
             let b = inputs.require_as(1)?;
             mod_op(ctx.pool(), a, b, mode).into_op_result()
         })
@@ -681,7 +682,7 @@ impl Operator for Mul {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), mul_in_place, mul)
     }
 }
@@ -761,7 +762,7 @@ impl Operator for Pow {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let base = inputs.require(0)?;
-        map_input!(base, base, [FloatTensor, Int32Tensor], {
+        map_value_view!(base, base, [FloatTensor, Int32Tensor], {
             let exponent = inputs.require_as(1)?;
             pow(ctx.pool(), base, exponent).into_op_result()
         })
@@ -771,8 +772,8 @@ impl Operator for Pow {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-        map_output!(input, base, [FloatTensor, Int32Tensor], {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+        map_value!(input, base, [FloatTensor, Int32Tensor], {
             let exponent = ctx.inputs().require_as(0)?;
             if can_run_binary_op_in_place(&base, &exponent) {
                 pow_in_place(base.view_mut(), exponent);
@@ -817,7 +818,7 @@ impl Operator for Sub {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), sub_in_place, sub)
     }
 }
@@ -896,7 +897,7 @@ impl Operator for Where {
         let condition = inputs.require_as(0)?;
         let x = inputs.require(1)?;
 
-        map_input!(x, x, [FloatTensor, Int32Tensor], {
+        map_value_view!(x, x, [FloatTensor, Int32Tensor], {
             let y = inputs.require_as(2)?;
             where_op(ctx.pool(), condition, x, y).into_op_result()
         })
@@ -919,7 +920,7 @@ mod tests {
         where_op, xor, Add, DivMode,
     };
     use crate::ops::tests::new_pool;
-    use crate::ops::{InputList, OpError, OpRunContext, Operator, OperatorExt, Output};
+    use crate::ops::{InputList, OpError, OpRunContext, Operator, OperatorExt, Value};
 
     #[test]
     fn test_fast_broadcast_cycles_repeats() {
@@ -1060,14 +1061,14 @@ mod tests {
         let op = Add {};
         let inputs: InputList = (&b).into();
         let ctx = OpRunContext::new(&pool, &inputs);
-        let result = op.run_in_place(Output::FloatTensor(a_copy), &ctx).unwrap();
+        let result = op.run_in_place(Value::FloatTensor(a_copy), &ctx).unwrap();
         expect_equal(&result.as_tensor_view().unwrap(), &expected.view())?;
 
         // Run `Add` operator in-place with inputs that don't support in-place
         // addition. The operator should fall back to creating a new output tensor.
         let scalar = Tensor::from(1.0);
         let expected = Tensor::from_data(&[2, 2], vec![11., 21., 31., 41.]);
-        let result = op.run_in_place(Output::FloatTensor(scalar), &ctx).unwrap();
+        let result = op.run_in_place(Value::FloatTensor(scalar), &ctx).unwrap();
         expect_equal(&result.as_tensor_view().unwrap(), &expected.view())?;
 
         // In-place addition where the second input must be broadcast to the
@@ -1363,9 +1364,9 @@ mod tests {
     fn test_pow() {
         #[derive(Debug)]
         struct Case {
-            a: Output,
-            b: Output,
-            expected: Output,
+            a: Value,
+            b: Value,
+            expected: Value,
         }
 
         let cases = [
@@ -1423,10 +1424,10 @@ mod tests {
             }
 
             match (&case.a, &case.b, &case.expected) {
-                (Output::FloatTensor(a), Output::FloatTensor(b), Output::FloatTensor(expected)) => {
+                (Value::FloatTensor(a), Value::FloatTensor(b), Value::FloatTensor(expected)) => {
                     test_case!(a, b, expected);
                 }
-                (Output::Int32Tensor(a), Output::FloatTensor(b), Output::Int32Tensor(expected)) => {
+                (Value::Int32Tensor(a), Value::FloatTensor(b), Value::Int32Tensor(expected)) => {
                     test_case!(a, b, expected);
                 }
                 _ => unimplemented!("unsupported types"),

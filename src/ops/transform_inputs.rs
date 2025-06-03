@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use rten_tensor::prelude::*;
 
-use crate::ops::{map_input, Input, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{map_value_view, OpError, OpRunContext, Operator, OutputList, ValueView};
 
 trait TransformInput {
-    fn transform(&self, input: &mut Input) -> Result<(), OpError>;
+    fn transform(&self, input: &mut ValueView) -> Result<(), OpError>;
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -15,8 +15,8 @@ struct PermuteInput {
 }
 
 impl TransformInput for PermuteInput {
-    fn transform(&self, input: &mut Input) -> Result<(), OpError> {
-        map_input!(input, tensor, {
+    fn transform(&self, input: &mut ValueView) -> Result<(), OpError> {
+        map_value_view!(input, tensor, {
             if let Some(perm) = self.perm.as_ref() {
                 tensor.permute(perm);
             } else {
@@ -33,7 +33,7 @@ enum Transform {
 }
 
 impl TransformInput for Transform {
-    fn transform(&self, input: &mut Input) -> Result<(), OpError> {
+    fn transform(&self, input: &mut ValueView) -> Result<(), OpError> {
         match self {
             Self::Permute(spec) => spec.transform(input),
         }

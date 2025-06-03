@@ -4,8 +4,8 @@ use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::ops::{
-    map_input, map_output, resolve_axis, Input, InputList, IntoOpResult, OpError, OpRunContext,
-    Operator, Output, OutputList,
+    map_value, map_value_view, resolve_axis, InputList, IntoOpResult, OpError, OpRunContext,
+    Operator, OutputList, Value, ValueView,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -127,7 +127,7 @@ impl Operator for Slice {
         let axes = inputs.get_as(3)?;
         let steps = inputs.get_as(4)?;
 
-        let result: Result<Output, OpError> = map_input!(input, x, {
+        let result: Result<Value, OpError> = map_value_view!(input, x, {
             slice(ctx.pool(), x, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
         });
         result.into_op_result()
@@ -137,7 +137,7 @@ impl Operator for Slice {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let other = ctx.inputs();
         let starts = other.require_as(0)?;
         let ends = other.require_as(1)?;
@@ -148,7 +148,7 @@ impl Operator for Slice {
         // Fall back to copying if non-default steps are given.
         if let Some(steps) = steps {
             if steps.iter().any(|step| *step != 1) {
-                let mut inputs: Vec<_> = vec![input.as_input()];
+                let mut inputs: Vec<_> = vec![input.as_view()];
 
                 // `inputs.extend(other.iter())` not used here as it triggers
                 // a borrow-checking error.
@@ -162,7 +162,7 @@ impl Operator for Slice {
             }
         }
 
-        map_output!(input, output, {
+        map_value!(input, output, {
             slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
             Ok(output.into())
         })

@@ -2,11 +2,11 @@ use rten_tensor::TensorView;
 use smallvec::SmallVec;
 
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
-use crate::ops::{OpError, OpRunContext, Operator, Output, OutputList};
+use crate::ops::{OpError, OpRunContext, Operator, OutputList, Value};
 use crate::timing::Profiler;
 use crate::weight_cache::WeightCache;
 
-fn output_list_from_vec(xs: Vec<Output>) -> OutputList {
+fn output_list_from_vec(xs: Vec<Value>) -> OutputList {
     xs.into_iter().collect()
 }
 

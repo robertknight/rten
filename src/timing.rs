@@ -6,7 +6,7 @@ use std::time::Duration;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use std::time;
 
-use crate::ops::InputMeta;
+use crate::ops::ValueMeta;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 type Seconds = f64;
@@ -250,7 +250,7 @@ fn shape_to_string(shape: &[usize]) -> String {
 }
 
 /// Format a list of operator input shapes as a string.
-fn shapes_to_string(meta: &[Option<InputMeta>]) -> String {
+fn shapes_to_string(meta: &[Option<ValueMeta>]) -> String {
     let formatted_shapes: Vec<_> = meta
         .iter()
         .map(|meta| {
@@ -386,7 +386,7 @@ pub struct TimingRecord<'a> {
     pub node_name: &'a str,
 
     /// Shapes of the operator's inputs
-    pub input_meta: Vec<Option<InputMeta>>,
+    pub input_meta: Vec<Option<ValueMeta>>,
 
     /// Execution time of this step
     pub elapsed: Duration,

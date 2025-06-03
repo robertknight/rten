@@ -11,7 +11,8 @@ use rten_vecmath as vecmath;
 
 use crate::number::AsBool;
 use crate::ops::{
-    map_input, map_output, Input, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
+    map_value, map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
+    ValueView,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -48,7 +49,7 @@ impl<Op: Any + Debug + UnaryFloatOp> Operator for Op {
         true
     }
 
-    fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
         let mut output: Tensor = input.try_into()?;
         self.apply(output.view_mut());
         Ok(output.into())
@@ -72,7 +73,7 @@ macro_rules! unary_numeric_op {
 
             fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
                 let input = ctx.inputs().require(0)?;
-                map_input!(input, input, [FloatTensor, Int32Tensor], {
+                map_value_view!(input, input, [FloatTensor, Int32Tensor], {
                     $view_impl(ctx.pool(), input).into_op_result()
                 })
             }
@@ -81,8 +82,8 @@ macro_rules! unary_numeric_op {
                 true
             }
 
-            fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-                map_output!(input, input, [FloatTensor, Int32Tensor], {
+            fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+                map_value!(input, input, [FloatTensor, Int32Tensor], {
                     let result = $mut_impl(ctx.pool(), input);
                     Ok(result.into())
                 })
@@ -182,7 +183,7 @@ macro_rules! parallel_unary_float_op {
                 $func_name(ctx.pool(), ctx.inputs().require_as(0)?).into_op_result()
             }
 
-            fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+            fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
                 let tensor: Tensor = input.try_into()?;
                 let kernel = $simd_kernel;
                 let result = par_unary_op_in_place(ctx.pool(), tensor, kernel);
@@ -312,7 +313,7 @@ impl Operator for Clip {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
-        map_input!(input, input, [FloatTensor, Int32Tensor], {
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             let min = inputs.get_as(1)?;
             let max = inputs.get_as(2)?;
             clip(ctx.pool(), input, min, max).into_op_result()
@@ -323,8 +324,8 @@ impl Operator for Clip {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
-        map_output!(input, input, [FloatTensor, Int32Tensor], {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+        map_value!(input, input, [FloatTensor, Int32Tensor], {
             let min = ctx.inputs().get_as(0)?;
             let max = ctx.inputs().get_as(1)?;
             clip_in_place(&mut input, min, max);
@@ -388,7 +389,7 @@ impl Operator for Gelu {
         gelu(ctx.pool(), ctx.inputs().require_as(0)?, self.approximate).into_op_result()
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let tensor: Tensor = input.try_into()?;
         let result = if self.approximate {
             par_unary_op_in_place(ctx.pool(), tensor, vecmath::ApproxGelu {})
@@ -511,7 +512,7 @@ impl Operator for Not {
         true
     }
 
-    fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
         let mut output: Tensor<i32> = input.try_into()?;
         not_in_place(output.view_mut());
         Ok(output.into())
@@ -573,7 +574,7 @@ impl Operator for Swish {
         swish(ctx.pool(), ctx.inputs().require_as(0)?, self.beta).into_op_result()
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let tensor: Tensor = input.try_into()?;
         let output = swish_in_place(ctx.pool(), tensor, self.beta);
         Ok(output.into())
@@ -641,7 +642,7 @@ mod tests {
         Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
     };
     use crate::ops::tests::new_pool;
-    use crate::ops::{CastError, Input, Operator, OperatorExt, Output};
+    use crate::ops::{CastError, Operator, OperatorExt, Value, ValueView};
     use rten_tensor::test_util::ApproxEq;
 
     fn test_unary_op_impl<T: Clone + std::fmt::Debug + ApproxEq>(
@@ -650,8 +651,8 @@ mod tests {
         input: Tensor<T>,
     ) -> Result<(), Box<dyn Error>>
     where
-        for<'a> TensorView<'a, T>: Into<Input<'a>>,
-        Tensor<T>: Into<Output> + TryFrom<Output, Error = CastError>,
+        for<'a> TensorView<'a, T>: Into<ValueView<'a>>,
+        Tensor<T>: Into<Value> + TryFrom<Value, Error = CastError>,
     {
         // Test copying variant.
         let expected = input.map(reference_op);

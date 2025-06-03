@@ -16,8 +16,8 @@ use smallvec::SmallVec;
 
 use crate::env::env_flag;
 use crate::ops::{
-    DataType, Input, InputList, InputMeta, InputOrOutput, OpError, OpRunContext, Operator, Output,
-    OutputList, PrepackedInput,
+    DataType, InputList, OpError, OpRunContext, Operator, OutputList, PrepackedInput, Value,
+    ValueMeta, ValueOrView, ValueView,
 };
 use crate::tensor_pool::TensorPool;
 use crate::threading;
@@ -65,7 +65,7 @@ pub enum RunError {
         ///
         /// Inputs can be `None` if they are optional inputs which were not
         /// provided.
-        inputs: Vec<Option<InputMeta>>,
+        inputs: Vec<Option<ValueMeta>>,
     },
 
     /// The output of a graph operator did not match expectations (eg. the
@@ -93,7 +93,7 @@ impl RunError {
         main_input_dtype: DataType,
         main_input_shape: &[usize],
     ) -> Self {
-        let meta = InputMeta {
+        let meta = ValueMeta {
             dtype: main_input_dtype,
             shape: main_input_shape.to_vec(),
         };
@@ -504,7 +504,7 @@ impl Graph {
 
                 let Some(packed) = op_node
                     .operator()
-                    .prepack(input_index, const_node.as_input())
+                    .prepack(input_index, const_node.as_view())
                 else {
                     // Operator doesn't support or decided not to prepack this value.
                     continue;
@@ -628,11 +628,11 @@ impl Graph {
     /// processing steps and constant values defined by the graph.
     pub fn run(
         &self,
-        inputs: Vec<(NodeId, InputOrOutput)>,
+        inputs: Vec<(NodeId, ValueOrView)>,
         outputs: &[NodeId],
         weight_cache: Option<&WeightCache>,
         opts: Option<RunOptions>,
-    ) -> Result<Vec<Output>, RunError> {
+    ) -> Result<Vec<Value>, RunError> {
         let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
         let plan = self.get_cached_plan(&input_ids, outputs, false /* is_subgraph */)?;
         let opts = opts.unwrap_or_default();
@@ -669,14 +669,14 @@ impl Graph {
     /// which allows the subgraph to access values in the parent scope.
     pub fn run_subgraph<'a>(
         &'a self,
-        inputs: Vec<(NodeId, InputOrOutput)>,
+        inputs: Vec<(NodeId, ValueOrView)>,
         outputs: &[NodeId],
         captures: CaptureEnv,
         pool: Option<&TensorPool>,
         weight_cache: Option<&WeightCache>,
         profiler: Option<&mut Profiler<'a>>,
         opts: Option<RunOptions>,
-    ) -> Result<Vec<Output>, RunError> {
+    ) -> Result<Vec<Value>, RunError> {
         let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
         let plan = self.get_cached_plan(&input_ids, outputs, true /* is_subgraph */)?;
         let opts = opts.unwrap_or_default();
@@ -734,7 +734,7 @@ impl Graph {
 
     fn run_plan<'a>(
         &'a self,
-        mut inputs: Vec<(NodeId, InputOrOutput)>,
+        mut inputs: Vec<(NodeId, ValueOrView)>,
         plan: &[NodeId],
         outputs: &[NodeId],
         mut captures: Option<CaptureEnv>,
@@ -742,8 +742,8 @@ impl Graph {
         weight_cache: Option<&WeightCache>,
         mut profiler: Option<&mut Profiler<'a>>,
         opts: &RunOptions,
-    ) -> Result<Vec<Output>, RunError> {
-        let mut temp_values: FxHashMap<NodeId, Output> = FxHashMap::default();
+    ) -> Result<Vec<Value>, RunError> {
+        let mut temp_values: FxHashMap<NodeId, Value> = FxHashMap::default();
 
         // Extract all owned tensor inputs into the owned value map.
         //
@@ -751,8 +751,8 @@ impl Graph {
         // returned directly as outputs.
         let mut idx = 0;
         while idx < inputs.len() {
-            if matches!(inputs[idx], (_, InputOrOutput::Output(_))) {
-                let (node_id, InputOrOutput::Output(outp)) = inputs.remove(idx) else {
+            if matches!(inputs[idx], (_, ValueOrView::Value(_))) {
+                let (node_id, ValueOrView::Value(outp)) = inputs.remove(idx) else {
                     unreachable!();
                 };
                 temp_values.insert(node_id, outp);
@@ -761,11 +761,11 @@ impl Graph {
             }
         }
 
-        let inputs_by_id: FxHashMap<NodeId, InputOrOutput> = inputs.iter().cloned().collect();
-        let get_value_from_constant_or_input = |node_id: NodeId| -> Option<Input> {
+        let inputs_by_id: FxHashMap<NodeId, ValueOrView> = inputs.iter().cloned().collect();
+        let get_value_from_constant_or_input = |node_id: NodeId| -> Option<ValueView> {
             match self.nodes.get(&node_id) {
-                Some(Node::Constant(constant)) => Some(constant.as_input()),
-                Some(Node::Value(_)) => inputs_by_id.get(&node_id).map(|input| input.as_input()),
+                Some(Node::Constant(constant)) => Some(constant.as_view()),
+                Some(Node::Value(_)) => inputs_by_id.get(&node_id).map(|input| input.as_view()),
                 _ => {
                     panic!("node {} is not a value or constant", node_id);
                 }
@@ -776,7 +776,7 @@ impl Graph {
             nodes: &NoopHashMap<NodeId, Node>,
             captures: Option<&'a CaptureEnv>,
             node_id: NodeId,
-        ) -> Option<Input<'a>> {
+        ) -> Option<ValueView<'a>> {
             let name = nodes.get(&node_id).and_then(|n| n.name())?;
             captures.and_then(|cap| cap.get_input(name))
         }
@@ -893,7 +893,7 @@ impl Graph {
             });
 
             // Collect all or remaining inputs for the operator
-            let mut op_inputs: SmallVec<[Option<Input>; 4]> =
+            let mut op_inputs: SmallVec<[Option<ValueView>; 4]> =
                 SmallVec::with_capacity(op_node.input_ids().len());
             for node_id in op_node.input_ids().iter() {
                 if in_place_input.is_some() && *node_id == in_place_input_id {
@@ -904,7 +904,7 @@ impl Graph {
                     if let Some(value) = get_value_from_constant_or_input(*node_id) {
                         op_inputs.push(Some(value));
                     } else if let Some(value) = temp_values.get(node_id) {
-                        op_inputs.push(Some(value.as_input()));
+                        op_inputs.push(Some(value.as_view()));
                     } else if let Some(value) =
                         get_value_from_capture(&self.nodes, captures.as_ref(), *node_id)
                     {
@@ -924,7 +924,7 @@ impl Graph {
 
             // Collect input metadata if we'll need it for timing or logging.
             let input_meta = if opts.timing_by_shape || opts.verbose {
-                let mut meta: Vec<Option<InputMeta>> = Vec::new();
+                let mut meta: Vec<Option<ValueMeta>> = Vec::new();
                 if let Some(ref input) = in_place_input {
                     meta.push(Some(input.to_meta()));
                 }
@@ -1048,11 +1048,11 @@ impl Graph {
             .iter()
             .map(|output_id| {
                 if let Some(value) = get_value_from_constant_or_input(*output_id) {
-                    value.to_output()
+                    value.to_owned()
                 } else if let Some(value) =
                     get_value_from_capture(&self.nodes, captures.as_ref(), *output_id)
                 {
-                    value.to_output()
+                    value.to_owned()
                 } else {
                     // During execution planning we verified that each output
                     // ID is valid and unique, so this should always succeed.
@@ -1079,7 +1079,7 @@ impl Graph {
         op_node: &OperatorNode,
         op_result: &Result<OutputList, RunError>,
         op_duration: Duration,
-        input_meta: &[Option<InputMeta>],
+        input_meta: &[Option<ValueMeta>],
     ) {
         println!(
             "#{} {} ({})",
@@ -1119,10 +1119,10 @@ impl Graph {
     /// later be passed to calls to `run` when the missing values are available.
     pub fn partial_run(
         &self,
-        inputs: Vec<(NodeId, InputOrOutput)>,
+        inputs: Vec<(NodeId, ValueOrView)>,
         outputs: &[NodeId],
         opts: Option<RunOptions>,
-    ) -> Result<Vec<(NodeId, Output)>, RunError> {
+    ) -> Result<Vec<(NodeId, Value)>, RunError> {
         let input_ids: Vec<_> = inputs.iter().map(|(id, _)| id).copied().collect();
         let planner = Planner::with_graph(self);
         let plan = planner.create_plan(
@@ -1215,8 +1215,8 @@ mod tests {
     use super::{CachedPlan, CaptureEnv};
     use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TypedConstant};
     use crate::ops::{
-        Add, Concat, Conv, DataType, Identity, If, Input, IntoOpResult, MatMul, Mul, OpError,
-        OpRunContext, Operator, Output, OutputList, PrepackedInput, Relu, Shape,
+        Add, Concat, Conv, DataType, Identity, If, IntoOpResult, MatMul, Mul, OpError,
+        OpRunContext, Operator, OutputList, PrepackedInput, Relu, Shape, Value, ValueView,
     };
     use crate::timing::Profiler;
     use crate::weight_cache::WeightCache;
@@ -1271,7 +1271,7 @@ mod tests {
             self.inner.run(ctx)
         }
 
-        fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+        fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
             {
                 let mut m = self.metrics.lock().unwrap();
                 m.run_in_place_count += 1;
@@ -1845,7 +1845,7 @@ mod tests {
             input.to_tensor().into_op_result()
         }
 
-        fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
+        fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
             let mut output = input.into_tensor::<f32>().unwrap();
             for x in output.iter_mut() {
                 *x = *x + 1.0;
@@ -2064,7 +2064,7 @@ mod tests {
         let partial_outs = g.partial_run(vec![(val_0, input.view().into())], &[op_2_out], None)?;
         assert_eq!(partial_outs.len(), 1);
         assert_eq!(partial_outs[0].0, op_0_out);
-        assert_eq!(partial_outs[0].1, Output::FloatTensor(Tensor::from(5.)));
+        assert_eq!(partial_outs[0].1, Value::FloatTensor(Tensor::from(5.)));
 
         // Run graph with just the `V1` input. This will compute the result of
         // `Op1` but not other nodes which depend on `V0`.
@@ -2072,7 +2072,7 @@ mod tests {
         let partial_outs = g.partial_run(vec![(val_1, input.view().into())], &[op_2_out], None)?;
         assert_eq!(partial_outs.len(), 1);
         assert_eq!(partial_outs[0].0, op_1_out);
-        assert_eq!(partial_outs[0].1, Output::FloatTensor(Tensor::from(6.)));
+        assert_eq!(partial_outs[0].1, Value::FloatTensor(Tensor::from(6.)));
 
         // Run graph with all inputs. This should behave like `Graph::run`.
         let partial_outs = g.partial_run(
@@ -2082,7 +2082,7 @@ mod tests {
         )?;
         assert_eq!(partial_outs.len(), 1);
         assert_eq!(partial_outs[0].0, op_2_out);
-        assert_eq!(partial_outs[0].1, Output::FloatTensor(Tensor::from(11.)));
+        assert_eq!(partial_outs[0].1, Value::FloatTensor(Tensor::from(11.)));
 
         Ok(())
     }
@@ -2530,7 +2530,7 @@ mod tests {
             [1].into()
         }
 
-        fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
+        fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
             self.inner.prepack(index, input)
         }
 
@@ -2601,7 +2601,7 @@ mod tests {
             "test_op",
             RunFn::new(|ctx| {
                 assert_eq!(ctx.num_outputs(), Some(1));
-                let output: Output = Tensor::from_scalar(0.).into();
+                let output: Value = Tensor::from_scalar(0.).into();
                 Ok([output].into())
             }),
             &[input_id],

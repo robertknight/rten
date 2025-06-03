@@ -2,7 +2,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::ops::{
-    map_input, Input, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
+    map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -20,14 +20,14 @@ impl Operator for Identity {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
-        map_input!(input, x, { identity(ctx.pool(), x).into_op_result() })
+        map_value_view!(input, x, { identity(ctx.pool(), x).into_op_result() })
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Output, _ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
         Ok(input)
     }
 }

@@ -4,8 +4,8 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::ops::{
-    map_input, resolve_axis, resolve_index, static_dims, Input, IntoOpResult, OpError,
-    OpRunContext, Operator, OutputList, Scalar,
+    map_value_view, resolve_axis, resolve_index, static_dims, IntoOpResult, OpError, OpRunContext,
+    Operator, OutputList, Scalar, ValueView,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -96,7 +96,7 @@ impl Operator for OneHot {
             .ok_or(OpError::InvalidValue("`depth` must be a positive scalar"))?;
         let values = inputs.require(2)?;
 
-        map_input!(values, values, [Int32Tensor, FloatTensor], {
+        map_value_view!(values, values, [Int32Tensor, FloatTensor], {
             let values = static_dims!(values, 1)?;
             let (on_value, off_value) = extract_on_off_values(values)?;
             onehot(ctx.pool(), indices, self.axis, depth, on_value, off_value).into_op_result()
@@ -139,7 +139,7 @@ impl Operator for Range {
         let limit = inputs.require(1)?;
         let delta = inputs.require(2)?;
 
-        map_input!(start, start, [FloatTensor, Int32Tensor], {
+        map_value_view!(start, start, [FloatTensor, Int32Tensor], {
             let start = start
                 .item()
                 .copied()

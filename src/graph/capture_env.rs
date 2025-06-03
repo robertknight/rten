@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
 
-use crate::ops::{Input, InputOrOutput, Output};
+use crate::ops::{Value, ValueOrView, ValueView};
 
 use super::{Graph, Node, NodeId};
 
@@ -30,13 +30,13 @@ pub struct CaptureEnv<'a> {
     graph: Option<&'a Graph>,
 
     // Values passed as inputs to the graph run.
-    inputs: Option<&'a FxHashMap<NodeId, InputOrOutput<'a>>>,
+    inputs: Option<&'a FxHashMap<NodeId, ValueOrView<'a>>>,
 
     // Values computed during the graph run, captured by reference.
-    temp_values_by_ref: Option<&'a FxHashMap<NodeId, Output>>,
+    temp_values_by_ref: Option<&'a FxHashMap<NodeId, Value>>,
 
     // Values computed during the graph run, captured by value.
-    temp_values: Option<FxHashMap<NodeId, Output>>,
+    temp_values: Option<FxHashMap<NodeId, Value>>,
 }
 
 impl<'a> CaptureEnv<'a> {
@@ -50,9 +50,9 @@ impl<'a> CaptureEnv<'a> {
     pub fn new(
         parent: Option<&'a CaptureEnv<'a>>,
         graph: &'a Graph,
-        inputs: Option<&'a FxHashMap<NodeId, InputOrOutput<'a>>>,
-        temp_values_by_ref: Option<&'a FxHashMap<NodeId, Output>>,
-        temp_values: Option<FxHashMap<NodeId, Output>>,
+        inputs: Option<&'a FxHashMap<NodeId, ValueOrView<'a>>>,
+        temp_values_by_ref: Option<&'a FxHashMap<NodeId, Value>>,
+        temp_values: Option<FxHashMap<NodeId, Value>>,
     ) -> CaptureEnv<'a> {
         CaptureEnv {
             parent,
@@ -94,7 +94,7 @@ impl<'a> CaptureEnv<'a> {
     }
 
     /// Look up an operator input value by name in this environment.
-    pub fn get_input(&self, name: &str) -> Option<Input> {
+    pub fn get_input(&self, name: &str) -> Option<ValueView> {
         if let Some(graph) = self.graph {
             if let Some(node_id) = graph.get_node_id(name) {
                 // If a node by this name exists in this graph, but is a placeholder
@@ -102,21 +102,21 @@ impl<'a> CaptureEnv<'a> {
                 if !graph.captures().contains(&node_id) {
                     // Otherwise, get the value from this scope.
                     return match graph.get_node(node_id) {
-                        Some(Node::Constant(c)) => Some(c.as_input()),
+                        Some(Node::Constant(c)) => Some(c.as_view()),
                         Some(Node::Value(_)) => self
                             .temp_values_by_ref
                             .and_then(|tv| tv.get(&node_id))
-                            .map(|i| i.as_input())
+                            .map(|i| i.as_view())
                             .or_else(|| {
                                 self.temp_values
                                     .as_ref()
                                     .and_then(|tv| tv.get(&node_id))
-                                    .map(|o| o.as_input())
+                                    .map(|o| o.as_view())
                             })
                             .or_else(|| {
                                 self.inputs
                                     .and_then(|i| i.get(&node_id))
-                                    .map(|i| i.as_input())
+                                    .map(|i| i.as_view())
                             }),
                         _ => None,
                     };
@@ -129,13 +129,13 @@ impl<'a> CaptureEnv<'a> {
 
     /// Remove and return a value from the capture environment's map of by-value
     /// captures.
-    pub fn take_input(&mut self, name: &str) -> Option<Output> {
+    pub fn take_input(&mut self, name: &str) -> Option<Value> {
         let node_id = self.graph.and_then(|g| g.get_node_id(name))?;
         self.temp_values.as_mut()?.remove(&node_id)
     }
 
     /// Remove and return all by-value captures.
-    pub fn take_all_inputs(&mut self) -> Option<FxHashMap<NodeId, Output>> {
+    pub fn take_all_inputs(&mut self) -> Option<FxHashMap<NodeId, Value>> {
         self.temp_values.take()
     }
 }

@@ -3,8 +3,8 @@ use std::error::Error;
 use std::time::Instant;
 
 use rten::{
-    DataType, Dimension, InputOrOutput, Model, ModelMetadata, ModelOptions, NodeId, Output,
-    RunOptions, ThreadPool,
+    DataType, Dimension, Model, ModelMetadata, ModelOptions, NodeId, RunOptions, ThreadPool, Value,
+    ValueOrView,
 };
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
@@ -203,8 +203,8 @@ fn run_with_random_input(
 
     // Generate random model inputs. The `Output` type here is used as an
     // enum that can hold tensors of different types.
-    let inputs: Vec<(NodeId, Output)> = model.input_ids().iter().copied().try_fold(
-        Vec::<(NodeId, Output)>::new(),
+    let inputs: Vec<(NodeId, Value)> = model.input_ids().iter().copied().try_fold(
+        Vec::<(NodeId, Value)>::new(),
         |mut inputs, id| {
             let info = model.node_info(id).ok_or("Unable to get input info")?;
             let name = info.name().unwrap_or("(unnamed input)");
@@ -233,9 +233,9 @@ fn run_with_random_input(
                 })
                 .collect();
 
-            fn random_ints<T, F: FnMut() -> T>(shape: &[usize], gen: F) -> Output
+            fn random_ints<T, F: FnMut() -> T>(shape: &[usize], gen: F) -> Value
             where
-                Output: From<Tensor<T>>,
+                Value: From<Tensor<T>>,
             {
                 Tensor::from_simple_fn(shape, gen).into()
             }
@@ -244,28 +244,26 @@ fn run_with_random_input(
             let tensor = match name {
                 // If this is a mask, use all ones on the assumption that we
                 // don't want to mask anything out.
-                name if name.ends_with("_mask") => {
-                    Output::from(Tensor::full(&resolved_shape, 1i32))
-                }
+                name if name.ends_with("_mask") => Value::from(Tensor::full(&resolved_shape, 1i32)),
 
                 // Inputs such as `token_type_ids`, `position_ids`, `input_ids`.
                 // We use zero as a value that is likely to be valid for all
                 // of these.
                 name if name.ends_with("_ids") => {
-                    Output::from(Tensor::<i32>::zeros(&resolved_shape))
+                    Value::from(Tensor::<i32>::zeros(&resolved_shape))
                 }
 
                 // Optimum can export "merged" transformer models which have two
                 // branches. One accepts KV-cache inputs and the other does not.
                 // Set this to false as a "safer" value because we don't have
                 // cached outputs from a previous run.
-                "use_cache_branch" => Output::from(Tensor::from(0i32)),
+                "use_cache_branch" => Value::from(Tensor::from(0i32)),
 
                 // For anything else, random values.
                 _ => match dtype {
                     // Generate floats in [0, 1]
                     Some(DataType::Float) | None => {
-                        Output::from(Tensor::from_simple_fn(&resolved_shape, || rng.f32()))
+                        Value::from(Tensor::from_simple_fn(&resolved_shape, || rng.f32()))
                     }
                     // Generate random values for int types. The default ranges
                     // are intended to be suitable for many models, but there
@@ -316,9 +314,9 @@ fn run_with_random_input(
     }
 
     // Convert inputs from `Output` (owned) to `Input` (view).
-    let inputs: Vec<(NodeId, InputOrOutput)> = inputs
+    let inputs: Vec<(NodeId, ValueOrView)> = inputs
         .iter()
-        .map(|(id, output)| (*id, InputOrOutput::from(output)))
+        .map(|(id, output)| (*id, ValueOrView::from(output)))
         .collect();
 
     if !quiet {
@@ -406,10 +404,10 @@ fn run_with_random_input(
     if !quiet {
         for (i, (output, name)) in outputs.iter().zip(output_names).enumerate() {
             let dtype = match output {
-                Output::FloatTensor(_) => "f32",
-                Output::Int32Tensor(_) => "i32",
-                Output::Int8Tensor(_) => "i8",
-                Output::UInt8Tensor(_) => "u8",
+                Value::FloatTensor(_) => "f32",
+                Value::Int32Tensor(_) => "i32",
+                Value::Int8Tensor(_) => "i8",
+                Value::UInt8Tensor(_) => "u8",
             };
             println!(
                 "  Output {i} \"{name}\" data type {} shape: {:?}",

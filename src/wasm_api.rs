@@ -7,7 +7,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::graph::{Dimension, NodeId};
 use crate::model;
-use crate::ops::{matmul, InputOrOutput, Output};
+use crate::ops::{matmul, Value, ValueOrView};
 use crate::tensor_pool::TensorPool;
 
 #[wasm_bindgen]
@@ -76,11 +76,11 @@ impl Model {
         input: Vec<Tensor>,
         output_ids: &[u32],
     ) -> Result<Vec<Tensor>, String> {
-        let inputs: Vec<(NodeId, InputOrOutput)> = input_ids
+        let inputs: Vec<(NodeId, ValueOrView)> = input_ids
             .iter()
             .copied()
             .map(NodeId::from_u32)
-            .zip(input.iter().map(|tensor| tensor.data.as_input().into()))
+            .zip(input.iter().map(|tensor| tensor.data.as_view().into()))
             .collect();
         let output_ids: Vec<NodeId> = output_ids.iter().copied().map(NodeId::from_u32).collect();
         let result = self.model.run(inputs, &output_ids, None);
@@ -88,7 +88,7 @@ impl Model {
             Ok(outputs) => {
                 let mut list = Vec::new();
                 for output in outputs.into_iter() {
-                    list.push(Tensor::from_output(output));
+                    list.push(Tensor::from_value(output));
                 }
                 Ok(list)
             }
@@ -134,7 +134,7 @@ impl NodeInfo {
 #[wasm_bindgen]
 #[derive(Clone)]
 pub struct Tensor {
-    data: Rc<Output>,
+    data: Rc<Value>,
 }
 
 /// Core tensor APIs needed for constructing model inputs and outputs.
@@ -143,7 +143,7 @@ impl Tensor {
     /// Construct a float tensor from the given shape and data.
     #[wasm_bindgen(js_name = floatTensor)]
     pub fn float_tensor(shape: &[usize], data: &[f32]) -> Tensor {
-        let data: Output = rten_tensor::Tensor::from_data(shape, data.to_vec()).into();
+        let data: Value = rten_tensor::Tensor::from_data(shape, data.to_vec()).into();
         Tensor {
             data: Rc::new(data),
         }
@@ -152,7 +152,7 @@ impl Tensor {
     /// Construct an int tensor from the given shape and data.
     #[wasm_bindgen(js_name = intTensor)]
     pub fn int_tensor(shape: &[usize], data: &[i32]) -> Tensor {
-        let data: Output = rten_tensor::Tensor::from_data(shape, data.to_vec()).into();
+        let data: Value = rten_tensor::Tensor::from_data(shape, data.to_vec()).into();
         Tensor {
             data: Rc::new(data),
         }
@@ -166,7 +166,7 @@ impl Tensor {
     #[wasm_bindgen(js_name = floatData)]
     pub fn float_data(&self) -> Option<Vec<f32>> {
         match *self.data {
-            Output::FloatTensor(ref t) => Some(t.to_vec()),
+            Value::FloatTensor(ref t) => Some(t.to_vec()),
             _ => None,
         }
     }
@@ -175,12 +175,12 @@ impl Tensor {
     #[wasm_bindgen(js_name = intData)]
     pub fn int_data(&self) -> Option<Vec<i32>> {
         match *self.data {
-            Output::Int32Tensor(ref t) => Some(t.to_vec()),
+            Value::Int32Tensor(ref t) => Some(t.to_vec()),
             _ => None,
         }
     }
 
-    fn from_output(out: Output) -> Tensor {
+    fn from_value(out: Value) -> Tensor {
         Tensor { data: Rc::new(out) }
     }
 }
@@ -189,7 +189,7 @@ impl Tensor {
 #[wasm_bindgen]
 impl Tensor {
     fn as_float(&self) -> Result<rten_tensor::TensorView<f32>, String> {
-        let Output::FloatTensor(ref a) = self.data.borrow() else {
+        let Value::FloatTensor(ref a) = self.data.borrow() else {
             return Err("Expected a float tensor".to_string());
         };
         Ok(a.view())
@@ -202,7 +202,7 @@ impl Tensor {
     pub fn rand(shape: &[usize], seed: u64) -> Tensor {
         let mut rng = XorShiftRng::new(seed);
         let tensor = rten_tensor::Tensor::<f32>::rand(shape, &mut rng);
-        Tensor::from_output(tensor.into())
+        Tensor::from_value(tensor.into())
     }
 
     /// Return the matrix product of this tensor and `other`.
@@ -215,6 +215,6 @@ impl Tensor {
         let b = other.as_float()?;
         let pool = TensorPool::new();
         let out = matmul(&pool, a, b, None).map_err(|e| e.to_string())?;
-        Ok(Tensor::from_output(out.into()))
+        Ok(Tensor::from_value(out.into()))
     }
 }

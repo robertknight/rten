@@ -1,11 +1,11 @@
 use rten_tensor::prelude::*;
 
 use crate::ops::{
-    DataType, Input, IntoOpResult, OpError, OpRunContext, Operator, Output, OutputList,
+    DataType, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
 };
 use crate::tensor_pool::TensorPool;
 
-fn cast(pool: &TensorPool, input: Input, dtype: DataType) -> Result<Output, OpError> {
+fn cast(pool: &TensorPool, input: ValueView, dtype: DataType) -> Result<Value, OpError> {
     macro_rules! cast_as {
         ($x:ident) => {
             $x.to_tensor_in(pool).into()
@@ -16,30 +16,30 @@ fn cast(pool: &TensorPool, input: Input, dtype: DataType) -> Result<Output, OpEr
         };
     }
 
-    let result: Output = match dtype {
+    let result: Value = match dtype {
         DataType::Int32 => match input {
-            Input::Int32Tensor(t) => cast_as!(t),
-            Input::FloatTensor(t) => cast_as!(t, i32),
-            Input::Int8Tensor(t) => cast_as!(t, i32),
-            Input::UInt8Tensor(t) => cast_as!(t, i32),
+            ValueView::Int32Tensor(t) => cast_as!(t),
+            ValueView::FloatTensor(t) => cast_as!(t, i32),
+            ValueView::Int8Tensor(t) => cast_as!(t, i32),
+            ValueView::UInt8Tensor(t) => cast_as!(t, i32),
         },
         DataType::Float => match input {
-            Input::FloatTensor(t) => cast_as!(t),
-            Input::Int32Tensor(t) => cast_as!(t, f32),
-            Input::Int8Tensor(t) => cast_as!(t, f32),
-            Input::UInt8Tensor(t) => cast_as!(t, f32),
+            ValueView::FloatTensor(t) => cast_as!(t),
+            ValueView::Int32Tensor(t) => cast_as!(t, f32),
+            ValueView::Int8Tensor(t) => cast_as!(t, f32),
+            ValueView::UInt8Tensor(t) => cast_as!(t, f32),
         },
         DataType::Int8 => match input {
-            Input::Int8Tensor(t) => cast_as!(t),
-            Input::FloatTensor(t) => cast_as!(t, i8),
-            Input::Int32Tensor(t) => cast_as!(t, i8),
-            Input::UInt8Tensor(t) => cast_as!(t, i8),
+            ValueView::Int8Tensor(t) => cast_as!(t),
+            ValueView::FloatTensor(t) => cast_as!(t, i8),
+            ValueView::Int32Tensor(t) => cast_as!(t, i8),
+            ValueView::UInt8Tensor(t) => cast_as!(t, i8),
         },
         DataType::UInt8 => match input {
-            Input::UInt8Tensor(t) => cast_as!(t),
-            Input::FloatTensor(t) => cast_as!(t, u8),
-            Input::Int32Tensor(t) => cast_as!(t, u8),
-            Input::Int8Tensor(t) => cast_as!(t, u8),
+            ValueView::UInt8Tensor(t) => cast_as!(t),
+            ValueView::FloatTensor(t) => cast_as!(t, u8),
+            ValueView::Int32Tensor(t) => cast_as!(t, u8),
+            ValueView::Int8Tensor(t) => cast_as!(t, u8),
         },
     };
 
@@ -65,11 +65,11 @@ impl Operator for Cast {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         if input.dtype() == self.to {
             Ok(input)
         } else {
-            let converted = cast(ctx.pool(), input.as_input(), self.to)?;
+            let converted = cast(ctx.pool(), input.as_view(), self.to)?;
             input.add_to_pool(ctx.pool());
             Ok(converted)
         }
@@ -95,13 +95,13 @@ impl Operator for CastLike {
         true
     }
 
-    fn run_in_place(&self, input: Output, ctx: &OpRunContext) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let to_type = ctx.inputs().require(0)?.dtype();
 
         if input.dtype() == to_type {
             Ok(input)
         } else {
-            let converted = cast(ctx.pool(), input.as_input(), to_type)?;
+            let converted = cast(ctx.pool(), input.as_view(), to_type)?;
             input.add_to_pool(ctx.pool());
             Ok(converted)
         }
@@ -113,15 +113,15 @@ mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use crate::ops::{Cast, CastLike, DataType, OperatorExt, Output};
+    use crate::ops::{Cast, CastLike, DataType, OperatorExt, Value};
 
     #[test]
     fn test_cast() {
         #[derive(Debug)]
         struct Case {
-            input: Output,
+            input: Value,
             dtype: DataType,
-            expected: Output,
+            expected: Value,
         }
 
         let cases = [
@@ -182,7 +182,7 @@ mod tests {
 
         cases.test_each(|case| {
             let cast_op = Cast { to: case.dtype };
-            let result: Output = cast_op.run_simple_no_cast(&case.input).unwrap();
+            let result: Value = cast_op.run_simple_no_cast(&case.input).unwrap();
             assert_eq!(result, case.expected);
         })
     }
@@ -191,9 +191,9 @@ mod tests {
     fn test_cast_like() {
         #[derive(Debug)]
         struct Case {
-            input: Output,
-            other: Output,
-            expected: Output,
+            input: Value,
+            other: Value,
+            expected: Value,
         }
 
         // `CastLike` uses the same conversions as the `Cast` operator,

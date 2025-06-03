@@ -7,8 +7,8 @@ use rten_vecmath as vecmath;
 use rten_vecmath::ExtendInit;
 
 use crate::ops::{
-    resolve_axis, DataType, Input, IntoOpResult, OpError, OpRunContext, Operator, Output,
-    OutputList,
+    resolve_axis, DataType, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
+    ValueView,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -104,11 +104,11 @@ impl Operator for DequantizeLinear {
         let scale = inputs.require_as(1)?;
 
         match input {
-            Input::Int8Tensor(x) => {
+            ValueView::Int8Tensor(x) => {
                 let zero_point = inputs.get_as(2)?;
                 dequantize_linear(ctx.pool(), x, scale, zero_point, self.axis).into_op_result()
             }
-            Input::UInt8Tensor(x) => {
+            ValueView::UInt8Tensor(x) => {
                 let zero_point = inputs.get_as(2)?;
                 dequantize_linear(ctx.pool(), x, scale, zero_point, self.axis).into_op_result()
             }
@@ -268,7 +268,7 @@ impl Operator for QuantizeLinear {
         let y_zero_point = inputs.get(2);
 
         match (y_zero_point, self.output_dtype) {
-            (Some(Input::UInt8Tensor(y_zero_point)), Some(DataType::UInt8) | None) => {
+            (Some(ValueView::UInt8Tensor(y_zero_point)), Some(DataType::UInt8) | None) => {
                 quantize_linear(pool, input, y_scale, Some(y_zero_point.view()), self.axis)
                     .into_op_result()
             }
@@ -276,7 +276,7 @@ impl Operator for QuantizeLinear {
                 quantize_linear::<u8>(pool, input.view(), y_scale.view(), None, self.axis)
                     .into_op_result()
             }
-            (Some(Input::Int8Tensor(y_zero_point)), Some(DataType::Int8) | None) => {
+            (Some(ValueView::Int8Tensor(y_zero_point)), Some(DataType::Int8) | None) => {
                 quantize_linear(
                     pool,
                     input.view(),
@@ -402,9 +402,9 @@ impl Operator for DynamicQuantizeLinear {
             zero_point,
         } = dynamic_quantize_linear::<u8>(ctx.pool(), input)?;
 
-        let quantized: Output = quantized.into();
-        let scale: Output = scale.into();
-        let zero_point: Output = zero_point.into();
+        let quantized: Value = quantized.into();
+        let scale: Value = scale.into();
+        let zero_point: Value = zero_point.into();
 
         Ok([quantized, scale, zero_point].into_iter().collect())
     }
@@ -419,7 +419,7 @@ mod tests {
 
     use super::{dequantize_linear, dynamic_quantize_linear, quantize_linear};
     use crate::ops::tests::new_pool;
-    use crate::ops::{OpError, Output};
+    use crate::ops::{OpError, Value};
 
     // Test dequantization followed by re-quantization. In this order the
     // result should be the input. In the opposite order this would not be the
@@ -429,9 +429,9 @@ mod tests {
         #[derive(Debug)]
         struct Case {
             axis: isize,
-            input: Output,
+            input: Value,
             scale: Tensor<f32>,
-            zero_point: Option<Output>,
+            zero_point: Option<Value>,
             expected: Result<Tensor<f32>, OpError>,
         }
 
@@ -501,7 +501,7 @@ mod tests {
             } = case;
 
             match input {
-                Output::UInt8Tensor(input) => {
+                Value::UInt8Tensor(input) => {
                     let zero_point: Option<Tensor<u8>> =
                         zero_point.clone().map(|zp| zp.try_into().unwrap());
                     let result = dequantize_linear(
@@ -527,7 +527,7 @@ mod tests {
                         assert_eq!(requantized, *input);
                     }
                 }
-                Output::Int8Tensor(input) => {
+                Value::Int8Tensor(input) => {
                     let zero_point: Option<Tensor<i8>> =
                         zero_point.clone().map(|zp| zp.try_into().unwrap());
                     let result = dequantize_linear(

@@ -10,8 +10,8 @@ use rten_vecmath as vecmath;
 use crate::number::{Identities, IsNaN};
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
-    map_input, resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, OpRunContext,
-    Operator, OutputList,
+    map_value_view, resolve_axes, resolve_axis, InputList, IntoOpResult, OpError, OpRunContext,
+    Operator, OutputList, ValueView,
 };
 use crate::slice_reductions::slice_sum;
 use crate::tensor_pool::TensorPool;
@@ -96,7 +96,7 @@ impl Operator for ArgMax {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
-        map_input!(input, input, [FloatTensor, Int32Tensor], {
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             arg_max(ctx.pool(), input, self.axis, self.keep_dims).into_op_result()
         })
     }
@@ -132,7 +132,7 @@ impl Operator for ArgMin {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
-        map_input!(input, input, [FloatTensor, Int32Tensor], {
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             arg_min(ctx.pool(), input, self.axis, self.keep_dims).into_op_result()
         })
     }
@@ -179,7 +179,7 @@ impl Operator for CumSum {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axis: i32 = inputs.require_as(1)?;
-        map_input!(input, input, [FloatTensor, Int32Tensor], {
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             cum_sum(ctx.pool(), input, axis as isize).into_op_result()
         })
     }
@@ -221,7 +221,7 @@ impl Operator for NonZero {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
-        map_input!(input, input, [FloatTensor, Int32Tensor], {
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             nonzero(ctx.pool(), input).into_op_result()
         })
     }
@@ -555,7 +555,7 @@ impl Operator for ReduceMin {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
-        map_input!(input, input, [FloatTensor, Int32Tensor], {
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             reduce_min(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
@@ -585,7 +585,7 @@ impl Operator for ReduceMax {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
-        map_input!(input, input, [FloatTensor, Int32Tensor], {
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             reduce_max(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
@@ -621,7 +621,7 @@ impl Operator for ReduceProd {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
-        map_input!(input, input, [FloatTensor, Int32Tensor], {
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             reduce_prod(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
@@ -657,7 +657,7 @@ impl Operator for ReduceSum {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
-        map_input!(input, input, [FloatTensor, Int32Tensor], {
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             reduce_sum(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
@@ -693,7 +693,7 @@ impl Operator for ReduceSumSquare {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
-        map_input!(input, input, [FloatTensor, Int32Tensor], {
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             reduce_sum_square(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
@@ -794,7 +794,7 @@ impl Operator for TopK {
             }
         })?;
 
-        map_input!(values, values, [FloatTensor, Int32Tensor], {
+        map_value_view!(values, values, [FloatTensor, Int32Tensor], {
             let (values, indices) =
                 topk(ctx.pool(), values, k, self.axis, self.largest, self.sorted)?;
             Ok([values.into(), indices.into()].into_iter().collect())

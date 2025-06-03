@@ -10,7 +10,8 @@ use crate::gemm::{
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
 use crate::ops::{
-    static_dims, Input, IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput,
+    static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput,
+    ValueView,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -133,12 +134,12 @@ enum MatmulStrategy {
 }
 
 fn matmul_prepack_b<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
-    input: Input,
+    input: ValueView,
 ) -> Option<PrepackedInput>
 where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
     PrepackedInput: From<PackedBMatrix<RhsT>>,
-    for<'a> TensorView<'a, RhsT>: TryFrom<Input<'a>>,
+    for<'a> TensorView<'a, RhsT>: TryFrom<ValueView<'a>>,
 {
     let executor = GemmExecutor::default();
     let tensor: TensorView<RhsT> = input.try_into().ok()?;
@@ -369,7 +370,7 @@ impl Operator for MatMul {
         [1].into()
     }
 
-    fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
+    fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
         if index == 1 {
             matmul_prepack_b::<f32, f32, f32>(input)
         } else {
@@ -435,7 +436,7 @@ impl Operator for FusedMatMul {
         [1].into()
     }
 
-    fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
+    fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
         if index == 1 {
             matmul_prepack_b::<f32, f32, f32>(input)
         } else {
@@ -541,12 +542,12 @@ impl Operator for MatMulInteger {
         }
 
         match (a, b) {
-            (Input::UInt8Tensor(a), Input::Int8Tensor(b)) => matmul_integer!(a, b),
+            (ValueView::UInt8Tensor(a), ValueView::Int8Tensor(b)) => matmul_integer!(a, b),
 
             // GEMM doesn't support other int8 signed-ness combinations yet.
-            (Input::Int8Tensor(_), Input::Int8Tensor(_)) => Err(OpError::UnsupportedType),
-            (Input::Int8Tensor(_), Input::UInt8Tensor(_)) => Err(OpError::UnsupportedType),
-            (Input::UInt8Tensor(_), Input::UInt8Tensor(_)) => Err(OpError::UnsupportedType),
+            (ValueView::Int8Tensor(_), ValueView::Int8Tensor(_)) => Err(OpError::UnsupportedType),
+            (ValueView::Int8Tensor(_), ValueView::UInt8Tensor(_)) => Err(OpError::UnsupportedType),
+            (ValueView::UInt8Tensor(_), ValueView::UInt8Tensor(_)) => Err(OpError::UnsupportedType),
 
             _ => Err(OpError::UnsupportedType),
         }
@@ -556,7 +557,7 @@ impl Operator for MatMulInteger {
         [1].into()
     }
 
-    fn prepack(&self, index: usize, input: Input) -> Option<PrepackedInput> {
+    fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
         if index == 1 {
             matmul_prepack_b::<u8, i8, i32>(input)
         } else {

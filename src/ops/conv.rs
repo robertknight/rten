@@ -13,7 +13,7 @@ use crate::gemm::{
 use crate::ops::matmul::zero_point_to_vec;
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{
-    static_dims, Input, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding,
+    static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding, ValueView,
 };
 use crate::shift_cast::ShiftCast;
 use crate::tensor_pool::{AutoReturn, PoolRef, TensorPool};
@@ -522,10 +522,10 @@ impl Operator for ConvInteger {
         }
 
         match (input, weight) {
-            (Input::Int8Tensor(x), Input::Int8Tensor(w)) => conv_integer!(x, w),
-            (Input::Int8Tensor(x), Input::UInt8Tensor(w)) => conv_integer!(x, w),
-            (Input::UInt8Tensor(x), Input::Int8Tensor(w)) => conv_integer!(x, w),
-            (Input::UInt8Tensor(x), Input::UInt8Tensor(w)) => conv_integer!(x, w),
+            (ValueView::Int8Tensor(x), ValueView::Int8Tensor(w)) => conv_integer!(x, w),
+            (ValueView::Int8Tensor(x), ValueView::UInt8Tensor(w)) => conv_integer!(x, w),
+            (ValueView::UInt8Tensor(x), ValueView::Int8Tensor(w)) => conv_integer!(x, w),
+            (ValueView::UInt8Tensor(x), ValueView::UInt8Tensor(w)) => conv_integer!(x, w),
             _ => Err(OpError::UnsupportedType),
         }
     }

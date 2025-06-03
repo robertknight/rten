@@ -22,7 +22,7 @@ use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
 use crate::number::LeBytes;
 use crate::op_registry::{convert_dtype, OpLoadContext, OpRegistry, ReadOpError};
-use crate::ops::{DataType, InputOrOutput, Output};
+use crate::ops::{DataType, Value, ValueOrView};
 use crate::optimize::GraphOptimizer;
 use crate::schema_generated as sg;
 use crate::schema_generated::root_as_model;
@@ -707,10 +707,10 @@ impl Model {
     /// The input and output nodes are specified via IDs looked up via `find_node`.
     pub fn run(
         &self,
-        inputs: Vec<(NodeId, InputOrOutput)>,
+        inputs: Vec<(NodeId, ValueOrView)>,
         outputs: &[NodeId],
         opts: Option<RunOptions>,
-    ) -> Result<Vec<Output>, RunError> {
+    ) -> Result<Vec<Value>, RunError> {
         let mut opts = opts.unwrap_or_default();
         if let Some(timing_var) = env::var_os("RTEN_TIMING") {
             let timing_var = timing_var.to_string_lossy();
@@ -727,10 +727,10 @@ impl Model {
     /// [`Model::run`] instead if the number of outputs is known only at runtime.
     pub fn run_n<const N: usize>(
         &self,
-        inputs: Vec<(NodeId, InputOrOutput)>,
+        inputs: Vec<(NodeId, ValueOrView)>,
         outputs: [NodeId; N],
         opts: Option<RunOptions>,
-    ) -> Result<[Output; N], RunError> {
+    ) -> Result<[Value; N], RunError> {
         let result = self.run(inputs, &outputs, opts)?;
         Ok(result.try_into().expect("wrong output count"))
     }
@@ -739,11 +739,7 @@ impl Model {
     ///
     /// This is a simplified version of [`Model::run`] for the common case of
     /// executing a model with a single input and output.
-    pub fn run_one(
-        &self,
-        input: InputOrOutput,
-        opts: Option<RunOptions>,
-    ) -> Result<Output, RunError> {
+    pub fn run_one(&self, input: ValueOrView, opts: Option<RunOptions>) -> Result<Value, RunError> {
         let &input_id = self.input_ids().first().ok_or(RunError::InvalidNodeId)?;
         let &output_id = self.output_ids().first().ok_or(RunError::InvalidNodeId)?;
         self.run_n(vec![(input_id, input)], [output_id], opts)
@@ -767,10 +763,10 @@ impl Model {
     /// the remaining inputs to `run` calls inside the loop.
     pub fn partial_run(
         &self,
-        inputs: Vec<(NodeId, InputOrOutput)>,
+        inputs: Vec<(NodeId, ValueOrView)>,
         outputs: &[NodeId],
         opts: Option<RunOptions>,
-    ) -> Result<Vec<(NodeId, Output)>, RunError> {
+    ) -> Result<Vec<(NodeId, Value)>, RunError> {
         self.graph.partial_run(inputs, outputs, opts)
     }
 }
@@ -920,8 +916,8 @@ mod tests {
     };
     use crate::ops;
     use crate::ops::{
-        BoxOrder, CoordTransformMode, DataType, DepthToSpaceMode, NearestMode, OpError, Output,
-        ResizeMode, Scalar, Shape,
+        BoxOrder, CoordTransformMode, DataType, DepthToSpaceMode, NearestMode, OpError, ResizeMode,
+        Scalar, Shape, Value,
     };
     use crate::OpRegistry;
 
@@ -970,7 +966,7 @@ mod tests {
 
     /// Check the output of a model created by `generate_model_buffer`, using
     /// input created by `generate_input`.
-    fn check_output(mut result: Vec<Output>) -> Tensor<f32> {
+    fn check_output(mut result: Vec<Value>) -> Tensor<f32> {
         assert_eq!(result.len(), 1);
 
         let tensor: Tensor<f32> = result.remove(0).into_tensor::<f32>().unwrap();
@@ -1126,7 +1122,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 partial_run_result,
-                vec![(output_id, Output::FloatTensor(result_tensor))]
+                vec![(output_id, Value::FloatTensor(result_tensor))]
             );
         }
     }

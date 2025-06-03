@@ -2,7 +2,7 @@
 
 use std::error::Error;
 
-use rten::{Dimension, InputOrOutput, NodeId, Output, RunOptions};
+use rten::{Dimension, NodeId, RunOptions, Value, ValueOrView};
 
 /// Describes the name and shape of a model input or output.
 ///
@@ -51,19 +51,19 @@ pub trait Model {
     /// Run the model with the provided inputs and return the results.
     fn run(
         &self,
-        inputs: Vec<(NodeId, InputOrOutput)>,
+        inputs: Vec<(NodeId, ValueOrView)>,
         outputs: &[NodeId],
         opts: Option<RunOptions>,
-    ) -> Result<Vec<Output>, Box<dyn Error>>;
+    ) -> Result<Vec<Value>, Box<dyn Error>>;
 
     /// Run as much of the model as possible given the provided inputs and
     /// return the leaves of the evaluation where execution stopped.
     fn partial_run(
         &self,
-        inputs: Vec<(NodeId, InputOrOutput)>,
+        inputs: Vec<(NodeId, ValueOrView)>,
         outputs: &[NodeId],
         opts: Option<RunOptions>,
-    ) -> Result<Vec<(NodeId, Output)>, Box<dyn Error>>;
+    ) -> Result<Vec<(NodeId, Value)>, Box<dyn Error>>;
 }
 
 impl Model for rten::Model {
@@ -89,19 +89,19 @@ impl Model for rten::Model {
 
     fn run(
         &self,
-        inputs: Vec<(NodeId, InputOrOutput)>,
+        inputs: Vec<(NodeId, ValueOrView)>,
         outputs: &[NodeId],
         opts: Option<RunOptions>,
-    ) -> Result<Vec<Output>, Box<dyn Error>> {
+    ) -> Result<Vec<Value>, Box<dyn Error>> {
         self.run(inputs, outputs, opts).map_err(|e| e.into())
     }
 
     fn partial_run(
         &self,
-        inputs: Vec<(NodeId, InputOrOutput)>,
+        inputs: Vec<(NodeId, ValueOrView)>,
         outputs: &[NodeId],
         opts: Option<RunOptions>,
-    ) -> Result<Vec<(NodeId, Output)>, Box<dyn Error>> {
+    ) -> Result<Vec<(NodeId, Value)>, Box<dyn Error>> {
         self.partial_run(inputs, outputs, opts)
             .map_err(|e| e.into())
     }

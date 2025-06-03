@@ -1,7 +1,7 @@
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode};
-use crate::ops::Input;
+use crate::ops::ValueView;
 
 /// Tracks an association between named symbols (variables) in a pattern and
 /// the node IDs they have been resolved to.
@@ -76,8 +76,8 @@ pub struct ConstantPattern {
 
 impl ConstantPattern {
     fn matches(&self, node: &Constant) -> bool {
-        match node.as_input() {
-            Input::FloatTensor(t) => t
+        match node.as_view() {
+            ValueView::FloatTensor(t) => t
                 .item()
                 .is_some_and(|x| (x - self.value).abs() <= CONST_TOLERANCE),
             _ => false,
