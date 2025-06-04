@@ -140,6 +140,18 @@ impl_le_bytes!(f32, 4);
 impl_le_bytes!(u32, 4);
 impl_le_bytes!(u64, 8);
 
+impl LeBytes for bool {
+    type Bytes = [u8; 1];
+
+    fn from_le_bytes(bytes: Self::Bytes) -> Self {
+        bytes[0] != 0
+    }
+
+    fn to_le_bytes(self) -> Self::Bytes {
+        [self as u8]
+    }
+}
+
 pub trait MinMax {
     /// Return the maximum value for this type.
     #[allow(unused)] // Not used yet, but included for completeness

@@ -377,6 +377,7 @@ class ConstantData(object):
     Int32Data = 2
     Int8Data = 3
     UInt8Data = 4
+    BoolData = 5
 
 def ConstantDataCreator(unionType, table):
     from flatbuffers.table import Table
@@ -390,6 +391,8 @@ def ConstantDataCreator(unionType, table):
         return Int8DataT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == ConstantData.UInt8Data:
         return UInt8DataT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == ConstantData.BoolData:
+        return BoolDataT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -398,6 +401,7 @@ class ConstantDataType(object):
     Float32 = 1
     Int8 = 2
     UInt8 = 3
+    Bool = 4
 
 
 class ArgMaxAttrs(object):
@@ -5980,6 +5984,125 @@ class UInt8DataT(object):
         return uint8Data
 
 
+class BoolData(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = BoolData()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsBoolData(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def BoolDataBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # BoolData
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # BoolData
+    def Data(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.BoolFlags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
+        return 0
+
+    # BoolData
+    def DataAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.BoolFlags, o)
+        return 0
+
+    # BoolData
+    def DataLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # BoolData
+    def DataIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+def BoolDataStart(builder):
+    builder.StartObject(1)
+
+def BoolDataAddData(builder, data):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
+
+def BoolDataStartDataVector(builder, numElems):
+    return builder.StartVector(1, numElems, 1)
+
+def BoolDataEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import List
+except:
+    pass
+
+class BoolDataT(object):
+
+    # BoolDataT
+    def __init__(self):
+        self.data = None  # type: List[bool]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        boolData = BoolData()
+        boolData.Init(buf, pos)
+        return cls.InitFromObj(boolData)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, boolData):
+        x = BoolDataT()
+        x._UnPack(boolData)
+        return x
+
+    # BoolDataT
+    def _UnPack(self, boolData):
+        if boolData is None:
+            return
+        if not boolData.DataIsNone():
+            if np is None:
+                self.data = []
+                for i in range(boolData.DataLength()):
+                    self.data.append(boolData.Data(i))
+            else:
+                self.data = boolData.DataAsNumpy()
+
+    # BoolDataT
+    def Pack(self, builder):
+        if self.data is not None:
+            if np is not None and type(self.data) is np.ndarray:
+                data = builder.CreateNumpyVector(self.data)
+            else:
+                BoolDataStartDataVector(builder, len(self.data))
+                for i in reversed(range(len(self.data))):
+                    builder.PrependBool(self.data[i])
+                data = builder.EndVector()
+        BoolDataStart(builder)
+        if self.data is not None:
+            BoolDataAddData(builder, data)
+        boolData = BoolDataEnd(builder)
+        return boolData
+
+
 class ConstantNode(object):
     __slots__ = ['_tab']
 
@@ -6096,7 +6219,7 @@ class ConstantNodeT(object):
     def __init__(self):
         self.shape = None  # type: List[int]
         self.dataType = 0  # type: int
-        self.data = None  # type: Union[None, FloatDataT, Int32DataT, Int8DataT, UInt8DataT]
+        self.data = None  # type: Union[None, FloatDataT, Int32DataT, Int8DataT, UInt8DataT, BoolDataT]
         self.dtype = None  # type: Optional[int]
         self.dataOffset = None  # type: Optional[int]
 

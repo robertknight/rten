@@ -614,6 +614,13 @@ impl Model {
                         constant_data_from_storage_offset::<u8>(storage, &shape, data_offset)?;
                     graph.add_constant(name, const_data)
                 }
+                Some(sg::ConstantDataType::Bool) => {
+                    // `bool` data has to be handled differently because only certain
+                    // bit patterns are legal, thus we cannot simply cast the data.
+                    let bytes = get_storage_bytes::<bool>(storage, &shape, data_offset)?;
+                    let const_data = constant_data_from_le_bytes_copied::<bool>(&shape, bytes);
+                    graph.add_constant(name, const_data)
+                }
                 _ => {
                     return Err(ModelLoadError::GraphError(
                         NodeError::for_node(name, "unsupported data type for external constant")
@@ -639,6 +646,12 @@ impl Model {
             } else if let Some(uint8_data) = constant.data_as_uint_8_data() {
                 let const_data =
                     constant_data_from_flatbuffers_vec(storage, uint8_data.data(), &shape);
+                graph.add_constant(name, const_data)
+            } else if let Some(bool_data) = constant.data_as_bool_data() {
+                // `bool` data has to be handled differently because only certain
+                // bit patterns are legal, thus we cannot simply cast the data.
+                let storage: Vec<bool> = bool_data.data().iter().collect();
+                let const_data: ConstantNodeData<bool> = Tensor::from_data(&shape, storage).into();
                 graph.add_constant(name, const_data)
             } else {
                 return Err(ModelLoadError::GraphError(
@@ -853,6 +866,32 @@ fn cast_le_bytes<T: Pod>(bytes: &[u8]) -> Option<&[T]> {
     cast_pod_slice(bytes)
 }
 
+fn get_storage_bytes<'a, T>(
+    storage: &'a Arc<ConstantStorage>,
+    shape: &[usize],
+    offset: usize,
+) -> Result<&'a [u8], ModelLoadError> {
+    let n_elements: usize = shape.iter().product();
+    let byte_len = n_elements * std::mem::size_of::<T>();
+    let Some(bytes) = storage.data().get(offset..offset + byte_len) else {
+        return Err(ModelLoadError::GraphError(
+            "invalid tensor data offset".into(),
+        ));
+    };
+    Ok(bytes)
+}
+
+fn constant_data_from_le_bytes_copied<T: LeBytes>(
+    shape: &[usize],
+    bytes: &[u8],
+) -> ConstantNodeData<T> {
+    let data: Vec<T> = bytes
+        .chunks(std::mem::size_of::<T>())
+        .map(|chunk| T::from_le_bytes(chunk.try_into().unwrap()))
+        .collect();
+    Tensor::from_data(shape, data).into()
+}
+
 /// Convert a range of bytes in storage into data for a graph constant.
 ///
 /// If the data is correctly aligned and the system is little-endian, this will
@@ -862,26 +901,14 @@ fn constant_data_from_storage_offset<T: LeBytes + Pod>(
     shape: &[usize],
     offset: usize,
 ) -> Result<ConstantNodeData<T>, ModelLoadError> {
-    let n_elements: usize = shape.iter().product();
-    let byte_len = n_elements * std::mem::size_of::<T>();
-
-    let Some(bytes) = storage.data().get(offset..offset + byte_len) else {
-        return Err(ModelLoadError::GraphError(
-            "invalid tensor data offset".into(),
-        ));
-    };
-
+    let bytes = get_storage_bytes::<T>(storage, shape, offset)?;
     if let Some(elements) = cast_le_bytes(bytes) {
         let storage =
             ArcSlice::new(storage.clone(), elements).expect("storage does not contain data");
         let const_data: ConstantNodeData<T> = ArcTensorView::from_data(shape, storage).into();
         Ok(const_data)
     } else {
-        let data: Vec<T> = bytes
-            .chunks(std::mem::size_of::<T>())
-            .map(|chunk| T::from_le_bytes(chunk.try_into().unwrap()))
-            .collect();
-        Ok(Tensor::from_data(shape, data).into())
+        Ok(constant_data_from_le_bytes_copied(shape, bytes))
     }
 }
 

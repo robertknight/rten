@@ -2081,18 +2081,19 @@ pub const ENUM_MIN_CONSTANT_DATA: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_CONSTANT_DATA: u8 = 4;
+pub const ENUM_MAX_CONSTANT_DATA: u8 = 5;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_CONSTANT_DATA: [ConstantData; 5] = [
+pub const ENUM_VALUES_CONSTANT_DATA: [ConstantData; 6] = [
     ConstantData::NONE,
     ConstantData::FloatData,
     ConstantData::Int32Data,
     ConstantData::Int8Data,
     ConstantData::UInt8Data,
+    ConstantData::BoolData,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -2105,15 +2106,17 @@ impl ConstantData {
     pub const Int32Data: Self = Self(2);
     pub const Int8Data: Self = Self(3);
     pub const UInt8Data: Self = Self(4);
+    pub const BoolData: Self = Self(5);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 4;
+    pub const ENUM_MAX: u8 = 5;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::FloatData,
         Self::Int32Data,
         Self::Int8Data,
         Self::UInt8Data,
+        Self::BoolData,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -2123,6 +2126,7 @@ impl ConstantData {
             Self::Int32Data => Some("Int32Data"),
             Self::Int8Data => Some("Int8Data"),
             Self::UInt8Data => Some("UInt8Data"),
+            Self::BoolData => Some("BoolData"),
             _ => None,
         }
     }
@@ -2190,17 +2194,18 @@ pub const ENUM_MIN_CONSTANT_DATA_TYPE: u16 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_CONSTANT_DATA_TYPE: u16 = 3;
+pub const ENUM_MAX_CONSTANT_DATA_TYPE: u16 = 4;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_CONSTANT_DATA_TYPE: [ConstantDataType; 4] = [
+pub const ENUM_VALUES_CONSTANT_DATA_TYPE: [ConstantDataType; 5] = [
     ConstantDataType::Int32,
     ConstantDataType::Float32,
     ConstantDataType::Int8,
     ConstantDataType::UInt8,
+    ConstantDataType::Bool,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -2212,10 +2217,17 @@ impl ConstantDataType {
     pub const Float32: Self = Self(1);
     pub const Int8: Self = Self(2);
     pub const UInt8: Self = Self(3);
+    pub const Bool: Self = Self(4);
 
     pub const ENUM_MIN: u16 = 0;
-    pub const ENUM_MAX: u16 = 3;
-    pub const ENUM_VALUES: &'static [Self] = &[Self::Int32, Self::Float32, Self::Int8, Self::UInt8];
+    pub const ENUM_MAX: u16 = 4;
+    pub const ENUM_VALUES: &'static [Self] = &[
+        Self::Int32,
+        Self::Float32,
+        Self::Int8,
+        Self::UInt8,
+        Self::Bool,
+    ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
@@ -2223,6 +2235,7 @@ impl ConstantDataType {
             Self::Float32 => Some("Float32"),
             Self::Int8 => Some("Int8"),
             Self::UInt8 => Some("UInt8"),
+            Self::Bool => Some("Bool"),
             _ => None,
         }
     }
@@ -10323,6 +10336,120 @@ impl core::fmt::Debug for UInt8Data<'_> {
         ds.finish()
     }
 }
+pub enum BoolDataOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct BoolData<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for BoolData<'a> {
+    type Inner = BoolData<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> BoolData<'a> {
+    pub const VT_DATA: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        BoolData { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args BoolDataArgs<'args>,
+    ) -> flatbuffers::WIPOffset<BoolData<'bldr>> {
+        let mut builder = BoolDataBuilder::new(_fbb);
+        if let Some(x) = args.data {
+            builder.add_data(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn data(&self) -> flatbuffers::Vector<'a, bool> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, bool>>>(
+                    BoolData::VT_DATA,
+                    None,
+                )
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for BoolData<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, bool>>>(
+                "data",
+                Self::VT_DATA,
+                true,
+            )?
+            .finish();
+        Ok(())
+    }
+}
+pub struct BoolDataArgs<'a> {
+    pub data: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, bool>>>,
+}
+impl<'a> Default for BoolDataArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        BoolDataArgs {
+            data: None, // required field
+        }
+    }
+}
+
+pub struct BoolDataBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> BoolDataBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_data(&mut self, data: flatbuffers::WIPOffset<flatbuffers::Vector<'b, bool>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(BoolData::VT_DATA, data);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> BoolDataBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        BoolDataBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<BoolData<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        self.fbb_.required(o, BoolData::VT_DATA, "data");
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for BoolData<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("BoolData");
+        ds.field("data", &self.data());
+        ds.finish()
+    }
+}
 pub enum ConstantNodeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -10487,6 +10614,21 @@ impl<'a> ConstantNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn data_as_bool_data(&self) -> Option<BoolData<'a>> {
+        if self.data_type() == ConstantData::BoolData {
+            self.data().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { BoolData::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for ConstantNode<'_> {
@@ -10527,6 +10669,11 @@ impl flatbuffers::Verifiable for ConstantNode<'_> {
                     ConstantData::UInt8Data => v
                         .verify_union_variant::<flatbuffers::ForwardsUOffset<UInt8Data>>(
                             "ConstantData::UInt8Data",
+                            pos,
+                        ),
+                    ConstantData::BoolData => v
+                        .verify_union_variant::<flatbuffers::ForwardsUOffset<BoolData>>(
+                            "ConstantData::BoolData",
                             pos,
                         ),
                     _ => Ok(()),
@@ -10647,6 +10794,16 @@ impl core::fmt::Debug for ConstantNode<'_> {
             }
             ConstantData::UInt8Data => {
                 if let Some(x) = self.data_as_uint_8_data() {
+                    ds.field("data", &x)
+                } else {
+                    ds.field(
+                        "data",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            ConstantData::BoolData => {
+                if let Some(x) = self.data_as_bool_data() {
                     ds.field("data", &x)
                 } else {
                     ds.field(

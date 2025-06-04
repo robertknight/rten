@@ -198,6 +198,7 @@ impl_to_constant_data!(f32, Float32, FloatData, FloatDataArgs);
 impl_to_constant_data!(i32, Int32, Int32Data, Int32DataArgs);
 impl_to_constant_data!(u8, UInt8, UInt8Data, UInt8DataArgs);
 impl_to_constant_data!(i8, Int8, Int8Data, Int8DataArgs);
+impl_to_constant_data!(bool, Bool, BoolData, BoolDataArgs);
 
 enum NodeData<'a> {
     Constant(WIPOffset<sg::ConstantNode<'a>>),
