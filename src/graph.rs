@@ -969,6 +969,8 @@ impl Graph {
                         )
                     })
             } else if has_subgraph {
+                ctx.set_name(op_node.name());
+
                 let capture_env = CaptureEnv::new(
                     captures.as_ref(),
                     self,
