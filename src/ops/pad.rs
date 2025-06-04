@@ -206,7 +206,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{pad, CastError, DataType, OpError, OperatorExt, Pad, PadMode};
+    use crate::ops::{pad, CastError, DataType, OpError, OperatorExt, Pad, PadMode, Value};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
@@ -416,57 +416,77 @@ mod tests {
 
     #[test]
     fn test_pad_invalid_inputs() {
-        let input = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<f32>,
+            pads: Tensor<i32>,
+            const_val: Option<Value>,
+            expected_error: OpError,
+        }
+
+        let input = Tensor::from([[1.0, 2.0], [3.0, 4.0]]);
         let op = Pad {
             mode: PadMode::Constant,
         };
 
-        // Wrong padding vector length.
-        let invalid_pads = from_slice(&[1]);
-        let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads));
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue(
-                "padding length should be 2 * input dims"
-            ))
-        );
-
-        // Unsupported padding amounts.
-        let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads));
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue("Pad only supports positive pads"))
-        );
-
-        // Wrong constant value type.
-        let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let const_int = Tensor::from(1);
-        let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads, &const_int));
-        assert_eq!(
-            result.err(),
-            Some(OpError::InputCastFailed {
-                index: 2,
-                error: CastError::WrongType {
-                    actual: DataType::Int32,
-                    expected: DataType::Float,
+        let cases = [
+            // Wrong padding vector length.
+            Case {
+                input: input.clone(),
+                pads: from_slice(&[1]),
+                const_val: None,
+                expected_error: OpError::InvalidValue("padding length should be 2 * input dims"),
+            },
+            // Unsupported padding amounts.
+            Case {
+                input: input.clone(),
+                pads: from_slice(&[1, 1, 1, -1]),
+                const_val: None,
+                expected_error: OpError::InvalidValue("Pad only supports positive pads"),
+            },
+            // Wrong constant value type.
+            Case {
+                input: input.clone(),
+                pads: from_slice(&[1, 1, 1, -1]),
+                const_val: Some(Tensor::from(1).into()),
+                expected_error: OpError::InputCastFailed {
+                    index: 2,
+                    error: CastError::WrongType {
+                        actual: DataType::Int32,
+                        expected: DataType::Float,
+                    },
                 },
-            })
-        );
+            },
+            // Constant value not a scalar.
+            Case {
+                input: input.clone(),
+                pads: from_slice(&[1, 1, 1, -1]),
+                const_val: Some(from_slice(&[1.0, 2.0]).into()),
+                expected_error: OpError::InputCastFailed {
+                    index: 2,
+                    error: CastError::WrongRank {
+                        actual: 1,
+                        expected: 0,
+                    },
+                },
+            },
+        ];
 
-        // Constant value not a scalar.
-        let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let int_vec = from_slice(&[1.0, 2.0]);
-        let result = op.run_simple::<_, Tensor<f32>>((&input, &invalid_pads, &int_vec));
-        assert_eq!(
-            result.err(),
-            Some(OpError::InputCastFailed {
-                index: 2,
-                error: CastError::WrongRank {
-                    actual: 1,
-                    expected: 0,
-                }
-            })
-        );
+        cases.test_each(|case| {
+            let Case {
+                input,
+                pads,
+                const_val,
+                expected_error,
+            } = case;
+
+            let result = if let Some(const_val) = const_val {
+                op.run_simple::<_, Tensor<f32>>((input, pads, const_val))
+            } else {
+                op.run_simple::<_, Tensor<f32>>((input, pads))
+            };
+
+            assert_eq!(result.err().as_ref(), Some(expected_error));
+        });
     }
 }
