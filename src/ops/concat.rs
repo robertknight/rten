@@ -287,6 +287,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
     use crate::ops::OpError;
@@ -462,18 +463,38 @@ mod tests {
 
     #[test]
     fn test_tile_invalid_repeats() {
-        let pool = new_pool();
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<i32>,
+            repeats: Tensor<i32>,
+            expected_error: OpError,
+        }
 
-        // Repeats length does not match input ndim.
-        let input = Tensor::from([1, 2, 3]);
-        let repeats = Tensor::from([1, 2]);
-        let result = tile(&pool, input.view(), repeats.nd_view());
-        assert_eq!(result, Err(OpError::InvalidValue("invalid repeats")));
+        let cases = [
+            // Repeats length does not match input ndim.
+            Case {
+                input: Tensor::from([1, 2, 3]),
+                repeats: Tensor::from([1, 2]),
+                expected_error: OpError::InvalidValue("invalid repeats"),
+            },
+            // Negative repeats
+            Case {
+                input: Tensor::from([1, 2, 3]),
+                repeats: Tensor::from([-1]),
+                expected_error: OpError::InvalidValue("invalid repeats"),
+            },
+        ];
 
-        // Negative repeats
-        let input = Tensor::from([1, 2, 3]);
-        let repeats = Tensor::from([-1]);
-        let result = tile(&pool, input.view(), repeats.nd_view());
-        assert_eq!(result, Err(OpError::InvalidValue("invalid repeats")));
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let Case {
+                input,
+                repeats,
+                expected_error,
+            } = case;
+
+            let result = tile(&pool, input.view(), repeats.nd_view());
+            assert_eq!(result.err().as_ref(), Some(expected_error));
+        });
     }
 }
