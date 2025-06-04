@@ -44,8 +44,7 @@ impl Operator for If {
         profiler: Option<&mut Profiler<'a>>,
         run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
-        // TODO - This should contain the name of the "If" node.
-        let node_name = "";
+        let node_name = ctx.name().unwrap_or_default();
         let cond: TensorView<i32> = ctx
             .inputs()
             .require_as(0)

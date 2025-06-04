@@ -913,6 +913,7 @@ pub struct OpRunContext<'a, 'i> {
     pool: &'a TensorPool,
     inputs: &'a InputList<'i>,
     n_outputs: Option<u32>,
+    name: Option<&'a str>,
 }
 
 impl<'a, 'i> OpRunContext<'a, 'i> {
@@ -921,6 +922,7 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
             pool,
             inputs,
             n_outputs: None,
+            name: None,
         }
     }
 
@@ -950,6 +952,16 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     /// specified.
     pub fn num_outputs(&self) -> Option<u32> {
         self.n_outputs
+    }
+
+    /// Set the name of the current node in the graph.
+    pub fn set_name(&mut self, name: Option<&'a str>) {
+        self.name = name;
+    }
+
+    /// Return the name of the current node in the graph.
+    pub fn name(&self) -> Option<&str> {
+        self.name
     }
 }
 
