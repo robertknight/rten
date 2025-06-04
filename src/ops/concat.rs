@@ -287,6 +287,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
+    use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
     use crate::ops::OpError;
@@ -404,76 +405,111 @@ mod tests {
 
     #[test]
     fn test_tile() {
-        let pool = new_pool();
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<i32>,
+            repeats: Tensor<i32>,
+            expected: Tensor<i32>,
+        }
 
-        // Empty
-        let input = Tensor::<f32>::zeros(&[3, 4, 5]);
-        let repeats = Tensor::from([4, 0, 1]);
-        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-        assert_eq!(result.shape(), &[12, 0, 5]);
-        assert!(result.is_empty());
+        let cases = [
+            // Empty
+            Case {
+                input: Tensor::<i32>::zeros(&[3, 4, 5]),
+                repeats: Tensor::from([4, 0, 1]),
+                expected: Tensor::<i32>::zeros(&[12, 0, 5]),
+            },
+            // Scalar
+            Case {
+                input: Tensor::from(5),
+                repeats: Tensor::from([] as [i32; 0]),
+                expected: Tensor::from(5),
+            },
+            // 1D tile
+            Case {
+                input: Tensor::from([1, 2, 3, 4]),
+                repeats: Tensor::from([3]),
+                expected: Tensor::from([1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]),
+            },
+            // 2D tile
+            Case {
+                input: Tensor::from([[3]]),
+                repeats: Tensor::from([3, 2]),
+                expected: Tensor::from([[3, 3], [3, 3], [3, 3]]),
+            },
+            // Noop tile
+            Case {
+                input: Tensor::from([1, 2, 3, 4]),
+                repeats: Tensor::from([1]),
+                expected: Tensor::from([1, 2, 3, 4]),
+            },
+            // Repeat inner dim of a 2D tensor
+            Case {
+                input: Tensor::from([[1, 2], [3, 4]]),
+                repeats: Tensor::from([1, 2]),
+                expected: Tensor::from([[1, 2, 1, 2], [3, 4, 3, 4]]),
+            },
+            // Repeat outer dim of a 2D tensor
+            Case {
+                input: Tensor::from([[1, 2], [3, 4]]),
+                repeats: Tensor::from([2, 1]),
+                expected: Tensor::from([[1, 2], [3, 4], [1, 2], [3, 4]]),
+            },
+            // Repeat inner and outer dims of a 2D tensor
+            Case {
+                input: Tensor::from([[1, 2], [3, 4]]),
+                repeats: Tensor::from([2, 2]),
+                expected: Tensor::from([[1, 2, 1, 2], [3, 4, 3, 4], [1, 2, 1, 2], [3, 4, 3, 4]]),
+            },
+        ];
 
-        // Scalar
-        let input = Tensor::from(5.);
-        let empty: [i32; 0] = [];
-        let repeats = Tensor::from(empty);
-        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-        assert_eq!(result, Tensor::from(5.));
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let Case {
+                input,
+                repeats,
+                expected,
+            } = case;
 
-        // 1D tile
-        let input = Tensor::from([1, 2, 3, 4]);
-        let repeats = Tensor::from([3]);
-        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-        assert_eq!(result, Tensor::from([1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]));
-
-        // 2D tile
-        let input = Tensor::from([[3.]]);
-        let repeats = Tensor::from([3, 2]);
-        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-        assert_eq!(result, Tensor::from([[3., 3.], [3., 3.], [3., 3.]]));
-
-        // Noop tile
-        let input = Tensor::from([1, 2, 3, 4]);
-        let repeats = Tensor::from([1]);
-        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-        assert_eq!(input, result);
-
-        // Repeat inner dim of a 2D tensor
-        let input = Tensor::from([[1, 2], [3, 4]]);
-        let repeats = Tensor::from([1, 2]);
-        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-        assert_eq!(result, Tensor::from([[1, 2, 1, 2], [3, 4, 3, 4]]));
-
-        // Repeat outer dim of a 2D tensor
-        let input = Tensor::from([[1, 2], [3, 4]]);
-        let repeats = Tensor::from([2, 1]);
-        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-        assert_eq!(result, Tensor::from([[1, 2], [3, 4], [1, 2], [3, 4]]));
-
-        // Repeat inner and outer dims of a 2D tensor
-        let input = Tensor::from([[1, 2], [3, 4]]);
-        let repeats = Tensor::from([2, 2]);
-        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-        assert_eq!(
-            result,
-            Tensor::from([[1, 2, 1, 2], [3, 4, 3, 4], [1, 2, 1, 2], [3, 4, 3, 4]])
-        );
+            let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
+            expect_equal(&result, &expected).unwrap();
+        });
     }
 
     #[test]
     fn test_tile_invalid_repeats() {
-        let pool = new_pool();
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<i32>,
+            repeats: Tensor<i32>,
+            expected_error: OpError,
+        }
 
-        // Repeats length does not match input ndim.
-        let input = Tensor::from([1, 2, 3]);
-        let repeats = Tensor::from([1, 2]);
-        let result = tile(&pool, input.view(), repeats.nd_view());
-        assert_eq!(result, Err(OpError::InvalidValue("invalid repeats")));
+        let cases = [
+            // Repeats length does not match input ndim.
+            Case {
+                input: Tensor::from([1, 2, 3]),
+                repeats: Tensor::from([1, 2]),
+                expected_error: OpError::InvalidValue("invalid repeats"),
+            },
+            // Negative repeats
+            Case {
+                input: Tensor::from([1, 2, 3]),
+                repeats: Tensor::from([-1]),
+                expected_error: OpError::InvalidValue("invalid repeats"),
+            },
+        ];
 
-        // Negative repeats
-        let input = Tensor::from([1, 2, 3]);
-        let repeats = Tensor::from([-1]);
-        let result = tile(&pool, input.view(), repeats.nd_view());
-        assert_eq!(result, Err(OpError::InvalidValue("invalid repeats")));
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let Case {
+                input,
+                repeats,
+                expected_error,
+            } = case;
+
+            let result = tile(&pool, input.view(), repeats.nd_view());
+            assert_eq!(result.err().as_ref(), Some(expected_error));
+        });
     }
 }
