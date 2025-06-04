@@ -118,15 +118,18 @@ impl fmt::Display for RunError {
                 error: ref err,
                 inputs,
             } => {
-                write!(f, "operator \"{}\" failed: {}. Inputs were [", name, err,)?;
-                for input in inputs {
+                write!(f, "operator \"{}\" failed: {}. Inputs were (", name, err,)?;
+                for (i, input) in inputs.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     if let Some(meta) = input {
-                        write!(f, "({})", meta)?;
+                        write!(f, "{}", meta)?;
                     } else {
                         write!(f, "-")?;
                     }
                 }
-                write!(f, "]")
+                write!(f, ")")
             }
             RunError::OutputMismatch(err) => write!(f, "output mismatch {:?}", err),
         }

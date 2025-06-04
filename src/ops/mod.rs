@@ -315,7 +315,8 @@ pub struct ValueMeta {
 
 impl Display for ValueMeta {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}, {:?}", self.dtype, self.shape)
+        // Produces strings such as "f32 [1, 16, 256]"
+        write!(f, "{} {:?}", self.dtype, self.shape)
     }
 }
 
