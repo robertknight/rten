@@ -820,56 +820,91 @@ mod tests {
 
     #[test]
     fn test_arg_max() {
-        let pool = new_pool();
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<f32>,
+            axis: isize,
+            keep_dims: bool,
+            expected: Result<Tensor<i32>, OpError>,
+        }
 
-        // Reduce a simple vector.
-        let probs = Tensor::from([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
-        let class = arg_max(&pool, probs.view(), 0, false /* keep_dims */).unwrap();
-        assert_eq!(class.item(), Some(&3));
+        let cases = [
+            // Reduce a simple vector.
+            Case {
+                input: Tensor::from([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]),
+                axis: 0,
+                keep_dims: false,
+                expected: Ok(Tensor::from(3)),
+            },
+            // Same, but keep dims
+            Case {
+                input: Tensor::from([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]),
+                axis: 0,
+                keep_dims: true,
+                expected: Ok(Tensor::from([3])),
+            },
+            // Common use case of a tensor of (batch, item, prob)
+            Case {
+                input: Tensor::from([[
+                    [0.1, 0.2, 0.9],
+                    [0.9, 0.1, 0.2],
+                    [0.3, 0.8, 0.4],
+                    [0.1, 0.01, 0.2],
+                ]]),
+                axis: 2,
+                keep_dims: false,
+                expected: Ok(Tensor::from_data(&[1, 4], vec![2, 0, 1, 2])),
+            },
+            // Same, but keep dims
+            Case {
+                input: Tensor::from([[
+                    [0.1, 0.2, 0.9],
+                    [0.9, 0.1, 0.2],
+                    [0.3, 0.8, 0.4],
+                    [0.1, 0.01, 0.2],
+                ]]),
+                axis: 2,
+                keep_dims: true,
+                expected: Ok(Tensor::from_data(&[1, 4, 1], vec![2, 0, 1, 2])),
+            },
+            // Empty tensor, axis is a non-zero-sized dim
+            Case {
+                input: Tensor::<f32>::from_data(&[10, 0, 5], vec![]),
+                axis: 0,
+                keep_dims: false,
+                expected: Ok(Tensor::from_data(&[0, 5], vec![])),
+            },
+            // Empty tensor, axis is a zero-sized dim
+            Case {
+                input: Tensor::<f32>::from_data(&[10, 0, 5], vec![]),
+                axis: 1,
+                keep_dims: false,
+                expected: Err(OpError::InvalidValue(
+                    "Cannot select index from empty sequence",
+                )),
+            },
+            // Non-contiguous lanes
+            Case {
+                input: Tensor::from([[1.0, 2.0], [4.0, 8.0], [5.0, 6.0]]),
+                axis: 0,
+                keep_dims: false,
+                expected: Ok(Tensor::from([2, 1])),
+            },
+        ];
 
-        // Same, but keep dims
-        let class = arg_max(&pool, probs.view(), 0, true /* keep_dims */).unwrap();
-        assert_eq!(class.shape(), &[1]);
-        assert_eq!(class.to_vec(), &[3]);
+        cases.test_each(|case| {
+            let Case {
+                input,
+                axis,
+                keep_dims,
+                expected,
+            } = case;
 
-        // Common use case of a tensor of (batch, item, prob) where
-        // `item` is eg. a token index in a sequence or box ID for object
-        // detection.
-        let seq_probs = Tensor::from([[
-            [0.1, 0.2, 0.9],
-            [0.9, 0.1, 0.2],
-            [0.3, 0.8, 0.4],
-            [0.1, 0.01, 0.2],
-        ]]);
-        let seq_classes = arg_max(&pool, seq_probs.view(), 2, false /* keep_dims */).unwrap();
-        assert_eq!(seq_classes.shape(), &[1, 4]);
-        assert_eq!(seq_classes.to_vec(), &[2, 0, 1, 2]);
+            let pool = new_pool();
+            let result = arg_max(&pool, input.view(), *axis, *keep_dims);
 
-        // Same, but keep dims
-        let seq_classes = arg_max(&pool, seq_probs.view(), 2, true /* keep_dims */).unwrap();
-        assert_eq!(seq_classes.shape(), &[1, 4, 1]);
-        assert_eq!(seq_classes.to_vec(), &[2, 0, 1, 2]);
-
-        // Empty tensor, axis is a non-zero-sized dim
-        let empty = Tensor::<i32>::from_data(&[10, 0, 5], vec![]);
-        let result = arg_max(&pool, empty.view(), 0, false /* keep_dims */).unwrap();
-        assert_eq!(result.shape(), &[0, 5]);
-        assert_eq!(result.to_vec(), &[] as &[i32]);
-
-        // Empty tensor, axis is a zero-sized dim
-        let empty = Tensor::<i32>::from_data(&[10, 0, 5], vec![]);
-        let result = arg_max(&pool, empty.view(), 1, false /* keep_dims */);
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue(
-                "Cannot select index from empty sequence"
-            ))
-        );
-
-        // Non-contiguous lanes
-        let mat = Tensor::from([[1, 2], [4, 8], [5, 6]]);
-        let col_max = arg_max(&pool, mat.view(), 0, false /* keep_dims */).unwrap();
-        assert_eq!(col_max, NdTensor::from([2, 1]));
+            assert_eq!(result, *expected);
+        });
     }
 
     // We only have basic tests for ArgMin since most of the implementation is
@@ -898,31 +933,62 @@ mod tests {
 
     #[test]
     fn test_cum_sum() {
-        let pool = new_pool();
-        let elements = Tensor::from_vec((0..=5).collect());
-        let sums = cum_sum(&pool, elements.view(), 0).unwrap();
-        assert_eq!(sums.shape(), &[6]);
-        assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 10, 15]);
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<f32>,
+            axis: isize,
+            expected: Result<Tensor<f32>, OpError>,
+        }
 
-        let elements = Tensor::from_data(&[1, 4, 4], vec![1; 16]);
-        let sums = cum_sum(&pool, elements.view(), 1).unwrap();
-        assert_eq!(sums.shape(), &[1, 4, 4]);
-        assert_eq!(
-            sums.to_vec(),
-            &[1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4]
-        );
+        let cases = [
+            // Simple 1D case
+            Case {
+                input: Tensor::from([0., 1., 2., 3., 4., 5.]),
+                axis: 0,
+                expected: Ok(Tensor::from([0., 1., 3., 6., 10., 15.])),
+            },
+            // 3D tensor, cumsum along axis 1
+            Case {
+                input: Tensor::from_data(&[1, 4, 4], vec![1.; 16]),
+                axis: 1,
+                expected: Ok(Tensor::from_data(
+                    &[1, 4, 4],
+                    vec![
+                        1., 1., 1., 1., 2., 2., 2., 2., 3., 3., 3., 3., 4., 4., 4., 4.,
+                    ],
+                )),
+            },
+            // Same 3D tensor, cumsum along last axis (-1)
+            Case {
+                input: Tensor::from_data(&[1, 4, 4], vec![1.; 16]),
+                axis: -1,
+                expected: Ok(Tensor::from_data(
+                    &[1, 4, 4],
+                    vec![
+                        1., 2., 3., 4., 1., 2., 3., 4., 1., 2., 3., 4., 1., 2., 3., 4.,
+                    ],
+                )),
+            },
+            // Empty tensor
+            Case {
+                input: Tensor::from([0.; 0]),
+                axis: 0,
+                expected: Ok(Tensor::from([0.; 0])),
+            },
+        ];
 
-        let sums = cum_sum(&pool, elements.view(), -1).unwrap();
-        assert_eq!(sums.shape(), &[1, 4, 4]);
-        assert_eq!(
-            sums.to_vec(),
-            &[1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]
-        );
+        cases.test_each(|case| {
+            let Case {
+                input,
+                axis,
+                expected,
+            } = case;
 
-        let elements: Tensor<f32> = Tensor::from([0.; 0]);
-        let sums = cum_sum(&pool, elements.view(), 0).unwrap();
-        assert_eq!(sums.shape(), &[0]);
-        assert_eq!(sums.to_vec(), &[] as &[f32]);
+            let pool = new_pool();
+            let result = cum_sum(&pool, input.view(), *axis);
+
+            assert_eq!(result, *expected);
+        });
     }
 
     #[test]
@@ -1031,63 +1097,117 @@ mod tests {
     // Tests for ReduceMean specifically that also cover common functionality
     // across the different reductions.
     #[test]
-    fn test_reduce_mean() -> Result<(), Box<dyn Error>> {
+    fn test_reduce_mean() {
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<f32>,
+            axes: Option<Vec<i32>>,
+            keep_dims: bool,
+            expected: Result<Tensor<f32>, OpError>,
+        }
+
+        impl Default for Case {
+            fn default() -> Self {
+                Case {
+                    input: Tensor::zeros(&[]),
+                    axes: None,
+                    keep_dims: false,
+                    expected: Ok(Tensor::zeros(&[])),
+                }
+            }
+        }
+
+        let cases = [
+            // Test with `keep_dims` off
+            Case {
+                input: Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                axes: Some(vec![-1]),
+                expected: Ok(Tensor::from([2., 5., 8.])),
+                ..Default::default()
+            },
+            // Test with `keep_dims` on
+            Case {
+                input: Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                axes: Some(vec![-1]),
+                keep_dims: true,
+                expected: Ok(Tensor::from_data(&[3, 1], vec![2., 5., 8.])),
+            },
+            // Reduce first dim
+            Case {
+                input: Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                axes: Some(vec![0]),
+                expected: Ok(Tensor::from([4., 5., 6.])),
+                ..Default::default()
+            },
+            // Reduce all axes
+            Case {
+                input: Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                axes: None,
+                expected: Ok(Tensor::from(5.)),
+                ..Default::default()
+            },
+            // Reduce all axes (specified via empty array)
+            Case {
+                input: Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]),
+                axes: Some(vec![]),
+                expected: Ok(Tensor::from(5.)),
+                ..Default::default()
+            },
+            // Test case from ONNX spec
+            Case {
+                input: Tensor::from_data(
+                    &[3, 2, 2],
+                    vec![5., 1., 20., 2., 30., 1., 40., 2., 55., 1., 60., 2.],
+                ),
+                axes: Some(vec![1]),
+                expected: Ok(Tensor::from_data(
+                    &[3, 2],
+                    vec![12.5, 1.5, 35., 1.5, 57.5, 1.5],
+                )),
+                ..Default::default()
+            },
+            // Reduce a scalar value
+            Case {
+                input: Tensor::from(5.0),
+                axes: Some(vec![]),
+                expected: Ok(Tensor::from(5.0)),
+                ..Default::default()
+            },
+            // Reduce a vector
+            Case {
+                input: Tensor::from([0., 10.]),
+                axes: Some(vec![0]),
+                expected: Ok(Tensor::from(5.0)),
+                ..Default::default()
+            },
+        ];
+
+        cases.test_each(|case| {
+            let Case {
+                input,
+                axes,
+                keep_dims,
+                expected,
+            } = case;
+
+            let pool = new_pool();
+            let result = reduce_mean(
+                &pool,
+                input.view(),
+                axes.as_ref().map(|a| a.as_slice()),
+                *keep_dims,
+            );
+
+            match (result, expected) {
+                (Ok(result), Ok(expected)) => {
+                    expect_equal(&result, expected).unwrap();
+                }
+                (result, expected) => assert_eq!(result, *expected),
+            }
+        });
+
+        // Additional tests for complex cases that are hard to express in table form
         let pool = new_pool();
-        let input = Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-
-        // Test with `keep_dims` off
-        let result = reduce_mean(&pool, input.view(), Some(&[-1]), false /* keep_dims */).unwrap();
-        let expected = Tensor::from([2., 5., 8.]);
-        expect_equal(&result, &expected)?;
-
-        // Test with `keep_dims` on
-        let result = reduce_mean(&pool, input.view(), Some(&[-1]), true /* keep_dims */).unwrap();
-        let expected = Tensor::from_data(&[3, 1], vec![2., 5., 8.]);
-        expect_equal(&result, &expected)?;
-
-        // Reduce first dim
-        let result = reduce_mean(&pool, input.view(), Some(&[0]), false /* keep_dims */).unwrap();
-        let expected = Tensor::from([4., 5., 6.]);
-        expect_equal(&result, &expected)?;
-
-        // Reduce all axes
-        let result = reduce_mean(&pool, input.view(), None, false /* keep_dims */).unwrap();
-        let expected = Tensor::from(5.);
-        expect_equal(&result, &expected)?;
-
-        // Reduce all axes (specified via empty array)
-        let result = reduce_mean(&pool, input.view(), Some(&[]), false /* keep_dims */).unwrap();
-        let expected = Tensor::from(5.);
-        expect_equal(&result, &expected)?;
-
-        // Test case from ONNX spec
-        let input = Tensor::from_data(
-            &[3, 2, 2],
-            vec![5., 1., 20., 2., 30., 1., 40., 2., 55., 1., 60., 2.],
-        );
-        let expected = Tensor::from_data(&[3, 2], vec![12.5, 1.5, 35., 1.5, 57.5, 1.5]);
-        let result = reduce_mean(&pool, input.view(), Some(&[1]), false /* keep_dims */).unwrap();
-        expect_equal(&result, &expected)?;
-
-        // Reduce a scalar value
-        let result = reduce_mean(
-            &pool,
-            Tensor::from(5.0).view(),
-            Some(&[]),
-            false, /* keep_dims */
-        )
-        .unwrap();
-        assert_eq!(result.item(), Some(&5.0));
-
-        // Reduce a vector
-        let result = reduce_mean(
-            &pool,
-            Tensor::from([0., 10.]).view(),
-            Some(&[0]),
-            false, /* keep_dims */
-        )
-        .unwrap();
-        assert_eq!(result.to_vec(), &[5.0]);
 
         // Reduce non-contiguous lane
         let tensor = Tensor::from([0., 1., 2., 3., 4., 5., 6.]);
@@ -1137,8 +1257,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.to_vec(), &[4., 5.]);
-
-        Ok(())
     }
 
     #[test]
