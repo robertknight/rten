@@ -79,7 +79,7 @@ pub use gather::{
     gather, gather_elements, gather_nd, scatter_elements, scatter_nd, Gather, GatherElements,
     GatherND, ScatterElements, ScatterND, ScatterReduction,
 };
-pub use generate::{constant_of_shape, onehot, range, ConstantOfShape, OneHot, Range};
+pub use generate::{constant_of_shape, onehot, range, ConstantOfShape, EyeLike, OneHot, Range};
 pub use identity::Identity;
 pub use layout::{
     depth_to_space, expand, flatten, reshape, squeeze, DepthToSpace, DepthToSpaceMode, Expand,
@@ -1422,6 +1422,37 @@ macro_rules! map_value_view {
 }
 
 use map_value_view;
+
+/// Evaluate a block with a type alias defined that matches a [`DataType`].
+///
+/// For example if `$dtype` is [`DataType::Int32`] then the block will be
+/// evaluated with a type named `$type` in scope which is an alias for `i32`.
+macro_rules! map_dtype {
+    ($dtype:expr, $type:ident, $block:tt) => {{
+        use $crate::ops::DataType;
+
+        match $dtype {
+            DataType::Int32 => {
+                type $type = i32;
+                $block
+            }
+            DataType::Float => {
+                type $type = f32;
+                $block
+            }
+            DataType::UInt8 => {
+                type $type = u8;
+                $block
+            }
+            DataType::Int8 => {
+                type $type = i8;
+                $block
+            }
+        }
+    }};
+}
+
+use map_dtype;
 
 /// Extract a typed owned tensor from a [`Value`] and pass it to a block.
 ///

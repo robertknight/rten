@@ -126,6 +126,7 @@ enum OperatorType: ubyte {
   ConvInteger,
   CastLike,
   Dropout,
+  EyeLike,
 }
 
 enum RNNDirection: ubyte {
@@ -224,6 +225,7 @@ union OperatorAttrs {
   CastLikeAttrs,
   ShapeAttrs,
   DropoutAttrs,
+  EyeLikeAttrs,
 }
 
 table ArgMaxAttrs {
@@ -271,6 +273,11 @@ table DepthToSpaceAttrs {
 
 table DropoutAttrs {
   seed:int = null;
+}
+
+table EyeLikeAttrs {
+  dtype:DataType = null;
+  k:int;
 }
 
 union Scalar {

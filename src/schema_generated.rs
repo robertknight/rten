@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 112;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 113;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 113] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 114] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -138,6 +138,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 113] = [
     OperatorType::ConvInteger,
     OperatorType::CastLike,
     OperatorType::Dropout,
+    OperatorType::EyeLike,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -258,9 +259,10 @@ impl OperatorType {
     pub const ConvInteger: Self = Self(110);
     pub const CastLike: Self = Self(111);
     pub const Dropout: Self = Self(112);
+    pub const EyeLike: Self = Self(113);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 112;
+    pub const ENUM_MAX: u8 = 113;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -375,6 +377,7 @@ impl OperatorType {
         Self::ConvInteger,
         Self::CastLike,
         Self::Dropout,
+        Self::EyeLike,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -492,6 +495,7 @@ impl OperatorType {
             Self::ConvInteger => Some("ConvInteger"),
             Self::CastLike => Some("CastLike"),
             Self::Dropout => Some("Dropout"),
+            Self::EyeLike => Some("EyeLike"),
             _ => None,
         }
     }
@@ -1134,13 +1138,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 46;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 47;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 47] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 48] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1188,6 +1192,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 47] = [
     OperatorAttrs::CastLikeAttrs,
     OperatorAttrs::ShapeAttrs,
     OperatorAttrs::DropoutAttrs,
+    OperatorAttrs::EyeLikeAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1242,9 +1247,10 @@ impl OperatorAttrs {
     pub const CastLikeAttrs: Self = Self(44);
     pub const ShapeAttrs: Self = Self(45);
     pub const DropoutAttrs: Self = Self(46);
+    pub const EyeLikeAttrs: Self = Self(47);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 46;
+    pub const ENUM_MAX: u8 = 47;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1293,6 +1299,7 @@ impl OperatorAttrs {
         Self::CastLikeAttrs,
         Self::ShapeAttrs,
         Self::DropoutAttrs,
+        Self::EyeLikeAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1344,6 +1351,7 @@ impl OperatorAttrs {
             Self::CastLikeAttrs => Some("CastLikeAttrs"),
             Self::ShapeAttrs => Some("ShapeAttrs"),
             Self::DropoutAttrs => Some("DropoutAttrs"),
+            Self::EyeLikeAttrs => Some("EyeLikeAttrs"),
             _ => None,
         }
     }
@@ -3238,6 +3246,124 @@ impl core::fmt::Debug for DropoutAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("DropoutAttrs");
         ds.field("seed", &self.seed());
+        ds.finish()
+    }
+}
+pub enum EyeLikeAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct EyeLikeAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for EyeLikeAttrs<'a> {
+    type Inner = EyeLikeAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> EyeLikeAttrs<'a> {
+    pub const VT_DTYPE: flatbuffers::VOffsetT = 4;
+    pub const VT_K: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        EyeLikeAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args EyeLikeAttrsArgs,
+    ) -> flatbuffers::WIPOffset<EyeLikeAttrs<'bldr>> {
+        let mut builder = EyeLikeAttrsBuilder::new(_fbb);
+        builder.add_k(args.k);
+        if let Some(x) = args.dtype {
+            builder.add_dtype(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn dtype(&self) -> Option<DataType> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<DataType>(EyeLikeAttrs::VT_DTYPE, None) }
+    }
+    #[inline]
+    pub fn k(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<i32>(EyeLikeAttrs::VT_K, Some(0)).unwrap() }
+    }
+}
+
+impl flatbuffers::Verifiable for EyeLikeAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<DataType>("dtype", Self::VT_DTYPE, false)?
+            .visit_field::<i32>("k", Self::VT_K, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct EyeLikeAttrsArgs {
+    pub dtype: Option<DataType>,
+    pub k: i32,
+}
+impl<'a> Default for EyeLikeAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        EyeLikeAttrsArgs { dtype: None, k: 0 }
+    }
+}
+
+pub struct EyeLikeAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> EyeLikeAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_dtype(&mut self, dtype: DataType) {
+        self.fbb_
+            .push_slot_always::<DataType>(EyeLikeAttrs::VT_DTYPE, dtype);
+    }
+    #[inline]
+    pub fn add_k(&mut self, k: i32) {
+        self.fbb_.push_slot::<i32>(EyeLikeAttrs::VT_K, k, 0);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> EyeLikeAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        EyeLikeAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<EyeLikeAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for EyeLikeAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("EyeLikeAttrs");
+        ds.field("dtype", &self.dtype());
+        ds.field("k", &self.k());
         ds.finish()
     }
 }
@@ -9244,6 +9370,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_eye_like_attrs(&self) -> Option<EyeLikeAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::EyeLikeAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { EyeLikeAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -9303,6 +9444,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::CastLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<CastLikeAttrs>>("OperatorAttrs::CastLikeAttrs", pos),
           OperatorAttrs::ShapeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ShapeAttrs>>("OperatorAttrs::ShapeAttrs", pos),
           OperatorAttrs::DropoutAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DropoutAttrs>>("OperatorAttrs::DropoutAttrs", pos),
+          OperatorAttrs::EyeLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<EyeLikeAttrs>>("OperatorAttrs::EyeLikeAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -9840,6 +9982,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::DropoutAttrs => {
                 if let Some(x) = self.attrs_as_dropout_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::EyeLikeAttrs => {
+                if let Some(x) = self.attrs_as_eye_like_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

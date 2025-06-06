@@ -443,6 +443,13 @@ def op_node_from_onnx_operator(
             attrs = sg.EluAttrsT()
             attrs.alpha = attr_reader.get_attr("alpha", "float", 1.0)
 
+        case "EyeLike":
+            attrs = sg.EyeLikeAttrsT()
+            dtype = attr_reader.get_attr("dtype", "int", None)
+            if dtype is not None:
+                attrs.dtype = convert_data_type(dtype)
+            attrs.k = attr_reader.get_attr("k", "int", 0)
+
         case "Flatten":
             attrs = sg.FlattenAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", 1)

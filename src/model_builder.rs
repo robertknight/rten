@@ -8,11 +8,12 @@ use crate::number::LeBytes;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, CastLike, Concat,
     ConstantOfShape, Conv, ConvInteger, ConvTranspose, CoordTransformMode, DataType, DepthToSpace,
-    DepthToSpaceMode, DequantizeLinear, Einsum, Elu, Flatten, Gather, GatherElements, GatherND,
-    Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu, LogSoftmax,
-    MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, QuantizeLinear, ReduceMax,
-    ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode,
-    Scalar, ScatterElements, ScatterReduction, Shape, Softmax, Split, TopK, Transpose, Trilu,
+    DepthToSpaceMode, DequantizeLinear, Einsum, Elu, EyeLike, Flatten, Gather, GatherElements,
+    GatherND, Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu,
+    LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, QuantizeLinear,
+    ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize,
+    ResizeMode, Scalar, ScatterElements, ScatterReduction, Shape, Softmax, Split, TopK, Transpose,
+    Trilu,
 };
 use crate::schema_generated as sg;
 
@@ -60,6 +61,7 @@ pub enum OpType<'a> {
     Erf,
     Exp,
     Expand,
+    EyeLike(EyeLike),
     Flatten(Flatten),
     Floor,
     Gather(Gather),
@@ -572,6 +574,16 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
             OpType::Erf => op!(Erf),
             OpType::Exp => op!(Exp),
             OpType::Expand => op!(Expand),
+            OpType::EyeLike(args) => {
+                op_with_attrs!(
+                    EyeLike,
+                    EyeLikeAttrs,
+                    sg::EyeLikeAttrsArgs {
+                        k: args.k,
+                        dtype: args.dtype.map(convert_dtype),
+                    }
+                )
+            }
             OpType::Flatten(args) => op_with_attrs!(
                 Flatten,
                 FlattenAttrs,
