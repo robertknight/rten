@@ -116,6 +116,7 @@ impl OpRegistry {
         register_op!(Erf);
         register_op!(Exp);
         register_op!(Expand);
+        register_op!(EyeLike);
         register_op!(Flatten);
         register_op!(Floor);
         register_op!(Gather);
@@ -548,6 +549,19 @@ impl_read_op!(Equal);
 impl_read_op!(Erf);
 impl_read_op!(Exp);
 impl_read_op!(Expand);
+impl_read_op!(
+    EyeLike,
+    attrs_as_eye_like_attrs,
+    |attrs: sg::EyeLikeAttrs| {
+        Ok(ops::EyeLike {
+            dtype: attrs
+                .dtype()
+                .map(|dt| convert_dtype("dtype", dt))
+                .transpose()?,
+            k: attrs.k(),
+        })
+    }
+);
 impl_read_op!(Flatten, attrs_as_flatten_attrs, axis);
 impl_read_op!(Floor);
 impl_read_op!(Gather, attrs_as_gather_attrs, axis);

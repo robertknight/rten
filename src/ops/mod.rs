@@ -20,6 +20,7 @@ use std::fmt::{Debug, Display};
 
 use smallvec::SmallVec;
 
+use rten_tensor::errors::DimensionError;
 use rten_tensor::prelude::*;
 use rten_tensor::{
     DynLayout, MutLayout, NdTensor, NdTensorView, Storage, Tensor, TensorBase, TensorView, ViewData,
@@ -78,7 +79,7 @@ pub use gather::{
     gather, gather_elements, gather_nd, scatter_elements, scatter_nd, Gather, GatherElements,
     GatherND, ScatterElements, ScatterND, ScatterReduction,
 };
-pub use generate::{constant_of_shape, onehot, range, ConstantOfShape, OneHot, Range};
+pub use generate::{constant_of_shape, onehot, range, ConstantOfShape, EyeLike, OneHot, Range};
 pub use identity::Identity;
 pub use layout::{
     depth_to_space, expand, flatten, reshape, squeeze, DepthToSpace, DepthToSpaceMode, Expand,
@@ -297,9 +298,10 @@ impl Display for CastError {
 
 impl Error for CastError {}
 
-impl From<CastError> for OpError {
-    fn from(val: CastError) -> OpError {
-        OpError::CastFailed(val)
+impl From<DimensionError> for CastError {
+    fn from(val: DimensionError) -> CastError {
+        let DimensionError { actual, expected } = val;
+        CastError::WrongRank { actual, expected }
     }
 }
 
@@ -829,6 +831,29 @@ pub enum OpError {
 
     /// An input or attribute has a value that is valid, but not currently supported.
     UnsupportedValue(&'static str),
+}
+
+impl OpError {
+    /// Associate this error with a given operator input.
+    fn with_input_index(self, index: usize) -> OpError {
+        match self {
+            Self::CastFailed(error) => OpError::InputCastFailed { index, error },
+            Self::InputCastFailed { error, .. } => OpError::InputCastFailed { index, error },
+            other => other,
+        }
+    }
+}
+
+impl From<DimensionError> for OpError {
+    fn from(val: DimensionError) -> OpError {
+        OpError::CastFailed(val.into())
+    }
+}
+
+impl From<CastError> for OpError {
+    fn from(val: CastError) -> OpError {
+        OpError::CastFailed(val)
+    }
 }
 
 impl Display for OpError {
@@ -1397,6 +1422,37 @@ macro_rules! map_value_view {
 }
 
 use map_value_view;
+
+/// Evaluate a block with a type alias defined that matches a [`DataType`].
+///
+/// For example if `$dtype` is [`DataType::Int32`] then the block will be
+/// evaluated with a type named `$type` in scope which is an alias for `i32`.
+macro_rules! map_dtype {
+    ($dtype:expr, $type:ident, $block:tt) => {{
+        use $crate::ops::DataType;
+
+        match $dtype {
+            DataType::Int32 => {
+                type $type = i32;
+                $block
+            }
+            DataType::Float => {
+                type $type = f32;
+                $block
+            }
+            DataType::UInt8 => {
+                type $type = u8;
+                $block
+            }
+            DataType::Int8 => {
+                type $type = i8;
+                $block
+            }
+        }
+    }};
+}
+
+use map_dtype;
 
 /// Extract a typed owned tensor from a [`Value`] and pass it to a block.
 ///

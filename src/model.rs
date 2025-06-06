@@ -907,7 +907,7 @@ fn constant_data_from_flatbuffers_vec<'a, T: Pod + flatbuffers::Follow<'a, Inner
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
-    use rten_tensor::Tensor;
+    use rten_tensor::{NdTensor, Tensor};
 
     use crate::graph::{Dimension, NodeId, RunError};
     use crate::model::{Model, ModelOptions};
@@ -1431,6 +1431,7 @@ mod tests {
         let expand_shape_val = Tensor::from([2, 2, 3, 3]);
         let expand_shape = graph_builder.add_constant(expand_shape_val.view());
         add_operator!(Expand, [input_node, expand_shape]);
+        add_operator!(EyeLike, [input_2d], { k: 2, dtype: None });
 
         add_operator!(Flatten, [input_node], { axis: 1 });
         add_operator!(Floor, [input_node]);
@@ -1729,6 +1730,7 @@ mod tests {
         //
         // A few require different shapes are tested separately.
         let input = Tensor::from_data(&input_shape, vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input_2d_data = NdTensor::from([[1, 2, 3], [4, 5, 6]]);
         let input_bool_data: Tensor<i32> = Tensor::from([0, 1, 1]);
         let input_u8_data = input.map(|&x| x as u8);
         let input_2d_u8_data = Tensor::from([[1u8, 2], [3, 4]]);
@@ -1764,6 +1766,7 @@ mod tests {
                         (input_node, input.view().into()),
                         (input_bool, input_bool_data.view().into()),
                         (input_u8, input_u8_data.view().into()),
+                        (input_2d, input_2d_data.view().into()),
                         (input_2d_u8, input_2d_u8_data.view().into()),
                         (input_2d_i8, input_2d_i8_data.view().into()),
                     ],
@@ -1784,6 +1787,7 @@ mod tests {
                         (input_node, input.clone().into()),
                         (input_bool, input_bool_data.clone().into()),
                         (input_u8, input_u8_data.clone().into()),
+                        (input_2d, input_2d_data.clone().into()),
                         (input_2d_u8, input_2d_u8_data.view().into()),
                         (input_2d_i8, input_2d_i8_data.view().into()),
                     ],
@@ -1794,8 +1798,7 @@ mod tests {
             assert_eq!(result.len(), 1);
         }
 
-        // Outputs of ops which either have multiple outputs, or which are tested
-        // with a 2D input.
+        // Outputs of ops which require special handling.
         #[allow(unused_mut)]
         let mut outputs = vec![
             "Gemm_out",

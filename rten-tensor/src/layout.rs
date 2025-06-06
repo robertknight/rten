@@ -537,8 +537,16 @@ impl<'a, const N: usize> TryFrom<&'a DynLayout> for NdLayout<N> {
     /// Convert a dynamic layout into a static layout with N dims. Fails if
     /// `value.ndim() != N`.
     fn try_from(value: &'a DynLayout) -> Result<NdLayout<N>, DimensionError> {
-        let shape: [usize; N] = value.shape().try_into().map_err(|_| DimensionError {})?;
-        let strides: [usize; N] = value.strides().try_into().map_err(|_| DimensionError {})?;
+        let shape = value.shape();
+        let shape: [usize; N] = shape.try_into().map_err(|_| DimensionError {
+            actual: shape.len(),
+            expected: N,
+        })?;
+        let strides = value.strides();
+        let strides: [usize; N] = strides.try_into().map_err(|_| DimensionError {
+            actual: strides.len(),
+            expected: N,
+        })?;
         Ok(NdLayout { shape, strides })
     }
 }

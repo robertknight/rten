@@ -1,11 +1,13 @@
 use std::ops;
 
+use rten_tensor::errors::DimensionError;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, Tensor, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
+use crate::number::Identities;
 use crate::ops::{
-    map_value_view, resolve_axis, resolve_index, static_dims, IntoOpResult, OpError, OpRunContext,
-    Operator, OutputList, Scalar, ValueView,
+    map_dtype, map_value_view, resolve_axis, resolve_index, static_dims, DataType, IntoOpResult,
+    OpError, OpRunContext, Operator, OutputList, Scalar, ValueView,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -151,14 +153,66 @@ impl Operator for Range {
     }
 }
 
+pub fn eye_like<T: Copy + Default + Identities>(
+    pool: &TensorPool,
+    shape: [usize; 2],
+    k: i32,
+) -> NdTensor<T, 2> {
+    let mut output = NdTensor::zeros_in(pool, shape);
+    if output.is_empty() {
+        return output;
+    }
+
+    let one = T::one();
+    for y in 0..shape[0] {
+        let x = y as i32 + k;
+        if x < 0 || x >= shape[1] as i32 {
+            continue;
+        }
+        output[[y, x as usize]] = one;
+    }
+
+    output
+}
+
+#[derive(Debug)]
+pub struct EyeLike {
+    pub dtype: Option<DataType>,
+    pub k: i32,
+}
+
+impl Operator for EyeLike {
+    fn name(&self) -> &str {
+        "EyeLike"
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
+        let dtype = self.dtype.unwrap_or(input.dtype());
+
+        map_dtype!(dtype, T, {
+            let shape: [usize; 2] = input.shape().try_into().map_err(|_| {
+                OpError::from(DimensionError {
+                    actual: input.ndim(),
+                    expected: 2,
+                })
+                .with_input_index(0)
+            })?;
+            eye_like::<T>(ctx.pool(), shape, self.k).into_op_result()
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
-    use rten_tensor::Tensor;
+    use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{onehot, range, ConstantOfShape, OpError, OperatorExt, Scalar};
+    use crate::ops::{
+        onehot, range, ConstantOfShape, DataType, EyeLike, OpError, OperatorExt, Scalar, Value,
+    };
 
     #[test]
     fn test_constant_of_shape() {
@@ -170,6 +224,79 @@ mod tests {
 
         assert_eq!(result.shape(), &[1, 5, 10]);
         assert_eq!(result.to_vec(), vec![42; result.shape().iter().product()]);
+    }
+
+    #[test]
+    fn test_eye_like() {
+        #[derive(Debug)]
+        struct Case {
+            input: Value,
+            k: i32,
+            dtype: Option<DataType>,
+            expected: Value,
+        }
+
+        let cases = [
+            // Empty
+            Case {
+                input: NdTensor::<i32, 2>::zeros([0, 0]).into(),
+                k: 0,
+                dtype: None,
+                expected: NdTensor::<i32, 2>::zeros([0, 0]).into(),
+            },
+            // k = 0
+            Case {
+                input: NdTensor::from([[1., 2.], [3., 4.]]).into(),
+                k: 0,
+                dtype: None,
+                expected: NdTensor::from([[1., 0.], [0., 1.]]).into(),
+            },
+            // dtype specified
+            Case {
+                input: NdTensor::from([[1., 2.], [3., 4.]]).into(),
+                k: 0,
+                dtype: Some(DataType::Int32),
+                expected: NdTensor::from([[1i32, 0], [0, 1]]).into(),
+            },
+            // k < 0
+            Case {
+                input: NdTensor::<f32, 2>::zeros([5, 4]).into(),
+                k: -1,
+                dtype: None,
+                expected: NdTensor::from([
+                    [0., 0., 0., 0.],
+                    [1., 0., 0., 0.],
+                    [0., 1., 0., 0.],
+                    [0., 0., 1., 0.],
+                    [0., 0., 0., 1.],
+                ])
+                .into(),
+            },
+            // k > 0
+            Case {
+                input: NdTensor::<f32, 2>::zeros([5, 4]).into(),
+                k: 1,
+                dtype: None,
+                expected: NdTensor::from([
+                    [0., 1., 0., 0.],
+                    [0., 0., 1., 0.],
+                    [0., 0., 0., 1.],
+                    [0., 0., 0., 0.],
+                    [0., 0., 0., 0.],
+                ])
+                .into(),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let result = EyeLike {
+                k: case.k,
+                dtype: case.dtype,
+            }
+            .run_simple_no_cast(case.input.as_view())
+            .unwrap();
+            assert_eq!(result, case.expected);
+        });
     }
 
     #[test]
