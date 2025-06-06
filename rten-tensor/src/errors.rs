@@ -7,11 +7,21 @@ use crate::slice_range::SliceRange;
 
 /// Error in a tensor operation if the dimension count is incorrect.
 #[derive(Debug, PartialEq)]
-pub struct DimensionError {}
+pub struct DimensionError {
+    /// Actual number of dimensions the tensor has.
+    pub actual: usize,
+
+    /// Expected number of dimensions.
+    pub expected: usize,
+}
 
 impl Display for DimensionError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "dim count is incorrect")
+        write!(
+            f,
+            "tensor has {} dims but expected {}",
+            self.actual, self.expected
+        )
     }
 }
 
