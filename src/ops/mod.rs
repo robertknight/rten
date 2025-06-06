@@ -20,6 +20,7 @@ use std::fmt::{Debug, Display};
 
 use smallvec::SmallVec;
 
+use rten_tensor::errors::DimensionError;
 use rten_tensor::prelude::*;
 use rten_tensor::{
     DynLayout, MutLayout, NdTensor, NdTensorView, Storage, Tensor, TensorBase, TensorView, ViewData,
@@ -297,9 +298,10 @@ impl Display for CastError {
 
 impl Error for CastError {}
 
-impl From<CastError> for OpError {
-    fn from(val: CastError) -> OpError {
-        OpError::CastFailed(val)
+impl From<DimensionError> for CastError {
+    fn from(val: DimensionError) -> CastError {
+        let DimensionError { actual, expected } = val;
+        CastError::WrongRank { actual, expected }
     }
 }
 
@@ -829,6 +831,29 @@ pub enum OpError {
 
     /// An input or attribute has a value that is valid, but not currently supported.
     UnsupportedValue(&'static str),
+}
+
+impl OpError {
+    /// Associate this error with a given operator input.
+    fn with_input_index(self, index: usize) -> OpError {
+        match self {
+            Self::CastFailed(error) => OpError::InputCastFailed { index, error },
+            Self::InputCastFailed { error, .. } => OpError::InputCastFailed { index, error },
+            other => other,
+        }
+    }
+}
+
+impl From<DimensionError> for OpError {
+    fn from(val: DimensionError) -> OpError {
+        OpError::CastFailed(val.into())
+    }
+}
+
+impl From<CastError> for OpError {
+    fn from(val: CastError) -> OpError {
+        OpError::CastFailed(val)
+    }
 }
 
 impl Display for OpError {
