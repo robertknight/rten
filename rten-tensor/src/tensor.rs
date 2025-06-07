@@ -1944,6 +1944,15 @@ impl<'a, T, L: MutLayout> TensorBase<ViewMutData<'a, T>, L> {
 
         (left_view, right_view)
     }
+
+    /// Consume this view and return a mutable slice, if the tensor is
+    /// contiguous.
+    pub fn into_slice_mut(self) -> Option<&'a mut [T]> {
+        self.is_contiguous().then(|| {
+            // Safety: We verified that the slice is contiguous.
+            unsafe { self.data.to_slice_mut() }
+        })
+    }
 }
 
 impl<T, L: Clone + MutLayout> FromIterator<T> for TensorBase<Vec<T>, L>
@@ -2986,6 +2995,19 @@ mod tests {
         let mut tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
         tensor.transpose();
         assert_eq!(tensor.into_data(), vec![1., 3., 2., 4.]);
+    }
+
+    #[test]
+    fn test_into_slice_mut() {
+        let mut tensor = NdTensor::from([[1, 2], [3, 4]]);
+        let contiguous = tensor.view_mut();
+        assert_eq!(
+            contiguous.into_slice_mut(),
+            Some([1, 2, 3, 4].as_mut_slice())
+        );
+
+        let non_contiguous = tensor.slice_mut((.., 0));
+        assert_eq!(non_contiguous.into_slice_mut(), None);
     }
 
     #[test]

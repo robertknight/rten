@@ -13,7 +13,8 @@ use std::ops::{Add, Mul, Range};
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{
-    Alloc, AssumeInit, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView, Storage,
+    Alloc, AssumeInit, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView,
+    Storage,
 };
 
 use crate::iter_util::{range_chunks, MaybeParIter};
@@ -36,7 +37,7 @@ use packing::PackingBuffer;
 pub use prepack::{PackedAMatrix, PackedBMatrix};
 use tiles::OutputTiles;
 
-pub type GemmResult = Result<(), GemmError>;
+pub type GemmResult<T = ()> = Result<T, GemmError>;
 
 /// Left-hand or "A" input for a GEMM operation.
 #[derive(Copy, Clone)]
@@ -255,7 +256,6 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     pub fn gemm(
         &self,
         out_data: &mut [OutT],
-        out_row_stride: usize,
         a: GemmInputA<LhsT>,
         b: GemmInputB<RhsT>,
         alpha: f32,
@@ -268,7 +268,6 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             &*self.kernel,
             // Safety: `gemm_impl` only writes initialized values to `out_data`.
             unsafe { std::mem::transmute::<&mut [OutT], &mut [MaybeUninit<OutT>]>(out_data) },
-            out_row_stride,
             a,
             b,
             alpha,
@@ -277,27 +276,26 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             a_quant,
             b_quant,
         )
+        .map(|_| ())
     }
 
     /// Perform a General Matrix Multiplication ("gemm").
     ///
     /// This is the same as [`GemmExecutor::gemm`] but takes an uninitialized
     /// output slice. The `beta` value is implicitly set to zero.
-    pub fn gemm_uninit(
+    pub fn gemm_uninit<'a>(
         &self,
-        out_data: &mut [MaybeUninit<OutT>],
-        out_row_stride: usize,
+        out_data: &'a mut [MaybeUninit<OutT>],
         a: GemmInputA<LhsT>,
         b: GemmInputB<RhsT>,
         alpha: f32,
         bias: Option<BiasVector<OutT>>,
         a_quant: Option<QuantParams<LhsT>>,
         b_quant: Option<QuantParams<RhsT>>,
-    ) -> GemmResult {
+    ) -> GemmResult<&'a mut [OutT]> {
         gemm_impl(
             &*self.kernel,
             out_data,
-            out_row_stride,
             a,
             b,
             alpha,
@@ -542,22 +540,19 @@ fn row_block_size(a_rows: usize, mr: usize) -> usize {
 /// Compute a vector-matrix product.
 ///
 /// This operation is called "gemv" in BLAS APIs.
-fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
+fn gemv<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
     a: NdTensorView<LhsT, 1>,
     b: Matrix<RhsT>,
-    mut output_mat: MatrixMut<MaybeUninit<OutT>>,
+    out_data: &'a mut [MaybeUninit<OutT>],
     alpha: f32,
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
     a_quant: Option<QuantParams<LhsT>>,
     b_quant: Option<QuantParams<RhsT>>,
-) {
-    assert!(output_mat.is_contiguous());
-
+) -> &'a mut [OutT] {
     let a_cols = a.size(0);
     let b_cols = b.cols();
-    let out_data = output_mat.data_mut().unwrap();
 
     let a = a.to_contiguous();
     let a_data = a.data().unwrap();
@@ -620,6 +615,9 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 None => {}
             }
         });
+
+    // Safety: All output elements were initialized.
+    unsafe { out_data.assume_init() }
 }
 
 /// Perform matrix multiplication with a given kernel.
@@ -649,10 +647,9 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
 /// [^1]: Low, Tze Meng, et al. "Analytical modeling is enough for
 ///       high-performance BLIS." ACM Transactions on Mathematical Software (TOMS)
 ///       43.2 (2016): 1-18. https://dl.acm.org/doi/pdf/10.1145/2925987
-fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
+fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
-    out_data: &mut [MaybeUninit<OutT>],
-    out_row_stride: usize,
+    out_data: &'a mut [MaybeUninit<OutT>],
     a: GemmInputA<LhsT>,
     b: GemmInputB<RhsT>,
     alpha: f32,
@@ -660,7 +657,7 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     bias: Option<BiasVector<OutT>>,
     a_quant: Option<QuantParams<LhsT>>,
     b_quant: Option<QuantParams<RhsT>>,
-) -> GemmResult {
+) -> GemmResult<&'a mut [OutT]> {
     if a.cols() != b.rows() {
         return Err(GemmError::KSizeMismatch);
     }
@@ -686,18 +683,16 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         }
     }
 
+    // Construct a Matrix from the implied dimensions, to validate the slice length.
+    let mut output_mat =
+        MatrixMut::<MaybeUninit<OutT>>::try_from_data([a.rows(), b.cols()], out_data)
+            .map_err(|_| GemmError::OutputSizeMismatch)?;
+
     // Handle case where output is empty.
     if a.rows() == 0 || b.cols() == 0 {
-        return Ok(());
+        let empty = NdTensor::zeros(output_mat.shape());
+        return Ok(output_mat.init_from(&empty).into_slice_mut().unwrap());
     }
-
-    // Construct a Matrix from the implied dimensions, to validate the slice length.
-    let mut output_mat = MatrixMut::<MaybeUninit<OutT>>::from_data_with_strides(
-        [a.rows(), b.cols()],
-        out_data,
-        [out_row_stride, 1],
-    )
-    .map_err(|_| GemmError::OutputNotLargeEnough)?;
 
     // Handle case where depth is zero. We still need to initialize the output
     // in this case.
@@ -730,16 +725,16 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 }
             }
         }
-        return Ok(());
+        return Ok(output_mat.into_slice_mut().unwrap());
     }
 
     // Use optimized path for vector-matrix products.
     if let (1, GemmInputA::Unpacked(a), GemmInputB::Unpacked(b)) = (a.rows(), a, b) {
-        gemv(
+        let output = gemv(
             kernel,
             a.slice(0),
             b,
-            output_mat.view_mut(),
+            output_mat.into_slice_mut().unwrap(),
             alpha,
             beta,
             // nb. We checked above that, if present, the bias length matches
@@ -748,10 +743,10 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
             a_quant,
             b_quant,
         );
-        return Ok(());
+        return Ok(output);
     }
 
-    let output_tiles = OutputTiles::new(output_mat, kernel.mr(), kernel.nr());
+    let output_tiles = OutputTiles::new(output_mat.view_mut(), kernel.mr(), kernel.nr());
 
     // Sizes of blocks that the width (nc), depth (kc) and height (mc)
     // dimensions are partitioned into in the outer loops. These are chosen so
@@ -920,7 +915,10 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
             }
         });
 
-    Ok(())
+    // Safety: All elements of output matrix have been initialized.
+    let output = unsafe { output_mat.assume_init() };
+
+    Ok(output.into_slice_mut().unwrap())
 }
 
 /// LHS / A input for a call to [`gemm_block`].
@@ -1273,7 +1271,6 @@ mod tests {
     where
         GemmExecutor<LhsT, RhsT, OutT>: Default,
     {
-        let out_row_stride = output.stride(0);
         let default_gemm = GemmExecutor::default();
         let gemm = gemm.unwrap_or(&default_gemm);
         let GemmOpts {
@@ -1286,7 +1283,6 @@ mod tests {
 
         gemm.gemm(
             output.data_mut().expect("expected contiguous input"),
-            out_row_stride,
             GemmInputA::Unpacked(a),
             GemmInputB::Unpacked(b),
             alpha,
@@ -1370,7 +1366,6 @@ mod tests {
             a: NdTensor<f32, 2>,
             b: NdTensor<f32, 2>,
             output_len: usize,
-            output_row_stride: usize,
             expected: GemmError,
         }
 
@@ -1379,14 +1374,12 @@ mod tests {
                 a: NdTensor::from([[1., 2.], [3., 4.]]),
                 b: NdTensor::from([[1., 2.], [3., 4.]]),
                 output_len: 2,
-                output_row_stride: 2,
-                expected: GemmError::OutputNotLargeEnough,
+                expected: GemmError::OutputSizeMismatch,
             },
             Case {
                 a: NdTensor::from([[1.], [2.]]),
                 b: NdTensor::from([[1., 2.], [3., 4.]]),
                 output_len: 4,
-                output_row_stride: 2,
                 expected: GemmError::KSizeMismatch,
             },
         ];
@@ -1396,14 +1389,12 @@ mod tests {
                  a,
                  b,
                  output_len,
-                 output_row_stride,
                  expected,
              }| {
                 let gemm = GemmExecutor::default();
                 let mut output = vec![0.; *output_len];
                 let result = gemm.gemm(
                     &mut output,
-                    *output_row_stride,
                     GemmInputA::Unpacked(a.view()),
                     GemmInputB::Unpacked(b.view()),
                     1.,   // alpha
@@ -1845,11 +1836,9 @@ mod tests {
             let packed_b = gemm.prepack_b(b.view());
 
             let mut result = NdTensor::zeros([m, n]);
-            let result_row_stride = result.stride(0);
 
             gemm.gemm(
                 result.data_mut().unwrap(),
-                result_row_stride,
                 GemmInputA::Packed(&packed_a),
                 GemmInputB::Packed(&packed_b),
                 1.,   // alpha
@@ -1865,10 +1854,8 @@ mod tests {
             // and b) in the case where K is large, the accumulated numerical
             // differences will be smaller.
             let mut expected = NdTensor::zeros(result.shape());
-            let expected_row_stride = expected.stride(0);
             gemm.gemm(
                 expected.data_mut().unwrap(),
-                expected_row_stride,
                 GemmInputA::Unpacked(a.view()),
                 GemmInputB::Unpacked(b.view()),
                 1.,   // alpha
@@ -1965,11 +1952,9 @@ mod tests {
 
         let kernel_mat = NdTensor::<f32, 2>::rand([kernel_chans, img_chans], &mut rng);
         let mut output_mat = NdTensor::<f32, 2>::zeros([kernel_chans, img_h * img_w]);
-        let out_row_stride = output_mat.row_stride();
 
         gemm.gemm(
             output_mat.data_mut().unwrap(),
-            out_row_stride,
             GemmInputA::Unpacked(kernel_mat.view()),
             GemmInputB::Im2Col(&im2col),
             1.,   // alpha
@@ -2015,11 +2000,9 @@ mod tests {
             );
             let kernel_mat = NdTensor::<u8, 2>::rand([kernel_chans, img_chans], &mut rng);
             let mut output_mat = NdTensor::<i32, 2>::zeros([kernel_chans, img_h * img_w]);
-            let out_row_stride = output_mat.row_stride();
 
             gemm.gemm(
                 output_mat.data_mut().unwrap(),
-                out_row_stride,
                 GemmInputA::Unpacked(kernel_mat.view()),
                 GemmInputB::Im2Col(&im2col),
                 1.,   // alpha

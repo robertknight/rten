@@ -231,10 +231,8 @@ pub fn gru(
             // `hidden @ hidden_weights`.
 
             // Compute `input @ weights + bias` for all gates.
-            let gates_row_stride = gates.stride(gates.ndim() - 2);
             gemm.gemm(
                 gates.data_mut().expect("expected contiguous input"),
-                gates_row_stride,
                 GemmInputA::Unpacked(in_item),
                 input_weights,
                 1.,   // alpha
@@ -249,10 +247,8 @@ pub fn gru(
             }
 
             // Compute `hidden @ hidden_weights + hidden_bias` for all gates.
-            let hidden_scratch_row_stride = hidden_scratch.stride(hidden_scratch.ndim() - 2);
             gemm.gemm(
                 hidden_scratch.data_mut().unwrap(),
-                hidden_scratch_row_stride,
                 GemmInputA::Unpacked(hidden_item),
                 hidden_weights,
                 1.,   // alpha
@@ -493,10 +489,8 @@ pub fn lstm(
             let hidden_item = hidden.slice([dir]);
 
             // Update input, output, forget and cell gates.
-            let gates_row_stride = gates.stride(gates.ndim() - 2);
             gemm.gemm(
                 gates.data_mut().expect("expected contiguous input"),
-                gates_row_stride,
                 GemmInputA::Unpacked(in_item),
                 input_weights,
                 1.,   // alpha
@@ -512,7 +506,6 @@ pub fn lstm(
 
             gemm.gemm(
                 gates.data_mut().expect("expected contiguous input"),
-                gates_row_stride,
                 GemmInputA::Unpacked(hidden_item),
                 hidden_weights,
                 1.,   // alpha
