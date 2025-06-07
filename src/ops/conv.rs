@@ -52,7 +52,6 @@ where
 
     for n in 0..batch {
         let mut out_item = output.slice_mut([n]);
-        let out_row_stride = out_item.stride(0);
 
         let in_mat = input
             .slice([n])
@@ -61,7 +60,6 @@ where
 
         gemm.gemm_uninit(
             out_item.data_mut().unwrap(),
-            out_row_stride,
             GemmInputA::Unpacked(kernel_mat.view()),
             GemmInputB::Unpacked(in_mat.view()),
             1., // alpha
@@ -309,7 +307,6 @@ where
                 let mut out_mat = out_item
                     .reshaped_mut([out_channels_per_group, out_h * out_w])
                     .unwrap();
-                let out_row_stride = out_mat.stride(0);
 
                 let im2col = build_im2col(
                     in_item,
@@ -326,7 +323,6 @@ where
                     .map(|b| BiasVector::Column(&b.data().unwrap()[out_chans.clone()]));
                 gemm.gemm_uninit(
                     out_mat.data_mut().unwrap(),
-                    out_row_stride,
                     prepacked_kernel
                         .map(GemmInputA::Packed)
                         .unwrap_or(GemmInputA::Unpacked(kernel_mat.view())),
@@ -754,10 +750,8 @@ pub fn conv_transpose(
             .reshaped_in(pool, [in_c, in_h * in_w])
             .auto_return(pool);
 
-        let col2im_row_stride = col2im_mat.stride(0);
         gemm.gemm_uninit(
             col2im_mat.data_mut().unwrap(),
-            col2im_row_stride,
             GemmInputA::Unpacked(kernel_mat),
             GemmInputB::Unpacked(input_mat.view()),
             1.,   // alpha

@@ -255,7 +255,6 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     pub fn gemm(
         &self,
         out_data: &mut [OutT],
-        out_row_stride: usize,
         a: GemmInputA<LhsT>,
         b: GemmInputB<RhsT>,
         alpha: f32,
@@ -268,7 +267,6 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             &*self.kernel,
             // Safety: `gemm_impl` only writes initialized values to `out_data`.
             unsafe { std::mem::transmute::<&mut [OutT], &mut [MaybeUninit<OutT>]>(out_data) },
-            out_row_stride,
             a,
             b,
             alpha,
@@ -286,7 +284,6 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     pub fn gemm_uninit(
         &self,
         out_data: &mut [MaybeUninit<OutT>],
-        out_row_stride: usize,
         a: GemmInputA<LhsT>,
         b: GemmInputB<RhsT>,
         alpha: f32,
@@ -297,7 +294,6 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         gemm_impl(
             &*self.kernel,
             out_data,
-            out_row_stride,
             a,
             b,
             alpha,
@@ -652,7 +648,6 @@ fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
 fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
     out_data: &mut [MaybeUninit<OutT>],
-    out_row_stride: usize,
     a: GemmInputA<LhsT>,
     b: GemmInputB<RhsT>,
     alpha: f32,
@@ -690,6 +685,8 @@ fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     if a.rows() == 0 || b.cols() == 0 {
         return Ok(());
     }
+
+    let out_row_stride = b.cols();
 
     // Construct a Matrix from the implied dimensions, to validate the slice length.
     let mut output_mat = MatrixMut::<MaybeUninit<OutT>>::from_data_with_strides(
@@ -1273,7 +1270,6 @@ mod tests {
     where
         GemmExecutor<LhsT, RhsT, OutT>: Default,
     {
-        let out_row_stride = output.stride(0);
         let default_gemm = GemmExecutor::default();
         let gemm = gemm.unwrap_or(&default_gemm);
         let GemmOpts {
@@ -1286,7 +1282,6 @@ mod tests {
 
         gemm.gemm(
             output.data_mut().expect("expected contiguous input"),
-            out_row_stride,
             GemmInputA::Unpacked(a),
             GemmInputB::Unpacked(b),
             alpha,
@@ -1370,7 +1365,6 @@ mod tests {
             a: NdTensor<f32, 2>,
             b: NdTensor<f32, 2>,
             output_len: usize,
-            output_row_stride: usize,
             expected: GemmError,
         }
 
@@ -1379,14 +1373,12 @@ mod tests {
                 a: NdTensor::from([[1., 2.], [3., 4.]]),
                 b: NdTensor::from([[1., 2.], [3., 4.]]),
                 output_len: 2,
-                output_row_stride: 2,
                 expected: GemmError::OutputNotLargeEnough,
             },
             Case {
                 a: NdTensor::from([[1.], [2.]]),
                 b: NdTensor::from([[1., 2.], [3., 4.]]),
                 output_len: 4,
-                output_row_stride: 2,
                 expected: GemmError::KSizeMismatch,
             },
         ];
@@ -1396,14 +1388,12 @@ mod tests {
                  a,
                  b,
                  output_len,
-                 output_row_stride,
                  expected,
              }| {
                 let gemm = GemmExecutor::default();
                 let mut output = vec![0.; *output_len];
                 let result = gemm.gemm(
                     &mut output,
-                    *output_row_stride,
                     GemmInputA::Unpacked(a.view()),
                     GemmInputB::Unpacked(b.view()),
                     1.,   // alpha
@@ -1845,11 +1835,9 @@ mod tests {
             let packed_b = gemm.prepack_b(b.view());
 
             let mut result = NdTensor::zeros([m, n]);
-            let result_row_stride = result.stride(0);
 
             gemm.gemm(
                 result.data_mut().unwrap(),
-                result_row_stride,
                 GemmInputA::Packed(&packed_a),
                 GemmInputB::Packed(&packed_b),
                 1.,   // alpha
@@ -1865,10 +1853,8 @@ mod tests {
             // and b) in the case where K is large, the accumulated numerical
             // differences will be smaller.
             let mut expected = NdTensor::zeros(result.shape());
-            let expected_row_stride = expected.stride(0);
             gemm.gemm(
                 expected.data_mut().unwrap(),
-                expected_row_stride,
                 GemmInputA::Unpacked(a.view()),
                 GemmInputB::Unpacked(b.view()),
                 1.,   // alpha
@@ -1965,11 +1951,9 @@ mod tests {
 
         let kernel_mat = NdTensor::<f32, 2>::rand([kernel_chans, img_chans], &mut rng);
         let mut output_mat = NdTensor::<f32, 2>::zeros([kernel_chans, img_h * img_w]);
-        let out_row_stride = output_mat.row_stride();
 
         gemm.gemm(
             output_mat.data_mut().unwrap(),
-            out_row_stride,
             GemmInputA::Unpacked(kernel_mat.view()),
             GemmInputB::Im2Col(&im2col),
             1.,   // alpha
@@ -2015,11 +1999,9 @@ mod tests {
             );
             let kernel_mat = NdTensor::<u8, 2>::rand([kernel_chans, img_chans], &mut rng);
             let mut output_mat = NdTensor::<i32, 2>::zeros([kernel_chans, img_h * img_w]);
-            let out_row_stride = output_mat.row_stride();
 
             gemm.gemm(
                 output_mat.data_mut().unwrap(),
-                out_row_stride,
                 GemmInputA::Unpacked(kernel_mat.view()),
                 GemmInputB::Im2Col(&im2col),
                 1.,   // alpha

@@ -51,10 +51,8 @@ where
                 ));
             }
             let mut output = expand_to(pool, c, out_shape);
-            let out_row_stride = output.stride(0);
             gemm.gemm(
                 output.data_mut().unwrap(),
-                out_row_stride,
                 GemmInputA::Unpacked(a.nd_view()),
                 GemmInputB::Unpacked(b.nd_view()),
                 alpha,
@@ -68,10 +66,8 @@ where
         }
         _ => {
             let mut output = Tensor::uninit_in(pool, out_shape);
-            let out_row_stride = output.stride(0);
             gemm.gemm_uninit(
                 output.data_mut().unwrap(),
-                out_row_stride,
                 GemmInputA::Unpacked(a.nd_view()),
                 GemmInputB::Unpacked(b.nd_view()),
                 alpha,
@@ -323,7 +319,6 @@ where
 
             gemm.gemm_uninit(
                 out_mat,
-                out_row_stride,
                 a_input,
                 b_input,
                 alpha.unwrap_or(1.),
@@ -592,11 +587,9 @@ mod tests {
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
         c.make_contiguous();
-        let c_row_stride = c.stride(c.ndim() - 2);
         GemmExecutor::default()
             .gemm(
                 c.data_mut().unwrap(),
-                c_row_stride,
                 GemmInputA::Unpacked(a.nd_view()),
                 GemmInputB::Unpacked(b.nd_view()),
                 alpha,
@@ -670,10 +663,8 @@ mod tests {
             .zip(b.broadcast(b_bcast.as_slice()).inner_iter::<2>())
             .zip(c.inner_iter_mut::<2>())
             .for_each(|((a, b), mut c)| {
-                let c_row_stride = c.stride(0);
                 gemm.gemm(
                     c.data_mut().unwrap(),
-                    c_row_stride,
                     GemmInputA::Unpacked(a),
                     GemmInputB::Unpacked(b),
                     alpha.unwrap_or(1.),
