@@ -12,7 +12,7 @@ pub enum GemmError {
     /// Quantization parameter size does not match corresponding input size.
     WrongQuantParamSize,
     /// The buffer provided for the output is too short.
-    OutputNotLargeEnough,
+    OutputSizeMismatch,
     /// The data was packed with a kernel that uses a different layout than
     /// the current kernel.
     PackedDataKernelMismatch,
@@ -31,7 +31,7 @@ impl Display for GemmError {
             Self::WrongQuantParamSize => {
                 write!(fmt, "quantization parameter size does not match input")
             }
-            Self::OutputNotLargeEnough => write!(fmt, "output buffer is too small"),
+            Self::OutputSizeMismatch => write!(fmt, "output buffer has wrong length"),
             Self::PackedDataKernelMismatch => {
                 write!(fmt, "matrix was packed with a different kernel")
             }

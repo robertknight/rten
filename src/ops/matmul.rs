@@ -2,6 +2,7 @@ use rayon::prelude::*;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{Matrix, NdTensorView, Tensor, TensorView};
+use rten_vecmath::ExtendInit;
 use smallvec::SmallVec;
 
 use crate::gemm::{
@@ -65,19 +66,21 @@ where
             output
         }
         _ => {
-            let mut output = Tensor::uninit_in(pool, out_shape);
-            gemm.gemm_uninit(
-                output.data_mut().unwrap(),
-                GemmInputA::Unpacked(a.nd_view()),
-                GemmInputB::Unpacked(b.nd_view()),
-                alpha,
-                None, // bias
-                None, // a_quant
-                None, // b_quant
-            )
-            .unwrap();
-            // Safety: `gemm_uninit` initialized all elements
-            unsafe { output.assume_init() }
+            let out_len = out_shape.iter().product();
+            let mut output = pool.alloc(out_len);
+            output.extend_init(|uninit| {
+                gemm.gemm_uninit(
+                    &mut uninit[..out_len],
+                    GemmInputA::Unpacked(a.nd_view()),
+                    GemmInputB::Unpacked(b.nd_view()),
+                    alpha,
+                    None, // bias
+                    None, // a_quant
+                    None, // b_quant
+                )
+                .unwrap()
+            });
+            Tensor::from_data(out_shape, output)
         }
     };
 

@@ -58,16 +58,17 @@ where
             .reshaped_in(pool, [in_c, in_h * in_w])
             .auto_return(pool);
 
-        gemm.gemm_uninit(
-            out_item.data_mut().unwrap(),
-            GemmInputA::Unpacked(kernel_mat.view()),
-            GemmInputB::Unpacked(in_mat.view()),
-            1., // alpha
-            bias_vec,
-            kernel_quant,
-            input_quant,
-        )
-        .unwrap();
+        let out_item = gemm
+            .gemm_uninit(
+                out_item.data_mut().unwrap(),
+                GemmInputA::Unpacked(kernel_mat.view()),
+                GemmInputB::Unpacked(in_mat.view()),
+                1., // alpha
+                bias_vec,
+                kernel_quant,
+                input_quant,
+            )
+            .unwrap();
         n_init += out_item.len();
     }
 
@@ -304,7 +305,7 @@ where
             .zip(in_group.axis_iter(0))
             .par_bridge()
             .for_each(|(mut out_item, in_item)| {
-                let mut out_mat = out_item
+                let out_mat = out_item
                     .reshaped_mut([out_channels_per_group, out_h * out_w])
                     .unwrap();
 
@@ -321,18 +322,19 @@ where
                 let bias_vec = bias
                     .as_ref()
                     .map(|b| BiasVector::Column(&b.data().unwrap()[out_chans.clone()]));
-                gemm.gemm_uninit(
-                    out_mat.data_mut().unwrap(),
-                    prepacked_kernel
-                        .map(GemmInputA::Packed)
-                        .unwrap_or(GemmInputA::Unpacked(kernel_mat.view())),
-                    GemmInputB::Im2Col(&im2col),
-                    1., // alpha
-                    bias_vec,
-                    kernel_quant,
-                    input_quant,
-                )
-                .unwrap();
+                let out_mat = gemm
+                    .gemm_uninit(
+                        out_mat.into_slice_mut().unwrap(),
+                        prepacked_kernel
+                            .map(GemmInputA::Packed)
+                            .unwrap_or(GemmInputA::Unpacked(kernel_mat.view())),
+                        GemmInputB::Im2Col(&im2col),
+                        1., // alpha
+                        bias_vec,
+                        kernel_quant,
+                        input_quant,
+                    )
+                    .unwrap();
                 n_init.fetch_add(out_mat.len(), Ordering::SeqCst);
             });
     }
