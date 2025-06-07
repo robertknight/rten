@@ -954,7 +954,7 @@ struct RhsBlock<'a, T> {
 /// `col_tiles` and `row_tiles` specifies the range of output tiles to update.
 /// `a` and `b` are the inputs. `depth_range` specifies the range along the K
 /// dimension.
-fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
+fn gemm_block<LhsT: Sync, RhsT: Sync, OutT: GemmOutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
     output: &OutputTiles<MaybeUninit<OutT>>,
     col_tiles: Range<usize>,
