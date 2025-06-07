@@ -1,5 +1,3 @@
-use rayon::prelude::*;
-
 use rten_tensor::prelude::*;
 use rten_tensor::{Matrix, NdTensorView, Tensor, TensorView};
 use rten_vecmath::ExtendInit;
@@ -259,10 +257,9 @@ where
         return Ok(output);
     }
 
-    let mut output = Tensor::uninit_in(pool, out_shape);
-    if output.is_empty() {
-        // nb. We don't need to alloc from the pool here, since the buffer
-        // is already empty.
+    // Early exit if the output is empty.
+    if out_shape.iter().product::<usize>() == 0 {
+        // Don't need to use the pool here since the buffer has zero size.
         return Ok(Tensor::zeros(out_shape));
     }
 
@@ -271,12 +268,6 @@ where
 
     let a_broadcast = a.broadcast(a_broadcast_shape.as_slice());
     let b_broadcast = b.broadcast(b_broadcast_shape.as_slice());
-
-    let out_row_stride = output.stride(output.ndim() - 2);
-    let out_batches = output
-        .data_mut()
-        .unwrap()
-        .chunks_mut(out_row_stride * a_rows);
 
     let gemm = GemmExecutor::default();
 
@@ -302,39 +293,46 @@ where
         .as_deref()
         .or(if a_rows > 1 { packed_b } else { None });
 
-    a_broadcast
+    let a_mats: SmallVec<[_; 1]> = a_broadcast
         .inner_iter::<2>()
-        .zip(b_broadcast.inner_iter::<2>())
-        .zip(out_batches)
-        .par_bridge()
-        .for_each(|((a_mat, b_mat), out_mat)| {
-            let a_input = if let Some(packed) = prepacked_a {
+        .map(|mat| {
+            if let Some(packed) = prepacked_a {
                 GemmInputA::Packed(packed)
             } else {
-                GemmInputA::Unpacked(a_mat)
-            };
+                GemmInputA::Unpacked(mat)
+            }
+        })
+        .collect();
 
-            let b_input = if let Some(packed) = prepacked_b {
+    let b_mats: SmallVec<[_; 1]> = b_broadcast
+        .inner_iter::<2>()
+        .map(|mat| {
+            if let Some(packed) = prepacked_b {
                 GemmInputB::Packed(packed)
             } else {
-                GemmInputB::Unpacked(b_mat)
-            };
+                GemmInputB::Unpacked(mat)
+            }
+        })
+        .collect();
 
-            gemm.gemm_uninit(
-                out_mat,
-                a_input,
-                b_input,
-                alpha.unwrap_or(1.),
-                bias,
-                a_quant,
-                b_quant,
-            )
-            .unwrap();
-        });
+    let out_len = out_shape.iter().product();
 
-    // Safety: Loop above initialized all output elements.
-    let mut output = unsafe { output.assume_init() };
+    let mut out_data = pool.alloc(out_len);
 
+    out_data.extend_init(|uninit_out_data| {
+        gemm.batched_gemm_uninit(
+            &mut uninit_out_data[..out_len],
+            &a_mats,
+            &b_mats,
+            alpha.unwrap_or(1.),
+            bias,
+            a_quant,
+            b_quant,
+        )
+        .unwrap()
+    });
+
+    let mut output = Tensor::from_data(out_shape, out_data);
     if a_is_vec {
         output.remove_axis(output.ndim() - 2);
     }
@@ -601,7 +599,7 @@ mod tests {
                 None, // a_quant
                 None, // b_quant
             )
-            .unwrap()
+            .unwrap();
     }
 
     #[derive(Default)]
@@ -676,7 +674,7 @@ mod tests {
                     a_quant,
                     b_quant,
                 )
-                .unwrap()
+                .unwrap();
             });
 
         match (a_is_vec, b_is_vec) {
