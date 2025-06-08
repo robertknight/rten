@@ -210,8 +210,6 @@
 //! assert_eq!(SimdSum(&[1u8, 2, 3]).dispatch(), 6u8);
 //! ```
 
-#![cfg_attr(feature = "avx512", feature(stdarch_x86_avx512))]
-
 mod arch;
 mod dispatch;
 mod elem;
