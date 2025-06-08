@@ -156,4 +156,5 @@ and the issue can be reproduced using an open source model and code, please
 ### AVX-512
 
 On modern x64 CPUs which support AVX-512, you can get better performance by
-enabling the `avx512` feature. As of Rust v1.75, this requires nightly Rust.
+enabling the `avx512` feature. This requires nightly Rust and is expected to
+become available in stable Rust v1.89.

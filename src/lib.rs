@@ -47,8 +47,8 @@
 //! RTen currently executes models on the CPU. It can build for most
 //! architectures that the Rust compiler supports. SIMD acceleration is
 //! available for x86-64, Arm 64 and WebAssembly. For x86-64, AVX-512 support
-//! is available but requires Nightly Rust and enabling the `avx512` crate
-//! feature.
+//! is available but requires enabling the `avx512` crate feature and
+//! Rust v1.89 or later (or nightly).
 //!
 //! ## Data types
 //!
@@ -109,7 +109,6 @@
 //! [onnx_operators]: https://onnx.ai/onnx/operators/
 //! [schema_fbs]: https://github.com/robertknight/rten/blob/main/src/schema.fbs
 //! [file_format]: https://github.com/robertknight/rten/blob/main/docs/rten-file-format.md
-#![cfg_attr(feature = "avx512", feature(stdarch_x86_avx512))]
 
 #[allow(unused)] // Docs only
 use rten_tensor::{NdTensor, Tensor};
