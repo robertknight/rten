@@ -302,8 +302,8 @@ where
 
         out_group
             .axis_iter_mut(0)
+            .into_par_iter()
             .zip(in_group.axis_iter(0))
-            .par_bridge()
             .for_each(|(mut out_item, in_item)| {
                 let out_mat = out_item
                     .reshaped_mut([out_channels_per_group, out_h * out_w])

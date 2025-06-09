@@ -181,8 +181,8 @@ fn bilinear_resize(
 
     output
         .axis_chunks_mut(1, row_chunk)
+        .into_par_iter()
         .zip(range_chunks(0..rows, row_chunk))
-        .par_bridge()
         .for_each(|(mut out_row_chunk, out_row_range)| {
             for y in out_row_range.clone() {
                 let in_y = input_coord(y, inv_scale_y, coord_mode, in_rows, rows)
@@ -339,8 +339,8 @@ fn resize_impl(
 
         out_image
             .axis_chunks_mut(0, CHAN_GROUP_SIZE)
+            .into_par_iter()
             .zip(in_image.axis_chunks(0, CHAN_GROUP_SIZE))
-            .par_bridge()
             .for_each(|(mut out_chans, in_chans)| {
                 match mode {
                     ResizeMode::Nearest => {

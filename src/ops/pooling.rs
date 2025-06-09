@@ -267,8 +267,8 @@ where
     let n_init = AtomicUsize::new(0);
     output
         .axis_iter_mut(0)
+        .into_par_iter()
         .zip(input.axis_iter(0))
-        .par_bridge()
         .for_each(|(mut out_item, in_item)| {
             let [_, out_h, out_w] = out_item.shape();
 
