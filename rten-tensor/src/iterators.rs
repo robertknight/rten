@@ -9,6 +9,9 @@ use crate::storage::{StorageMut, ViewData, ViewMutData};
 
 use super::{AsView, DynLayout, MutLayout, TensorBase, TensorViewMut};
 
+mod parallel;
+pub use parallel::{ParIter, SplitIterator};
+
 /// Borrowed reference to a tensor's data and layout. This differs from
 /// [`TensorView`] in that it borrows the layout rather than having its own.
 ///
@@ -312,6 +315,19 @@ impl IndexingIterBase {
         self.len -= 1;
 
         Some(offset)
+    }
+
+    /// Split this iterator into two. The left result visits indices before
+    /// `index`, the right result visits indices from `index` onwards.
+    fn split_at(mut self, index: usize) -> (Self, Self) {
+        assert!(self.len >= index);
+
+        let mut right = self.clone();
+        right.step_by(index);
+
+        self.len = index;
+
+        (self, right)
     }
 }
 

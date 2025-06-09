@@ -145,6 +145,11 @@ pub mod prelude {
     pub use super::{AsView, Layout};
 }
 
+/// Utilities related to parallel iteration over tensors.
+pub mod parallel {
+    pub use super::iterators::{ParIter, SplitIterator};
+}
+
 // These modules are public for use by other crates in this repo, but
 // currently considered internal to the project.
 #[doc(hidden)]
