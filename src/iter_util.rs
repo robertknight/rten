@@ -30,6 +30,21 @@ impl Iterator for RangeChunks {
 
 impl ExactSizeIterator for RangeChunks {}
 
+impl DoubleEndedIterator for RangeChunks {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if !self.remainder.is_empty() {
+            let end = self.remainder.end;
+            let start = end
+                .saturating_sub(self.chunk_size)
+                .max(self.remainder.start);
+            self.remainder.end = start;
+            Some(start..end)
+        } else {
+            None
+        }
+    }
+}
+
 impl std::iter::FusedIterator for RangeChunks {}
 
 /// Return an iterator over sub-ranges of `range`. If `range.len()` is not a
