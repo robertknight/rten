@@ -997,7 +997,20 @@ impl FusionVisitor for TransposeFusion {
     ) -> Option<Fusion> {
         // Filter against a set of operators which are known to efficiently
         // handle transposed inputs.
-        if !["MatMul", "FusedMatMul"].contains(&op_node.operator().name()) {
+        if ![
+            // Operators which pack blocks of non-contiguous inputs before
+            // computing with them.
+            "MatMul",
+            "FusedMatMul",
+            // Operators which copy chunks of the input using methods that can
+            // efficiently handle transposed layouts.
+            "Concat",
+            "Expand",
+            "Slice",
+            "Split",
+        ]
+        .contains(&op_node.operator().name())
+        {
             return None;
         }
 
