@@ -162,7 +162,13 @@ impl GraphMutator {
                 // used by operators outside of the subgraph. If any are found,
                 // we can't fuse the subgraph as the intermediate value would no
                 // longer be available.
-                let input_ids: Vec<_> = fusion.input_ids.iter().flatten().copied().collect();
+                let mut input_ids: Vec<_> = fusion.input_ids.iter().flatten().copied().collect();
+
+                // Execution planning disallows duplicate input IDs. An operator
+                // however is allowed to use the same value for multiple inputs.
+                input_ids.sort();
+                input_ids.dedup();
+
                 let output_ids: Vec<_> = fusion.output_ids.iter().flatten().copied().collect();
                 let unfused_ops = self.graph.execution_plan(&input_ids, &output_ids).unwrap();
                 let reused_output = find_operator_output_used_outside_subgraph(
@@ -1212,6 +1218,23 @@ mod tests {
         assert_eq!(input_ids[1], input);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_fuse_op_with_duplicate_inputs() {
+        // We use MatMul + Add fusion for this test, but any fused op that
+        // takes multiple non-constant inputs would work.
+        let graph = {
+            let x = Expr::value("x");
+            let bias = [1., 2., 3.];
+            let expr = x.matmul(x.clone()) + bias;
+            expr.build_graph(["x"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(op.operator().name(), "FusedMatMul");
     }
 
     #[test]
