@@ -9,8 +9,8 @@ use crate::copy::{
 };
 use crate::errors::{DimensionError, ExpandError, FromDataError, ReshapeError, SliceError};
 use crate::iterators::{
-    for_each_mut, AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterDyn,
-    InnerIterDynMut, InnerIterMut, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
+    for_each_mut, AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut, Iter,
+    IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
 };
 use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
@@ -162,14 +162,14 @@ pub trait AsView: Layout {
     }
 
     /// Return an iterator over the innermost N dimensions.
-    fn inner_iter<const N: usize>(&self) -> InnerIter<Self::Elem, N> {
+    fn inner_iter<const N: usize>(&self) -> InnerIter<Self::Elem, NdLayout<N>> {
         self.view().inner_iter()
     }
 
     /// Return an iterator over the innermost `n` dimensions.
     ///
     /// Prefer [`inner_iter`](AsView::inner_iter) if `N` is known at compile time.
-    fn inner_iter_dyn(&self, n: usize) -> InnerIterDyn<Self::Elem, Self::Layout> {
+    fn inner_iter_dyn(&self, n: usize) -> InnerIter<Self::Elem, DynLayout> {
         self.view().inner_iter_dyn(n)
     }
 
@@ -738,7 +738,7 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
     }
 
     /// Return a mutable iterator over the N innermost dimensions of this tensor.
-    pub fn inner_iter_mut<const N: usize>(&mut self) -> InnerIterMut<S::Elem, N> {
+    pub fn inner_iter_mut<const N: usize>(&mut self) -> InnerIterMut<S::Elem, NdLayout<N>> {
         InnerIterMut::new(self.view_mut())
     }
 
@@ -746,8 +746,8 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
     ///
     /// Prefer [`inner_iter_mut`](TensorBase::inner_iter_mut) if `N` is known
     /// at compile time.
-    pub fn inner_iter_dyn_mut(&mut self, n: usize) -> InnerIterDynMut<S::Elem, L> {
-        InnerIterDynMut::new(self.view_mut(), n)
+    pub fn inner_iter_dyn_mut(&mut self, n: usize) -> InnerIterMut<S::Elem, DynLayout> {
+        InnerIterMut::new_dyn(self.view_mut(), n)
     }
 
     /// Return a mutable iterator over the elements of this tensor, in their
@@ -1388,15 +1388,15 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     /// Return an iterator over the inner `N` dimensions of this tensor.
     ///
     /// See [`AsView::inner_iter`].
-    pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, N> {
+    pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, NdLayout<N>> {
         InnerIter::new(self.view())
     }
 
     /// Return an iterator over the inner `n` dimensions of this tensor.
     ///
     /// See [`AsView::inner_iter_dyn`].
-    pub fn inner_iter_dyn(&self, n: usize) -> InnerIterDyn<'a, T, L> {
-        InnerIterDyn::new(self.view(), n)
+    pub fn inner_iter_dyn(&self, n: usize) -> InnerIter<'a, T, DynLayout> {
+        InnerIter::new_dyn(self.view(), n)
     }
 
     /// Return the scalar value in this tensor if it has one element.
