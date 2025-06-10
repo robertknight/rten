@@ -1492,6 +1492,12 @@ mod tests {
     }
 
     #[test]
+    fn test_axis_chunks_rev() {
+        let tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        test_double_ended_iter(|| tensor.axis_chunks(0, 1));
+    }
+
+    #[test]
     fn test_axis_chunks_empty() {
         let x = Tensor::<i32>::zeros(&[5, 0]);
         assert!(AxisChunks::new(&x.view(), 1, 1).next().is_none());
@@ -1511,10 +1517,67 @@ mod tests {
     }
 
     #[test]
+    fn test_axis_chunks_mut_rev() {
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let fwd: Vec<_> = tensor
+            .axis_chunks_mut(0, 1)
+            .map(|view| view.to_vec())
+            .collect();
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let rev: Vec<_> = tensor
+            .axis_chunks_mut(0, 1)
+            .rev()
+            .map(|view| view.to_vec())
+            .collect();
+        compare_reversed(&fwd, &rev);
+    }
+
+    #[test]
     #[should_panic(expected = "chunk size must be > 0")]
     fn test_axis_chunks_mut_zero_size() {
         let mut x = Tensor::<i32>::zeros(&[5, 0]);
         assert!(AxisChunksMut::new(x.view_mut(), 1, 0).next().is_none());
+    }
+
+    #[test]
+    fn test_axis_iter_rev() {
+        let tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        test_double_ended_iter(|| tensor.axis_iter(0));
+    }
+
+    #[test]
+    fn test_axis_iter_mut_rev() {
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let fwd: Vec<_> = tensor.axis_iter_mut(0).map(|view| view.to_vec()).collect();
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let rev: Vec<_> = tensor
+            .axis_iter_mut(0)
+            .rev()
+            .map(|view| view.to_vec())
+            .collect();
+        compare_reversed(&fwd, &rev);
+    }
+
+    #[test]
+    fn test_inner_iter_rev() {
+        let tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        test_double_ended_iter(|| tensor.inner_iter::<2>());
+    }
+
+    #[test]
+    fn test_inner_iter_mut_rev() {
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let fwd: Vec<_> = tensor
+            .inner_iter_mut::<2>()
+            .map(|view| view.to_vec())
+            .collect();
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let rev: Vec<_> = tensor
+            .inner_iter_mut::<2>()
+            .rev()
+            .map(|view| view.to_vec())
+            .collect();
+        compare_reversed(&fwd, &rev);
     }
 
     #[test]
