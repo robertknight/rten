@@ -9,6 +9,9 @@ use crate::storage::{StorageMut, ViewData, ViewMutData};
 
 use super::{AsView, DynLayout, MutLayout, TensorBase, TensorViewMut};
 
+mod parallel;
+pub use parallel::{ParIter, SplitIterator};
+
 /// Borrowed reference to a tensor's data and layout. This differs from
 /// [`TensorView`] in that it borrows the layout rather than having its own.
 ///
@@ -312,6 +315,19 @@ impl IndexingIterBase {
         self.len -= 1;
 
         Some(offset)
+    }
+
+    /// Split this iterator into two. The left result visits indices before
+    /// `index`, the right result visits indices from `index` onwards.
+    fn split_at(mut self, index: usize) -> (Self, Self) {
+        assert!(self.len >= index);
+
+        let mut right = self.clone();
+        right.step_by(index);
+
+        self.len = index;
+
+        (self, right)
     }
 }
 
@@ -878,6 +894,35 @@ impl<'a, T> LanesMut<'a, T> {
     }
 }
 
+impl<'a, T> Iterator for LanesMut<'a, T> {
+    type Item = LaneMut<'a, T>;
+
+    #[inline]
+    fn next(&mut self) -> Option<LaneMut<'a, T>> {
+        self.ranges.next().map(|range| {
+            // Safety: Each iteration yields a lane that does not overlap with
+            // any previous lane.
+            unsafe { self.lane_for_offset_range(range) }
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.ranges.size_hint()
+    }
+}
+
+impl<'a, T> ExactSizeIterator for LanesMut<'a, T> {}
+
+impl<'a, T> DoubleEndedIterator for LanesMut<'a, T> {
+    fn next_back(&mut self) -> Option<LaneMut<'a, T>> {
+        self.ranges.next_back().map(|range| {
+            // Safety: Each iteration yields a lane that does not overlap with
+            // any previous lane.
+            unsafe { self.lane_for_offset_range(range) }
+        })
+    }
+}
+
 /// Iterator over items in a 1D slice of a tensor.
 pub struct LaneMut<'a, T> {
     data: ViewMutData<'a, T>,
@@ -913,29 +958,6 @@ impl<'a, T> Iterator for LaneMut<'a, T> {
 }
 
 impl<T> ExactSizeIterator for LaneMut<'_, T> {}
-
-impl<'a, T> Iterator for LanesMut<'a, T> {
-    type Item = LaneMut<'a, T>;
-
-    #[inline]
-    fn next(&mut self) -> Option<LaneMut<'a, T>> {
-        self.ranges.next().map(|range| {
-            // Safety: Each iteration yields a lane that does not overlap with
-            // any previous lane.
-            unsafe { self.lane_for_offset_range(range) }
-        })
-    }
-}
-
-impl<'a, T> DoubleEndedIterator for LanesMut<'a, T> {
-    fn next_back(&mut self) -> Option<LaneMut<'a, T>> {
-        self.ranges.next_back().map(|range| {
-            // Safety: Each iteration yields a lane that does not overlap with
-            // any previous lane.
-            unsafe { self.lane_for_offset_range(range) }
-        })
-    }
-}
 
 /// Base for iterators over views of the inner dimensions of a tensor, where
 /// the inner dimensions have layout `L`.
@@ -1024,6 +1046,16 @@ impl<L: Layout> Iterator for InnerIterBase<L> {
     }
 }
 
+impl<L: Layout> ExactSizeIterator for InnerIterBase<L> {}
+
+impl<L: Layout> DoubleEndedIterator for InnerIterBase<L> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.outer_offsets
+            .next_back()
+            .map(|offset| offset..offset + self.inner_data_len)
+    }
+}
+
 /// Iterator over views of the innermost dimensions of a tensor, where the
 /// tensor has element type T and the inner dimensions have layout L.
 pub struct InnerIter<'a, T, L: MutLayout> {
@@ -1069,6 +1101,17 @@ impl<'a, T, L: MutLayout> Iterator for InnerIter<'a, T, L> {
 }
 
 impl<T, L: MutLayout> ExactSizeIterator for InnerIter<'_, T, L> {}
+
+impl<T, L: MutLayout> DoubleEndedIterator for InnerIter<'_, T, L> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.base.next_back().map(|offset_range| {
+            TensorBase::from_storage_and_layout(
+                self.data.slice(offset_range),
+                self.base.inner_layout.clone(),
+            )
+        })
+    }
+}
 
 /// Iterator over mutable views of the innermost dimensions of a tensor, where
 /// the tensor has element type T and the inner dimensions have layout L.
@@ -1124,12 +1167,27 @@ impl<'a, T, L: MutLayout> Iterator for InnerIterMut<'a, T, L> {
 
 impl<T, L: MutLayout> ExactSizeIterator for InnerIterMut<'_, T, L> {}
 
+impl<'a, T, L: MutLayout> DoubleEndedIterator for InnerIterMut<'a, T, L> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.base.next_back().map(|offset_range| {
+            let storage = self.data.slice_mut(offset_range);
+            let storage = unsafe {
+                // Safety: Outer view is non-broadcasting, and we increment the
+                // outer index each time, so returned views will not overlap.
+                std::mem::transmute::<ViewMutData<'_, T>, ViewMutData<'a, T>>(storage)
+            };
+            TensorBase::from_storage_and_layout(storage, self.base.inner_layout.clone())
+        })
+    }
+}
+
 /// Iterator over slices of a tensor along an axis. See
 /// [`TensorView::axis_iter`](crate::TensorView::axis_iter).
 pub struct AxisIter<'a, T, L: MutLayout + RemoveDim> {
     view: TensorBase<ViewData<'a, T>, L>,
     axis: usize,
     index: usize,
+    end: usize,
 }
 
 impl<'a, T, L: MutLayout + RemoveDim> AxisIter<'a, T, L> {
@@ -1139,6 +1197,7 @@ impl<'a, T, L: MutLayout + RemoveDim> AxisIter<'a, T, L> {
             view: view.clone(),
             axis,
             index: 0,
+            end: view.size(axis),
         }
     }
 }
@@ -1147,11 +1206,30 @@ impl<'a, T, L: MutLayout + RemoveDim> Iterator for AxisIter<'a, T, L> {
     type Item = TensorBase<ViewData<'a, T>, <L as RemoveDim>::Output>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.view.size(self.axis) {
+        if self.index >= self.end {
             None
         } else {
             let slice = self.view.index_axis(self.axis, self.index);
             self.index += 1;
+            Some(slice)
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.end - self.index;
+        (len, Some(len))
+    }
+}
+
+impl<'a, T, L: MutLayout + RemoveDim> ExactSizeIterator for AxisIter<'a, T, L> {}
+
+impl<'a, T, L: MutLayout + RemoveDim> DoubleEndedIterator for AxisIter<'a, T, L> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index >= self.end {
+            None
+        } else {
+            let slice = self.view.index_axis(self.axis, self.end - 1);
+            self.end -= 1;
             Some(slice)
         }
     }
@@ -1162,6 +1240,7 @@ pub struct AxisIterMut<'a, T, L: MutLayout + RemoveDim> {
     view: TensorBase<ViewMutData<'a, T>, L>,
     axis: usize,
     index: usize,
+    end: usize,
 }
 
 impl<'a, T, L: MutLayout + RemoveDim> AxisIterMut<'a, T, L> {
@@ -1173,9 +1252,10 @@ impl<'a, T, L: MutLayout + RemoveDim> AxisIterMut<'a, T, L> {
         );
         assert!(axis < view.ndim());
         AxisIterMut {
-            view,
             axis,
             index: 0,
+            end: view.size(axis),
+            view,
         }
     }
 }
@@ -1187,11 +1267,39 @@ impl<'a, T, L: MutLayout + RemoveDim> Iterator for AxisIterMut<'a, T, L> {
     type Item = TensorBase<ViewMutData<'a, T>, <L as RemoveDim>::Output>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.view.size(0) {
+        if self.index >= self.end {
             None
         } else {
             let index = self.index;
             self.index += 1;
+
+            let slice = self.view.index_axis_mut(self.axis, index);
+
+            // Promote lifetime from self -> 'a.
+            //
+            // Safety: This is non-broadcasting view, and we increment the index
+            // each time, so returned views will not overlap.
+            let view = unsafe { transmute::<SmallerMutView<'_, T, L>, Self::Item>(slice) };
+
+            Some(view)
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.end - self.index;
+        (len, Some(len))
+    }
+}
+
+impl<'a, T, L: MutLayout + RemoveDim> ExactSizeIterator for AxisIterMut<'a, T, L> {}
+
+impl<'a, T, L: MutLayout + RemoveDim> DoubleEndedIterator for AxisIterMut<'a, T, L> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index >= self.end {
+            None
+        } else {
+            let index = self.end - 1;
+            self.end -= 1;
 
             let slice = self.view.index_axis_mut(self.axis, index);
 
@@ -1247,6 +1355,33 @@ impl<'a, T, L: MutLayout> Iterator for AxisChunks<'a, T, L> {
         };
         Some(current)
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self
+            .remainder
+            .as_ref()
+            .map(|r| r.size(self.axis))
+            .unwrap_or(0)
+            .div_ceil(self.chunk_size);
+        (len, Some(len))
+    }
+}
+
+impl<'a, T, L: MutLayout> ExactSizeIterator for AxisChunks<'a, T, L> {}
+
+impl<'a, T, L: MutLayout> DoubleEndedIterator for AxisChunks<'a, T, L> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let remainder = self.remainder.take()?;
+        let chunk_len = self.chunk_size.min(remainder.size(self.axis));
+        let (prev_remainder, current) =
+            remainder.split_at(self.axis, remainder.size(self.axis) - chunk_len);
+        self.remainder = if prev_remainder.size(self.axis) > 0 {
+            Some(prev_remainder)
+        } else {
+            None
+        };
+        Some(current)
+    }
 }
 
 /// Iterator over mutable slices of a tensor along an axis. See [`TensorViewMut::axis_chunks_mut`].
@@ -1294,6 +1429,34 @@ impl<'a, T, L: MutLayout> Iterator for AxisChunksMut<'a, T, L> {
         };
         Some(current)
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self
+            .remainder
+            .as_ref()
+            .map(|r| r.size(self.axis))
+            .unwrap_or(0)
+            .div_ceil(self.chunk_size);
+        (len, Some(len))
+    }
+}
+
+impl<'a, T, L: MutLayout> ExactSizeIterator for AxisChunksMut<'a, T, L> {}
+
+impl<'a, T, L: MutLayout> DoubleEndedIterator for AxisChunksMut<'a, T, L> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let remainder = self.remainder.take()?;
+        let remainder_size = remainder.size(self.axis);
+        let chunk_len = self.chunk_size.min(remainder_size);
+        let (prev_remainder, current) =
+            remainder.split_at_mut(self.axis, remainder_size - chunk_len);
+        self.remainder = if prev_remainder.size(self.axis) > 0 {
+            Some(prev_remainder)
+        } else {
+            None
+        };
+        Some(current)
+    }
 }
 
 /// Call `f` on each element of `view`.
@@ -1328,6 +1491,28 @@ pub fn for_each_mut<T, F: Fn(&mut T)>(mut view: TensorViewMut<T>, f: F) {
 mod tests {
     use crate::{AsView, AxisChunks, AxisChunksMut, Lanes, LanesMut, Layout, NdTensor, Tensor};
 
+    fn compare_reversed<T: PartialEq + std::fmt::Debug>(fwd: &[T], rev: &[T]) {
+        assert_eq!(fwd.len(), rev.len());
+        for (x, y) in fwd.iter().zip(rev.iter().rev()) {
+            assert_eq!(x, y);
+        }
+    }
+
+    fn test_double_ended_iter<I: DoubleEndedIterator>(create_iter: impl Fn() -> I)
+    where
+        I::Item: PartialEq + std::fmt::Debug,
+    {
+        let items: Vec<_> = create_iter().collect();
+        let rev_items: Vec<_> = create_iter().rev().collect();
+        compare_reversed(&items, &rev_items);
+    }
+
+    #[test]
+    fn test_axis_chunks_rev() {
+        let tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        test_double_ended_iter(|| tensor.axis_chunks(0, 1));
+    }
+
     #[test]
     fn test_axis_chunks_empty() {
         let x = Tensor::<i32>::zeros(&[5, 0]);
@@ -1348,10 +1533,67 @@ mod tests {
     }
 
     #[test]
+    fn test_axis_chunks_mut_rev() {
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let fwd: Vec<_> = tensor
+            .axis_chunks_mut(0, 1)
+            .map(|view| view.to_vec())
+            .collect();
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let rev: Vec<_> = tensor
+            .axis_chunks_mut(0, 1)
+            .rev()
+            .map(|view| view.to_vec())
+            .collect();
+        compare_reversed(&fwd, &rev);
+    }
+
+    #[test]
     #[should_panic(expected = "chunk size must be > 0")]
     fn test_axis_chunks_mut_zero_size() {
         let mut x = Tensor::<i32>::zeros(&[5, 0]);
         assert!(AxisChunksMut::new(x.view_mut(), 1, 0).next().is_none());
+    }
+
+    #[test]
+    fn test_axis_iter_rev() {
+        let tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        test_double_ended_iter(|| tensor.axis_iter(0));
+    }
+
+    #[test]
+    fn test_axis_iter_mut_rev() {
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let fwd: Vec<_> = tensor.axis_iter_mut(0).map(|view| view.to_vec()).collect();
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let rev: Vec<_> = tensor
+            .axis_iter_mut(0)
+            .rev()
+            .map(|view| view.to_vec())
+            .collect();
+        compare_reversed(&fwd, &rev);
+    }
+
+    #[test]
+    fn test_inner_iter_rev() {
+        let tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        test_double_ended_iter(|| tensor.inner_iter::<2>());
+    }
+
+    #[test]
+    fn test_inner_iter_mut_rev() {
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let fwd: Vec<_> = tensor
+            .inner_iter_mut::<2>()
+            .map(|view| view.to_vec())
+            .collect();
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        let rev: Vec<_> = tensor
+            .inner_iter_mut::<2>()
+            .rev()
+            .map(|view| view.to_vec())
+            .collect();
+        compare_reversed(&fwd, &rev);
     }
 
     #[test]
@@ -1445,24 +1687,28 @@ mod tests {
 
     #[test]
     fn test_iter_rev() {
-        let mut tensor = NdTensor::from([[[1, 2], [3, 4]]]);
+        let tensor = NdTensor::from([[[1, 2], [3, 4]]]);
 
         // Reverse iteration using non-indexed iterator.
-        let rev_items: Vec<_> = tensor.iter().rev().copied().collect();
-        assert_eq!(rev_items, &[4, 3, 2, 1]);
+        test_double_ended_iter(|| tensor.iter());
 
-        // Reverse iteration using indexed iterator.
-        let transposed = tensor.transposed();
-        let rev_items: Vec<_> = transposed.iter().rev().copied().collect();
-        assert_eq!(rev_items, &[4, 2, 3, 1]);
+        // Reverse iteration using non-indexed iterator.
+        test_double_ended_iter(|| tensor.transposed().iter());
 
         // Reverse iteration using mutable indexed iterator.
-        let mut transposed_mut = tensor.permuted_mut([2, 1, 0]);
-        for x in transposed_mut.iter_mut().rev() {
-            *x += 1;
-        }
-        let items: Vec<_> = tensor.iter().copied().collect();
-        assert_eq!(items, &[2, 3, 4, 5]);
+        let mut tensor = NdTensor::from([[[1, 2], [3, 4]]]);
+        let fwd: Vec<_> = tensor
+            .permuted_mut([2, 1, 0])
+            .iter_mut()
+            .map(|x| *x)
+            .collect();
+        let rev: Vec<_> = tensor
+            .permuted_mut([2, 1, 0])
+            .iter_mut()
+            .rev()
+            .map(|x| *x)
+            .collect();
+        compare_reversed(&fwd, &rev);
     }
 
     #[test]

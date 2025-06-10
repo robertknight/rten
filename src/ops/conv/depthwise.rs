@@ -344,8 +344,8 @@ impl<X: Copy + Default + Sync, W: Copy + Default + Sync, Y: Copy + Default>
 
             out_chans
                 .axis_chunks_mut(0, channel_chunk_size)
+                .into_par_iter()
                 .zip(range_chunks(0..out_c, channel_chunk_size))
-                .par_bridge()
                 .for_each(|(mut out_chans, chan_range)| {
                     self.depthwise_conv_2d_block(
                         out_chans.nd_view_mut(),

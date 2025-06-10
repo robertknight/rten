@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use rayon::prelude::*;
+use rten_tensor::parallel::{ParIter, SplitIterator};
 
 /// Iterator returned by [`range_chunks`].
 pub struct RangeChunks {
@@ -15,7 +16,7 @@ impl Iterator for RangeChunks {
         if !self.remainder.is_empty() {
             let start = self.remainder.start;
             let end = (start + self.chunk_size).min(self.remainder.end);
-            self.remainder.start += self.chunk_size;
+            self.remainder.start += end - start;
             Some(start..end)
         } else {
             None
@@ -29,6 +30,55 @@ impl Iterator for RangeChunks {
 }
 
 impl ExactSizeIterator for RangeChunks {}
+
+impl DoubleEndedIterator for RangeChunks {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if !self.remainder.is_empty() {
+            let end = self.remainder.end;
+            let start = end
+                .saturating_sub(self.chunk_size)
+                .max(self.remainder.start);
+            self.remainder.end = start;
+            Some(start..end)
+        } else {
+            None
+        }
+    }
+}
+
+impl SplitIterator for RangeChunks {
+    fn split_at(self, index: usize) -> (Self, Self) {
+        let len = self.len();
+        assert!(
+            index <= len,
+            "split index {} out of bounds for iterator of length {}",
+            index,
+            len
+        );
+
+        let offset = self.chunk_size * index;
+        let split_point = self.remainder.start + offset.min(self.remainder.len());
+
+        let left = RangeChunks {
+            remainder: self.remainder.start..split_point,
+            chunk_size: self.chunk_size,
+        };
+        let right = RangeChunks {
+            remainder: split_point..self.remainder.end,
+            chunk_size: self.chunk_size,
+        };
+        (left, right)
+    }
+}
+
+impl IntoParallelIterator for RangeChunks {
+    type Iter = ParIter<Self>;
+    type Item = <Self as Iterator>::Item;
+
+    fn into_par_iter(self) -> Self::Iter {
+        self.into()
+    }
+}
 
 impl std::iter::FusedIterator for RangeChunks {}
 
@@ -202,6 +252,7 @@ pub(crate) use {unroll_loop, unroll_loop_x4};
 
 #[cfg(test)]
 mod tests {
+    use rayon::prelude::*;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use super::{range_chunks, range_chunks_exact, unroll_loop, MaybeParIter};
@@ -225,6 +276,19 @@ mod tests {
         assert_eq!(chunks.next(), Some(10..13));
         assert_eq!(chunks.next(), None);
         assert_eq!(chunks.next(), None);
+
+        // Reversed
+        let mut chunks = range_chunks(0..13, 5).rev();
+        assert_eq!(chunks.next(), Some(8..13));
+        assert_eq!(chunks.next(), Some(3..8));
+        assert_eq!(chunks.next(), Some(0..3));
+        assert_eq!(chunks.next(), None);
+        assert_eq!(chunks.next(), None);
+
+        // Parallel
+        let chunks = range_chunks(0..100, 5);
+        let sum = chunks.into_par_iter().map(|r| r.len()).sum::<usize>();
+        assert_eq!(sum, 100);
     }
 
     #[test]
