@@ -48,13 +48,23 @@ impl DoubleEndedIterator for RangeChunks {
 
 impl SplitIterator for RangeChunks {
     fn split_at(self, index: usize) -> (Self, Self) {
+        let len = self.len();
+        assert!(
+            index <= len,
+            "split index {} out of bounds for iterator of length {}",
+            index,
+            len
+        );
+
         let offset = self.chunk_size * index;
+        let split_point = self.remainder.start + offset.min(self.remainder.len());
+
         let left = RangeChunks {
-            remainder: self.remainder.start..self.remainder.start + offset,
+            remainder: self.remainder.start..split_point,
             chunk_size: self.chunk_size,
         };
         let right = RangeChunks {
-            remainder: self.remainder.start + offset..self.remainder.end,
+            remainder: split_point..self.remainder.end,
             chunk_size: self.chunk_size,
         };
         (left, right)
