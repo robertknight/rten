@@ -474,52 +474,65 @@ mod tests {
         };
     }
 
+    // Parallel tests are skipped under Miri due to
+    // https://github.com/crossbeam-rs/crossbeam/issues/1181.
+
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_inner_iter_parallel() {
         test_parallel_iterator!(x, x.inner_iter::<2>());
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_inner_iter_mut_parallel() {
         test_parallel_iterator_mut!(x, x.inner_iter_mut::<2>(), |x| x.iter().sum::<i32>());
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_iter_parallel() {
         test_parallel_iterator!(x, x.iter());
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_iter_mut_parallel() {
         test_parallel_iterator_mut!(x, x.iter_mut(), |x| *x);
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_axis_chunks_parallel() {
         test_parallel_iterator!(x, x.axis_chunks(0, 2));
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_axis_chunks_mut_parallel() {
         test_parallel_iterator_mut!(x, x.axis_chunks_mut(0, 2), |x| x.iter().sum::<i32>());
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_axis_iter_parallel() {
         test_parallel_iterator!(x, x.axis_iter(0));
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_axis_iter_mut_parallel() {
         test_parallel_iterator_mut!(x, x.axis_iter_mut(0), |x| x.iter().sum::<i32>());
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_lanes_parallel() {
         test_parallel_iterator_flatten!(x, x.lanes(0));
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_lanes_mut_parallel() {
         test_parallel_iterator_mut!(x, x.lanes_mut(0), |x| x.map(|x| *x).sum::<i32>());
     }
