@@ -92,6 +92,17 @@ impl IterPos {
         // iterator will have a length of zero.
         self.max_remaining + 1
     }
+
+    /// Return the current index along this dimension.
+    fn index(&self) -> usize {
+        self.max_remaining - self.remaining
+    }
+
+    /// Set the current index along this dimension.
+    fn set_index(&mut self, index: usize) {
+        self.remaining = self.max_remaining - index;
+        self.offset = index * self.stride;
+    }
 }
 
 const INNER_NDIM: usize = 2;
@@ -244,38 +255,19 @@ impl IndexingIterBase {
 
     /// Advance iterator by up to `n` indices.
     fn step_by(&mut self, n: usize) {
-        let ndim = self.outer_pos.len() + self.inner_pos.len();
+        let mut remaining = n.min(self.len);
+        self.len -= remaining;
 
-        // Advance positions in each dimension, equivalent to calling `step`
-        // `n` times.
-        let mut n = n.min(self.len);
-        while n > 0 {
-            // Find the outermost dimension that we can step along which will
-            // advance the iterator by <= N elements.
-            let mut dim = ndim - 1;
-            let mut stride = 1;
-            while dim > 0 {
-                let size = self.pos(dim).max_remaining + 1;
-                let next_stride = stride * size;
-                if next_stride >= n {
-                    break;
-                }
-                dim -= 1;
-                stride = next_stride;
+        for dim in (0..self.ndim()).rev() {
+            if remaining == 0 {
+                break;
             }
 
-            // Step along the selected dimension.
-            let n_steps = n / stride;
-            n -= n_steps * stride;
-            self.len -= n_steps * stride;
-
-            for _ in 0..n_steps {
-                let mut pos = self.pos_mut(dim);
-                while !pos.step() && dim > 0 {
-                    dim -= 1;
-                    pos = self.pos_mut(dim);
-                }
-            }
+            let pos = self.pos_mut(dim);
+            let size = pos.size();
+            let new_index = pos.index() + remaining;
+            pos.set_index(new_index % size);
+            remaining = new_index / size;
         }
 
         // Update offset of next element.
