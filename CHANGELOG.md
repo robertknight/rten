@@ -7,7 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+**Breaking changes:**
+
+The `Input`, `Output` and `InputOrOutput` types have been renamed to
+`ValueView`, `Value` and `ValueOrView` respectively. This reflects the fact these
+types are owned or borrowed values of runtime-determined type, rather than just
+model inputs or outputs.
+
 ### rten
+
+- Enabled `Transpose -> {Split, Slice, Concat, Expand}` fusion
+  (https://github.com/robertknight/rten/pull/747)
+
+- Fixed panic during graph optimization if an operator takes the same input
+  value in multiple positions (https://github.com/robertknight/rten/pull/746)
+
+- Fixed warning about `stdarch_x86_avx512` feature opt-in not being required on
+  latest Rust nightly builds (https://github.com/robertknight/rten/pull/744)
+
+- Implemented `EyeLike` operator (https://github.com/robertknight/rten/pull/741)
+
+- Improved formatting of tensor types and shapes in errors (https://github.com/robertknight/rten/pull/735)
+
+- Fixed unnecessary large deallocation in `Expand` operator (https://github.com/robertknight/rten/pull/734)
+
+- Added `Tile` fast path for when innermost dimensions are not repeated
+  (https://github.com/robertknight/rten/pull/733)
+
+- Renamed `Input` and `Output` types (https://github.com/robertknight/rten/pull/731)
+
+- Improved error messages when operator inputs are invalid due to a rank
+  mismatch (https://github.com/robertknight/rten/pull/730)
+
+- Reduced graph optimization time by reducing number of graph traversals
+  (https://github.com/robertknight/rten/pull/726)
 
 - Support `Pow` operator with different base and exponent types
   (https://github.com/robertknight/rten/pull/724)
@@ -60,6 +93,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed issue where fast paths were not always used in `Slice` op
   (https://github.com/robertknight/rten/pull/686)
 
+### rten-cli
+
+- Improved formatting of errors in CLI (https://github.com/robertknight/rten/pull/729)
+
 ### rten-generate
 
 - Added `Metrics::token_count` API which provides a convenient way to get the
@@ -67,7 +104,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten-tensor
 
-- Added `DoubleEndedIterator` support to several iterators (https://github.com/robertknight/rten/pull/720)
+- Improved `Iterator::nth` worst-case performance for several iterators
+  (https://github.com/robertknight/rten/pull/750)
+
+- Optimized `TensorBase::inner_iter` and related iterators (https://github.com/robertknight/rten/pull/748)
+
+- Added `DoubleEndedIterator` support to several iterators (https://github.com/robertknight/rten/pull/720,
+  https://github.com/robertknight/rten/pull/749)
 
 - Optimized tensor iteration for non-contiguous tensors (https://github.com/robertknight/rten/pull/713)
 
