@@ -12,6 +12,28 @@ use rten_tensor::Tensor;
 mod dim_size;
 use dim_size::DimSize;
 
+#[derive(Clone, Copy, Default, PartialEq)]
+enum ProfileMode {
+    #[default]
+    None,
+
+    /// Show a simple breakdown of execution time by operator.
+    Basic,
+
+    /// Show a detailed breakdown of execution time by operator and input shape.
+    Detailed,
+}
+
+impl ProfileMode {
+    fn next_level(self) -> ProfileMode {
+        match self {
+            Self::None => Self::Basic,
+            Self::Basic => Self::Detailed,
+            Self::Detailed => Self::Detailed,
+        }
+    }
+}
+
 struct Args {
     /// Model file to load.
     model: String,
@@ -26,7 +48,7 @@ struct Args {
     quiet: bool,
 
     /// Record and display operator timing stats.
-    profile: bool,
+    profile_mode: ProfileMode,
 
     /// Enable verbose logging for model execution.
     verbose: bool,
@@ -52,7 +74,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut mmap = false;
     let mut n_iters = 1;
     let mut quiet = false;
-    let mut profile = false;
+    let mut profile_mode = ProfileMode::None;
     let mut verbose = false;
     let mut input_sizes = Vec::new();
     let mut optimize = true;
@@ -79,7 +101,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                 num_threads = Some(parse_uint(&mut parser, "num-threads")?);
             }
             Short('k') | Long("prepack") => prepack_weights = true,
-            Short('p') | Long("profile") => profile = true,
+            Short('p') | Long("profile") => profile_mode = profile_mode.next_level(),
             Short('q') | Long("quiet") => quiet = true,
             Short('v') | Long("verbose") => verbose = true,
             Short('V') | Long("version") => {
@@ -115,9 +137,13 @@ Options:
   -q, --quiet    Run model and don't produce other output
 
   -k, --prepack  Enable prepacking of weights.
+
                  This requires additional memory but makes inference faster.
 
-  -p, --profile  Record and display operator timings
+  -p, --profile  Record and display operator timings.
+
+                 If this flag is repeated, more detailed profiling information
+                 is displayed.
 
   -s, --size <spec>
                  Specify size for a dynamic dimension in the form `dim_name=size`
@@ -150,7 +176,7 @@ Options:
         optimize,
         prepack_weights,
         quiet,
-        profile,
+        profile_mode,
         verbose,
     })
 }
@@ -514,7 +540,8 @@ fn main() {
     }
 
     let run_opts = RunOptions {
-        timing: args.profile,
+        timing: args.profile_mode != ProfileMode::None,
+        timing_by_shape: args.profile_mode == ProfileMode::Detailed,
         verbose: args.verbose,
         thread_pool: args
             .num_threads
