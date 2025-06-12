@@ -151,6 +151,10 @@ pub use tensor_pool::{ExtractBuffer, PoolRef, TensorPool};
 pub use threading::{thread_pool, ThreadPool};
 pub use timing::TimingSort;
 
+// Deprecated aliases for `ValueView`, `ValueOrView` and `Value`.
+#[allow(deprecated)]
+pub use ops::{Input, InputOrOutput, Output};
+
 #[allow(dead_code, unused_imports)]
 mod schema_generated;
 

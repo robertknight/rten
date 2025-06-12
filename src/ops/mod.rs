@@ -761,6 +761,15 @@ impl Layout for ValueOrView<'_> {
     impl_proxy_layout!();
 }
 
+#[deprecated = "renamed to `ValueOrView`"]
+pub type InputOrOutput<'a> = ValueOrView<'a>;
+
+#[deprecated = "renamed to `ValueView`"]
+pub type Input<'a> = ValueView<'a>;
+
+#[deprecated = "renamed to `Value`"]
+pub type Output = Value;
+
 /// Trait for values that can be converted into the result type used by
 /// [`Operator::run`].
 pub trait IntoOpResult {
