@@ -923,6 +923,20 @@ pub struct LaneMut<'a, T> {
     size: usize,
 }
 
+impl<'a, T> LaneMut<'a, T> {
+    /// Return the remaining part of the lane as a slice, if it is contiguous.
+    pub fn as_slice_mut(&mut self) -> Option<&mut [T]> {
+        match self.stride {
+            1 => {
+                let remainder = self.data.slice_mut(self.index..self.size);
+                // Safety: The stride is 1, so we know the lane is contiguous.
+                Some(unsafe { remainder.to_slice_mut() })
+            }
+            _ => None,
+        }
+    }
+}
+
 impl<'a, T> Iterator for LaneMut<'a, T> {
     type Item = &'a mut T;
 
