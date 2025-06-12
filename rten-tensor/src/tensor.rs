@@ -118,6 +118,17 @@ pub trait AsView: Layout {
         self.view().broadcast(shape)
     }
 
+    /// Fallible variant of [`broadcast`](AsView::broadcast).
+    fn try_broadcast<S: IntoLayout>(
+        &self,
+        shape: S,
+    ) -> Result<TensorBase<ViewData<Self::Elem>, S::Layout>, ExpandError>
+    where
+        Self::Layout: BroadcastLayout<S::Layout>,
+    {
+        self.view().try_broadcast(shape)
+    }
+
     /// Copy elements from this tensor into `dest` in logical order.
     ///
     /// Returns the initialized slice. Panics if the length of `dest` does
@@ -1305,10 +1316,23 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     where
         L: BroadcastLayout<S::Layout>,
     {
-        TensorBase {
-            layout: self.layout.broadcast(shape),
+        self.try_broadcast(shape).unwrap()
+    }
+
+    /// Broadcast this view to another shape.
+    ///
+    /// See [`AsView::broadcast`].
+    pub fn try_broadcast<S: IntoLayout>(
+        &self,
+        shape: S,
+    ) -> Result<TensorBase<ViewData<'a, T>, S::Layout>, ExpandError>
+    where
+        L: BroadcastLayout<S::Layout>,
+    {
+        Ok(TensorBase {
+            layout: self.layout.broadcast(shape)?,
             data: self.data,
-        }
+        })
     }
 
     /// Return the data in this tensor as a slice if it is contiguous, ie.
