@@ -206,7 +206,10 @@ pub trait AsView: Layout {
     fn iter(&self) -> Iter<Self::Elem>;
 
     /// Return an iterator over 1D slices of this tensor along a given axis.
-    fn lanes(&self, dim: usize) -> Lanes<Self::Elem> {
+    fn lanes(&self, dim: usize) -> Lanes<Self::Elem>
+    where
+        Self::Layout: RemoveDim,
+    {
         self.view().lanes(dim)
     }
 
@@ -785,7 +788,10 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
 
     /// Return an iterator over mutable 1D slices of this tensor along a given
     /// dimension.
-    pub fn lanes_mut(&mut self, dim: usize) -> LanesMut<S::Elem> {
+    pub fn lanes_mut(&mut self, dim: usize) -> LanesMut<S::Elem>
+    where
+        L: RemoveDim,
+    {
         LanesMut::new(self.mut_view_ref(), dim)
     }
 
@@ -1461,7 +1467,10 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     /// Return an iterator over 1D slices of this tensor along a given dimension.
     ///
     /// See [`AsView::lanes`].
-    pub fn lanes(&self, dim: usize) -> Lanes<'a, T> {
+    pub fn lanes(&self, dim: usize) -> Lanes<'a, T>
+    where
+        L: RemoveDim,
+    {
         assert!(dim < self.ndim());
         Lanes::new(self.view_ref(), dim)
     }

@@ -4,7 +4,6 @@ use std::ops::Range;
 use std::slice;
 
 use crate::layout::{merge_axes, Layout, NdLayout, OverlapPolicy, RemoveDim};
-use crate::slice_range::SliceItem;
 use crate::storage::{StorageMut, ViewData, ViewMutData};
 
 use super::{
@@ -660,19 +659,16 @@ struct LaneRanges {
 }
 
 impl LaneRanges {
-    fn new<L: MutLayout>(layout: &L, dim: usize) -> LaneRanges {
-        let slice_starts: Vec<SliceItem> = (0..layout.ndim())
-            .map(|i| {
-                let end = if i == dim {
-                    1.min(layout.size(i) as isize)
-                } else {
-                    layout.size(i) as isize
-                };
-                (0..end).into()
-            })
-            .collect();
-        let (_range, sliced) = layout.slice_dyn(&slice_starts).unwrap();
-        let offsets = Offsets::new(&sliced);
+    fn new<L: Layout + RemoveDim>(layout: &L, dim: usize) -> LaneRanges {
+        // If the layout is empty (has any zero-sized dims), we need to make
+        // sure that `offsets` is as well.
+        let offsets = if layout.is_empty() {
+            Offsets::new(layout)
+        } else {
+            let other_dims = layout.remove_dim(dim);
+            Offsets::new(&other_dims)
+        };
+
         LaneRanges {
             offsets,
             dim_size: layout.size(dim),
@@ -775,7 +771,10 @@ impl<T> FusedIterator for Lane<'_, T> {}
 impl<'a, T> Lanes<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
     /// dimension of `tensor`.
-    pub(crate) fn new<L: MutLayout>(view: ViewRef<'a, '_, T, L>, dim: usize) -> Lanes<'a, T> {
+    pub(crate) fn new<L: Layout + RemoveDim>(
+        view: ViewRef<'a, '_, T, L>,
+        dim: usize,
+    ) -> Lanes<'a, T> {
         let size = view.layout.size(dim);
         let stride = view.layout.stride(dim);
         let lane_layout =
@@ -837,7 +836,10 @@ pub struct LanesMut<'a, T> {
 impl<'a, T> LanesMut<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
     /// dimension of `view`.
-    pub(crate) fn new<L: MutLayout>(view: MutViewRef<'a, '_, T, L>, dim: usize) -> LanesMut<'a, T> {
+    pub(crate) fn new<L: Layout + RemoveDim>(
+        view: MutViewRef<'a, '_, T, L>,
+        dim: usize,
+    ) -> LanesMut<'a, T> {
         // See notes in `Layout` about internal overlap.
         assert!(
             !view.layout.is_broadcast(),
