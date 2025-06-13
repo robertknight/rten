@@ -661,7 +661,7 @@ mod tests {
 
         // Test in-place variant.
         let input_mut = input.clone();
-        let result: Tensor<T> = op.run_simple_in_place(input_mut).unwrap();
+        let result: Tensor<T> = op.run_simple_in_place(input_mut, ()).unwrap();
         expect_equal(&result, &expected)?;
 
         Ok(())

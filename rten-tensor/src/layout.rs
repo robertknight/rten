@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use smallvec::{smallvec, SmallVec};
 
-use crate::errors::{DimensionError, FromDataError, ReshapeError, SliceError};
+use crate::errors::{DimensionError, ExpandError, FromDataError, ReshapeError, SliceError};
 use crate::index_iterator::{DynIndices, NdIndices};
 use crate::overlap::{is_contiguous, may_have_internal_overlap};
 use crate::slice_range::{IntoSliceItems, SliceItem};
@@ -455,23 +455,23 @@ impl<const N: usize> NdLayout<N> {
 
     /// Construct a layout which broadcasts elements to `to_shape` by setting
     /// the stride to `0` in broadcasted dimensions.
-    pub fn broadcast<const M: usize>(&self, to_shape: [usize; M]) -> NdLayout<M> {
-        assert!(
-            self.can_broadcast_to(&to_shape),
-            "cannot broadcast {:?} to {:?}",
-            self.shape(),
-            to_shape,
-        );
+    pub fn broadcast<const M: usize>(
+        &self,
+        to_shape: [usize; M],
+    ) -> Result<NdLayout<M>, ExpandError> {
+        if !self.can_broadcast_to(&to_shape) {
+            return Err(ExpandError::ShapeMismatch);
+        }
         let mut strides = [0usize; M];
         for (i, stride) in broadcast_strides(&self.shape(), &self.strides(), &to_shape).enumerate()
         {
             strides[i] = stride;
         }
 
-        NdLayout {
+        Ok(NdLayout {
             shape: to_shape,
             strides,
-        }
+        })
     }
 
     /// Swap strides of this layout to put axes in the given order.
@@ -705,19 +705,16 @@ impl DynLayout {
 
     /// Construct a layout which broadcasts elements to `to_shape` by setting
     /// the stride to `0` in broadcasted dimensions.
-    pub fn broadcast(&self, to_shape: &[usize]) -> DynLayout {
-        assert!(
-            self.can_broadcast_to(to_shape),
-            "cannot broadcast shape {:?} to {:?}",
-            self.shape(),
-            to_shape
-        );
+    pub fn broadcast(&self, to_shape: &[usize]) -> Result<DynLayout, ExpandError> {
+        if !self.can_broadcast_to(to_shape) {
+            return Err(ExpandError::ShapeMismatch);
+        }
 
         let mut shape_and_strides = SmallVec::with_capacity(to_shape.len() * 2);
         shape_and_strides.extend(to_shape.iter().copied());
         shape_and_strides.extend(broadcast_strides(self.shape(), self.strides(), to_shape));
 
-        DynLayout { shape_and_strides }
+        Ok(DynLayout { shape_and_strides })
     }
 
     /// Move the index at axis `from` to `to`, keeping the relative order of
@@ -1019,33 +1016,48 @@ pub trait MutLayout: Layout + Clone {
 /// Trait for broadcasting a layout from one shape to another.
 pub trait BroadcastLayout<L: MutLayout> {
     /// Broadcast the `self` layout to a given shape.
-    fn broadcast<S: IntoLayout<Layout = L>>(&self, shape: S) -> L;
+    fn broadcast<S: IntoLayout<Layout = L>>(&self, shape: S) -> Result<L, ExpandError>;
 }
 
 impl<const N: usize, const M: usize> BroadcastLayout<NdLayout<M>> for NdLayout<N> {
-    fn broadcast<S: IntoLayout<Layout = NdLayout<M>>>(&self, shape: S) -> NdLayout<M> {
+    fn broadcast<S: IntoLayout<Layout = NdLayout<M>>>(
+        &self,
+        shape: S,
+    ) -> Result<NdLayout<M>, ExpandError> {
         let shape: [usize; M] = shape.as_ref().try_into().unwrap();
         self.broadcast(shape)
     }
 }
 
 impl<const N: usize> BroadcastLayout<DynLayout> for NdLayout<N> {
-    fn broadcast<S: IntoLayout<Layout = DynLayout>>(&self, shape: S) -> DynLayout {
+    fn broadcast<S: IntoLayout<Layout = DynLayout>>(
+        &self,
+        shape: S,
+    ) -> Result<DynLayout, ExpandError> {
         let dyn_layout: DynLayout = self.into();
         dyn_layout.broadcast(shape.as_ref())
     }
 }
 
 impl BroadcastLayout<DynLayout> for DynLayout {
-    fn broadcast<S: IntoLayout<Layout = DynLayout>>(&self, shape: S) -> DynLayout {
+    fn broadcast<S: IntoLayout<Layout = DynLayout>>(
+        &self,
+        shape: S,
+    ) -> Result<DynLayout, ExpandError> {
         self.broadcast(shape.as_ref())
     }
 }
 
 impl<const N: usize> BroadcastLayout<NdLayout<N>> for DynLayout {
-    fn broadcast<S: IntoLayout<Layout = NdLayout<N>>>(&self, shape: S) -> NdLayout<N> {
-        let dyn_broadcast = self.broadcast(shape.as_ref());
-        (&dyn_broadcast).try_into().unwrap()
+    fn broadcast<S: IntoLayout<Layout = NdLayout<N>>>(
+        &self,
+        shape: S,
+    ) -> Result<NdLayout<N>, ExpandError> {
+        let dyn_broadcast = self.broadcast(shape.as_ref())?;
+        let layout = (&dyn_broadcast)
+            .try_into()
+            .map_err(|_| ExpandError::ShapeMismatch)?;
+        Ok(layout)
     }
 }
 

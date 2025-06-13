@@ -33,6 +33,7 @@ use crate::tensor_pool::{ExtractBuffer, TensorPool};
 use crate::timing::Profiler;
 use crate::weight_cache::WeightCache;
 
+mod attention;
 mod binary_elementwise;
 mod concat;
 mod control_flow;
@@ -65,6 +66,7 @@ mod variadic_elementwise;
 // Fused operations
 pub(crate) mod transform_inputs;
 
+pub use attention::AddSoftmax;
 pub use binary_elementwise::{
     add, and, div, equal, greater, greater_or_equal, less, less_or_equal, mod_op, mul, or, pow,
     sub, where_op, xor, Add, And, Div, DivMode, Equal, Greater, GreaterOrEqual, Less, LessOrEqual,
@@ -1152,14 +1154,21 @@ pub trait OperatorExt: Operator {
         Ok(outputs.remove(0))
     }
 
-    fn run_simple_in_place<I: Into<Value>, O: TryFrom<Value, Error = CastError>>(
+    /// Run an operator with a mutable input and extract the first output.
+    fn run_simple_in_place<
+        'a,
+        M: Into<Value>,
+        I: Into<InputList<'a>>,
+        O: TryFrom<Value, Error = CastError>,
+    >(
         &self,
-        input: I,
+        mut_input: M,
+        inputs: I,
     ) -> Result<O, OpError> {
         let pool = TensorPool::new();
-        let inputs = InputList::new();
+        let inputs = inputs.into();
         let ctx = OpRunContext::new(&pool, &inputs);
-        let output = self.run_in_place(input.into(), &ctx)?;
+        let output = self.run_in_place(mut_input.into(), &ctx)?;
         let typed_output = output.try_into()?;
         Ok(typed_output)
     }
@@ -1341,6 +1350,18 @@ impl Default for InputList<'_> {
 impl<'a, I: Into<ValueView<'a>>> From<I> for InputList<'a> {
     fn from(val: I) -> InputList<'a> {
         InputList::from(&[val.into()])
+    }
+}
+
+impl<'a> From<()> for InputList<'a> {
+    fn from(_: ()) -> InputList<'a> {
+        Self::default()
+    }
+}
+
+impl<'a, I1: Into<ValueView<'a>>> From<(I1,)> for InputList<'a> {
+    fn from((a,): (I1,)) -> InputList<'a> {
+        InputList::from(&[a.into()])
     }
 }
 

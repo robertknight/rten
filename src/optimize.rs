@@ -11,8 +11,8 @@ use crate::graph::{
 };
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, RmsNormalization, Silu, Swish,
-    Transpose,
+    AddSoftmax, FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, RmsNormalization,
+    Silu, Softmax, Swish, Transpose,
 };
 use crate::Value;
 
@@ -357,6 +357,7 @@ impl GraphOptimizer {
                 &RmsNormalizationFusion {},
                 &MatMulAddFusion {},
                 &MatMulScaleFusion {},
+                &AddSoftmaxFusion {},
             ],
         )?;
 
@@ -1053,6 +1054,60 @@ impl FusionVisitor for TransposeFusion {
     }
 }
 
+/// Fuse `Add(QK, M) -> Softmax` operations.
+///
+/// This is common in attention operations where QK is the query-key product and
+/// M is a mask or score matrix.
+struct AddSoftmaxFusion {}
+
+impl FusionVisitor for AddSoftmaxFusion {
+    fn prepare(&self, _: &Graph) -> Box<dyn Any> {
+        let query_dot_keys = Pattern::symbol("qk");
+        let mask = Pattern::symbol("mask");
+        let pat = Pattern::unary_op(
+            "Softmax",
+            Pattern::binary_op("Add", query_dot_keys.clone(), mask.clone()),
+        );
+        Box::new(pat)
+    }
+
+    fn maybe_fuse(
+        &self,
+        pattern: &dyn Any,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        let pattern: &Pattern = pattern.downcast_ref().unwrap();
+        let pat_match = pattern.test(op_node_id, graph)?;
+
+        let qk = pat_match.node_id("qk").unwrap();
+        let mask = pat_match.node_id("mask").unwrap();
+        let softmax_op = op_node.operator().downcast_ref::<Softmax>()?;
+
+        // This fusion is currently restricted to the case where it is known
+        // to be applied over the last, likely-contiguous lane. This is the case
+        // in attention operations.
+        //
+        // A case we're not handling here is where the operation is applied over
+        // the last lane, but `axis` is specified as a positive value. If we
+        // knew the ranks of the inputs, we could handle that as well.
+        //
+        // It would be possible to extend this to support non-last axes, but the
+        // operator would need to be modified to handle that efficiently.
+        if softmax_op.axis != -1 {
+            return None;
+        }
+
+        Some(Fusion::from_op(
+            op_node.name(),
+            Box::new(AddSoftmax {}),
+            &[Some(qk), Some(mask)],
+            op_node.output_ids(),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -1068,7 +1123,7 @@ mod tests {
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
     use crate::ops::{
         Add, Erf, FusedMatMul, Gelu, LayerNormalization, MatMul, Neg, Pow, ReduceMean,
-        RmsNormalization, Sigmoid, Sqrt, Swish, Tanh, Transpose,
+        RmsNormalization, Sigmoid, Softmax, Sqrt, Swish, Tanh, Transpose,
     };
     use crate::slice_cast::cast_pod_slice;
 
@@ -1101,6 +1156,7 @@ mod tests {
         fn sigmoid(&self) -> Expr;
         fn square(&self) -> Expr;
         fn sqrt(&self) -> Expr;
+        fn softmax(&self, axis: isize) -> Expr;
         fn tanh(&self) -> Expr;
         fn transpose(&self) -> Expr;
     }
@@ -1135,6 +1191,10 @@ mod tests {
 
         fn sqrt(&self) -> Expr {
             self.unary(Sqrt {})
+        }
+
+        fn softmax(&self, axis: isize) -> Expr {
+            self.unary(Softmax { axis })
         }
 
         fn tanh(&self) -> Expr {
@@ -1471,6 +1531,21 @@ mod tests {
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         let rms_norm = op.operator().downcast_ref::<RmsNormalization>().unwrap();
         assert_eq!(rms_norm.epsilon, Some(1e-6));
+    }
+
+    #[test]
+    fn test_fuse_add_softmax() {
+        let graph = {
+            let qk = Expr::value("qk");
+            let m = Expr::value("m");
+            let expr = (qk + m).softmax(-1);
+            expr.build_graph(["qk", "m"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(op.operator().name(), "AddSoftmax");
     }
 
     #[test]
