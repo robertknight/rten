@@ -28,8 +28,7 @@ impl SimdUnaryOp<f32> for Erf {
 
         let neg_mask = ops.lt(x, ops.zero());
 
-        // x = x.abs()
-        let x = ops.select(ops.neg(x), x, neg_mask);
+        let x = ops.abs(x);
 
         let p = ops.splat(0.3275911);
 
