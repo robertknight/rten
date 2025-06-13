@@ -364,23 +364,25 @@ fn run_with_random_input(
     let n_iters = n_iters.max(1);
     let mut iter_num = 1;
     let mut outputs;
-    let mut durations = Vec::new();
+
+    // Run duration in milliseconds.
+    let mut durations: Vec<f32> = Vec::new();
 
     // `loop` instead of `for` to guarantee `outputs` is initialized.
     loop {
         let start = Instant::now();
         outputs = model.run(inputs.clone(), model.output_ids(), Some(run_opts.clone()))?;
-        let elapsed = start.elapsed().as_millis();
+        let elapsed_ms = (start.elapsed().as_secs_f64() * 1000.0) as f32;
 
         if !quiet {
             println!(
                 "  #{} - Model returned {} outputs in {:.2}ms.",
                 iter_num,
                 outputs.len(),
-                elapsed
+                elapsed_ms
             );
         }
-        durations.push(elapsed);
+        durations.push(elapsed_ms);
 
         if iter_num >= n_iters {
             break;
@@ -390,19 +392,18 @@ fn run_with_random_input(
     if !quiet {
         if n_iters > 1 {
             let n_iters_float = n_iters as f32;
-            let duration_floats: Vec<_> = durations.into_iter().map(|dur| dur as f32).collect();
-            let mean = duration_floats.iter().sum::<f32>() / n_iters_float;
-            let variance = duration_floats
+            let mean = durations.iter().sum::<f32>() / n_iters_float;
+            let variance = durations
                 .iter()
                 .map(|dur| (dur - mean) * (dur - mean))
                 .sum::<f32>()
                 / n_iters_float;
             let std_dev = variance.sqrt();
-            let min = duration_floats
+            let min = durations
                 .iter()
                 .min_by(|a, b| f32::total_cmp(a, b))
                 .unwrap();
-            let max = duration_floats
+            let max = durations
                 .iter()
                 .max_by(|a, b| f32::total_cmp(a, b))
                 .unwrap();
