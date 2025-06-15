@@ -16,6 +16,35 @@ pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
         && (0..ndim).all(|dim| permutation.iter().filter(|d| **d == dim).count() == 1)
 }
 
+/// Merge dimensions of a layout where possible.
+///
+/// Two dimensions with sizes N1, N2 and strides S1, S2 can be merged into a
+/// single dimension with size N1 * N2 and stride S2 if S1 = N1 * S2;
+///
+/// Returns a vector of `(size, stride)` tuples for the merged dimensions.
+pub fn merge_axes(shape: &[usize], strides: &[usize]) -> SmallVec<[(usize, usize); 4]> {
+    let (Some(prev_size), Some(prev_stride)) = (shape.last(), strides.last()) else {
+        return SmallVec::new();
+    };
+
+    let mut merged: SmallVec<[(usize, usize); 4]> = SmallVec::with_capacity(shape.len());
+    merged.push((*prev_size, *prev_stride));
+
+    for (&outer_size, &outer_stride) in shape.iter().zip(strides.iter()).rev().skip(1) {
+        let (inner_size, inner_stride) = merged.last_mut().unwrap();
+        let can_merge = outer_size == 1 || (outer_stride == *inner_stride * *inner_size);
+        if can_merge {
+            *inner_size *= outer_size;
+        } else {
+            merged.push((outer_size, outer_stride));
+        }
+    }
+
+    merged.reverse();
+
+    merged
+}
+
 /// Generate debug assertion that a dimension index is valid for a layout.
 macro_rules! debug_assert_dim_valid {
     ($layout:ident, $dim:expr) => {
@@ -1310,36 +1339,12 @@ impl ResizeLayout for DynLayout {
     }
 
     fn merge_axes(&mut self) {
-        if self.ndim() == 0 {
-            return;
-        }
-
-        let mut shape = SmallVec::<[usize; 4]>::new();
-        let mut strides = SmallVec::<[usize; 4]>::new();
-
-        shape.push(self.size(self.ndim() - 1));
-        strides.push(self.stride(self.ndim() - 1));
-
-        for (&outer_size, &outer_stride) in
-            self.shape().iter().zip(self.strides().iter()).rev().skip(1)
-        {
-            let inner_stride = strides.last().unwrap();
-            let inner_size = shape.last().unwrap();
-            let can_merge = outer_size == 1 || (outer_stride == inner_stride * inner_size);
-
-            if can_merge {
-                let prev_size = shape.last_mut().unwrap();
-                *prev_size *= outer_size;
-            } else {
-                shape.push(outer_size);
-                strides.push(outer_stride);
-            }
-        }
-
-        shape.reverse();
-        strides.reverse();
-
-        self.shape_and_strides = shape.iter().chain(strides.iter()).copied().collect();
+        let merged = merge_axes(self.shape(), self.strides());
+        self.shape_and_strides = merged
+            .iter()
+            .map(|dim| dim.0)
+            .chain(merged.iter().map(|dim| dim.1))
+            .collect();
     }
 }
 
