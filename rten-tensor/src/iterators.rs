@@ -3,7 +3,7 @@ use std::mem::transmute;
 use std::ops::Range;
 use std::slice;
 
-use crate::layout::{Layout, NdLayout, OverlapPolicy, RemoveDim};
+use crate::layout::{merge_axes, Layout, NdLayout, OverlapPolicy, RemoveDim};
 use crate::slice_range::SliceItem;
 use crate::storage::{StorageMut, ViewData, ViewMutData};
 
@@ -73,6 +73,16 @@ struct IterPos {
 }
 
 impl IterPos {
+    fn from_size_stride(size: usize, stride: usize) -> Self {
+        let remaining = size.saturating_sub(1);
+        IterPos {
+            remaining,
+            offset: 0,
+            stride,
+            max_remaining: remaining,
+        }
+    }
+
     #[inline(always)]
     fn step(&mut self) -> bool {
         if self.remaining != 0 {
@@ -137,50 +147,31 @@ struct IndexingIterBase {
 impl IndexingIterBase {
     /// Create an iterator over element offsets in `tensor`.
     fn new<L: Layout>(layout: &L) -> IndexingIterBase {
-        let inner_pos_pad = INNER_NDIM.saturating_sub(layout.ndim());
-        let mut inner_pos = [IterPos::default(); INNER_NDIM];
+        // Merge axes to maximize the number of iterations that use the fast
+        // path for stepping over the inner dimensions.
+        let merged = merge_axes(layout.shape().as_ref(), layout.strides().as_ref());
 
-        let mut dim = 0;
-        while dim < inner_pos_pad {
-            inner_pos[dim] = IterPos {
-                offset: 0,
-                stride: 0,
-                max_remaining: 0,
-                remaining: 0,
+        let inner_pos_pad = INNER_NDIM.saturating_sub(merged.len());
+        let n_outer = merged.len().saturating_sub(INNER_NDIM);
+
+        let inner_pos = std::array::from_fn(|dim| {
+            let (size, stride) = if dim < inner_pos_pad {
+                (1, 0)
+            } else {
+                merged[n_outer + dim - inner_pos_pad]
             };
-            dim += 1;
-        }
-
-        let n_outer = layout.ndim().saturating_sub(INNER_NDIM);
-
-        while dim < inner_pos.len() {
-            let stride = layout.stride(n_outer + dim - inner_pos_pad);
-            let remaining = layout.size(n_outer + dim - inner_pos_pad).saturating_sub(1);
-            inner_pos[dim] = IterPos {
-                offset: 0,
-                remaining,
-                max_remaining: remaining,
-                stride,
-            };
-            dim += 1;
-        }
+            IterPos::from_size_stride(size, stride)
+        });
 
         let outer_pos = (0..n_outer)
             .map(|i| {
-                let stride = layout.stride(i);
-                let remaining = layout.size(i).saturating_sub(1);
-
-                IterPos {
-                    offset: 0,
-                    remaining,
-                    stride,
-                    max_remaining: remaining,
-                }
+                let (size, stride) = merged[i];
+                IterPos::from_size_stride(size, stride)
             })
             .collect();
 
         IndexingIterBase {
-            len: layout.len(),
+            len: merged.iter().map(|dim| dim.0).product(),
             inner_pos,
             inner_offset: 0,
             outer_pos,
