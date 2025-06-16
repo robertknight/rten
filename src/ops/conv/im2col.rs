@@ -31,6 +31,7 @@ pub fn build_im2col<T>(
         (stride_h, stride_w),
         Padding::Fixed(padding.into()),
         Some((dilation_y, dilation_x)),
+        false, /* ceil_mode - not used for im2col */
     )
     .expect("invalid im2col params");
 

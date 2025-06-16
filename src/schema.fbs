@@ -245,6 +245,7 @@ table AveragePoolAttrs {
   strides:[uint];
 
   count_include_pad:bool;
+  ceil_mode:bool;
 }
 
 table BatchNormalizationAttrs {
@@ -398,6 +399,7 @@ table MaxPoolAttrs {
   pads:[uint];
 
   strides:[uint];
+  ceil_mode:bool;
 }
 
 table ModAttrs {

@@ -2432,6 +2432,7 @@ impl<'a> AveragePoolAttrs<'a> {
     pub const VT_PADS: flatbuffers::VOffsetT = 8;
     pub const VT_STRIDES: flatbuffers::VOffsetT = 10;
     pub const VT_COUNT_INCLUDE_PAD: flatbuffers::VOffsetT = 12;
+    pub const VT_CEIL_MODE: flatbuffers::VOffsetT = 14;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -2452,6 +2453,7 @@ impl<'a> AveragePoolAttrs<'a> {
         if let Some(x) = args.kernel_size {
             builder.add_kernel_size(x);
         }
+        builder.add_ceil_mode(args.ceil_mode);
         builder.add_count_include_pad(args.count_include_pad);
         builder.add_auto_pad(args.auto_pad);
         builder.finish()
@@ -2519,6 +2521,17 @@ impl<'a> AveragePoolAttrs<'a> {
                 .unwrap()
         }
     }
+    #[inline]
+    pub fn ceil_mode(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(AveragePoolAttrs::VT_CEIL_MODE, Some(false))
+                .unwrap()
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for AveragePoolAttrs<'_> {
@@ -2546,6 +2559,7 @@ impl flatbuffers::Verifiable for AveragePoolAttrs<'_> {
                 false,
             )?
             .visit_field::<bool>("count_include_pad", Self::VT_COUNT_INCLUDE_PAD, false)?
+            .visit_field::<bool>("ceil_mode", Self::VT_CEIL_MODE, false)?
             .finish();
         Ok(())
     }
@@ -2556,6 +2570,7 @@ pub struct AveragePoolAttrsArgs<'a> {
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub count_include_pad: bool,
+    pub ceil_mode: bool,
 }
 impl<'a> Default for AveragePoolAttrsArgs<'a> {
     #[inline]
@@ -2566,6 +2581,7 @@ impl<'a> Default for AveragePoolAttrsArgs<'a> {
             pads: None,
             strides: None,
             count_include_pad: false,
+            ceil_mode: false,
         }
     }
 }
@@ -2609,6 +2625,11 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> AveragePoolAttrsBuilder<'a, 'b,
         );
     }
     #[inline]
+    pub fn add_ceil_mode(&mut self, ceil_mode: bool) {
+        self.fbb_
+            .push_slot::<bool>(AveragePoolAttrs::VT_CEIL_MODE, ceil_mode, false);
+    }
+    #[inline]
     pub fn new(
         _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
     ) -> AveragePoolAttrsBuilder<'a, 'b, A> {
@@ -2635,6 +2656,7 @@ impl core::fmt::Debug for AveragePoolAttrs<'_> {
         ds.field("pads", &self.pads());
         ds.field("strides", &self.strides());
         ds.field("count_include_pad", &self.count_include_pad());
+        ds.field("ceil_mode", &self.ceil_mode());
         ds.finish()
     }
 }
@@ -5853,6 +5875,7 @@ impl<'a> MaxPoolAttrs<'a> {
     pub const VT_AUTO_PAD: flatbuffers::VOffsetT = 6;
     pub const VT_PADS: flatbuffers::VOffsetT = 8;
     pub const VT_STRIDES: flatbuffers::VOffsetT = 10;
+    pub const VT_CEIL_MODE: flatbuffers::VOffsetT = 12;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -5873,6 +5896,7 @@ impl<'a> MaxPoolAttrs<'a> {
         if let Some(x) = args.kernel_size {
             builder.add_kernel_size(x);
         }
+        builder.add_ceil_mode(args.ceil_mode);
         builder.add_auto_pad(args.auto_pad);
         builder.finish()
     }
@@ -5928,6 +5952,17 @@ impl<'a> MaxPoolAttrs<'a> {
                 )
         }
     }
+    #[inline]
+    pub fn ceil_mode(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(MaxPoolAttrs::VT_CEIL_MODE, Some(false))
+                .unwrap()
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for MaxPoolAttrs<'_> {
@@ -5954,6 +5989,7 @@ impl flatbuffers::Verifiable for MaxPoolAttrs<'_> {
                 Self::VT_STRIDES,
                 false,
             )?
+            .visit_field::<bool>("ceil_mode", Self::VT_CEIL_MODE, false)?
             .finish();
         Ok(())
     }
@@ -5963,6 +5999,7 @@ pub struct MaxPoolAttrsArgs<'a> {
     pub auto_pad: AutoPad,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+    pub ceil_mode: bool,
 }
 impl<'a> Default for MaxPoolAttrsArgs<'a> {
     #[inline]
@@ -5972,6 +6009,7 @@ impl<'a> Default for MaxPoolAttrsArgs<'a> {
             auto_pad: AutoPad::Same,
             pads: None,
             strides: None,
+            ceil_mode: false,
         }
     }
 }
@@ -6007,6 +6045,11 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> MaxPoolAttrsBuilder<'a, 'b, A> 
             .push_slot_always::<flatbuffers::WIPOffset<_>>(MaxPoolAttrs::VT_STRIDES, strides);
     }
     #[inline]
+    pub fn add_ceil_mode(&mut self, ceil_mode: bool) {
+        self.fbb_
+            .push_slot::<bool>(MaxPoolAttrs::VT_CEIL_MODE, ceil_mode, false);
+    }
+    #[inline]
     pub fn new(
         _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
     ) -> MaxPoolAttrsBuilder<'a, 'b, A> {
@@ -6032,6 +6075,7 @@ impl core::fmt::Debug for MaxPoolAttrs<'_> {
         ds.field("auto_pad", &self.auto_pad());
         ds.field("pads", &self.pads());
         ds.field("strides", &self.strides());
+        ds.field("ceil_mode", &self.ceil_mode());
         ds.finish()
     }
 }

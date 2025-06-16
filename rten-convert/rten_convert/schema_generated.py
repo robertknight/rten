@@ -614,8 +614,15 @@ class AveragePoolAttrs(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
+    # AveragePoolAttrs
+    def CeilMode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
 def AveragePoolAttrsStart(builder):
-    builder.StartObject(5)
+    builder.StartObject(6)
 
 def AveragePoolAttrsAddKernelSize(builder, kernelSize):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(kernelSize), 0)
@@ -641,6 +648,9 @@ def AveragePoolAttrsStartStridesVector(builder, numElems):
 def AveragePoolAttrsAddCountIncludePad(builder, countIncludePad):
     builder.PrependBoolSlot(4, countIncludePad, 0)
 
+def AveragePoolAttrsAddCeilMode(builder, ceilMode):
+    builder.PrependBoolSlot(5, ceilMode, 0)
+
 def AveragePoolAttrsEnd(builder):
     return builder.EndObject()
 
@@ -659,6 +669,7 @@ class AveragePoolAttrsT(object):
         self.pads = None  # type: List[int]
         self.strides = None  # type: List[int]
         self.countIncludePad = False  # type: bool
+        self.ceilMode = False  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -704,6 +715,7 @@ class AveragePoolAttrsT(object):
             else:
                 self.strides = averagePoolAttrs.StridesAsNumpy()
         self.countIncludePad = averagePoolAttrs.CountIncludePad()
+        self.ceilMode = averagePoolAttrs.CeilMode()
 
     # AveragePoolAttrsT
     def Pack(self, builder):
@@ -740,6 +752,7 @@ class AveragePoolAttrsT(object):
         if self.strides is not None:
             AveragePoolAttrsAddStrides(builder, strides)
         AveragePoolAttrsAddCountIncludePad(builder, self.countIncludePad)
+        AveragePoolAttrsAddCeilMode(builder, self.ceilMode)
         averagePoolAttrs = AveragePoolAttrsEnd(builder)
         return averagePoolAttrs
 
@@ -3307,8 +3320,15 @@ class MaxPoolAttrs(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         return o == 0
 
+    # MaxPoolAttrs
+    def CeilMode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
 def MaxPoolAttrsStart(builder):
-    builder.StartObject(4)
+    builder.StartObject(5)
 
 def MaxPoolAttrsAddKernelSize(builder, kernelSize):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(kernelSize), 0)
@@ -3331,6 +3351,9 @@ def MaxPoolAttrsAddStrides(builder, strides):
 def MaxPoolAttrsStartStridesVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
+def MaxPoolAttrsAddCeilMode(builder, ceilMode):
+    builder.PrependBoolSlot(4, ceilMode, 0)
+
 def MaxPoolAttrsEnd(builder):
     return builder.EndObject()
 
@@ -3348,6 +3371,7 @@ class MaxPoolAttrsT(object):
         self.autoPad = 0  # type: int
         self.pads = None  # type: List[int]
         self.strides = None  # type: List[int]
+        self.ceilMode = False  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3392,6 +3416,7 @@ class MaxPoolAttrsT(object):
                     self.strides.append(maxPoolAttrs.Strides(i))
             else:
                 self.strides = maxPoolAttrs.StridesAsNumpy()
+        self.ceilMode = maxPoolAttrs.CeilMode()
 
     # MaxPoolAttrsT
     def Pack(self, builder):
@@ -3427,6 +3452,7 @@ class MaxPoolAttrsT(object):
             MaxPoolAttrsAddPads(builder, pads)
         if self.strides is not None:
             MaxPoolAttrsAddStrides(builder, strides)
+        MaxPoolAttrsAddCeilMode(builder, self.ceilMode)
         maxPoolAttrs = MaxPoolAttrsEnd(builder)
         return maxPoolAttrs
 

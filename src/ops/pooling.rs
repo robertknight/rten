@@ -29,6 +29,7 @@ pub fn calc_output_size_and_padding(
     strides: (usize, usize),
     padding: Padding,
     dilations: Option<(usize, usize)>,
+    ceil_mode: bool,
 ) -> Result<(usize, usize, [usize; 4]), OpError> {
     let (in_h, in_w) = in_size;
     let (k_h, k_w) = kernel_size;
@@ -79,8 +80,16 @@ pub fn calc_output_size_and_padding(
                 return Err(OpError::InvalidValue("Input too small for kernel size"));
             }
 
-            let out_h = (padded_in_h - dilation_y * (k_h - 1) - 1) / stride_h + 1;
-            let out_w = (padded_in_w - dilation_x * (k_w - 1) - 1) / stride_w + 1;
+            let out_h = if ceil_mode {
+                (padded_in_h - dilation_y * (k_h - 1) - 1 + stride_h - 1) / stride_h + 1
+            } else {
+                (padded_in_h - dilation_y * (k_h - 1) - 1) / stride_h + 1
+            };
+            let out_w = if ceil_mode {
+                (padded_in_w - dilation_x * (k_w - 1) - 1 + stride_w - 1) / stride_w + 1
+            } else {
+                (padded_in_w - dilation_x * (k_w - 1) - 1) / stride_w + 1
+            };
             (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
         }
     };
@@ -106,6 +115,7 @@ fn pool_impl<T: Copy + Send, F: Fn(T, T) -> T + Sync, A: Fn(T, usize) -> T + Syn
     kernel_size: &[usize],
     strides: &[usize],
     padding: Padding,
+    ceil_mode: bool,
     fold_init: T,
     fold: &F,
     average: &A,
@@ -139,6 +149,7 @@ where
                 &[1, kernel_size[0]],
                 &[1, strides[0]],
                 padding_2d,
+                ceil_mode,
                 fold_init,
                 fold,
                 average,
@@ -164,6 +175,7 @@ where
         (strides[0], strides[1]),
         padding,
         None, /* dilations */
+        ceil_mode,
     )?;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
     let mut output = NdTensor::uninit_in(pool, [batch, in_c, out_h, out_w]);
@@ -321,6 +333,7 @@ pub fn average_pool(
     strides: &[usize],
     padding: Padding,
     count_include_pad: bool,
+    ceil_mode: bool,
 ) -> Result<Tensor, OpError> {
     let kernel_len: usize = kernel_size.iter().product();
     pool_impl(
@@ -329,6 +342,7 @@ pub fn average_pool(
         kernel_size,
         strides,
         padding,
+        ceil_mode,
         0.,
         &|acc, x| acc + x,
         &|acc, non_pad_elements| {
@@ -347,6 +361,7 @@ pub struct AveragePool {
     pub padding: Padding,
     pub count_include_pad: bool,
     pub strides: SmallVec<[usize; 2]>,
+    pub ceil_mode: bool,
 }
 
 impl Operator for AveragePool {
@@ -363,6 +378,7 @@ impl Operator for AveragePool {
             &self.strides,
             self.padding.clone(),
             self.count_include_pad,
+            self.ceil_mode,
         )
         .into_op_result()
     }
@@ -438,6 +454,7 @@ pub fn max_pool(
     kernel_size: &[usize],
     strides: &[usize],
     padding: Padding,
+    ceil_mode: bool,
 ) -> Result<Tensor, OpError> {
     pool_impl(
         pool,
@@ -445,6 +462,7 @@ pub fn max_pool(
         kernel_size,
         strides,
         padding,
+        ceil_mode,
         f32::NEG_INFINITY,
         &|acc, x| acc.max(x),
         &|x, _non_pad_count| x,
@@ -456,6 +474,7 @@ pub struct MaxPool {
     pub kernel_size: SmallVec<[usize; 2]>,
     pub padding: Padding,
     pub strides: SmallVec<[usize; 2]>,
+    pub ceil_mode: bool,
 }
 
 impl Operator for MaxPool {
@@ -471,6 +490,7 @@ impl Operator for MaxPool {
             &self.kernel_size,
             &self.strides,
             self.padding.clone(),
+            self.ceil_mode,
         )
         .into_op_result()
     }
@@ -585,6 +605,7 @@ mod tests {
                 &case.strides,
                 case.padding.clone(),
                 false, /* count_include_pad */
+                false, /* ceil_mode */
             )
             .unwrap();
             expect_equal(&result, &case.expected).unwrap();
@@ -625,6 +646,7 @@ mod tests {
             &[2, 2], /* stride */
             [1, 1, 1, 1].into(),
             false, /* count_include_pad */
+            false, /* ceil_mode */
         )
         .unwrap();
         expect_eq_1e4(&result.view(), &expected.as_dyn())?;
@@ -643,7 +665,8 @@ mod tests {
             &[2, 2],
             &[2, 2], /* stride */
             [1, 1, 1, 1].into(),
-            true, /* count_include_pad */
+            true,  /* count_include_pad */
+            false, /* ceil_mode */
         )
         .unwrap();
         expect_eq_1e4(&result.view(), &expected_include_pad.as_dyn())?;
@@ -755,6 +778,7 @@ mod tests {
                 &case.kernel_size,
                 &case.strides,
                 case.padding.clone(),
+                false, /* ceil_mode */
             )
             .unwrap();
             expect_equal(&result, &case.expected).unwrap();
@@ -766,20 +790,94 @@ mod tests {
         let pool = new_pool();
         let input = Tensor::zeros(&[1, 1, 9, 9]);
 
-        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], [0, 0, 0, 0].into()).unwrap();
+        let result = max_pool(
+            &pool,
+            input.view(),
+            &[2, 2],
+            &[2, 2],
+            [0, 0, 0, 0].into(),
+            false,
+        )
+        .unwrap();
         assert_eq!(result.shape(), &[1, 1, 4, 4]);
 
-        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], [1, 1, 1, 1].into()).unwrap();
+        let result = max_pool(
+            &pool,
+            input.view(),
+            &[2, 2],
+            &[2, 2],
+            [1, 1, 1, 1].into(),
+            false,
+        )
+        .unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], [2, 2, 2, 2].into()).unwrap();
+        let result = max_pool(
+            &pool,
+            input.view(),
+            &[2, 2],
+            &[2, 2],
+            [2, 2, 2, 2].into(),
+            false,
+        )
+        .unwrap();
         assert_eq!(result.shape(), &[1, 1, 6, 6]);
 
-        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], Padding::Same).unwrap();
+        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], Padding::Same, false).unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&pool, input.view(), &[2, 2], &[3, 3], Padding::Same).unwrap();
+        let result = max_pool(&pool, input.view(), &[2, 2], &[3, 3], Padding::Same, false).unwrap();
         assert_eq!(result.shape(), &[1, 1, 3, 3]);
+    }
+
+    #[test]
+    fn test_max_pool_ceil_mode() {
+        let pool = new_pool();
+        // Create input with size that will show difference between floor and ceil mode
+        let mut input = Tensor::from([
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+            7.0, 8.0, 9.0,
+        ]);
+        input.reshape(&[1, 1, 3, 3]);
+
+        // With ceil_mode=false (floor mode), kernel_size=2, stride=2 on 3x3 input should give 1x1 output
+        let result_floor = max_pool(&pool, input.view(), &[2, 2], &[2, 2], [0, 0, 0, 0].into(), false).unwrap();
+        assert_eq!(result_floor.shape(), &[1, 1, 1, 1]);
+        assert_eq!(result_floor.to_vec(), vec![5.0]); // max of top-left 2x2
+
+        // With ceil_mode=true (ceil mode), should give 2x2 output due to ceiling
+        let result_ceil = max_pool(&pool, input.view(), &[2, 2], &[2, 2], [0, 0, 0, 0].into(), true).unwrap();
+        assert_eq!(result_ceil.shape(), &[1, 1, 2, 2]);
+        // Should be: [5, 6, 8, 9] (maxes of overlapping 2x2 windows)
+        assert_eq!(result_ceil.to_vec(), vec![5.0, 6.0, 8.0, 9.0]);
+    }
+
+    #[test]
+    fn test_average_pool_ceil_mode() {
+        let pool = new_pool();
+        // Create input with size that will show difference between floor and ceil mode
+        let mut input = Tensor::from([
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+            7.0, 8.0, 9.0,
+        ]);
+        input.reshape(&[1, 1, 3, 3]);
+
+        // With ceil_mode=false (floor mode), kernel_size=2, stride=2 on 3x3 input should give 1x1 output
+        let result_floor = average_pool(&pool, input.view(), &[2, 2], &[2, 2], [0, 0, 0, 0].into(), false, false).unwrap();
+        assert_eq!(result_floor.shape(), &[1, 1, 1, 1]);
+        assert_eq!(result_floor.to_vec(), vec![3.0]); // average of top-left 2x2: (1+2+4+5)/4 = 3
+
+        // With ceil_mode=true (ceil mode), should give 2x2 output due to ceiling
+        let result_ceil = average_pool(&pool, input.view(), &[2, 2], &[2, 2], [0, 0, 0, 0].into(), false, true).unwrap();
+        assert_eq!(result_ceil.shape(), &[1, 1, 2, 2]);
+        // Values are: [3.0, 4.5, 7.5, 9.0] (averages of overlapping 2x2 windows)
+        // Top-left: (1+2+4+5)/4 = 3.0
+        // Top-right: (2+3+5+6)/4 = 4.0, but with partial window: (2+3+5+6)/4 = 4.0? Actually: (3+6)/2 = 4.5
+        // Bottom-left: (4+5+7+8)/4 = 6.0, but with partial: (7+8)/2 = 7.5  
+        // Bottom-right: just 9 = 9.0
+        expect_eq_1e4(&result_ceil, &Tensor::from_data(&[1, 1, 2, 2], vec![3.0, 4.5, 7.5, 9.0])).unwrap();
     }
 
     #[test]
@@ -907,6 +1005,7 @@ mod tests {
                     *strides,
                     padding.clone(),
                     Some(*dilations),
+                    false, /* ceil_mode */
                 ),
                 expected
             );

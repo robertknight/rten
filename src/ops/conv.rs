@@ -200,6 +200,7 @@ where
         (stride_y, stride_x),
         padding,
         Some((dilation_y, dilation_x)),
+        false, /* ceil_mode - not used for convolution */
     )?;
 
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
@@ -911,6 +912,7 @@ mod tests {
             (stride_y, stride_x),
             padding.into(),
             Some((dilation_y, dilation_x)),
+            false, /* ceil_mode - not used for convolution transpose */
         )
         .expect("Input too small");
         let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_pads;
