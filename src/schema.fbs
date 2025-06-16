@@ -127,6 +127,7 @@ enum OperatorType: ubyte {
   CastLike,
   Dropout,
   EyeLike,
+  GridSample,
 }
 
 enum RNNDirection: ubyte {
@@ -226,6 +227,7 @@ union OperatorAttrs {
   ShapeAttrs,
   DropoutAttrs,
   EyeLikeAttrs,
+  GridSampleAttrs,
 }
 
 table ArgMaxAttrs {
@@ -513,6 +515,12 @@ table TransposeAttrs {
 
 table TriluAttrs {
   upper:bool;
+}
+
+table GridSampleAttrs {
+  mode:string;
+  padding_mode:string;
+  align_corners:bool;
 }
 
 // Node in the dataflow graph

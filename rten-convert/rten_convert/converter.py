@@ -475,6 +475,12 @@ def op_node_from_onnx_operator(
             attrs.transposeA = bool(attr_reader.get_attr("transA", "int", 0))
             attrs.transposeB = bool(attr_reader.get_attr("transB", "int", 0))
 
+        case "GridSample":
+            attrs = sg.GridSampleAttrsT()
+            attrs.mode = attr_reader.get_attr("mode", "string", "bilinear")
+            attrs.paddingMode = attr_reader.get_attr("padding_mode", "string", "zeros")
+            attrs.alignCorners = bool(attr_reader.get_attr("align_corners", "int", 0))
+
         case "GRU":
             attrs = sg.GRUAttrsT()
             attrs.direction = attr_reader.get_enum_attr(

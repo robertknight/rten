@@ -121,6 +121,7 @@ class OperatorType(object):
     CastLike = 111
     Dropout = 112
     EyeLike = 113
+    GridSample = 114
 
 
 class RNNDirection(object):
@@ -209,6 +210,7 @@ class OperatorAttrs(object):
     ShapeAttrs = 45
     DropoutAttrs = 46
     EyeLikeAttrs = 47
+    GridSampleAttrs = 48
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -308,6 +310,8 @@ def OperatorAttrsCreator(unionType, table):
         return DropoutAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.EyeLikeAttrs:
         return EyeLikeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.GridSampleAttrs:
+        return GridSampleAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -5382,6 +5386,115 @@ class TriluAttrsT(object):
         return triluAttrs
 
 
+class GridSampleAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = GridSampleAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsGridSampleAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def GridSampleAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # GridSampleAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # GridSampleAttrs
+    def Mode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # GridSampleAttrs
+    def PaddingMode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # GridSampleAttrs
+    def AlignCorners(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def GridSampleAttrsStart(builder):
+    builder.StartObject(3)
+
+def GridSampleAttrsAddMode(builder, mode):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(mode), 0)
+
+def GridSampleAttrsAddPaddingMode(builder, paddingMode):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(paddingMode), 0)
+
+def GridSampleAttrsAddAlignCorners(builder, alignCorners):
+    builder.PrependBoolSlot(2, alignCorners, 0)
+
+def GridSampleAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class GridSampleAttrsT(object):
+
+    # GridSampleAttrsT
+    def __init__(self):
+        self.mode = None  # type: str
+        self.paddingMode = None  # type: str
+        self.alignCorners = False  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        gridSampleAttrs = GridSampleAttrs()
+        gridSampleAttrs.Init(buf, pos)
+        return cls.InitFromObj(gridSampleAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, gridSampleAttrs):
+        x = GridSampleAttrsT()
+        x._UnPack(gridSampleAttrs)
+        return x
+
+    # GridSampleAttrsT
+    def _UnPack(self, gridSampleAttrs):
+        if gridSampleAttrs is None:
+            return
+        self.mode = gridSampleAttrs.Mode()
+        self.paddingMode = gridSampleAttrs.PaddingMode()
+        self.alignCorners = gridSampleAttrs.AlignCorners()
+
+    # GridSampleAttrsT
+    def Pack(self, builder):
+        if self.mode is not None:
+            mode = builder.CreateString(self.mode)
+        if self.paddingMode is not None:
+            paddingMode = builder.CreateString(self.paddingMode)
+        GridSampleAttrsStart(builder)
+        if self.mode is not None:
+            GridSampleAttrsAddMode(builder, mode)
+        if self.paddingMode is not None:
+            GridSampleAttrsAddPaddingMode(builder, paddingMode)
+        GridSampleAttrsAddAlignCorners(builder, self.alignCorners)
+        gridSampleAttrs = GridSampleAttrsEnd(builder)
+        return gridSampleAttrs
+
+
 class OperatorNode(object):
     __slots__ = ['_tab']
 
@@ -5521,7 +5634,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT, EyeLikeAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT, EyeLikeAttrsT, GridSampleAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

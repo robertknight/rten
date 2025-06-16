@@ -7,7 +7,7 @@ use smallvec::{smallvec, SmallVec};
 use crate::graph::Graph;
 use crate::ops;
 use crate::ops::{
-    BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, Operator, PadMode,
+    BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, GridSampleMode, GridSamplePaddingMode, NearestMode, Operator, PadMode,
     Padding, ResizeMode, Scalar, ScatterReduction,
 };
 use crate::schema_generated as sg;
@@ -126,6 +126,7 @@ impl OpRegistry {
         register_op!(Gelu);
         register_op!(Gemm);
         register_op!(GlobalAveragePool);
+        register_op!(GridSample);
         register_op!(Greater);
         register_op!(GreaterOrEqual);
         register_op!(GRU);
@@ -967,6 +968,29 @@ impl_read_op!(
 impl_read_op!(Trilu, attrs_as_trilu_attrs, |attrs: sg::TriluAttrs| {
     Ok(ops::Trilu {
         upper: attrs.upper(),
+    })
+});
+impl_read_op!(GridSample, attrs_as_grid_sample_attrs, |attrs: sg::GridSampleAttrs| {
+    let mode = match attrs.mode() {
+        Some("nearest") => GridSampleMode::Nearest,
+        Some("bilinear") => GridSampleMode::Bilinear,
+        Some("bicubic") => GridSampleMode::Bicubic,
+        _ => GridSampleMode::Bilinear, // Default
+    };
+    
+    let padding_mode = match attrs.padding_mode() {
+        Some("zeros") => GridSamplePaddingMode::Zeros,
+        Some("border") => GridSamplePaddingMode::Border,
+        Some("reflection") => GridSamplePaddingMode::Reflection,
+        _ => GridSamplePaddingMode::Zeros, // Default
+    };
+    
+    let align_corners = attrs.align_corners();
+    
+    Ok(ops::GridSample {
+        mode,
+        padding_mode,
+        align_corners,
     })
 });
 impl_read_op!(Unsqueeze);

@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 113;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 114;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 114] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 115] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -139,6 +139,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 114] = [
     OperatorType::CastLike,
     OperatorType::Dropout,
     OperatorType::EyeLike,
+    OperatorType::GridSample,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -260,9 +261,10 @@ impl OperatorType {
     pub const CastLike: Self = Self(111);
     pub const Dropout: Self = Self(112);
     pub const EyeLike: Self = Self(113);
+    pub const GridSample: Self = Self(114);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 113;
+    pub const ENUM_MAX: u8 = 114;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -378,6 +380,7 @@ impl OperatorType {
         Self::CastLike,
         Self::Dropout,
         Self::EyeLike,
+        Self::GridSample,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -496,6 +499,7 @@ impl OperatorType {
             Self::CastLike => Some("CastLike"),
             Self::Dropout => Some("Dropout"),
             Self::EyeLike => Some("EyeLike"),
+            Self::GridSample => Some("GridSample"),
             _ => None,
         }
     }
@@ -1138,13 +1142,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 47;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 48;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 48] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 49] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1193,6 +1197,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 48] = [
     OperatorAttrs::ShapeAttrs,
     OperatorAttrs::DropoutAttrs,
     OperatorAttrs::EyeLikeAttrs,
+    OperatorAttrs::GridSampleAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1248,9 +1253,10 @@ impl OperatorAttrs {
     pub const ShapeAttrs: Self = Self(45);
     pub const DropoutAttrs: Self = Self(46);
     pub const EyeLikeAttrs: Self = Self(47);
+    pub const GridSampleAttrs: Self = Self(48);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 47;
+    pub const ENUM_MAX: u8 = 48;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1300,6 +1306,7 @@ impl OperatorAttrs {
         Self::ShapeAttrs,
         Self::DropoutAttrs,
         Self::EyeLikeAttrs,
+        Self::GridSampleAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1352,6 +1359,7 @@ impl OperatorAttrs {
             Self::ShapeAttrs => Some("ShapeAttrs"),
             Self::DropoutAttrs => Some("DropoutAttrs"),
             Self::EyeLikeAttrs => Some("EyeLikeAttrs"),
+            Self::GridSampleAttrs => Some("GridSampleAttrs"),
             _ => None,
         }
     }
@@ -8572,6 +8580,164 @@ impl core::fmt::Debug for TriluAttrs<'_> {
         ds.finish()
     }
 }
+pub enum GridSampleAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct GridSampleAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for GridSampleAttrs<'a> {
+    type Inner = GridSampleAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> GridSampleAttrs<'a> {
+    pub const VT_MODE: flatbuffers::VOffsetT = 4;
+    pub const VT_PADDING_MODE: flatbuffers::VOffsetT = 6;
+    pub const VT_ALIGN_CORNERS: flatbuffers::VOffsetT = 8;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        GridSampleAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args GridSampleAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<GridSampleAttrs<'bldr>> {
+        let mut builder = GridSampleAttrsBuilder::new(_fbb);
+        if let Some(x) = args.padding_mode {
+            builder.add_padding_mode(x);
+        }
+        if let Some(x) = args.mode {
+            builder.add_mode(x);
+        }
+        builder.add_align_corners(args.align_corners);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn mode(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(GridSampleAttrs::VT_MODE, None)
+        }
+    }
+    #[inline]
+    pub fn padding_mode(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(GridSampleAttrs::VT_PADDING_MODE, None)
+        }
+    }
+    #[inline]
+    pub fn align_corners(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(GridSampleAttrs::VT_ALIGN_CORNERS, Some(false))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for GridSampleAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>("mode", Self::VT_MODE, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>(
+                "padding_mode",
+                Self::VT_PADDING_MODE,
+                false,
+            )?
+            .visit_field::<bool>("align_corners", Self::VT_ALIGN_CORNERS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct GridSampleAttrsArgs<'a> {
+    pub mode: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub padding_mode: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub align_corners: bool,
+}
+impl<'a> Default for GridSampleAttrsArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        GridSampleAttrsArgs {
+            mode: None,
+            padding_mode: None,
+            align_corners: false,
+        }
+    }
+}
+
+pub struct GridSampleAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> GridSampleAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_mode(&mut self, mode: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(GridSampleAttrs::VT_MODE, mode);
+    }
+    #[inline]
+    pub fn add_padding_mode(&mut self, padding_mode: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
+            GridSampleAttrs::VT_PADDING_MODE,
+            padding_mode,
+        );
+    }
+    #[inline]
+    pub fn add_align_corners(&mut self, align_corners: bool) {
+        self.fbb_
+            .push_slot::<bool>(GridSampleAttrs::VT_ALIGN_CORNERS, align_corners, false);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> GridSampleAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        GridSampleAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<GridSampleAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for GridSampleAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("GridSampleAttrs");
+        ds.field("mode", &self.mode());
+        ds.field("padding_mode", &self.padding_mode());
+        ds.field("align_corners", &self.align_corners());
+        ds.finish()
+    }
+}
 pub enum OperatorNodeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -9385,6 +9551,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_grid_sample_attrs(&self) -> Option<GridSampleAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::GridSampleAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { GridSampleAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -9445,6 +9626,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::ShapeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ShapeAttrs>>("OperatorAttrs::ShapeAttrs", pos),
           OperatorAttrs::DropoutAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DropoutAttrs>>("OperatorAttrs::DropoutAttrs", pos),
           OperatorAttrs::EyeLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<EyeLikeAttrs>>("OperatorAttrs::EyeLikeAttrs", pos),
+          OperatorAttrs::GridSampleAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GridSampleAttrs>>("OperatorAttrs::GridSampleAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -9992,6 +10174,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::EyeLikeAttrs => {
                 if let Some(x) = self.attrs_as_eye_like_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::GridSampleAttrs => {
+                if let Some(x) = self.attrs_as_grid_sample_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
