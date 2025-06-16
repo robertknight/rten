@@ -1,7 +1,7 @@
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode};
-use crate::ops::ValueView;
+use crate::value::ValueView;
 
 /// Tracks an association between named symbols (variables) in a pattern and
 /// the node IDs they have been resolved to.

@@ -5,7 +5,8 @@ use rten_tensor::{DynLayout, Tensor, TensorView};
 
 use super::NodeId;
 use crate::constant_storage::ArcTensorView;
-use crate::ops::{DataType, Operator, ValueView};
+use crate::ops::Operator;
+use crate::value::{DataType, ValueView};
 
 #[derive(Debug)]
 pub enum Node {

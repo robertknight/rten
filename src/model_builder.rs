@@ -7,7 +7,7 @@ use crate::header::Header;
 use crate::number::LeBytes;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, CastLike, Concat,
-    ConstantOfShape, Conv, ConvInteger, ConvTranspose, CoordTransformMode, DataType, DepthToSpace,
+    ConstantOfShape, Conv, ConvInteger, ConvTranspose, CoordTransformMode, DepthToSpace,
     DepthToSpaceMode, DequantizeLinear, Einsum, Elu, EyeLike, Flatten, Gather, GatherElements,
     GatherND, Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu,
     LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, QuantizeLinear,
@@ -16,6 +16,7 @@ use crate::ops::{
     Trilu,
 };
 use crate::schema_generated as sg;
+use crate::value::DataType;
 
 #[cfg(feature = "random")]
 use crate::ops::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};

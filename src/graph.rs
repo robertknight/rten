@@ -15,13 +15,11 @@ use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 use crate::env::env_flag;
-use crate::ops::{
-    DataType, InputList, OpError, OpRunContext, Operator, OutputList, PrepackedInput, Value,
-    ValueMeta, ValueOrView, ValueView,
-};
+use crate::ops::{InputList, OpError, OpRunContext, Operator, OutputList, PrepackedInput};
 use crate::tensor_pool::TensorPool;
 use crate::threading;
 use crate::timing::{Instant, ProfileFormat, Profiler, TimingRecord, TimingSort};
+use crate::value::{DataType, Value, ValueMeta, ValueOrView, ValueView};
 use crate::weight_cache::WeightCache;
 
 #[cfg(test)]
@@ -1222,10 +1220,11 @@ mod tests {
     use super::{CachedPlan, CaptureEnv};
     use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TypedConstant};
     use crate::ops::{
-        Add, Concat, Conv, DataType, Identity, If, IntoOpResult, MatMul, Mul, OpError,
-        OpRunContext, Operator, OutputList, PrepackedInput, Relu, Shape, Value, ValueView,
+        Add, Concat, Conv, Identity, If, IntoOpResult, MatMul, Mul, OpError, OpRunContext,
+        Operator, OutputList, PrepackedInput, Relu, Shape,
     };
     use crate::timing::Profiler;
+    use crate::value::{DataType, Value, ValueView};
     use crate::weight_cache::WeightCache;
 
     #[derive(Clone, Debug, Default)]
