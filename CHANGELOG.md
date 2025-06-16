@@ -16,6 +16,11 @@ model inputs or outputs.
 
 ### rten
 
+- Improved `Gelu` performance by using native `abs(x)` instruction
+  (https://github.com/robertknight/rten/pull/755)
+
+- Added `Add -> Softmax` fusion (https://github.com/robertknight/rten/pull/754)
+
 - Enabled `Transpose -> {Split, Slice, Concat, Expand}` fusion
   (https://github.com/robertknight/rten/pull/747)
 
@@ -34,7 +39,8 @@ model inputs or outputs.
 - Added `Tile` fast path for when innermost dimensions are not repeated
   (https://github.com/robertknight/rten/pull/733)
 
-- Renamed `Input` and `Output` types (https://github.com/robertknight/rten/pull/731)
+- Renamed `Input` and `Output` types (https://github.com/robertknight/rten/pull/731).
+  The previous names are retained as deprecated aliases (https://github.com/robertknight/rten/pull/752).
 
 - Improved error messages when operator inputs are invalid due to a rank
   mismatch (https://github.com/robertknight/rten/pull/730)
@@ -95,6 +101,12 @@ model inputs or outputs.
 
 ### rten-cli
 
+- Fixed issue where run timings were rounded down to nearest millisecond
+  (https://github.com/robertknight/rten/pull/756)
+
+- Output detailed profiling information if `-p`/`--profile` flag is repeated
+  (https://github.com/robertknight/rten/pull/753)
+
 - Improved formatting of errors in CLI (https://github.com/robertknight/rten/pull/729)
 
 ### rten-generate
@@ -112,7 +124,8 @@ model inputs or outputs.
 - Added `DoubleEndedIterator` support to several iterators (https://github.com/robertknight/rten/pull/720,
   https://github.com/robertknight/rten/pull/749)
 
-- Optimized tensor iteration for non-contiguous tensors (https://github.com/robertknight/rten/pull/713)
+- Optimized tensor iteration for non-contiguous tensors (https://github.com/robertknight/rten/pull/713,
+  https://github.com/robertknight/rten/pull/757)
 
 ## [0.18.0] - 2025-05-08
 
