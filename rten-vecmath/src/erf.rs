@@ -110,7 +110,7 @@ mod tests {
 
     use super::{ApproxGelu, Erf, Gelu};
     use crate::testing::{
-        arange, benchmark_op, check_f32s_are_equal_atol, triples, AllF32s, AsUninit, Progress,
+        AllF32s, AsUninit, Progress, arange, benchmark_op, check_f32s_are_equal_atol, triples,
     };
 
     fn reference_gelu(x: f32) -> f32 {

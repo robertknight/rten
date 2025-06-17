@@ -9,8 +9,8 @@ use crate::copy::{
 };
 use crate::errors::{DimensionError, ExpandError, FromDataError, ReshapeError, SliceError};
 use crate::iterators::{
-    for_each_mut, AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut, Iter,
-    IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
+    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut, Iter, IterMut,
+    Lanes, LanesMut, MutViewRef, ViewRef, for_each_mut,
 };
 use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
@@ -153,7 +153,7 @@ pub trait AsView: Layout {
     ///
     /// The caller must ensure that the index is valid for the tensor's shape.
     unsafe fn get_unchecked<I: AsIndex<Self::Layout>>(&self, index: I) -> &Self::Elem {
-        self.view().get_unchecked(index)
+        unsafe { self.view().get_unchecked(index) }
     }
 
     /// Index the tensor along a given axis.
@@ -369,10 +369,10 @@ pub trait AsView: Layout {
     where
         Self::Elem: Clone,
         Self::Layout: SliceWith<
-            R,
-            R::Count,
-            Layout: for<'a> Layout<Index<'a>: TryFrom<&'a [usize], Error: Debug>>,
-        >,
+                R,
+                R::Count,
+                Layout: for<'a> Layout<Index<'a>: TryFrom<&'a [usize], Error: Debug>>,
+            >,
     {
         self.slice_copy_in(GlobalAlloc::new(), range)
     }
@@ -387,10 +387,10 @@ pub trait AsView: Layout {
     where
         Self::Elem: Clone,
         Self::Layout: SliceWith<
-            R,
-            R::Count,
-            Layout: for<'a> Layout<Index<'a>: TryFrom<&'a [usize], Error: Debug>>,
-        >,
+                R,
+                R::Count,
+                Layout: for<'a> Layout<Index<'a>: TryFrom<&'a [usize], Error: Debug>>,
+            >,
     {
         // Fast path for slice ranges supported by `Tensor::slice`. This includes
         // all ranges except those with a negative step. This benefits from
@@ -740,8 +740,10 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
     ///
     /// The caller must ensure that the index is valid for the tensor's shape.
     pub unsafe fn get_unchecked_mut<I: AsIndex<L>>(&mut self, index: I) -> &mut S::Elem {
-        self.data
-            .get_unchecked_mut(self.layout.offset_unchecked(index.as_index()))
+        unsafe {
+            self.data
+                .get_unchecked_mut(self.layout.offset_unchecked(index.as_index()))
+        }
     }
 
     pub(crate) fn mut_view_ref(&mut self) -> MutViewRef<S::Elem, L> {
@@ -1238,9 +1240,11 @@ where
     /// The caller must guarantee that all elements in this tensor have been
     /// initialized before calling `assume_init`.
     pub unsafe fn assume_init(self) -> TensorBase<<S as AssumeInit>::Output, L> {
-        TensorBase {
-            layout: self.layout,
-            data: self.data.assume_init(),
+        unsafe {
+            TensorBase {
+                layout: self.layout,
+                data: self.data.assume_init(),
+            }
         }
     }
 
@@ -1385,8 +1389,10 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     ///
     /// The caller must ensure that the index is valid for the tensor's shape.
     pub unsafe fn get_unchecked<I: AsIndex<L>>(&self, index: I) -> &'a T {
-        self.data
-            .get_unchecked(self.layout.offset_unchecked(index.as_index()))
+        unsafe {
+            self.data
+                .get_unchecked(self.layout.offset_unchecked(index.as_index()))
+        }
     }
 
     /// Index the tensor along a given axis.
@@ -1832,8 +1838,10 @@ impl<T, S: Storage<Elem = T>, L: MutLayout + Clone> AsView for TensorBase<S, L> 
     }
 
     unsafe fn get_unchecked<I: AsIndex<L>>(&self, index: I) -> &T {
-        let offset = self.layout.offset_unchecked(index.as_index());
-        self.data.get_unchecked(offset)
+        unsafe {
+            let offset = self.layout.offset_unchecked(index.as_index());
+            self.data.get_unchecked(offset)
+        }
     }
 
     fn permute(&mut self, order: Self::Index<'_>) {

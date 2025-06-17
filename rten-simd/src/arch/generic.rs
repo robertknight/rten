@@ -77,9 +77,9 @@ unsafe impl Isa for GenericIsa {
     fn i16(
         self,
     ) -> impl SignedIntOps<i16, Simd = Self::I16>
-           + NarrowSaturate<i16, u8, Output = Self::U8>
-           + Extend<i16, Output = Self::I32>
-           + Interleave<i16> {
+    + NarrowSaturate<i16, u8, Output = Self::U8>
+    + Extend<i16, Output = Self::I32>
+    + Interleave<i16> {
         self
     }
 
@@ -123,14 +123,16 @@ macro_rules! simd_ops_common {
             ptr: *const <$simd as Simd>::Elem,
             mask: <$simd as Simd>::Mask,
         ) -> $simd {
-            let mask_array = mask.0;
-            let mut vec = <Self as NumOps<$elem>>::zero(self).0;
-            for i in 0..mask_array.len() {
-                if mask_array[i] != 0 {
-                    vec[i] = *ptr.add(i);
+            unsafe {
+                let mask_array = mask.0;
+                let mut vec = <Self as NumOps<$elem>>::zero(self).0;
+                for i in 0..mask_array.len() {
+                    if mask_array[i] != 0 {
+                        vec[i] = *ptr.add(i);
+                    }
                 }
+                self.load_ptr(vec.as_ref().as_ptr())
             }
-            self.load_ptr(vec.as_ref().as_ptr())
         }
 
         #[inline]
@@ -140,11 +142,13 @@ macro_rules! simd_ops_common {
             ptr: *mut <$simd as Simd>::Elem,
             mask: <$simd as Simd>::Mask,
         ) {
-            let mask_array = mask.0;
-            let x_array = x.0;
-            for i in 0..<Self as NumOps<$elem>>::len(self) {
-                if mask_array[i] != 0 {
-                    *ptr.add(i) = x_array[i];
+            unsafe {
+                let mask_array = mask.0;
+                let x_array = x.0;
+                for i in 0..<Self as NumOps<$elem>>::len(self) {
+                    if mask_array[i] != 0 {
+                        *ptr.add(i) = x_array[i];
+                    }
                 }
             }
         }
@@ -210,8 +214,10 @@ macro_rules! simd_ops_common {
 
         #[inline]
         unsafe fn load_ptr(self, ptr: *const $elem) -> $simd {
-            let xs = array::from_fn(|i| *ptr.add(i));
-            $simd(xs)
+            unsafe {
+                let xs = array::from_fn(|i| *ptr.add(i));
+                $simd(xs)
+            }
         }
 
         #[inline]
@@ -222,8 +228,10 @@ macro_rules! simd_ops_common {
 
         #[inline]
         unsafe fn store_ptr(self, x: $simd, ptr: *mut $elem) {
-            for i in 0..$len {
-                *ptr.add(i) = x.0[i];
+            unsafe {
+                for i in 0..$len {
+                    *ptr.add(i) = x.0[i];
+                }
             }
         }
     };

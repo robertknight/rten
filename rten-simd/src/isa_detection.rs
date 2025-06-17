@@ -37,7 +37,7 @@ pub mod macos {
         use std::os::raw::{c_char, c_int, c_void};
 
         #[link(name = "c")]
-        extern "C" {
+        unsafe extern "C" {
             /// See https://developer.apple.com/documentation/kernel/1387446-sysctlbyname.
             fn sysctlbyname(
                 name: *const c_char,

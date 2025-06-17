@@ -1,19 +1,19 @@
 use std::arch::aarch64::{
-    float32x4_t, int16x8_t, int32x4_t, int8x16_t, uint16x8_t, uint32x4_t, uint8x16_t, vabsq_f32,
-    vaddq_f32, vaddq_s16, vaddq_s32, vaddq_s8, vaddq_u16, vaddq_u8, vaddvq_f32, vandq_u16,
-    vandq_u32, vandq_u8, vbslq_f32, vbslq_s16, vbslq_s32, vbslq_s8, vbslq_u16, vbslq_u8, vceqq_f32,
-    vceqq_s16, vceqq_s32, vceqq_s8, vceqq_u16, vceqq_u8, vcgeq_f32, vcgeq_s16, vcgeq_s32, vcgeq_s8,
-    vcgeq_u16, vcgeq_u8, vcgtq_f32, vcgtq_s16, vcgtq_s32, vcgtq_s8, vcgtq_u16, vcgtq_u8, vcleq_f32,
-    vcleq_s16, vcleq_s8, vcleq_u16, vcleq_u8, vcltq_f32, vcltq_s16, vcltq_s8, vcltq_u16, vcltq_u8,
-    vcombine_s16, vcombine_u8, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32, vdupq_laneq_f32,
-    vdupq_n_f32, vdupq_n_s16, vdupq_n_s32, vdupq_n_s8, vdupq_n_u16, vdupq_n_u8, veorq_u32,
-    vfmaq_f32, vget_low_s16, vget_low_s8, vld1q_f32, vld1q_s16, vld1q_s32, vld1q_s8, vld1q_u16,
-    vld1q_u32, vld1q_u8, vmaxq_f32, vminq_f32, vmovl_high_s16, vmovl_high_s8, vmovl_s16, vmovl_s8,
-    vmulq_f32, vmulq_s16, vmulq_s32, vmulq_s8, vmulq_u16, vmulq_u8, vmvnq_u32, vnegq_f32,
-    vnegq_s16, vnegq_s32, vnegq_s8, vorrq_u32, vqmovn_s32, vqmovun_s16, vshlq_n_s16, vshlq_n_s32,
-    vshlq_n_s8, vshlq_n_u16, vst1q_f32, vst1q_s16, vst1q_s32, vst1q_s8, vst1q_u16, vst1q_u8,
-    vsubq_f32, vsubq_s16, vsubq_s32, vsubq_s8, vsubq_u16, vsubq_u8, vzip1q_s16, vzip1q_s8,
-    vzip2q_s16, vzip2q_s8,
+    float32x4_t, int8x16_t, int16x8_t, int32x4_t, uint8x16_t, uint16x8_t, uint32x4_t, vabsq_f32,
+    vaddq_f32, vaddq_s8, vaddq_s16, vaddq_s32, vaddq_u8, vaddq_u16, vaddvq_f32, vandq_u8,
+    vandq_u16, vandq_u32, vbslq_f32, vbslq_s8, vbslq_s16, vbslq_s32, vbslq_u8, vbslq_u16,
+    vceqq_f32, vceqq_s8, vceqq_s16, vceqq_s32, vceqq_u8, vceqq_u16, vcgeq_f32, vcgeq_s8, vcgeq_s16,
+    vcgeq_s32, vcgeq_u8, vcgeq_u16, vcgtq_f32, vcgtq_s8, vcgtq_s16, vcgtq_s32, vcgtq_u8, vcgtq_u16,
+    vcleq_f32, vcleq_s8, vcleq_s16, vcleq_u8, vcleq_u16, vcltq_f32, vcltq_s8, vcltq_s16, vcltq_u8,
+    vcltq_u16, vcombine_s16, vcombine_u8, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32,
+    vdupq_laneq_f32, vdupq_n_f32, vdupq_n_s8, vdupq_n_s16, vdupq_n_s32, vdupq_n_u8, vdupq_n_u16,
+    veorq_u32, vfmaq_f32, vget_low_s8, vget_low_s16, vld1q_f32, vld1q_s8, vld1q_s16, vld1q_s32,
+    vld1q_u8, vld1q_u16, vld1q_u32, vmaxq_f32, vminq_f32, vmovl_high_s8, vmovl_high_s16, vmovl_s8,
+    vmovl_s16, vmulq_f32, vmulq_s8, vmulq_s16, vmulq_s32, vmulq_u8, vmulq_u16, vmvnq_u32,
+    vnegq_f32, vnegq_s8, vnegq_s16, vnegq_s32, vorrq_u32, vqmovn_s32, vqmovun_s16, vshlq_n_s8,
+    vshlq_n_s16, vshlq_n_s32, vshlq_n_u16, vst1q_f32, vst1q_s8, vst1q_s16, vst1q_s32, vst1q_u8,
+    vst1q_u16, vsubq_f32, vsubq_s8, vsubq_s16, vsubq_s32, vsubq_u8, vsubq_u16, vzip1q_s8,
+    vzip1q_s16, vzip2q_s8, vzip2q_s16,
 };
 use std::mem::transmute;
 
@@ -57,9 +57,9 @@ unsafe impl Isa for ArmNeonIsa {
     fn i16(
         self,
     ) -> impl SignedIntOps<i16, Simd = Self::I16>
-           + NarrowSaturate<i16, u8, Output = Self::U8>
-           + Extend<i16, Output = Self::I32>
-           + Interleave<i16> {
+    + NarrowSaturate<i16, u8, Output = Self::U8>
+    + Extend<i16, Output = Self::I32>
+    + Interleave<i16> {
         self
     }
 
@@ -90,16 +90,18 @@ macro_rules! simd_ops_common {
 
         #[inline]
         unsafe fn load_ptr_mask(self, ptr: *const <$simd as Simd>::Elem, mask: $mask) -> $simd {
-            type Elem = <$simd as Simd>::Elem;
+            unsafe {
+                type Elem = <$simd as Simd>::Elem;
 
-            let mask_array = Mask::to_array(mask);
-            let mut vec = Simd::to_array(<Self as NumOps<Elem>>::zero(self));
-            for i in 0..mask_array.len() {
-                if mask_array[i] {
-                    vec[i] = *ptr.add(i);
+                let mask_array = Mask::to_array(mask);
+                let mut vec = Simd::to_array(<Self as NumOps<Elem>>::zero(self));
+                for i in 0..mask_array.len() {
+                    if mask_array[i] {
+                        vec[i] = *ptr.add(i);
+                    }
                 }
+                self.load_ptr(vec.as_ref().as_ptr())
             }
-            self.load_ptr(vec.as_ref().as_ptr())
         }
 
         #[inline]
@@ -109,13 +111,15 @@ macro_rules! simd_ops_common {
             ptr: *mut <$simd as Simd>::Elem,
             mask: <$simd as Simd>::Mask,
         ) {
-            type Elem = <$simd as Simd>::Elem;
+            unsafe {
+                type Elem = <$simd as Simd>::Elem;
 
-            let mask_array = Mask::to_array(mask);
-            let x_array = Simd::to_array(x);
-            for i in 0..<Self as NumOps<Elem>>::len(self) {
-                if mask_array[i] {
-                    *ptr.add(i) = x_array[i];
+                let mask_array = Mask::to_array(mask);
+                let x_array = Simd::to_array(x);
+                for i in 0..<Self as NumOps<Elem>>::len(self) {
+                    if mask_array[i] {
+                        *ptr.add(i) = x_array[i];
+                    }
                 }
             }
         }

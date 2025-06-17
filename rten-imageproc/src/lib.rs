@@ -18,14 +18,14 @@ mod normalize;
 mod poly_algos;
 mod shapes;
 
-pub use contours::{find_contours, RetrievalMode};
-pub use drawing::{draw_line, draw_polygon, fill_rect, stroke_rect, FillIter, Painter, Rgb};
+pub use contours::{RetrievalMode, find_contours};
+pub use drawing::{FillIter, Painter, Rgb, draw_line, draw_polygon, fill_rect, stroke_rect};
 pub use math::Vec2;
-pub use normalize::{normalize_image, IMAGENET_MEAN, IMAGENET_STD_DEV};
+pub use normalize::{IMAGENET_MEAN, IMAGENET_STD_DEV, normalize_image};
 pub use poly_algos::{convex_hull, min_area_rect, simplify_polygon, simplify_polyline};
 pub use shapes::{
-    bounding_rect, BoundingRect, Coord, Line, LineF, Point, PointF, Polygon, PolygonF, Polygons,
-    Rect, RectF, RotatedRect,
+    BoundingRect, Coord, Line, LineF, Point, PointF, Polygon, PolygonF, Polygons, Rect, RectF,
+    RotatedRect, bounding_rect,
 };
 
 #[cfg(test)]

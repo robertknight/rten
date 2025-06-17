@@ -46,20 +46,12 @@ impl Coord for i32 {
 
 /// Return the minimum of `a` and `b`, or `a` if `a` and `b` are unordered.
 fn min_or_lhs<T: PartialOrd>(a: T, b: T) -> T {
-    if b < a {
-        b
-    } else {
-        a
-    }
+    if b < a { b } else { a }
 }
 
 /// Return the maximum of `a` and `b`, or `a` if `a` and `b` are unordered.
 fn max_or_lhs<T: PartialOrd>(a: T, b: T) -> T {
-    if b > a {
-        b
-    } else {
-        a
-    }
+    if b > a { b } else { a }
 }
 
 /// A point defined by X and Y coordinates.
@@ -1156,10 +1148,10 @@ mod tests {
     use rten_tensor::{MatrixLayout, NdTensor};
     use rten_testing::TestCases;
 
-    use crate::tests::{points_from_coords, points_from_n_coords};
     use crate::Vec2;
+    use crate::tests::{points_from_coords, points_from_n_coords};
 
-    use super::{bounding_rect, BoundingRect, Line, Point, PointF, Polygon, Rect, RotatedRect};
+    use super::{BoundingRect, Line, Point, PointF, Polygon, Rect, RotatedRect, bounding_rect};
 
     #[test]
     fn test_bounding_rect() {

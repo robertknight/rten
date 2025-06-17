@@ -1,7 +1,7 @@
 [package]
 name = "rten-vecmath"
 version = "0.19.0"
-edition = "2021"
+edition = "2024"
 authors = ["Robert Knight"]
 description = "SIMD vectorized implementations of various math functions used in ML models"
 license = "MIT OR Apache-2.0"

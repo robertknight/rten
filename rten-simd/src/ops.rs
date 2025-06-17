@@ -62,9 +62,9 @@ pub unsafe trait Isa: Copy {
     fn i16(
         self,
     ) -> impl SignedIntOps<i16, Simd = Self::I16>
-           + NarrowSaturate<i16, u8, Output = Self::U8>
-           + Extend<i16, Output = Self::I32>
-           + Interleave<i16>;
+    + NarrowSaturate<i16, u8, Output = Self::U8>
+    + Extend<i16, Output = Self::I32>
+    + Interleave<i16>;
 
     /// Operations on SIMD vectors with `i8` elements.
     fn i8(
@@ -572,15 +572,15 @@ mod tests {
     use crate::ops::{
         Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
     };
-    use crate::{assert_simd_eq, assert_simd_ne, test_simd_op, Isa, Mask, Simd, SimdOp};
+    use crate::{Isa, Mask, Simd, SimdOp, assert_simd_eq, assert_simd_ne, test_simd_op};
 
     // Generate tests for operations available on all numeric types.
     macro_rules! test_num_ops {
         ($modname:ident, $elem:ident) => {
             mod $modname {
                 use super::{
-                    assert_simd_eq, assert_simd_ne, test_simd_op, Isa, Mask, NumOps, Simd, SimdOp,
-                    WrappingAdd,
+                    Isa, Mask, NumOps, Simd, SimdOp, WrappingAdd, assert_simd_eq, assert_simd_ne,
+                    test_simd_op,
                 };
 
                 #[test]
@@ -904,7 +904,7 @@ mod tests {
     macro_rules! test_float_ops {
         ($modname:ident, $elem:ident, $int_elem:ident) => {
             mod $modname {
-                use super::{assert_simd_eq, test_simd_op, FloatOps, Isa, NumOps, Simd, SimdOp};
+                use super::{FloatOps, Isa, NumOps, Simd, SimdOp, assert_simd_eq, test_simd_op};
 
                 #[test]
                 fn test_div() {
@@ -983,7 +983,7 @@ mod tests {
     macro_rules! test_unsigned_int_ops {
         ($modname:ident, $elem:ident) => {
             mod $modname {
-                use super::{assert_simd_eq, test_simd_op, IntOps, Isa, NumOps, Simd, SimdOp};
+                use super::{IntOps, Isa, NumOps, Simd, SimdOp, assert_simd_eq, test_simd_op};
 
                 #[test]
                 fn test_shift_left() {
@@ -1007,7 +1007,7 @@ mod tests {
         ($modname:ident, $elem:ident) => {
             mod $modname {
                 use super::{
-                    assert_simd_eq, test_simd_op, IntOps, Isa, NumOps, SignedIntOps, Simd, SimdOp,
+                    IntOps, Isa, NumOps, SignedIntOps, Simd, SimdOp, assert_simd_eq, test_simd_op,
                 };
 
                 #[test]

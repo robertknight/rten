@@ -1,13 +1,13 @@
 use std::iter::repeat;
 use std::ops::Range;
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 use crate::errors::{DimensionError, ExpandError, FromDataError, ReshapeError, SliceError};
 use crate::index_iterator::{DynIndices, NdIndices};
 use crate::overlap::{is_contiguous, may_have_internal_overlap};
 use crate::slice_range::{IntoSliceItems, SliceItem};
-use crate::type_num::{OptionalUInt, Unknown, U0, U1, U2, U3, U4, U5};
+use crate::type_num::{OptionalUInt, U0, U1, U2, U3, U4, U5, Unknown};
 
 /// Return true if `permutation` is a valid permutation of dimensions for
 /// a tensor of rank `ndim`.
@@ -1529,9 +1529,9 @@ mod tests {
     use std::ops::Range;
 
     use super::OverlapPolicy;
+    use crate::SliceItem;
     use crate::errors::{ReshapeError, SliceError};
     use crate::layout::{DynLayout, Layout, MutLayout, NdLayout, ResizeLayout};
-    use crate::SliceItem;
 
     fn layout_with_strides<const N: usize>(shape: [usize; N], strides: [usize; N]) -> NdLayout<N> {
         NdLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap).unwrap()

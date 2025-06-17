@@ -54,7 +54,7 @@ impl<'a, T> AssumeInit for &'a [MaybeUninit<T>] {
     type Output = &'a [T];
 
     unsafe fn assume_init(self) -> Self::Output {
-        std::mem::transmute(self)
+        unsafe { std::mem::transmute(self) }
     }
 }
 
@@ -62,7 +62,7 @@ impl<'a, T> AssumeInit for &'a mut [MaybeUninit<T>] {
     type Output = &'a mut [T];
 
     unsafe fn assume_init(self) -> Self::Output {
-        std::mem::transmute(self)
+        unsafe { std::mem::transmute(self) }
     }
 }
 

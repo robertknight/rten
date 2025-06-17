@@ -1,24 +1,24 @@
 use std::arch::x86_64::{
-    __m512, __m512i, __mmask16, __mmask32, __mmask64, _mm512_add_epi16, _mm512_add_epi32,
-    _mm512_add_epi8, _mm512_add_ps, _mm512_and_ps, _mm512_and_si512, _mm512_andnot_ps,
-    _mm512_andnot_si512, _mm512_castsi256_si512, _mm512_cmp_epi16_mask, _mm512_cmp_epi32_mask,
-    _mm512_cmp_epu16_mask, _mm512_cmp_ps_mask, _mm512_cmpeq_epi8_mask, _mm512_cmpeq_epu8_mask,
-    _mm512_cmpge_epi8_mask, _mm512_cmpge_epu8_mask, _mm512_cmpgt_epi8_mask, _mm512_cmpgt_epu8_mask,
-    _mm512_cvtepi16_epi32, _mm512_cvtepi16_epi8, _mm512_cvtepi8_epi16, _mm512_cvtepu8_epi16,
-    _mm512_cvtps_epi32, _mm512_cvttps_epi32, _mm512_div_ps, _mm512_extracti64x4_epi64,
-    _mm512_fmadd_ps, _mm512_inserti64x4, _mm512_loadu_ps, _mm512_loadu_si512,
-    _mm512_mask_blend_epi16, _mm512_mask_blend_epi32, _mm512_mask_blend_epi8, _mm512_mask_blend_ps,
-    _mm512_mask_loadu_epi16, _mm512_mask_loadu_epi32, _mm512_mask_loadu_epi8, _mm512_mask_loadu_ps,
-    _mm512_mask_storeu_epi16, _mm512_mask_storeu_epi32, _mm512_mask_storeu_epi8,
-    _mm512_mask_storeu_ps, _mm512_max_ps, _mm512_min_ps, _mm512_mul_ps, _mm512_mullo_epi16,
-    _mm512_mullo_epi32, _mm512_or_ps, _mm512_or_si512, _mm512_packs_epi32, _mm512_packus_epi16,
-    _mm512_permutex2var_epi32, _mm512_permutexvar_epi64, _mm512_reduce_add_ps, _mm512_set1_epi16,
-    _mm512_set1_epi32, _mm512_set1_epi8, _mm512_set1_ps, _mm512_setr_epi32, _mm512_setr_epi64,
-    _mm512_setzero_si512, _mm512_sllv_epi16, _mm512_sllv_epi32, _mm512_storeu_ps,
-    _mm512_storeu_si512, _mm512_sub_epi16, _mm512_sub_epi32, _mm512_sub_epi8, _mm512_sub_ps,
-    _mm512_unpackhi_epi16, _mm512_unpackhi_epi8, _mm512_unpacklo_epi16, _mm512_unpacklo_epi8,
-    _mm512_xor_ps, _mm512_xor_si512, _mm_prefetch, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ,
-    _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT, _MM_HINT_ET0, _MM_HINT_T0,
+    __m512, __m512i, __mmask16, __mmask32, __mmask64, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ,
+    _CMP_LE_OQ, _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT, _MM_HINT_ET0,
+    _MM_HINT_T0, _mm_prefetch, _mm512_add_epi8, _mm512_add_epi16, _mm512_add_epi32, _mm512_add_ps,
+    _mm512_and_ps, _mm512_and_si512, _mm512_andnot_ps, _mm512_andnot_si512, _mm512_castsi256_si512,
+    _mm512_cmp_epi16_mask, _mm512_cmp_epi32_mask, _mm512_cmp_epu16_mask, _mm512_cmp_ps_mask,
+    _mm512_cmpeq_epi8_mask, _mm512_cmpeq_epu8_mask, _mm512_cmpge_epi8_mask, _mm512_cmpge_epu8_mask,
+    _mm512_cmpgt_epi8_mask, _mm512_cmpgt_epu8_mask, _mm512_cvtepi8_epi16, _mm512_cvtepi16_epi8,
+    _mm512_cvtepi16_epi32, _mm512_cvtepu8_epi16, _mm512_cvtps_epi32, _mm512_cvttps_epi32,
+    _mm512_div_ps, _mm512_extracti64x4_epi64, _mm512_fmadd_ps, _mm512_inserti64x4, _mm512_loadu_ps,
+    _mm512_loadu_si512, _mm512_mask_blend_epi8, _mm512_mask_blend_epi16, _mm512_mask_blend_epi32,
+    _mm512_mask_blend_ps, _mm512_mask_loadu_epi8, _mm512_mask_loadu_epi16, _mm512_mask_loadu_epi32,
+    _mm512_mask_loadu_ps, _mm512_mask_storeu_epi8, _mm512_mask_storeu_epi16,
+    _mm512_mask_storeu_epi32, _mm512_mask_storeu_ps, _mm512_max_ps, _mm512_min_ps, _mm512_mul_ps,
+    _mm512_mullo_epi16, _mm512_mullo_epi32, _mm512_or_ps, _mm512_or_si512, _mm512_packs_epi32,
+    _mm512_packus_epi16, _mm512_permutex2var_epi32, _mm512_permutexvar_epi64, _mm512_reduce_add_ps,
+    _mm512_set1_epi8, _mm512_set1_epi16, _mm512_set1_epi32, _mm512_set1_ps, _mm512_setr_epi32,
+    _mm512_setr_epi64, _mm512_setzero_si512, _mm512_sllv_epi16, _mm512_sllv_epi32,
+    _mm512_storeu_ps, _mm512_storeu_si512, _mm512_sub_epi8, _mm512_sub_epi16, _mm512_sub_epi32,
+    _mm512_sub_ps, _mm512_unpackhi_epi8, _mm512_unpackhi_epi16, _mm512_unpacklo_epi8,
+    _mm512_unpacklo_epi16, _mm512_xor_ps, _mm512_xor_si512,
 };
 use std::mem::transmute;
 
@@ -74,9 +74,9 @@ unsafe impl Isa for Avx512Isa {
     fn i16(
         self,
     ) -> impl SignedIntOps<i16, Simd = Self::I16>
-           + NarrowSaturate<i16, u8, Output = Self::U8>
-           + Extend<i16, Output = Self::I32>
-           + Interleave<i16> {
+    + NarrowSaturate<i16, u8, Output = Self::U8>
+    + Extend<i16, Output = Self::I32>
+    + Interleave<i16> {
         self
     }
 

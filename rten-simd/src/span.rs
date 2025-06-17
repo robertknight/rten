@@ -1,6 +1,6 @@
 //! Slice-like types used as inputs and outputs for vectorized operations.
 
-use std::mem::{transmute, MaybeUninit};
+use std::mem::{MaybeUninit, transmute};
 
 enum SrcDestInner<'src, 'dst, T> {
     InOut(&'src [T], &'dst mut [MaybeUninit<T>]),
@@ -58,9 +58,13 @@ impl<'dst, T: Copy> SrcDest<'_, 'dst, T> {
     /// If this instance was constructed with an uninitialized destination
     /// buffer, all elements must have been initialized before this is called.
     pub unsafe fn dest_assume_init(self) -> &'dst mut [T] {
-        match self.inner {
-            SrcDestInner::InOut(_src, dest) => transmute::<&mut [MaybeUninit<T>], &mut [T]>(dest),
-            SrcDestInner::InMut(src) => src,
+        unsafe {
+            match self.inner {
+                SrcDestInner::InOut(_src, dest) => {
+                    transmute::<&mut [MaybeUninit<T>], &mut [T]>(dest)
+                }
+                SrcDestInner::InMut(src) => src,
+            }
         }
     }
 }

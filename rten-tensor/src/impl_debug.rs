@@ -216,7 +216,8 @@ mod tests {
                 opts: FormatOptions::default(),
                 expected: "
 [[1.0, 2.0],
- [3.0, 4.0]], shape=[2, 2], strides=[2, 1]".trim(),
+ [3.0, 4.0]], shape=[2, 2], strides=[2, 1]"
+                    .trim(),
             },
             // Matrix with elided rows
             Case {
@@ -228,7 +229,8 @@ mod tests {
                 expected: "
 [[1.0, 2.0],
  [3.0, 4.0],
- ...], shape=[3, 2], strides=[2, 1]".trim(),
+ ...], shape=[3, 2], strides=[2, 1]"
+                    .trim(),
             },
             // 3D
             Case {
@@ -236,7 +238,8 @@ mod tests {
                 opts: FormatOptions::default(),
                 expected: "
 [[[1.0, 2.0],
-  [3.0, 4.0]]], shape=[1, 2, 2], strides=[4, 2, 1]".trim(),
+  [3.0, 4.0]]], shape=[1, 2, 2], strides=[4, 2, 1]"
+                    .trim(),
             },
             // 3D
             Case {
@@ -258,7 +261,8 @@ mod tests {
 
  ...
 
-], shape=[3, 2, 2], strides=[4, 2, 1]".trim(),
+], shape=[3, 2, 2], strides=[4, 2, 1]"
+                    .trim(),
             },
             // 4D
             Case {
@@ -266,7 +270,8 @@ mod tests {
                 opts: FormatOptions::default(),
                 expected: "
 [[[[1.0, 2.0],
-   [3.0, 4.0]]]], shape=[1, 1, 2, 2], strides=[4, 4, 2, 1]".trim(),
+   [3.0, 4.0]]]], shape=[1, 1, 2, 2], strides=[4, 4, 2, 1]"
+                    .trim(),
             },
         ];
 

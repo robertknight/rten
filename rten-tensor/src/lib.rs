@@ -127,10 +127,10 @@ pub use iterators::{
     Lanes, LanesMut,
 };
 pub use layout::{
-    is_valid_permutation, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
-    OverlapPolicy, ResizeLayout,
+    DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout, OverlapPolicy, ResizeLayout,
+    is_valid_permutation,
 };
-pub use slice_range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
+pub use slice_range::{DynSliceItems, IntoSliceItems, SliceItem, SliceRange, to_slice_items};
 
 pub use tensor::{
     AsView, CowNdTensor, CowTensor, Matrix, MatrixMut, NdTensor, NdTensorView, NdTensorViewMut,

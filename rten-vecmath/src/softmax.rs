@@ -119,7 +119,7 @@ mod tests {
     use rten_simd::SimdOp;
 
     use super::Softmax;
-    use crate::testing::{benchmark_op, check_f32s_are_equal_ulps, triples, AsUninit};
+    use crate::testing::{AsUninit, benchmark_op, check_f32s_are_equal_ulps, triples};
 
     fn reference_softmax(xs: &[f32], ys: &mut [f32]) {
         let max = xs.iter().copied().fold(f32::MIN, |max, x| max.max(x));

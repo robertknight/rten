@@ -256,9 +256,9 @@ mod tests {
 
     use rten_simd::SimdUnaryOp;
 
-    use super::{ReducedRangeExp, EXP_LOWER_CUTOFF};
+    use super::{EXP_LOWER_CUTOFF, ReducedRangeExp};
     use crate::testing::{
-        arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,
+        AsUninit, arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s,
     };
     use crate::{Exp, Sigmoid, Silu, Swish};
 

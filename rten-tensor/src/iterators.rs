@@ -3,7 +3,7 @@ use std::mem::transmute;
 use std::ops::Range;
 use std::slice;
 
-use crate::layout::{merge_axes, Layout, NdLayout, OverlapPolicy, RemoveDim};
+use crate::layout::{Layout, NdLayout, OverlapPolicy, RemoveDim, merge_axes};
 use crate::slice_range::SliceItem;
 use crate::storage::{StorageMut, ViewData, ViewMutData};
 
