@@ -60,12 +60,10 @@ pub unsafe trait Storage {
     /// - The caller must ensure that no mutable references to the same element
     ///   can be created.
     unsafe fn get(&self, offset: usize) -> Option<&Self::Elem> {
-        unsafe {
-            if offset < self.len() {
-                Some(&*self.as_ptr().add(offset))
-            } else {
-                None
-            }
+        if offset < self.len() {
+            Some(unsafe { &*self.as_ptr().add(offset) })
+        } else {
+            None
         }
     }
 
@@ -76,10 +74,8 @@ pub unsafe trait Storage {
     /// This has the same safety requirements as [`get`](Storage::get) plus
     /// the caller must ensure that `offset < len`.
     unsafe fn get_unchecked(&self, offset: usize) -> &Self::Elem {
-        unsafe {
-            debug_assert!(offset < self.len());
-            &*self.as_ptr().add(offset)
-        }
+        debug_assert!(offset < self.len());
+        unsafe { &*self.as_ptr().add(offset) }
     }
 
     /// Return a view of a sub-region of the storage.
@@ -195,12 +191,10 @@ pub unsafe trait StorageMut: Storage {
     ///
     /// This has the same safety requirements as [`get`](Storage::get).
     unsafe fn get_mut(&mut self, offset: usize) -> Option<&mut Self::Elem> {
-        unsafe {
-            if offset < self.len() {
-                Some(&mut *self.as_mut_ptr().add(offset))
-            } else {
-                None
-            }
+        if offset < self.len() {
+            Some(unsafe { &mut *self.as_mut_ptr().add(offset) })
+        } else {
+            None
         }
     }
 
@@ -211,10 +205,8 @@ pub unsafe trait StorageMut: Storage {
     /// This has the same requirement as [`get_mut`](StorageMut::get_mut) plus
     /// the caller must ensure that `offset < self.len()`.
     unsafe fn get_unchecked_mut(&mut self, offset: usize) -> &mut Self::Elem {
-        unsafe {
-            debug_assert!(offset < self.len());
-            &mut *self.as_mut_ptr().add(offset)
-        }
+        debug_assert!(offset < self.len());
+        unsafe { &mut *self.as_mut_ptr().add(offset) }
     }
 
     /// Return a slice of this storage.

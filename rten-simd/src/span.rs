@@ -58,13 +58,11 @@ impl<'dst, T: Copy> SrcDest<'_, 'dst, T> {
     /// If this instance was constructed with an uninitialized destination
     /// buffer, all elements must have been initialized before this is called.
     pub unsafe fn dest_assume_init(self) -> &'dst mut [T] {
-        unsafe {
-            match self.inner {
-                SrcDestInner::InOut(_src, dest) => {
-                    transmute::<&mut [MaybeUninit<T>], &mut [T]>(dest)
-                }
-                SrcDestInner::InMut(src) => src,
-            }
+        match self.inner {
+            SrcDestInner::InOut(_src, dest) => unsafe {
+                transmute::<&mut [MaybeUninit<T>], &mut [T]>(dest)
+            },
+            SrcDestInner::InMut(src) => src,
         }
     }
 }

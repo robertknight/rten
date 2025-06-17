@@ -90,18 +90,16 @@ macro_rules! simd_ops_common {
 
         #[inline]
         unsafe fn load_ptr_mask(self, ptr: *const <$simd as Simd>::Elem, mask: $mask) -> $simd {
-            unsafe {
-                type Elem = <$simd as Simd>::Elem;
+            type Elem = <$simd as Simd>::Elem;
 
-                let mask_array = Mask::to_array(mask);
-                let mut vec = Simd::to_array(<Self as NumOps<Elem>>::zero(self));
-                for i in 0..mask_array.len() {
-                    if mask_array[i] {
-                        vec[i] = *ptr.add(i);
-                    }
+            let mask_array = Mask::to_array(mask);
+            let mut vec = Simd::to_array(<Self as NumOps<Elem>>::zero(self));
+            for i in 0..mask_array.len() {
+                if mask_array[i] {
+                    vec[i] = unsafe { *ptr.add(i) };
                 }
-                self.load_ptr(vec.as_ref().as_ptr())
             }
+            unsafe { self.load_ptr(vec.as_ref().as_ptr()) }
         }
 
         #[inline]
@@ -111,15 +109,13 @@ macro_rules! simd_ops_common {
             ptr: *mut <$simd as Simd>::Elem,
             mask: <$simd as Simd>::Mask,
         ) {
-            unsafe {
-                type Elem = <$simd as Simd>::Elem;
+            type Elem = <$simd as Simd>::Elem;
 
-                let mask_array = Mask::to_array(mask);
-                let x_array = Simd::to_array(x);
-                for i in 0..<Self as NumOps<Elem>>::len(self) {
-                    if mask_array[i] {
-                        *ptr.add(i) = x_array[i];
-                    }
+            let mask_array = Mask::to_array(mask);
+            let x_array = Simd::to_array(x);
+            for i in 0..<Self as NumOps<Elem>>::len(self) {
+                if mask_array[i] {
+                    unsafe { *ptr.add(i) = x_array[i] };
                 }
             }
         }

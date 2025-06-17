@@ -123,16 +123,14 @@ macro_rules! simd_ops_common {
             ptr: *const <$simd as Simd>::Elem,
             mask: <$simd as Simd>::Mask,
         ) -> $simd {
-            unsafe {
-                let mask_array = mask.0;
-                let mut vec = <Self as NumOps<$elem>>::zero(self).0;
-                for i in 0..mask_array.len() {
-                    if mask_array[i] != 0 {
-                        vec[i] = *ptr.add(i);
-                    }
+            let mask_array = mask.0;
+            let mut vec = <Self as NumOps<$elem>>::zero(self).0;
+            for i in 0..mask_array.len() {
+                if mask_array[i] != 0 {
+                    vec[i] = unsafe { *ptr.add(i) };
                 }
-                self.load_ptr(vec.as_ref().as_ptr())
             }
+            unsafe { self.load_ptr(vec.as_ref().as_ptr()) }
         }
 
         #[inline]
@@ -142,11 +140,11 @@ macro_rules! simd_ops_common {
             ptr: *mut <$simd as Simd>::Elem,
             mask: <$simd as Simd>::Mask,
         ) {
-            unsafe {
-                let mask_array = mask.0;
-                let x_array = x.0;
-                for i in 0..<Self as NumOps<$elem>>::len(self) {
-                    if mask_array[i] != 0 {
+            let mask_array = mask.0;
+            let x_array = x.0;
+            for i in 0..<Self as NumOps<$elem>>::len(self) {
+                if mask_array[i] != 0 {
+                    unsafe {
                         *ptr.add(i) = x_array[i];
                     }
                 }
@@ -214,10 +212,8 @@ macro_rules! simd_ops_common {
 
         #[inline]
         unsafe fn load_ptr(self, ptr: *const $elem) -> $simd {
-            unsafe {
-                let xs = array::from_fn(|i| *ptr.add(i));
-                $simd(xs)
-            }
+            let xs = array::from_fn(|i| unsafe { *ptr.add(i) });
+            $simd(xs)
         }
 
         #[inline]
@@ -228,10 +224,8 @@ macro_rules! simd_ops_common {
 
         #[inline]
         unsafe fn store_ptr(self, x: $simd, ptr: *mut $elem) {
-            unsafe {
-                for i in 0..$len {
-                    *ptr.add(i) = x.0[i];
-                }
+            for i in 0..$len {
+                unsafe { *ptr.add(i) = x.0[i] };
             }
         }
     };
