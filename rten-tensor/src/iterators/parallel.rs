@@ -2,9 +2,8 @@ use rayon::iter::plumbing::{bridge, Consumer, Producer, ProducerCallback, Uninde
 use rayon::prelude::*;
 
 use super::{
-    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, IndexingIter, IndexingIterMut, InnerIter,
-    InnerIterBase, InnerIterMut, Iter, IterKind, IterMut, IterMutKind, LaneRanges, Lanes, LanesMut,
-    Offsets,
+    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterBase, InnerIterMut, Iter,
+    IterMut, LaneRanges, Lanes, LanesMut, Offsets, OffsetsKind,
 };
 use crate::layout::RemoveDim;
 use crate::{Layout, MutLayout, Storage};
@@ -118,8 +117,19 @@ impl<I: SplitIterator + Send> Producer for ParIter<I> {
 
 impl SplitIterator for Offsets {
     fn split_at(self, index: usize) -> (Self, Self) {
-        let (left_base, right_base) = self.base.split_at(index);
-        (Offsets { base: left_base }, Offsets { base: right_base })
+        assert!(index <= self.len());
+        let (left_kind, right_kind) = match self.base {
+            OffsetsKind::Range(r) => {
+                let left = r.start..r.start + index;
+                let right = r.start + index..r.end;
+                (OffsetsKind::Range(left), OffsetsKind::Range(right))
+            }
+            OffsetsKind::Indexing(base) => {
+                let (left, right) = base.split_at(index);
+                (OffsetsKind::Indexing(left), OffsetsKind::Indexing(right))
+            }
+        };
+        (Offsets { base: left_kind }, Offsets { base: right_kind })
     }
 }
 
@@ -275,29 +285,16 @@ impl<'a, T, L: MutLayout + Send> IntoParallelIterator for AxisChunksMut<'a, T, L
 
 impl<'a, T> SplitIterator for Iter<'a, T> {
     fn split_at(self, index: usize) -> (Self, Self) {
-        let (left, right) = match self.iter {
-            IterKind::Direct(iter) => {
-                let (left_slice, right_slice) = iter.as_slice().split_at(index);
-                (
-                    IterKind::Direct(left_slice.iter()),
-                    IterKind::Direct(right_slice.iter()),
-                )
-            }
-            IterKind::Indexing(iter) => {
-                let (left_base, right_base) = iter.base.split_at(index);
-                let left = IndexingIter {
-                    base: left_base,
-                    data: iter.data,
-                };
-                let right = IndexingIter {
-                    base: right_base,
-                    data: iter.data,
-                };
-                (IterKind::Indexing(left), IterKind::Indexing(right))
-            }
+        let (left_offsets, right_offsets) = self.offsets.split_at(index);
+        let left = Self {
+            offsets: left_offsets,
+            data: self.data,
         };
-
-        (Self { iter: left }, Self { iter: right })
+        let right = Self {
+            offsets: right_offsets,
+            data: self.data,
+        };
+        (left, right)
     }
 }
 
@@ -307,35 +304,18 @@ impl<'a, T: Sync> IntoParallelIterator for Iter<'a, T> {
 
 impl<'a, T> SplitIterator for IterMut<'a, T> {
     fn split_at(self, index: usize) -> (Self, Self) {
-        let (left, right) = match self.iter {
-            IterMutKind::Direct(iter) => {
-                let (left_slice, right_slice) = iter.into_slice().split_at_mut(index);
-                (
-                    IterMutKind::Direct(left_slice.iter_mut()),
-                    IterMutKind::Direct(right_slice.iter_mut()),
-                )
-            }
-            IterMutKind::Indexing(iter) => {
-                let (left_base, right_base) = iter.base.split_at(index);
-                let len = iter.data.len();
-
-                // Safety note: `split_mut` relies on the caller to ensure that
-                // associated layouts do not overlap.
-                let (left_data, right_data) = iter.data.split_mut(0..len, 0..len);
-
-                let left = IndexingIterMut {
-                    base: left_base,
-                    data: left_data,
-                };
-                let right = IndexingIterMut {
-                    base: right_base,
-                    data: right_data,
-                };
-                (IterMutKind::Indexing(left), IterMutKind::Indexing(right))
-            }
+        let (left_offsets, right_offsets) = self.offsets.split_at(index);
+        let len = self.data.len();
+        let (left_data, right_data) = self.data.split_mut(0..len, 0..len);
+        let left = Self {
+            offsets: left_offsets,
+            data: left_data,
         };
-
-        (Self { iter: left }, Self { iter: right })
+        let right = Self {
+            offsets: right_offsets,
+            data: right_data,
+        };
+        (left, right)
     }
 }
 
