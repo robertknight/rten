@@ -7,8 +7,9 @@ use wasm_bindgen::prelude::*;
 
 use crate::graph::{Dimension, NodeId};
 use crate::model;
-use crate::ops::{matmul, Value, ValueOrView};
+use crate::ops::matmul;
 use crate::tensor_pool::TensorPool;
+use crate::value::{Value, ValueOrView};
 
 #[wasm_bindgen]
 pub struct Model {

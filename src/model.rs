@@ -22,12 +22,12 @@ use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
 use crate::number::LeBytes;
 use crate::op_registry::{convert_dtype, OpLoadContext, OpRegistry, ReadOpError};
-use crate::ops::{DataType, Value, ValueOrView};
 use crate::optimize::GraphOptimizer;
 use crate::schema_generated as sg;
 use crate::schema_generated::root_as_model;
 use crate::slice_cast::{cast_pod_slice, Pod};
 use crate::timing::TimingSort;
+use crate::value::{DataType, Value, ValueOrView};
 use crate::weight_cache::WeightCache;
 
 /// The central type used to execute RTen machine learning models.
@@ -916,9 +916,10 @@ mod tests {
     };
     use crate::ops;
     use crate::ops::{
-        BoxOrder, CoordTransformMode, DataType, DepthToSpaceMode, NearestMode, OpError, ResizeMode,
-        Scalar, Shape, Value,
+        BoxOrder, CoordTransformMode, DepthToSpaceMode, NearestMode, OpError, ResizeMode, Scalar,
+        Shape,
     };
+    use crate::value::{DataType, Value};
     use crate::OpRegistry;
 
     fn generate_model_buffer(format: ModelFormat) -> Vec<u8> {
@@ -1359,7 +1360,7 @@ mod tests {
             { epsilon: 1e-5 }
         );
 
-        add_operator!(Cast, [input_node], { to: ops::DataType::Float });
+        add_operator!(Cast, [input_node], { to: DataType::Float });
         add_operator!(CastLike, [input_node, input_node], {});
         add_operator!(Ceil, [input_node]);
 

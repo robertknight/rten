@@ -6,7 +6,7 @@ use std::time::Duration;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use std::time;
 
-use crate::ops::ValueMeta;
+use crate::value::ValueMeta;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 type Seconds = f64;

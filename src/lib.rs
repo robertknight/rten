@@ -131,6 +131,7 @@ mod slice_reductions;
 mod tensor_pool;
 mod threading;
 mod timing;
+mod value;
 mod weight_cache;
 
 #[cfg(feature = "wasm_api")]
@@ -146,10 +147,11 @@ pub use graph::{Dimension, NodeId, RunError, RunOptions};
 pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo};
 pub use model_metadata::ModelMetadata;
 pub use op_registry::{OpRegistry, ReadOp, ReadOpError};
-pub use ops::{DataType, FloatOperators, Operators, Value, ValueOrView, ValueView};
+pub use ops::{FloatOperators, Operators};
 pub use tensor_pool::{ExtractBuffer, PoolRef, TensorPool};
 pub use threading::{thread_pool, ThreadPool};
 pub use timing::TimingSort;
+pub use value::{DataType, Value, ValueOrView, ValueView};
 
 // Deprecated aliases for `ValueView`, `ValueOrView` and `Value`.
 #[allow(deprecated)]

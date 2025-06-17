@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
 
-use crate::ops::{Value, ValueOrView, ValueView};
+use crate::value::{Value, ValueOrView, ValueView};
 
 use super::{Graph, Node, NodeId};
 
