@@ -16,8 +16,8 @@ mod pattern_matcher;
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion,
-    LayerNormalizationFusion, MatMulAddFusion, MatMulScaleFusion, RmsNormalizationFusion,
-    SiluFusion, SwishFusion, TransposeFusion, UnaryOpFusion,
+    LayerNormalizationFusion, MatMulAddFusion, MatMulScaleFusion, PatternFusion,
+    RmsNormalizationFusion, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.

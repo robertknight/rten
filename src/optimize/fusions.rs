@@ -60,17 +60,23 @@ pub trait FusionVisitor {
 
 /// Define a fusion for a unary operator using a graph pattern.
 ///
-/// This provides a simpler way to define fusions for unary operators than
-/// implementing [`FusionVisitor`]. A `UnaryOpFusion` can be converted into
-/// a `FusionVisitor` using [`into_visitor`](UnaryOpFusion::into_visitor).
-pub trait UnaryOpFusion {
+/// This provides a simpler way to define fusions than implementing
+/// [`FusionVisitor`]. A `PatternFusion` can be converted into a `FusionVisitor`
+/// using [`into_visitor`](PatternFusion::into_visitor).
+pub trait PatternFusion {
     /// The fused operator produced by this fusion.
     type Operator: Operator + Send + Sync;
 
     /// Return the graph pattern to match.
-    ///
-    /// The pattern expression should have a single input named "x".
     fn pattern(&self) -> Pattern;
+
+    /// Return the names of input symbols in the pattern.
+    ///
+    /// The default implementation assumes the pattern has a single dynamic
+    /// input variable named "x".
+    fn inputs(&self) -> &[&'static str] {
+        &["x"]
+    }
 
     /// Create a fused operator given a successful match for the pattern.
     ///
@@ -83,14 +89,14 @@ pub trait UnaryOpFusion {
     where
         Self: Sized + 'static,
     {
-        UnaryOpFusionVisitor(self)
+        PatternFusionVisitor(self)
     }
 }
 
-/// Wraps a [`UnaryOpFusion`] to implement [`FusionVisitor`].
-struct UnaryOpFusionVisitor<F: UnaryOpFusion + 'static>(F);
+/// Wraps a [`PatternFusion`] to implement [`FusionVisitor`].
+struct PatternFusionVisitor<F: PatternFusion + 'static>(F);
 
-impl<U: UnaryOpFusion + 'static> FusionVisitor for UnaryOpFusionVisitor<U> {
+impl<U: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<U> {
     type State = Pattern;
 
     fn prepare(&self, _: &Graph) -> Pattern {
@@ -105,12 +111,17 @@ impl<U: UnaryOpFusion + 'static> FusionVisitor for UnaryOpFusionVisitor<U> {
         op_node: &OperatorNode,
     ) -> Option<Fusion> {
         let pat_match = pattern.test(op_node_id, graph)?;
-        let input_id = pat_match.node_id("x").expect("missing symbol");
+        let input_ids: Vec<_> = self
+            .0
+            .inputs()
+            .iter()
+            .map(|name| Some(pat_match.node_id(name).expect("missing symbol")))
+            .collect();
         let fused_op = self.0.maybe_fuse(&pat_match, graph).ok()?;
         let fusion = Fusion::from_op(
             op_node.name(),
             Box::new(fused_op),
-            &[Some(input_id)],
+            &input_ids,
             op_node.output_ids(),
         );
         Some(fusion)
@@ -134,7 +145,7 @@ impl GraphExt for Graph {
 
 pub struct GeluFusion {}
 
-impl UnaryOpFusion for GeluFusion {
+impl PatternFusion for GeluFusion {
     type Operator = Gelu;
 
     fn pattern(&self) -> Pattern {
@@ -154,7 +165,7 @@ impl UnaryOpFusion for GeluFusion {
 
 pub struct ApproxGeluFusion {}
 
-impl UnaryOpFusion for ApproxGeluFusion {
+impl PatternFusion for ApproxGeluFusion {
     type Operator = Gelu;
 
     fn pattern(&self) -> Pattern {
@@ -178,7 +189,7 @@ impl UnaryOpFusion for ApproxGeluFusion {
 
 pub struct SiluFusion {}
 
-impl UnaryOpFusion for SiluFusion {
+impl PatternFusion for SiluFusion {
     type Operator = Silu;
 
     fn pattern(&self) -> Pattern {
@@ -193,7 +204,7 @@ impl UnaryOpFusion for SiluFusion {
 
 pub struct SwishFusion {}
 
-impl UnaryOpFusion for SwishFusion {
+impl PatternFusion for SwishFusion {
     type Operator = Swish;
 
     fn pattern(&self) -> Pattern {
