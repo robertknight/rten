@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -15,8 +16,8 @@ mod pattern_matcher;
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion,
-    LayerNormalizationFusion, MatMulAddFusion, MatMulScaleFusion, RmsNormalizationFusion,
-    SiluFusion, SwishFusion, TransposeFusion, UnaryOpFusion,
+    LayerNormalizationFusion, MatMulAddFusion, MatMulScaleFusion, PatternFusion,
+    RmsNormalizationFusion, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -305,20 +306,20 @@ impl GraphOptimizer {
         self.apply_fusions(
             &mut graph_mut,
             &[
-                &SiluFusion {}.into_visitor(),
-                &SwishFusion {}.into_visitor(),
-                &GeluFusion {}.into_visitor(),
-                &ApproxGeluFusion {}.into_visitor(),
-                &LayerNormalizationFusion {},
-                &RmsNormalizationFusion {},
-                &MatMulAddFusion {},
-                &MatMulScaleFusion {},
-                &AddSoftmaxFusion {},
+                &DynFusion(SiluFusion {}.into_visitor()),
+                &DynFusion(SwishFusion {}.into_visitor()),
+                &DynFusion(GeluFusion {}.into_visitor()),
+                &DynFusion(ApproxGeluFusion {}.into_visitor()),
+                &DynFusion(LayerNormalizationFusion {}),
+                &DynFusion(RmsNormalizationFusion {}.into_visitor()),
+                &DynFusion(MatMulAddFusion {}.into_visitor()),
+                &DynFusion(MatMulScaleFusion {}),
+                &DynFusion(AddSoftmaxFusion {}.into_visitor()),
             ],
         )?;
 
         // Fuse view operations (transpose etc.) with computations.
-        self.apply_fusions(&mut graph_mut, &[&TransposeFusion {}])?;
+        self.apply_fusions(&mut graph_mut, &[&DynFusion(TransposeFusion {})])?;
 
         Ok(graph_mut.finalize_graph())
     }
@@ -405,7 +406,7 @@ impl GraphOptimizer {
     fn apply_fusions(
         &self,
         graph: &mut GraphMutator,
-        visitors: &[&dyn FusionVisitor],
+        visitors: &[&dyn DynFusionVisitor],
     ) -> Result<(), OptimizeError> {
         // Create the prepared state once and then re-use it for each operator
         // visited.
@@ -429,6 +430,43 @@ impl GraphOptimizer {
 impl Default for GraphOptimizer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// A dyn-compatible version of [`FusionVisitor`].
+///
+/// This replaces the associated `State` associated type with `dyn Any`.
+trait DynFusionVisitor {
+    fn prepare(&self, graph: &Graph) -> Box<dyn Any>;
+    fn maybe_fuse(
+        &self,
+        state: &dyn Any,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion>;
+}
+
+/// Wraps a fusion visitor to implement [`DynFusionVisitor`].
+struct DynFusion<F: FusionVisitor>(F);
+
+impl<F: FusionVisitor> DynFusionVisitor for DynFusion<F>
+where
+    F::State: Any,
+{
+    fn prepare(&self, graph: &Graph) -> Box<dyn Any> {
+        Box::new(self.0.prepare(graph))
+    }
+
+    fn maybe_fuse(
+        &self,
+        state: &dyn Any,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        let state = state.downcast_ref().unwrap();
+        self.0.maybe_fuse(state, graph, op_node_id, op_node)
     }
 }
 
