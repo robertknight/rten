@@ -13,6 +13,7 @@ use crate::optimize::pattern_matcher::{Match, Pattern};
 pub struct Fusion {
     /// The name of the graph node.
     pub name: Option<String>,
+
     pub fused_op: Box<dyn Operator + Send + Sync>,
 
     /// IDs of input value nodes.
@@ -58,13 +59,13 @@ pub trait FusionVisitor {
     ) -> Option<Fusion>;
 }
 
-/// Define a fusion for a unary operator using a graph pattern.
+/// Define a fusion for an operator using a graph pattern.
 ///
 /// This provides a simpler way to define fusions than implementing
 /// [`FusionVisitor`]. A `PatternFusion` can be converted into a `FusionVisitor`
 /// using [`into_visitor`](PatternFusion::into_visitor).
 pub trait PatternFusion {
-    /// The fused operator produced by this fusion.
+    /// The operator produced by this fusion.
     type Operator: Operator + Send + Sync;
 
     /// Return the graph pattern to match.
@@ -94,9 +95,9 @@ pub trait PatternFusion {
 }
 
 /// Wraps a [`PatternFusion`] to implement [`FusionVisitor`].
-struct PatternFusionVisitor<F: PatternFusion + 'static>(F);
+struct PatternFusionVisitor<PF: PatternFusion + 'static>(PF);
 
-impl<U: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<U> {
+impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
     type State = Pattern;
 
     fn prepare(&self, _: &Graph) -> Pattern {
@@ -129,12 +130,12 @@ impl<U: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<U> {
 }
 
 /// Additional graph querying methods used in fusions.
-trait GraphExt {
+trait GraphQuery {
     /// Extract the scalar value from a constant node.
     fn get_scalar(&self, node_id: NodeId) -> Option<f32>;
 }
 
-impl GraphExt for Graph {
+impl GraphQuery for Graph {
     fn get_scalar(&self, node_id: NodeId) -> Option<f32> {
         self.get_node(node_id).and_then(|node| match node {
             Node::Constant(const_node) => const_node.as_scalar(),
