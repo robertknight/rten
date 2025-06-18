@@ -74,7 +74,7 @@ pub trait PatternFusion {
     ///
     /// The default implementation assumes the pattern has a single dynamic
     /// input variable named "x".
-    fn inputs(&self) -> &[&'static str] {
+    fn inputs(&self) -> &[&str] {
         &["x"]
     }
 
@@ -387,7 +387,7 @@ impl PatternFusion for RmsNormalizationFusion {
             * scale
     }
 
-    fn inputs(&self) -> &[&'static str] {
+    fn inputs(&self) -> &[&str] {
         &["x", "scale"]
     }
 
@@ -424,7 +424,7 @@ impl PatternFusion for MatMulAddFusion {
         )
     }
 
-    fn inputs(&self) -> &[&'static str] {
+    fn inputs(&self) -> &[&str] {
         &["a", "b", "bias"]
     }
 
@@ -642,7 +642,7 @@ impl PatternFusion for AddSoftmaxFusion {
         .with_name("softmax")
     }
 
-    fn inputs(&self) -> &[&'static str] {
+    fn inputs(&self) -> &[&str] {
         &["qk", "mask"]
     }
 
