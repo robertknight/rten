@@ -82,7 +82,7 @@ pub trait PatternFusion {
     ///
     /// This can fail if there are additional requirements which cannot be
     /// expressed in the pattern.
-    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Self::Operator, ()>;
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Option<Self::Operator>;
 
     /// Wrap this fusion into a [`FusionVisitor`].
     fn into_visitor(self) -> impl FusionVisitor<State = Pattern>
@@ -117,7 +117,7 @@ impl<U: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<U> {
             .iter()
             .map(|name| Some(pat_match.node_id(name).expect("missing symbol")))
             .collect();
-        let fused_op = self.0.maybe_fuse(&pat_match, graph).ok()?;
+        let fused_op = self.0.maybe_fuse(&pat_match, graph)?;
         let fusion = Fusion::from_op(
             op_node.name(),
             Box::new(fused_op),
@@ -158,8 +158,8 @@ impl PatternFusion for GeluFusion {
         x.clone() * (Pattern::unary_op("Erf", x.clone() / (2.0f32).sqrt()) + 1.0) * 0.5
     }
 
-    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Self::Operator, ()> {
-        Ok(Gelu { approximate: false })
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Gelu> {
+        Some(Gelu { approximate: false })
     }
 }
 
@@ -182,8 +182,8 @@ impl PatternFusion for ApproxGeluFusion {
                 ))
     }
 
-    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Self::Operator, ()> {
-        Ok(Gelu { approximate: true })
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Gelu> {
+        Some(Gelu { approximate: true })
     }
 }
 
@@ -197,8 +197,8 @@ impl PatternFusion for SiluFusion {
         x.clone() * Pattern::unary_op("Sigmoid", x.clone())
     }
 
-    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Silu, ()> {
-        Ok(Silu {})
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Silu> {
+        Some(Silu {})
     }
 }
 
@@ -213,12 +213,10 @@ impl PatternFusion for SwishFusion {
         x.clone() * Pattern::unary_op("Sigmoid", beta * x.clone())
     }
 
-    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Swish, ()> {
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Option<Swish> {
         let beta_input = pat_match.node_id("beta").expect("missing symbol");
-        let Some(beta) = g.get_scalar(beta_input) else {
-            return Err(());
-        };
-        Ok(Swish { beta })
+        let beta = g.get_scalar(beta_input)?;
+        Some(Swish { beta })
     }
 }
 
@@ -363,10 +361,10 @@ impl FusionVisitor for LayerNormalizationFusion {
 /// See https://pytorch.org/docs/stable/generated/torch.nn.modules.normalization.RMSNorm.html.
 pub struct RmsNormalizationFusion {}
 
-impl FusionVisitor for RmsNormalizationFusion {
-    type State = Pattern;
+impl PatternFusion for RmsNormalizationFusion {
+    type Operator = RmsNormalization;
 
-    fn prepare(&self, _: &Graph) -> Pattern {
+    fn pattern(&self) -> Pattern {
         let x = Pattern::symbol("x");
         let scale = Pattern::const_symbol("scale");
         let epsilon = Pattern::const_symbol("epsilon");
@@ -389,43 +387,33 @@ impl FusionVisitor for RmsNormalizationFusion {
             * scale
     }
 
-    fn maybe_fuse(
-        &self,
-        pattern: &Pattern,
-        graph: &Graph,
-        op_node_id: NodeId,
-        op_node: &OperatorNode,
-    ) -> Option<Fusion> {
-        let rms_match = pattern.test(op_node_id, graph)?;
-        let x_input = rms_match.node_id("x").unwrap();
+    fn inputs(&self) -> &[&'static str] {
+        &["x", "scale"]
+    }
+
+    fn maybe_fuse(&self, rms_match: &Match, graph: &Graph) -> Option<Self::Operator> {
         let epsilon_input = rms_match.node_id("epsilon").unwrap();
         let epsilon = graph.get_scalar(epsilon_input)?;
-        let scale_input = rms_match.node_id("scale").unwrap();
         let norm_mean = rms_match.node_id("norm_mean").unwrap();
 
         if !mean_op_reduces_last_axis(graph, norm_mean) {
             return None;
         }
 
-        Some(Fusion::from_op(
-            op_node.name(),
-            Box::new(RmsNormalization {
-                axis: -1,
-                epsilon: Some(epsilon),
-            }),
-            &[Some(x_input), Some(scale_input)],
-            op_node.output_ids(),
-        ))
+        Some(RmsNormalization {
+            axis: -1,
+            epsilon: Some(epsilon),
+        })
     }
 }
 
 /// Fuse `Add(MatMul(a, b), bias)` into `FusedMatMul(a, b, bias)`.
 pub struct MatMulAddFusion {}
 
-impl FusionVisitor for MatMulAddFusion {
-    type State = Pattern;
+impl PatternFusion for MatMulAddFusion {
+    type Operator = FusedMatMul;
 
-    fn prepare(&self, _: &Graph) -> Pattern {
+    fn pattern(&self) -> Pattern {
         let a = Pattern::symbol("a");
         let b = Pattern::symbol("b");
         let bias = Pattern::const_symbol("bias");
@@ -436,19 +424,12 @@ impl FusionVisitor for MatMulAddFusion {
         )
     }
 
-    fn maybe_fuse(
-        &self,
-        pattern: &Pattern,
-        graph: &Graph,
-        op_node_id: NodeId,
-        op_node: &OperatorNode,
-    ) -> Option<Fusion> {
-        let matmul_add_match = pattern.test(op_node_id, graph)?;
+    fn inputs(&self) -> &[&'static str] {
+        &["a", "b", "bias"]
+    }
 
-        let a_input = matmul_add_match.node_id("a").unwrap();
-        let b_input = matmul_add_match.node_id("b").unwrap();
+    fn maybe_fuse(&self, matmul_add_match: &Match, graph: &Graph) -> Option<FusedMatMul> {
         let bias_input = matmul_add_match.node_id("bias").unwrap();
-
         let is_bias_a_vector = match graph.get_node(bias_input) {
             Some(Node::Constant(const_node)) => const_node.shape().len() == 1,
             _ => false,
@@ -458,12 +439,7 @@ impl FusionVisitor for MatMulAddFusion {
             return None;
         }
 
-        Some(Fusion::from_op(
-            op_node.name(),
-            Box::new(FusedMatMul { alpha: None }),
-            &[Some(a_input), Some(b_input), Some(bias_input)],
-            op_node.output_ids(),
-        ))
+        Some(FusedMatMul { alpha: None })
     }
 }
 
@@ -478,7 +454,7 @@ pub struct MatMulScaleFusion {}
 impl FusionVisitor for MatMulScaleFusion {
     type State = ();
 
-    fn prepare(&self, _: &Graph) -> () {}
+    fn prepare(&self, _: &Graph) {}
 
     fn maybe_fuse(
         &self,
@@ -580,7 +556,7 @@ pub struct TransposeFusion {}
 impl FusionVisitor for TransposeFusion {
     type State = ();
 
-    fn prepare(&self, _: &Graph) -> () {}
+    fn prepare(&self, _: &Graph) {}
 
     fn maybe_fuse(
         &self,
@@ -653,30 +629,27 @@ impl FusionVisitor for TransposeFusion {
 /// M is a mask or score matrix.
 pub struct AddSoftmaxFusion {}
 
-impl FusionVisitor for AddSoftmaxFusion {
-    type State = Pattern;
+impl PatternFusion for AddSoftmaxFusion {
+    type Operator = AddSoftmax;
 
-    fn prepare(&self, _: &Graph) -> Pattern {
+    fn pattern(&self) -> Pattern {
         let query_dot_keys = Pattern::symbol("qk");
         let mask = Pattern::symbol("mask");
         Pattern::unary_op(
             "Softmax",
             Pattern::binary_op("Add", query_dot_keys.clone(), mask.clone()),
         )
+        .with_name("softmax")
     }
 
-    fn maybe_fuse(
-        &self,
-        pattern: &Pattern,
-        graph: &Graph,
-        op_node_id: NodeId,
-        op_node: &OperatorNode,
-    ) -> Option<Fusion> {
-        let pat_match = pattern.test(op_node_id, graph)?;
+    fn inputs(&self) -> &[&'static str] {
+        &["qk", "mask"]
+    }
 
-        let qk = pat_match.node_id("qk").unwrap();
-        let mask = pat_match.node_id("mask").unwrap();
-        let softmax_op = op_node.operator().downcast_ref::<Softmax>()?;
+    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<AddSoftmax> {
+        let softmax_id = pat_match.node_id("softmax").unwrap();
+        let softmax_node = graph.get_node(softmax_id).and_then(|n| n.as_operator())?;
+        let softmax_op = softmax_node.operator().downcast_ref::<Softmax>()?;
 
         // This fusion is currently restricted to the case where it is known
         // to be applied over the last, likely-contiguous lane. This is the case
@@ -692,12 +665,7 @@ impl FusionVisitor for AddSoftmaxFusion {
             return None;
         }
 
-        Some(Fusion::from_op(
-            op_node.name(),
-            Box::new(AddSoftmax {}),
-            &[Some(qk), Some(mask)],
-            op_node.output_ids(),
-        ))
+        Some(AddSoftmax {})
     }
 }
 
