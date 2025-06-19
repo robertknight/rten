@@ -29,7 +29,7 @@ fn add_softmax_in_place(
     let mut qk = if qk.stride(axis) == 1 {
         qk
     } else {
-        qk.to_tensor_in(pool)
+        qk.auto_return(pool).to_tensor_in(pool)
     };
     let m = if m.stride(axis) == 1 {
         m.as_cow()
