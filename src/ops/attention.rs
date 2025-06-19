@@ -31,12 +31,6 @@ fn add_softmax_in_place(
     } else {
         qk.auto_return(pool).to_tensor_in(pool)
     };
-    let m = if m.stride(axis) == 1 {
-        m.as_cow()
-    } else {
-        m.to_tensor_in(pool).into_cow()
-    }
-    .auto_return(pool);
 
     qk.lanes_mut(axis)
         .into_par_iter()
@@ -44,8 +38,6 @@ fn add_softmax_in_place(
         .for_each(|(mut qk_inner, m_inner)| {
             // OK, as we made the lanes contiguous above.
             let qk_inner = qk_inner.as_slice_mut().unwrap();
-            let m_inner = m_inner.as_slice().unwrap();
-
             for (qk, m) in qk_inner.iter_mut().zip(m_inner) {
                 *qk += m;
             }
