@@ -8,11 +8,11 @@ use crate::graph::Graph;
 use crate::ops;
 use crate::ops::{
     BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, Operator, PadMode,
-    Padding, ResizeMode, Scalar, ScatterReduction,
+    Padding, ResizeMode, ScatterReduction,
 };
 use crate::schema_generated as sg;
 use crate::schema_generated::{AutoPad, OperatorNode, OperatorType};
-use crate::value::DataType;
+use crate::value::{DataType, Scalar};
 
 /// Context object passed to [`ReadOp::read`] implementations.
 pub trait OpLoadContext {

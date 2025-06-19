@@ -7,9 +7,10 @@ use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use crate::number::Identities;
 use crate::ops::{
     map_dtype, map_value_view, resolve_axis, resolve_index, static_dims, DataType, IntoOpResult,
-    OpError, OpRunContext, Operator, OutputList, Scalar, ValueView,
+    OpError, OpRunContext, Operator, OutputList,
 };
 use crate::tensor_pool::TensorPool;
+use crate::value::{Scalar, ValueView};
 
 pub fn constant_of_shape<T: Copy>(
     pool: &TensorPool,
@@ -210,9 +211,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{
-        onehot, range, ConstantOfShape, DataType, EyeLike, OpError, OperatorExt, Scalar, Value,
-    };
+    use crate::ops::{onehot, range, ConstantOfShape, DataType, EyeLike, OpError, OperatorExt};
+    use crate::value::{Scalar, Value};
 
     #[test]
     fn test_constant_of_shape() {

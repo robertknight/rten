@@ -830,12 +830,6 @@ impl<'a, I1: Into<ValueView<'a>>, I2: Into<ValueView<'a>>, I3: Into<ValueView<'a
     }
 }
 
-#[derive(Debug)]
-pub enum Scalar {
-    Int(i32),
-    Float(f32),
-}
-
 /// Resolve an index given as a value in `[-len, len-1]` to a positive index in
 /// `[0, len)`, or return None if the index is out of bounds.
 fn resolve_index(len: usize, index: isize) -> Option<usize> {

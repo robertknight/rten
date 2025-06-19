@@ -916,10 +916,9 @@ mod tests {
     };
     use crate::ops;
     use crate::ops::{
-        BoxOrder, CoordTransformMode, DepthToSpaceMode, NearestMode, OpError, ResizeMode, Scalar,
-        Shape,
+        BoxOrder, CoordTransformMode, DepthToSpaceMode, NearestMode, OpError, ResizeMode, Shape,
     };
-    use crate::value::{DataType, Value};
+    use crate::value::{DataType, Scalar, Value};
     use crate::OpRegistry;
 
     fn generate_model_buffer(format: ModelFormat) -> Vec<u8> {

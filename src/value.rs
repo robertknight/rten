@@ -559,6 +559,13 @@ impl Layout for ValueOrView<'_> {
     impl_proxy_layout!();
 }
 
+/// A scalar value with runtime-determined type.
+#[derive(Debug)]
+pub enum Scalar {
+    Int(i32),
+    Float(f32),
+}
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;

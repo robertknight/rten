@@ -12,11 +12,10 @@ use crate::ops::{
     GatherND, Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu,
     LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, QuantizeLinear,
     ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize,
-    ResizeMode, Scalar, ScatterElements, ScatterReduction, Shape, Softmax, Split, TopK, Transpose,
-    Trilu,
+    ResizeMode, ScatterElements, ScatterReduction, Shape, Softmax, Split, TopK, Transpose, Trilu,
 };
 use crate::schema_generated as sg;
-use crate::value::DataType;
+use crate::value::{DataType, Scalar};
 
 #[cfg(feature = "random")]
 use crate::ops::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
