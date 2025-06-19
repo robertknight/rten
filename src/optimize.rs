@@ -129,10 +129,12 @@ impl GraphMutator {
 
     /// Iterate over each operator node in the graph and potentially apply a
     /// fusion which combines this node and adjacent nodes.
+    ///
+    /// Returns the number of applied fusions.
     fn apply_fusion<F: Fn(&Self, NodeId, &OperatorNode) -> Option<Fusion>>(
         &mut self,
         create_fusion: F,
-    ) {
+    ) -> usize {
         struct Replacement {
             unfused_ops: Vec<NodeId>,
             fusion: Fusion,
@@ -173,6 +175,8 @@ impl GraphMutator {
             })
             .collect();
 
+        let n_fusions = fusions.len();
+
         for Replacement {
             fusion,
             unfused_ops,
@@ -193,6 +197,8 @@ impl GraphMutator {
                 &fusion.output_ids,
             );
         }
+
+        n_fusions
     }
 
     fn output_ids(&self) -> &[NodeId] {
@@ -303,23 +309,27 @@ impl GraphOptimizer {
         //
         // The ordering is significant as fusions are tried in turn until a
         // match is found.
-        self.apply_fusions(
-            &mut graph_mut,
-            &[
-                &DynFusion(SiluFusion {}.into_visitor()),
-                &DynFusion(SwishFusion {}.into_visitor()),
-                &DynFusion(GeluFusion {}.into_visitor()),
-                &DynFusion(ApproxGeluFusion {}.into_visitor()),
-                &DynFusion(LayerNormalizationFusion {}),
-                &DynFusion(RmsNormalizationFusion {}.into_visitor()),
-                &DynFusion(MatMulAddFusion {}.into_visitor()),
-                &DynFusion(MatMulScaleFusion {}),
-                &DynFusion(AddSoftmaxFusion {}.into_visitor()),
-            ],
-        )?;
+        let fusions: &[&dyn DynFusionVisitor] = &[
+            &DynFusion(SiluFusion {}.into_visitor()),
+            &DynFusion(SwishFusion {}.into_visitor()),
+            &DynFusion(GeluFusion {}.into_visitor()),
+            &DynFusion(ApproxGeluFusion {}.into_visitor()),
+            &DynFusion(LayerNormalizationFusion {}),
+            &DynFusion(RmsNormalizationFusion {}.into_visitor()),
+            &DynFusion(MatMulAddFusion {}.into_visitor()),
+            &DynFusion(MatMulScaleFusion {}),
+            &DynFusion(AddSoftmaxFusion {}.into_visitor()),
+            &DynFusion(TransposeFusion {}),
+        ];
 
-        // Fuse view operations (transpose etc.) with computations.
-        self.apply_fusions(&mut graph_mut, &[&DynFusion(TransposeFusion {})])?;
+        let max_iters = 3;
+        for _ in 0..max_iters {
+            let n_fused_ops = self.apply_fusions(&mut graph_mut, fusions)?;
+            if n_fused_ops == 0 {
+                // We reached a fixed point.
+                break;
+            }
+        }
 
         Ok(graph_mut.finalize_graph())
     }
@@ -403,16 +413,18 @@ impl GraphOptimizer {
     /// This function visits each operator only once, so won't combine multiple
     /// fusions. Fusions that can be combined must be applied in separate
     /// passes.
+    ///
+    /// Returns the number of fusions that were applied.
     fn apply_fusions(
         &self,
         graph: &mut GraphMutator,
         visitors: &[&dyn DynFusionVisitor],
-    ) -> Result<(), OptimizeError> {
+    ) -> Result<usize, OptimizeError> {
         // Create the prepared state once and then re-use it for each operator
         // visited.
         let prepared_state: Vec<_> = visitors.iter().map(|f| f.prepare(graph.graph())).collect();
 
-        graph.apply_fusion(|graph, op_node_id, op_node| {
+        let n_fusions = graph.apply_fusion(|graph, op_node_id, op_node| {
             for (visitor, state) in visitors.iter().zip(&prepared_state) {
                 if let Some(fusion) =
                     visitor.maybe_fuse(state.as_ref(), graph.graph(), op_node_id, op_node)
@@ -423,7 +435,7 @@ impl GraphOptimizer {
             None
         });
 
-        Ok(())
+        Ok(n_fusions)
     }
 }
 
