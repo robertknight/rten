@@ -5,7 +5,7 @@ use std::num::NonZero;
 /// This is used to identify input and output values as well as internal nodes.
 ///
 /// Node IDs are u32 values <= `i32::MAX`.
-#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct NodeId(NonZero<u32>);
 
 impl NodeId {
@@ -42,5 +42,11 @@ impl NodeId {
 impl std::fmt::Display for NodeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.as_u32().fmt(f)
+    }
+}
+
+impl std::fmt::Debug for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NodeId({})", self.as_u32())
     }
 }
