@@ -172,15 +172,21 @@ impl OffsetsBase {
         }
     }
 
-    fn step_outer_pos(&mut self) {
-        let n_outer = self.outer_pos.len();
-        if n_outer > 0 {
-            let mut dim = n_outer - 1;
-            while !self.outer_pos[dim].step() && dim > 0 {
-                dim -= 1;
+    /// Step in the outer dimensions.
+    ///
+    /// Returns `true` if the position was advanced or `false` if the end was
+    /// reached.
+    fn step_outer_pos(&mut self) -> bool {
+        let mut done = self.outer_pos.is_empty();
+        for (i, dim) in self.outer_pos.iter_mut().enumerate().rev() {
+            if dim.step() {
+                break;
+            } else if i == 0 {
+                done = true;
             }
-            self.outer_offset = self.outer_pos.iter().map(|p| p.offset).sum();
         }
+        self.outer_offset = self.outer_pos.iter().map(|p| p.offset).sum();
+        !done
     }
 
     fn pos(&self, dim: usize) -> IterPos {
@@ -278,12 +284,38 @@ impl Iterator for OffsetsBase {
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.len, Some(self.len))
     }
+
+    fn fold<B, F>(mut self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, usize) -> B,
+    {
+        let mut accum = init;
+        loop {
+            for i0 in self.inner_pos[0].index()..self.inner_pos[0].size() {
+                for i1 in self.inner_pos[1].index()..self.inner_pos[1].size() {
+                    let inner_offset =
+                        i0 * self.inner_pos[0].stride + i1 * self.inner_pos[1].stride;
+                    accum = f(accum, self.outer_offset + inner_offset);
+                }
+                self.inner_pos[1].set_index(0);
+            }
+            self.inner_pos[0].set_index(0);
+
+            if !self.step_outer_pos() {
+                break;
+            }
+        }
+        accum
+    }
 }
 
 impl ExactSizeIterator for OffsetsBase {}
 
 impl DoubleEndedIterator for OffsetsBase {
-    fn next_back(&mut self) -> Option<Self::Item> {
+    /// Return the offset of the last item in this iterator, or `None` if there
+    /// are no more items left.
+    fn next_back(&mut self) -> Option<usize> {
         if self.len == 0 {
             return None;
         }
@@ -305,8 +337,7 @@ impl SplitIterator for OffsetsBase {
         assert!(self.len >= index);
 
         let mut right = self.clone();
-        Self::step_by(&mut right, index);
-
+        OffsetsBase::step_by(&mut right, index);
         self.len = index;
 
         (self, right)
@@ -357,6 +388,18 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
         // Safety: Offset is valid for data length.
         Some(unsafe { self.data.get_unchecked(offset) })
+    }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.offsets.fold(init, |acc, offset| {
+            // Safety: Offset is valid for data length.
+            let item = unsafe { self.data.get_unchecked(offset) };
+            f(acc, item)
+        })
     }
 }
 
@@ -417,6 +460,19 @@ impl<'a, T> Iterator for IterMut<'a, T> {
         // Safety: Offset is valid for data length, `offsets.next` yields each
         // offset only once.
         Some(unsafe { transmute_lifetime_mut(self.data.get_unchecked_mut(offset)) })
+    }
+
+    fn fold<B, F>(mut self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.offsets.fold(init, |acc, offset| {
+            // Safety: Offset is valid for data length, `offsets.fold` yields
+            // each offset only once.
+            let item = unsafe { transmute_lifetime_mut(self.data.get_unchecked_mut(offset)) };
+            f(acc, item)
+        })
     }
 }
 
@@ -490,6 +546,17 @@ impl Iterator for Offsets {
             }
         }
     }
+
+    fn fold<B, F>(self, init: B, f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        match self.base {
+            OffsetsKind::Range(r) => r.fold(init, f),
+            OffsetsKind::Indexing(base) => base.fold(init, f),
+        }
+    }
 }
 
 impl DoubleEndedIterator for Offsets {
@@ -537,11 +604,12 @@ impl LaneRanges {
     /// Return the range of storage offsets for a 1D lane where the first
     /// element is at `start_offset`.
     fn lane_offset_range(&self, start_offset: usize) -> Range<usize> {
-        // nb. `dim_size` should be >= 1 here as otherwise the tensor
-        // has no elements and `self.offsets` should therefore yield no
-        // items.
-        start_offset..start_offset + (self.dim_size - 1) * self.dim_stride + 1
+        lane_offsets(start_offset, self.dim_size, self.dim_stride)
     }
+}
+
+fn lane_offsets(start_offset: usize, size: usize, stride: usize) -> Range<usize> {
+    start_offset..start_offset + (size - 1) * stride + 1
 }
 
 impl Iterator for LaneRanges {
@@ -556,6 +624,22 @@ impl Iterator for LaneRanges {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.offsets.size_hint()
+    }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        let Self {
+            offsets,
+            dim_size,
+            dim_stride,
+        } = self;
+
+        offsets.fold(init, |acc, offset| {
+            f(acc, lane_offsets(offset, dim_size, dim_stride))
+        })
     }
 }
 
