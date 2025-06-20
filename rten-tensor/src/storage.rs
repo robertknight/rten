@@ -409,6 +409,24 @@ impl<'a, T> ViewMutData<'a, T> {
         };
         (left, right)
     }
+
+    /// A variant of [`StorageMut::slice_mut`] which preserves the lifetime of
+    /// the slice.
+    ///
+    /// # Safety
+    ///
+    /// This is unsafe since this function cannot ensure that multiple references
+    /// to the same element are not created (by using `get_mut` on `self` and
+    /// the slice). It is up to the caller to prevent this.
+    pub unsafe fn to_view_slice_mut(&mut self, range: Range<usize>) -> ViewMutData<'a, T> {
+        assert_storage_range_valid(self, range.clone());
+        ViewMutData {
+            // Safety: We verified that `range` is in bounds.
+            ptr: unsafe { self.as_mut_ptr().add(range.start) },
+            len: range.len(),
+            _marker: PhantomData,
+        }
+    }
 }
 
 unsafe impl<T> Storage for ViewMutData<'_, T> {

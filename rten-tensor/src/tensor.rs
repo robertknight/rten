@@ -552,6 +552,22 @@ impl<S: Storage, L: MutLayout> TensorBase<S, L> {
         TensorBase { data, layout }
     }
 
+    /// Create a tensor from a pre-created storage and layout.
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure storage length is sufficient for the layout, and
+    /// that, if the storage is mutable, no two indices in the layout map to the
+    /// same offset.
+    pub(crate) unsafe fn from_storage_and_layout_unchecked(data: S, layout: L) -> TensorBase<S, L> {
+        debug_assert!(data.len() >= layout.min_data_len());
+        debug_assert!(
+            !S::MUTABLE
+                || !may_have_internal_overlap(layout.shape().as_ref(), layout.strides().as_ref())
+        );
+        TensorBase { data, layout }
+    }
+
     /// Construct a new tensor from a given shape and storage, and custom
     /// strides.
     ///
