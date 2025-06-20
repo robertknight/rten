@@ -119,14 +119,6 @@ impl GraphMutator {
         self.graph
     }
 
-    /// Iterate over operator nodes and their IDs.
-    fn iter_operators(&self) -> impl Iterator<Item = (NodeId, &OperatorNode)> {
-        self.graph.iter().filter_map(|(node_id, node)| match node {
-            Node::Operator(op) => Some((node_id, op)),
-            _ => None,
-        })
-    }
-
     /// Iterate over each operator node in the graph and potentially apply a
     /// fusion which combines this node and adjacent nodes.
     ///
@@ -140,9 +132,40 @@ impl GraphMutator {
             fusion: Fusion,
         }
 
-        let fusions: Vec<_> = self
-            .iter_operators()
-            .filter_map(|(op_node_id, op_node)| {
+        let mut ops_pending_removal = FxHashSet::default();
+
+        // Get all operators, in the order they will be run.
+        let Ok(mut operators) = self
+            .graph
+            .execution_plan(self.graph.input_ids(), self.graph.output_ids())
+        else {
+            return 0;
+        };
+
+        // Reverse the operator list so that we traverse from outputs towards
+        // inputs. We do this because fusion matchers start from the output node
+        // of the subgraph they match. Sometimes fusions have optional output
+        // steps which mean they can match multiple nodes. For example the layer
+        // normalization fusion can match with and without an `Add(normalized,
+        // bias)` step at the end. In this case we want to visit the optional
+        // operators first, if present, so that it gets included in the fusion.
+        operators.reverse();
+
+        let fusions: Vec<_> = operators
+            .into_iter()
+            .filter_map(|op_node_id| {
+                let op_node = self
+                    .graph
+                    .get_node(op_node_id)
+                    .and_then(|op| op.as_operator())
+                    .unwrap();
+
+                // Don't try and fuse operators that were removed when fusing a
+                // node we visited earlier.
+                if ops_pending_removal.contains(&op_node_id) {
+                    return None;
+                }
+
                 let fusion = create_fusion(self, op_node_id, op_node)?;
 
                 // Check for outputs of intermediate steps in the fused subgraph
@@ -158,6 +181,16 @@ impl GraphMutator {
 
                 let output_ids: Vec<_> = fusion.output_ids.iter().flatten().copied().collect();
                 let unfused_ops = self.graph.execution_plan(&input_ids, &output_ids).unwrap();
+
+                for unfused_op in &unfused_ops {
+                    // Skip this fusion if it includes an operator which was
+                    // fused when visiting an earlier operator.
+                    if ops_pending_removal.contains(unfused_op) {
+                        return None;
+                    }
+                    ops_pending_removal.insert(*unfused_op);
+                }
+
                 let reused_output = find_operator_output_used_outside_subgraph(
                     &self.graph,
                     &self.edges,
@@ -1008,6 +1041,35 @@ mod tests {
             .and_then(|n| n.as_operator())
             .unwrap();
         assert_eq!(fused_op.operator().name(), "Mul");
+    }
+
+    #[test]
+    fn test_fuse_transpose_matmul_scaled() {
+        // Div(MatMul(Transpose(X), Transpose(Y)), C) subgraph.
+        //
+        // This should be fused into a single operation in two stages:
+        //  1. Fuse Div + MatMul into `FusedMatMul(Transpose(X), Transpose(Y), alpha=C)`
+        //  2. Fuse FusedMatMul + Transpose into `TransformInputs(FusedMatMul(X, Y, alpha=C))`.
+        let x = Expr::value("x");
+        let y = Expr::value("y");
+        let xy = x.transpose().matmul(y.transpose());
+        let xy_scaled = xy / 8.;
+        let graph = xy_scaled.build_graph(["x", "y"]);
+
+        let input_ids = graph.input_ids().to_vec();
+        let output_ids = graph.output_ids().to_vec();
+        let optimized = optimize_graph(graph).unwrap();
+        let plan = optimized.execution_plan(&input_ids, &output_ids).unwrap();
+
+        let op_name = |node_id| {
+            optimized
+                .get_node(node_id)
+                .and_then(|n| n.as_operator())
+                .map(|op| op.operator().name())
+        };
+
+        assert_eq!(plan.len(), 1);
+        assert_eq!(op_name(plan[0]), Some("TransformInputs(FusedMatMul)"));
     }
 
     #[test]
