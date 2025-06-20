@@ -7,7 +7,9 @@ use crate::layout::{merge_axes, Layout, NdLayout, OverlapPolicy, RemoveDim};
 use crate::slice_range::SliceItem;
 use crate::storage::{StorageMut, ViewData, ViewMutData};
 
-use super::{AsView, DynLayout, MutLayout, TensorBase, TensorViewMut};
+use super::{
+    AsView, DynLayout, MutLayout, NdTensorView, NdTensorViewMut, TensorBase, TensorViewMut,
+};
 
 mod parallel;
 pub use parallel::{ParIter, SplitIterator};
@@ -722,40 +724,25 @@ impl FusedIterator for LaneRanges {}
 pub struct Lanes<'a, T> {
     data: ViewData<'a, T>,
     ranges: LaneRanges,
-    size: usize,
-    stride: usize,
+    lane_layout: NdLayout<1>,
 }
 
 /// Iterator over items in a 1D slice of a tensor.
 #[derive(Clone)]
 pub struct Lane<'a, T> {
-    data: ViewData<'a, T>,
+    view: NdTensorView<'a, T, 1>,
     index: usize,
-    stride: usize,
-    size: usize,
 }
 
 impl<'a, T> Lane<'a, T> {
     /// Return the remaining part of the lane as a slice, if it is contiguous.
     pub fn as_slice(&self) -> Option<&'a [T]> {
-        match self.stride {
-            1 => {
-                let remainder = self.data.slice(self.index..self.size);
-                // Safety: The stride is 1, so we know the lane is contiguous.
-                Some(unsafe { remainder.as_slice() })
-            }
-            _ => None,
-        }
+        self.view.data().map(|data| &data[self.index..])
     }
 
     /// Return the item at a given index in this lane.
     pub fn get(&self, idx: usize) -> Option<&'a T> {
-        if idx < self.size {
-            // Safety: `idx * self.stride` is a valid offset since `idx < self.size`.
-            Some(unsafe { self.data.get_unchecked(idx * self.stride) })
-        } else {
-            None
-        }
+        self.view.get([idx])
     }
 }
 
@@ -764,19 +751,20 @@ impl<'a, T> Iterator for Lane<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.size {
+        if self.index < self.view.len() {
             let index = self.index;
             self.index += 1;
 
-            // Safety: See comments in Storage trait.
-            unsafe { self.data.get(index * self.stride) }
+            // Safety: Index is in bounds for axis 0.
+            Some(unsafe { self.view.get_unchecked([index]) })
         } else {
             None
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.size, Some(self.size))
+        let size = self.view.size(0);
+        (size, Some(size))
     }
 }
 
@@ -788,21 +776,22 @@ impl<'a, T> Lanes<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
     /// dimension of `tensor`.
     pub(crate) fn new<L: MutLayout>(view: ViewRef<'a, '_, T, L>, dim: usize) -> Lanes<'a, T> {
+        let size = view.layout.size(dim);
+        let stride = view.layout.stride(dim);
+        let lane_layout =
+            NdLayout::from_shape_and_strides([size], [stride], OverlapPolicy::AllowOverlap)
+                .unwrap();
         Lanes {
             data: view.data,
             ranges: LaneRanges::new(view.layout, dim),
-            size: view.layout.size(dim),
-            stride: view.layout.stride(dim),
+            lane_layout,
         }
     }
 
     fn lane_for_offset_range(&self, offsets: Range<usize>) -> Lane<'a, T> {
-        Lane {
-            data: self.data.slice(offsets),
-            index: 0,
-            stride: self.stride,
-            size: self.size,
-        }
+        let view =
+            NdTensorView::from_storage_and_layout(self.data.slice(offsets), self.lane_layout);
+        Lane { view, index: 0 }
     }
 }
 
@@ -842,8 +831,7 @@ impl<T> FusedIterator for Lanes<'_, T> {}
 pub struct LanesMut<'a, T> {
     data: ViewMutData<'a, T>,
     ranges: LaneRanges,
-    size: usize,
-    stride: usize,
+    lane_layout: NdLayout<1>,
 }
 
 impl<'a, T> LanesMut<'a, T> {
@@ -855,25 +843,38 @@ impl<'a, T> LanesMut<'a, T> {
             !view.layout.is_broadcast(),
             "Cannot mutably iterate over broadcasting view"
         );
+
+        let size = view.layout.size(dim);
+        let stride = view.layout.stride(dim);
+
+        // We allow overlap here to handle the case where the stride is zero,
+        // but the tensor is empty. If the tensor was not empty, the assert above
+        // would have caught this.
+        let lane_layout =
+            NdLayout::from_shape_and_strides([size], [stride], OverlapPolicy::AllowOverlap)
+                .unwrap();
+
         LanesMut {
             ranges: LaneRanges::new(view.layout, dim),
             data: view.data,
-            size: view.layout.size(dim),
-            stride: view.layout.stride(dim),
+            lane_layout,
         }
     }
 
-    /// Safety: Caller must ensure that this function is never called with
-    /// the same offset ranges more than once, so that each lane contains an
-    /// independent set of elements.
+    /// Safety: Caller must ensure:
+    ///
+    ///  - This function is never called with the same offset ranges more than
+    ///    once, so that each lane contains an independent set of elements.
+    ///  - Length of `offsets` is sufficient for the size and stride of the lane.
     unsafe fn lane_for_offset_range(&mut self, offsets: Range<usize>) -> LaneMut<'a, T> {
-        let data = self.data.slice_mut(offsets);
-        LaneMut {
-            data: unsafe { transmute::<ViewMutData<'_, T>, ViewMutData<'a, T>>(data) },
-            size: self.size,
-            stride: self.stride,
-            index: 0,
-        }
+        let view = unsafe {
+            // Safety: Caller promises that each call uses the offset ranges for
+            // a different lane and that the range length is sufficient for the
+            // lane's size and stride.
+            let data = self.data.to_view_slice_mut(offsets);
+            NdTensorViewMut::from_storage_and_layout_unchecked(data, self.lane_layout)
+        };
+        LaneMut { view, index: 0 }
     }
 }
 
@@ -908,23 +909,14 @@ impl<'a, T> DoubleEndedIterator for LanesMut<'a, T> {
 
 /// Iterator over items in a 1D slice of a tensor.
 pub struct LaneMut<'a, T> {
-    data: ViewMutData<'a, T>,
+    view: NdTensorViewMut<'a, T, 1>,
     index: usize,
-    stride: usize,
-    size: usize,
 }
 
 impl<'a, T> LaneMut<'a, T> {
     /// Return the remaining part of the lane as a slice, if it is contiguous.
     pub fn as_slice_mut(&mut self) -> Option<&mut [T]> {
-        match self.stride {
-            1 => {
-                let remainder = self.data.slice_mut(self.index..self.size);
-                // Safety: The stride is 1, so we know the lane is contiguous.
-                Some(unsafe { remainder.to_slice_mut() })
-            }
-            _ => None,
-        }
+        self.view.data_mut().map(|data| &mut data[self.index..])
     }
 }
 
@@ -933,24 +925,22 @@ impl<'a, T> Iterator for LaneMut<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.size {
+        if self.index < self.view.size(0) {
             let index = self.index;
             self.index += 1;
-            unsafe {
-                // Safety: See comments in Storage trait.
-                let item = self.data.get_mut(index * self.stride);
+            let item = unsafe { self.view.get_unchecked_mut([index]) };
 
-                // Transmute to preserve lifetime of data. This is safe as we
-                // yield each element only once.
-                transmute::<Option<&mut T>, Option<Self::Item>>(item)
-            }
+            // Transmute to preserve lifetime of data. This is safe as we
+            // yield each element only once.
+            Some(unsafe { transmute::<&mut T, Self::Item>(item) })
         } else {
             None
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.size, Some(self.size))
+        let size = self.view.size(0);
+        (size, Some(size))
     }
 }
 

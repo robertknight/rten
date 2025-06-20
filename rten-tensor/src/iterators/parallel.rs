@@ -367,14 +367,12 @@ impl<'a, T> SplitIterator for Lanes<'a, T> {
         let left = Lanes {
             data: self.data,
             ranges: left_range,
-            size: self.size,
-            stride: self.stride,
+            lane_layout: self.lane_layout,
         };
         let right = Lanes {
             data: self.data,
             ranges: right_range,
-            size: self.size,
-            stride: self.stride,
+            lane_layout: self.lane_layout,
         };
 
         (left, right)
@@ -397,14 +395,12 @@ impl<'a, T> SplitIterator for LanesMut<'a, T> {
         let left = Self {
             data: left_data,
             ranges: left_range,
-            size: self.size,
-            stride: self.stride,
+            lane_layout: self.lane_layout,
         };
         let right = Self {
             data: right_data,
             ranges: right_range,
-            size: self.size,
-            stride: self.stride,
+            lane_layout: self.lane_layout,
         };
 
         (left, right)
