@@ -1529,12 +1529,14 @@ mod tests {
         use crate::Layout;
         use rten_bench::run_bench;
 
-        let tensor = std::hint::black_box(Tensor::<f32>::full(&[1, 6, 768, 64], 1.));
-        let n_trials = 1000;
-        let mut result = 0.;
+        type Elem = i32;
 
-        fn reduce<'a>(iter: impl Iterator<Item = &'a f32>) -> f32 {
-            iter.sum()
+        let tensor = std::hint::black_box(Tensor::<Elem>::full(&[1, 6, 768, 64], 1));
+        let n_trials = 1000;
+        let mut result = Elem::default();
+
+        fn reduce<'a>(iter: impl Iterator<Item = &'a Elem>) -> Elem {
+            iter.fold(Elem::default(), |acc, x| acc.wrapping_add(*x))
         }
 
         // Iterate directly over data slice.
