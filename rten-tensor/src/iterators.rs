@@ -1,10 +1,8 @@
 use std::iter::FusedIterator;
 use std::mem::transmute;
 use std::ops::Range;
-use std::slice;
 
 use crate::layout::{merge_axes, Layout, NdLayout, OverlapPolicy, RemoveDim};
-use crate::slice_range::SliceItem;
 use crate::storage::{StorageMut, ViewData, ViewMutData};
 
 use super::{
@@ -26,13 +24,6 @@ pub(crate) struct ViewRef<'d, 'l, T, L: Layout> {
 impl<'d, 'l, T, L: Layout> ViewRef<'d, 'l, T, L> {
     pub(crate) fn new(data: ViewData<'d, T>, layout: &'l L) -> ViewRef<'d, 'l, T, L> {
         ViewRef { data, layout }
-    }
-
-    fn contiguous_data(&self) -> Option<&'d [T]> {
-        self.layout.is_contiguous().then_some(unsafe {
-            // Safety: We verified the layout is contigous
-            self.data.as_slice()
-        })
     }
 }
 
@@ -119,9 +110,9 @@ impl IterPos {
 
 const INNER_NDIM: usize = 2;
 
-/// Helper for iterating over offsets of elements in a tensor.
+/// Iterator over offsets of a tensor's elements.
 #[derive(Clone, Debug)]
-struct IndexingIterBase {
+struct OffsetsBase {
     /// Remaining number of elements this iterator will yield.
     ///
     /// The offsets and positions in other fields are only valid if this is
@@ -146,9 +137,9 @@ struct IndexingIterBase {
     outer_pos: Vec<IterPos>,
 }
 
-impl IndexingIterBase {
+impl OffsetsBase {
     /// Create an iterator over element offsets in `tensor`.
-    fn new<L: Layout>(layout: &L) -> IndexingIterBase {
+    fn new<L: Layout>(layout: &L) -> OffsetsBase {
         // Merge axes to maximize the number of iterations that use the fast
         // path for stepping over the inner dimensions.
         let merged = merge_axes(layout.shape().as_ref(), layout.strides().as_ref());
@@ -172,48 +163,12 @@ impl IndexingIterBase {
             })
             .collect();
 
-        IndexingIterBase {
+        OffsetsBase {
             len: merged.iter().map(|dim| dim.0).product(),
             inner_pos,
             inner_offset: 0,
             outer_pos,
             outer_offset: 0,
-        }
-    }
-
-    /// Return the offset of the next element in the storage.
-    fn offset(&self) -> Option<usize> {
-        if self.len > 0 {
-            Some(self.outer_offset + self.inner_offset)
-        } else {
-            None
-        }
-    }
-
-    /// Advance to the next element offset.
-    ///
-    /// After calling this `self.offset()` will return the offset of the next
-    /// element in storage.
-    #[inline(always)]
-    fn step(&mut self) {
-        self.len -= 1;
-
-        // Optimistically update offset, assuming we haven't reached the
-        // end of the last dimension.
-        self.inner_offset += self.inner_pos[1].stride;
-
-        // Use a fast path to step inner dimensions and fall back to the slower
-        // path to step the outer dimensions only when we reach the end.
-        if !self.inner_pos[1].step() {
-            if !self.inner_pos[0].step() {
-                self.step_outer_pos();
-            }
-
-            // `inner_offset` is the sum of `inner_pos[i].offset`. It only
-            // contains two entries, and we know `inner_pos[1].offset` is zero
-            // since `inner_pos[1].step()` returned false. Hence we can use
-            // an assignment.
-            self.inner_offset = self.inner_pos[0].offset;
         }
     }
 
@@ -285,10 +240,50 @@ impl IndexingIterBase {
         }
         offset
     }
+}
 
-    /// Return the offset of the last item in this iterator, or `None` if there
-    /// are no more items left.
-    fn step_back(&mut self) -> Option<usize> {
+impl Iterator for OffsetsBase {
+    type Item = usize;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<usize> {
+        if self.len == 0 {
+            return None;
+        }
+        let offset = self.outer_offset + self.inner_offset;
+
+        self.len -= 1;
+
+        // Optimistically update offset, assuming we haven't reached the
+        // end of the last dimension.
+        self.inner_offset += self.inner_pos[1].stride;
+
+        // Use a fast path to step inner dimensions and fall back to the slower
+        // path to step the outer dimensions only when we reach the end.
+        if !self.inner_pos[1].step() {
+            if !self.inner_pos[0].step() {
+                self.step_outer_pos();
+            }
+
+            // `inner_offset` is the sum of `inner_pos[i].offset`. It only
+            // contains two entries, and we know `inner_pos[1].offset` is zero
+            // since `inner_pos[1].step()` returned false. Hence we can use
+            // an assignment.
+            self.inner_offset = self.inner_pos[0].offset;
+        }
+
+        Some(offset)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
+}
+
+impl ExactSizeIterator for OffsetsBase {}
+
+impl DoubleEndedIterator for OffsetsBase {
+    fn next_back(&mut self) -> Option<Self::Item> {
         if self.len == 0 {
             return None;
         }
@@ -301,14 +296,16 @@ impl IndexingIterBase {
 
         Some(offset)
     }
+}
 
+impl SplitIterator for OffsetsBase {
     /// Split this iterator into two. The left result visits indices before
     /// `index`, the right result visits indices from `index` onwards.
     fn split_at(mut self, index: usize) -> (Self, Self) {
         assert!(self.len >= index);
 
         let mut right = self.clone();
-        right.step_by(index);
+        Self::step_by(&mut right, index);
 
         self.len = index;
 
@@ -316,39 +313,17 @@ impl IndexingIterBase {
     }
 }
 
-/// Alternate implementations of [`Iter`].
-///
-/// When the tensor has a contiguous layout, this iterator is just a thin
-/// wrapper around a slice iterator.
-enum IterKind<'a, T> {
-    Direct(slice::Iter<'a, T>),
-    Indexing(IndexingIter<'a, T>),
-}
-
-impl<T> Clone for IterKind<'_, T> {
-    fn clone(&self) -> Self {
-        match self {
-            IterKind::Direct(slice_iter) => IterKind::Direct(slice_iter.clone()),
-            IterKind::Indexing(iter) => IterKind::Indexing((*iter).clone()),
-        }
-    }
-}
-
 /// Iterator over elements of a tensor, in their logical order.
 pub struct Iter<'a, T> {
-    iter: IterKind<'a, T>,
+    offsets: Offsets,
+    data: ViewData<'a, T>,
 }
 
 impl<'a, T> Iter<'a, T> {
     pub(super) fn new<L: Layout>(view: ViewRef<'a, '_, T, L>) -> Iter<'a, T> {
-        if let Some(data) = view.contiguous_data() {
-            Iter {
-                iter: IterKind::Direct(data.iter()),
-            }
-        } else {
-            Iter {
-                iter: IterKind::Indexing(IndexingIter::new(view)),
-            }
+        Iter {
+            offsets: Offsets::new(view.layout),
+            data: view.data,
         }
     }
 }
@@ -356,7 +331,8 @@ impl<'a, T> Iter<'a, T> {
 impl<T> Clone for Iter<'_, T> {
     fn clone(&self) -> Self {
         Iter {
-            iter: self.iter.clone(),
+            offsets: self.offsets.clone(),
+            data: self.data,
         }
     }
 }
@@ -366,36 +342,30 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        match self.iter {
-            IterKind::Direct(ref mut iter) => iter.next(),
-            IterKind::Indexing(ref mut iter) => iter.next(),
-        }
+        let offset = self.offsets.next()?;
+
+        // Safety: Offset is valid for data length.
+        Some(unsafe { self.data.get_unchecked(offset) })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        match &self.iter {
-            IterKind::Direct(iter) => iter.size_hint(),
-            IterKind::Indexing(iter) => iter.size_hint(),
-        }
+        self.offsets.size_hint()
     }
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        match self.iter {
-            IterKind::Direct(ref mut iter) => iter.nth(n),
-            IterKind::Indexing(ref mut iter) => {
-                iter.base.step_by(n);
-                iter.next()
-            }
-        }
+        let offset = self.offsets.nth(n)?;
+
+        // Safety: Offset is valid for data length.
+        Some(unsafe { self.data.get_unchecked(offset) })
     }
 }
 
 impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        match self.iter {
-            IterKind::Direct(ref mut iter) => iter.next_back(),
-            IterKind::Indexing(ref mut iter) => iter.next_back(),
-        }
+        let offset = self.offsets.next_back()?;
+
+        // Safety: Offset is valid for data length.
+        Some(unsafe { self.data.get_unchecked(offset) })
     }
 }
 
@@ -403,92 +373,23 @@ impl<T> ExactSizeIterator for Iter<'_, T> {}
 
 impl<T> FusedIterator for Iter<'_, T> {}
 
-struct IndexingIter<'a, T> {
-    base: IndexingIterBase,
-
-    /// Data buffer of the tensor
-    data: ViewData<'a, T>,
+/// Wrapper around [`transmute`] which allows transmuting only the lifetime,
+/// not the type, of a reference.
+unsafe fn transmute_lifetime_mut<'a, 'b, T>(x: &'a mut T) -> &'b mut T {
+    transmute::<&'a mut T, &'b mut T>(x)
 }
-
-impl<'a, T> IndexingIter<'a, T> {
-    fn new<L: Layout>(view: ViewRef<'a, '_, T, L>) -> IndexingIter<'a, T> {
-        IndexingIter {
-            base: IndexingIterBase::new(view.layout),
-            data: view.data,
-        }
-    }
-}
-
-impl<T> Clone for IndexingIter<'_, T> {
-    fn clone(&self) -> Self {
-        IndexingIter {
-            base: self.base.clone(),
-            data: self.data,
-        }
-    }
-}
-
-impl<'a, T> Iterator for IndexingIter<'a, T> {
-    type Item = &'a T;
-
-    #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
-        let offset = self.base.offset()?;
-        let element = unsafe {
-            // Safety: See comments in Storage trait.
-            self.data.get(offset).unwrap()
-        };
-        self.base.step();
-
-        Some(element)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.base.len, Some(self.base.len))
-    }
-}
-
-impl<'a, T> DoubleEndedIterator for IndexingIter<'a, T> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let offset = self.base.step_back()?;
-        let element = unsafe {
-            // Safety: See comments in Storage trait.
-            self.data.get(offset).unwrap()
-        };
-        Some(element)
-    }
-}
-
-impl<T> ExactSizeIterator for IndexingIter<'_, T> {}
-
-impl<T> FusedIterator for IndexingIter<'_, T> {}
 
 /// Mutable iterator over elements of a tensor.
 pub struct IterMut<'a, T> {
-    iter: IterMutKind<'a, T>,
-}
-
-/// Alternate implementations of `ElementsMut`.
-///
-/// When the tensor has a contiguous layout, this iterator is just a thin
-/// wrapper around a slice iterator.
-enum IterMutKind<'a, T> {
-    Direct(slice::IterMut<'a, T>),
-    Indexing(IndexingIterMut<'a, T>),
+    offsets: Offsets,
+    data: ViewMutData<'a, T>,
 }
 
 impl<'a, T> IterMut<'a, T> {
     pub(super) fn new<L: Layout>(view: MutViewRef<'a, '_, T, L>) -> IterMut<'a, T> {
-        if view.layout.is_contiguous() {
-            // Safety: The data is contiguous.
-            let data = unsafe { view.data.to_slice_mut() };
-            IterMut {
-                iter: IterMutKind::Direct(data.iter_mut()),
-            }
-        } else {
-            IterMut {
-                iter: IterMutKind::Indexing(IndexingIterMut::new(view)),
-            }
+        IterMut {
+            offsets: Offsets::new(view.layout),
+            data: view.data,
         }
     }
 }
@@ -498,37 +399,34 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        match self.iter {
-            IterMutKind::Direct(ref mut iter) => iter.next(),
-            IterMutKind::Indexing(ref mut iter) => iter.next(),
-        }
+        let offset = self.offsets.next()?;
+
+        // Safety: Offset is valid for data length, `offsets.next` yields each
+        // offset only once.
+        Some(unsafe { transmute_lifetime_mut(self.data.get_unchecked_mut(offset)) })
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        match &self.iter {
-            IterMutKind::Direct(iter) => iter.size_hint(),
-            IterMutKind::Indexing(iter) => iter.size_hint(),
-        }
+        self.offsets.size_hint()
     }
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        match self.iter {
-            IterMutKind::Direct(ref mut iter) => iter.nth(n),
-            IterMutKind::Indexing(ref mut iter) => {
-                iter.base.step_by(n);
-                iter.next()
-            }
-        }
+        let offset = self.offsets.nth(n)?;
+
+        // Safety: Offset is valid for data length, `offsets.next` yields each
+        // offset only once.
+        Some(unsafe { transmute_lifetime_mut(self.data.get_unchecked_mut(offset)) })
     }
 }
 
 impl<T> DoubleEndedIterator for IterMut<'_, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        match self.iter {
-            IterMutKind::Direct(ref mut iter) => iter.next_back(),
-            IterMutKind::Indexing(ref mut iter) => iter.next_back(),
-        }
+        let offset = self.offsets.next_back()?;
+
+        // Safety: Offset is valid for data length, `offsets.next` yields each
+        // offset only once.
+        Some(unsafe { transmute_lifetime_mut(self.data.get_unchecked_mut(offset)) })
     }
 }
 
@@ -536,69 +434,11 @@ impl<T> ExactSizeIterator for IterMut<'_, T> {}
 
 impl<T> FusedIterator for IterMut<'_, T> {}
 
-struct IndexingIterMut<'a, T> {
-    base: IndexingIterBase,
-
-    /// Data buffer of the tensor
-    data: ViewMutData<'a, T>,
+#[derive(Clone)]
+enum OffsetsKind {
+    Range(Range<usize>),
+    Indexing(OffsetsBase),
 }
-
-impl<'a, T> IndexingIterMut<'a, T> {
-    fn new<L: Layout>(view: MutViewRef<'a, '_, T, L>) -> IndexingIterMut<'a, T> {
-        // See notes in `Layout` about internal overlap.
-        assert!(
-            !view.layout.is_broadcast(),
-            "Cannot mutably iterate over broadcasting view"
-        );
-        IndexingIterMut {
-            base: IndexingIterBase::new(view.layout),
-            data: view.data,
-        }
-    }
-}
-
-impl<'a, T> Iterator for IndexingIterMut<'a, T> {
-    type Item = &'a mut T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let offset = self.base.offset()?;
-        let element = unsafe {
-            // Safety: See comments in Storage trait.
-            let el = self.data.get_mut(offset).unwrap();
-
-            // Safety: IndexingIterBase never yields the same offset more than
-            // once as long as we're not broadcasting, which was checked in the
-            // constructor.
-            std::mem::transmute::<&'_ mut T, &'a mut T>(el)
-        };
-        self.base.step();
-        Some(element)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.base.len, Some(self.base.len))
-    }
-}
-
-impl<'a, T> DoubleEndedIterator for IndexingIterMut<'a, T> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let offset = self.base.step_back()?;
-        let element = unsafe {
-            // Safety: See comments in Storage trait.
-            let el = self.data.get_mut(offset).unwrap();
-
-            // Safety: IndexingIterBase never yields the same offset more than
-            // once as long as we're not broadcasting, which was checked in the
-            // constructor.
-            std::mem::transmute::<&'_ mut T, &'a mut T>(el)
-        };
-        Some(element)
-    }
-}
-
-impl<T> ExactSizeIterator for IndexingIterMut<'_, T> {}
-
-impl<T> FusedIterator for IndexingIterMut<'_, T> {}
 
 /// Iterator over element offsets of a tensor.
 ///
@@ -606,14 +446,19 @@ impl<T> FusedIterator for IndexingIterMut<'_, T> {}
 /// be modified during iteration. It is the caller's responsibilty not to modify
 /// the tensor in ways that invalidate the offset sequence returned by this
 /// iterator.
+#[derive(Clone)]
 struct Offsets {
-    base: IndexingIterBase,
+    base: OffsetsKind,
 }
 
 impl Offsets {
     pub fn new<L: Layout>(layout: &L) -> Offsets {
         Offsets {
-            base: IndexingIterBase::new(layout),
+            base: if layout.is_contiguous() {
+                OffsetsKind::Range(0..layout.min_data_len())
+            } else {
+                OffsetsKind::Indexing(OffsetsBase::new(layout))
+            },
         }
     }
 }
@@ -623,24 +468,36 @@ impl Iterator for Offsets {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let offset = self.base.offset()?;
-        self.base.step();
-        Some(offset)
+        match &mut self.base {
+            OffsetsKind::Range(r) => r.next(),
+            OffsetsKind::Indexing(base) => base.next(),
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.base.len, Some(self.base.len))
+        match &self.base {
+            OffsetsKind::Range(r) => r.size_hint(),
+            OffsetsKind::Indexing(base) => (base.len, Some(base.len)),
+        }
     }
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        self.base.step_by(n);
-        self.next()
+        match &mut self.base {
+            OffsetsKind::Range(r) => r.nth(n),
+            OffsetsKind::Indexing(base) => {
+                base.step_by(n);
+                self.next()
+            }
+        }
     }
 }
 
 impl DoubleEndedIterator for Offsets {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.base.step_back()
+        match &mut self.base {
+            OffsetsKind::Range(r) => r.next_back(),
+            OffsetsKind::Indexing(base) => base.next_back(),
+        }
     }
 }
 
@@ -660,19 +517,16 @@ struct LaneRanges {
 }
 
 impl LaneRanges {
-    fn new<L: MutLayout>(layout: &L, dim: usize) -> LaneRanges {
-        let slice_starts: Vec<SliceItem> = (0..layout.ndim())
-            .map(|i| {
-                let end = if i == dim {
-                    1.min(layout.size(i) as isize)
-                } else {
-                    layout.size(i) as isize
-                };
-                (0..end).into()
-            })
-            .collect();
-        let (_range, sliced) = layout.slice_dyn(&slice_starts).unwrap();
-        let offsets = Offsets::new(&sliced);
+    fn new<L: Layout + RemoveDim>(layout: &L, dim: usize) -> LaneRanges {
+        // If the layout is empty (has any zero-sized dims), we need to make
+        // sure that `offsets` is as well.
+        let offsets = if layout.is_empty() {
+            Offsets::new(layout)
+        } else {
+            let other_dims = layout.remove_dim(dim);
+            Offsets::new(&other_dims)
+        };
+
         LaneRanges {
             offsets,
             dim_size: layout.size(dim),
@@ -775,7 +629,10 @@ impl<T> FusedIterator for Lane<'_, T> {}
 impl<'a, T> Lanes<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
     /// dimension of `tensor`.
-    pub(crate) fn new<L: MutLayout>(view: ViewRef<'a, '_, T, L>, dim: usize) -> Lanes<'a, T> {
+    pub(crate) fn new<L: Layout + RemoveDim>(
+        view: ViewRef<'a, '_, T, L>,
+        dim: usize,
+    ) -> Lanes<'a, T> {
         let size = view.layout.size(dim);
         let stride = view.layout.stride(dim);
         let lane_layout =
@@ -837,7 +694,10 @@ pub struct LanesMut<'a, T> {
 impl<'a, T> LanesMut<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
     /// dimension of `view`.
-    pub(crate) fn new<L: MutLayout>(view: MutViewRef<'a, '_, T, L>, dim: usize) -> LanesMut<'a, T> {
+    pub(crate) fn new<L: Layout + RemoveDim>(
+        view: MutViewRef<'a, '_, T, L>,
+        dim: usize,
+    ) -> LanesMut<'a, T> {
         // See notes in `Layout` about internal overlap.
         assert!(
             !view.layout.is_broadcast(),
