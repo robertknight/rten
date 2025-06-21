@@ -12,43 +12,6 @@ use super::{
 mod parallel;
 pub use parallel::{ParIter, SplitIterator};
 
-/// Borrowed reference to a tensor's data and layout. This differs from
-/// [`TensorView`] in that it borrows the layout rather than having its own.
-///
-/// `'d` is the lifetime of the data and `'l` the lifetime of the layout.
-pub(crate) struct ViewRef<'d, 'l, T, L: Layout> {
-    data: ViewData<'d, T>,
-    layout: &'l L,
-}
-
-impl<'d, 'l, T, L: Layout> ViewRef<'d, 'l, T, L> {
-    pub(crate) fn new(data: ViewData<'d, T>, layout: &'l L) -> ViewRef<'d, 'l, T, L> {
-        ViewRef { data, layout }
-    }
-}
-
-impl<'d, 'l, T, L: Layout> Clone for ViewRef<'d, 'l, T, L> {
-    fn clone(&self) -> ViewRef<'d, 'l, T, L> {
-        ViewRef {
-            data: self.data,
-            layout: self.layout,
-        }
-    }
-}
-
-/// Mutably borrowed reference to a tensor's data and layout. This differs from
-/// [`TensorViewMut`] in that it borrows the layout rather than having its own.
-pub(crate) struct MutViewRef<'d, 'l, T, L: Layout> {
-    data: ViewMutData<'d, T>,
-    layout: &'l L,
-}
-
-impl<'d, 'l, T, L: Layout> MutViewRef<'d, 'l, T, L> {
-    pub(crate) fn new(data: ViewMutData<'d, T>, layout: &'l L) -> MutViewRef<'d, 'l, T, L> {
-        MutViewRef { data, layout }
-    }
-}
-
 /// Tracks the iteration position within a single dimension.
 #[derive(Copy, Clone, Debug, Default)]
 struct IterPos {
@@ -320,10 +283,10 @@ pub struct Iter<'a, T> {
 }
 
 impl<'a, T> Iter<'a, T> {
-    pub(super) fn new<L: Layout>(view: ViewRef<'a, '_, T, L>) -> Iter<'a, T> {
+    pub(super) fn new<L: Layout + Clone>(view: TensorBase<ViewData<'a, T>, L>) -> Iter<'a, T> {
         Iter {
-            offsets: Offsets::new(view.layout),
-            data: view.data,
+            offsets: Offsets::new(view.layout()),
+            data: view.storage(),
         }
     }
 }
@@ -386,10 +349,12 @@ pub struct IterMut<'a, T> {
 }
 
 impl<'a, T> IterMut<'a, T> {
-    pub(super) fn new<L: Layout>(view: MutViewRef<'a, '_, T, L>) -> IterMut<'a, T> {
+    pub(super) fn new<L: Layout + Clone>(
+        view: TensorBase<ViewMutData<'a, T>, L>,
+    ) -> IterMut<'a, T> {
         IterMut {
-            offsets: Offsets::new(view.layout),
-            data: view.data,
+            offsets: Offsets::new(view.layout()),
+            data: view.into_storage(),
         }
     }
 }
@@ -629,18 +594,18 @@ impl<T> FusedIterator for Lane<'_, T> {}
 impl<'a, T> Lanes<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
     /// dimension of `tensor`.
-    pub(crate) fn new<L: Layout + RemoveDim>(
-        view: ViewRef<'a, '_, T, L>,
+    pub(crate) fn new<L: Layout + RemoveDim + Clone>(
+        view: TensorBase<ViewData<'a, T>, L>,
         dim: usize,
     ) -> Lanes<'a, T> {
-        let size = view.layout.size(dim);
-        let stride = view.layout.stride(dim);
+        let size = view.size(dim);
+        let stride = view.stride(dim);
         let lane_layout =
             NdLayout::from_shape_and_strides([size], [stride], OverlapPolicy::AllowOverlap)
                 .unwrap();
         Lanes {
-            data: view.data,
-            ranges: LaneRanges::new(view.layout, dim),
+            data: view.storage(),
+            ranges: LaneRanges::new(view.layout(), dim),
             lane_layout,
         }
     }
@@ -694,18 +659,18 @@ pub struct LanesMut<'a, T> {
 impl<'a, T> LanesMut<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
     /// dimension of `view`.
-    pub(crate) fn new<L: Layout + RemoveDim>(
-        view: MutViewRef<'a, '_, T, L>,
+    pub(crate) fn new<L: Layout + RemoveDim + Clone>(
+        view: TensorBase<ViewMutData<'a, T>, L>,
         dim: usize,
     ) -> LanesMut<'a, T> {
         // See notes in `Layout` about internal overlap.
         assert!(
-            !view.layout.is_broadcast(),
+            !view.is_broadcast(),
             "Cannot mutably iterate over broadcasting view"
         );
 
-        let size = view.layout.size(dim);
-        let stride = view.layout.stride(dim);
+        let size = view.size(dim);
+        let stride = view.stride(dim);
 
         // We allow overlap here to handle the case where the stride is zero,
         // but the tensor is empty. If the tensor was not empty, the assert above
@@ -715,8 +680,8 @@ impl<'a, T> LanesMut<'a, T> {
                 .unwrap();
 
         LanesMut {
-            ranges: LaneRanges::new(view.layout, dim),
-            data: view.data,
+            ranges: LaneRanges::new(view.layout(), dim),
+            data: view.into_storage(),
             lane_layout,
         }
     }
@@ -905,13 +870,13 @@ impl<L: Layout> DoubleEndedIterator for InnerIterBase<L> {
 
 /// Iterator over views of the innermost dimensions of a tensor, where the
 /// tensor has element type T and the inner dimensions have layout L.
-pub struct InnerIter<'a, T, L: MutLayout> {
+pub struct InnerIter<'a, T, L: Layout> {
     base: InnerIterBase<L>,
     data: ViewData<'a, T>,
 }
 
 impl<'a, T, const N: usize> InnerIter<'a, T, NdLayout<N>> {
-    pub fn new<L: MutLayout>(view: TensorBase<ViewData<'a, T>, L>) -> Self {
+    pub fn new<L: Layout + Clone>(view: TensorBase<ViewData<'a, T>, L>) -> Self {
         let base = InnerIterBase::new(&view);
         InnerIter {
             base,
@@ -921,7 +886,10 @@ impl<'a, T, const N: usize> InnerIter<'a, T, NdLayout<N>> {
 }
 
 impl<'a, T> InnerIter<'a, T, DynLayout> {
-    pub fn new_dyn<L: MutLayout>(view: TensorBase<ViewData<'a, T>, L>, inner_dims: usize) -> Self {
+    pub fn new_dyn<L: Layout + Clone>(
+        view: TensorBase<ViewData<'a, T>, L>,
+        inner_dims: usize,
+    ) -> Self {
         let base = InnerIterBase::new_dyn(&view, inner_dims);
         InnerIter {
             base,
@@ -930,7 +898,7 @@ impl<'a, T> InnerIter<'a, T, DynLayout> {
     }
 }
 
-impl<'a, T, L: MutLayout> Iterator for InnerIter<'a, T, L> {
+impl<'a, T, L: Layout + Clone> Iterator for InnerIter<'a, T, L> {
     type Item = TensorBase<ViewData<'a, T>, L>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -947,9 +915,9 @@ impl<'a, T, L: MutLayout> Iterator for InnerIter<'a, T, L> {
     }
 }
 
-impl<T, L: MutLayout> ExactSizeIterator for InnerIter<'_, T, L> {}
+impl<T, L: Layout + Clone> ExactSizeIterator for InnerIter<'_, T, L> {}
 
-impl<T, L: MutLayout> DoubleEndedIterator for InnerIter<'_, T, L> {
+impl<T, L: Layout + Clone> DoubleEndedIterator for InnerIter<'_, T, L> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.base.next_back().map(|offset_range| {
             TensorBase::from_storage_and_layout(
@@ -962,13 +930,13 @@ impl<T, L: MutLayout> DoubleEndedIterator for InnerIter<'_, T, L> {
 
 /// Iterator over mutable views of the innermost dimensions of a tensor, where
 /// the tensor has element type T and the inner dimensions have layout L.
-pub struct InnerIterMut<'a, T, L: MutLayout> {
+pub struct InnerIterMut<'a, T, L: Layout> {
     base: InnerIterBase<L>,
     data: ViewMutData<'a, T>,
 }
 
 impl<'a, T, const N: usize> InnerIterMut<'a, T, NdLayout<N>> {
-    pub fn new<L: MutLayout>(view: TensorBase<ViewMutData<'a, T>, L>) -> Self {
+    pub fn new<L: Layout>(view: TensorBase<ViewMutData<'a, T>, L>) -> Self {
         let base = InnerIterBase::new(&view);
         InnerIterMut {
             base,
@@ -978,10 +946,7 @@ impl<'a, T, const N: usize> InnerIterMut<'a, T, NdLayout<N>> {
 }
 
 impl<'a, T> InnerIterMut<'a, T, DynLayout> {
-    pub fn new_dyn<L: MutLayout>(
-        view: TensorBase<ViewMutData<'a, T>, L>,
-        inner_dims: usize,
-    ) -> Self {
+    pub fn new_dyn<L: Layout>(view: TensorBase<ViewMutData<'a, T>, L>, inner_dims: usize) -> Self {
         let base = InnerIterBase::new_dyn(&view, inner_dims);
         InnerIterMut {
             base,
@@ -990,7 +955,7 @@ impl<'a, T> InnerIterMut<'a, T, DynLayout> {
     }
 }
 
-impl<'a, T, L: MutLayout> Iterator for InnerIterMut<'a, T, L> {
+impl<'a, T, L: Layout + Clone> Iterator for InnerIterMut<'a, T, L> {
     type Item = TensorBase<ViewMutData<'a, T>, L>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1012,9 +977,9 @@ impl<'a, T, L: MutLayout> Iterator for InnerIterMut<'a, T, L> {
     }
 }
 
-impl<T, L: MutLayout> ExactSizeIterator for InnerIterMut<'_, T, L> {}
+impl<T, L: Layout + Clone> ExactSizeIterator for InnerIterMut<'_, T, L> {}
 
-impl<'a, T, L: MutLayout> DoubleEndedIterator for InnerIterMut<'a, T, L> {
+impl<'a, T, L: Layout + Clone> DoubleEndedIterator for InnerIterMut<'a, T, L> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.base.next_back().map(|offset_range| {
             let storage = self.data.slice_mut(offset_range);
@@ -1030,7 +995,7 @@ impl<'a, T, L: MutLayout> DoubleEndedIterator for InnerIterMut<'a, T, L> {
 
 /// Iterator over slices of a tensor along an axis. See
 /// [`TensorView::axis_iter`](crate::TensorView::axis_iter).
-pub struct AxisIter<'a, T, L: MutLayout + RemoveDim> {
+pub struct AxisIter<'a, T, L: Layout + RemoveDim> {
     view: TensorBase<ViewData<'a, T>, L>,
     axis: usize,
     index: usize,
@@ -1083,14 +1048,14 @@ impl<'a, T, L: MutLayout + RemoveDim> DoubleEndedIterator for AxisIter<'a, T, L>
 }
 
 /// Iterator over mutable slices of a tensor along an axis. See [`TensorViewMut::axis_iter_mut`].
-pub struct AxisIterMut<'a, T, L: MutLayout + RemoveDim> {
+pub struct AxisIterMut<'a, T, L: Layout + RemoveDim> {
     view: TensorBase<ViewMutData<'a, T>, L>,
     axis: usize,
     index: usize,
     end: usize,
 }
 
-impl<'a, T, L: MutLayout + RemoveDim> AxisIterMut<'a, T, L> {
+impl<'a, T, L: Layout + RemoveDim + Clone> AxisIterMut<'a, T, L> {
     pub fn new(view: TensorBase<ViewMutData<'a, T>, L>, axis: usize) -> AxisIterMut<'a, T, L> {
         // See notes in `Layout` about internal overlap.
         assert!(
