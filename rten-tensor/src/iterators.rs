@@ -975,6 +975,16 @@ impl<L: Layout> Iterator for InnerIterBase<L> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.outer_offsets.size_hint()
     }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.outer_offsets.fold(init, |acc, offset| {
+            f(acc, offset..offset + self.inner_data_len)
+        })
+    }
 }
 
 impl<L: Layout> ExactSizeIterator for InnerIterBase<L> {}
@@ -1028,6 +1038,21 @@ impl<'a, T, L: MutLayout> Iterator for InnerIter<'a, T, L> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.base.size_hint()
+    }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        let inner_layout = self.base.inner_layout.clone();
+        self.base.fold(init, |acc, offset_range| {
+            let item = TensorBase::from_storage_and_layout(
+                self.data.slice(offset_range),
+                inner_layout.clone(),
+            );
+            f(acc, item)
+        })
     }
 }
 
