@@ -10,7 +10,7 @@ use crate::copy::{
 use crate::errors::{DimensionError, ExpandError, FromDataError, ReshapeError, SliceError};
 use crate::iterators::{
     for_each_mut, AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut, Iter,
-    IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
+    IterMut, Lanes, LanesMut,
 };
 use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
@@ -800,8 +800,11 @@ impl<S: StorageMut, L: Clone + Layout> TensorBase<S, L> {
             .get_unchecked_mut(self.layout.offset_unchecked(index.as_index()))
     }
 
-    pub(crate) fn mut_view_ref(&mut self) -> MutViewRef<S::Elem, L> {
-        MutViewRef::new(self.data.view_mut(), &self.layout)
+    pub(crate) fn mut_view_ref(&mut self) -> TensorBase<ViewMutData<S::Elem>, &L> {
+        TensorBase {
+            data: self.data.view_mut(),
+            layout: &self.layout,
+        }
     }
 
     /// Return a mutable iterator over the N innermost dimensions of this tensor.
@@ -1793,8 +1796,11 @@ impl<'a, T, L: Clone + Layout> TensorBase<ViewData<'a, T>, L> {
         }
     }
 
-    pub(crate) fn view_ref(&self) -> ViewRef<'a, '_, T, L> {
-        ViewRef::new(self.data, &self.layout)
+    pub(crate) fn view_ref(&self) -> TensorBase<ViewData<'a, T>, &L> {
+        TensorBase {
+            data: self.data,
+            layout: &self.layout,
+        }
     }
 
     pub fn weakly_checked_view(&self) -> WeaklyCheckedView<ViewData<'a, T>, L> {

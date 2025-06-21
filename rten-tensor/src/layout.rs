@@ -296,6 +296,39 @@ impl<const N: usize> Layout for NdLayout<N> {
     }
 }
 
+impl<L: Layout> Layout for &L {
+    type Index<'b> = L::Index<'b>;
+    type Indices = L::Indices;
+
+    fn ndim(&self) -> usize {
+        (*self).ndim()
+    }
+
+    fn len(&self) -> usize {
+        (*self).len()
+    }
+
+    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        (*self).try_offset(index)
+    }
+
+    fn offset_unchecked(&self, index: Self::Index<'_>) -> usize {
+        (*self).offset_unchecked(index)
+    }
+
+    fn shape(&self) -> Self::Index<'_> {
+        (*self).shape()
+    }
+
+    fn strides(&self) -> Self::Index<'_> {
+        (*self).strides()
+    }
+
+    fn indices(&self) -> Self::Indices {
+        (*self).indices()
+    }
+}
+
 impl MatrixLayout for NdLayout<2> {
     #[inline]
     fn rows(&self) -> usize {
@@ -1382,6 +1415,14 @@ pub trait RemoveDim {
 
     /// Return a copy of this layout with the dimension at index `dim` removed.
     fn remove_dim(&self, dim: usize) -> Self::Output;
+}
+
+impl<R: RemoveDim> RemoveDim for &R {
+    type Output = R::Output;
+
+    fn remove_dim(&self, dim: usize) -> Self::Output {
+        (*self).remove_dim(dim)
+    }
 }
 
 impl RemoveDim for DynLayout {
