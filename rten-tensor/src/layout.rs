@@ -498,22 +498,6 @@ impl<'a, const N: usize> TryFrom<&'a DynLayout> for NdLayout<N> {
 ///
 /// The layout specifies the size of each dimension of the tensor (the _shape_)
 /// and the stride (gap) between offsets in each dimension.
-///
-/// ## Safety and internal overlap
-///
-/// Rust requires that only one mutable reference can exist for any value. To
-/// ensure this, mutable iteration over a tensor must visit each element only
-/// once. This means that in the tensor's Layout, every valid index must map to
-/// a unique offset. Verifying this for the general case of arbitrary shape and
-/// strides is non-trivial. See notes in `mem_overlap.c` in the NumPy source. In
-/// this library the problem is simplified by limiting the stride patterns that
-/// can be constructed. All Layout functions must uphold the invariant:
-///
-///   Every Layout either has one or more strides set to zero, or every valid
-///   index must map to a unique offset.
-///
-/// Zero-strides are used for broadcasting, which is widely used and easy to
-/// check for.
 #[derive(Debug, PartialEq)]
 pub struct DynLayout {
     /// Array of dimension sizes followed by the corresponding dimension strides.
@@ -663,6 +647,24 @@ impl<const N: usize> From<NdLayout<N>> for DynLayout {
 
 /// MutLayout extends [`Layout`] with methods for creating, modifying and
 /// transforming layouts.
+///
+/// ## Strides and internal overlap
+///
+/// Rust requires that only one mutable reference can exist for any value. When
+/// creating mutable tensor views or iterators, it is therefore important to
+/// know whether multiple elements in the layout may map to the same offset.
+///
+/// Accurately checking this for arbitrary shape and strides is non-trivial. See
+/// notes in `mem_overlap.c` in the NumPy source. RTen handles this by using
+/// a conservative check for internal overlap when constructing a layout from
+/// arbitrary strides. Specifically it sorts dimensions by decreasing stride and
+/// then verifies that each dimension fully "steps over" the next one. This
+/// allows for layouts which are transposed or have been sliced, but disallows
+/// some more complex non-overlapping constructions.
+///
+/// When constructing a layout via
+/// [`from_shape_and_strides`](MutLayout::from_shape_and_strides) the intended
+/// usage is specified via an [`OverlapPolicy`].
 pub trait MutLayout: Layout + Clone {
     /// Create a new contiguous layout with a given shape.
     fn from_shape(shape: Self::Index<'_>) -> Self;
