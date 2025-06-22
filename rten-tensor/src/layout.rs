@@ -448,24 +448,13 @@ fn broadcast_strides<'a>(
 }
 
 impl<const N: usize> NdLayout<N> {
-    /// Convert a layout with dynamic rank to a layout with a static rank.
-    ///
-    /// Panics if `l` does not have N dimensions.
-    pub fn from_dyn(l: DynLayout) -> Self {
-        assert!(l.ndim() == N, "Dynamic layout dims != {}", N);
-        NdLayout {
-            shape: l.shape().try_into().unwrap(),
-            strides: l.strides().try_into().unwrap(),
-        }
-    }
-
     /// Convert this layout to one with a dynamic rank.
     pub fn as_dyn(&self) -> DynLayout {
         self.into()
     }
 
     /// Return true if all components of `index` are in-bounds.
-    pub fn index_valid(&self, index: [usize; N]) -> bool {
+    fn index_valid(&self, index: [usize; N]) -> bool {
         let mut valid = true;
         for i in 0..N {
             valid = valid && index[i] < self.shape[i]
@@ -475,121 +464,12 @@ impl<const N: usize> NdLayout<N> {
 
     /// Return the strides that a contiguous layout with a given shape would
     /// have.
-    pub fn contiguous_strides(shape: [usize; N]) -> [usize; N] {
+    fn contiguous_strides(shape: [usize; N]) -> [usize; N] {
         let mut strides = [0; N];
         for i in 0..N {
             strides[i] = shape[i + 1..].iter().product();
         }
         strides
-    }
-
-    /// Create a layout with a given shape and a contiguous layout.
-    pub fn from_shape(shape: [usize; N]) -> Self {
-        Self {
-            shape,
-            strides: Self::contiguous_strides(shape),
-        }
-    }
-
-    /// Create a layout with given shape and strides, intended for use with
-    /// data storage of length `data_len`.
-    ///
-    /// `overlap` determines whether this method will fail if the layout
-    /// may have internal overlap.
-    pub fn try_from_shape_and_strides(
-        shape: [usize; N],
-        strides: [usize; N],
-        overlap: OverlapPolicy,
-    ) -> Result<NdLayout<N>, FromDataError> {
-        let layout = NdLayout { shape, strides };
-
-        match overlap {
-            OverlapPolicy::DisallowOverlap => {
-                if may_have_internal_overlap(&layout.shape, &layout.strides) {
-                    return Err(FromDataError::MayOverlap);
-                }
-            }
-            OverlapPolicy::AllowOverlap => {}
-        }
-
-        Ok(layout)
-    }
-
-    /// Construct a layout which broadcasts elements to `to_shape` by setting
-    /// the stride to `0` in broadcasted dimensions.
-    pub fn broadcast<const M: usize>(
-        &self,
-        to_shape: [usize; M],
-    ) -> Result<NdLayout<M>, ExpandError> {
-        if !self.can_broadcast_to(&to_shape) {
-            return Err(ExpandError::ShapeMismatch);
-        }
-        let mut strides = [0usize; M];
-        for (i, stride) in broadcast_strides(&self.shape(), &self.strides(), &to_shape).enumerate()
-        {
-            strides[i] = stride;
-        }
-
-        Ok(NdLayout {
-            shape: to_shape,
-            strides,
-        })
-    }
-
-    /// Swap strides of this layout to put axes in the given order.
-    ///
-    /// Values in `dims` must be < N.
-    pub fn permuted(&self, dims: [usize; N]) -> Self {
-        assert!(is_valid_permutation(N, &dims), "permutation is invalid");
-        let mut shape = [0; N];
-        let mut strides = [0; N];
-        for i in 0..N {
-            shape[i] = self.shape[dims[i]];
-            strides[i] = self.strides[dims[i]];
-        }
-        NdLayout { shape, strides }
-    }
-
-    /// Reverse the order of dimensions in this layout.
-    pub fn transposed(&self) -> Self {
-        let dims = std::array::from_fn(|i| N - i - 1);
-        self.permuted(dims)
-    }
-
-    /// Compute the new layout and offset of the first element for a slice into
-    /// an existing tensor view.
-    ///
-    /// Returns a tuple of (offset_range, layout) for the sliced view.
-    pub fn slice<const M: usize>(
-        &self,
-        range: &[SliceItem],
-    ) -> Result<(Range<usize>, NdLayout<M>), SliceError> {
-        if self.ndim() < range.len() {
-            return Err(SliceError::TooManyDims {
-                ndim: self.ndim(),
-                range_ndim: range.len(),
-            });
-        }
-
-        let mut shape: [usize; M] = [0; M];
-        let mut strides: [usize; M] = [0; M];
-
-        let (ndim, offset) =
-            slice_layout(&self.shape, &self.strides, &mut shape, &mut strides, range)?;
-
-        if ndim != M {
-            return Err(SliceError::OutputDimsMismatch {
-                actual: ndim,
-                expected: M,
-            });
-        }
-
-        let layout = NdLayout { shape, strides };
-        Ok((offset..offset + layout.min_data_len(), layout))
-    }
-
-    pub fn resize_dim(&mut self, dim: usize, new_size: usize) {
-        self.shape[dim] = new_size;
     }
 }
 
@@ -719,108 +599,14 @@ impl Layout for DynLayout {
 }
 
 impl DynLayout {
-    /// Construct a layout with dimension sizes given by `shape` and default
-    /// (contiguous) strides.
-    pub fn from_shape(shape: &[usize]) -> DynLayout {
-        DynLayout {
-            shape_and_strides: Self::contiguous_shape_and_strides(shape),
-        }
-    }
-
-    /// Construct a layout with dimension sizes given by `shape` and given
-    /// strides.
-    ///
-    /// Panics if `strides` may lead to internal overlap (multiple indices
-    /// map to the same data offset), unless strides contains a `0`. See
-    /// struct notes.
-    pub fn try_from_shape_and_strides(
-        shape: &[usize],
-        strides: &[usize],
-        overlap: OverlapPolicy,
-    ) -> Result<DynLayout, FromDataError> {
-        let mut shape_and_strides = SmallVec::with_capacity(shape.len() + strides.len());
-        shape_and_strides.extend_from_slice(shape);
-        shape_and_strides.extend_from_slice(strides);
-        let layout = DynLayout { shape_and_strides };
-
-        match overlap {
-            OverlapPolicy::DisallowOverlap => {
-                if may_have_internal_overlap(layout.shape(), layout.strides()) {
-                    return Err(FromDataError::MayOverlap);
-                }
-            }
-            OverlapPolicy::AllowOverlap => {}
-        }
-
-        Ok(layout)
-    }
-
     /// Create a new `DynLayout` with the same shape and strides as `layout`.
     pub fn from_layout<L: Layout>(layout: &L) -> DynLayout {
-        DynLayout::try_from_shape_and_strides(
+        DynLayout::from_shape_and_strides(
             layout.shape().as_ref(),
             layout.strides().as_ref(),
             OverlapPolicy::AllowOverlap,
         )
         .expect("invalid layout")
-    }
-
-    /// Construct a layout which broadcasts elements to `to_shape` by setting
-    /// the stride to `0` in broadcasted dimensions.
-    pub fn broadcast(&self, to_shape: &[usize]) -> Result<DynLayout, ExpandError> {
-        if !self.can_broadcast_to(to_shape) {
-            return Err(ExpandError::ShapeMismatch);
-        }
-
-        let mut shape_and_strides = SmallVec::with_capacity(to_shape.len() * 2);
-        shape_and_strides.extend(to_shape.iter().copied());
-        shape_and_strides.extend(broadcast_strides(self.shape(), self.strides(), to_shape));
-
-        Ok(DynLayout { shape_and_strides })
-    }
-
-    /// Move the index at axis `from` to `to`, keeping the relative order of
-    /// other dimensions the same. This is like NumPy's `moveaxis` function.
-    pub fn move_axis(&mut self, from: usize, to: usize) {
-        let ndim = self.ndim();
-        assert!(from < ndim && to < ndim);
-
-        let size = self.shape_and_strides.remove(from);
-        let stride = self.shape_and_strides.remove(ndim - 1 + from);
-        self.shape_and_strides.insert(to, size);
-        self.shape_and_strides.insert(ndim + to, stride);
-    }
-
-    /// Compute the new layout and offset of the first element for a slice into
-    /// an existing tensor view.
-    ///
-    /// Returns a tuple of (offset_range, layout) for the sliced view, or an
-    /// error if the range is invalid.
-    pub fn slice(&self, range: &[SliceItem]) -> Result<(Range<usize>, DynLayout), SliceError> {
-        if self.ndim() < range.len() {
-            return Err(SliceError::TooManyDims {
-                ndim: self.ndim(),
-                range_ndim: range.len(),
-            });
-        }
-
-        let out_dims = self.ndim()
-            - range
-                .iter()
-                .filter(|item| matches!(item, SliceItem::Index(_)))
-                .count();
-        let mut shape_and_strides = smallvec![0; out_dims * 2];
-        let (out_shape, out_strides) = shape_and_strides.as_mut_slice().split_at_mut(out_dims);
-
-        let (_ndim, offset) =
-            slice_layout(self.shape(), self.strides(), out_shape, out_strides, range)?;
-
-        let layout = Self { shape_and_strides };
-        Ok((offset..offset + layout.min_data_len(), layout))
-    }
-
-    pub fn resize_dim(&mut self, dim: usize, new_size: usize) {
-        self.shape_and_strides[dim] = new_size;
     }
 
     pub fn make_contiguous(&mut self) {
@@ -837,7 +623,7 @@ impl DynLayout {
 
     /// Swap the order of dimensions in this layout to the order described by
     /// `dims`.
-    pub fn permute(&mut self, dims: &[usize]) {
+    fn permute(&mut self, dims: &[usize]) {
         assert!(
             is_valid_permutation(self.ndim(), dims),
             "permutation is invalid"
@@ -845,87 +631,9 @@ impl DynLayout {
         self.permute_iter(dims.iter().copied());
     }
 
-    /// Return a copy of this layout with dimensions re-ordered according to
-    /// `dims`.
-    pub fn permuted(&self, dims: &[usize]) -> DynLayout {
-        let mut permuted = self.clone();
-        permuted.permute(dims);
-        permuted
-    }
-
     /// Reverse the order of dimensions in this layout.
-    pub fn transpose(&mut self) {
+    fn transpose(&mut self) {
         self.permute_iter((0..self.ndim()).rev());
-    }
-
-    /// Return a copy of this layout with the order of dimensions reversed.
-    pub fn transposed(&self) -> DynLayout {
-        let mut transposed = self.clone();
-        transposed.transpose();
-        transposed
-    }
-
-    /// Insert a dimension of size one at index `dim`.
-    pub fn insert_dim(&mut self, dim: usize) {
-        let ndim = self.ndim();
-        let new_size = 1;
-
-        // Choose stride for new dimension as if we were inserting it at the
-        // beginning. If `dim != 0` then the result is as if we inserted the
-        // dim at the start and then permuted the layout.
-        let (max_stride, size_for_max_stride) = self
-            .strides()
-            .iter()
-            .copied()
-            .zip(self.shape().iter().copied())
-            .max_by_key(|(stride, _size)| *stride)
-            .unwrap_or((1, 1));
-        let new_stride = max_stride * size_for_max_stride;
-
-        self.shape_and_strides.insert(dim, new_size);
-        self.shape_and_strides.insert(ndim + 1 + dim, new_stride);
-    }
-
-    /// Return the offset of the slice that begins at the given index.
-    pub fn slice_offset<Idx: AsRef<[usize]>>(&self, index: Idx) -> usize {
-        let index = index.as_ref();
-
-        assert!(index.len() <= self.ndim());
-        let shape = self.shape();
-        let mut offset = 0;
-        for i in 0..index.len() {
-            assert!(
-                index[i] < shape[i],
-                "Invalid index {} for dim {}",
-                index[i],
-                i
-            );
-            offset += index[i] * self.stride(i)
-        }
-        offset
-    }
-
-    /// Return a copy of this layout with dimensions of size 1 removed.
-    pub fn squeezed(&self) -> DynLayout {
-        let shape = self.shape().iter().copied().filter(|&size| size != 1);
-        let strides = self
-            .shape()
-            .iter()
-            .zip(self.strides())
-            .filter_map(|(&size, &stride)| if size != 1 { Some(stride) } else { None });
-        DynLayout {
-            shape_and_strides: shape.chain(strides).collect(),
-        }
-    }
-
-    pub fn dims<const N: usize>(&self) -> [usize; N] {
-        assert!(
-            self.ndim() == N,
-            "Cannot extract {} dim tensor as {} dim array",
-            self.ndim(),
-            N
-        );
-        self.shape().try_into().unwrap()
     }
 
     /// Create a shape-and-strides array for a contiguous layout.
@@ -1087,7 +795,15 @@ impl<const N: usize, const M: usize> BroadcastLayout<NdLayout<M>> for NdLayout<N
         shape: S,
     ) -> Result<NdLayout<M>, ExpandError> {
         let shape: [usize; M] = shape.as_ref().try_into().unwrap();
-        self.broadcast(shape)
+        if !self.can_broadcast_to(&shape) {
+            return Err(ExpandError::ShapeMismatch);
+        }
+        let mut strides = [0usize; M];
+        for (i, stride) in broadcast_strides(&self.shape(), &self.strides(), &shape).enumerate() {
+            strides[i] = stride;
+        }
+
+        Ok(NdLayout { shape, strides })
     }
 }
 
@@ -1106,7 +822,17 @@ impl BroadcastLayout<DynLayout> for DynLayout {
         &self,
         shape: S,
     ) -> Result<DynLayout, ExpandError> {
-        self.broadcast(shape.as_ref())
+        let to_shape = shape.as_ref();
+
+        if !self.can_broadcast_to(to_shape) {
+            return Err(ExpandError::ShapeMismatch);
+        }
+
+        let mut shape_and_strides = SmallVec::with_capacity(to_shape.len() * 2);
+        shape_and_strides.extend(to_shape.iter().copied());
+        shape_and_strides.extend(broadcast_strides(self.shape(), self.strides(), to_shape));
+
+        Ok(DynLayout { shape_and_strides })
     }
 }
 
@@ -1125,7 +851,10 @@ impl<const N: usize> BroadcastLayout<NdLayout<N>> for DynLayout {
 
 impl<const N: usize> MutLayout for NdLayout<N> {
     fn from_shape(shape: [usize; N]) -> Self {
-        Self::from_shape(shape)
+        Self {
+            shape,
+            strides: Self::contiguous_strides(shape),
+        }
     }
 
     fn from_shape_and_strides(
@@ -1133,7 +862,18 @@ impl<const N: usize> MutLayout for NdLayout<N> {
         strides: Self::Index<'_>,
         overlap: OverlapPolicy,
     ) -> Result<Self, FromDataError> {
-        Self::try_from_shape_and_strides(shape, strides, overlap)
+        let layout = NdLayout { shape, strides };
+
+        match overlap {
+            OverlapPolicy::DisallowOverlap => {
+                if may_have_internal_overlap(&layout.shape, &layout.strides) {
+                    return Err(FromDataError::MayOverlap);
+                }
+            }
+            OverlapPolicy::AllowOverlap => {}
+        }
+
+        Ok(layout)
     }
 
     fn move_axis(&mut self, from: usize, to: usize) {
@@ -1143,27 +883,56 @@ impl<const N: usize> MutLayout for NdLayout<N> {
         *self = NdLayout::try_from(&dyn_layout).unwrap();
     }
 
-    fn permuted(&self, order: [usize; N]) -> NdLayout<N> {
-        self.permuted(order)
+    fn permuted(&self, dims: [usize; N]) -> NdLayout<N> {
+        assert!(is_valid_permutation(N, &dims), "permutation is invalid");
+        let mut shape = [0; N];
+        let mut strides = [0; N];
+        for i in 0..N {
+            shape[i] = self.shape[dims[i]];
+            strides[i] = self.strides[dims[i]];
+        }
+        NdLayout { shape, strides }
     }
 
     fn resize_dim(&mut self, dim: usize, size: usize) {
-        self.resize_dim(dim, size)
+        self.shape[dim] = size;
     }
 
     fn transposed(&self) -> NdLayout<N> {
-        self.transposed()
+        let dims = std::array::from_fn(|i| N - i - 1);
+        self.permuted(dims)
     }
 
     fn slice<const M: usize>(
         &self,
         range: &[SliceItem],
     ) -> Result<(Range<usize>, NdLayout<M>), SliceError> {
-        self.slice(range)
+        if self.ndim() < range.len() {
+            return Err(SliceError::TooManyDims {
+                ndim: self.ndim(),
+                range_ndim: range.len(),
+            });
+        }
+
+        let mut shape: [usize; M] = [0; M];
+        let mut strides: [usize; M] = [0; M];
+
+        let (ndim, offset) =
+            slice_layout(&self.shape, &self.strides, &mut shape, &mut strides, range)?;
+
+        if ndim != M {
+            return Err(SliceError::OutputDimsMismatch {
+                actual: ndim,
+                expected: M,
+            });
+        }
+
+        let layout = NdLayout { shape, strides };
+        Ok((offset..offset + layout.min_data_len(), layout))
     }
 
     fn slice_dyn(&self, range: &[SliceItem]) -> Result<(Range<usize>, DynLayout), SliceError> {
-        self.as_dyn().slice(range)
+        self.as_dyn().slice_dyn(range)
     }
 
     fn squeezed(&self) -> DynLayout {
@@ -1208,7 +977,9 @@ impl<const N: usize> MutLayout for NdLayout<N> {
 
 impl MutLayout for DynLayout {
     fn from_shape(shape: &[usize]) -> Self {
-        Self::from_shape(shape)
+        DynLayout {
+            shape_and_strides: Self::contiguous_shape_and_strides(shape),
+        }
     }
 
     fn from_shape_and_strides(
@@ -1216,30 +987,54 @@ impl MutLayout for DynLayout {
         strides: &[usize],
         overlap: OverlapPolicy,
     ) -> Result<Self, FromDataError> {
-        Self::try_from_shape_and_strides(shape, strides, overlap)
+        let mut shape_and_strides = SmallVec::with_capacity(shape.len() + strides.len());
+        shape_and_strides.extend_from_slice(shape);
+        shape_and_strides.extend_from_slice(strides);
+        let layout = DynLayout { shape_and_strides };
+
+        match overlap {
+            OverlapPolicy::DisallowOverlap => {
+                if may_have_internal_overlap(layout.shape(), layout.strides()) {
+                    return Err(FromDataError::MayOverlap);
+                }
+            }
+            OverlapPolicy::AllowOverlap => {}
+        }
+
+        Ok(layout)
     }
 
     fn move_axis(&mut self, from: usize, to: usize) {
-        self.move_axis(from, to)
+        let ndim = self.ndim();
+        assert!(from < ndim && to < ndim);
+
+        let size = self.shape_and_strides.remove(from);
+        let stride = self.shape_and_strides.remove(ndim - 1 + from);
+        self.shape_and_strides.insert(to, size);
+        self.shape_and_strides.insert(ndim + to, stride);
     }
 
     fn permuted(&self, order: &[usize]) -> DynLayout {
-        self.permuted(order)
+        let mut permuted = self.clone();
+        permuted.permute(order);
+        permuted
     }
 
     fn resize_dim(&mut self, dim: usize, size: usize) {
-        self.resize_dim(dim, size)
+        self.shape_and_strides[dim] = size;
     }
 
     fn transposed(&self) -> DynLayout {
-        self.transposed()
+        let mut transposed = self.clone();
+        transposed.transpose();
+        transposed
     }
 
     fn slice<const M: usize>(
         &self,
         range: &[SliceItem],
     ) -> Result<(Range<usize>, NdLayout<M>), SliceError> {
-        let (offset_range, dyn_layout) = self.slice(range)?;
+        let (offset_range, dyn_layout) = self.slice_dyn(range)?;
         let nd_layout =
             NdLayout::try_from(&dyn_layout).map_err(|_| SliceError::OutputDimsMismatch {
                 actual: dyn_layout.ndim(),
@@ -1249,11 +1044,38 @@ impl MutLayout for DynLayout {
     }
 
     fn slice_dyn(&self, range: &[SliceItem]) -> Result<(Range<usize>, DynLayout), SliceError> {
-        self.slice(range)
+        if self.ndim() < range.len() {
+            return Err(SliceError::TooManyDims {
+                ndim: self.ndim(),
+                range_ndim: range.len(),
+            });
+        }
+
+        let out_dims = self.ndim()
+            - range
+                .iter()
+                .filter(|item| matches!(item, SliceItem::Index(_)))
+                .count();
+        let mut shape_and_strides = smallvec![0; out_dims * 2];
+        let (out_shape, out_strides) = shape_and_strides.as_mut_slice().split_at_mut(out_dims);
+
+        let (_ndim, offset) =
+            slice_layout(self.shape(), self.strides(), out_shape, out_strides, range)?;
+
+        let layout = Self { shape_and_strides };
+        Ok((offset..offset + layout.min_data_len(), layout))
     }
 
     fn squeezed(&self) -> DynLayout {
-        self.squeezed()
+        let shape = self.shape().iter().copied().filter(|&size| size != 1);
+        let strides = self
+            .shape()
+            .iter()
+            .zip(self.strides())
+            .filter_map(|(&size, &stride)| if size != 1 { Some(stride) } else { None });
+        DynLayout {
+            shape_and_strides: shape.chain(strides).collect(),
+        }
     }
 
     fn split(&self, axis: usize, mid: usize) -> ((Range<usize>, Self), (Range<usize>, Self)) {
@@ -1363,7 +1185,23 @@ pub trait ResizeLayout: MutLayout {
 
 impl ResizeLayout for DynLayout {
     fn insert_axis(&mut self, index: usize) {
-        self.insert_dim(index)
+        let ndim = self.ndim();
+        let new_size = 1;
+
+        // Choose stride for new dimension as if we were inserting it at the
+        // beginning. If `dim != 0` then the result is as if we inserted the
+        // dim at the start and then permuted the layout.
+        let (max_stride, size_for_max_stride) = self
+            .strides()
+            .iter()
+            .copied()
+            .zip(self.shape().iter().copied())
+            .max_by_key(|(stride, _size)| *stride)
+            .unwrap_or((1, 1));
+        let new_stride = max_stride * size_for_max_stride;
+
+        self.shape_and_strides.insert(index, new_size);
+        self.shape_and_strides.insert(ndim + 1 + index, new_stride);
     }
 
     fn remove_axis_of_any_size(&mut self, index: usize) {
@@ -1575,7 +1413,7 @@ mod tests {
     use crate::SliceItem;
 
     fn layout_with_strides<const N: usize>(shape: [usize; N], strides: [usize; N]) -> NdLayout<N> {
-        NdLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap).unwrap()
+        NdLayout::from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap).unwrap()
     }
 
     #[test]
@@ -1590,13 +1428,13 @@ mod tests {
 
         // Broadcasting layout
         let layout =
-            DynLayout::try_from_shape_and_strides(&[5, 5], &[0, 0], OverlapPolicy::AllowOverlap)
+            DynLayout::from_shape_and_strides(&[5, 5], &[0, 0], OverlapPolicy::AllowOverlap)
                 .unwrap();
         assert!(layout.is_broadcast());
     }
 
     #[test]
-    fn test_try_from_shape_and_strides() {
+    fn test_from_shape_and_strides() {
         #[derive(Debug)]
         struct Case<'a> {
             shape: &'a [usize],
@@ -1617,7 +1455,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let layout = DynLayout::try_from_shape_and_strides(
+            let layout = DynLayout::from_shape_and_strides(
                 case.shape,
                 case.strides,
                 OverlapPolicy::AllowOverlap,
@@ -1958,7 +1796,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let result = case.layout.slice(case.ranges);
+            let result = case.layout.slice_dyn(case.ranges);
             assert_eq!(result, Err(case.expected.clone()));
         })
     }
@@ -2054,13 +1892,13 @@ mod tests {
             } = case;
 
             let layout = if let Some(strides) = strides {
-                NdLayout::try_from_shape_and_strides(*shape, *strides, OverlapPolicy::AllowOverlap)
+                NdLayout::from_shape_and_strides(*shape, *strides, OverlapPolicy::AllowOverlap)
                     .unwrap()
             } else {
                 NdLayout::from_shape(*shape)
             };
             let dyn_layout = if let Some(strides) = strides {
-                DynLayout::try_from_shape_and_strides(
+                DynLayout::from_shape_and_strides(
                     shape.as_slice(),
                     strides.as_slice(),
                     OverlapPolicy::AllowOverlap,
@@ -2140,7 +1978,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let mut layout = DynLayout::try_from_shape_and_strides(
+            let mut layout = DynLayout::from_shape_and_strides(
                 case.shape,
                 case.strides,
                 OverlapPolicy::AllowOverlap,
