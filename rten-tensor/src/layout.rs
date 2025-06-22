@@ -583,16 +583,6 @@ impl Layout for DynLayout {
 }
 
 impl DynLayout {
-    /// Create a new `DynLayout` with the same shape and strides as `layout`.
-    pub fn from_layout<L: Layout>(layout: &L) -> DynLayout {
-        DynLayout::from_shape_and_strides(
-            layout.shape().as_ref(),
-            layout.strides().as_ref(),
-            OverlapPolicy::AllowOverlap,
-        )
-        .expect("invalid layout")
-    }
-
     pub fn make_contiguous(&mut self) {
         self.shape_and_strides = Self::contiguous_shape_and_strides(self.shape());
     }
@@ -633,15 +623,20 @@ impl DynLayout {
     }
 }
 
-impl<const N: usize> From<&NdLayout<N>> for DynLayout {
-    fn from(value: &NdLayout<N>) -> DynLayout {
-        DynLayout::from_layout(value)
+impl<L: Layout> From<&L> for DynLayout {
+    fn from(layout: &L) -> DynLayout {
+        DynLayout::from_shape_and_strides(
+            layout.shape().as_ref(),
+            layout.strides().as_ref(),
+            OverlapPolicy::AllowOverlap,
+        )
+        .expect("invalid layout")
     }
 }
 
 impl<const N: usize> From<NdLayout<N>> for DynLayout {
     fn from(value: NdLayout<N>) -> DynLayout {
-        DynLayout::from_layout(&value)
+        Self::from(&value)
     }
 }
 

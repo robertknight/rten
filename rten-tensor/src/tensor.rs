@@ -697,7 +697,7 @@ impl<S: StorageMut, L: Clone + Layout> TensorBase<S, L> {
     /// Return a mutable view of this tensor with a dynamic dimension count.
     pub fn as_dyn_mut(&mut self) -> TensorBase<ViewMutData<S::Elem>, DynLayout> {
         TensorBase {
-            layout: DynLayout::from_layout(&self.layout),
+            layout: DynLayout::from(&self.layout),
             data: self.data.view_mut(),
         }
     }
@@ -1401,7 +1401,7 @@ impl<'a, T, L: Clone + Layout> TensorBase<ViewData<'a, T>, L> {
     pub fn as_dyn(&self) -> TensorBase<ViewData<'a, T>, DynLayout> {
         TensorBase {
             data: self.data,
-            layout: DynLayout::from_layout(&self.layout),
+            layout: DynLayout::from(&self.layout),
         }
     }
 
