@@ -652,9 +652,8 @@ impl<S: Storage, L: Layout> TensorBase<S, L> {
         }
         let shape: [usize; N] = std::array::from_fn(|i| self.size(i));
         let strides: [usize; N] = std::array::from_fn(|i| self.stride(i));
-        let layout =
-            NdLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap)
-                .expect("invalid layout");
+        let layout = NdLayout::from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap)
+            .expect("invalid layout");
         Some(layout)
     }
 
@@ -698,7 +697,7 @@ impl<S: StorageMut, L: Clone + Layout> TensorBase<S, L> {
     /// Return a mutable view of this tensor with a dynamic dimension count.
     pub fn as_dyn_mut(&mut self) -> TensorBase<ViewMutData<S::Elem>, DynLayout> {
         TensorBase {
-            layout: DynLayout::from_layout(&self.layout),
+            layout: DynLayout::from(&self.layout),
             data: self.data.view_mut(),
         }
     }
@@ -1402,7 +1401,7 @@ impl<'a, T, L: Clone + Layout> TensorBase<ViewData<'a, T>, L> {
     pub fn as_dyn(&self) -> TensorBase<ViewData<'a, T>, DynLayout> {
         TensorBase {
             data: self.data,
-            layout: DynLayout::from_layout(&self.layout),
+            layout: DynLayout::from(&self.layout),
         }
     }
 
@@ -2507,7 +2506,7 @@ mod tests {
 
     use super::{AsView, NdTensor, NdTensorView, NdTensorViewMut, Tensor};
     use crate::errors::{ExpandError, FromDataError};
-    use crate::layout::{DynLayout, MatrixLayout};
+    use crate::layout::{DynLayout, MatrixLayout, MutLayout};
     use crate::prelude::*;
     use crate::rng::XorShiftRng;
     use crate::{Alloc, SliceItem, SliceRange, Storage};

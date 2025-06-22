@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{DynLayout, OverlapPolicy, Tensor, TensorView};
+use rten_tensor::{DynLayout, MutLayout, OverlapPolicy, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
@@ -265,12 +265,9 @@ fn take_diagonals<'a>(term: &str, x: &TensorView<'a>) -> Result<(String, TensorV
         out_strides.push(diagonal_stride);
     }
 
-    let out_layout = DynLayout::try_from_shape_and_strides(
-        &out_shape,
-        &out_strides,
-        OverlapPolicy::AllowOverlap,
-    )
-    .expect("failed to create diagonal layout");
+    let out_layout =
+        DynLayout::from_shape_and_strides(&out_shape, &out_strides, OverlapPolicy::AllowOverlap)
+            .expect("failed to create diagonal layout");
     let out_view = TensorView::from_storage_and_layout(x.storage(), out_layout);
 
     Ok((unique_dims, out_view))
