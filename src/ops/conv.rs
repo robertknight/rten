@@ -10,6 +10,7 @@ use rten_tensor::{CowTensor, NdTensor, NdTensorView, NdTensorViewMut, Tensor, Te
 use crate::gemm::{
     BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams,
 };
+use crate::number::div_ceil;
 use crate::ops::matmul::zero_point_to_vec;
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{
@@ -529,6 +530,38 @@ impl Operator for ConvInteger {
     }
 }
 
+/// Compute the range of input positions along a spatial axis that result in
+/// valid output positions for a col2im operation.
+///
+/// The input and output positions are related by:
+///
+///    out_x = in_x * stride + kernel_pos
+///
+/// Output positions are valid where:
+///
+///    out_x >= pad_start && out_x < output_size + pad_start
+///
+/// Input positions are also constrained to [0, input_size).
+fn col2im_input_range(
+    input_size: usize,
+    output_size: usize,
+    pad_start: usize,
+    kernel_pos: usize,
+    stride: usize,
+) -> std::ops::RangeInclusive<usize> {
+    // Compute with signed values to avoid underflow in subtraction.
+    let input_size = input_size as isize;
+    let output_size = output_size as isize;
+    let pad_start = pad_start as isize;
+    let kernel_pos = kernel_pos as isize;
+    let stride = stride as isize;
+
+    let x_start = div_ceil(pad_start - kernel_pos, stride).clamp(0, input_size - 1);
+    let x_end = ((pad_start + output_size - 1 - kernel_pos) / stride).clamp(0, input_size - 1);
+
+    x_start as usize..=x_end as usize
+}
+
 /// Unpack columns of a matrix into an image. This is the inverse of the
 /// `im2col` operation.
 ///
@@ -558,39 +591,46 @@ fn col2im(
     let [out_chans, out_h, out_w] = output.shape();
     assert!(col_chans == out_chans);
 
-    for out_c in 0..out_chans {
-        // Initialize each output channel just before we accumulate into it.
-        let mut out_img = output.slice_mut([out_c]);
-        out_img.fill(MaybeUninit::new(bias.map(|b| b[[out_c]]).unwrap_or(0.)));
+    output
+        .axis_iter_mut(0)
+        .into_par_iter()
+        .enumerate()
+        .for_each(|(out_c, mut out_img)| {
+            // Initialize each output channel just before we accumulate into it.
+            out_img.fill(MaybeUninit::new(bias.map(|b| b[[out_c]]).unwrap_or(0.)));
 
-        // Safety: We just initialized all elements of `out_img`.
-        let mut out_img = unsafe { out_img.assume_init() };
+            // Safety: We just initialized all elements of `out_img`.
+            let mut out_img = unsafe { out_img.assume_init() };
 
-        for k_y in 0..kernel_h {
-            for k_x in 0..kernel_w {
-                let in_img = columns.slice([out_c, k_y, k_x]);
-                let [img_h, img_w] = in_img.shape();
+            for k_y in 0..kernel_h {
+                for k_x in 0..kernel_w {
+                    let in_img = columns.slice([out_c, k_y, k_x]);
+                    let [img_h, img_w] = in_img.shape();
 
-                for y in 0..img_h {
-                    let out_y = y * stride_h + k_y;
-                    if out_y < pad_top || out_y >= out_h + pad_top {
-                        continue;
-                    }
+                    let y_range = col2im_input_range(img_h, out_h, pad_top, k_y, stride_h);
+                    let x_range = col2im_input_range(img_w, out_w, pad_left, k_x, stride_w);
 
-                    for x in 0..img_w {
-                        let out_x = x * stride_w + k_x;
-                        if out_x < pad_left || out_x >= out_w + pad_left {
-                            continue;
-                        }
-                        unsafe {
-                            *out_img.get_unchecked_mut([out_y - pad_top, out_x - pad_left]) +=
-                                in_img.get_unchecked([y, x]);
+                    for y in y_range {
+                        let out_y = y * stride_h + k_y;
+                        debug_assert!(out_y >= pad_top && out_y < out_h + pad_top);
+
+                        for x in x_range.clone() {
+                            let out_x = x * stride_w + k_x;
+                            debug_assert!(out_x >= pad_left && out_x < out_w + pad_left);
+
+                            // Safety: We computed x, y, out_x and out_y such that they are
+                            // in-bounds for out_img and in_img.
+                            unsafe {
+                                *out_img.get_unchecked_mut([
+                                    (out_y - pad_top) as usize,
+                                    (out_x - pad_left) as usize,
+                                ]) += in_img.get_unchecked([y as usize, x as usize]);
+                            }
                         }
                     }
                 }
             }
-        }
-    }
+        });
 }
 
 /// Calculate ConvTranspose output spatial shape and padding.
