@@ -135,15 +135,21 @@ impl OffsetsBase {
         }
     }
 
-    fn step_outer_pos(&mut self) {
-        let n_outer = self.outer_pos.len();
-        if n_outer > 0 {
-            let mut dim = n_outer - 1;
-            while !self.outer_pos[dim].step() && dim > 0 {
-                dim -= 1;
+    /// Step in the outer dimensions.
+    ///
+    /// Returns `true` if the position was advanced or `false` if the end was
+    /// reached.
+    fn step_outer_pos(&mut self) -> bool {
+        let mut done = self.outer_pos.is_empty();
+        for (i, dim) in self.outer_pos.iter_mut().enumerate().rev() {
+            if dim.step() {
+                break;
+            } else if i == 0 {
+                done = true;
             }
-            self.outer_offset = self.outer_pos.iter().map(|p| p.offset).sum();
         }
+        self.outer_offset = self.outer_pos.iter().map(|p| p.offset).sum();
+        !done
     }
 
     fn pos(&self, dim: usize) -> IterPos {
@@ -203,6 +209,14 @@ impl OffsetsBase {
         }
         offset
     }
+
+    /// Truncate this iterator so that it yields at most `len` elements.
+    fn truncate(&mut self, len: usize) {
+        // We adjust `self.len` here but not any of the iteration positions.
+        // This means that methods like `next` and `fold` must always check
+        // `self.len` before each step.
+        self.len = self.len.min(len);
+    }
 }
 
 impl Iterator for OffsetsBase {
@@ -241,12 +255,47 @@ impl Iterator for OffsetsBase {
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.len, Some(self.len))
     }
+
+    fn fold<B, F>(mut self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, usize) -> B,
+    {
+        // Iter positions are only valid if `self.len > 0`.
+        if self.len == 0 {
+            return init;
+        }
+
+        let mut accum = init;
+        'outer: loop {
+            for i0 in self.inner_pos[0].index()..self.inner_pos[0].size() {
+                for i1 in self.inner_pos[1].index()..self.inner_pos[1].size() {
+                    let inner_offset =
+                        i0 * self.inner_pos[0].stride + i1 * self.inner_pos[1].stride;
+                    accum = f(accum, self.outer_offset + inner_offset);
+
+                    self.len -= 1;
+                    if self.len == 0 {
+                        break 'outer;
+                    }
+                }
+                self.inner_pos[1].set_index(0);
+            }
+            self.inner_pos[0].set_index(0);
+
+            if !self.step_outer_pos() {
+                break;
+            }
+        }
+
+        accum
+    }
 }
 
 impl ExactSizeIterator for OffsetsBase {}
 
 impl DoubleEndedIterator for OffsetsBase {
-    fn next_back(&mut self) -> Option<Self::Item> {
+    fn next_back(&mut self) -> Option<usize> {
         if self.len == 0 {
             return None;
         }
@@ -268,9 +317,9 @@ impl SplitIterator for OffsetsBase {
         assert!(self.len >= index);
 
         let mut right = self.clone();
-        Self::step_by(&mut right, index);
+        OffsetsBase::step_by(&mut right, index);
 
-        self.len = index;
+        self.truncate(index);
 
         (self, right)
     }
@@ -320,6 +369,18 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
         // Safety: Offset is valid for data length.
         Some(unsafe { self.data.get_unchecked(offset) })
+    }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.offsets.fold(init, |acc, offset| {
+            // Safety: Offset is valid for data length.
+            let item = unsafe { self.data.get_unchecked(offset) };
+            f(acc, item)
+        })
     }
 }
 
@@ -382,6 +443,19 @@ impl<'a, T> Iterator for IterMut<'a, T> {
         // Safety: Offset is valid for data length, `offsets.next` yields each
         // offset only once.
         Some(unsafe { transmute_lifetime_mut(self.data.get_unchecked_mut(offset)) })
+    }
+
+    fn fold<B, F>(mut self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.offsets.fold(init, |acc, offset| {
+            // Safety: Offset is valid for data length, `offsets.fold` yields
+            // each offset only once.
+            let item = unsafe { transmute_lifetime_mut(self.data.get_unchecked_mut(offset)) };
+            f(acc, item)
+        })
     }
 }
 
@@ -455,6 +529,17 @@ impl Iterator for Offsets {
             }
         }
     }
+
+    fn fold<B, F>(self, init: B, f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        match self.base {
+            OffsetsKind::Range(r) => r.fold(init, f),
+            OffsetsKind::Indexing(base) => base.fold(init, f),
+        }
+    }
 }
 
 impl DoubleEndedIterator for Offsets {
@@ -502,11 +587,12 @@ impl LaneRanges {
     /// Return the range of storage offsets for a 1D lane where the first
     /// element is at `start_offset`.
     fn lane_offset_range(&self, start_offset: usize) -> Range<usize> {
-        // nb. `dim_size` should be >= 1 here as otherwise the tensor
-        // has no elements and `self.offsets` should therefore yield no
-        // items.
-        start_offset..start_offset + (self.dim_size - 1) * self.dim_stride + 1
+        lane_offsets(start_offset, self.dim_size, self.dim_stride)
     }
+}
+
+fn lane_offsets(start_offset: usize, size: usize, stride: usize) -> Range<usize> {
+    start_offset..start_offset + (size - 1) * stride + 1
 }
 
 impl Iterator for LaneRanges {
@@ -521,6 +607,22 @@ impl Iterator for LaneRanges {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.offsets.size_hint()
+    }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        let Self {
+            offsets,
+            dim_size,
+            dim_stride,
+        } = self;
+
+        offsets.fold(init, |acc, offset| {
+            f(acc, lane_offsets(offset, dim_size, dim_stride))
+        })
     }
 }
 
@@ -547,7 +649,7 @@ pub struct Lanes<'a, T> {
 }
 
 /// Iterator over items in a 1D slice of a tensor.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Lane<'a, T> {
     view: NdTensorView<'a, T, 1>,
     index: usize,
@@ -562,6 +664,15 @@ impl<'a, T> Lane<'a, T> {
     /// Return the item at a given index in this lane.
     pub fn get(&self, idx: usize) -> Option<&'a T> {
         self.view.get([idx])
+    }
+}
+
+impl<'a, T> From<NdTensorView<'a, T, 1>> for Lane<'a, T> {
+    fn from(val: NdTensorView<'a, T, 1>) -> Self {
+        Lane {
+            view: val,
+            index: 0,
+        }
     }
 }
 
@@ -591,6 +702,18 @@ impl<T> ExactSizeIterator for Lane<'_, T> {}
 
 impl<T> FusedIterator for Lane<'_, T> {}
 
+impl<T: PartialEq> PartialEq<Lane<'_, T>> for Lane<'_, T> {
+    fn eq(&self, other: &Lane<'_, T>) -> bool {
+        self.view.slice(self.index..) == other.view.slice(other.index..)
+    }
+}
+
+impl<T: PartialEq> PartialEq<Lane<'_, T>> for LaneMut<'_, T> {
+    fn eq(&self, other: &Lane<'_, T>) -> bool {
+        self.view.slice(self.index..) == other.view.slice(other.index..)
+    }
+}
+
 impl<'a, T> Lanes<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
     /// dimension of `tensor`.
@@ -609,12 +732,15 @@ impl<'a, T> Lanes<'a, T> {
             lane_layout,
         }
     }
+}
 
-    fn lane_for_offset_range(&self, offsets: Range<usize>) -> Lane<'a, T> {
-        let view =
-            NdTensorView::from_storage_and_layout(self.data.slice(offsets), self.lane_layout);
-        Lane { view, index: 0 }
-    }
+fn lane_for_offset_range<T>(
+    data: ViewData<T>,
+    layout: NdLayout<1>,
+    offsets: Range<usize>,
+) -> Lane<T> {
+    let view = NdTensorView::from_storage_and_layout(data.slice(offsets), layout);
+    Lane { view, index: 0 }
 }
 
 impl<'a, T> Iterator for Lanes<'a, T> {
@@ -625,11 +751,22 @@ impl<'a, T> Iterator for Lanes<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         self.ranges
             .next()
-            .map(|range| self.lane_for_offset_range(range))
+            .map(|range| lane_for_offset_range(self.data, self.lane_layout, range))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.ranges.size_hint()
+    }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.ranges.fold(init, |acc, offsets| {
+            let lane = lane_for_offset_range(self.data, self.lane_layout, offsets);
+            f(acc, lane)
+        })
     }
 }
 
@@ -637,7 +774,7 @@ impl<T> DoubleEndedIterator for Lanes<'_, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.ranges
             .next_back()
-            .map(|range| self.lane_for_offset_range(range))
+            .map(|range| lane_for_offset_range(self.data, self.lane_layout, range))
     }
 }
 
@@ -685,22 +822,6 @@ impl<'a, T> LanesMut<'a, T> {
             lane_layout,
         }
     }
-
-    /// Safety: Caller must ensure:
-    ///
-    ///  - This function is never called with the same offset ranges more than
-    ///    once, so that each lane contains an independent set of elements.
-    ///  - Length of `offsets` is sufficient for the size and stride of the lane.
-    unsafe fn lane_for_offset_range(&mut self, offsets: Range<usize>) -> LaneMut<'a, T> {
-        let view = unsafe {
-            // Safety: Caller promises that each call uses the offset ranges for
-            // a different lane and that the range length is sufficient for the
-            // lane's size and stride.
-            let data = self.data.to_view_slice_mut(offsets);
-            NdTensorViewMut::from_storage_and_layout_unchecked(data, self.lane_layout)
-        };
-        LaneMut { view, index: 0 }
-    }
 }
 
 impl<'a, T> Iterator for LanesMut<'a, T> {
@@ -708,15 +829,32 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<LaneMut<'a, T>> {
-        self.ranges.next().map(|range| {
-            // Safety: Each iteration yields a lane that does not overlap with
-            // any previous lane.
-            unsafe { self.lane_for_offset_range(range) }
+        self.ranges.next().map(|offsets| {
+            // Safety: Offsets range length is sufficient for layout, elements
+            // in each lane do not overlap.
+            unsafe {
+                LaneMut::from_storage_layout(self.data.to_view_slice_mut(offsets), self.lane_layout)
+            }
         })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.ranges.size_hint()
+    }
+
+    fn fold<B, F>(mut self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.ranges.fold(init, |acc, offsets| {
+            // Safety: Offsets range length is sufficient for layout, elements
+            // in each lane do not overlap.
+            let lane = unsafe {
+                LaneMut::from_storage_layout(self.data.to_view_slice_mut(offsets), self.lane_layout)
+            };
+            f(acc, lane)
+        })
     }
 }
 
@@ -724,21 +862,40 @@ impl<'a, T> ExactSizeIterator for LanesMut<'a, T> {}
 
 impl<'a, T> DoubleEndedIterator for LanesMut<'a, T> {
     fn next_back(&mut self) -> Option<LaneMut<'a, T>> {
-        self.ranges.next_back().map(|range| {
-            // Safety: Each iteration yields a lane that does not overlap with
-            // any previous lane.
-            unsafe { self.lane_for_offset_range(range) }
+        self.ranges.next_back().map(|offsets| {
+            // Safety: Offsets range length is sufficient for layout, elements
+            // in each lane do not overlap.
+            unsafe {
+                LaneMut::from_storage_layout(self.data.to_view_slice_mut(offsets), self.lane_layout)
+            }
         })
     }
 }
 
 /// Iterator over items in a 1D slice of a tensor.
+#[derive(Debug)]
 pub struct LaneMut<'a, T> {
     view: NdTensorViewMut<'a, T, 1>,
     index: usize,
 }
 
 impl<'a, T> LaneMut<'a, T> {
+    /// Create a new lane given the storage and layout.
+    ///
+    /// # Safety
+    ///
+    /// - Caller must ensure that no two lanes are created which overlap.
+    /// - Storage length must exceed `layout.min_data_len()`.
+    unsafe fn from_storage_layout(data: ViewMutData<'a, T>, layout: NdLayout<1>) -> Self {
+        let view = unsafe {
+            // Safety: Caller promises that each call uses the offset ranges for
+            // a different lane and that the range length is sufficient for the
+            // lane's size and stride.
+            NdTensorViewMut::from_storage_and_layout_unchecked(data, layout)
+        };
+        LaneMut { view, index: 0 }
+    }
+
     /// Return the remaining part of the lane as a slice, if it is contiguous.
     pub fn as_slice_mut(&mut self) -> Option<&mut [T]> {
         self.view.data_mut().map(|data| &mut data[self.index..])
@@ -770,6 +927,12 @@ impl<'a, T> Iterator for LaneMut<'a, T> {
 }
 
 impl<T> ExactSizeIterator for LaneMut<'_, T> {}
+
+impl<T: PartialEq> PartialEq<LaneMut<'_, T>> for LaneMut<'_, T> {
+    fn eq(&self, other: &LaneMut<'_, T>) -> bool {
+        self.view.slice(self.index..) == other.view.slice(other.index..)
+    }
+}
 
 /// Base for iterators over views of the inner dimensions of a tensor, where
 /// the inner dimensions have layout `L`.
@@ -856,6 +1019,16 @@ impl<L: Layout> Iterator for InnerIterBase<L> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.outer_offsets.size_hint()
     }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.outer_offsets.fold(init, |acc, offset| {
+            f(acc, offset..offset + self.inner_data_len)
+        })
+    }
 }
 
 impl<L: Layout> ExactSizeIterator for InnerIterBase<L> {}
@@ -912,6 +1085,21 @@ impl<'a, T, L: Layout + Clone> Iterator for InnerIter<'a, T, L> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.base.size_hint()
+    }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        let inner_layout = self.base.inner_layout.clone();
+        self.base.fold(init, |acc, offset_range| {
+            let item = TensorBase::from_storage_and_layout(
+                self.data.slice(offset_range),
+                inner_layout.clone(),
+            );
+            f(acc, item)
+        })
     }
 }
 
@@ -974,6 +1162,26 @@ impl<'a, T, L: Layout + Clone> Iterator for InnerIterMut<'a, T, L> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.base.size_hint()
+    }
+
+    fn fold<B, F>(mut self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        let inner_layout = self.base.inner_layout.clone();
+        self.base.fold(init, |acc, offset_range| {
+            let storage = self.data.slice_mut(offset_range);
+            let storage = unsafe {
+                // Safety: The iterator was constructed from a tensor with a
+                // non-overlapping layout, and no two views yielded by this
+                // iterator overlap. Hence we can transmute the lifetime without
+                // creating multiple mutable references to the same elements.
+                std::mem::transmute::<ViewMutData<'_, T>, ViewMutData<'a, T>>(storage)
+            };
+            let item = TensorBase::from_storage_and_layout(storage, inner_layout.clone());
+            f(acc, item)
+        })
     }
 }
 
@@ -1301,7 +1509,9 @@ pub fn for_each_mut<T, F: Fn(&mut T)>(mut view: TensorViewMut<T>, f: F) {
 // tests on tensor methods.
 #[cfg(test)]
 mod tests {
-    use crate::{AsView, AxisChunks, AxisChunksMut, Lanes, LanesMut, Layout, NdTensor, Tensor};
+    use crate::{
+        AsView, AxisChunks, AxisChunksMut, Lanes, LanesMut, Layout, NdLayout, NdTensor, Tensor,
+    };
 
     fn compare_reversed<T: PartialEq + std::fmt::Debug>(fwd: &[T], rev: &[T]) {
         assert_eq!(fwd.len(), rev.len());
@@ -1310,19 +1520,119 @@ mod tests {
         }
     }
 
-    fn test_double_ended_iter<I: DoubleEndedIterator>(create_iter: impl Fn() -> I)
-    where
+    /// Apply a standard set of tests to an iterator.
+    fn test_iterator<I: Iterator + ExactSizeIterator + DoubleEndedIterator>(
+        create_iter: impl Fn() -> I,
+        expected: &[I::Item],
+    ) where
         I::Item: PartialEq + std::fmt::Debug,
     {
-        let items: Vec<_> = create_iter().collect();
+        let iter = create_iter();
+
+        let (min_len, max_len) = iter.size_hint();
+        let items: Vec<_> = iter.collect();
+
+        assert_eq!(&items, expected);
+
+        // Test ExactSizeIterator via `size_hint`.
+        assert_eq!(min_len, items.len(), "incorrect size lower bound");
+        assert_eq!(max_len, Some(items.len()), "incorrect size upper bound");
+
+        // Test DoubleEndedIterator via `rev`.
         let rev_items: Vec<_> = create_iter().rev().collect();
         compare_reversed(&items, &rev_items);
+
+        // Test FusedIterator.
+        let mut iter = create_iter();
+        for _x in &mut iter { /* noop */ }
+        assert_eq!(iter.next(), None);
+
+        // Test fold.
+        let mut fold_items = Vec::new();
+        let mut idx = 0;
+        create_iter().fold(0, |acc, item| {
+            assert_eq!(acc, idx);
+            fold_items.push(item);
+            idx += 1;
+            idx
+        });
+        assert_eq!(items, fold_items);
+    }
+
+    /// A collection that can be mutably iterated over multiple times.
+    ///
+    /// We use a different pattern for testing mutable iterators to avoid
+    /// restrictions on values returned from `FnMut` closures.
+    trait MutIterable {
+        type Iter<'a>: Iterator + ExactSizeIterator + DoubleEndedIterator
+        where
+            Self: 'a;
+
+        fn iter_mut(&mut self) -> Self::Iter<'_>;
+    }
+
+    /// Apply a standard set of tests to a mutable iterator.
+    fn test_mut_iterator<M, T>(mut iterable: M, expected: &[T])
+    where
+        M: MutIterable,
+        T: std::fmt::Debug,
+        for<'a> <M::Iter<'a> as Iterator>::Item: std::fmt::Debug + PartialEq + PartialEq<T>,
+    {
+        // Test Iterator and ExactSizeIterator.
+        {
+            let iter = iterable.iter_mut();
+            let (min_len, max_len) = iter.size_hint();
+            let items: Vec<_> = iter.collect();
+
+            assert_eq!(items, expected);
+            assert_eq!(min_len, items.len(), "incorrect size lower bound");
+            assert_eq!(max_len, Some(items.len()), "incorrect size upper bound");
+        }
+
+        // Test FusedIterator.
+        {
+            let mut iter = iterable.iter_mut();
+            for _x in &mut iter { /* noop */ }
+            assert!(iter.next().is_none());
+        }
+
+        // Test DoubleEndedIterator via `rev`.
+        //
+        // We use `format!` here to convert mutable references into comparable
+        // items that have no connection to the mutable references yielded by
+        // the iterator. Ideally this should be replaced by a clone or something.
+        {
+            let items: Vec<_> = iterable.iter_mut().map(|x| format!("{:?}", x)).collect();
+            let rev_items: Vec<_> = iterable
+                .iter_mut()
+                .rev()
+                .map(|x| format!("{:?}", x))
+                .collect();
+            compare_reversed(&items, &rev_items);
+        }
+
+        // Test fold.
+        {
+            let items: Vec<_> = iterable.iter_mut().map(|x| format!("{:?}", x)).collect();
+            let mut fold_items = Vec::new();
+            let mut idx = 0;
+            iterable.iter_mut().fold(0, |acc, item| {
+                assert_eq!(acc, idx);
+                fold_items.push(format!("{:?}", item));
+                idx += 1;
+                idx
+            });
+            assert_eq!(items, fold_items);
+        }
     }
 
     #[test]
-    fn test_axis_chunks_rev() {
+    fn test_axis_chunks() {
         let tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
-        test_double_ended_iter(|| tensor.axis_chunks(0, 1));
+        test_iterator(
+            || tensor.axis_chunks(0, 1),
+            &[tensor.slice(0..1), tensor.slice(1..2)],
+        );
     }
 
     #[test]
@@ -1368,9 +1678,9 @@ mod tests {
     }
 
     #[test]
-    fn test_axis_iter_rev() {
+    fn test_axis_iter() {
         let tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
-        test_double_ended_iter(|| tensor.axis_iter(0));
+        test_iterator(|| tensor.axis_iter(0), &[tensor.slice(0), tensor.slice(1)]);
     }
 
     #[test]
@@ -1387,25 +1697,41 @@ mod tests {
     }
 
     #[test]
-    fn test_inner_iter_rev() {
+    fn test_inner_iter() {
         let tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
-        test_double_ended_iter(|| tensor.inner_iter::<2>());
+        test_iterator(
+            || tensor.inner_iter::<2>(),
+            &[tensor.slice(0), tensor.slice(1)],
+        );
     }
 
     #[test]
-    fn test_inner_iter_mut_rev() {
-        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
-        let fwd: Vec<_> = tensor
-            .inner_iter_mut::<2>()
-            .map(|view| view.to_vec())
-            .collect();
-        let mut tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
-        let rev: Vec<_> = tensor
-            .inner_iter_mut::<2>()
-            .rev()
-            .map(|view| view.to_vec())
-            .collect();
-        compare_reversed(&fwd, &rev);
+    fn test_inner_iter_mut() {
+        struct InnerIterMutTest(NdTensor<i32, 3>);
+
+        impl MutIterable for InnerIterMutTest {
+            type Iter<'a> = super::InnerIterMut<'a, i32, NdLayout<2>>;
+
+            fn iter_mut(&mut self) -> Self::Iter<'_> {
+                self.0.inner_iter_mut::<2>()
+            }
+        }
+
+        let tensor = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        test_mut_iterator(
+            InnerIterMutTest(tensor.clone()),
+            &[tensor.slice(0), tensor.slice(1)],
+        );
+    }
+
+    #[test]
+    fn test_lanes() {
+        let x = NdTensor::from([[1, 2], [3, 4]]);
+        test_iterator(
+            || x.lanes(0),
+            &[x.slice((.., 0)).into(), x.slice((.., 1)).into()],
+        );
+        test_iterator(|| x.lanes(1), &[x.slice(0).into(), x.slice(1).into()]);
     }
 
     #[test]
@@ -1416,27 +1742,27 @@ mod tests {
     }
 
     #[test]
-    fn test_lanes_rev() {
-        let x = NdTensor::from([[1, 2], [3, 4]]);
-        let mut lanes = x.lanes(0).rev();
-        assert_eq!(lanes.next().unwrap().copied().collect::<Vec<_>>(), &[2, 4]);
-        assert_eq!(lanes.next().unwrap().copied().collect::<Vec<_>>(), &[1, 3]);
-        assert!(lanes.next().is_none());
-    }
+    fn test_lanes_mut() {
+        use super::Lane;
 
-    #[test]
-    fn test_lanes_mut_rev() {
-        let mut x = NdTensor::from([[1, 2], [3, 4]]);
-        let mut lanes = x.lanes_mut(0).rev();
-        assert_eq!(
-            lanes.next().unwrap().map(|x| *x).collect::<Vec<_>>(),
-            &[2, 4]
+        struct LanesMutTest(NdTensor<i32, 2>);
+
+        impl MutIterable for LanesMutTest {
+            type Iter<'a> = super::LanesMut<'a, i32>;
+
+            fn iter_mut(&mut self) -> Self::Iter<'_> {
+                self.0.lanes_mut(0)
+            }
+        }
+
+        let tensor = NdTensor::from([[1, 2], [3, 4]]);
+        test_mut_iterator::<_, Lane<i32>>(
+            LanesMutTest(tensor.clone()),
+            &[
+                Lane::from(tensor.slice((.., 0))),
+                Lane::from(tensor.slice((.., 1))),
+            ],
         );
-        assert_eq!(
-            lanes.next().unwrap().map(|x| *x).collect::<Vec<_>>(),
-            &[1, 3]
-        );
-        assert!(lanes.next().is_none());
     }
 
     #[test]
@@ -1498,29 +1824,30 @@ mod tests {
     }
 
     #[test]
-    fn test_iter_rev() {
+    fn test_iter() {
         let tensor = NdTensor::from([[[1, 2], [3, 4]]]);
 
-        // Reverse iteration using non-indexed iterator.
-        test_double_ended_iter(|| tensor.iter());
+        // Test iterator over contiguous tensor.
+        test_iterator(|| tensor.iter().copied(), &[1, 2, 3, 4]);
 
-        // Reverse iteration using non-indexed iterator.
-        test_double_ended_iter(|| tensor.transposed().iter());
+        // Test iterator over non-contiguous tensor.
+        test_iterator(|| tensor.transposed().iter().copied(), &[1, 3, 2, 4]);
+    }
 
-        // Reverse iteration using mutable indexed iterator.
-        let mut tensor = NdTensor::from([[[1, 2], [3, 4]]]);
-        let fwd: Vec<_> = tensor
-            .permuted_mut([2, 1, 0])
-            .iter_mut()
-            .map(|x| *x)
-            .collect();
-        let rev: Vec<_> = tensor
-            .permuted_mut([2, 1, 0])
-            .iter_mut()
-            .rev()
-            .map(|x| *x)
-            .collect();
-        compare_reversed(&fwd, &rev);
+    #[test]
+    fn test_iter_mut() {
+        struct IterTest(NdTensor<i32, 3>);
+
+        impl MutIterable for IterTest {
+            type Iter<'a> = super::IterMut<'a, i32>;
+
+            fn iter_mut(&mut self) -> Self::Iter<'_> {
+                self.0.iter_mut()
+            }
+        }
+
+        let tensor = NdTensor::from([[[1, 2], [3, 4]]]);
+        test_mut_iterator(IterTest(tensor), &[&1, &2, &3, &4]);
     }
 
     #[test]
@@ -1529,12 +1856,14 @@ mod tests {
         use crate::Layout;
         use rten_bench::run_bench;
 
-        let tensor = std::hint::black_box(Tensor::<f32>::full(&[1, 6, 768, 64], 1.));
-        let n_trials = 1000;
-        let mut result = 0.;
+        type Elem = i32;
 
-        fn reduce<'a>(iter: impl Iterator<Item = &'a f32>) -> f32 {
-            iter.sum()
+        let tensor = std::hint::black_box(Tensor::<Elem>::full(&[1, 6, 768, 64], 1));
+        let n_trials = 1000;
+        let mut result = Elem::default();
+
+        fn reduce<'a>(iter: impl Iterator<Item = &'a Elem>) -> Elem {
+            iter.fold(Elem::default(), |acc, x| acc.wrapping_add(*x))
         }
 
         // Iterate directly over data slice.
