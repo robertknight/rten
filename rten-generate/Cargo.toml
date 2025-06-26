@@ -22,5 +22,8 @@ rten-testing = { path = "../rten-testing" }
 # Enable text decoding using tokenizers from rten-text
 text-decoder = ["dep:rten-text"]
 
+[lints.clippy]
+uninlined_format_args = "allow"
+
 [package.metadata.docs.rs]
 features = ["text-decoder"]

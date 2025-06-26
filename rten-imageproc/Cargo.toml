@@ -23,3 +23,6 @@ crate-type = ["lib"]
 [features]
 # Implement serde Serialize and Deserialize traits on items where it makes sense
 serde_traits = ["serde"]
+
+[lints.clippy]
+uninlined_format_args = "allow"

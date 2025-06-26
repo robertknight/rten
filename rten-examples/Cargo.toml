@@ -34,6 +34,7 @@ avx512 = ["rten/avx512"]
 # currently needed.
 needless_update = "allow"
 manual_repeat_n = "allow"  # TODO - Address existing failures
+uninlined_format_args = "allow"
 
 [package.metadata.release]
 release = false
