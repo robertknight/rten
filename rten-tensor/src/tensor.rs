@@ -2384,6 +2384,7 @@ impl_scalar!(usize);
 impl_scalar!(isize);
 impl_scalar!(f32);
 impl_scalar!(f64);
+impl_scalar!(String);
 
 // The `T: Scalar` bound avoids ambiguity when choosing a `Tensor::from`
 // impl for a nested array literal, as it prevents `T` from matching an array
