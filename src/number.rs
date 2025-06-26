@@ -70,6 +70,7 @@ macro_rules! impl_int_identities {
 }
 
 impl_float_identities!(f32);
+impl_int_identities!(isize);
 impl_int_identities!(i32);
 impl_int_identities!(i8);
 impl_int_identities!(u8);
@@ -171,5 +172,41 @@ impl MinMax for f32 {
 
     fn min(self, other: f32) -> f32 {
         self.min(other)
+    }
+}
+
+/// Compute `x / y` rounding up.
+///
+/// Replace with standard library method when stabilized. See
+/// https://github.com/rust-lang/rust/issues/88581.
+pub fn div_ceil(x: isize, y: isize) -> isize {
+    let d = x / y;
+    let r = x % y;
+
+    // Int division rounds towards zero. This rounds up if the result is
+    // negative or down if the result is positive. We always want to round up,
+    // hence we need to adjust only if the result is positive, which occurs
+    // when the operands have the same sign. See https://stackoverflow.com/a/924160.
+    if r != 0 && x.signum() == y.signum() {
+        d + 1
+    } else {
+        d
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::div_ceil;
+
+    #[test]
+    fn test_div_ceil() {
+        // Same-sign operands, no rounding required.
+        assert_eq!(div_ceil(10, 5), 2);
+        // Same-sign operands, rounded up.
+        assert_eq!(div_ceil(11, 5), 3);
+        // Opposite-sign operands, no rounding required.
+        assert_eq!(div_ceil(10, -5), -2);
+        // Opposite-sign operands, rounded up.
+        assert_eq!(div_ceil(11, -5), -2);
     }
 }
