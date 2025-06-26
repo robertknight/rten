@@ -220,14 +220,27 @@ fn copy_blocked<T: Clone>(src: Matrix<T>, mut dest: MatrixMut<MaybeUninit<T>>) {
     }
 }
 
-/// Copy elements of `src` into a contiguous destination slice with the same
+/// Return true if `T` is a type that is known to be `Copy`.
+fn is_known_copy_type<T>() -> bool {
+    [
+        typeid::of::<f32>(),
+        typeid::of::<i32>(),
+        typeid::of::<i16>(),
+        typeid::of::<u16>(),
+        typeid::of::<u8>(),
+        typeid::of::<i8>(),
+    ]
+    .contains(&typeid::of::<T>())
+}
+
+/// Clone elements of `src` into a contiguous destination slice with the same
 /// length.
 ///
 /// Returns `dest` as an initialized slice.
 pub fn copy_into_slice<'a, T: Clone>(
     mut src: TensorView<T>,
     dest: &'a mut [MaybeUninit<T>],
-) -> &'a [T] {
+) -> &'a mut [T] {
     assert!(dest.len() == src.len());
 
     if dest.is_empty() {
@@ -289,15 +302,26 @@ pub fn copy_into_slice<'a, T: Clone>(
                     // Safety: `[i0, i1, i2]` is a valid index for the outer axes of `src` and the
                     // inner axis is contiguous and has the same size as `dest_lane`.
                     let src_lane = unsafe {
-                        src_ptr.add(i0 * src.stride(0) + i1 * src.stride(1) + i2 * src.stride(2))
+                        let ptr = src_ptr
+                            .add(i0 * src.stride(0) + i1 * src.stride(1) + i2 * src.stride(2));
+                        std::slice::from_raw_parts(ptr, dest_lane.len())
                     };
 
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            src_lane,
-                            dest_lane.as_mut_ptr() as *mut T,
-                            dest_lane.len(),
-                        );
+                    // For known copy types, use a `memcpy` which is more efficient than the generic
+                    // clone loop.
+                    if is_known_copy_type::<T>() {
+                        // Safety: `T` is a copy type, `src_lane` and `dest_lane` have same length.
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(
+                                src_lane.as_ptr(),
+                                dest_lane.as_mut_ptr() as *mut T,
+                                dest_lane.len(),
+                            );
+                        }
+                    } else {
+                        for (src, dst) in src_lane.iter().zip(dest_lane.iter_mut()) {
+                            dst.write(src.clone());
+                        }
                     }
                 }
             }
@@ -618,6 +642,14 @@ mod tests {
             let expected = x.transposed().iter().copied().collect::<Vec<_>>();
             assert_eq!(transposed, expected);
         }
+    }
+
+    #[test]
+    fn test_copy_into_slice_clone_type() {
+        // Tensor with non-Copy element type and stride-1 inner axis.
+        let src = Tensor::<String>::from([String::from("one"), "two".into(), "three".into()]);
+        let dst = copy_into_vec(src.view());
+        assert_eq!(dst, &["one", "two", "three"]);
     }
 
     #[test]

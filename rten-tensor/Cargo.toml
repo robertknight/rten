@@ -13,6 +13,7 @@ include = ["/src", "/README.md"]
 rayon = { workspace = true }
 serde = { workspace = true, optional = true }
 smallvec = { version = "1.10.0", features=["union", "const_generics", "const_new"] }
+typeid = "1.0.3"
 
 [dev-dependencies]
 rten-testing = { path = "../rten-testing" }
