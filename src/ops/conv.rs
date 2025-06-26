@@ -752,19 +752,20 @@ pub fn conv_transpose(
             .reshaped_in(pool, [in_c, in_h * in_w])
             .auto_return(pool);
 
-        gemm.gemm_uninit(
-            col2im_mat.data_mut().unwrap(),
-            GemmInputA::Unpacked(kernel_mat),
-            GemmInputB::Unpacked(input_mat.view()),
-            1.,   // alpha
-            None, // bias
-            None, // a_quant
-            None, // b_quant
-        )
-        .unwrap();
+        let col2im_shape = col2im_mat.shape();
+        let col2im_init = gemm
+            .gemm_uninit(
+                col2im_mat.data_mut().unwrap(),
+                GemmInputA::Unpacked(kernel_mat),
+                GemmInputB::Unpacked(input_mat.view()),
+                1.,   // alpha
+                None, // bias
+                None, // a_quant
+                None, // b_quant
+            )
+            .unwrap();
 
-        // Safety: `gemm_uninit` initialized col2im_mat.
-        let col2im_mat = unsafe { col2im_mat.view().assume_init() };
+        let col2im_mat = NdTensorView::from_data(col2im_shape, col2im_init.as_ref());
         let mut out_img = output.slice_mut(n);
 
         col2im(
