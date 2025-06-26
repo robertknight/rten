@@ -22,6 +22,9 @@ rten-testing = { path = "../rten-testing" }
 # Use AVX-512 instructions if available. Requires nightly Rust for AVX-512 intrinsics.
 avx512 = ["rten/avx512"]
 
+[lints.clippy]
+uninlined_format_args = "allow"
+
 [[bin]]
 name = "rten"
 path = "src/main.rs"

@@ -13,3 +13,6 @@ release = false
 
 [lib]
 crate-type = ["lib"]
+
+[lints.clippy]
+uninlined_format_args = "allow"

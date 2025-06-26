@@ -28,6 +28,7 @@ crate-type = ["lib"]
 needless_range_loop = "allow"
 manual_memcpy = "allow"
 manual_repeat_n = "allow"  # TODO - Address existing failures
+uninlined_format_args = "allow"
 
 [features]
 serde = ["dep:serde"]
