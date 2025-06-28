@@ -7,7 +7,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{AssumeInit, NdTensor, NdTensorView, NdTensorViewMut};
 use smallvec::SmallVec;
 
-use crate::iter_util::{range_chunks, unroll_loop};
+use crate::iter_util::unroll_loop;
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Calculate the output coordinate range for which all input / output
@@ -333,23 +333,22 @@ impl<X: Copy + Default + Sync, W: Copy + Default + Sync, Y: Copy + Default>
             })
             .collect();
 
-        // Minimum number of elements in a channel chunk.
-        let target_chunk_size = 32 * 1024;
-        let channel_chunk_size = (target_chunk_size / (out_h * out_w)).clamp(1, out_c);
-
         let n_init = AtomicUsize::new(0);
         for n in 0..batch {
             let mut out_chans = output.slice_mut(n);
             let input = input.slice(n);
 
             out_chans
-                .axis_chunks_mut(0, channel_chunk_size)
+                .axis_iter_mut(0)
                 .into_par_iter()
-                .zip(range_chunks(0..out_c, channel_chunk_size))
-                .for_each(|(mut out_chans, chan_range)| {
+                .enumerate()
+                .for_each(|(out_chan, mut out_chans)| {
+                    let mut out_chans = out_chans
+                        .reshaped_mut([1, out_chans.size(0), out_chans.size(1)])
+                        .unwrap();
                     self.depthwise_conv_2d_block(
-                        out_chans.nd_view_mut(),
-                        chan_range.clone(),
+                        out_chans.view_mut(),
+                        out_chan..out_chan + 1,
                         input,
                         kernel.view(),
                         bias,
@@ -358,7 +357,7 @@ impl<X: Copy + Default + Sync, W: Copy + Default + Sync, Y: Copy + Default>
                         dilations,
                         &col_range_for_kernel_x,
                         input_zero,
-                        kernel_zero.map(|kz| &kz[chan_range]),
+                        kernel_zero,
                     );
 
                     n_init.fetch_add(out_chans.len(), Ordering::SeqCst);

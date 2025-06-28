@@ -1627,6 +1627,11 @@ mod tests {
                 let mut rng = XorShiftRng::new(1234);
                 let mut kernel_rng = ReducedRangeRng::new(true /* reduce_range */, 1234);
 
+                // Minimum number of depthwise channels to exercise multi-threading.
+                // This needs to be updated if channel blocking is added to the
+                // depthwise conv impl.
+                let min_depthwise_channels = 3;
+
                 #[derive(Debug)]
                 struct Case {
                     input: Tensor<$input_ty>,
@@ -1679,11 +1684,15 @@ mod tests {
                     },
                     // Depthwise convolution.
                     Case {
-                        input: Tensor::rand(&[2, 2, 5, 5], &mut rng),
-                        kernel: Tensor::rand(&[2, 1, 3, 3], &mut kernel_rng),
+                        input: Tensor::rand(&[2, min_depthwise_channels, 4, 4], &mut rng),
+                        kernel: Tensor::rand(&[min_depthwise_channels, 1, 3, 3], &mut kernel_rng),
                         input_zero: Some(12),
-                        kernel_zero: Some([1, 2].into()),
-                        groups: 2,
+                        kernel_zero: Some(
+                            (0..min_depthwise_channels)
+                                .map(|x| x as $weight_ty)
+                                .collect(),
+                        ),
+                        groups: min_depthwise_channels,
                     },
                     // Depthwise convolution with no zero point.
                     Case {
