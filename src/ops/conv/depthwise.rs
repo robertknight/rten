@@ -358,7 +358,7 @@ impl<X: Copy + Default + Sync, W: Copy + Default + Sync, Y: Copy + Default>
                         dilations,
                         &col_range_for_kernel_x,
                         input_zero,
-                        kernel_zero.map(|kz| &kz[chan_range]),
+                        kernel_zero,
                     );
 
                     n_init.fetch_add(out_chans.len(), Ordering::SeqCst);
