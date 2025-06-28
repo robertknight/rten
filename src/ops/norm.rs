@@ -158,7 +158,7 @@ fn normalize_slice<'src, 'dst>(
 /// Normalize each channel separately in an `(N, C, ...)` tensor.
 fn normalize_each_channel<'a>(
     input: &mut Tensor,
-    chan_opts: impl Fn(usize) -> NormalizeOptions<'a>,
+    chan_opts: impl Fn(usize) -> NormalizeOptions<'a> + Send + Sync,
 ) {
     let batch = input.size(0);
 
@@ -167,15 +167,22 @@ fn normalize_each_channel<'a>(
     let chans = if input.ndim() >= 2 { input.size(1) } else { 1 };
 
     input.make_contiguous();
-    let chunk_len = input.len() / (batch * chans);
-    let mut chunks = input.data_mut().unwrap().chunks_mut(chunk_len);
 
-    for _ in 0..batch {
-        for c in 0..chans {
-            let chan_data = chunks.next().unwrap();
-            let opts = chan_opts(c);
-            normalize_slice(chan_data.into(), opts);
-        }
+    let elts_per_chan = input.len() / (batch * chans);
+    let mut input_3d = input.reshaped_mut([batch, chans, elts_per_chan]).unwrap();
+
+    for n in 0..batch {
+        let mut item = input_3d.slice_mut(n);
+        item.lanes_mut(1)
+            .into_par_iter()
+            .enumerate()
+            .for_each(|(c, mut chan)| {
+                let opts = chan_opts(c);
+
+                // OK as we made tensor contiguous.
+                let chan_data = chan.as_slice_mut().unwrap();
+                normalize_slice(chan_data.into(), opts);
+            });
     }
 }
 
