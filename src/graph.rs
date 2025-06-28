@@ -1034,12 +1034,16 @@ impl Graph {
                 let op_duration = op_end - op_start;
                 op_start = op_end;
 
-                profiler.add_record(TimingRecord {
-                    name: op_node.operator().name(),
-                    input_meta,
-                    elapsed: op_duration,
-                    node_name: op_node.name().unwrap_or(""),
-                });
+                // Skip control flow ops to avoid double-counting the time from
+                // ops inside the subgraph.
+                if !has_subgraph {
+                    profiler.add_record(TimingRecord {
+                        name: op_node.operator().name(),
+                        input_meta,
+                        elapsed: op_duration,
+                        node_name: op_node.name().unwrap_or(""),
+                    });
+                }
             }
         }
 
