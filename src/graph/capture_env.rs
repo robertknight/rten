@@ -63,6 +63,22 @@ impl<'a> CaptureEnv<'a> {
         }
     }
 
+    /// Simplified constructor for capture environments associated with top
+    /// level graphs.
+    ///
+    /// All of the sources of runtime-provided inputs are set to `None`, so
+    /// only captured constants are available.
+    #[cfg(test)]
+    pub fn top_level_static(graph: &'a Graph) -> Self {
+        CaptureEnv {
+            parent: None,
+            graph: Some(graph),
+            inputs: None,
+            temp_values_by_ref: None,
+            temp_values: None,
+        }
+    }
+
     /// Return a new capture environment which has `self` as a parent.
     ///
     /// The child `CaptureEnv` will have no captures of its own. This is useful

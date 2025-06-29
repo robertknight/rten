@@ -3,7 +3,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use super::{Graph, Node, NodeId, OperatorNode, RunError};
 
 /// Options for creating a graph execution plan using [`Planner`].
-#[derive(Default)]
+#[derive(Clone)]
 pub struct PlanOptions {
     /// Whether a plan can be successfully created if certain inputs are
     /// missing. If true, the planner will create the plan as if those inputs
@@ -16,6 +16,21 @@ pub struct PlanOptions {
     /// run, but false if a plan is being generated that will run a subgraph
     /// on its own.
     pub captures_available: bool,
+}
+
+impl Default for PlanOptions {
+    fn default() -> Self {
+        PlanOptions {
+            allow_missing_inputs: false,
+
+            // Assume subgraphs will usually be run as part of their parent
+            // graph, with captures available.
+            //
+            // An exception is when we're doing partial evaluation of the graph
+            // as part of constant propagation.
+            captures_available: true,
+        }
+    }
 }
 
 /// An execution plan specifying the sequence of operations to run from a graph

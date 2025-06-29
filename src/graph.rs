@@ -35,7 +35,9 @@ pub use node::{
 mod noop_hash;
 use noop_hash::NoopHashMap;
 mod planner;
-use planner::{CachedPlan, PlanOptions, Planner};
+use planner::{CachedPlan, Planner};
+
+pub use planner::PlanOptions;
 
 mod node_id;
 pub use node_id::NodeId;
@@ -621,8 +623,9 @@ impl Graph {
         &self,
         inputs: &[NodeId],
         outputs: &[NodeId],
+        opts: PlanOptions,
     ) -> Result<Vec<NodeId>, RunError> {
-        self.create_plan(inputs, outputs, false /* is_subgraph */)
+        self.create_plan(inputs, outputs, opts)
     }
 
     /// Compute a set of output values given a set of inputs, using the
@@ -708,7 +711,14 @@ impl Graph {
         let plan = match cached_plan.as_ref() {
             Some(plan) if plan.matches(inputs, outputs) => plan.clone(),
             _ => {
-                let plan = self.create_plan(inputs, outputs, is_subgraph)?;
+                let plan = self.create_plan(
+                    inputs,
+                    outputs,
+                    PlanOptions {
+                        allow_missing_inputs: false,
+                        captures_available: is_subgraph,
+                    },
+                )?;
                 *cached_plan = Some(Arc::new(CachedPlan::new(inputs, outputs, plan)));
                 cached_plan.clone().unwrap()
             }
@@ -720,17 +730,9 @@ impl Graph {
         &self,
         inputs: &[NodeId],
         outputs: &[NodeId],
-        is_subgraph: bool,
+        opts: PlanOptions,
     ) -> Result<Vec<NodeId>, RunError> {
-        let planner = Planner::with_graph(self);
-        planner.create_plan(
-            inputs,
-            outputs,
-            PlanOptions {
-                allow_missing_inputs: false,
-                captures_available: is_subgraph,
-            },
-        )
+        Planner::with_graph(self).create_plan(inputs, outputs, opts)
     }
 
     fn run_plan<'a>(
@@ -1221,7 +1223,7 @@ mod tests {
 
     use smallvec::{smallvec, SmallVec};
 
-    use super::{CachedPlan, CaptureEnv};
+    use super::{CachedPlan, CaptureEnv, PlanOptions};
     use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TypedConstant};
     use crate::ops::{
         Add, Concat, Conv, Identity, If, IntoOpResult, MatMul, Mul, OpError, OpRunContext,
@@ -1535,12 +1537,20 @@ mod tests {
         // the correct output. Since the `Add` op has the _potential_ to run in
         // place (if the input is passed as an owned value) and the `Shape` op
         // does not, the Shape op should be run first.
-        let plan = g.execution_plan(&[input_a_id, input_b_id], &[add_out, shape_out])?;
+        let plan = g.execution_plan(
+            &[input_a_id, input_b_id],
+            &[add_out, shape_out],
+            PlanOptions::default(),
+        )?;
         assert_eq!(plan, &[shape_op, add_op]);
 
         // Make sure the results are the same if the order of outputs is
         // swapped.
-        let plan = g.execution_plan(&[input_a_id, input_b_id], &[shape_out, add_out])?;
+        let plan = g.execution_plan(
+            &[input_a_id, input_b_id],
+            &[shape_out, add_out],
+            PlanOptions::default(),
+        )?;
         assert_eq!(plan, &[shape_op, add_op]);
 
         Ok(())
