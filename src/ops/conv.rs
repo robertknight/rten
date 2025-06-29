@@ -621,10 +621,8 @@ fn col2im(
                             // Safety: We computed x, y, out_x and out_y such that they are
                             // in-bounds for out_img and in_img.
                             unsafe {
-                                *out_img.get_unchecked_mut([
-                                    (out_y - pad_top) as usize,
-                                    (out_x - pad_left) as usize,
-                                ]) += in_img.get_unchecked([y as usize, x as usize]);
+                                *out_img.get_unchecked_mut([out_y - pad_top, out_x - pad_left]) +=
+                                    in_img.get_unchecked([y, x]);
                             }
                         }
                     }
@@ -805,7 +803,13 @@ pub fn conv_transpose(
             )
             .unwrap();
 
-        let col2im_mat = NdTensorView::from_data(col2im_shape, col2im_init.as_ref());
+        let col2im_mat = NdTensorView::from_data(
+            col2im_shape,
+            // False positive. The conversion from `&mut [f32]` -> `&[f32]` here
+            // is necessary.
+            #[allow(clippy::useless_asref)]
+            col2im_init.as_ref(),
+        );
         let mut out_img = output.slice_mut(n);
 
         col2im(
