@@ -1,10 +1,10 @@
 use std::mem::MaybeUninit;
 
+use rayon::prelude::*;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{AssumeInit, NdTensor, NdTensorView, Scalar, Tensor, TensorView};
 use rten_vecmath as vecmath;
-use rten_vecmath::ExtendInit;
 
 use crate::ops::{
     resolve_axis, DataType, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
@@ -178,7 +178,7 @@ impl Quantize<i8> for f32 {
     }
 }
 
-pub fn quantize_linear<T: Copy + Default + Scalar>(
+pub fn quantize_linear<T: Copy + Default + Send + Sync + Scalar>(
     pool: &TensorPool,
     input: TensorView<f32>,
     scale: TensorView<f32>,
@@ -203,14 +203,20 @@ where
 
             if let Some(data) = input.data() {
                 let mut buf = pool.alloc(data.len());
-                buf.extend_init(|buf_data| {
-                    Quantize::quantize_slice(
-                        data,
-                        &mut buf_data[..data.len()],
-                        inv_scale,
-                        zero_point,
-                    )
-                });
+                let buf_uninit = &mut buf.spare_capacity_mut()[..data.len()];
+
+                let chunk_size = 4096;
+                buf_uninit
+                    .par_chunks_mut(chunk_size)
+                    .zip(data.par_chunks(chunk_size))
+                    .for_each(|(out_data, data)| {
+                        Quantize::quantize_slice(data, out_data, inv_scale, zero_point);
+                    });
+                let buf_uninit_len = buf_uninit.len();
+
+                // Safety: We initialized `buf_uninit_len` elements.
+                unsafe { buf.set_len(buf_uninit_len) };
+
                 Ok(Tensor::from_data(input.shape(), buf))
             } else {
                 Ok(input.map_in(pool, |x| x.quantize(inv_scale, zero_point)))
@@ -230,6 +236,7 @@ where
             let mut output = Tensor::uninit_in(pool, input.shape());
             output
                 .axis_iter_mut(axis)
+                .into_par_iter()
                 .zip(input.axis_iter(axis))
                 .zip(scale.iter())
                 .zip(zero_point.iter())
@@ -311,7 +318,7 @@ pub struct DynamicQuantizeOutput<T> {
     pub zero_point: Tensor<T>,
 }
 
-pub fn dynamic_quantize_linear<T: Copy + Default + Scalar>(
+pub fn dynamic_quantize_linear<T: Copy + Default + Send + Sync + Scalar>(
     pool: &TensorPool,
     input: TensorView<f32>,
 ) -> Result<DynamicQuantizeOutput<T>, OpError>
@@ -357,7 +364,20 @@ where
     let q_max = 255.;
 
     let input = input.to_contiguous_in(pool);
-    let (x_min, x_max) = vecmath::MinMax::new(input.data().unwrap()).dispatch();
+
+    let chunk_size = 4096;
+    let (x_min, x_max) = input
+        .data()
+        .unwrap()
+        .par_chunks(chunk_size)
+        .map(|chunk| vecmath::MinMax::new(chunk).dispatch())
+        .reduce(
+            || (f32::MAX, f32::MIN),
+            |(prev_min, prev_max), (chunk_min, chunk_max)| {
+                (chunk_min.min(prev_min), chunk_max.max(prev_max))
+            },
+        );
+
     let x_min_adjusted = x_min.min(q_min);
     let x_max_adjusted = x_max.max(q_min);
     let x_range = x_max_adjusted - x_min_adjusted;
