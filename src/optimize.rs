@@ -6,7 +6,7 @@ use rten_tensor::Tensor;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::graph::{
-    CaptureEnv, Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError,
+    CaptureEnv, Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, PlanOptions, RunError,
 };
 use crate::ops::Operator;
 use crate::Value;
@@ -135,10 +135,11 @@ impl GraphMutator {
         let mut ops_pending_removal = FxHashSet::default();
 
         // Get all operators, in the order they will be run.
-        let Ok(mut operators) = self
-            .graph
-            .execution_plan(self.graph.input_ids(), self.graph.output_ids())
-        else {
+        let Ok(mut operators) = self.graph.execution_plan(
+            self.graph.input_ids(),
+            self.graph.output_ids(),
+            PlanOptions::default(),
+        ) else {
             return 0;
         };
 
@@ -180,7 +181,10 @@ impl GraphMutator {
                 input_ids.dedup();
 
                 let output_ids: Vec<_> = fusion.output_ids.iter().flatten().copied().collect();
-                let unfused_ops = self.graph.execution_plan(&input_ids, &output_ids).unwrap();
+                let unfused_ops = self
+                    .graph
+                    .execution_plan(&input_ids, &output_ids, PlanOptions::default())
+                    .unwrap();
 
                 for unfused_op in &unfused_ops {
                     // Skip this fusion if it includes an operator which was
@@ -527,7 +531,7 @@ mod tests {
     use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
     use crate::downcast::DowncastDyn;
     use crate::graph::builder::Expr;
-    use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId};
+    use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId, PlanOptions};
     use crate::ops::{
         Add, Erf, FusedMatMul, Gelu, LayerNormalization, MatMul, Neg, Pow, ReduceMean,
         RmsNormalization, Sigmoid, Softmax, Sqrt, Swish, Tanh, Transpose,
@@ -630,7 +634,7 @@ mod tests {
         // Run optimizations on the subgraph. This should replace the captured
         // value with a local constant that references the same data.
         let optimizer = GraphOptimizer::new();
-        let capture_env = CaptureEnv::new(None, &graph, None, None, None);
+        let capture_env = CaptureEnv::top_level_static(&graph);
         let optimized_subgraph = optimizer.optimize(subgraph, Some(&capture_env))?;
 
         let outputs = optimized_subgraph.output_ids();
@@ -715,6 +719,30 @@ mod tests {
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "FusedMatMul");
+    }
+
+    #[test]
+    fn test_fuse_op_with_captured_input() {
+        // Create subgraph for Silu operation which takes input from capture
+        // rather than a regular input.
+        let mut subgraph = {
+            let x = Expr::value("x");
+            let expr = x.clone() * x.sigmoid();
+            expr.build_graph([])
+        };
+        let x_id = subgraph.get_node_id("x").unwrap();
+        subgraph.set_captures(&[x_id]);
+
+        let graph = Graph::new();
+        let capture_env = CaptureEnv::top_level_static(&graph);
+        let optimized_subgraph = GraphOptimizer::new()
+            .optimize(subgraph, Some(&capture_env))
+            .unwrap();
+
+        let (_, op) = optimized_subgraph
+            .get_source_node(optimized_subgraph.output_ids()[0])
+            .unwrap();
+        assert_eq!(op.operator().name(), "Silu");
     }
 
     #[test]
@@ -1059,7 +1087,9 @@ mod tests {
         let input_ids = graph.input_ids().to_vec();
         let output_ids = graph.output_ids().to_vec();
         let optimized = optimize_graph(graph).unwrap();
-        let plan = optimized.execution_plan(&input_ids, &output_ids).unwrap();
+        let plan = optimized
+            .execution_plan(&input_ids, &output_ids, PlanOptions::default())
+            .unwrap();
 
         let op_name = |node_id| {
             optimized
