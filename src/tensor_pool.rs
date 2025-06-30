@@ -1,5 +1,6 @@
-use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use rten_tensor::{Alloc, CowData, MutLayout, TensorBase};
 
@@ -75,6 +76,12 @@ impl Buffer {
     }
 }
 
+// Safety: Buffer does not have any interior mutability (ie. we don't allow
+// modifying it via non-mut references). It isn't auto Send/Sync due to pointer
+// fields.
+unsafe impl Send for Buffer {}
+unsafe impl Sync for Buffer {}
+
 impl Drop for Buffer {
     fn drop(&mut self) {
         (self.drop)(self);
@@ -102,13 +109,13 @@ impl Drop for Buffer {
 /// [`ExtractBuffer`] trait for them.
 pub struct TensorPool {
     /// List of buffers currently in the pool.
-    buffers: RefCell<Vec<Buffer>>,
+    buffers: Mutex<Vec<Buffer>>,
 
     /// Number of allocation requests received.
-    alloc_count: RefCell<usize>,
+    alloc_count: AtomicUsize,
 
     /// Number of allocation requests fulfilled from the pool.
-    hit_count: RefCell<usize>,
+    hit_count: AtomicUsize,
 }
 
 impl TensorPool {
@@ -119,9 +126,9 @@ impl TensorPool {
     /// if the caller does not have a pool otherwise available.
     pub fn new() -> TensorPool {
         TensorPool {
-            buffers: RefCell::new(Vec::new()),
-            alloc_count: RefCell::new(0),
-            hit_count: RefCell::new(0),
+            buffers: Mutex::new(Vec::new()),
+            alloc_count: AtomicUsize::new(0),
+            hit_count: AtomicUsize::new(0),
         }
     }
 
@@ -130,32 +137,30 @@ impl TensorPool {
     /// The returned buffer will have a [`capacity`](Vec::capacity) of at least
     /// the requested size, but _may have more_.
     pub fn alloc<T>(&self, capacity: usize) -> Vec<T> {
-        *self.alloc_count.borrow_mut() += 1;
+        self.alloc_count.fetch_add(1, Ordering::AcqRel);
 
         // Find best fit item that matches the requested type and size with
         // the least excess capacity.
-        let best_fit =
-            self.buffers
-                .borrow()
-                .iter()
-                .enumerate()
-                .fold(None, |best_fit, (idx, buffer)| {
-                    if !buffer.can_fit::<T>(capacity) {
-                        return best_fit;
-                    };
+        let best_fit = self.buffers.lock().unwrap().iter().enumerate().fold(
+            None,
+            |best_fit, (idx, buffer)| {
+                if !buffer.can_fit::<T>(capacity) {
+                    return best_fit;
+                };
 
-                    if let Some((best_fit_idx, best_fit_size)) = best_fit {
-                        if buffer.capacity >= best_fit_size {
-                            return Some((best_fit_idx, best_fit_size));
-                        }
+                if let Some((best_fit_idx, best_fit_size)) = best_fit {
+                    if buffer.capacity >= best_fit_size {
+                        return Some((best_fit_idx, best_fit_size));
                     }
-                    Some((idx, buffer.capacity))
-                });
+                }
+                Some((idx, buffer.capacity))
+            },
+        );
 
         let data = if let Some((best_fit, _overhead)) = best_fit {
-            *self.hit_count.borrow_mut() += 1;
+            self.hit_count.fetch_add(1, Ordering::AcqRel);
 
-            let item = self.buffers.borrow_mut().remove(best_fit);
+            let item = self.buffers.lock().unwrap().remove(best_fit);
             item.into_vec::<T>()
         } else {
             // No match :( - Fall back to the global allocator.
@@ -170,28 +175,28 @@ impl TensorPool {
     /// The buffer will be cleared using [`Vec::clear`] and then made available
     /// to fulfill future allocation requests.
     pub fn add<T>(&self, vec: Vec<T>) {
-        self.buffers.borrow_mut().push(Buffer::from_vec(vec));
+        self.buffers.lock().unwrap().push(Buffer::from_vec(vec));
     }
 
     /// Return the total number of allocation requests.
     pub fn alloc_count(&self) -> usize {
-        *self.alloc_count.borrow()
+        self.alloc_count.load(Ordering::Acquire)
     }
 
     /// Return the number of allocation requests that were fulfilled using
     /// items in the pool.
     pub fn hit_count(&self) -> usize {
-        *self.hit_count.borrow()
+        self.hit_count.load(Ordering::Acquire)
     }
 
     /// Return the number of buffers currently in the pool.
     pub fn len(&self) -> usize {
-        self.buffers.borrow().len()
+        self.buffers.lock().unwrap().len()
     }
 
     /// Return true if the pool is empty.
     pub fn is_empty(&self) -> bool {
-        self.buffers.borrow().is_empty()
+        self.buffers.lock().unwrap().is_empty()
     }
 }
 
