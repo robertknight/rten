@@ -16,10 +16,10 @@ pub struct RowOffsets {
     /// Map of row index to `channel * channel_stride`.
     pub chan: Vec<i32>,
 
-    /// Map of row index to `row * row_stride`.
+    /// Map of row index to `kernel_y * dilation_y * row_stride`.
     pub y: Vec<i32>,
 
-    /// Map of row index to `col * col_stride`.
+    /// Map of row index to `kernel_x * dilation_x * col_stride`.
     pub x: Vec<i32>,
 }
 
@@ -28,34 +28,44 @@ pub struct RowOffsets {
 /// For efficiency when packing the image, the locations are premultiplied by
 /// the corresponding stride.
 pub struct ColOffsets {
-    /// Map of column index to `row * row_stride`.
+    /// Map of column index to `row * row_stride` where `row` is the top Y
+    /// coordinate of the patch in the source image.
     pub y: Vec<i32>,
 
-    /// Map of column index to `col * col_stride`.
+    /// Map of column index to `col * col_stride` where `col` is the left X
+    /// coordinate of the patch in the source image.
     pub x: Vec<i32>,
 }
 
 /// A matrix formed by unrolling patches of an image into columns.
 ///
+/// Each column of the matrix corresponds to a different spatial patch of the
+/// image, and each row is a different location within the patch. The matrix
+/// can be used as the right-hand input of a matrix multiplication in order
+/// to perform a convolution.
+///
 /// The input image has shape [C,H,W] and is transformed into a matrix with
 /// shape [C * Kh * kW, Oh * Ow] where Kh/Kw are convolution kernel sizes and
-/// Oh/Ow are the number of patches in the Y and X directions.
+/// Oh/Ow are the number of patches in the Y and X directions. Given a weight
+/// matrix W of shape `[M, C * Kh * kW]` the matrix multiplication `W @
+/// im2col(image)` produces an output of shape `[M, Oh * Ow]` which can be
+/// reshaped into the convolution output `[M, Oh, Ow]`.
 ///
 /// The matrix is _virtual_ as it is not materialized fully in memory. Instead
 /// blocks of the matrix are materialized during computation.
 pub struct Im2Col<'a, T> {
     pub image: NdTensorView<'a, T, 3>,
 
-    /// Map of im2col row index to input image coordinate, premultiplied with
-    /// the corresponding stride.
+    /// Map of im2col row index to position within image patch (channel,
+    /// kernel_y, kernel_x) pre-multiplied by corresponding stride.
     ///
     /// The arrays may be padded to a multiple of a step size specified by the
     /// GEMM kernel. `n_rows` contains the actual number of rows in the virtual
     /// matrix.
     pub row_offsets: RowOffsets,
 
-    /// Map of im2col column index to input image coordinate, premultiplied with
-    /// the corresponding stride.
+    /// Map of im2col column index to (y, x) coordinate of top-level corner of
+    /// patch in image, pre-multiplied by corresponding stride.
     ///
     /// The arrays may be padded to a multiple of a step size specified by the
     /// GEMM kernel. `n_cols` contains the actual number of columns in the
@@ -128,7 +138,7 @@ impl<T: Copy + Default> Im2Col<'_, T> {
         assert!(img_len > 0 && img_len <= i32::MAX as usize);
         let max_img_offset = ops.splat(img_len as i32 - 1);
 
-        // Loop over column panels, then rows, then `S::LEN`-wide column groups
+        // Loop over column panels, then rows, then SIMD-wide column groups
         // within each panel.
         let mut out_offset = 0;
 
