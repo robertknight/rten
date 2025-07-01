@@ -11,7 +11,7 @@ clean:
 	rm -rf target/
 
 .PHONY: check
-check: checkformatting test lint
+check: checkformatting test lint docs
 
 .PHONY: checkformatting
 checkformatting:
