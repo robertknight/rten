@@ -90,9 +90,10 @@ impl Drop for Buffer {
 
 /// A pool which enables reuse of data buffers from tensors and other containers.
 ///
-/// Reusing buffers for operator outputs, as opposed to allocating a fresh
-/// buffer from the global allocator and freeing it when no longer needed,
-/// can provide a significant performance improvement.
+/// The purpose of this pool is to minimize the overhead from allocating and
+/// de-allocating large buffers repeatedly during model inference.
+///
+/// # Usage
 ///
 /// [`TensorPool`] implements the [`Alloc`] trait, enabling tensors to be allocated
 /// from the pool using the various `Tensor::*_in` methods, eg.
@@ -107,6 +108,23 @@ impl Drop for Buffer {
 /// tensor can be wrapped using `tensor.auto_return(pool)`. The [`PoolRef`] smart
 /// pointer can also be used with other container types, by implementing the
 /// [`ExtractBuffer`] trait for them.
+///
+/// # Performance
+///
+/// Reusing buffers for operator outputs, as opposed to allocating a fresh
+/// buffer from the global allocator and freeing it when no longer needed, can
+/// provide a significant performance improvement for medium and especially
+/// large allocations. This is because allocation or de-allocation of memory
+/// blocks above a certain size can incur overhead from zeroing memory
+/// ([^1][^2]) and memory mapping management in the OS. For small allocations
+/// (<1KB) there is typically no benefit compared to using the system allocator.
+///
+/// The pool assumes that it will be managing a relatively small number of
+/// buffers at any given time, and isn't optimized for managing a large number
+/// of buffers.
+///
+/// [^1]: <https://mjtsai.com/blog/2022/09/20/zeroing-freed-memory/>
+/// [^2]: <https://randomascii.wordpress.com/2014/12/10/hidden-costs-of-memory-allocation/>
 pub struct TensorPool {
     /// List of buffers currently in the pool.
     buffers: Mutex<Vec<Buffer>>,
