@@ -897,10 +897,13 @@ fn constant_data_from_storage_offset<T: LeBytes + Pod>(
         let const_data: ConstantNodeData<T> = if let Some(strides) = strides {
             ArcTensorView::from_data_with_strides(shape, storage, strides)
                 .map_err(|_| {
-                    ModelLoadError::GraphError(format!(
-                        "bad strides = {:?}, shape = {:?}",
-                        strides, shape
-                    ))
+                    ModelLoadError::GraphError(
+                        format!(
+                            "Graph constant strides {:?} incompatible with shape {:?}",
+                            strides, shape
+                        )
+                        .into(),
+                    )
                 })?
                 .into()
         } else {
@@ -915,10 +918,13 @@ fn constant_data_from_storage_offset<T: LeBytes + Pod>(
         Ok(if let Some(strides) = strides {
             Tensor::from_data_with_strides(shape, data, strides)
                 .map_err(|_| {
-                    ModelLoadError::GraphError(format!(
-                        "bad strides = {:?}, shape = {:?}",
-                        strides, shape
-                    ))
+                    ModelLoadError::GraphError(
+                        format!(
+                            "Graph constant strides {:?} incompatible with shape {:?}",
+                            strides, shape
+                        )
+                        .into(),
+                    )
                 })?
                 .into()
         } else {
