@@ -86,8 +86,14 @@ fn read_wav_file(path: &str, expected_sample_rate: u32) -> Result<Vec<f32>, houn
         );
     }
 
+    let channels = spec.channels.max(1);
+
     reader
         .samples::<i16>()
+        // When an audio file has multiple channels, the samples from different
+        // channels are interleaved. The model expects mono input, so take samples
+        // from only the first channel.
+        .step_by(channels as usize)
         .map(|sample| {
             // Convert sample value in [i16::MIN, i16::MAX] to [-1, 1]
             Ok((sample? as f32) / (i16::MAX as f32))
