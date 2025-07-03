@@ -240,9 +240,21 @@ pub struct ModelInputsConfig<'a> {
 
 /// Contains essential configuration needed for a `Generator` to execute a
 /// model, such as the roles of different inputs and outputs.
+#[derive(Default)]
 pub struct GeneratorConfig<'a> {
     /// Specifies names and roles of model inputs and outputs.
     pub model_inputs: ModelInputsConfig<'a>,
+
+    /// Reserve capacity in the KV cache for a given number of tokens.
+    ///
+    /// By default the KV cache starts off with a small initial capacity and is
+    /// re-allocated if needed after a token is generated, with the capacity
+    /// being doubled each time to amortize overhead.
+    ///
+    /// If the maximum number of tokens that will be generated is known in
+    /// advance, this can be used to reduce the overhead of re-allocating the
+    /// KV cache during inference.
+    pub kv_cache_capacity: Option<usize>,
 }
 
 impl Default for ModelInputsConfig<'_> {
@@ -435,6 +447,7 @@ impl<'a> Generator<'a> {
     pub fn from_model(model: &'a dyn Model) -> Result<Generator<'a>, GeneratorError> {
         let config = GeneratorConfig {
             model_inputs: ModelInputsConfig::default(),
+            kv_cache_capacity: None,
         };
         Self::from_model_config(model, config)
     }
@@ -521,7 +534,7 @@ impl<'a> Generator<'a> {
             // For other simpler models the input KV cache buffer is used for
             // all iterations, in which case we would ideally reserve capacity
             // up-front based on the max expected sequence length.
-            let max_seq_len = 1;
+            let max_seq_len = config.kv_cache_capacity.unwrap_or(1);
 
             let kv_cache_entry = KvCache {
                 input_id,
