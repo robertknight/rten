@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use microfft::Complex32;
 use rten::{Dimension, FloatOperators, Model};
 use rten_generate::filter::{token_id_filter, LogitsFilter};
-use rten_generate::{Generator, GeneratorUtils};
+use rten_generate::{Generator, GeneratorConfig, GeneratorUtils};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 use rten_text::Tokenizer;
@@ -510,7 +510,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // Decode audio chunk into transcript segments. Each segment starts
         // and ends with a timestamp token.
-        let generator = Generator::from_model(&decoder_model)?
+        let mut generator_config = GeneratorConfig::default();
+        generator_config.kv_cache_capacity = Some(max_tokens_per_chunk);
+
+        let generator = Generator::from_model_config(&decoder_model, generator_config)?
             .with_prompt(&prompt)
             .with_constant_input(encoder_hidden_states_id, encoded_audio.view().into())
             .with_logits_filter(TimestampFilter::new(
