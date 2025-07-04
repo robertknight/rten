@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### rten-examples
+
+- Support stereo .wav files in Whisper example (https://github.com/robertknight/rten/pull/785)
+
+### rten-generate
+
+- Support pre-allocation of KV-cache capacity (https://github.com/robertknight/rten/pull/786)
+
+### rten-tensor
+
+- Fixed invalid use of `memcpy` on non-`Copy` types when copying tensors with
+  contiguous last axis (https://github.com/robertknight/rten/pull/773)
+
+- Make `fold` and fold-based operations on iterators more efficient
+  (https://github.com/robertknight/rten/pull/772)
+
+- Removed inherent methods of layouts which duplicated trait methods
+  (https://github.com/robertknight/rten/pull/771)
+
+- Support tensors with borrowed layouts (https://github.com/robertknight/rten/pull/770)
+
+### rten
+
+- Allow ops with fused input transposes to run in place. This fixes a regression
+  in performance for the Whisper example (https://github.com/robertknight/rten/pull/787)
+
+- Make TensorPool usable across threads (https://github.com/robertknight/rten/pull/782)
+
+- Parallelize QuantizeLinear and DynamicQuantizeLinear (https://github.com/robertknight/rten/pull/780)
+
+- Fixed issue where operator fusions were not applied correctly for subgraphs
+  (https://github.com/robertknight/rten/pull/779)
+
+- Fixed timings for operators in subgraphs being counted multiple times (https://github.com/robertknight/rten/pull/778)
+
+- Parallelize BatchNormalization, InstanceNormalization (https://github.com/robertknight/rten/pull/777)
+
+- Fixed depthwise ConvInteger (https://github.com/robertknight/rten/pull/776)
+
+- Optimize ConvTranspose via parallelized and more efficient col2im step
+  (https://github.com/robertknight/rten/pull/775)
+
+- Prevent fusion of subgraphs with shared nodes (https://github.com/robertknight/rten/pull/768)
+
+- Handle non-contiguous mask tensor more efficiently in fused Add + Softmax
+  (https://github.com/robertknight/rten/pull/766)
+
 ## [0.19.0] - 2025-06-16
 
 **Breaking changes:**
