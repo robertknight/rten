@@ -6,7 +6,7 @@ use rten_tensor::{Alloc, CowData, MutLayout, TensorBase};
 
 /// A memory buffer that can be used to satisfy a future allocation from
 /// a [`TensorPool`].
-struct Buffer {
+pub struct Buffer {
     /// Pointer and capacity extracted from the `Vec`. The length is always
     /// zero.
     ptr: *mut u8,
@@ -85,6 +85,12 @@ unsafe impl Sync for Buffer {}
 impl Drop for Buffer {
     fn drop(&mut self) {
         (self.drop)(self);
+    }
+}
+
+impl<T> Into<Buffer> for Vec<T> {
+    fn into(self) -> Buffer {
+        Buffer::from_vec(self)
     }
 }
 
@@ -192,8 +198,8 @@ impl TensorPool {
     ///
     /// The buffer will be cleared using [`Vec::clear`] and then made available
     /// to fulfill future allocation requests.
-    pub fn add<T>(&self, vec: Vec<T>) {
-        self.buffers.lock().unwrap().push(Buffer::from_vec(vec));
+    pub fn add<B: Into<Buffer>>(&self, buf: B) {
+        self.buffers.lock().unwrap().push(buf.into());
     }
 
     /// Return the total number of allocation requests.
@@ -235,19 +241,15 @@ impl Default for TensorPool {
 /// This is used to extract the buffer from a container that is no longer
 /// needed, in order to return it to a [`TensorPool`].
 pub trait ExtractBuffer {
-    type Elem;
-
     /// Consume `self` and return its data buffer if it was uniquely owned, or
     /// `None` otherwise.
-    fn extract_buffer(self) -> Option<Vec<Self::Elem>>;
+    fn extract_buffer(self) -> Option<Buffer>;
 }
 
 impl<T> ExtractBuffer for Vec<T> {
-    type Elem = T;
-
-    fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
+    fn extract_buffer(self) -> Option<Buffer> {
         if self.capacity() > 0 {
-            Some(self)
+            Some(self.into())
         } else {
             None
         }
@@ -255,18 +257,14 @@ impl<T> ExtractBuffer for Vec<T> {
 }
 
 impl<T, L: MutLayout> ExtractBuffer for TensorBase<Vec<T>, L> {
-    type Elem = T;
-
-    fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
-        Some(self.into_non_contiguous_data())
+    fn extract_buffer(self) -> Option<Buffer> {
+        Some(self.into_non_contiguous_data().into())
     }
 }
 
 impl<T, L: MutLayout> ExtractBuffer for TensorBase<CowData<'_, T>, L> {
-    type Elem = T;
-
-    fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
-        self.into_non_contiguous_data()
+    fn extract_buffer(self) -> Option<Buffer> {
+        self.into_non_contiguous_data().map(|data| data.into())
     }
 }
 

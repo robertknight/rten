@@ -7,7 +7,7 @@ use crate::ops::{
     map_value, map_value_view, resolve_axis, InputList, IntoOpResult, OpError, OpRunContext,
     Operator, OutputList, Value, ValueView,
 };
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 macro_rules! check_input {
     ($cond:expr, $msg:literal) => {
@@ -148,6 +148,7 @@ impl Operator for Slice {
         // Fall back to copying if non-default steps are given.
         if let Some(steps) = steps {
             if steps.iter().any(|step| *step != 1) {
+                let input = input.auto_return(ctx.pool());
                 let mut inputs: Vec<_> = vec![input.as_view()];
 
                 // `inputs.extend(other.iter())` not used here as it triggers
