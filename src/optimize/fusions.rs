@@ -4,8 +4,8 @@ use crate::downcast::DowncastDyn;
 use crate::graph::{Graph, Node, NodeId, OperatorNode, TypedConstant};
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, FusedMatMul, Gelu, LayerNormalization, Operator, ReduceMean, RmsNormalization,
-    Silu, Softmax, Swish, Transpose,
+    AddSoftmax, FusedMatMul, Gelu, LayerNormalization, Operator, Reciprocal, ReduceMean,
+    RmsNormalization, Silu, Softmax, Swish, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 
@@ -141,6 +141,20 @@ impl GraphQuery for Graph {
             Node::Constant(const_node) => const_node.as_scalar(),
             _ => None,
         })
+    }
+}
+
+pub struct ReciprocalFusion {}
+
+impl PatternFusion for ReciprocalFusion {
+    type Operator = Reciprocal;
+
+    fn pattern(&self) -> Pattern {
+        1. / Pattern::symbol("x")
+    }
+
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Reciprocal> {
+        Some(Reciprocal {})
     }
 }
 
@@ -375,8 +389,9 @@ impl PatternFusion for RmsNormalizationFusion {
         // Here we test for `x * 1/(sqrt(rms) + epsilon)` because that is the
         // observed pattern in models like T5. Ideally we would recognize both.
         x.clone()
-            * (1.
-                / Pattern::unary_op(
+            * Pattern::unary_op(
+                "Reciprocal",
+                Pattern::unary_op(
                     "Sqrt",
                     epsilon
                         + Pattern::unary_op(
@@ -384,7 +399,8 @@ impl PatternFusion for RmsNormalizationFusion {
                             Pattern::binary_op("Pow", x.clone(), 2.0),
                         )
                         .with_name("norm_mean"),
-                ))
+                ),
+            )
             * scale
     }
 

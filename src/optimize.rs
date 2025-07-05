@@ -16,7 +16,7 @@ mod pattern_matcher;
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion,
-    LayerNormalizationFusion, MatMulAddFusion, MatMulScaleFusion, PatternFusion,
+    LayerNormalizationFusion, MatMulAddFusion, MatMulScaleFusion, PatternFusion, ReciprocalFusion,
     RmsNormalizationFusion, SiluFusion, SwishFusion, TransposeFusion,
 };
 
@@ -347,6 +347,7 @@ impl GraphOptimizer {
         // The ordering is significant as fusions are tried in turn until a
         // match is found.
         let fusions: &[&dyn DynFusionVisitor] = &[
+            &DynFusion(ReciprocalFusion {}.into_visitor()),
             &DynFusion(SiluFusion {}.into_visitor()),
             &DynFusion(SwishFusion {}.into_visitor()),
             &DynFusion(GeluFusion {}.into_visitor()),
@@ -981,6 +982,18 @@ mod tests {
 
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "AddSoftmax");
+    }
+
+    #[test]
+    fn test_fuse_reciprocal() {
+        let graph = {
+            let x = Expr::value("x");
+            let expr = Expr::constant(1.) / x;
+            expr.build_graph(["x"])
+        };
+        let graph = optimize_graph(graph).unwrap();
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(op.operator().name(), "Reciprocal");
     }
 
     #[test]
