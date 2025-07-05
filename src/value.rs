@@ -10,7 +10,7 @@ use rten_tensor::{
     TensorView, ViewData,
 };
 
-use crate::tensor_pool::{ExtractBuffer, TensorPool};
+use crate::tensor_pool::{Buffer, ExtractBuffer, TensorPool};
 
 /// Enum specifying the data type of a tensor.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -389,6 +389,17 @@ impl Layout for Value {
     impl_proxy_layout!();
 }
 
+impl ExtractBuffer for Value {
+    fn extract_buffer(self) -> Option<Buffer> {
+        match self {
+            Value::Int32Tensor(t) => t.extract_buffer(),
+            Value::Int8Tensor(t) => t.extract_buffer(),
+            Value::UInt8Tensor(t) => t.extract_buffer(),
+            Value::FloatTensor(t) => t.extract_buffer(),
+        }
+    }
+}
+
 /// Declare conversions between `Value` and `Tensor<T>` / `NdTensor<T, N>`.
 macro_rules! impl_value_conversions {
     ($variant:ident, $element_type:ty) => {
@@ -557,6 +568,15 @@ impl<'a> From<&'a Value> for ValueOrView<'a> {
 
 impl Layout for ValueOrView<'_> {
     impl_proxy_layout!();
+}
+
+impl ExtractBuffer for ValueOrView<'_> {
+    fn extract_buffer(self) -> Option<Buffer> {
+        match self {
+            Self::View(_) => None,
+            Self::Value(val) => val.extract_buffer(),
+        }
+    }
 }
 
 /// A scalar value with runtime-determined type.

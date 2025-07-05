@@ -3,10 +3,10 @@ use std::ops::Range;
 
 use rten_tensor::{Alloc, Matrix, MatrixLayout};
 
-use super::packing::{PackElem, PackingBuffer};
+use super::packing::PackingBuffer;
 use super::{depth_block_size, GemmError, Kernel, LhsBlock, RhsBlock};
 use crate::iter_util::range_chunks;
-use crate::tensor_pool::ExtractBuffer;
+use crate::tensor_pool::{Buffer, ExtractBuffer};
 
 /// Common data and logic for a pre-packed A or B matrix.
 ///
@@ -114,10 +114,8 @@ impl<T> PackedAMatrix<T> {
 }
 
 impl<T> ExtractBuffer for PackedAMatrix<T> {
-    type Elem = PackElem;
-
-    fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
-        Some(self.base.data.into_vec())
+    fn extract_buffer(self) -> Option<Buffer> {
+        Some(self.base.data.into_vec().into())
     }
 }
 
@@ -167,10 +165,8 @@ impl<T> PackedBMatrix<T> {
 }
 
 impl<T> ExtractBuffer for PackedBMatrix<T> {
-    type Elem = PackElem;
-
-    fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
-        Some(self.base.data.into_vec())
+    fn extract_buffer(self) -> Option<Buffer> {
+        Some(self.base.data.into_vec().into())
     }
 }
 
