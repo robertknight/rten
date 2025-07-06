@@ -1040,6 +1040,29 @@ mod tests {
     }
 
     #[test]
+    fn test_fuse_add_softmax_positive_axes() {
+        let graph = {
+            let dims = [
+                Dimension::Symbolic("batch".to_string()),
+                Dimension::Fixed(768),
+            ];
+            let qk = Expr::value_with_info("qk", DataType::Float, &dims);
+            let m = Expr::value("m");
+            let expr = qk
+                // Add shape info so optimizer can determine softmax is applied
+                // to last axis.
+                .apply(Add {}, &[m], Some((DataType::Float, dims.to_vec())))
+                .softmax(1);
+            expr.build_graph(["qk", "m"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(op.operator().name(), "AddSoftmax");
+    }
+
+    #[test]
     fn test_fuse_reciprocal() {
         let graph = {
             let x = Expr::value("x");
