@@ -539,7 +539,7 @@ mod tests {
     use super::{GraphOptimizer, OptimizeError};
     use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
     use crate::downcast::DowncastDyn;
-    use crate::graph::builder::Expr;
+    use crate::graph::builder::{Expr, OutputMeta};
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId, PlanOptions};
     use crate::ops::{
         Add, Erf, FusedMatMul, Gelu, LayerNormalization, MatMul, Neg, Pow, ReduceMean,
@@ -1009,7 +1009,7 @@ mod tests {
                 &[Expr::constant(2.0)],
                 // Add shape info to Pow(X, 2) output so ReduceMean can verify that
                 // `axes` refers to the last axis.
-                Some((DataType::Float, dims.to_vec())),
+                &[OutputMeta::Meta((DataType::Float, dims.to_vec()))],
             );
             let rms = (x_square.mean_axes(axes) + epsilon).sqrt();
             let scale = Tensor::from([3., 4., 5.]);
@@ -1051,7 +1051,11 @@ mod tests {
             let expr = qk
                 // Add shape info so optimizer can determine softmax is applied
                 // to last axis.
-                .apply(Add {}, &[m], Some((DataType::Float, dims.to_vec())))
+                .apply(
+                    Add {},
+                    &[m],
+                    &[OutputMeta::Meta((DataType::Float, dims.to_vec()))],
+                )
                 .softmax(1);
             expr.build_graph(["qk", "m"])
         };
