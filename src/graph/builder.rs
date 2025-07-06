@@ -8,10 +8,10 @@ use std::rc::Rc;
 
 use crate::graph::{Graph, NodeId};
 use crate::ops::Operator;
-use crate::Value;
+use crate::{DataType, Dimension, Value};
 
 enum ExprKind {
-    Value(String),
+    Value(ValueExpr),
     Constant(Value),
     Operator(OperatorExpr),
 }
@@ -84,6 +84,12 @@ struct OperatorExpr {
     inputs: Vec<Expr>,
 }
 
+struct ValueExpr {
+    name: String,
+    dtype: Option<DataType>,
+    shape: Option<Vec<Dimension>>,
+}
+
 struct NodeNameGenerator {
     used_names: HashSet<String>,
 }
@@ -111,7 +117,21 @@ impl Expr {
     /// Create an expression representing a runtime-computed value (eg. model
     /// inputs).
     pub fn value(name: &str) -> Expr {
-        Expr::from(ExprKind::Value(name.to_string()))
+        Expr::from(ExprKind::Value(ValueExpr {
+            name: name.to_string(),
+            dtype: None,
+            shape: None,
+        }))
+    }
+
+    /// Create an expression representing a runtime-computed value (eg. model
+    /// inputs), with shape and dtype information.
+    pub fn value_with_info(name: &str, dtype: DataType, shape: &[Dimension]) -> Expr {
+        Expr::from(ExprKind::Value(ValueExpr {
+            name: name.to_string(),
+            dtype: Some(dtype),
+            shape: Some(shape.to_vec()),
+        }))
     }
 
     /// Create an expression representing a constant value.
@@ -175,7 +195,11 @@ impl Expr {
         }
 
         let output_id = match self.kind.as_ref() {
-            ExprKind::Value(name) => graph.add_value(Some(name.as_str()), None, None),
+            ExprKind::Value(value_info) => graph.add_value(
+                Some(value_info.name.as_str()),
+                value_info.shape.clone(),
+                value_info.dtype,
+            ),
             ExprKind::Constant(value) => {
                 let name = name_gen.generate("const");
                 match value {
