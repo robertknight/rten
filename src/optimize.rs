@@ -17,7 +17,7 @@ mod pattern_matcher;
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion,
     LayerNormalizationFusion, MatMulAddFusion, MatMulScaleFusion, PatternFusion, ReciprocalFusion,
-    RmsNormalizationFusion, SiluFusion, SwishFusion, TransposeFusion,
+    ReduceMeanAxesFusion, RmsNormalizationFusion, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -347,16 +347,24 @@ impl GraphOptimizer {
         // The ordering is significant as fusions are tried in turn until a
         // match is found.
         let fusions: &[&dyn DynFusionVisitor] = &[
+            // Canonicalizations to make other fusions support a wider range of
+            // patterns.
             &DynFusion(ReciprocalFusion {}.into_visitor()),
+            &DynFusion(ReduceMeanAxesFusion {}.into_visitor()),
+            // Activation fusions
             &DynFusion(SiluFusion {}.into_visitor()),
             &DynFusion(SwishFusion {}.into_visitor()),
             &DynFusion(GeluFusion {}.into_visitor()),
             &DynFusion(ApproxGeluFusion {}.into_visitor()),
+            // Normalization fusions
             &DynFusion(LayerNormalizationFusion {}),
             &DynFusion(RmsNormalizationFusion {}.into_visitor()),
+            // Matmul fusions
             &DynFusion(MatMulAddFusion {}.into_visitor()),
             &DynFusion(MatMulScaleFusion {}),
+            // Attention fusions
             &DynFusion(AddSoftmaxFusion {}.into_visitor()),
+            // Layout fusions
             &DynFusion(TransposeFusion {}),
         ];
 
@@ -565,6 +573,7 @@ mod tests {
         fn pow(&self, rhs: Expr) -> Expr;
         fn matmul(&self, rhs: Expr) -> Expr;
         fn mean(&self) -> Expr;
+        fn mean_axes(&self, axes: Expr) -> Expr;
         fn sigmoid(&self) -> Expr;
         fn square(&self) -> Expr;
         fn sqrt(&self) -> Expr;
@@ -587,6 +596,16 @@ mod tests {
                 axes: Some(vec![-1]),
                 keep_dims: false,
             })
+        }
+
+        fn mean_axes(&self, axes: Expr) -> Expr {
+            self.binary(
+                ReduceMean {
+                    axes: None,
+                    keep_dims: false,
+                },
+                axes,
+            )
         }
 
         fn pow(&self, rhs: Expr) -> Expr {
@@ -994,6 +1013,19 @@ mod tests {
         let graph = optimize_graph(graph).unwrap();
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "Reciprocal");
+    }
+
+    #[test]
+    fn test_fuse_reduce_mean_axes() {
+        let graph = {
+            let x = Expr::value("x");
+            let axes = Expr::constant(Tensor::from([-1i32]));
+            x.mean_axes(axes).build_graph(["x"])
+        };
+        let graph = optimize_graph(graph).unwrap();
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        let mean_op = op.operator().downcast_ref::<ReduceMean>().unwrap();
+        assert_eq!(mean_op.axes.as_deref(), Some([-1].as_slice()));
     }
 
     #[test]
