@@ -302,18 +302,41 @@ impl PatternFusion for SwishFusion {
     }
 }
 
-/// Test if a node is a `ReduceMean` operator that reduces over its last axis.
-fn mean_op_reduces_last_axis(graph: &Graph, node_id: NodeId) -> bool {
+trait OperatorAxis {
+    /// Get the axis to which an operator is applied.
+    ///
+    /// Some operators (eg. ReduceMean) support dynamic `axes` inputs. In this
+    /// case we rely on canonicalization passes to convert constant values to
+    /// attributes first.
+    fn get_axis(&self) -> Option<i32>;
+}
+
+impl OperatorAxis for ReduceMean {
+    fn get_axis(&self) -> Option<i32> {
+        match self.axes.as_deref() {
+            Some([axis]) => Some(*axis),
+            _ => None,
+        }
+    }
+}
+
+impl OperatorAxis for Softmax {
+    fn get_axis(&self) -> Option<i32> {
+        Some(self.axis as i32)
+    }
+}
+
+/// Test if an operator is applied to the last axis of its input.
+fn op_applied_to_last_axis<Op: OperatorAxis + 'static>(graph: &Graph, node_id: NodeId) -> bool {
     let Some(op_node) = graph.get_node(node_id).and_then(|n| n.as_operator()) else {
         return false;
     };
-    let Some(mean_op) = op_node.operator().downcast_ref::<ReduceMean>() else {
-        return false;
-    };
 
-    // We rely on ReduceMeanAxesFusion to convert `axes` input to `axes`
-    // attribute here.
-    let Some(&[axis]) = mean_op.axes.as_deref() else {
+    let Some(axis) = op_node
+        .operator()
+        .downcast_ref::<Op>()
+        .and_then(|op| op.get_axis())
+    else {
         return false;
     };
 
@@ -416,7 +439,7 @@ impl FusionVisitor for LayerNormalizationFusion {
         let norm_input = norm_match.node_id("x").unwrap();
         let epsilon_input = norm_match.node_id("epsilon").unwrap();
         let norm_mean = norm_match.node_id("norm_mean").unwrap();
-        if !mean_op_reduces_last_axis(graph, norm_mean) {
+        if !op_applied_to_last_axis::<ReduceMean>(graph, norm_mean) {
             // The LayerNormalization operator supports taking the mean over
             // multiple trailing axes. However this fusion only supports the
             // common case of taking the mean over one axis.
@@ -426,7 +449,7 @@ impl FusionVisitor for LayerNormalizationFusion {
         let center_match = center_pat.test(norm_input, graph)?;
         let center_input = center_match.node_id("x").unwrap();
         let center_mean = center_match.node_id("center_mean").unwrap();
-        if !mean_op_reduces_last_axis(graph, center_mean) {
+        if !op_applied_to_last_axis::<ReduceMean>(graph, center_mean) {
             return None;
         }
 
@@ -486,7 +509,7 @@ impl PatternFusion for RmsNormalizationFusion {
         let epsilon = graph.get_scalar(epsilon_input)?;
         let norm_mean = rms_match.node_id("norm_mean").unwrap();
 
-        if !mean_op_reduces_last_axis(graph, norm_mean) {
+        if !op_applied_to_last_axis::<ReduceMean>(graph, norm_mean) {
             return None;
         }
 
@@ -738,20 +761,14 @@ impl PatternFusion for AddSoftmaxFusion {
 
     fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<AddSoftmax> {
         let softmax_id = pat_match.node_id("softmax").unwrap();
-        let softmax_node = graph.get_node(softmax_id).and_then(|n| n.as_operator())?;
-        let softmax_op = softmax_node.operator().downcast_ref::<Softmax>()?;
 
         // This fusion is currently restricted to the case where it is known
         // to be applied over the last, likely-contiguous lane. This is the case
         // in attention operations.
         //
-        // A case we're not handling here is where the operation is applied over
-        // the last lane, but `axis` is specified as a positive value. If we
-        // knew the ranks of the inputs, we could handle that as well.
-        //
         // It would be possible to extend this to support non-last axes, but the
         // operator would need to be modified to handle that efficiently.
-        if softmax_op.axis != -1 {
+        if !op_applied_to_last_axis::<Softmax>(graph, softmax_id) {
             return None;
         }
 
