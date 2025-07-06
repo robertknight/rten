@@ -16,8 +16,9 @@ mod pattern_matcher;
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion,
-    LayerNormalizationFusion, MatMulAddFusion, MatMulScaleFusion, PatternFusion, ReciprocalFusion,
-    ReduceMeanAxesFusion, RmsNormalizationFusion, SiluFusion, SwishFusion, TransposeFusion,
+    LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
+    PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion, RmsNormalizationFusion, SiluFusion,
+    SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -362,6 +363,7 @@ impl GraphOptimizer {
             // Matmul fusions
             &DynFusion(MatMulAddFusion {}.into_visitor()),
             &DynFusion(MatMulScaleFusion {}),
+            &DynFusion(MatMulIntegerToFloatFusion {}.into_visitor()),
             // Attention fusions
             &DynFusion(AddSoftmaxFusion {}.into_visitor()),
             // Layout fusions
@@ -542,8 +544,9 @@ mod tests {
     use crate::graph::builder::{Expr, OutputMeta};
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId, PlanOptions};
     use crate::ops::{
-        Add, Erf, FusedMatMul, Gelu, LayerNormalization, MatMul, Neg, Pow, ReduceMean,
-        RmsNormalization, Sigmoid, Softmax, Sqrt, Swish, Tanh, Transpose,
+        Add, Cast, DynamicQuantizeLinear, Erf, FusedMatMul, Gelu, LayerNormalization, MatMul,
+        MatMulInteger, Neg, Pow, ReduceMean, RmsNormalization, Sigmoid, Softmax, Sqrt, Swish, Tanh,
+        Transpose,
     };
     use crate::slice_cast::cast_pod_slice;
     use crate::{DataType, Dimension};
@@ -1089,6 +1092,42 @@ mod tests {
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         let mean_op = op.operator().downcast_ref::<ReduceMean>().unwrap();
         assert_eq!(mean_op.axes.as_deref(), Some([-1].as_slice()));
+    }
+
+    #[test]
+    fn test_fuse_matmulinteger_cast_scale() {
+        let graph = {
+            let x = Expr::value("x");
+            let weights = Expr::constant(Tensor::<i8>::zeros(&[4, 4]));
+            let weights_zero = Expr::constant(Tensor::<i8>::zeros(&[4]));
+
+            let quant = x.apply(
+                DynamicQuantizeLinear {},
+                &[],
+                &[OutputMeta::NoMeta, OutputMeta::NoMeta, OutputMeta::NoMeta],
+            );
+            let quant_x = quant.output(0);
+            let quant_scale = quant.output(1);
+            let quant_zero = quant.output(2);
+            let const_scale = Expr::constant(Tensor::from([0.1, 0.2, 0.3]));
+
+            let expr = quant_x
+                .apply(
+                    MatMulInteger {},
+                    &[weights, quant_zero, weights_zero],
+                    &[OutputMeta::NoMeta],
+                )
+                .unary(Cast {
+                    to: DataType::Float,
+                })
+                * (quant_scale * const_scale);
+            expr.build_graph(["x"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+
+        assert_eq!(op.operator().name(), "MatMulIntegerToFloat");
     }
 
     #[test]
