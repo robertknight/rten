@@ -88,9 +88,9 @@ impl Drop for Buffer {
     }
 }
 
-impl<T> Into<Buffer> for Vec<T> {
-    fn into(self) -> Buffer {
-        Buffer::from_vec(self)
+impl<T> From<Vec<T>> for Buffer {
+    fn from(val: Vec<T>) -> Buffer {
+        Self::from_vec(val)
     }
 }
 
