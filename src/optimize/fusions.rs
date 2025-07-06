@@ -290,28 +290,23 @@ impl PatternFusion for SwishFusion {
 
 /// Test if a node is a `ReduceMean` operator that reduces over its last axis.
 fn mean_op_reduces_last_axis(graph: &Graph, node_id: NodeId) -> bool {
-    match graph.get_node(node_id) {
-        Some(Node::Operator(op_node)) => {
-            let Some(mean_op) = op_node.operator().downcast_ref::<ReduceMean>() else {
-                return false;
-            };
+    let Some(op_node) = graph.get_node(node_id).and_then(|n| n.as_operator()) else {
+        return false;
+    };
+    let Some(mean_op) = op_node.operator().downcast_ref::<ReduceMean>() else {
+        return false;
+    };
 
-            // The last axis can be specified with either a positive or
-            // negative value. We only support the negative case as that
-            // is easier to handle and used in popular models.
-            if mean_op.axes.as_deref() == Some(&[-1]) {
-                true
-            } else if let Some(axes_input) = op_node.input_ids().get(1).copied().flatten() {
-                match graph.get_node(axes_input) {
-                    Some(Node::Constant(val)) => val.as_vector() == Some(&[-1]),
-                    _ => false,
-                }
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
+    // We rely on ReduceMeanAxesFusion to convert `axes` input to `axes`
+    // attribute here.
+    let Some(&[axis]) = mean_op.axes.as_deref() else {
+        return false;
+    };
+
+    // The last axis can be specified with either a positive or
+    // negative value. We only support the negative case as that
+    // is easier to handle and used in popular models.
+    return axis == -1;
 }
 
 /// Identify and fuse common patterns for `LayerNormalization(X)`.
