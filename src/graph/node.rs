@@ -148,6 +148,11 @@ impl ValueNode {
         }
     }
 
+    /// Return the number of dimensions in this value, if it has shape information.
+    pub fn ndim(&self) -> Option<usize> {
+        self.shape.as_ref().map(|s| s.len())
+    }
+
     fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
@@ -173,6 +178,10 @@ impl Constant {
 
     pub fn shape(&self) -> &[usize] {
         self.layout().shape()
+    }
+
+    pub fn ndim(&self) -> usize {
+        self.layout().ndim()
     }
 
     /// Clone this constant, but only if it can be done so cheaply by

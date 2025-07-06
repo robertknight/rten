@@ -143,6 +143,12 @@ trait GraphQuery {
 
     /// Extract the operator from an operator node.
     fn get_operator<Op: 'static>(&self, node_id: NodeId) -> Option<&Op>;
+
+    /// Return the rank of a constant or value node.
+    ///
+    /// This may be `None` if this is a value node which does not have shape
+    /// information.
+    fn get_rank(&self, node_id: NodeId) -> Option<usize>;
 }
 
 impl GraphQuery for Graph {
@@ -169,6 +175,14 @@ impl GraphQuery for Graph {
     fn get_operator<Op: 'static>(&self, node_id: NodeId) -> Option<&Op> {
         self.get_node(node_id).and_then(|node| match node {
             Node::Operator(op_node) => op_node.operator().downcast_ref(),
+            _ => None,
+        })
+    }
+
+    fn get_rank(&self, node_id: NodeId) -> Option<usize> {
+        self.get_node(node_id).and_then(|node| match node {
+            Node::Constant(const_node) => Some(const_node.ndim()),
+            Node::Value(val) => val.ndim(),
             _ => None,
         })
     }
@@ -303,10 +317,21 @@ fn mean_op_reduces_last_axis(graph: &Graph, node_id: NodeId) -> bool {
         return false;
     };
 
-    // The last axis can be specified with either a positive or
-    // negative value. We only support the negative case as that
-    // is easier to handle and used in popular models.
-    return axis == -1;
+    if axis == -1 {
+        return true;
+    }
+
+    // For positive values we require the ReduceMean input to have shape information.
+    let input_last_axis = op_node
+        .input_ids()
+        .first()
+        .copied()
+        .flatten()
+        .and_then(|id| graph.get_rank(id))
+        .and_then(|ndim| ndim.checked_sub(1))
+        .map(|axis| axis as i32);
+
+    input_last_axis == Some(axis)
 }
 
 /// Identify and fuse common patterns for `LayerNormalization(X)`.
