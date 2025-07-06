@@ -546,6 +546,7 @@ mod tests {
         RmsNormalization, Sigmoid, Softmax, Sqrt, Swish, Tanh, Transpose,
     };
     use crate::slice_cast::cast_pod_slice;
+    use crate::{DataType, Dimension};
 
     fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
         let optimizer = GraphOptimizer::new();
@@ -976,6 +977,41 @@ mod tests {
             let x = Expr::value("x");
             let epsilon = 1e-6;
             let rms = (x.square().mean() + epsilon).sqrt();
+            let scale = Tensor::from([3., 4., 5.]);
+            let expr = x * (Expr::constant(1.) / rms) * scale;
+            expr.build_graph(["x"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        let rms_norm = op.operator().downcast_ref::<RmsNormalization>().unwrap();
+        assert_eq!(rms_norm.epsilon, Some(1e-6));
+    }
+
+    #[test]
+    fn test_fuse_rms_norm_with_positive_axes() {
+        let graph = {
+            let dims = &[
+                Dimension::Symbolic("batch".to_string()),
+                Dimension::Symbolic("seq".to_string()),
+                Dimension::Fixed(16),
+            ];
+            let x = Expr::value_with_info("x", DataType::Float, dims);
+
+            // axes is specifies as a positive value, so must be resolved
+            // against the input's shape information.
+            let axes = Expr::constant(Tensor::from([2i32]));
+
+            let epsilon = 1e-6;
+            let x_square = x.apply(
+                Pow {},
+                &[Expr::constant(2.0)],
+                // Add shape info to Pow(X, 2) output so ReduceMean can verify that
+                // `axes` refers to the last axis.
+                Some((DataType::Float, dims.to_vec())),
+            );
+            let rms = (x_square.mean_axes(axes) + epsilon).sqrt();
             let scale = Tensor::from([3., 4., 5.]);
             let expr = x * (Expr::constant(1.) / rms) * scale;
             expr.build_graph(["x"])

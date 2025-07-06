@@ -510,9 +510,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // Decode audio chunk into transcript segments. Each segment starts
         // and ends with a timestamp token.
-        let mut generator_config = GeneratorConfig::default();
-        generator_config.kv_cache_capacity = Some(max_tokens_per_chunk);
-
+        let generator_config = GeneratorConfig {
+            kv_cache_capacity: Some(max_tokens_per_chunk),
+            ..Default::default()
+        };
         let generator = Generator::from_model_config(&decoder_model, generator_config)?
             .with_prompt(&prompt)
             .with_constant_input(encoder_hidden_states_id, encoded_audio.view().into())

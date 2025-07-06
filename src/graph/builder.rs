@@ -8,10 +8,10 @@ use std::rc::Rc;
 
 use crate::graph::{Graph, NodeId};
 use crate::ops::Operator;
-use crate::Value;
+use crate::{DataType, Dimension, Value};
 
 enum ExprKind {
-    Value(String),
+    Value(ValueExpr),
     Constant(Value),
     Operator(OperatorExpr),
 }
@@ -82,6 +82,15 @@ struct OperatorExpr {
     // node ID of the already-added operator.
     op: Cell<Option<Box<dyn Operator + Send + Sync>>>,
     inputs: Vec<Expr>,
+
+    // Output dtype and shape information for the operator's first output.
+    output_info: Option<(DataType, Vec<Dimension>)>,
+}
+
+struct ValueExpr {
+    name: String,
+    dtype: Option<DataType>,
+    shape: Option<Vec<Dimension>>,
 }
 
 struct NodeNameGenerator {
@@ -111,7 +120,21 @@ impl Expr {
     /// Create an expression representing a runtime-computed value (eg. model
     /// inputs).
     pub fn value(name: &str) -> Expr {
-        Expr::from(ExprKind::Value(name.to_string()))
+        Expr::from(ExprKind::Value(ValueExpr {
+            name: name.to_string(),
+            dtype: None,
+            shape: None,
+        }))
+    }
+
+    /// Create an expression representing a runtime-computed value (eg. model
+    /// inputs), with shape and dtype information.
+    pub fn value_with_info(name: &str, dtype: DataType, shape: &[Dimension]) -> Expr {
+        Expr::from(ExprKind::Value(ValueExpr {
+            name: name.to_string(),
+            dtype: Some(dtype),
+            shape: Some(shape.to_vec()),
+        }))
     }
 
     /// Create an expression representing a constant value.
@@ -124,17 +147,27 @@ impl Expr {
 
     /// Create an expression which applies a unary operator to this expression.
     pub fn unary<Op: Operator + Send + Sync>(&self, op: Op) -> Expr {
-        Expr::from(ExprKind::Operator(OperatorExpr {
-            op: Cell::new(Some(Box::new(op))),
-            inputs: [self.clone()].into(),
-        }))
+        self.apply(op, &[], None)
     }
 
     /// Create an expression which applies a binary operator to this expression.
     pub fn binary<Op: Operator + Send + Sync>(&self, op: Op, rhs: Expr) -> Expr {
+        self.apply(op, &[rhs], None)
+    }
+
+    /// Create an expression which applies an operator to this expression.
+    pub fn apply<Op: Operator + Send + Sync>(
+        &self,
+        op: Op,
+        operands: &[Expr],
+        output_info: Option<(DataType, Vec<Dimension>)>,
+    ) -> Expr {
+        let mut inputs: Vec<_> = [self.clone()].into();
+        inputs.extend(operands.iter().map(|opr| opr.clone()));
         Expr::from(ExprKind::Operator(OperatorExpr {
             op: Cell::new(Some(Box::new(op))),
-            inputs: [self.clone(), rhs].into(),
+            inputs,
+            output_info,
         }))
     }
 
@@ -175,7 +208,11 @@ impl Expr {
         }
 
         let output_id = match self.kind.as_ref() {
-            ExprKind::Value(name) => graph.add_value(Some(name.as_str()), None, None),
+            ExprKind::Value(value_info) => graph.add_value(
+                Some(value_info.name.as_str()),
+                value_info.shape.clone(),
+                value_info.dtype,
+            ),
             ExprKind::Constant(value) => {
                 let name = name_gen.generate("const");
                 match value {
@@ -203,7 +240,10 @@ impl Expr {
                     .expect("operator has already been added to graph");
 
                 let output_name = name_gen.generate(&format!("{}_out", op.name()));
-                let op_output = graph.add_value(Some(output_name.as_str()), None, None);
+                let output_dtype = op_info.output_info.as_ref().map(|info| info.0);
+                let output_shape = op_info.output_info.as_ref().map(|info| info.1.clone());
+                let op_output =
+                    graph.add_value(Some(output_name.as_str()), output_shape, output_dtype);
 
                 let op_name = name_gen.generate(op.name());
                 graph.add_op(Some(op_name.as_str()), op, &op_inputs, &[Some(op_output)]);
