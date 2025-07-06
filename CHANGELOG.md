@@ -30,6 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten
 
+- Support fusing Add + Softmax where `axis` attribute is positive
+  (https://github.com/robertknight/rten/pull/794)
+
+- Support fusing LayerNormalization and RmsNormalization ops where `ReduceMean`
+  op has `axes` specified via input rather than attribute and/or a positive
+  value (https://github.com/robertknight/rten/pull/793)
+
+- Improve buffer re-use if `Slice` op falls back to non in-place operation
+  (https://github.com/robertknight/rten/pull/789)
+
+- Added `Reciprocal` op fusion (https://github.com/robertknight/rten/pull/790)
+
 - Allow ops with fused input transposes to run in place. This fixes a regression
   in performance for the Whisper example (https://github.com/robertknight/rten/pull/787)
 
