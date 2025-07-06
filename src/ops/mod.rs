@@ -85,7 +85,7 @@ pub use layout::{
     depth_to_space, expand, flatten, reshape, squeeze, DepthToSpace, DepthToSpaceMode, Expand,
     Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
 };
-pub use matmul::{gemm_op, matmul, FusedMatMul, Gemm, MatMul, MatMulInteger};
+pub use matmul::{gemm_op, matmul, FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat};
 pub use non_max_suppression::{non_max_suppression, BoxOrder, NonMaxSuppression};
 pub use norm::{
     batch_norm, instance_normalization, layer_normalization, log_softmax, rms_normalization,

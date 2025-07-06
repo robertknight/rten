@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{Matrix, NdTensorView, Tensor, TensorView};
 use rten_vecmath::ExtendInit;
@@ -12,6 +13,7 @@ use crate::ops::{
     static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput,
     ValueView,
 };
+use crate::slice_cast::{cast_pod_vec, Pod};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
@@ -512,7 +514,7 @@ where
     )
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MatMulInteger {}
 
 impl Operator for MatMulInteger {
@@ -562,6 +564,61 @@ impl Operator for MatMulInteger {
     }
 }
 
+/// Cast elements in `data` to f32 and scale by the per-column scales in `scale`.
+fn cast_scale(
+    pool: &TensorPool,
+    mut data: Tensor<i32>,
+    scale: NdTensorView<f32, 1>,
+) -> Result<Tensor<f32>, OpError> {
+    if data.size(data.ndim() - 1) != scale.size(0) {
+        return Err(OpError::IncompatibleInputShapes(
+            "Scale length does not match tensor columns",
+        ));
+    }
+
+    let scale = scale.to_contiguous_in(pool);
+    let scale_data = scale.data().unwrap();
+
+    // Convert i32 elements to f32 in-place and multiply by column scale.
+    let output_data = data.data_mut().expect("should be contiguous");
+    output_data.par_chunks_mut(scale.len()).for_each(|chunk| {
+        for (el, scale) in chunk.iter_mut().zip(scale_data) {
+            let scaled = *el as f32 * scale;
+            *el = scaled.cast_bytes();
+        }
+    });
+
+    // Transmute tensor from i32 to f32.
+    let shape = data.shape().to_vec();
+    let data = cast_pod_vec::<i32, f32>(data.into_data()).unwrap();
+    Ok(Tensor::from_data(&shape, data))
+}
+
+#[derive(Debug, Default)]
+pub struct MatMulIntegerToFloat {
+    matmul: MatMulInteger,
+}
+
+impl Operator for MatMulIntegerToFloat {
+    fn name(&self) -> &str {
+        "MatMulIntegerToFloat"
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let output: Tensor<i32> = self.matmul.run(ctx)?.remove(0).try_into().unwrap();
+        let scale = ctx.inputs().require_as(4)?;
+        cast_scale(ctx.pool(), output, scale).into_op_result()
+    }
+
+    fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
+        self.matmul.prepack_inputs()
+    }
+
+    fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
+        self.matmul.prepack(index, input)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -570,7 +627,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{Tensor, TensorView};
+    use rten_tensor::{NdTensor, Tensor, TensorView};
     use rten_testing::TestCases;
 
     use crate::gemm::{
@@ -582,8 +639,8 @@ mod tests {
     use crate::tensor_pool::AutoReturn;
 
     use super::{
-        gemm_op, matmul, matmul_fused, matmul_impl, matmul_integer, FusedMatMul, MatMul,
-        MatMulInteger, MatmulStrategy, OpError, OpRunContext,
+        cast_scale, gemm_op, matmul, matmul_fused, matmul_impl, matmul_integer, FusedMatMul,
+        MatMul, MatMulInteger, MatmulStrategy, OpError, OpRunContext,
     };
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -688,6 +745,37 @@ mod tests {
         }
 
         c
+    }
+
+    #[test]
+    fn test_cast_scale() {
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<i32>,
+            scales: NdTensor<f32, 1>,
+            expected: Result<Tensor<f32>, OpError>,
+        }
+
+        let cases = [
+            Case {
+                input: [[1, 2], [3, 4]].into(),
+                scales: [2., 3.].into(),
+                expected: Ok([[2., 6.], [6., 12.]].into()),
+            },
+            Case {
+                input: [[1, 2], [3, 4]].into(),
+                scales: [2., 3., 4.].into(),
+                expected: Err(OpError::IncompatibleInputShapes(
+                    "Scale length does not match tensor columns",
+                )),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let result = cast_scale(&pool, case.input.clone(), case.scales.view());
+            assert_eq!(result, case.expected);
+        });
     }
 
     #[test]
