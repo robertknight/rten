@@ -711,7 +711,7 @@ mod tests {
         // takes multiple non-constant inputs would work.
         let graph = {
             let x = Expr::value("x");
-            let bias = [1., 2., 3.];
+            let bias = Tensor::from([1., 2., 3.]);
             let expr = x.matmul(x.clone()) + bias;
             expr.build_graph(["x"])
         };
@@ -804,7 +804,7 @@ mod tests {
         let graph = {
             let a = Expr::value("a");
             let b = Expr::value("b");
-            let bias = [1., 2., 3.];
+            let bias = Tensor::from([1., 2., 3.]);
             let expr = a.matmul(b) + bias;
             expr.build_graph(["a", "b"])
         };
@@ -918,9 +918,9 @@ mod tests {
         let normalized = x_sub_mean.clone() / (x_sub_mean.square().mean() + epsilon).sqrt();
 
         // Shift and scale result
-        let scale = [3., 4., 5.];
+        let scale = Tensor::from([3., 4., 5.]);
         let expr = if with_bias {
-            let bias = [1., 2., 3.];
+            let bias = Tensor::from([1., 2., 3.]);
             normalized * scale + bias
         } else {
             normalized * scale
@@ -957,7 +957,7 @@ mod tests {
             let x = Expr::value("x");
             let epsilon = 1e-6;
             let rms = (x.square().mean() + epsilon).sqrt();
-            let scale = [3., 4., 5.];
+            let scale = Tensor::from([3., 4., 5.]);
             let expr = x * (Expr::constant(1.) / rms) * scale;
             expr.build_graph(["x"])
         };
