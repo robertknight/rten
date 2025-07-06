@@ -48,74 +48,6 @@ impl From<ExprKind> for Expr {
     }
 }
 
-/// Wrapper around an `Expr` which uses reference-equality.
-struct ExprRef(Expr);
-
-impl PartialEq for ExprRef {
-    fn eq(&self, other: &ExprRef) -> bool {
-        Rc::ptr_eq(&self.0.kind, &other.0.kind)
-    }
-}
-
-impl Eq for ExprRef {}
-
-impl Hash for ExprRef {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        Rc::as_ptr(&self.0.kind).hash(state)
-    }
-}
-
-struct OperatorExpr {
-    // `Operator`s are not cloneable, so when we construct a graph from the
-    // expression we need to take ownership of the operator and pass it to the
-    // graph. However there may be multiple references to operator
-    // sub-expressions. Consider:
-    //
-    //   let x = Expr::value("x");
-    //   let x_sqr = x.clone() * x.clone();
-    //   let x_4 = x_sqr.clone() * x_sqr.clone();
-    //   x_4.build_graph() // Encounters `x_sqr` twice
-    //
-    // To handle this we put the operator in a cell. When we first
-    // encounter it during graph generation we take it out and add it to the
-    // graph. For subsequent references to the operator we will use the output
-    // node ID of the already-added operator.
-    op: Cell<Option<Box<dyn Operator + Send + Sync>>>,
-    inputs: Vec<Expr>,
-
-    // Output dtype and shape information for the operator's first output.
-    output_info: Option<(DataType, Vec<Dimension>)>,
-}
-
-struct ValueExpr {
-    name: String,
-    dtype: Option<DataType>,
-    shape: Option<Vec<Dimension>>,
-}
-
-struct NodeNameGenerator {
-    used_names: HashSet<String>,
-}
-
-impl NodeNameGenerator {
-    fn new() -> NodeNameGenerator {
-        NodeNameGenerator {
-            used_names: HashSet::new(),
-        }
-    }
-
-    fn generate(&mut self, prefix: &str) -> String {
-        let mut name = prefix.to_string();
-        let mut suffix = 0;
-        while self.used_names.contains(&name) {
-            suffix += 1;
-            name = format!("{}_{}", prefix, suffix);
-        }
-        self.used_names.insert(name.clone());
-        name
-    }
-}
-
 impl Expr {
     /// Create an expression representing a runtime-computed value (eg. model
     /// inputs).
@@ -253,6 +185,74 @@ impl Expr {
         expr_output_ids.insert(ExprRef(self.clone()), output_id);
 
         output_id
+    }
+}
+
+/// Wrapper around an `Expr` which uses reference-equality.
+struct ExprRef(Expr);
+
+impl PartialEq for ExprRef {
+    fn eq(&self, other: &ExprRef) -> bool {
+        Rc::ptr_eq(&self.0.kind, &other.0.kind)
+    }
+}
+
+impl Eq for ExprRef {}
+
+impl Hash for ExprRef {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Rc::as_ptr(&self.0.kind).hash(state)
+    }
+}
+
+struct OperatorExpr {
+    // `Operator`s are not cloneable, so when we construct a graph from the
+    // expression we need to take ownership of the operator and pass it to the
+    // graph. However there may be multiple references to operator
+    // sub-expressions. Consider:
+    //
+    //   let x = Expr::value("x");
+    //   let x_sqr = x.clone() * x.clone();
+    //   let x_4 = x_sqr.clone() * x_sqr.clone();
+    //   x_4.build_graph() // Encounters `x_sqr` twice
+    //
+    // To handle this we put the operator in a cell. When we first
+    // encounter it during graph generation we take it out and add it to the
+    // graph. For subsequent references to the operator we will use the output
+    // node ID of the already-added operator.
+    op: Cell<Option<Box<dyn Operator + Send + Sync>>>,
+    inputs: Vec<Expr>,
+
+    // Output dtype and shape information for the operator's first output.
+    output_info: Option<(DataType, Vec<Dimension>)>,
+}
+
+struct ValueExpr {
+    name: String,
+    dtype: Option<DataType>,
+    shape: Option<Vec<Dimension>>,
+}
+
+struct NodeNameGenerator {
+    used_names: HashSet<String>,
+}
+
+impl NodeNameGenerator {
+    fn new() -> NodeNameGenerator {
+        NodeNameGenerator {
+            used_names: HashSet::new(),
+        }
+    }
+
+    fn generate(&mut self, prefix: &str) -> String {
+        let mut name = prefix.to_string();
+        let mut suffix = 0;
+        while self.used_names.contains(&name) {
+            suffix += 1;
+            name = format!("{}_{}", prefix, suffix);
+        }
+        self.used_names.insert(name.clone());
+        name
     }
 }
 
