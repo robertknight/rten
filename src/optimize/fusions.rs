@@ -1,7 +1,7 @@
 //! Traits for defining operator fusions and implementations of fusions.
 
 use crate::downcast::DowncastDyn;
-use crate::graph::{Graph, Node, NodeId, OperatorNode, TypedConstant};
+use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode, TypedConstant};
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     AddSoftmax, FusedMatMul, Gelu, LayerNormalization, Operator, Reciprocal, ReduceMean,
@@ -132,13 +132,43 @@ impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
 /// Additional graph querying methods used in fusions.
 trait GraphQuery {
     /// Extract the scalar value from a constant node.
-    fn get_scalar(&self, node_id: NodeId) -> Option<f32>;
+    fn get_scalar<T>(&self, node_id: NodeId) -> Option<T>
+    where
+        Constant: TypedConstant<T>;
+
+    /// Extract the vector value from a constant node.
+    fn get_vector<T>(&self, node_id: NodeId) -> Option<&[T]>
+    where
+        Constant: TypedConstant<T>;
+
+    /// Extract the operator from an operator node.
+    fn get_operator<Op: 'static>(&self, node_id: NodeId) -> Option<&Op>;
 }
 
 impl GraphQuery for Graph {
-    fn get_scalar(&self, node_id: NodeId) -> Option<f32> {
+    fn get_scalar<T>(&self, node_id: NodeId) -> Option<T>
+    where
+        Constant: TypedConstant<T>,
+    {
         self.get_node(node_id).and_then(|node| match node {
             Node::Constant(const_node) => const_node.as_scalar(),
+            _ => None,
+        })
+    }
+
+    fn get_vector<T>(&self, node_id: NodeId) -> Option<&[T]>
+    where
+        Constant: TypedConstant<T>,
+    {
+        self.get_node(node_id).and_then(|node| match node {
+            Node::Constant(const_node) => const_node.as_vector(),
+            _ => None,
+        })
+    }
+
+    fn get_operator<Op: 'static>(&self, node_id: NodeId) -> Option<&Op> {
+        self.get_node(node_id).and_then(|node| match node {
+            Node::Operator(op_node) => op_node.operator().downcast_ref(),
             _ => None,
         })
     }
@@ -155,6 +185,29 @@ impl PatternFusion for ReciprocalFusion {
 
     fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Reciprocal> {
         Some(Reciprocal {})
+    }
+}
+
+/// Convert `ReduceMean(X, axes)` to `ReduceMean<axes>(X)` where `axes` is a constant.
+pub struct ReduceMeanAxesFusion {}
+
+impl PatternFusion for ReduceMeanAxesFusion {
+    type Operator = ReduceMean;
+
+    fn pattern(&self) -> Pattern {
+        let axes = Pattern::const_symbol("axes");
+        let x = Pattern::symbol("x");
+        Pattern::binary_op("ReduceMean", x, axes).with_name("mean")
+    }
+
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Option<ReduceMean> {
+        let mean_op = g.get_operator::<ReduceMean>(pat_match.node_id("mean").unwrap())?;
+        let axes = g.get_vector::<i32>(pat_match.node_id("axes").unwrap())?;
+
+        Some(ReduceMean {
+            axes: Some(axes.to_vec()),
+            keep_dims: mean_op.keep_dims,
+        })
     }
 }
 

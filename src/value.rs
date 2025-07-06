@@ -403,6 +403,13 @@ impl ExtractBuffer for Value {
 /// Declare conversions between `Value` and `Tensor<T>` / `NdTensor<T, N>`.
 macro_rules! impl_value_conversions {
     ($variant:ident, $element_type:ty) => {
+        // T => Value
+        impl From<$element_type> for Value {
+            fn from(scalar: $element_type) -> Value {
+                Value::$variant(Tensor::from(scalar))
+            }
+        }
+
         // Tensor<T> => Value
         impl From<Tensor<$element_type>> for Value {
             fn from(t: Tensor<$element_type>) -> Value {

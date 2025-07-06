@@ -6,16 +6,13 @@ use std::hash::{Hash, Hasher};
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
 
-use rten_tensor::Tensor;
-
 use crate::graph::{Graph, NodeId};
 use crate::ops::Operator;
+use crate::Value;
 
 enum ExprKind {
     Value(String),
-    // Constants are limited to f32 just to keep the initial implementation
-    // simple. Expand as needed.
-    Constant(Tensor<f32>),
+    Constant(Value),
     Operator(OperatorExpr),
 }
 
@@ -120,7 +117,7 @@ impl Expr {
     /// Create an expression representing a constant value.
     pub fn constant<V>(value: V) -> Expr
     where
-        V: Into<Tensor<f32>>,
+        V: Into<Value>,
     {
         Expr::from(ExprKind::Constant(value.into()))
     }
@@ -181,7 +178,15 @@ impl Expr {
             ExprKind::Value(name) => graph.add_value(Some(name.as_str()), None, None),
             ExprKind::Constant(value) => {
                 let name = name_gen.generate("const");
-                graph.add_constant(Some(name.as_str()), value.clone())
+                match value {
+                    Value::FloatTensor(value) => {
+                        graph.add_constant(Some(name.as_str()), value.clone())
+                    }
+                    Value::Int32Tensor(value) => {
+                        graph.add_constant(Some(name.as_str()), value.clone())
+                    }
+                    _ => unimplemented!("only f32 and i32 constants supported"),
+                }
             }
             ExprKind::Operator(op_info) => {
                 let op_inputs: Vec<_> = op_info
@@ -223,7 +228,7 @@ macro_rules! impl_binary_op {
 
         impl<V> $op_trait<V> for Expr
         where
-            V: Into<Tensor<f32>>,
+            V: Into<Value>,
         {
             type Output = Expr;
 
