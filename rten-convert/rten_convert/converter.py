@@ -809,10 +809,15 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
         value_node = value_node_from_onnx_value(value)
         add_node(value_node)
 
+    # Create value nodes for inputs, outputs and internal values for which the
+    # ONNX model contains dtype or shape information.
     for value_info in onnx_graph.input:
         add_value_node(value_info)
 
     for value_info in onnx_graph.output:
+        add_value_node(value_info)
+
+    for value_info in onnx_graph.value_info:
         add_value_node(value_info)
 
     # Names of unsupported operators that have been encountered.
@@ -833,8 +838,8 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
                     capture_ids.append(capture_id)
 
         for output_name in operator.output:
-            # If this output is also a model output, it will have been
-            # registered already.
+            # If this output value hasn't been registered already, create a
+            # value node without shape or dtype info.
             if output_name in value_name_to_index:
                 continue
             value_node = ValueNode(output_name, shape=None, dtype=None)
