@@ -11,9 +11,14 @@ use crate::ops::Operator;
 use crate::{DataType, Dimension, Value};
 
 enum ExprKind {
+    /// Expression representing a value node.
     Value(ValueExpr),
+    /// Expression representing a constant node.
     Constant(Value),
+    /// Expression representing an operator node.
     Operator(OperatorExpr),
+    /// Expression representing a specific output of an operator node.
+    OperatorOutput(OperatorOutputExpr),
 }
 
 /// An expression describing a [`Graph`].
@@ -48,74 +53,6 @@ impl From<ExprKind> for Expr {
     }
 }
 
-/// Wrapper around an `Expr` which uses reference-equality.
-struct ExprRef(Expr);
-
-impl PartialEq for ExprRef {
-    fn eq(&self, other: &ExprRef) -> bool {
-        Rc::ptr_eq(&self.0.kind, &other.0.kind)
-    }
-}
-
-impl Eq for ExprRef {}
-
-impl Hash for ExprRef {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        Rc::as_ptr(&self.0.kind).hash(state)
-    }
-}
-
-struct OperatorExpr {
-    // `Operator`s are not cloneable, so when we construct a graph from the
-    // expression we need to take ownership of the operator and pass it to the
-    // graph. However there may be multiple references to operator
-    // sub-expressions. Consider:
-    //
-    //   let x = Expr::value("x");
-    //   let x_sqr = x.clone() * x.clone();
-    //   let x_4 = x_sqr.clone() * x_sqr.clone();
-    //   x_4.build_graph() // Encounters `x_sqr` twice
-    //
-    // To handle this we put the operator in a cell. When we first
-    // encounter it during graph generation we take it out and add it to the
-    // graph. For subsequent references to the operator we will use the output
-    // node ID of the already-added operator.
-    op: Cell<Option<Box<dyn Operator + Send + Sync>>>,
-    inputs: Vec<Expr>,
-
-    // Output dtype and shape information for the operator's first output.
-    output_info: Option<(DataType, Vec<Dimension>)>,
-}
-
-struct ValueExpr {
-    name: String,
-    dtype: Option<DataType>,
-    shape: Option<Vec<Dimension>>,
-}
-
-struct NodeNameGenerator {
-    used_names: HashSet<String>,
-}
-
-impl NodeNameGenerator {
-    fn new() -> NodeNameGenerator {
-        NodeNameGenerator {
-            used_names: HashSet::new(),
-        }
-    }
-
-    fn generate(&mut self, prefix: &str) -> String {
-        let mut name = prefix.to_string();
-        let mut suffix = 0;
-        while self.used_names.contains(&name) {
-            suffix += 1;
-            name = format!("{}_{}", prefix, suffix);
-        }
-        self.used_names.insert(name.clone());
-        name
-    }
-}
-
 impl Expr {
     /// Create an expression representing a runtime-computed value (eg. model
     /// inputs).
@@ -147,12 +84,12 @@ impl Expr {
 
     /// Create an expression which applies a unary operator to this expression.
     pub fn unary<Op: Operator + Send + Sync>(&self, op: Op) -> Expr {
-        self.apply(op, &[], None)
+        self.apply(op, &[], &[OutputMeta::NoMeta])
     }
 
     /// Create an expression which applies a binary operator to this expression.
     pub fn binary<Op: Operator + Send + Sync>(&self, op: Op, rhs: Expr) -> Expr {
-        self.apply(op, &[rhs], None)
+        self.apply(op, &[rhs], &[OutputMeta::NoMeta])
     }
 
     /// Create an expression which applies an operator to this expression.
@@ -160,14 +97,32 @@ impl Expr {
         &self,
         op: Op,
         operands: &[Expr],
-        output_info: Option<(DataType, Vec<Dimension>)>,
+        outputs: &[OutputMeta],
     ) -> Expr {
         let mut inputs: Vec<_> = [self.clone()].into();
         inputs.extend(operands.iter().map(|opr| opr.clone()));
         Expr::from(ExprKind::Operator(OperatorExpr {
             op: Cell::new(Some(Box::new(op))),
             inputs,
-            output_info,
+            outputs: outputs.to_vec(),
+        }))
+    }
+
+    /// Create an expression which refers to the index'th output of the `self`
+    /// operator expression.
+    pub fn output(&self, index: usize) -> Expr {
+        let ExprKind::Operator(op_info) = self.kind.as_ref() else {
+            panic!("can only call `output` on an operator expression");
+        };
+        assert!(
+            index < op_info.outputs.len(),
+            "can't get output {} for operator with {} outputs",
+            index,
+            op_info.outputs.len()
+        );
+        Expr::from(ExprKind::OperatorOutput(OperatorOutputExpr {
+            op: self.clone(),
+            output_index: index,
         }))
     }
 
@@ -180,7 +135,7 @@ impl Expr {
         let mut graph = Graph::new();
         let mut expr_output_ids = HashMap::new();
         let mut name_gen = NodeNameGenerator::new();
-        let output_id = self.add_to_graph(&mut graph, &mut name_gen, &mut expr_output_ids);
+        let output_ids = self.add_to_graph(&mut graph, &mut name_gen, &mut expr_output_ids);
 
         let input_ids: Vec<NodeId> = inputs
             .as_ref()
@@ -192,7 +147,7 @@ impl Expr {
             })
             .collect();
         graph.set_input_ids(&input_ids);
-        graph.set_output_ids(&[output_id]);
+        graph.set_output_ids(&output_ids);
 
         graph
     }
@@ -201,37 +156,43 @@ impl Expr {
         &self,
         graph: &mut Graph,
         name_gen: &mut NodeNameGenerator,
-        expr_output_ids: &mut HashMap<ExprRef, NodeId>,
-    ) -> NodeId {
-        if let Some(node_id) = expr_output_ids.get(&ExprRef(self.clone())) {
-            return *node_id;
+        expr_output_ids: &mut HashMap<ExprRef, Vec<NodeId>>,
+    ) -> Vec<NodeId> {
+        if let Some(node_ids) = expr_output_ids.get(&ExprRef(self.clone())) {
+            return node_ids.clone();
         }
 
-        let output_id = match self.kind.as_ref() {
-            ExprKind::Value(value_info) => graph.add_value(
+        let output_ids: Vec<NodeId> = match self.kind.as_ref() {
+            ExprKind::Value(value_info) => [graph.add_value(
                 Some(value_info.name.as_str()),
                 value_info.shape.clone(),
                 value_info.dtype,
-            ),
+            )]
+            .into(),
             ExprKind::Constant(value) => {
                 let name = name_gen.generate("const");
-                match value {
+                let const_id = match value {
                     Value::FloatTensor(value) => {
                         graph.add_constant(Some(name.as_str()), value.clone())
                     }
                     Value::Int32Tensor(value) => {
                         graph.add_constant(Some(name.as_str()), value.clone())
                     }
-                    _ => unimplemented!("only f32 and i32 constants supported"),
-                }
+                    Value::Int8Tensor(value) => {
+                        graph.add_constant(Some(name.as_str()), value.clone())
+                    }
+                    _ => unimplemented!("constant type not supported"),
+                };
+                [const_id].into()
             }
             ExprKind::Operator(op_info) => {
                 let op_inputs: Vec<_> = op_info
                     .inputs
                     .iter()
-                    .map(|input_expr| {
-                        Some(input_expr.add_to_graph(graph, name_gen, expr_output_ids))
+                    .flat_map(|input_expr| {
+                        input_expr.add_to_graph(graph, name_gen, expr_output_ids)
                     })
+                    .map(Some)
                     .collect();
 
                 let op = op_info
@@ -239,20 +200,116 @@ impl Expr {
                     .take()
                     .expect("operator has already been added to graph");
 
-                let output_name = name_gen.generate(&format!("{}_out", op.name()));
-                let output_dtype = op_info.output_info.as_ref().map(|info| info.0);
-                let output_shape = op_info.output_info.as_ref().map(|info| info.1.clone());
-                let op_output =
-                    graph.add_value(Some(output_name.as_str()), output_shape, output_dtype);
+                let op_outputs: Vec<NodeId> = op_info
+                    .outputs
+                    .iter()
+                    .map(|output_info| {
+                        let output_name = name_gen.generate(&format!("{}_out", op.name()));
+                        let (output_dtype, output_shape) = match output_info {
+                            OutputMeta::NoMeta => (None, None),
+                            OutputMeta::Meta((dtype, shape)) => (Some(*dtype), Some(shape.clone())),
+                        };
+                        graph.add_value(Some(output_name.as_str()), output_shape, output_dtype)
+                    })
+                    .collect();
+
+                let op_outputs_opt: Vec<_> = op_outputs.iter().copied().map(Some).collect();
 
                 let op_name = name_gen.generate(op.name());
-                graph.add_op(Some(op_name.as_str()), op, &op_inputs, &[Some(op_output)]);
-                op_output
+                graph.add_op(Some(op_name.as_str()), op, &op_inputs, &op_outputs_opt);
+
+                op_outputs
+            }
+            ExprKind::OperatorOutput(output_info) => {
+                let output_ids = output_info
+                    .op
+                    .add_to_graph(graph, name_gen, expr_output_ids);
+                [output_ids[output_info.output_index]].into()
             }
         };
-        expr_output_ids.insert(ExprRef(self.clone()), output_id);
+        expr_output_ids.insert(ExprRef(self.clone()), output_ids.clone());
 
-        output_id
+        output_ids
+    }
+}
+
+/// Wrapper around an `Expr` which uses reference-equality.
+struct ExprRef(Expr);
+
+impl PartialEq for ExprRef {
+    fn eq(&self, other: &ExprRef) -> bool {
+        Rc::ptr_eq(&self.0.kind, &other.0.kind)
+    }
+}
+
+impl Eq for ExprRef {}
+
+impl Hash for ExprRef {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Rc::as_ptr(&self.0.kind).hash(state)
+    }
+}
+
+/// Metadata about an operator output value.
+#[derive(Clone)]
+pub enum OutputMeta {
+    /// Value without dtype or shape info.
+    NoMeta,
+    /// Value with dtype and shape info.
+    Meta((DataType, Vec<Dimension>)),
+}
+
+struct OperatorExpr {
+    // `Operator`s are not cloneable, so when we construct a graph from the
+    // expression we need to take ownership of the operator and pass it to the
+    // graph. However there may be multiple references to operator
+    // sub-expressions. Consider:
+    //
+    //   let x = Expr::value("x");
+    //   let x_sqr = x.clone() * x.clone();
+    //   let x_4 = x_sqr.clone() * x_sqr.clone();
+    //   x_4.build_graph() // Encounters `x_sqr` twice
+    //
+    // To handle this we put the operator in a cell. When we first
+    // encounter it during graph generation we take it out and add it to the
+    // graph. For subsequent references to the operator we will use the output
+    // node ID of the already-added operator.
+    op: Cell<Option<Box<dyn Operator + Send + Sync>>>,
+    inputs: Vec<Expr>,
+    outputs: Vec<OutputMeta>,
+}
+
+struct ValueExpr {
+    name: String,
+    dtype: Option<DataType>,
+    shape: Option<Vec<Dimension>>,
+}
+
+struct OperatorOutputExpr {
+    op: Expr,
+    output_index: usize,
+}
+
+struct NodeNameGenerator {
+    used_names: HashSet<String>,
+}
+
+impl NodeNameGenerator {
+    fn new() -> NodeNameGenerator {
+        NodeNameGenerator {
+            used_names: HashSet::new(),
+        }
+    }
+
+    fn generate(&mut self, prefix: &str) -> String {
+        let mut name = prefix.to_string();
+        let mut suffix = 0;
+        while self.used_names.contains(&name) {
+            suffix += 1;
+            name = format!("{}_{}", prefix, suffix);
+        }
+        self.used_names.insert(name.clone());
+        name
     }
 }
 

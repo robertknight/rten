@@ -4,8 +4,8 @@ use crate::downcast::DowncastDyn;
 use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode, TypedConstant};
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, FusedMatMul, Gelu, LayerNormalization, Operator, Reciprocal, ReduceMean,
-    RmsNormalization, Silu, Softmax, Swish, Transpose,
+    AddSoftmax, DynamicQuantizeLinear, FusedMatMul, Gelu, LayerNormalization, MatMulIntegerToFloat,
+    Mul, Operator, Reciprocal, ReduceMean, RmsNormalization, Silu, Softmax, Swish, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 
@@ -661,6 +661,77 @@ impl FusionVisitor for MatMulScaleFusion {
             &[Some(lhs_input), Some(rhs_input)],
             op_node.output_ids(),
         ))
+    }
+}
+
+pub struct MatMulIntegerToFloatFusion {}
+
+impl PatternFusion for MatMulIntegerToFloatFusion {
+    type Operator = MatMulIntegerToFloat;
+
+    fn pattern(&self) -> Pattern {
+        let scale = Pattern::symbol("scale");
+        let a = Pattern::symbol("a");
+        let b = Pattern::symbol("b");
+        let a_zero = Pattern::symbol("a_zero");
+        let b_zero = Pattern::symbol("b_zero");
+
+        Pattern::unary_op(
+            "Cast",
+            Pattern::operator("MatMulInteger", [a, b, a_zero, b_zero]),
+        )
+        .with_name("cast")
+            * scale
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["a", "b", "a_zero", "b_zero", "scale"]
+    }
+
+    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<Self::Operator> {
+        let a = pat_match.node_id("a").unwrap();
+        let a_zero = pat_match.node_id("a_zero").unwrap();
+
+        // Check that the candidate inputs are all outputs from a
+        // DynamicQuantizeLinear node. This allows us to be sure that the
+        // inputs will have the expected shape.
+        let (a_src_id, quantize_op) = graph.get_source_node(a)?;
+        let (a_zero_src_id, _) = graph.get_source_node(a_zero)?;
+
+        let [Some(quant_out_data), Some(quant_out_scale), Some(quant_out_zero)] =
+            quantize_op.output_ids()
+        else {
+            return None;
+        };
+
+        // The data and zero point should come from the same DynamicQuantizeLinear op.
+        if a_src_id != a_zero_src_id
+            || quantize_op
+                .operator()
+                .downcast_ref::<DynamicQuantizeLinear>()
+                .is_none()
+            || a != *quant_out_data
+            || a_zero != *quant_out_zero
+        {
+            return None;
+        }
+
+        // The scale should come from `Mul(dyn_scale, const_scale)` where
+        // `dyn_scale` is the scale output of the DynamicQuantizeLinear op and
+        // `const_scale` is a vector.
+        let scale = pat_match.node_id("scale").unwrap();
+        let (_, scale_src) = graph.get_source_node(scale)?;
+        let [Some(dyn_scale), Some(const_scale)] = scale_src.input_ids() else {
+            return None;
+        };
+        if scale_src.operator().downcast_ref::<Mul>().is_none()
+            || graph.get_rank(*const_scale) != Some(1)
+            || quant_out_scale != dyn_scale
+        {
+            return None;
+        }
+
+        Some(MatMulIntegerToFloat::default())
     }
 }
 

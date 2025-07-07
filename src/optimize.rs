@@ -16,8 +16,9 @@ mod pattern_matcher;
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion,
-    LayerNormalizationFusion, MatMulAddFusion, MatMulScaleFusion, PatternFusion, ReciprocalFusion,
-    ReduceMeanAxesFusion, RmsNormalizationFusion, SiluFusion, SwishFusion, TransposeFusion,
+    LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
+    PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion, RmsNormalizationFusion, SiluFusion,
+    SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -362,6 +363,7 @@ impl GraphOptimizer {
             // Matmul fusions
             &DynFusion(MatMulAddFusion {}.into_visitor()),
             &DynFusion(MatMulScaleFusion {}),
+            &DynFusion(MatMulIntegerToFloatFusion {}.into_visitor()),
             // Attention fusions
             &DynFusion(AddSoftmaxFusion {}.into_visitor()),
             // Layout fusions
@@ -539,11 +541,12 @@ mod tests {
     use super::{GraphOptimizer, OptimizeError};
     use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
     use crate::downcast::DowncastDyn;
-    use crate::graph::builder::Expr;
+    use crate::graph::builder::{Expr, OutputMeta};
     use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId, PlanOptions};
     use crate::ops::{
-        Add, Erf, FusedMatMul, Gelu, LayerNormalization, MatMul, Neg, Pow, ReduceMean,
-        RmsNormalization, Sigmoid, Softmax, Sqrt, Swish, Tanh, Transpose,
+        Add, Cast, DynamicQuantizeLinear, Erf, FusedMatMul, Gelu, LayerNormalization, MatMul,
+        MatMulInteger, Neg, Pow, ReduceMean, RmsNormalization, Sigmoid, Softmax, Sqrt, Swish, Tanh,
+        Transpose,
     };
     use crate::slice_cast::cast_pod_slice;
     use crate::{DataType, Dimension};
@@ -1009,7 +1012,7 @@ mod tests {
                 &[Expr::constant(2.0)],
                 // Add shape info to Pow(X, 2) output so ReduceMean can verify that
                 // `axes` refers to the last axis.
-                Some((DataType::Float, dims.to_vec())),
+                &[OutputMeta::Meta((DataType::Float, dims.to_vec()))],
             );
             let rms = (x_square.mean_axes(axes) + epsilon).sqrt();
             let scale = Tensor::from([3., 4., 5.]);
@@ -1051,7 +1054,11 @@ mod tests {
             let expr = qk
                 // Add shape info so optimizer can determine softmax is applied
                 // to last axis.
-                .apply(Add {}, &[m], Some((DataType::Float, dims.to_vec())))
+                .apply(
+                    Add {},
+                    &[m],
+                    &[OutputMeta::Meta((DataType::Float, dims.to_vec()))],
+                )
                 .softmax(1);
             expr.build_graph(["qk", "m"])
         };
@@ -1085,6 +1092,42 @@ mod tests {
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         let mean_op = op.operator().downcast_ref::<ReduceMean>().unwrap();
         assert_eq!(mean_op.axes.as_deref(), Some([-1].as_slice()));
+    }
+
+    #[test]
+    fn test_fuse_matmulinteger_cast_scale() {
+        let graph = {
+            let x = Expr::value("x");
+            let weights = Expr::constant(Tensor::<i8>::zeros(&[4, 4]));
+            let weights_zero = Expr::constant(Tensor::<i8>::zeros(&[4]));
+
+            let quant = x.apply(
+                DynamicQuantizeLinear {},
+                &[],
+                &[OutputMeta::NoMeta, OutputMeta::NoMeta, OutputMeta::NoMeta],
+            );
+            let quant_x = quant.output(0);
+            let quant_scale = quant.output(1);
+            let quant_zero = quant.output(2);
+            let const_scale = Expr::constant(Tensor::from([0.1, 0.2, 0.3]));
+
+            let expr = quant_x
+                .apply(
+                    MatMulInteger {},
+                    &[weights, quant_zero, weights_zero],
+                    &[OutputMeta::NoMeta],
+                )
+                .unary(Cast {
+                    to: DataType::Float,
+                })
+                * (quant_scale * const_scale);
+            expr.build_graph(["x"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+
+        assert_eq!(op.operator().name(), "MatMulIntegerToFloat");
     }
 
     #[test]

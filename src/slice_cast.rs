@@ -1,4 +1,5 @@
-use std::mem::MaybeUninit;
+use std::alloc::Layout;
+use std::mem::{ManuallyDrop, MaybeUninit};
 
 /// Marker trait for "plain old data".
 ///
@@ -12,11 +13,44 @@ use std::mem::MaybeUninit;
 ///
 /// This type must only be implemented for types which are initialized and for
 /// which any bit pattern is valid.
-pub unsafe trait Pod: Copy {}
+pub unsafe trait Pod: Copy {
+    /// View of this type as an array of bytes.
+    type Bytes: AsRef<[u8]>;
+
+    /// Convert this type to an array of bytes in native order.
+    ///
+    /// This is the same as `to_ne_bytes` for primitive types.
+    fn to_bytes(self) -> Self::Bytes;
+
+    /// Convert an array of bytes, in native order, into this type.
+    ///
+    /// This is the same as `from_ne_bytes` for primitive types.
+    fn from_bytes(bytes: Self::Bytes) -> Self;
+
+    /// Convert this type to another of the same size.
+    ///
+    /// This should compile to a zero-cost transmute.
+    fn cast_bytes<Dst>(self) -> Dst
+    where
+        Dst: Pod<Bytes = Self::Bytes>,
+    {
+        Dst::from_bytes(self.to_bytes())
+    }
+}
 
 macro_rules! impl_pod {
     ($type:ty) => {
-        unsafe impl Pod for $type {}
+        unsafe impl Pod for $type {
+            type Bytes = [u8; size_of::<$type>()];
+
+            fn to_bytes(self) -> Self::Bytes {
+                self.to_ne_bytes()
+            }
+
+            fn from_bytes(val: Self::Bytes) -> Self {
+                Self::from_ne_bytes(val)
+            }
+        }
     };
 }
 impl_pod!(i8);
@@ -89,11 +123,37 @@ pub fn cast_uninit_pod_mut_slice<Src: Pod, Dst: Pod>(
     })
 }
 
+/// Transmute a vector of elements from one [`Pod`] type to another.
+///
+/// The source and destination types must have the same size and alignment.
+/// The length and capacity of the vector will be the same afterwards.
+pub fn cast_pod_vec<Src: Pod, Dst: Pod>(src: Vec<Src>) -> Option<Vec<Dst>> {
+    // From `Vec::into_raw_parts`.
+    let mut src = ManuallyDrop::new(src);
+    let (src_ptr, src_len, src_cap) = (src.as_mut_ptr(), src.len(), src.capacity());
+
+    if Layout::array::<Src>(src_cap) != Layout::array::<Dst>(src_cap) {
+        return None;
+    }
+
+    // Safety: `Src` and `Dest` types have the same layout for an array of
+    // `src_cap` elements, so the allocation is compatible, and are `Pod` types
+    // so we can transmute any value of `Src` to a value of `Dst`.
+    Some(unsafe { Vec::from_raw_parts(src_ptr as *mut Dst, src_len, src_cap) })
+}
+
 #[cfg(test)]
 mod tests {
     use std::mem::MaybeUninit;
 
-    use super::{cast_pod_mut_slice, cast_pod_slice, cast_uninit_pod_mut_slice};
+    use super::{cast_pod_mut_slice, cast_pod_slice, cast_pod_vec, cast_uninit_pod_mut_slice, Pod};
+
+    #[test]
+    fn test_cast_pod() {
+        let float_val = 1.2f32;
+        let int_val: i32 = float_val.cast_bytes();
+        assert_eq!(int_val, i32::from_ne_bytes(float_val.to_ne_bytes()));
+    }
 
     #[test]
     fn test_cast_pod_slice() {
@@ -106,6 +166,22 @@ mod tests {
         // Convert back to wider type
         let i32s_v2 = cast_pod_slice::<i8, i32>(&i8s).unwrap();
         assert_eq!(i32s_v2, i32s);
+    }
+
+    #[test]
+    fn test_cast_pod_vec() {
+        // Compatible types
+        let i32s = Vec::from([1, 2, 3]);
+        let (ptr, len, cap) = (i32s.as_ptr(), i32s.len(), i32s.capacity());
+        let f32s = cast_pod_vec::<i32, f32>(i32s).unwrap();
+        assert_eq!(f32s.as_ptr(), ptr as *const f32);
+        assert_eq!(f32s.len(), len);
+        assert_eq!(f32s.capacity(), cap);
+
+        // Incompatible types
+        let i32s = Vec::from([1, 2, 3]);
+        let i8s = cast_pod_vec::<i32, i8>(i32s);
+        assert!(i8s.is_none());
     }
 
     #[test]
