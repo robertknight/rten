@@ -89,13 +89,13 @@ impl OperatorNode {
         name: Option<&str>,
         input_ids: &[Option<NodeId>],
         output_ids: &[Option<NodeId>],
-        operator: Box<dyn Operator + Send + Sync>,
+        operator: Arc<dyn Operator + Send + Sync>,
     ) -> Self {
         OperatorNode {
             name: name.map(|s| s.to_owned()),
             inputs: Vec::from(input_ids),
             outputs: Vec::from(output_ids),
-            operator: Arc::from(operator),
+            operator,
         }
     }
 

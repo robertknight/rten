@@ -171,7 +171,7 @@ fn test_graph_node_debug_names() {
     let relu_out_id = g.add_value(Some("relu_out"), None, None);
     let relu_op_id = g.add_op(
         Some("relu"),
-        Box::new(Relu {}),
+        Arc::new(Relu {}),
         &[Some(input_id)],
         &[Some(relu_out_id)],
     );
@@ -185,7 +185,7 @@ fn test_graph_node_debug_names() {
     let anon_out_id = g.add_value(None, None, None);
     let anon_op_id = g.add_op(
         None,
-        Box::new(Relu {}),
+        Arc::new(Relu {}),
         &[Some(input_id)],
         &[Some(anon_out_id)],
     );
@@ -382,7 +382,7 @@ fn test_graph_many_steps() -> Result<(), Box<dyn Error>> {
         let next_output = g.add_value(None, None, None);
         g.add_op(
             None,
-            Box::new(AddOne {}),
+            Arc::new(AddOne {}),
             &[Some(prev_output)],
             &[Some(next_output)],
         );
@@ -601,7 +601,7 @@ fn test_call_op_with_missing_input() {
     let output = g.add_value(None, None, None);
     g.add_op(
         Some("shape"),
-        Box::new(Shape::default()),
+        Arc::new(Shape::default()),
         &[None],
         &[Some(output)],
     );
@@ -808,7 +808,7 @@ fn test_multiple_outputs() {
     let left_split_out = g.add_value(Some("left_split"), None, None);
     let right_split_out = g.add_value(Some("right_split"), None, None);
 
-    let split_op = Box::new(Split::new());
+    let split_op = Arc::new(Split::new());
     let run_count = split_op.run_count.clone();
 
     g.add_op(

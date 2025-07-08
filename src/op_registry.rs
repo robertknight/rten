@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 use smallvec::{smallvec, SmallVec};
 
@@ -291,7 +292,7 @@ fn vec_from_attr(attr: Option<flatbuffers::Vector<u32>>, default: &[usize]) -> V
 }
 
 /// Result of deserializing an operator node from a model file.
-pub type ReadOpResult = Result<Box<dyn Operator + Send + Sync>, ReadOpError>;
+pub type ReadOpResult = Result<Arc<dyn Operator + Send + Sync>, ReadOpError>;
 
 /// A function that deserializes an operator node.
 pub type ReadOpFunction = dyn Fn(&OperatorNode, &dyn OpLoadContext) -> ReadOpResult;
@@ -309,7 +310,7 @@ pub trait ReadOp: Operator + Sized + Send + Sync {
     /// The node's type must correspond to the result of `op_type`.
     fn read(op: &OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError>;
 
-    /// Deserialize an operator and box it into a `Box<dyn Operator>`.
+    /// Deserialize an operator into a boxed `dyn Operator`.
     ///
     /// The node's type must correspond to the result of `op_type`.
     fn read_boxed(op: &OperatorNode, ctx: &dyn OpLoadContext) -> ReadOpResult
@@ -317,7 +318,7 @@ pub trait ReadOp: Operator + Sized + Send + Sync {
         Self: 'static,
     {
         let op = Self::read(op, ctx)?;
-        Ok(Box::new(op))
+        Ok(Arc::new(op))
     }
 }
 

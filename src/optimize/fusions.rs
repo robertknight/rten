@@ -1,4 +1,5 @@
 //! Traits for defining operator fusions and implementations of fusions.
+use std::sync::Arc;
 
 use crate::downcast::DowncastDyn;
 use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode, TypedConstant};
@@ -14,7 +15,7 @@ pub struct Fusion {
     /// The name of the graph node.
     pub name: Option<String>,
 
-    pub fused_op: Box<dyn Operator + Send + Sync>,
+    pub fused_op: Arc<dyn Operator + Send + Sync>,
 
     /// IDs of input value nodes.
     pub input_ids: Vec<Option<NodeId>>,
@@ -27,7 +28,7 @@ impl Fusion {
     /// Create a fusion with a given operator, name and input and output nodes.
     fn from_op(
         name: Option<&str>,
-        fused_op: Box<dyn Operator + Send + Sync>,
+        fused_op: Arc<dyn Operator + Send + Sync>,
         input_ids: &[Option<NodeId>],
         output_ids: &[Option<NodeId>],
     ) -> Fusion {
@@ -121,7 +122,7 @@ impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
         let fused_op = self.0.maybe_fuse(&pat_match, graph)?;
         let fusion = Fusion::from_op(
             op_node.name(),
-            Box::new(fused_op),
+            Arc::new(fused_op),
             &input_ids,
             op_node.output_ids(),
         );
@@ -457,7 +458,7 @@ impl FusionVisitor for LayerNormalizationFusion {
 
         Some(Fusion::from_op(
             op_node.name(),
-            Box::new(LayerNormalization {
+            Arc::new(LayerNormalization {
                 axis: -1,
                 epsilon: Some(epsilon),
             }),
@@ -657,7 +658,7 @@ impl FusionVisitor for MatMulScaleFusion {
 
         Some(Fusion::from_op(
             matmul_node.name(),
-            Box::new(FusedMatMul { alpha: Some(alpha) }),
+            Arc::new(FusedMatMul { alpha: Some(alpha) }),
             &[Some(lhs_input), Some(rhs_input)],
             op_node.output_ids(),
         ))
@@ -800,7 +801,7 @@ impl FusionVisitor for TransposeFusion {
 
         Some(Fusion::from_op(
             op_node.name(),
-            Box::new(fused_op.build()),
+            Arc::new(fused_op.build()),
             &fused_inputs,
             op_node.output_ids(),
         ))
