@@ -426,7 +426,7 @@ impl Graph {
     pub fn add_op(
         &mut self,
         name: Option<&str>,
-        op: Box<dyn Operator + Send + Sync>,
+        op: Arc<dyn Operator + Send + Sync>,
         inputs: &[Option<NodeId>],
         outputs: &[Option<NodeId>],
     ) -> NodeId {
@@ -460,7 +460,7 @@ impl Graph {
         let op_out_name = format!("{}_out", name);
         let op_out_id = self.add_value(Some(&op_out_name), None, None);
         let input_ids: Vec<_> = input_ids.iter().copied().map(Some).collect();
-        let op_node_id = self.add_op(Some(name), Box::new(op), &input_ids, &[op_out_id].map(Some));
+        let op_node_id = self.add_op(Some(name), Arc::new(op), &input_ids, &[op_out_id].map(Some));
         (op_node_id, op_out_id)
     }
 

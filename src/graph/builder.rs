@@ -1,10 +1,10 @@
 //! Tools to simplify building graphs in tests.
 
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::graph::{Graph, NodeId};
 use crate::ops::Operator;
@@ -102,7 +102,7 @@ impl Expr {
         let mut inputs: Vec<_> = [self.clone()].into();
         inputs.extend(operands.iter().map(|opr| opr.clone()));
         Expr::from(ExprKind::Operator(OperatorExpr {
-            op: Cell::new(Some(Box::new(op))),
+            op: Arc::new(op),
             inputs,
             outputs: outputs.to_vec(),
         }))
@@ -195,16 +195,11 @@ impl Expr {
                     .map(Some)
                     .collect();
 
-                let op = op_info
-                    .op
-                    .take()
-                    .expect("operator has already been added to graph");
-
                 let op_outputs: Vec<NodeId> = op_info
                     .outputs
                     .iter()
                     .map(|output_info| {
-                        let output_name = name_gen.generate(&format!("{}_out", op.name()));
+                        let output_name = name_gen.generate(&format!("{}_out", op_info.op.name()));
                         let (output_dtype, output_shape) = match output_info {
                             OutputMeta::NoMeta => (None, None),
                             OutputMeta::Meta((dtype, shape)) => (Some(*dtype), Some(shape.clone())),
@@ -215,8 +210,13 @@ impl Expr {
 
                 let op_outputs_opt: Vec<_> = op_outputs.iter().copied().map(Some).collect();
 
-                let op_name = name_gen.generate(op.name());
-                graph.add_op(Some(op_name.as_str()), op, &op_inputs, &op_outputs_opt);
+                let op_name = name_gen.generate(op_info.op.name());
+                graph.add_op(
+                    Some(op_name.as_str()),
+                    op_info.op.clone(),
+                    &op_inputs,
+                    &op_outputs_opt,
+                );
 
                 op_outputs
             }
@@ -260,21 +260,7 @@ pub enum OutputMeta {
 }
 
 struct OperatorExpr {
-    // `Operator`s are not cloneable, so when we construct a graph from the
-    // expression we need to take ownership of the operator and pass it to the
-    // graph. However there may be multiple references to operator
-    // sub-expressions. Consider:
-    //
-    //   let x = Expr::value("x");
-    //   let x_sqr = x.clone() * x.clone();
-    //   let x_4 = x_sqr.clone() * x_sqr.clone();
-    //   x_4.build_graph() // Encounters `x_sqr` twice
-    //
-    // To handle this we put the operator in a cell. When we first
-    // encounter it during graph generation we take it out and add it to the
-    // graph. For subsequent references to the operator we will use the output
-    // node ID of the already-added operator.
-    op: Cell<Option<Box<dyn Operator + Send + Sync>>>,
+    op: Arc<dyn Operator + Send + Sync>,
     inputs: Vec<Expr>,
     outputs: Vec<OutputMeta>,
 }

@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 use rten_tensor::Tensor;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -92,7 +93,7 @@ impl GraphMutator {
     fn add_operator(
         &mut self,
         name: Option<&str>,
-        op: Box<dyn Operator + Send + Sync>,
+        op: Arc<dyn Operator + Send + Sync>,
         inputs: &[Option<NodeId>],
         outputs: &[Option<NodeId>],
     ) {
