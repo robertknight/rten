@@ -5,14 +5,12 @@ use crate::downcast::DowncastDyn;
 use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode, TypedConstant};
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, DynamicQuantizeLinear, FusedMatMul, Gelu, Identity, LayerNormalization,
-    MatMulIntegerToFloat, Mul, Operator, Reciprocal, ReduceMean, RmsNormalization, Silu, Softmax,
-    Swish, Transpose,
+    AddSoftmax, DynamicQuantizeLinear, FusedMatMul, Gelu, LayerNormalization, MatMulIntegerToFloat,
+    Mul, Operator, Reciprocal, ReduceMean, RmsNormalization, Silu, Softmax, Swish, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 
-/// Defines a fused operator which replaces a subgraph.
-pub struct Fusion {
+pub struct FusedOp {
     /// The name of the graph node.
     pub name: Option<String>,
 
@@ -25,6 +23,14 @@ pub struct Fusion {
     pub output_ids: Vec<Option<NodeId>>,
 }
 
+pub enum Fusion {
+    /// Replace a subgraph with a single operation.
+    Op(FusedOp),
+
+    /// Replace a subgraph's outputs with one of its inputs.
+    Identity { input_id: NodeId, output_id: NodeId },
+}
+
 impl Fusion {
     /// Create a fusion with a given operator, name and input and output nodes.
     fn from_op(
@@ -33,11 +39,33 @@ impl Fusion {
         input_ids: &[Option<NodeId>],
         output_ids: &[Option<NodeId>],
     ) -> Fusion {
-        Fusion {
+        Fusion::Op(FusedOp {
             name: name.map(|s| s.to_string()),
             fused_op,
             input_ids: input_ids.to_vec(),
             output_ids: output_ids.to_vec(),
+        })
+    }
+
+    /// Return all inputs to the fused subgraph.
+    pub fn input_ids(&self) -> Vec<NodeId> {
+        match self {
+            Fusion::Op(op) => op.input_ids.iter().copied().flatten().collect(),
+            Fusion::Identity {
+                input_id,
+                output_id: _,
+            } => [*input_id].into(),
+        }
+    }
+
+    /// Return all outputs from the fused subgraph.
+    pub fn output_ids(&self) -> Vec<NodeId> {
+        match self {
+            Fusion::Op(op) => op.output_ids.iter().copied().flatten().collect(),
+            Fusion::Identity {
+                input_id,
+                output_id: _,
+            } => [*input_id].into(),
         }
     }
 }
@@ -249,10 +277,10 @@ impl PatternFusion for GeluFusion {
 
 pub struct IdentityFusion {}
 
-impl PatternFusion for IdentityFusion {
-    type Operator = Identity;
+impl FusionVisitor for IdentityFusion {
+    type State = Pattern;
 
-    fn pattern(&self) -> Pattern {
+    fn prepare(&self, _: &Graph) -> Pattern {
         let x = Pattern::symbol("x");
 
         // Use exact constants here so that we don't match expressions like
@@ -272,8 +300,22 @@ impl PatternFusion for IdentityFusion {
         )
     }
 
-    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Identity> {
-        Some(Identity {})
+    fn maybe_fuse(
+        &self,
+        pattern: &Pattern,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        let pat_match = pattern.test(op_node_id, graph)?;
+        let input_id = pat_match.node_id("x")?;
+        let &[Some(output_id)] = op_node.output_ids() else {
+            return None;
+        };
+        Some(Fusion::Identity {
+            input_id,
+            output_id,
+        })
     }
 }
 

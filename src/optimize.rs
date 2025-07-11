@@ -9,7 +9,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, PlanOptions, RunError,
 };
-use crate::ops::Operator;
+use crate::ops::{Identity, Operator};
 use crate::Value;
 
 mod fusions;
@@ -175,14 +175,14 @@ impl GraphMutator {
                 // used by operators outside of the subgraph. If any are found,
                 // we can't fuse the subgraph as the intermediate value would no
                 // longer be available.
-                let mut input_ids: Vec<_> = fusion.input_ids.iter().flatten().copied().collect();
+                let mut input_ids = fusion.input_ids();
 
                 // Execution planning disallows duplicate input IDs. An operator
                 // however is allowed to use the same value for multiple inputs.
                 input_ids.sort();
                 input_ids.dedup();
 
-                let output_ids: Vec<_> = fusion.output_ids.iter().flatten().copied().collect();
+                let output_ids = fusion.output_ids();
                 let unfused_ops = self
                     .graph
                     .execution_plan(&input_ids, &output_ids, PlanOptions::default())
@@ -227,14 +227,37 @@ impl GraphMutator {
                 consumer_ops.retain(|op_id| !unfused_ops.contains(op_id));
             }
 
-            // Add the fused operator. We do this afterwards to avoid node name
-            // conflicts.
-            self.add_operator(
-                fusion.name.as_deref(),
-                fusion.fused_op,
-                &fusion.input_ids,
-                &fusion.output_ids,
-            );
+            // Add the fused operator. We do this after removing nodes to avoid
+            // node name conflicts.
+            match fusion {
+                Fusion::Op(fusion) => {
+                    self.add_operator(
+                        fusion.name.as_deref(),
+                        fusion.fused_op,
+                        &fusion.input_ids,
+                        &fusion.output_ids,
+                    );
+                }
+                Fusion::Identity {
+                    input_id,
+                    output_id,
+                } => {
+                    // Optimization must preserve input/output IDs, so if the
+                    // identity output is a graph output, replace with an
+                    // `Identity` operator. Otherwise we can remove the operator
+                    // entirely.
+                    if self.graph.output_ids().contains(&output_id) {
+                        self.add_operator(
+                            None,
+                            Arc::new(Identity {}),
+                            &[Some(input_id)],
+                            &[Some(output_id)],
+                        )
+                    } else {
+                        self.replace_value(output_id, input_id);
+                    }
+                }
+            }
         }
 
         n_fusions
@@ -350,7 +373,7 @@ impl GraphOptimizer {
         // match is found.
         let fusions: &[&dyn DynFusionVisitor] = &[
             // Replace no-op operators with an `Identity` op.
-            &DynFusion(IdentityFusion {}.into_visitor()),
+            &DynFusion(IdentityFusion {}),
             // Canonicalizations to make other fusions support a wider range of
             // patterns.
             &DynFusion(ReciprocalFusion {}.into_visitor()),
@@ -1121,8 +1144,32 @@ mod tests {
         for case in cases {
             let graph = optimize_graph(case.expr.build_graph(["x"])).unwrap();
             let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+
+            // No-op connected to graph output should be replaced by `Identity` op.
             assert_eq!(op.operator().name(), "Identity");
         }
+    }
+
+    #[test]
+    fn test_eliminate_identity_op() {
+        let graph = {
+            let x = Expr::value("x");
+            let expr = x * 1. + 2.;
+            expr.build_graph(["x"])
+        };
+        let input_id = graph.input_ids()[0];
+        let output_id = graph.output_ids()[0];
+        let graph = optimize_graph(graph).unwrap();
+
+        // Optimization should not change input/output IDs.
+        assert_eq!(graph.input_ids(), [input_id]);
+        assert_eq!(graph.output_ids(), [output_id]);
+
+        let (_, op) = graph.get_source_node(output_id).unwrap();
+        assert_eq!(op.operator().name(), "Add");
+
+        // Identity op not connected to graph output should be eliminated.
+        assert_eq!(op.input_ids()[0], Some(input_id));
     }
 
     #[test]
