@@ -5,8 +5,9 @@ use crate::downcast::DowncastDyn;
 use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode, TypedConstant};
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, DynamicQuantizeLinear, FusedMatMul, Gelu, LayerNormalization, MatMulIntegerToFloat,
-    Mul, Operator, Reciprocal, ReduceMean, RmsNormalization, Silu, Softmax, Swish, Transpose,
+    AddSoftmax, DynamicQuantizeLinear, FusedMatMul, Gelu, Identity, LayerNormalization,
+    MatMulIntegerToFloat, Mul, Operator, Reciprocal, ReduceMean, RmsNormalization, Silu, Softmax,
+    Swish, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 
@@ -243,6 +244,36 @@ impl PatternFusion for GeluFusion {
 
     fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Gelu> {
         Some(Gelu { approximate: false })
+    }
+}
+
+pub struct IdentityFusion {}
+
+impl PatternFusion for IdentityFusion {
+    type Operator = Identity;
+
+    fn pattern(&self) -> Pattern {
+        let x = Pattern::symbol("x");
+
+        // Use exact constants here so that we don't match expressions like
+        // `x + epsilon` which appear in eg. root mean square operations.
+        let zero = Pattern::exact_constant(0.);
+        let one = Pattern::exact_constant(1.0);
+
+        Pattern::any_of(
+            [
+                // Binary op identities
+                x.clone() + zero.clone(),
+                x.clone() - zero.clone(),
+                x.clone() * one.clone(),
+                x.clone() / one.clone(),
+            ]
+            .into(),
+        )
+    }
+
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Identity> {
+        Some(Identity {})
     }
 }
 

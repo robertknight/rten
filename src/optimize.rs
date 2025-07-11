@@ -16,7 +16,7 @@ mod fusions;
 mod pattern_matcher;
 
 use fusions::{
-    AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion,
+    AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion, IdentityFusion,
     LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
     PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion, RmsNormalizationFusion, SiluFusion,
     SwishFusion, TransposeFusion,
@@ -349,6 +349,8 @@ impl GraphOptimizer {
         // The ordering is significant as fusions are tried in turn until a
         // match is found.
         let fusions: &[&dyn DynFusionVisitor] = &[
+            // Replace no-op operators with an `Identity` op.
+            &DynFusion(IdentityFusion {}.into_visitor()),
             // Canonicalizations to make other fusions support a wider range of
             // patterns.
             &DynFusion(ReciprocalFusion {}.into_visitor()),
@@ -1093,6 +1095,34 @@ mod tests {
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         let mean_op = op.operator().downcast_ref::<ReduceMean>().unwrap();
         assert_eq!(mean_op.axes.as_deref(), Some([-1].as_slice()));
+    }
+
+    #[test]
+    fn test_fuse_identity_op() {
+        struct Case {
+            expr: Expr,
+        }
+
+        let cases = [
+            Case {
+                expr: (Expr::value("x") + 0.),
+            },
+            Case {
+                expr: (Expr::value("x") - 0.),
+            },
+            Case {
+                expr: (Expr::value("x") * 1.),
+            },
+            Case {
+                expr: (Expr::value("x") / 1.),
+            },
+        ];
+
+        for case in cases {
+            let graph = optimize_graph(case.expr.build_graph(["x"])).unwrap();
+            let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+            assert_eq!(op.operator().name(), "Identity");
+        }
     }
 
     #[test]
