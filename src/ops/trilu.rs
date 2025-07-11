@@ -1,10 +1,37 @@
+use std::mem::MaybeUninit;
+
 use rten_tensor::prelude::*;
-use rten_tensor::{Tensor, TensorView};
+use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::ops::{
     map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView,
 };
 use crate::tensor_pool::TensorPool;
+
+fn trilu_kernel<T: Copy + Default, const UPPER: bool>(
+    mut out_mat: NdTensorViewMut<MaybeUninit<T>, 2>,
+    in_mat: NdTensorView<T, 2>,
+    k: i32,
+) {
+    assert_eq!(out_mat.shape(), in_mat.shape());
+    let [rows, cols] = out_mat.shape();
+
+    for y in 0..rows {
+        for x in 0..cols {
+            let delta = y as i32 + k - x as i32;
+            let copy = if UPPER { delta <= 0 } else { delta >= 0 };
+
+            // Safety: y and x are in-bounds for the output, and also the input
+            // since it has the same shape.
+            let value = unsafe { *in_mat.get_unchecked([y, x]) };
+            unsafe { out_mat.get_unchecked_mut([y, x]) }.write(if copy {
+                value
+            } else {
+                T::default()
+            });
+        }
+    }
+}
 
 pub fn trilu<T: Copy + Default>(
     pool: &TensorPool,
@@ -16,21 +43,18 @@ pub fn trilu<T: Copy + Default>(
         return Err(OpError::InvalidValue("Input must have >= 2 dims"));
     }
 
-    let mut output = Tensor::zeros_in(pool, input.shape());
+    let mut output = Tensor::uninit_in(pool, input.shape());
 
-    for (mut out_mat, in_mat) in output.inner_iter_mut::<2>().zip(input.inner_iter::<2>()) {
-        let [rows, cols] = out_mat.shape();
-
-        for y in 0..rows {
-            for x in 0..cols {
-                let delta = y as i32 + k - x as i32;
-                let copy = if upper { delta <= 0 } else { delta >= 0 };
-                if copy {
-                    out_mat[[y, x]] = in_mat[[y, x]];
-                }
-            }
+    for (out_mat, in_mat) in output.inner_iter_mut::<2>().zip(input.inner_iter::<2>()) {
+        if upper {
+            trilu_kernel::<_, true>(out_mat, in_mat, k)
+        } else {
+            trilu_kernel::<_, false>(out_mat, in_mat, k)
         }
     }
+
+    // Safety: All inner matrices were initialized by `trilu_kernel`.
+    let output = unsafe { output.assume_init() };
 
     Ok(output)
 }
