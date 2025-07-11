@@ -72,14 +72,29 @@ const CONST_TOLERANCE: f32 = 1e-4;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConstantPattern {
     value: f32,
+    tolerance: f32,
 }
 
 impl ConstantPattern {
+    fn new(value: f32) -> Self {
+        ConstantPattern {
+            value,
+            tolerance: CONST_TOLERANCE,
+        }
+    }
+
+    fn exact(value: f32) -> Self {
+        ConstantPattern {
+            value,
+            tolerance: 0.,
+        }
+    }
+
     fn matches(&self, node: &Constant) -> bool {
         match node.as_view() {
             ValueView::FloatTensor(t) => t
                 .item()
-                .is_some_and(|x| (x - self.value).abs() <= CONST_TOLERANCE),
+                .is_some_and(|x| (x - self.value).abs() <= self.tolerance),
             _ => false,
         }
     }
@@ -164,6 +179,8 @@ pub enum Pattern {
     Constant(ConstantPattern),
     /// Matches either a constant or a value.
     Symbol(SymbolPattern),
+    /// Matches any pattern from a set.
+    AnyOf(Vec<Pattern>),
 }
 
 impl Pattern {
@@ -206,12 +223,21 @@ impl Pattern {
             }
             // Constants don't currently support keys.
             Pattern::Constant(constant) => Pattern::Constant(constant),
+            Pattern::AnyOf(patterns) => Pattern::AnyOf(patterns),
         }
     }
 
     /// Create a pattern that matches a constant node with a given value.
     pub fn constant(value: f32) -> Pattern {
-        Pattern::Constant(ConstantPattern { value })
+        Pattern::Constant(ConstantPattern::new(value))
+    }
+
+    /// Create a pattern that matches a constant node with a given value.
+    ///
+    /// Unlike [`constant`](Self::constant) the value must match exactly with
+    /// no tolerance.
+    pub fn exact_constant(value: f32) -> Pattern {
+        Pattern::Constant(ConstantPattern::exact(value))
     }
 
     /// Create a pattern that matches any value.
@@ -233,6 +259,11 @@ impl Pattern {
             name,
             constant: true,
         })
+    }
+
+    /// Create a pattern that matches any pattern from a list.
+    pub fn any_of(patterns: Vec<Pattern>) -> Pattern {
+        Pattern::AnyOf(patterns)
     }
 
     /// Test this pattern is a subgraph of a graph.
@@ -300,6 +331,16 @@ impl Pattern {
                     symbols.add(sym_pat.name, node_id);
                     true
                 }
+            }
+            (Pattern::AnyOf(patterns), _) => {
+                for pattern in patterns {
+                    symbols.checkpoint();
+                    if pattern.test_impl(node_id, graph, symbols) {
+                        return true;
+                    }
+                    symbols.revert();
+                }
+                false
             }
             _ => false,
         }
