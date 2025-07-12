@@ -5,6 +5,7 @@ use std::hash::BuildHasherDefault;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use rayon::prelude::*;
 use rten_tensor::prelude::*;
 
 // The std HashMap/HashSet provide DOS resistance. In this module hash keys are
@@ -508,48 +509,78 @@ impl Graph {
     /// and the compute node, which would prevent prepacking. Graph optimization
     /// can eliminate these. A common example is when weights are transposed.
     pub fn prepack_weights(&self, cache: &mut WeightCache) {
-        for (op_node_id, op_node) in self.iter().filter_map(|(node_id, node)| match node {
-            Node::Operator(op) => Some((node_id, op)),
-            _ => None,
-        }) {
-            for input_index in op_node.operator().prepack_inputs() {
-                let Some(input_id) = op_node.input_ids().get(input_index).copied().flatten() else {
-                    continue;
-                };
+        enum Entry {
+            Cache((NodeId, PrepackedInput)),
+            SubgraphCache((NodeId, Vec<WeightCache>)),
+        }
 
-                if cache.contains(input_id) {
-                    // Input was already pre-packed. This might happen if the
-                    // input is used by multiple operators.
-                    continue;
-                }
-
-                let Some(Node::Constant(const_node)) = self.get_node(input_id) else {
-                    // Input is a value computed during inference, so we don't have it to prepack.
-                    continue;
-                };
-
-                let Some(packed) = op_node
-                    .operator()
-                    .prepack(input_index, const_node.as_view())
-                else {
-                    // Operator doesn't support or decided not to prepack this value.
-                    continue;
-                };
-
-                cache.insert(input_id, packed);
-            }
-
-            let subgraph_caches: Vec<_> = op_node
-                .operator()
-                .subgraphs()
-                .into_iter()
-                .map(|subgraph| {
-                    let mut subgraph_cache = WeightCache::new();
-                    subgraph.prepack_weights(&mut subgraph_cache);
-                    subgraph_cache
+        // Traverse operators and prepack in parallel.
+        let entries: Vec<Entry> = threading::thread_pool().run(|| {
+            self.nodes
+                .par_iter()
+                .filter_map(|(node_id, node)| match node {
+                    Node::Operator(op) => Some((*node_id, op)),
+                    _ => None,
                 })
-                .collect();
-            cache.insert_subgraph_caches(op_node_id, subgraph_caches);
+                .flat_map(|(op_node_id, op_node)| {
+                    let mut entries = Vec::new();
+
+                    for input_index in op_node.operator().prepack_inputs() {
+                        let Some(input_id) =
+                            op_node.input_ids().get(input_index).copied().flatten()
+                        else {
+                            continue;
+                        };
+
+                        if cache.contains(input_id) {
+                            // Input was already pre-packed. This might happen if the
+                            // input is used by multiple operators.
+                            continue;
+                        }
+
+                        let Some(Node::Constant(const_node)) = self.get_node(input_id) else {
+                            // Input is a value computed during inference, so we don't have it to prepack.
+                            continue;
+                        };
+
+                        let Some(packed) = op_node
+                            .operator()
+                            .prepack(input_index, const_node.as_view())
+                        else {
+                            // Operator doesn't support or decided not to prepack this value.
+                            continue;
+                        };
+
+                        entries.push(Entry::Cache((input_id, packed)));
+                    }
+
+                    let subgraph_caches: Vec<_> = op_node
+                        .operator()
+                        .subgraphs()
+                        .into_iter()
+                        .map(|subgraph| {
+                            let mut subgraph_cache = WeightCache::new();
+                            subgraph.prepack_weights(&mut subgraph_cache);
+                            subgraph_cache
+                        })
+                        .collect();
+                    if !subgraph_caches.is_empty() {
+                        entries.push(Entry::SubgraphCache((op_node_id, subgraph_caches)));
+                    }
+
+                    entries
+                })
+                .collect()
+        });
+
+        // Move the entries into the output cache in serial.
+        for entry in entries {
+            match entry {
+                Entry::Cache((input_id, packed)) => cache.insert(input_id, packed),
+                Entry::SubgraphCache((op_id, subgraph_cache)) => {
+                    cache.insert_subgraph_caches(op_id, subgraph_cache)
+                }
+            }
         }
     }
 
