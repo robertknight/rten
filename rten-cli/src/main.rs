@@ -130,7 +130,9 @@ Options:
   --mmap         Load model via memory mapping
 
   -n, --num-iters <n>
-                 Number of times to evaluate model
+                 Number of times to evaluate model.
+
+                 If zero, the model will be loaded and optimized, but not run.
 
   --no-optimize  Disable graph optimizations
 
@@ -361,17 +363,14 @@ fn run_with_random_input(
         println!();
     }
 
-    let n_iters = n_iters.max(1);
-    let mut iter_num = 1;
-    let mut outputs;
+    let mut last_outputs = None;
 
     // Run duration in milliseconds.
     let mut durations: Vec<f32> = Vec::new();
 
-    // `loop` instead of `for` to guarantee `outputs` is initialized.
-    loop {
+    for iter_num in 1..=n_iters {
         let start = Instant::now();
-        outputs = model.run(inputs.clone(), model.output_ids(), Some(run_opts.clone()))?;
+        let outputs = model.run(inputs.clone(), model.output_ids(), Some(run_opts.clone()))?;
         let elapsed_ms = (start.elapsed().as_secs_f64() * 1000.0) as f32;
 
         if !quiet {
@@ -383,13 +382,11 @@ fn run_with_random_input(
             );
         }
         durations.push(elapsed_ms);
-
-        if iter_num >= n_iters {
-            break;
-        }
-        iter_num += 1;
+        last_outputs = Some(outputs);
     }
+
     if !quiet {
+        // Print run timing variation statistics if we had multiple runs.
         if n_iters > 1 {
             let n_iters_float = n_iters as f32;
             let mean = durations.iter().sum::<f32>() / n_iters_float;
@@ -429,18 +426,20 @@ fn run_with_random_input(
         .collect();
 
     if !quiet {
-        for (i, (output, name)) in outputs.iter().zip(output_names).enumerate() {
-            let dtype = match output {
-                Value::FloatTensor(_) => "f32",
-                Value::Int32Tensor(_) => "i32",
-                Value::Int8Tensor(_) => "i8",
-                Value::UInt8Tensor(_) => "u8",
-            };
-            println!(
-                "  Output {i} \"{name}\" data type {} shape: {:?}",
-                dtype,
-                output.shape()
-            );
+        if let Some(outputs) = last_outputs {
+            for (i, (output, name)) in outputs.iter().zip(output_names).enumerate() {
+                let dtype = match output {
+                    Value::FloatTensor(_) => "f32",
+                    Value::Int32Tensor(_) => "i32",
+                    Value::Int8Tensor(_) => "i8",
+                    Value::UInt8Tensor(_) => "u8",
+                };
+                println!(
+                    "  Output {i} \"{name}\" data type {} shape: {:?}",
+                    dtype,
+                    output.shape()
+                );
+            }
         }
     }
 
