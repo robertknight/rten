@@ -278,6 +278,9 @@ pub struct Graph {
     /// graph from outputs to inputs.
     source_ids: FxHashMap<NodeId, NodeId>,
 
+    /// Map of value node to operator nodes that consume the value as an input.
+    consumer_ids: FxHashMap<NodeId, SmallVec<[NodeId; 1]>>,
+
     /// Default inputs for a graph run.
     input_ids: Vec<NodeId>,
 
@@ -303,6 +306,7 @@ impl Graph {
             next_node_id: 0,
             cached_plan: Mutex::new(None),
             source_ids: FxHashMap::default(),
+            consumer_ids: FxHashMap::default(),
             input_ids: Vec::new(),
             output_ids: Vec::new(),
             captures: Vec::new(),
@@ -349,12 +353,24 @@ impl Graph {
     /// remove nodes in batches.
     pub fn remove_nodes(&mut self, node_ids: &[NodeId]) {
         self.clear_cached_plan();
+
+        // Remove nodes from graph inputs and outputs.
         self.input_ids.retain(|id| !node_ids.contains(id));
         self.output_ids.retain(|id| !node_ids.contains(id));
         self.captures.retain(|id| !node_ids.contains(id));
+
+        // Remove nodes from output value -> source operator edges.
         self.source_ids
             .retain(|val_id, op_id| !node_ids.contains(val_id) && !node_ids.contains(op_id));
+
+        // Remove nodes from input value -> consumer operator edges.
+        for consumer_ops in self.consumer_ids.values_mut() {
+            consumer_ops.retain(|op_id| !node_ids.contains(op_id));
+        }
+
+        // Finally remove nodes from the graph.
         for node_id in node_ids {
+            self.consumer_ids.remove(node_id);
             if let Some(name) = self.nodes.get(node_id).and_then(|n| n.name()) {
                 self.node_id_from_name.remove(name);
             }
@@ -435,6 +451,13 @@ impl Graph {
 
         for output_id in outputs.iter().flatten() {
             self.source_ids.insert(*output_id, op_id);
+        }
+        let consumer_entry = SmallVec::from([op_id]);
+        for input_id in inputs.iter().flatten() {
+            self.consumer_ids
+                .entry(*input_id)
+                .and_modify(|vec| vec.push(op_id))
+                .or_insert(consumer_entry.clone());
         }
 
         // Clear cached plan in case we just replaced the source operator for
@@ -590,9 +613,33 @@ impl Graph {
             })
     }
 
+    /// Look up the operator nodes which consume a given value or constant node.
+    pub fn get_consumers(&self, id: NodeId) -> Option<&[NodeId]> {
+        self.consumer_ids.get(&id).map(|v| &**v)
+    }
+
     /// Retrieve a node by ID
     pub fn get_node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
         self.nodes.get_mut(&id)
+    }
+
+    /// Replace an operator input with a different value or constant.
+    pub fn replace_input(&mut self, op_id: NodeId, old_input_id: NodeId, new_input_id: NodeId) {
+        let Some(Node::Operator(op_node)) = self.get_node_mut(op_id) else {
+            panic!("operator node not found");
+        };
+        op_node.replace_input(old_input_id, new_input_id);
+
+        // Remove operator as consumer of old input ID.
+        if let Some(ops) = self.consumer_ids.get_mut(&old_input_id) {
+            ops.retain(|op| *op != op_id);
+        }
+
+        // Add operator as consumer of new input ID.
+        self.consumer_ids
+            .entry(new_input_id)
+            .and_modify(|ops| ops.push(op_id))
+            .or_insert([op_id].into());
     }
 
     /// Return the total number of parameters in all constant nodes in this
