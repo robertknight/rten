@@ -166,7 +166,7 @@ impl<'a> Planner<'a> {
         // closures are not supported in Rust.
         struct PlanBuilder<'a> {
             graph: &'a Graph,
-            resolved_values: FxHashSet<NodeId>,
+            resolved_values: ResolvedValueSet<'a>,
             plan: Vec<(NodeId, &'a OperatorNode)>,
             options: PlanOptions,
         }
@@ -179,7 +179,7 @@ impl<'a> Planner<'a> {
                 op_node: &'a OperatorNode,
             ) -> Result<(), RunError> {
                 for input in self.graph.operator_dependencies(op_node) {
-                    if self.resolved_values.contains(&input) {
+                    if self.resolved_values.contains(input) {
                         continue;
                     }
                     if let Some((input_op_id, input_op_node)) = self.graph.get_source_node(input) {
@@ -204,7 +204,7 @@ impl<'a> Planner<'a> {
 
             /// Take the current execution plan and re-order it for more
             /// efficient execution.
-            fn sort_plan(self, mut resolved_values: FxHashSet<NodeId>) -> Vec<NodeId> {
+            fn sort_plan(self, mut resolved_values: ResolvedValueSet) -> Vec<NodeId> {
                 // Build map of value node to operators that depend on the value.
                 let mut dependent_ops: FxHashMap<NodeId, Vec<(NodeId, &OperatorNode)>> =
                     FxHashMap::default();
@@ -227,7 +227,7 @@ impl<'a> Planner<'a> {
                     if self
                         .graph
                         .operator_dependencies(op_node)
-                        .all(|id| resolved_values.contains(&id))
+                        .all(|id| resolved_values.contains(id))
                     {
                         frontier.push((*op_node_id, op_node));
                     }
@@ -269,7 +269,7 @@ impl<'a> Planner<'a> {
                             if self
                                 .graph
                                 .operator_dependencies(candidate_op)
-                                .all(|id| resolved_values.contains(&id))
+                                .all(|id| resolved_values.contains(id))
                             {
                                 frontier.push((*candidate_op_id, candidate_op));
                             }
@@ -286,7 +286,7 @@ impl<'a> Planner<'a> {
 
                 // Build initial plan by traversing graph backwards from outputs.
                 for output_id in outputs.iter() {
-                    if self.resolved_values.contains(output_id) {
+                    if self.resolved_values.contains(*output_id) {
                         // Value is either a constant node or is produced by
                         // an operator that is already in the plan.
                         continue;
@@ -317,8 +317,11 @@ impl<'a> Planner<'a> {
         }
 
         // Set of values that are available after executing the plan
-        let resolved_values: FxHashSet<NodeId> =
-            self.init_resolved_values(inputs.iter().copied(), options.captures_available);
+        let resolved_values = ResolvedValueSet::new(
+            self.graph,
+            inputs.iter().copied(),
+            options.captures_available,
+        );
 
         let builder = PlanBuilder {
             graph: self.graph,
@@ -346,8 +349,11 @@ impl<'a> Planner<'a> {
         inputs: &[NodeId],
         outputs: &[NodeId],
     ) -> (Vec<NodeId>, Vec<NodeId>) {
-        let mut resolved_values =
-            self.init_resolved_values(inputs.iter().copied(), false /* include_captures */);
+        let mut resolved_values = ResolvedValueSet::new(
+            self.graph,
+            inputs.iter().copied(),
+            false, /* include_captures */
+        );
         let mut pruned_plan = Vec::new();
         let mut candidate_outputs = inputs.to_vec();
 
@@ -366,7 +372,7 @@ impl<'a> Planner<'a> {
 
             let all_inputs_available = all_inputs
                 .clone()
-                .all(|input_id| resolved_values.contains(&input_id));
+                .all(|input_id| resolved_values.contains(input_id));
 
             // Prune op if:
             //
@@ -376,7 +382,7 @@ impl<'a> Planner<'a> {
 
             if prune_op {
                 for input_id in all_inputs {
-                    if resolved_values.contains(&input_id) {
+                    if resolved_values.contains(input_id) {
                         pruned_ops_resolved_inputs.insert(input_id);
                     }
                 }
@@ -399,25 +405,40 @@ impl<'a> Planner<'a> {
 
         (pruned_plan, new_outputs)
     }
+}
 
-    /// Return the node IDs whose values are available at the start of graph
-    /// execution, given a collection of initial inputs.
-    fn init_resolved_values<I: Iterator<Item = NodeId>>(
-        &self,
-        inputs: I,
-        include_captures: bool,
-    ) -> FxHashSet<NodeId> {
-        let mut resolved: FxHashSet<NodeId> =
-            inputs
-                .chain(self.graph.iter().filter_map(|(node_id, node)| {
-                    matches!(node, Node::Constant(_)).then_some(node_id)
-                }))
-                .collect();
+/// Keeps track of which nodes' values are available at different points during
+/// execution.
+#[derive(Clone)]
+struct ResolvedValueSet<'a> {
+    graph: &'a Graph,
 
+    // Resolved nodes, excluding constants.
+    resolved: FxHashSet<NodeId>,
+}
+
+impl<'a> ResolvedValueSet<'a> {
+    /// Create a new set where all nodes in `inputs` and constants are included.
+    ///
+    /// If `include_captures` are true then nodes which capture values from a
+    /// parent graph are also available.
+    fn new(graph: &'a Graph, inputs: impl Iterator<Item = NodeId>, include_captures: bool) -> Self {
+        let mut resolved: FxHashSet<NodeId> = inputs.collect();
         if include_captures {
-            resolved.extend(self.graph.captures().iter().copied());
+            resolved.extend(graph.captures().iter().copied());
         }
+        Self { graph, resolved }
+    }
 
-        resolved
+    fn contains(&self, id: NodeId) -> bool {
+        self.resolved.contains(&id) || matches!(self.graph.get_node(id), Some(Node::Constant(_)))
+    }
+
+    fn extend(&mut self, ids: impl Iterator<Item = NodeId>) {
+        self.resolved.extend(ids)
+    }
+
+    fn insert(&mut self, id: NodeId) {
+        self.resolved.insert(id);
     }
 }
