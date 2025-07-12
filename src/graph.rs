@@ -11,7 +11,7 @@ use rten_tensor::prelude::*;
 // The std HashMap/HashSet provide DOS resistance. In this module hash keys are
 // mostly `NodeId`s which we allocate ourselves, so this is not a concern.
 // Instead we want faster hashing.
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use smallvec::SmallVec;
 
@@ -353,7 +353,14 @@ impl Graph {
     /// This method accepts a list of node IDs as it is more efficient to
     /// remove nodes in batches.
     pub fn remove_nodes(&mut self, node_ids: &[NodeId]) {
+        if node_ids.is_empty() {
+            return;
+        }
+
         self.clear_cached_plan();
+
+        // Use a set for faster lookup in case we are removing many nodes.
+        let node_ids: FxHashSet<NodeId> = node_ids.iter().copied().collect();
 
         // Remove nodes from graph inputs and outputs.
         self.input_ids.retain(|id| !node_ids.contains(id));
@@ -371,11 +378,11 @@ impl Graph {
 
         // Finally remove nodes from the graph.
         for node_id in node_ids {
-            self.consumer_ids.remove(node_id);
-            if let Some(name) = self.nodes.get(node_id).and_then(|n| n.name()) {
+            self.consumer_ids.remove(&node_id);
+            if let Some(name) = self.nodes.get(&node_id).and_then(|n| n.name()) {
                 self.node_id_from_name.remove(name);
             }
-            self.nodes.remove(node_id);
+            self.nodes.remove(&node_id);
         }
     }
 
