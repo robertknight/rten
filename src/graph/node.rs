@@ -123,7 +123,11 @@ impl OperatorNode {
         self.operator.clone()
     }
 
-    pub fn replace_input(&mut self, old_id: NodeId, new_id: NodeId) {
+    /// Replace an input in the operator's list of inputs.
+    ///
+    /// Consumers outside the graph module should use graph-level methods instead
+    /// which update edge caches.
+    pub(super) fn replace_input(&mut self, old_id: NodeId, new_id: NodeId) {
         for input_id in self.inputs.iter_mut() {
             if *input_id == Some(old_id) {
                 *input_id = Some(new_id);

@@ -4,7 +4,8 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use rten_tensor::Tensor;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
+use smallvec::SmallVec;
 
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, PlanOptions, RunError,
@@ -43,35 +44,14 @@ impl Error for OptimizeError {}
 /// Holds a [`Graph`] and associated data structures while it is being mutated
 /// by an optimizer, and provides operations to update the graph.
 struct GraphMutator {
-    /// Map of (value_node_id, operator_node_ids) for each value node that
-    /// is an input to one or more operators.
-    edges: FxHashMap<NodeId, Vec<NodeId>>,
     graph: Graph,
     output_ids: Vec<NodeId>,
 }
 
 impl GraphMutator {
     fn from_graph(graph: Graph) -> GraphMutator {
-        // Map of value_node => operator_node.
-        let edges: FxHashMap<NodeId, Vec<NodeId>> = graph.iter().fold(
-            FxHashMap::default(),
-            |mut edges, (node_id, node)| match node {
-                Node::Operator(op_node) => {
-                    for &edge_start in op_node.input_ids().iter().flatten() {
-                        if let Some(edge_ends) = edges.get_mut(&edge_start) {
-                            edge_ends.push(node_id);
-                        } else {
-                            edges.insert(edge_start, vec![node_id]);
-                        }
-                    }
-                    edges
-                }
-                _ => edges,
-            },
-        );
         GraphMutator {
             output_ids: graph.output_ids().to_vec(),
-            edges,
             graph,
         }
     }
@@ -97,14 +77,7 @@ impl GraphMutator {
         inputs: &[Option<NodeId>],
         outputs: &[Option<NodeId>],
     ) {
-        let op_id = self.graph.add_op(name, op, inputs, outputs);
-        for input_id in inputs.iter().filter_map(|id| *id) {
-            if let Some(op_ids) = self.edges.get_mut(&input_id) {
-                op_ids.push(op_id);
-            } else {
-                self.edges.insert(input_id, vec![op_id]);
-            }
-        }
+        self.graph.add_op(name, op, inputs, outputs);
     }
 
     /// Return a reference to the graph.
@@ -199,7 +172,6 @@ impl GraphMutator {
 
                 let reused_output = find_operator_output_used_outside_subgraph(
                     &self.graph,
-                    &self.edges,
                     &unfused_ops,
                     &output_ids,
                 );
@@ -216,19 +188,24 @@ impl GraphMutator {
 
         let n_fusions = fusions.len();
 
+        // Remove all the nodes from the unfused subgraph.
+        //
+        // We do this before adding the new nodes to avoid node name conflicts.
+        // Also the cost of `remove_nodes` is O(N) in the number of nodes in
+        // the graph, so we want to remove nodes in as few calls as possible.
+        let removed_nodes: Vec<NodeId> = fusions
+            .iter()
+            .flat_map(|f| &f.unfused_ops)
+            .copied()
+            .collect();
+        self.graph.remove_nodes(&removed_nodes);
+
+        // Add the fused operators.
         for Replacement {
             fusion,
-            unfused_ops,
+            unfused_ops: _,
         } in fusions
         {
-            // Remove all the nodes from the unfused subgraph.
-            self.graph.remove_nodes(&unfused_ops);
-            for consumer_ops in self.edges.values_mut() {
-                consumer_ops.retain(|op_id| !unfused_ops.contains(op_id));
-            }
-
-            // Add the fused operator. We do this after removing nodes to avoid
-            // node name conflicts.
             match fusion {
                 Fusion::Op(fusion) => {
                     self.add_operator(
@@ -280,21 +257,13 @@ impl GraphMutator {
         }
 
         // Replace `old_value_id` in operator inputs.
-        let Some(old_value_op_ids) = self.edges.remove(&old_value_id) else {
+        let Some(consumer_ids) = self.graph.get_consumers(old_value_id) else {
             return;
         };
+        let consumer_ids: SmallVec<[NodeId; 1]> = SmallVec::from_slice(consumer_ids);
 
-        for &op_id in &old_value_op_ids {
-            let Some(Node::Operator(op_node)) = self.graph.get_node_mut(op_id) else {
-                panic!("operator node not found");
-            };
-            op_node.replace_input(old_value_id, new_value_id);
-        }
-
-        if let Some(new_value_op_ids) = self.edges.get_mut(&new_value_id) {
-            new_value_op_ids.extend(old_value_op_ids);
-        } else {
-            self.edges.insert(new_value_id, old_value_op_ids);
+        for op_id in consumer_ids {
+            self.graph.replace_input(op_id, old_value_id, new_value_id);
         }
     }
 }
@@ -304,7 +273,6 @@ impl GraphMutator {
 /// subgraph.
 fn find_operator_output_used_outside_subgraph(
     graph: &Graph,
-    edges: &FxHashMap<NodeId, Vec<NodeId>>,
     subgraph_ops: &[NodeId],
     output_ids: &[NodeId],
 ) -> Option<NodeId> {
@@ -326,7 +294,7 @@ fn find_operator_output_used_outside_subgraph(
 
             // Check for intermediate output used as input to operator node
             // outside subgraph.
-            let Some(consumers) = edges.get(output) else {
+            let Some(consumers) = graph.get_consumers(*output) else {
                 continue;
             };
             for consumer in consumers {
