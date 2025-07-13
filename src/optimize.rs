@@ -19,8 +19,8 @@ mod pattern_matcher;
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion, IdentityFusion,
     LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
-    PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion, RmsNormalizationFusion, SiluFusion,
-    SwishFusion, TransposeFusion,
+    PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion, RmsNormalizationFusion,
+    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -234,6 +234,14 @@ impl GraphMutator {
                         self.replace_value(output_id, input_id);
                     }
                 }
+                Fusion::Constant {
+                    input_ids: _,
+                    output_id,
+                    value,
+                } => {
+                    let const_id = self.graph.add_constant_node(value);
+                    self.replace_value(output_id, const_id);
+                }
             }
         }
 
@@ -330,6 +338,14 @@ impl GraphOptimizer {
     ) -> Result<Graph, OptimizeError> {
         let mut graph_mut = GraphMutator::from_graph(graph);
 
+        // Fusions which can enable additional constant propagation.
+        let early_fusions: &[&dyn DynFusionVisitor] = &[&DynFusion(ShapeSliceToConstant {})];
+        self.apply_fusions(&mut graph_mut, early_fusions)?;
+
+        // Constant propagation.
+        //
+        // This is done before fusion passes since various fusions require
+        // certain nodes to be constant.
         if let Some(capture_env) = capture_env {
             self.convert_captured_values_to_constants(&mut graph_mut, capture_env)?;
         }
@@ -536,11 +552,11 @@ mod tests {
     use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
     use crate::downcast::DowncastDyn;
     use crate::graph::builder::{Expr, OutputMeta};
-    use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId, PlanOptions};
+    use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId, PlanOptions, TypedConstant};
     use crate::ops::{
         Add, Cast, DynamicQuantizeLinear, Erf, FusedMatMul, Gelu, LayerNormalization, MatMul,
-        MatMulInteger, Neg, Pow, ReduceMean, RmsNormalization, Sigmoid, Softmax, Sqrt, Swish, Tanh,
-        Transpose,
+        MatMulInteger, Neg, Pow, ReduceMean, RmsNormalization, Shape, Sigmoid, Slice, Softmax,
+        Sqrt, Swish, Tanh, Transpose,
     };
     use crate::slice_cast::cast_pod_slice;
     use crate::{DataType, Dimension};
@@ -572,7 +588,9 @@ mod tests {
         fn matmul(&self, rhs: Expr) -> Expr;
         fn mean(&self) -> Expr;
         fn mean_axes(&self, axes: Expr) -> Expr;
+        fn shape(&self) -> Expr;
         fn sigmoid(&self) -> Expr;
+        fn slice(&self, starts: Expr, ends: Expr) -> Expr;
         fn square(&self) -> Expr;
         fn sqrt(&self) -> Expr;
         fn softmax(&self, axis: isize) -> Expr;
@@ -608,6 +626,17 @@ mod tests {
 
         fn pow(&self, rhs: Expr) -> Expr {
             self.binary(Pow {}, rhs)
+        }
+
+        fn shape(&self) -> Expr {
+            self.unary(Shape {
+                start: None,
+                end: None,
+            })
+        }
+
+        fn slice(&self, starts: Expr, ends: Expr) -> Expr {
+            self.apply(Slice {}, &[starts, ends], &[OutputMeta::NoMeta])
         }
 
         fn sigmoid(&self) -> Expr {
@@ -1174,6 +1203,31 @@ mod tests {
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
 
         assert_eq!(op.operator().name(), "MatMulIntegerToFloat");
+    }
+
+    #[test]
+    fn test_slice_shape_to_constant() {
+        // `Slice(Shape(X), starts, ends)` which can be simplified to a constant.
+        let graph = {
+            let x = Expr::value_with_info(
+                "x",
+                DataType::Float,
+                &[Dimension::Symbolic("batch".into()), Dimension::Fixed(64)],
+            );
+            let starts = Expr::constant(Tensor::from([-1i32]));
+            let ends = Expr::constant(Tensor::from([i32::MAX]));
+            let expr = x.shape().slice(starts, ends);
+            expr.build_graph(["x"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let id_input = graph.output_ids()[0];
+        let const_node = graph
+            .get_node(id_input)
+            .and_then(|n| n.as_constant())
+            .unwrap();
+        assert_eq!(const_node.as_scalar(), Some(64i32));
     }
 
     #[test]

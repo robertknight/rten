@@ -61,6 +61,14 @@ impl Node {
             _ => None,
         }
     }
+
+    /// Return the contained constant, if this a constant node.
+    pub fn as_constant(&self) -> Option<&Constant> {
+        match self {
+            Node::Constant(c) => Some(c),
+            _ => None,
+        }
+    }
 }
 
 /// Represents the size of a dimension of a runtime-provided value, such as
