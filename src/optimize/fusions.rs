@@ -1,8 +1,13 @@
 //! Traits for defining operator fusions and implementations of fusions.
 use std::sync::Arc;
 
+use rten_tensor::{NdTensorView, SliceRange, Tensor};
+
 use crate::downcast::DowncastDyn;
-use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode, TypedConstant};
+use crate::graph::{
+    Constant, ConstantNode, ConstantNodeData, Dimension, Graph, Node, NodeId, OperatorNode,
+    TypedConstant,
+};
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     AddSoftmax, DynamicQuantizeLinear, FusedMatMul, Gelu, LayerNormalization, MatMulIntegerToFloat,
@@ -29,6 +34,20 @@ pub enum Fusion {
 
     /// Replace a subgraph's outputs with one of its inputs.
     Identity { input_id: NodeId, output_id: NodeId },
+
+    /// Replace an operator with a constant value.
+    ///
+    /// The replaced operator must have a single output value.
+    Constant {
+        /// Input IDs for the subgraph being replaced.
+        input_ids: Vec<NodeId>,
+
+        /// ID of the value node being replaced.
+        output_id: NodeId,
+
+        /// Constant name and value.
+        value: Constant,
+    },
 }
 
 impl Fusion {
@@ -55,6 +74,7 @@ impl Fusion {
                 input_id,
                 output_id: _,
             } => [*input_id].into(),
+            Fusion::Constant { input_ids, .. } => input_ids.clone(),
         }
     }
 
@@ -66,6 +86,7 @@ impl Fusion {
                 input_id,
                 output_id: _,
             } => [*input_id].into(),
+            Fusion::Constant { output_id, .. } => [*output_id].into(),
         }
     }
 }
@@ -918,6 +939,77 @@ impl PatternFusion for AddSoftmaxFusion {
         }
 
         Some(AddSoftmax {})
+    }
+}
+
+/// Converts `Slice(Shape(X), start, end)` into a constant where:
+///
+/// - `start` and `end` are constants
+/// - `X.shape[start..end]` contains only dimensions with known sizes
+pub struct ShapeSliceToConstant {}
+
+impl FusionVisitor for ShapeSliceToConstant {
+    type State = Pattern;
+
+    fn prepare(&self, _: &Graph) -> Self::State {
+        let x = Pattern::symbol("x");
+        let starts = Pattern::const_symbol("starts");
+        let ends = Pattern::const_symbol("ends");
+        Pattern::operator("Slice", [Pattern::unary_op("Shape", x), starts, ends])
+    }
+
+    fn maybe_fuse(
+        &self,
+        pattern: &Self::State,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        let pat_match = pattern.test(op_node_id, graph)?;
+        let x_id = pat_match.node_id("x")?;
+        let starts_id = pat_match.node_id("starts")?;
+        let ends_id = pat_match.node_id("ends")?;
+
+        let x_shape = graph.get_node(x_id)?.shape()?;
+        let ndim = x_shape.len();
+        let x_shape = NdTensorView::from_data([ndim], x_shape.as_slice());
+
+        // Check for constant starts/ends.
+        let Some(&[start]) = graph.get_vector::<i32>(starts_id) else {
+            return None;
+        };
+        let Some(&[end]) = graph.get_vector::<i32>(ends_id) else {
+            return None;
+        };
+
+        // Clamp dimensions here the same as the `Slice` op does.
+        let dim_range = SliceRange::new(start as isize, Some(end as isize), 1).clamp(ndim);
+
+        // Extract the selected dimensions and check they all have a fixed size.
+        let dims: Option<Vec<_>> = x_shape
+            .slice(dim_range)
+            .iter()
+            .map(|dim| match dim {
+                Dimension::Fixed(size) => Some(*size as i32),
+                Dimension::Symbolic(_) => None,
+            })
+            .collect();
+        let dims = dims?;
+
+        // Slice ops should always have one output, but exit early if not.
+        let &[Some(output_id)] = op_node.output_ids() else {
+            return None;
+        };
+
+        Some(Fusion::Constant {
+            input_ids: [x_id].into(),
+            output_id,
+            value: ConstantNode::new(
+                op_node.name(),
+                ConstantNodeData::Owned(Tensor::from_data(&[dims.len()], dims)),
+            )
+            .into(),
+        })
     }
 }
 
