@@ -9,7 +9,7 @@ use std::mem::MaybeUninit;
 
 use crate::slice_cast::{AsBytes, FromBytes};
 use rten_tensor::prelude::*;
-use rten_tensor::Matrix;
+use rten_tensor::{AsIndex, Layout, Matrix, NdIndices, NdLayout, TensorBase, ViewData};
 
 use super::PackedLayout;
 use super::SliceWriter;
@@ -212,6 +212,84 @@ pub fn packed_a_layout<const MR: usize>(a_rows: usize, a_cols: usize) -> PackedL
     PackedLayout::new(size, align, panel_stride)
 }
 
+/// A 2D tensor layout where the last dimension has unit stride.
+///
+/// This is implemented in a way that enables the compiler to understand that
+/// successive entries in a row are contiguous, allowing for better vectorization.
+/// Otherwise it behaves the same as an [`NdLayout<2>`].
+///
+/// This layout only supports rank-2 tensors because a) that's all we need and
+/// b) it was harder to make this layout generic like `NdLayout` and still have
+/// the compiler generate vectorized code.
+#[derive(Clone)]
+struct RowMajorLayout {
+    shape: [usize; 2],
+    row_stride: usize,
+}
+
+impl RowMajorLayout {
+    /// Return a `RowMajorLayout` with the same shape and strides as `layout`
+    /// if it has a column stride of 1, or None otherwise.
+    fn from_layout(layout: NdLayout<2>) -> Option<Self> {
+        if layout.stride(1) == 1 {
+            Some(Self {
+                shape: layout.shape(),
+                row_stride: layout.stride(0),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn index_valid(&self, index: [usize; 2]) -> bool {
+        index[0] < self.shape[0] && index[1] < self.shape[1]
+    }
+}
+
+impl Layout for RowMajorLayout {
+    type Index<'a> = [usize; 2];
+    type Indices = NdIndices<2>;
+
+    fn ndim(&self) -> usize {
+        2
+    }
+
+    fn len(&self) -> usize {
+        self.shape.iter().product()
+    }
+
+    #[inline]
+    fn try_offset(&self, index: [usize; 2]) -> Option<usize> {
+        self.index_valid(index)
+            .then_some(self.offset_unchecked(index))
+    }
+
+    #[inline]
+    fn offset_unchecked(&self, index: [usize; 2]) -> usize {
+        index[0] * self.row_stride + index[1]
+    }
+
+    #[inline]
+    fn shape(&self) -> Self::Index<'_> {
+        self.shape
+    }
+
+    #[inline]
+    fn strides(&self) -> Self::Index<'_> {
+        [self.row_stride, 1]
+    }
+
+    fn indices(&self) -> Self::Indices {
+        NdIndices::from_shape(self.shape)
+    }
+}
+
+impl AsIndex<RowMajorLayout> for [usize; 2] {
+    fn as_index(&self) -> [usize; 2] {
+        *self
+    }
+}
+
 // Pack blocks of the A matrix for use by the matmul kernel.
 //
 // Pack A matrix of shape `[M, K]` into a series of row panels. Each panel
@@ -223,6 +301,29 @@ pub fn pack_a<const MR: usize>(
     a: Matrix<u8>,
     zero_point: Option<&[u8]>,
 ) {
+    // Specialize for the common case where `a` has unit column stride, as this
+    // enables vectorization of inner loops.
+    if let Some(layout) = RowMajorLayout::from_layout(*a.layout()) {
+        pack_a_impl::<MR, _>(
+            out,
+            TensorBase::from_storage_and_layout(a.storage(), layout),
+            zero_point,
+        )
+    } else {
+        pack_a_impl::<MR, _>(out, a, zero_point)
+    }
+}
+
+// Disable inlining here because it interferes with vectorization when `L = RowMajorLayout`.
+#[inline(never)]
+fn pack_a_impl<const MR: usize, L>(
+    out: &mut [MaybeUninit<u8>],
+    a: TensorBase<ViewData<u8>, L>,
+    zero_point: Option<&[u8]>,
+) where
+    L: Clone + for<'a> Layout<Index<'a> = [usize; 2]>,
+    [usize; 2]: AsIndex<L>,
+{
     let [a_rows, a_cols] = a.shape();
     assert_eq!(out.len(), packed_a_layout::<MR>(a_rows, a_cols).size());
 
@@ -387,8 +488,16 @@ mod tests {
         let mut rng = XorShiftRng::new(5678);
         for m in 1..MR * 2 {
             for k in 1..K_TILE * 2 {
+                // Test row-major and non-row major inputs, as the implementation
+                // has a fast path for row-major layouts.
+
+                // Row major layout
                 let mat = NdTensor::rand([m, k], &mut rng);
                 pack_a_matrix(mat.view());
+
+                // Column major layout
+                let mat = NdTensor::rand([k, m], &mut rng);
+                pack_a_matrix(mat.transposed().view());
             }
         }
     }
