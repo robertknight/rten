@@ -357,6 +357,18 @@ impl Pattern {
             _ => false,
         }
     }
+
+    /// Return true if this pattern contains a symbol with a given name.
+    pub fn contains_symbol(&self, name: &str) -> bool {
+        match &*self.kind {
+            PatternKind::Operator(op) => {
+                op.name == name || op.inputs.iter().any(|pat| pat.contains_symbol(name))
+            }
+            PatternKind::Constant(_) => false,
+            PatternKind::Symbol(sym_pat) => sym_pat.name == name,
+            PatternKind::AnyOf(patterns) => patterns.iter().any(|pat| pat.contains_symbol(name)),
+        }
+    }
 }
 
 impl From<PatternKind> for Pattern {

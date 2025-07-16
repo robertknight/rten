@@ -152,7 +152,18 @@ impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
     type State = Pattern;
 
     fn prepare(&self, _: &Graph) -> Pattern {
-        self.0.pattern()
+        let pattern = self.0.pattern();
+
+        // Sanity check: Make sure input symbols appear in the pattern.
+        for input in self.0.inputs() {
+            assert!(
+                pattern.contains_symbol(input),
+                "pattern does not contain symbol \"{}\"",
+                input
+            );
+        }
+
+        pattern
     }
 
     fn maybe_fuse(
