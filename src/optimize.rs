@@ -368,7 +368,7 @@ impl GraphOptimizer {
             &DynFusion(GeluFusion {}.into_visitor()),
             &DynFusion(ApproxGeluFusion {}.into_visitor()),
             // Normalization fusions
-            &DynFusion(LayerNormalizationFusion {}),
+            &DynFusion(LayerNormalizationFusion {}.into_visitor()),
             &DynFusion(RmsNormalizationFusion {}.into_visitor()),
             // Matmul fusions
             &DynFusion(MatMulAddFusion {}.into_visitor()),

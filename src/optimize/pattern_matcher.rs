@@ -271,6 +271,9 @@ impl Pattern {
     }
 
     /// Create a pattern that matches any pattern from a list.
+    ///
+    /// Patterns are matched from left-to-right. This means that if one pattern
+    /// is an extension of another, the extension should be listed first.
     pub fn any_of(patterns: Vec<Pattern>) -> Pattern {
         PatternKind::AnyOf(patterns).into()
     }
