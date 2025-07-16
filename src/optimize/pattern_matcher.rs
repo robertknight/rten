@@ -1,4 +1,5 @@
 use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::rc::Rc;
 
 use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode};
 use crate::value::ValueView;
@@ -160,6 +161,18 @@ pub struct SymbolPattern {
     constant: bool,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+enum PatternKind {
+    /// Matches an operator.
+    Operator(OpPattern),
+    /// Matches a constant value.
+    Constant(ConstantPattern),
+    /// Matches either a constant or a value.
+    Symbol(SymbolPattern),
+    /// Matches any pattern from a set.
+    AnyOf(Vec<Pattern>),
+}
+
 /// Specifies a pattern for a subgraph within a [`Graph`].
 ///
 /// Patterns consist of matchers for operators, constants and symbols
@@ -172,25 +185,19 @@ pub struct SymbolPattern {
 /// `Add` operator that takes the float constant `1.0` and a free variable `x`
 /// as inputs.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Pattern {
-    /// Matches an operator.
-    Operator(OpPattern),
-    /// Matches a constant value.
-    Constant(ConstantPattern),
-    /// Matches either a constant or a value.
-    Symbol(SymbolPattern),
-    /// Matches any pattern from a set.
-    AnyOf(Vec<Pattern>),
+pub struct Pattern {
+    kind: Rc<PatternKind>,
 }
 
 impl Pattern {
     /// Create a pattern that matches an operator.
     pub fn operator<I: Into<Vec<Pattern>>>(name: &'static str, inputs: I) -> Pattern {
-        Pattern::Operator(OpPattern {
+        PatternKind::Operator(OpPattern {
             name,
             inputs: inputs.into(),
             key: None,
         })
+        .into()
     }
 
     /// Create a pattern that matches a binary operator.
@@ -212,24 +219,24 @@ impl Pattern {
     /// Set the identifier for a pattern, used to look up the node ID in a
     /// match using [`Match::node_id`].
     pub fn with_name(self, name: &'static str) -> Pattern {
-        match self {
-            Pattern::Operator(mut op) => {
+        let mut kind = self.kind.clone();
+
+        match Rc::make_mut(&mut kind) {
+            PatternKind::Operator(ref mut op) => {
                 op.key = Some(name);
-                Pattern::Operator(op)
             }
-            Pattern::Symbol(mut symbol) => {
+            PatternKind::Symbol(mut symbol) => {
                 symbol.name = name;
-                Pattern::Symbol(symbol)
             }
-            // Constants don't currently support keys.
-            Pattern::Constant(constant) => Pattern::Constant(constant),
-            Pattern::AnyOf(patterns) => Pattern::AnyOf(patterns),
+            PatternKind::Constant(_) | PatternKind::AnyOf(_) => {}
         }
+
+        Self { kind }
     }
 
     /// Create a pattern that matches a constant node with a given value.
     pub fn constant(value: f32) -> Pattern {
-        Pattern::Constant(ConstantPattern::new(value))
+        PatternKind::Constant(ConstantPattern::new(value)).into()
     }
 
     /// Create a pattern that matches a constant node with a given value.
@@ -237,7 +244,7 @@ impl Pattern {
     /// Unlike [`constant`](Self::constant) the value must match exactly with
     /// no tolerance.
     pub fn exact_constant(value: f32) -> Pattern {
-        Pattern::Constant(ConstantPattern::exact(value))
+        PatternKind::Constant(ConstantPattern::exact(value)).into()
     }
 
     /// Create a pattern that matches any value.
@@ -245,25 +252,30 @@ impl Pattern {
     /// In order for a pattern to match a node, all symbols with the same name
     /// must resolve to the same node.
     pub fn symbol(name: &'static str) -> Pattern {
-        Pattern::Symbol(SymbolPattern {
+        PatternKind::Symbol(SymbolPattern {
             name,
             constant: false,
         })
+        .into()
     }
 
     /// Create a pattern that matches a constant.
     ///
     /// Unlike [`constant`](Self::constant), the value of the constant is not specified.
     pub fn const_symbol(name: &'static str) -> Pattern {
-        Pattern::Symbol(SymbolPattern {
+        PatternKind::Symbol(SymbolPattern {
             name,
             constant: true,
         })
+        .into()
     }
 
     /// Create a pattern that matches any pattern from a list.
+    ///
+    /// Patterns are matched from left-to-right. This means that if one pattern
+    /// is an extension of another, the extension should be listed first.
     pub fn any_of(patterns: Vec<Pattern>) -> Pattern {
-        Pattern::AnyOf(patterns)
+        PatternKind::AnyOf(patterns).into()
     }
 
     /// Test this pattern is a subgraph of a graph.
@@ -289,10 +301,10 @@ impl Pattern {
             return false;
         };
 
-        match (self, node) {
+        match (&*self.kind, node) {
             // Operator patterns can match either an operator node or an
             // operator output.
-            (Pattern::Operator(op_pat), Node::Operator(op_node)) => {
+            (PatternKind::Operator(op_pat), Node::Operator(op_node)) => {
                 if op_pat.matches(op_node, graph, symbols) {
                     if let Some(key) = op_pat.key {
                         symbols.add(key, node_id);
@@ -302,7 +314,7 @@ impl Pattern {
                     false
                 }
             }
-            (Pattern::Operator(op_pat), Node::Value(_)) => {
+            (PatternKind::Operator(op_pat), Node::Value(_)) => {
                 let Some((op_node_id, op_node)) = graph.get_source_node(node_id) else {
                     return false;
                 };
@@ -315,10 +327,10 @@ impl Pattern {
                     false
                 }
             }
-            (Pattern::Constant(const_pat), Node::Constant(const_node)) => {
+            (PatternKind::Constant(const_pat), Node::Constant(const_node)) => {
                 const_pat.matches(const_node)
             }
-            (Pattern::Symbol(sym_pat), Node::Constant(_) | Node::Value(_)) => {
+            (PatternKind::Symbol(sym_pat), Node::Constant(_) | Node::Value(_)) => {
                 if sym_pat.constant && !matches!(node, Node::Constant(_)) {
                     return false;
                 }
@@ -332,7 +344,7 @@ impl Pattern {
                     true
                 }
             }
-            (Pattern::AnyOf(patterns), _) => {
+            (PatternKind::AnyOf(patterns), _) => {
                 for pattern in patterns {
                     symbols.checkpoint();
                     if pattern.test_impl(node_id, graph, symbols) {
@@ -343,6 +355,26 @@ impl Pattern {
                 false
             }
             _ => false,
+        }
+    }
+
+    /// Return true if this pattern contains a symbol with a given name.
+    pub fn contains_symbol(&self, name: &str) -> bool {
+        match &*self.kind {
+            PatternKind::Operator(op) => {
+                op.name == name || op.inputs.iter().any(|pat| pat.contains_symbol(name))
+            }
+            PatternKind::Constant(_) => false,
+            PatternKind::Symbol(sym_pat) => sym_pat.name == name,
+            PatternKind::AnyOf(patterns) => patterns.iter().any(|pat| pat.contains_symbol(name)),
+        }
+    }
+}
+
+impl From<PatternKind> for Pattern {
+    fn from(kind: PatternKind) -> Pattern {
+        Pattern {
+            kind: Rc::new(kind),
         }
     }
 }
@@ -390,7 +422,7 @@ mod tests {
     use super::Pattern;
     use crate::graph::builder::Expr;
     use crate::graph::{Graph, Node};
-    use crate::ops::Abs;
+    use crate::ops::{Abs, Reciprocal, Sqrt};
 
     /// Create a graph that implements the softsign function `x / 1 + |x|`.
     fn softsign_graph() -> Graph {
@@ -500,5 +532,39 @@ mod tests {
         let abs_node_id = pat_match.node_id("abs_op").unwrap();
         let abs_op = graph.get_node(abs_node_id).unwrap();
         assert!(matches!(abs_op, Node::Operator(op) if op.operator().name() == "Abs"));
+    }
+
+    #[test]
+    fn test_shared_sub_pattern() {
+        let sqrt_expr = Expr::value("x").unary(Sqrt {});
+        let rsqrt_div_graph = (Expr::constant(1.) / sqrt_expr.clone()).build_graph(["x"]);
+        let rsqrt_rcp_graph = sqrt_expr.unary(Reciprocal {}).build_graph(["x"]);
+
+        // Pattern which wraps a common inner pattern in multiple alternative
+        // outer patterns.
+        let sqrt_pat = Pattern::unary_op("Sqrt", Pattern::symbol("x"));
+        let rsqrt_pat = Pattern::any_of(
+            [
+                1. / sqrt_pat.clone(),
+                Pattern::unary_op("Reciprocal", sqrt_pat),
+            ]
+            .into(),
+        );
+
+        let div_match = rsqrt_pat
+            .test(rsqrt_div_graph.output_ids()[0], &rsqrt_div_graph)
+            .unwrap();
+        assert_eq!(
+            div_match.node_id("x").unwrap(),
+            rsqrt_div_graph.input_ids()[0]
+        );
+
+        let rcp_match = rsqrt_pat
+            .test(rsqrt_rcp_graph.output_ids()[0], &rsqrt_rcp_graph)
+            .unwrap();
+        assert_eq!(
+            rcp_match.node_id("x").unwrap(),
+            rsqrt_rcp_graph.input_ids()[0]
+        );
     }
 }

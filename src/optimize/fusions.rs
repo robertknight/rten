@@ -152,7 +152,18 @@ impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
     type State = Pattern;
 
     fn prepare(&self, _: &Graph) -> Pattern {
-        self.0.pattern()
+        let pattern = self.0.pattern();
+
+        // Sanity check: Make sure input symbols appear in the pattern.
+        for input in self.0.inputs() {
+            assert!(
+                pattern.contains_symbol(input),
+                "pattern does not contain symbol \"{}\"",
+                input
+            );
+        }
+
+        pattern
     }
 
     fn maybe_fuse(
@@ -167,7 +178,7 @@ impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
             .0
             .inputs()
             .iter()
-            .map(|name| Some(pat_match.node_id(name).expect("missing symbol")))
+            .map(|name| pat_match.node_id(name))
             .collect();
         let fused_op = self.0.maybe_fuse(&pat_match, graph)?;
         let fusion = Fusion::from_op(
@@ -455,22 +466,11 @@ fn op_applied_to_last_axis<Op: OperatorAxis + 'static>(graph: &Graph, node_id: N
 /// Identify and fuse common patterns for `LayerNormalization(X)`.
 pub struct LayerNormalizationFusion {}
 
-pub struct LayerNormFusionState {
-    center_pat: Pattern,
-    normalize_variance_pat: Pattern,
-    scale_pat: Pattern,
-    shift_scale_pat: Pattern,
-}
+impl PatternFusion for LayerNormalizationFusion {
+    type Operator = LayerNormalization;
 
-impl FusionVisitor for LayerNormalizationFusion {
-    type State = LayerNormFusionState;
-
-    fn prepare(&self, _graph: &Graph) -> Self::State {
+    fn pattern(&self) -> Pattern {
         let x = Pattern::symbol("x");
-
-        // LayerNormalization has three steps. Pattern matching only supports a
-        // single expression, so we use three patterns and match them in reverse
-        // order (ie. starting from the output of the final step).
 
         // First step: Center values
         let center_pat =
@@ -478,62 +478,32 @@ impl FusionVisitor for LayerNormalizationFusion {
 
         // Middle step: Normalize variance
         let epsilon = Pattern::const_symbol("epsilon");
-        let normalize_variance_pat = x.clone()
+        let normalize_variance_pat = center_pat.clone()
             / Pattern::unary_op(
                 "Sqrt",
                 epsilon
-                    + Pattern::unary_op("ReduceMean", Pattern::binary_op("Pow", x.clone(), 2.0))
-                        .with_name("norm_mean"),
+                    + Pattern::unary_op(
+                        "ReduceMean",
+                        Pattern::binary_op("Pow", center_pat.clone(), 2.0),
+                    )
+                    .with_name("norm_mean"),
             );
 
         // Final step: Scale, and optionally shift, the normalized values
         let bias = Pattern::const_symbol("bias");
         let scale = Pattern::const_symbol("scale");
-        let shift_scale_pat = (x.clone() * scale.clone()) + bias;
-        let scale_pat = x.clone() * scale;
+        let shift_scale_pat = (normalize_variance_pat.clone() * scale.clone()) + bias;
+        let scale_pat = normalize_variance_pat.clone() * scale;
 
-        LayerNormFusionState {
-            center_pat,
-            normalize_variance_pat,
-            shift_scale_pat,
-            scale_pat,
-        }
+        Pattern::any_of([shift_scale_pat, scale_pat].into())
     }
 
-    fn maybe_fuse(
-        &self,
-        state: &LayerNormFusionState,
-        graph: &Graph,
-        op_node_id: NodeId,
-        op_node: &OperatorNode,
-    ) -> Option<Fusion> {
-        let LayerNormFusionState {
-            center_pat,
-            normalize_variance_pat,
-            scale_pat,
-            shift_scale_pat,
-        } = state;
+    fn inputs(&self) -> &[&str] {
+        &["x", "scale", "bias"]
+    }
 
-        let (shift_scale_input, bias_input, scale_input) =
-            if let Some(shift_scale_match) = shift_scale_pat.test(op_node_id, graph) {
-                // Found match for scale + bias.
-                let shift_scale_input = shift_scale_match.node_id("x").unwrap();
-                let bias_input = shift_scale_match.node_id("bias").unwrap();
-                let scale_input = shift_scale_match.node_id("scale").unwrap();
-                (shift_scale_input, Some(bias_input), scale_input)
-            } else if let Some(scale_match) = scale_pat.test(op_node_id, graph) {
-                // Found match for scale only.
-                let x_input = scale_match.node_id("x").unwrap();
-                let scale_input = scale_match.node_id("scale").unwrap();
-                (x_input, None, scale_input)
-            } else {
-                return None;
-            };
-
-        let norm_match = normalize_variance_pat.test(shift_scale_input, graph)?;
-        let norm_input = norm_match.node_id("x").unwrap();
-        let epsilon_input = norm_match.node_id("epsilon").unwrap();
-        let norm_mean = norm_match.node_id("norm_mean").unwrap();
+    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<LayerNormalization> {
+        let norm_mean = pat_match.node_id("norm_mean").unwrap();
         if !op_applied_to_last_axis::<ReduceMean>(graph, norm_mean) {
             // The LayerNormalization operator supports taking the mean over
             // multiple trailing axes. However this fusion only supports the
@@ -541,24 +511,18 @@ impl FusionVisitor for LayerNormalizationFusion {
             return None;
         }
 
-        let center_match = center_pat.test(norm_input, graph)?;
-        let center_input = center_match.node_id("x").unwrap();
-        let center_mean = center_match.node_id("center_mean").unwrap();
+        let center_mean = pat_match.node_id("center_mean").unwrap();
         if !op_applied_to_last_axis::<ReduceMean>(graph, center_mean) {
             return None;
         }
 
+        let epsilon_input = pat_match.node_id("epsilon").unwrap();
         let epsilon = graph.get_scalar(epsilon_input)?;
 
-        Some(Fusion::from_op(
-            op_node.name(),
-            Arc::new(LayerNormalization {
-                axis: -1,
-                epsilon: Some(epsilon),
-            }),
-            &[Some(center_input), Some(scale_input), bias_input],
-            op_node.output_ids(),
-        ))
+        Some(LayerNormalization {
+            axis: -1,
+            epsilon: Some(epsilon),
+        })
     }
 }
 
