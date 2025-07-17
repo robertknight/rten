@@ -37,15 +37,22 @@ pub enum Lhs<'a, T> {
     },
 }
 
-/// Metadata about a packed block of an input matrix.
+/// Layout metadata for a packed block of an input matrix.
 ///
 /// The packed block is expected to be organized as a sequence of panels with
-/// stride [`panel_stride`](PackedInfo::panel_stride), but the kernel is
-/// otherwise free to choose the layout.
+/// stride [`panel_stride`](PackedInfo::panel_stride), where each panel contains
+/// elements and associated metadata for an `MR x KC` (for packed LHS) or
+/// `KC x NR` (for packed RHS) block of the input. The kernel is free to choose
+/// the layout within each panel.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PackedLayout {
+    /// Size required for a packed block.
     size: usize,
+
+    /// Minimum alignment required for a packed block.
     align: usize,
+
+    /// The stride between panels in the packed block.
     panel_stride: usize,
 
     /// True if the input must be packed to be used by the kernel.
