@@ -141,21 +141,22 @@ pub trait PatternFusion {
     where
         Self: Sized + 'static,
     {
-        PatternFusionVisitor(self)
+        PatternFusionVisitor::new(self)
     }
 }
 
 /// Wraps a [`PatternFusion`] to implement [`FusionVisitor`].
-struct PatternFusionVisitor<PF: PatternFusion + 'static>(PF);
+struct PatternFusionVisitor<PF: PatternFusion + 'static> {
+    fusion: PF,
+    pattern: Pattern,
+}
 
-impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
-    type State = Pattern;
-
-    fn prepare(&self, _: &Graph) -> Pattern {
-        let pattern = self.0.pattern();
+impl<PF: PatternFusion + 'static> PatternFusionVisitor<PF> {
+    fn new(fusion: PF) -> Self {
+        let pattern = fusion.pattern();
 
         // Sanity check: Make sure input symbols appear in the pattern.
-        for input in self.0.inputs() {
+        for input in fusion.inputs() {
             assert!(
                 pattern.contains_symbol(input),
                 "pattern does not contain symbol \"{}\"",
@@ -163,7 +164,17 @@ impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
             );
         }
 
-        pattern
+        Self { fusion, pattern }
+    }
+}
+
+impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
+    type State = Pattern;
+
+    fn prepare(&self, _: &Graph) -> Pattern {
+        // Patterns are ref-counted and don't depend on the pattern, so we can
+        // create them once and do a cheap clone before each graph traversal.
+        self.pattern.clone()
     }
 
     fn maybe_fuse(
@@ -175,12 +186,12 @@ impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
     ) -> Option<Fusion> {
         let pat_match = pattern.test(op_node_id, graph)?;
         let input_ids: Vec<_> = self
-            .0
+            .fusion
             .inputs()
             .iter()
             .map(|name| pat_match.node_id(name))
             .collect();
-        let fused_op = self.0.maybe_fuse(&pat_match, graph)?;
+        let fused_op = self.fusion.maybe_fuse(&pat_match, graph)?;
         let fusion = Fusion::from_op(
             op_node.name(),
             Arc::new(fused_op),
