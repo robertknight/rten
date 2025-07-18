@@ -838,6 +838,74 @@ fn test_multiple_outputs() {
 }
 
 #[test]
+fn test_ignore_unused_outputs() {
+    let mut g = Graph::new();
+    let input_id = g.add_value(Some("input"), None, None);
+    let left_split_out = g.add_value(Some("left_split"), None, None);
+
+    // Add an operator which produces two outputs, but the graph only has one
+    // output.
+    let split_op = Split::new();
+
+    g.add_op(
+        Some("split"),
+        Arc::new(split_op),
+        &[Some(input_id)],
+        &[Some(left_split_out)],
+    );
+
+    let input = Tensor::from([1.0, 2.0, 3.0, 4.0, 5.0]);
+    let mut results = g
+        .run(
+            vec![(input_id, input.into())],
+            &[left_split_out],
+            None,
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    let left_split = results.remove(0).into_tensor::<f32>().unwrap();
+    assert_eq!(left_split.to_vec(), &[1.0, 2.0]);
+}
+
+#[test]
+fn test_not_enough_outputs() {
+    let mut g = Graph::new();
+    let input_id = g.add_value(Some("input"), None, None);
+    let out_1 = g.add_value(Some("out-1"), None, None);
+    let out_2 = g.add_value(Some("out-2"), None, None);
+    let out_3 = g.add_value(Some("out-3"), None, None);
+
+    // Add an operator which produces two outputs, but the graph node expects
+    // three.
+    let split_op = Split::new();
+
+    g.add_op(
+        Some("split"),
+        Arc::new(split_op),
+        &[Some(input_id)],
+        &[out_1, out_2, out_3].map(Some),
+    );
+
+    let input = Tensor::from([1.0, 2.0, 3.0, 4.0, 5.0]);
+    let result = g.run(
+        vec![(input_id, input.into())],
+        &[out_1, out_2, out_3],
+        None,
+        None,
+    );
+
+    assert_eq!(
+        result,
+        Err(RunError::OutputMismatch {
+            name: "split".to_string(),
+            error: "operator returned 2 outputs but expected 3".to_string(),
+        })
+    );
+}
+
+#[test]
 fn test_partial_run() -> Result<(), Box<dyn Error>> {
     // Set up graph like:
     //
