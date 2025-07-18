@@ -71,7 +71,13 @@ pub enum RunError {
 
     /// The output of a graph operator did not match expectations (eg. the
     /// count, types or shapes of outputs did not match what was expected.)
-    OutputMismatch(&'static str),
+    OutputMismatch {
+        /// Name of the operator node.
+        name: String,
+
+        /// Error details.
+        error: String,
+    },
 }
 
 impl RunError {
@@ -132,7 +138,9 @@ impl fmt::Display for RunError {
                 }
                 write!(f, ")")
             }
-            RunError::OutputMismatch(err) => write!(f, "output mismatch {:?}", err),
+            RunError::OutputMismatch { name, error } => {
+                write!(f, "operator \"{}\" output mismatch: {:?}", name, error)
+            }
         }
     }
 }
@@ -1091,10 +1099,16 @@ impl Graph {
 
             // Extract outputs or fail if an error occurred.
             let outputs = op_result?;
-            if op_node.output_ids().len() != outputs.len() {
-                return Err(RunError::OutputMismatch(
-                    "operator output count did not match expected count",
-                ));
+            let expected_num_outputs = op_node.output_ids().len();
+            if expected_num_outputs > outputs.len() {
+                return Err(RunError::OutputMismatch {
+                    name: op_node.name().unwrap_or_default().to_string(),
+                    error: format!(
+                        "operator returned {} outputs but expected {}",
+                        outputs.len(),
+                        expected_num_outputs,
+                    ),
+                });
             }
 
             // Save outputs for future steps.
