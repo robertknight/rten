@@ -99,6 +99,7 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         image: &Im2Col<f32>,
         rows: Range<usize>,
         cols: Range<usize>,
+        _zero_point: Option<f32>,
     ) {
         const NR_REGS: usize = GenericKernel::NR / X32_LANES;
 
@@ -250,6 +251,7 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         image: &Im2Col<i8>,
         rows: Range<usize>,
         cols: Range<usize>,
+        _zero_point: Option<i8>,
     ) {
         const NR_REGS: usize = GenericKernel::NR / 4;
 

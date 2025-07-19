@@ -37,15 +37,22 @@ pub enum Lhs<'a, T> {
     },
 }
 
-/// Metadata about a packed block of an input matrix.
+/// Layout metadata for a packed block of an input matrix.
 ///
 /// The packed block is expected to be organized as a sequence of panels with
-/// stride [`panel_stride`](PackedInfo::panel_stride), but the kernel is
-/// otherwise free to choose the layout.
+/// stride [`panel_stride`](PackedInfo::panel_stride), where each panel contains
+/// elements and associated metadata for an `MR x KC` (for packed LHS) or
+/// `KC x NR` (for packed RHS) block of the input. The kernel is free to choose
+/// the layout within each panel.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PackedLayout {
+    /// Size required for a packed block.
     size: usize,
+
+    /// Minimum alignment required for a packed block.
     align: usize,
+
+    /// The stride between panels in the packed block.
     panel_stride: usize,
 
     /// True if the input must be packed to be used by the kernel.
@@ -224,6 +231,7 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         image: &Im2Col<RhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
+        zero_point: Option<RhsT>,
     );
 
     /// Compute a tile of the output matrix.
@@ -359,27 +367,6 @@ impl<T: GemmOutT, const MR: usize, const NR: usize> TempTile<T, MR, NR> {
             }
         }
     }
-}
-
-/// Extract `len` zero points from `quant`, upconvert to i32 and pad unused
-/// elements in the result with zero.
-fn extract_zero_points<T: Copy + Into<i32>, const MAX_LEN: usize>(
-    quant: Option<QuantParams<T>>,
-    len: usize,
-    adjust: impl Fn(i32) -> i32,
-) -> [i32; MAX_LEN] {
-    let mut zero_points = [0; MAX_LEN];
-    for row in 0..len {
-        zero_points[row] = adjust(0);
-    }
-    if let Some(quant) = quant {
-        #[allow(clippy::manual_memcpy)]
-        for row in 0..len {
-            let val: i32 = quant.zero_point[row].into();
-            zero_points[row] = adjust(val);
-        }
-    }
-    zero_points
 }
 
 /// Trait for computing dot products of SIMD vectors containing 8-bit integers.

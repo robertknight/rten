@@ -5,8 +5,8 @@ use rten_simd::ops::{MaskOps, NumOps};
 use rten_simd::{Isa, Mask, Simd};
 use rten_tensor::{NdTensorView, Storage};
 
-use super::packing::int8::shift_cast_i8_u8;
-use crate::slice_cast::cast_uninit_pod_mut_slice;
+use super::packing::int8::{shift_cast_i8_u8, PackedBMeta};
+use crate::slice_cast::{cast_uninit_pod_mut_slice, AsBytes};
 
 /// Maps rows of an [`Im2Col`] matrix to locations in the source image.
 ///
@@ -215,45 +215,53 @@ impl<T: Copy + Default> Im2Col<'_, T> {
 impl Im2Col<'_, i8> {
     /// Pack part of an image into a packing buffer.
     ///
+    /// The packing buffer contains panels of size `KC * NR`, where `NR` is
+    /// `NR_REGS` times the i32 SIMD width.
+    ///
     /// This method is for use by kernels using int8 dot product instructions
     /// to compute `S::LEN x i32` dot products from two input vectors each
     /// containing `S::LEN x 4 x i8` (or u8) inputs.
     #[inline(always)]
     #[allow(unused)] // Some architectures only
-    pub(super) fn pack_block_i8_dot<I: Isa, const NR_REGS: usize>(
+    pub(super) fn pack_block_i8_dot<I: Isa, const NR: usize, const NR_REGS: usize>(
         &self,
         isa: I,
         out: &mut [MaybeUninit<i8>],
         rows: Range<usize>,
         cols: Range<usize>,
+        zero_point: i8,
     ) {
-        self.pack_block_int8::<_, NR_REGS, false>(isa, out, rows, cols);
+        self.pack_block_int8::<_, NR, NR_REGS, false>(isa, out, rows, cols, zero_point);
     }
 
     /// Variant of [`pack_block_i8_dot`](Self::pack_block_i8_dot) which shifts
     /// i8 values to u8 by adding 128.
     #[inline(always)]
     #[allow(unused)] // Some architectures only
-    pub(super) fn pack_block_i8_dot_cast_u8<I: Isa, const NR_REGS: usize>(
+    pub(super) fn pack_block_i8_dot_cast_u8<I: Isa, const NR: usize, const NR_REGS: usize>(
         &self,
         isa: I,
         out: &mut [MaybeUninit<u8>],
         rows: Range<usize>,
         cols: Range<usize>,
+        zero_point: i8,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        self.pack_block_int8::<_, NR_REGS, true>(isa, out, rows, cols);
+        self.pack_block_int8::<_, NR, NR_REGS, true>(isa, out, rows, cols, zero_point);
     }
 
     #[inline(always)]
-    fn pack_block_int8<I: Isa, const NR_REGS: usize, const CAST_B_U8: bool>(
+    fn pack_block_int8<I: Isa, const NR: usize, const NR_REGS: usize, const CAST_B_U8: bool>(
         &self,
         isa: I,
         out: &mut [MaybeUninit<i8>],
         rows: Range<usize>,
         cols: Range<usize>,
+        zero_point: i8,
     ) {
         let ops = isa.i32();
+        assert_eq!(ops.len() * NR_REGS, NR);
+
         let mask_ops = ops.mask_ops();
 
         const K_TILE: usize = size_of::<i32>() / size_of::<i8>();
@@ -340,16 +348,26 @@ impl Im2Col<'_, i8> {
                 out_offset += ops.len() * NR_REGS * K_TILE;
             }
 
-            // Store column sums at end of each panel.
-            for c_block in 0..NR_REGS {
-                let col_sum_ptr = unsafe { out.as_mut_ptr().add(out_offset) as *mut i32 };
-                for i in 0..ops.len() {
-                    unsafe {
-                        *col_sum_ptr.add(i) = col_sums[c_block][i];
-                    }
-                }
-                out_offset += ops.len() * K_TILE;
+            // Store column sums and zero points at end of each panel.
+            let meta = PackedBMeta::<NR> {
+                // Safety: col_sums is `[i32_vec_len; NR_REGS]` and we checked
+                // `i32_vec_len * NR_REGS == NR`.
+                col_sums: *unsafe {
+                    std::mem::transmute::<&[<I::I32 as Simd>::Array; NR_REGS], &[i32; NR]>(
+                        &col_sums,
+                    )
+                },
+                zero_points: if CAST_B_U8 {
+                    [shift_cast_i8_u8(zero_point) as i32; NR]
+                } else {
+                    [zero_point as i32; NR]
+                },
+            };
+            let meta_bytes = meta.as_bytes();
+            for (i, byte) in meta_bytes.iter().enumerate() {
+                out[out_offset + i].write(*byte as i8);
             }
+            out_offset += meta_bytes.len();
         }
 
         // Sanity check

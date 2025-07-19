@@ -7,12 +7,42 @@
 
 use std::mem::MaybeUninit;
 
+use crate::slice_cast::{AsBytes, FromBytes};
 use rten_tensor::prelude::*;
 use rten_tensor::Matrix;
 
 use super::PackedLayout;
 use super::SliceWriter;
-use crate::slice_cast::cast_pod_slice;
+
+/// Metadata placed at the end of a packed MR x KC panel of the A input.
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct PackedAMeta<const MR: usize> {
+    /// Sum of elements in each row.
+    pub row_sums: [i32; MR],
+
+    /// Zero points for each row.
+    pub zero_points: [i32; MR],
+}
+
+// Safety: PackedAMeta meets requirements for AsBytes, FromBytes.
+unsafe impl<const MR: usize> AsBytes for PackedAMeta<MR> {}
+unsafe impl<const MR: usize> FromBytes for PackedAMeta<MR> {}
+
+/// Metadata placed at the end of a packed KC x NR panel of the B input.
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct PackedBMeta<const NR: usize> {
+    /// Sum of elements in each column.
+    pub col_sums: [i32; NR],
+
+    /// Zero points for each column.
+    pub zero_points: [i32; NR],
+}
+
+// Safety: PackedAMeta meets requirements for AsBytes, FromBytes.
+unsafe impl<const NR: usize> AsBytes for PackedBMeta<NR> {}
+unsafe impl<const NR: usize> FromBytes for PackedBMeta<NR> {}
 
 /// Size of micro tiles of K in the innermost dimension of packed layouts.
 const K_TILE: usize = 4;
@@ -23,13 +53,14 @@ pub fn packed_b_layout<const NR: usize>(b_rows: usize, b_cols: usize) -> PackedL
     let n_panels = b_cols.div_ceil(NR);
     let packed_elements_size = b_rows.div_ceil(K_TILE) * NR * K_TILE;
 
-    // At the end of the buffer are NR x i32 column sums.
-    let col_sums_size = NR * 4;
-    let panel_stride = packed_elements_size + col_sums_size;
-    let size = n_panels * panel_stride;
+    // PackedBMeta should have an align of 4, and packed_elements_size is a
+    // multiple of K_TILE (4), so this should be true.
+    debug_assert_eq!(packed_elements_size % align_of::<PackedBMeta<NR>>(), 0);
 
-    // Use i32 alignment for column sums
-    let align = align_of::<i32>();
+    // At the end of the buffer are the column sums and zero points.
+    let panel_stride = packed_elements_size + size_of::<PackedBMeta<NR>>();
+    let size = n_panels * panel_stride;
+    let align = align_of::<PackedBMeta<NR>>();
 
     PackedLayout::new(size, align, panel_stride)
 }
@@ -43,18 +74,18 @@ pub fn packed_b_layout<const NR: usize>(b_rows: usize, b_cols: usize) -> PackedL
 /// microtile of `A` using dot product instructions. The column sums are used
 /// to handle subtraction of the zero point.
 #[allow(unused)]
-pub fn pack_b<const NR: usize>(out: &mut [MaybeUninit<i8>], b: Matrix<i8>) {
+pub fn pack_b<const NR: usize>(
+    out: &mut [MaybeUninit<i8>],
+    b: Matrix<i8>,
+    zero_points: Option<&[i8]>,
+) {
     pack_b_impl::<NR, _>(
         out,
         b,
+        zero_points,
         |x| x,
-        |out, col_sum| {
-            let bytes = col_sum.to_ne_bytes();
-            for i in 0..4 {
-                unsafe {
-                    out.write_unchecked(bytes[i] as i8);
-                }
-            }
+        |out, meta| {
+            out.write_slice(meta.as_signed_bytes());
         },
     )
 }
@@ -72,14 +103,13 @@ pub fn shift_cast_i8_u8(x: i8) -> u8 {
 /// packing, shifting the values by 128 to preserve the position of each value
 /// within the numeric range.
 #[allow(unused)]
-pub fn pack_b_cast_i8_u8<const NR: usize>(out: &mut [MaybeUninit<u8>], b: Matrix<i8>) {
-    pack_b_impl::<NR, _>(out, b, shift_cast_i8_u8, |out, col_sum| {
-        let bytes = col_sum.to_ne_bytes();
-        for i in 0..4 {
-            unsafe {
-                out.write_unchecked(bytes[i]);
-            }
-        }
+pub fn pack_b_cast_i8_u8<const NR: usize>(
+    out: &mut [MaybeUninit<u8>],
+    b: Matrix<i8>,
+    zero_points: Option<&[i8]>,
+) {
+    pack_b_impl::<NR, _>(out, b, zero_points, shift_cast_i8_u8, |out, meta| {
+        out.write_slice(meta.as_bytes())
     })
 }
 
@@ -91,8 +121,9 @@ impl Byte for i8 {}
 fn pack_b_impl<const NR: usize, T: Byte>(
     out: &mut [MaybeUninit<T>],
     b: Matrix<i8>,
+    zero_point: Option<&[i8]>,
     cast: impl Fn(i8) -> T,
-    write_col_sum: impl Fn(&mut SliceWriter<T>, i32),
+    write_meta: impl Fn(&mut SliceWriter<T>, PackedBMeta<NR>),
 ) where
     i32: From<T>,
 {
@@ -143,9 +174,21 @@ fn pack_b_impl<const NR: usize, T: Byte>(
         }
 
         // Write column sums
-        for c in 0..NR {
-            write_col_sum(&mut out, col_sums[c]);
+        let mut zero_point_array = [0i32; NR];
+        if let Some(zp) = zero_point {
+            for (i, c) in col_range.enumerate() {
+                zero_point_array[i] = i32::from(cast(zp[c]));
+            }
+        } else {
+            for i in 0..col_range.len() {
+                zero_point_array[i] = i32::from(cast(0));
+            }
         }
+        let meta = PackedBMeta {
+            col_sums,
+            zero_points: zero_point_array,
+        };
+        write_meta(&mut out, meta);
     }
 
     assert!(out.completed());
@@ -157,13 +200,14 @@ pub fn packed_a_layout<const MR: usize>(a_rows: usize, a_cols: usize) -> PackedL
     let n_panels = a_rows.div_ceil(MR);
     let packed_elements_size = a_cols.div_ceil(K_TILE) * MR * K_TILE;
 
-    // At the end of the buffer are MR x i32 row sums.
-    let row_sums_size = MR * 4;
-    let panel_stride = packed_elements_size + row_sums_size;
-    let size = n_panels * panel_stride;
+    // PackedAMeta should have an align of 4, and packed_elements_size is a
+    // multiple of K_TILE (4), so this should be true.
+    debug_assert_eq!(packed_elements_size % align_of::<PackedAMeta<MR>>(), 0);
 
-    // Use i32 alignment for row sums
-    let align = align_of::<i32>();
+    // At the end of the buffer are the row sums and zero points.
+    let panel_stride = packed_elements_size + size_of::<PackedAMeta<MR>>();
+    let size = n_panels * panel_stride;
+    let align = align_of::<PackedAMeta<MR>>();
 
     PackedLayout::new(size, align, panel_stride)
 }
@@ -174,7 +218,11 @@ pub fn packed_a_layout<const MR: usize>(a_rows: usize, a_cols: usize) -> PackedL
 // contains elements from an `[MR, K]` slice of the input and is laid out as `[K
 // / 4, MR, 4]` u8 values, followed by `MR` i32 row sums. The row sums are
 // used to handle subtraction of the zero point.
-pub fn pack_a<const MR: usize>(out: &mut [MaybeUninit<u8>], a: Matrix<u8>) {
+pub fn pack_a<const MR: usize>(
+    out: &mut [MaybeUninit<u8>],
+    a: Matrix<u8>,
+    zero_point: Option<&[u8]>,
+) {
     let [a_rows, a_cols] = a.shape();
     assert_eq!(out.len(), packed_a_layout::<MR>(a_rows, a_cols).size());
 
@@ -227,33 +275,36 @@ pub fn pack_a<const MR: usize>(out: &mut [MaybeUninit<u8>], a: Matrix<u8>) {
         }
 
         // Write row sums
-        for r in 0..MR {
-            let row_sum_u8 = row_sums[r].to_ne_bytes();
-            for i in 0..4 {
-                unsafe {
-                    out.write_unchecked(row_sum_u8[i]);
-                }
+        let mut zero_point_array = [0i32; MR];
+        if let Some(zp) = zero_point {
+            for (i, r) in row_range.enumerate() {
+                zero_point_array[i] = zp[r] as i32;
             }
         }
+        let meta = PackedAMeta {
+            row_sums,
+            zero_points: zero_point_array,
+        };
+        out.write_slice(meta.as_bytes());
     }
 
     assert!(out.completed());
 }
 
 /// Extract the packed elements and row sums from a buffer packed by [`pack_a`].
-pub fn extract_packed_a<const MR: usize>(a: &[u8]) -> (&[u8], &[i32; MR]) {
-    let row_sum_offset = a.len() - MR * size_of::<i32>();
-    let (packed_elements, row_sums) = a.split_at(row_sum_offset);
-    let row_sums: &[i32] = cast_pod_slice(row_sums).unwrap();
-    (packed_elements, row_sums.try_into().unwrap())
+pub fn extract_packed_a<const MR: usize>(a: &[u8]) -> (&[u8], &PackedAMeta<MR>) {
+    assert!(a.len() >= size_of::<PackedAMeta<MR>>());
+    let meta_offset = a.len() - size_of::<PackedAMeta<MR>>();
+    let (packed_elements, meta_bytes) = a.split_at(meta_offset);
+    (packed_elements, PackedAMeta::from_bytes(meta_bytes))
 }
 
 /// Extract the packed elements and column sums from a buffer packed by [`pack_b`].
-pub fn extract_packed_b<const NR: usize>(b: &[u8]) -> (&[u8], &[i32; NR]) {
-    let col_sum_offset = b.len() - NR * size_of::<i32>();
-    let (packed_elements, col_sums) = b.split_at(col_sum_offset);
-    let col_sums: &[i32] = cast_pod_slice(col_sums).unwrap();
-    (packed_elements, col_sums.try_into().unwrap())
+pub fn extract_packed_b<const NR: usize>(b: &[u8]) -> (&[u8], &PackedBMeta<NR>) {
+    assert!(b.len() >= size_of::<PackedBMeta<NR>>());
+    let meta_offset = b.len() - size_of::<PackedBMeta<NR>>();
+    let (packed_elements, meta_bytes) = b.split_at(meta_offset);
+    (packed_elements, PackedBMeta::from_bytes(meta_bytes))
 }
 
 #[cfg(test)]
@@ -275,11 +326,15 @@ mod tests {
         let layout = packed_a_layout::<MR>(mat.rows(), mat.cols());
 
         // Layout must have space for at least each element in the input, plus
-        // row sums as i32 values.
-        assert!(layout.size() >= mat.rows() * mat.cols() + mat.rows() * 4);
+        // row sums and zero points as i32 values.
+        assert!(layout.size() >= mat.rows() * mat.cols() + 2 * mat.rows() * 4);
 
         let mut buf = Vec::with_capacity(layout.size());
-        pack_a::<MR>(&mut buf.spare_capacity_mut()[..layout.size()], mat.view());
+        pack_a::<MR>(
+            &mut buf.spare_capacity_mut()[..layout.size()],
+            mat.view(),
+            None,
+        );
 
         // Safety: `pack_a` initialized `layout.size()` elements.
         unsafe { buf.set_len(layout.size()) }
@@ -295,7 +350,11 @@ mod tests {
         assert!(layout.size() >= mat.rows() * mat.cols() + mat.cols() * 4);
 
         let mut buf = Vec::with_capacity(layout.size());
-        pack_b::<NR>(&mut buf.spare_capacity_mut()[..layout.size()], mat.view());
+        pack_b::<NR>(
+            &mut buf.spare_capacity_mut()[..layout.size()],
+            mat.view(),
+            None,
+        );
 
         // Safety: `pack_b` initialized `layout.size()` elements.
         unsafe { buf.set_len(layout.size()) }
@@ -311,7 +370,11 @@ mod tests {
         assert!(layout.size() >= mat.rows() * mat.cols() + mat.cols() * 4);
 
         let mut buf = Vec::with_capacity(layout.size());
-        pack_b_cast_i8_u8::<NR>(&mut buf.spare_capacity_mut()[..layout.size()], mat.view());
+        pack_b_cast_i8_u8::<NR>(
+            &mut buf.spare_capacity_mut()[..layout.size()],
+            mat.view(),
+            None,
+        );
 
         // Safety: `pack_b` initialized `layout.size()` elements.
         unsafe { buf.set_len(layout.size()) }
@@ -335,10 +398,10 @@ mod tests {
         let mat = NdTensor::<u8, 2>::from([[1, 2], [3, 4]]);
         let packed = pack_a_matrix(mat.view());
 
-        let (packed_elems, row_sums) = extract_packed_a(&packed);
+        let (packed_elems, meta) = extract_packed_a(&packed);
 
         assert!(packed_elems.len() >= mat.rows() * mat.cols());
-        assert_eq!(row_sums, &[3, 7, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(meta.row_sums, [3, 7, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
@@ -357,10 +420,10 @@ mod tests {
         let mat = NdTensor::<i8, 2>::from([[1, 2], [3, 4]]);
         let packed = pack_b_matrix(mat.view());
 
-        let (packed_elems, col_sums) = extract_packed_b(cast_pod_slice(&packed).unwrap());
+        let (packed_elems, meta) = extract_packed_b(cast_pod_slice(&packed).unwrap());
 
         assert!(packed_elems.len() >= mat.rows() * mat.cols());
-        assert_eq!(col_sums, &[4, 6, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(meta.col_sums, [4, 6, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
@@ -368,10 +431,10 @@ mod tests {
         let mat = NdTensor::<i8, 2>::from([[1, 2], [3, 4]]);
         let packed = pack_b_matrix_cast_u8::<2>(mat.view());
 
-        let (packed_elems, col_sums) = extract_packed_b(&packed);
+        let (packed_elems, meta) = extract_packed_b(&packed);
 
         assert!(packed_elems.len() >= mat.rows() * mat.cols());
         assert_eq!(packed_elems, &[129, 131, 0, 0, 130, 132, 0, 0]);
-        assert_eq!(col_sums, &[129 + 131, 130 + 132]);
+        assert_eq!(meta.col_sums, [129 + 131, 130 + 132]);
     }
 }

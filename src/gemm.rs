@@ -97,6 +97,9 @@ pub enum GemmInputB<'a, T> {
     Packed(&'a PackedBMatrix<T>),
 
     /// An image which is transformed into a matrix using an im2col transformation.
+    ///
+    /// Note: When using this type of input with quantized data, the zero point
+    /// is assumed to be the same for every column.
     Im2Col(&'a Im2Col<'a, T>),
 }
 
@@ -868,6 +871,10 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                 im,
                                 depth_range.clone(),
                                 col_start..col_end,
+                                // Zero point is expected to be the same for every column for
+                                // im2col. This should really be captured in the type of
+                                // `zero_point`.
+                                b_quant.map(|q| q.zero_point[0]),
                             ),
                             GemmInputB::Packed(_) => unreachable!(),
                         }

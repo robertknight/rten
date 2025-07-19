@@ -35,6 +35,19 @@ impl<'a, T> SliceWriter<'a, T> {
         self.offset += 1;
     }
 
+    /// Write a slice of elements into the buffer.
+    fn write_slice(&mut self, vals: &[T])
+    where
+        T: Copy,
+    {
+        assert!(self.offset + vals.len() <= self.slice.len());
+        for (i, val) in vals.iter().enumerate() {
+            // Safety: We checked there are at least `vals.len()` remaining elements in `self.slice`.
+            unsafe { self.slice.get_unchecked_mut(self.offset + i).write(*val) };
+        }
+        self.offset += vals.len();
+    }
+
     /// Write `len` copies of `val` to the slice.
     ///
     /// Safety: The number of elements already written must be less than or

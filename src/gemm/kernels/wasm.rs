@@ -5,10 +5,7 @@ use rten_simd::{isa::Wasm32Isa, Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
-use super::{
-    extract_zero_points, Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams,
-    TempTile,
-};
+use super::{Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::{packing, Im2Col};
 use crate::slice_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
@@ -99,6 +96,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
         image: &Im2Col<f32>,
         rows: Range<usize>,
         cols: Range<usize>,
+        _zero_point: Option<f32>,
     ) {
         const NR_REGS: usize = WasmKernel::NR / X32_LANES;
 
@@ -228,10 +226,14 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         a: Matrix<u8>,
         rows: Range<usize>,
         cols: Range<usize>,
-        _quant: Option<QuantParams<u8>>,
+        quant: Option<QuantParams<u8>>,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
+        packing::int8::pack_a::<{ Self::MR }>(
+            out,
+            a.slice((rows.clone(), cols)),
+            quant.map(|q| &q.zero_point[rows]),
+        )
     }
 
     fn packed_b_layout(
@@ -249,9 +251,13 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         b: Matrix<i8>,
         rows: Range<usize>,
         cols: Range<usize>,
-        _quant: Option<QuantParams<i8>>,
+        quant: Option<QuantParams<i8>>,
     ) {
-        packing::int8::pack_b_cast_i8_u8::<{ Self::NR }>(out, b.slice((rows, cols)))
+        packing::int8::pack_b_cast_i8_u8::<{ Self::NR }>(
+            out,
+            b.slice((rows, cols.clone())),
+            quant.map(|q| &q.zero_point[cols]),
+        )
     }
 
     fn pack_im2col(
@@ -260,9 +266,17 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         image: &Im2Col<i8>,
         rows: Range<usize>,
         cols: Range<usize>,
+        zero_point: Option<i8>,
     ) {
-        const NR_REGS: usize = WasmInt8Kernel::NR / X32_LANES;
-        image.pack_block_i8_dot_cast_u8::<_, NR_REGS>(self.isa, out, rows, cols);
+        const NR: usize = WasmInt8Kernel::NR;
+        const NR_REGS: usize = NR / X32_LANES;
+        image.pack_block_i8_dot_cast_u8::<_, NR, NR_REGS>(
+            self.isa,
+            out,
+            rows,
+            cols,
+            zero_point.unwrap_or_default(),
+        );
     }
 
     unsafe fn kernel(
@@ -276,18 +290,16 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         depth: usize,
         _alpha: f32,
         beta: i32,
-        a_quant: Option<QuantParams<u8>>,
-        b_quant: Option<QuantParams<i8>>,
+        _a_quant: Option<QuantParams<u8>>,
+        _b_quant: Option<QuantParams<i8>>,
     ) {
         let a_data = match a {
             Lhs::Packed(data) => data,
             Lhs::Unpacked { .. } => panic!("lhs must be packed"),
         };
 
-        let a_zero_points = extract_zero_points(a_quant, used_rows, |x| x);
-        let b_zero_points = extract_zero_points(b_quant, used_cols, |x| x + I8_U8_SHIFT);
-        let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
-        let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
+        let (a_data, a_meta) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
+        let (b, b_meta) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
         const NR_REGS: usize = WasmInt8Kernel::NR / X32_LANES;
         simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
@@ -300,10 +312,10 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
             used_cols,
             depth,
             beta != 0, // accumulate
-            a_zero_points,
-            b_zero_points,
-            a_row_sums,
-            b_col_sums,
+            a_meta.zero_points,
+            b_meta.zero_points,
+            &a_meta.row_sums,
+            &b_meta.col_sums,
             self.isa,
         )
     }
@@ -323,10 +335,6 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         simd_int8_gemv::<_, true /* CAST_B_U8 */>(self.isa, out, a, b, a_zero, b_zero, self.isa)
     }
 }
-
-/// Adjustment to apply to zero points in kernel where corresponding input
-/// was shifted from i8 to u8 when packing.
-const I8_U8_SHIFT: i32 = 128;
 
 // Safety: This module is only compiled if WASM SIMD is enabled at compile time.
 unsafe impl Int8DotProduct for Wasm32Isa {
