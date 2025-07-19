@@ -231,6 +231,7 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         image: &Im2Col<RhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
+        zero_point: Option<RhsT>,
     );
 
     /// Compute a tile of the output matrix.
@@ -366,27 +367,6 @@ impl<T: GemmOutT, const MR: usize, const NR: usize> TempTile<T, MR, NR> {
             }
         }
     }
-}
-
-/// Extract `len` zero points from `quant`, upconvert to i32 and pad unused
-/// elements in the result with zero.
-fn extract_zero_points<T: Copy + Into<i32>, const MAX_LEN: usize>(
-    quant: Option<QuantParams<T>>,
-    len: usize,
-    adjust: impl Fn(i32) -> i32,
-) -> [i32; MAX_LEN] {
-    let mut zero_points = [0; MAX_LEN];
-    for row in 0..len {
-        zero_points[row] = adjust(0);
-    }
-    if let Some(quant) = quant {
-        #[allow(clippy::manual_memcpy)]
-        for row in 0..len {
-            let val: i32 = quant.zero_point[row].into();
-            zero_points[row] = adjust(val);
-        }
-    }
-    zero_points
 }
 
 /// Trait for computing dot products of SIMD vectors containing 8-bit integers.

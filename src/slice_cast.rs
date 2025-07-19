@@ -142,11 +142,56 @@ pub fn cast_pod_vec<Src: Pod, Dst: Pod>(src: Vec<Src>) -> Option<Vec<Dst>> {
     Some(unsafe { Vec::from_raw_parts(src_ptr as *mut Dst, src_len, src_cap) })
 }
 
+/// Types which can be viewed as a slice of bytes.
+///
+/// # Safety
+///
+/// To implement this trait, types must:
+///
+/// - Have a defined layout (eg. using `#[repr(C)]`)
+/// - Contain no padding bytes or other uninitialized bytes
+/// - Contain no interior mutability
+pub unsafe trait AsBytes: Sized {
+    /// Transmute a reference to a byte slice.
+    fn as_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self as *const Self as *const u8, size_of::<Self>()) }
+    }
+
+    /// Transmute a value to a signed byte slice.
+    fn as_signed_bytes(&self) -> &[i8] {
+        unsafe { std::slice::from_raw_parts(self as *const Self as *const i8, size_of::<Self>()) }
+    }
+}
+
+/// Types which can be transmuted from a slice of bytes.
+///
+/// # Safety
+///
+/// To implement this trait, types must:
+///
+/// - Allow all bit patterns
+/// - Contain no interior mutability
+pub unsafe trait FromBytes: Sized {
+    /// Transmute a reference to a byte slice into a reference to this type.
+    ///
+    /// Panics of the size or alignment of the slice does not match that required
+    /// for `self`.
+    fn from_bytes(bytes: &[u8]) -> &Self {
+        assert!(
+            bytes.len() == size_of::<Self>() && bytes.as_ptr() as usize % align_of::<Self>() == 0
+        );
+        unsafe { &*bytes.as_ptr().cast::<Self>() }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::mem::MaybeUninit;
 
-    use super::{cast_pod_mut_slice, cast_pod_slice, cast_pod_vec, cast_uninit_pod_mut_slice, Pod};
+    use super::{
+        cast_pod_mut_slice, cast_pod_slice, cast_pod_vec, cast_uninit_pod_mut_slice, AsBytes,
+        FromBytes, Pod,
+    };
 
     #[test]
     fn test_cast_pod() {
@@ -217,5 +262,26 @@ mod tests {
         let i8s = cast_uninit_pod_mut_slice::<i32, i8>(&mut i32s).unwrap();
         assert_eq!(i8s.as_ptr(), i32s_ptr as *const MaybeUninit<i8>);
         assert_eq!(i8s.len(), i32s.len() * 4);
+    }
+
+    #[test]
+    fn test_as_bytes_and_from_bytes() {
+        #[derive(Debug, PartialEq)]
+        struct SomeData {
+            field_a: [i32; 2],
+            field_b: [i32; 2],
+        }
+        // Safety: SomeData meets requirements for AsBytes, FromBytes.
+        unsafe impl AsBytes for SomeData {}
+        unsafe impl FromBytes for SomeData {}
+
+        let data = SomeData {
+            field_a: [1, 2],
+            field_b: [3, 4],
+        };
+        let bytes = data.as_bytes();
+
+        let recreated_data = SomeData::from_bytes(bytes);
+        assert_eq!(recreated_data, &data);
     }
 }

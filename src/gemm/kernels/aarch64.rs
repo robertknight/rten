@@ -6,10 +6,7 @@ use rten_simd::isa::ArmNeonIsa;
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
-use super::{
-    extract_zero_points, Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams,
-    TempTile,
-};
+use super::{Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::{packing, Im2Col};
 use crate::slice_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
@@ -96,6 +93,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         image: &Im2Col<f32>,
         rows: Range<usize>,
         cols: Range<usize>,
+        _zero_point: Option<f32>,
     ) {
         const NR_REGS: usize = ArmNeonKernel::NR / X32_LANES;
 
@@ -207,10 +205,14 @@ macro_rules! impl_arm_int8_common {
             a: Matrix<u8>,
             rows: Range<usize>,
             cols: Range<usize>,
-            _quant: Option<QuantParams<u8>>,
+            quant: Option<QuantParams<u8>>,
         ) {
             let out = cast_uninit_pod_mut_slice(out).unwrap();
-            packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
+            packing::int8::pack_a::<{ Self::MR }>(
+                out,
+                a.slice((rows.clone(), cols)),
+                quant.map(|q| &q.zero_point[rows]),
+            )
         }
 
         fn packed_b_layout(
@@ -228,9 +230,13 @@ macro_rules! impl_arm_int8_common {
             b: Matrix<i8>,
             rows: Range<usize>,
             cols: Range<usize>,
-            _quant: Option<QuantParams<i8>>,
+            quant: Option<QuantParams<i8>>,
         ) {
-            packing::int8::pack_b_cast_i8_u8::<{ Self::NR }>(out, b.slice((rows, cols)))
+            packing::int8::pack_b_cast_i8_u8::<{ Self::NR }>(
+                out,
+                b.slice((rows, cols.clone())),
+                quant.map(|q| &q.zero_point[cols]),
+            )
         }
 
         fn pack_im2col(
@@ -239,10 +245,18 @@ macro_rules! impl_arm_int8_common {
             image: &Im2Col<i8>,
             rows: Range<usize>,
             cols: Range<usize>,
+            quant: Option<i8>,
         ) {
             // Safety: Arm Neon is supported
-            const NR_REGS: usize = <$self_type>::NR / X32_LANES;
-            image.pack_block_i8_dot_cast_u8::<_, NR_REGS>(self.isa, out, rows, cols)
+            const NR: usize = <$self_type>::NR;
+            const NR_REGS: usize = NR / X32_LANES;
+            image.pack_block_i8_dot_cast_u8::<_, NR, NR_REGS>(
+                self.isa,
+                out,
+                rows,
+                cols,
+                quant.unwrap_or_default(),
+            )
         }
     };
 }
@@ -284,17 +298,15 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         depth: usize,
         _alpha: f32,
         beta: i32,
-        a_quant: Option<QuantParams<u8>>,
-        b_quant: Option<QuantParams<i8>>,
+        _a_quant: Option<QuantParams<u8>>,
+        _b_quant: Option<QuantParams<i8>>,
     ) {
         let a_data = match a {
             Lhs::Packed(data) => data,
             Lhs::Unpacked { .. } => panic!("lhs must be packed"),
         };
-        let a_zero_points = extract_zero_points(a_quant, used_rows, |x| x);
-        let b_zero_points = extract_zero_points(b_quant, used_cols, |zp| zp + I8_U8_SHIFT);
-        let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
-        let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
+        let (a_data, a_meta) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
+        let (b_data, b_meta) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
         const NR_REGS: usize = ArmInt8DotKernel::NR / X32_LANES;
         simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
@@ -302,15 +314,15 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
             tile_ptr,
             tile_row_stride,
             a_data,
-            b,
+            b_data,
             used_rows,
             used_cols,
             depth,
             beta != 0, // accumulate
-            a_zero_points,
-            b_zero_points,
-            a_row_sums,
-            b_col_sums,
+            a_meta.zero_points,
+            b_meta.zero_points,
+            &a_meta.row_sums,
+            &b_meta.col_sums,
             self.dot_isa,
         )
     }
@@ -364,18 +376,16 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
         depth: usize,
         _alpha: f32,
         beta: i32,
-        a_quant: Option<QuantParams<u8>>,
-        b_quant: Option<QuantParams<i8>>,
+        _a_quant: Option<QuantParams<u8>>,
+        _b_quant: Option<QuantParams<i8>>,
     ) {
         let a_data = match a {
             Lhs::Packed(data) => data,
             Lhs::Unpacked { .. } => panic!("lhs must be packed"),
         };
 
-        let a_zero_points = extract_zero_points(a_quant, used_rows, |x| x);
-        let b_zero_points = extract_zero_points(b_quant, used_cols, |zp| zp + I8_U8_SHIFT);
-        let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
-        let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
+        let (a_data, a_meta) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
+        let (b, b_meta) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
         const NR_REGS: usize = ArmInt8Kernel::NR / X32_LANES;
         simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
@@ -388,10 +398,10 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
             used_cols,
             depth,
             beta != 0, // accumulate
-            a_zero_points,
-            b_zero_points,
-            a_row_sums,
-            b_col_sums,
+            a_meta.zero_points,
+            b_meta.zero_points,
+            &a_meta.row_sums,
+            &b_meta.col_sums,
             NeonDotProd {},
         )
     }
@@ -419,10 +429,6 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
         )
     }
 }
-
-/// Adjustment to apply to zero points in kernel where corresponding input
-/// was shifted from i8 to u8 when packing.
-const I8_U8_SHIFT: i32 = 128;
 
 /// Implementation of int8 dot product using the native UDOT / SDOT instructions.
 #[derive(Copy, Clone)]

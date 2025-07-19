@@ -8,10 +8,7 @@ use rten_tensor::{Matrix, MatrixLayout};
 use rten_simd::isa::Avx512Isa;
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
-use super::{
-    extract_zero_points, Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams,
-    TempTile,
-};
+use super::{Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing;
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
@@ -138,6 +135,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         image: &Im2Col<f32>,
         rows: Range<usize>,
         cols: Range<usize>,
+        _zero_point: Option<f32>,
     ) {
         const NR_REGS: usize = FmaKernel::NR / AVX2_X32_LANES;
 
@@ -346,6 +344,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         image: &Im2Col<f32>,
         rows: Range<usize>,
         cols: Range<usize>,
+        _zero_point: Option<f32>,
     ) {
         #[cfg(feature = "avx512")]
         #[target_feature(enable = "avx512f")]
@@ -510,10 +509,14 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         a: Matrix<u8>,
         rows: Range<usize>,
         cols: Range<usize>,
-        _quant: Option<QuantParams<u8>>,
+        quant: Option<QuantParams<u8>>,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
+        packing::int8::pack_a::<{ Self::MR }>(
+            out,
+            a.slice((rows.clone(), cols)),
+            quant.map(|q| &q.zero_point[rows]),
+        )
     }
 
     fn packed_b_layout(
@@ -531,10 +534,14 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         b: Matrix<i8>,
         rows: Range<usize>,
         cols: Range<usize>,
-        _quant: Option<QuantParams<i8>>,
+        quant: Option<QuantParams<i8>>,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        packing::int8::pack_b::<{ Self::NR }>(out, b.slice((rows, cols)))
+        packing::int8::pack_b::<{ Self::NR }>(
+            out,
+            b.slice((rows, cols.clone())),
+            quant.map(|q| &q.zero_point[cols]),
+        )
     }
 
     fn pack_im2col(
@@ -543,6 +550,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         image: &Im2Col<i8>,
         rows: Range<usize>,
         cols: Range<usize>,
+        zero_point: Option<i8>,
     ) {
         #[target_feature(enable = "avx2")]
         unsafe fn pack_im2col_avx(
@@ -551,15 +559,23 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             image: &Im2Col<i8>,
             rows: Range<usize>,
             cols: Range<usize>,
+            zero_point: Option<i8>,
         ) {
-            const NR_REGS: usize = Avx2Int8Kernel::NR / AVX2_X32_LANES;
+            const NR: usize = Avx2Int8Kernel::NR;
+            const NR_REGS: usize = NR / AVX2_X32_LANES;
 
             let out = cast_uninit_pod_mut_slice(out).unwrap();
-            image.pack_block_i8_dot::<_, NR_REGS>(isa, out, rows, cols);
+            image.pack_block_i8_dot::<_, NR, NR_REGS>(
+                isa,
+                out,
+                rows,
+                cols,
+                zero_point.unwrap_or_default(),
+            );
         }
 
         unsafe {
-            pack_im2col_avx(self.isa, out, image, rows, cols);
+            pack_im2col_avx(self.isa, out, image, rows, cols, zero_point);
         }
     }
 
@@ -575,18 +591,16 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         depth: usize,
         _alpha: f32,
         beta: i32,
-        a_quant: Option<QuantParams<u8>>,
-        b_quant: Option<QuantParams<i8>>,
+        _a_quant: Option<QuantParams<u8>>,
+        _b_quant: Option<QuantParams<i8>>,
     ) {
         let a_data = match a {
             Lhs::Packed(data) => data,
             Lhs::Unpacked { .. } => panic!("lhs must be packed"),
         };
 
-        let a_zero_points = extract_zero_points(a_quant, used_rows, |x| x);
-        let b_zero_points = extract_zero_points(b_quant, used_cols, |x| x);
-        let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
-        let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
+        let (a_data, a_meta) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
+        let (b, b_meta) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
         const NR_REGS: usize = Avx2Int8Kernel::NR / AVX2_X32_LANES;
         simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
@@ -599,10 +613,10 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             used_cols,
             depth,
             beta != 0, // accumulate
-            a_zero_points,
-            b_zero_points,
-            a_row_sums,
-            b_col_sums,
+            a_meta.zero_points,
+            b_meta.zero_points,
+            &a_meta.row_sums,
+            &b_meta.col_sums,
             self.isa,
         )
     }
@@ -722,10 +736,14 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         a: Matrix<u8>,
         rows: Range<usize>,
         cols: Range<usize>,
-        _quant: Option<QuantParams<u8>>,
+        quant: Option<QuantParams<u8>>,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        packing::int8::pack_a::<{ Self::MR }>(out, a.slice((rows, cols)))
+        packing::int8::pack_a::<{ Self::MR }>(
+            out,
+            a.slice((rows.clone(), cols)),
+            quant.map(|q| &q.zero_point[rows]),
+        )
     }
 
     fn packed_b_layout(
@@ -743,10 +761,14 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         b: Matrix<i8>,
         rows: Range<usize>,
         cols: Range<usize>,
-        _quant: Option<QuantParams<i8>>,
+        quant: Option<QuantParams<i8>>,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        packing::int8::pack_b::<{ Self::NR }>(out, b.slice((rows, cols)))
+        packing::int8::pack_b::<{ Self::NR }>(
+            out,
+            b.slice((rows, cols.clone())),
+            quant.map(|q| &q.zero_point[cols]),
+        )
     }
 
     fn pack_im2col(
@@ -755,6 +777,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         image: &Im2Col<i8>,
         rows: Range<usize>,
         cols: Range<usize>,
+        zero_point: Option<i8>,
     ) {
         #[target_feature(enable = "avx512f")]
         #[target_feature(enable = "avx512bw")]
@@ -764,15 +787,23 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             image: &Im2Col<i8>,
             rows: Range<usize>,
             cols: Range<usize>,
+            zero_point: Option<i8>,
         ) {
-            const NR_REGS: usize = Avx512Int8Kernel::NR / AVX512_X32_LANES;
+            const NR: usize = Avx512Int8Kernel::NR;
+            const NR_REGS: usize = NR / AVX512_X32_LANES;
 
             let out = cast_uninit_pod_mut_slice(out).unwrap();
-            image.pack_block_i8_dot::<_, NR_REGS>(isa, out, rows, cols);
+            image.pack_block_i8_dot::<_, NR, NR_REGS>(
+                isa,
+                out,
+                rows,
+                cols,
+                zero_point.unwrap_or_default(),
+            );
         }
 
         unsafe {
-            pack_im2col_avx512(self.isa, out, image, rows, cols);
+            pack_im2col_avx512(self.isa, out, image, rows, cols, zero_point);
         }
     }
 
@@ -797,10 +828,8 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             Lhs::Unpacked { .. } => panic!("lhs must be packed"),
         };
 
-        let a_zero_points = extract_zero_points(a_quant, used_rows, |x| x);
-        let b_zero_points = extract_zero_points(b_quant, used_cols, |x| x);
-        let (a_data, a_row_sums) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
-        let (b, b_col_sums) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
+        let (a_data, a_meta) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
+        let (b, b_meta) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
         const NR_REGS: usize = Avx512Int8Kernel::NR / AVX512_X32_LANES;
         if let Some(vnni_dot) = self.vnni_dot {
@@ -814,10 +843,10 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
                 used_cols,
                 depth,
                 beta != 0, // accumulate
-                a_zero_points,
-                b_zero_points,
-                a_row_sums,
-                b_col_sums,
+                a_meta.zero_points,
+                b_meta.zero_points,
+                &a_meta.row_sums,
+                &b_meta.col_sums,
                 vnni_dot,
             )
         } else {
@@ -831,10 +860,10 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
                 used_cols,
                 depth,
                 beta != 0, // accumulate
-                a_zero_points,
-                b_zero_points,
-                a_row_sums,
-                b_col_sums,
+                a_meta.zero_points,
+                b_meta.zero_points,
+                &a_meta.row_sums,
+                &b_meta.col_sums,
                 self.isa, // Use non-VNNI dot product
             )
         }
