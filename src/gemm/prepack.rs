@@ -81,7 +81,7 @@ pub struct PackedAMatrix<T> {
 
 impl<T> PackedAMatrix<T> {
     /// Return the packed data for a given range along the M and K dimensions.
-    pub(super) fn block(&self, rows: Range<usize>, depth_block_idx: usize) -> LhsBlock<T> {
+    pub(super) fn block(&self, rows: Range<usize>, depth_block_idx: usize) -> LhsBlock<'_, T> {
         let (data, panel_stride) = self.base.block(rows, depth_block_idx);
         LhsBlock::Packed { data, panel_stride }
     }
@@ -128,7 +128,7 @@ pub struct PackedBMatrix<T> {
 
 impl<T> PackedBMatrix<T> {
     /// Return the packed data for a given range along the N and K dimensions.
-    pub(super) fn block(&self, cols: Range<usize>, depth_block_idx: usize) -> RhsBlock<T> {
+    pub(super) fn block(&self, cols: Range<usize>, depth_block_idx: usize) -> RhsBlock<'_, T> {
         let (data, panel_stride) = self.base.block(cols, depth_block_idx);
         RhsBlock {
             data,

@@ -217,7 +217,7 @@ impl Constant {
     }
 
     /// Return the data for this constant as a tensor view.
-    pub fn as_view(&self) -> ValueView {
+    pub fn as_view(&self) -> ValueView<'_> {
         match self {
             Constant::Float(f) => ValueView::FloatTensor(f.view()),
             Constant::Int32(i) => ValueView::Int32Tensor(i.view()),
@@ -250,7 +250,7 @@ impl<T> ConstantNode<T> {
         }
     }
 
-    pub fn view(&self) -> TensorView<T> {
+    pub fn view(&self) -> TensorView<'_, T> {
         match &self.data {
             ConstantNodeData::Owned(data) => data.view(),
             ConstantNodeData::Arc(data) => data.view(),
@@ -318,7 +318,7 @@ impl<T> From<ArcTensorView<T>> for ConstantNodeData<T> {
 
 /// Extract typed data from a [`Constant`].
 pub trait TypedConstant<T> {
-    fn as_view(&self) -> Option<TensorView<T>>;
+    fn as_view(&self) -> Option<TensorView<'_, T>>;
     fn as_scalar(&self) -> Option<T>;
     fn as_vector(&self) -> Option<&[T]>;
 }
@@ -326,7 +326,7 @@ pub trait TypedConstant<T> {
 macro_rules! impl_typed_constant {
     ($type:ty, $variant:ident) => {
         impl TypedConstant<$type> for Constant {
-            fn as_view(&self) -> Option<TensorView<$type>> {
+            fn as_view(&self) -> Option<TensorView<'_, $type>> {
                 match self {
                     Constant::$variant(tensor) => Some(tensor.view()),
                     _ => None,

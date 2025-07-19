@@ -274,13 +274,13 @@ pub trait AutoReturn {
     /// Wrap `self` in a [`PoolRef`].
     ///
     /// When the returned ref is dropped, `self` will be returned to the pool.
-    fn auto_return(self, pool: &TensorPool) -> PoolRef<Self>
+    fn auto_return(self, pool: &TensorPool) -> PoolRef<'_, Self>
     where
         Self: Sized + ExtractBuffer;
 }
 
 impl<EB: ExtractBuffer> AutoReturn for EB {
-    fn auto_return(self, pool: &TensorPool) -> PoolRef<EB> {
+    fn auto_return(self, pool: &TensorPool) -> PoolRef<'_, EB> {
         PoolRef::new(pool, self)
     }
 }

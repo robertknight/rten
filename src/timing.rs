@@ -75,7 +75,7 @@ trait Table {
     }
 
     /// Return a wrapper around this table which implements [`Display`].
-    fn display(&self, indent: usize) -> DisplayTable<Self>
+    fn display(&self, indent: usize) -> DisplayTable<'_, Self>
     where
         Self: Sized,
     {

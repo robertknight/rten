@@ -157,7 +157,9 @@ pub use value::{DataType, Value, ValueOrView, ValueView};
 #[allow(deprecated)]
 pub use ops::{Input, InputOrOutput, Output};
 
-#[allow(dead_code, unused_imports)]
+// `unknown_lints` is for `mismatched_lifetime_syntaxes`. Remove when that
+// reaches stable.
+#[allow(unknown_lints, dead_code, unused_imports, mismatched_lifetime_syntaxes)]
 mod schema_generated;
 
 // This is currently exposed for use in ocrs tests. That crate should probably

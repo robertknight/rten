@@ -444,7 +444,7 @@ impl<'a, T, B: Copy + Default + PartialEq> MatVecOutput<'a, T, B> {
         MatVecOutput { data, beta }
     }
 
-    pub fn slice_mut(&mut self, range: Range<usize>) -> MatVecOutput<T, B> {
+    pub fn slice_mut(&mut self, range: Range<usize>) -> MatVecOutput<'_, T, B> {
         MatVecOutput {
             data: &mut self.data[range],
             beta: self.beta,
@@ -455,7 +455,7 @@ impl<'a, T, B: Copy + Default + PartialEq> MatVecOutput<'a, T, B> {
     ///
     /// This effectively changes the operation from `C = C * beta + AB` to
     /// `C = AB` or `C += AB` depending on the value of beta.
-    pub fn as_bool_beta(&mut self) -> MatVecOutput<T, bool> {
+    pub fn as_bool_beta(&mut self) -> MatVecOutput<'_, T, bool> {
         MatVecOutput {
             data: self.data,
             beta: self.beta != B::default(),

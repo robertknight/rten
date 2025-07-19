@@ -898,7 +898,7 @@ pub trait GeneratorUtils: Iterator<Item = GeneratorItem> + Sized {
 
     /// Decode the tokens to text using a tokenizer.
     #[cfg(feature = "text-decoder")]
-    fn decode(self, tokenizer: &Tokenizer) -> TextDecoder<Self> {
+    fn decode(self, tokenizer: &Tokenizer) -> TextDecoder<'_, Self> {
         TextDecoder::wrap(self, tokenizer)
     }
 

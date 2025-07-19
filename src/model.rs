@@ -664,7 +664,7 @@ impl Model {
     }
 
     /// Return metadata about a node in the model's graph.
-    pub fn node_info(&self, id: NodeId) -> Option<NodeInfo> {
+    pub fn node_info(&self, id: NodeId) -> Option<NodeInfo<'_>> {
         self.graph.get_node(id).map(|node| NodeInfo { node })
     }
 
