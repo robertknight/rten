@@ -81,7 +81,7 @@ pub unsafe trait Storage {
     /// Return a view of a sub-region of the storage.
     ///
     /// Panics if the range is out of bounds.
-    fn slice(&self, range: Range<usize>) -> ViewData<Self::Elem> {
+    fn slice(&self, range: Range<usize>) -> ViewData<'_, Self::Elem> {
         assert_storage_range_valid(self, range.clone());
         ViewData {
             // Safety: We verified that `range` is in bounds.
@@ -92,7 +92,7 @@ pub unsafe trait Storage {
     }
 
     /// Return an immutable view of this storage.
-    fn view(&self) -> ViewData<Self::Elem> {
+    fn view(&self) -> ViewData<'_, Self::Elem> {
         ViewData {
             ptr: self.as_ptr(),
             len: self.len(),
@@ -210,7 +210,7 @@ pub unsafe trait StorageMut: Storage {
     }
 
     /// Return a slice of this storage.
-    fn slice_mut(&mut self, range: Range<usize>) -> ViewMutData<Self::Elem> {
+    fn slice_mut(&mut self, range: Range<usize>) -> ViewMutData<'_, Self::Elem> {
         assert_storage_range_valid(self, range.clone());
         ViewMutData {
             // Safety: We verified that `range` is in bounds.
@@ -221,7 +221,7 @@ pub unsafe trait StorageMut: Storage {
     }
 
     /// Return a mutable view of this storage.
-    fn view_mut(&mut self) -> ViewMutData<Self::Elem> {
+    fn view_mut(&mut self) -> ViewMutData<'_, Self::Elem> {
         ViewMutData {
             ptr: self.as_mut_ptr(),
             len: self.len(),
