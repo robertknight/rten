@@ -84,7 +84,7 @@ impl<'a> CaptureEnv<'a> {
     /// The child `CaptureEnv` will have no captures of its own. This is useful
     /// in loop operators which need to create a new capture environment to pass
     /// to each iteration of a loop.
-    pub fn child(&self) -> CaptureEnv {
+    pub fn child(&self) -> CaptureEnv<'_> {
         CaptureEnv {
             parent: Some(self),
             graph: None,
@@ -110,7 +110,7 @@ impl<'a> CaptureEnv<'a> {
     }
 
     /// Look up an operator input value by name in this environment.
-    pub fn get_input(&self, name: &str) -> Option<ValueView> {
+    pub fn get_input(&self, name: &str) -> Option<ValueView<'_>> {
         if let Some(graph) = self.graph {
             if let Some(node_id) = graph.get_node_id(name) {
                 // If a node by this name exists in this graph, but is a placeholder

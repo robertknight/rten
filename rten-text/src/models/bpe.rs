@@ -227,7 +227,7 @@ impl BpeBuilder {
 /// Lines that are empty or contain only a `#version` marker are ignored.
 pub fn merge_pairs_from_lines(
     lines: &[impl AsRef<str>],
-) -> Vec<(EncodedByteSlice, EncodedByteSlice)> {
+) -> Vec<(EncodedByteSlice<'_>, EncodedByteSlice<'_>)> {
     lines
         .iter()
         .filter_map(|line| {

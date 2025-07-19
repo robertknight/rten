@@ -327,7 +327,7 @@ impl Value {
     }
 
     /// Return a borrowed view of this tensor.
-    pub fn as_view(&self) -> ValueView {
+    pub fn as_view(&self) -> ValueView<'_> {
         match self {
             Self::FloatTensor(ft) => ValueView::FloatTensor(ft.view()),
             Self::Int32Tensor(it) => ValueView::Int32Tensor(it.view()),
@@ -502,7 +502,7 @@ pub enum ValueOrView<'a> {
 
 impl ValueOrView<'_> {
     /// Convert this value to a tensor view.
-    pub fn as_view(&self) -> ValueView {
+    pub fn as_view(&self) -> ValueView<'_> {
         match self {
             ValueOrView::View(inp) => inp.clone(),
             ValueOrView::Value(outp) => outp.as_view(),

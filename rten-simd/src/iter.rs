@@ -13,7 +13,7 @@ pub trait SimdIterable {
     /// If the input length is not divisble by the SIMD vector width, the
     /// iterator yields only the full chunks. The tail is accessible via the
     /// iterator's [`tail`](Iter::tail) method.
-    fn simd_iter<O: NumOps<Self::Elem>>(&self, ops: O) -> Iter<Self::Elem, O>;
+    fn simd_iter<O: NumOps<Self::Elem>>(&self, ops: O) -> Iter<'_, Self::Elem, O>;
 
     /// Iterate over SIMD-sized chunks of the input.
     ///
@@ -29,7 +29,7 @@ impl<T: Elem> SimdIterable for [T] {
     type Elem = T;
 
     #[inline]
-    fn simd_iter<O: NumOps<T>>(&self, ops: O) -> Iter<T, O> {
+    fn simd_iter<O: NumOps<T>>(&self, ops: O) -> Iter<'_, T, O> {
         Iter::new(ops, self)
     }
 

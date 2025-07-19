@@ -55,7 +55,7 @@ impl<'a, T> OutputTiles<'a, T> {
     ///
     /// Safety: The caller must guarantee that every tile is operated on by
     /// only a single thread at a time.
-    pub unsafe fn tile(&self, row: usize, col: usize) -> OutputTile<T> {
+    pub unsafe fn tile(&self, row: usize, col: usize) -> OutputTile<'_, T> {
         assert!(row < self.n_row_tiles && col < self.n_col_tiles);
 
         let start_row = row * self.tile_rows;

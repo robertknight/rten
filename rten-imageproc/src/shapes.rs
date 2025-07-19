@@ -1112,7 +1112,7 @@ impl Polygons {
     }
 
     /// Return an iterator over individual polygons in the sequence.
-    pub fn iter(&self) -> PolygonsIter {
+    pub fn iter(&self) -> PolygonsIter<'_> {
         PolygonsIter {
             points: &self.points,
             polygons: self.polygons.iter(),
