@@ -1,10 +1,10 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use rten_base::iter::range_chunks;
 use rten_tensor::{Alloc, Matrix, MatrixLayout, Storage};
 
 use super::kernels::PackedLayout;
-use crate::iter_util::range_chunks;
 use crate::slice_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 
 pub mod int8;

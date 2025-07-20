@@ -1,7 +1,7 @@
+use rten_base::iter::range_chunks;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
-use crate::iter_util::range_chunks;
 use crate::ops::{
     map_value_view, resolve_axis, OpError, OpRunContext, Operator, OutputList, ValueView,
 };

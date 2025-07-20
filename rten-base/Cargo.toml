@@ -1,0 +1,18 @@
+[package]
+name = "rten-base"
+version = "0.20.0"
+edition = "2024"
+authors = ["Robert Knight"]
+description = "Shared utilities for the rten family of crates"
+license = "MIT or Apache-2.0"
+homepage = "https://github.com/robertknight/rten"
+repository = "https://github.com/robertknight/rten"
+
+[dependencies]
+rayon = { workspace = true }
+
+[lib]
+crate-type = ["lib"]
+
+[lints.clippy]
+uninlined_format_args = "allow"

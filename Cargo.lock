@@ -385,6 +385,7 @@ dependencies = [
  "memmap2",
  "num_cpus",
  "rayon",
+ "rten-base",
  "rten-bench",
  "rten-simd",
  "rten-tensor",
@@ -394,6 +395,13 @@ dependencies = [
  "serde_json",
  "smallvec",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "rten-base"
+version = "0.20.0"
+dependencies = [
+ "rayon",
 ]
 
 [[package]]
@@ -471,6 +479,7 @@ name = "rten-tensor"
 version = "0.20.0"
 dependencies = [
  "rayon",
+ "rten-base",
  "rten-bench",
  "rten-testing",
  "serde",

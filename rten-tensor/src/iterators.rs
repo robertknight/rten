@@ -2,15 +2,15 @@ use std::iter::FusedIterator;
 use std::mem::transmute;
 use std::ops::Range;
 
-use crate::layout::{merge_axes, Layout, NdLayout, OverlapPolicy, RemoveDim};
-use crate::storage::{StorageMut, ViewData, ViewMutData};
+use rten_base::iter::SplitIterator;
 
 use super::{
     AsView, DynLayout, MutLayout, NdTensorView, NdTensorViewMut, TensorBase, TensorViewMut,
 };
+use crate::layout::{merge_axes, Layout, NdLayout, OverlapPolicy, RemoveDim};
+use crate::storage::{StorageMut, ViewData, ViewMutData};
 
 mod parallel;
-pub use parallel::{ParIter, SplitIterator};
 
 /// Tracks the iteration position within a single dimension.
 #[derive(Copy, Clone, Debug, Default)]

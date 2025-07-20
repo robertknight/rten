@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 use std::ops::Range;
 
+use rten_base::iter::range_chunks;
 use rten_tensor::{Alloc, Matrix, MatrixLayout};
 
 use super::packing::PackingBuffer;
 use super::{depth_block_size, GemmError, Kernel, LhsBlock, RhsBlock};
-use crate::iter_util::range_chunks;
 use crate::tensor_pool::{Buffer, ExtractBuffer};
 
 /// Common data and logic for a pre-packed A or B matrix.

@@ -1,9 +1,10 @@
+use rten_base::iter::range_chunks_exact;
 use rten_simd::ops::{Extend, Interleave, NumOps};
 use rten_simd::{Isa, Simd};
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
 use super::{Int8DotProduct, Lhs, MatVecOutput};
-use crate::iter_util::{range_chunks_exact, unroll_loop, unroll_loop_x4};
+use crate::iter_util::{unroll_loop, unroll_loop_x4};
 
 /// Compute an output block of a vector-matrix product ("gemv" in BLAS APIs).
 ///

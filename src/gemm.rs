@@ -11,13 +11,14 @@ use std::mem::MaybeUninit;
 use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
+use rten_base::iter::range_chunks;
 use rten_tensor::prelude::*;
 use rten_tensor::{
     Alloc, AssumeInit, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView,
     Storage,
 };
 
-use crate::iter_util::{range_chunks, MaybeParIter};
+use crate::iter_util::MaybeParIter;
 use crate::number::Identities;
 use crate::slice_cast::Pod;
 

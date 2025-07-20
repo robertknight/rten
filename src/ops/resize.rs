@@ -2,10 +2,10 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
+use rten_base::iter::range_chunks;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
-use crate::iter_util::range_chunks;
 use crate::ops::{
     static_dims, CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
     Value, ValueView,

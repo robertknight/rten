@@ -1,6 +1,7 @@
 [workspace]
 members = [
   ".",
+  "rten-base",
   "rten-cli",
   "rten-generate",
   "rten-imageio",
@@ -47,6 +48,7 @@ include = ["/src", "/CHANGELOG.md", "/README.md"]
 [dependencies]
 flatbuffers = "24.3.25"
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
+rten-base = { path = "./rten-base" }
 rten-tensor = { path = "./rten-tensor", version = "0.20.0" }
 rten-vecmath = { path = "./rten-vecmath", version = "0.19.0" }
 rten-simd = { path = "./rten-simd", version = "0.19.0" }
