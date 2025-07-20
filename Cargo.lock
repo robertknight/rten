@@ -387,6 +387,7 @@ dependencies = [
  "rayon",
  "rten-base",
  "rten-bench",
+ "rten-gemm",
  "rten-simd",
  "rten-tensor",
  "rten-testing",
@@ -438,6 +439,18 @@ dependencies = [
  "serde",
  "serde_json",
  "smallvec",
+]
+
+[[package]]
+name = "rten-gemm"
+version = "0.20.0"
+dependencies = [
+ "rayon",
+ "rten-base",
+ "rten-bench",
+ "rten-simd",
+ "rten-tensor",
+ "rten-testing",
 ]
 
 [[package]]

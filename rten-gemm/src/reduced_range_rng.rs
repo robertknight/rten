@@ -19,7 +19,7 @@ use rten_tensor::RandomSource;
 /// i16::MAX`. A suitable choice is to use i7/u7 values with ranges [-64,
 /// 63] and [0, 127].
 ///
-/// See also https://oneapi-src.github.io/oneDNN/dev_guide_int8_computations.html.
+/// See also <https://oneapi-src.github.io/oneDNN/dev_guide_int8_computations.html>.
 pub struct ReducedRangeRng {
     reduce_range: bool,
     rng: XorShiftRng,

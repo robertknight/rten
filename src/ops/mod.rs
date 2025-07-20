@@ -20,11 +20,11 @@ use std::fmt::{Debug, Display};
 
 use smallvec::SmallVec;
 
+use rten_gemm::PackedBMatrix;
 use rten_tensor::errors::DimensionError;
 use rten_tensor::{MutLayout, Storage, TensorBase};
 
 use crate::downcast::impl_downcastdyn;
-use crate::gemm::PackedBMatrix;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::tensor_pool::TensorPool;
 use crate::timing::Profiler;

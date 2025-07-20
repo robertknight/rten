@@ -6,7 +6,6 @@ use rten_tensor::{Alloc, Matrix, MatrixLayout};
 
 use super::packing::PackingBuffer;
 use super::{depth_block_size, GemmError, Kernel, LhsBlock, RhsBlock};
-use crate::tensor_pool::{Buffer, ExtractBuffer};
 
 /// Common data and logic for a pre-packed A or B matrix.
 ///
@@ -111,11 +110,10 @@ impl<T> PackedAMatrix<T> {
         }
         Ok(())
     }
-}
 
-impl<T> ExtractBuffer for PackedAMatrix<T> {
-    fn extract_buffer(self) -> Option<Buffer> {
-        Some(self.base.data.into_vec().into())
+    /// Return the underlying buffer for this packed matrix.
+    pub fn into_vec(self) -> Vec<u32> {
+        self.base.data.into_vec()
     }
 }
 
@@ -162,11 +160,10 @@ impl<T> PackedBMatrix<T> {
         }
         Ok(())
     }
-}
 
-impl<T> ExtractBuffer for PackedBMatrix<T> {
-    fn extract_buffer(self) -> Option<Buffer> {
-        Some(self.base.data.into_vec().into())
+    /// Return the underlying buffer for this packed matrix.
+    pub fn into_vec(self) -> Vec<u32> {
+        self.base.data.into_vec()
     }
 }
 

@@ -8,8 +8,8 @@ use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
 use super::{Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
-use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
-use crate::gemm::{packing, Im2Col};
+use crate::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
+use crate::{packing, Im2Col};
 
 pub struct ArmNeonKernel {
     isa: ArmNeonIsa,

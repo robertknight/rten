@@ -1,7 +1,7 @@
+use rten_gemm::{ColOffsets, Im2Col, RowOffsets};
 use rten_tensor::prelude::*;
 use rten_tensor::NdTensorView;
 
-use crate::gemm::{ColOffsets, Im2Col, RowOffsets};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::Padding;
 

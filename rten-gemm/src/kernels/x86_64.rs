@@ -10,9 +10,9 @@ use rten_simd::isa::Avx512Isa;
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
 use super::{Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
-use crate::gemm::packing;
-use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
-use crate::gemm::Im2Col;
+use crate::packing;
+use crate::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
+use crate::Im2Col;
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
 pub struct FmaKernel {
