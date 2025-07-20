@@ -1,4 +1,5 @@
 use rayon::prelude::*;
+use rten_base::byte_cast::{cast_pod_vec, Pod};
 use rten_tensor::prelude::*;
 use rten_tensor::{Matrix, NdTensorView, Tensor, TensorView};
 use rten_vecmath::ExtendInit;
@@ -13,7 +14,6 @@ use crate::ops::{
     static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput,
     ValueView,
 };
-use crate::slice_cast::{cast_pod_vec, Pod};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.

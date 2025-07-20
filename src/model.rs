@@ -11,6 +11,7 @@ use std::fs::File;
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
 
+use rten_base::byte_cast::{cast_pod_slice, Pod};
 use rten_tensor::Tensor;
 
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
@@ -25,7 +26,6 @@ use crate::op_registry::{convert_dtype, OpLoadContext, OpRegistry, ReadOpError};
 use crate::optimize::GraphOptimizer;
 use crate::schema_generated as sg;
 use crate::schema_generated::root_as_model;
-use crate::slice_cast::{cast_pod_slice, Pod};
 use crate::timing::TimingSort;
 use crate::value::{DataType, Value, ValueOrView};
 use crate::weight_cache::WeightCache;

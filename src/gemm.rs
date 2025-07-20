@@ -11,6 +11,7 @@ use std::mem::MaybeUninit;
 use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
+use rten_base::byte_cast::Pod;
 use rten_base::iter::range_chunks;
 use rten_tensor::prelude::*;
 use rten_tensor::{
@@ -20,7 +21,6 @@ use rten_tensor::{
 
 use crate::iter_util::MaybeParIter;
 use crate::number::Identities;
-use crate::slice_cast::Pod;
 
 mod errors;
 mod im2col;

@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use rten_base::byte_cast::cast_pod_slice;
 use rten_tensor::Tensor;
 use rten_testing::TestCases;
 
@@ -14,7 +15,6 @@ use crate::ops::{
     MatMulInteger, Neg, Pow, ReduceMean, RmsNormalization, Shape, Sigmoid, Slice, Softmax, Sqrt,
     Swish, Tanh, Transpose,
 };
-use crate::slice_cast::cast_pod_slice;
 use crate::{DataType, Dimension};
 
 fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {

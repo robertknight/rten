@@ -2,6 +2,7 @@ use std::arch::aarch64::{int32x4_t, int8x16_t};
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use rten_base::byte_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 use rten_simd::isa::ArmNeonIsa;
 use rten_tensor::{Matrix, MatrixLayout};
 
@@ -9,7 +10,6 @@ use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatc
 use super::{Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::{packing, Im2Col};
-use crate::slice_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 
 pub struct ArmNeonKernel {
     isa: ArmNeonIsa,

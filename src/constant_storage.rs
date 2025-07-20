@@ -132,10 +132,10 @@ pub type ArcTensorView<T> = TensorBase<ArcSlice<T>, DynLayout>;
 mod tests {
     use std::sync::Arc;
 
+    use rten_base::byte_cast::cast_pod_slice;
     use rten_tensor::prelude::*;
 
     use super::{ArcSlice, ArcTensorView, ConstantStorage};
-    use crate::slice_cast::cast_pod_slice;
 
     /// Convert a `Vec<i32>` to native-endian bytes.
     fn vec_to_ne_bytes(vec: Vec<i32>) -> Vec<u8> {

@@ -1,3 +1,5 @@
+//! Cast values and slices to/from bytes.
+
 use std::alloc::Layout;
 use std::mem::{ManuallyDrop, MaybeUninit};
 
@@ -189,8 +191,8 @@ mod tests {
     use std::mem::MaybeUninit;
 
     use super::{
-        cast_pod_mut_slice, cast_pod_slice, cast_pod_vec, cast_uninit_pod_mut_slice, AsBytes,
-        FromBytes, Pod,
+        AsBytes, FromBytes, Pod, cast_pod_mut_slice, cast_pod_slice, cast_pod_vec,
+        cast_uninit_pod_mut_slice,
     };
 
     #[test]

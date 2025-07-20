@@ -1,6 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use rten_base::byte_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 use rten_simd::{isa::Avx2Isa, Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
@@ -12,7 +13,6 @@ use super::{Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams
 use crate::gemm::packing;
 use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::gemm::Im2Col;
-use crate::slice_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
 pub struct FmaKernel {
