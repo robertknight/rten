@@ -1,13 +1,13 @@
 use rayon::prelude::*;
 use std::mem::MaybeUninit;
 
+use rten_base::num::IsNaN;
 use rten_tensor::prelude::*;
 use rten_tensor::{
     to_slice_items, Lane, ResizeLayout, SliceItem, StorageMut, Tensor, TensorView, TensorViewMut,
 };
 use smallvec::SmallVec;
 
-use crate::number::IsNaN;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
     map_value_view, resolve_axis, resolve_index, IntoOpResult, OpError, OpRunContext, Operator,

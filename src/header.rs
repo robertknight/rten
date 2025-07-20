@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::number::LeBytes;
+use rten_base::num::LeBytes;
 
 /// Read little-endian encoded primitive values from a byte buffer.
 struct ValueReader<'a> {

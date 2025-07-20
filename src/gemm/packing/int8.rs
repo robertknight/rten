@@ -7,7 +7,7 @@
 
 use std::mem::MaybeUninit;
 
-use crate::slice_cast::{AsBytes, FromBytes};
+use rten_base::byte_cast::{AsBytes, FromBytes};
 use rten_tensor::prelude::*;
 use rten_tensor::{AsIndex, Layout, Matrix, NdIndices, NdLayout, TensorBase, ViewData};
 
@@ -410,6 +410,7 @@ pub fn extract_packed_b<const NR: usize>(b: &[u8]) -> (&[u8], &PackedBMeta<NR>) 
 
 #[cfg(test)]
 mod tests {
+    use rten_base::byte_cast::cast_pod_slice;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::{Matrix, MatrixLayout, NdTensor};
@@ -418,7 +419,6 @@ mod tests {
         extract_packed_a, extract_packed_b, pack_a, pack_b, pack_b_cast_i8_u8, packed_a_layout,
         packed_b_layout, K_TILE,
     };
-    use crate::slice_cast::cast_pod_slice;
 
     const MR: usize = 8;
     const NR: usize = 8;

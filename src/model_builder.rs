@@ -1,10 +1,10 @@
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
+use rten_base::num::LeBytes;
 use rten_tensor::prelude::*;
 use rten_tensor::TensorView;
 
 use crate::graph::{Dimension, NodeId};
 use crate::header::Header;
-use crate::number::LeBytes;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, CastLike, Concat,
     ConstantOfShape, Conv, ConvInteger, ConvTranspose, CoordTransformMode, DepthToSpace,

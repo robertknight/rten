@@ -1,10 +1,10 @@
 use std::ops;
 
+use rten_base::num::Identities;
 use rten_tensor::errors::DimensionError;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
-use crate::number::Identities;
 use crate::ops::{
     map_dtype, map_value_view, resolve_axis, resolve_index, static_dims, DataType, IntoOpResult,
     OpError, OpRunContext, Operator, OutputList,

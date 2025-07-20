@@ -3,13 +3,13 @@ use rayon::prelude::*;
 use std::any::Any;
 use std::fmt::Debug;
 
+use rten_base::num::AsBool;
 use rten_simd::ops::GetNumOps;
 use rten_simd::{Elem, SimdUnaryOp};
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;
 
-use crate::number::AsBool;
 use crate::ops::{
     map_value, map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
     ValueView,

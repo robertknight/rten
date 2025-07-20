@@ -1,12 +1,12 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use rten_base::byte_cast::{cast_uninit_pod_mut_slice, AsBytes};
 use rten_simd::ops::{MaskOps, NumOps};
 use rten_simd::{Isa, Mask, Simd};
 use rten_tensor::{NdTensorView, Storage};
 
 use super::packing::int8::{shift_cast_i8_u8, PackedBMeta};
-use crate::slice_cast::{cast_uninit_pod_mut_slice, AsBytes};
 
 /// Maps rows of an [`Im2Col`] matrix to locations in the source image.
 ///

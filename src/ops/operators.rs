@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 
+use rten_base::num::{Identities, IsInt, IsNaN};
 use rten_tensor::prelude::*;
 use rten_tensor::{MutLayout, NdTensorView, Storage, Tensor, TensorBase, TensorView};
 
-use crate::number::{Identities, IsInt, IsNaN};
 use crate::ops::OpError;
 use crate::ops::{
     arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min, reduce_sum,

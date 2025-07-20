@@ -3,11 +3,11 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
+use rten_base::unroll::unroll_loop;
 use rten_tensor::prelude::*;
 use rten_tensor::{AssumeInit, NdTensor, NdTensorView, NdTensorViewMut};
 use smallvec::SmallVec;
 
-use crate::iter_util::unroll_loop;
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Calculate the output coordinate range for which all input / output

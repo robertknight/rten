@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
 
+use rten_base::num::IsNaN;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
-use crate::number::IsNaN;
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
