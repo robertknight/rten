@@ -1,13 +1,13 @@
 use rayon::prelude::*;
 use rten_base::byte_cast::{cast_pod_vec, Pod};
+use rten_gemm::{
+    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, PackedBMatrix, QuantParams,
+};
 use rten_tensor::prelude::*;
 use rten_tensor::{Matrix, NdTensorView, Tensor, TensorView};
 use rten_vecmath::ExtendInit;
 use smallvec::SmallVec;
 
-use crate::gemm::{
-    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, PackedBMatrix, QuantParams,
-};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
 use crate::ops::{
@@ -624,15 +624,15 @@ mod tests {
     use std::error::Error;
 
     use rten_bench::run_bench;
+    use rten_gemm::{
+        BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams,
+    };
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{NdTensor, Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use crate::gemm::{
-        BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams,
-    };
     use crate::ops::binary_elementwise::broadcast_shapes;
     use crate::ops::tests::new_pool;
     use crate::ops::{InputList, Operator};

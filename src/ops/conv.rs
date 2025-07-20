@@ -5,12 +5,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_base::num::div_ceil;
+use rten_gemm::{BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams};
 use rten_tensor::prelude::*;
 use rten_tensor::{CowTensor, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
-use crate::gemm::{
-    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams,
-};
 use crate::ops::matmul::zero_point_to_vec;
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{
@@ -859,13 +857,13 @@ impl Operator for ConvTranspose {
 mod tests {
     use std::error::Error;
 
+    use rten_gemm::ReducedRangeRng;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{expect_equal, ExpectEqualError};
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use crate::gemm::ReducedRangeRng;
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;

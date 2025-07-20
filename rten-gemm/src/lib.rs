@@ -1,9 +1,5 @@
-//! Machine-learning oriented matrix multiplication functions.
-//!
-//! This module provides a subset of BLAS-like functions that are used by neural
-//! network operators. The primary functionality is general matrix
-//! multiplication (gemm) with ML-oriented additions, but there are also
-//! operations like vector-scalar products.
+//! This crate provides implementations of matrix multiplication for various
+//! architectures, for both floating point and int8 inputs.
 
 use std::cell::RefCell;
 use std::marker::PhantomData;
@@ -180,10 +176,6 @@ enum Int8KernelType {
 }
 
 /// Executes matrix multiplication operations.
-///
-/// For simple use cases, the standalone [`gemm`] function can be used.
-/// GemmExecutor provides a more advanced API that enables features such as
-/// performing matrix multiplications with pre-packed inputs.
 ///
 /// ## Prepacking
 ///
@@ -1146,10 +1138,10 @@ fn gemm_block<LhsT: Sync, RhsT: Sync, OutT: GemmOutT>(
         });
 }
 
-#[cfg(test)]
 mod reduced_range_rng;
 
-#[cfg(test)]
+/// TODO - Move this to the rten-base crate.
+#[doc(hidden)]
 pub use reduced_range_rng::ReducedRangeRng;
 
 #[cfg(test)]

@@ -2,6 +2,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
+use rten_gemm::{PackedAMatrix, PackedBMatrix};
 use rten_tensor::{Alloc, CowData, MutLayout, TensorBase};
 
 /// A memory buffer that can be used to satisfy a future allocation from
@@ -265,6 +266,18 @@ impl<T, L: MutLayout> ExtractBuffer for TensorBase<Vec<T>, L> {
 impl<T, L: MutLayout> ExtractBuffer for TensorBase<CowData<'_, T>, L> {
     fn extract_buffer(self) -> Option<Buffer> {
         self.into_non_contiguous_data().map(|data| data.into())
+    }
+}
+
+impl<T> ExtractBuffer for PackedAMatrix<T> {
+    fn extract_buffer(self) -> Option<Buffer> {
+        Some(self.into_vec().into())
+    }
+}
+
+impl<T> ExtractBuffer for PackedBMatrix<T> {
+    fn extract_buffer(self) -> Option<Buffer> {
+        Some(self.into_vec().into())
     }
 }
 

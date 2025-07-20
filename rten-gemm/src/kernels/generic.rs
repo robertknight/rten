@@ -7,8 +7,8 @@ use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, GemmDispatch};
 use super::{Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
-use crate::gemm::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
-use crate::gemm::Im2Col;
+use crate::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
+use crate::Im2Col;
 
 /// This is the base kernel that does not use architecture-specific intrinsics
 /// but is autovectorization-friendly. It is expected to perform the same as

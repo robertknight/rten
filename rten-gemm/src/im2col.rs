@@ -44,7 +44,7 @@ pub struct ColOffsets {
 /// can be used as the right-hand input of a matrix multiplication in order
 /// to perform a convolution.
 ///
-/// The input image has shape [C,H,W] and is transformed into a matrix with
+/// The input image has shape [C, H, W] and is transformed into a matrix with
 /// shape [C * Kh * kW, Oh * Ow] where Kh/Kw are convolution kernel sizes and
 /// Oh/Ow are the number of patches in the Y and X directions. Given a weight
 /// matrix W of shape `[M, C * Kh * kW]` the matrix multiplication `W @

@@ -1,10 +1,10 @@
 use std::iter::Rev;
 use std::ops::Range;
 
+use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor, TensorView};
 
-use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::binary_elementwise::{add_in_place, mul_in_place};
 use crate::ops::unary_elementwise::{sigmoid, tanh};
 use crate::ops::{static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
