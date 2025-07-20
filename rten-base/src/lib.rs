@@ -5,3 +5,4 @@
 
 pub mod byte_cast;
 pub mod iter;
+pub mod unroll;
