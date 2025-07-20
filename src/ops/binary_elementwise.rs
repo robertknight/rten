@@ -2,10 +2,10 @@ use smallvec::SmallVec;
 use std::fmt::Debug;
 use std::iter::repeat;
 
+use rten_base::num::{AsBool, Identities, IsInt};
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
-use crate::number::{AsBool, Identities, IsInt};
 use crate::ops::{
     map_value, map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
     ValueView,

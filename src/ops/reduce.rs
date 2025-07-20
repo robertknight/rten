@@ -1,13 +1,13 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
+use rten_base::num::{Identities, IsNaN};
 use rten_simd::SimdOp;
 use rten_tensor;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
-use crate::number::{Identities, IsNaN};
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     map_value_view, resolve_axes, resolve_axis, InputList, IntoOpResult, OpError, OpRunContext,

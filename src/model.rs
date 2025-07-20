@@ -12,6 +12,7 @@ use std::fs::File;
 use memmap2::Mmap;
 
 use rten_base::byte_cast::{cast_pod_slice, Pod};
+use rten_base::num::LeBytes;
 use rten_tensor::Tensor;
 
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
@@ -21,7 +22,6 @@ use crate::graph::{
 };
 use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
-use crate::number::LeBytes;
 use crate::op_registry::{convert_dtype, OpLoadContext, OpRegistry, ReadOpError};
 use crate::optimize::GraphOptimizer;
 use crate::schema_generated as sg;

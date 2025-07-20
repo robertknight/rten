@@ -10,7 +10,7 @@
 //!
 //! - <https://blog.zachbjornson.com/2019/08/11/fast-float-summation.html>
 
-use crate::number::MinMax;
+use rten_base::num::MinMax;
 
 /// Return the sum of a slice of numbers.
 pub fn slice_max<T: Copy + MinMax>(xs: &[T]) -> T {

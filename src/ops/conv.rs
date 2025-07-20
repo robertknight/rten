@@ -4,13 +4,13 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
+use rten_base::num::div_ceil;
 use rten_tensor::prelude::*;
 use rten_tensor::{CowTensor, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::gemm::{
     BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams,
 };
-use crate::number::div_ceil;
 use crate::ops::matmul::zero_point_to_vec;
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{

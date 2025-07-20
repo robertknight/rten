@@ -122,7 +122,6 @@ mod header;
 mod iter_util;
 mod model;
 mod model_metadata;
-mod number;
 mod op_registry;
 mod optimize;
 mod shift_cast;

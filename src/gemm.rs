@@ -13,6 +13,7 @@ use std::ops::{Add, Mul, Range};
 use rayon::prelude::*;
 use rten_base::byte_cast::Pod;
 use rten_base::iter::range_chunks;
+use rten_base::num::Identities;
 use rten_tensor::prelude::*;
 use rten_tensor::{
     Alloc, AssumeInit, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView,
@@ -20,7 +21,6 @@ use rten_tensor::{
 };
 
 use crate::iter_util::MaybeParIter;
-use crate::number::Identities;
 
 mod errors;
 mod im2col;

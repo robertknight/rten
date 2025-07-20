@@ -1,3 +1,5 @@
+//! Numeric traits and functions.
+
 /// Trait for int -> bool conversions.
 ///
 /// The conversion matches how these conversions work in most popular languages
@@ -178,7 +180,7 @@ impl MinMax for f32 {
 /// Compute `x / y` rounding up.
 ///
 /// Replace with standard library method when stabilized. See
-/// https://github.com/rust-lang/rust/issues/88581.
+/// <https://github.com/rust-lang/rust/issues/88581>.
 pub fn div_ceil(x: isize, y: isize) -> isize {
     let d = x / y;
     let r = x % y;
