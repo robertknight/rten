@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use rten_tensor::{NdTensorView, SliceRange, Tensor};
 
-use crate::downcast::DowncastDyn;
 use crate::graph::{
     Constant, ConstantNode, ConstantNodeData, Dimension, Graph, Node, NodeId, OperatorNode,
     TypedConstant,
