@@ -7,7 +7,6 @@ use rten_testing::TestCases;
 
 use super::{GraphOptimizer, OptimizeError};
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
-use crate::downcast::DowncastDyn;
 use crate::graph::builder::{Expr, OutputMeta};
 use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId, PlanOptions, TypedConstant};
 use crate::ops::{

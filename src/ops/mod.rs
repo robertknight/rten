@@ -24,7 +24,6 @@ use rten_gemm::PackedBMatrix;
 use rten_tensor::errors::DimensionError;
 use rten_tensor::{MutLayout, Storage, TensorBase};
 
-use crate::downcast::impl_downcastdyn;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::tensor_pool::TensorPool;
 use crate::timing::Profiler;
@@ -578,7 +577,12 @@ pub trait Operator: Any + Debug {
     }
 }
 
-impl_downcastdyn!(Operator);
+impl dyn Operator {
+    /// Downcast this operator to a concrete type.
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        (self as &dyn Any).downcast_ref()
+    }
+}
 
 /// Convenience methods that make it easier to run operators in tests.
 pub trait OperatorExt: Operator {
@@ -972,7 +976,6 @@ mod tests {
     use rten_tensor::{Tensor, TensorView};
 
     use super::Operator;
-    use crate::downcast::DowncastDyn;
     use crate::ops::{Add, InputList, OpError, Sub};
     use crate::tensor_pool::TensorPool;
 
