@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from argparse import ArgumentParser
+from argparse import ArgumentParser, BooleanOptionalAction
 from dataclasses import dataclass
 from functools import reduce
 import hashlib
@@ -1263,6 +1263,12 @@ def main():
         action="store_true",
         help="Generate version 1 .rten models. These are limited to files < 2GB",
     )
+    parser.add_argument(
+        "--infer-shapes",
+        action=BooleanOptionalAction,
+        default=True,
+        help="Perform shape inference before converting model (default: true)",
+    )
     parser.add_argument("out_name", help="Output model file name", nargs="?")
     args = parser.parse_args()
 
@@ -1279,6 +1285,12 @@ def main():
         tensor_data = None
 
     model = onnx.load(args.model)
+
+    # Run shape inference. This is recommended as some runtime graph
+    # optimizations depend on it.
+    if args.infer_shapes:
+        model = onnx.shape_inference.infer_shapes(model, data_prop=True)
+
     graph = graph_from_onnx_graph(model.graph)
     metadata = generate_metadata(args.model, args.metadata)
 
