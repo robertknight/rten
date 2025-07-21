@@ -820,8 +820,8 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         depth: usize,
         _alpha: f32,
         beta: i32,
-        a_quant: Option<QuantParams<u8>>,
-        b_quant: Option<QuantParams<i8>>,
+        _a_quant: Option<QuantParams<u8>>,
+        _b_quant: Option<QuantParams<i8>>,
     ) {
         let a_data = match a {
             Lhs::Packed(data) => data,
