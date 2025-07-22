@@ -99,16 +99,19 @@ def constant_node_from_onnx_initializer(
 
             out_of_range_mask = np.logical_or(data > i32.max, data < i32.min)
             for val in data[out_of_range_mask]:
-                if val == i64.min or val == i64.max:
-                    # Some ONNX exporters use `i64::MIN` and `i64::MAX` to
-                    # represent infinity when slicing to the end of a dimension
-                    # with unknown size (see
+                neg_inf_threshold = -i64.max  # i64.min + 1
+                pos_inf_threshold = i64.max
+                if val <= neg_inf_threshold or val >= pos_inf_threshold:
+                    # Some ONNX exporters use `i64::MIN` (or `-i64::MAX`) and
+                    # `i64::MAX` to represent infinity when slicing to the end
+                    # of a dimension with unknown size (see
                     # https://github.com/onnx/onnx/blob/main/docs/Operators.md#slice
                     # and https://github.com/pytorch/pytorch/issues/17606).
                     #
-                    # Avoid warning about this common usage of specific i64 values
-                    # outside the i32 range.
+                    # Avoid warning about this common usage of specific i64
+                    # values outside the i32 range.
                     continue
+
                 warn_once(
                     f"Clamping out-of-range tensor value {val} to [{i32.min}, {i32.max}]"
                 )
