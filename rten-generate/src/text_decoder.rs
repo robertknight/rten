@@ -1,7 +1,7 @@
 //! Iterator adapters to decode token IDs into text using `rten-text`.
 
 use rten_text::models::DecodeError;
-use rten_text::{Tokenizer, TokenizerError};
+use rten_text::{TokenId, Tokenizer, TokenizerError};
 
 use crate::generator::{GeneratorError, GeneratorItem};
 
@@ -26,19 +26,13 @@ where
             tokenizer,
         }
     }
-}
 
-impl<G: Iterator<Item = GeneratorItem>> Iterator for TextDecoder<'_, G> {
-    /// The decoded string, or the error that occurred during generation.
-    type Item = Result<String, GeneratorError>;
+    /// Return an iterator that yields both the decoded text and token IDs.
+    pub fn with_ids(self) -> TextDecoderWithIds<'a, G> {
+        TextDecoderWithIds(self)
+    }
 
-    /// Run the model repeatedly until it generates a sequence of tokens which
-    /// can be decoded into a valid UTF-8 sequence.
-    ///
-    /// Returns `Some(Ok(text))` if successful, `Some(Err(error))` if an error
-    /// occurs during generation or `None` if the end of output has been
-    /// reached.
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next_with_ids(&mut self) -> Option<Result<(Vec<TokenId>, String), GeneratorError>> {
         // Buffer that holds model output tokens until it forms a valid UTF-8
         // sequence.
         let mut token_buf = Vec::new();
@@ -53,7 +47,7 @@ impl<G: Iterator<Item = GeneratorItem>> Iterator for TextDecoder<'_, G> {
 
             let text = self.tokenizer.decode(&token_buf);
             match text {
-                Ok(text) => return Some(Ok(text)),
+                Ok(text) => return Some(Ok((token_buf, text))),
                 Err(TokenizerError::DecodeError(DecodeError::InvalidUtf8)) => {
                     // If the current token sequence doesn't correspond to a
                     // complete UTF-8 sequence, add more tokens until it does.
@@ -65,7 +59,47 @@ impl<G: Iterator<Item = GeneratorItem>> Iterator for TextDecoder<'_, G> {
             }
         }
 
+        if !token_buf.is_empty() {
+            return Some(Ok((token_buf, String::new())));
+        }
+
         None
+    }
+}
+
+impl<G: Iterator<Item = GeneratorItem>> Iterator for TextDecoder<'_, G> {
+    /// The decoded string, or the error that occurred during generation.
+    type Item = Result<String, GeneratorError>;
+
+    /// Run the model repeatedly until it generates a sequence of tokens which
+    /// can be decoded into a valid UTF-8 sequence.
+    ///
+    /// Returns `Some(Ok(text))` if successful, `Some(Err(error))` if an error
+    /// occurs during generation or `None` if the end of output has been
+    /// reached.
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.next_with_ids()?;
+        Some(next.map(|(_id, text)| text))
+    }
+}
+
+/// A variant of [`TextDecoder`] that yields both the token IDs and the decoded
+/// string.
+pub struct TextDecoderWithIds<'a, G: Iterator<Item = GeneratorItem>>(TextDecoder<'a, G>);
+
+impl<G: Iterator<Item = GeneratorItem>> Iterator for TextDecoderWithIds<'_, G> {
+    /// A pair of (token IDs, decoded string), or the error that occurred during
+    /// generation.
+    type Item = Result<(Vec<TokenId>, String), GeneratorError>;
+
+    /// Run the model repeatedly until it generates a sequence of tokens which
+    /// can be decoded into a valid UTF-8 sequence.
+    ///
+    /// Returns `Some(Ok((token_ids, text)))` if successful, `Some(Err(error))`
+    /// if an error occurs during generation or `None` if the end of output has
+    /// been reached.
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next_with_ids()
     }
 }
 
@@ -109,6 +143,25 @@ mod tests {
     }
 
     #[test]
+    fn test_decode_with_ids() {
+        let tokenizer = create_tokenizer();
+        let generator = [1, 2, 3].into_iter().map(Ok);
+        let tokens: Vec<_> = generator
+            .decode(&tokenizer)
+            .with_ids()
+            .map(|result| result.map_err(|e| e.to_string()))
+            .collect();
+        assert_eq!(
+            tokens,
+            [
+                Ok(([1].into(), "one".into())),
+                Ok(([2].into(), "two".into())),
+                Ok(([3].into(), "three".into())),
+            ]
+        );
+    }
+
+    #[test]
     fn test_decode_partial_utf8() {
         let tokenizer = create_bpe_tokenizer();
 
@@ -125,6 +178,29 @@ mod tests {
             .collect();
 
         assert_eq!(tokens, ["😊"].map(|s| Ok(s.to_string())));
+    }
+
+    #[test]
+    fn test_decode_ids_partial_utf8() {
+        let tokenizer = create_bpe_tokenizer();
+
+        // Encode a character which will require multiple token IDs, and feed
+        // only a prefix into the decoder. This means decoding will end with
+        // a buffer of excess IDs that cannot be decoded.
+        let token_ids = tokenizer.encode("😊", None).unwrap().into_token_ids();
+        assert!(token_ids.len() > 1);
+        let generator = token_ids
+            .into_iter()
+            .take(1)
+            .map(|tok_id| Ok(tok_id as u32));
+
+        let tokens: Vec<_> = generator
+            .decode(&tokenizer)
+            .with_ids()
+            .map(|result| result.map_err(|e| e.to_string()))
+            .collect();
+
+        assert_eq!(tokens, [Ok(([172].into(), "".into()))]);
     }
 
     #[test]

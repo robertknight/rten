@@ -897,6 +897,9 @@ pub trait GeneratorUtils: Iterator<Item = GeneratorItem> + Sized {
     }
 
     /// Decode the tokens to text using a tokenizer.
+    ///
+    /// To get both the decoded text and token IDs, call
+    /// [`with_ids`](TextDecoder::with_ids) on the result.
     #[cfg(feature = "text-decoder")]
     fn decode(self, tokenizer: &Tokenizer) -> TextDecoder<'_, Self> {
         TextDecoder::wrap(self, tokenizer)
