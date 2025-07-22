@@ -10489,6 +10489,7 @@ impl<'a> ConstantNode<'a> {
     pub const VT_DATA: flatbuffers::VOffsetT = 8;
     pub const VT_DTYPE: flatbuffers::VOffsetT = 10;
     pub const VT_DATA_OFFSET: flatbuffers::VOffsetT = 12;
+    pub const VT_STRIDES: flatbuffers::VOffsetT = 14;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -10502,6 +10503,9 @@ impl<'a> ConstantNode<'a> {
         let mut builder = ConstantNodeBuilder::new(_fbb);
         if let Some(x) = args.data_offset {
             builder.add_data_offset(x);
+        }
+        if let Some(x) = args.strides {
+            builder.add_strides(x);
         }
         if let Some(x) = args.data {
             builder.add_data(x);
@@ -10570,6 +10574,19 @@ impl<'a> ConstantNode<'a> {
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe { self._tab.get::<u64>(ConstantNode::VT_DATA_OFFSET, None) }
+    }
+    #[inline]
+    pub fn strides(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    ConstantNode::VT_STRIDES,
+                    None,
+                )
+        }
     }
     #[inline]
     #[allow(non_snake_case)]
@@ -10677,6 +10694,11 @@ impl flatbuffers::Verifiable for ConstantNode<'_> {
             )?
             .visit_field::<ConstantDataType>("dtype", Self::VT_DTYPE, false)?
             .visit_field::<u64>("data_offset", Self::VT_DATA_OFFSET, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "strides",
+                Self::VT_STRIDES,
+                false,
+            )?
             .finish();
         Ok(())
     }
@@ -10687,6 +10709,7 @@ pub struct ConstantNodeArgs<'a> {
     pub data: Option<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>>,
     pub dtype: Option<ConstantDataType>,
     pub data_offset: Option<u64>,
+    pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for ConstantNodeArgs<'a> {
     #[inline]
@@ -10697,6 +10720,7 @@ impl<'a> Default for ConstantNodeArgs<'a> {
             data: None,
             dtype: None,
             data_offset: None,
+            strides: None,
         }
     }
 }
@@ -10733,6 +10757,11 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ConstantNodeBuilder<'a, 'b, A> 
     pub fn add_data_offset(&mut self, data_offset: u64) {
         self.fbb_
             .push_slot_always::<u64>(ConstantNode::VT_DATA_OFFSET, data_offset);
+    }
+    #[inline]
+    pub fn add_strides(&mut self, strides: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(ConstantNode::VT_STRIDES, strides);
     }
     #[inline]
     pub fn new(
@@ -10805,6 +10834,7 @@ impl core::fmt::Debug for ConstantNode<'_> {
         };
         ds.field("dtype", &self.dtype());
         ds.field("data_offset", &self.data_offset());
+        ds.field("strides", &self.strides());
         ds.finish()
     }
 }
