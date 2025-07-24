@@ -47,16 +47,18 @@ struct TransformIndex {
 }
 
 pub struct TransformInputsBuilder {
-    op: Arc<dyn Operator + Send + Sync>,
     transforms: Vec<TransformIndex>,
 }
 
 impl TransformInputsBuilder {
-    pub fn new(op: Arc<dyn Operator + Send + Sync>) -> Self {
+    pub fn new() -> Self {
         Self {
-            op,
             transforms: Vec::new(),
         }
+    }
+
+    pub fn has_transforms(&self) -> bool {
+        !self.transforms.is_empty()
     }
 
     pub fn permute(mut self, input_index: usize, perm: Option<Vec<usize>>) -> Self {
@@ -67,10 +69,10 @@ impl TransformInputsBuilder {
         self
     }
 
-    pub fn build(self) -> TransformInputs {
+    pub fn build(self, op: Arc<dyn Operator + Send + Sync>) -> TransformInputs {
         TransformInputs {
-            name: format!("TransformInputs({})", self.op.name()),
-            inner: self.op,
+            name: format!("TransformInputs({})", op.name()),
+            inner: op,
             transforms: self.transforms,
         }
     }
@@ -186,9 +188,9 @@ mod tests {
             // nb. `Sub` operator chosen because it is a simple non-commutative
             // binary op.
             let sub_op = Sub {};
-            let fused_transpose = TransformInputsBuilder::new(Arc::new(sub_op))
+            let fused_transpose = TransformInputsBuilder::new()
                 .permute(*transpose_input, Some([1, 0].into()))
-                .build();
+                .build(Arc::new(sub_op));
 
             let output: Tensor<i32> = fused_transpose.run_simple((a.view(), b.view())).unwrap();
 
@@ -235,9 +237,9 @@ mod tests {
             // nb. `Sub` operator chosen because it is a simple non-commutative
             // binary op, which can run in place.
             let sub_op = Sub {};
-            let fused_transpose = TransformInputsBuilder::new(Arc::new(sub_op))
+            let fused_transpose = TransformInputsBuilder::new()
                 .permute(transpose_input, Some([1, 0].into()))
-                .build();
+                .build(Arc::new(sub_op));
             assert_eq!(fused_transpose.can_run_in_place(), expected.is_some());
 
             if let Some(expected) = expected {

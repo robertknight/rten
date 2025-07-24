@@ -1,4 +1,6 @@
 //! Traits for defining operator fusions and implementations of fusions.
+
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use rten_tensor::{NdTensorView, SliceRange, Tensor};
@@ -804,6 +806,12 @@ impl PatternFusion for MatMulIntegerToFloatFusion {
     }
 }
 
+/// Fuses transpose operations on an operator's inputs.
+///
+/// A Transpose operator on its own will move data around in memory. In the
+/// fused operator, the strides of the input tensor view are just permuted
+/// before calling the underlying operator. This is cheaper provided that the
+/// underlying operator can efficiently handle non-contiguous inputs.
 pub struct TransposeFusion {}
 
 impl FusionVisitor for TransposeFusion {
@@ -837,39 +845,35 @@ impl FusionVisitor for TransposeFusion {
             return None;
         }
 
-        let has_transposed_input = op_node.input_ids().iter().any(|input| {
-            input
-                .and_then(|input| graph.get_source_node(input))
-                .and_then(|(_, src_op)| src_op.operator().downcast_ref::<Transpose>())
-                .is_some()
-        });
-        if !has_transposed_input {
-            return None;
-        }
-
-        let mut fused_op = TransformInputsBuilder::new(op_node.clone_operator());
-        let mut fused_inputs = op_node.input_ids().to_vec();
+        // Check the operator's inputs to see if any come from the output of
+        // an operation that we can fuse into this one.
+        let mut fused_op = TransformInputsBuilder::new();
+        let mut fused_inputs = Cow::Borrowed(op_node.input_ids());
 
         for (i, input) in op_node.input_ids().iter().enumerate() {
+            // Get the operator that produced this input.
             let Some((_, source_node)) = input.and_then(|input| graph.get_source_node(input))
             else {
                 continue;
             };
 
-            let &[transpose_input] = source_node.input_ids() else {
-                continue;
-            };
-            let Some(transpose) = source_node.operator().downcast_ref::<Transpose>() else {
-                continue;
-            };
+            // Check if the operator can be fused into this one.
+            if let Some(transpose) = source_node.operator().downcast_ref::<Transpose>() {
+                let &[transpose_input] = source_node.input_ids() else {
+                    continue;
+                };
+                fused_op = fused_op.permute(i, transpose.perm.clone());
+                fused_inputs.to_mut()[i] = transpose_input;
+            }
+        }
 
-            fused_op = fused_op.permute(i, transpose.perm.clone());
-            fused_inputs[i] = transpose_input;
+        if !fused_op.has_transforms() {
+            return None;
         }
 
         Some(Fusion::from_op(
             op_node.name(),
-            Arc::new(fused_op.build()),
+            Arc::new(fused_op.build(op_node.clone_operator())),
             &fused_inputs,
             op_node.output_ids(),
         ))
