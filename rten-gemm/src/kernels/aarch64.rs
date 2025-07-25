@@ -26,6 +26,9 @@ const X32_LANES: usize = 4;
 /// Size of K tiles in kernels using int 8 dot product instructions.
 const I8DOT_K_TILE: usize = 4;
 
+/// Size of K tiles in kernels using i8mm instructions.
+const I8MM_K_TILE: usize = 8;
+
 // Safety - We assume that Rust code on Arm is always compiled with Arm Neon
 // available.
 unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
@@ -557,5 +560,326 @@ unsafe impl Int8DotProduct for NeonDotProd {
             let dot_prod = vpaddq_u32(tmp_lo, tmp_hi);
             vreinterpretq_s32_u32(vaddq_u32(dot_prod, c))
         }
+    }
+}
+
+/// 8-bit integer matrix multiplication kernel using Arm i8mm instructions.
+pub struct ArmInt8MMKernel {
+    dot_kernel: ArmInt8DotKernel,
+}
+
+impl ArmInt8MMKernel {
+    const MR: usize = 8;
+    const NR: usize = 8;
+}
+
+// Safety: We check for i8mm support in constructors.
+unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
+    fn new() -> Option<Self> {
+        // If a CPU supports i8mm, it should also support dotprod. For GEMV
+        // operations this kernel delegates to the dotprod kernel.
+        let dot_kernel = ArmInt8DotKernel::new()?;
+
+        if !std::arch::is_aarch64_feature_detected!("i8mm") {
+            return None;
+        }
+
+        Some(ArmInt8MMKernel { dot_kernel })
+    }
+
+    fn name(&self) -> &'static str {
+        "arm-int8-i8mm"
+    }
+
+    fn mr(&self) -> usize {
+        Self::MR
+    }
+
+    fn nr(&self) -> usize {
+        Self::NR
+    }
+
+    fn packed_a_layout(
+        &self,
+        _a: Matrix<u8>,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<u8>>,
+    ) -> PackedLayout {
+        let mut layout = packing::int8::packed_a_layout::<{ Self::MR }, I8MM_K_TILE>(rows, cols);
+        layout.must_pack = true;
+        layout
+    }
+
+    fn pack_a_block(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        a: Matrix<u8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+        quant: Option<QuantParams<u8>>,
+    ) {
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
+        packing::int8::pack_a::<{ Self::MR }, I8MM_K_TILE>(
+            out,
+            a.slice((rows.clone(), cols)),
+            quant.map(|q| &q.zero_point[rows]),
+        )
+    }
+
+    fn packed_b_layout(
+        &self,
+        rows: usize,
+        cols: usize,
+        _quant: Option<QuantParams<i8>>,
+    ) -> PackedLayout {
+        packing::int8::packed_b_layout::<{ Self::NR }, I8MM_K_TILE>(rows, cols)
+    }
+
+    fn pack_b_block(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        b: Matrix<i8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+        quant: Option<QuantParams<i8>>,
+    ) {
+        packing::int8::pack_b_cast_i8_u8::<{ Self::NR }, I8MM_K_TILE>(
+            out,
+            b.slice((rows, cols.clone())),
+            quant.map(|q| &q.zero_point[cols]),
+        )
+    }
+
+    fn im2col_row_count_step(&self) -> usize {
+        I8MM_K_TILE
+    }
+
+    fn pack_im2col(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        image: &Im2Col<i8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+        zero_point: Option<i8>,
+    ) {
+        const NR: usize = ArmInt8MMKernel::NR;
+        const NR_REGS: usize = NR / X32_LANES;
+        image.pack_block_i8_dot_cast_u8::<_, NR, NR_REGS, I8MM_K_TILE>(
+            self.dot_kernel.isa,
+            out,
+            rows,
+            cols,
+            zero_point.unwrap_or_default(),
+        )
+    }
+
+    #[target_feature(enable = "i8mm")]
+    unsafe fn kernel(
+        &self,
+        tile_ptr: *mut i32,
+        tile_row_stride: usize,
+        a: Lhs<u8>,
+        b: &[u8],
+        used_rows: usize,
+        used_cols: usize,
+        depth: usize,
+        _alpha: f32,
+        beta: i32,
+        _a_quant: Option<QuantParams<u8>>,
+        _b_quant: Option<QuantParams<i8>>,
+    ) {
+        use rten_simd::{
+            ops::{Concat, NumOps},
+            Isa, Simd,
+        };
+
+        const MR: usize = ArmInt8MMKernel::MR;
+        const NR: usize = ArmInt8MMKernel::NR;
+        const NR_REGS: usize = ArmInt8MMKernel::NR / X32_LANES;
+
+        // Each i8mm instruction accumulates into a 2x2 accumulator in a single
+        // register. eg. For MR=8, NR=8 we have 4x4 tiles.
+        const ROW_TILES: usize = MR / 2;
+        const COL_TILES: usize = NR / 2;
+        const K_TILE: usize = 8;
+
+        let a = match a {
+            Lhs::Packed(data) => data,
+            Lhs::Unpacked { .. } => panic!("lhs must be packed"),
+        };
+        let accumulate = beta != 0;
+
+        let (a, a_meta) = packing::int8::extract_packed_a::<MR>(a);
+        let a_zero_points = a_meta.zero_points;
+        let a_row_sums = a_meta.row_sums;
+
+        let (b, b_meta) = packing::int8::extract_packed_b::<NR>(b);
+        let b_zero_points = b_meta.zero_points;
+        let b_col_sums = b_meta.col_sums;
+
+        let ops = self.dot_kernel.isa.i32();
+        let u8_ops = self.dot_kernel.isa.u8();
+
+        // Packed buffers contain 2x8 microtiles of LHS and 8x2 microtiles of RHS.
+        assert_eq!(a.len(), Self::MR * depth.next_multiple_of(K_TILE));
+        assert_eq!(b.len(), Self::NR * depth.next_multiple_of(K_TILE));
+
+        let a_ptr = a.as_ptr();
+        let b_ptr = b.as_ptr();
+
+        let n_depth_tiles = depth.div_ceil(K_TILE);
+        let b_zero = ops.load_many::<NR_REGS>(&b_zero_points);
+
+        type I32 = <ArmNeonIsa as Isa>::I32;
+        type U8 = <ArmNeonIsa as Isa>::U8;
+
+        let a_tile_size = ROW_TILES * u8_ops.len();
+        let b_tile_size = COL_TILES * u8_ops.len();
+
+        // The value for each element in the output tile is computed as:
+        //
+        // c = (a[0] - a_zero_point) * (b[0] - b_zero_point) + ...
+        //
+        // (or `c += ...` when beta=1)
+        //
+        // Where `a_zero_point` is the zero point for the row of A and
+        // `b_zero_point` is the zero point for the column of B.
+        //
+        // This can be expanded and re-arranged into:
+        //
+        // c = a[0]b[0] - a[0] * b_zero_point - b[0] * a_zero_point + a_zero_point * b_zero_point + ...
+        // c = dot(a, b) - sum(a) * b_zero_point - sum(b) * a_zero_point + k * a_zero_point * b_zero_point
+        // c = dot(a, b) + k * a_zero_point * b_zero_point - sum(a) * b_zero_point - sum(b) * a_zero_point
+        //
+        // We compute `dot(a, b)` first, then add the zero point adjustment.
+        let mut tmp: [[I32; COL_TILES]; ROW_TILES] =
+            std::array::from_fn(|_| std::array::from_fn(|_| ops.zero()));
+
+        // Loop over K dimension.
+        //
+        // Each iteration loads ROW_TILES 2x8 tiles of A, COL_TILES 8x2 tiles of
+        // B and performs ROW_TILES * COL_TILES mini matmuls (2x8 @ 8x2 => 2x2),
+        // collectively updating an MR x NR x i32 output tile in registers.
+        for k_block in 0..n_depth_tiles {
+            let col_tiles: [U8; COL_TILES] = std::array::from_fn(|c| {
+                u8_ops.load_ptr(b_ptr.add(k_block * b_tile_size + c * u8_ops.len()))
+            });
+
+            for r in 0..ROW_TILES {
+                let row_tile = u8_ops.load_ptr(a_ptr.add(k_block * a_tile_size + r * u8_ops.len()));
+
+                for c in 0..COL_TILES {
+                    // Use inline asm here because the `vmmlaq_u32` intrinsic is
+                    // not stabilized yet.
+                    core::arch::asm! {
+                        "ummla {result:v}.4s, {a:v}.16b, {b:v}.16b",
+                        result = inout(vreg) tmp[r][c],
+                        a = in(vreg) row_tile,
+                        b = in(vreg) col_tiles[c],
+                        options(nostack)
+                    }
+                }
+            }
+        }
+
+        // The accumulator is arranged as a ROW_TILES x COL_TILES grid:
+        //
+        // A0 A1 B0 B1 C0 C1 D0 D1
+        // A2 A3 B2 B3 C2 C3 D2 D3
+        // ...
+        //
+        // Where each letter denotes a register. We want to re-arrange these to
+        // a row-major layout that is more convenient for adding the zero point
+        // adjustment and writing back out to memory:
+        //
+        // [A0 A1 B0 B1] [C0 C1 D0 D1]
+        // [A2 A3 B2 B3] [C2 C3 D2 D3]
+        //
+        // To do this we alternate combining the low and high halves of
+        // registers from each row tile.
+
+        let mut tmp: [[I32; NR_REGS]; MR] = std::array::from_fn(|r| {
+            std::array::from_fn(|c| {
+                let src_a = tmp[r / 2][c * 2];
+                let src_b = tmp[r / 2][c * 2 + 1];
+                if r % 2 == 0 {
+                    ops.concat_low(src_a, src_b)
+                } else {
+                    ops.concat_high(src_a, src_b)
+                }
+            })
+        });
+
+        // Add `k * a_zero_point[row] * b_zero_point[col]`
+        let k_mul_b_zero: [I32; NR_REGS] =
+            std::array::from_fn(|i| ops.mul(ops.splat(depth as i32), b_zero[i]));
+        for row in 0..MR {
+            let a_zero = ops.splat(a_zero_points[row]);
+            for i in 0..NR_REGS {
+                tmp[row][i] = ops.mul_add(k_mul_b_zero[i], a_zero, tmp[row][i]);
+            }
+        }
+
+        // Scale zero points by row and column sums and subtract from output tile.
+        let b_col_sums: [I32; NR_REGS] =
+            std::array::from_fn(|i| ops.load_ptr(b_col_sums.as_ptr().add(i * ops.len())));
+        for row in 0..MR {
+            let a_zero = ops.splat(a_zero_points[row]);
+            let a_sum = ops.splat(a_row_sums[row]);
+
+            for i in 0..NR_REGS {
+                let a_sum_mul_b_zero = ops.mul(a_sum, b_zero[i]);
+                let b_sum_mul_a_zero = ops.mul(b_col_sums[i], a_zero);
+                let sum = ops.add(a_sum_mul_b_zero, b_sum_mul_a_zero);
+                tmp[row][i] = ops.sub(tmp[row][i], sum);
+            }
+        }
+
+        // Write from accumulator in registers back to output.
+        let output_tile_ptr =
+            |row, col_block| tile_ptr.add(row * tile_row_stride + col_block * ops.len());
+
+        if used_rows == MR && used_cols == NR {
+            // Full output tile
+            for row in 0..MR {
+                for c_block in 0..NR_REGS {
+                    let tile_ptr = output_tile_ptr(row, c_block);
+                    if accumulate {
+                        tmp[row][c_block] = ops.add(ops.load_ptr(tile_ptr), tmp[row][c_block]);
+                    }
+                    ops.store_ptr(tmp[row][c_block], tile_ptr);
+                }
+            }
+        } else {
+            // Partial output tile
+            for r in 0..used_rows {
+                for c_block in 0..NR_REGS {
+                    let tile_ptr = output_tile_ptr(r, c_block);
+                    let used_cols = used_cols.saturating_sub(c_block * ops.len()).min(ops.len());
+                    let mut tmp = tmp[r][c_block].to_array();
+
+                    for c in 0..used_cols {
+                        if accumulate {
+                            tmp[c] += *tile_ptr.add(c);
+                        }
+                        tile_ptr.add(c).write(tmp[c]);
+                    }
+                }
+            }
+        }
+    }
+
+    fn gemv_kernel(
+        &self,
+        out: MatVecOutput<i32>,
+        a: &[u8],
+        b: Matrix<i8>,
+        alpha: f32,
+        a_quant: Option<QuantParams<u8>>,
+        b_quant: Option<QuantParams<i8>>,
+    ) {
+        self.dot_kernel
+            .gemv_kernel(out, a, b, alpha, a_quant, b_quant)
     }
 }
