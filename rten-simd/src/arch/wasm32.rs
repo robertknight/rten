@@ -16,7 +16,7 @@ use std::mem::transmute;
 
 use super::{lanes, simd_type};
 use crate::ops::{
-    Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+    Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
 };
 use crate::{Isa, Mask, Simd};
 
@@ -55,8 +55,9 @@ unsafe impl Isa for Wasm32Isa {
 
     fn i32(
         self,
-    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<i32, i16, Output = Self::I16>
-    {
+    ) -> impl SignedIntOps<i32, Simd = Self::I32>
+           + NarrowSaturate<i32, i16, Output = Self::I16>
+           + Concat<i32> {
         self
     }
 
@@ -345,6 +346,18 @@ impl NarrowSaturate<i32, i16> for Wasm32Isa {
     #[inline]
     fn narrow_saturate(self, low: I32x4, high: I32x4) -> I16x8 {
         I16x8(i16x8_narrow_i32x4(low.0, high.0))
+    }
+}
+
+impl Concat<i32> for Wasm32Isa {
+    #[inline]
+    fn concat_low(self, a: I32x4, b: I32x4) -> I32x4 {
+        I32x4(i32x4_shuffle::<0, 1, 4, 5>(a.0, b.0))
+    }
+
+    #[inline]
+    fn concat_high(self, a: I32x4, b: I32x4) -> I32x4 {
+        I32x4(i32x4_shuffle::<2, 3, 6, 7>(a.0, b.0))
     }
 }
 

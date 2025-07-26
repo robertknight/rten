@@ -1,30 +1,32 @@
 use std::arch::x86_64::{
     __m512, __m512i, __mmask16, __mmask32, __mmask64, _mm512_add_epi16, _mm512_add_epi32,
     _mm512_add_epi8, _mm512_add_ps, _mm512_and_ps, _mm512_and_si512, _mm512_andnot_ps,
-    _mm512_andnot_si512, _mm512_castsi256_si512, _mm512_cmp_epi16_mask, _mm512_cmp_epi32_mask,
-    _mm512_cmp_epu16_mask, _mm512_cmp_ps_mask, _mm512_cmpeq_epi8_mask, _mm512_cmpeq_epu8_mask,
-    _mm512_cmpge_epi8_mask, _mm512_cmpge_epu8_mask, _mm512_cmpgt_epi8_mask, _mm512_cmpgt_epu8_mask,
-    _mm512_cvtepi16_epi32, _mm512_cvtepi16_epi8, _mm512_cvtepi8_epi16, _mm512_cvtepu8_epi16,
-    _mm512_cvtps_epi32, _mm512_cvttps_epi32, _mm512_div_ps, _mm512_extracti64x4_epi64,
-    _mm512_fmadd_ps, _mm512_inserti64x4, _mm512_loadu_ps, _mm512_loadu_si512,
-    _mm512_mask_blend_epi16, _mm512_mask_blend_epi32, _mm512_mask_blend_epi8, _mm512_mask_blend_ps,
-    _mm512_mask_loadu_epi16, _mm512_mask_loadu_epi32, _mm512_mask_loadu_epi8, _mm512_mask_loadu_ps,
-    _mm512_mask_storeu_epi16, _mm512_mask_storeu_epi32, _mm512_mask_storeu_epi8,
-    _mm512_mask_storeu_ps, _mm512_max_ps, _mm512_min_ps, _mm512_mul_ps, _mm512_mullo_epi16,
-    _mm512_mullo_epi32, _mm512_or_ps, _mm512_or_si512, _mm512_packs_epi32, _mm512_packus_epi16,
-    _mm512_permutex2var_epi32, _mm512_permutexvar_epi64, _mm512_reduce_add_ps, _mm512_set1_epi16,
-    _mm512_set1_epi32, _mm512_set1_epi8, _mm512_set1_ps, _mm512_setr_epi32, _mm512_setr_epi64,
-    _mm512_setzero_si512, _mm512_sllv_epi16, _mm512_sllv_epi32, _mm512_storeu_ps,
-    _mm512_storeu_si512, _mm512_sub_epi16, _mm512_sub_epi32, _mm512_sub_epi8, _mm512_sub_ps,
-    _mm512_unpackhi_epi16, _mm512_unpackhi_epi8, _mm512_unpacklo_epi16, _mm512_unpacklo_epi8,
-    _mm512_xor_ps, _mm512_xor_si512, _mm_prefetch, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ,
-    _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm512_andnot_si512, _mm512_castsi256_si512, _mm512_castsi512_si256, _mm512_cmp_epi16_mask,
+    _mm512_cmp_epi32_mask, _mm512_cmp_epu16_mask, _mm512_cmp_ps_mask, _mm512_cmpeq_epi8_mask,
+    _mm512_cmpeq_epu8_mask, _mm512_cmpge_epi8_mask, _mm512_cmpge_epu8_mask, _mm512_cmpgt_epi8_mask,
+    _mm512_cmpgt_epu8_mask, _mm512_cvtepi16_epi32, _mm512_cvtepi16_epi8, _mm512_cvtepi8_epi16,
+    _mm512_cvtepu8_epi16, _mm512_cvtps_epi32, _mm512_cvttps_epi32, _mm512_div_ps,
+    _mm512_extracti64x4_epi64, _mm512_fmadd_ps, _mm512_inserti64x4, _mm512_loadu_ps,
+    _mm512_loadu_si512, _mm512_mask_blend_epi16, _mm512_mask_blend_epi32, _mm512_mask_blend_epi8,
+    _mm512_mask_blend_ps, _mm512_mask_loadu_epi16, _mm512_mask_loadu_epi32, _mm512_mask_loadu_epi8,
+    _mm512_mask_loadu_ps, _mm512_mask_storeu_epi16, _mm512_mask_storeu_epi32,
+    _mm512_mask_storeu_epi8, _mm512_mask_storeu_ps, _mm512_max_ps, _mm512_min_ps, _mm512_mul_ps,
+    _mm512_mullo_epi16, _mm512_mullo_epi32, _mm512_or_ps, _mm512_or_si512, _mm512_packs_epi32,
+    _mm512_packus_epi16, _mm512_permutex2var_epi32, _mm512_permutexvar_epi64, _mm512_reduce_add_ps,
+    _mm512_set1_epi16, _mm512_set1_epi32, _mm512_set1_epi8, _mm512_set1_ps, _mm512_setr_epi32,
+    _mm512_setr_epi64, _mm512_setzero_si512, _mm512_sllv_epi16, _mm512_sllv_epi32,
+    _mm512_storeu_ps, _mm512_storeu_si512, _mm512_sub_epi16, _mm512_sub_epi32, _mm512_sub_epi8,
+    _mm512_sub_ps, _mm512_unpackhi_epi16, _mm512_unpackhi_epi8, _mm512_unpacklo_epi16,
+    _mm512_unpacklo_epi8, _mm512_xor_ps, _mm512_xor_si512, _mm_prefetch, _CMP_EQ_OQ, _CMP_GE_OQ,
+    _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT,
+    _MM_HINT_ET0, _MM_HINT_T0,
 };
 use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
 use crate::ops::{
-    Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps, SignedIntOps,
+    Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps,
+    SignedIntOps,
 };
 use crate::{Isa, Mask, Simd};
 
@@ -66,8 +68,9 @@ unsafe impl Isa for Avx512Isa {
 
     fn i32(
         self,
-    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<i32, i16, Output = Self::I16>
-    {
+    ) -> impl SignedIntOps<i32, Simd = Self::I32>
+           + NarrowSaturate<i32, i16, Output = Self::I16>
+           + Concat<i32> {
         self
     }
 
@@ -392,6 +395,28 @@ impl NarrowSaturate<i32, i16> for Avx512Isa {
             let packed = _mm512_packs_epi32(low.0, high.0);
             let permutation = _mm512_setr_epi64(0, 2, 4, 6, 1, 3, 5, 7);
             _mm512_permutexvar_epi64(permutation, packed)
+        }
+        .into()
+    }
+}
+
+impl Concat<i32> for Avx512Isa {
+    #[inline]
+    fn concat_low(self, a: I32x16, b: I32x16) -> I32x16 {
+        unsafe {
+            let a_lo = _mm512_castsi512_si256(a.0);
+            let b_lo = _mm512_castsi512_si256(b.0);
+            _mm512_inserti64x4(_mm512_castsi256_si512(a_lo), b_lo, 1)
+        }
+        .into()
+    }
+
+    #[inline]
+    fn concat_high(self, a: I32x16, b: I32x16) -> I32x16 {
+        unsafe {
+            let a_hi = _mm512_extracti64x4_epi64(a.0, 1);
+            let b_hi = _mm512_extracti64x4_epi64(b.0, 1);
+            _mm512_inserti64x4(_mm512_castsi256_si512(a_hi), b_hi, 1)
         }
         .into()
     }
