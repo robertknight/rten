@@ -23,6 +23,9 @@ impl ArmNeonKernel {
 /// Number of 32-bit lanes in an Arm Neon SIMD vector.
 const X32_LANES: usize = 4;
 
+/// Size of K tiles in kernels using int 8 dot product instructions.
+const I8DOT_K_TILE: usize = 4;
+
 // Safety - We assume that Rust code on Arm is always compiled with Arm Neon
 // available.
 unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
@@ -194,7 +197,8 @@ macro_rules! impl_arm_int8_common {
             cols: usize,
             _quant: Option<QuantParams<u8>>,
         ) -> PackedLayout {
-            let mut layout = packing::int8::packed_a_layout::<{ Self::MR }>(rows, cols);
+            let mut layout =
+                packing::int8::packed_a_layout::<{ Self::MR }, I8DOT_K_TILE>(rows, cols);
             layout.must_pack = true;
             layout
         }
@@ -208,7 +212,7 @@ macro_rules! impl_arm_int8_common {
             quant: Option<QuantParams<u8>>,
         ) {
             let out = cast_uninit_pod_mut_slice(out).unwrap();
-            packing::int8::pack_a::<{ Self::MR }>(
+            packing::int8::pack_a::<{ Self::MR }, I8DOT_K_TILE>(
                 out,
                 a.slice((rows.clone(), cols)),
                 quant.map(|q| &q.zero_point[rows]),
@@ -221,7 +225,7 @@ macro_rules! impl_arm_int8_common {
             cols: usize,
             _quant: Option<QuantParams<i8>>,
         ) -> PackedLayout {
-            packing::int8::packed_b_layout::<{ Self::NR }>(rows, cols)
+            packing::int8::packed_b_layout::<{ Self::NR }, I8DOT_K_TILE>(rows, cols)
         }
 
         fn pack_b_block(
@@ -232,7 +236,7 @@ macro_rules! impl_arm_int8_common {
             cols: Range<usize>,
             quant: Option<QuantParams<i8>>,
         ) {
-            packing::int8::pack_b_cast_i8_u8::<{ Self::NR }>(
+            packing::int8::pack_b_cast_i8_u8::<{ Self::NR }, I8DOT_K_TILE>(
                 out,
                 b.slice((rows, cols.clone())),
                 quant.map(|q| &q.zero_point[cols]),
@@ -245,17 +249,17 @@ macro_rules! impl_arm_int8_common {
             image: &Im2Col<i8>,
             rows: Range<usize>,
             cols: Range<usize>,
-            quant: Option<i8>,
+            zero_point: Option<i8>,
         ) {
             // Safety: Arm Neon is supported
             const NR: usize = <$self_type>::NR;
             const NR_REGS: usize = NR / X32_LANES;
-            image.pack_block_i8_dot_cast_u8::<_, NR, NR_REGS>(
+            image.pack_block_i8_dot_cast_u8::<_, NR, NR_REGS, I8DOT_K_TILE>(
                 self.isa,
                 out,
                 rows,
                 cols,
-                quant.unwrap_or_default(),
+                zero_point.unwrap_or_default(),
             )
         }
     };

@@ -178,6 +178,9 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
     }
 }
 
+// K tile size for int8 kernels.
+const K_TILE: usize = 4;
+
 pub struct WasmInt8Kernel {
     isa: Wasm32Isa,
 }
@@ -215,7 +218,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         cols: usize,
         _quant: Option<QuantParams<u8>>,
     ) -> PackedLayout {
-        let mut layout = packing::int8::packed_a_layout::<{ Self::MR }>(rows, cols);
+        let mut layout = packing::int8::packed_a_layout::<{ Self::MR }, K_TILE>(rows, cols);
         layout.must_pack = true;
         layout
     }
@@ -229,7 +232,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         quant: Option<QuantParams<u8>>,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        packing::int8::pack_a::<{ Self::MR }>(
+        packing::int8::pack_a::<{ Self::MR }, K_TILE>(
             out,
             a.slice((rows.clone(), cols)),
             quant.map(|q| &q.zero_point[rows]),
@@ -242,7 +245,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         cols: usize,
         _quant: Option<QuantParams<i8>>,
     ) -> PackedLayout {
-        packing::int8::packed_b_layout::<{ Self::NR }>(rows, cols)
+        packing::int8::packed_b_layout::<{ Self::NR }, K_TILE>(rows, cols)
     }
 
     fn pack_b_block(
@@ -253,7 +256,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
         cols: Range<usize>,
         quant: Option<QuantParams<i8>>,
     ) {
-        packing::int8::pack_b_cast_i8_u8::<{ Self::NR }>(
+        packing::int8::pack_b_cast_i8_u8::<{ Self::NR }, K_TILE>(
             out,
             b.slice((rows, cols.clone())),
             quant.map(|q| &q.zero_point[cols]),
@@ -270,7 +273,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
     ) {
         const NR: usize = WasmInt8Kernel::NR;
         const NR_REGS: usize = NR / X32_LANES;
-        image.pack_block_i8_dot_cast_u8::<_, NR, NR_REGS>(
+        image.pack_block_i8_dot_cast_u8::<_, NR, NR_REGS, K_TILE>(
             self.isa,
             out,
             rows,
