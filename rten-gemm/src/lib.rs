@@ -539,6 +539,7 @@ impl Default for GemmExecutor<u8, i8, i32> {
         }
         #[cfg(target_arch = "aarch64")]
         {
+            #[cfg(feature = "i8mm")]
             try_kernel!(Int8KernelType::ArmI8mm);
             try_kernel!(Int8KernelType::ArmDot);
             try_kernel!(Int8KernelType::ArmNeon);
