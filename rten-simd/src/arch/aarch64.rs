@@ -5,20 +5,20 @@ use std::arch::aarch64::{
     vceqq_s16, vceqq_s32, vceqq_s8, vceqq_u16, vceqq_u8, vcgeq_f32, vcgeq_s16, vcgeq_s32, vcgeq_s8,
     vcgeq_u16, vcgeq_u8, vcgtq_f32, vcgtq_s16, vcgtq_s32, vcgtq_s8, vcgtq_u16, vcgtq_u8, vcleq_f32,
     vcleq_s16, vcleq_s8, vcleq_u16, vcleq_u8, vcltq_f32, vcltq_s16, vcltq_s8, vcltq_u16, vcltq_u8,
-    vcombine_s16, vcombine_u8, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32, vdupq_laneq_f32,
-    vdupq_n_f32, vdupq_n_s16, vdupq_n_s32, vdupq_n_s8, vdupq_n_u16, vdupq_n_u8, veorq_u32,
-    vfmaq_f32, vget_low_s16, vget_low_s8, vld1q_f32, vld1q_s16, vld1q_s32, vld1q_s8, vld1q_u16,
-    vld1q_u32, vld1q_u8, vmaxq_f32, vminq_f32, vmovl_high_s16, vmovl_high_s8, vmovl_s16, vmovl_s8,
-    vmulq_f32, vmulq_s16, vmulq_s32, vmulq_s8, vmulq_u16, vmulq_u8, vmvnq_u32, vnegq_f32,
-    vnegq_s16, vnegq_s32, vnegq_s8, vorrq_u32, vqmovn_s32, vqmovun_s16, vshlq_n_s16, vshlq_n_s32,
-    vshlq_n_s8, vshlq_n_u16, vst1q_f32, vst1q_s16, vst1q_s32, vst1q_s8, vst1q_u16, vst1q_u8,
-    vsubq_f32, vsubq_s16, vsubq_s32, vsubq_s8, vsubq_u16, vsubq_u8, vzip1q_s16, vzip1q_s8,
-    vzip2q_s16, vzip2q_s8,
+    vcombine_s16, vcombine_s32, vcombine_u8, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32,
+    vdupq_laneq_f32, vdupq_n_f32, vdupq_n_s16, vdupq_n_s32, vdupq_n_s8, vdupq_n_u16, vdupq_n_u8,
+    veorq_u32, vfmaq_f32, vget_high_s32, vget_low_s16, vget_low_s32, vget_low_s8, vld1q_f32,
+    vld1q_s16, vld1q_s32, vld1q_s8, vld1q_u16, vld1q_u32, vld1q_u8, vmaxq_f32, vminq_f32,
+    vmovl_high_s16, vmovl_high_s8, vmovl_s16, vmovl_s8, vmulq_f32, vmulq_s16, vmulq_s32, vmulq_s8,
+    vmulq_u16, vmulq_u8, vmvnq_u32, vnegq_f32, vnegq_s16, vnegq_s32, vnegq_s8, vorrq_u32,
+    vqmovn_s32, vqmovun_s16, vshlq_n_s16, vshlq_n_s32, vshlq_n_s8, vshlq_n_u16, vst1q_f32,
+    vst1q_s16, vst1q_s32, vst1q_s8, vst1q_u16, vst1q_u8, vsubq_f32, vsubq_s16, vsubq_s32, vsubq_s8,
+    vsubq_u16, vsubq_u8, vzip1q_s16, vzip1q_s8, vzip2q_s16, vzip2q_s8,
 };
 use std::mem::transmute;
 
 use crate::ops::{
-    Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+    Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
 };
 use crate::{Isa, Mask, Simd};
 
@@ -49,8 +49,9 @@ unsafe impl Isa for ArmNeonIsa {
 
     fn i32(
         self,
-    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<i32, i16, Output = Self::I16>
-    {
+    ) -> impl SignedIntOps<i32, Simd = Self::I32>
+           + NarrowSaturate<i32, i16, Output = Self::I16>
+           + Concat<i32> {
         self
     }
 
@@ -382,6 +383,26 @@ impl NarrowSaturate<i32, i16> for ArmNeonIsa {
             let low = vqmovn_s32(low);
             let high = vqmovn_s32(high);
             vcombine_s16(low, high)
+        }
+    }
+}
+
+impl Concat<i32> for ArmNeonIsa {
+    #[inline]
+    fn concat_low(self, a: int32x4_t, b: int32x4_t) -> int32x4_t {
+        unsafe {
+            let low = vget_low_s32(a);
+            let high = vget_low_s32(b);
+            vcombine_s32(low, high)
+        }
+    }
+
+    #[inline]
+    fn concat_high(self, a: int32x4_t, b: int32x4_t) -> int32x4_t {
+        unsafe {
+            let low = vget_high_s32(a);
+            let high = vget_high_s32(b);
+            vcombine_s32(low, high)
         }
     }
 }

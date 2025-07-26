@@ -11,11 +11,11 @@ use std::arch::x86_64::{
     _mm256_movemask_epi8, _mm256_mul_ps, _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_ps,
     _mm256_or_si256, _mm256_packs_epi32, _mm256_packus_epi16, _mm256_permute2x128_si256,
     _mm256_permute4x64_epi64, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_epi8,
-    _mm256_set1_ps, _mm256_setr_m128i, _mm256_setzero_si256, _mm256_slli_epi16, _mm256_slli_epi32,
-    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_epi8,
-    _mm256_sub_ps, _mm256_unpackhi_epi16, _mm256_unpackhi_epi8, _mm256_unpacklo_epi16,
-    _mm256_unpacklo_epi8, _mm256_xor_ps, _mm256_xor_si256, _mm_add_ps, _mm_cvtss_f32,
-    _mm_movehl_ps, _mm_prefetch, _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps,
+    _mm256_set1_ps, _mm256_set_m128i, _mm256_setr_m128i, _mm256_setzero_si256, _mm256_slli_epi16,
+    _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi16, _mm256_sub_epi32,
+    _mm256_sub_epi8, _mm256_sub_ps, _mm256_unpackhi_epi16, _mm256_unpackhi_epi8,
+    _mm256_unpacklo_epi16, _mm256_unpacklo_epi8, _mm256_xor_ps, _mm256_xor_si256, _mm_add_ps,
+    _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps,
     _mm_unpacklo_epi64, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0,
     _MM_HINT_T0,
 };
@@ -24,7 +24,8 @@ use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
 use crate::ops::{
-    Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps, SignedIntOps,
+    Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps,
+    SignedIntOps,
 };
 use crate::{Isa, Mask, Simd};
 
@@ -66,8 +67,9 @@ unsafe impl Isa for Avx2Isa {
 
     fn i32(
         self,
-    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<i32, i16, Output = Self::I16>
-    {
+    ) -> impl SignedIntOps<i32, Simd = Self::I32>
+           + NarrowSaturate<i32, i16, Output = Self::I16>
+           + Concat<i32> {
         self
     }
 
@@ -411,6 +413,28 @@ impl NarrowSaturate<i32, i16> for Avx2Isa {
             // high.
             let packed = _mm256_packs_epi32(low.0, high.0);
             _mm256_permute4x64_epi64(packed, _mm_shuffle(3, 1, 2, 0))
+        }
+        .into()
+    }
+}
+
+impl Concat<i32> for Avx2Isa {
+    #[inline]
+    fn concat_low(self, a: I32x8, b: I32x8) -> I32x8 {
+        unsafe {
+            let a_lo = _mm256_castsi256_si128(a.0);
+            let b_lo = _mm256_castsi256_si128(b.0);
+            _mm256_set_m128i(b_lo, a_lo)
+        }
+        .into()
+    }
+
+    #[inline]
+    fn concat_high(self, a: I32x8, b: I32x8) -> I32x8 {
+        unsafe {
+            let a_hi = _mm256_extracti128_si256(a.0, 1);
+            let b_hi = _mm256_extracti128_si256(b.0, 1);
+            _mm256_set_m128i(b_hi, a_hi)
         }
         .into()
     }

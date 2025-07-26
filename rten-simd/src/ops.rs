@@ -56,7 +56,9 @@ pub unsafe trait Isa: Copy {
     /// Operations on SIMD vectors with `i32` elements.
     fn i32(
         self,
-    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<i32, i16, Output = Self::I16>;
+    ) -> impl SignedIntOps<i32, Simd = Self::I32>
+           + NarrowSaturate<i32, i16, Output = Self::I16>
+           + Concat<i32>;
 
     /// Operations on SIMD vectors with `i16` elements.
     fn i16(
@@ -538,6 +540,16 @@ pub trait Interleave<T: Elem>: NumOps<T> {
     fn interleave_high(self, a: Self::Simd, b: Self::Simd) -> Self::Simd;
 }
 
+/// Concatenate elements from the low or high halves of two vectors to form a
+/// new vector.
+pub trait Concat<T: Elem>: NumOps<T> {
+    /// Concatenate elements from the low halves of two vectors.
+    fn concat_low(self, a: Self::Simd, b: Self::Simd) -> Self::Simd;
+
+    /// Concatenate elements from the high halves of two vectors.
+    fn concat_high(self, a: Self::Simd, b: Self::Simd) -> Self::Simd;
+}
+
 /// Narrow lanes to one with half the bit-width, using truncation.
 ///
 /// For integer types, the narrowed type has the same signed-ness.
@@ -570,7 +582,7 @@ pub trait NarrowSaturate<T: Elem, U: Elem>: NumOps<T> {
 mod tests {
     use crate::elem::WrappingAdd;
     use crate::ops::{
-        Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+        Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
     };
     use crate::{assert_simd_eq, assert_simd_ne, test_simd_op, Isa, Mask, Simd, SimdOp};
 
@@ -1228,6 +1240,44 @@ mod tests {
     }
     test_interleave!(test_interleave_i16, i16);
     test_interleave!(test_interleave_i8, i8);
+
+    #[test]
+    fn test_concat_i32() {
+        test_simd_op!(isa, {
+            let ops = isa.i32();
+            let src: Vec<_> = (0..ops.len() * 2).map(|x| x as i32).collect();
+            let src_a = &src[..ops.len()];
+            let src_b = &src[ops.len()..];
+
+            let half_len = ops.len() / 2;
+            let expected_low: Vec<_> = (0..ops.len())
+                .map(|i| {
+                    if i < half_len {
+                        src_a[i]
+                    } else {
+                        src_b[i - half_len]
+                    }
+                })
+                .collect();
+            let expected_hi: Vec<_> = (0..ops.len())
+                .map(|i| {
+                    if i < half_len {
+                        src_a[half_len + i]
+                    } else {
+                        src_b[i]
+                    }
+                })
+                .collect();
+
+            let a = ops.load(&src_a);
+            let b = ops.load(&src_b);
+            let ab_lo = ops.concat_low(a, b);
+            let ab_hi = ops.concat_high(a, b);
+
+            assert_eq!(ab_lo.to_array().as_ref(), expected_low);
+            assert_eq!(ab_hi.to_array().as_ref(), expected_hi);
+        });
+    }
 
     #[test]
     fn test_reinterpret_cast() {

@@ -2,7 +2,7 @@ use std::array;
 use std::mem::transmute;
 
 use crate::ops::{
-    Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+    Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
 };
 use crate::{Isa, Mask, Simd};
 
@@ -69,8 +69,9 @@ unsafe impl Isa for GenericIsa {
 
     fn i32(
         self,
-    ) -> impl SignedIntOps<i32, Simd = Self::I32> + NarrowSaturate<i32, i16, Output = Self::I16>
-    {
+    ) -> impl SignedIntOps<i32, Simd = Self::I32>
+           + NarrowSaturate<i32, i16, Output = Self::I16>
+           + Concat<i32> {
         self
     }
 
@@ -366,6 +367,38 @@ macro_rules! impl_extend {
 }
 impl_extend!(I8x16, i8, I16x8);
 impl_extend!(I16x8, i16, I32x4);
+
+macro_rules! impl_concat {
+    ($elem:ty, $simd:ty) => {
+        impl Concat<$elem> for GenericIsa {
+            fn concat_low(self, a: $simd, b: $simd) -> $simd {
+                let half_len = a.0.len() / 2;
+                array::from_fn(|i| {
+                    if i < half_len {
+                        a.0[i]
+                    } else {
+                        b.0[i - half_len]
+                    }
+                })
+                .into()
+            }
+
+            fn concat_high(self, a: $simd, b: $simd) -> $simd {
+                let half_len = a.0.len() / 2;
+                array::from_fn(|i| {
+                    if i < half_len {
+                        a.0[half_len + i]
+                    } else {
+                        b.0[i]
+                    }
+                })
+                .into()
+            }
+        }
+    };
+}
+
+impl_concat!(i32, I32x4);
 
 macro_rules! impl_interleave {
     ($elem:ty, $simd:ty) => {
