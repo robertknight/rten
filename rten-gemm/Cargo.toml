@@ -20,6 +20,7 @@ rten-testing = { path = "../rten-testing" }
 
 [features]
 avx512 = ["rten-simd/avx512"]
+i8mm = []
 
 [lib]
 crate-type = ["lib"]
