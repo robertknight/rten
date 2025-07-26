@@ -430,16 +430,13 @@ mod tests {
         packed_b_layout, PackedAMeta, PackedBMeta,
     };
 
-    const MR: usize = 8;
-    const NR: usize = 8;
-
     // K tile size used by kernels that compute dot product of 4x i8 -> i32.
     const K_TILE_I8DOT: usize = 4;
 
     // K tile use used by Arm i8mm.
     const K_TILE_I8MM: usize = 8;
 
-    fn pack_a_matrix<const K_TILE: usize>(mat: Matrix<u8>) -> Vec<u8> {
+    fn pack_a_matrix<const MR: usize, const K_TILE: usize>(mat: Matrix<u8>) -> Vec<u8> {
         let layout = packed_a_layout::<MR, K_TILE>(mat.rows(), mat.cols());
 
         // Layout must have space for at least each element in the input, plus
@@ -460,7 +457,7 @@ mod tests {
     }
 
     // Un-optimized reference implementation of `pack_a`.
-    fn reference_pack_a<const K_TILE: usize>(mat: Matrix<u8>) -> Vec<u8> {
+    fn reference_pack_a<const MR: usize, const K_TILE: usize>(mat: Matrix<u8>) -> Vec<u8> {
         let layout = packed_a_layout::<MR, K_TILE>(mat.rows(), mat.cols());
         let mut buf = Vec::with_capacity(layout.size());
 
@@ -488,7 +485,7 @@ mod tests {
         buf
     }
 
-    fn pack_b_matrix<const K_TILE: usize>(mat: Matrix<i8>) -> Vec<i8> {
+    fn pack_b_matrix<const NR: usize, const K_TILE: usize>(mat: Matrix<i8>) -> Vec<i8> {
         let layout = packed_b_layout::<NR, K_TILE>(mat.rows(), mat.cols());
 
         // Layout must have space for at least each element in the input, plus
@@ -509,7 +506,7 @@ mod tests {
     }
 
     // Un-optimized reference implementation of `pack_b`.
-    fn reference_pack_b<const K_TILE: usize>(mat: Matrix<i8>) -> Vec<i8> {
+    fn reference_pack_b<const NR: usize, const K_TILE: usize>(mat: Matrix<i8>) -> Vec<i8> {
         let layout = packed_b_layout::<NR, K_TILE>(mat.rows(), mat.cols());
         let mut buf = Vec::with_capacity(layout.size());
 
@@ -559,6 +556,8 @@ mod tests {
 
     #[test]
     fn test_pack_a_various_sizes() {
+        const MR: usize = 8;
+
         fn test_pack_a<const K_TILE: usize>() {
             let mut rng = XorShiftRng::new(5678);
             for m in 1..MR * 2 {
@@ -568,8 +567,8 @@ mod tests {
 
                     // Row major layout
                     let mat = NdTensor::rand([m, k], &mut rng);
-                    let expected = reference_pack_a::<K_TILE_I8DOT>(mat.view());
-                    let actual = pack_a_matrix::<K_TILE_I8DOT>(mat.view());
+                    let expected = reference_pack_a::<MR, K_TILE_I8DOT>(mat.view());
+                    let actual = pack_a_matrix::<MR, K_TILE_I8DOT>(mat.view());
                     assert_eq!(
                         actual, expected,
                         "packed buffer mismatch for row-major m={} k={}",
@@ -578,8 +577,8 @@ mod tests {
 
                     // Column major layout
                     let mat = NdTensor::rand([k, m], &mut rng);
-                    let expected = reference_pack_a::<K_TILE_I8DOT>(mat.transposed().view());
-                    let actual = pack_a_matrix::<K_TILE_I8DOT>(mat.transposed().view());
+                    let expected = reference_pack_a::<MR, K_TILE_I8DOT>(mat.transposed().view());
+                    let actual = pack_a_matrix::<MR, K_TILE_I8DOT>(mat.transposed().view());
                     assert_eq!(
                         actual, expected,
                         "packed buffer mismatch for col-major m={} k={}",
@@ -596,8 +595,10 @@ mod tests {
     #[test]
     fn test_extract_packed_a() {
         fn test_extract_packed_a<const K_TILE: usize>() {
+            const MR: usize = 8;
+
             let mat = NdTensor::<u8, 2>::from([[1, 2], [3, 4]]);
-            let packed = pack_a_matrix::<K_TILE_I8DOT>(mat.view());
+            let packed = pack_a_matrix::<MR, K_TILE_I8DOT>(mat.view());
 
             let (packed_elems, meta) = extract_packed_a(&packed);
 
@@ -611,13 +612,15 @@ mod tests {
 
     #[test]
     fn test_pack_b_various_sizes() {
+        const NR: usize = 8;
+
         fn test_pack_b<const K_TILE: usize>() {
             let mut rng = XorShiftRng::new(5678);
             for n in 1..NR * 2 {
                 for k in 1..K_TILE * 2 {
                     let mat = NdTensor::rand([k, n], &mut rng);
-                    let expected = reference_pack_b::<K_TILE>(mat.view());
-                    let actual = pack_b_matrix::<K_TILE>(mat.view());
+                    let expected = reference_pack_b::<NR, K_TILE>(mat.view());
+                    let actual = pack_b_matrix::<NR, K_TILE>(mat.view());
 
                     assert_eq!(
                         actual, expected,
@@ -633,8 +636,10 @@ mod tests {
 
     #[test]
     fn test_extract_packed_b() {
+        const NR: usize = 8;
+
         let mat = NdTensor::<i8, 2>::from([[1, 2], [3, 4]]);
-        let packed = pack_b_matrix::<K_TILE_I8DOT>(mat.view());
+        let packed = pack_b_matrix::<NR, K_TILE_I8DOT>(mat.view());
 
         let (packed_elems, meta) = extract_packed_b(cast_pod_slice(&packed).unwrap());
 
