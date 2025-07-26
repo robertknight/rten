@@ -223,7 +223,12 @@ impl Im2Col<'_, i8> {
     /// containing `S::LEN x 4 x i8` (or u8) inputs.
     #[inline(always)]
     #[allow(unused)] // Some architectures only
-    pub(super) fn pack_block_i8_dot<I: Isa, const NR: usize, const NR_REGS: usize>(
+    pub(super) fn pack_block_i8_dot<
+        I: Isa,
+        const NR: usize,
+        const NR_REGS: usize,
+        const K_TILE: usize,
+    >(
         &self,
         isa: I,
         out: &mut [MaybeUninit<i8>],
@@ -231,14 +236,19 @@ impl Im2Col<'_, i8> {
         cols: Range<usize>,
         zero_point: i8,
     ) {
-        self.pack_block_int8::<_, NR, NR_REGS, false>(isa, out, rows, cols, zero_point);
+        self.pack_block_int8::<_, NR, NR_REGS, K_TILE, false>(isa, out, rows, cols, zero_point);
     }
 
     /// Variant of [`pack_block_i8_dot`](Self::pack_block_i8_dot) which shifts
     /// i8 values to u8 by adding 128.
     #[inline(always)]
     #[allow(unused)] // Some architectures only
-    pub(super) fn pack_block_i8_dot_cast_u8<I: Isa, const NR: usize, const NR_REGS: usize>(
+    pub(super) fn pack_block_i8_dot_cast_u8<
+        I: Isa,
+        const NR: usize,
+        const NR_REGS: usize,
+        const K_TILE: usize,
+    >(
         &self,
         isa: I,
         out: &mut [MaybeUninit<u8>],
@@ -247,11 +257,17 @@ impl Im2Col<'_, i8> {
         zero_point: i8,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        self.pack_block_int8::<_, NR, NR_REGS, true>(isa, out, rows, cols, zero_point);
+        self.pack_block_int8::<_, NR, NR_REGS, K_TILE, true>(isa, out, rows, cols, zero_point);
     }
 
     #[inline(always)]
-    fn pack_block_int8<I: Isa, const NR: usize, const NR_REGS: usize, const CAST_B_U8: bool>(
+    fn pack_block_int8<
+        I: Isa,
+        const NR: usize,
+        const NR_REGS: usize,
+        const K_TILE: usize,
+        const CAST_B_U8: bool,
+    >(
         &self,
         isa: I,
         out: &mut [MaybeUninit<i8>],
@@ -263,8 +279,6 @@ impl Im2Col<'_, i8> {
         assert_eq!(ops.len() * NR_REGS, NR);
 
         let mask_ops = ops.mask_ops();
-
-        const K_TILE: usize = size_of::<i32>() / size_of::<i8>();
 
         debug_assert!(rows.end <= self.rows());
         debug_assert!(cols.end <= self.cols());
@@ -300,7 +314,7 @@ impl Im2Col<'_, i8> {
 
             let mut col_sums = [ops.zero().to_array(); NR_REGS];
 
-            for start_row in rows.clone().step_by(4) {
+            for start_row in rows.clone().step_by(K_TILE) {
                 for i in 0..K_TILE {
                     let k = start_row + i;
                     let row_x_offset = ops.splat(unsafe { *row_x_offsets.get_unchecked(k) });

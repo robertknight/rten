@@ -457,6 +457,9 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
     }
 }
 
+// K tile size for int8 kernels.
+const K_TILE: usize = 4;
+
 pub struct Avx2Int8Kernel {
     isa: Avx2Isa,
 }
@@ -498,7 +501,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         cols: usize,
         _quant: Option<QuantParams<u8>>,
     ) -> PackedLayout {
-        let mut layout = packing::int8::packed_a_layout::<{ Self::MR }>(rows, cols);
+        let mut layout = packing::int8::packed_a_layout::<{ Self::MR }, K_TILE>(rows, cols);
         layout.must_pack = true;
         layout
     }
@@ -512,7 +515,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         quant: Option<QuantParams<u8>>,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        packing::int8::pack_a::<{ Self::MR }>(
+        packing::int8::pack_a::<{ Self::MR }, K_TILE>(
             out,
             a.slice((rows.clone(), cols)),
             quant.map(|q| &q.zero_point[rows]),
@@ -525,7 +528,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         cols: usize,
         _quant: Option<QuantParams<i8>>,
     ) -> PackedLayout {
-        packing::int8::packed_b_layout::<{ Self::NR }>(rows, cols)
+        packing::int8::packed_b_layout::<{ Self::NR }, K_TILE>(rows, cols)
     }
 
     fn pack_b_block(
@@ -537,7 +540,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         quant: Option<QuantParams<i8>>,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        packing::int8::pack_b::<{ Self::NR }>(
+        packing::int8::pack_b::<{ Self::NR }, K_TILE>(
             out,
             b.slice((rows, cols.clone())),
             quant.map(|q| &q.zero_point[cols]),
@@ -565,7 +568,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             const NR_REGS: usize = NR / AVX2_X32_LANES;
 
             let out = cast_uninit_pod_mut_slice(out).unwrap();
-            image.pack_block_i8_dot::<_, NR, NR_REGS>(
+            image.pack_block_i8_dot::<_, NR, NR_REGS, K_TILE>(
                 isa,
                 out,
                 rows,
@@ -725,7 +728,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         cols: usize,
         _quant: Option<QuantParams<u8>>,
     ) -> PackedLayout {
-        let mut layout = packing::int8::packed_a_layout::<{ Self::MR }>(rows, cols);
+        let mut layout = packing::int8::packed_a_layout::<{ Self::MR }, K_TILE>(rows, cols);
         layout.must_pack = true;
         layout
     }
@@ -739,7 +742,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         quant: Option<QuantParams<u8>>,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        packing::int8::pack_a::<{ Self::MR }>(
+        packing::int8::pack_a::<{ Self::MR }, K_TILE>(
             out,
             a.slice((rows.clone(), cols)),
             quant.map(|q| &q.zero_point[rows]),
@@ -752,7 +755,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         cols: usize,
         _quant: Option<QuantParams<i8>>,
     ) -> PackedLayout {
-        packing::int8::packed_b_layout::<{ Self::NR }>(rows, cols)
+        packing::int8::packed_b_layout::<{ Self::NR }, K_TILE>(rows, cols)
     }
 
     fn pack_b_block(
@@ -764,7 +767,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         quant: Option<QuantParams<i8>>,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        packing::int8::pack_b::<{ Self::NR }>(
+        packing::int8::pack_b::<{ Self::NR }, K_TILE>(
             out,
             b.slice((rows, cols.clone())),
             quant.map(|q| &q.zero_point[cols]),
@@ -793,7 +796,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             const NR_REGS: usize = NR / AVX512_X32_LANES;
 
             let out = cast_uninit_pod_mut_slice(out).unwrap();
-            image.pack_block_i8_dot::<_, NR, NR_REGS>(
+            image.pack_block_i8_dot::<_, NR, NR_REGS, K_TILE>(
                 isa,
                 out,
                 rows,

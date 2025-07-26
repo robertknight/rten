@@ -44,11 +44,11 @@ pub struct PackedBMeta<const NR: usize> {
 unsafe impl<const NR: usize> AsBytes for PackedBMeta<NR> {}
 unsafe impl<const NR: usize> FromBytes for PackedBMeta<NR> {}
 
-/// Size of micro tiles of K in the innermost dimension of packed layouts.
-const K_TILE: usize = 4;
-
 /// Return the layout of the packing buffer required by `pack_b`.
-pub fn packed_b_layout<const NR: usize>(b_rows: usize, b_cols: usize) -> PackedLayout {
+pub fn packed_b_layout<const NR: usize, const K_TILE: usize>(
+    b_rows: usize,
+    b_cols: usize,
+) -> PackedLayout {
     // Packed block is padded to a multiple of NR columns and K_TILE rows.
     let n_panels = b_cols.div_ceil(NR);
     let packed_elements_size = b_rows.div_ceil(K_TILE) * NR * K_TILE;
@@ -65,21 +65,22 @@ pub fn packed_b_layout<const NR: usize>(b_rows: usize, b_cols: usize) -> PackedL
     PackedLayout::new(size, align, panel_stride)
 }
 
-/// Pack blocks of the B matrix for use by the matmul kernel.
+/// Pack blocks of the B matrix for use by int8 matmul kernels using dot
+/// product instructions (Arm dotprod, AVX-512 VNNI etc.)
 ///
 /// Pack B matrix of shape `[K, N]` into a series of column panels. Each panel
 /// contains elements from a `[K, NR]` slice of the input and is laid out as `[K
-/// / 4, NR, 4]` u8 values, followed by `NR` i32 column sums.  In the kernel a
-/// transposed `[NR, 4]` microtile of `B` is then multiplied with a `[MR, 4]`
-/// microtile of `A` using dot product instructions. The column sums are used
-/// to handle subtraction of the zero point.
+/// / K_TILE, NR, K_TILE]` u8 values, followed by `NR` i32 column sums.  In the
+/// kernel a transposed `[NR, K_TILE]` microtile of `B` is then multiplied with
+/// a `[MR, K_TILE]` microtile of `A` using dot product instructions. The column
+/// sums are used to handle subtraction of the zero point.
 #[allow(unused)]
-pub fn pack_b<const NR: usize>(
+pub fn pack_b<const NR: usize, const K_TILE: usize>(
     out: &mut [MaybeUninit<i8>],
     b: Matrix<i8>,
     zero_points: Option<&[i8]>,
 ) {
-    pack_b_impl::<NR, _>(
+    pack_b_impl::<NR, K_TILE, _>(
         out,
         b,
         zero_points,
@@ -103,12 +104,12 @@ pub fn shift_cast_i8_u8(x: i8) -> u8 {
 /// packing, shifting the values by 128 to preserve the position of each value
 /// within the numeric range.
 #[allow(unused)]
-pub fn pack_b_cast_i8_u8<const NR: usize>(
+pub fn pack_b_cast_i8_u8<const NR: usize, const K_TILE: usize>(
     out: &mut [MaybeUninit<u8>],
     b: Matrix<i8>,
     zero_points: Option<&[i8]>,
 ) {
-    pack_b_impl::<NR, _>(out, b, zero_points, shift_cast_i8_u8, |out, meta| {
+    pack_b_impl::<NR, K_TILE, _>(out, b, zero_points, shift_cast_i8_u8, |out, meta| {
         out.write_slice(meta.as_bytes())
     })
 }
@@ -118,7 +119,7 @@ trait Byte: Copy + Default {}
 impl Byte for u8 {}
 impl Byte for i8 {}
 
-fn pack_b_impl<const NR: usize, T: Byte>(
+fn pack_b_impl<const NR: usize, const K_TILE: usize, T: Byte>(
     out: &mut [MaybeUninit<T>],
     b: Matrix<i8>,
     zero_point: Option<&[i8]>,
@@ -128,7 +129,10 @@ fn pack_b_impl<const NR: usize, T: Byte>(
     i32: From<T>,
 {
     let [b_rows, b_cols] = b.shape();
-    assert_eq!(out.len(), packed_b_layout::<NR>(b_rows, b_cols).size());
+    assert_eq!(
+        out.len(),
+        packed_b_layout::<NR, K_TILE>(b_rows, b_cols).size()
+    );
 
     let mut out = SliceWriter::new(out);
 
@@ -195,7 +199,10 @@ fn pack_b_impl<const NR: usize, T: Byte>(
 }
 
 /// Return the layout of the packing buffer required by `pack_a`.
-pub fn packed_a_layout<const MR: usize>(a_rows: usize, a_cols: usize) -> PackedLayout {
+pub fn packed_a_layout<const MR: usize, const K_TILE: usize>(
+    a_rows: usize,
+    a_cols: usize,
+) -> PackedLayout {
     // Packed block is padded to a multiple of MR rows and K_TILE columns.
     let n_panels = a_rows.div_ceil(MR);
     let packed_elements_size = a_cols.div_ceil(K_TILE) * MR * K_TILE;
@@ -296,7 +303,7 @@ impl AsIndex<RowMajorLayout> for [usize; 2] {
 // contains elements from an `[MR, K]` slice of the input and is laid out as `[K
 // / 4, MR, 4]` u8 values, followed by `MR` i32 row sums. The row sums are
 // used to handle subtraction of the zero point.
-pub fn pack_a<const MR: usize>(
+pub fn pack_a<const MR: usize, const K_TILE: usize>(
     out: &mut [MaybeUninit<u8>],
     a: Matrix<u8>,
     zero_point: Option<&[u8]>,
@@ -304,19 +311,19 @@ pub fn pack_a<const MR: usize>(
     // Specialize for the common case where `a` has unit column stride, as this
     // enables vectorization of inner loops.
     if let Some(layout) = RowMajorLayout::from_layout(*a.layout()) {
-        pack_a_impl::<MR, _>(
+        pack_a_impl::<MR, K_TILE, _>(
             out,
             TensorBase::from_storage_and_layout(a.storage(), layout),
             zero_point,
         )
     } else {
-        pack_a_impl::<MR, _>(out, a, zero_point)
+        pack_a_impl::<MR, K_TILE, _>(out, a, zero_point)
     }
 }
 
 // Disable inlining here because it interferes with vectorization when `L = RowMajorLayout`.
 #[inline(never)]
-fn pack_a_impl<const MR: usize, L>(
+fn pack_a_impl<const MR: usize, const K_TILE: usize, L>(
     out: &mut [MaybeUninit<u8>],
     a: TensorBase<ViewData<u8>, L>,
     zero_point: Option<&[u8]>,
@@ -325,7 +332,10 @@ fn pack_a_impl<const MR: usize, L>(
     [usize; 2]: AsIndex<L>,
 {
     let [a_rows, a_cols] = a.shape();
-    assert_eq!(out.len(), packed_a_layout::<MR>(a_rows, a_cols).size());
+    assert_eq!(
+        out.len(),
+        packed_a_layout::<MR, K_TILE>(a_rows, a_cols).size()
+    );
 
     let mut out = SliceWriter::new(out);
 
@@ -417,21 +427,27 @@ mod tests {
 
     use super::{
         extract_packed_a, extract_packed_b, pack_a, pack_b, pack_b_cast_i8_u8, packed_a_layout,
-        packed_b_layout, K_TILE,
+        packed_b_layout,
     };
 
     const MR: usize = 8;
     const NR: usize = 8;
 
-    fn pack_a_matrix(mat: Matrix<u8>) -> Vec<u8> {
-        let layout = packed_a_layout::<MR>(mat.rows(), mat.cols());
+    // K tile size used by kernels that compute dot product of 4x i8 -> i32.
+    const K_TILE_I8DOT: usize = 4;
+
+    // K tile use used by Arm i8mm.
+    const K_TILE_I8MM: usize = 8;
+
+    fn pack_a_matrix<const K_TILE: usize>(mat: Matrix<u8>) -> Vec<u8> {
+        let layout = packed_a_layout::<MR, K_TILE>(mat.rows(), mat.cols());
 
         // Layout must have space for at least each element in the input, plus
         // row sums and zero points as i32 values.
         assert!(layout.size() >= mat.rows() * mat.cols() + 2 * mat.rows() * 4);
 
         let mut buf = Vec::with_capacity(layout.size());
-        pack_a::<MR>(
+        pack_a::<MR, K_TILE>(
             &mut buf.spare_capacity_mut()[..layout.size()],
             mat.view(),
             None,
@@ -443,15 +459,15 @@ mod tests {
         buf
     }
 
-    fn pack_b_matrix(mat: Matrix<i8>) -> Vec<i8> {
-        let layout = packed_b_layout::<NR>(mat.rows(), mat.cols());
+    fn pack_b_matrix<const K_TILE: usize>(mat: Matrix<i8>) -> Vec<i8> {
+        let layout = packed_b_layout::<NR, K_TILE>(mat.rows(), mat.cols());
 
         // Layout must have space for at least each element in the input, plus
         // column sums as i32 values.
         assert!(layout.size() >= mat.rows() * mat.cols() + mat.cols() * 4);
 
         let mut buf = Vec::with_capacity(layout.size());
-        pack_b::<NR>(
+        pack_b::<NR, K_TILE>(
             &mut buf.spare_capacity_mut()[..layout.size()],
             mat.view(),
             None,
@@ -463,15 +479,15 @@ mod tests {
         buf
     }
 
-    fn pack_b_matrix_cast_u8<const NR: usize>(mat: Matrix<i8>) -> Vec<u8> {
-        let layout = packed_b_layout::<NR>(mat.rows(), mat.cols());
+    fn pack_b_matrix_cast_u8<const NR: usize, const K_TILE: usize>(mat: Matrix<i8>) -> Vec<u8> {
+        let layout = packed_b_layout::<NR, K_TILE>(mat.rows(), mat.cols());
 
         // Layout must have space for at least each element in the input, plus
         // column sums as i32 values.
         assert!(layout.size() >= mat.rows() * mat.cols() + mat.cols() * 4);
 
         let mut buf = Vec::with_capacity(layout.size());
-        pack_b_cast_i8_u8::<NR>(
+        pack_b_cast_i8_u8::<NR, K_TILE>(
             &mut buf.spare_capacity_mut()[..layout.size()],
             mat.view(),
             None,
@@ -485,41 +501,52 @@ mod tests {
 
     #[test]
     fn test_pack_a_various_sizes() {
-        let mut rng = XorShiftRng::new(5678);
-        for m in 1..MR * 2 {
-            for k in 1..K_TILE * 2 {
-                // Test row-major and non-row major inputs, as the implementation
-                // has a fast path for row-major layouts.
+        fn test_pack_a<const K_TILE: usize>() {
+            let mut rng = XorShiftRng::new(5678);
+            for m in 1..MR * 2 {
+                for k in 1..K_TILE_I8DOT * 2 {
+                    // Test row-major and non-row major inputs, as the implementation
+                    // has a fast path for row-major layouts.
 
-                // Row major layout
-                let mat = NdTensor::rand([m, k], &mut rng);
-                pack_a_matrix(mat.view());
+                    // Row major layout
+                    let mat = NdTensor::rand([m, k], &mut rng);
+                    pack_a_matrix::<K_TILE_I8DOT>(mat.view());
 
-                // Column major layout
-                let mat = NdTensor::rand([k, m], &mut rng);
-                pack_a_matrix(mat.transposed().view());
+                    // Column major layout
+                    let mat = NdTensor::rand([k, m], &mut rng);
+                    pack_a_matrix::<K_TILE_I8DOT>(mat.transposed().view());
+                }
             }
         }
+
+        test_pack_a::<K_TILE_I8DOT>();
+        test_pack_a::<K_TILE_I8MM>();
     }
 
     #[test]
     fn test_extract_packed_a() {
-        let mat = NdTensor::<u8, 2>::from([[1, 2], [3, 4]]);
-        let packed = pack_a_matrix(mat.view());
+        fn test_extract_packed_a<const K_TILE: usize>() {
+            let mat = NdTensor::<u8, 2>::from([[1, 2], [3, 4]]);
+            let packed = pack_a_matrix::<K_TILE_I8DOT>(mat.view());
 
-        let (packed_elems, meta) = extract_packed_a(&packed);
+            let (packed_elems, meta) = extract_packed_a(&packed);
 
-        assert!(packed_elems.len() >= mat.rows() * mat.cols());
-        assert_eq!(meta.row_sums, [3, 7, 0, 0, 0, 0, 0, 0]);
+            assert!(packed_elems.len() >= mat.rows() * mat.cols());
+            assert_eq!(meta.row_sums, [3, 7, 0, 0, 0, 0, 0, 0]);
+        }
+
+        test_extract_packed_a::<K_TILE_I8DOT>();
+        test_extract_packed_a::<K_TILE_I8MM>();
     }
 
     #[test]
     fn test_pack_b_various_sizes() {
         let mut rng = XorShiftRng::new(5678);
         for n in 1..NR * 2 {
-            for k in 1..K_TILE * 2 {
+            for k in 1..K_TILE_I8DOT * 2 {
                 let mat = NdTensor::rand([k, n], &mut rng);
-                pack_b_matrix(mat.view());
+                pack_b_matrix::<K_TILE_I8DOT>(mat.view());
+                pack_b_matrix::<K_TILE_I8MM>(mat.view());
             }
         }
     }
@@ -527,7 +554,7 @@ mod tests {
     #[test]
     fn test_extract_packed_b() {
         let mat = NdTensor::<i8, 2>::from([[1, 2], [3, 4]]);
-        let packed = pack_b_matrix(mat.view());
+        let packed = pack_b_matrix::<K_TILE_I8DOT>(mat.view());
 
         let (packed_elems, meta) = extract_packed_b(cast_pod_slice(&packed).unwrap());
 
@@ -538,7 +565,7 @@ mod tests {
     #[test]
     fn test_pack_b_cast_i8_u8() {
         let mat = NdTensor::<i8, 2>::from([[1, 2], [3, 4]]);
-        let packed = pack_b_matrix_cast_u8::<2>(mat.view());
+        let packed = pack_b_matrix_cast_u8::<2, K_TILE_I8DOT>(mat.view());
 
         let (packed_elems, meta) = extract_packed_b(&packed);
 
