@@ -420,14 +420,14 @@ pub fn extract_packed_b<const NR: usize>(b: &[u8]) -> (&[u8], &PackedBMeta<NR>) 
 
 #[cfg(test)]
 mod tests {
-    use rten_base::byte_cast::cast_pod_slice;
+    use rten_base::byte_cast::{cast_pod_slice, AsBytes};
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::{Matrix, MatrixLayout, NdTensor};
 
     use super::{
         extract_packed_a, extract_packed_b, pack_a, pack_b, pack_b_cast_i8_u8, packed_a_layout,
-        packed_b_layout,
+        packed_b_layout, PackedAMeta, PackedBMeta,
     };
 
     const MR: usize = 8;
@@ -459,6 +459,35 @@ mod tests {
         buf
     }
 
+    // Un-optimized reference implementation of `pack_a`.
+    fn reference_pack_a<const K_TILE: usize>(mat: Matrix<u8>) -> Vec<u8> {
+        let layout = packed_a_layout::<MR, K_TILE>(mat.rows(), mat.cols());
+        let mut buf = Vec::with_capacity(layout.size());
+
+        for row_panel in 0..mat.rows().div_ceil(MR) {
+            let mut row_sums = [0i32; MR];
+            for k_tile in 0..mat.cols().div_ceil(K_TILE) {
+                for r in 0..MR {
+                    for c in 0..K_TILE {
+                        let y = row_panel * MR + r;
+                        let x = k_tile * K_TILE + c;
+                        let val = mat.get([y, x]).copied().unwrap_or(0);
+                        row_sums[r] += val as i32;
+                        buf.push(val);
+                    }
+                }
+            }
+            let meta = PackedAMeta {
+                row_sums,
+                zero_points: [0; MR],
+            };
+            buf.extend_from_slice(meta.as_bytes());
+        }
+
+        assert_eq!(buf.len(), layout.size());
+        buf
+    }
+
     fn pack_b_matrix<const K_TILE: usize>(mat: Matrix<i8>) -> Vec<i8> {
         let layout = packed_b_layout::<NR, K_TILE>(mat.rows(), mat.cols());
 
@@ -476,6 +505,35 @@ mod tests {
         // Safety: `pack_b` initialized `layout.size()` elements.
         unsafe { buf.set_len(layout.size()) }
 
+        buf
+    }
+
+    // Un-optimized reference implementation of `pack_b`.
+    fn reference_pack_b<const K_TILE: usize>(mat: Matrix<i8>) -> Vec<i8> {
+        let layout = packed_b_layout::<NR, K_TILE>(mat.rows(), mat.cols());
+        let mut buf = Vec::with_capacity(layout.size());
+
+        for col_panel in 0..mat.cols().div_ceil(NR) {
+            let mut col_sums = [0i32; NR];
+            for k_tile in 0..mat.rows().div_ceil(K_TILE) {
+                for c in 0..NR {
+                    for r in 0..K_TILE {
+                        let y = k_tile * K_TILE + r;
+                        let x = col_panel * NR + c;
+                        let val = mat.get([y, x]).copied().unwrap_or(0);
+                        col_sums[c] += val as i32;
+                        buf.push(val);
+                    }
+                }
+            }
+            let meta = PackedBMeta {
+                col_sums,
+                zero_points: [0; NR],
+            };
+            buf.extend_from_slice(cast_pod_slice(meta.as_bytes()).unwrap());
+        }
+
+        assert_eq!(buf.len(), layout.size());
         buf
     }
 
@@ -510,11 +568,23 @@ mod tests {
 
                     // Row major layout
                     let mat = NdTensor::rand([m, k], &mut rng);
-                    pack_a_matrix::<K_TILE_I8DOT>(mat.view());
+                    let expected = reference_pack_a::<K_TILE_I8DOT>(mat.view());
+                    let actual = pack_a_matrix::<K_TILE_I8DOT>(mat.view());
+                    assert_eq!(
+                        actual, expected,
+                        "packed buffer mismatch for row-major m={} k={}",
+                        m, k
+                    );
 
                     // Column major layout
                     let mat = NdTensor::rand([k, m], &mut rng);
-                    pack_a_matrix::<K_TILE_I8DOT>(mat.transposed().view());
+                    let expected = reference_pack_a::<K_TILE_I8DOT>(mat.transposed().view());
+                    let actual = pack_a_matrix::<K_TILE_I8DOT>(mat.transposed().view());
+                    assert_eq!(
+                        actual, expected,
+                        "packed buffer mismatch for col-major m={} k={}",
+                        m, k
+                    );
                 }
             }
         }
@@ -541,14 +611,24 @@ mod tests {
 
     #[test]
     fn test_pack_b_various_sizes() {
-        let mut rng = XorShiftRng::new(5678);
-        for n in 1..NR * 2 {
-            for k in 1..K_TILE_I8DOT * 2 {
-                let mat = NdTensor::rand([k, n], &mut rng);
-                pack_b_matrix::<K_TILE_I8DOT>(mat.view());
-                pack_b_matrix::<K_TILE_I8MM>(mat.view());
+        fn test_pack_b<const K_TILE: usize>() {
+            let mut rng = XorShiftRng::new(5678);
+            for n in 1..NR * 2 {
+                for k in 1..K_TILE * 2 {
+                    let mat = NdTensor::rand([k, n], &mut rng);
+                    let expected = reference_pack_b::<K_TILE>(mat.view());
+                    let actual = pack_b_matrix::<K_TILE>(mat.view());
+
+                    assert_eq!(
+                        actual, expected,
+                        "packed buffer mismatch for n={} k={}",
+                        n, k
+                    );
+                }
             }
         }
+        test_pack_b::<K_TILE_I8DOT>();
+        test_pack_b::<K_TILE_I8MM>();
     }
 
     #[test]
