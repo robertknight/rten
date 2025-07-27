@@ -164,11 +164,14 @@ impl TensorPool {
     pub fn alloc<T>(&self, capacity: usize) -> Vec<T> {
         self.alloc_count.fetch_add(1, Ordering::AcqRel);
 
+        let mut buffers = self.buffers.lock().unwrap();
+
         // Find best fit item that matches the requested type and size with
         // the least excess capacity.
-        let best_fit = self.buffers.lock().unwrap().iter().enumerate().fold(
-            None,
-            |best_fit, (idx, buffer)| {
+        let best_fit = buffers
+            .iter()
+            .enumerate()
+            .fold(None, |best_fit, (idx, buffer)| {
                 if !buffer.can_fit::<T>(capacity) {
                     return best_fit;
                 };
@@ -179,20 +182,20 @@ impl TensorPool {
                     }
                 }
                 Some((idx, buffer.capacity))
-            },
-        );
+            });
 
-        let data = if let Some((best_fit, _overhead)) = best_fit {
+        if let Some((best_fit, _overhead)) = best_fit {
             self.hit_count.fetch_add(1, Ordering::AcqRel);
 
-            let item = self.buffers.lock().unwrap().remove(best_fit);
-            item.into_vec::<T>()
-        } else {
-            // No match :( - Fall back to the global allocator.
-            Vec::with_capacity(capacity)
-        };
+            let item = buffers.remove(best_fit);
+            return item.into_vec::<T>();
+        }
 
-        data
+        // No suitable buffer was found. Fall back to the global allocator, but
+        // release the mutex before we do.
+        std::mem::drop(buffers);
+
+        Vec::with_capacity(capacity)
     }
 
     /// Add a data buffer to the pool.
