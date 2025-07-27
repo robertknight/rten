@@ -462,3 +462,125 @@ impl<'a, T, B: Copy + Default + PartialEq> MatVecOutput<'a, T, B> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rten_tensor::prelude::*;
+    use rten_tensor::rng::XorShiftRng;
+    use rten_tensor::{AssumeInit, MatrixLayout, NdTensor, RandomSource};
+
+    use super::{Kernel, Lhs};
+    use crate::PackingBuffer;
+
+    /// Benchmark a kernel with pre-packed input.
+    ///
+    /// Compared to the GEMM tests this eliminates the impact of threading,
+    /// packing and transferring data between main memory/L3/L2 and L1.
+    fn run_kernel_bench<LhsT: Clone + Default, RhsT: Clone + Default, OutT: Clone + Default>(
+        kernel: &dyn Kernel<LhsT, RhsT, OutT>,
+    ) where
+        XorShiftRng: RandomSource<LhsT> + RandomSource<RhsT>,
+    {
+        let mut output = NdTensor::zeros([kernel.mr(), kernel.nr()]);
+
+        // Choose a target size so that the panel of A, panel of B and output
+        // all fit in the L1 cache.
+        //
+        // We use 24KB here on the assumption that the L1 cache will be 32KB or
+        // larger. Making the value larger can lead to higher results because
+        // the kernel will spend more time in the main loop over K.
+        let target_size = 24 * 1024;
+
+        let m = kernel.mr();
+        let n = kernel.nr();
+
+        // Packed LHS panel size is MR * K * lhs_elem_size. Packed RHS panel
+        // size is NR * K * rhs_elem_size.
+        //
+        // Here we assume the packed elements have the same size as the input
+        // matrices. This is true for f32 and int8 kernels using dot product
+        // instructions.
+        let k = target_size / (m * size_of::<LhsT>() + n * size_of::<RhsT>());
+
+        // Create fixed inputs and prepack them.
+        let mut rng = XorShiftRng::new(1234);
+        let a = NdTensor::rand([m, k], &mut rng);
+        let b = NdTensor::rand([k, n], &mut rng);
+
+        let a_layout = kernel.packed_a_layout(a.view(), a.rows(), a.cols(), None);
+        let b_layout = kernel.packed_b_layout(b.rows(), b.cols(), None);
+
+        let mut packed_a_buf = PackingBuffer::new();
+        let packed_a = packed_a_buf.alloc(a_layout.size(), a_layout.align());
+        kernel.pack_a_block(packed_a, a.view(), 0..a.rows(), 0..a.cols(), None);
+        let packed_a = unsafe { packed_a.assume_init() };
+
+        let mut packed_b_buf = PackingBuffer::new();
+        let packed_b = packed_b_buf.alloc(b_layout.size(), b_layout.align());
+        kernel.pack_b_block(packed_b, b.view(), 0..b.rows(), 0..b.cols(), None);
+        let packed_b = unsafe { packed_b.assume_init() };
+
+        let n_iters = 1_000_000;
+        let start = std::time::Instant::now();
+
+        for _ in 0..n_iters {
+            // Safety: Output has size `mr` * `nr`.
+            unsafe {
+                let out_row_stride = output.stride(0);
+                kernel.kernel(
+                    output.data_mut().unwrap().as_mut_ptr(),
+                    out_row_stride,
+                    Lhs::Packed(packed_a),
+                    packed_b,
+                    kernel.mr(),
+                    kernel.nr(),
+                    k,
+                    0.,              /* alpha */
+                    OutT::default(), // beta
+                    None,            // a_quant
+                    None,            // b_quant
+                );
+            }
+            // Zero output after each iteration to avoid the possibility of
+            // overflow.
+            output.fill(OutT::default());
+        }
+
+        let elapsed = start.elapsed().as_secs_f64();
+        let n_ops: u64 = 2 * m as u64 * n as u64 * k as u64 * n_iters as u64;
+        let gflops = (n_ops as f64 / 1e9) / elapsed;
+
+        println!(
+            "{}: {} iters in {:.4}s = {:.2} GFLOPS",
+            kernel.name(),
+            n_iters,
+            elapsed,
+            gflops
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_kernel_int8() {
+        let mut kernels: Vec<Box<dyn Kernel<u8, i8, i32>>> = Vec::new();
+
+        macro_rules! add_kernel {
+            ($kernel:ty) => {
+                if let Some(kernel) = <$kernel>::new() {
+                    kernels.push(Box::new(kernel));
+                }
+            };
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            add_kernel!(super::aarch64::ArmInt8Kernel);
+            add_kernel!(super::aarch64::ArmInt8DotKernel);
+            add_kernel!(super::aarch64::ArmInt8MMKernel);
+        }
+
+        for kernel in kernels {
+            run_kernel_bench(&*kernel);
+        }
+    }
+}
