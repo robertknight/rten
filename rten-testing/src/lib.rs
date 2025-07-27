@@ -114,8 +114,10 @@ impl<I: IntoIterator> TestCases for I {
     where
         Self::Case: Debug + RefUnwindSafe,
     {
+        let mut total = 0;
         let mut failures = Vec::new();
         for case in self {
+            total += 1;
             if std::panic::catch_unwind(|| {
                 test(&case);
             })
@@ -124,11 +126,11 @@ impl<I: IntoIterator> TestCases for I {
                 failures.push(case);
             }
         }
-        assert_eq!(
+        assert!(
+            failures.is_empty(),
+            "{} of {} test cases failed: {:?}",
             failures.len(),
-            0,
-            "{} test cases failed: {:?}",
-            failures.len(),
+            total,
             failures
         );
     }

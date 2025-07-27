@@ -361,7 +361,8 @@ where
         cases.push(([n, n], [n, n]));
     }
 
-    for (lhs_size, rhs_size) in cases {
+    let mut failures = Vec::new();
+    for (lhs_size, rhs_size) in cases.iter().copied() {
         let mut rng = XorShiftRng::new(1234);
         let a = if let Some(lhs_gen) = lhs_gen.as_mut() {
             NdTensor::<LhsT, 2>::from_simple_fn(lhs_size, lhs_gen)
@@ -378,12 +379,33 @@ where
         let expected = reference_matmul(a.view(), b.view(), None);
 
         if let Err(err) = expect_equal(&result, &expected) {
-            println!(
-                "GEMM output for {}x{}x{} did not match reference",
-                lhs_size[0], rhs_size[1], lhs_size[1]
-            );
-            return Err(err.into());
+            failures.push((lhs_size, rhs_size, err));
         }
+    }
+
+    if !failures.is_empty() {
+        // Show which sizes had failures. Print extended details for the first
+        // to show a sample of discrepancies.
+        for (i, (lhs_size, rhs_size, err)) in failures.iter().enumerate() {
+            if i < 3 {
+                println!(
+                    "GEMM output for {}x{}x{} did not match reference: {}",
+                    lhs_size[0], rhs_size[1], lhs_size[1], err
+                );
+            } else {
+                println!(
+                    "GEMM output for {}x{}x{} did not match reference",
+                    lhs_size[0], rhs_size[1], lhs_size[1],
+                );
+            }
+        }
+
+        return Err(format!(
+            "GEMM output did not match reference for {} of {} cases",
+            failures.len(),
+            cases.len()
+        )
+        .into());
     }
 
     Ok(())

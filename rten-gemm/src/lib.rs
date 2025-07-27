@@ -166,6 +166,8 @@ enum Int8KernelType {
     Avx512,
 
     #[cfg(target_arch = "aarch64")]
+    ArmI8mm,
+    #[cfg(target_arch = "aarch64")]
     ArmDot,
     #[cfg(target_arch = "aarch64")]
     ArmNeon,
@@ -485,6 +487,8 @@ impl WithKernel for GemmExecutor<u8, i8, i32> {
             Int8KernelType::ArmNeon => Self::from_kernel::<kernels::aarch64::ArmInt8Kernel>(),
             #[cfg(target_arch = "aarch64")]
             Int8KernelType::ArmDot => Self::from_kernel::<kernels::aarch64::ArmInt8DotKernel>(),
+            #[cfg(target_arch = "aarch64")]
+            Int8KernelType::ArmI8mm => Self::from_kernel::<kernels::aarch64::ArmInt8MMKernel>(),
             #[cfg(target_arch = "wasm32")]
             #[cfg(target_feature = "simd128")]
             Int8KernelType::Wasm => Self::from_kernel::<kernels::wasm::WasmInt8Kernel>(),
@@ -504,6 +508,7 @@ impl WithKernel for GemmExecutor<u8, i8, i32> {
 
         #[cfg(target_arch = "aarch64")]
         {
+            types.push(Int8KernelType::ArmI8mm);
             types.push(Int8KernelType::ArmDot);
             types.push(Int8KernelType::ArmNeon);
         }
@@ -534,6 +539,14 @@ impl Default for GemmExecutor<u8, i8, i32> {
         }
         #[cfg(target_arch = "aarch64")]
         {
+            // i8mm usage is opt-in because the current implementation performs
+            // better than dotprod on some systems but worse on others. Ideally
+            // it would either be better everywhere or we'd auto-detect whether
+            // to use it or not.
+            //
+            // See https://github.com/robertknight/rten/pull/824.
+            #[cfg(feature = "i8mm")]
+            try_kernel!(Int8KernelType::ArmI8mm);
             try_kernel!(Int8KernelType::ArmDot);
             try_kernel!(Int8KernelType::ArmNeon);
         }
