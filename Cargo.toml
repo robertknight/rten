@@ -79,11 +79,6 @@ mmap = ["dep:memmap2"]
 wasm_api = []
 # Enable operators that generate random numbers.
 random = ["dep:fastrand", "dep:fastrand-contrib"]
-# Enable use of i8mm for matrix multiplication.
-#
-# Off by default as on some systems it is currently slower than the older
-# dotprod instructions. See https://github.com/robertknight/rten/pull/824.
-i8mm = ["rten-gemm/i8mm"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.100"
