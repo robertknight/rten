@@ -5,12 +5,12 @@ use rten_tensor::prelude::*;
 use rten_tensor::{is_valid_permutation, NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{
     map_value, map_value_view, resolve_axes, resolve_axis, static_dims, IntoOpResult, OpError,
     OpRunContext, Operator, OutputList, Value, ValueView,
 };
-use crate::tensor_pool::{AutoReturn, TensorPool};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DepthToSpaceMode {
@@ -19,7 +19,7 @@ pub enum DepthToSpaceMode {
 }
 
 pub fn depth_to_space<T: Clone>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     block_size: u32,
     mode: DepthToSpaceMode,
@@ -89,7 +89,7 @@ fn expand_output_shape(
 /// Broadcast `input` to `out_shape`. This assumes that `out_shape` has already
 /// been verified to be a valid broadcast target.
 pub(crate) fn expand_to<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     out_shape: &[usize],
 ) -> Tensor<T> {
@@ -134,7 +134,7 @@ pub(crate) fn expand_to<T: Copy>(
 }
 
 pub fn expand<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     shape: &NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {
@@ -192,7 +192,7 @@ fn flattened_shape(shape: &[usize], axis: isize) -> Result<[usize; 2], OpError> 
 }
 
 pub fn flatten<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
@@ -203,7 +203,7 @@ pub fn flatten<T: Copy>(
 }
 
 pub fn flatten_in_place<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: &mut Tensor<T>,
     axis: isize,
 ) -> Result<(), OpError> {
@@ -316,7 +316,7 @@ fn resolve_shape(
 }
 
 pub fn reshape<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     shape: &NdTensorView<i32, 1>,
     allow_zero: bool,
@@ -327,7 +327,7 @@ pub fn reshape<T: Copy>(
 }
 
 pub fn reshape_in_place<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: &mut Tensor<T>,
     shape: &NdTensorView<i32, 1>,
     allow_zero: bool,
@@ -480,7 +480,7 @@ pub fn squeeze_in_place<T: Clone>(
 }
 
 pub fn squeeze<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<NdTensorView<i32, 1>>,
 ) -> Result<Tensor<T>, OpError> {
@@ -520,7 +520,7 @@ impl Operator for Squeeze {
 }
 
 pub fn transpose<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     permutation: Option<&[usize]>,
 ) -> Result<Tensor<T>, OpError> {
@@ -592,7 +592,7 @@ pub fn unsqueeze_in_place<T: Clone>(
 }
 
 pub fn unsqueeze<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axes: &NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {

@@ -1,12 +1,12 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::{
     map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
 };
-use crate::tensor_pool::TensorPool;
 
-fn identity<T: Copy>(pool: &TensorPool, src: TensorView<T>) -> Tensor<T> {
+fn identity<T: Copy>(pool: &BufferPool, src: TensorView<T>) -> Tensor<T> {
     src.to_tensor_in(pool)
 }
 

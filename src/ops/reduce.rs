@@ -8,18 +8,18 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     map_value_view, resolve_axes, resolve_axis, InputList, IntoOpResult, OpError, OpRunContext,
     Operator, OutputList, ValueView,
 };
 use crate::slice_reductions::slice_sum;
-use crate::tensor_pool::TensorPool;
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
 fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axis: isize,
     keep_dims: bool,
@@ -75,7 +75,7 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
 ///
 /// NaN values are propagated by treating NaNs as greater than other values.
 pub fn arg_max<T: Copy + PartialOrd + IsNaN>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axis: isize,
     keep_dims: bool,
@@ -106,7 +106,7 @@ impl Operator for ArgMax {
 ///
 /// NaN values are propagated by treating NaNs as smaller than other values.
 pub fn arg_min<T: Copy + PartialOrd + IsNaN>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axis: isize,
     keep_dims: bool,
@@ -139,7 +139,7 @@ impl Operator for ArgMin {
 }
 
 pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
@@ -186,7 +186,7 @@ impl Operator for CumSum {
 }
 
 /// Return the indices of nonzero elements in `input` as a `(dim, index)` tensor.
-pub fn nonzero<T: Default + PartialEq>(pool: &TensorPool, input: TensorView<T>) -> Tensor<i32> {
+pub fn nonzero<T: Default + PartialEq>(pool: &BufferPool, input: TensorView<T>) -> Tensor<i32> {
     // Special case for scalar inputs.
     if let (Some(item), 0) = (input.item(), input.ndim()) {
         return Tensor::zeros(&[0, if *item != T::default() { 1 } else { 0 }]);
@@ -229,12 +229,12 @@ impl Operator for NonZero {
 
 /// Manages a scratch buffer allocated from a pool.
 struct TempBuffer<'a, T> {
-    pool: &'a TensorPool,
+    pool: &'a BufferPool,
     buf: Vec<T>,
 }
 
 impl<'a, T> TempBuffer<'a, T> {
-    fn new(pool: &'a TensorPool) -> Self {
+    fn new(pool: &'a BufferPool) -> Self {
         TempBuffer {
             pool,
             buf: Vec::new(),
@@ -271,7 +271,7 @@ trait ReduceKernel<T> {
 /// invokes the kernel on that slice. If the input is not contiguous, the slice
 /// is packed before calling the kernel.
 fn reduce<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -384,7 +384,7 @@ fn reduce<T: Copy>(
 }
 
 pub fn reduce_mean(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -425,7 +425,7 @@ impl Operator for ReduceMean {
 }
 
 pub fn reduce_l2(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -494,7 +494,7 @@ pub fn cmp_nan_less<T: PartialOrd + IsNaN>(a: T, b: T) -> std::cmp::Ordering {
 }
 
 fn reduce_min_max<T: Copy + PartialOrd + IsNaN>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -532,7 +532,7 @@ fn get_axes<'a>(
 }
 
 pub fn reduce_min<T: Copy + PartialOrd + IsNaN>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -562,7 +562,7 @@ impl Operator for ReduceMin {
 }
 
 pub fn reduce_max<T: Copy + PartialOrd + IsNaN>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -592,7 +592,7 @@ impl Operator for ReduceMax {
 }
 
 pub fn reduce_prod<T: Copy + std::iter::Product>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -628,7 +628,7 @@ impl Operator for ReduceProd {
 }
 
 pub fn reduce_sum<T: Copy + Default + std::ops::Add<T, Output = T>>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -664,7 +664,7 @@ impl Operator for ReduceSum {
 }
 
 pub fn reduce_sum_square<T: Copy + std::ops::Mul<T, Output = T> + std::iter::Sum>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -700,7 +700,7 @@ impl Operator for ReduceSumSquare {
 }
 
 pub fn topk<T: Copy + Default + PartialOrd + IsNaN>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     values: TensorView<T>,
     k: usize,
     axis: Option<isize>,

@@ -5,11 +5,11 @@ use rten_tensor::{DynLayout, MutLayout, OverlapPolicy, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
+use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
 use crate::ops::layout::expand_to;
 use crate::ops::{
     matmul, mul, reduce_sum, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
 };
-use crate::tensor_pool::{AutoReturn, PoolRef, TensorPool};
 
 /// A parsed equation for an Einsum operator.
 ///
@@ -146,7 +146,7 @@ impl Operator for Einsum {
 }
 
 pub fn einsum(
-    pool: &TensorPool,
+    pool: &BufferPool,
     inputs: &[TensorView],
     equation_str: &str,
 ) -> Result<Tensor, OpError> {
@@ -275,7 +275,7 @@ fn take_diagonals<'a>(term: &str, x: &TensorView<'a>) -> Result<(String, TensorV
 
 /// Evaluate a single step in an einsum path.
 fn einsum_step(
-    pool: &TensorPool,
+    pool: &BufferPool,
     step: &EinsumStep,
     x: &TensorView,
     y: Option<&TensorView>,
@@ -449,7 +449,7 @@ fn permute_and_insert_axes<'a, T>(
 ///
 /// The equation must have a single reduced dimension.
 fn einsum_matmul(
-    pool: &TensorPool,
+    pool: &BufferPool,
     x: &TensorView,
     y: &TensorView,
     term1: &str,

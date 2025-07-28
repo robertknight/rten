@@ -6,8 +6,8 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::{static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding};
-use crate::tensor_pool::TensorPool;
 
 /// Calculate the output size and padding for a convolution or pooling operation.
 ///
@@ -101,7 +101,7 @@ const CHAN_GROUP_SIZE: usize = 4;
 /// - Computing an average of the accumulated value using `average(accum,
 ///   non_padding_count)`
 fn pool_impl<T: Copy + Send, F: Fn(T, T) -> T + Sync, A: Fn(T, usize) -> T + Sync>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     kernel_size: &[usize],
     strides: &[usize],
@@ -315,7 +315,7 @@ where
 }
 
 pub fn average_pool(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     kernel_size: &[usize],
     strides: &[usize],
@@ -368,7 +368,7 @@ impl Operator for AveragePool {
     }
 }
 
-pub fn global_average_pool(pool: &TensorPool, input: TensorView) -> Result<Tensor, OpError> {
+pub fn global_average_pool(pool: &BufferPool, input: TensorView) -> Result<Tensor, OpError> {
     let input = static_dims!(input, 4, "NCHW")?;
     let [batch, chans, in_h, in_w] = input.shape();
 
@@ -433,7 +433,7 @@ impl Operator for GlobalAveragePool {
 }
 
 pub fn max_pool(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     kernel_size: &[usize],
     strides: &[usize],

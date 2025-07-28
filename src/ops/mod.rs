@@ -24,8 +24,8 @@ use rten_gemm::PackedBMatrix;
 use rten_tensor::errors::DimensionError;
 use rten_tensor::{MutLayout, Storage, TensorBase};
 
+use crate::buffer_pool::BufferPool;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
-use crate::tensor_pool::TensorPool;
 use crate::timing::Profiler;
 use crate::value::{CastError, DataType, DataTypeOf, Value, ValueOrView, ValueView};
 use crate::weight_cache::WeightCache;
@@ -396,14 +396,14 @@ pub(crate) use static_dims;
 /// Context passed to [`Operator::run`] containing the information needed for
 /// the operator to execute.
 pub struct OpRunContext<'a, 'i> {
-    pool: &'a TensorPool,
+    pool: &'a BufferPool,
     inputs: &'a InputList<'i>,
     n_outputs: Option<u32>,
     name: Option<&'a str>,
 }
 
 impl<'a, 'i> OpRunContext<'a, 'i> {
-    pub fn new(pool: &'a TensorPool, inputs: &'a InputList<'i>) -> Self {
+    pub fn new(pool: &'a BufferPool, inputs: &'a InputList<'i>) -> Self {
         OpRunContext {
             pool,
             inputs,
@@ -413,7 +413,7 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     }
 
     /// The pool which should be used to allocate large buffers.
-    pub fn pool(&self) -> &TensorPool {
+    pub fn pool(&self) -> &BufferPool {
         self.pool
     }
 
@@ -470,7 +470,7 @@ pub trait Operator: Any + Debug {
 
     /// Execute the operator.
     ///
-    /// `ctx` provides access to operator inputs and the [`TensorPool`] from
+    /// `ctx` provides access to operator inputs and the [`BufferPool`] from
     /// which the output and temporary buffers should be allocated.
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError>;
 
@@ -602,7 +602,7 @@ pub trait OperatorExt: Operator {
 
     /// Run an operator and extract the first output.
     fn run_simple_no_cast<'a, I: Into<InputList<'a>>>(&self, inputs: I) -> Result<Value, OpError> {
-        let pool = TensorPool::new();
+        let pool = BufferPool::new();
         let inputs = inputs.into();
         let ctx = OpRunContext::new(&pool, &inputs);
         let mut outputs = self.run(&ctx)?;
@@ -620,7 +620,7 @@ pub trait OperatorExt: Operator {
         mut_input: M,
         inputs: I,
     ) -> Result<O, OpError> {
-        let pool = TensorPool::new();
+        let pool = BufferPool::new();
         let inputs = inputs.into();
         let ctx = OpRunContext::new(&pool, &inputs);
         let output = self.run_in_place(mut_input.into(), &ctx)?;
@@ -976,15 +976,15 @@ mod tests {
     use rten_tensor::{Tensor, TensorView};
 
     use super::Operator;
+    use crate::buffer_pool::BufferPool;
     use crate::ops::{Add, InputList, OpError, Sub};
-    use crate::tensor_pool::TensorPool;
 
     /// Create an empty tensor pool.
     ///
     /// This is a wrapper that provides a place to customize the behavior of
     /// the pool in tests.
-    pub fn new_pool() -> TensorPool {
-        TensorPool::new()
+    pub fn new_pool() -> BufferPool {
+        BufferPool::new()
     }
 
     /// Compare two f32 tensors with a higher absolute tolerance (1e-4) than

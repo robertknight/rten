@@ -8,7 +8,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{AssumeInit, NdTensor, NdTensorView, NdTensorViewMut};
 use smallvec::SmallVec;
 
-use crate::tensor_pool::{AutoReturn, TensorPool};
+use crate::buffer_pool::{AutoReturn, BufferPool};
 
 /// Calculate the output coordinate range for which all input / output
 /// coordinates are valid when updating a row of output using:
@@ -287,7 +287,7 @@ impl<X: Copy + Default + Sync, W: Copy + Default + Sync, Y: Copy + Default>
     /// Compute a depthwise convolution of a 2D image.
     pub fn depthwise_conv_2d(
         &self,
-        pool: &TensorPool,
+        pool: &BufferPool,
         input: &NdTensorView<X, 4>,
         kernel: &NdTensorView<W, 4>,
         bias: Option<NdTensorView<Y, 1>>,

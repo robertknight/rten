@@ -7,9 +7,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::{resolve_axis, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value};
 use crate::slice_reductions::slice_max;
-use crate::tensor_pool::TensorPool;
 
 /// Specifies how to normalize the mean and variance.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -219,7 +219,7 @@ pub fn batch_norm_in_place(
 ///
 /// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     scale: &NdTensorView<f32, 1>,
     bias: &NdTensorView<f32, 1>,
@@ -272,7 +272,7 @@ impl Operator for BatchNormalization {
 }
 
 pub fn instance_normalization(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     scale: NdTensorView<f32, 1>,
     bias: NdTensorView<f32, 1>,
@@ -355,7 +355,7 @@ impl Operator for InstanceNormalization {
 }
 
 pub fn rms_normalization(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     scale: TensorView,
     axis: isize,
@@ -373,7 +373,7 @@ pub fn rms_normalization(
 }
 
 pub fn layer_normalization(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     scale: TensorView,
     bias: Option<TensorView>,
@@ -392,7 +392,7 @@ pub fn layer_normalization(
 }
 
 fn layer_normalization_impl(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     scale: TensorView,
     bias: Option<TensorView>,
@@ -517,7 +517,7 @@ impl Operator for RmsNormalization {
     }
 }
 
-pub fn log_softmax(pool: &TensorPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
+pub fn log_softmax(pool: &BufferPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
     let mut output = input.to_tensor_in(pool);
     log_softmax_in_place(&mut output, axis)?;
     Ok(output)
@@ -632,7 +632,7 @@ impl Operator for LogSoftmax {
     }
 }
 
-pub fn softmax(pool: &TensorPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
+pub fn softmax(pool: &BufferPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
     let mut output = input.to_tensor_in(pool);
     softmax_in_place(&mut output, axis)?;
     Ok(output)

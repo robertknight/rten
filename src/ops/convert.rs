@@ -1,11 +1,11 @@
 use rten_tensor::prelude::*;
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::{
     DataType, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
 };
-use crate::tensor_pool::TensorPool;
 
-fn cast(pool: &TensorPool, input: ValueView, dtype: DataType) -> Result<Value, OpError> {
+fn cast(pool: &BufferPool, input: ValueView, dtype: DataType) -> Result<Value, OpError> {
     macro_rules! cast_as {
         ($x:ident) => {
             $x.to_tensor_in(pool).into()

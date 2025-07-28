@@ -1,10 +1,10 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::{
     map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView,
 };
-use crate::tensor_pool::TensorPool;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum PadMode {
@@ -13,7 +13,7 @@ pub enum PadMode {
 }
 
 pub fn pad<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     padding: &NdTensorView<i32, 1>,
     mode: PadMode,

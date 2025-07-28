@@ -8,12 +8,12 @@ use rten_tensor::{
 };
 use smallvec::SmallVec;
 
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
     map_value_view, resolve_axis, resolve_index, IntoOpResult, OpError, OpRunContext, Operator,
     OutputList, ValueView,
 };
-use crate::tensor_pool::{AutoReturn, TensorPool};
 
 const INVALID_INDEX_ERR: OpError = OpError::InvalidValue("Entry in `indices` is out of range");
 
@@ -56,7 +56,7 @@ impl<T> GetItem for Lane<'_, T> {
 /// <https://numpy.org/doc/stable/reference/generated/numpy.take.html> for
 /// additional explanation.
 pub fn gather<T: Copy + Default>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axis: isize,
     indices: TensorView<i32>,
@@ -180,7 +180,7 @@ impl Operator for Gather {
 }
 
 pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     indices: TensorView<i32>,
     axis: isize,
@@ -292,7 +292,7 @@ impl Operator for GatherElements {
 }
 
 pub fn gather_nd<T: Clone + Default>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     indices: TensorView<i32>,
     batch_dims: usize,
@@ -454,7 +454,7 @@ fn scatter_reduce<
 pub fn scatter_elements<
     T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T> + IsNaN,
 >(
-    pool: &TensorPool,
+    pool: &BufferPool,
     data: TensorView<T>,
     indices: TensorView<i32>,
     updates: TensorView<T>,
@@ -523,7 +523,7 @@ impl Operator for ScatterElements {
 pub fn scatter_nd<
     T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T> + IsNaN,
 >(
-    pool: &TensorPool,
+    pool: &BufferPool,
     data: TensorView<T>,
     indices: TensorView<i32>,
     updates: TensorView<T>,

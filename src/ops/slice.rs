@@ -3,11 +3,11 @@ use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::{
     map_value, map_value_view, resolve_axis, InputList, IntoOpResult, OpError, OpRunContext,
     Operator, OutputList, Value, ValueView,
 };
-use crate::tensor_pool::{AutoReturn, TensorPool};
 
 macro_rules! check_input {
     ($cond:expr, $msg:literal) => {
@@ -81,7 +81,7 @@ fn slice_ranges(
 
 /// Return a copy of a tensor which only retains a subset of a given dimension.
 pub fn slice<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     starts: &NdTensorView<i32, 1>,
     ends: &NdTensorView<i32, 1>,

@@ -5,10 +5,10 @@ use rten_tensor::prelude::*;
 use rten_tensor::rng::XorShiftRng;
 use wasm_bindgen::prelude::*;
 
+use crate::buffer_pool::BufferPool;
 use crate::graph::{Dimension, NodeId};
 use crate::model;
 use crate::ops::matmul;
-use crate::tensor_pool::TensorPool;
 use crate::value::{Value, ValueOrView};
 
 #[wasm_bindgen]
@@ -214,7 +214,7 @@ impl Tensor {
     pub fn matmul(&self, other: &Tensor) -> Result<Tensor, String> {
         let a = self.as_float()?;
         let b = other.as_float()?;
-        let pool = TensorPool::new();
+        let pool = BufferPool::new();
         let out = matmul(&pool, a, b, None).map_err(|e| e.to_string())?;
         Ok(Tensor::from_value(out.into()))
     }

@@ -5,15 +5,15 @@ use rten_tensor::errors::DimensionError;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::{
     map_dtype, map_value_view, resolve_axis, resolve_index, static_dims, DataType, IntoOpResult,
     OpError, OpRunContext, Operator, OutputList,
 };
-use crate::tensor_pool::TensorPool;
 use crate::value::{Scalar, ValueView};
 
 pub fn constant_of_shape<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     value: T,
     shape: &NdTensorView<i32, 1>,
 ) -> Tensor<T> {
@@ -43,7 +43,7 @@ impl Operator for ConstantOfShape {
 }
 
 pub fn onehot<T: Copy + Default + PartialEq>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     indices: TensorView<i32>,
     onehot_axis: isize,
     depth: usize,
@@ -155,7 +155,7 @@ impl Operator for Range {
 }
 
 pub fn eye_like<T: Copy + Default + Identities>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     shape: [usize; 2],
     k: i32,
 ) -> NdTensor<T, 2> {

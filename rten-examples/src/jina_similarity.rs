@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 
 use rten::ops::concat;
-use rten::{FloatOperators, Model, NodeId, Operators, TensorPool, ValueOrView};
+use rten::{BufferPool, FloatOperators, Model, NodeId, Operators, ValueOrView};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 use rten_text::tokenizer::{EncodeOptions, Tokenizer};
@@ -160,7 +160,7 @@ fn embed_sentence_batch(
             view
         })
         .collect();
-    let pool = TensorPool::new();
+    let pool = BufferPool::new();
     let mean_pooled: NdTensor<f32, 2> = concat(&pool, &mean_pooled_views, 0)?.try_into()?;
     Ok(mean_pooled)
 }

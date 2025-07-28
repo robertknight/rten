@@ -6,7 +6,7 @@ use rten_gemm::{PackedAMatrix, PackedBMatrix};
 use rten_tensor::{Alloc, CowData, MutLayout, TensorBase};
 
 /// A memory buffer that can be used to satisfy a future allocation from
-/// a [`TensorPool`].
+/// a [`BufferPool`].
 pub struct Buffer {
     /// Pointer and capacity extracted from the `Vec`. The length is always
     /// zero.
@@ -102,8 +102,8 @@ impl<T> From<Vec<T>> for Buffer {
 ///
 /// # Usage
 ///
-/// [`TensorPool`] implements the [`Alloc`] trait, enabling tensors to be allocated
-/// from the pool using the various `Tensor::*_in` methods, eg.
+/// [`BufferPool`] implements the [`Alloc`] trait, enabling tensors to be
+/// allocated from the pool using the various `Tensor::*_in` methods, eg.
 /// [`Tensor::zeros_in`](rten_tensor::Tensor::zeros_in). Allocation requests
 /// will be satisfied from the pool if there is a suitable buffer available, or
 /// it will fall back to the global allocator otherwise.
@@ -132,7 +132,7 @@ impl<T> From<Vec<T>> for Buffer {
 ///
 /// [^1]: <https://mjtsai.com/blog/2022/09/20/zeroing-freed-memory/>
 /// [^2]: <https://randomascii.wordpress.com/2014/12/10/hidden-costs-of-memory-allocation/>
-pub struct TensorPool {
+pub struct BufferPool {
     /// List of buffers currently in the pool.
     buffers: Mutex<Vec<Buffer>>,
 
@@ -143,14 +143,14 @@ pub struct TensorPool {
     hit_count: AtomicUsize,
 }
 
-impl TensorPool {
+impl BufferPool {
     /// Return a new, empty pool.
     ///
     /// This is a cheap operation that does not allocate, so it can be used
     /// to create a temporary pool to pass to a function that requires one,
     /// if the caller does not have a pool otherwise available.
-    pub fn new() -> TensorPool {
-        TensorPool {
+    pub fn new() -> BufferPool {
+        BufferPool {
             buffers: Mutex::new(Vec::new()),
             alloc_count: AtomicUsize::new(0),
             hit_count: AtomicUsize::new(0),
@@ -228,13 +228,13 @@ impl TensorPool {
     }
 }
 
-impl Alloc for TensorPool {
+impl Alloc for BufferPool {
     fn alloc<T>(&self, capacity: usize) -> Vec<T> {
         self.alloc(capacity)
     }
 }
 
-impl Default for TensorPool {
+impl Default for BufferPool {
     fn default() -> Self {
         Self::new()
     }
@@ -243,7 +243,7 @@ impl Default for TensorPool {
 /// Trait for extracting the data buffer from a tensor or other container.
 ///
 /// This is used to extract the buffer from a container that is no longer
-/// needed, in order to return it to a [`TensorPool`].
+/// needed, in order to return it to a [`BufferPool`].
 pub trait ExtractBuffer {
     /// Consume `self` and return its data buffer if it was uniquely owned, or
     /// `None` otherwise.
@@ -290,13 +290,13 @@ pub trait AutoReturn {
     /// Wrap `self` in a [`PoolRef`].
     ///
     /// When the returned ref is dropped, `self` will be returned to the pool.
-    fn auto_return(self, pool: &TensorPool) -> PoolRef<'_, Self>
+    fn auto_return(self, pool: &BufferPool) -> PoolRef<'_, Self>
     where
         Self: Sized + ExtractBuffer;
 }
 
 impl<EB: ExtractBuffer> AutoReturn for EB {
-    fn auto_return(self, pool: &TensorPool) -> PoolRef<'_, EB> {
+    fn auto_return(self, pool: &BufferPool) -> PoolRef<'_, EB> {
         PoolRef::new(pool, self)
     }
 }
@@ -308,14 +308,14 @@ impl<EB: ExtractBuffer> AutoReturn for EB {
 /// then reference it inside a parallel block, you will need to deref the
 /// [`PoolRef`] outside the parallel block.
 pub struct PoolRef<'a, T: ExtractBuffer> {
-    pool: &'a TensorPool,
+    pool: &'a BufferPool,
     container: Option<T>,
 }
 
 impl<'a, T: ExtractBuffer> PoolRef<'a, T> {
     /// Create a `PoolRef` which will wrap `tensor` and return it to `pool`
     /// when dropped.
-    pub fn new(pool: &'a TensorPool, tensor: T) -> Self {
+    pub fn new(pool: &'a BufferPool, tensor: T) -> Self {
         PoolRef {
             pool,
             container: Some(tensor),
@@ -355,13 +355,13 @@ impl<T: ExtractBuffer> Drop for PoolRef<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AutoReturn, ExtractBuffer, TensorPool};
+    use super::{AutoReturn, BufferPool, ExtractBuffer};
     use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
 
     #[test]
     fn test_pool_alloc_tensor() {
-        let pool = TensorPool::new();
+        let pool = BufferPool::new();
 
         // Initial alloc. There is nothing in the pool so this will use the
         // system allocator.
@@ -417,7 +417,7 @@ mod tests {
 
     #[test]
     fn test_pool_alloc() {
-        let pool = TensorPool::new();
+        let pool = BufferPool::new();
 
         let vec = pool.alloc::<f32>(128);
         assert_eq!(vec.capacity(), 128);
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn test_pool_alloc_zst() {
-        let pool = TensorPool::new();
+        let pool = BufferPool::new();
 
         let vec = pool.alloc::<()>(128);
         assert_eq!(vec.capacity(), usize::MAX);
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_pool_alloc_non_copy_type() {
-        let pool = TensorPool::new();
+        let pool = BufferPool::new();
 
         let mut vec = pool.alloc::<String>(5);
         vec.push("hello".into());
@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_pool_ref_auto_return() {
-        let pool = TensorPool::new();
+        let pool = BufferPool::new();
         assert_eq!(pool.len(), 0);
 
         // Owned tensor. This will auto-return to the pool.
@@ -509,7 +509,7 @@ mod tests {
 
     #[test]
     fn test_pool_ref_take() {
-        let pool = TensorPool::new();
+        let pool = BufferPool::new();
         assert_eq!(pool.len(), 0);
         {
             let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]).auto_return(&pool);

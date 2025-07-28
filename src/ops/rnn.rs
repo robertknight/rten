@@ -5,10 +5,10 @@ use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor, TensorView};
 
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::binary_elementwise::{add_in_place, mul_in_place};
 use crate::ops::unary_elementwise::{sigmoid, tanh};
 use crate::ops::{static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
-use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -118,7 +118,7 @@ pub struct GRU {
 ///
 /// `initial_hidden` has shape `[directions, batch, hidden_size]`.
 pub fn gru(
-    pool: &TensorPool,
+    pool: &BufferPool,
     direction: Direction,
     input: TensorView,
     weights: TensorView,
@@ -371,7 +371,7 @@ pub struct LSTM {
 /// `initial_hidden` has shape `[directions, batch, hidden_size]`.
 /// `initial_cell` has shape `[directions, batch, hidden_size]`.
 pub fn lstm(
-    pool: &TensorPool,
+    pool: &BufferPool,
     direction: Direction,
     input: TensorView,
     weights: TensorView,

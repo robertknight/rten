@@ -5,11 +5,11 @@ use rten_tensor::{AssumeInit, NdTensorView, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::{
     map_value, map_value_view, resolve_axis, CastError, InputList, IntoOpResult, OpError,
     OpRunContext, Operator, OutputList, Value, ValueView,
 };
-use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Return the shape formed by concatenating all tensors along a given axis.
 fn concatenated_shape<T: Copy>(
@@ -56,7 +56,7 @@ where
 }
 
 fn concat_impl<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     out_shape: &[usize],
     axis: usize,
     first_input: &TensorView<T>,
@@ -70,7 +70,7 @@ fn concat_impl<T: Copy>(
 }
 
 pub fn concat<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     inputs: &[TensorView<T>],
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
@@ -80,7 +80,7 @@ pub fn concat<T: Copy>(
 }
 
 pub fn concat_in_place<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     mut output: Tensor<T>,
     inputs: &[TensorView<T>],
     axis: isize,
@@ -207,7 +207,7 @@ fn tile_inner<T: Copy>(
 }
 
 pub fn tile<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     repeats: NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {

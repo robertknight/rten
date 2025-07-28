@@ -6,11 +6,11 @@ use rten_base::iter::range_chunks;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::{
     static_dims, CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
     Value, ValueView,
 };
-use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
@@ -247,7 +247,7 @@ pub fn resize_image(input: TensorView, size: [usize; 2]) -> Result<Tensor, OpErr
     let [out_height, out_width] = size;
     let out_shape = [batch, chans, out_height, out_width].map(|x| x as i32);
     resize(
-        &TensorPool::new(),
+        &BufferPool::new(),
         input,
         ResizeTarget::Sizes(out_shape.as_slice().into()),
         ResizeMode::Linear,
@@ -298,7 +298,7 @@ fn target_from_scale_size_inputs<'a>(
 }
 
 fn resize_impl(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     output_size: &[usize],
     mode: ResizeMode,
@@ -361,7 +361,7 @@ fn resize_impl(
 }
 
 pub fn resize(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     target: ResizeTarget,
     mode: ResizeMode,
