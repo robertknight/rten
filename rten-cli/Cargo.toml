@@ -21,8 +21,6 @@ rten-testing = { path = "../rten-testing" }
 [features]
 # Use AVX-512 instructions if available. Requires nightly Rust for AVX-512 intrinsics.
 avx512 = ["rten/avx512"]
-# Use i8mm instructions if available.
-i8mm = ["rten/i8mm"]
 
 [lints.clippy]
 uninlined_format_args = "allow"

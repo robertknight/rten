@@ -765,17 +765,18 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
             let col_tiles: [U8; COL_TILES] = std::array::from_fn(|c| {
                 u8_ops.load_ptr(b_ptr.add(k_block * b_tile_size + c * u8_ops.len()))
             });
+            let row_tiles: [U8; ROW_TILES] = std::array::from_fn(|r| {
+                u8_ops.load_ptr(a_ptr.add(k_block * a_tile_size + r * u8_ops.len()))
+            });
 
             for r in 0..ROW_TILES {
-                let row_tile = u8_ops.load_ptr(a_ptr.add(k_block * a_tile_size + r * u8_ops.len()));
-
                 for c in 0..COL_TILES {
                     // Use inline asm here because the `vmmlaq_u32` intrinsic is
                     // not stabilized yet.
                     core::arch::asm! {
                         "ummla {result:v}.4s, {a:v}.16b, {b:v}.16b",
                         result = inout(vreg) tmp[r][c],
-                        a = in(vreg) row_tile,
+                        a = in(vreg) row_tiles[r],
                         b = in(vreg) col_tiles[c],
                         options(nostack)
                     }

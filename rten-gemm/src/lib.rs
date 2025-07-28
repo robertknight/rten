@@ -539,13 +539,6 @@ impl Default for GemmExecutor<u8, i8, i32> {
         }
         #[cfg(target_arch = "aarch64")]
         {
-            // i8mm usage is opt-in because the current implementation performs
-            // better than dotprod on some systems but worse on others. Ideally
-            // it would either be better everywhere or we'd auto-detect whether
-            // to use it or not.
-            //
-            // See https://github.com/robertknight/rten/pull/824.
-            #[cfg(feature = "i8mm")]
             try_kernel!(Int8KernelType::ArmI8mm);
             try_kernel!(Int8KernelType::ArmDot);
             try_kernel!(Int8KernelType::ArmNeon);
