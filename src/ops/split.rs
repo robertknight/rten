@@ -2,10 +2,10 @@ use rten_base::iter::range_chunks;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::{
     map_value_view, resolve_axis, OpError, OpRunContext, Operator, OutputList, ValueView,
 };
-use crate::tensor_pool::TensorPool;
 
 #[derive(Clone, Debug)]
 pub enum SplitSizes<'a> {
@@ -24,7 +24,7 @@ impl<'a> From<&'a [i32]> for SplitSizes<'a> {
 }
 
 pub fn split<T: Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     axis: isize,
     split: SplitSizes,

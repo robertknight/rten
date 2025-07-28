@@ -15,9 +15,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use smallvec::SmallVec;
 
+use crate::buffer_pool::BufferPool;
 use crate::env::env_flag;
 use crate::ops::{InputList, OpError, OpRunContext, Operator, OutputList, PrepackedInput};
-use crate::tensor_pool::TensorPool;
 use crate::threading;
 use crate::timing::{Instant, ProfileFormat, Profiler, TimingRecord, TimingSort};
 use crate::value::{DataType, Value, ValueMeta, ValueOrView, ValueView};
@@ -737,12 +737,14 @@ impl Graph {
             let mut profiler =
                 (opts.timing || opts.verbose).then(|| Profiler::with_capacity(plan.plan().len()));
 
+            let pool = BufferPool::new();
+
             let result = self.run_plan(
                 inputs,
                 plan.plan(),
                 outputs,
                 None, /* captures */
-                None, /* pool */
+                &pool,
                 weight_cache,
                 profiler.as_mut(),
                 &opts,
@@ -769,7 +771,7 @@ impl Graph {
         inputs: Vec<(NodeId, ValueOrView)>,
         outputs: &[NodeId],
         captures: CaptureEnv,
-        pool: Option<&TensorPool>,
+        pool: &BufferPool,
         weight_cache: Option<&WeightCache>,
         profiler: Option<&mut Profiler<'a>>,
         opts: Option<RunOptions>,
@@ -834,7 +836,7 @@ impl Graph {
         plan: &[NodeId],
         outputs: &[NodeId],
         mut captures: Option<CaptureEnv>,
-        pool: Option<&TensorPool>,
+        pool: &BufferPool,
         weight_cache: Option<&WeightCache>,
         mut profiler: Option<&mut Profiler<'a>>,
         opts: &RunOptions,
@@ -899,13 +901,9 @@ impl Graph {
             temp_value_refcount.inc(*node_id);
         }
 
-        // Create or re-use pool for buffer allocations.
-        //
-        // If the feature flag is off, we still create the pool, but never
-        // release buffers back into it, so all allocations use the system
-        // allocator.
-        let new_pool = TensorPool::new();
-        let pool = pool.unwrap_or(&new_pool);
+        // Choose whether to use tensor pool. If disabled, buffers are still
+        // allocated from the pool but never released to it, so allocations will
+        // still come from the system allocator.
         let use_pool = env_flag("RTEN_USE_POOL", true);
 
         // Execute the plan
@@ -1249,12 +1247,13 @@ impl Graph {
             let mut profiler =
                 (opts.timing || opts.verbose).then(|| Profiler::with_capacity(pruned_plan.len()));
 
+            let pool = BufferPool::new();
             let result = self.run_plan(
                 inputs,
                 &pruned_plan,
                 &pruned_plan_output_ids,
                 None, /* captures */
-                None, /* pool */
+                &pool,
                 None, /* weight cache */
                 profiler.as_mut(),
                 &opts,

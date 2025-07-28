@@ -10,11 +10,11 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;
 
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::{
     map_value, map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
     ValueView,
 };
-use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Trait for operators which take a single float tensor and apply a function
 /// to each element.
@@ -25,7 +25,7 @@ pub trait UnaryFloatOp {
     fn map_element(&self, val: f32) -> f32;
 
     /// Apply the operator to all elements in `input`.
-    fn map(&self, pool: &TensorPool, input: TensorView) -> Tensor {
+    fn map(&self, pool: &BufferPool, input: TensorView) -> Tensor {
         input.map_in(pool, |val| self.map_element(*val))
     }
 
@@ -94,7 +94,7 @@ macro_rules! unary_numeric_op {
 
 macro_rules! unary_float_funcs {
     ($name:ident, $func_name:ident) => {
-        pub fn $func_name(pool: &TensorPool, input: TensorView) -> Tensor {
+        pub fn $func_name(pool: &BufferPool, input: TensorView) -> Tensor {
             $name {}.map(pool, input)
         }
     };
@@ -130,7 +130,7 @@ const CHUNK_SIZE: usize = 32 * 1024;
 
 /// Apply a unary operation in parallel to contiguous slices of `input`.
 fn par_unary_op<T: GetNumOps + Elem + Send + Sync>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     op: impl SimdUnaryOp<T> + Send + Sync,
 ) -> Tensor<T> {
@@ -150,7 +150,7 @@ fn par_unary_op<T: GetNumOps + Elem + Send + Sync>(
 /// Apply a unary operation in parallel to contiguous slices of `input`,
 /// writing the results in-place.
 fn par_unary_op_in_place<T: GetNumOps + Elem + Send + Sync>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     mut input: Tensor<T>,
     op: impl SimdUnaryOp<T> + Send + Sync,
 ) -> Tensor<T> {
@@ -191,7 +191,7 @@ macro_rules! parallel_unary_float_op {
             }
         }
 
-        pub fn $func_name(pool: &TensorPool, input: TensorView) -> Tensor {
+        pub fn $func_name(pool: &BufferPool, input: TensorView) -> Tensor {
             let kernel = $simd_kernel;
             par_unary_op(pool, input, kernel)
         }
@@ -214,11 +214,11 @@ impl AbsValue for i32 {
     }
 }
 
-pub fn abs<T: AbsValue>(pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
+pub fn abs<T: AbsValue>(pool: &BufferPool, input: TensorView<T>) -> Tensor<T> {
     input.map_in(pool, |x| x.abs())
 }
 
-pub fn abs_in_place<T: AbsValue>(_pool: &TensorPool, mut input: Tensor<T>) -> Tensor<T> {
+pub fn abs_in_place<T: AbsValue>(_pool: &BufferPool, mut input: Tensor<T>) -> Tensor<T> {
     input.apply(|x| x.abs());
     input
 }
@@ -283,7 +283,7 @@ impl Clamp for f32 {
 }
 
 pub fn clip<T: Copy + Clamp>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     min: Option<T>,
     max: Option<T>,
@@ -363,7 +363,7 @@ impl UnaryFloatOp for Elu {
     }
 }
 
-pub fn elu(pool: &TensorPool, input: TensorView, alpha: f32) -> Tensor {
+pub fn elu(pool: &BufferPool, input: TensorView, alpha: f32) -> Tensor {
     Elu { alpha }.map(pool, input)
 }
 
@@ -400,7 +400,7 @@ impl Operator for Gelu {
     }
 }
 
-pub fn gelu(pool: &TensorPool, input: TensorView, approximate: bool) -> Tensor {
+pub fn gelu(pool: &BufferPool, input: TensorView, approximate: bool) -> Tensor {
     if approximate {
         par_unary_op(pool, input, vecmath::ApproxGelu {})
     } else {
@@ -424,7 +424,7 @@ impl UnaryFloatOp for HardSigmoid {
     }
 }
 
-pub fn hard_sigmoid(pool: &TensorPool, input: TensorView, alpha: f32, beta: f32) -> Tensor {
+pub fn hard_sigmoid(pool: &BufferPool, input: TensorView, alpha: f32, beta: f32) -> Tensor {
     HardSigmoid { alpha, beta }.map(pool, input)
 }
 
@@ -445,7 +445,7 @@ impl UnaryFloatOp for HardSwish {
 
 unary_float_funcs!(HardSwish, hard_swish);
 
-pub fn leaky_relu(pool: &TensorPool, input: TensorView, alpha: f32) -> Tensor {
+pub fn leaky_relu(pool: &BufferPool, input: TensorView, alpha: f32) -> Tensor {
     LeakyRelu { alpha }.map(pool, input)
 }
 
@@ -471,14 +471,14 @@ impl UnaryFloatOp for LeakyRelu {
 unary_float_op!(Log, log, |val: f32| val.ln());
 
 pub fn neg<T: Copy + std::ops::Neg<Output = T>>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
 ) -> Tensor<T> {
     input.map_in(pool, |x| x.neg())
 }
 
 pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(
-    _pool: &TensorPool,
+    _pool: &BufferPool,
     mut input: Tensor<T>,
 ) -> Tensor<T> {
     input.apply(|x| x.neg());
@@ -487,7 +487,7 @@ pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(
 
 unary_numeric_op!(Neg, neg, neg_in_place);
 
-pub fn not<T: AsBool + PartialEq>(pool: &TensorPool, input: TensorView<T>) -> Tensor<i32> {
+pub fn not<T: AsBool + PartialEq>(pool: &BufferPool, input: TensorView<T>) -> Tensor<i32> {
     input.map_in(pool, |x| i32::from(!x.as_bool()))
 }
 
@@ -537,7 +537,7 @@ impl UnaryFloatOp for Round {
     }
 }
 
-pub fn round(pool: &TensorPool, x: TensorView) -> Tensor {
+pub fn round(pool: &BufferPool, x: TensorView) -> Tensor {
     Round {}.map(pool, x)
 }
 
@@ -581,11 +581,11 @@ impl Operator for Swish {
     }
 }
 
-pub fn swish(pool: &TensorPool, input: TensorView, beta: f32) -> Tensor {
+pub fn swish(pool: &BufferPool, input: TensorView, beta: f32) -> Tensor {
     par_unary_op(pool, input, vecmath::Swish { beta })
 }
 
-pub fn swish_in_place(pool: &TensorPool, input: Tensor, beta: f32) -> Tensor {
+pub fn swish_in_place(pool: &BufferPool, input: Tensor, beta: f32) -> Tensor {
     par_unary_op_in_place(pool, input, vecmath::Swish { beta })
 }
 
@@ -611,11 +611,11 @@ macro_rules! impl_signum {
 impl_signum!(i32);
 impl_signum!(f32);
 
-pub fn sign<T: Signum>(pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
+pub fn sign<T: Signum>(pool: &BufferPool, input: TensorView<T>) -> Tensor<T> {
     input.map_in(pool, |x| x.signum())
 }
 
-pub fn sign_in_place<T: Signum>(_pool: &TensorPool, mut input: Tensor<T>) -> Tensor<T> {
+pub fn sign_in_place<T: Signum>(_pool: &BufferPool, mut input: Tensor<T>) -> Tensor<T> {
     input.apply(|x| x.signum());
     input
 }

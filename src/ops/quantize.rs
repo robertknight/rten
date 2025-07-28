@@ -6,11 +6,11 @@ use rten_tensor::prelude::*;
 use rten_tensor::{AssumeInit, NdTensor, NdTensorView, Scalar, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::{
     resolve_axis, DataType, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
     ValueView,
 };
-use crate::tensor_pool::TensorPool;
 
 /// Convert a quantized tensor element to a higher precision value.
 pub trait Dequantize<To> {
@@ -35,7 +35,7 @@ impl Dequantize<f32> for i8 {
 }
 
 pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     scale: TensorView<f32>,
     zero_point: Option<TensorView<T>>,
@@ -179,7 +179,7 @@ impl Quantize<i8> for f32 {
 }
 
 pub fn quantize_linear<T: Copy + Default + Send + Sync + Scalar>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<f32>,
     scale: TensorView<f32>,
     zero_point: Option<TensorView<T>>,
@@ -319,7 +319,7 @@ pub struct DynamicQuantizeOutput<T> {
 }
 
 pub fn dynamic_quantize_linear<T: Copy + Default + Send + Sync + Scalar>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<f32>,
 ) -> Result<DynamicQuantizeOutput<T>, OpError>
 where

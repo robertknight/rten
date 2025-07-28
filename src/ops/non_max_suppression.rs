@@ -1,8 +1,8 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
-use crate::tensor_pool::TensorPool;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BoxOrder {
@@ -60,7 +60,7 @@ impl NmsBox {
 }
 
 pub fn non_max_suppression(
-    pool: &TensorPool,
+    pool: &BufferPool,
     boxes: NdTensorView<f32, 3>,
     scores: NdTensorView<f32, 3>,
     box_order: BoxOrder,

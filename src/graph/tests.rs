@@ -1081,7 +1081,7 @@ impl Operator for Subgraph {
                 inputs,
                 self.graph.output_ids(),
                 captures,
-                Some(ctx.pool()),
+                ctx.pool(),
                 weight_caches.map(|wcs| &wcs[0]),
                 profiler,
                 options,

@@ -4,12 +4,12 @@ use rten_base::num::{Identities, IsInt, IsNaN};
 use rten_tensor::prelude::*;
 use rten_tensor::{MutLayout, NdTensorView, Storage, Tensor, TensorBase, TensorView};
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::OpError;
 use crate::ops::{
     arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min, reduce_sum,
     resize_image, softmax, topk, PadMode,
 };
-use crate::tensor_pool::TensorPool;
 use crate::threading::thread_pool;
 
 /// Trait which exposes ONNX operators as methods of tensors.
@@ -115,7 +115,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
         T: Copy + PartialOrd + IsNaN,
     {
         let view = self.as_dyn();
-        use_thread_pool(|| arg_max(&TensorPool::new(), view, axis, keep_dims))
+        use_thread_pool(|| arg_max(&BufferPool::new(), view, axis, keep_dims))
     }
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
@@ -129,7 +129,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
             + Identities,
     {
         let view = self.as_dyn();
-        use_thread_pool(|| div(&TensorPool::new(), view, other))
+        use_thread_pool(|| div(&BufferPool::new(), view, other))
     }
 
     fn mul(&self, other: TensorView<T>) -> Result<Tensor<T>, OpError>
@@ -137,7 +137,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
         T: Copy + Debug + Default + std::ops::Mul<Output = T>,
     {
         let view = self.as_dyn();
-        use_thread_pool(|| mul(&TensorPool::new(), view, other))
+        use_thread_pool(|| mul(&BufferPool::new(), view, other))
     }
 
     fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor<T>, OpError>
@@ -145,7 +145,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
         T: Copy + PartialOrd + IsNaN,
     {
         let view = self.as_dyn();
-        use_thread_pool(|| reduce_max(&TensorPool::new(), view, axes, keep_dims))
+        use_thread_pool(|| reduce_max(&BufferPool::new(), view, axes, keep_dims))
     }
 
     fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor<T>, OpError>
@@ -153,7 +153,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
         T: Copy + PartialOrd + IsNaN,
     {
         let view = self.as_dyn();
-        use_thread_pool(|| reduce_min(&TensorPool::new(), view, axes, keep_dims))
+        use_thread_pool(|| reduce_min(&BufferPool::new(), view, axes, keep_dims))
     }
 
     fn reduce_sum(
@@ -165,7 +165,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
         Self::Elem: Copy + Default + std::ops::Add<Self::Elem, Output = Self::Elem>,
     {
         let view = self.as_dyn();
-        use_thread_pool(|| reduce_sum(&TensorPool::new(), view, axes, keep_dims))
+        use_thread_pool(|| reduce_sum(&BufferPool::new(), view, axes, keep_dims))
     }
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
@@ -173,7 +173,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
         Self::Elem: Copy,
     {
         let view = self.as_dyn();
-        use_thread_pool(move || pad(&TensorPool::new(), view, &padding, PadMode::Constant, val))
+        use_thread_pool(move || pad(&BufferPool::new(), view, &padding, PadMode::Constant, val))
     }
 
     fn topk(
@@ -187,24 +187,24 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
         T: Copy + Default + PartialOrd + IsNaN,
     {
         let view = self.as_dyn();
-        use_thread_pool(|| topk(&TensorPool::new(), view, k, axis, largest, sorted))
+        use_thread_pool(|| topk(&BufferPool::new(), view, k, axis, largest, sorted))
     }
 }
 
 impl<S: Storage<Elem = f32>, L: MutLayout> FloatOperators for TensorBase<S, L> {
     fn matmul(&self, other: TensorView) -> Result<Tensor, OpError> {
         let view = self.as_dyn();
-        use_thread_pool(|| matmul(&TensorPool::new(), view, other, None))
+        use_thread_pool(|| matmul(&BufferPool::new(), view, other, None))
     }
 
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
         let view = self.as_dyn();
-        use_thread_pool(|| reduce_l2(&TensorPool::new(), view, axes, keep_dims))
+        use_thread_pool(|| reduce_l2(&BufferPool::new(), view, axes, keep_dims))
     }
 
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
         let view = self.as_dyn();
-        use_thread_pool(|| reduce_mean(&TensorPool::new(), view, axes, keep_dims))
+        use_thread_pool(|| reduce_mean(&BufferPool::new(), view, axes, keep_dims))
     }
 
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError> {
@@ -214,6 +214,6 @@ impl<S: Storage<Elem = f32>, L: MutLayout> FloatOperators for TensorBase<S, L> {
 
     fn softmax(&self, axis: isize) -> Result<Tensor, OpError> {
         let view = self.as_dyn();
-        use_thread_pool(|| softmax(&TensorPool::new(), view, axis))
+        use_thread_pool(|| softmax(&BufferPool::new(), view, axis))
     }
 }

@@ -113,6 +113,7 @@
 #[allow(unused)] // Docs only
 use rten_tensor::{NdTensor, Tensor};
 
+mod buffer_pool;
 mod constant_storage;
 mod env;
 mod graph;
@@ -123,7 +124,6 @@ mod op_registry;
 mod optimize;
 mod shift_cast;
 mod slice_reductions;
-mod tensor_pool;
 mod threading;
 mod timing;
 mod value;
@@ -138,12 +138,12 @@ pub mod ctc;
 
 pub mod ops;
 
+pub use buffer_pool::{BufferPool, ExtractBuffer, PoolRef};
 pub use graph::{Dimension, NodeId, RunError, RunOptions};
 pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo};
 pub use model_metadata::ModelMetadata;
 pub use op_registry::{OpRegistry, ReadOp, ReadOpError};
 pub use ops::{FloatOperators, Operators};
-pub use tensor_pool::{ExtractBuffer, PoolRef, TensorPool};
 pub use threading::{thread_pool, ThreadPool};
 pub use timing::TimingSort;
 pub use value::{DataType, Value, ValueOrView, ValueView};

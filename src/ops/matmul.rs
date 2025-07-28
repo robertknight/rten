@@ -8,13 +8,13 @@ use rten_tensor::{Matrix, NdTensorView, Tensor, TensorView};
 use rten_vecmath::ExtendInit;
 use smallvec::SmallVec;
 
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
 use crate::ops::{
     static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput,
     ValueView,
 };
-use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
 ///
@@ -23,7 +23,7 @@ use crate::tensor_pool::{AutoReturn, TensorPool};
 ///
 /// nb. This is named `gemm_op` to avoid confusion with `gemm::gemm`.
 pub fn gemm_op<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     a: TensorView<LhsT>,
     b: TensorView<RhsT>,
     c: Option<TensorView<OutT>>,
@@ -147,7 +147,7 @@ where
 }
 
 pub fn matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     a: TensorView<LhsT>,
     b: TensorView<RhsT>,
     packed_b: Option<&PackedBMatrix<RhsT>>,
@@ -169,7 +169,7 @@ where
 }
 
 fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     mut a: TensorView<LhsT>,
     mut b: TensorView<RhsT>,
     packed_b: Option<&PackedBMatrix<RhsT>>,
@@ -378,7 +378,7 @@ impl Operator for MatMul {
 }
 
 pub fn matmul_fused<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     a: TensorView<LhsT>,
     b: TensorView<RhsT>,
     packed_b: Option<&PackedBMatrix<RhsT>>,
@@ -468,7 +468,7 @@ pub fn zero_point_to_vec<T>(
 }
 
 pub fn matmul_integer<LhsT, RhsT>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     a: TensorView<LhsT>,
     b: TensorView<RhsT>,
     a_zero_point: Option<TensorView<LhsT>>,
@@ -566,7 +566,7 @@ impl Operator for MatMulInteger {
 
 /// Cast elements in `data` to f32 and scale by the per-column scales in `scale`.
 fn cast_scale(
-    pool: &TensorPool,
+    pool: &BufferPool,
     mut data: Tensor<i32>,
     scale: NdTensorView<f32, 1>,
 ) -> Result<Tensor<f32>, OpError> {
@@ -633,10 +633,10 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor, TensorView};
     use rten_testing::TestCases;
 
+    use crate::buffer_pool::AutoReturn;
     use crate::ops::binary_elementwise::broadcast_shapes;
     use crate::ops::tests::new_pool;
     use crate::ops::{InputList, Operator};
-    use crate::tensor_pool::AutoReturn;
 
     use super::{
         cast_scale, gemm_op, matmul, matmul_fused, matmul_impl, matmul_integer, FusedMatMul,

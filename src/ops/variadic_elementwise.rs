@@ -4,19 +4,19 @@ use rten_base::num::IsNaN;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
     map_value_view, CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator,
     OutputList, ValueView,
 };
-use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Apply an elementwise reduction to a sequence of tensors.
 ///
 /// All inputs must be broadcastable to the same shape.
 fn reduce_elementwise<T: Copy, R: Fn(T, T) -> T + Copy>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     inputs: &[TensorView<T>],
     reduce: R,
 ) -> Result<Tensor<T>, OpError> {
@@ -53,7 +53,7 @@ where
 }
 
 pub fn max<T: Copy + PartialOrd + IsNaN>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
     reduce_elementwise(pool, inputs, |a, b| match cmp_nan_greater(a, b) {
@@ -80,7 +80,7 @@ impl Operator for Max {
     }
 }
 
-pub fn mean(pool: &TensorPool, inputs: &[TensorView]) -> Result<Tensor, OpError> {
+pub fn mean(pool: &BufferPool, inputs: &[TensorView]) -> Result<Tensor, OpError> {
     let mut result = sum(pool, inputs)?;
     result.apply(|x| x / inputs.len() as f32);
     Ok(result)
@@ -103,7 +103,7 @@ impl Operator for Mean {
 }
 
 pub fn min<T: Copy + PartialOrd + IsNaN>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
     reduce_elementwise(pool, inputs, |a, b| match cmp_nan_less(a, b) {
@@ -131,7 +131,7 @@ impl Operator for Min {
 }
 
 pub fn sum<T: Copy + std::ops::Add<Output = T>>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
     reduce_elementwise(pool, inputs, |a, b| a + b)

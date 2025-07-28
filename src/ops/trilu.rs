@@ -3,10 +3,10 @@ use std::mem::MaybeUninit;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::{
     map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView,
 };
-use crate::tensor_pool::TensorPool;
 
 fn trilu_kernel<T: Copy + Default, const UPPER: bool>(
     mut out_mat: NdTensorViewMut<MaybeUninit<T>, 2>,
@@ -34,7 +34,7 @@ fn trilu_kernel<T: Copy + Default, const UPPER: bool>(
 }
 
 pub fn trilu<T: Copy + Default>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<T>,
     k: i32,
     upper: bool,

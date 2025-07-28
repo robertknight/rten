@@ -6,9 +6,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 use rten_vecmath::Softmax;
 
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{resolve_axis, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value};
-use crate::tensor_pool::{AutoReturn, TensorPool};
 
 const BROADCAST_ERROR: OpError = OpError::IncompatibleInputShapes("Cannot broadcast inputs");
 
@@ -16,7 +16,7 @@ const BROADCAST_ERROR: OpError = OpError::IncompatibleInputShapes("Cannot broadc
 ///
 /// `m` must be broadcastable to the shape of `qk`.
 fn add_softmax_in_place(
-    pool: &TensorPool,
+    pool: &BufferPool,
     qk: Tensor<f32>,
     m: TensorView<f32>,
 ) -> Result<Tensor, OpError> {

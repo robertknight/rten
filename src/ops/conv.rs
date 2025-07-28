@@ -9,13 +9,13 @@ use rten_gemm::{BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmO
 use rten_tensor::prelude::*;
 use rten_tensor::{CowTensor, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
+use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
 use crate::ops::matmul::zero_point_to_vec;
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{
     static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding, ValueView,
 };
 use crate::shift_cast::ShiftCast;
-use crate::tensor_pool::{AutoReturn, PoolRef, TensorPool};
 
 mod depthwise;
 mod im2col;
@@ -26,7 +26,7 @@ use im2col::build_im2col;
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
 fn conv_2d_pointwise<X: GemmInT, W: GemmInT, Y: GemmOutT>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: &NdTensorView<X, 4>,
     kernel: &NdTensorView<W, 4>,
     bias: Option<NdTensorView<Y, 1>>,
@@ -95,7 +95,7 @@ where
 ///   separately with `output_channels / groups` outputs. This is known as
 ///   depthwise convolution.
 pub fn conv<X: GemmInT, W: GemmInT, Y: GemmOutT + Default>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<X>,
     kernel: TensorView<W>,
     bias: Option<TensorView<Y>>,
@@ -114,7 +114,7 @@ where
 }
 
 fn conv_impl<X: GemmInT, W: GemmInT, Y: GemmOutT + Default>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<X>,
     kernel: TensorView<W>,
     bias: Option<TensorView<Y>>,
@@ -380,7 +380,7 @@ impl Operator for Conv {
 }
 
 pub fn conv_integer<X, W>(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView<X>,
     kernel: TensorView<W>,
     padding: Padding,
@@ -699,7 +699,7 @@ fn conv_transpose_output_size_and_padding(
 /// `input` has dimensions NCHW and `kernel` has dimensions COHW where `O` is
 /// the number of output channels.
 pub fn conv_transpose(
-    pool: &TensorPool,
+    pool: &BufferPool,
     input: TensorView,
     kernel: TensorView,
     bias: Option<TensorView>,
@@ -864,11 +864,11 @@ mod tests {
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
+    use crate::buffer_pool::AutoReturn;
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
     use crate::ops::{conv, conv_integer, conv_transpose, Conv, OpError, OperatorExt, Padding};
-    use crate::tensor_pool::AutoReturn;
 
     use super::conv_transpose_output_size_and_padding;
 

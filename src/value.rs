@@ -10,7 +10,7 @@ use rten_tensor::{
     TensorView, ViewData,
 };
 
-use crate::tensor_pool::{Buffer, ExtractBuffer, TensorPool};
+use crate::buffer_pool::{Buffer, BufferPool, ExtractBuffer};
 
 /// Enum specifying the data type of a tensor.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -345,7 +345,7 @@ impl Value {
     }
 
     /// Move this tensor's buffer into a pool.
-    pub(crate) fn add_to_pool(self, pool: &TensorPool) {
+    pub(crate) fn add_to_pool(self, pool: &BufferPool) {
         match self {
             Self::FloatTensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
             Self::Int32Tensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
