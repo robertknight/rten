@@ -153,6 +153,11 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     fn nr(&self) -> usize;
 
     /// Return a name for this kernel for use in logging etc.
+    ///
+    /// The naming convention is `{arch}-{dtypes}-{variant}` where `dtypes`
+    /// is either a triple of `{lhs}{rhs}{out}` if the LHS, RHS and output types
+    /// are different, or just the type if all are the same. `variant` refers to
+    /// target features being used (eg. "dotprod") or variants.
     fn name(&self) -> &'static str;
 
     /// Return true if this kernel may encounter saturation in a data type that

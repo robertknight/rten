@@ -65,7 +65,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
     }
 
     fn name(&self) -> &'static str {
-        "fma"
+        "x86_64-f32-fma"
     }
 
     fn mr(&self) -> usize {
@@ -274,7 +274,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
     }
 
     fn name(&self) -> &'static str {
-        "avx512"
+        "x86_64-f32-avx512"
     }
 
     fn mr(&self) -> usize {
@@ -475,7 +475,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
     }
 
     fn name(&self) -> &'static str {
-        "avx2-int8"
+        "x86_64-u8i8i32-avx2"
     }
 
     fn mr(&self) -> usize {
@@ -702,7 +702,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
     }
 
     fn name(&self) -> &'static str {
-        "avx512-int8"
+        "x86_64-u8i8i32-avx512"
     }
 
     fn mr(&self) -> usize {
