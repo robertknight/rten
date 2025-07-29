@@ -153,6 +153,11 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     fn nr(&self) -> usize;
 
     /// Return a name for this kernel for use in logging etc.
+    ///
+    /// The naming convention is `{arch}-{dtypes}-{variant}` where `dtypes`
+    /// is either a triple of `{lhs}{rhs}{out}` if the LHS, RHS and output types
+    /// are different, or just the type if all are the same. `variant` refers to
+    /// target features being used (eg. "dotprod") or variants.
     fn name(&self) -> &'static str;
 
     /// Return true if this kernel may encounter saturation in a data type that
@@ -535,7 +540,7 @@ mod tests {
                     kernel.mr(),
                     kernel.nr(),
                     k,
-                    0.,              /* alpha */
+                    1.,              /* alpha */
                     OutT::default(), // beta
                     None,            // a_quant
                     None,            // b_quant
@@ -559,28 +564,106 @@ mod tests {
         );
     }
 
+    struct KernelBench<LhsT, RhsT, OutT> {
+        kernels: Vec<Box<dyn Kernel<LhsT, RhsT, OutT>>>,
+    }
+
+    impl<LhsT, RhsT, OutT> KernelBench<LhsT, RhsT, OutT> {
+        fn new() -> Self {
+            Self {
+                kernels: Vec::new(),
+            }
+        }
+
+        /// Register a kernel to benchmark, if supported on the current system.
+        fn add<K: Kernel<LhsT, RhsT, OutT> + 'static>(&mut self) {
+            if let Some(kernel) = K::new() {
+                self.kernels.push(Box::new(kernel))
+            }
+        }
+
+        /// Run benchmarks for all registered kernels.
+        ///
+        /// Set the `RTEN_BENCH_FILTER` environment variable to filter tests
+        /// by kernel name.
+        fn run_bench(&self)
+        where
+            LhsT: Clone + Default,
+            RhsT: Clone + Default,
+            OutT: Clone + Default,
+            XorShiftRng: RandomSource<RhsT> + RandomSource<LhsT>,
+        {
+            let filter = std::env::var("RTEN_BENCH_FILTER").ok();
+
+            for kernel in &self.kernels {
+                let filter_match = filter
+                    .as_ref()
+                    .map(|f| kernel.name().contains(f))
+                    .unwrap_or(true);
+                if !filter_match {
+                    continue;
+                }
+
+                run_kernel_bench(kernel.as_ref())
+            }
+        }
+    }
+
     #[test]
     #[ignore]
-    fn bench_kernel_int8() {
-        let mut kernels: Vec<Box<dyn Kernel<u8, i8, i32>>> = Vec::new();
+    fn bench_kernel_f32() {
+        let mut kernels = KernelBench::<f32, f32, f32>::new();
 
-        macro_rules! add_kernel {
-            ($kernel:ty) => {
-                if let Some(kernel) = <$kernel>::new() {
-                    kernels.push(Box::new(kernel));
-                }
-            };
-        }
+        kernels.add::<super::generic::GenericKernel>();
 
         #[cfg(target_arch = "aarch64")]
         {
-            add_kernel!(super::aarch64::ArmInt8Kernel);
-            add_kernel!(super::aarch64::ArmInt8DotKernel);
-            add_kernel!(super::aarch64::ArmInt8MMKernel);
+            kernels.add::<super::aarch64::ArmNeonKernel>();
         }
 
-        for kernel in kernels {
-            run_kernel_bench(&*kernel);
+        #[cfg(target_arch = "x86_64")]
+        {
+            kernels.add::<super::x86_64::FmaKernel>();
+            #[cfg(feature = "avx512")]
+            kernels.add::<super::x86_64::Avx512Kernel>();
         }
+
+        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_feature = "simd128")]
+        {
+            kernels.add::<super::wasm::WasmKernel>();
+        }
+
+        kernels.run_bench();
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_kernel_int8() {
+        let mut kernels = KernelBench::<u8, i8, i32>::new();
+
+        kernels.add::<super::generic::GenericKernel>();
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            kernels.add::<super::aarch64::ArmInt8Kernel>();
+            kernels.add::<super::aarch64::ArmInt8DotKernel>();
+            kernels.add::<super::aarch64::ArmInt8MMKernel>();
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            kernels.add::<super::x86_64::Avx2Int8Kernel>();
+            #[cfg(feature = "avx512")]
+            kernels.add::<super::x86_64::Avx512Int8Kernel>();
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_feature = "simd128")]
+        {
+            kernels.add::<super::wasm::WasmInt8Kernel>();
+        }
+
+        kernels.run_bench();
     }
 }

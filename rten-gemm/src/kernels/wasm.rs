@@ -34,7 +34,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
     }
 
     fn name(&self) -> &'static str {
-        "wasm32"
+        "wasm-f32"
     }
 
     fn mr(&self) -> usize {
@@ -196,7 +196,7 @@ unsafe impl Kernel<u8, i8, i32> for WasmInt8Kernel {
     }
 
     fn name(&self) -> &'static str {
-        "wasm-int8"
+        "wasm-u8i8i32"
     }
 
     fn mr(&self) -> usize {

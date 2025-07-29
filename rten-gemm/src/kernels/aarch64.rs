@@ -37,7 +37,7 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
     }
 
     fn name(&self) -> &'static str {
-        "arm-neon"
+        "aarch64-f32-neon"
     }
 
     fn mr(&self) -> usize {
@@ -288,7 +288,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
     }
 
     fn name(&self) -> &'static str {
-        "arm-int8-udot"
+        "aarch64-u8i8i32-dotprod"
     }
 
     impl_arm_int8_common!(ArmInt8DotKernel);
@@ -367,7 +367,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8Kernel {
     }
 
     fn name(&self) -> &'static str {
-        "arm-int8"
+        "aarch64-u8i8i32"
     }
 
     impl_arm_int8_common!(ArmInt8Kernel);
@@ -588,7 +588,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
     }
 
     fn name(&self) -> &'static str {
-        "arm-int8-i8mm"
+        "aarch64-u8i8i32-i8mm"
     }
 
     fn mr(&self) -> usize {

@@ -45,7 +45,7 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
     }
 
     fn name(&self) -> &'static str {
-        "base"
+        "generic-f32"
     }
 
     fn packed_a_layout(
@@ -197,7 +197,7 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
     }
 
     fn name(&self) -> &'static str {
-        "generic-i8"
+        "generic-u8i8i32"
     }
 
     fn packed_a_layout(
