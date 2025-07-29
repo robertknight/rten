@@ -30,6 +30,7 @@ simd_type!(I16x8, i16, LEN_X32 * 2);
 simd_type!(I8x16, i8, LEN_X32 * 4);
 simd_type!(U8x16, u8, LEN_X32 * 4);
 simd_type!(U16x8, u16, LEN_X32 * 2);
+simd_type!(U32x4, u32, LEN_X32);
 
 // Define mask vector types. `Mn` is a mask for a vector with n-bit lanes.
 simd_type!(M32, i32, LEN_X32);
@@ -61,6 +62,7 @@ unsafe impl Isa for GenericIsa {
     type I8 = I8x16;
     type U8 = U8x16;
     type U16 = U16x8;
+    type U32 = U32x4;
     type Bits = I32x4;
 
     fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32> {
@@ -91,7 +93,7 @@ unsafe impl Isa for GenericIsa {
         self
     }
 
-    fn u8(self) -> impl NumOps<u8, Simd = Self::U8> {
+    fn u8(self) -> impl Extend<u8, Output = Self::U16, Simd = Self::U8> {
         self
     }
 
@@ -367,6 +369,7 @@ macro_rules! impl_extend {
 }
 impl_extend!(I8x16, i8, I16x8);
 impl_extend!(I16x8, i16, I32x4);
+impl_extend!(U8x16, u8, U16x8);
 
 macro_rules! impl_concat {
     ($elem:ty, $simd:ty) => {
@@ -522,3 +525,4 @@ impl_simd!(I16x8, i16, M16, 8);
 impl_simd!(I8x16, i8, M8, 16);
 impl_simd!(U8x16, u8, M8, 16);
 impl_simd!(U16x8, u16, M16, 8);
+impl_simd!(U32x4, u32, M32, 4);

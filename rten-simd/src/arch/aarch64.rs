@@ -7,13 +7,14 @@ use std::arch::aarch64::{
     vcleq_s16, vcleq_s8, vcleq_u16, vcleq_u8, vcltq_f32, vcltq_s16, vcltq_s8, vcltq_u16, vcltq_u8,
     vcombine_s16, vcombine_s32, vcombine_u8, vcvtnq_s32_f32, vcvtq_s32_f32, vdivq_f32,
     vdupq_laneq_f32, vdupq_n_f32, vdupq_n_s16, vdupq_n_s32, vdupq_n_s8, vdupq_n_u16, vdupq_n_u8,
-    veorq_u32, vfmaq_f32, vget_high_s32, vget_low_s16, vget_low_s32, vget_low_s8, vld1q_f32,
-    vld1q_s16, vld1q_s32, vld1q_s8, vld1q_u16, vld1q_u32, vld1q_u8, vmaxq_f32, vminq_f32,
-    vmovl_high_s16, vmovl_high_s8, vmovl_s16, vmovl_s8, vmulq_f32, vmulq_s16, vmulq_s32, vmulq_s8,
-    vmulq_u16, vmulq_u8, vmvnq_u32, vnegq_f32, vnegq_s16, vnegq_s32, vnegq_s8, vorrq_u32,
-    vqmovn_s32, vqmovun_s16, vshlq_n_s16, vshlq_n_s32, vshlq_n_s8, vshlq_n_u16, vst1q_f32,
-    vst1q_s16, vst1q_s32, vst1q_s8, vst1q_u16, vst1q_u8, vsubq_f32, vsubq_s16, vsubq_s32, vsubq_s8,
-    vsubq_u16, vsubq_u8, vzip1q_s16, vzip1q_s8, vzip2q_s16, vzip2q_s8,
+    veorq_u32, vfmaq_f32, vget_high_s32, vget_low_s16, vget_low_s32, vget_low_s8, vget_low_u8,
+    vld1q_f32, vld1q_s16, vld1q_s32, vld1q_s8, vld1q_u16, vld1q_u32, vld1q_u8, vmaxq_f32,
+    vminq_f32, vmovl_high_s16, vmovl_high_s8, vmovl_high_u8, vmovl_s16, vmovl_s8, vmovl_u8,
+    vmulq_f32, vmulq_s16, vmulq_s32, vmulq_s8, vmulq_u16, vmulq_u8, vmvnq_u32, vnegq_f32,
+    vnegq_s16, vnegq_s32, vnegq_s8, vorrq_u32, vqmovn_s32, vqmovun_s16, vshlq_n_s16, vshlq_n_s32,
+    vshlq_n_s8, vshlq_n_u16, vst1q_f32, vst1q_s16, vst1q_s32, vst1q_s8, vst1q_u16, vst1q_u8,
+    vsubq_f32, vsubq_s16, vsubq_s32, vsubq_s8, vsubq_u16, vsubq_u8, vzip1q_s16, vzip1q_s8,
+    vzip2q_s16, vzip2q_s8,
 };
 use std::mem::transmute;
 
@@ -41,6 +42,7 @@ unsafe impl Isa for ArmNeonIsa {
     type I8 = int8x16_t;
     type U8 = uint8x16_t;
     type U16 = uint16x8_t;
+    type U32 = uint32x4_t;
     type Bits = int32x4_t;
 
     fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32> {
@@ -71,7 +73,7 @@ unsafe impl Isa for ArmNeonIsa {
         self
     }
 
-    fn u8(self) -> impl NumOps<u8, Simd = Self::U8> {
+    fn u8(self) -> impl Extend<u8, Output = Self::U16, Simd = Self::U8> {
         self
     }
 
@@ -708,6 +710,19 @@ unsafe impl NumOps<u8> for ArmNeonIsa {
     }
 }
 
+impl Extend<u8> for ArmNeonIsa {
+    type Output = uint16x8_t;
+
+    #[inline]
+    fn extend(self, x: uint8x16_t) -> (uint16x8_t, uint16x8_t) {
+        unsafe {
+            let low = vmovl_u8(vget_low_u8(x));
+            let high = vmovl_high_u8(x);
+            (low, high)
+        }
+    }
+}
+
 unsafe impl NumOps<u16> for ArmNeonIsa {
     simd_ops_common!(uint16x8_t, uint16x8_t);
 
@@ -869,3 +884,4 @@ impl_simd!(int16x8_t, i16, 8, uint16x8_t);
 impl_simd!(int8x16_t, i8, 16, uint8x16_t);
 impl_simd!(uint8x16_t, u8, 16, uint8x16_t);
 impl_simd!(uint16x8_t, u16, 8, uint16x8_t);
+impl_simd!(uint32x4_t, u32, 4, uint32x4_t);

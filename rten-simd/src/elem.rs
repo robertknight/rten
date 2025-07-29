@@ -27,6 +27,7 @@ impl_elem_for_int!(i16);
 impl_elem_for_int!(i8);
 impl_elem_for_int!(u8);
 impl_elem_for_int!(u16);
+impl_elem_for_int!(u32);
 
 /// Wrapping addition of numbers.
 ///
@@ -55,6 +56,7 @@ impl_wrapping_add!(i16);
 impl_wrapping_add!(i8);
 impl_wrapping_add!(u8);
 impl_wrapping_add!(u16);
+impl_wrapping_add!(u32);
 
 impl WrappingAdd for f32 {
     type Output = Self;
