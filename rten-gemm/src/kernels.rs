@@ -172,6 +172,10 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
 
     /// Step size used when packing an image usage [`pack_im2col`](Kernel::pack_im2col).
     ///
+    /// This should match the K tile size used when packing the RHS / B matrix.
+    /// For example, if RHS packing pads the K dimension to a multiple of 4,
+    /// then `im2col_row_count_step` would also be 4.
+    ///
     /// The length of the offset arrays in [`Im2Col::row_offsets`] must be a
     /// multiple of this.
     fn im2col_row_count_step(&self) -> usize {
@@ -646,7 +650,7 @@ mod tests {
 
         #[cfg(target_arch = "aarch64")]
         {
-            kernels.add::<super::aarch64::ArmInt8Kernel>();
+            kernels.add::<super::aarch64::ArmInt8MlalKernel>();
             kernels.add::<super::aarch64::ArmInt8DotKernel>();
             kernels.add::<super::aarch64::ArmInt8MMKernel>();
         }

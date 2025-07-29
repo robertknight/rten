@@ -484,7 +484,7 @@ impl WithKernel for GemmExecutor<u8, i8, i32> {
             #[cfg(target_arch = "x86_64")]
             Int8KernelType::Avx2 => Self::from_kernel::<kernels::x86_64::Avx2Int8Kernel>(),
             #[cfg(target_arch = "aarch64")]
-            Int8KernelType::ArmNeon => Self::from_kernel::<kernels::aarch64::ArmInt8Kernel>(),
+            Int8KernelType::ArmNeon => Self::from_kernel::<kernels::aarch64::ArmInt8MlalKernel>(),
             #[cfg(target_arch = "aarch64")]
             Int8KernelType::ArmDot => Self::from_kernel::<kernels::aarch64::ArmInt8DotKernel>(),
             #[cfg(target_arch = "aarch64")]
