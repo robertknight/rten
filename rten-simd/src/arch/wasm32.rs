@@ -7,10 +7,10 @@ use std::arch::wasm32::{
     i32x4_extend_low_i16x8, i32x4_ge, i32x4_gt, i32x4_mul, i32x4_neg, i32x4_shl, i32x4_shuffle,
     i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, i8x16_add, i8x16_eq, i8x16_ge, i8x16_gt,
     i8x16_neg, i8x16_shl, i8x16_shuffle, i8x16_splat, i8x16_sub, u16x8_add, u16x8_eq,
-    u16x8_extmul_high_u8x16, u16x8_extmul_low_u8x16, u16x8_ge, u16x8_gt, u16x8_mul, u16x8_shl,
-    u16x8_splat, u16x8_sub, u8x16_add, u8x16_eq, u8x16_ge, u8x16_gt, u8x16_narrow_i16x8,
-    u8x16_shuffle, u8x16_splat, u8x16_sub, v128, v128_and, v128_bitselect, v128_load, v128_not,
-    v128_or, v128_store, v128_xor,
+    u16x8_extend_high_u8x16, u16x8_extend_low_u8x16, u16x8_extmul_high_u8x16,
+    u16x8_extmul_low_u8x16, u16x8_ge, u16x8_gt, u16x8_mul, u16x8_shl, u16x8_splat, u16x8_sub,
+    u8x16_add, u8x16_eq, u8x16_ge, u8x16_gt, u8x16_narrow_i16x8, u8x16_shuffle, u8x16_splat,
+    u8x16_sub, v128, v128_and, v128_bitselect, v128_load, v128_not, v128_or, v128_store, v128_xor,
 };
 use std::mem::transmute;
 
@@ -26,6 +26,7 @@ simd_type!(I16x8, v128, i16, M16, Wasm32Isa);
 simd_type!(I8x16, v128, i8, M8, Wasm32Isa);
 simd_type!(U8x16, v128, u8, M8, Wasm32Isa);
 simd_type!(U16x8, v128, u16, M16, Wasm32Isa);
+simd_type!(U32x4, v128, u32, M32, Wasm32Isa);
 
 #[derive(Copy, Clone)]
 pub struct Wasm32Isa {
@@ -47,6 +48,7 @@ unsafe impl Isa for Wasm32Isa {
     type I8 = I8x16;
     type U8 = U8x16;
     type U16 = U16x8;
+    type U32 = U32x4;
     type Bits = I32x4;
 
     fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32> {
@@ -77,7 +79,7 @@ unsafe impl Isa for Wasm32Isa {
         self
     }
 
-    fn u8(self) -> impl NumOps<u8, Simd = Self::U8> {
+    fn u8(self) -> impl NumOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
         self
     }
 
@@ -623,6 +625,17 @@ impl IntOps<u16> for Wasm32Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: U16x8) -> U16x8 {
         U16x8(u16x8_shl(x.0, SHIFT as u32))
+    }
+}
+
+impl Extend<u8> for Wasm32Isa {
+    type Output = U16x8;
+
+    #[inline]
+    fn extend(self, x: U8x16) -> (U16x8, U16x8) {
+        let low = u16x8_extend_low_u8x16(x.0);
+        let high = u16x8_extend_high_u8x16(x.0);
+        (low.into(), high.into())
     }
 }
 

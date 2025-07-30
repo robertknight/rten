@@ -50,6 +50,9 @@ pub unsafe trait Isa: Copy {
     /// SIMD vector with `u16` elements.
     type U16: Simd<Elem = u16, Isa = Self>;
 
+    /// SIMD vector with `u32` elements.
+    type U32: Simd<Elem = u32, Isa = Self>;
+
     /// Operations on SIMD vectors with `f32` elements.
     fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>;
 
@@ -74,7 +77,7 @@ pub unsafe trait Isa: Copy {
     ) -> impl SignedIntOps<i8, Simd = Self::I8> + Extend<i8, Output = Self::I16> + Interleave<i8>;
 
     /// Operations on SIMD vectors with `u8` elements.
-    fn u8(self) -> impl NumOps<u8, Simd = Self::U8>;
+    fn u8(self) -> impl Extend<u8, Output = Self::U16, Simd = Self::U8>;
 
     /// Operations on SIMD vectors with `u16` elements.
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16>;
@@ -1211,6 +1214,7 @@ mod tests {
     }
     test_extend!(test_extend_i8_i16, i8, i16);
     test_extend!(test_extend_i16_i32, i16, i32);
+    test_extend!(test_extend_u8_u16, u8, u16);
 
     macro_rules! test_interleave {
         ($test_name:ident, $elem:ident) => {

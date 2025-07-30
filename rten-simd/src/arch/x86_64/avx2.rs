@@ -35,6 +35,7 @@ simd_type!(I16x16, __m256i, i16, I16x16, Avx2Isa);
 simd_type!(I8x32, __m256i, i8, I8x32, Avx2Isa);
 simd_type!(U8x32, __m256i, u8, I8x32, Avx2Isa);
 simd_type!(U16x16, __m256i, u16, I16x16, Avx2Isa);
+simd_type!(U32x8, __m256i, u32, I32x8, Avx2Isa);
 
 #[derive(Copy, Clone)]
 pub struct Avx2Isa {
@@ -59,6 +60,7 @@ unsafe impl Isa for Avx2Isa {
     type I8 = I8x32;
     type U8 = U8x32;
     type U16 = U16x16;
+    type U32 = U32x8;
     type Bits = I32x8;
 
     fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32> {
@@ -89,7 +91,7 @@ unsafe impl Isa for Avx2Isa {
         self
     }
 
-    fn u8(self) -> impl NumOps<u8, Simd = Self::U8> {
+    fn u8(self) -> impl NumOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
         self
     }
 
