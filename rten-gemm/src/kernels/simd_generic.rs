@@ -601,45 +601,15 @@ pub unsafe fn simd_int8_gemm<I: Isa, D, const MR: usize, const NR: usize, const 
     assert_eq!(a.len(), MR * depth.next_multiple_of(4));
     assert_eq!(b.len(), NR * depth.next_multiple_of(4));
 
-    // The value for each element in the output tile is computed as:
-    //
-    // c = (a[0] - a_zero_point) * (b[0] - b_zero_point) + ...
-    //
-    // (or `c += ...` when beta=1)
-    //
-    // Where `a_zero_point` is the zero point for the row of A and
-    // `b_zero_point` is the zero point for the column of B.
-    //
-    // This can be expanded and re-arranged into:
-    //
-    // c = a[0]b[0] - a[0] * b_zero_point - b[0] * a_zero_point + a_zero_point * b_zero_point + ...
-    // c = dot(a, b) - sum(a) * b_zero_point - sum(b) * a_zero_point + k * a_zero_point * b_zero_point
-    // c = k * a_zero_point * b_zero_point + dot(a, b) - sum(a) * b_zero_point - sum(b) * a_zero_point
-    //
-    // The `k * a_zero_point * b_zero_point` term is computed first as the
-    // initial value of the accumulator tile, then we loop over K and add
-    // the dot product of each row and column. Finally the scaled row
-    // and column sums are subtracted.
-
     let a_ptr = a.as_ptr();
     let b_ptr = b.as_ptr();
 
-    let n_depth_tiles = depth.div_ceil(4);
-    let b_zero = ops.load_many::<NR_REGS>(&b_zero_points);
-
-    // Initialize output tile with `k * a_zero_point[row] * b_zero_point[col]`
-    let k_mul_b_zero: [I::I32; NR_REGS] =
-        std::array::from_fn(|i| ops.mul(ops.splat(depth as i32), b_zero[i]));
-    let mut tmp = [k_mul_b_zero; MR];
-    for row in 0..MR {
-        let a_zero = ops.splat(a_zero_points[row]);
-        for i in 0..NR_REGS {
-            tmp[row][i] = ops.mul(tmp[row][i], a_zero);
-        }
-    }
+    let mut tmp: [[I::I32; NR_REGS]; MR] =
+        std::array::from_fn(|_| std::array::from_fn(|_| ops.zero()));
 
     // Loop over K dimension and compute dot product of panel of A with panel of
     // B.
+    let n_depth_tiles = depth.div_ceil(4);
     for k_block in 0..n_depth_tiles {
         // Load `[4, NR]` microtile from B
         let b_vec: [I::I8; NR_REGS] = std::array::from_fn(|i| {
@@ -682,6 +652,81 @@ pub unsafe fn simd_int8_gemm<I: Isa, D, const MR: usize, const NR: usize, const 
                     tmp[row][i] = dot.dot_product(a_vec, b_vec[i], tmp[row][i]);
                 }
             }
+        }
+    }
+
+    // Adjust accumulators to account for zero points and write results to
+    // output tile.
+    simd_int8_gemm_epilogue(
+        isa,
+        tile_ptr,
+        tile_row_stride,
+        used_rows,
+        used_cols,
+        depth,
+        accumulate,
+        a_zero_points,
+        *a_row_sums,
+        b_zero_points,
+        *b_col_sums,
+        tmp,
+    );
+}
+
+/// Common epilogue for int8 GEMM kernels which adjusts the accumulators to
+/// account for zero points and writes the accumulators to the destination.
+///
+/// The value for each element in the output tile is computed as:
+///
+/// c = (a[0] - a_zero_point) * (b[0] - b_zero_point) + ...
+///
+/// (or `c += ...` when beta=1)
+///
+/// Where `a_zero_point` is the zero point for the row of A and
+/// `b_zero_point` is the zero point for the column of B.
+///
+/// This can be expanded and re-arranged into:
+///
+/// c = a[0]b[0] - a[0] * b_zero_point - b[0] * a_zero_point + a_zero_point * b_zero_point + ...
+/// c = dot(a, b) - sum(a) * b_zero_point - sum(b) * a_zero_point + k * a_zero_point * b_zero_point
+///
+/// Hence the matrix multiplication `dot(a, b)` can be computed first, ignoring
+/// the zero point, and the adjustment terms can be added at the end.
+///
+/// # Safety
+///
+/// `tile_ptr.add(row * tile_row_stride + col)` must be a valid pointer into
+/// the same object for `row < used_rows` and `col < used_cols`.
+#[inline(always)]
+pub unsafe fn simd_int8_gemm_epilogue<
+    I: Isa,
+    const MR: usize,
+    const NR: usize,
+    const NR_REGS: usize,
+>(
+    isa: I,
+    tile_ptr: *mut i32,
+    tile_row_stride: usize,
+    used_rows: usize,
+    used_cols: usize,
+    depth: usize,
+    accumulate: bool,
+    a_zero_points: [i32; MR],
+    a_row_sums: [i32; MR],
+    b_zero_points: [i32; NR],
+    b_col_sums: [i32; NR],
+    mut tmp: [[I::I32; NR_REGS]; MR],
+) {
+    let ops = isa.i32();
+
+    // Add `k * a_zero_point[row] * b_zero_point[col]`
+    let b_zero = ops.load_many::<NR_REGS>(&b_zero_points);
+    let k_mul_b_zero: [I::I32; NR_REGS] =
+        std::array::from_fn(|i| ops.mul(ops.splat(depth as i32), b_zero[i]));
+    for row in 0..MR {
+        let a_zero = ops.splat(a_zero_points[row]);
+        for i in 0..NR_REGS {
+            tmp[row][i] = ops.mul_add(k_mul_b_zero[i], a_zero, tmp[row][i]);
         }
     }
 
