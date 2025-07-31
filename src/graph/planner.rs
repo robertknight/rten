@@ -1,4 +1,5 @@
 use rustc_hash::{FxHashMap, FxHashSet};
+use smallvec::SmallVec;
 
 use super::{Graph, Node, NodeId, OperatorNode, RunError};
 
@@ -368,11 +369,12 @@ impl<'a> Planner<'a> {
                 continue;
             };
 
-            let all_inputs = self.graph.operator_dependencies(op_node);
+            let all_inputs: SmallVec<[NodeId; 4]> =
+                self.graph.operator_dependencies(op_node).collect();
 
             let all_inputs_available = all_inputs
-                .clone()
-                .all(|input_id| resolved_values.contains(input_id));
+                .iter()
+                .all(|input_id| resolved_values.contains(*input_id));
 
             // Prune op if:
             //

@@ -87,9 +87,12 @@ pub enum Dimension {
 #[derive(Debug)]
 pub struct OperatorNode {
     name: Option<String>,
-    inputs: Vec<Option<NodeId>>,
-    outputs: Vec<Option<NodeId>>,
+    inputs: Box<[Option<NodeId>]>,
+    outputs: Box<[Option<NodeId>]>,
     operator: Arc<dyn Operator + Send + Sync>,
+
+    // Cached names of nodes captured by operator's subgraphs.
+    capture_names: Box<[String]>,
 }
 
 impl OperatorNode {
@@ -99,11 +102,19 @@ impl OperatorNode {
         output_ids: &[Option<NodeId>],
         operator: Arc<dyn Operator + Send + Sync>,
     ) -> Self {
+        let mut capture_names = Vec::new();
+        if operator.has_subgraph() {
+            for subgraph in operator.subgraphs() {
+                capture_names.extend(subgraph.capture_names().iter().map(|s| s.to_string()));
+            }
+        }
+
         OperatorNode {
             name: name.map(|s| s.to_owned()),
-            inputs: Vec::from(input_ids),
-            outputs: Vec::from(output_ids),
+            inputs: input_ids.into(),
+            outputs: output_ids.into(),
             operator,
+            capture_names: capture_names.into(),
         }
     }
 
@@ -117,6 +128,14 @@ impl OperatorNode {
 
     pub fn output_ids(&self) -> &[Option<NodeId>] {
         &self.outputs
+    }
+
+    /// Return the names of nodes captured by this operator's subgraphs.
+    ///
+    /// Using this method is more efficient than iterating over subgraphs and
+    /// collecting the capture names from each.
+    pub fn capture_names(&self) -> impl Iterator<Item = &str> {
+        self.capture_names.iter().map(|s| s.as_ref())
     }
 
     pub fn operator(&self) -> &dyn Operator {
