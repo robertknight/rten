@@ -119,8 +119,8 @@ pub use unary_elementwise::{
     abs, acos, asin, atan, ceil, clip, cos, elu, erf, exp, floor, gelu, hard_sigmoid, hard_swish,
     leaky_relu, log, neg, not, reciprocal, relu, round, sigmoid, sign, silu, sin, softplus, sqrt,
     swish, tan, tanh, Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Elu, Erf, Exp, Floor, Gelu,
-    HardSigmoid, HardSwish, LeakyRelu, Log, Neg, Not, Reciprocal, Relu, Round, Sigmoid, Sign, Silu,
-    Sin, Softplus, Sqrt, Swish, Tan, Tanh,
+    HardSigmoid, HardSwish, IsInf, IsNaN, LeakyRelu, Log, Neg, Not, Reciprocal, Relu, Round,
+    Sigmoid, Sign, Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
 };
 pub use variadic_elementwise::{max, mean, min, sum, Max, Mean, Min, Sum};
 

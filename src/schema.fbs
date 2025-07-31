@@ -127,6 +127,8 @@ enum OperatorType: ubyte {
   CastLike,
   Dropout,
   EyeLike,
+  IsNaN,
+  IsInf,
 }
 
 enum RNNDirection: ubyte {
@@ -226,6 +228,7 @@ union OperatorAttrs {
   ShapeAttrs,
   DropoutAttrs,
   EyeLikeAttrs,
+  IsInfAttrs,
 }
 
 table ArgMaxAttrs {
@@ -279,6 +282,10 @@ table EyeLikeAttrs {
   dtype:DataType = null;
   k:int;
 }
+
+// Not used, but reserved for supporting `detect_negative` and
+// `detect_positive` attrs.
+table IsInfAttrs {}
 
 union Scalar {
   IntScalar,

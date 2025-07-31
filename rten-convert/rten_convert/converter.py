@@ -510,6 +510,11 @@ def op_node_from_onnx_operator(
             attrs = sg.BatchNormalizationAttrsT()
             attrs.epsilon = attr_reader.get_attr("epsilon", "float", 1e-5)
 
+        case "IsInf":
+            attrs = sg.IsInfAttrsT()
+            attr_reader.check_attr("detect_positive", "int", 1)
+            attr_reader.check_attr("detect_negative", "int", 1)
+
         case "LayerNormalization":
             attrs = sg.LayerNormalizationAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", -1)
