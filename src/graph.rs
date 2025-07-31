@@ -1282,24 +1282,21 @@ impl Graph {
     fn operator_dependencies<'a>(
         &'a self,
         op_node: &'a OperatorNode,
-    ) -> impl Iterator<Item = NodeId> + Clone + 'a {
-        op_node.input_ids().iter().filter_map(|id| *id).chain(
-            op_node
-                .operator()
-                .subgraphs()
-                .into_iter()
-                .flat_map(|sg| sg.capture_names())
-                .filter_map(move |cap_name| {
-                    let cap_id = self.get_node_id(cap_name)?;
-                    if !op_node.input_ids().contains(&Some(cap_id)) {
-                        Some(cap_id)
-                    } else {
-                        // If the captured node is also used as an input,
-                        // only yield it once in the output.
-                        None
-                    }
-                }),
-        )
+    ) -> impl Iterator<Item = NodeId> + 'a {
+        op_node
+            .input_ids()
+            .iter()
+            .filter_map(|id| *id)
+            .chain(op_node.capture_names().filter_map(move |cap_name| {
+                let cap_id = self.get_node_id(cap_name)?;
+                if !op_node.input_ids().contains(&Some(cap_id)) {
+                    Some(cap_id)
+                } else {
+                    // If the captured node is also used as an input,
+                    // only yield it once in the output.
+                    None
+                }
+            }))
     }
 }
 
