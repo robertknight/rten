@@ -6,7 +6,9 @@ use rten_base::byte_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 use rten_simd::isa::ArmNeonIsa;
 use rten_tensor::{Matrix, MatrixLayout};
 
-use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
+use super::simd_generic::{
+    simd_gemv, simd_int8_gemm, simd_int8_gemm_epilogue, simd_int8_gemv, GemmDispatch,
+};
 use super::{Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
 use crate::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::{packing, Im2Col};
@@ -582,67 +584,25 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MlalKernel {
         }
 
         // Cast accumulator from U32 to I32
-        let mut tmp: [[I32; NR_REGS]; MR] =
+        let tmp: [[I32; NR_REGS]; MR] =
             std::mem::transmute::<[[U32; NR_REGS]; MR], [[I32; NR_REGS]; MR]>(tmp);
 
-        // Add `k * a_zero_point[row] * b_zero_point[col]`
-        let b_zero = ops.load_many::<NR_REGS>(&b_meta.zero_points);
-        let k_mul_b_zero: [I32; NR_REGS] =
-            std::array::from_fn(|i| ops.mul(ops.splat(depth as i32), b_zero[i]));
-        for row in 0..MR {
-            let a_zero = ops.splat(a_meta.zero_points[row]);
-            for i in 0..NR_REGS {
-                tmp[row][i] = ops.mul_add(k_mul_b_zero[i], a_zero, tmp[row][i]);
-            }
-        }
-
-        // Scale zero points by row and column sums and subtract from output tile.
-        let b_col_sums: [I32; NR_REGS] =
-            std::array::from_fn(|i| ops.load_ptr(b_meta.col_sums.as_ptr().add(i * ops.len())));
-        for row in 0..MR {
-            let a_zero = ops.splat(a_meta.zero_points[row]);
-            let a_sum = ops.splat(a_meta.row_sums[row]);
-
-            for i in 0..NR_REGS {
-                let a_sum_mul_b_zero = ops.mul(a_sum, b_zero[i]);
-                let b_sum_mul_a_zero = ops.mul(b_col_sums[i], a_zero);
-                let sum = ops.add(a_sum_mul_b_zero, b_sum_mul_a_zero);
-                tmp[row][i] = ops.sub(tmp[row][i], sum);
-            }
-        }
-
-        // Write from accumulator in registers back to output.
-        let output_tile_ptr =
-            |row, col_block| tile_ptr.add(row * tile_row_stride + col_block * ops.len());
-
-        if used_rows == MR && used_cols == NR {
-            // Full output tile
-            for row in 0..MR {
-                for c_block in 0..NR_REGS {
-                    let tile_ptr = output_tile_ptr(row, c_block);
-                    if accumulate {
-                        tmp[row][c_block] = ops.add(ops.load_ptr(tile_ptr), tmp[row][c_block]);
-                    }
-                    ops.store_ptr(tmp[row][c_block], tile_ptr);
-                }
-            }
-        } else {
-            // Partial output tile
-            for r in 0..used_rows {
-                for c_block in 0..NR_REGS {
-                    let tile_ptr = output_tile_ptr(r, c_block);
-                    let used_cols = used_cols.saturating_sub(c_block * ops.len()).min(ops.len());
-                    let mut tmp = tmp[r][c_block].to_array();
-
-                    for c in 0..used_cols {
-                        if accumulate {
-                            tmp[c] += *tile_ptr.add(c);
-                        }
-                        tile_ptr.add(c).write(tmp[c]);
-                    }
-                }
-            }
-        }
+        // Adjust accumulators to account for zero points and write to output
+        // tile.
+        simd_int8_gemm_epilogue(
+            self.isa,
+            tile_ptr,
+            tile_row_stride,
+            used_rows,
+            used_cols,
+            depth,
+            accumulate,
+            a_meta.zero_points,
+            a_meta.row_sums,
+            b_meta.zero_points,
+            b_meta.col_sums,
+            tmp,
+        );
     }
 
     fn gemv_kernel(
@@ -923,7 +883,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
     ) {
         use rten_simd::{
             ops::{Concat, NumOps},
-            Isa, Simd,
+            Isa,
         };
 
         const MR: usize = ArmInt8MMKernel::MR;
@@ -943,12 +903,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
         let accumulate = beta != 0;
 
         let (a, a_meta) = packing::int8::extract_packed_a::<MR>(a);
-        let a_zero_points = a_meta.zero_points;
-        let a_row_sums = a_meta.row_sums;
-
         let (b, b_meta) = packing::int8::extract_packed_b::<NR>(b);
-        let b_zero_points = b_meta.zero_points;
-        let b_col_sums = b_meta.col_sums;
 
         let ops = self.dot_kernel.isa.i32();
         let u8_ops = self.dot_kernel.isa.u8();
@@ -961,7 +916,6 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
         let b_ptr = b.as_ptr();
 
         let n_depth_tiles = depth.div_ceil(K_TILE);
-        let b_zero = ops.load_many::<NR_REGS>(&b_zero_points);
 
         type I32 = <ArmNeonIsa as Isa>::I32;
         type U8 = <ArmNeonIsa as Isa>::U8;
@@ -1032,7 +986,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
         // To do this we alternate combining the low and high halves of
         // registers from each row tile.
 
-        let mut tmp: [[I32; NR_REGS]; MR] = std::array::from_fn(|r| {
+        let tmp: [[I32; NR_REGS]; MR] = std::array::from_fn(|r| {
             std::array::from_fn(|c| {
                 let src_a = tmp[r / 2][c * 2];
                 let src_b = tmp[r / 2][c * 2 + 1];
@@ -1044,63 +998,20 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
             })
         });
 
-        // Add `k * a_zero_point[row] * b_zero_point[col]`
-        let k_mul_b_zero: [I32; NR_REGS] =
-            std::array::from_fn(|i| ops.mul(ops.splat(depth as i32), b_zero[i]));
-        for row in 0..MR {
-            let a_zero = ops.splat(a_zero_points[row]);
-            for i in 0..NR_REGS {
-                tmp[row][i] = ops.mul_add(k_mul_b_zero[i], a_zero, tmp[row][i]);
-            }
-        }
-
-        // Scale zero points by row and column sums and subtract from output tile.
-        let b_col_sums: [I32; NR_REGS] =
-            std::array::from_fn(|i| ops.load_ptr(b_col_sums.as_ptr().add(i * ops.len())));
-        for row in 0..MR {
-            let a_zero = ops.splat(a_zero_points[row]);
-            let a_sum = ops.splat(a_row_sums[row]);
-
-            for i in 0..NR_REGS {
-                let a_sum_mul_b_zero = ops.mul(a_sum, b_zero[i]);
-                let b_sum_mul_a_zero = ops.mul(b_col_sums[i], a_zero);
-                let sum = ops.add(a_sum_mul_b_zero, b_sum_mul_a_zero);
-                tmp[row][i] = ops.sub(tmp[row][i], sum);
-            }
-        }
-
-        // Write from accumulator in registers back to output.
-        let output_tile_ptr =
-            |row, col_block| tile_ptr.add(row * tile_row_stride + col_block * ops.len());
-
-        if used_rows == MR && used_cols == NR {
-            // Full output tile
-            for row in 0..MR {
-                for c_block in 0..NR_REGS {
-                    let tile_ptr = output_tile_ptr(row, c_block);
-                    if accumulate {
-                        tmp[row][c_block] = ops.add(ops.load_ptr(tile_ptr), tmp[row][c_block]);
-                    }
-                    ops.store_ptr(tmp[row][c_block], tile_ptr);
-                }
-            }
-        } else {
-            // Partial output tile
-            for r in 0..used_rows {
-                for c_block in 0..NR_REGS {
-                    let tile_ptr = output_tile_ptr(r, c_block);
-                    let used_cols = used_cols.saturating_sub(c_block * ops.len()).min(ops.len());
-                    let mut tmp = tmp[r][c_block].to_array();
-
-                    for c in 0..used_cols {
-                        if accumulate {
-                            tmp[c] += *tile_ptr.add(c);
-                        }
-                        tile_ptr.add(c).write(tmp[c]);
-                    }
-                }
-            }
-        }
+        simd_int8_gemm_epilogue(
+            self.dot_kernel.isa,
+            tile_ptr,
+            tile_row_stride,
+            used_rows,
+            used_cols,
+            depth,
+            accumulate,
+            a_meta.zero_points,
+            a_meta.row_sums,
+            b_meta.zero_points,
+            b_meta.col_sums,
+            tmp,
+        );
     }
 
     fn gemv_kernel(
