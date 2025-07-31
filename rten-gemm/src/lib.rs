@@ -544,6 +544,7 @@ impl Default for GemmExecutor<u8, i8, i32> {
             try_kernel!(Int8KernelType::ArmNeon);
         }
         #[cfg(target_arch = "wasm32")]
+        #[cfg(target_feature = "simd128")]
         {
             try_kernel!(Int8KernelType::Wasm);
         }

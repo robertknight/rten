@@ -62,7 +62,9 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Test (WASM)
       run: |
-        make wasm-test wasm-test-simd
+        make wasm-test
+        make wasm-test PACKAGE=rten-simd
+        make wasm-test PACKAGE=rten-gemm
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build (Intel macOS)
       run: cargo check --workspace --target x86_64-apple-darwin

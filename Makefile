@@ -37,18 +37,24 @@ miri:
 test:
 	cargo test --no-fail-fast --workspace --features mmap,random,text-decoder,serde
 
+# Default to running tests for the main crate unless otherwise specified.
+PACKAGE ?= rten
+CRATE := $(subst -,_,$(PACKAGE))
+
+# Support enabling WASM relaxed-simd extension by passing `RELAXED=y`.
+ifeq ($(RELAXED),y)
+WASM_TARGET_FEATURES := -C target-feature=+simd128,+relaxed-simd
+else
+WASM_TARGET_FEATURES := -C target-feature=+simd128
+endif
+
 .PHONY: wasm
 wasm:
-	RUSTFLAGS="-C target-feature=+simd128" cargo build --features=wasm_api --release --target wasm32-unknown-unknown
+	RUSTFLAGS="$(WASM_TARGET_FEATURES)" cargo build --features=wasm_api --release --target wasm32-unknown-unknown
 	wasm-bindgen target/wasm32-unknown-unknown/release/rten.wasm --out-dir dist/ --target web --weak-refs
 	# This makes the binary smaller but also removes all symbols. Comment this
 	# out to get a release WASM build with symbols.
 	tools/optimize-wasm.sh dist/rten_bg.wasm
-
-.PHONY: wasm-relaxedsimd
-wasm-relaxedsimd:
-	RUSTFLAGS="-C target-feature=+simd128,+relaxed-simd" cargo build --features=wasm_api --release --target wasm32-unknown-unknown
-	wasm-bindgen target/wasm32-unknown-unknown/release/rten.wasm --out-dir dist/ --target web --weak-refs
 
 .PHONY: wasm-nosimd
 wasm-nosimd:
@@ -59,25 +65,22 @@ wasm-nosimd:
 .PHONY: wasm-all
 wasm-all: wasm wasm-nosimd
 
+# Run wasm tests using `make wasm-test PACKAGE={package_name}`
+#
 # WASM tests run with `--nocapture` as otherwise assertion failure panic messages
 # are not printed if a test assert fails.
-.PHONY: wasm-tests
+.PHONY: wasm-test
 wasm-test:
-	rm -f target/wasm32-wasi/debug/deps/rten-*.wasm
-	RUSTFLAGS="-C target-feature=+simd128" cargo build --target wasm32-wasip1 --tests -p rten
-	wasmtime --dir . target/wasm32-wasip1/debug/deps/rten-*.wasm --nocapture
+	rm -f target/wasm32-wasi/debug/deps/$(CRATE)-*.wasm
+	RUSTFLAGS="$(WASM_TARGET_FEATURES)" cargo build --target wasm32-wasip1 --tests -p $(PACKAGE)
+	wasmtime --dir . target/wasm32-wasip1/debug/deps/${CRATE}-*.wasm --nocapture
 
-.PHONY: wasm-tests
-wasm-test-simd:
-	rm -f target/wasm32-wasi/debug/deps/rten_simd-*.wasm
-	RUSTFLAGS="-C target-feature=+simd128" cargo build --target wasm32-wasip1 --tests -p rten-simd
-	wasmtime --dir . target/wasm32-wasip1/debug/deps/rten_simd-*.wasm --nocapture
-
-.PHONY: wasm-bench-gemm
-wasm-bench-gemm:
-	rm -f target/wasm32-wasi/release/deps/rten-*.wasm
-	RUSTFLAGS="-C target-feature=+simd128" cargo build --target wasm32-wasip1 --tests -p rten -r
-	wasmtime --dir . target/wasm32-wasip1/release/deps/rten-*.wasm --nocapture --ignored bench_gemm_mix
+# Run wasm benchmark using `make wasm-test PACKAGE={package_name} BENCH={bench_name}`
+.PHONY: wasm-bench
+wasm-bench:
+	rm -f target/wasm32-wasi/release/deps/$(CRATE)-*.wasm
+	RUSTFLAGS="$(WASM_TARGET_FEATURES)" cargo build --target wasm32-wasip1 --tests -p $(PACKAGE) -r
+	wasmtime --dir . target/wasm32-wasip1/release/deps/$(CRATE)-*.wasm --nocapture --ignored $(BENCH)
 
 src/schema_generated.rs: src/schema.fbs
 	flatc -o src/ --rust src/schema.fbs
