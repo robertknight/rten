@@ -12,8 +12,8 @@ use rten_base::iter::{range_chunks, MaybeParIter};
 use rten_base::num::Identities;
 use rten_tensor::prelude::*;
 use rten_tensor::{
-    Alloc, AssumeInit, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView,
-    Storage,
+    Alloc, AssumeInit, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, MutLayout, NdLayout, NdTensor,
+    NdTensorView, OverlapPolicy, Storage,
 };
 
 mod errors;
@@ -636,7 +636,8 @@ fn gemv<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
             for (k_block, a_block) in
                 range_chunks(0..a_cols, k_block_size).zip(a_data.chunks(k_block_size))
             {
-                let b_block = b.slice((k_block, col_block.clone()));
+                let b_block = slice_matrix(b, k_block, col_block.clone());
+
                 let mat_vec_out = if effective_beta == OutT::zero() {
                     MatVecOutput::from_uninit_slice(out_chunk)
                 } else {
@@ -672,6 +673,24 @@ fn gemv<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
 
     // Safety: All output elements were initialized.
     unsafe { out_data.assume_init() }
+}
+
+/// Return a 2D slice of a matrix.
+///
+/// This is a specialized version of [`Matrix::slice`] that is less flexible
+/// but more efficient.
+fn slice_matrix<T>(mat: Matrix<T>, rows: Range<usize>, cols: Range<usize>) -> Matrix<T> {
+    let layout = NdLayout::from_shape_and_strides(
+        [rows.len(), cols.len()],
+        [mat.row_stride(), mat.col_stride()],
+        OverlapPolicy::AllowOverlap,
+    )
+    .unwrap();
+    let offset = rows.start * mat.row_stride() + cols.start * mat.col_stride();
+    Matrix::from_storage_and_layout(
+        mat.storage().slice(offset..offset + layout.min_data_len()),
+        layout,
+    )
 }
 
 /// Perform matrix multiplication with a given kernel.
