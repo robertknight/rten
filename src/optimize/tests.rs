@@ -611,6 +611,18 @@ fn test_eliminate_identity_op() {
     };
     let input_id = graph.input_ids()[0];
     let output_id = graph.output_ids()[0];
+    let mul_op = graph.get_consumers(input_id).unwrap()[0];
+    assert_eq!(
+        graph
+            .get_node(mul_op)
+            .unwrap()
+            .as_operator()
+            .unwrap()
+            .operator()
+            .name(),
+        "Mul"
+    );
+
     let graph = optimize_graph(graph).unwrap();
 
     // Optimization should not change input/output IDs.
@@ -620,8 +632,12 @@ fn test_eliminate_identity_op() {
     let (_, op) = graph.get_source_node(output_id).unwrap();
     assert_eq!(op.operator().name(), "Add");
 
-    // Identity op not connected to graph output should be eliminated.
+    // Outputs of identity nodes should be replaced by inputs to identity nodes
+    // in other operators.
     assert_eq!(op.input_ids()[0], Some(input_id));
+
+    // Identity nodes should be removed from the graph.
+    assert!(graph.get_node(mul_op).is_none());
 }
 
 #[test]

@@ -84,9 +84,9 @@ impl Fusion {
         match self {
             Fusion::Op(op) => op.output_ids.iter().copied().flatten().collect(),
             Fusion::Identity {
-                input_id,
-                output_id: _,
-            } => [*input_id].into(),
+                input_id: _,
+                output_id,
+            } => [*output_id].into(),
             Fusion::Constant { output_id, .. } => [*output_id].into(),
         }
     }
