@@ -1497,6 +1497,8 @@ mod tests {
         add_operator!(InstanceNormalization, [
             input_node, instance_norm_scale, instance_norm_bias
         ], { epsilon: Some(1e-5) });
+        add_operator!(IsInf, [input_node]);
+        add_operator!(IsNaN, [input_node]);
 
         let layer_norm_scale_val = Tensor::full(&[input_shape[input_shape.len() - 1]], 1.);
         let layer_norm_scale = graph_builder.add_constant(layer_norm_scale_val.view());

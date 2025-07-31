@@ -445,6 +445,36 @@ impl UnaryFloatOp for HardSwish {
 
 unary_float_funcs!(HardSwish, hard_swish);
 
+#[derive(Debug)]
+pub struct IsInf {}
+
+impl Operator for IsInf {
+    fn name(&self) -> &str {
+        "IsInf"
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input: TensorView<f32> = ctx.inputs().require_as(0)?;
+        let output = input.map_in(ctx.pool(), |x| i32::from(x.is_infinite()));
+        output.into_op_result()
+    }
+}
+
+#[derive(Debug)]
+pub struct IsNaN {}
+
+impl Operator for IsNaN {
+    fn name(&self) -> &str {
+        "IsNaN"
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input: TensorView<f32> = ctx.inputs().require_as(0)?;
+        let output = input.map_in(ctx.pool(), |x| i32::from(x.is_nan()));
+        output.into_op_result()
+    }
+}
+
 pub fn leaky_relu(pool: &BufferPool, input: TensorView, alpha: f32) -> Tensor {
     LeakyRelu { alpha }.map(pool, input)
 }
@@ -638,14 +668,15 @@ mod tests {
 
     use super::{
         ceil, clip, clip_in_place, erf, floor, hard_sigmoid, hard_swish, leaky_relu, round, Abs,
-        Acos, Asin, Atan, Cos, Elu, Exp, Gelu, Log, Neg, Not, Reciprocal, Relu, Sigmoid, Sign,
-        Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
+        Acos, Asin, Atan, Cos, Elu, Exp, Gelu, IsInf, IsNaN, Log, Neg, Not, Reciprocal, Relu,
+        Sigmoid, Sign, Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
     };
     use crate::ops::tests::new_pool;
     use crate::ops::{CastError, Operator, OperatorExt, Value, ValueView};
     use rten_tensor::test_util::ApproxEq;
 
-    fn test_unary_op_impl<T: Clone + std::fmt::Debug + ApproxEq>(
+    // Test a unary operator's in-place and non-in-place implementations.
+    fn test_unary_op_both<T: Clone + std::fmt::Debug + ApproxEq>(
         op: impl Operator,
         reference_op: impl Fn(&T) -> T,
         input: Tensor<T>,
@@ -654,16 +685,31 @@ mod tests {
         for<'a> TensorView<'a, T>: Into<ValueView<'a>>,
         Tensor<T>: Into<Value> + TryFrom<Value, Error = CastError>,
     {
-        // Test copying variant.
         let expected = input.map(reference_op);
-        let result: Tensor<T> = op.run_simple(input.view()).unwrap();
-        expect_equal(&result, &expected)?;
+
+        // Test copying variant.
+        test_unary_op_not_in_place(&op, input.view(), expected.view())?;
 
         // Test in-place variant.
         let input_mut = input.clone();
         let result: Tensor<T> = op.run_simple_in_place(input_mut, ()).unwrap();
         expect_equal(&result, &expected)?;
 
+        Ok(())
+    }
+
+    // Test a unary operator's non-in-place implementation.
+    fn test_unary_op_not_in_place<T, U: Clone + std::fmt::Debug + ApproxEq>(
+        op: &impl Operator,
+        input: TensorView<T>,
+        expected: TensorView<U>,
+    ) -> Result<(), Box<dyn Error>>
+    where
+        for<'a> TensorView<'a, T>: Into<ValueView<'a>>,
+        Tensor<U>: Into<Value> + TryFrom<Value, Error = CastError>,
+    {
+        let result: Tensor<U> = op.run_simple(input).unwrap();
+        expect_equal(&result.view(), &expected.view())?;
         Ok(())
     }
 
@@ -676,14 +722,14 @@ mod tests {
                 // Test inputs here chosen to be in the domain of inverse trig
                 // operators (ie. (-1, 1)).
                 let input = Tensor::from([0., 0.1, -0.1, 0.9, -0.9]);
-                test_unary_op_impl($op, $gen_expected, input)
+                test_unary_op_both($op, $gen_expected, input)
             }
         };
 
         ($test_name:ident, $op:expr, $gen_expected:expr, $input:expr) => {
             #[test]
             fn $test_name() -> Result<(), Box<dyn Error>> {
-                test_unary_op_impl($op, $gen_expected, $input)
+                test_unary_op_both($op, $gen_expected, $input)
             }
         };
     }
@@ -724,8 +770,8 @@ mod tests {
 
     #[test]
     fn test_abs() {
-        test_unary_op_impl(Abs {}, |x| x.abs(), [1., -1., 0.].into()).unwrap();
-        test_unary_op_impl(Abs {}, |x| x.abs(), [1, -1, 0].into()).unwrap();
+        test_unary_op_both(Abs {}, |x| x.abs(), [1., -1., 0.].into()).unwrap();
+        test_unary_op_both(Abs {}, |x| x.abs(), [1, -1, 0].into()).unwrap();
     }
 
     test_unary_op!(test_acos, Acos {}, |x: &f32| x.acos());
@@ -815,7 +861,7 @@ mod tests {
         cases.test_each(|Case { alpha }| {
             let input = Tensor::from([-5., -2., -1., -0.5, 0., 0.5, 1., 2., 5.]);
             let reference_op = |&x: &f32| if x >= 0. { x } else { *alpha * (x.exp() - 1.) };
-            test_unary_op_impl(Elu { alpha: *alpha }, reference_op, input).unwrap();
+            test_unary_op_both(Elu { alpha: *alpha }, reference_op, input).unwrap();
         })
     }
 
@@ -928,6 +974,20 @@ mod tests {
         let expected = Tensor::from([0., 0., -1. / 3., 0., 2. / 3., 3., 4.]);
         expect_equal(&result, &expected)?;
         Ok(())
+    }
+
+    #[test]
+    fn test_is_inf() -> Result<(), Box<dyn Error>> {
+        let input = Tensor::from([f32::NEG_INFINITY, 0., 1., f32::INFINITY]);
+        let expected = Tensor::from([1i32, 0, 0, 1i32]);
+        test_unary_op_not_in_place(&IsInf {}, input.view(), expected.view())
+    }
+
+    #[test]
+    fn test_is_nan() -> Result<(), Box<dyn Error>> {
+        let input = Tensor::from([f32::NEG_INFINITY, 0., f32::NAN, 1., f32::INFINITY]);
+        let expected = Tensor::from([0i32, 0, 1, 0, 0]);
+        test_unary_op_not_in_place(&IsNaN {}, input.view(), expected.view())
     }
 
     #[test]

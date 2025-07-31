@@ -135,6 +135,8 @@ impl OpRegistry {
         register_op!(Identity);
         register_op!(If);
         register_op!(InstanceNormalization);
+        register_op!(IsInf);
+        register_op!(IsNaN);
         register_op!(LayerNormalization);
         register_op!(LeakyRelu);
         register_op!(Less);
@@ -663,6 +665,10 @@ impl_read_op!(
         })
     }
 );
+impl_read_op!(IsInf, attrs_as_is_inf_attrs, |_attrs: sg::IsInfAttrs| {
+    Ok(ops::IsInf {})
+});
+impl_read_op!(IsNaN);
 impl_read_op!(
     LayerNormalization,
     attrs_as_layer_normalization_attrs,

@@ -77,6 +77,8 @@ pub enum OpType<'a> {
     Identity,
     If(IfArgs<'a>),
     InstanceNormalization(InstanceNormalization),
+    IsInf,
+    IsNaN,
     LayerNormalization(LayerNormalization),
     LeakyRelu(LeakyRelu),
     Less,
@@ -662,6 +664,8 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                     epsilon: args.epsilon.unwrap_or(1e-5)
                 }
             ),
+            OpType::IsInf => op_with_attrs!(IsInf, IsInfAttrs, sg::IsInfAttrsArgs {}),
+            OpType::IsNaN => op!(IsNaN),
             OpType::LayerNormalization(args) => op_with_attrs!(
                 LayerNormalization,
                 LayerNormalizationAttrs,
