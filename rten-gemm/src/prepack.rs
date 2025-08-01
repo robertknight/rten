@@ -173,7 +173,7 @@ pub fn prepack_a<A: Alloc, LhsT, RhsT, OutT>(
     alloc: A,
     a: Matrix<LhsT>,
 ) -> PackedAMatrix<LhsT> {
-    let depth_block = depth_block_size(a.cols());
+    let depth_block = depth_block_size::<RhsT>(a.cols());
 
     let layout = kernel.packed_a_layout(a, a.rows(), depth_block, None);
     let tail_layout = if a.cols() % depth_block != 0 {
@@ -229,7 +229,7 @@ pub fn prepack_b<A: Alloc, LhsT, RhsT, OutT>(
     alloc: A,
     b: Matrix<RhsT>,
 ) -> PackedBMatrix<RhsT> {
-    let depth_block = depth_block_size(b.rows());
+    let depth_block = depth_block_size::<RhsT>(b.rows());
 
     let layout = kernel.packed_b_layout(depth_block, b.cols(), None);
     let tail_layout = if b.rows() % depth_block != 0 {

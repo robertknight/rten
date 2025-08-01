@@ -557,8 +557,9 @@ impl Default for GemmExecutor<u8, i8, i32> {
 /// This is chosen such that a `depth_block_size * nr` panel of B fits in the L1
 /// cache, and can be reused in the loop over row tiles within each row block.
 /// On AVX2 with f32 GEMM for example, NR=16 so `256 * 16 * 4 = 16KB`.
-fn depth_block_size(a_cols: usize) -> usize {
-    256.min(a_cols)
+fn depth_block_size<RhsT>(a_cols: usize) -> usize {
+    let max = 1024 / size_of::<RhsT>();
+    max.min(a_cols)
 }
 
 /// Return the block size for the N / column dimension of a GEMM operation.
@@ -828,7 +829,7 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     // values.
     let nc = col_block_size(b.cols(), kernel.nr());
     let mc = row_block_size(a.rows(), kernel.mr());
-    let kc = depth_block_size(a.cols());
+    let kc = depth_block_size::<RhsT>(a.cols());
 
     // If using prepacked inputs, make sure they were packed with the same
     // configuration we are using now.
