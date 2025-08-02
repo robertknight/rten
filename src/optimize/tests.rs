@@ -5,7 +5,7 @@ use rten_base::byte_cast::cast_pod_slice;
 use rten_tensor::Tensor;
 use rten_testing::TestCases;
 
-use super::{GraphOptimizer, OptimizeError};
+use super::{GraphOptimizer, OptimizeError, OptimizeOptions};
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
 use crate::graph::builder::{Expr, OutputMeta};
 use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId, PlanOptions, TypedConstant};
@@ -18,7 +18,7 @@ use crate::{DataType, Dimension};
 
 fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
     let optimizer = GraphOptimizer::new();
-    optimizer.optimize(graph, None)
+    optimizer.optimize(graph, None, OptimizeOptions::default())
 }
 
 fn arc_tensor_view(val: f32) -> ArcTensorView<f32> {
@@ -137,7 +137,8 @@ fn test_convert_captured_values_to_constants() -> Result<(), Box<dyn Error>> {
     // value with a local constant that references the same data.
     let optimizer = GraphOptimizer::new();
     let capture_env = CaptureEnv::top_level_static(&graph);
-    let optimized_subgraph = optimizer.optimize(subgraph, Some(&capture_env))?;
+    let optimized_subgraph =
+        optimizer.optimize(subgraph, Some(&capture_env), OptimizeOptions::default())?;
 
     let outputs = optimized_subgraph.output_ids();
     assert!(optimized_subgraph.captures().is_empty());
@@ -167,7 +168,7 @@ fn test_constant_propagation() -> Result<(), Box<dyn Error>> {
     // Optimize the graph. This should replace the first operator's output
     // with a constant value.
     let optimizer = GraphOptimizer::new();
-    let optimized_graph = optimizer.optimize(graph, None)?;
+    let optimized_graph = optimizer.optimize(graph, None, OptimizeOptions::default())?;
 
     // Check that we got the expected inputs and outputs. The optimizer
     // does not promise to preserve IDs for unmodified parts of the graph,
@@ -238,7 +239,7 @@ fn test_fuse_op_with_captured_input() {
     let graph = Graph::new();
     let capture_env = CaptureEnv::top_level_static(&graph);
     let optimized_subgraph = GraphOptimizer::new()
-        .optimize(subgraph, Some(&capture_env))
+        .optimize(subgraph, Some(&capture_env), OptimizeOptions::default())
         .unwrap();
 
     let (_, op) = optimized_subgraph
@@ -735,7 +736,7 @@ fn test_optimize_error() {
     let invalid_id = NodeId::from_u32(123);
     graph.set_input_ids(&[invalid_id]);
     graph.set_output_ids(&[invalid_id]);
-    let result = optimizer.optimize(graph, None);
+    let result = optimizer.optimize(graph, None, OptimizeOptions::default());
     assert!(matches!(result, Err(OptimizeError::RunError(_))));
 }
 

@@ -23,7 +23,7 @@ use crate::graph::{
 use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
 use crate::op_registry::{convert_dtype, OpLoadContext, OpRegistry, ReadOpError};
-use crate::optimize::GraphOptimizer;
+use crate::optimize::{GraphOptimizer, OptimizeOptions};
 use crate::schema_generated as sg;
 use crate::schema_generated::root_as_model;
 use crate::timing::TimingSort;
@@ -181,8 +181,8 @@ struct SubgraphOptions<'a> {
     /// Offset of tensor data within the storage.
     tensor_data_offset: Option<u64>,
 
-    /// Whether to apply optimizations when loading the subgraph.
-    optimize: bool,
+    /// Configuration for graph optimizer.
+    optimize: OptimizeMode,
 
     /// Provides access to info about nodes captured from parent graphs.
     /// This is needed for some optimization passes.
@@ -264,6 +264,15 @@ impl ModelOptions {
         let storage = Arc::new(ConstantStorage::Mmap(mmap));
         Model::load_impl(storage, self)
     }
+}
+
+#[derive(Clone)]
+enum OptimizeMode {
+    // Disable graph optimizations.
+    Off,
+
+    // Enable graph optimizations.
+    On(OptimizeOptions),
 }
 
 impl Model {
@@ -358,13 +367,19 @@ impl Model {
             return Err(ModelLoadError::SchemaVersionUnsupported);
         }
 
+        let optimize_opts = if options.optimize {
+            OptimizeMode::On(OptimizeOptions::default())
+        } else {
+            OptimizeMode::Off
+        };
+
         let tensor_data_offset = header.as_ref().map(|h| h.tensor_data_offset);
         let graph = Self::load_graph(
             model.graph(),
             registry,
             storage.clone(),
             tensor_data_offset,
-            options.optimize,
+            optimize_opts,
             None, /* capture_env */
         )?;
 
@@ -391,7 +406,7 @@ impl Model {
         registry: &OpRegistry,
         storage: Arc<ConstantStorage>,
         tensor_data_offset: Option<u64>,
-        optimize: bool,
+        optimize: OptimizeMode,
         capture_env: Option<&CaptureEnv>,
     ) -> Result<Graph, ModelLoadError> {
         let node_count = serialized_graph.nodes().map(|ns| ns.len()).unwrap_or(0);
@@ -430,7 +445,7 @@ impl Model {
                         SubgraphOptions {
                             storage: storage.clone(),
                             tensor_data_offset,
-                            optimize,
+                            optimize: optimize.clone(),
                             capture_env,
                         },
                     )?
@@ -453,10 +468,10 @@ impl Model {
             }
         }
 
-        if optimize {
+        if let OptimizeMode::On(opts) = optimize {
             let optimizer = GraphOptimizer::new();
             optimizer
-                .optimize(graph, capture_env)
+                .optimize(graph, capture_env, opts)
                 .map_err(|err| ModelLoadError::OptimizeError(Box::new(err)))
         } else {
             Ok(graph)
@@ -484,7 +499,7 @@ impl Model {
                 registry,
                 storage.clone(),
                 *tensor_data_offset,
-                *optimize,
+                optimize.clone(),
                 Some(&capture_env),
             )
         };

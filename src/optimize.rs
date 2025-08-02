@@ -315,6 +315,10 @@ fn find_operator_output_used_outside_subgraph(
     None
 }
 
+/// Configuration for [`GraphOptimizer::optimize`].
+#[derive(Clone, Default)]
+pub struct OptimizeOptions {}
+
 /// Applies optimizations to a [`Graph`] to enable faster inference.
 pub struct GraphOptimizer {}
 
@@ -335,12 +339,14 @@ impl GraphOptimizer {
         &self,
         graph: Graph,
         capture_env: Option<&CaptureEnv>,
+        _options: OptimizeOptions,
     ) -> Result<Graph, OptimizeError> {
         let mut graph_mut = GraphMutator::from_graph(graph);
 
         // Fusions which can enable additional constant propagation.
-        let early_fusions: &[&dyn DynFusionVisitor] = &[&DynFusion(ShapeSliceToConstant {})];
-        self.apply_fusions(&mut graph_mut, early_fusions)?;
+        let mut early_fusions = FusionList::new();
+        early_fusions.push(ShapeSliceToConstant {});
+        self.apply_fusions(&mut graph_mut, early_fusions.visitors())?;
 
         // Constant propagation.
         //
@@ -355,34 +361,40 @@ impl GraphOptimizer {
         //
         // The ordering is significant as fusions are tried in turn until a
         // match is found.
-        let fusions: &[&dyn DynFusionVisitor] = &[
-            // Replace no-op operators with an `Identity` op.
-            &DynFusion(IdentityFusion {}),
-            // Canonicalizations to make other fusions support a wider range of
-            // patterns.
-            &DynFusion(ReciprocalFusion {}.into_visitor()),
-            &DynFusion(ReduceMeanAxesFusion {}.into_visitor()),
-            // Activation fusions
-            &DynFusion(SiluFusion {}.into_visitor()),
-            &DynFusion(SwishFusion {}.into_visitor()),
-            &DynFusion(GeluFusion {}.into_visitor()),
-            &DynFusion(ApproxGeluFusion {}.into_visitor()),
-            // Normalization fusions
-            &DynFusion(LayerNormalizationFusion {}.into_visitor()),
-            &DynFusion(RmsNormalizationFusion {}.into_visitor()),
-            // Matmul fusions
-            &DynFusion(MatMulAddFusion {}.into_visitor()),
-            &DynFusion(MatMulScaleFusion {}),
-            &DynFusion(MatMulIntegerToFloatFusion {}.into_visitor()),
-            // Attention fusions
-            &DynFusion(AddSoftmaxFusion {}.into_visitor()),
-            // Layout fusions
-            &DynFusion(TransposeFusion {}),
-        ];
+        let mut fusions = FusionList::new();
+
+        // Replace no-op operators with an `Identity` op.
+        fusions.push(IdentityFusion {});
+
+        // Canonicalizations to make other fusions support a wider range of
+        // patterns.
+        fusions.push(ReciprocalFusion {}.into_visitor());
+        fusions.push(ReduceMeanAxesFusion {}.into_visitor());
+
+        // Activation fusions
+        fusions.push(SiluFusion {}.into_visitor());
+        fusions.push(SwishFusion {}.into_visitor());
+        fusions.push(GeluFusion {}.into_visitor());
+        fusions.push(ApproxGeluFusion {}.into_visitor());
+
+        // Normalization fusions
+        fusions.push(LayerNormalizationFusion {}.into_visitor());
+        fusions.push(RmsNormalizationFusion {}.into_visitor());
+
+        // Matmul fusions
+        fusions.push(MatMulAddFusion {}.into_visitor());
+        fusions.push(MatMulScaleFusion {});
+        fusions.push(MatMulIntegerToFloatFusion {}.into_visitor());
+
+        // Attention fusions
+        fusions.push(AddSoftmaxFusion {}.into_visitor());
+
+        // Layout fusions
+        fusions.push(TransposeFusion {});
 
         let max_iters = 3;
         for _ in 0..max_iters {
-            let n_fused_ops = self.apply_fusions(&mut graph_mut, fusions)?;
+            let n_fused_ops = self.apply_fusions(&mut graph_mut, fusions.visitors())?;
             if n_fused_ops == 0 {
                 // We reached a fixed point.
                 break;
@@ -476,7 +488,7 @@ impl GraphOptimizer {
     fn apply_fusions(
         &self,
         graph: &mut GraphMutator,
-        visitors: &[&dyn DynFusionVisitor],
+        visitors: &[Box<dyn DynFusionVisitor>],
     ) -> Result<usize, OptimizeError> {
         // Create the prepared state once and then re-use it for each operator
         // visited.
@@ -537,6 +549,30 @@ where
     ) -> Option<Fusion> {
         let state = state.downcast_ref().unwrap();
         self.0.maybe_fuse(state, graph, op_node_id, op_node)
+    }
+}
+
+/// A list of fusion passes to apply to a model.
+struct FusionList {
+    fusions: Vec<Box<dyn DynFusionVisitor>>,
+}
+
+impl FusionList {
+    /// Create an empty fusion list.
+    fn new() -> Self {
+        Self {
+            fusions: Vec::new(),
+        }
+    }
+
+    /// Add a new fusion pass.
+    fn push<F: FusionVisitor + 'static>(&mut self, fusion: F) {
+        self.fusions.push(Box::new(DynFusion(fusion)))
+    }
+
+    /// Return visitors for the registered fusions.
+    fn visitors(&self) -> &[Box<dyn DynFusionVisitor>] {
+        &self.fusions
     }
 }
 
