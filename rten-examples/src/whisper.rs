@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::error::Error;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use microfft::Complex32;
 use rten::{Dimension, FloatOperators, Model};
@@ -425,6 +426,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // ID of the language identification token (eg. "<|en|>").
     let mut lang_id_token: Option<u32> = None;
 
+    // Cumulative timings for different phases (encoding audio, first step of
+    // decoding, subsequent steps of decoding).
+    let mut encode_time = Duration::ZERO;
+    let mut prompt_time = Duration::ZERO;
+    let mut decode_time = Duration::ZERO;
+
     // Process 30-second chunks of audio.
     loop {
         let sample_offset = ((chunk_offset_ms as f32 / 1000.0) * sample_rate as f32) as usize;
@@ -445,6 +452,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .into_dyn();
         mel_spec.insert_axis(0); // Add batch dim
 
+        let encode_start = start.elapsed();
         let input_features_id = encoder_model.node_id("input_features")?;
         let output_id = encoder_model.node_id("last_hidden_state")?;
         let [encoded_audio] = encoder_model.run_n(
@@ -453,6 +461,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             None,
         )?;
         let encoded_audio: NdTensor<f32, 3> = encoded_audio.try_into()?;
+        encode_time += start.elapsed() - encode_start;
 
         let start_of_transcript = tokenizer.get_token_id("<|startoftranscript|>")?;
         let encoder_hidden_states_id = decoder_model.node_id("encoder_hidden_states")?;
@@ -535,8 +544,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         let timestamp_token_id_to_ms =
             |token_id: u32| (token_id - timestamp_min) * timestamp_unit_ms;
 
-        let mut transcript_chunks = Vec::new();
+        let prompt_start = start.elapsed();
+        let mut decode_start = prompt_start;
+        let mut is_first_token = true;
 
+        let mut transcript_chunks = Vec::new();
         let mut curr_chunk_start = None;
         let mut curr_chunk_tokens = Vec::new();
         for token in generator {
@@ -544,6 +556,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             if token != eos_token {
                 // Save token for use in prompt for next chunk.
                 prev_chunk_tokens.push(token);
+            }
+
+            // Count time for generation of first token in the prompt timing
+            // metric. Subsequent tokens count towards decoding time.
+            if is_first_token {
+                let elapsed = start.elapsed();
+                prompt_time += elapsed - prompt_start;
+                decode_start = elapsed;
+                is_first_token = false;
             }
 
             if token >= timestamp_min && token <= timestamp_max {
@@ -562,6 +583,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 curr_chunk_tokens.push(token);
             }
         }
+
+        decode_time += start.elapsed() - decode_start;
 
         // Output the transcription for the current chunk.
         for chunk in &transcript_chunks {
@@ -588,12 +611,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let decode_duration = start.elapsed().as_secs_f64();
-    let audio_duration: f64 = audio.len() as f64 / sample_rate as f64;
-    let real_time_factor = audio_duration / decode_duration;
+    let total_duration = start.elapsed().as_secs_f64();
+    let audio_duration = (audio.len() as u32).div_ceil(sample_rate);
+
+    let real_time_factor = audio_duration as f64 / total_duration;
     println!(
-        "Transcribed {:.0}s of audio in {:.2}s, {:.1}x real-time",
-        audio_duration, decode_duration, real_time_factor
+        "Transcribed {}s of audio in {:.2}s, {:.1}x real-time (encode: {:.2}s, prompt: {:.2}s, decode: {:.2}s)",
+        audio_duration,
+        total_duration, real_time_factor,
+        encode_time.as_secs_f32(),
+        prompt_time.as_secs_f32(),
+        decode_time.as_secs_f32()
     );
 
     Ok(())
