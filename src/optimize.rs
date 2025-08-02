@@ -315,6 +315,10 @@ fn find_operator_output_used_outside_subgraph(
     None
 }
 
+/// Configuration for [`GraphOptimizer::optimize`].
+#[derive(Clone, Default)]
+pub struct OptimizeOptions {}
+
 /// Applies optimizations to a [`Graph`] to enable faster inference.
 pub struct GraphOptimizer {}
 
@@ -335,6 +339,7 @@ impl GraphOptimizer {
         &self,
         graph: Graph,
         capture_env: Option<&CaptureEnv>,
+        _options: OptimizeOptions,
     ) -> Result<Graph, OptimizeError> {
         let mut graph_mut = GraphMutator::from_graph(graph);
 
