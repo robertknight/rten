@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+This release improves int8 matrix multiplication performance for all targets,
+but especially low-end Arm CPUs without dotprod support and high-end Arm CPUs
+with i8mm support. It also adds support for `IsInf` and `IsNaN` operators.
+
+Two new internal crates have been added, `rten-base` and `rten-gemm`.
+
+### All crates
+
+- Fixed `mismatched_lifetime_syntaxes` warnings that appeared when compiling
+  with nightly Rust (https://github.com/robertknight/rten/pull/814)
+
+### rten-base
+
+- Created a new `rten-base` crate at the root of the dependency tree that
+  contains various shared utilities.
+
+### rten-convert
+
+- Run shape inference as part of ONNX model conversion. This enables additional
+  graph optimizations (https://github.com/robertknight/rten/pull/820)
+
+- Don't warn about models which use `-i64::MAX` to represent `-Infinity` when
+  slicing tensors (https://github.com/robertknight/rten/pull/821)
+
+### rten-examples
+
+- Report time spent in encoder, prompt processing and decoder in Whisper
+  example (https://github.com/robertknight/rten/pull/842)
+
+### rten-gemm
+
+- Improve int8 GEMM performance by increasing depth blocking size
+  (https://github.com/robertknight/rten/pull/840)
+
+- Added UMLAL-based kernel for older/low-end Arm CPUs. This gives a ~50%
+  improvement on eg. Cortex A53 compared to the previous kernel
+  (https://github.com/robertknight/rten/pull/832)
+
+- Added i8mm kernel for newer/high-end Arm CPUs. This gives a ~1.6x
+  performance improvement on eg. Graviton 4 compared to the previous kernel
+  (https://github.com/robertknight/rten/pull/824, https://github.com/robertknight/rten/pull/829)
+
+- Extracted f32 and int8 matrix multiplication kernels into a new `rten-gemm`
+  crate.
+
+### rten
+
+- Support IsInf and IsNaN operators (https://github.com/robertknight/rten/pull/837)
+
+- Fixed WASM relaxed-simd build (https://github.com/robertknight/rten/pull/834)
+
+- Optimized handling of zero points in int8 matmul (https://github.com/robertknight/rten/pull/812)
+
+- Improved int8 LHS packing efficiency (https://github.com/robertknight/rten/pull/809)
+
+- Added graph optimization that can determine when `Slice(Shape(X))` operations
+  produce a constant even if some dimensions of X are dynamic. This enables
+  better fusion for scaled-dot-product operations in some models
+  (https://github.com/robertknight/rten/pull/805).
+
+- Parallelize weight prepacking (https://github.com/robertknight/rten/pull/802)
+
+- Add graph optimization to eliminate common identity operations (eg. `Mul(X, 1)`)
+  (https://github.com/robertknight/rten/pull/798, https://github.com/robertknight/rten/pull/799)
+
+- Optimized Trilu operator (https://github.com/robertknight/rten/pull/797)
+
+- Support fusing MatMulInteger + Cast + Mul subgraphs produced by dynamic
+  quantization (https://github.com/robertknight/rten/pull/795)
+
+### rten-cli
+
+- Support setting `--num-iters=0`. This loads the model, runs optimization and
+  prints metadata, but skips inference (https://github.com/robertknight/rten/pull/801)
+
 ## [0.20.0] - 2025-07-06
 
 ### rten-examples
