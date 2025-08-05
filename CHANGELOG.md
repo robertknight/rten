@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.21.0] - 2025-08-05
 
 This release improves int8 matrix multiplication performance for all targets,
 but especially low-end Arm CPUs without dotprod support and high-end Arm CPUs
@@ -53,6 +53,8 @@ Two new internal crates have been added, `rten-base` and `rten-gemm`.
   crate.
 
 ### rten
+
+- Impl `Default` and `Clone` for `ModelOptions` (https://github.com/robertknight/rten/pull/844)
 
 - Support IsInf and IsNaN operators (https://github.com/robertknight/rten/pull/837)
 
