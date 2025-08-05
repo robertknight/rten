@@ -194,10 +194,18 @@ struct SubgraphOptions<'a> {
 /// This enables more advanced use cases such as loading a model with only
 /// a subset of operators available, or with different sets of optimizations
 /// applied.
+#[derive(Clone)]
 pub struct ModelOptions {
-    registry: OpRegistry,
+    registry: Arc<OpRegistry>,
     optimize: bool,
     prepack_weights: bool,
+}
+
+/// Create model options using [`ModelOptions::with_all_ops`].
+impl Default for ModelOptions {
+    fn default() -> Self {
+        ModelOptions::with_all_ops()
+    }
 }
 
 impl ModelOptions {
@@ -212,7 +220,7 @@ impl ModelOptions {
     /// the model will not use, or use custom implementations of operators.
     pub fn with_ops(ops: OpRegistry) -> ModelOptions {
         ModelOptions {
-            registry: ops,
+            registry: ops.into(),
             optimize: true,
             prepack_weights: false,
         }
@@ -253,6 +261,16 @@ impl ModelOptions {
     }
 
     /// Load the model from a memory-mapped view of a file. See [`Model::load_mmap`].
+    ///
+    /// To limit the scope of `unsafe` when using this API, you can construct
+    /// a `ModelOptions` and clone it before calling `load_mmap`:
+    ///
+    /// ```no_run
+    /// use rten::ModelOptions;
+    ///
+    /// let opts = ModelOptions::default().prepack_weights(true).clone();
+    /// let model = unsafe { opts.load_mmap("model.rten") };
+    /// ```
     ///
     /// # Safety
     ///
