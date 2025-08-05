@@ -1,6 +1,6 @@
 [package]
 name = "rten-text"
-version = "0.20.0"
+version = "0.21.0"
 edition = "2021"
 authors = ["Robert Knight"]
 description = "Text tokenization and other ML pre/post-processing functions"
