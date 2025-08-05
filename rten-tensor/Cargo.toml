@@ -11,7 +11,7 @@ include = ["/src", "/README.md"]
 
 [dependencies]
 rayon = { workspace = true }
-rten-base = { path = "../rten-base" }
+rten-base = { path = "../rten-base", version = "0.20.0" }
 serde = { workspace = true, optional = true }
 smallvec = { version = "1.10.0", features=["union", "const_generics", "const_new"] }
 typeid = "1.0.3"
