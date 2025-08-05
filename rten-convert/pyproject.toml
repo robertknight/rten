@@ -2,7 +2,7 @@
 name = "rten-convert"
 description = "Convert ONNX models to .rten format"
 requires-python = ">=3.10"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = ["flatbuffers", "onnx", "numpy"]
 readme = "README.md"
 classifiers = [
