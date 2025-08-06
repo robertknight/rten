@@ -646,7 +646,7 @@ mod tests {
     fn bench_kernel_int8() {
         let mut kernels = KernelBench::<u8, i8, i32>::new();
 
-        kernels.add::<super::generic::GenericKernel>();
+        kernels.add::<super::generic::GenericInt8Kernel>();
 
         #[cfg(target_arch = "aarch64")]
         {

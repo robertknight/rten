@@ -492,7 +492,7 @@ impl WithKernel for GemmExecutor<u8, i8, i32> {
             #[cfg(target_arch = "wasm32")]
             #[cfg(target_feature = "simd128")]
             Int8KernelType::Wasm => Self::from_kernel::<kernels::wasm::WasmInt8Kernel>(),
-            Int8KernelType::Generic => Self::from_kernel::<GenericKernel>(),
+            Int8KernelType::Generic => Self::from_kernel::<kernels::generic::GenericInt8Kernel>(),
         }
     }
 
@@ -525,7 +525,7 @@ impl WithKernel for GemmExecutor<u8, i8, i32> {
     }
 
     fn with_generic_kernel() -> Self {
-        Self::from_kernel::<GenericKernel>().unwrap()
+        Self::from_kernel::<kernels::generic::GenericInt8Kernel>().unwrap()
     }
 }
 

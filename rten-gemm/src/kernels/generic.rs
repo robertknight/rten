@@ -7,6 +7,7 @@ use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{simd_gemv, GemmDispatch};
 use super::{Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
+use crate::packing;
 use crate::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::Im2Col;
 
@@ -181,9 +182,19 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
     }
 }
 
-unsafe impl Kernel<u8, i8, i32> for GenericKernel {
+pub struct GenericInt8Kernel {
+    isa: GenericIsa,
+}
+
+impl GenericInt8Kernel {
+    const MR: usize = 4;
+    const NR: usize = 4;
+    const K_TILE: usize = 1;
+}
+
+unsafe impl Kernel<u8, i8, i32> for GenericInt8Kernel {
     fn new() -> Option<Self> {
-        Some(GenericKernel {
+        Some(GenericInt8Kernel {
             isa: GenericIsa::new(),
         })
     }
@@ -207,9 +218,10 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         cols: usize,
         _quant: Option<QuantParams<u8>>,
     ) -> PackedLayout {
-        let mut info = packed_a_layout::<u8, { Self::MR }>(rows, cols);
-        info.must_pack = true;
-        info
+        let mut layout =
+            packing::int8::packed_a_layout::<{ Self::MR }, { Self::K_TILE }>(rows, cols);
+        layout.must_pack = true;
+        layout
     }
 
     fn pack_a_block(
@@ -218,10 +230,14 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         a: Matrix<u8>,
         rows: Range<usize>,
         cols: Range<usize>,
-        _quant: Option<QuantParams<u8>>,
+        quant: Option<QuantParams<u8>>,
     ) {
         let out = cast_uninit_pod_mut_slice(out).unwrap();
-        pack_a_block::<u8, { Self::MR }>(out, a, rows, cols);
+        packing::int8::pack_a::<{ Self::MR }, { Self::K_TILE }>(
+            out,
+            a.slice((rows.clone(), cols)),
+            quant.map(|q| &q.zero_point[rows]),
+        )
     }
 
     fn packed_b_layout(
@@ -230,7 +246,7 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         cols: usize,
         _quant: Option<QuantParams<i8>>,
     ) -> PackedLayout {
-        packed_b_layout::<i8, { Self::NR }>(rows, cols)
+        packing::int8::packed_b_layout::<{ Self::NR }, { Self::K_TILE }>(rows, cols)
     }
 
     fn pack_b_block(
@@ -239,10 +255,13 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         b: Matrix<i8>,
         rows: Range<usize>,
         cols: Range<usize>,
-        _quant: Option<QuantParams<i8>>,
+        quant: Option<QuantParams<i8>>,
     ) {
-        let out = cast_uninit_pod_mut_slice(out).unwrap();
-        pack_b_block::<i8, { Self::NR }>(out, b, rows, cols);
+        packing::int8::pack_b_cast_i8_u8::<{ Self::NR }, { Self::K_TILE }>(
+            out,
+            b.slice((rows, cols.clone())),
+            quant.map(|q| &q.zero_point[cols]),
+        )
     }
 
     fn pack_im2col(
@@ -253,7 +272,7 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         cols: Range<usize>,
         _zero_point: Option<i8>,
     ) {
-        const NR_REGS: usize = GenericKernel::NR / 4;
+        const NR_REGS: usize = GenericInt8Kernel::NR / 4;
 
         // Safety: Scalar "SIMD" types are always supported
         let out = cast_uninit_pod_mut_slice(out).unwrap();
@@ -269,88 +288,87 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         used_rows: usize,
         used_cols: usize,
         depth: usize,
-        alpha: f32,
+        _alpha: f32,
         beta: i32,
-        a_quant: Option<QuantParams<u8>>,
-        b_quant: Option<QuantParams<i8>>,
+        _a_quant: Option<QuantParams<u8>>,
+        _b_quant: Option<QuantParams<i8>>,
     ) {
-        assert_eq!(alpha, 1.);
-        assert!(beta == 0 || beta == 1, "unsupported beta value");
-        assert!(used_rows <= MR);
-        assert!(used_cols <= NR);
-
-        const MR: usize = GenericKernel::MR;
-        const NR: usize = GenericKernel::NR;
-
         let a_data = match a {
-            Lhs::Packed(packed) => packed,
-            Lhs::Unpacked { .. } => panic!("inputs must be packed"),
-        };
-        let a_row_stride = depth;
-
-        let mut a_zero_point = [0u8; MR];
-        if let Some(a_quant) = a_quant {
-            #[allow(clippy::manual_memcpy)]
-            for row in 0..used_rows {
-                a_zero_point[row] = a_quant.zero_point[row];
-            }
-        }
-        let mut b_zero_point = [0i8; NR];
-        if let Some(b_quant) = b_quant {
-            #[allow(clippy::manual_memcpy)]
-            for col in 0..used_cols {
-                b_zero_point[col] = b_quant.zero_point[col];
-            }
-        }
-
-        let b: &[i8] = cast_pod_slice(b).unwrap();
-        let use_tmp_tile = used_cols < NR || used_rows < MR;
-
-        let mut tmp_tile = TempTile::<i32, MR, NR>::new();
-        let (dest_ptr, dest_row_stride, dest_beta) = if !use_tmp_tile {
-            (tile_ptr, tile_row_stride, beta)
-        } else {
-            (tmp_tile.as_mut_ptr() as *mut i32, NR, 0)
+            Lhs::Packed(data) => data,
+            Lhs::Unpacked { .. } => panic!("lhs must be packed"),
         };
 
-        let mut tmp = [[0i32; NR]; MR];
+        let (a, a_meta) = packing::int8::extract_packed_a::<{ Self::MR }>(a_data);
+        let (b, b_meta) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
+
+        const MR: usize = GenericInt8Kernel::MR;
+        const NR: usize = GenericInt8Kernel::NR;
+
+        // Zero accumulators. We use unsigned here for consistency with the data
+        // type of packed elements in A and B.
+        //
+        // We could also make both the packed elements and accumulators signed.
+        // What matters for efficiency is that the accumulators and packed
+        // elements have the same sign.
+        let mut tmp = [[0u32; NR]; MR];
+
+        // Loop over K and for each step, add outer product of row tile of A and
+        // column tile of B to accumulators.
         for k in 0..depth {
-            for row in 0..MR {
-                let a_i32 = unsafe { *a_data.get_unchecked(row * a_row_stride + k) } as i32
-                    - a_zero_point[row] as i32;
-                for col in 0..NR {
-                    let b_i32 =
-                        unsafe { *b.get_unchecked(k * NR + col) } as i32 - b_zero_point[col] as i32;
-                    tmp[row][col] += a_i32 * b_i32;
+            let col: [u16; NR] = std::array::from_fn(|c| *b.get_unchecked(k * NR + c) as u16);
+
+            for r in 0..MR {
+                let row_elt = *a.get_unchecked(k * MR + r) as u16;
+                for c in 0..NR {
+                    tmp[r][c] += row_elt as u32 * col[c] as u32;
                 }
             }
         }
 
-        if dest_beta == 0 {
-            for row in 0..used_rows {
-                for col in 0..used_cols {
-                    dest_ptr
-                        .add(row * dest_row_stride + col)
-                        .write(tmp[row][col]);
+        // Convert from u32 -> i32.
+        let mut tmp = tmp.map(|row| row.map(|x| x as i32));
+
+        // Adjust accumulators to reflect zero point.
+        for r in 0..MR {
+            for c in 0..NR {
+                tmp[r][c] = tmp[r][c]
+                    + depth as i32 * a_meta.zero_points[r] * b_meta.zero_points[c]
+                    - a_meta.row_sums[r] * b_meta.zero_points[c]
+                    - b_meta.col_sums[c] * a_meta.zero_points[r];
+            }
+        }
+
+        // Write to output
+        let out_ptr = |row, col| tile_ptr.add(row * tile_row_stride + col);
+        let accumulate = beta != 0;
+        if used_rows == MR && used_cols == NR {
+            if accumulate {
+                for r in 0..MR {
+                    for c in 0..NR {
+                        *out_ptr(r, c) += tmp[r][c];
+                    }
+                }
+            } else {
+                for r in 0..MR {
+                    for c in 0..NR {
+                        *out_ptr(r, c) = tmp[r][c];
+                    }
                 }
             }
         } else {
-            // nb. We require that beta is 0 or 1, so here it is 1.
-            for row in 0..used_rows {
-                for col in 0..used_cols {
-                    *dest_ptr.add(row * dest_row_stride + col) += tmp[row][col];
+            if accumulate {
+                for r in 0..used_rows {
+                    for c in 0..used_cols {
+                        *out_ptr(r, c) += tmp[r][c];
+                    }
+                }
+            } else {
+                for r in 0..used_rows {
+                    for c in 0..used_cols {
+                        *out_ptr(r, c) = tmp[r][c];
+                    }
                 }
             }
-        }
-
-        if use_tmp_tile {
-            tmp_tile.accumulate_into(
-                tile_ptr as *mut MaybeUninit<i32>,
-                used_rows,
-                used_cols,
-                tile_row_stride,
-                beta,
-            );
         }
     }
 
