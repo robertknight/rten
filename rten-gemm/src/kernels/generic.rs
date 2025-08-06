@@ -120,8 +120,6 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         depth: usize,
         alpha: f32,
         beta: f32,
-        _a_quant: Option<QuantParams<f32>>,
-        _b_quant: Option<QuantParams<f32>>,
     ) {
         const MR: usize = GenericKernel::MR;
         const NR: usize = GenericKernel::NR;
@@ -290,8 +288,6 @@ unsafe impl Kernel<u8, i8, i32> for GenericInt8Kernel {
         depth: usize,
         _alpha: f32,
         beta: i32,
-        _a_quant: Option<QuantParams<u8>>,
-        _b_quant: Option<QuantParams<i8>>,
     ) {
         let a_data = match a {
             Lhs::Packed(data) => data,

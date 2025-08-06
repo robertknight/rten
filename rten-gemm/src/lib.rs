@@ -978,8 +978,6 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                             alpha,
                             effective_beta,
                             bias,
-                            a_quant,
-                            b_quant,
                         );
 
                         if let Some(packed_a) = thread_local_packed_a {
@@ -1043,8 +1041,6 @@ fn gemm_block<LhsT: Sync, RhsT: Sync, OutT: GemmOutT>(
     alpha: f32,
     beta: OutT,
     bias: Option<BiasVector<OutT>>,
-    a_quant: Option<QuantParams<LhsT>>,
-    b_quant: Option<QuantParams<RhsT>>,
 ) {
     let (mr, nr) = (kernel.mr(), kernel.nr());
 
@@ -1060,12 +1056,6 @@ fn gemm_block<LhsT: Sync, RhsT: Sync, OutT: GemmOutT>(
         .for_each(|(block_col_tile, col_tile)| {
             let b_panel_offset = block_col_tile * b.panel_stride;
             let b_panel = &b.data[b_panel_offset..b_panel_offset + b.panel_stride];
-            let b_quant_tile = b_quant.map(|bq| {
-                let col_range = col_tile * nr..(col_tile * nr + nr).min(bq.zero_point.len());
-                QuantParams {
-                    zero_point: &bq.zero_point[col_range],
-                }
-            });
 
             // Loop over row tiles.
             for (block_row_tile, row_tile) in row_tiles.clone().enumerate() {
@@ -1073,13 +1063,6 @@ fn gemm_block<LhsT: Sync, RhsT: Sync, OutT: GemmOutT>(
                 //  - The loops in this function and its caller are set up so that
                 //    every output tile is processed by one thread at a time.
                 let out_tile = unsafe { output.tile(row_tile, col_tile) };
-
-                let a_quant_tile = a_quant.map(|aq| {
-                    let row_range = row_tile * mr..(row_tile * mr + mr).min(aq.zero_point.len());
-                    QuantParams {
-                        zero_point: &aq.zero_point[row_range],
-                    }
-                });
 
                 let kernel_lhs = match a {
                     LhsBlock::Packed {
@@ -1119,8 +1102,6 @@ fn gemm_block<LhsT: Sync, RhsT: Sync, OutT: GemmOutT>(
                         depth_range.len(),
                         alpha,
                         beta,
-                        a_quant_tile,
-                        b_quant_tile,
                     );
                 }
 
