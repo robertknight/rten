@@ -519,6 +519,7 @@ def op_node_from_onnx_operator(
             attrs = sg.LayerNormalizationAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", -1)
             attrs.epsilon = attr_reader.get_attr("epsilon", "float", 1e-5)
+            attr_reader.check_attr("stash_type", "int", 1)
 
         case "LeakyRelu":
             attrs = sg.LeakyReluAttrsT()
