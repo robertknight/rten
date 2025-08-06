@@ -367,6 +367,10 @@ def op_node_from_onnx_operator(
             )
             attrs.to = convert_data_type(to)
 
+            # Note: ONNX's "saturate" attribute only applies to FP8. Conversions
+            # to other types do not saturate, even if this attribute is 1.
+            attr_reader.check_attr("saturate", "int", 1)
+
         case "CastLike":
             attrs = sg.CastLikeAttrsT()
 
