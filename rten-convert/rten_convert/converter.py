@@ -249,6 +249,8 @@ def convert_data_type(onnx_dtype: int) -> int:
     :param onnx_dtype: Data type from `TensorProto.DataType`.
     :return: Value from `sg.DataType`
     """
+
+    dtype_name = TensorProto.DataType.Name(onnx_dtype).lower()
     match onnx_dtype:
         case TensorProto.DataType.FLOAT:  # type:ignore[attr-defined]
             return sg.DataType.Float
@@ -262,6 +264,11 @@ def convert_data_type(onnx_dtype: int) -> int:
             return sg.DataType.Int8
         case TensorProto.DataType.UINT8:  # type:ignore[attr-defined]
             return sg.DataType.UInt8
+        case TensorProto.DataType.FLOAT16:  # type:ignore[attr-defined]
+            warn_once(
+                f"Changing value or attribute data type from {dtype_name} to float32 because {dtype_name} is not supported natively yet."
+            )
+            return sg.DataType.Float
         case _:
             raise ConversionError(f"Unsupported data type {onnx_dtype}")
 
