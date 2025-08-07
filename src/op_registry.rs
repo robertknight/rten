@@ -505,7 +505,12 @@ impl_read_op!(
     |attrs: sg::ConvTransposeAttrs| {
         let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
         let strides = vec_from_attr(attrs.strides(), &[1, 1]);
-        Ok(ops::ConvTranspose { padding, strides })
+        let groups = attrs.groups() as usize;
+        Ok(ops::ConvTranspose {
+            padding,
+            strides,
+            groups,
+        })
     }
 );
 impl_read_op!(Cos);

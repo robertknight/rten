@@ -530,6 +530,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                     strides,
                     auto_pad: pad_args.auto_pad,
                     pads,
+                    groups: args.groups as u32,
                 }
             }),
             OpType::Cos => op!(Cos),
