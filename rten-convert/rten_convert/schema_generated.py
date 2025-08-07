@@ -350,6 +350,8 @@ class NMSBoxOrder(object):
 class PadMode(object):
     Constant = 0
     Reflect = 1
+    Edge = 2
+    Wrap = 3
 
 
 class ScatterReduction(object):

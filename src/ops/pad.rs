@@ -1,5 +1,7 @@
+use std::mem::MaybeUninit;
+
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
+use rten_tensor::{NdTensorView, NdTensorViewMut, SliceItem, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::{
@@ -10,6 +12,8 @@ use crate::ops::{
 pub enum PadMode {
     Constant,
     Reflect,
+    Edge,
+    Wrap,
 }
 
 pub fn pad<T: Copy>(
@@ -62,18 +66,20 @@ pub fn pad<T: Copy>(
                 .copy_from(&input);
             output
         }
-        PadMode::Reflect => {
+        // Pad modes which fill the padding region with elements from the
+        // source tensor.
+        PadMode::Reflect | PadMode::Edge | PadMode::Wrap => {
             const PAD_DIMS: usize = 2;
             let batch_dims = input.ndim().saturating_sub(PAD_DIMS);
             if out_shape[..batch_dims] != input.shape()[..batch_dims] {
                 return Err(OpError::UnsupportedValue(
-                    "Pad only supports reflect padding of last 2 dims",
+                    "Pad only supports non-constant padding of last 2 dims",
                 ));
             }
 
             if input.shape()[batch_dims..].contains(&0) {
                 return Err(OpError::InvalidValue(
-                    "Padded dimension for reflect padding is empty",
+                    "Padded dimension for non-constant padding is empty",
                 ));
             }
 
@@ -97,32 +103,22 @@ pub fn pad<T: Copy>(
                 output.insert_axis(0);
             }
 
-            for (mut out_img, in_img) in output
+            for (out_img, in_img) in output
                 .inner_iter_mut::<PAD_DIMS>()
                 .zip(input.inner_iter::<PAD_DIMS>())
             {
-                let out_rows = out_img.size(0);
-                let out_cols = out_img.size(1);
-
-                let src_rows = in_img.size(0);
-                let src_cols = in_img.size(1);
-
-                for y in 0..out_rows {
-                    let src_y = reflect_pad_src(y, src_rows, pad_top);
-
-                    for x in 0..out_cols {
-                        let src_x = reflect_pad_src(x, src_cols, pad_left);
-
-                        // Safety:
-                        //  - y and x are valid coords.
-                        //  - src_y and src_x are valid coords since
-                        //    `reflect_pad_src` returns values in [0, len)
-                        unsafe {
-                            out_img
-                                .get_unchecked_mut([y, x])
-                                .write(*in_img.get_unchecked([src_y, src_x]));
-                        }
+                match mode {
+                    PadMode::Reflect => {
+                        fill_pad(out_img, in_img, pad_top, pad_left, ReflectPad);
                     }
+                    PadMode::Edge => {
+                        fill_pad(out_img, in_img, pad_top, pad_left, EdgePad);
+                    }
+                    PadMode::Wrap => {
+                        fill_pad(out_img, in_img, pad_top, pad_left, WrapPad);
+                    }
+                    // Constant padding is handled separately.
+                    PadMode::Constant => unreachable!(),
                 }
             }
 
@@ -138,33 +134,115 @@ pub fn pad<T: Copy>(
     Ok(output)
 }
 
-/// Compute the coordinate for the source element when applying reflection
-/// padding along a single axis.
+/// Fill `dest` using elements from `src`.
 ///
-/// `x` is the destination coordinate, `len` is the size of the dimension and
-/// `pad_start` is the number of padding elements added at the start of the
-/// dimension.
-fn reflect_pad_src(x: usize, len: usize, pad_start: usize) -> usize {
-    let x = x as isize;
-    let len = len as isize;
-    let pad_start = pad_start as isize;
+/// For each output position, source element coordinates are generated using
+/// `src_index` and copied to the output.
+fn fill_pad<T: Copy, P: PadSource>(
+    mut dest: NdTensorViewMut<MaybeUninit<T>, 2>,
+    src: NdTensorView<T, 2>,
+    pad_top: usize,
+    pad_left: usize,
+    src_index: P,
+) {
+    let out_rows = dest.size(0);
+    let out_cols = dest.size(1);
 
-    // Compute all possible values and then pick one, so this gets compiled to
-    // conditional moves instead of branches.
-    let src_x_start = pad_start - x;
-    let src_x_mid = x - pad_start;
-    let src_x_end = len - (x - len - pad_start) - 2;
+    let src_rows = src.size(0);
+    let src_cols = src.size(1);
 
-    let src_x = if x < pad_start {
-        src_x_start
-    } else if x < len + pad_start {
-        src_x_mid
-    } else {
-        src_x_end
-    };
+    for y in 0..out_rows {
+        let src_y = src_index.src_index(y, src_rows, pad_top);
+        debug_assert!(src_y < src_rows);
 
-    // Use `rem_euclid` so that `src_x ∈ [0, len)` if src_x < 0.
-    src_x.rem_euclid(len) as usize
+        for x in 0..out_cols {
+            let src_x = src_index.src_index(x, src_cols, pad_left);
+            debug_assert!(src_x < src_cols);
+
+            // Safety:
+            //  - y and x are valid coords.
+            //  - src_y and src_x are valid coords since `src_index` returns
+            //    values in [0, len).
+            unsafe {
+                dest.get_unchecked_mut([y, x])
+                    .write(*src.get_unchecked([src_y, src_x]));
+            }
+        }
+    }
+}
+
+/// Computes the source elements to use when filling a tensor with padding.
+///
+/// # Safety
+///
+/// The `src_index` method must return indexes in `[0, len)`.
+unsafe trait PadSource {
+    /// Compute the coordinate of the source element to copy when filling a
+    /// tensor with padding.
+    ///
+    /// `dest` is the destination coordinate in [0, len), `len` is the size of
+    /// the dimension (always >= 1) and `pad_start` is the number of padding
+    /// elements added at the start of the dimension.
+    ///
+    /// The returned index must be in [0, len).
+    fn src_index(&self, dest: usize, len: usize, pad_start: usize) -> usize;
+}
+
+// Fill the padding region by reflecting the start or end of the source axis.
+struct ReflectPad;
+
+// Safety: `src_index` result is in [0, len).
+unsafe impl PadSource for ReflectPad {
+    fn src_index(&self, dest: usize, len: usize, pad_start: usize) -> usize {
+        let x = dest as isize;
+        let len = len as isize;
+        let pad_start = pad_start as isize;
+
+        // Compute all possible values and then pick one, so this gets compiled to
+        // conditional moves instead of branches.
+        let src_x_start = pad_start - x;
+        let src_x_mid = x - pad_start;
+        let src_x_end = len - (x - len - pad_start) - 2;
+
+        let src_x = if x < pad_start {
+            src_x_start
+        } else if x < len + pad_start {
+            src_x_mid
+        } else {
+            src_x_end
+        };
+
+        // Use `rem_euclid` so that `src_x ∈ [0, len)` if src_x < 0.
+        src_x.rem_euclid(len) as usize
+    }
+}
+
+/// Fill the padding region by taking elements from the start or end of the
+/// source axis.
+struct EdgePad;
+
+// Safety: `src_index` result is in [0, len).
+unsafe impl PadSource for EdgePad {
+    fn src_index(&self, dest: usize, len: usize, pad_start: usize) -> usize {
+        let len = len as isize;
+        let dest = dest as isize;
+        let src = dest - pad_start as isize;
+        src.clamp(0, len - 1) as usize
+    }
+}
+
+/// Fill the padding region by wrapping coordinates around to the start or end
+/// of the source axis.
+struct WrapPad;
+
+// Safety: `src_index` result is in [0, len).
+unsafe impl PadSource for WrapPad {
+    fn src_index(&self, dest: usize, len: usize, pad_start: usize) -> usize {
+        let len = len as isize;
+        let dest = dest as isize;
+        let pad_start = pad_start as isize;
+        (dest - pad_start).rem_euclid(len) as usize
+    }
 }
 
 #[derive(Debug)]
@@ -257,38 +335,55 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_pad_constant_val() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
-        let input = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-        let expected = Tensor::from_data(
-            &[4, 4],
-            vec![
-                9., 9., 9., 9., 9., 1., 2., 9., 9., 3., 4., 9., 9., 9., 9., 9.,
-            ],
-        );
-        let const_pads = &[1, 1, 1, 1];
-        let result = pad(
-            &pool,
-            input.view(),
-            &const_pads.into(),
-            PadMode::Constant,
-            9.,
-        )
-        .unwrap();
-        expect_equal(&result, &expected)?;
-        Ok(())
+    #[derive(Debug)]
+    struct Case {
+        input: Tensor,
+        pads: NdTensor<i32, 1>,
+        mode: PadMode,
+        expected: Result<Tensor, OpError>,
+    }
+
+    fn test_pad_mode(cases: &[Case]) {
+        cases.test_each(|case| {
+            let Case {
+                input,
+                pads,
+                mode,
+                expected,
+            } = case;
+
+            let pool = new_pool();
+            let result = pad(&pool, input.view(), &pads.view(), *mode, 0.);
+            match (result, expected) {
+                (Ok(result), Ok(expected)) => {
+                    expect_equal(&result, &expected).unwrap();
+                }
+                (result, expected) => assert_eq!(&result, expected),
+            }
+        });
     }
 
     #[test]
-    fn test_pad_reflect() -> Result<(), Box<dyn Error>> {
-        #[derive(Debug)]
-        struct Case {
-            input: Tensor,
-            pads: NdTensor<i32, 1>,
-            expected: Result<Tensor, OpError>,
-        }
+    fn test_pad_constant() {
+        let cases = [
+            // Test case from ONNX spec.
+            Case {
+                input: [[1.0, 1.2], [2.3, 3.4], [4.5, 5.7]].into(),
+                pads: [0, 2, 0, 0].into(),
+                mode: PadMode::Constant,
+                expected: Ok(Tensor::from([
+                    [0.0, 0.0, 1.0, 1.2],
+                    [0.0, 0.0, 2.3, 3.4],
+                    [0.0, 0.0, 4.5, 5.7],
+                ])),
+            },
+        ];
 
+        test_pad_mode(&cases);
+    }
+
+    #[test]
+    fn test_pad_reflect() {
         let cases = [
             // Test case from ONNX spec.
             //
@@ -296,6 +391,7 @@ mod tests {
             Case {
                 input: [[1.0, 1.2], [2.3, 3.4], [4.5, 5.7]].into(),
                 pads: [0, 2, 0, 0].into(),
+                mode: PadMode::Reflect,
                 expected: Ok(Tensor::from([
                     [1.0, 1.2, 1.0, 1.2],
                     [2.3, 3.4, 2.3, 3.4],
@@ -306,6 +402,7 @@ mod tests {
             Case {
                 input: [[1.0, 1.2], [2.3, 3.4], [4.5, 5.7]].into(),
                 pads: [0, 0, 0, 2].into(),
+                mode: PadMode::Reflect,
                 expected: Ok(Tensor::from([
                     [1.0, 1.2, 1.0, 1.2],
                     [2.3, 3.4, 2.3, 3.4],
@@ -316,12 +413,14 @@ mod tests {
             Case {
                 input: [[1., 2., 3., 4., 5.]].into(),
                 pads: [0, 3, 0, 3].into(),
+                mode: PadMode::Reflect,
                 expected: Ok(Tensor::from([[4., 3., 2., 1., 2., 3., 4., 5., 4., 3., 2.]])),
             },
             // Pad start and end rows of a 2D tensor.
             Case {
                 input: Tensor::from([1., 2., 3., 4., 5.]).into_shape([5, 1].as_slice()),
                 pads: [3, 0, 3, 0].into(),
+                mode: PadMode::Reflect,
                 expected: Ok(Tensor::from([4., 3., 2., 1., 2., 3., 4., 5., 4., 3., 2.])
                     .into_shape([5 + 2 * 3, 1].as_slice())),
             },
@@ -329,6 +428,7 @@ mod tests {
             Case {
                 input: [1., 2., 3., 4.].into(),
                 pads: [2, 2].into(),
+                mode: PadMode::Reflect,
                 expected: Ok(Tensor::from([3., 2., 1., 2., 3., 4., 3., 2.])),
             },
             // Scalar input. This is always a noop since there are no dimensions
@@ -336,62 +436,96 @@ mod tests {
             Case {
                 input: Tensor::from(2.),
                 pads: NdTensor::from([]),
+                mode: PadMode::Reflect,
                 expected: Ok(Tensor::from(2.)),
             },
             // Pad start columns of a 3D tensor.
             Case {
                 input: [[[1., 2., 3.]]].into(),
                 pads: [0, 0, 2, 0, 0, 0].into(),
+                mode: PadMode::Reflect,
                 expected: Ok(Tensor::from([[[3., 2., 1., 2., 3.]]])),
             },
             // Pad end columns of a 3D tensor.
             Case {
                 input: [[[1., 2., 3.]]].into(),
                 pads: [0, 0, 0, 0, 0, 2].into(),
+                mode: PadMode::Reflect,
                 expected: Ok(Tensor::from([[[1., 2., 3., 2., 1.]]])),
             },
             // Pad start rows of a 3D tensor.
             Case {
                 input: [[[1.], [2.], [3.]]].into(),
                 pads: [0, 2, 0, 0, 0, 0].into(),
+                mode: PadMode::Reflect,
                 expected: Ok(Tensor::from([[[3.], [2.], [1.], [2.], [3.]]])),
             },
             // Pad channel dimension of a 3D tensor.
             Case {
                 input: [[[1., 2., 3.]]].into(),
                 pads: [0, 0, 0, 2, 0, 0].into(),
+                mode: PadMode::Reflect,
                 expected: Err(OpError::UnsupportedValue(
-                    "Pad only supports reflect padding of last 2 dims",
+                    "Pad only supports non-constant padding of last 2 dims",
                 )),
             },
             // Pad zero-size dimension.
             Case {
                 input: Tensor::zeros(&[3, 0]),
                 pads: NdTensor::from([0, 2, 0, 0]),
+                mode: PadMode::Reflect,
                 expected: Err(OpError::InvalidValue(
-                    "Padded dimension for reflect padding is empty",
+                    "Padded dimension for non-constant padding is empty",
                 )),
             },
         ];
 
-        cases.test_each(|case| {
-            let Case {
-                input,
-                pads,
-                expected,
-            } = case;
+        test_pad_mode(&cases);
+    }
 
-            let pool = new_pool();
-            let result = pad(&pool, input.view(), &pads.view(), PadMode::Reflect, 0.);
-            match (result, expected) {
-                (Ok(result), Ok(expected)) => {
-                    expect_equal(&result, &expected).unwrap();
-                }
-                (result, expected) => assert_eq!(&result, expected),
-            }
-        });
+    // The Reflect, Edge and Wrap pad modes share most of the implementation.
+    // Most tests use the reflect mode, plus there are a smaller subset to test
+    // the different behaviors of Edge and Wrap.
 
-        Ok(())
+    #[test]
+    fn test_pad_edge() {
+        let cases = [
+            // Test case from ONNX spec.
+            Case {
+                input: [[1.0, 1.2], [2.3, 3.4], [4.5, 5.7]].into(),
+                pads: [0, 2, 0, 0].into(),
+                mode: PadMode::Edge,
+                expected: Ok(Tensor::from([
+                    [1.0, 1.0, 1.0, 1.2],
+                    [2.3, 2.3, 2.3, 3.4],
+                    [4.5, 4.5, 4.5, 5.7],
+                ])),
+            },
+        ];
+
+        test_pad_mode(&cases);
+    }
+
+    #[test]
+    fn test_pad_wrap() {
+        let cases = [
+            // Test case from ONNX spec.
+            Case {
+                input: [[1.0, 1.2], [2.3, 3.4], [4.5, 5.7]].into(),
+                pads: [2, 1, 1, 1].into(),
+                mode: PadMode::Wrap,
+                expected: Ok(Tensor::from([
+                    [3.4, 2.3, 3.4, 2.3],
+                    [5.7, 4.5, 5.7, 4.5],
+                    [1.2, 1.0, 1.2, 1.0],
+                    [3.4, 2.3, 3.4, 2.3],
+                    [5.7, 4.5, 5.7, 4.5],
+                    [1.2, 1.0, 1.2, 1.0],
+                ])),
+            },
+        ];
+
+        test_pad_mode(&cases);
     }
 
     #[test]

@@ -425,6 +425,8 @@ table OneHotAttrs {
 enum PadMode: ubyte {
   Constant,
   Reflect,
+  Edge,
+  Wrap,
 }
 
 table PadAttrs {

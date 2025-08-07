@@ -761,6 +761,8 @@ impl ReadOp for ops::Pad {
         let mode = match attrs.map(|a| a.mode()).unwrap_or(sg::PadMode::Constant) {
             sg::PadMode::Constant => PadMode::Constant,
             sg::PadMode::Reflect => PadMode::Reflect,
+            sg::PadMode::Edge => PadMode::Edge,
+            sg::PadMode::Wrap => PadMode::Wrap,
             _ => {
                 return Err(ReadOpError::AttrError {
                     attr: "mode",

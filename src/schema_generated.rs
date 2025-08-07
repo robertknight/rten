@@ -1796,13 +1796,18 @@ pub const ENUM_MIN_PAD_MODE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_PAD_MODE: u8 = 1;
+pub const ENUM_MAX_PAD_MODE: u8 = 3;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_PAD_MODE: [PadMode; 2] = [PadMode::Constant, PadMode::Reflect];
+pub const ENUM_VALUES_PAD_MODE: [PadMode; 4] = [
+    PadMode::Constant,
+    PadMode::Reflect,
+    PadMode::Edge,
+    PadMode::Wrap,
+];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
@@ -1811,15 +1816,20 @@ pub struct PadMode(pub u8);
 impl PadMode {
     pub const Constant: Self = Self(0);
     pub const Reflect: Self = Self(1);
+    pub const Edge: Self = Self(2);
+    pub const Wrap: Self = Self(3);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 1;
-    pub const ENUM_VALUES: &'static [Self] = &[Self::Constant, Self::Reflect];
+    pub const ENUM_MAX: u8 = 3;
+    pub const ENUM_VALUES: &'static [Self] =
+        &[Self::Constant, Self::Reflect, Self::Edge, Self::Wrap];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
             Self::Constant => Some("Constant"),
             Self::Reflect => Some("Reflect"),
+            Self::Edge => Some("Edge"),
+            Self::Wrap => Some("Wrap"),
             _ => None,
         }
     }
