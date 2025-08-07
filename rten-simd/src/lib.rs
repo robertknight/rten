@@ -43,7 +43,7 @@
 //! The currently supported SIMD ISAs are:
 //!
 //! - AVX2
-//! - AVX-512 (requires nightly Rust and `avx512` feature enabled)
+//! - AVX-512
 //! - Arm Neon
 //! - WebAssembly SIMD (including relaxed SIMD)
 //!
@@ -237,7 +237,6 @@ pub mod isa {
     pub use super::arch::x86_64::Avx2Isa;
 
     #[cfg(target_arch = "x86_64")]
-    #[cfg(feature = "avx512")]
     pub use super::arch::x86_64::Avx512Isa;
 
     #[cfg(target_arch = "wasm32")]
@@ -252,7 +251,6 @@ pub use ops::Isa;
 pub use simd::{Mask, Simd};
 pub use writer::SliceWriter;
 
-#[cfg(feature = "avx512")]
 #[cfg(target_arch = "x86_64")]
 pub use isa_detection::is_avx512_supported;
 

@@ -27,9 +27,10 @@ jobs:
         curl -L https://github.com/bytecodealliance/wasmtime/releases/download/v29.0.1/wasmtime-v29.0.1-x86_64-linux.tar.xz | tar xf - --xz -C ~/.wasmtime --strip-components=1
         echo "$HOME/.wasmtime" >> "$GITHUB_PATH"
       if: ${{ matrix.os == 'ubuntu-latest' }}
-    - name: Install Rust nightly toolchain
-      run: rustup toolchain install nightly
-      if: ${{ matrix.os == 'ubuntu-latest' }}
+      # Needed to install Rust v1.89+ for AVX-512. This can be removed once
+      # the default build provided on GitHub CI runners is updated.
+    - name: Install latest Rust stable toolchain
+      run: rustup update stable
     - name: Install Rust x86_64-apple-darwin target
       run: rustup target add x86_64-apple-darwin
       if: ${{ matrix.os == 'macos-14' }}
@@ -52,11 +53,6 @@ jobs:
       run: cargo build
     - name: Test
       run: make test
-    # We compile AVX-512 in CI but don't run tests as GitHub Actions' default
-    # runners don't support it yet (https://github.com/actions/runner/issues/1069).
-    - name: Build (AVX-512)
-      run: cargo +nightly check -p rten --features avx512
-      if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build (WASM)
       run: make wasm
       if: ${{ matrix.os == 'ubuntu-latest' }}

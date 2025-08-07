@@ -150,11 +150,3 @@ Some ways to speed up inference without changing RTen's code are:
 If you find that an operator is unexpectedly slow compared to other runtimes,
 and the issue can be reproduced using an open source model and code, please
 [file an issue](https://github.com/robertknight/rten/issues).
-
-## Platform-specific optimizations
-
-### AVX-512
-
-On modern x64 CPUs which support AVX-512, you can get better performance by
-enabling the `avx512` feature. This requires nightly Rust and is expected to
-become available in stable Rust v1.89.

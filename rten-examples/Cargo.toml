@@ -25,10 +25,6 @@ rten-tensor = { path = "../rten-tensor", features=["serde"] }
 rten-text = { path = "../rten-text" }
 smallvec = "1.13.2"
 
-[features]
-# Use AVX-512 instructions if available. Requires nightly Rust for AVX-512 intrinsics.
-avx512 = ["rten/avx512"]
-
 [lints.clippy]
 # Allows use of `..Default::default()` for future compatibility even when not
 # currently needed.

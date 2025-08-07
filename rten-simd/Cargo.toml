@@ -16,6 +16,3 @@ crate-type = ["lib"]
 # See comments about `needless_range_loop` in root Cargo.toml.
 needless_range_loop = "allow"
 manual_memcpy = "allow"
-
-[features]
-avx512 = []

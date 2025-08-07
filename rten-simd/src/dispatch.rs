@@ -35,7 +35,6 @@ pub fn dispatch<Op: SimdOp>(op: Op) -> Op::Output {
 
     #[cfg(target_arch = "x86_64")]
     {
-        #[cfg(feature = "avx512")]
         {
             // The target features enabled here must match those tested for by `Avx512Isa::new`.
             #[target_feature(enable = "avx512f")]

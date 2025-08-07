@@ -71,8 +71,6 @@ serde_json = { workspace = true }
 crate-type = ["lib", "cdylib"]
 
 [features]
-# Use AVX-512 instructions if available. Requires nightly Rust for AVX-512 intrinsics.
-avx512 = ["rten-gemm/avx512", "rten-simd/avx512", "rten-vecmath/avx512"]
 # Enable loading models using memory mapping
 mmap = ["dep:memmap2"]
 # Generate WebAssembly API using wasm-bindgen.

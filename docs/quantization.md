@@ -86,8 +86,7 @@ and
 [AVX-VNNI](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#AVX-VNNI,_AVX-IFMA).
 
 RTen currently supports the AVX512-VNNI variant. Future updates will add
-AVX-VNNI support. Enabling VNNI requires compiling rten with nightly Rust and
-the `avx512` feature enabled.
+AVX-VNNI support.
 
 #### WebAssembly
 
