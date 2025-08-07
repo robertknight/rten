@@ -18,9 +18,6 @@ rten-tensor = { path = "../rten-tensor", version = "0.21.0" }
 rten-bench = { path = "../rten-bench" }
 rten-testing = { path = "../rten-testing" }
 
-[features]
-avx512 = ["rten-simd/avx512"]
-
 [lib]
 crate-type = ["lib"]
 

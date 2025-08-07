@@ -46,9 +46,7 @@
 //!
 //! RTen currently executes models on the CPU. It can build for most
 //! architectures that the Rust compiler supports. SIMD acceleration is
-//! available for x86-64, Arm 64 and WebAssembly. For x86-64, AVX-512 support
-//! is available but requires enabling the `avx512` crate feature and
-//! Rust v1.89 or later (or nightly).
+//! available for x86-64, Arm 64 and WebAssembly.
 //!
 //! ## Data types
 //!

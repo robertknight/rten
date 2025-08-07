@@ -5,7 +5,6 @@ use rten_base::byte_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 use rten_simd::{isa::Avx2Isa, Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
-#[cfg(feature = "avx512")]
 use rten_simd::isa::Avx512Isa;
 
 use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
@@ -31,7 +30,6 @@ impl FmaKernel {
 const AVX2_X32_LANES: usize = 8;
 
 /// Number of 32-bit lanes in an AVX-512 SIMD vector.
-#[cfg(feature = "avx512")]
 const AVX512_X32_LANES: usize = 16;
 
 /// Wrapper for `pack_a_block` which enables AVX instructions.
@@ -248,12 +246,10 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
 }
 
 /// Optimized kernel for x64 CPUs that support AVX 512 instructions.
-#[cfg(feature = "avx512")]
 pub struct Avx512Kernel {
     isa: Avx512Isa,
 }
 
-#[cfg(feature = "avx512")]
 impl Avx512Kernel {
     // The optimal value of MR depends on how many AVX-512 FMA units the CPU has.
     // Client Intel CPUs have one, server CPUs have two. This smaller value is
@@ -267,7 +263,6 @@ impl Avx512Kernel {
 }
 
 // Safety - The `new` fn checks for AVX-512 support.
-#[cfg(feature = "avx512")]
 unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
     fn new() -> Option<Self> {
         Avx512Isa::new().map(|isa| Avx512Kernel { isa })
@@ -346,7 +341,6 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         cols: Range<usize>,
         _zero_point: Option<f32>,
     ) {
-        #[cfg(feature = "avx512")]
         #[target_feature(enable = "avx512f")]
         #[target_feature(enable = "avx512vl")]
         unsafe fn pack_im2col_avx512<const NR_REGS: usize, const NR: usize>(
@@ -680,20 +674,17 @@ unsafe impl Int8DotProduct for Avx2Isa {
     }
 }
 
-#[cfg(feature = "avx512")]
 pub struct Avx512Int8Kernel {
     isa: Avx512Isa,
     /// VNNI ("DL Boost") int8 dot product, if supported.
     vnni_dot: Option<Avx512VnniDotProduct>,
 }
 
-#[cfg(feature = "avx512")]
 impl Avx512Int8Kernel {
     const MR: usize = 8;
     const NR: usize = 32;
 }
 
-#[cfg(feature = "avx512")]
 unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
     fn new() -> Option<Self> {
         let isa = Avx512Isa::new()?;
@@ -909,13 +900,10 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
     }
 }
 
-#[cfg(feature = "avx512")]
 type I8x64 = <Avx512Isa as Isa>::I8;
-#[cfg(feature = "avx512")]
 type I32x16 = <Avx512Isa as Isa>::I32;
 
 // Safety: Avx512Isa can only be constructed if AVX-512 is supported.
-#[cfg(feature = "avx512")]
 unsafe impl Int8DotProduct for Avx512Isa {
     type X8 = I8x64;
     type I32 = I32x16;
@@ -937,13 +925,11 @@ unsafe impl Int8DotProduct for Avx512Isa {
 }
 
 /// Eight-bit integer dot product using AVX512 VNNI instructions.
-#[cfg(feature = "avx512")]
 #[derive(Copy, Clone)]
 struct Avx512VnniDotProduct {
     _private: (),
 }
 
-#[cfg(feature = "avx512")]
 impl Avx512VnniDotProduct {
     pub fn new() -> Option<Self> {
         detect_avx512_vnni().then_some(Self { _private: () })
@@ -952,7 +938,6 @@ impl Avx512VnniDotProduct {
 
 // Safety: Avx512VnniDotProduct can only be constructed if AVX512-VNNI is
 // supported.
-#[cfg(feature = "avx512")]
 unsafe impl Int8DotProduct for Avx512VnniDotProduct {
     type X8 = I8x64;
     type I32 = I32x16;
@@ -969,7 +954,6 @@ unsafe impl Int8DotProduct for Avx512VnniDotProduct {
     }
 }
 
-#[cfg(feature = "avx512")]
 #[target_feature(enable = "avx512f")]
 #[inline]
 unsafe fn avx512_vnni_u8i8i32_dot_product(a: I8x64, b: I8x64, mut c: I32x16) -> I32x16 {
@@ -1004,14 +988,12 @@ unsafe fn avx512_vnni_u8i8i32_dot_product(a: I8x64, b: I8x64, mut c: I32x16) -> 
 /// function can incorrectly return false on macOS if feature detection was
 /// performed before an AVX512 instruction was used in a process. See
 /// notes in [`is_avx512_supported`].
-#[cfg(feature = "avx512")]
 fn detect_avx512_vnni() -> bool {
     use core::arch::x86_64::__cpuid_count;
     let regs = unsafe { __cpuid_count(7, 0) };
     regs.ecx & (1 << 11) != 0
 }
 
-#[cfg(feature = "avx512")]
 #[cfg(test)]
 mod tests {
     use super::detect_avx512_vnni;

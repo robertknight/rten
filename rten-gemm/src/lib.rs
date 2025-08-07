@@ -141,7 +141,6 @@ enum F32KernelType {
 
     /// Use the AVX 512 kernel. Intel x64 only.
     #[cfg(target_arch = "x86_64")]
-    #[cfg(feature = "avx512")]
     Avx512,
 
     /// Use the ARM NEON kernel. ARM 64 only.
@@ -162,7 +161,6 @@ enum Int8KernelType {
     #[cfg(target_arch = "x86_64")]
     Avx2,
     #[cfg(target_arch = "x86_64")]
-    #[cfg(feature = "avx512")]
     Avx512,
 
     #[cfg(target_arch = "aarch64")]
@@ -411,7 +409,6 @@ impl WithKernel for GemmExecutor<f32, f32, f32> {
     #[allow(dead_code)] // Currently only used in tests
     fn with_kernel(hint: F32KernelType) -> Option<Self> {
         match hint {
-            #[cfg(feature = "avx512")]
             #[cfg(target_arch = "x86_64")]
             F32KernelType::Avx512 => Self::from_kernel::<kernels::x86_64::Avx512Kernel>(),
             #[cfg(target_arch = "x86_64")]
@@ -430,7 +427,6 @@ impl WithKernel for GemmExecutor<f32, f32, f32> {
 
         #[cfg(target_arch = "x86_64")]
         {
-            #[cfg(feature = "avx512")]
             types.push(F32KernelType::Avx512);
             types.push(F32KernelType::Fma);
         }
@@ -459,7 +455,6 @@ impl WithKernel for GemmExecutor<f32, f32, f32> {
 
 impl Default for GemmExecutor<f32, f32, f32> {
     fn default() -> Self {
-        #[cfg(feature = "avx512")]
         #[cfg(target_arch = "x86_64")]
         try_kernel!(F32KernelType::Avx512);
         #[cfg(target_arch = "x86_64")]
@@ -478,7 +473,6 @@ impl WithKernel for GemmExecutor<u8, i8, i32> {
 
     fn with_kernel(hint: Int8KernelType) -> Option<Self> {
         match hint {
-            #[cfg(feature = "avx512")]
             #[cfg(target_arch = "x86_64")]
             Int8KernelType::Avx512 => Self::from_kernel::<kernels::x86_64::Avx512Int8Kernel>(),
             #[cfg(target_arch = "x86_64")]
@@ -501,7 +495,6 @@ impl WithKernel for GemmExecutor<u8, i8, i32> {
 
         #[cfg(target_arch = "x86_64")]
         {
-            #[cfg(feature = "avx512")]
             types.push(Int8KernelType::Avx512);
             types.push(Int8KernelType::Avx2);
         }
@@ -533,7 +526,6 @@ impl Default for GemmExecutor<u8, i8, i32> {
     fn default() -> Self {
         #[cfg(target_arch = "x86_64")]
         {
-            #[cfg(feature = "avx512")]
             try_kernel!(Int8KernelType::Avx512);
             try_kernel!(Int8KernelType::Avx2);
         }

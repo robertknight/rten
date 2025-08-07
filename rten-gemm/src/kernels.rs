@@ -628,7 +628,6 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         {
             kernels.add::<super::x86_64::FmaKernel>();
-            #[cfg(feature = "avx512")]
             kernels.add::<super::x86_64::Avx512Kernel>();
         }
 
@@ -658,7 +657,6 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         {
             kernels.add::<super::x86_64::Avx2Int8Kernel>();
-            #[cfg(feature = "avx512")]
             kernels.add::<super::x86_64::Avx512Int8Kernel>();
         }
 
