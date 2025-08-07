@@ -1949,8 +1949,15 @@ class ConvTransposeAttrs(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         return o == 0
 
+    # ConvTransposeAttrs
+    def Groups(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 1
+
 def ConvTransposeAttrsStart(builder):
-    builder.StartObject(3)
+    builder.StartObject(4)
 
 def ConvTransposeAttrsAddStrides(builder, strides):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
@@ -1966,6 +1973,9 @@ def ConvTransposeAttrsAddPads(builder, pads):
 
 def ConvTransposeAttrsStartPadsVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
+
+def ConvTransposeAttrsAddGroups(builder, groups):
+    builder.PrependUint32Slot(3, groups, 1)
 
 def ConvTransposeAttrsEnd(builder):
     return builder.EndObject()
@@ -1983,6 +1993,7 @@ class ConvTransposeAttrsT(object):
         self.strides = None  # type: List[int]
         self.autoPad = 1  # type: int
         self.pads = None  # type: List[int]
+        self.groups = 1  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2020,6 +2031,7 @@ class ConvTransposeAttrsT(object):
                     self.pads.append(convTransposeAttrs.Pads(i))
             else:
                 self.pads = convTransposeAttrs.PadsAsNumpy()
+        self.groups = convTransposeAttrs.Groups()
 
     # ConvTransposeAttrsT
     def Pack(self, builder):
@@ -2045,6 +2057,7 @@ class ConvTransposeAttrsT(object):
         ConvTransposeAttrsAddAutoPad(builder, self.autoPad)
         if self.pads is not None:
             ConvTransposeAttrsAddPads(builder, pads)
+        ConvTransposeAttrsAddGroups(builder, self.groups)
         convTransposeAttrs = ConvTransposeAttrsEnd(builder)
         return convTransposeAttrs
 

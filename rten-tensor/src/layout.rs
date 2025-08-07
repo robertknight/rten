@@ -1120,7 +1120,7 @@ impl MutLayout for DynLayout {
 ///
 /// This is implemented for `[usize; N]` for creating static-rank layouts from
 /// arrays, and `&[usize]` for creating dynamic-rank layouts from slices.
-pub trait IntoLayout: AsRef<[usize]> {
+pub trait IntoLayout: AsRef<[usize]> + std::fmt::Debug {
     /// The type of layout produced from this shape.
     type Layout: MutLayout;
 

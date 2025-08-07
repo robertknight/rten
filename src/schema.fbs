@@ -323,6 +323,7 @@ table ConvTransposeAttrs {
 
   // Padding for spatial axes as [left, right] or [top, left, bottom, right]
   pads:[uint];
+  groups:uint = 1;
 }
 
 table DequantizeLinearAttrs {

@@ -1625,10 +1625,14 @@ impl<'a, T, L: Clone + Layout> TensorBase<ViewData<'a, T>, L> {
                 layout,
             }
         } else {
-            let layout = self
-                .layout
-                .reshaped_for_copy(shape)
-                .expect("invalid target shape for `reshape`");
+            let Ok(layout) = self.layout.reshaped_for_copy(shape) else {
+                panic!(
+                    "element count mismatch reshaping {:?} to {:?}",
+                    self.shape(),
+                    shape
+                );
+            };
+
             TensorBase {
                 data: CowData::Owned(self.to_vec_in(alloc)),
                 layout,

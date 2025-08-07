@@ -424,7 +424,7 @@ def op_node_from_onnx_operator(
             attrs.strides = read_strides(attr_reader)
 
             attr_reader.check_attr("dilations", "ints", ([1], [1, 1]))
-            attr_reader.check_attr("group", "int", 1)
+            attrs.groups = attr_reader.get_attr("group", "int", 1)
 
             # The kernel shape is inferred at runtime from the input weight tensor.
             attr_reader.ignore_attr("kernel_shape")

@@ -4,6 +4,7 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
+use rten_base::iter::range_chunks;
 use rten_base::num::div_ceil;
 use rten_gemm::{BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams};
 use rten_tensor::prelude::*;
@@ -231,24 +232,8 @@ where
         ));
     }
 
-    if groups == 0 {
-        return Err(OpError::InvalidValue("Group count must be > 0"));
-    }
-
-    let out_channels_per_group = out_c / groups;
-    let in_channels_per_group = in_c / groups;
-
-    if in_channels_per_group != k_in_c {
-        return Err(OpError::IncompatibleInputShapes(
-            "Input channels (per group) does not match kernel input channels",
-        ));
-    }
-
-    if in_c % groups != 0 || out_c % groups != 0 {
-        return Err(OpError::IncompatibleInputShapes(
-            "Input channels and output channels must be divisible by group count",
-        ));
-    }
+    let (out_chans_per_group, in_chans_per_group) =
+        channels_per_group(out_c, k_in_c, in_c, groups)?;
 
     if in_c == out_c && groups == in_c {
         let dw_conv = DepthwiseConvExecutor::default();
@@ -277,19 +262,15 @@ where
 
     let n_init = AtomicUsize::new(0);
 
-    for group in 0..groups {
-        let in_chan_start = group * in_channels_per_group;
-        let in_chan_end = in_chan_start + in_channels_per_group;
-        let out_chan_start = group * out_channels_per_group;
-        let out_chans = out_chan_start..out_chan_start + out_channels_per_group;
-
-        let in_group = input.slice((.., in_chan_start..in_chan_end));
+    for (in_chans, out_chans) in
+        range_chunks(0..in_c, in_chans_per_group).zip(range_chunks(0..out_c, out_chans_per_group))
+    {
+        let in_group = input.slice((.., in_chans.clone()));
         let mut out_group = output.slice_mut((.., out_chans.clone()));
 
-        let kernel_mat = kernel.slice([out_chans.clone()]).reshaped_in(
-            pool,
-            [out_channels_per_group, in_channels_per_group * k_h * k_w],
-        );
+        let kernel_mat = kernel
+            .slice([out_chans.clone()])
+            .reshaped_in(pool, [out_chans.len(), in_chans.len() * k_h * k_w]);
 
         // Prepack kernel if we'll be able to reuse packed weights.
         let prepacked_kernel = if in_group.size(0) > 1 {
@@ -305,7 +286,7 @@ where
             .zip(in_group.axis_iter(0))
             .for_each(|(mut out_item, in_item)| {
                 let out_mat = out_item
-                    .reshaped_mut([out_channels_per_group, out_h * out_w])
+                    .reshaped_mut([out_chans_per_group, out_h * out_w])
                     .unwrap();
 
                 let im2col = build_im2col(
@@ -345,6 +326,41 @@ where
     let output = unsafe { output.assume_init() };
 
     Ok(output.into())
+}
+
+/// Return a tuple of (output_channels, input_channels) for the number of
+/// channels in each group.
+fn channels_per_group(
+    kernel_out_chans: usize,
+    kernel_in_chans_per_group: usize,
+    in_chans: usize,
+    groups: usize,
+) -> Result<(usize, usize), OpError> {
+    if groups == 0 {
+        return Err(OpError::InvalidValue("Group count must be > 0"));
+    }
+
+    let in_channels_per_group = in_chans / groups;
+    if in_chans % groups != 0 {
+        return Err(OpError::InvalidValue(
+            "Input channel count not divisible by groups",
+        ));
+    }
+
+    if in_channels_per_group != kernel_in_chans_per_group {
+        return Err(OpError::IncompatibleInputShapes(
+            "Input channels (per group) does not match kernel input channels",
+        ));
+    }
+
+    let out_channels_per_group = kernel_out_chans / groups;
+    if kernel_out_chans % groups != 0 {
+        return Err(OpError::InvalidValue(
+            "Output channel count not divisible by groups",
+        ));
+    }
+
+    Ok((out_channels_per_group, in_channels_per_group))
 }
 
 #[derive(Debug)]
@@ -704,6 +720,7 @@ pub fn conv_transpose(
     kernel: TensorView,
     bias: Option<TensorView>,
     padding: Padding,
+    groups: usize,
     strides: &[usize],
 ) -> Result<Tensor, OpError> {
     // Handle 1D transposed convolution by expanding to 2D and then removing
@@ -733,6 +750,7 @@ pub fn conv_transpose(
             kernel_2d.view(),
             bias,
             padding_2d,
+            groups,
             &strides_2d,
         );
 
@@ -745,8 +763,8 @@ pub fn conv_transpose(
 
     let input = static_dims!(input, 4, "NCHW")?;
     let [batch, in_c, in_h, in_w] = input.shape();
-    let kernel = static_dims!(kernel, 4, "OCHW")?;
-    let [k_in_c, out_c, k_h, k_w] = kernel.shape();
+    let kernel = static_dims!(kernel, 4, "COHW")?;
+    let [k_in_c, out_chans_per_group, k_h, k_w] = kernel.shape();
     static_dims!(bias?, 1).transpose()?;
 
     let bias = bias.map(|b| b.nd_view());
@@ -769,55 +787,70 @@ pub fn conv_transpose(
     )?;
     let [out_h, out_w] = out_shape;
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
+    let out_c = out_chans_per_group * groups;
 
     let mut output = NdTensor::uninit_in(pool, [batch, out_c, out_h, out_w]);
 
     let mut col2im_mat =
-        NdTensor::uninit_in(pool, [out_c * k_h * k_w, in_h * in_w]).auto_return(pool);
+        NdTensor::uninit_in(pool, [out_chans_per_group * k_h * k_w, in_h * in_w]).auto_return(pool);
     let kernel_mat = kernel
-        .reshaped_in(pool, [k_in_c, out_c * k_h * k_w])
+        .reshaped_in(pool, [k_in_c, out_chans_per_group * k_h * k_w])
         .auto_return(pool);
     let kernel_mat = kernel_mat.transposed();
     let gemm = GemmExecutor::new();
 
+    let (_, in_chans_per_group) =
+        channels_per_group(out_chans_per_group * groups, k_in_c / groups, in_c, groups)?;
+
     // The implementation here is the inverse of the im2col-based convolution.
     let mut n_init = 0;
-    for n in 0..batch {
-        let input_mat = input
-            .slice([n])
-            .reshaped_in(pool, [in_c, in_h * in_w])
-            .auto_return(pool);
 
-        let col2im_shape = col2im_mat.shape();
-        let col2im_init = gemm
-            .gemm_uninit(
-                col2im_mat.data_mut().unwrap(),
-                GemmInputA::Unpacked(kernel_mat),
-                GemmInputB::Unpacked(input_mat.view()),
-                1.,   // alpha
-                None, // bias
-                None, // a_quant
-                None, // b_quant
-            )
-            .unwrap();
+    for (in_chans, out_chans) in
+        range_chunks(0..in_c, in_chans_per_group).zip(range_chunks(0..out_c, out_chans_per_group))
+    {
+        let in_group = input.slice((.., in_chans.clone()));
+        let mut out_group = output.slice_mut((.., out_chans.clone()));
+        let kernel_mat = kernel_mat.slice((.., in_chans.clone()));
 
-        let col2im_mat = NdTensorView::from_data(
-            col2im_shape,
-            // False positive. The conversion from `&mut [f32]` -> `&[f32]` here
-            // is necessary.
-            #[allow(clippy::useless_asref)]
-            col2im_init.as_ref(),
-        );
-        let mut out_img = output.slice_mut(n);
+        for n in 0..batch {
+            let input_mat = in_group
+                .slice([n])
+                .reshaped_in(pool, [in_chans.len(), in_h * in_w])
+                .auto_return(pool);
 
-        col2im(
-            &mut out_img,
-            &col2im_mat.reshaped([out_c, k_h, k_w, in_h, in_w]).view(),
-            [pad_top, pad_left, pad_right, pad_bottom],
-            [stride_h, stride_w],
-            bias,
-        );
-        n_init += out_img.len();
+            let col2im_shape = col2im_mat.shape();
+            let col2im_init = gemm
+                .gemm_uninit(
+                    col2im_mat.data_mut().unwrap(),
+                    GemmInputA::Unpacked(kernel_mat),
+                    GemmInputB::Unpacked(input_mat.view()),
+                    1.,   // alpha
+                    None, // bias
+                    None, // a_quant
+                    None, // b_quant
+                )
+                .unwrap();
+
+            let col2im_mat = NdTensorView::from_data(
+                col2im_shape,
+                // False positive. The conversion from `&mut [f32]` -> `&[f32]` here
+                // is necessary.
+                #[allow(clippy::useless_asref)]
+                col2im_init.as_ref(),
+            );
+            let mut out_img = out_group.slice_mut(n);
+
+            col2im(
+                &mut out_img,
+                &col2im_mat
+                    .reshaped([out_chans.len(), k_h, k_w, in_h, in_w])
+                    .view(),
+                [pad_top, pad_left, pad_right, pad_bottom],
+                [stride_h, stride_w],
+                bias,
+            );
+            n_init += out_img.len();
+        }
     }
 
     assert!(n_init == output.len());
@@ -827,6 +860,7 @@ pub fn conv_transpose(
 
 #[derive(Debug)]
 pub struct ConvTranspose {
+    pub groups: usize,
     pub padding: Padding,
     pub strides: Vec<usize>,
 }
@@ -847,6 +881,7 @@ impl Operator for ConvTranspose {
             weight,
             bias,
             self.padding.clone(),
+            self.groups,
             &self.strides,
         )
         .into_op_result()
@@ -861,7 +896,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{expect_equal, ExpectEqualError};
-    use rten_tensor::{Tensor, TensorView};
+    use rten_tensor::{NdTensor, Tensor, TensorView};
     use rten_testing::TestCases;
 
     use crate::buffer_pool::AutoReturn;
@@ -870,7 +905,7 @@ mod tests {
     use crate::ops::tests::new_pool;
     use crate::ops::{conv, conv_integer, conv_transpose, Conv, OpError, OperatorExt, Padding};
 
-    use super::conv_transpose_output_size_and_padding;
+    use super::{channels_per_group, conv_transpose_output_size_and_padding};
 
     trait ReferenceConvKernel<X, W> {
         /// Update a single output element (`self`) with a given input and weight value.
@@ -894,9 +929,6 @@ mod tests {
         }
     }
 
-    /// Un-optimized reference implementation of convolution.
-    ///
-    /// This has the same interface as [`conv`].
     fn reference_conv<X, W, Y>(
         input: TensorView<X>,
         kernel: TensorView<W>,
@@ -1042,6 +1074,98 @@ mod tests {
         let reference_result = reference_conv(
             input, kernel, bias, pads, groups, strides, dilations, None, None,
         );
+        expect_equal(&result, &reference_result)?;
+        Ok(result)
+    }
+
+    fn reference_conv_transpose(
+        input: TensorView,
+        kernel: TensorView,
+        bias: Option<TensorView>,
+        padding: Padding,
+        groups: usize,
+        [stride_h, stride_w]: [usize; 2],
+    ) -> Result<Tensor, OpError> {
+        let input = input.nd_view::<4>();
+        let kernel = kernel.nd_view::<4>();
+
+        let [batch, in_c, in_h, in_w] = input.shape();
+        let [k_in_c, out_chans_per_group, k_h, k_w] = kernel.shape();
+        let ([out_h, out_w], fixed_padding) = conv_transpose_output_size_and_padding(
+            [in_h, in_w],
+            [k_h, k_w],
+            padding,
+            [stride_h, stride_w],
+        )?;
+        let out_c = out_chans_per_group * groups;
+        let (_, in_chans_per_group) = channels_per_group(out_c, k_in_c / groups, in_c, groups)?;
+        let mut output = NdTensor::zeros([batch, out_c, out_h, out_w]);
+
+        let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
+
+        for group in 0..groups {
+            let in_chan_start = group * in_chans_per_group;
+            let in_chan_end = in_chan_start + in_chans_per_group;
+            let out_chan_start = group * out_chans_per_group;
+            let out_chan_end = out_chan_start + out_chans_per_group;
+
+            for n in 0..batch {
+                for out_c in out_chan_start..out_chan_end {
+                    for y in 0..out_h {
+                        for x in 0..out_w {
+                            let mut accum = 0.;
+
+                            for in_chan in in_chan_start..in_chan_end {
+                                for k_y in 0..k_h {
+                                    for k_x in 0..k_w {
+                                        if y + pad_top >= k_y && x + pad_left >= k_x {
+                                            let in_y = (y + pad_top - k_y) / stride_h;
+                                            let in_x = (x + pad_left - k_x) / stride_w;
+                                            accum += input
+                                                .get([n, in_chan, in_y, in_x])
+                                                .copied()
+                                                .unwrap_or(0.)
+                                                * kernel
+                                                    [[in_chan, out_c - out_chan_start, k_y, k_x]];
+                                        }
+                                    }
+                                }
+                            }
+
+                            output[[n, out_c, y, x]] =
+                                accum + bias.as_ref().map(|b| b[[out_c]]).unwrap_or(0.);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(output.into())
+    }
+
+    /// Perform a transposed convolution using the optimized and reference
+    /// implementations and check that the results are approximately equal.
+    fn check_conv_transpose(
+        input: TensorView<f32>,
+        kernel: TensorView<f32>,
+        bias: Option<TensorView<f32>>,
+        pads: Padding,
+        groups: usize,
+        strides: [usize; 2],
+    ) -> Result<Tensor<f32>, ExpectEqualError> {
+        let pool = new_pool();
+        let result = conv_transpose(
+            &pool,
+            input.view(),
+            kernel.view(),
+            bias.clone(),
+            pads.clone(),
+            groups,
+            &strides,
+        )
+        .expect("conv operation failed");
+        let reference_result =
+            reference_conv_transpose(input, kernel, bias, pads, groups, strides).unwrap();
         expect_equal(&result, &reference_result)?;
         Ok(result)
     }
@@ -1791,12 +1915,14 @@ mod tests {
             ],
         );
 
+        let groups = 1;
         let result = conv_transpose(
             &pool,
             input.view(),
             kernel.view(),
             None,
             Padding::zero::<2>(),
+            groups,
             &[2, 2],
         )
         .unwrap();
@@ -1813,6 +1939,7 @@ mod tests {
             kernel.view(),
             Some(bias.view()),
             Padding::zero::<2>(),
+            groups,
             &[2, 2],
         )
         .unwrap();
@@ -1830,6 +1957,7 @@ mod tests {
         // Expected values computed with `torch.nn.functional.conv_transpose2d`.
         let expected = Tensor::from_data(&[1, 1, 2, 2], vec![0.4, 0.6, 0.6, 0.4]);
         let strides = [2, 2];
+        let groups = 1;
 
         // Fixed padding. The output shape should have rows and columns
         // subtracted on each side according to the corresponding padding.
@@ -1839,6 +1967,7 @@ mod tests {
             kernel.view(),
             None,
             Padding::Fixed([1, 1, 1, 1].into()),
+            groups,
             &strides,
         )
         .unwrap();
@@ -1852,6 +1981,7 @@ mod tests {
             kernel.view(),
             None,
             Padding::Same,
+            groups,
             &strides,
         )
         .unwrap();
@@ -1877,12 +2007,15 @@ mod tests {
         // Expected values computed with `torch.nn.functional.conv_transpose1d`.
         let expected = Tensor::from_data(&[1, 1, 4], vec![0.1, 0.2, 0.2, 0.4]);
 
+        let groups = 1;
+
         let result = conv_transpose(
             &pool,
             input.view(),
             kernel.view(),
             None,
             Padding::zero::<1>(),
+            groups,
             &[2],
         )
         .unwrap();
@@ -1896,6 +2029,7 @@ mod tests {
             kernel.view(),
             Some(bias.view()),
             Padding::zero::<1>(),
+            groups,
             &[2],
         )
         .unwrap();
@@ -2015,6 +2149,53 @@ mod tests {
             );
             assert_eq!(result, case.expected);
         })
+    }
+
+    #[test]
+    fn test_conv_transpose_groups() {
+        #[derive(Debug)]
+        struct Case {
+            input_shape: [usize; 4],
+            kernel_shape: [usize; 4],
+            pads: Padding,
+            groups: usize,
+            strides: [usize; 2],
+        }
+
+        let cases = [
+            // Single group
+            Case {
+                input_shape: [1, 3, 5, 5],
+                kernel_shape: [3, 4, 3, 3],
+                pads: Padding::zero::<2>(),
+                groups: 1,
+                strides: [1, 1],
+            },
+            // Multiple groups
+            Case {
+                input_shape: [1, 4, 5, 5],
+                kernel_shape: [4, 2, 3, 3],
+                pads: Padding::zero::<2>(),
+                groups: 2,
+                strides: [1, 1],
+            },
+        ];
+
+        cases.test_each(|case| {
+            let mut rng = XorShiftRng::new(1234);
+            let input = Tensor::rand(&case.input_shape, &mut rng);
+            let kernel = Tensor::rand(&case.kernel_shape, &mut rng);
+            let bias = None;
+            check_conv_transpose(
+                input.view(),
+                kernel.view(),
+                bias,
+                case.pads.clone(),
+                case.groups,
+                case.strides,
+            )
+            .unwrap();
+        });
     }
 
     #[test]

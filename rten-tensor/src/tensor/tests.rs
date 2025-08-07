@@ -1071,7 +1071,7 @@ fn test_reshaped() {
 }
 
 #[test]
-#[should_panic(expected = "invalid target shape for `reshape`: LengthMismatch")]
+#[should_panic(expected = "element count mismatch reshaping [16] to [2, 2]")]
 fn test_reshaped_invalid() {
     let tensor = NdTensor::arange(0, 16, None);
     tensor.reshaped([2, 2]);
