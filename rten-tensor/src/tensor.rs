@@ -2075,6 +2075,7 @@ impl<T, S: Storage<Elem = T>, const N: usize> TensorBase<S, NdLayout<N>> {
 impl<T> TensorBase<Vec<T>, DynLayout> {
     /// Reshape this tensor in place. This is cheap if the tensor is contiguous,
     /// as only the layout will be changed, but requires copying data otherwise.
+    #[track_caller]
     pub fn reshape(&mut self, shape: &[usize])
     where
         T: Clone,
@@ -2083,6 +2084,7 @@ impl<T> TensorBase<Vec<T>, DynLayout> {
     }
 
     /// Variant of [`reshape`](TensorBase::reshape) which takes an allocator.
+    #[track_caller]
     pub fn reshape_in<A: Alloc>(&mut self, alloc: A, shape: &[usize])
     where
         T: Clone,
@@ -2090,10 +2092,14 @@ impl<T> TensorBase<Vec<T>, DynLayout> {
         if !self.is_contiguous() {
             self.data = self.to_vec_in(alloc);
         }
-        self.layout = self
-            .layout
-            .reshaped_for_copy(shape)
-            .expect("reshape failed");
+        let Ok(layout) = self.layout.reshaped_for_copy(shape) else {
+            panic!(
+                "element count mismatch reshaping {:?} to {:?}",
+                self.shape(),
+                shape
+            );
+        };
+        self.layout = layout;
     }
 }
 
