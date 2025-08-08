@@ -1420,6 +1420,7 @@ mod tests {
             strides: vec![2, 2],
             padding: [0, 0, 0, 0].into(),
             groups: 1,
+            output_padding: None,
         });
         add_operator!(Cos, [input_node]);
 
