@@ -6,9 +6,10 @@ from functools import reduce
 import hashlib
 import json
 from operator import mul
-from os.path import splitext
+from os.path import dirname, splitext
 import sys
 import struct
+import tempfile
 from typing import BinaryIO, Callable, Literal, Optional, Protocol, cast
 
 import flatbuffers
@@ -1304,12 +1305,23 @@ def main():
         # Version 1 format stores all tensor data inline.
         tensor_data = None
 
-    model = onnx.load(args.model)
+    model_path = args.model
 
     # Run shape inference. This is recommended as some runtime graph
     # optimizations depend on it.
     if args.infer_shapes:
-        model = onnx.shape_inference.infer_shapes(model, data_prop=True)
+        # Use `onnx.shape_inference.infer_shapes_path` to support models that
+        # are more than 2GB in size. This function will generate a new ".onnx"
+        # file that shares the same external data (if any) as the input file.
+        #
+        # See also https://github.com/robertknight/rten/issues/851.
+        with tempfile.NamedTemporaryFile(
+            dir=dirname(model_path), suffix=".infer_shapes.onnx"
+        ) as tmp:
+            onnx.shape_inference.infer_shapes_path(model_path, tmp.name, data_prop=True)
+            model = onnx.load(tmp.name)
+    else:
+        model = onnx.load(model_path)
 
     graph = graph_from_onnx_graph(model.graph)
     metadata = generate_metadata(args.model, args.metadata)
