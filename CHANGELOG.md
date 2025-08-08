@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1] - 2025-08-08
+
+- Fix a bug where model converter would produce an empty model if the input was
+  > 2GB in size and shape inference was enabled (https://github.com/robertknight/rten/pull/852)
+
 ## [0.21.0] - 2025-08-05
 
 This release improves int8 matrix multiplication performance for all targets,
