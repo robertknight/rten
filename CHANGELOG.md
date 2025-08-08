@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.21.1] - 2025-08-08
 
-- Fix a bug where model converter would produce an empty model if the input was
-  > 2GB in size and shape inference was enabled (https://github.com/robertknight/rten/pull/852)
+- Fix a bug where model converter would produce an empty model if the input is
+  larger than 2GB in size and shape inference is enabled (https://github.com/robertknight/rten/pull/852)
 
 ## [0.21.0] - 2025-08-05
 
