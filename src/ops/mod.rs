@@ -71,7 +71,7 @@ pub use binary_elementwise::{
     Mod, Mul, Or, Pow, Sub, Where, Xor,
 };
 pub use concat::{concat, tile, Concat, Tile};
-pub use control_flow::If;
+pub use control_flow::{If, Loop};
 pub use conv::{conv, conv_integer, Conv, ConvInteger};
 pub use conv_transpose::{conv_transpose, ConvTranspose};
 pub use convert::{Cast, CastLike};
