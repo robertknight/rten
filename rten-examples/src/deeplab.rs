@@ -104,7 +104,7 @@ const PASCAL_VOC_LABELS: [(&str, Rgb); 21] = [
 /// cargo run --release --bin deeplab deeplab.rten image.jpg out.png
 /// ```
 ///
-/// [^1] <https://arxiv.org/abs/1706.05587>
+/// [^1]: <https://arxiv.org/abs/1706.05587>
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
     let model = Model::load_file(args.model)?;
