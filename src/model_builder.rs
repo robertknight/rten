@@ -526,8 +526,10 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
                 let strides = self.create_vec(Some(args.strides), |s| s as u32);
+                let output_padding = self.create_vec(args.output_padding, |s| s as u32);
                 sg::ConvTransposeAttrsArgs {
                     strides,
+                    output_padding,
                     auto_pad: pad_args.auto_pad,
                     pads,
                     groups: args.groups as u32,

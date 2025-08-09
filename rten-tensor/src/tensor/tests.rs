@@ -1033,7 +1033,7 @@ fn test_reshape() {
 }
 
 #[test]
-#[should_panic(expected = "reshape failed")]
+#[should_panic(expected = "element count mismatch reshaping [16] to [2, 2]")]
 fn test_reshape_invalid() {
     let mut tensor = Tensor::arange(0, 16, None);
     tensor.reshape(&[2, 2]);

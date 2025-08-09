@@ -430,7 +430,9 @@ def op_node_from_onnx_operator(
             # The kernel shape is inferred at runtime from the input weight tensor.
             attr_reader.ignore_attr("kernel_shape")
 
-            attr_reader.check_attr("output_padding", "ints", [0, 0, 0, 0])
+            attrs.outputPadding = attr_reader.get_attr(
+                "output_padding", "ints", default=None
+            )
             read_pads(attr_reader, attrs)
 
         case "CumSum":

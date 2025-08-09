@@ -293,6 +293,10 @@ fn vec_from_attr(attr: Option<flatbuffers::Vector<u32>>, default: &[usize]) -> V
         .unwrap_or_else(|| default.to_vec())
 }
 
+fn opt_vec_from_attr(attr: Option<flatbuffers::Vector<u32>>) -> Option<Vec<usize>> {
+    attr.map(|val| val.iter().map(|x| x as usize).collect())
+}
+
 /// Result of deserializing an operator node from a model file.
 pub type ReadOpResult = Result<Arc<dyn Operator + Send + Sync>, ReadOpError>;
 
@@ -505,11 +509,13 @@ impl_read_op!(
     |attrs: sg::ConvTransposeAttrs| {
         let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
         let strides = vec_from_attr(attrs.strides(), &[1, 1]);
+        let output_padding = opt_vec_from_attr(attrs.output_padding());
         let groups = attrs.groups() as usize;
         Ok(ops::ConvTranspose {
             padding,
             strides,
             groups,
+            output_padding,
         })
     }
 );

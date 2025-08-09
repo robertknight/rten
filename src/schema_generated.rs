@@ -4113,6 +4113,7 @@ impl<'a> ConvTransposeAttrs<'a> {
     pub const VT_AUTO_PAD: flatbuffers::VOffsetT = 6;
     pub const VT_PADS: flatbuffers::VOffsetT = 8;
     pub const VT_GROUPS: flatbuffers::VOffsetT = 10;
+    pub const VT_OUTPUT_PADDING: flatbuffers::VOffsetT = 12;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -4124,6 +4125,9 @@ impl<'a> ConvTransposeAttrs<'a> {
         args: &'args ConvTransposeAttrsArgs<'args>,
     ) -> flatbuffers::WIPOffset<ConvTransposeAttrs<'bldr>> {
         let mut builder = ConvTransposeAttrsBuilder::new(_fbb);
+        if let Some(x) = args.output_padding {
+            builder.add_output_padding(x);
+        }
         builder.add_groups(args.groups);
         if let Some(x) = args.pads {
             builder.add_pads(x);
@@ -4183,6 +4187,19 @@ impl<'a> ConvTransposeAttrs<'a> {
                 .unwrap()
         }
     }
+    #[inline]
+    pub fn output_padding(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    ConvTransposeAttrs::VT_OUTPUT_PADDING,
+                    None,
+                )
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for ConvTransposeAttrs<'_> {
@@ -4205,6 +4222,11 @@ impl flatbuffers::Verifiable for ConvTransposeAttrs<'_> {
                 false,
             )?
             .visit_field::<u32>("groups", Self::VT_GROUPS, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "output_padding",
+                Self::VT_OUTPUT_PADDING,
+                false,
+            )?
             .finish();
         Ok(())
     }
@@ -4214,6 +4236,7 @@ pub struct ConvTransposeAttrsArgs<'a> {
     pub auto_pad: AutoPad,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub groups: u32,
+    pub output_padding: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for ConvTransposeAttrsArgs<'a> {
     #[inline]
@@ -4223,6 +4246,7 @@ impl<'a> Default for ConvTransposeAttrsArgs<'a> {
             auto_pad: AutoPad::NotSet,
             pads: None,
             groups: 1,
+            output_padding: None,
         }
     }
 }
@@ -4253,6 +4277,16 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ConvTransposeAttrsBuilder<'a, '
             .push_slot::<u32>(ConvTransposeAttrs::VT_GROUPS, groups, 1);
     }
     #[inline]
+    pub fn add_output_padding(
+        &mut self,
+        output_padding: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>,
+    ) {
+        self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
+            ConvTransposeAttrs::VT_OUTPUT_PADDING,
+            output_padding,
+        );
+    }
+    #[inline]
     pub fn new(
         _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
     ) -> ConvTransposeAttrsBuilder<'a, 'b, A> {
@@ -4276,6 +4310,7 @@ impl core::fmt::Debug for ConvTransposeAttrs<'_> {
         ds.field("auto_pad", &self.auto_pad());
         ds.field("pads", &self.pads());
         ds.field("groups", &self.groups());
+        ds.field("output_padding", &self.output_padding());
         ds.finish()
     }
 }

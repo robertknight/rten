@@ -655,10 +655,12 @@ fn conv_transpose_output_size_and_padding(
     kernel_shape: [usize; 2],
     padding: Padding,
     strides: [usize; 2],
+    output_padding: [usize; 2],
 ) -> Result<([usize; 2], [usize; 4]), OpError> {
     let [in_h, in_w] = input_shape;
     let [stride_h, stride_w] = strides;
     let [k_h, k_w] = kernel_shape;
+    let [out_pad_h, out_pad_w] = output_padding;
 
     if stride_h == 0 || stride_w == 0 {
         return Err(OpError::InvalidValue("Strides must be > 0"));
@@ -675,8 +677,8 @@ fn conv_transpose_output_size_and_padding(
             let out_h = in_h * stride_h;
             let out_w = in_w * stride_w;
 
-            let pad_h = ((in_h - 1) * stride_h + k_h).checked_sub(out_h);
-            let pad_w = ((in_w - 1) * stride_w + k_w).checked_sub(out_w);
+            let pad_h = ((in_h - 1) * stride_h + k_h + out_pad_h).checked_sub(out_h);
+            let pad_w = ((in_w - 1) * stride_w + k_w + out_pad_w).checked_sub(out_w);
 
             let (Some(pad_h), Some(pad_w)) = (pad_h, pad_w) else {
                 // We can't achieve an output size of (out_h, out_w) even with
@@ -696,8 +698,10 @@ fn conv_transpose_output_size_and_padding(
         }
         Padding::Fixed(pads) => match pads.as_slice() {
             &[pad_top, pad_left, pad_bottom, pad_right] => {
-                let out_h = ((in_h - 1) * stride_h + k_h).checked_sub(pad_top + pad_bottom);
-                let out_w = ((in_w - 1) * stride_w + k_w).checked_sub(pad_left + pad_right);
+                let out_h =
+                    ((in_h - 1) * stride_h + out_pad_h + k_h).checked_sub(pad_top + pad_bottom);
+                let out_w =
+                    ((in_w - 1) * stride_w + out_pad_w + k_w).checked_sub(pad_left + pad_right);
 
                 let (Some(out_h), Some(out_w)) = (out_h, out_w) else {
                     return Err(OpError::InvalidValue("Input is too small"));
@@ -722,6 +726,7 @@ pub fn conv_transpose(
     padding: Padding,
     groups: usize,
     strides: &[usize],
+    output_padding: Option<&[usize]>,
 ) -> Result<Tensor, OpError> {
     // Handle 1D transposed convolution by expanding to 2D and then removing
     // the extra dimension from the result.
@@ -744,6 +749,14 @@ pub fn conv_transpose(
             }
         };
 
+        let output_padding_2d = match output_padding {
+            Some(&[pad]) => [0, pad],
+            None => [0, 0],
+            _ => {
+                return Err(OpError::InvalidValue("expected 1 output_padding value"));
+            }
+        };
+
         let result_2d = conv_transpose(
             pool,
             input_2d.view(),
@@ -752,6 +765,7 @@ pub fn conv_transpose(
             padding_2d,
             groups,
             &strides_2d,
+            Some(&output_padding_2d),
         );
 
         return result_2d.map(|mut t| {
@@ -778,12 +792,20 @@ pub fn conv_transpose(
     let &[stride_h, stride_w] = strides else {
         return Err(OpError::InvalidValue("expected 2 stride values"));
     };
+    let [out_pad_h, out_pad_w] = match output_padding {
+        Some(&[h, w]) => [h, w],
+        None => [0, 0],
+        _ => {
+            return Err(OpError::InvalidValue("expected 2 output_padding values"));
+        }
+    };
 
     let (out_shape, fixed_padding) = conv_transpose_output_size_and_padding(
         [in_h, in_w],
         [k_h, k_w],
         padding,
         [stride_h, stride_w],
+        [out_pad_h, out_pad_w],
     )?;
     let [out_h, out_w] = out_shape;
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
@@ -863,6 +885,7 @@ pub struct ConvTranspose {
     pub groups: usize,
     pub padding: Padding,
     pub strides: Vec<usize>,
+    pub output_padding: Option<Vec<usize>>,
 }
 
 impl Operator for ConvTranspose {
@@ -875,6 +898,7 @@ impl Operator for ConvTranspose {
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
+
         conv_transpose(
             ctx.pool(),
             input,
@@ -883,6 +907,7 @@ impl Operator for ConvTranspose {
             self.padding.clone(),
             self.groups,
             &self.strides,
+            self.output_padding.as_deref(),
         )
         .into_op_result()
     }
@@ -1085,6 +1110,7 @@ mod tests {
         padding: Padding,
         groups: usize,
         [stride_h, stride_w]: [usize; 2],
+        [out_pad_h, out_pad_w]: [usize; 2],
     ) -> Result<Tensor, OpError> {
         let input = input.nd_view::<4>();
         let kernel = kernel.nd_view::<4>();
@@ -1096,6 +1122,7 @@ mod tests {
             [k_h, k_w],
             padding,
             [stride_h, stride_w],
+            [out_pad_h, out_pad_w],
         )?;
         let out_c = out_chans_per_group * groups;
         let (_, in_chans_per_group) = channels_per_group(out_c, k_in_c / groups, in_c, groups)?;
@@ -1152,6 +1179,7 @@ mod tests {
         pads: Padding,
         groups: usize,
         strides: [usize; 2],
+        output_padding: [usize; 2],
     ) -> Result<Tensor<f32>, ExpectEqualError> {
         let pool = new_pool();
         let result = conv_transpose(
@@ -1162,10 +1190,12 @@ mod tests {
             pads.clone(),
             groups,
             &strides,
+            Some(output_padding.as_slice()),
         )
         .expect("conv operation failed");
         let reference_result =
-            reference_conv_transpose(input, kernel, bias, pads, groups, strides).unwrap();
+            reference_conv_transpose(input, kernel, bias, pads, groups, strides, output_padding)
+                .unwrap();
         expect_equal(&result, &reference_result)?;
         Ok(result)
     }
@@ -1916,6 +1946,9 @@ mod tests {
         );
 
         let groups = 1;
+        let strides = [2, 2];
+        let output_padding = Some([0, 0].as_slice());
+
         let result = conv_transpose(
             &pool,
             input.view(),
@@ -1923,7 +1956,8 @@ mod tests {
             None,
             Padding::zero::<2>(),
             groups,
-            &[2, 2],
+            &strides,
+            output_padding,
         )
         .unwrap();
         expect_equal(&result, &expected)?;
@@ -1940,7 +1974,8 @@ mod tests {
             Some(bias.view()),
             Padding::zero::<2>(),
             groups,
-            &[2, 2],
+            &strides,
+            output_padding,
         )
         .unwrap();
         expect_equal(&result, &expected_with_bias)?;
@@ -1958,6 +1993,7 @@ mod tests {
         let expected = Tensor::from_data(&[1, 1, 2, 2], vec![0.4, 0.6, 0.6, 0.4]);
         let strides = [2, 2];
         let groups = 1;
+        let output_padding = Some([0, 0].as_slice());
 
         // Fixed padding. The output shape should have rows and columns
         // subtracted on each side according to the corresponding padding.
@@ -1969,6 +2005,7 @@ mod tests {
             Padding::Fixed([1, 1, 1, 1].into()),
             groups,
             &strides,
+            output_padding,
         )
         .unwrap();
         expect_equal(&result, &expected)?;
@@ -1983,6 +2020,7 @@ mod tests {
             Padding::Same,
             groups,
             &strides,
+            output_padding,
         )
         .unwrap();
         assert_eq!(
@@ -2008,6 +2046,8 @@ mod tests {
         let expected = Tensor::from_data(&[1, 1, 4], vec![0.1, 0.2, 0.2, 0.4]);
 
         let groups = 1;
+        let strides = [2];
+        let output_padding = Some([0].as_slice());
 
         let result = conv_transpose(
             &pool,
@@ -2016,7 +2056,8 @@ mod tests {
             None,
             Padding::zero::<1>(),
             groups,
-            &[2],
+            &strides,
+            output_padding,
         )
         .unwrap();
         expect_equal(&result, &expected)?;
@@ -2030,7 +2071,8 @@ mod tests {
             Some(bias.view()),
             Padding::zero::<1>(),
             groups,
-            &[2],
+            &strides,
+            output_padding,
         )
         .unwrap();
         expect_equal(&result, &expected_with_bias)?;
@@ -2046,7 +2088,21 @@ mod tests {
             kernel_shape: [usize; 2],
             padding: Padding,
             strides: [usize; 2],
+            output_padding: [usize; 2],
             expected: Result<([usize; 2], [usize; 4]), OpError>,
+        }
+
+        impl Default for Case {
+            fn default() -> Case {
+                Case {
+                    input_shape: [1, 1],
+                    kernel_shape: [1, 1],
+                    padding: Padding::zero::<2>(),
+                    strides: [1, 1],
+                    output_padding: [0, 0],
+                    expected: Err(OpError::InvalidValue("default value")),
+                }
+            }
         }
 
         let cases = [
@@ -2057,6 +2113,7 @@ mod tests {
                 padding: Padding::zero::<2>(),
                 strides: [1, 1],
                 expected: Ok(([7, 7], [0, 0, 0, 0])),
+                ..Default::default()
             },
             // Zero padding, stride of 3
             Case {
@@ -2065,6 +2122,7 @@ mod tests {
                 padding: Padding::zero::<2>(),
                 strides: [3, 3],
                 expected: Ok(([15, 15], [0, 0, 0, 0])),
+                ..Default::default()
             },
             // Non-zero padding, stride of 1
             Case {
@@ -2073,6 +2131,7 @@ mod tests {
                 padding: Padding::Fixed([1, 1, 1, 1].into()),
                 strides: [1, 1],
                 expected: Ok(([5, 5], [1, 1, 1, 1])),
+                ..Default::default()
             },
             Case {
                 input_shape: [5, 5],
@@ -2080,6 +2139,7 @@ mod tests {
                 padding: Padding::Fixed([2, 2, 2, 2].into()),
                 strides: [1, 1],
                 expected: Ok(([3, 3], [2, 2, 2, 2])),
+                ..Default::default()
             },
             // Uneven padding
             Case {
@@ -2088,6 +2148,7 @@ mod tests {
                 padding: Padding::Fixed([1, 2, 1, 2].into()),
                 strides: [1, 1],
                 expected: Ok(([5, 3], [1, 2, 1, 2])),
+                ..Default::default()
             },
             // Same padding
             Case {
@@ -2096,6 +2157,7 @@ mod tests {
                 padding: Padding::Same,
                 strides: [1, 1],
                 expected: Ok(([5, 5], [1, 1, 1, 1])),
+                ..Default::default()
             },
             // Same padding. Case where output size is smaller than
             // `input_shape * stride` even with no padding.
@@ -2105,6 +2167,7 @@ mod tests {
                 padding: Padding::Same,
                 strides: [3, 3],
                 expected: Err(OpError::InvalidValue("Input is too small")),
+                ..Default::default()
             },
             // Padding too large
             Case {
@@ -2113,6 +2176,7 @@ mod tests {
                 padding: Padding::Fixed([4, 4, 4, 4].into()),
                 strides: [1, 1],
                 expected: Err(OpError::InvalidValue("Input is too small")),
+                ..Default::default()
             },
             // Invalid strides
             Case {
@@ -2121,6 +2185,7 @@ mod tests {
                 padding: Padding::zero::<2>(),
                 strides: [0, 0],
                 expected: Err(OpError::InvalidValue("Strides must be > 0")),
+                ..Default::default()
             },
             // Empty input
             Case {
@@ -2129,6 +2194,7 @@ mod tests {
                 padding: Padding::zero::<2>(),
                 strides: [1, 1],
                 expected: Err(OpError::InvalidValue("Input width and height must be > 0")),
+                ..Default::default()
             },
             // Wrong padding size for input spatial shape.
             Case {
@@ -2137,6 +2203,33 @@ mod tests {
                 padding: Padding::zero::<1>(),
                 strides: [1, 1],
                 expected: Err(OpError::InvalidValue("Wrong number of pad values")),
+                ..Default::default()
+            },
+            // Output padding on Y axis
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                output_padding: [1, 0],
+                expected: Ok(([8, 7], [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // Output padding on X axis
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                output_padding: [0, 1],
+                expected: Ok(([7, 8], [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // Output padding with padding mode `Same`
+            Case {
+                input_shape: [7, 7],
+                kernel_shape: [3, 3],
+                padding: Padding::Same,
+                output_padding: [2, 2],
+                strides: [2, 2],
+                expected: Ok(([14, 14], [1, 2, 1, 2])),
+                ..Default::default()
             },
         ];
 
@@ -2146,41 +2239,38 @@ mod tests {
                 case.kernel_shape,
                 case.padding.clone(),
                 case.strides,
+                case.output_padding,
             );
             assert_eq!(result, case.expected);
         })
     }
 
-    #[test]
-    fn test_conv_transpose_groups() {
-        #[derive(Debug)]
-        struct Case {
-            input_shape: [usize; 4],
-            kernel_shape: [usize; 4],
-            pads: Padding,
-            groups: usize,
-            strides: [usize; 2],
-        }
+    #[derive(Debug)]
+    struct ConvTransposeCase {
+        input_shape: [usize; 4],
+        kernel_shape: [usize; 4],
+        pads: Padding,
+        groups: usize,
+        strides: [usize; 2],
+        output_padding: [usize; 2],
+    }
 
-        let cases = [
-            // Single group
-            Case {
-                input_shape: [1, 3, 5, 5],
-                kernel_shape: [3, 4, 3, 3],
+    impl Default for ConvTransposeCase {
+        fn default() -> Self {
+            Self {
+                input_shape: [1, 1, 1, 1],
+                kernel_shape: [1, 1, 1, 1],
                 pads: Padding::zero::<2>(),
                 groups: 1,
                 strides: [1, 1],
-            },
-            // Multiple groups
-            Case {
-                input_shape: [1, 4, 5, 5],
-                kernel_shape: [4, 2, 3, 3],
-                pads: Padding::zero::<2>(),
-                groups: 2,
-                strides: [1, 1],
-            },
-        ];
+                output_padding: [0, 0],
+            }
+        }
+    }
 
+    // Compare reference vs optimized implementation of ConvTranspose for a
+    // given set of parameters.
+    fn test_conv_transpose_cases(cases: &[ConvTransposeCase]) {
         cases.test_each(|case| {
             let mut rng = XorShiftRng::new(1234);
             let input = Tensor::rand(&case.input_shape, &mut rng);
@@ -2193,9 +2283,50 @@ mod tests {
                 case.pads.clone(),
                 case.groups,
                 case.strides,
+                case.output_padding,
             )
             .unwrap();
         });
+    }
+
+    #[test]
+    fn test_conv_transpose_groups() {
+        test_conv_transpose_cases(&[
+            // Single group
+            ConvTransposeCase {
+                input_shape: [1, 3, 5, 5],
+                kernel_shape: [3, 4, 3, 3],
+                groups: 1,
+                ..Default::default()
+            },
+            // Multiple groups
+            ConvTransposeCase {
+                input_shape: [1, 4, 5, 5],
+                kernel_shape: [4, 2, 3, 3],
+                groups: 2,
+                ..Default::default()
+            },
+        ]);
+    }
+
+    #[test]
+    fn test_conv_transpose_output_padding() {
+        test_conv_transpose_cases(&[
+            // Without output padding
+            ConvTransposeCase {
+                input_shape: [1, 3, 5, 5],
+                kernel_shape: [3, 4, 3, 3],
+                output_padding: [0, 0],
+                ..Default::default()
+            },
+            // With output padding
+            ConvTransposeCase {
+                input_shape: [1, 4, 5, 5],
+                kernel_shape: [4, 2, 3, 3],
+                output_padding: [1, 1],
+                ..Default::default()
+            },
+        ]);
     }
 
     #[test]
