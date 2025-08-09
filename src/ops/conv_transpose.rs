@@ -10,41 +10,6 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::{static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding};
 
-/// Return a tuple of (output_channels, input_channels) for the number of
-/// channels in each group.
-fn channels_per_group(
-    kernel_out_chans: usize,
-    kernel_in_chans_per_group: usize,
-    in_chans: usize,
-    groups: usize,
-) -> Result<(usize, usize), OpError> {
-    if groups == 0 {
-        return Err(OpError::InvalidValue("Group count must be > 0"));
-    }
-
-    let in_channels_per_group = in_chans / groups;
-    if in_chans % groups != 0 {
-        return Err(OpError::InvalidValue(
-            "Input channel count not divisible by groups",
-        ));
-    }
-
-    if in_channels_per_group != kernel_in_chans_per_group {
-        return Err(OpError::IncompatibleInputShapes(
-            "Input channels (per group) does not match kernel input channels",
-        ));
-    }
-
-    let out_channels_per_group = kernel_out_chans / groups;
-    if kernel_out_chans % groups != 0 {
-        return Err(OpError::InvalidValue(
-            "Output channel count not divisible by groups",
-        ));
-    }
-
-    Ok((out_channels_per_group, in_channels_per_group))
-}
-
 /// Compute the range of input positions along a spatial axis that result in
 /// valid output positions for a col2im operation.
 ///
@@ -290,6 +255,16 @@ pub fn conv_transpose(
         ));
     }
 
+    if groups == 0 {
+        return Err(OpError::InvalidValue("Group count must be > 0"));
+    }
+
+    if k_in_c % groups != 0 {
+        return Err(OpError::InvalidValue(
+            "Input channel count not divisible by groups",
+        ));
+    }
+
     let &[stride_h, stride_w] = strides else {
         return Err(OpError::InvalidValue("expected 2 stride values"));
     };
@@ -322,8 +297,7 @@ pub fn conv_transpose(
     let kernel_mat = kernel_mat.transposed();
     let gemm = GemmExecutor::new();
 
-    let (_, in_chans_per_group) =
-        channels_per_group(out_chans_per_group * groups, k_in_c / groups, in_c, groups)?;
+    let in_chans_per_group = k_in_c / groups;
 
     // The implementation here is the inverse of the im2col-based convolution.
     let mut n_init = 0;
@@ -424,7 +398,7 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use super::{channels_per_group, conv_transpose, conv_transpose_output_size_and_padding};
+    use super::{conv_transpose, conv_transpose_output_size_and_padding};
     use crate::ops::tests::new_pool;
     use crate::ops::{OpError, Padding};
 
@@ -440,7 +414,7 @@ mod tests {
         let input = input.nd_view::<4>();
         let kernel = kernel.nd_view::<4>();
 
-        let [batch, in_c, in_h, in_w] = input.shape();
+        let [batch, _in_c, in_h, in_w] = input.shape();
         let [k_in_c, out_chans_per_group, k_h, k_w] = kernel.shape();
         let ([out_h, out_w], fixed_padding) = conv_transpose_output_size_and_padding(
             [in_h, in_w],
@@ -450,7 +424,7 @@ mod tests {
             [out_pad_h, out_pad_w],
         )?;
         let out_c = out_chans_per_group * groups;
-        let (_, in_chans_per_group) = channels_per_group(out_c, k_in_c / groups, in_c, groups)?;
+        let in_chans_per_group = k_in_c / groups;
         let mut output = NdTensor::zeros([batch, out_c, out_h, out_w]);
 
         let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;

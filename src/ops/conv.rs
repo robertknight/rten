@@ -230,8 +230,29 @@ where
         ));
     }
 
-    let (out_chans_per_group, in_chans_per_group) =
-        channels_per_group(out_c, k_in_c, in_c, groups)?;
+    if groups == 0 {
+        return Err(OpError::InvalidValue("Group count must be > 0"));
+    }
+
+    let in_chans_per_group = in_c / groups;
+    if in_c % groups != 0 {
+        return Err(OpError::InvalidValue(
+            "Input channel count not divisible by groups",
+        ));
+    }
+
+    if in_chans_per_group != k_in_c {
+        return Err(OpError::IncompatibleInputShapes(
+            "Input channels (per group) does not match kernel input channels",
+        ));
+    }
+
+    let out_chans_per_group = out_c / groups;
+    if out_c % groups != 0 {
+        return Err(OpError::InvalidValue(
+            "Output channel count not divisible by groups",
+        ));
+    }
 
     if in_c == out_c && groups == in_c {
         let dw_conv = DepthwiseConvExecutor::default();
@@ -324,41 +345,6 @@ where
     let output = unsafe { output.assume_init() };
 
     Ok(output.into())
-}
-
-/// Return a tuple of (output_channels, input_channels) for the number of
-/// channels in each group.
-fn channels_per_group(
-    kernel_out_chans: usize,
-    kernel_in_chans_per_group: usize,
-    in_chans: usize,
-    groups: usize,
-) -> Result<(usize, usize), OpError> {
-    if groups == 0 {
-        return Err(OpError::InvalidValue("Group count must be > 0"));
-    }
-
-    let in_channels_per_group = in_chans / groups;
-    if in_chans % groups != 0 {
-        return Err(OpError::InvalidValue(
-            "Input channel count not divisible by groups",
-        ));
-    }
-
-    if in_channels_per_group != kernel_in_chans_per_group {
-        return Err(OpError::IncompatibleInputShapes(
-            "Input channels (per group) does not match kernel input channels",
-        ));
-    }
-
-    let out_channels_per_group = kernel_out_chans / groups;
-    if kernel_out_chans % groups != 0 {
-        return Err(OpError::InvalidValue(
-            "Output channel count not divisible by groups",
-        ));
-    }
-
-    Ok((out_channels_per_group, in_channels_per_group))
 }
 
 #[derive(Debug)]
