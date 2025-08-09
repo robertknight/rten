@@ -63,6 +63,21 @@ impl<'a> CaptureEnv<'a> {
         }
     }
 
+    /// Create an empty capture environment which will return `None` for all
+    /// lookups.
+    #[allow(unused)]
+    pub fn empty() -> Self {
+        // This could be generated via a derived Default impl, but the meaning
+        // of a "default" CaptureEnv may be unclear.
+        CaptureEnv {
+            parent: None,
+            graph: None,
+            inputs: None,
+            temp_values_by_ref: None,
+            temp_values: None,
+        }
+    }
+
     /// Simplified constructor for capture environments associated with top
     /// level graphs.
     ///

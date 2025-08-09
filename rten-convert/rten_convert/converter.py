@@ -543,6 +543,14 @@ def op_node_from_onnx_operator(
             attrs = sg.SoftmaxAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", 0)
 
+        case "Loop":
+            attrs = sg.LoopAttrsT()
+
+            body = graph_from_onnx_graph(
+                attr_reader.get_attr("body", "graph", None), allow_captures=True
+            )
+            attrs.body = DummyGraphT(body, None)
+
         case "LSTM":
             attrs = sg.LSTMAttrsT()
             attrs.direction = attr_reader.get_enum_attr(

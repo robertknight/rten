@@ -123,6 +123,7 @@ class OperatorType(object):
     EyeLike = 113
     IsNaN = 114
     IsInf = 115
+    Loop = 116
 
 
 class RNNDirection(object):
@@ -212,6 +213,7 @@ class OperatorAttrs(object):
     DropoutAttrs = 46
     EyeLikeAttrs = 47
     IsInfAttrs = 48
+    LoopAttrs = 49
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -313,6 +315,8 @@ def OperatorAttrsCreator(unionType, table):
         return EyeLikeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.IsInfAttrs:
         return IsInfAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.LoopAttrs:
+        return LoopAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2512,6 +2516,94 @@ class LayerNormalizationAttrsT(object):
         LayerNormalizationAttrsAddEpsilon(builder, self.epsilon)
         layerNormalizationAttrs = LayerNormalizationAttrsEnd(builder)
         return layerNormalizationAttrs
+
+
+class LoopAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = LoopAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsLoopAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def LoopAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # LoopAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # LoopAttrs
+    def Body(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            obj = Graph()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+def LoopAttrsStart(builder):
+    builder.StartObject(1)
+
+def LoopAttrsAddBody(builder, body):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(body), 0)
+
+def LoopAttrsEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import Optional
+except:
+    pass
+
+class LoopAttrsT(object):
+
+    # LoopAttrsT
+    def __init__(self):
+        self.body = None  # type: Optional[GraphT]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        loopAttrs = LoopAttrs()
+        loopAttrs.Init(buf, pos)
+        return cls.InitFromObj(loopAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, loopAttrs):
+        x = LoopAttrsT()
+        x._UnPack(loopAttrs)
+        return x
+
+    # LoopAttrsT
+    def _UnPack(self, loopAttrs):
+        if loopAttrs is None:
+            return
+        if loopAttrs.Body() is not None:
+            self.body = GraphT.InitFromObj(loopAttrs.Body())
+
+    # LoopAttrsT
+    def Pack(self, builder):
+        if self.body is not None:
+            body = self.body.Pack(builder)
+        LoopAttrsStart(builder)
+        if self.body is not None:
+            LoopAttrsAddBody(builder, body)
+        loopAttrs = LoopAttrsEnd(builder)
+        return loopAttrs
 
 
 class GatherAttrs(object):
@@ -5657,7 +5749,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT, EyeLikeAttrsT, IsInfAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT, EyeLikeAttrsT, IsInfAttrsT, LoopAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
