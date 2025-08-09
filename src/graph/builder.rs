@@ -131,6 +131,9 @@ impl Expr {
     /// The inputs of the graph are values with names listed in `inputs`. The
     /// output is the node that corresponds to the result of the `self`
     /// expression.
+    ///
+    /// This function only supports creating graphs with a single output. To
+    /// create graphs with multiple outputs, use [`make_graph`](Self::make_graph).
     pub fn build_graph<'a, I: AsRef<[&'a str]>>(self, inputs: I) -> Graph {
         let mut graph = Graph::new();
         let mut expr_output_ids = HashMap::new();
@@ -146,6 +149,43 @@ impl Expr {
                     .expect("input name passed to `build_graph` not found in graph")
             })
             .collect();
+        graph.set_input_ids(&input_ids);
+        graph.set_output_ids(&output_ids);
+
+        graph
+    }
+
+    /// Create a graph with the given inputs and outputs.
+    pub fn make_graph<I: AsRef<[Expr]>, O: AsRef<[Expr]>>(inputs: I, outputs: O) -> Graph {
+        Self::make_graph_impl(inputs.as_ref(), outputs.as_ref())
+    }
+
+    fn make_graph_impl(inputs: &[Expr], outputs: &[Expr]) -> Graph {
+        let mut graph = Graph::new();
+        let mut expr_output_ids = HashMap::new();
+        let mut name_gen = NodeNameGenerator::new();
+
+        let extend_unique = |output: &mut Vec<NodeId>, new_ids: Vec<NodeId>| {
+            for id in new_ids {
+                if !output.contains(&id) {
+                    output.push(id);
+                }
+            }
+        };
+
+        let mut output_ids = Vec::new();
+        for output in outputs {
+            let new_output_ids =
+                output.add_to_graph(&mut graph, &mut name_gen, &mut expr_output_ids);
+            extend_unique(&mut output_ids, new_output_ids);
+        }
+
+        let mut input_ids = Vec::new();
+        for input in inputs {
+            let new_input_ids = input.add_to_graph(&mut graph, &mut name_gen, &mut expr_output_ids);
+            extend_unique(&mut input_ids, new_input_ids);
+        }
+
         graph.set_input_ids(&input_ids);
         graph.set_output_ids(&output_ids);
 
