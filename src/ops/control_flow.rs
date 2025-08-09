@@ -277,6 +277,7 @@ mod tests {
 
     use super::Loop;
 
+    /// Wraps a `Loop` operator to simplify running it.
     struct LoopRunner {
         op: Loop,
     }
@@ -315,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn test_loop() {
+    fn test_loop_scan_outputs() {
         let body = {
             let x = Expr::value("i");
             let cond = Expr::value("cond");
@@ -326,6 +327,19 @@ mod tests {
         let mut outputs = runner.run(Some(5), None, &[]).unwrap();
         assert_eq!(outputs.len(), 1);
         let squares: Tensor<i32> = outputs.remove(0).try_into().unwrap();
+
+        // Output should be concatenated values of `x_2` from each iteration.
         assert_eq!(squares, Tensor::from([0, 1, 4, 9, 16]));
     }
+
+    // TODO - Test iteration stops if condition is false.
+    // TODO - Test loop carried dependencies are passed to each iteration.
+    // TODO - Test behavior if loop doesn't ever run
+    // TODO - Test error cases
+    //  - Graph with too few inputs
+    //  - Graph with too few outputs
+    //  - Incorrect output type for condition
+    //  - Condition output not a scalar
+    //  - Scan outputs with different types across iterations
+    //  - Scan outputs with mismatched shapes across iterations
 }
