@@ -131,6 +131,9 @@ impl Expr {
     /// The inputs of the graph are values with names listed in `inputs`. The
     /// output is the node that corresponds to the result of the `self`
     /// expression.
+    ///
+    /// This function only supports creating graphs with a single output. To
+    /// create graphs with multiple outputs, use [`make_graph`](Self::make_graph).
     pub fn build_graph<'a, I: AsRef<[&'a str]>>(self, inputs: I) -> Graph {
         let mut graph = Graph::new();
         let mut expr_output_ids = HashMap::new();
@@ -144,6 +147,38 @@ impl Expr {
                 graph
                     .get_node_id(name)
                     .expect("input name passed to `build_graph` not found in graph")
+            })
+            .collect();
+        graph.set_input_ids(&input_ids);
+        graph.set_output_ids(&output_ids);
+
+        graph
+    }
+
+    /// Create a graph with the given inputs and outputs.
+    pub fn make_graph(inputs: &[&str], outputs: &[Expr]) -> Graph {
+        let mut graph = Graph::new();
+        let mut expr_output_ids = HashMap::new();
+        let mut name_gen = NodeNameGenerator::new();
+
+        let mut output_ids = Vec::new();
+        for output in outputs {
+            let new_output_ids =
+                output.add_to_graph(&mut graph, &mut name_gen, &mut expr_output_ids);
+            for id in new_output_ids {
+                if !output_ids.contains(&id) {
+                    output_ids.push(id);
+                }
+            }
+        }
+
+        let input_ids: Vec<NodeId> = inputs
+            .as_ref()
+            .iter()
+            .map(|name| {
+                graph
+                    .get_node_id(name)
+                    .expect("input name passed to `make_graph` not found in graph")
             })
             .collect();
         graph.set_input_ids(&input_ids);

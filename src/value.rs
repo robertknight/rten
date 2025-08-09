@@ -517,6 +517,14 @@ impl ValueOrView<'_> {
         }
     }
 
+    /// Convert this value to an owned tensor.
+    pub fn into_owned(self) -> Value {
+        match self {
+            ValueOrView::View(view) => view.to_owned(),
+            ValueOrView::Value(value) => value,
+        }
+    }
+
     pub fn layout(&self) -> &DynLayout {
         match self {
             Self::View(inp) => inp.layout(),
