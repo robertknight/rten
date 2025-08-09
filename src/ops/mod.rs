@@ -35,6 +35,7 @@ mod binary_elementwise;
 mod concat;
 mod control_flow;
 mod conv;
+mod conv_transpose;
 mod convert;
 mod einsum;
 mod gather;
@@ -71,7 +72,8 @@ pub use binary_elementwise::{
 };
 pub use concat::{concat, tile, Concat, Tile};
 pub use control_flow::If;
-pub use conv::{conv, conv_integer, conv_transpose, Conv, ConvInteger, ConvTranspose};
+pub use conv::{conv, conv_integer, Conv, ConvInteger};
+pub use conv_transpose::{conv_transpose, ConvTranspose};
 pub use convert::{Cast, CastLike};
 pub use einsum::{einsum, Einsum};
 pub use gather::{
