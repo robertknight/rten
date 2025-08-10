@@ -143,6 +143,7 @@ impl OpRegistry {
         register_op!(LessOrEqual);
         register_op!(Log);
         register_op!(LogSoftmax);
+        register_op!(Loop);
         register_op!(LSTM);
         register_op!(MatMul);
         register_op!(MatMulInteger);
@@ -703,6 +704,25 @@ impl_read_op!(Less);
 impl_read_op!(LessOrEqual);
 impl_read_op!(Log);
 impl_read_op!(LogSoftmax, attrs_as_softmax_attrs, axis);
+
+impl ReadOp for ops::Loop {
+    fn op_type() -> sg::OperatorType {
+        OperatorType::Loop
+    }
+
+    fn read(op: &OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+        let attrs = op
+            .attrs_as_loop_attrs()
+            .ok_or(ReadOpError::AttrsMissingError)?;
+        let body = ctx.load_graph(attrs.body().ok_or(ReadOpError::AttrError {
+            attr: "loop",
+            error: "missing body",
+        })?)?;
+
+        Ok(ops::Loop { body })
+    }
+}
+
 impl_read_op!(LSTM, attrs_as_lstmattrs, |attrs: sg::LSTMAttrs| {
     let hidden_size = attrs.hidden_size() as usize;
     let direction = match attrs.direction() {

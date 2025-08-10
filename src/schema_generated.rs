@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 115;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 116;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 116] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 117] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -141,6 +141,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 116] = [
     OperatorType::EyeLike,
     OperatorType::IsNaN,
     OperatorType::IsInf,
+    OperatorType::Loop,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -264,9 +265,10 @@ impl OperatorType {
     pub const EyeLike: Self = Self(113);
     pub const IsNaN: Self = Self(114);
     pub const IsInf: Self = Self(115);
+    pub const Loop: Self = Self(116);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 115;
+    pub const ENUM_MAX: u8 = 116;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -384,6 +386,7 @@ impl OperatorType {
         Self::EyeLike,
         Self::IsNaN,
         Self::IsInf,
+        Self::Loop,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -504,6 +507,7 @@ impl OperatorType {
             Self::EyeLike => Some("EyeLike"),
             Self::IsNaN => Some("IsNaN"),
             Self::IsInf => Some("IsInf"),
+            Self::Loop => Some("Loop"),
             _ => None,
         }
     }
@@ -1146,13 +1150,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 48;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 49;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 49] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 50] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1202,6 +1206,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 49] = [
     OperatorAttrs::DropoutAttrs,
     OperatorAttrs::EyeLikeAttrs,
     OperatorAttrs::IsInfAttrs,
+    OperatorAttrs::LoopAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1258,9 +1263,10 @@ impl OperatorAttrs {
     pub const DropoutAttrs: Self = Self(46);
     pub const EyeLikeAttrs: Self = Self(47);
     pub const IsInfAttrs: Self = Self(48);
+    pub const LoopAttrs: Self = Self(49);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 48;
+    pub const ENUM_MAX: u8 = 49;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1311,6 +1317,7 @@ impl OperatorAttrs {
         Self::DropoutAttrs,
         Self::EyeLikeAttrs,
         Self::IsInfAttrs,
+        Self::LoopAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1364,6 +1371,7 @@ impl OperatorAttrs {
             Self::DropoutAttrs => Some("DropoutAttrs"),
             Self::EyeLikeAttrs => Some("EyeLikeAttrs"),
             Self::IsInfAttrs => Some("IsInfAttrs"),
+            Self::LoopAttrs => Some("LoopAttrs"),
             _ => None,
         }
     }
@@ -4852,6 +4860,109 @@ impl core::fmt::Debug for LayerNormalizationAttrs<'_> {
         let mut ds = f.debug_struct("LayerNormalizationAttrs");
         ds.field("axis", &self.axis());
         ds.field("epsilon", &self.epsilon());
+        ds.finish()
+    }
+}
+pub enum LoopAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct LoopAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for LoopAttrs<'a> {
+    type Inner = LoopAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> LoopAttrs<'a> {
+    pub const VT_BODY: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        LoopAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args LoopAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<LoopAttrs<'bldr>> {
+        let mut builder = LoopAttrsBuilder::new(_fbb);
+        if let Some(x) = args.body {
+            builder.add_body(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn body(&self) -> Option<Graph<'a>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<Graph>>(LoopAttrs::VT_BODY, None)
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for LoopAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<Graph>>("body", Self::VT_BODY, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct LoopAttrsArgs<'a> {
+    pub body: Option<flatbuffers::WIPOffset<Graph<'a>>>,
+}
+impl<'a> Default for LoopAttrsArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        LoopAttrsArgs { body: None }
+    }
+}
+
+pub struct LoopAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> LoopAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_body(&mut self, body: flatbuffers::WIPOffset<Graph<'b>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<Graph>>(LoopAttrs::VT_BODY, body);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> LoopAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        LoopAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<LoopAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for LoopAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("LoopAttrs");
+        ds.field("body", &self.body());
         ds.finish()
     }
 }
@@ -9558,6 +9669,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_loop_attrs(&self) -> Option<LoopAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::LoopAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { LoopAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -9619,6 +9745,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::DropoutAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DropoutAttrs>>("OperatorAttrs::DropoutAttrs", pos),
           OperatorAttrs::EyeLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<EyeLikeAttrs>>("OperatorAttrs::EyeLikeAttrs", pos),
           OperatorAttrs::IsInfAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<IsInfAttrs>>("OperatorAttrs::IsInfAttrs", pos),
+          OperatorAttrs::LoopAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LoopAttrs>>("OperatorAttrs::LoopAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -10176,6 +10303,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::IsInfAttrs => {
                 if let Some(x) = self.attrs_as_is_inf_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::LoopAttrs => {
+                if let Some(x) = self.attrs_as_loop_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

@@ -129,6 +129,7 @@ enum OperatorType: ubyte {
   EyeLike,
   IsNaN,
   IsInf,
+  Loop,
 }
 
 enum RNNDirection: ubyte {
@@ -229,6 +230,7 @@ union OperatorAttrs {
   DropoutAttrs,
   EyeLikeAttrs,
   IsInfAttrs,
+  LoopAttrs,
 }
 
 table ArgMaxAttrs {
@@ -347,6 +349,10 @@ table FlattenAttrs {
 table LayerNormalizationAttrs {
   axis:int;
   epsilon:float;
+}
+
+table LoopAttrs {
+  body:Graph;
 }
 
 table GatherAttrs {
