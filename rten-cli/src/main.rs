@@ -428,15 +428,9 @@ fn run_with_random_input(
     if !quiet {
         if let Some(outputs) = last_outputs {
             for (i, (output, name)) in outputs.iter().zip(output_names).enumerate() {
-                let dtype = match output {
-                    Value::FloatTensor(_) => "f32",
-                    Value::Int32Tensor(_) => "i32",
-                    Value::Int8Tensor(_) => "i8",
-                    Value::UInt8Tensor(_) => "u8",
-                };
                 println!(
                     "  Output {i} \"{name}\" data type {} shape: {:?}",
-                    dtype,
+                    output.dtype(),
                     output.shape()
                 );
             }

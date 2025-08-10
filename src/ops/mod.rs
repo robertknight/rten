@@ -878,10 +878,14 @@ pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
 /// Extract a typed tensor view from a [`ValueView`] and pass it to a block.
 ///
 /// The result of the macro is the result of the block, hence the block must
-/// return a value of the same type regardless of the input type.
+/// return a value of the same type regardless of the input type. This result
+/// type must be a `Result<_, OpError>`.
 ///
 /// A list of supported tensor types can optionally be specified, as a list of
 /// [`ValueView`] variant names.
+///
+/// Only tensor types are currently supported. For sequence types this always
+/// returns an error.
 macro_rules! map_value_view {
     ($input:expr, $typed_input:ident, $block:tt) => {
         match $input {
@@ -889,6 +893,7 @@ macro_rules! map_value_view {
             ValueView::Int32Tensor($typed_input) => $block,
             ValueView::UInt8Tensor($typed_input) => $block,
             ValueView::Int8Tensor($typed_input) => $block,
+            ValueView::Sequence(_) => Err(OpError::UnsupportedType)
         }
     };
 
@@ -938,10 +943,14 @@ use map_dtype;
 /// Extract a typed owned tensor from a [`Value`] and pass it to a block.
 ///
 /// The result of the macro is the result of the block, hence the block must
-/// return a value of the same type regardless of the input type.
+/// return a value of the same type regardless of the input type. This result
+/// type must be a `Result<_, OpError>`.
 ///
 /// A list of supported tensor types can optionally be specified, as a list of
 /// [`Value`] variant names.
+///
+/// Only tensor types are currently supported. For sequence types this always
+/// returns an error.
 macro_rules! map_value {
     ($input:expr, $typed_input:ident, $block:tt) => {
         match $input {
@@ -953,6 +962,7 @@ macro_rules! map_value {
             Value::UInt8Tensor(mut $typed_input) => $block,
             #[allow(unused_mut)]
             Value::Int8Tensor(mut $typed_input) => $block,
+            Value::Sequence(_) => Err(OpError::UnsupportedType),
         }
     };
 
