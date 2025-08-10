@@ -450,10 +450,10 @@ impl Operator for Resize {
 
         let other = ctx.inputs();
         let target = target_from_scale_size_inputs(other, 1)?;
-        let output_size = calc_output_size(input.shape(), target)?;
+        let output_size = calc_output_size(&input.shape(), target)?;
 
         // If this is a no-op resize, just return the input.
-        if input.shape() == output_size {
+        if input.shape().as_slice() == output_size {
             return Ok(input);
         }
 
@@ -898,7 +898,7 @@ mod tests {
             let result = op.run(&ctx);
             match (&case.expected, result) {
                 (CaseOutput::Shape(shape), Ok(out)) => {
-                    assert_eq!(out[0].shape(), *&shape);
+                    assert_eq!(out[0].shape().as_slice(), shape.as_slice());
                 }
                 (CaseOutput::Error(expected_err), Err(err)) => {
                     assert_eq!(&err, expected_err);

@@ -160,7 +160,7 @@ impl Tensor {
     }
 
     pub fn shape(&self) -> Vec<usize> {
-        self.data.shape().into()
+        self.data.shape().to_vec()
     }
 
     /// Return the elements of a float tensor in their logical order.
@@ -189,7 +189,7 @@ impl Tensor {
 /// Additional constructors and ONNX operators exposed as JS methods.
 #[wasm_bindgen]
 impl Tensor {
-    fn as_float(&self) -> Result<rten_tensor::TensorView<f32>, String> {
+    fn as_float(&self) -> Result<rten_tensor::TensorView<'_, f32>, String> {
         let Value::FloatTensor(ref a) = self.data.borrow() else {
             return Err("Expected a float tensor".to_string());
         };

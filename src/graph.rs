@@ -1047,7 +1047,7 @@ impl Graph {
 
             let op_result = if let Some(input) = in_place_input {
                 let input_dtype = input.dtype();
-                let input_shape: SmallVec<[usize; 4]> = SmallVec::from_slice(input.shape());
+                let input_shape = input.shape();
                 op_node
                     .operator()
                     .run_in_place(input, &ctx)

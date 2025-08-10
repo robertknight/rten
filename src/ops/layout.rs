@@ -167,8 +167,8 @@ impl Operator for Expand {
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         let shape = ctx.inputs().require_as(0)?;
 
-        let out_shape = expand_output_shape(input.shape(), &shape)?;
-        if input.shape() == out_shape.as_slice() {
+        let out_shape = expand_output_shape(&input.shape(), &shape)?;
+        if input.shape() == out_shape {
             return Ok(input);
         }
 

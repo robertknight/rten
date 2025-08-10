@@ -192,7 +192,7 @@ impl Operator for EyeLike {
         let dtype = self.dtype.unwrap_or(input.dtype());
 
         map_dtype!(dtype, T, {
-            let shape: [usize; 2] = input.shape().try_into().map_err(|_| {
+            let shape: [usize; 2] = input.shape().as_ref().try_into().map_err(|_| {
                 OpError::from(DimensionError {
                     actual: input.ndim(),
                     expected: 2,
