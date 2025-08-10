@@ -218,11 +218,13 @@ impl Operator for Loop {
                 continue;
             }
             let first = output_seq.remove(0);
+
+            // Concatenate outputs. This can fail if the outputs have different
+            // shapes or the value is not a tensor.
             map_value!(first, first, {
-                let concatenated_output =
-                    concat_scan_outputs(first, output_seq).map_err(make_run_error)?;
-                outputs.push(concatenated_output.into());
+                concat_scan_outputs(first, output_seq).map(|out| outputs.push(out.into()))
             })
+            .map_err(make_run_error)?;
         }
 
         Ok(outputs.into())

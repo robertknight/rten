@@ -22,8 +22,8 @@ impl TransformInput for PermuteInput {
             } else {
                 tensor.transpose();
             }
-        });
-        Ok(())
+            Ok(())
+        })
     }
 }
 

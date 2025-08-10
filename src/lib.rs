@@ -144,7 +144,7 @@ pub use op_registry::{OpRegistry, ReadOp, ReadOpError};
 pub use ops::{FloatOperators, Operators};
 pub use threading::{thread_pool, ThreadPool};
 pub use timing::TimingSort;
-pub use value::{DataType, Value, ValueOrView, ValueView};
+pub use value::{DataType, Sequence, Value, ValueOrView, ValueView};
 
 // Deprecated aliases for `ValueView`, `ValueOrView` and `Value`.
 #[allow(deprecated)]

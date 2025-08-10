@@ -8,42 +8,47 @@ use crate::ops::{
 fn cast(pool: &BufferPool, input: ValueView, dtype: DataType) -> Result<Value, OpError> {
     macro_rules! cast_as {
         ($x:ident) => {
-            $x.to_tensor_in(pool).into()
+            Ok($x.to_tensor_in(pool).into())
         };
 
         ($x:ident, $dest_ty:ty) => {
-            $x.map_in(pool, |x| *x as $dest_ty).into()
+            Ok($x.map_in(pool, |x| *x as $dest_ty).into())
         };
     }
 
-    let result: Value = match dtype {
+    match dtype {
         DataType::Int32 => match input {
             ValueView::Int32Tensor(t) => cast_as!(t),
             ValueView::FloatTensor(t) => cast_as!(t, i32),
             ValueView::Int8Tensor(t) => cast_as!(t, i32),
             ValueView::UInt8Tensor(t) => cast_as!(t, i32),
+
+            // The ONNX Cast op doesn't support sequences, although logically
+            // this could be supported by casting each tensor in the sequence.
+            ValueView::Sequence(_) => Err(OpError::UnsupportedType),
         },
         DataType::Float => match input {
             ValueView::FloatTensor(t) => cast_as!(t),
             ValueView::Int32Tensor(t) => cast_as!(t, f32),
             ValueView::Int8Tensor(t) => cast_as!(t, f32),
             ValueView::UInt8Tensor(t) => cast_as!(t, f32),
+            ValueView::Sequence(_) => Err(OpError::UnsupportedType),
         },
         DataType::Int8 => match input {
             ValueView::Int8Tensor(t) => cast_as!(t),
             ValueView::FloatTensor(t) => cast_as!(t, i8),
             ValueView::Int32Tensor(t) => cast_as!(t, i8),
             ValueView::UInt8Tensor(t) => cast_as!(t, i8),
+            ValueView::Sequence(_) => Err(OpError::UnsupportedType),
         },
         DataType::UInt8 => match input {
             ValueView::UInt8Tensor(t) => cast_as!(t),
             ValueView::FloatTensor(t) => cast_as!(t, u8),
             ValueView::Int32Tensor(t) => cast_as!(t, u8),
             ValueView::Int8Tensor(t) => cast_as!(t, u8),
+            ValueView::Sequence(_) => Err(OpError::UnsupportedType),
         },
-    };
-
-    Ok(result)
+    }
 }
 
 #[derive(Debug)]

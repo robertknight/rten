@@ -121,6 +121,21 @@ impl From<DimensionError> for CastError {
     }
 }
 
+enum ValueLayout<'a> {
+    /// Layout used for tensor values.
+    Tensor(&'a DynLayout),
+
+    /// Layout used for sequences, where the value is the length and the stride
+    /// is always 1.
+    Vector(usize),
+}
+
+impl<'a> From<&'a DynLayout> for ValueLayout<'a> {
+    fn from(layout: &'a DynLayout) -> Self {
+        Self::Tensor(layout)
+    }
+}
+
 /// Generate the body of a [`Layout`] impl for a type which wraps an
 /// underlying layout.
 macro_rules! impl_proxy_layout {
@@ -129,52 +144,85 @@ macro_rules! impl_proxy_layout {
         type Indices = DynIndices;
 
         fn ndim(&self) -> usize {
-            self.layout().ndim()
+            match self.layout() {
+                ValueLayout::Tensor(layout) => layout.ndim(),
+                ValueLayout::Vector(_) => 1,
+            }
         }
 
         fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
-            self.layout().try_offset(&index)
+            match self.layout() {
+                ValueLayout::Tensor(layout) => layout.try_offset(&index),
+                ValueLayout::Vector(len) => {
+                    index
+                        .get(0)
+                        .and_then(|&idx| if idx < len { Some(idx) } else { None })
+                }
+            }
         }
 
         fn len(&self) -> usize {
-            self.layout().len()
+            match self.layout() {
+                ValueLayout::Tensor(layout) => layout.len(),
+                ValueLayout::Vector(len) => len,
+            }
         }
 
         fn is_empty(&self) -> bool {
-            self.layout().is_empty()
+            match self.layout() {
+                ValueLayout::Tensor(layout) => layout.is_empty(),
+                ValueLayout::Vector(len) => len == 0,
+            }
         }
 
         fn shape(&self) -> Self::Index<'_> {
-            SmallVec::from_slice(self.layout().shape())
+            match self.layout() {
+                ValueLayout::Tensor(layout) => SmallVec::from_slice(layout.shape()),
+                ValueLayout::Vector(len) => SmallVec::from_slice(&[len]),
+            }
         }
 
         fn size(&self, dim: usize) -> usize {
-            self.layout().size(dim)
+            match self.layout() {
+                ValueLayout::Tensor(layout) => layout.size(dim),
+                ValueLayout::Vector(len) => [len][dim],
+            }
         }
 
         fn strides(&self) -> Self::Index<'_> {
-            SmallVec::from_slice(self.layout().strides())
+            match self.layout() {
+                ValueLayout::Tensor(layout) => SmallVec::from_slice(layout.strides()),
+                ValueLayout::Vector(_) => SmallVec::from_slice(&[1]),
+            }
         }
 
         fn stride(&self, dim: usize) -> usize {
-            self.layout().stride(dim)
+            match self.layout() {
+                ValueLayout::Tensor(layout) => layout.stride(dim),
+                ValueLayout::Vector(_) => [1][dim],
+            }
         }
 
         fn indices(&self) -> Self::Indices {
-            self.layout().indices()
+            match self.layout() {
+                ValueLayout::Tensor(layout) => layout.indices(),
+                ValueLayout::Vector(len) => DynIndices::from_shape(&[len]),
+            }
         }
     };
 }
 
-/// A view of a tensor with runtime-determined type and rank.
+/// A borrowed value that can be used as a model or operator input.
 ///
-/// This type is used for operator inputs.
+/// Each `ValueView` variant has a counterpart [`Value`] that is the owned value
+/// of the same type.
 #[derive(Clone)]
 pub enum ValueView<'a> {
     FloatTensor(TensorView<'a, f32>),
     Int32Tensor(TensorView<'a, i32>),
     Int8Tensor(TensorView<'a, i8>),
     UInt8Tensor(TensorView<'a, u8>),
+    Sequence(&'a Sequence),
 }
 
 impl ValueView<'_> {
@@ -185,6 +233,7 @@ impl ValueView<'_> {
             Self::Int32Tensor(_) => DataType::Int32,
             Self::Int8Tensor(_) => DataType::Int8,
             Self::UInt8Tensor(_) => DataType::UInt8,
+            Self::Sequence(seq) => seq.dtype(),
         }
     }
 
@@ -194,6 +243,7 @@ impl ValueView<'_> {
             ValueView::Int32Tensor(t) => t.to_tensor().into(),
             ValueView::Int8Tensor(t) => t.to_tensor().into(),
             ValueView::UInt8Tensor(t) => t.to_tensor().into(),
+            ValueView::Sequence(seq) => (*seq).clone().into(),
         }
     }
 
@@ -205,12 +255,13 @@ impl ValueView<'_> {
         }
     }
 
-    fn layout(&self) -> &DynLayout {
+    fn layout(&self) -> ValueLayout<'_> {
         match self {
-            ValueView::FloatTensor(t) => t.layout(),
-            ValueView::Int32Tensor(t) => t.layout(),
-            ValueView::Int8Tensor(t) => t.layout(),
-            ValueView::UInt8Tensor(t) => t.layout(),
+            ValueView::FloatTensor(t) => t.layout().into(),
+            ValueView::Int32Tensor(t) => t.layout().into(),
+            ValueView::Int8Tensor(t) => t.layout().into(),
+            ValueView::UInt8Tensor(t) => t.layout().into(),
+            ValueView::Sequence(seq) => ValueLayout::Vector(seq.len()),
         }
     }
 }
@@ -301,29 +352,36 @@ impl<'a> From<&'a Value> for ValueView<'a> {
             Value::Int32Tensor(t) => ValueView::Int32Tensor(t.view()),
             Value::Int8Tensor(t) => ValueView::Int8Tensor(t.view()),
             Value::UInt8Tensor(t) => ValueView::UInt8Tensor(t.view()),
+            Value::Sequence(seq) => ValueView::Sequence(seq),
         }
     }
 }
 
-/// An owned tensor with runtime-determined type and rank.
+/// An owned value that can be used as an operator input or output.
 ///
-/// This value is used to represent operator outputs.
+/// Each `Value` variant has a [`ValueView`] counterpart that represents a
+/// borrowed value of the same type.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     FloatTensor(Tensor<f32>),
     Int32Tensor(Tensor<i32>),
     Int8Tensor(Tensor<i8>),
     UInt8Tensor(Tensor<u8>),
+    Sequence(Sequence),
 }
 
 impl Value {
     /// Return the data type of elements in this tensor.
+    ///
+    /// For sequence values, this returns the data type of tensors in the
+    /// sequence.
     pub fn dtype(&self) -> DataType {
         match self {
             Self::FloatTensor(_) => DataType::Float,
             Self::Int32Tensor(_) => DataType::Int32,
             Self::Int8Tensor(_) => DataType::Int8,
             Self::UInt8Tensor(_) => DataType::UInt8,
+            Self::Sequence(seq) => seq.dtype(),
         }
     }
 
@@ -334,6 +392,7 @@ impl Value {
             Self::Int32Tensor(it) => ValueView::Int32Tensor(it.view()),
             Self::Int8Tensor(it) => ValueView::Int8Tensor(it.view()),
             Self::UInt8Tensor(it) => ValueView::UInt8Tensor(it.view()),
+            Self::Sequence(seq) => ValueView::Sequence(seq),
         }
     }
 
@@ -352,6 +411,10 @@ impl Value {
             Self::Int32Tensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
             Self::Int8Tensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
             Self::UInt8Tensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
+            Self::Sequence(seq) => {
+                seq.add_to_pool(pool);
+                Some(())
+            }
         };
     }
 
@@ -376,12 +439,13 @@ impl Value {
         self.try_into().ok()
     }
 
-    fn layout(&self) -> &DynLayout {
+    fn layout(&self) -> ValueLayout<'_> {
         match self {
-            Value::Int32Tensor(t) => t.layout(),
-            Value::Int8Tensor(t) => t.layout(),
-            Value::UInt8Tensor(t) => t.layout(),
-            Value::FloatTensor(t) => t.layout(),
+            Value::Int32Tensor(t) => t.layout().into(),
+            Value::Int8Tensor(t) => t.layout().into(),
+            Value::UInt8Tensor(t) => t.layout().into(),
+            Value::FloatTensor(t) => t.layout().into(),
+            Value::Sequence(seq) => ValueLayout::Vector(seq.len()),
         }
     }
 }
@@ -397,6 +461,11 @@ impl ExtractBuffer for Value {
             Value::Int8Tensor(t) => t.extract_buffer(),
             Value::UInt8Tensor(t) => t.extract_buffer(),
             Value::FloatTensor(t) => t.extract_buffer(),
+            Value::Sequence(_) => {
+                // We can't implement `ExtractBuffer` for sequences because
+                // there may be more than one buffer.
+                None
+            }
         }
     }
 }
@@ -491,13 +560,18 @@ impl_value_conversions!(Int32Tensor, i32);
 impl_value_conversions!(Int8Tensor, i8);
 impl_value_conversions!(UInt8Tensor, u8);
 
-/// A value that is either a tensor view ([`ValueView`]) or an owned tensor
-/// ([`Value`]).
+impl From<Sequence> for Value {
+    fn from(seq: Sequence) -> Value {
+        Value::Sequence(seq)
+    }
+}
+
+/// An owned or borrowed value that can be used as a model or operator input.
 #[derive(Clone)]
 pub enum ValueOrView<'a> {
-    /// A tensor view (like a slice)
+    /// A borrowed view (like a slice)
     View(ValueView<'a>),
-    /// An owned tensor (like a `Vec<T>`)
+    /// An owned value (like a `Vec<T>`)
     Value(Value),
 }
 
@@ -526,7 +600,7 @@ impl ValueOrView<'_> {
         }
     }
 
-    pub fn layout(&self) -> &DynLayout {
+    fn layout(&self) -> ValueLayout<'_> {
         match self {
             Self::View(inp) => inp.layout(),
             Self::Value(outp) => outp.layout(),
@@ -600,6 +674,52 @@ impl ExtractBuffer for ValueOrView<'_> {
 pub enum Scalar {
     Int(i32),
     Float(f32),
+}
+
+/// A list of tensors.
+///
+/// The type of list is dynamic but tensors within a list all have the same
+/// type. The rank and shape of each tensor in the list can vary.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Sequence {
+    Int32(Vec<Tensor<i32>>),
+}
+
+impl Sequence {
+    /// Return the data type of elements in each item of the sequence.
+    pub fn dtype(&self) -> DataType {
+        match self {
+            Self::Int32(_) => DataType::Int32,
+        }
+    }
+
+    /// Return the number of items in the sequence.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Int32(ints) => ints.len(),
+        }
+    }
+
+    /// Return true if the sequence is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Extract the underlying buffers from tensors in this sequence and add
+    /// them to `pool`.
+    fn add_to_pool(self, pool: &BufferPool) {
+        match self {
+            Self::Int32(ints) => Self::add_items_to_pool(ints, pool),
+        }
+    }
+
+    fn add_items_to_pool<T: ExtractBuffer>(items: Vec<T>, pool: &BufferPool) {
+        for item in items {
+            if let Some(buf) = item.extract_buffer() {
+                pool.add(buf);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
