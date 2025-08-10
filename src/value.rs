@@ -6,9 +6,10 @@ use std::fmt::Display;
 
 use rten_tensor::errors::DimensionError;
 use rten_tensor::{
-    AsView, DynLayout, Layout, MutLayout, NdTensor, NdTensorView, Storage, Tensor, TensorBase,
-    TensorView, ViewData,
+    AsView, DynIndices, DynLayout, Layout, MutLayout, NdTensor, NdTensorView, Storage, Tensor,
+    TensorBase, TensorView, ViewData,
 };
+use smallvec::SmallVec;
 
 use crate::buffer_pool::{Buffer, BufferPool, ExtractBuffer};
 
@@ -124,15 +125,15 @@ impl From<DimensionError> for CastError {
 /// underlying layout.
 macro_rules! impl_proxy_layout {
     () => {
-        type Index<'b> = <DynLayout as Layout>::Index<'b>;
-        type Indices = <DynLayout as Layout>::Indices;
+        type Index<'b> = SmallVec<[usize; 4]>;
+        type Indices = DynIndices;
 
         fn ndim(&self) -> usize {
             self.layout().ndim()
         }
 
         fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
-            self.layout().try_offset(index)
+            self.layout().try_offset(&index)
         }
 
         fn len(&self) -> usize {
@@ -144,7 +145,7 @@ macro_rules! impl_proxy_layout {
         }
 
         fn shape(&self) -> Self::Index<'_> {
-            self.layout().shape()
+            SmallVec::from_slice(self.layout().shape())
         }
 
         fn size(&self, dim: usize) -> usize {
@@ -152,7 +153,7 @@ macro_rules! impl_proxy_layout {
         }
 
         fn strides(&self) -> Self::Index<'_> {
-            self.layout().strides()
+            SmallVec::from_slice(self.layout().strides())
         }
 
         fn stride(&self, dim: usize) -> usize {
@@ -613,12 +614,12 @@ mod tests {
         let tensor = NdTensor::<i32, 3>::zeros([1, 2, 3]);
         let input: ValueView = tensor.view().into();
         assert!(matches!(input, ValueView::Int32Tensor(_)));
-        assert_eq!(input.shape(), &[1, 2, 3]);
+        assert_eq!(input.shape().as_slice(), &[1, 2, 3]);
 
         let tensor = NdTensor::<f32, 2>::zeros([5, 5]);
         let input: ValueView = tensor.view().into();
         assert!(matches!(input, ValueView::FloatTensor(_)));
-        assert_eq!(input.shape(), &[5, 5]);
+        assert_eq!(input.shape().as_slice(), &[5, 5]);
     }
 
     #[test]
