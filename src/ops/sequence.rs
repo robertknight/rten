@@ -1,6 +1,10 @@
+use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
 
-use crate::ops::{resolve_index, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{
+    map_value_view, resolve_axis, resolve_index, Concat, InputList, IntoOpResult, OpError,
+    OpRunContext, Operator, OutputList,
+};
 use crate::value::{DataType, Sequence, Value, ValueView};
 
 #[derive(Debug)]
@@ -93,13 +97,61 @@ impl Operator for SequenceInsert {
     }
 }
 
+#[derive(Debug)]
+pub struct ConcatFromSequence {
+    pub axis: i32,
+    pub new_axis: bool,
+}
+
+impl Operator for ConcatFromSequence {
+    fn name(&self) -> &str {
+        "ConcatFromSequence"
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let seq: &Sequence = ctx.inputs().require_as(0)?;
+
+        // Prepare inputs for Concat op.
+        //
+        // The spec requires that all inputs must have the same shape, except
+        // for the axis along which concatenation is happening. Here we rely
+        // on the Concat op to check this.
+        let values: Result<Vec<ValueView>, OpError> = seq
+            .iter()
+            .map(|value| {
+                // The Concat op only supports concatenating on an existing axis, so
+                // if `new_axis` is set, add a 1-sized axis to each of the values.
+                if self.new_axis {
+                    let resolved_axis = resolve_axis(value.ndim(), self.axis as isize)?;
+                    map_value_view!(value, tensor, {
+                        let mut tensor = tensor;
+                        tensor.insert_axis(resolved_axis);
+                        Ok(tensor.into())
+                    })
+                } else {
+                    Ok(value)
+                }
+            })
+            .collect();
+        let values = values?;
+
+        // Execute Concat op
+        let concat_op = Concat {
+            axis: self.axis as isize,
+        };
+        let concat_inputs = InputList::from(&values);
+        let concat_ctx = ctx.with_new_inputs(&concat_inputs);
+        concat_op.run(&concat_ctx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use super::{SequenceAt, SequenceEmpty, SequenceInsert};
+    use super::{ConcatFromSequence, SequenceAt, SequenceEmpty, SequenceInsert};
     use crate::ops::{InputList, OpError, OperatorExt};
     use crate::value::{DataType, Sequence, Value, ValueView};
 
@@ -239,6 +291,50 @@ mod tests {
             inputs.push_optional(pos.as_ref().map(|p| p.view()));
             let new_seq: Result<Sequence, OpError> = op.run_simple(inputs);
             assert_eq!(new_seq, case.expected);
+        });
+    }
+
+    #[test]
+    fn test_concat_from_sequence() {
+        #[derive(Debug)]
+        struct Case {
+            seq: Sequence,
+            axis: i32,
+            new_axis: bool,
+            expected: Result<Value, OpError>,
+        }
+
+        let cases = [
+            // Concat along existing axis.
+            Case {
+                seq: [[0], [1], [2]].map(Tensor::from).into(),
+                axis: 0,
+                new_axis: false,
+                expected: Ok(Tensor::from([0, 1, 2]).into()),
+            },
+            // Concat along new axis.
+            Case {
+                seq: [[0], [1], [2]].map(Tensor::from).into(),
+                axis: 0,
+                new_axis: true,
+                expected: Ok(Tensor::from([[0], [1], [2]]).into()),
+            },
+            // Invalid axis
+            Case {
+                seq: [[0], [1], [2]].map(Tensor::from).into(),
+                axis: 3,
+                new_axis: true,
+                expected: Err(OpError::InvalidValue("Axis is invalid")),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = ConcatFromSequence {
+                axis: case.axis,
+                new_axis: case.new_axis,
+            };
+            let result = op.run_simple_no_cast(ValueView::Sequence(&case.seq));
+            assert_eq!(result, case.expected);
         });
     }
 }

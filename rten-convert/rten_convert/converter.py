@@ -383,6 +383,11 @@ def op_node_from_onnx_operator(
             attrs = sg.ConcatAttrsT()
             attrs.axis = attr_reader.require_attr("axis", "int")
 
+        case "ConcatFromSequence":
+            attrs = sg.ConcatFromSequenceAttrsT()
+            attrs.axis = attr_reader.require_attr("axis", "int")
+            attrs.newAxis = attr_reader.get_bool_attr("new_axis", False)
+
         case "ConstantOfShape":
             tensor = attr_reader.require_attr("value", "tensor")
             const_node = constant_node_from_onnx_initializer(tensor, onnx_op.name)

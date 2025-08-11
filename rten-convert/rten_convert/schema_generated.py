@@ -127,6 +127,7 @@ class OperatorType(object):
     SequenceEmpty = 117
     SequenceAt = 118
     SequenceInsert = 119
+    ConcatFromSequence = 120
 
 
 class RNNDirection(object):
@@ -218,6 +219,7 @@ class OperatorAttrs(object):
     IsInfAttrs = 48
     LoopAttrs = 49
     SequenceEmptyAttrs = 50
+    ConcatFromSequenceAttrs = 51
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -323,6 +325,8 @@ def OperatorAttrsCreator(unionType, table):
         return LoopAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.SequenceEmptyAttrs:
         return SequenceEmptyAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.ConcatFromSequenceAttrs:
+        return ConcatFromSequenceAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -1051,6 +1055,96 @@ class ConcatAttrsT(object):
         ConcatAttrsAddAxis(builder, self.axis)
         concatAttrs = ConcatAttrsEnd(builder)
         return concatAttrs
+
+
+class ConcatFromSequenceAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ConcatFromSequenceAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsConcatFromSequenceAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ConcatFromSequenceAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # ConcatFromSequenceAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ConcatFromSequenceAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+    # ConcatFromSequenceAttrs
+    def NewAxis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def ConcatFromSequenceAttrsStart(builder):
+    builder.StartObject(2)
+
+def ConcatFromSequenceAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, 0)
+
+def ConcatFromSequenceAttrsAddNewAxis(builder, newAxis):
+    builder.PrependBoolSlot(1, newAxis, 0)
+
+def ConcatFromSequenceAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class ConcatFromSequenceAttrsT(object):
+
+    # ConcatFromSequenceAttrsT
+    def __init__(self):
+        self.axis = 0  # type: int
+        self.newAxis = False  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        concatFromSequenceAttrs = ConcatFromSequenceAttrs()
+        concatFromSequenceAttrs.Init(buf, pos)
+        return cls.InitFromObj(concatFromSequenceAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, concatFromSequenceAttrs):
+        x = ConcatFromSequenceAttrsT()
+        x._UnPack(concatFromSequenceAttrs)
+        return x
+
+    # ConcatFromSequenceAttrsT
+    def _UnPack(self, concatFromSequenceAttrs):
+        if concatFromSequenceAttrs is None:
+            return
+        self.axis = concatFromSequenceAttrs.Axis()
+        self.newAxis = concatFromSequenceAttrs.NewAxis()
+
+    # ConcatFromSequenceAttrsT
+    def Pack(self, builder):
+        ConcatFromSequenceAttrsStart(builder)
+        ConcatFromSequenceAttrsAddAxis(builder, self.axis)
+        ConcatFromSequenceAttrsAddNewAxis(builder, self.newAxis)
+        concatFromSequenceAttrs = ConcatFromSequenceAttrsEnd(builder)
+        return concatFromSequenceAttrs
 
 
 class DepthToSpaceAttrs(object):
@@ -5832,7 +5926,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT, EyeLikeAttrsT, IsInfAttrsT, LoopAttrsT, SequenceEmptyAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT, EyeLikeAttrsT, IsInfAttrsT, LoopAttrsT, SequenceEmptyAttrsT, ConcatFromSequenceAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
