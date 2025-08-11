@@ -12,7 +12,8 @@ use crate::ops::{
     GatherND, Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu,
     LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, QuantizeLinear,
     ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize,
-    ResizeMode, ScatterElements, ScatterReduction, Shape, Softmax, Split, TopK, Transpose, Trilu,
+    ResizeMode, ScatterElements, ScatterReduction, SequenceEmpty, Shape, Softmax, Split, TopK,
+    Transpose, Trilu,
 };
 use crate::schema_generated as sg;
 use crate::value::{DataType, Scalar};
@@ -125,6 +126,9 @@ pub enum OpType<'a> {
     Round,
     QuantizeLinear(QuantizeLinear),
     ScatterElements(ScatterElements),
+    SequenceAt,
+    SequenceEmpty(SequenceEmpty),
+    SequenceInsert,
     Shape(Shape),
     Sigmoid,
     Sign,
@@ -850,6 +854,15 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 }
             }),
             OpType::Round => op!(Round),
+            OpType::SequenceAt => op!(SequenceAt),
+            OpType::SequenceEmpty(args) => op_with_attrs!(
+                SequenceEmpty,
+                SequenceEmptyAttrs,
+                sg::SequenceEmptyAttrsArgs {
+                    dtype: args.dtype.map(convert_dtype),
+                }
+            ),
+            OpType::SequenceInsert => op!(SequenceInsert),
             OpType::ScatterElements(args) => {
                 op_with_attrs!(ScatterElements, ScatterElementsAttrs, {
                     let reduction = match args.reduction {

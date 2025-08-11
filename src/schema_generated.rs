@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 116;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 119;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 117] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 120] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -142,6 +142,9 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 117] = [
     OperatorType::IsNaN,
     OperatorType::IsInf,
     OperatorType::Loop,
+    OperatorType::SequenceEmpty,
+    OperatorType::SequenceAt,
+    OperatorType::SequenceInsert,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -266,9 +269,12 @@ impl OperatorType {
     pub const IsNaN: Self = Self(114);
     pub const IsInf: Self = Self(115);
     pub const Loop: Self = Self(116);
+    pub const SequenceEmpty: Self = Self(117);
+    pub const SequenceAt: Self = Self(118);
+    pub const SequenceInsert: Self = Self(119);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 116;
+    pub const ENUM_MAX: u8 = 119;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -387,6 +393,9 @@ impl OperatorType {
         Self::IsNaN,
         Self::IsInf,
         Self::Loop,
+        Self::SequenceEmpty,
+        Self::SequenceAt,
+        Self::SequenceInsert,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -508,6 +517,9 @@ impl OperatorType {
             Self::IsNaN => Some("IsNaN"),
             Self::IsInf => Some("IsInf"),
             Self::Loop => Some("Loop"),
+            Self::SequenceEmpty => Some("SequenceEmpty"),
+            Self::SequenceAt => Some("SequenceAt"),
+            Self::SequenceInsert => Some("SequenceInsert"),
             _ => None,
         }
     }
@@ -1150,13 +1162,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 49;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 50;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 50] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 51] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1207,6 +1219,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 50] = [
     OperatorAttrs::EyeLikeAttrs,
     OperatorAttrs::IsInfAttrs,
     OperatorAttrs::LoopAttrs,
+    OperatorAttrs::SequenceEmptyAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1264,9 +1277,10 @@ impl OperatorAttrs {
     pub const EyeLikeAttrs: Self = Self(47);
     pub const IsInfAttrs: Self = Self(48);
     pub const LoopAttrs: Self = Self(49);
+    pub const SequenceEmptyAttrs: Self = Self(50);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 49;
+    pub const ENUM_MAX: u8 = 50;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1318,6 +1332,7 @@ impl OperatorAttrs {
         Self::EyeLikeAttrs,
         Self::IsInfAttrs,
         Self::LoopAttrs,
+        Self::SequenceEmptyAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1372,6 +1387,7 @@ impl OperatorAttrs {
             Self::EyeLikeAttrs => Some("EyeLikeAttrs"),
             Self::IsInfAttrs => Some("IsInfAttrs"),
             Self::LoopAttrs => Some("LoopAttrs"),
+            Self::SequenceEmptyAttrs => Some("SequenceEmptyAttrs"),
             _ => None,
         }
     }
@@ -8135,6 +8151,111 @@ impl core::fmt::Debug for ScatterNDAttrs<'_> {
         ds.finish()
     }
 }
+pub enum SequenceEmptyAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct SequenceEmptyAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for SequenceEmptyAttrs<'a> {
+    type Inner = SequenceEmptyAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> SequenceEmptyAttrs<'a> {
+    pub const VT_DTYPE: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        SequenceEmptyAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args SequenceEmptyAttrsArgs,
+    ) -> flatbuffers::WIPOffset<SequenceEmptyAttrs<'bldr>> {
+        let mut builder = SequenceEmptyAttrsBuilder::new(_fbb);
+        if let Some(x) = args.dtype {
+            builder.add_dtype(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn dtype(&self) -> Option<DataType> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<DataType>(SequenceEmptyAttrs::VT_DTYPE, None)
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for SequenceEmptyAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<DataType>("dtype", Self::VT_DTYPE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct SequenceEmptyAttrsArgs {
+    pub dtype: Option<DataType>,
+}
+impl<'a> Default for SequenceEmptyAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        SequenceEmptyAttrsArgs { dtype: None }
+    }
+}
+
+pub struct SequenceEmptyAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SequenceEmptyAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_dtype(&mut self, dtype: DataType) {
+        self.fbb_
+            .push_slot_always::<DataType>(SequenceEmptyAttrs::VT_DTYPE, dtype);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> SequenceEmptyAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        SequenceEmptyAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<SequenceEmptyAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for SequenceEmptyAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("SequenceEmptyAttrs");
+        ds.field("dtype", &self.dtype());
+        ds.finish()
+    }
+}
 pub enum ShapeAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -9684,6 +9805,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_sequence_empty_attrs(&self) -> Option<SequenceEmptyAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::SequenceEmptyAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { SequenceEmptyAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -9746,6 +9882,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::EyeLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<EyeLikeAttrs>>("OperatorAttrs::EyeLikeAttrs", pos),
           OperatorAttrs::IsInfAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<IsInfAttrs>>("OperatorAttrs::IsInfAttrs", pos),
           OperatorAttrs::LoopAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LoopAttrs>>("OperatorAttrs::LoopAttrs", pos),
+          OperatorAttrs::SequenceEmptyAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SequenceEmptyAttrs>>("OperatorAttrs::SequenceEmptyAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -10313,6 +10450,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::LoopAttrs => {
                 if let Some(x) = self.attrs_as_loop_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::SequenceEmptyAttrs => {
+                if let Some(x) = self.attrs_as_sequence_empty_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

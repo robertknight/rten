@@ -82,13 +82,18 @@ impl Display for ValueMeta {
 #[derive(Debug, Eq, PartialEq)]
 pub enum CastError {
     /// The number of dimensions does not match.
-    WrongRank { actual: usize, expected: usize },
+    WrongRank {
+        actual: usize,
+        expected: usize,
+    },
 
     /// The data type of elements does not match.
     WrongType {
         actual: DataType,
         expected: DataType,
     },
+
+    ExpectedSequence,
 }
 
 impl Display for CastError {
@@ -107,6 +112,9 @@ impl Display for CastError {
                     "expected tensor with type {} but has type {}",
                     expected, actual
                 )
+            }
+            Self::ExpectedSequence => {
+                write!(f, "value is not a sequence")
             }
         }
     }
@@ -676,27 +684,42 @@ pub enum Scalar {
     Float(f32),
 }
 
+#[derive(Debug)]
+pub enum SequenceInsertError {
+    InvalidPosition,
+    InvalidType,
+}
+
 /// A list of tensors.
 ///
 /// The type of list is dynamic but tensors within a list all have the same
 /// type. The rank and shape of each tensor in the list can vary.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Sequence {
+    Float(Vec<Tensor<f32>>),
     Int32(Vec<Tensor<i32>>),
+    Int8(Vec<Tensor<i8>>),
+    UInt8(Vec<Tensor<u8>>),
 }
 
 impl Sequence {
     /// Return the data type of elements in each item of the sequence.
     pub fn dtype(&self) -> DataType {
         match self {
+            Self::Float(_) => DataType::Float,
             Self::Int32(_) => DataType::Int32,
+            Self::Int8(_) => DataType::Int8,
+            Self::UInt8(_) => DataType::UInt8,
         }
     }
 
     /// Return the number of items in the sequence.
     pub fn len(&self) -> usize {
         match self {
+            Self::Float(floats) => floats.len(),
             Self::Int32(ints) => ints.len(),
+            Self::Int8(ints) => ints.len(),
+            Self::UInt8(ints) => ints.len(),
         }
     }
 
@@ -705,11 +728,51 @@ impl Sequence {
         self.len() == 0
     }
 
+    /// Return the value at a given index.
+    pub fn at(&self, index: usize) -> Option<ValueView<'_>> {
+        match self {
+            Self::Float(floats) => Self::at_impl(floats, index),
+            Self::Int32(ints) => Self::at_impl(ints, index),
+            Self::Int8(ints) => Self::at_impl(ints, index),
+            Self::UInt8(ints) => Self::at_impl(ints, index),
+        }
+    }
+
+    /// Insert an element into the given position in this sequence.
+    ///
+    /// The operation will fail if the position is not in the range `[0,
+    /// self.len()]` or the value has a different type than the sequence.
+    pub fn insert(&mut self, index: usize, val: Value) -> Result<(), SequenceInsertError> {
+        if index > self.len() {
+            return Err(SequenceInsertError::InvalidPosition);
+        }
+        match (self, val) {
+            (Self::Float(floats), Value::FloatTensor(val)) => floats.insert(index, val),
+            (Self::Int32(ints), Value::Int32Tensor(val)) => ints.insert(index, val),
+            (Self::Int8(ints), Value::Int8Tensor(val)) => ints.insert(index, val),
+            (Self::UInt8(ints), Value::UInt8Tensor(val)) => ints.insert(index, val),
+            _ => {
+                return Err(SequenceInsertError::InvalidType);
+            }
+        }
+        Ok(())
+    }
+
+    fn at_impl<T>(items: &[T], index: usize) -> Option<ValueView<'_>>
+    where
+        for<'a> ValueView<'a>: From<&'a T>,
+    {
+        items.get(index).map(|it| it.into())
+    }
+
     /// Extract the underlying buffers from tensors in this sequence and add
     /// them to `pool`.
     fn add_to_pool(self, pool: &BufferPool) {
         match self {
+            Self::Float(floats) => Self::add_items_to_pool(floats, pool),
             Self::Int32(ints) => Self::add_items_to_pool(ints, pool),
+            Self::Int8(ints) => Self::add_items_to_pool(ints, pool),
+            Self::UInt8(ints) => Self::add_items_to_pool(ints, pool),
         }
     }
 
@@ -718,6 +781,48 @@ impl Sequence {
             if let Some(buf) = item.extract_buffer() {
                 pool.add(buf);
             }
+        }
+    }
+}
+
+macro_rules! impl_sequence_conversions {
+    ($variant:ident, $seq_type:ty) => {
+        impl From<Vec<$seq_type>> for Sequence {
+            fn from(val: Vec<$seq_type>) -> Sequence {
+                Sequence::$variant(val)
+            }
+        }
+
+        impl<const N: usize> From<[$seq_type; N]> for Sequence {
+            fn from(val: [$seq_type; N]) -> Sequence {
+                Sequence::$variant(val.into())
+            }
+        }
+    };
+}
+impl_sequence_conversions!(Float, Tensor<f32>);
+impl_sequence_conversions!(Int32, Tensor<i32>);
+impl_sequence_conversions!(Int8, Tensor<i8>);
+impl_sequence_conversions!(UInt8, Tensor<u8>);
+
+impl<'a> TryFrom<ValueView<'a>> for &'a Sequence {
+    type Error = CastError;
+
+    fn try_from(val: ValueView<'a>) -> Result<Self, Self::Error> {
+        match val {
+            ValueView::Sequence(seq) => Ok(seq),
+            _ => Err(CastError::ExpectedSequence),
+        }
+    }
+}
+
+impl TryFrom<Value> for Sequence {
+    type Error = CastError;
+
+    fn try_from(val: Value) -> Result<Self, Self::Error> {
+        match val {
+            Value::Sequence(seq) => Ok(seq),
+            _ => Err(CastError::ExpectedSequence),
         }
     }
 }

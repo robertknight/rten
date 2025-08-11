@@ -130,6 +130,9 @@ enum OperatorType: ubyte {
   IsNaN,
   IsInf,
   Loop,
+  SequenceEmpty,
+  SequenceAt,
+  SequenceInsert,
 }
 
 enum RNNDirection: ubyte {
@@ -231,6 +234,7 @@ union OperatorAttrs {
   EyeLikeAttrs,
   IsInfAttrs,
   LoopAttrs,
+  SequenceEmptyAttrs,
 }
 
 table ArgMaxAttrs {
@@ -503,6 +507,10 @@ table ScatterElementsAttrs {
 
 table ScatterNDAttrs {
   reduction:ScatterReduction;
+}
+
+table SequenceEmptyAttrs {
+  dtype:DataType = null;
 }
 
 table ShapeAttrs {

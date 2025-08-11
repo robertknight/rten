@@ -55,6 +55,7 @@ mod random;
 mod reduce;
 mod resize;
 mod rnn;
+mod sequence;
 mod slice;
 mod split;
 mod trilu;
@@ -114,6 +115,7 @@ pub use resize::{
     resize, resize_image, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget,
 };
 pub use rnn::{gru, lstm, Direction, GRU, LSTM};
+pub use sequence::{SequenceAt, SequenceEmpty, SequenceInsert};
 pub use slice::{slice, Slice};
 pub use split::{split, Split};
 pub use trilu::{trilu, Trilu};

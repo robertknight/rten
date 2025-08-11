@@ -687,6 +687,12 @@ def op_node_from_onnx_operator(
                 "reduction", sg.ScatterReduction, "none"
             )
 
+        case "SequenceEmpty":
+            attrs = sg.SequenceEmptyAttrsT()
+            dtype = attr_reader.get_attr("dtype", "int", None)
+            if dtype is not None:
+                attrs.dtype = convert_data_type(dtype)
+
         case "Shape":
             attrs = sg.ShapeAttrsT()
             start = attr_reader.get_attr("start", "int", None)

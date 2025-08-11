@@ -124,6 +124,9 @@ class OperatorType(object):
     IsNaN = 114
     IsInf = 115
     Loop = 116
+    SequenceEmpty = 117
+    SequenceAt = 118
+    SequenceInsert = 119
 
 
 class RNNDirection(object):
@@ -214,6 +217,7 @@ class OperatorAttrs(object):
     EyeLikeAttrs = 47
     IsInfAttrs = 48
     LoopAttrs = 49
+    SequenceEmptyAttrs = 50
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -317,6 +321,8 @@ def OperatorAttrsCreator(unionType, table):
         return IsInfAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.LoopAttrs:
         return LoopAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.SequenceEmptyAttrs:
+        return SequenceEmptyAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -5054,6 +5060,83 @@ class ScatterNDAttrsT(object):
         return scatterNdattrs
 
 
+class SequenceEmptyAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = SequenceEmptyAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsSequenceEmptyAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def SequenceEmptyAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # SequenceEmptyAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # SequenceEmptyAttrs
+    def Dtype(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
+        return None
+
+def SequenceEmptyAttrsStart(builder):
+    builder.StartObject(1)
+
+def SequenceEmptyAttrsAddDtype(builder, dtype):
+    builder.PrependUint8Slot(0, dtype, None)
+
+def SequenceEmptyAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class SequenceEmptyAttrsT(object):
+
+    # SequenceEmptyAttrsT
+    def __init__(self):
+        self.dtype = None  # type: Optional[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        sequenceEmptyAttrs = SequenceEmptyAttrs()
+        sequenceEmptyAttrs.Init(buf, pos)
+        return cls.InitFromObj(sequenceEmptyAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, sequenceEmptyAttrs):
+        x = SequenceEmptyAttrsT()
+        x._UnPack(sequenceEmptyAttrs)
+        return x
+
+    # SequenceEmptyAttrsT
+    def _UnPack(self, sequenceEmptyAttrs):
+        if sequenceEmptyAttrs is None:
+            return
+        self.dtype = sequenceEmptyAttrs.Dtype()
+
+    # SequenceEmptyAttrsT
+    def Pack(self, builder):
+        SequenceEmptyAttrsStart(builder)
+        SequenceEmptyAttrsAddDtype(builder, self.dtype)
+        sequenceEmptyAttrs = SequenceEmptyAttrsEnd(builder)
+        return sequenceEmptyAttrs
+
+
 class ShapeAttrs(object):
     __slots__ = ['_tab']
 
@@ -5749,7 +5832,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT, EyeLikeAttrsT, IsInfAttrsT, LoopAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT, EyeLikeAttrsT, IsInfAttrsT, LoopAttrsT, SequenceEmptyAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
