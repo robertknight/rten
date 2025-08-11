@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 119;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 120;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 120] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 121] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -145,6 +145,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 120] = [
     OperatorType::SequenceEmpty,
     OperatorType::SequenceAt,
     OperatorType::SequenceInsert,
+    OperatorType::ConcatFromSequence,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -272,9 +273,10 @@ impl OperatorType {
     pub const SequenceEmpty: Self = Self(117);
     pub const SequenceAt: Self = Self(118);
     pub const SequenceInsert: Self = Self(119);
+    pub const ConcatFromSequence: Self = Self(120);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 119;
+    pub const ENUM_MAX: u8 = 120;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -396,6 +398,7 @@ impl OperatorType {
         Self::SequenceEmpty,
         Self::SequenceAt,
         Self::SequenceInsert,
+        Self::ConcatFromSequence,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -520,6 +523,7 @@ impl OperatorType {
             Self::SequenceEmpty => Some("SequenceEmpty"),
             Self::SequenceAt => Some("SequenceAt"),
             Self::SequenceInsert => Some("SequenceInsert"),
+            Self::ConcatFromSequence => Some("ConcatFromSequence"),
             _ => None,
         }
     }
@@ -1162,13 +1166,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 50;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 51;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 51] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 52] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1220,6 +1224,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 51] = [
     OperatorAttrs::IsInfAttrs,
     OperatorAttrs::LoopAttrs,
     OperatorAttrs::SequenceEmptyAttrs,
+    OperatorAttrs::ConcatFromSequenceAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1278,9 +1283,10 @@ impl OperatorAttrs {
     pub const IsInfAttrs: Self = Self(48);
     pub const LoopAttrs: Self = Self(49);
     pub const SequenceEmptyAttrs: Self = Self(50);
+    pub const ConcatFromSequenceAttrs: Self = Self(51);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 50;
+    pub const ENUM_MAX: u8 = 51;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1333,6 +1339,7 @@ impl OperatorAttrs {
         Self::IsInfAttrs,
         Self::LoopAttrs,
         Self::SequenceEmptyAttrs,
+        Self::ConcatFromSequenceAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1388,6 +1395,7 @@ impl OperatorAttrs {
             Self::IsInfAttrs => Some("IsInfAttrs"),
             Self::LoopAttrs => Some("LoopAttrs"),
             Self::SequenceEmptyAttrs => Some("SequenceEmptyAttrs"),
+            Self::ConcatFromSequenceAttrs => Some("ConcatFromSequenceAttrs"),
             _ => None,
         }
     }
@@ -3059,6 +3067,134 @@ impl core::fmt::Debug for ConcatAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConcatAttrs");
         ds.field("axis", &self.axis());
+        ds.finish()
+    }
+}
+pub enum ConcatFromSequenceAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ConcatFromSequenceAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ConcatFromSequenceAttrs<'a> {
+    type Inner = ConcatFromSequenceAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> ConcatFromSequenceAttrs<'a> {
+    pub const VT_AXIS: flatbuffers::VOffsetT = 4;
+    pub const VT_NEW_AXIS: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        ConcatFromSequenceAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args ConcatFromSequenceAttrsArgs,
+    ) -> flatbuffers::WIPOffset<ConcatFromSequenceAttrs<'bldr>> {
+        let mut builder = ConcatFromSequenceAttrsBuilder::new(_fbb);
+        builder.add_axis(args.axis);
+        builder.add_new_axis(args.new_axis);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axis(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<i32>(ConcatFromSequenceAttrs::VT_AXIS, Some(0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn new_axis(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(ConcatFromSequenceAttrs::VT_NEW_AXIS, Some(false))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for ConcatFromSequenceAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<i32>("axis", Self::VT_AXIS, false)?
+            .visit_field::<bool>("new_axis", Self::VT_NEW_AXIS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct ConcatFromSequenceAttrsArgs {
+    pub axis: i32,
+    pub new_axis: bool,
+}
+impl<'a> Default for ConcatFromSequenceAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        ConcatFromSequenceAttrsArgs {
+            axis: 0,
+            new_axis: false,
+        }
+    }
+}
+
+pub struct ConcatFromSequenceAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ConcatFromSequenceAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_axis(&mut self, axis: i32) {
+        self.fbb_
+            .push_slot::<i32>(ConcatFromSequenceAttrs::VT_AXIS, axis, 0);
+    }
+    #[inline]
+    pub fn add_new_axis(&mut self, new_axis: bool) {
+        self.fbb_
+            .push_slot::<bool>(ConcatFromSequenceAttrs::VT_NEW_AXIS, new_axis, false);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> ConcatFromSequenceAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        ConcatFromSequenceAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<ConcatFromSequenceAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for ConcatFromSequenceAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("ConcatFromSequenceAttrs");
+        ds.field("axis", &self.axis());
+        ds.field("new_axis", &self.new_axis());
         ds.finish()
     }
 }
@@ -9820,6 +9956,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_concat_from_sequence_attrs(&self) -> Option<ConcatFromSequenceAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ConcatFromSequenceAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ConcatFromSequenceAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -9883,6 +10034,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::IsInfAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<IsInfAttrs>>("OperatorAttrs::IsInfAttrs", pos),
           OperatorAttrs::LoopAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LoopAttrs>>("OperatorAttrs::LoopAttrs", pos),
           OperatorAttrs::SequenceEmptyAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SequenceEmptyAttrs>>("OperatorAttrs::SequenceEmptyAttrs", pos),
+          OperatorAttrs::ConcatFromSequenceAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConcatFromSequenceAttrs>>("OperatorAttrs::ConcatFromSequenceAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -10460,6 +10612,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::SequenceEmptyAttrs => {
                 if let Some(x) = self.attrs_as_sequence_empty_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::ConcatFromSequenceAttrs => {
+                if let Some(x) = self.attrs_as_concat_from_sequence_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

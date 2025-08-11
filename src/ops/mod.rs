@@ -115,7 +115,7 @@ pub use resize::{
     resize, resize_image, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget,
 };
 pub use rnn::{gru, lstm, Direction, GRU, LSTM};
-pub use sequence::{SequenceAt, SequenceEmpty, SequenceInsert};
+pub use sequence::{ConcatFromSequence, SequenceAt, SequenceEmpty, SequenceInsert};
 pub use slice::{slice, Slice};
 pub use split::{split, Split};
 pub use trilu::{trilu, Trilu};
@@ -414,6 +414,16 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
             n_outputs: None,
             name: None,
         }
+    }
+
+    /// Construct a new context with the same properties but different inputs.
+    ///
+    /// This is useful when one operator wants to delegate to another.
+    pub fn with_new_inputs<'b, 'il>(&self, inputs: &'b InputList<'il>) -> OpRunContext<'b, 'il>
+    where
+        'a: 'b,
+    {
+        OpRunContext { inputs, ..*self }
     }
 
     /// The pool which should be used to allocate large buffers.

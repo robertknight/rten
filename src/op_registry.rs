@@ -98,6 +98,7 @@ impl OpRegistry {
         register_op!(Ceil);
         register_op!(Clip);
         register_op!(Concat);
+        register_op!(ConcatFromSequence);
         register_op!(Conv);
         register_op!(ConvInteger);
         register_op!(ConstantOfShape);
@@ -469,6 +470,15 @@ impl_read_op!(
 impl_read_op!(Ceil);
 impl_read_op!(Clip);
 impl_read_op!(Concat, attrs_as_concat_attrs, axis);
+impl_read_op!(
+    ConcatFromSequence,
+    attrs_as_concat_from_sequence_attrs,
+    |attrs: sg::ConcatFromSequenceAttrs| {
+        let axis = attrs.axis();
+        let new_axis = attrs.new_axis();
+        Ok(ops::ConcatFromSequence { axis, new_axis })
+    }
+);
 impl_read_op!(Conv, attrs_as_conv_attrs, |attrs: sg::ConvAttrs| {
     let groups = attrs.groups() as usize;
     let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());

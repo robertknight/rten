@@ -765,6 +765,11 @@ impl Sequence {
         items.get(index).map(|it| it.into())
     }
 
+    /// Return an iterator over values in the sequence.
+    pub fn iter(&self) -> impl Iterator<Item = ValueView<'_>> {
+        (0..self.len()).map(|i| self.at(i).unwrap())
+    }
+
     /// Extract the underlying buffers from tensors in this sequence and add
     /// them to `pool`.
     fn add_to_pool(self, pool: &BufferPool) {

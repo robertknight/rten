@@ -133,6 +133,7 @@ enum OperatorType: ubyte {
   SequenceEmpty,
   SequenceAt,
   SequenceInsert,
+  ConcatFromSequence,
 }
 
 enum RNNDirection: ubyte {
@@ -235,6 +236,7 @@ union OperatorAttrs {
   IsInfAttrs,
   LoopAttrs,
   SequenceEmptyAttrs,
+  ConcatFromSequenceAttrs,
 }
 
 table ArgMaxAttrs {
@@ -266,6 +268,11 @@ table CastLikeAttrs {}
 
 table ConcatAttrs {
   axis:int;
+}
+
+table ConcatFromSequenceAttrs {
+  axis:int;
+  new_axis:bool;
 }
 
 enum DepthToSpaceMode: ubyte {
