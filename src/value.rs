@@ -743,7 +743,7 @@ impl Sequence {
     /// The operation will fail if the position is not in the range `[0,
     /// self.len()]` or the value has a different type than the sequence.
     pub fn insert(&mut self, index: usize, val: Value) -> Result<(), SequenceInsertError> {
-        if index >= self.len() {
+        if index > self.len() {
             return Err(SequenceInsertError::InvalidPosition);
         }
         match (self, val) {

@@ -186,6 +186,9 @@ impl OpRegistry {
         register_op!(Round);
         register_op!(ScatterElements);
         register_op!(ScatterND);
+        register_op!(SequenceAt);
+        register_op!(SequenceEmpty);
+        register_op!(SequenceInsert);
         register_op!(Shape);
         register_op!(Sigmoid);
         register_op!(Sign);
@@ -950,6 +953,20 @@ impl_read_op!(
         })
     }
 );
+
+impl_read_op!(SequenceAt);
+impl_read_op!(
+    SequenceEmpty,
+    attrs_as_sequence_empty_attrs,
+    |attrs: sg::SequenceEmptyAttrs| {
+        let dtype = attrs
+            .dtype()
+            .map(|dtype| convert_dtype("dtype", dtype))
+            .transpose()?;
+        Ok(ops::SequenceEmpty { dtype })
+    }
+);
+impl_read_op!(SequenceInsert);
 
 impl ReadOp for ops::Shape {
     fn op_type() -> sg::OperatorType {
