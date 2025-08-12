@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 120;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 121;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 121] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 122] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -146,6 +146,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 121] = [
     OperatorType::SequenceAt,
     OperatorType::SequenceInsert,
     OperatorType::ConcatFromSequence,
+    OperatorType::SplitToSequence,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -274,9 +275,10 @@ impl OperatorType {
     pub const SequenceAt: Self = Self(118);
     pub const SequenceInsert: Self = Self(119);
     pub const ConcatFromSequence: Self = Self(120);
+    pub const SplitToSequence: Self = Self(121);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 120;
+    pub const ENUM_MAX: u8 = 121;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -399,6 +401,7 @@ impl OperatorType {
         Self::SequenceAt,
         Self::SequenceInsert,
         Self::ConcatFromSequence,
+        Self::SplitToSequence,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -524,6 +527,7 @@ impl OperatorType {
             Self::SequenceAt => Some("SequenceAt"),
             Self::SequenceInsert => Some("SequenceInsert"),
             Self::ConcatFromSequence => Some("ConcatFromSequence"),
+            Self::SplitToSequence => Some("SplitToSequence"),
             _ => None,
         }
     }
@@ -1166,13 +1170,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 51;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 52;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 52] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 53] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1225,6 +1229,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 52] = [
     OperatorAttrs::LoopAttrs,
     OperatorAttrs::SequenceEmptyAttrs,
     OperatorAttrs::ConcatFromSequenceAttrs,
+    OperatorAttrs::SplitToSequenceAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1284,9 +1289,10 @@ impl OperatorAttrs {
     pub const LoopAttrs: Self = Self(49);
     pub const SequenceEmptyAttrs: Self = Self(50);
     pub const ConcatFromSequenceAttrs: Self = Self(51);
+    pub const SplitToSequenceAttrs: Self = Self(52);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 51;
+    pub const ENUM_MAX: u8 = 52;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1340,6 +1346,7 @@ impl OperatorAttrs {
         Self::LoopAttrs,
         Self::SequenceEmptyAttrs,
         Self::ConcatFromSequenceAttrs,
+        Self::SplitToSequenceAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1396,6 +1403,7 @@ impl OperatorAttrs {
             Self::LoopAttrs => Some("LoopAttrs"),
             Self::SequenceEmptyAttrs => Some("SequenceEmptyAttrs"),
             Self::ConcatFromSequenceAttrs => Some("ConcatFromSequenceAttrs"),
+            Self::SplitToSequenceAttrs => Some("SplitToSequenceAttrs"),
             _ => None,
         }
     }
@@ -8739,6 +8747,134 @@ impl core::fmt::Debug for SplitAttrs<'_> {
         ds.finish()
     }
 }
+pub enum SplitToSequenceAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct SplitToSequenceAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for SplitToSequenceAttrs<'a> {
+    type Inner = SplitToSequenceAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> SplitToSequenceAttrs<'a> {
+    pub const VT_AXIS: flatbuffers::VOffsetT = 4;
+    pub const VT_KEEP_DIMS: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        SplitToSequenceAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args SplitToSequenceAttrsArgs,
+    ) -> flatbuffers::WIPOffset<SplitToSequenceAttrs<'bldr>> {
+        let mut builder = SplitToSequenceAttrsBuilder::new(_fbb);
+        builder.add_axis(args.axis);
+        builder.add_keep_dims(args.keep_dims);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axis(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<i32>(SplitToSequenceAttrs::VT_AXIS, Some(0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn keep_dims(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(SplitToSequenceAttrs::VT_KEEP_DIMS, Some(true))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for SplitToSequenceAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<i32>("axis", Self::VT_AXIS, false)?
+            .visit_field::<bool>("keep_dims", Self::VT_KEEP_DIMS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct SplitToSequenceAttrsArgs {
+    pub axis: i32,
+    pub keep_dims: bool,
+}
+impl<'a> Default for SplitToSequenceAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        SplitToSequenceAttrsArgs {
+            axis: 0,
+            keep_dims: true,
+        }
+    }
+}
+
+pub struct SplitToSequenceAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SplitToSequenceAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_axis(&mut self, axis: i32) {
+        self.fbb_
+            .push_slot::<i32>(SplitToSequenceAttrs::VT_AXIS, axis, 0);
+    }
+    #[inline]
+    pub fn add_keep_dims(&mut self, keep_dims: bool) {
+        self.fbb_
+            .push_slot::<bool>(SplitToSequenceAttrs::VT_KEEP_DIMS, keep_dims, true);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> SplitToSequenceAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        SplitToSequenceAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<SplitToSequenceAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for SplitToSequenceAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("SplitToSequenceAttrs");
+        ds.field("axis", &self.axis());
+        ds.field("keep_dims", &self.keep_dims());
+        ds.finish()
+    }
+}
 pub enum TopKAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -9971,6 +10107,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_split_to_sequence_attrs(&self) -> Option<SplitToSequenceAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::SplitToSequenceAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { SplitToSequenceAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -10035,6 +10186,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::LoopAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LoopAttrs>>("OperatorAttrs::LoopAttrs", pos),
           OperatorAttrs::SequenceEmptyAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SequenceEmptyAttrs>>("OperatorAttrs::SequenceEmptyAttrs", pos),
           OperatorAttrs::ConcatFromSequenceAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConcatFromSequenceAttrs>>("OperatorAttrs::ConcatFromSequenceAttrs", pos),
+          OperatorAttrs::SplitToSequenceAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SplitToSequenceAttrs>>("OperatorAttrs::SplitToSequenceAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -10622,6 +10774,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::ConcatFromSequenceAttrs => {
                 if let Some(x) = self.attrs_as_concat_from_sequence_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::SplitToSequenceAttrs => {
+                if let Some(x) = self.attrs_as_split_to_sequence_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

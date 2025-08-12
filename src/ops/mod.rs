@@ -115,7 +115,9 @@ pub use resize::{
     resize, resize_image, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget,
 };
 pub use rnn::{gru, lstm, Direction, GRU, LSTM};
-pub use sequence::{ConcatFromSequence, SequenceAt, SequenceEmpty, SequenceInsert};
+pub use sequence::{
+    ConcatFromSequence, SequenceAt, SequenceEmpty, SequenceInsert, SplitToSequence,
+};
 pub use slice::{slice, Slice};
 pub use split::{split, Split};
 pub use trilu::{trilu, Trilu};

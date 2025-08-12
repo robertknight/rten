@@ -128,6 +128,7 @@ class OperatorType(object):
     SequenceAt = 118
     SequenceInsert = 119
     ConcatFromSequence = 120
+    SplitToSequence = 121
 
 
 class RNNDirection(object):
@@ -220,6 +221,7 @@ class OperatorAttrs(object):
     LoopAttrs = 49
     SequenceEmptyAttrs = 50
     ConcatFromSequenceAttrs = 51
+    SplitToSequenceAttrs = 52
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -327,6 +329,8 @@ def OperatorAttrsCreator(unionType, table):
         return SequenceEmptyAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.ConcatFromSequenceAttrs:
         return ConcatFromSequenceAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.SplitToSequenceAttrs:
+        return SplitToSequenceAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -5488,6 +5492,96 @@ class SplitAttrsT(object):
         return splitAttrs
 
 
+class SplitToSequenceAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = SplitToSequenceAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsSplitToSequenceAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def SplitToSequenceAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # SplitToSequenceAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # SplitToSequenceAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+    # SplitToSequenceAttrs
+    def KeepDims(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return True
+
+def SplitToSequenceAttrsStart(builder):
+    builder.StartObject(2)
+
+def SplitToSequenceAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, 0)
+
+def SplitToSequenceAttrsAddKeepDims(builder, keepDims):
+    builder.PrependBoolSlot(1, keepDims, 1)
+
+def SplitToSequenceAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class SplitToSequenceAttrsT(object):
+
+    # SplitToSequenceAttrsT
+    def __init__(self):
+        self.axis = 0  # type: int
+        self.keepDims = True  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        splitToSequenceAttrs = SplitToSequenceAttrs()
+        splitToSequenceAttrs.Init(buf, pos)
+        return cls.InitFromObj(splitToSequenceAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, splitToSequenceAttrs):
+        x = SplitToSequenceAttrsT()
+        x._UnPack(splitToSequenceAttrs)
+        return x
+
+    # SplitToSequenceAttrsT
+    def _UnPack(self, splitToSequenceAttrs):
+        if splitToSequenceAttrs is None:
+            return
+        self.axis = splitToSequenceAttrs.Axis()
+        self.keepDims = splitToSequenceAttrs.KeepDims()
+
+    # SplitToSequenceAttrsT
+    def Pack(self, builder):
+        SplitToSequenceAttrsStart(builder)
+        SplitToSequenceAttrsAddAxis(builder, self.axis)
+        SplitToSequenceAttrsAddKeepDims(builder, self.keepDims)
+        splitToSequenceAttrs = SplitToSequenceAttrsEnd(builder)
+        return splitToSequenceAttrs
+
+
 class TopKAttrs(object):
     __slots__ = ['_tab']
 
@@ -5926,7 +6020,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT, EyeLikeAttrsT, IsInfAttrsT, LoopAttrsT, SequenceEmptyAttrsT, ConcatFromSequenceAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT, EyeLikeAttrsT, IsInfAttrsT, LoopAttrsT, SequenceEmptyAttrsT, ConcatFromSequenceAttrsT, SplitToSequenceAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

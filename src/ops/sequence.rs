@@ -1,6 +1,8 @@
 use rten_tensor::prelude::*;
-use rten_tensor::Tensor;
+use rten_tensor::{Tensor, TensorView};
 
+use crate::ops::split::split;
+use crate::ops::split::SplitSizes;
 use crate::ops::{
     map_value_view, resolve_axis, resolve_index, Concat, InputList, IntoOpResult, OpError,
     OpRunContext, Operator, OutputList,
@@ -145,13 +147,72 @@ impl Operator for ConcatFromSequence {
     }
 }
 
+#[derive(Debug)]
+pub struct SplitToSequence {
+    pub axis: i32,
+    pub keep_dims: bool,
+}
+
+impl Operator for SplitToSequence {
+    fn name(&self) -> &str {
+        "SplitToSequence"
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
+        let splits: Option<TensorView<i32>> = ctx.inputs().get_as(1)?;
+        let axis = resolve_axis(input.ndim(), self.axis as isize)?;
+
+        let split_sizes = if let Some(splits) = &splits {
+            // Check both `ndim` and `item` because `item` only checks if tensor
+            // has exactly one element.
+            match (splits.ndim(), splits.item()) {
+                (0, Some(&size)) => {
+                    if size >= 1 {
+                        SplitSizes::Size(size)
+                    } else {
+                        return Err(OpError::InvalidValue("Split size must be >= 1"));
+                    }
+                }
+                (1, _) => SplitSizes::Sizes(splits.nd_view()),
+                _ => {
+                    return Err(OpError::InvalidValue("Split size must be scalar or vector"));
+                }
+            }
+        } else {
+            SplitSizes::Size(1)
+        };
+
+        // `keep_dim` is ignored if the split input is set. The dimension can
+        // only be removed if it has size 1, which is true when split is unset.
+        let keep_dim = if splits.is_none() {
+            self.keep_dims
+        } else {
+            true
+        };
+
+        let sequence = map_value_view!(input, input, {
+            split(ctx.pool(), input, self.axis as isize, split_sizes).map(|mut pieces| {
+                if !keep_dim {
+                    for item in &mut pieces {
+                        item.remove_axis(axis);
+                    }
+                }
+                Sequence::from(pieces)
+            })
+        })?;
+
+        Value::from(sequence).into_op_result()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use super::{ConcatFromSequence, SequenceAt, SequenceEmpty, SequenceInsert};
+    use super::{ConcatFromSequence, SequenceAt, SequenceEmpty, SequenceInsert, SplitToSequence};
     use crate::ops::{InputList, OpError, OperatorExt};
     use crate::value::{DataType, Sequence, Value, ValueView};
 
@@ -334,6 +395,88 @@ mod tests {
                 new_axis: case.new_axis,
             };
             let result = op.run_simple_no_cast(ValueView::Sequence(&case.seq));
+            assert_eq!(result, case.expected);
+        });
+    }
+
+    #[test]
+    fn test_split_to_sequence() {
+        #[derive(Debug)]
+        struct Case {
+            input: Value,
+            splits: Option<Tensor<i32>>,
+            axis: i32,
+            keep_dims: bool,
+            expected: Result<Sequence, OpError>,
+        }
+
+        let cases = [
+            // Scalar splits
+            Case {
+                input: Tensor::from([1, 2, 3, 4, 5]).into(),
+                splits: Some(Tensor::from(2)),
+                axis: 0,
+                keep_dims: true,
+                expected: Ok([
+                    Tensor::from([1, 2]),
+                    Tensor::from([3, 4]),
+                    Tensor::from([5]),
+                ]
+                .into()),
+            },
+            // No splits, keep_dims=true
+            Case {
+                input: Tensor::from([1, 2, 3]).into(),
+                splits: None,
+                axis: 0,
+                keep_dims: true,
+                expected: Ok([[1], [2], [3]].map(Tensor::from).into()),
+            },
+            // No splits, keep_dims=false
+            Case {
+                input: Tensor::from([1, 2, 3]).into(),
+                splits: None,
+                axis: 0,
+                keep_dims: false,
+                expected: Ok([1, 2, 3].map(Tensor::from).into()),
+            },
+            // Vector splits
+            Case {
+                input: Tensor::from([1, 2, 3, 4]).into(),
+                splits: Some(Tensor::from([3, 1])),
+                axis: 0,
+                keep_dims: true,
+                expected: Ok([Tensor::from([1, 2, 3]), Tensor::from([4])].into()),
+            },
+            // Invalid split size
+            Case {
+                input: Tensor::from([1, 2, 3]).into(),
+                splits: Some(Tensor::from(0)),
+                axis: 0,
+                keep_dims: true,
+                expected: Err(OpError::InvalidValue("Split size must be >= 1")),
+            },
+            // Invalid split rank
+            Case {
+                input: Tensor::from([1, 2, 3]).into(),
+                splits: Some(Tensor::from([[1]])),
+                axis: 0,
+                keep_dims: true,
+                expected: Err(OpError::InvalidValue("Split size must be scalar or vector")),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = SplitToSequence {
+                axis: case.axis,
+                keep_dims: case.keep_dims,
+            };
+            let mut inputs = InputList::new();
+            inputs.push(case.input.as_view());
+            if let Some(splits) = &case.splits {
+                inputs.push(splits.view());
+            }
+            let result: Result<Sequence, _> = op.run_simple(inputs);
             assert_eq!(result, case.expected);
         });
     }

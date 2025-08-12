@@ -9,6 +9,9 @@ use crate::ops::{
 
 #[derive(Clone, Debug)]
 pub enum SplitSizes<'a> {
+    /// Split a tensor into pieces with a given size. If the axis size is not
+    /// evenly divisible by the size, the last piece will be smaller.
+    Size(i32),
     /// Split a tensor into pieces with sizes specified by a vector. The sum of
     /// the piece sizes must match the size of the axis.
     Sizes(NdTensorView<'a, i32, 1>),
@@ -30,8 +33,21 @@ pub fn split<T: Copy>(
     split: SplitSizes,
 ) -> Result<Vec<Tensor<T>>, OpError> {
     let axis = resolve_axis(input.ndim(), axis)?;
+    let axis_size = input.size(axis);
+
+    let split_with_chunk_size = |chunk_size| {
+        range_chunks(0..axis_size, chunk_size)
+            .map(|split_range| input.slice_axis(axis, split_range).to_tensor_in(pool))
+            .collect()
+    };
 
     let outputs = match split {
+        SplitSizes::Size(size) => {
+            if size < 1 {
+                return Err(OpError::InvalidValue("Split size must be >= 1"));
+            }
+            split_with_chunk_size(size as usize)
+        }
         SplitSizes::Sizes(split) => {
             if split.iter().any(|size| *size < 0) {
                 return Err(OpError::InvalidValue("Split sizes must be >= 0"));
@@ -59,14 +75,10 @@ pub fn split<T: Copy>(
             if n_splits == 0 {
                 return Err(OpError::InvalidValue("num_outputs must be > 0"));
             }
-            let dim_size = input.size(axis);
-            if n_splits > dim_size {
+            if n_splits > axis_size {
                 return Err(OpError::InvalidValue("num_outputs exceeds dim size"));
             }
-            let chunk_size = dim_size.div_ceil(n_splits);
-            range_chunks(0..dim_size, chunk_size)
-                .map(|chunk| input.slice_axis(axis, chunk).to_tensor_in(pool))
-                .collect()
+            split_with_chunk_size(axis_size.div_ceil(n_splits))
         }
     };
 
