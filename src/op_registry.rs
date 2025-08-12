@@ -199,6 +199,7 @@ impl OpRegistry {
         register_op!(Softmax);
         register_op!(Softplus);
         register_op!(Split);
+        register_op!(SplitToSequence);
         register_op!(Sqrt);
         register_op!(Squeeze);
         register_op!(Sub);
@@ -1004,6 +1005,16 @@ impl_read_op!(Split, attrs_as_split_attrs, |attrs: sg::SplitAttrs| {
     let num_outputs = attrs.num_outputs().map(|n| n as u32);
     Ok(ops::Split { axis, num_outputs })
 });
+impl_read_op!(
+    SplitToSequence,
+    attrs_as_split_to_sequence_attrs,
+    |attrs: sg::SplitToSequenceAttrs| {
+        Ok(ops::SplitToSequence {
+            axis: attrs.axis(),
+            keep_dims: attrs.keep_dims(),
+        })
+    }
+);
 impl_read_op!(Sqrt);
 impl_read_op!(Squeeze);
 impl_read_op!(Sub);

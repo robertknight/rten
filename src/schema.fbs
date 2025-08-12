@@ -134,6 +134,7 @@ enum OperatorType: ubyte {
   SequenceAt,
   SequenceInsert,
   ConcatFromSequence,
+  SplitToSequence,
 }
 
 enum RNNDirection: ubyte {
@@ -237,6 +238,7 @@ union OperatorAttrs {
   LoopAttrs,
   SequenceEmptyAttrs,
   ConcatFromSequenceAttrs,
+  SplitToSequenceAttrs,
 }
 
 table ArgMaxAttrs {
@@ -532,6 +534,11 @@ table SoftmaxAttrs {
 table SplitAttrs {
   axis:int;
   num_outputs:int = null;
+}
+
+table SplitToSequenceAttrs {
+  axis:int;
+  keep_dims:bool = true;
 }
 
 table TopKAttrs {

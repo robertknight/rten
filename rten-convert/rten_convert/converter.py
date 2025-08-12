@@ -717,6 +717,11 @@ def op_node_from_onnx_operator(
             attrs.numOutputs = attr_reader.get_attr("num_outputs", "int", None)
             attr_reader.generate_input_from_attr(1, "split", "ints")
 
+        case "SplitToSequence":
+            attrs = sg.SplitToSequenceAttrsT()
+            attrs.axis = attr_reader.get_attr("axis", "int", 0)
+            attrs.keepDims = attr_reader.get_bool_attr("keepdims", True)
+
         case "Squeeze":
             attr_reader.generate_input_from_attr(1, "axes", "ints")
 
