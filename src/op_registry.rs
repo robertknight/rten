@@ -189,6 +189,7 @@ impl OpRegistry {
         register_op!(ScatterND);
         register_op!(SequenceAt);
         register_op!(SequenceEmpty);
+        register_op!(SequenceConstruct);
         register_op!(SequenceInsert);
         register_op!(SequenceLength);
         register_op!(Shape);
@@ -967,6 +968,7 @@ impl_read_op!(
 );
 
 impl_read_op!(SequenceAt);
+impl_read_op!(SequenceConstruct);
 impl_read_op!(
     SequenceEmpty,
     attrs_as_sequence_empty_attrs,

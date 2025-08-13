@@ -8,7 +8,7 @@ use crate::ops::{
     map_value_view, resolve_axis, resolve_index, Concat, InputList, IntoOpResult, OpError,
     OpRunContext, Operator, OutputList,
 };
-use crate::value::{DataType, Sequence, Value, ValueView};
+use crate::value::{CastError, DataType, Sequence, Value, ValueView};
 
 #[derive(Debug)]
 pub struct SequenceEmpty {
@@ -73,6 +73,45 @@ fn sequence_insert(
     seq.insert(pos, val.to_owned_in(pool)).unwrap();
 
     Ok(seq)
+}
+
+/// Cast `value` to the same tensor type as `like`.
+fn cast_like<'a, T>(
+    value: ValueView<'a>,
+    #[allow(unused_variables)] like: &TensorView<T>,
+) -> Result<TensorView<'a, T>, CastError>
+where
+    for<'b> TensorView<'b, T>: TryFrom<ValueView<'b>, Error = CastError>,
+{
+    value.try_into()
+}
+
+#[derive(Debug)]
+pub struct SequenceConstruct {}
+
+impl Operator for SequenceConstruct {
+    fn name(&self) -> &str {
+        "SequenceConstruct"
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let first = ctx.inputs().require(0)?;
+        let rest = ctx.inputs().iter().flatten().skip(1);
+
+        let sequence = map_value_view!(first, first, {
+            let mut items = Vec::with_capacity(ctx.inputs().len());
+            items.push(first.to_tensor_in(ctx.pool()));
+
+            for value in rest {
+                let tensor = cast_like(value, &first)?;
+                items.push(tensor.to_tensor_in(ctx.pool()));
+            }
+
+            Ok(Sequence::from(items))
+        })?;
+
+        Value::from(sequence).into_op_result()
+    }
 }
 
 #[derive(Debug)]
@@ -233,11 +272,11 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        ConcatFromSequence, SequenceAt, SequenceEmpty, SequenceInsert, SequenceLength,
-        SplitToSequence,
+        ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceInsert,
+        SequenceLength, SplitToSequence,
     };
     use crate::ops::{InputList, OpError, OperatorExt};
-    use crate::value::{DataType, Sequence, Value, ValueView};
+    use crate::value::{CastError, DataType, Sequence, Value, ValueView};
 
     #[test]
     fn test_sequence_empty() {
@@ -302,6 +341,49 @@ mod tests {
             let pos = Tensor::from(case.pos);
             let value = op.run_simple_no_cast((seq, pos.view()));
             assert_eq!(value, case.expected);
+        });
+    }
+
+    #[test]
+    fn test_sequence_construct() {
+        #[derive(Debug)]
+        struct Case {
+            values: Vec<Value>,
+            expected: Result<Sequence, OpError>,
+        }
+
+        let cases = [
+            Case {
+                values: [Tensor::from(1i32)].map(Value::from).into(),
+                expected: Ok(Sequence::from([Tensor::from(1i32)])),
+            },
+            // We need at least one input to know what kind of sequence to
+            // construct.
+            Case {
+                values: [].into(),
+                expected: Err(OpError::MissingInputs),
+            },
+            Case {
+                values: [
+                    Value::from(Tensor::from(1i32)),
+                    Value::from(Tensor::from(1.0)),
+                ]
+                .into(),
+                expected: Err(OpError::CastFailed(CastError::WrongType {
+                    actual: DataType::Float,
+                    expected: DataType::Int32,
+                })),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = SequenceConstruct {};
+            let mut inputs = InputList::new();
+            for value in &case.values {
+                inputs.push(value.as_view());
+            }
+            let result: Result<Sequence, _> = op.run_simple(inputs);
+            assert_eq!(result, case.expected);
         });
     }
 
