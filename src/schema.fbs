@@ -137,6 +137,7 @@ enum OperatorType: ubyte {
   SplitToSequence,
   SequenceLength,
   SequenceConstruct,
+  SequenceErase,
 }
 
 enum RNNDirection: ubyte {

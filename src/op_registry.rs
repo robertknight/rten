@@ -189,6 +189,7 @@ impl OpRegistry {
         register_op!(ScatterND);
         register_op!(SequenceAt);
         register_op!(SequenceEmpty);
+        register_op!(SequenceErase);
         register_op!(SequenceConstruct);
         register_op!(SequenceInsert);
         register_op!(SequenceLength);
@@ -980,6 +981,7 @@ impl_read_op!(
         Ok(ops::SequenceEmpty { dtype })
     }
 );
+impl_read_op!(SequenceErase);
 impl_read_op!(SequenceInsert);
 impl_read_op!(SequenceLength);
 

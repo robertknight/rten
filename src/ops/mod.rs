@@ -116,8 +116,8 @@ pub use resize::{
 };
 pub use rnn::{gru, lstm, Direction, GRU, LSTM};
 pub use sequence::{
-    ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceInsert,
-    SequenceLength, SplitToSequence,
+    ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,
+    SequenceInsert, SequenceLength, SplitToSequence,
 };
 pub use slice::{slice, Slice};
 pub use split::{split, Split};

@@ -131,6 +131,7 @@ class OperatorType(object):
     SplitToSequence = 121
     SequenceLength = 122
     SequenceConstruct = 123
+    SequenceErase = 124
 
 
 class RNNDirection(object):
