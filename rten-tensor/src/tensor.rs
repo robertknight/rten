@@ -747,9 +747,14 @@ impl<S: StorageMut, L: Clone + Layout> TensorBase<S, L> {
 
     /// Return the data in this tensor as a slice if it is contiguous.
     pub fn data_mut(&mut self) -> Option<&mut [S::Elem]> {
-        self.layout.is_contiguous().then_some(unsafe {
+        // The length of `self.data` must be at least the minimum required by
+        // the layout, but it may be larger.
+        let len = self.layout.min_data_len();
+        let data = self.data.slice_mut(0..len);
+
+        self.layout.is_contiguous().then(|| unsafe {
             // Safety: We verified the layout is contiguous.
-            self.data.as_slice_mut()
+            data.to_slice_mut()
         })
     }
 
@@ -1113,7 +1118,7 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
         T: Clone,
     {
         if self.is_contiguous() {
-            self.data
+            self.into_non_contiguous_data()
         } else {
             self.to_vec()
         }
@@ -1121,7 +1126,8 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
 
     /// Consume self and return the underlying data in whatever order the
     /// elements are currently stored.
-    pub fn into_non_contiguous_data(self) -> Vec<T> {
+    pub fn into_non_contiguous_data(mut self) -> Vec<T> {
+        self.data.truncate(self.layout.min_data_len());
         self.data
     }
 
@@ -1333,7 +1339,10 @@ impl<T, L: Layout> TensorBase<CowData<'_, T>, L> {
     /// it is borrowed.
     pub fn into_non_contiguous_data(self) -> Option<Vec<T>> {
         match self.data {
-            CowData::Owned(vec) => Some(vec),
+            CowData::Owned(mut vec) => {
+                vec.truncate(self.layout.min_data_len());
+                Some(vec)
+            }
             CowData::Borrowed(_) => None,
         }
     }
@@ -1457,9 +1466,14 @@ impl<'a, T, L: Clone + Layout> TensorBase<ViewData<'a, T>, L> {
     /// the order of elements in the slice is the same as the logical order
     /// yielded by `iter`, and there are no gaps.
     pub fn data(&self) -> Option<&'a [T]> {
-        self.layout.is_contiguous().then_some(unsafe {
+        // The length of `self.data` must be at least the minimum required by
+        // the layout, but it may be larger.
+        let len = self.layout.min_data_len();
+        let data = self.data.slice(0..len);
+
+        self.layout.is_contiguous().then(|| unsafe {
             // Safety: Storage is contigous
-            self.data.as_slice()
+            data.as_slice()
         })
     }
 
@@ -2146,9 +2160,11 @@ impl<'a, T, L: Layout> TensorBase<ViewMutData<'a, T>, L> {
     /// Consume this view and return a mutable slice, if the tensor is
     /// contiguous.
     pub fn into_slice_mut(self) -> Option<&'a mut [T]> {
+        let len = self.layout.min_data_len();
         self.is_contiguous().then(|| {
             // Safety: We verified that the slice is contiguous.
-            unsafe { self.data.to_slice_mut() }
+            let slice = unsafe { self.data.to_slice_mut() };
+            &mut slice[..len]
         })
     }
 }

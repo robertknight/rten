@@ -6,7 +6,8 @@ use crate::errors::{ExpandError, FromDataError};
 use crate::layout::{DynLayout, MatrixLayout, MutLayout};
 use crate::prelude::*;
 use crate::rng::XorShiftRng;
-use crate::{Alloc, SliceItem, SliceRange, Storage};
+use crate::storage::IntoStorage;
+use crate::{Alloc, NdLayout, SliceItem, SliceRange, Storage};
 
 struct FakeAlloc {
     count: RefCell<usize>,
@@ -297,6 +298,23 @@ fn test_data_mut() {
     let mut permuted = tensor.permuted_mut([1, 0]);
     assert_eq!(permuted.shape(), [3, 2]);
     assert_eq!(permuted.data_mut(), None);
+}
+
+// See https://github.com/robertknight/rten/pull/861
+#[test]
+fn test_data_truncates_slice() {
+    // Manually create a contiguous mutable tensor view where the storage length
+    // is greater than the minimum required by the layout.
+    let mut data = [0, 1, 2, 3, 4];
+    let layout = NdLayout::from_shape([3]);
+    let mut tensor =
+        NdTensorViewMut::from_storage_and_layout(data.as_mut_slice().into_storage(), layout);
+
+    // Check that slice-returning methods of the tensor view only return the
+    // part of the storage that matches the layout.
+    assert_eq!(tensor.data(), Some([0, 1, 2].as_slice()));
+    assert_eq!(tensor.data_mut(), Some([0, 1, 2].as_mut_slice()));
+    assert_eq!(tensor.into_slice_mut(), Some([0, 1, 2].as_mut_slice()));
 }
 
 #[test]
@@ -668,6 +686,19 @@ fn test_into_data() {
 }
 
 #[test]
+fn test_into_data_truncates_vec() {
+    // Manually create a tensor where the storage length is greater than the
+    // minimum required by the layout.
+    let vec = vec![0, 1, 2, 3, 4];
+    let layout = NdLayout::from_shape([3]);
+    let tensor = NdTensor::from_storage_and_layout(vec.into_storage(), layout);
+
+    // Extracting the vec should truncate it to match the layout.
+    let data_vec = tensor.into_data();
+    assert_eq!(data_vec, [0, 1, 2]);
+}
+
+#[test]
 fn test_into_slice_mut() {
     let mut tensor = NdTensor::from([[1, 2], [3, 4]]);
     let contiguous = tensor.view_mut();
@@ -685,6 +716,19 @@ fn test_into_non_contiguous_data() {
     let mut tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
     tensor.transpose();
     assert_eq!(tensor.into_non_contiguous_data(), vec![1., 2., 3., 4.]);
+}
+
+#[test]
+fn test_cow_into_data_truncates_vec() {
+    // Manually create a tensor where the storage length is greater than the
+    // minimum required by the layout.
+    let vec = vec![0, 1, 2, 3, 4];
+    let layout = NdLayout::from_shape([3]);
+    let tensor = NdTensor::from_storage_and_layout(vec.into_storage(), layout).into_cow();
+
+    // Extracting the vec should truncate it to match the layout.
+    let data_vec = tensor.into_non_contiguous_data().unwrap();
+    assert_eq!(data_vec, [0, 1, 2]);
 }
 
 #[test]
