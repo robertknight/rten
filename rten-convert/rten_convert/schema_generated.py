@@ -129,6 +129,7 @@ class OperatorType(object):
     SequenceInsert = 119
     ConcatFromSequence = 120
     SplitToSequence = 121
+    SequenceLength = 122
 
 
 class RNNDirection(object):
