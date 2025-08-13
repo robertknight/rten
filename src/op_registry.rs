@@ -190,6 +190,7 @@ impl OpRegistry {
         register_op!(SequenceAt);
         register_op!(SequenceEmpty);
         register_op!(SequenceInsert);
+        register_op!(SequenceLength);
         register_op!(Shape);
         register_op!(Sigmoid);
         register_op!(Sign);
@@ -978,6 +979,7 @@ impl_read_op!(
     }
 );
 impl_read_op!(SequenceInsert);
+impl_read_op!(SequenceLength);
 
 impl ReadOp for ops::Shape {
     fn op_type() -> sg::OperatorType {

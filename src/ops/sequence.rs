@@ -105,6 +105,21 @@ impl Operator for SequenceInsert {
 }
 
 #[derive(Debug)]
+pub struct SequenceLength {}
+
+impl Operator for SequenceLength {
+    fn name(&self) -> &str {
+        "SequenceLength"
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let seq: &Sequence = ctx.inputs().require_as(0)?;
+        let len = seq.len() as i32;
+        Tensor::from(len).into_op_result()
+    }
+}
+
+#[derive(Debug)]
 pub struct ConcatFromSequence {
     pub axis: i32,
     pub new_axis: bool,
@@ -217,7 +232,10 @@ mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use super::{ConcatFromSequence, SequenceAt, SequenceEmpty, SequenceInsert, SplitToSequence};
+    use super::{
+        ConcatFromSequence, SequenceAt, SequenceEmpty, SequenceInsert, SequenceLength,
+        SplitToSequence,
+    };
     use crate::ops::{InputList, OpError, OperatorExt};
     use crate::value::{DataType, Sequence, Value, ValueView};
 
@@ -358,6 +376,14 @@ mod tests {
             let new_seq: Result<Sequence, OpError> = op.run_simple(inputs);
             assert_eq!(new_seq, case.expected);
         });
+    }
+
+    #[test]
+    fn test_sequence_length() {
+        let op = SequenceLength {};
+        let seq = Value::from(Sequence::from([1i32, 2, 3].map(Tensor::from)));
+        let result: Tensor<i32> = op.run_simple(seq.as_view()).unwrap();
+        assert_eq!(result.item().copied(), Some(seq.len() as i32));
     }
 
     #[test]

@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 121;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 122;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 122] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 123] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -147,6 +147,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 122] = [
     OperatorType::SequenceInsert,
     OperatorType::ConcatFromSequence,
     OperatorType::SplitToSequence,
+    OperatorType::SequenceLength,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -276,9 +277,10 @@ impl OperatorType {
     pub const SequenceInsert: Self = Self(119);
     pub const ConcatFromSequence: Self = Self(120);
     pub const SplitToSequence: Self = Self(121);
+    pub const SequenceLength: Self = Self(122);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 121;
+    pub const ENUM_MAX: u8 = 122;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -402,6 +404,7 @@ impl OperatorType {
         Self::SequenceInsert,
         Self::ConcatFromSequence,
         Self::SplitToSequence,
+        Self::SequenceLength,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -528,6 +531,7 @@ impl OperatorType {
             Self::SequenceInsert => Some("SequenceInsert"),
             Self::ConcatFromSequence => Some("ConcatFromSequence"),
             Self::SplitToSequence => Some("SplitToSequence"),
+            Self::SequenceLength => Some("SequenceLength"),
             _ => None,
         }
     }
