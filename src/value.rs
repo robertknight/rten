@@ -690,8 +690,9 @@ pub enum Scalar {
     Float(f32),
 }
 
+/// Errors from operations on [`Sequence`] values.
 #[derive(Debug)]
-pub enum SequenceInsertError {
+pub enum SequenceError {
     InvalidPosition,
     InvalidType,
 }
@@ -709,6 +710,16 @@ pub enum Sequence {
 }
 
 impl Sequence {
+    /// Create an empty sequence with the given data type.
+    pub fn new(dtype: DataType) -> Sequence {
+        match dtype {
+            DataType::Int32 => Vec::<Tensor<i32>>::new().into(),
+            DataType::Int8 => Vec::<Tensor<i8>>::new().into(),
+            DataType::UInt8 => Vec::<Tensor<u8>>::new().into(),
+            DataType::Float => Vec::<Tensor<f32>>::new().into(),
+        }
+    }
+
     /// Return the data type of elements in each item of the sequence.
     pub fn dtype(&self) -> DataType {
         match self {
@@ -744,13 +755,20 @@ impl Sequence {
         }
     }
 
+    fn at_impl<T>(items: &[T], index: usize) -> Option<ValueView<'_>>
+    where
+        for<'a> ValueView<'a>: From<&'a T>,
+    {
+        items.get(index).map(|it| it.into())
+    }
+
     /// Insert an element into the given position in this sequence.
     ///
     /// The operation will fail if the position is not in the range `[0,
     /// self.len()]` or the value has a different type than the sequence.
-    pub fn insert(&mut self, index: usize, val: Value) -> Result<(), SequenceInsertError> {
+    pub fn insert(&mut self, index: usize, val: Value) -> Result<(), SequenceError> {
         if index > self.len() {
-            return Err(SequenceInsertError::InvalidPosition);
+            return Err(SequenceError::InvalidPosition);
         }
         match (self, val) {
             (Self::Float(floats), Value::FloatTensor(val)) => floats.insert(index, val),
@@ -758,17 +776,24 @@ impl Sequence {
             (Self::Int8(ints), Value::Int8Tensor(val)) => ints.insert(index, val),
             (Self::UInt8(ints), Value::UInt8Tensor(val)) => ints.insert(index, val),
             _ => {
-                return Err(SequenceInsertError::InvalidType);
+                return Err(SequenceError::InvalidType);
             }
         }
         Ok(())
     }
 
-    fn at_impl<T>(items: &[T], index: usize) -> Option<ValueView<'_>>
-    where
-        for<'a> ValueView<'a>: From<&'a T>,
-    {
-        items.get(index).map(|it| it.into())
+    /// Remove the element at the given position in the sequence.
+    pub fn remove(&mut self, index: usize) -> Result<Value, SequenceError> {
+        if index >= self.len() {
+            return Err(SequenceError::InvalidPosition);
+        }
+        let value: Value = match self {
+            Self::Float(floats) => floats.remove(index).into(),
+            Self::Int32(ints) => ints.remove(index).into(),
+            Self::Int8(ints) => ints.remove(index).into(),
+            Self::UInt8(ints) => ints.remove(index).into(),
+        };
+        Ok(value)
     }
 
     /// Return an iterator over values in the sequence.

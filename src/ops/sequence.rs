@@ -21,13 +21,8 @@ impl Operator for SequenceEmpty {
     }
 
     fn run(&self, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let seq: Sequence = match self.dtype {
-            Some(DataType::Int32) => Vec::<Tensor<i32>>::new().into(),
-            Some(DataType::Int8) => Vec::<Tensor<i8>>::new().into(),
-            Some(DataType::UInt8) => Vec::<Tensor<u8>>::new().into(),
-            None | Some(DataType::Float) => Vec::<Tensor<f32>>::new().into(),
-        };
-        Value::from(seq).into_op_result()
+        let dtype = self.dtype.unwrap_or(DataType::Float);
+        Value::from(Sequence::new(dtype)).into_op_result()
     }
 }
 
@@ -49,30 +44,6 @@ impl Operator for SequenceAt {
             .to_owned_in(ctx.pool())
             .into_op_result()
     }
-}
-
-fn sequence_insert(
-    pool: &BufferPool,
-    mut seq: Sequence,
-    pos: Option<i32>,
-    val: ValueView,
-) -> Result<Sequence, OpError> {
-    if seq.dtype() != val.dtype() {
-        return Err(OpError::InvalidValue(
-            "Tensor type does not match sequence type",
-        ));
-    }
-    let pos = pos
-        .map(|pos| {
-            resolve_index(seq.len() + 1, pos as isize)
-                .ok_or(OpError::InvalidValue("Sequence position is invalid"))
-        })
-        .transpose()?
-        .unwrap_or(seq.len());
-
-    seq.insert(pos, val.to_owned_in(pool)).unwrap();
-
-    Ok(seq)
 }
 
 /// Cast `value` to the same tensor type as `like`.
@@ -112,6 +83,77 @@ impl Operator for SequenceConstruct {
 
         Value::from(sequence).into_op_result()
     }
+}
+
+fn sequence_erase(mut seq: Sequence, pos: Option<i32>) -> Result<Sequence, OpError> {
+    let Some(max_index) = seq.len().checked_sub(1) else {
+        return Err(OpError::InvalidValue(
+            "Cannot remove element from empty sequence",
+        ));
+    };
+
+    let pos = pos
+        .map(|pos| {
+            resolve_index(seq.len(), pos as isize)
+                .ok_or(OpError::InvalidValue("Sequence position is invalid"))
+        })
+        .transpose()?
+        .unwrap_or(max_index);
+
+    seq.remove(pos).unwrap();
+
+    Ok(seq)
+}
+
+#[derive(Debug)]
+pub struct SequenceErase {}
+
+impl Operator for SequenceErase {
+    fn name(&self) -> &str {
+        "SequenceErase"
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let seq: &Sequence = ctx.inputs().require_as(0)?;
+        let pos: Option<i32> = ctx.inputs().get_as(1)?;
+        sequence_erase(seq.clone(), pos)
+            .map(Value::from)
+            .into_op_result()
+    }
+
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+        let seq: Sequence = input.try_into()?;
+        let pos: Option<i32> = ctx.inputs().get_as(0)?;
+        sequence_erase(seq, pos).map(Value::from)
+    }
+}
+
+fn sequence_insert(
+    pool: &BufferPool,
+    mut seq: Sequence,
+    pos: Option<i32>,
+    val: ValueView,
+) -> Result<Sequence, OpError> {
+    if seq.dtype() != val.dtype() {
+        return Err(OpError::InvalidValue(
+            "Tensor type does not match sequence type",
+        ));
+    }
+    let pos = pos
+        .map(|pos| {
+            resolve_index(seq.len() + 1, pos as isize)
+                .ok_or(OpError::InvalidValue("Sequence position is invalid"))
+        })
+        .transpose()?
+        .unwrap_or(seq.len());
+
+    seq.insert(pos, val.to_owned_in(pool)).unwrap();
+
+    Ok(seq)
 }
 
 #[derive(Debug)]
@@ -272,8 +314,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceInsert,
-        SequenceLength, SplitToSequence,
+        ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,
+        SequenceInsert, SequenceLength, SplitToSequence,
     };
     use crate::ops::{InputList, OpError, OperatorExt};
     use crate::value::{CastError, DataType, Sequence, Value, ValueView};
@@ -384,6 +426,58 @@ mod tests {
             }
             let result: Result<Sequence, _> = op.run_simple(inputs);
             assert_eq!(result, case.expected);
+        });
+    }
+
+    #[test]
+    fn test_sequence_erase() {
+        #[derive(Debug)]
+        struct Case {
+            seq: Sequence,
+            pos: Option<i32>,
+            expected: Result<Sequence, OpError>,
+        }
+
+        let test_seq: Sequence = [1., 2., 3.].map(Tensor::from).into();
+
+        let cases = [
+            // Removal via explicit position
+            Case {
+                seq: test_seq.clone(),
+                pos: Some(0),
+                expected: Ok([2., 3.].map(Tensor::from).into()),
+            },
+            // Removal via implicit position
+            Case {
+                seq: test_seq.clone(),
+                pos: None,
+                expected: Ok([1., 2.].map(Tensor::from).into()),
+            },
+            // Removal from non-empty sequence with invalid position
+            Case {
+                seq: test_seq.clone(),
+                pos: Some(5),
+                expected: Err(OpError::InvalidValue("Sequence position is invalid")),
+            },
+            // Removal from empty sequence
+            Case {
+                seq: Sequence::new(DataType::Int32),
+                pos: None,
+                expected: Err(OpError::InvalidValue(
+                    "Cannot remove element from empty sequence",
+                )),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = SequenceErase {};
+            let seq = ValueView::Sequence(&case.seq);
+            let pos = case.pos.map(Tensor::from);
+            let mut inputs = InputList::new();
+            inputs.push(seq);
+            inputs.push_optional(pos.as_ref().map(|p| p.view()));
+            let new_seq: Result<Sequence, OpError> = op.run_simple(inputs);
+            assert_eq!(new_seq, case.expected);
         });
     }
 
