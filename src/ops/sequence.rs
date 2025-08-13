@@ -1,6 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
+use crate::buffer_pool::BufferPool;
 use crate::ops::split::split;
 use crate::ops::split::SplitSizes;
 use crate::ops::{
@@ -43,11 +44,15 @@ impl Operator for SequenceAt {
         let pos: i32 = ctx.inputs().require_as(1)?;
         let pos = resolve_index(seq.len(), pos as isize)
             .ok_or(OpError::InvalidValue("Sequence position is invalid"))?;
-        seq.at(pos).unwrap().to_owned().into_op_result()
+        seq.at(pos)
+            .unwrap()
+            .to_owned_in(ctx.pool())
+            .into_op_result()
     }
 }
 
 fn sequence_insert(
+    pool: &BufferPool,
     mut seq: Sequence,
     pos: Option<i32>,
     val: ValueView,
@@ -65,7 +70,7 @@ fn sequence_insert(
         .transpose()?
         .unwrap_or(seq.len());
 
-    seq.insert(pos, val.to_owned()).unwrap();
+    seq.insert(pos, val.to_owned_in(pool)).unwrap();
 
     Ok(seq)
 }
@@ -86,7 +91,7 @@ impl Operator for SequenceInsert {
         let seq: &Sequence = ctx.inputs().require_as(0)?;
         let value = ctx.inputs().require(1)?;
         let pos: Option<i32> = ctx.inputs().get_as(2)?;
-        sequence_insert(seq.clone(), pos, value)
+        sequence_insert(ctx.pool(), seq.clone(), pos, value)
             .map(Value::from)
             .into_op_result()
     }
@@ -95,7 +100,7 @@ impl Operator for SequenceInsert {
         let seq: Sequence = input.try_into()?;
         let value = ctx.inputs().require(0)?;
         let pos: Option<i32> = ctx.inputs().get_as(1)?;
-        sequence_insert(seq, pos, value).map(Value::from)
+        sequence_insert(ctx.pool(), seq, pos, value).map(Value::from)
     }
 }
 
