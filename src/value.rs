@@ -6,8 +6,8 @@ use std::fmt::Display;
 
 use rten_tensor::errors::DimensionError;
 use rten_tensor::{
-    AsView, DynIndices, DynLayout, Layout, MutLayout, NdTensor, NdTensorView, Storage, Tensor,
-    TensorBase, TensorView, ViewData,
+    Alloc, AsView, DynIndices, DynLayout, GlobalAlloc, Layout, MutLayout, NdTensor, NdTensorView,
+    Storage, Tensor, TensorBase, TensorView, ViewData,
 };
 use smallvec::SmallVec;
 
@@ -245,12 +245,18 @@ impl ValueView<'_> {
         }
     }
 
+    /// Return an owned copy of this value.
     pub fn to_owned(&self) -> Value {
+        self.to_owned_in(GlobalAlloc::new())
+    }
+
+    /// Variant of [`to_owned`](Self::to_owned) that takes an allocator.
+    pub fn to_owned_in<A: Alloc>(&self, alloc: A) -> Value {
         match self {
-            ValueView::FloatTensor(t) => t.to_tensor().into(),
-            ValueView::Int32Tensor(t) => t.to_tensor().into(),
-            ValueView::Int8Tensor(t) => t.to_tensor().into(),
-            ValueView::UInt8Tensor(t) => t.to_tensor().into(),
+            ValueView::FloatTensor(t) => t.to_tensor_in(alloc).into(),
+            ValueView::Int32Tensor(t) => t.to_tensor_in(alloc).into(),
+            ValueView::Int8Tensor(t) => t.to_tensor_in(alloc).into(),
+            ValueView::UInt8Tensor(t) => t.to_tensor_in(alloc).into(),
             ValueView::Sequence(seq) => (*seq).clone().into(),
         }
     }
