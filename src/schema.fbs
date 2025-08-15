@@ -138,6 +138,7 @@ enum OperatorType: ubyte {
   SequenceLength,
   SequenceConstruct,
   SequenceErase,
+  GridSample,
 }
 
 enum RNNDirection: ubyte {
@@ -242,6 +243,7 @@ union OperatorAttrs {
   SequenceEmptyAttrs,
   ConcatFromSequenceAttrs,
   SplitToSequenceAttrs,
+  GridSampleAttrs,
 }
 
 table ArgMaxAttrs {
@@ -394,6 +396,8 @@ table GemmAttrs {
   transpose_a:bool;
   transpose_b:bool;
 }
+
+table GridSampleAttrs {}
 
 table GRUAttrs {
   direction:RNNDirection;

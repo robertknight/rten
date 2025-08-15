@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 124;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 125;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 125] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 126] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -150,6 +150,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 125] = [
     OperatorType::SequenceLength,
     OperatorType::SequenceConstruct,
     OperatorType::SequenceErase,
+    OperatorType::GridSample,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -282,9 +283,10 @@ impl OperatorType {
     pub const SequenceLength: Self = Self(122);
     pub const SequenceConstruct: Self = Self(123);
     pub const SequenceErase: Self = Self(124);
+    pub const GridSample: Self = Self(125);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 124;
+    pub const ENUM_MAX: u8 = 125;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -411,6 +413,7 @@ impl OperatorType {
         Self::SequenceLength,
         Self::SequenceConstruct,
         Self::SequenceErase,
+        Self::GridSample,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -540,6 +543,7 @@ impl OperatorType {
             Self::SequenceLength => Some("SequenceLength"),
             Self::SequenceConstruct => Some("SequenceConstruct"),
             Self::SequenceErase => Some("SequenceErase"),
+            Self::GridSample => Some("GridSample"),
             _ => None,
         }
     }
@@ -1182,13 +1186,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 52;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 53;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 53] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 54] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1242,6 +1246,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 53] = [
     OperatorAttrs::SequenceEmptyAttrs,
     OperatorAttrs::ConcatFromSequenceAttrs,
     OperatorAttrs::SplitToSequenceAttrs,
+    OperatorAttrs::GridSampleAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1302,9 +1307,10 @@ impl OperatorAttrs {
     pub const SequenceEmptyAttrs: Self = Self(50);
     pub const ConcatFromSequenceAttrs: Self = Self(51);
     pub const SplitToSequenceAttrs: Self = Self(52);
+    pub const GridSampleAttrs: Self = Self(53);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 52;
+    pub const ENUM_MAX: u8 = 53;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1359,6 +1365,7 @@ impl OperatorAttrs {
         Self::SequenceEmptyAttrs,
         Self::ConcatFromSequenceAttrs,
         Self::SplitToSequenceAttrs,
+        Self::GridSampleAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1416,6 +1423,7 @@ impl OperatorAttrs {
             Self::SequenceEmptyAttrs => Some("SequenceEmptyAttrs"),
             Self::ConcatFromSequenceAttrs => Some("ConcatFromSequenceAttrs"),
             Self::SplitToSequenceAttrs => Some("SplitToSequenceAttrs"),
+            Self::GridSampleAttrs => Some("GridSampleAttrs"),
             _ => None,
         }
     }
@@ -5609,6 +5617,85 @@ impl core::fmt::Debug for GemmAttrs<'_> {
         ds.field("beta", &self.beta());
         ds.field("transpose_a", &self.transpose_a());
         ds.field("transpose_b", &self.transpose_b());
+        ds.finish()
+    }
+}
+pub enum GridSampleAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct GridSampleAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for GridSampleAttrs<'a> {
+    type Inner = GridSampleAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> GridSampleAttrs<'a> {
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        GridSampleAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        _args: &'args GridSampleAttrsArgs,
+    ) -> flatbuffers::WIPOffset<GridSampleAttrs<'bldr>> {
+        let mut builder = GridSampleAttrsBuilder::new(_fbb);
+        builder.finish()
+    }
+}
+
+impl flatbuffers::Verifiable for GridSampleAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?.finish();
+        Ok(())
+    }
+}
+pub struct GridSampleAttrsArgs {}
+impl<'a> Default for GridSampleAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        GridSampleAttrsArgs {}
+    }
+}
+
+pub struct GridSampleAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> GridSampleAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> GridSampleAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        GridSampleAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<GridSampleAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for GridSampleAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("GridSampleAttrs");
         ds.finish()
     }
 }
@@ -10134,6 +10221,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_grid_sample_attrs(&self) -> Option<GridSampleAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::GridSampleAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { GridSampleAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -10199,6 +10301,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::SequenceEmptyAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SequenceEmptyAttrs>>("OperatorAttrs::SequenceEmptyAttrs", pos),
           OperatorAttrs::ConcatFromSequenceAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConcatFromSequenceAttrs>>("OperatorAttrs::ConcatFromSequenceAttrs", pos),
           OperatorAttrs::SplitToSequenceAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SplitToSequenceAttrs>>("OperatorAttrs::SplitToSequenceAttrs", pos),
+          OperatorAttrs::GridSampleAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GridSampleAttrs>>("OperatorAttrs::GridSampleAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -10796,6 +10899,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::SplitToSequenceAttrs => {
                 if let Some(x) = self.attrs_as_split_to_sequence_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::GridSampleAttrs => {
+                if let Some(x) = self.attrs_as_grid_sample_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

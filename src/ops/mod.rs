@@ -40,6 +40,7 @@ mod convert;
 mod einsum;
 mod gather;
 mod generate;
+mod grid_sample;
 mod identity;
 mod layout;
 mod matmul;
@@ -82,6 +83,7 @@ pub use gather::{
     GatherND, ScatterElements, ScatterND, ScatterReduction,
 };
 pub use generate::{constant_of_shape, onehot, range, ConstantOfShape, EyeLike, OneHot, Range};
+pub use grid_sample::GridSample;
 pub use identity::Identity;
 pub use layout::{
     depth_to_space, expand, flatten, reshape, squeeze, DepthToSpace, DepthToSpaceMode, Expand,
