@@ -78,6 +78,15 @@ pub enum RunError {
         /// Error details.
         error: String,
     },
+
+    /// An error occurred while running a subgraph.
+    SubgraphError {
+        /// Name of the operator which ran the subgraph.
+        name: String,
+
+        /// Error that occurred while running the subgraph.
+        error: Box<RunError>,
+    },
 }
 
 impl RunError {
@@ -112,6 +121,13 @@ impl RunError {
             inputs,
         }
     }
+
+    pub(crate) fn subgraph_error(name: Option<&str>, error: RunError) -> Self {
+        RunError::SubgraphError {
+            name: name.unwrap_or_default().to_string(),
+            error: Box::new(error),
+        }
+    }
 }
 
 impl fmt::Display for RunError {
@@ -119,7 +135,7 @@ impl fmt::Display for RunError {
         match self {
             RunError::InvalidNodeId => write!(f, "node ID is invalid"),
             RunError::InvalidNodeName(ref name) => write!(f, "no node found with name {}", name),
-            RunError::PlanningError(ref err) => write!(f, "planning error {:?}", err),
+            RunError::PlanningError(ref err) => write!(f, "planning error {}", err),
             RunError::OperatorError {
                 name,
                 error: ref err,
@@ -139,7 +155,10 @@ impl fmt::Display for RunError {
                 write!(f, ")")
             }
             RunError::OutputMismatch { name, error } => {
-                write!(f, "operator \"{}\" output mismatch: {:?}", name, error)
+                write!(f, "operator \"{}\" output mismatch: {}", name, error)
+            }
+            RunError::SubgraphError { name, error } => {
+                write!(f, "operator \"{}\" subgraph error: {}", name, error)
             }
         }
     }
@@ -1072,13 +1091,16 @@ impl Graph {
                     Some(&temp_values),
                     by_value_captures,
                 );
-                op_node.operator().run_subgraph(
-                    &ctx,
-                    capture_env,
-                    weight_cache.and_then(|wc| wc.get_subgraph_caches(op_node_id)),
-                    profiler.as_deref_mut(),
-                    Some(opts.clone()),
-                )
+                op_node
+                    .operator()
+                    .run_subgraph(
+                        &ctx,
+                        capture_env,
+                        weight_cache.and_then(|wc| wc.get_subgraph_caches(op_node_id)),
+                        profiler.as_deref_mut(),
+                        Some(opts.clone()),
+                    )
+                    .map_err(|err| RunError::subgraph_error(op_node.name(), err))
             } else {
                 op_node
                     .operator()
