@@ -1374,6 +1374,7 @@ mod tests {
             strides: [2, 2].into(),
             padding: [0, 0, 0, 0].into(),
             count_include_pad: false,
+            ceil_mode: false,
         });
 
         // Dummy value for BatchNormalization inputs which are vectors with
@@ -1559,6 +1560,7 @@ mod tests {
             kernel_size: [2, 2].into(),
             strides: [2, 2].into(),
             padding: [0, 0, 0, 0].into(),
+            ceil_mode: false,
         });
         add_operator!(Mean, [input_node, input_node]);
         add_operator!(Min, [input_node, input_node]);

@@ -2,7 +2,7 @@ use rten_gemm::{ColOffsets, Im2Col, RowOffsets};
 use rten_tensor::prelude::*;
 use rten_tensor::NdTensorView;
 
-use crate::ops::pooling::calc_output_size_and_padding;
+use crate::ops::pooling::{calc_output_size_and_padding, RoundMode};
 use crate::ops::Padding;
 
 /// Build a virtual [`Im2Col`] matrix from an image and convolution parameters.
@@ -31,6 +31,7 @@ pub fn build_im2col<T>(
         (stride_h, stride_w),
         Padding::Fixed(padding.into()),
         Some((dilation_y, dilation_x)),
+        RoundMode::default(),
     )
     .expect("invalid im2col params");
 
