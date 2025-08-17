@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use rten_base::num::{Identities, IsInt, IsNaN};
+use rten_base::num::{Identities, IsInt, IsNaN, MinMax};
 use rten_tensor::prelude::*;
 use rten_tensor::{MutLayout, NdTensorView, Storage, Tensor, TensorBase, TensorView};
 
@@ -44,7 +44,7 @@ pub trait Operators {
         keep_dims: bool,
     ) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy + PartialOrd + IsNaN;
+        Self::Elem: Copy + PartialOrd + IsNaN + MinMax;
 
     fn reduce_min(
         &self,
@@ -52,7 +52,7 @@ pub trait Operators {
         keep_dims: bool,
     ) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy + PartialOrd + IsNaN;
+        Self::Elem: Copy + PartialOrd + IsNaN + MinMax;
 
     fn reduce_sum(
         &self,
@@ -142,7 +142,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
 
     fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor<T>, OpError>
     where
-        T: Copy + PartialOrd + IsNaN,
+        T: Copy + PartialOrd + IsNaN + MinMax,
     {
         let view = self.as_dyn();
         use_thread_pool(|| reduce_max(&BufferPool::new(), view, axes, keep_dims))
@@ -150,7 +150,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
 
     fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor<T>, OpError>
     where
-        T: Copy + PartialOrd + IsNaN,
+        T: Copy + PartialOrd + IsNaN + MinMax,
     {
         let view = self.as_dyn();
         use_thread_pool(|| reduce_min(&BufferPool::new(), view, axes, keep_dims))

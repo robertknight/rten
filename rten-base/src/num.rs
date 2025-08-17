@@ -160,22 +160,53 @@ pub trait MinMax {
 }
 
 impl MinMax for f32 {
+    #[inline]
     fn max_val() -> Self {
         f32::INFINITY
     }
 
+    #[inline]
     fn min_val() -> Self {
         f32::NEG_INFINITY
     }
 
+    #[inline]
     fn max(self, other: f32) -> f32 {
         self.max(other)
     }
 
+    #[inline]
     fn min(self, other: f32) -> f32 {
         self.min(other)
     }
 }
+
+macro_rules! impl_minmax_int {
+    ($type:ty) => {
+        impl MinMax for $type {
+            #[inline]
+            fn max_val() -> Self {
+                Self::MAX
+            }
+
+            #[inline]
+            fn min_val() -> Self {
+                Self::MIN
+            }
+
+            #[inline]
+            fn max(self, other: Self) -> Self {
+                Ord::max(self, other)
+            }
+
+            #[inline]
+            fn min(self, other: Self) -> Self {
+                Ord::min(self, other)
+            }
+        }
+    };
+}
+impl_minmax_int!(i32);
 
 /// Compute `x / y` rounding up.
 ///
