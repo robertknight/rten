@@ -22,17 +22,6 @@ pub enum RoundMode {
     Ceil,
 }
 
-impl RoundMode {
-    /// Compute `a / b` and round the result according to `self`.
-    fn div(self, a: usize, b: usize) -> usize {
-        if self == RoundMode::Floor {
-            a / b
-        } else {
-            a.div_ceil(b)
-        }
-    }
-}
-
 /// Padding specification for a single axis.
 #[derive(Copy, Clone)]
 enum AxisPadding {
@@ -107,8 +96,26 @@ fn output_size_and_padding_for_axis(
                 return Err(OpError::InvalidValue("Input too small for kernel size"));
             }
 
-            let out_size =
-                round_mode.div(padded_in_size - dilation * (kernel_size - 1) - 1, stride) + 1;
+            // Compute output size. The PyTorch docs provide the clearest
+            // formulae for this: https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxPool1d.html.
+            let mut out_size = match round_mode {
+                RoundMode::Floor => {
+                    (padded_in_size - dilation * (kernel_size - 1) - 1) / stride + 1
+                }
+                RoundMode::Ceil => {
+                    (padded_in_size - dilation * (kernel_size - 1) - 1 + stride - 1)
+                        .div_ceil(stride)
+                        + 1
+                }
+            };
+
+            // In ceil mode, it is possible that the input for the last output
+            // position lies entirely within the padding region. In that case
+            // we'd have no values to pool. To avoid this, reduce the output
+            // size. See also https://github.com/onnx/onnx/issues/5711.
+            if round_mode == RoundMode::Ceil && (out_size - 1) * stride >= in_size + pad_start {
+                out_size -= 1;
+            }
 
             Ok((out_size, pad_start, pad_end))
         }
@@ -994,6 +1001,16 @@ mod tests {
                 round_mode: RoundMode::Floor,
                 padding: Padding::Same,
                 expected: Ok((4, 4, [1, 1, 1, 1])),
+                ..Default::default()
+            },
+            // Special case where output size is adjusted when using ceil mode.
+            // Test case from https://github.com/onnx/onnx/issues/5711.
+            Case {
+                in_size: (12, 12),
+                kernel_size: (1, 1),
+                strides: (2, 2),
+                round_mode: RoundMode::Ceil,
+                expected: Ok((6, 6, [0, 0, 0, 0])),
                 ..Default::default()
             },
             // Zero stride
