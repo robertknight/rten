@@ -451,6 +451,7 @@ impl_read_op!(
             padding,
             count_include_pad: attrs.count_include_pad(),
             strides,
+            ceil_mode: attrs.ceil_mode(),
         })
     }
 );
@@ -777,6 +778,7 @@ impl_read_op!(
             kernel_size,
             padding,
             strides,
+            ceil_mode: attrs.ceil_mode(),
         })
     }
 );

@@ -340,7 +340,6 @@ def op_node_from_onnx_operator(
         case "AveragePool":
             kernel_shape = attr_reader.require_attr("kernel_shape", "ints")
             check_ints_length("kernel_shape", kernel_shape, [1, 2])
-            attr_reader.check_attr("ceil_mode", "int", 0)
 
             attrs = sg.AveragePoolAttrsT()
             attrs.kernelSize = kernel_shape
@@ -349,6 +348,7 @@ def op_node_from_onnx_operator(
             attrs.countIncludePad = attr_reader.get_bool_attr(
                 "count_include_pad", False
             )
+            attrs.ceilMode = attr_reader.get_bool_attr("ceil_mode", False)
 
         case "BatchNormalization":
             attrs = sg.BatchNormalizationAttrsT()
@@ -583,8 +583,8 @@ def op_node_from_onnx_operator(
             attrs.kernelSize = kernel_shape
             read_pads(attr_reader, attrs)
             attrs.strides = read_strides(attr_reader)
+            attrs.ceilMode = attr_reader.get_bool_attr("ceil_mode", False)
 
-            attr_reader.check_attr("ceil_mode", "int", 0)
             attr_reader.check_attr("dilations", "ints", ([1], [1, 1]))
             attr_reader.check_attr("storage_order", "int", 0)
 

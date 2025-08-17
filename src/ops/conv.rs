@@ -10,7 +10,7 @@ use rten_tensor::{CowTensor, NdTensor, NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
 use crate::ops::matmul::zero_point_to_vec;
-use crate::ops::pooling::calc_output_size_and_padding;
+use crate::ops::pooling::{calc_output_size_and_padding, RoundMode};
 use crate::ops::{
     static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding, ValueView,
 };
@@ -198,6 +198,7 @@ where
         (stride_y, stride_x),
         padding,
         Some((dilation_y, dilation_x)),
+        RoundMode::default(),
     )?;
 
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
@@ -540,7 +541,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::buffer_pool::AutoReturn;
-    use crate::ops::pooling::calc_output_size_and_padding;
+    use crate::ops::pooling::{calc_output_size_and_padding, RoundMode};
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
     use crate::ops::{conv, conv_integer, Conv, OpError, OperatorExt, Padding};
@@ -624,6 +625,7 @@ mod tests {
             (stride_y, stride_x),
             padding.into(),
             Some((dilation_y, dilation_x)),
+            RoundMode::default(),
         )
         .expect("Input too small");
         let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_pads;

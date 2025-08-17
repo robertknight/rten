@@ -444,6 +444,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                     pads,
                     strides,
                     count_include_pad: args.count_include_pad,
+                    ceil_mode: args.ceil_mode,
                 }
             }),
             OpType::BatchNormalization(args) => op_with_attrs!(
@@ -709,6 +710,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                     auto_pad: pad_args.auto_pad,
                     pads,
                     strides,
+                    ceil_mode: args.ceil_mode,
                 }
             }),
             OpType::Mean => op!(Mean),

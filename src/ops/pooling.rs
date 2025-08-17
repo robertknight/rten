@@ -7,9 +7,122 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, T
 use smallvec::SmallVec;
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding};
+use crate::ops::{
+    check_value, static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding,
+};
 
-/// Calculate the output size and padding for a convolution or pooling operation.
+/// Rounding method to use when computing the output shape for a pooling
+/// operation.
+///
+/// This corresponds to the `ceil_mode` attribute for ONNX pooling operators.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub enum RoundMode {
+    #[default]
+    Floor,
+    Ceil,
+}
+
+/// Padding specification for a single axis.
+#[derive(Copy, Clone)]
+enum AxisPadding {
+    Same,
+    Fixed { start: usize, end: usize },
+}
+
+impl AxisPadding {
+    /// Split a 2D padding specifier into separate specifiers for height and
+    /// width axes.
+    fn from_2d(pad: Padding) -> Result<[AxisPadding; 2], OpError> {
+        match pad {
+            Padding::Same => Ok([AxisPadding::Same, AxisPadding::Same]),
+            Padding::Fixed(pads) => {
+                let [pad_top, pad_left, pad_bottom, pad_right]: [usize; 4] = pads
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| OpError::InvalidValue("Expected 4 padding values"))?;
+                let h_pad = AxisPadding::Fixed {
+                    start: pad_top,
+                    end: pad_bottom,
+                };
+                let w_pad = AxisPadding::Fixed {
+                    start: pad_left,
+                    end: pad_right,
+                };
+                Ok([h_pad, w_pad])
+            }
+        }
+    }
+}
+
+/// Compute the output size and padding along a single spatial axis.
+fn output_size_and_padding_for_axis(
+    in_size: usize,
+    kernel_size: usize,
+    stride: usize,
+    padding: AxisPadding,
+    dilation: usize,
+    round_mode: RoundMode,
+) -> Result<(usize, usize, usize), OpError> {
+    check_value!(dilation > 0, InvalidValue, "Dilations must be > 0");
+    check_value!(kernel_size > 0, InvalidValue, "Kernel size must be > 0");
+    check_value!(stride > 0, InvalidValue, "Strides must be > 0");
+
+    match padding {
+        AxisPadding::Same => {
+            // The specification gives two different equations for the output
+            // size depending on the rounding mode, but they are equivalent.
+            let out_size = in_size.div_ceil(stride);
+
+            let pad_total = ((out_size - 1) * stride + (kernel_size - 1) * dilation + 1)
+                .saturating_sub(in_size);
+
+            let pad_start = pad_total / 2;
+
+            // If the total padding is not even, we assign the remaining unit to
+            // the ends of the axis. This matches the ONNX "SAME_UPPER"
+            // value for `auto_pad`.
+            let pad_end = pad_total.div_ceil(2);
+
+            Ok((out_size, pad_start, pad_end))
+        }
+        AxisPadding::Fixed {
+            start: pad_start,
+            end: pad_end,
+        } => {
+            let padded_in_size = in_size + pad_start + pad_end;
+            let dilated_kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1);
+
+            if padded_in_size < dilated_kernel_size {
+                return Err(OpError::InvalidValue("Input too small for kernel size"));
+            }
+
+            // Compute output size. The PyTorch docs provide the clearest
+            // formulae for this: https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxPool1d.html.
+            let mut out_size = match round_mode {
+                RoundMode::Floor => {
+                    (padded_in_size - dilation * (kernel_size - 1) - 1) / stride + 1
+                }
+                RoundMode::Ceil => {
+                    (padded_in_size - dilation * (kernel_size - 1) - 1 + stride - 1)
+                        .div_ceil(stride)
+                        + 1
+                }
+            };
+
+            // In ceil mode, it is possible that the input for the last output
+            // position lies entirely within the padding region. In that case
+            // we'd have no values to pool. To avoid this, reduce the output
+            // size. See also https://github.com/onnx/onnx/issues/5711.
+            if round_mode == RoundMode::Ceil && (out_size - 1) * stride >= in_size + pad_start {
+                out_size -= 1;
+            }
+
+            Ok((out_size, pad_start, pad_end))
+        }
+    }
+}
+
+/// Calculate the output size and padding for a 2D convolution or pooling operation.
 ///
 /// Depending on the padding mode, the output size is be calculated from the
 /// input size and padding, or the padding size is calculated from the input
@@ -29,62 +142,20 @@ pub fn calc_output_size_and_padding(
     strides: (usize, usize),
     padding: Padding,
     dilations: Option<(usize, usize)>,
+    round_mode: RoundMode,
 ) -> Result<(usize, usize, [usize; 4]), OpError> {
     let (in_h, in_w) = in_size;
     let (k_h, k_w) = kernel_size;
     let (stride_h, stride_w) = strides;
     let (dilation_y, dilation_x) = dilations.unwrap_or((1, 1));
+    let [h_pad, w_pad] = AxisPadding::from_2d(padding)?;
 
-    if dilation_y == 0 || dilation_x == 0 {
-        return Err(OpError::InvalidValue("Dilations must be > 0"));
-    }
+    let (out_h, pad_top, pad_bottom) =
+        output_size_and_padding_for_axis(in_h, k_h, stride_h, h_pad, dilation_y, round_mode)?;
+    let (out_w, pad_left, pad_right) =
+        output_size_and_padding_for_axis(in_w, k_w, stride_w, w_pad, dilation_x, round_mode)?;
 
-    if stride_h == 0 || stride_w == 0 {
-        return Err(OpError::InvalidValue("Strides must be > 0"));
-    }
-
-    let (out_h, out_w, padding) = match padding {
-        Padding::Same => {
-            let out_h = in_h.div_ceil(stride_h);
-            let out_w = in_w.div_ceil(stride_w);
-
-            let pad_total_h =
-                ((out_h - 1) * stride_h + (k_h - 1) * dilation_y + 1).saturating_sub(in_h);
-            let pad_total_w =
-                ((out_w - 1) * stride_w + (k_w - 1) * dilation_x + 1).saturating_sub(in_w);
-
-            let pad_top = pad_total_h / 2;
-            let pad_left = pad_total_w / 2;
-
-            // If the total padding is not even, we assign the remaining unit to
-            // the ends of the axis. This matches the ONNX "SAME_UPPER"
-            // value for `auto_pad`.
-            let pad_bottom = pad_total_h.div_ceil(2);
-            let pad_right = pad_total_w.div_ceil(2);
-
-            (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
-        }
-        Padding::Fixed(pads) => {
-            let [pad_top, pad_left, pad_bottom, pad_right]: [usize; 4] = pads
-                .as_slice()
-                .try_into()
-                .map_err(|_| OpError::InvalidValue("Expected 4 padding values"))?;
-            let padded_in_h = in_h + pad_top + pad_bottom;
-            let padded_in_w = in_w + pad_left + pad_right;
-
-            let dilated_k_h = k_h + (k_h - 1) * (dilation_y - 1);
-            let dilated_k_w = k_w + (k_w - 1) * (dilation_x - 1);
-
-            if padded_in_h < dilated_k_h || padded_in_w < dilated_k_w {
-                return Err(OpError::InvalidValue("Input too small for kernel size"));
-            }
-
-            let out_h = (padded_in_h - dilation_y * (k_h - 1) - 1) / stride_h + 1;
-            let out_w = (padded_in_w - dilation_x * (k_w - 1) - 1) / stride_w + 1;
-            (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
-        }
-    };
-    Ok((out_h, out_w, padding))
+    Ok((out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right]))
 }
 
 /// Number of channels processed together by the pooling kernel.
@@ -109,6 +180,7 @@ fn pool_impl<T: Copy + Send, F: Fn(T, T) -> T + Sync, A: Fn(T, usize) -> T + Syn
     fold_init: T,
     fold: &F,
     average: &A,
+    round_mode: RoundMode,
 ) -> Result<Tensor<T>, OpError>
 where
     for<'a> TensorViewMut<'a, T>: Send,
@@ -142,6 +214,7 @@ where
                 fold_init,
                 fold,
                 average,
+                round_mode,
             )?;
             result_2d.remove_axis(2); // Remove H axis
             return Ok(result_2d);
@@ -164,6 +237,7 @@ where
         (strides[0], strides[1]),
         padding,
         None, /* dilations */
+        round_mode,
     )?;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
     let mut output = NdTensor::uninit_in(pool, [batch, in_c, out_h, out_w]);
@@ -321,6 +395,7 @@ pub fn average_pool(
     strides: &[usize],
     padding: Padding,
     count_include_pad: bool,
+    round_mode: RoundMode,
 ) -> Result<Tensor, OpError> {
     let kernel_len: usize = kernel_size.iter().product();
     pool_impl(
@@ -338,6 +413,7 @@ pub fn average_pool(
                 acc / (non_pad_elements as f32)
             }
         },
+        round_mode,
     )
 }
 
@@ -347,6 +423,7 @@ pub struct AveragePool {
     pub padding: Padding,
     pub count_include_pad: bool,
     pub strides: SmallVec<[usize; 2]>,
+    pub ceil_mode: bool,
 }
 
 impl Operator for AveragePool {
@@ -363,6 +440,11 @@ impl Operator for AveragePool {
             &self.strides,
             self.padding.clone(),
             self.count_include_pad,
+            if self.ceil_mode {
+                RoundMode::Ceil
+            } else {
+                RoundMode::Floor
+            },
         )
         .into_op_result()
     }
@@ -438,6 +520,7 @@ pub fn max_pool(
     kernel_size: &[usize],
     strides: &[usize],
     padding: Padding,
+    round_mode: RoundMode,
 ) -> Result<Tensor, OpError> {
     pool_impl(
         pool,
@@ -448,6 +531,7 @@ pub fn max_pool(
         f32::NEG_INFINITY,
         &|acc, x| acc.max(x),
         &|x, _non_pad_count| x,
+        round_mode,
     )
 }
 
@@ -456,6 +540,7 @@ pub struct MaxPool {
     pub kernel_size: SmallVec<[usize; 2]>,
     pub padding: Padding,
     pub strides: SmallVec<[usize; 2]>,
+    pub ceil_mode: bool,
 }
 
 impl Operator for MaxPool {
@@ -471,6 +556,11 @@ impl Operator for MaxPool {
             &self.kernel_size,
             &self.strides,
             self.padding.clone(),
+            if self.ceil_mode {
+                RoundMode::Ceil
+            } else {
+                RoundMode::Floor
+            },
         )
         .into_op_result()
     }
@@ -485,7 +575,7 @@ mod tests {
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use super::calc_output_size_and_padding;
+    use super::{calc_output_size_and_padding, RoundMode};
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
     use crate::ops::{average_pool, global_average_pool, max_pool, OpError, Padding};
@@ -585,6 +675,7 @@ mod tests {
                 &case.strides,
                 case.padding.clone(),
                 false, /* count_include_pad */
+                RoundMode::default(),
             )
             .unwrap();
             expect_equal(&result, &case.expected).unwrap();
@@ -625,6 +716,7 @@ mod tests {
             &[2, 2], /* stride */
             [1, 1, 1, 1].into(),
             false, /* count_include_pad */
+            RoundMode::default(),
         )
         .unwrap();
         expect_eq_1e4(&result.view(), &expected.as_dyn())?;
@@ -644,6 +736,7 @@ mod tests {
             &[2, 2], /* stride */
             [1, 1, 1, 1].into(),
             true, /* count_include_pad */
+            RoundMode::default(),
         )
         .unwrap();
         expect_eq_1e4(&result.view(), &expected_include_pad.as_dyn())?;
@@ -755,6 +848,7 @@ mod tests {
                 &case.kernel_size,
                 &case.strides,
                 case.padding.clone(),
+                RoundMode::default(),
             )
             .unwrap();
             expect_equal(&result, &case.expected).unwrap();
@@ -765,20 +859,45 @@ mod tests {
     fn test_max_pool_padding() {
         let pool = new_pool();
         let input = Tensor::zeros(&[1, 1, 9, 9]);
+        let rm = RoundMode::default();
 
-        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], [0, 0, 0, 0].into()).unwrap();
+        let result = max_pool(
+            &pool,
+            input.view(),
+            &[2, 2],
+            &[2, 2],
+            [0, 0, 0, 0].into(),
+            rm,
+        )
+        .unwrap();
         assert_eq!(result.shape(), &[1, 1, 4, 4]);
 
-        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], [1, 1, 1, 1].into()).unwrap();
+        let result = max_pool(
+            &pool,
+            input.view(),
+            &[2, 2],
+            &[2, 2],
+            [1, 1, 1, 1].into(),
+            rm,
+        )
+        .unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], [2, 2, 2, 2].into()).unwrap();
+        let result = max_pool(
+            &pool,
+            input.view(),
+            &[2, 2],
+            &[2, 2],
+            [2, 2, 2, 2].into(),
+            rm,
+        )
+        .unwrap();
         assert_eq!(result.shape(), &[1, 1, 6, 6]);
 
-        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], Padding::Same).unwrap();
+        let result = max_pool(&pool, input.view(), &[2, 2], &[2, 2], Padding::Same, rm).unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&pool, input.view(), &[2, 2], &[3, 3], Padding::Same).unwrap();
+        let result = max_pool(&pool, input.view(), &[2, 2], &[3, 3], Padding::Same, rm).unwrap();
         assert_eq!(result.shape(), &[1, 1, 3, 3]);
     }
 
@@ -791,102 +910,139 @@ mod tests {
             dilations: (usize, usize),
             strides: (usize, usize),
             padding: Padding,
+            round_mode: RoundMode,
             expected: Result<(usize, usize, [usize; 4]), OpError>,
         }
 
-        let zero_padding: Padding = [0, 0, 0, 0].into();
+        impl Default for Case {
+            fn default() -> Self {
+                Case {
+                    in_size: (5, 5),
+                    kernel_size: (3, 3),
+                    dilations: (1, 1),
+                    strides: (1, 1),
+                    padding: [0, 0, 0, 0].into(),
+                    round_mode: RoundMode::Floor,
+                    expected: Err(OpError::InvalidValue("default")),
+                }
+            }
+        }
 
         let cases = [
             // Simple case with no padding
             Case {
-                in_size: (5, 5),
-                kernel_size: (3, 3),
-                dilations: (1, 1),
-                strides: (1, 1),
-                padding: zero_padding.clone(),
                 expected: Ok((3, 3, [0, 0, 0, 0])),
+                ..Default::default()
             },
             // Fixed padding
             Case {
-                in_size: (5, 5),
-                kernel_size: (3, 3),
-                dilations: (1, 1),
-                strides: (1, 1),
                 padding: [1, 1, 1, 1].into(),
                 expected: Ok((5, 5, [1, 1, 1, 1])),
+                ..Default::default()
             },
             // Strides > 1
             Case {
-                in_size: (5, 5),
-                kernel_size: (3, 3),
-                dilations: (1, 1),
                 strides: (2, 2),
-                padding: zero_padding.clone(),
                 expected: Ok((2, 2, [0, 0, 0, 0])),
+                ..Default::default()
             },
             // Dilations > 1
             Case {
-                in_size: (5, 5),
-                kernel_size: (3, 3),
                 dilations: (2, 2),
-                strides: (1, 1),
-                padding: zero_padding.clone(),
                 expected: Ok((1, 1, [0, 0, 0, 0])),
+                ..Default::default()
             },
             // `Same` padding, uneven
             Case {
                 in_size: (1, 20),
                 kernel_size: (1, 3),
-                dilations: (1, 1),
-                strides: (1, 1),
                 padding: Padding::Same,
                 expected: Ok((1, 20, [0, 1, 0, 1])),
+                ..Default::default()
             },
             // Strides > kernel size. This would cause underflow if the
             // clamping the padding to be >= 0.
             Case {
                 in_size: (9, 9),
-                dilations: (1, 1),
                 strides: (3, 3),
                 kernel_size: (2, 2),
                 padding: Padding::Same,
                 expected: Ok((3, 3, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // Floor vs ceil round mode with explicit padding.
+            Case {
+                in_size: (8, 8),
+                strides: (2, 2),
+                round_mode: RoundMode::Ceil,
+                expected: Ok((4, 4, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            Case {
+                in_size: (8, 8),
+                strides: (2, 2),
+                round_mode: RoundMode::Floor,
+                expected: Ok((3, 3, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // Floor vs ceil round mode with "same" padding. It is intentional
+            // that the results are the same.
+            Case {
+                in_size: (7, 7),
+                strides: (2, 2),
+                round_mode: RoundMode::Ceil,
+                padding: Padding::Same,
+                expected: Ok((4, 4, [1, 1, 1, 1])),
+                ..Default::default()
+            },
+            Case {
+                in_size: (7, 7),
+                strides: (2, 2),
+                round_mode: RoundMode::Floor,
+                padding: Padding::Same,
+                expected: Ok((4, 4, [1, 1, 1, 1])),
+                ..Default::default()
+            },
+            // Special case where output size is adjusted when using ceil mode.
+            // Test case from https://github.com/onnx/onnx/issues/5711.
+            Case {
+                in_size: (12, 12),
+                kernel_size: (1, 1),
+                strides: (2, 2),
+                round_mode: RoundMode::Ceil,
+                expected: Ok((6, 6, [0, 0, 0, 0])),
+                ..Default::default()
             },
             // Zero stride
             Case {
-                in_size: (5, 5),
-                dilations: (1, 1),
                 strides: (0, 0),
-                kernel_size: (3, 3),
-                padding: Padding::Same,
                 expected: Err(OpError::InvalidValue("Strides must be > 0")),
+                ..Default::default()
             },
             // Zero dilation
             Case {
-                in_size: (5, 5),
                 dilations: (0, 0),
-                strides: (1, 1),
-                kernel_size: (3, 3),
-                padding: Padding::Same,
                 expected: Err(OpError::InvalidValue("Dilations must be > 0")),
+                ..Default::default()
+            },
+            // Zero kernel size
+            Case {
+                kernel_size: (0, 0),
+                expected: Err(OpError::InvalidValue("Kernel size must be > 0")),
+                ..Default::default()
             },
             // Incorrect padding length
             Case {
-                in_size: (5, 5),
-                kernel_size: (3, 3),
-                dilations: (1, 1),
-                strides: (1, 1),
                 padding: [0, 0].into(),
                 expected: Err(OpError::InvalidValue("Expected 4 padding values")),
+                ..Default::default()
             },
             // Dilated kernel size > input size
             Case {
                 in_size: (4, 4),
-                kernel_size: (3, 3),
                 dilations: (2, 2),
-                strides: (1, 1),
-                padding: zero_padding.clone(),
                 expected: Err(OpError::InvalidValue("Input too small for kernel size")),
+                ..Default::default()
             },
         ];
 
@@ -897,6 +1053,7 @@ mod tests {
                 dilations,
                 strides,
                 padding,
+                round_mode,
                 expected,
             } = case;
 
@@ -907,6 +1064,7 @@ mod tests {
                     *strides,
                     padding.clone(),
                     Some(*dilations),
+                    *round_mode,
                 ),
                 expected
             );
