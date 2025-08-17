@@ -75,6 +75,7 @@ fn output_size_and_padding_for_axis(
     round_mode: RoundMode,
 ) -> Result<(usize, usize, usize), OpError> {
     check_value!(dilation > 0, InvalidValue, "Dilations must be > 0");
+    check_value!(kernel_size > 0, InvalidValue, "Kernel size must be > 0");
     check_value!(stride > 0, InvalidValue, "Strides must be > 0");
 
     match padding {
@@ -1005,6 +1006,12 @@ mod tests {
             Case {
                 dilations: (0, 0),
                 expected: Err(OpError::InvalidValue("Dilations must be > 0")),
+                ..Default::default()
+            },
+            // Zero kernel size
+            Case {
+                kernel_size: (0, 0),
+                expected: Err(OpError::InvalidValue("Kernel size must be > 0")),
                 ..Default::default()
             },
             // Incorrect padding length
