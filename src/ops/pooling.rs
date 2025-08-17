@@ -31,7 +31,92 @@ impl RoundMode {
     }
 }
 
-/// Calculate the output size and padding for a convolution or pooling operation.
+/// Padding specification for a single axis.
+#[derive(Copy, Clone)]
+enum AxisPadding {
+    Same,
+    Fixed { start: usize, end: usize },
+}
+
+impl AxisPadding {
+    /// Split a 2D padding specifier into separate specifiers for height and
+    /// width axes.
+    fn from_2d(pad: Padding) -> Result<[AxisPadding; 2], OpError> {
+        match pad {
+            Padding::Same => Ok([AxisPadding::Same, AxisPadding::Same]),
+            Padding::Fixed(pads) => {
+                let [pad_top, pad_left, pad_bottom, pad_right]: [usize; 4] = pads
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| OpError::InvalidValue("Expected 4 padding values"))?;
+                let h_pad = AxisPadding::Fixed {
+                    start: pad_top,
+                    end: pad_bottom,
+                };
+                let w_pad = AxisPadding::Fixed {
+                    start: pad_left,
+                    end: pad_right,
+                };
+                Ok([h_pad, w_pad])
+            }
+        }
+    }
+}
+
+/// Compute the output size and padding along a single spatial axis.
+fn output_size_and_padding_for_axis(
+    in_size: usize,
+    kernel_size: usize,
+    stride: usize,
+    padding: AxisPadding,
+    dilation: usize,
+    round_mode: RoundMode,
+) -> Result<(usize, usize, usize), OpError> {
+    if dilation == 0 {
+        return Err(OpError::InvalidValue("Dilations must be > 0"));
+    }
+    if stride == 0 {
+        return Err(OpError::InvalidValue("Strides must be > 0"));
+    }
+
+    match padding {
+        AxisPadding::Same => {
+            // The specification gives two different equations for the output
+            // size depending on the rounding mode, but they are equivalent.
+            let out_size = in_size.div_ceil(stride);
+
+            let pad_total = ((out_size - 1) * stride + (kernel_size - 1) * dilation + 1)
+                .saturating_sub(in_size);
+
+            let pad_start = pad_total / 2;
+
+            // If the total padding is not even, we assign the remaining unit to
+            // the ends of the axis. This matches the ONNX "SAME_UPPER"
+            // value for `auto_pad`.
+            let pad_end = pad_total.div_ceil(2);
+
+            Ok((out_size, pad_start, pad_end))
+        }
+        AxisPadding::Fixed {
+            start: pad_start,
+            end: pad_end,
+        } => {
+            let padded_in_size = in_size + pad_start + pad_end;
+            let dilated_kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1);
+
+            if padded_in_size < dilated_kernel_size {
+                return Err(OpError::InvalidValue("Input too small for kernel size"));
+            }
+
+            let out_size =
+                round_mode.div(padded_in_size - dilation * (kernel_size - 1) - 1, stride) + 1;
+
+            Ok((out_size, pad_start, pad_end))
+        }
+    }
+}
+
+/// Calculate the output size and padding for a 2D convolution or pooling operation.
 ///
 /// Depending on the padding mode, the output size is be calculated from the
 /// input size and padding, or the padding size is calculated from the input
@@ -57,60 +142,14 @@ pub fn calc_output_size_and_padding(
     let (k_h, k_w) = kernel_size;
     let (stride_h, stride_w) = strides;
     let (dilation_y, dilation_x) = dilations.unwrap_or((1, 1));
+    let [h_pad, w_pad] = AxisPadding::from_2d(padding)?;
 
-    if dilation_y == 0 || dilation_x == 0 {
-        return Err(OpError::InvalidValue("Dilations must be > 0"));
-    }
+    let (out_h, pad_top, pad_bottom) =
+        output_size_and_padding_for_axis(in_h, k_h, stride_h, h_pad, dilation_y, round_mode)?;
+    let (out_w, pad_left, pad_right) =
+        output_size_and_padding_for_axis(in_w, k_w, stride_w, w_pad, dilation_x, round_mode)?;
 
-    if stride_h == 0 || stride_w == 0 {
-        return Err(OpError::InvalidValue("Strides must be > 0"));
-    }
-
-    let (out_h, out_w, padding) = match padding {
-        Padding::Same => {
-            // The specification gives two different equations for the output
-            // size depending on the rounding mode, but they are equivalent.
-            let out_h = in_h.div_ceil(stride_h);
-            let out_w = in_w.div_ceil(stride_w);
-
-            let pad_total_h =
-                ((out_h - 1) * stride_h + (k_h - 1) * dilation_y + 1).saturating_sub(in_h);
-            let pad_total_w =
-                ((out_w - 1) * stride_w + (k_w - 1) * dilation_x + 1).saturating_sub(in_w);
-
-            let pad_top = pad_total_h / 2;
-            let pad_left = pad_total_w / 2;
-
-            // If the total padding is not even, we assign the remaining unit to
-            // the ends of the axis. This matches the ONNX "SAME_UPPER"
-            // value for `auto_pad`.
-            let pad_bottom = pad_total_h.div_ceil(2);
-            let pad_right = pad_total_w.div_ceil(2);
-
-            (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
-        }
-        Padding::Fixed(pads) => {
-            let [pad_top, pad_left, pad_bottom, pad_right]: [usize; 4] = pads
-                .as_slice()
-                .try_into()
-                .map_err(|_| OpError::InvalidValue("Expected 4 padding values"))?;
-            let padded_in_h = in_h + pad_top + pad_bottom;
-            let padded_in_w = in_w + pad_left + pad_right;
-
-            let dilated_k_h = k_h + (k_h - 1) * (dilation_y - 1);
-            let dilated_k_w = k_w + (k_w - 1) * (dilation_x - 1);
-
-            if padded_in_h < dilated_k_h || padded_in_w < dilated_k_w {
-                return Err(OpError::InvalidValue("Input too small for kernel size"));
-            }
-
-            let out_h = round_mode.div(padded_in_h - dilation_y * (k_h - 1) - 1, stride_h) + 1;
-            let out_w = round_mode.div(padded_in_w - dilation_x * (k_w - 1) - 1, stride_w) + 1;
-
-            (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
-        }
-    };
-    Ok((out_h, out_w, padding))
+    Ok((out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right]))
 }
 
 /// Number of channels processed together by the pooling kernel.
