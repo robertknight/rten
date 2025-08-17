@@ -64,7 +64,8 @@ impl<'a, T: Elem, O: NumOps<T>> Iter<'a, T, O> {
     /// This is like [`Iterator::fold`] but the `fold` function receives SIMD
     /// vectors instead of single elements. If the iterator length is not a
     /// multiple of the SIMD vector length, the final vector will be padded with
-    /// zeros.
+    /// zeros. If a padded vector is used for the final update, the accumulator
+    /// vector will only be updated with the results from the non-padding lanes.
     #[inline]
     pub fn fold<F: FnMut(O::Simd, O::Simd) -> O::Simd>(
         mut self,
