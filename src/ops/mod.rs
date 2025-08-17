@@ -998,6 +998,21 @@ macro_rules! map_value {
 
 use map_value;
 
+/// Check that an operator input or attribute is valid or return an [`OpError`]
+/// if not.
+///
+/// This is similar to [`assert`] but it returns an error instead of panicking
+/// if the condition evaluates to false.
+macro_rules! check_value {
+    ($condition:expr, $err_variant:ident, $err_msg:expr) => {
+        if !$condition {
+            return Err(OpError::$err_variant($err_msg));
+        }
+    };
+}
+
+use check_value;
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;

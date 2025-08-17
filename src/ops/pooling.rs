@@ -7,7 +7,9 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, T
 use smallvec::SmallVec;
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding};
+use crate::ops::{
+    check_value, static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding,
+};
 
 /// Rounding method to use when computing the output shape for a pooling
 /// operation.
@@ -72,12 +74,8 @@ fn output_size_and_padding_for_axis(
     dilation: usize,
     round_mode: RoundMode,
 ) -> Result<(usize, usize, usize), OpError> {
-    if dilation == 0 {
-        return Err(OpError::InvalidValue("Dilations must be > 0"));
-    }
-    if stride == 0 {
-        return Err(OpError::InvalidValue("Strides must be > 0"));
-    }
+    check_value!(dilation > 0, InvalidValue, "Dilations must be > 0");
+    check_value!(stride > 0, InvalidValue, "Strides must be > 0");
 
     match padding {
         AxisPadding::Same => {
