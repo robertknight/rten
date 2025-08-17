@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
-use rten_base::num::{Identities, IsNaN};
+use rten_base::num::{Identities, IsNaN, MinMax};
 use rten_simd::SimdOp;
 use rten_tensor;
 use rten_tensor::prelude::*;
@@ -14,7 +14,7 @@ use crate::ops::{
     map_value_view, resolve_axes, resolve_axis, InputList, IntoOpResult, OpError, OpRunContext,
     Operator, OutputList, ValueView,
 };
-use crate::slice_reductions::slice_sum;
+use crate::slice_reductions::{slice_fold_assoc, slice_sum};
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
@@ -493,7 +493,29 @@ pub fn cmp_nan_less<T: PartialOrd + IsNaN>(a: T, b: T) -> std::cmp::Ordering {
     }
 }
 
-fn reduce_min_max<T: Copy + PartialOrd + IsNaN>(
+/// Returns the maximum of `x` and `y` or `NaN` if either value is a NaN.
+fn maximum_num<T: Copy + IsNaN + MinMax>(x: T, y: T) -> T {
+    if x.is_nan() {
+        x
+    } else if y.is_nan() {
+        y
+    } else {
+        x.max(y)
+    }
+}
+
+/// Returns the minimum of `x` and `y` or `NaN` if either value is a NaN.
+fn minimum_num<T: Copy + IsNaN + MinMax>(x: T, y: T) -> T {
+    if x.is_nan() {
+        x
+    } else if y.is_nan() {
+        y
+    } else {
+        x.min(y)
+    }
+}
+
+fn reduce_min_max<T: Copy + IsNaN + MinMax>(
     pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -503,14 +525,13 @@ fn reduce_min_max<T: Copy + PartialOrd + IsNaN>(
     struct MinMaxReducer {
         max: bool,
     }
-    impl<T: Copy + PartialOrd + IsNaN> ReduceKernel<T> for MinMaxReducer {
+    impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for MinMaxReducer {
         fn reduce_slice(&self, slice: &[T]) -> T {
-            let reduced = if self.max {
-                slice.iter().copied().max_by(|a, b| cmp_nan_greater(*a, *b))
+            if self.max {
+                slice_fold_assoc(slice, T::min_val(), maximum_num)
             } else {
-                slice.iter().copied().min_by(|a, b| cmp_nan_less(*a, *b))
-            };
-            reduced.expect("attempted to get min/max of empty axis")
+                slice_fold_assoc(slice, T::max_val(), minimum_num)
+            }
         }
     }
     reduce(pool, input, axes, keep_dims, &MinMaxReducer { max })
@@ -531,7 +552,7 @@ fn get_axes<'a>(
     Ok(axes)
 }
 
-pub fn reduce_min<T: Copy + PartialOrd + IsNaN>(
+pub fn reduce_min<T: Copy + IsNaN + MinMax>(
     pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -561,7 +582,7 @@ impl Operator for ReduceMin {
     }
 }
 
-pub fn reduce_max<T: Copy + PartialOrd + IsNaN>(
+pub fn reduce_max<T: Copy + IsNaN + MinMax>(
     pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
