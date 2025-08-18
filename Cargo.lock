@@ -395,6 +395,7 @@ dependencies = [
  "rustc-hash",
  "serde_json",
  "smallvec",
+ "typeid",
  "wasm-bindgen",
 ]
 
