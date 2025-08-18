@@ -920,6 +920,12 @@ impl<'a, T> Iterator for LaneMut<'a, T> {
         }
     }
 
+    #[inline]
+    fn nth(&mut self, nth: usize) -> Option<Self::Item> {
+        self.index = (self.index + nth).min(self.view.size(0));
+        self.next()
+    }
+
     fn size_hint(&self) -> (usize, Option<usize>) {
         let size = self.view.size(0);
         (size, Some(size))
@@ -1584,7 +1590,10 @@ mod tests {
             let (min_len, max_len) = iter.size_hint();
             let items: Vec<_> = iter.collect();
 
+            // Test `next`
             assert_eq!(items, expected);
+
+            // Test `size_hint`
             assert_eq!(min_len, items.len(), "incorrect size lower bound");
             assert_eq!(max_len, Some(items.len()), "incorrect size upper bound");
         }

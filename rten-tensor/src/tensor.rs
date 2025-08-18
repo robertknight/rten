@@ -1269,6 +1269,8 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
         T: Clone + Default,
         L: MutLayout,
     {
+        // We delegate to `full_in` here and rely on compiler optimizations to
+        // take advantage of the value being statically known to be zero.
         Self::full_in(alloc, shape, T::default())
     }
 
