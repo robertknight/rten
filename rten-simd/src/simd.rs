@@ -9,7 +9,7 @@ use crate::ops::Isa;
 ///
 /// Most operations on masks are available via the
 /// [`MaskOps`](crate::ops::MaskOps) trait. Implementations are obtained via
-/// [`NumOps::mask_ops`](crate::ops::NumOps::mask_ops).
+/// methods of [`Isa`].
 pub trait Mask: Copy + Debug {
     type Array: AsRef<[bool]>
         + Copy

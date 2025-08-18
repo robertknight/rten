@@ -56,6 +56,9 @@ impl Default for GenericIsa {
 
 // Safety: Instructions used by generic ISA are always supported.
 unsafe impl Isa for GenericIsa {
+    type M32 = M32;
+    type M16 = M16;
+    type M8 = M8;
     type F32 = F32x4;
     type I32 = I32x4;
     type I16 = I16x8;
@@ -100,15 +103,22 @@ unsafe impl Isa for GenericIsa {
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
         self
     }
+
+    fn m32(self) -> impl MaskOps<Self::M32> {
+        self
+    }
+
+    fn m16(self) -> impl MaskOps<Self::M16> {
+        self
+    }
+
+    fn m8(self) -> impl MaskOps<Self::M8> {
+        self
+    }
 }
 
 macro_rules! simd_ops_common {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
-        #[inline]
-        fn mask_ops(self) -> impl MaskOps<$mask> {
-            self
-        }
-
         #[inline]
         fn len(self) -> usize {
             $len

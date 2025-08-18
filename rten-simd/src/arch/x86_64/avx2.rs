@@ -29,13 +29,13 @@ use crate::ops::{
 };
 use crate::{Isa, Mask, Simd};
 
-simd_type!(F32x8, __m256, f32, F32x8, Avx2Isa);
-simd_type!(I32x8, __m256i, i32, I32x8, Avx2Isa);
-simd_type!(I16x16, __m256i, i16, I16x16, Avx2Isa);
-simd_type!(I8x32, __m256i, i8, I8x32, Avx2Isa);
-simd_type!(U8x32, __m256i, u8, I8x32, Avx2Isa);
-simd_type!(U16x16, __m256i, u16, I16x16, Avx2Isa);
-simd_type!(U32x8, __m256i, u32, I32x8, Avx2Isa);
+simd_type!(F32x8, __m256, f32, M32, Avx2Isa);
+simd_type!(I32x8, __m256i, i32, M32, Avx2Isa);
+simd_type!(I16x16, __m256i, i16, M16, Avx2Isa);
+simd_type!(I8x32, __m256i, i8, M8, Avx2Isa);
+simd_type!(U8x32, __m256i, u8, M8, Avx2Isa);
+simd_type!(U16x16, __m256i, u16, M16, Avx2Isa);
+simd_type!(U32x8, __m256i, u32, M32, Avx2Isa);
 
 #[derive(Copy, Clone)]
 pub struct Avx2Isa {
@@ -54,6 +54,9 @@ impl Avx2Isa {
 
 // Safety: AVX2 is supported as `Avx2Isa::new` checks this.
 unsafe impl Isa for Avx2Isa {
+    type M32 = M32;
+    type M16 = M16;
+    type M8 = M8;
     type F32 = F32x8;
     type I32 = I32x8;
     type I16 = I16x16;
@@ -98,6 +101,18 @@ unsafe impl Isa for Avx2Isa {
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
         self
     }
+
+    fn m32(self) -> impl MaskOps<Self::M32> {
+        self
+    }
+
+    fn m16(self) -> impl MaskOps<Self::M16> {
+        self
+    }
+
+    fn m8(self) -> impl MaskOps<Self::M8> {
+        self
+    }
 }
 
 macro_rules! simd_ops_common {
@@ -107,11 +122,6 @@ macro_rules! simd_ops_common {
         #[inline]
         fn len(self) -> usize {
             lanes::<$simd>()
-        }
-
-        #[inline]
-        fn mask_ops(self) -> impl MaskOps<$mask> {
-            self
         }
 
         #[inline]
@@ -151,12 +161,12 @@ macro_rules! simd_int_ops_common {
 }
 
 unsafe impl NumOps<f32> for Avx2Isa {
-    simd_ops_common!(F32x8, F32x8);
+    simd_ops_common!(F32x8, M32);
 
     #[inline]
-    fn first_n_mask(self, n: usize) -> F32x8 {
+    fn first_n_mask(self, n: usize) -> M32 {
         let mask: [i32; 8] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
-        unsafe { _mm256_loadu_ps(mask.as_ptr() as *const f32) }.into()
+        M32::from_float(unsafe { _mm256_loadu_ps(mask.as_ptr() as *const f32) })
     }
 
     #[inline]
@@ -180,28 +190,28 @@ unsafe impl NumOps<f32> for Avx2Isa {
     }
 
     #[inline]
-    fn lt(self, x: F32x8, y: F32x8) -> F32x8 {
-        unsafe { _mm256_cmp_ps(x.0, y.0, _CMP_LT_OQ) }.into()
+    fn lt(self, x: F32x8, y: F32x8) -> M32 {
+        M32::from_float(unsafe { _mm256_cmp_ps(x.0, y.0, _CMP_LT_OQ) })
     }
 
     #[inline]
-    fn le(self, x: F32x8, y: F32x8) -> F32x8 {
-        unsafe { _mm256_cmp_ps(x.0, y.0, _CMP_LE_OQ) }.into()
+    fn le(self, x: F32x8, y: F32x8) -> M32 {
+        M32::from_float(unsafe { _mm256_cmp_ps(x.0, y.0, _CMP_LE_OQ) })
     }
 
     #[inline]
-    fn eq(self, x: F32x8, y: F32x8) -> F32x8 {
-        unsafe { _mm256_cmp_ps(x.0, y.0, _CMP_EQ_OQ) }.into()
+    fn eq(self, x: F32x8, y: F32x8) -> M32 {
+        M32::from_float(unsafe { _mm256_cmp_ps(x.0, y.0, _CMP_EQ_OQ) })
     }
 
     #[inline]
-    fn ge(self, x: F32x8, y: F32x8) -> F32x8 {
-        unsafe { _mm256_cmp_ps(x.0, y.0, _CMP_GE_OQ) }.into()
+    fn ge(self, x: F32x8, y: F32x8) -> M32 {
+        M32::from_float(unsafe { _mm256_cmp_ps(x.0, y.0, _CMP_GE_OQ) })
     }
 
     #[inline]
-    fn gt(self, x: F32x8, y: F32x8) -> F32x8 {
-        unsafe { _mm256_cmp_ps(x.0, y.0, _CMP_GT_OQ) }.into()
+    fn gt(self, x: F32x8, y: F32x8) -> M32 {
+        M32::from_float(unsafe { _mm256_cmp_ps(x.0, y.0, _CMP_GT_OQ) })
     }
 
     #[inline]
@@ -246,18 +256,18 @@ unsafe impl NumOps<f32> for Avx2Isa {
     }
 
     #[inline]
-    fn select(self, x: F32x8, y: F32x8, mask: <F32x8 as Simd>::Mask) -> F32x8 {
-        unsafe { _mm256_blendv_ps(y.0, x.0, mask.0) }.into()
+    fn select(self, x: F32x8, y: F32x8, mask: M32) -> F32x8 {
+        unsafe { _mm256_blendv_ps(y.0, x.0, mask.as_float()) }.into()
     }
 
     #[inline]
-    unsafe fn load_ptr_mask(self, ptr: *const f32, mask: F32x8) -> F32x8 {
-        unsafe { _mm256_maskload_ps(ptr, transmute::<F32x8, __m256i>(mask)) }.into()
+    unsafe fn load_ptr_mask(self, ptr: *const f32, mask: M32) -> F32x8 {
+        unsafe { _mm256_maskload_ps(ptr, mask.0) }.into()
     }
 
     #[inline]
-    unsafe fn store_ptr_mask(self, x: F32x8, ptr: *mut f32, mask: F32x8) {
-        unsafe { _mm256_maskstore_ps(ptr, transmute::<F32x8, __m256i>(mask), x.0) }
+    unsafe fn store_ptr_mask(self, x: F32x8, ptr: *mut f32, mask: M32) {
+        unsafe { _mm256_maskstore_ps(ptr, mask.0, x.0) }
     }
 
     #[inline]
@@ -313,13 +323,13 @@ impl FloatOps<f32> for Avx2Isa {
 }
 
 unsafe impl NumOps<i32> for Avx2Isa {
-    simd_ops_common!(I32x8, I32x8);
+    simd_ops_common!(I32x8, M32);
     simd_int_ops_common!(I32x8);
 
     #[inline]
-    fn first_n_mask(self, n: usize) -> I32x8 {
+    fn first_n_mask(self, n: usize) -> M32 {
         let mask: [i32; 8] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
-        unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) }.into()
+        M32(unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) })
     }
 
     #[inline]
@@ -343,19 +353,18 @@ unsafe impl NumOps<i32> for Avx2Isa {
     }
 
     #[inline]
-    fn eq(self, x: I32x8, y: I32x8) -> I32x8 {
-        unsafe { _mm256_cmpeq_epi32(x.0, y.0) }.into()
+    fn eq(self, x: I32x8, y: I32x8) -> M32 {
+        M32(unsafe { _mm256_cmpeq_epi32(x.0, y.0) })
     }
 
     #[inline]
-    fn ge(self, x: I32x8, y: I32x8) -> I32x8 {
-        unsafe { _mm256_or_si256(_mm256_cmpgt_epi32(x.0, y.0), _mm256_cmpeq_epi32(x.0, y.0)) }
-            .into()
+    fn ge(self, x: I32x8, y: I32x8) -> M32 {
+        M32(unsafe { _mm256_or_si256(_mm256_cmpgt_epi32(x.0, y.0), _mm256_cmpeq_epi32(x.0, y.0)) })
     }
 
     #[inline]
-    fn gt(self, x: I32x8, y: I32x8) -> I32x8 {
-        unsafe { _mm256_cmpgt_epi32(x.0, y.0) }.into()
+    fn gt(self, x: I32x8, y: I32x8) -> M32 {
+        M32(unsafe { _mm256_cmpgt_epi32(x.0, y.0) })
     }
 
     #[inline]
@@ -364,7 +373,7 @@ unsafe impl NumOps<i32> for Avx2Isa {
     }
 
     #[inline]
-    fn select(self, x: I32x8, y: I32x8, mask: <I32x8 as Simd>::Mask) -> I32x8 {
+    fn select(self, x: I32x8, y: I32x8, mask: M32) -> I32x8 {
         unsafe { _mm256_blendv_epi8(y.0, x.0, mask.0) }.into()
     }
 
@@ -374,12 +383,12 @@ unsafe impl NumOps<i32> for Avx2Isa {
     }
 
     #[inline]
-    unsafe fn load_ptr_mask(self, ptr: *const i32, mask: I32x8) -> I32x8 {
+    unsafe fn load_ptr_mask(self, ptr: *const i32, mask: M32) -> I32x8 {
         unsafe { _mm256_maskload_epi32(ptr, mask.0) }.into()
     }
 
     #[inline]
-    unsafe fn store_ptr_mask(self, x: I32x8, ptr: *mut i32, mask: I32x8) {
+    unsafe fn store_ptr_mask(self, x: I32x8, ptr: *mut i32, mask: M32) {
         unsafe { _mm256_maskstore_epi32(ptr, mask.0, x.0) }
     }
 }
@@ -443,13 +452,13 @@ impl Concat<i32> for Avx2Isa {
 }
 
 unsafe impl NumOps<i16> for Avx2Isa {
-    simd_ops_common!(I16x16, I16x16);
+    simd_ops_common!(I16x16, M16);
     simd_int_ops_common!(I16x16);
 
     #[inline]
-    fn first_n_mask(self, n: usize) -> I16x16 {
+    fn first_n_mask(self, n: usize) -> M16 {
         let mask: [i16; 16] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
-        unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) }.into()
+        M16(unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) })
     }
 
     #[inline]
@@ -473,19 +482,18 @@ unsafe impl NumOps<i16> for Avx2Isa {
     }
 
     #[inline]
-    fn eq(self, x: I16x16, y: I16x16) -> I16x16 {
-        unsafe { _mm256_cmpeq_epi16(x.0, y.0) }.into()
+    fn eq(self, x: I16x16, y: I16x16) -> M16 {
+        M16(unsafe { _mm256_cmpeq_epi16(x.0, y.0) })
     }
 
     #[inline]
-    fn ge(self, x: I16x16, y: I16x16) -> I16x16 {
-        unsafe { _mm256_or_si256(_mm256_cmpgt_epi16(x.0, y.0), _mm256_cmpeq_epi16(x.0, y.0)) }
-            .into()
+    fn ge(self, x: I16x16, y: I16x16) -> M16 {
+        M16(unsafe { _mm256_or_si256(_mm256_cmpgt_epi16(x.0, y.0), _mm256_cmpeq_epi16(x.0, y.0)) })
     }
 
     #[inline]
-    fn gt(self, x: I16x16, y: I16x16) -> I16x16 {
-        unsafe { _mm256_cmpgt_epi16(x.0, y.0) }.into()
+    fn gt(self, x: I16x16, y: I16x16) -> M16 {
+        M16(unsafe { _mm256_cmpgt_epi16(x.0, y.0) })
     }
 
     #[inline]
@@ -494,7 +502,7 @@ unsafe impl NumOps<i16> for Avx2Isa {
     }
 
     #[inline]
-    fn select(self, x: I16x16, y: I16x16, mask: <I16x16 as Simd>::Mask) -> I16x16 {
+    fn select(self, x: I16x16, y: I16x16, mask: M16) -> I16x16 {
         unsafe { _mm256_blendv_epi8(y.0, x.0, mask.0) }.into()
     }
 
@@ -504,7 +512,7 @@ unsafe impl NumOps<i16> for Avx2Isa {
     }
 
     #[inline]
-    unsafe fn load_ptr_mask(self, ptr: *const i16, mask: I16x16) -> I16x16 {
+    unsafe fn load_ptr_mask(self, ptr: *const i16, mask: M16) -> I16x16 {
         // There is no native masked-load instruction for i16, so fall back to
         // scalar loads.
         let mask = _mm256_movemask_epi8(mask.0) as u32;
@@ -521,7 +529,7 @@ unsafe impl NumOps<i16> for Avx2Isa {
     }
 
     #[inline]
-    unsafe fn store_ptr_mask(self, x: I16x16, ptr: *mut i16, mask: I16x16) {
+    unsafe fn store_ptr_mask(self, x: I16x16, ptr: *mut i16, mask: M16) {
         // There is no native masked-store instruction for i16, so fall back to
         // scalar store.
         let xs = Simd::to_array(x);
@@ -592,13 +600,13 @@ impl Interleave<i16> for Avx2Isa {
 }
 
 unsafe impl NumOps<i8> for Avx2Isa {
-    simd_ops_common!(I8x32, I8x32);
+    simd_ops_common!(I8x32, M8);
     simd_int_ops_common!(I8x32);
 
     #[inline]
-    fn first_n_mask(self, n: usize) -> I8x32 {
+    fn first_n_mask(self, n: usize) -> M8 {
         let mask: [i8; 32] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
-        unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) }.into()
+        M8(unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) })
     }
 
     #[inline]
@@ -629,18 +637,18 @@ unsafe impl NumOps<i8> for Avx2Isa {
     }
 
     #[inline]
-    fn eq(self, x: I8x32, y: I8x32) -> I8x32 {
-        unsafe { _mm256_cmpeq_epi8(x.0, y.0) }.into()
+    fn eq(self, x: I8x32, y: I8x32) -> M8 {
+        M8(unsafe { _mm256_cmpeq_epi8(x.0, y.0) })
     }
 
     #[inline]
-    fn ge(self, x: I8x32, y: I8x32) -> I8x32 {
-        unsafe { _mm256_or_si256(_mm256_cmpgt_epi8(x.0, y.0), _mm256_cmpeq_epi8(x.0, y.0)) }.into()
+    fn ge(self, x: I8x32, y: I8x32) -> M8 {
+        M8(unsafe { _mm256_or_si256(_mm256_cmpgt_epi8(x.0, y.0), _mm256_cmpeq_epi8(x.0, y.0)) })
     }
 
     #[inline]
-    fn gt(self, x: I8x32, y: I8x32) -> I8x32 {
-        unsafe { _mm256_cmpgt_epi8(x.0, y.0) }.into()
+    fn gt(self, x: I8x32, y: I8x32) -> M8 {
+        M8(unsafe { _mm256_cmpgt_epi8(x.0, y.0) })
     }
 
     #[inline]
@@ -659,7 +667,7 @@ unsafe impl NumOps<i8> for Avx2Isa {
     }
 
     #[inline]
-    unsafe fn load_ptr_mask(self, ptr: *const i8, mask: I8x32) -> I8x32 {
+    unsafe fn load_ptr_mask(self, ptr: *const i8, mask: M8) -> I8x32 {
         // There is no native masked-load instruction for i8, so fall back to
         // scalar loads.
         let mask = _mm256_movemask_epi8(mask.0) as u32;
@@ -676,7 +684,7 @@ unsafe impl NumOps<i8> for Avx2Isa {
     }
 
     #[inline]
-    unsafe fn store_ptr_mask(self, x: I8x32, ptr: *mut i8, mask: I8x32) {
+    unsafe fn store_ptr_mask(self, x: I8x32, ptr: *mut i8, mask: M8) {
         // There is no native masked-store instruction for i8, so fall back to
         // scalar store.
         let xs = Simd::to_array(x);
@@ -736,13 +744,13 @@ impl Interleave<i8> for Avx2Isa {
 }
 
 unsafe impl NumOps<u8> for Avx2Isa {
-    simd_ops_common!(U8x32, I8x32);
+    simd_ops_common!(U8x32, M8);
     simd_int_ops_common!(U8x32);
 
     #[inline]
-    fn first_n_mask(self, n: usize) -> I8x32 {
+    fn first_n_mask(self, n: usize) -> M8 {
         let mask: [i8; 32] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
-        unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) }.into()
+        M8(unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) })
     }
 
     #[inline]
@@ -773,27 +781,26 @@ unsafe impl NumOps<u8> for Avx2Isa {
     }
 
     #[inline]
-    fn eq(self, x: U8x32, y: U8x32) -> I8x32 {
-        unsafe { _mm256_cmpeq_epi8(x.0, y.0) }.into()
+    fn eq(self, x: U8x32, y: U8x32) -> M8 {
+        M8(unsafe { _mm256_cmpeq_epi8(x.0, y.0) })
     }
 
     #[inline]
-    fn ge(self, x: U8x32, y: U8x32) -> I8x32 {
+    fn ge(self, x: U8x32, y: U8x32) -> M8 {
         let xy_eq = <Self as NumOps<u8>>::eq(self, x, y);
         let xy_gt = <Self as NumOps<u8>>::gt(self, x, y);
-        unsafe { _mm256_or_si256(xy_eq.0, xy_gt.0) }.into()
+        M8(unsafe { _mm256_or_si256(xy_eq.0, xy_gt.0) })
     }
 
     #[inline]
-    fn gt(self, x: U8x32, y: U8x32) -> I8x32 {
+    fn gt(self, x: U8x32, y: U8x32) -> M8 {
         // AVX2 lacks u8 comparison. Shift both values to i8 and use signed compare.
-        unsafe {
+        M8(unsafe {
             let mask = _mm256_set1_epi8(0x80u8 as i8);
             let x_i8 = _mm256_xor_si256(x.0, mask);
             let y_i8 = _mm256_xor_si256(y.0, mask);
             _mm256_cmpgt_epi8(x_i8, y_i8)
-        }
-        .into()
+        })
     }
 
     #[inline]
@@ -802,7 +809,7 @@ unsafe impl NumOps<u8> for Avx2Isa {
     }
 
     #[inline]
-    fn select(self, x: U8x32, y: U8x32, mask: <U8x32 as Simd>::Mask) -> U8x32 {
+    fn select(self, x: U8x32, y: U8x32, mask: M8) -> U8x32 {
         unsafe { _mm256_blendv_epi8(y.0, x.0, mask.0) }.into()
     }
 
@@ -812,7 +819,7 @@ unsafe impl NumOps<u8> for Avx2Isa {
     }
 
     #[inline]
-    unsafe fn load_ptr_mask(self, ptr: *const u8, mask: I8x32) -> U8x32 {
+    unsafe fn load_ptr_mask(self, ptr: *const u8, mask: M8) -> U8x32 {
         // There is no native masked-load instruction for u8, so fall back to
         // scalar loads.
         let mask = _mm256_movemask_epi8(mask.0) as u32;
@@ -829,7 +836,7 @@ unsafe impl NumOps<u8> for Avx2Isa {
     }
 
     #[inline]
-    unsafe fn store_ptr_mask(self, x: U8x32, ptr: *mut u8, mask: I8x32) {
+    unsafe fn store_ptr_mask(self, x: U8x32, ptr: *mut u8, mask: M8) {
         // There is no native masked-store instruction for u8, so fall back to
         // scalar store.
         let xs = Simd::to_array(x);
@@ -845,13 +852,13 @@ unsafe impl NumOps<u8> for Avx2Isa {
 }
 
 unsafe impl NumOps<u16> for Avx2Isa {
-    simd_ops_common!(U16x16, I16x16);
+    simd_ops_common!(U16x16, M16);
     simd_int_ops_common!(U16x16);
 
     #[inline]
-    fn first_n_mask(self, n: usize) -> I16x16 {
+    fn first_n_mask(self, n: usize) -> M16 {
         let mask: [i16; 16] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
-        unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) }.into()
+        M16(unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) })
     }
 
     #[inline]
@@ -875,27 +882,26 @@ unsafe impl NumOps<u16> for Avx2Isa {
     }
 
     #[inline]
-    fn eq(self, x: U16x16, y: U16x16) -> I16x16 {
-        unsafe { _mm256_cmpeq_epi16(x.0, y.0) }.into()
+    fn eq(self, x: U16x16, y: U16x16) -> M16 {
+        M16(unsafe { _mm256_cmpeq_epi16(x.0, y.0) })
     }
 
     #[inline]
-    fn ge(self, x: U16x16, y: U16x16) -> I16x16 {
+    fn ge(self, x: U16x16, y: U16x16) -> M16 {
         let xy_eq = <Self as NumOps<u16>>::eq(self, x, y);
         let xy_gt = <Self as NumOps<u16>>::gt(self, x, y);
-        unsafe { _mm256_or_si256(xy_eq.0, xy_gt.0) }.into()
+        M16(unsafe { _mm256_or_si256(xy_eq.0, xy_gt.0) })
     }
 
     #[inline]
-    fn gt(self, x: U16x16, y: U16x16) -> I16x16 {
+    fn gt(self, x: U16x16, y: U16x16) -> M16 {
         // AVX2 lacks u16 comparison. Shift both values to i16 and use signed compare.
-        unsafe {
+        M16(unsafe {
             let mask = _mm256_set1_epi16(0x8000u16 as i16);
             let x_i16 = _mm256_xor_si256(x.0, mask);
             let y_i16 = _mm256_xor_si256(y.0, mask);
             _mm256_cmpgt_epi16(x_i16, y_i16)
-        }
-        .into()
+        })
     }
 
     #[inline]
@@ -904,7 +910,7 @@ unsafe impl NumOps<u16> for Avx2Isa {
     }
 
     #[inline]
-    fn select(self, x: U16x16, y: U16x16, mask: <I16x16 as Simd>::Mask) -> U16x16 {
+    fn select(self, x: U16x16, y: U16x16, mask: M16) -> U16x16 {
         unsafe { _mm256_blendv_epi8(y.0, x.0, mask.0) }.into()
     }
 
@@ -914,7 +920,7 @@ unsafe impl NumOps<u16> for Avx2Isa {
     }
 
     #[inline]
-    unsafe fn load_ptr_mask(self, ptr: *const u16, mask: I16x16) -> U16x16 {
+    unsafe fn load_ptr_mask(self, ptr: *const u16, mask: M16) -> U16x16 {
         // There is no native masked-load instruction for i16, so fall back to
         // scalar loads.
         let mask = _mm256_movemask_epi8(mask.0) as u32;
@@ -931,7 +937,7 @@ unsafe impl NumOps<u16> for Avx2Isa {
     }
 
     #[inline]
-    unsafe fn store_ptr_mask(self, x: U16x16, ptr: *mut u16, mask: I16x16) {
+    unsafe fn store_ptr_mask(self, x: U16x16, ptr: *mut u16, mask: M16) {
         // There is no native masked-store instruction for i16, so fall back to
         // scalar store.
         let xs = Simd::to_array(x);
@@ -954,44 +960,54 @@ impl IntOps<u16> for Avx2Isa {
 }
 
 macro_rules! impl_mask {
-    ($mask:ty, $elem:ty) => {
+    ($mask:ident, $elem:ty, $len:expr) => {
+        #[derive(Copy, Clone, Debug)]
+        #[repr(transparent)]
+        pub struct $mask(__m256i);
+
+        impl $mask {
+            #[allow(unused)] // Not used for M16/M8
+            #[inline]
+            fn as_float(self) -> __m256 {
+                unsafe { transmute::<__m256i, __m256>(self.0) }
+            }
+
+            #[allow(unused)] // Not used for M16/M8
+            #[inline]
+            fn from_float(m: __m256) -> Self {
+                Self(unsafe { transmute::<__m256, __m256i>(m) })
+            }
+        }
+
         impl Mask for $mask {
-            type Array = [bool; lanes::<Self>()];
+            type Array = [bool; $len];
 
             #[inline]
             fn to_array(self) -> Self::Array {
-                let array = unsafe { transmute::<Self, [$elem; lanes::<Self>()]>(self) };
+                let array = unsafe { transmute::<Self, [$elem; $len]>(self) };
                 std::array::from_fn(|i| array[i] != <$elem>::default())
             }
         }
     };
 }
 
-impl_mask!(F32x8, f32);
-impl_mask!(I32x8, i32);
-impl_mask!(I16x16, i16);
-impl_mask!(I8x32, i8);
+impl_mask!(M32, u32, 8);
+impl_mask!(M16, u16, 16);
+impl_mask!(M8, u8, 32);
 
-macro_rules! impl_int_mask_ops {
-    ($mask:ty) => {
+macro_rules! impl_mask_ops {
+    ($mask:ident) => {
         unsafe impl MaskOps<$mask> for Avx2Isa {
             #[inline]
             fn and(self, x: $mask, y: $mask) -> $mask {
-                unsafe { _mm256_and_si256(x.0, y.0) }.into()
+                $mask(unsafe { _mm256_and_si256(x.0, y.0) })
             }
         }
     };
 }
-impl_int_mask_ops!(I32x8);
-impl_int_mask_ops!(I16x16);
-impl_int_mask_ops!(I8x32);
-
-unsafe impl MaskOps<F32x8> for Avx2Isa {
-    #[inline]
-    fn and(self, x: F32x8, y: F32x8) -> F32x8 {
-        unsafe { _mm256_and_ps(x.0, y.0) }.into()
-    }
-}
+impl_mask_ops!(M32);
+impl_mask_ops!(M16);
+impl_mask_ops!(M8);
 
 impl Extend<i16> for Avx2Isa {
     type Output = I32x8;
