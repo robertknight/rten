@@ -64,12 +64,14 @@ pub fn onehot<T: Copy + Default + PartialEq>(
         Tensor::full_in(pool, &out_shape, off_value)
     };
 
-    for (mut index, class) in indices.indices().zip(indices.iter()) {
-        if let Some(class) = resolve_index(depth, *class as isize) {
-            index.insert(onehot_axis, class);
-            output[&index] = on_value;
-        };
-    }
+    output
+        .lanes_mut(onehot_axis)
+        .zip(indices.iter())
+        .for_each(|(mut lane, index)| {
+            if let Some(index) = resolve_index(depth, *index as isize) {
+                *lane.nth(index).unwrap() = on_value;
+            };
+        });
 
     Ok(output)
 }
