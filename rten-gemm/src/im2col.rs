@@ -116,7 +116,7 @@ impl<T: Copy + Default> Im2Col<'_, T> {
         cols: Range<usize>,
     ) {
         let ops = isa.i32();
-        let mask_ops = ops.mask_ops();
+        let mask_ops = isa.m32();
 
         assert_eq!(panel_width, ops.len() * NR_REGS);
 
@@ -278,7 +278,7 @@ impl Im2Col<'_, i8> {
         let ops = isa.i32();
         assert_eq!(ops.len() * NR_REGS, NR);
 
-        let mask_ops = ops.mask_ops();
+        let mask_ops = isa.m32();
 
         debug_assert!(rows.end <= self.rows());
         debug_assert!(cols.end <= self.cols());

@@ -36,6 +36,9 @@ impl ArmNeonIsa {
 
 // Safety: Neon is supported, as it is a required feature of aarch64.
 unsafe impl Isa for ArmNeonIsa {
+    type M32 = uint32x4_t;
+    type M16 = uint16x8_t;
+    type M8 = uint8x16_t;
     type F32 = float32x4_t;
     type I32 = int32x4_t;
     type I16 = int16x8_t;
@@ -80,6 +83,18 @@ unsafe impl Isa for ArmNeonIsa {
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
         self
     }
+
+    fn m32(self) -> impl MaskOps<Self::M32> {
+        self
+    }
+
+    fn m16(self) -> impl MaskOps<Self::M16> {
+        self
+    }
+
+    fn m8(self) -> impl MaskOps<Self::M8> {
+        self
+    }
 }
 
 macro_rules! simd_ops_common {
@@ -121,11 +136,6 @@ macro_rules! simd_ops_common {
                     *ptr.add(i) = x_array[i];
                 }
             }
-        }
-
-        #[inline]
-        fn mask_ops(self) -> impl MaskOps<$mask> {
-            self
         }
 
         // Since bitwise ops work on individual bits, we can use the same

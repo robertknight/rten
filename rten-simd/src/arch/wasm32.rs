@@ -45,6 +45,9 @@ impl Wasm32Isa {
 // Safety: This module is only compiled if WASM SIMD is enabled at compile
 // time, hence this module can treat SIMD as always-available.
 unsafe impl Isa for Wasm32Isa {
+    type M32 = M32;
+    type M16 = M16;
+    type M8 = M8;
     type F32 = F32x4;
     type I32 = I32x4;
     type I16 = I16x8;
@@ -89,16 +92,23 @@ unsafe impl Isa for Wasm32Isa {
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
         self
     }
+
+    fn m32(self) -> impl MaskOps<Self::M32> {
+        self
+    }
+
+    fn m16(self) -> impl MaskOps<Self::M16> {
+        self
+    }
+
+    fn m8(self) -> impl MaskOps<Self::M8> {
+        self
+    }
 }
 
 macro_rules! simd_ops_common {
     ($simd:ident, $mask:ident, $mask_elem:ty) => {
         type Simd = $simd;
-
-        #[inline]
-        fn mask_ops(self) -> impl MaskOps<<$simd as Simd>::Mask> {
-            self
-        }
 
         #[inline]
         fn len(self) -> usize {

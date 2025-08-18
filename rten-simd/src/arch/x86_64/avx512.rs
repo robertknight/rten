@@ -55,6 +55,9 @@ impl Avx512Isa {
 
 // Safety: AVX-512 is supported as `Avx512Isa::new` checks this.
 unsafe impl Isa for Avx512Isa {
+    type M32 = __mmask16;
+    type M16 = __mmask32;
+    type M8 = __mmask64;
     type F32 = F32x16;
     type I32 = I32x16;
     type I16 = I16x32;
@@ -99,6 +102,18 @@ unsafe impl Isa for Avx512Isa {
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
         self
     }
+
+    fn m32(self) -> impl MaskOps<Self::M32> {
+        self
+    }
+
+    fn m16(self) -> impl MaskOps<Self::M16> {
+        self
+    }
+
+    fn m8(self) -> impl MaskOps<Self::M8> {
+        self
+    }
 }
 
 macro_rules! simd_ops_common {
@@ -108,11 +123,6 @@ macro_rules! simd_ops_common {
         #[inline]
         fn len(self) -> usize {
             lanes::<$simd>()
-        }
-
-        #[inline]
-        fn mask_ops(self) -> impl MaskOps<$mask> {
-            self
         }
 
         #[inline]

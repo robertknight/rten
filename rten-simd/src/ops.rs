@@ -32,26 +32,35 @@ pub unsafe trait Isa: Copy {
     /// bitwise casting between different vector types.
     type Bits: Simd;
 
+    /// Mask vector for 32-bit lanes.
+    type M32: Mask;
+
+    /// Mask vector for 16-bit lanes.
+    type M16: Mask;
+
+    /// Mask vector for 8-bit lanes.
+    type M8: Mask;
+
     /// SIMD vector with `f32` elements.
-    type F32: Simd<Elem = f32, Isa = Self>;
+    type F32: Simd<Elem = f32, Isa = Self, Mask = Self::M32>;
 
     /// SIMD vector with `i32` elements.
-    type I32: Simd<Elem = i32, Isa = Self>;
+    type I32: Simd<Elem = i32, Isa = Self, Mask = Self::M32>;
 
     /// SIMD vector with `i16` elements.
-    type I16: Simd<Elem = i16, Isa = Self>;
+    type I16: Simd<Elem = i16, Isa = Self, Mask = Self::M16>;
 
     /// SIMD vector with `i8` elements.
-    type I8: Simd<Elem = i8, Isa = Self>;
+    type I8: Simd<Elem = i8, Isa = Self, Mask = Self::M8>;
 
     /// SIMD vector with `u8` elements.
-    type U8: Simd<Elem = u8, Isa = Self>;
+    type U8: Simd<Elem = u8, Isa = Self, Mask = Self::M8>;
 
     /// SIMD vector with `u16` elements.
-    type U16: Simd<Elem = u16, Isa = Self>;
+    type U16: Simd<Elem = u16, Isa = Self, Mask = Self::M16>;
 
     /// SIMD vector with `u32` elements.
-    type U32: Simd<Elem = u32, Isa = Self>;
+    type U32: Simd<Elem = u32, Isa = Self, Mask = Self::M32>;
 
     /// Operations on SIMD vectors with `f32` elements.
     fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>;
@@ -81,6 +90,15 @@ pub unsafe trait Isa: Copy {
 
     /// Operations on SIMD vectors with `u16` elements.
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16>;
+
+    /// Operations on mask vectors for 32-bit lanes.
+    fn m32(self) -> impl MaskOps<Self::M32>;
+
+    /// Operations on mask vectors for 16-bit lanes.
+    fn m16(self) -> impl MaskOps<Self::M16>;
+
+    /// Operations on mask vectors for 8-bit lanes.
+    fn m8(self) -> impl MaskOps<Self::M8>;
 }
 
 /// Get the [`NumOps`] implementation from an [`Isa`] for a given element type.
@@ -223,10 +241,6 @@ pub unsafe trait NumOps<T: Elem>: Copy {
     fn from_bits(self, x: <<Self::Simd as Simd>::Isa as Isa>::Bits) -> Self::Simd {
         Self::Simd::from_bits(x)
     }
-
-    /// Return the implementation of mask operations for the mask vector used
-    /// by this SIMD type.
-    fn mask_ops(self) -> impl MaskOps<<Self::Simd as Simd>::Mask>;
 
     /// Return the number of elements in the vector.
     fn len(self) -> usize;
@@ -1126,10 +1140,10 @@ mod tests {
     }
 
     macro_rules! test_mask_ops {
-        ($type:ident) => {
+        ($elem_type:ident, $mask_type:ident) => {
             test_simd_op!(isa, {
-                let ops = isa.$type();
-                let mask_ops = ops.mask_ops();
+                let ops = isa.$elem_type();
+                let mask_ops = isa.$mask_type();
 
                 // First-n mask
                 let ones = ops.first_n_mask(ops.len());
@@ -1148,23 +1162,18 @@ mod tests {
     }
 
     #[test]
-    fn test_mask_ops_f32() {
-        test_mask_ops!(f32);
+    fn test_mask_ops_m32() {
+        test_mask_ops!(i32, m32);
     }
 
     #[test]
-    fn test_mask_ops_i32() {
-        test_mask_ops!(i32);
+    fn test_mask_ops_m16() {
+        test_mask_ops!(i16, m16);
     }
 
     #[test]
-    fn test_mask_ops_i16() {
-        test_mask_ops!(i16);
-    }
-
-    #[test]
-    fn test_mask_ops_i8() {
-        test_mask_ops!(i8);
+    fn test_mask_ops_m8() {
+        test_mask_ops!(i8, m8);
     }
 
     macro_rules! test_narrow_saturate {
