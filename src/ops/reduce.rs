@@ -272,7 +272,8 @@ fn cast_kernel<T: 'static, U>(kernel: &dyn ReduceKernel<T>) -> Option<&dyn Reduc
         // are the same types.
         //
         // See https://docs.rs/typeid/latest/typeid/#non-static-typeid.
-        Some(unsafe { std::mem::transmute(kernel) })
+        type RK<'a, T> = &'a dyn ReduceKernel<T>;
+        Some(unsafe { std::mem::transmute::<RK<'_, T>, RK<'_, U>>(kernel) })
     } else {
         None
     }
@@ -669,19 +670,28 @@ impl Operator for ReduceProd {
     }
 }
 
+struct F32SumKernel;
+impl ReduceKernel<f32> for F32SumKernel {
+    fn reduce_slice(&self, slice: &[f32]) -> f32 {
+        vecmath::Sum::new(slice).dispatch()
+    }
+}
+
+struct GenericSumKernel;
+impl<T: Copy + Default + std::ops::Add<T, Output = T>> ReduceKernel<T> for GenericSumKernel {
+    fn reduce_slice(&self, slice: &[T]) -> T {
+        slice_sum(slice)
+    }
+}
+
 pub fn reduce_sum<T: Copy + Default + std::ops::Add<T, Output = T>>(
     pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
-    struct SumKernel {}
-    impl<T: Copy + Default + std::ops::Add<T, Output = T>> ReduceKernel<T> for SumKernel {
-        fn reduce_slice(&self, slice: &[T]) -> T {
-            slice_sum(slice)
-        }
-    }
-    reduce(pool, input, axes, keep_dims, &SumKernel {})
+    let kernel = cast_kernel(&F32SumKernel).unwrap_or(&GenericSumKernel);
+    reduce(pool, input, axes, keep_dims, kernel)
 }
 
 #[derive(Debug)]
@@ -705,19 +715,30 @@ impl Operator for ReduceSum {
     }
 }
 
+struct F32SumSquareKernel;
+impl ReduceKernel<f32> for F32SumSquareKernel {
+    fn reduce_slice(&self, slice: &[f32]) -> f32 {
+        vecmath::SumSquare::new(slice).dispatch()
+    }
+}
+
+struct GenericSumSquareKernel;
+impl<T: Copy + std::iter::Sum + std::ops::Mul<Output = T>> ReduceKernel<T>
+    for GenericSumSquareKernel
+{
+    fn reduce_slice(&self, slice: &[T]) -> T {
+        slice.iter().copied().map(|x| x * x).sum()
+    }
+}
+
 pub fn reduce_sum_square<T: Copy + std::ops::Mul<T, Output = T> + std::iter::Sum>(
     pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
-    struct SumSquareKernel {}
-    impl<T: Copy + std::iter::Sum + std::ops::Mul<Output = T>> ReduceKernel<T> for SumSquareKernel {
-        fn reduce_slice(&self, slice: &[T]) -> T {
-            slice.iter().copied().map(|x| x * x).sum()
-        }
-    }
-    reduce(pool, input, axes, keep_dims, &SumSquareKernel {})
+    let kernel = cast_kernel(&F32SumSquareKernel).unwrap_or(&GenericSumSquareKernel);
+    reduce(pool, input, axes, keep_dims, kernel)
 }
 
 #[derive(Debug)]
