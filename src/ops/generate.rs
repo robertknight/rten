@@ -71,7 +71,8 @@ pub fn onehot<T: Copy + Default + PartialEq>(
     Ok(output)
 }
 
-fn extract_on_off_values<T: Copy>(values: NdTensorView<T, 1>) -> Result<(T, T), OpError> {
+/// Extract OneHot off/on values from a vector of `[off_value, on_value]`.
+fn extract_off_on_values<T: Copy>(values: NdTensorView<T, 1>) -> Result<(T, T), OpError> {
     if values.len() == 2 {
         Ok((values[0], values[1]))
     } else {
@@ -101,7 +102,7 @@ impl Operator for OneHot {
 
         map_value_view!(values, values, [Int32Tensor, FloatTensor], {
             let values = static_dims!(values, 1)?;
-            let (on_value, off_value) = extract_on_off_values(values)?;
+            let (off_value, on_value) = extract_off_on_values(values)?;
             onehot(ctx.pool(), indices, self.axis, depth, on_value, off_value).into_op_result()
         })
     }
@@ -210,8 +211,7 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
-    use crate::ops::tests::new_pool;
-    use crate::ops::{onehot, range, ConstantOfShape, DataType, EyeLike, OpError, OperatorExt};
+    use crate::ops::{range, ConstantOfShape, DataType, EyeLike, OneHot, OpError, OperatorExt};
     use crate::value::{Scalar, Value};
 
     #[test]
@@ -305,7 +305,7 @@ mod tests {
         struct Case {
             classes: Tensor<i32>,
             axis: isize,
-            depth: usize,
+            depth: i32,
             on_value: f32,
             off_value: f32,
             expected: Result<Tensor<f32>, OpError>,
@@ -372,15 +372,11 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
-            let result = onehot(
-                &pool,
-                case.classes.view(),
-                case.axis,
-                case.depth,
-                case.on_value,
-                case.off_value,
-            );
+            let op = OneHot { axis: case.axis };
+            let depth = Tensor::from(case.depth);
+            let values = Tensor::from([case.off_value, case.on_value]);
+            let result: Result<Tensor<f32>, _> =
+                op.run_simple((case.classes.view(), depth.view(), values.view()));
             assert_eq!(result, case.expected);
         })
     }
