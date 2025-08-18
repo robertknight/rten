@@ -31,6 +31,7 @@ image = { version = "0.25.1", default-features = false, features = ["png", "jpeg
 rayon = "1.7.0"
 serde = { version = "1.0.202" }
 serde_json = { version = "1.0.117" }
+typeid = "1.0.3"
 
 [package]
 name = "rten"
@@ -60,6 +61,7 @@ rayon = { workspace = true }
 rustc-hash = "2.0.0"
 memmap2 = { version = "0.9.4", optional = true }
 num_cpus = "1.16.0"
+typeid = { workspace = true}
 
 [dev-dependencies]
 libm = "0.2.6"

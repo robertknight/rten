@@ -265,6 +265,19 @@ trait ReduceKernel<T> {
     fn reduce_slice(&self, slice: &[T]) -> T;
 }
 
+/// Cast a kernel to another type, if `T` and `U` are the same types.
+fn cast_kernel<T: 'static, U>(kernel: &dyn ReduceKernel<T>) -> Option<&dyn ReduceKernel<U>> {
+    if typeid::of::<T>() == typeid::of::<U>() {
+        // Safety: T is a 'static type and U has the same typeid, so T and U
+        // are the same types.
+        //
+        // See https://docs.rs/typeid/latest/typeid/#non-static-typeid.
+        Some(unsafe { std::mem::transmute(kernel) })
+    } else {
+        None
+    }
+}
+
 /// Outer loop of reduction operations.
 ///
 /// This iterates over slices of the input that are reduced independently and
@@ -515,28 +528,6 @@ fn minimum_num<T: Copy + IsNaN + MinMax>(x: T, y: T) -> T {
     }
 }
 
-fn reduce_min_max<T: Copy + IsNaN + MinMax>(
-    pool: &BufferPool,
-    input: TensorView<T>,
-    axes: Option<&[i32]>,
-    keep_dims: bool,
-    max: bool,
-) -> Result<Tensor<T>, OpError> {
-    struct MinMaxReducer {
-        max: bool,
-    }
-    impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for MinMaxReducer {
-        fn reduce_slice(&self, slice: &[T]) -> T {
-            if self.max {
-                slice_fold_assoc(slice, T::min_val(), maximum_num)
-            } else {
-                slice_fold_assoc(slice, T::max_val(), minimum_num)
-            }
-        }
-    }
-    reduce(pool, input, axes, keep_dims, &MinMaxReducer { max })
-}
-
 /// Extract axes from input 1 in `inputs` or `attr`.
 ///
 /// Earlier versions of the ONNX `Reduce*` operators used an attribute. In later
@@ -552,13 +543,28 @@ fn get_axes<'a>(
     Ok(axes)
 }
 
+struct GenericMinKernel;
+impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for GenericMinKernel {
+    fn reduce_slice(&self, slice: &[T]) -> T {
+        slice_fold_assoc(slice, T::max_val(), minimum_num)
+    }
+}
+
+struct F32MinKernel;
+impl ReduceKernel<f32> for F32MinKernel {
+    fn reduce_slice(&self, slice: &[f32]) -> f32 {
+        vecmath::MinNum::new(slice).dispatch()
+    }
+}
+
 pub fn reduce_min<T: Copy + IsNaN + MinMax>(
     pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
-    reduce_min_max(pool, input, axes, keep_dims, false /* max */)
+    let kernel = cast_kernel(&F32MinKernel).unwrap_or(&GenericMinKernel);
+    reduce(pool, input, axes, keep_dims, kernel)
 }
 
 #[derive(Debug)]
@@ -582,13 +588,28 @@ impl Operator for ReduceMin {
     }
 }
 
+struct GenericMaxKernel;
+impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for GenericMaxKernel {
+    fn reduce_slice(&self, slice: &[T]) -> T {
+        slice_fold_assoc(slice, T::min_val(), maximum_num)
+    }
+}
+
+struct F32MaxKernel;
+impl ReduceKernel<f32> for F32MaxKernel {
+    fn reduce_slice(&self, slice: &[f32]) -> f32 {
+        vecmath::MaxNum::new(slice).dispatch()
+    }
+}
+
 pub fn reduce_max<T: Copy + IsNaN + MinMax>(
     pool: &BufferPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
-    reduce_min_max(pool, input, axes, keep_dims, true /* max */)
+    let kernel = cast_kernel(&F32MaxKernel).unwrap_or(&GenericMaxKernel);
+    reduce(pool, input, axes, keep_dims, kernel)
 }
 
 #[derive(Debug)]

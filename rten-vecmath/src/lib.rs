@@ -118,7 +118,7 @@ pub use quantize::Quantize;
 pub use tanh::Tanh;
 
 // Normalization and reduction functions.
-pub use min_max::MinMax;
+pub use min_max::{MaxNum, MinMax, MinNum};
 pub use normalize::{Normalize, NormalizeOptions};
 pub use softmax::Softmax;
 pub use sum::{Sum, SumSquare, SumSquareSub};

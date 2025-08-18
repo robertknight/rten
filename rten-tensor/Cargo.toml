@@ -14,7 +14,7 @@ rayon = { workspace = true }
 rten-base = { path = "../rten-base", version = "0.21.0" }
 serde = { workspace = true, optional = true }
 smallvec = { version = "1.10.0", features=["union", "const_generics", "const_new"] }
-typeid = "1.0.3"
+typeid = { workspace = true }
 
 [dev-dependencies]
 rten-testing = { path = "../rten-testing" }
