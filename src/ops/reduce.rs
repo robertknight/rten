@@ -551,8 +551,8 @@ impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for GenericMinKernel {
     }
 }
 
-struct F32MinKernel;
-impl ReduceKernel<f32> for F32MinKernel {
+struct OptimizedMinKernel;
+impl ReduceKernel<f32> for OptimizedMinKernel {
     fn reduce_slice(&self, slice: &[f32]) -> f32 {
         vecmath::MinNum::new(slice).dispatch()
     }
@@ -564,7 +564,7 @@ pub fn reduce_min<T: Copy + IsNaN + MinMax>(
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
-    let kernel = cast_kernel(&F32MinKernel).unwrap_or(&GenericMinKernel);
+    let kernel = cast_kernel::<f32, T>(&OptimizedMinKernel).unwrap_or(&GenericMinKernel);
     reduce(pool, input, axes, keep_dims, kernel)
 }
 
@@ -596,8 +596,8 @@ impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for GenericMaxKernel {
     }
 }
 
-struct F32MaxKernel;
-impl ReduceKernel<f32> for F32MaxKernel {
+struct OptimizedMaxKernel;
+impl ReduceKernel<f32> for OptimizedMaxKernel {
     fn reduce_slice(&self, slice: &[f32]) -> f32 {
         vecmath::MaxNum::new(slice).dispatch()
     }
@@ -609,7 +609,7 @@ pub fn reduce_max<T: Copy + IsNaN + MinMax>(
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
-    let kernel = cast_kernel(&F32MaxKernel).unwrap_or(&GenericMaxKernel);
+    let kernel = cast_kernel::<f32, T>(&OptimizedMaxKernel).unwrap_or(&GenericMaxKernel);
     reduce(pool, input, axes, keep_dims, kernel)
 }
 
@@ -670,8 +670,8 @@ impl Operator for ReduceProd {
     }
 }
 
-struct F32SumKernel;
-impl ReduceKernel<f32> for F32SumKernel {
+struct OptimizedSumKernel;
+impl ReduceKernel<f32> for OptimizedSumKernel {
     fn reduce_slice(&self, slice: &[f32]) -> f32 {
         vecmath::Sum::new(slice).dispatch()
     }
@@ -690,7 +690,7 @@ pub fn reduce_sum<T: Copy + Default + std::ops::Add<T, Output = T>>(
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
-    let kernel = cast_kernel(&F32SumKernel).unwrap_or(&GenericSumKernel);
+    let kernel = cast_kernel::<f32, T>(&OptimizedSumKernel).unwrap_or(&GenericSumKernel);
     reduce(pool, input, axes, keep_dims, kernel)
 }
 
@@ -715,8 +715,8 @@ impl Operator for ReduceSum {
     }
 }
 
-struct F32SumSquareKernel;
-impl ReduceKernel<f32> for F32SumSquareKernel {
+struct OptimizedSumSquareKernel;
+impl ReduceKernel<f32> for OptimizedSumSquareKernel {
     fn reduce_slice(&self, slice: &[f32]) -> f32 {
         vecmath::SumSquare::new(slice).dispatch()
     }
@@ -737,7 +737,8 @@ pub fn reduce_sum_square<T: Copy + std::ops::Mul<T, Output = T> + std::iter::Sum
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
-    let kernel = cast_kernel(&F32SumSquareKernel).unwrap_or(&GenericSumSquareKernel);
+    let kernel =
+        cast_kernel::<f32, T>(&OptimizedSumSquareKernel).unwrap_or(&GenericSumSquareKernel);
     reduce(pool, input, axes, keep_dims, kernel)
 }
 
