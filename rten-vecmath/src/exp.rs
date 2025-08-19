@@ -227,7 +227,9 @@ impl SimdUnaryOp<f32> for Silu {
         let ops = isa.f32();
         let x = x.same_cast();
 
-        ops.mul(x, Sigmoid::apply(isa, x)).same_cast()
+        // 1. + exp(-x)
+        let denom = ops.add(ops.one(), Exp::apply(isa, ops.neg(x)));
+        ops.div(x, denom).same_cast()
     }
 }
 
