@@ -27,12 +27,12 @@ impl<'a, T: Copy> AsUninit for &'a mut [T] {
 /// Iterator over all possible f32 values.
 #[derive(Clone)]
 pub struct AllF32s {
-    next: u32,
+    next: Option<u32>,
 }
 
 impl AllF32s {
     pub fn new() -> AllF32s {
-        AllF32s { next: 0 }
+        AllF32s { next: Some(0) }
     }
 }
 
@@ -40,17 +40,16 @@ impl Iterator for AllF32s {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        if self.next == u32::MAX {
-            None
-        } else {
-            let next = f32::from_bits(self.next);
-            self.next += 1;
-            Some(next)
-        }
+        let next = self.next?;
+        self.next = next.checked_add(1);
+        Some(f32::from_bits(next))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = (u32::MAX - self.next) as usize;
+        let remaining = self
+            .next
+            .map(|next| (u32::MAX - next) as usize + 1)
+            .unwrap_or(0);
         (remaining, Some(remaining))
     }
 }
