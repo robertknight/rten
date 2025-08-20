@@ -254,13 +254,11 @@ impl SimdUnaryOp<f32> for Swish {
 
 #[cfg(test)]
 mod tests {
-    use std::mem::MaybeUninit;
-
     use rten_simd::SimdUnaryOp;
 
     use super::{ReducedRangeExp, EXP_LOWER_CUTOFF};
     use crate::testing::{
-        arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,
+        arange, benchmark_op, check_with_all_f32s, AsUninit, Tolerance, UnaryOpTester,
     };
     use crate::{Exp, Sigmoid, Silu, Swish};
 
@@ -280,31 +278,6 @@ mod tests {
 
     fn reference_swish(x: f32, beta: f32) -> f32 {
         x * reference_sigmoid(beta * x)
-    }
-
-    /// Check the results of a SIMD implementation of a unary operator against
-    /// a reference implementation.
-    fn check_simd_vs_reference<
-        F: Fn(&[f32], &mut [MaybeUninit<f32>]),
-        R: Fn(f32) -> f32,
-        I: Iterator<Item = f32>,
-    >(
-        simd_op: F,
-        reference_op: R,
-        max_error_ulps: f32,
-        values: I,
-    ) {
-        let cases: Vec<_> = values.collect();
-        let expected: Vec<_> = cases.iter().copied().map(reference_op).collect();
-        let mut actual = cases.clone();
-
-        simd_op(&cases, actual.as_mut_slice().as_uninit());
-
-        let results = cases
-            .iter()
-            .zip(actual.iter().zip(expected.iter()))
-            .map(|(x, (actual, expected))| (*x, *actual, *expected));
-        check_f32s_are_equal_ulps(results, max_error_ulps);
     }
 
     #[test]
@@ -331,22 +304,24 @@ mod tests {
 
     #[test]
     fn test_exp() {
-        check_simd_vs_reference(
-            |src, dest| Exp {}.map(src, dest),
-            f32::exp,
-            MAX_EXP_ERROR_ULPS,
-            arange(-6., 6., 0.001f32),
-        );
+        let test = UnaryOpTester {
+            reference: f32::exp,
+            simd: Exp {},
+            range: arange(-6., 6., 0.001),
+            tolerance: Tolerance::Ulp(MAX_EXP_ERROR_ULPS),
+        };
+        test.run();
     }
 
     #[test]
     fn test_reduced_range_exp() {
-        check_simd_vs_reference(
-            |src, dest| ReducedRangeExp {}.map(src, dest),
-            f32::exp,
-            MAX_EXP_ERROR_ULPS,
-            arange(EXP_LOWER_CUTOFF, 0., 0.015f32),
-        );
+        let test = UnaryOpTester {
+            reference: f32::exp,
+            simd: ReducedRangeExp {},
+            range: arange(EXP_LOWER_CUTOFF, 0., 0.015),
+            tolerance: Tolerance::Ulp(MAX_EXP_ERROR_ULPS),
+        };
+        test.run();
     }
 
     #[test]
@@ -371,12 +346,13 @@ mod tests {
 
     #[test]
     fn test_sigmoid() {
-        check_simd_vs_reference(
-            |src, dest| Sigmoid {}.map(src, dest),
-            reference_sigmoid,
-            MAX_SIGMOID_ERROR_ULPS,
-            arange(-6., 6., 0.001f32),
-        );
+        let test = UnaryOpTester {
+            reference: reference_sigmoid,
+            simd: Sigmoid {},
+            range: arange(-6., 6., 0.001),
+            tolerance: Tolerance::Ulp(MAX_SIGMOID_ERROR_ULPS),
+        };
+        test.run();
     }
 
     #[test]
@@ -395,23 +371,25 @@ mod tests {
 
     #[test]
     fn test_silu() {
-        check_simd_vs_reference(
-            |src, dest| Silu {}.map(src, dest),
-            reference_silu,
-            MAX_SIGMOID_ERROR_ULPS,
-            arange(-6., 6., 0.001f32),
-        );
+        let test = UnaryOpTester {
+            reference: reference_silu,
+            simd: Silu {},
+            range: arange(-6., 6., 0.001),
+            tolerance: Tolerance::Ulp(MAX_SIGMOID_ERROR_ULPS),
+        };
+        test.run();
     }
 
     #[test]
     fn test_swish() {
         let beta = 1.7;
-        check_simd_vs_reference(
-            |src, dest| Swish { beta }.map(src, dest),
-            |x| reference_swish(x, beta),
-            MAX_SIGMOID_ERROR_ULPS,
-            arange(-6., 6., 0.001f32),
-        )
+        let test = UnaryOpTester {
+            reference: |x| reference_swish(x, beta),
+            simd: Swish { beta },
+            range: arange(-6., 6., 0.001),
+            tolerance: Tolerance::Ulp(MAX_SIGMOID_ERROR_ULPS),
+        };
+        test.run();
     }
 
     #[test]
