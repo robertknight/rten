@@ -292,6 +292,23 @@ impl FloatOps<f32> for Wasm32Isa {
     }
 
     #[inline]
+    fn mul_sub_from(self, a: F32x4, b: F32x4, c: F32x4) -> F32x4 {
+        #[cfg(target_feature = "relaxed-simd")]
+        {
+            F32x4(f32x4_relaxed_nmadd(a.0, b.0, c.0))
+        }
+        #[cfg(not(target_feature = "relaxed-simd"))]
+        {
+            F32x4(f32x4_sub(c.0, f32x4_mul(a.0, b.0)))
+        }
+    }
+
+    #[inline]
+    fn round_ties_even(self, x: F32x4) -> F32x4 {
+        F32x4(f32x4_nearest(x.0))
+    }
+
+    #[inline]
     fn to_int_trunc(self, x: F32x4) -> Self::Int {
         I32x4(i32x4_trunc_sat_f32x4(x.0))
     }

@@ -302,6 +302,12 @@ impl FloatOps<f32> for GenericIsa {
     }
 
     #[inline]
+    fn round_ties_even(self, x: F32x4) -> F32x4 {
+        let xs = array::from_fn(|i| x.0[i].round_ties_even());
+        F32x4(xs)
+    }
+
+    #[inline]
     fn neg(self, x: F32x4) -> F32x4 {
         let xs = array::from_fn(|i| -x.0[i]);
         F32x4(xs)
