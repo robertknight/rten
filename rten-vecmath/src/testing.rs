@@ -5,6 +5,7 @@ use std::iter::repeat_with;
 use std::time::Instant;
 
 use crate::ulp::Ulp;
+use rten_simd::SimdUnaryOp;
 
 /// Trait for converting containers of initialized values into uninitialized
 /// ones.
@@ -103,6 +104,7 @@ impl<I: Iterator> Iterator for Progress<I> {
 }
 
 /// Iterator over an arithmetic range. See [`arange`].
+#[derive(Copy, Clone, Debug)]
 pub struct ARange<T: Copy + PartialOrd + std::ops::Add<Output = T>> {
     next: T,
     end: T,
@@ -289,4 +291,48 @@ pub fn benchmark_op<RF: Fn(&[f32], &mut [f32]), VF: Fn(&[f32], &mut [MaybeUninit
         "reference {} us vectorized {} us. reference / vectorized ratio {:.3}",
         reference_elapsed, vecmath_vec_elapsed, ratio
     );
+}
+
+pub enum Tolerance {
+    /// Number of Units of Least Precision.
+    Ulp(f32),
+    /// Maximum absolute difference.
+    Absolute(f32),
+}
+
+/// Tests a vectorized implementation of a unary function against a reference
+/// implementation.
+pub struct UnaryOpTester<F: Fn(f32) -> f32, S: SimdUnaryOp<f32>, R: Iterator<Item = f32> + Clone> {
+    /// Reference implementation of the operation.
+    pub reference: F,
+
+    /// Vectorized implementation of the operation.
+    pub simd: S,
+
+    /// Iterator yielding values to test.
+    pub range: R,
+
+    /// Tolerance for comparisons between reference and actual results.
+    pub tolerance: Tolerance,
+}
+
+impl<F: Fn(f32) -> f32, S: SimdUnaryOp<f32>, R: Iterator<Item = f32> + Clone>
+    UnaryOpTester<F, S, R>
+{
+    /// Run an evaluation of a vectorized operation against a reference and
+    /// panic if the difference exceeds the tolerance for any input.
+    pub fn run(&self) {
+        let cases: Vec<f32> = self.range.clone().collect();
+        assert!(!cases.is_empty(), "test input is empty");
+
+        let expected: Vec<_> = cases.iter().copied().map(&self.reference).collect();
+        let mut actual = cases.clone();
+        self.simd.map_mut(&mut actual);
+
+        let results = triples(&cases, &actual, &expected);
+        match self.tolerance {
+            Tolerance::Ulp(max_ulps) => check_f32s_are_equal_ulps(results, max_ulps),
+            Tolerance::Absolute(max_error) => check_f32s_are_equal_atol(results, max_error),
+        }
+    }
 }

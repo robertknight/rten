@@ -109,9 +109,7 @@ mod tests {
     use rten_simd::SimdUnaryOp;
 
     use super::{ApproxGelu, Erf, Gelu};
-    use crate::testing::{
-        arange, benchmark_op, check_f32s_are_equal_atol, triples, AllF32s, AsUninit, Progress,
-    };
+    use crate::testing::{arange, benchmark_op, AllF32s, Progress, Tolerance, UnaryOpTester};
 
     fn reference_gelu(x: f32) -> f32 {
         0.5 * x * (1. + libm::erff(x / (2.0f32).sqrt()))
@@ -134,15 +132,15 @@ mod tests {
 
     #[test]
     fn test_erf() {
-        // This range is sufficient to cover the regions where the function
-        // is not saturated and where it is saturated at +/- 1.
-        let input: Vec<_> = arange(-6., 6., 0.001f32).collect();
-        let mut actual = vec![0.; input.len()];
-        let expected: Vec<_> = input.iter().copied().map(libm::erff).collect();
-
-        Erf {}.map(&input, actual.as_mut_slice().as_uninit());
-
-        check_f32s_are_equal_atol(triples(&input, &actual, &expected), MAX_EXPECTED_DIFF);
+        let test = UnaryOpTester {
+            reference: libm::erff,
+            simd: Erf {},
+            // This range is sufficient to cover the regions where the function
+            // is not saturated and where it is saturated at +/- 1.
+            range: arange(-6., 6., 0.001),
+            tolerance: Tolerance::Absolute(MAX_EXPECTED_DIFF),
+        };
+        test.run();
     }
 
     #[test]
@@ -160,26 +158,24 @@ mod tests {
 
     #[test]
     fn test_gelu() {
-        let input: Vec<_> = arange(-6., 6., 0.001f32).collect();
-        let mut actual = vec![0.; input.len()];
-        let expected: Vec<_> = input.iter().copied().map(reference_gelu).collect();
-
-        Gelu {}.map(&input, actual.as_mut_slice().as_uninit());
-
-        // Gelu uses erf, so its error is constrained by this.
-        check_f32s_are_equal_atol(triples(&input, &actual, &expected), MAX_EXPECTED_DIFF);
+        let test = UnaryOpTester {
+            reference: reference_gelu,
+            simd: Gelu {},
+            range: arange(-6., 6., 0.001),
+            tolerance: Tolerance::Absolute(MAX_EXPECTED_DIFF),
+        };
+        test.run();
     }
 
     #[test]
     fn test_approx_gelu() {
-        let input: Vec<_> = arange(-6., 6., 0.001f32).collect();
-        let mut actual = vec![0.; input.len()];
-        let expected: Vec<_> = input.iter().copied().map(reference_approx_gelu).collect();
-
-        ApproxGelu {}.map(&input, actual.as_mut_slice().as_uninit());
-
-        let max_diff = 5e-7;
-        check_f32s_are_equal_atol(triples(&input, &actual, &expected), max_diff);
+        let test = UnaryOpTester {
+            reference: reference_approx_gelu,
+            simd: ApproxGelu {},
+            range: arange(-6., 6., 0.001),
+            tolerance: Tolerance::Absolute(5e-7),
+        };
+        test.run();
     }
 
     #[test]

@@ -71,7 +71,7 @@ mod tests {
     use rten_simd::SimdUnaryOp;
 
     use crate::testing::{
-        arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,
+        arange, benchmark_op, check_with_all_f32s, AsUninit, Tolerance, UnaryOpTester,
     };
     use crate::Tanh;
 
@@ -94,16 +94,13 @@ mod tests {
 
     #[test]
     fn test_tanh() {
-        let cases: Vec<f32> = arange(-8., 8., 0.001f32).collect();
-        let expected: Vec<_> = cases.iter().copied().map(|x| x.tanh()).collect();
-        let mut actual = cases.clone();
-        Tanh {}.map(&cases, actual.as_mut_slice().as_uninit());
-
-        let results = cases
-            .iter()
-            .zip(actual.iter().zip(expected.iter()))
-            .map(|(x, (actual, expected))| (*x, *actual, *expected));
-        check_f32s_are_equal_ulps(results, MAX_TANH_ERROR_ULPS);
+        let test = UnaryOpTester {
+            reference: f32::tanh,
+            simd: Tanh {},
+            range: arange(-8., 8., 0.001),
+            tolerance: Tolerance::Ulp(MAX_TANH_ERROR_ULPS),
+        };
+        test.run();
     }
 
     #[test]
