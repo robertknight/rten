@@ -109,7 +109,7 @@ mod tests {
     use rten_simd::SimdUnaryOp;
 
     use super::{ApproxGelu, Erf, Gelu};
-    use crate::testing::{arange, benchmark_op, AllF32s, Progress, Tolerance, UnaryOpTester};
+    use crate::testing::{arange, benchmark_op, AllF32s, Tolerance, UnaryOpTester};
 
     fn reference_gelu(x: f32) -> f32 {
         0.5 * x * (1. + libm::erff(x / (2.0f32).sqrt()))
@@ -146,14 +146,13 @@ mod tests {
     #[test]
     #[ignore] // Ignored by default due to long runtime
     fn test_erf_exhaustive() {
-        let mut max_diff = 0.0f32;
-        let op = Erf {};
-        for x in Progress::wrap(AllF32s::new(), "testing erf") {
-            let (actual, expected) = (op.scalar_eval(x), libm::erff(x));
-            let diff = (actual - expected).abs();
-            max_diff = max_diff.max(diff);
-        }
-        assert!(max_diff <= MAX_EXPECTED_DIFF);
+        let test = UnaryOpTester {
+            reference: libm::erff,
+            simd: Erf {},
+            range: AllF32s::new(),
+            tolerance: Tolerance::Absolute(MAX_EXPECTED_DIFF),
+        };
+        test.run_with_progress();
     }
 
     #[test]
