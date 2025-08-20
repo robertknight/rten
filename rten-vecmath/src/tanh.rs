@@ -70,9 +70,7 @@ impl SimdUnaryOp<f32> for Tanh {
 mod tests {
     use rten_simd::SimdUnaryOp;
 
-    use crate::testing::{
-        arange, benchmark_op, check_with_all_f32s, AsUninit, Tolerance, UnaryOpTester,
-    };
+    use crate::testing::{arange, benchmark_op, AllF32s, Tolerance, UnaryOpTester};
     use crate::Tanh;
 
     // Maximum error of `vec_tanh` compared to `f32::tanh`.
@@ -81,15 +79,13 @@ mod tests {
     #[test]
     #[ignore] // Ignored by default due to long runtime
     fn test_tanh_exhaustive() {
-        check_with_all_f32s(
-            |x| {
-                let mut y = [0.; 1];
-                Tanh {}.map(&[x], y.as_mut().as_uninit());
-                (y[0], x.tanh())
-            },
-            MAX_TANH_ERROR_ULPS,
-            "testing vec_tanh",
-        );
+        let test = UnaryOpTester {
+            reference: f32::tanh,
+            simd: Tanh {},
+            range: AllF32s::new(),
+            tolerance: Tolerance::Ulp(MAX_TANH_ERROR_ULPS),
+        };
+        test.run_with_progress();
     }
 
     #[test]

@@ -25,13 +25,14 @@ impl<'a, T: Copy> AsUninit for &'a mut [T] {
 }
 
 /// Iterator over all possible f32 values.
+#[derive(Clone)]
 pub struct AllF32s {
-    next: u32,
+    next: Option<u32>,
 }
 
 impl AllF32s {
     pub fn new() -> AllF32s {
-        AllF32s { next: 0 }
+        AllF32s { next: Some(0) }
     }
 }
 
@@ -39,69 +40,21 @@ impl Iterator for AllF32s {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        if self.next == u32::MAX {
-            None
-        } else {
-            let next = f32::from_bits(self.next);
-            self.next += 1;
-            Some(next)
-        }
+        let next = self.next?;
+        self.next = next.checked_add(1);
+        Some(f32::from_bits(next))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = (u32::MAX - self.next) as usize;
+        let remaining = self
+            .next
+            .map(|next| (u32::MAX - next) as usize + 1)
+            .unwrap_or(0);
         (remaining, Some(remaining))
     }
 }
 
 impl ExactSizeIterator for AllF32s {}
-
-/// Iterator that wrapper an inner iterator and logs progress messages as
-/// items are pulled from it.
-pub struct Progress<I: Iterator> {
-    prefix: String,
-    inner: I,
-    remaining: usize,
-    len: usize,
-    report_step: usize,
-}
-
-impl<'a, I: Iterator> Progress<I> {
-    /// Wrap the iterator `inner` with an iterator that prints progress messages
-    /// prefixed by `prefix`.
-    pub fn wrap(inner: I, prefix: &str) -> Progress<I> {
-        let remaining = inner.size_hint().0;
-        let report_step = (remaining / 1000).max(1);
-        Progress {
-            inner,
-            remaining,
-            len: remaining,
-            report_step,
-            prefix: prefix.to_string(),
-        }
-    }
-}
-
-impl<I: Iterator> Iterator for Progress<I> {
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.remaining = self.remaining.saturating_sub(1);
-        if self.remaining % self.report_step == 0 {
-            let done = self.len - self.remaining;
-            let progress = done as f32 / self.len as f32;
-            print!("\r{}: {:.2}%", self.prefix, progress * 100.);
-            let _ = std::io::stdout().flush();
-        } else if self.remaining == 0 {
-            println!("");
-        }
-        self.inner.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
 
 /// Iterator over an arithmetic range. See [`arange`].
 #[derive(Copy, Clone, Debug)]
@@ -168,6 +121,9 @@ pub fn triples<'a, T: Copy>(
 /// `expected`.
 pub fn check_f32s_are_equal_atol<I: Iterator<Item = (f32, f32, f32)>>(results: I, max_diff: f32) {
     for (x, actual, expected) in results {
+        if actual.is_nan() && expected.is_nan() {
+            continue;
+        }
         let diff = (actual - expected).abs();
         assert!(
             diff <= max_diff,
@@ -238,27 +194,6 @@ pub fn check_f32s_are_equal_ulps<I: Iterator<Item = (f32, f32, f32)>>(
     );
 }
 
-/// Test a unary function against all possible values of a 32-bit float.
-///
-/// `op` is a function that takes an f32 and computes the actual and
-/// expected values of the function, where the expected value is computed
-/// using a reference implementation.
-///
-/// `ulp_threshold` specifies the maximum difference between the actual
-/// and expected values, in ULPs, when the expected value is not infinite
-/// or NaN.
-pub fn check_with_all_f32s<F: Fn(f32) -> (f32, f32)>(
-    op: F,
-    ulp_threshold: f32,
-    progress_msg: &str,
-) {
-    let actual_expected = AllF32s::new().map(|x| {
-        let (actual, expected) = op(x);
-        (x, actual, expected)
-    });
-    check_f32s_are_equal_ulps(Progress::wrap(actual_expected, progress_msg), ulp_threshold);
-}
-
 /// Benchmark a vectorized implementation of a function against a reference
 /// implementation.
 ///
@@ -322,17 +257,55 @@ impl<F: Fn(f32) -> f32, S: SimdUnaryOp<f32>, R: Iterator<Item = f32> + Clone>
     /// Run an evaluation of a vectorized operation against a reference and
     /// panic if the difference exceeds the tolerance for any input.
     pub fn run(&self) {
-        let cases: Vec<f32> = self.range.clone().collect();
-        assert!(!cases.is_empty(), "test input is empty");
+        self.run_impl(false)
+    }
 
-        let expected: Vec<_> = cases.iter().copied().map(&self.reference).collect();
-        let mut actual = cases.clone();
-        self.simd.map_mut(&mut actual);
+    /// Variant of [`run`](Self::run) which reports progress as it runs.
+    ///
+    /// This is intended for use with ranges like [`AllF32s`] with large numbers
+    /// of elements.
+    pub fn run_with_progress(&self) {
+        self.run_impl(true)
+    }
 
-        let results = triples(&cases, &actual, &expected);
-        match self.tolerance {
-            Tolerance::Ulp(max_ulps) => check_f32s_are_equal_ulps(results, max_ulps),
-            Tolerance::Absolute(max_error) => check_f32s_are_equal_atol(results, max_error),
+    fn run_impl(&self, with_progress: bool) {
+        let mut total = 0;
+        let mut remaining = self.range.clone();
+        let len = remaining.size_hint().0;
+
+        let chunk_size = 16 * 1024;
+        let mut input = Vec::with_capacity(chunk_size);
+        let mut actual = Vec::with_capacity(chunk_size);
+        let mut expected = Vec::with_capacity(chunk_size);
+
+        loop {
+            if with_progress {
+                let progress = total as f32 / len as f32;
+                print!("\rTesting: {:.2}%", progress * 100.);
+                let _ = std::io::stdout().flush();
+            }
+
+            input.clear();
+            actual.clear();
+            expected.clear();
+
+            input.extend((&mut remaining).take(chunk_size));
+            if input.is_empty() {
+                break;
+            }
+
+            total += input.len();
+
+            expected.extend(input.iter().copied().map(&self.reference));
+            actual.extend(&input);
+            self.simd.map_mut(&mut actual);
+
+            let results = triples(&input, &actual, &expected);
+            match self.tolerance {
+                Tolerance::Ulp(max_ulps) => check_f32s_are_equal_ulps(results, max_ulps),
+                Tolerance::Absolute(max_error) => check_f32s_are_equal_atol(results, max_error),
+            }
         }
+        assert!(total > 0, "input range was empty");
     }
 }

@@ -257,9 +257,7 @@ mod tests {
     use rten_simd::SimdUnaryOp;
 
     use super::{ReducedRangeExp, EXP_LOWER_CUTOFF};
-    use crate::testing::{
-        arange, benchmark_op, check_with_all_f32s, AsUninit, Tolerance, UnaryOpTester,
-    };
+    use crate::testing::{arange, benchmark_op, AllF32s, Tolerance, UnaryOpTester};
     use crate::{Exp, Sigmoid, Silu, Swish};
 
     // Maximum error of `Exp` compared to Rust standard library implementation.
@@ -327,21 +325,13 @@ mod tests {
     #[test]
     #[ignore] // Ignored by default due to long runtime
     fn test_exp_exhaustive() {
-        let exp_op = Exp {};
-        check_with_all_f32s(
-            |x| (exp_op.scalar_eval(x), x.exp()),
-            MAX_EXP_ERROR_ULPS,
-            "testing exp",
-        );
-        check_with_all_f32s(
-            |x| {
-                let mut y = [0.; 1];
-                exp_op.map(&[x], y.as_mut().as_uninit());
-                (y[0], x.exp())
-            },
-            MAX_EXP_ERROR_ULPS,
-            "testing vec_expf",
-        );
+        let test = UnaryOpTester {
+            reference: f32::exp,
+            simd: Exp {},
+            range: AllF32s::new(),
+            tolerance: Tolerance::Ulp(MAX_EXP_ERROR_ULPS),
+        };
+        test.run_with_progress();
     }
 
     #[test]
@@ -358,15 +348,13 @@ mod tests {
     #[test]
     #[ignore] // Ignored by default due to long runtime
     fn test_sigmoid_exhaustive() {
-        check_with_all_f32s(
-            |x| {
-                let mut y = [0.; 1];
-                Sigmoid {}.map(&[x], y.as_mut().as_uninit());
-                (y[0], reference_sigmoid(x))
-            },
-            MAX_SIGMOID_ERROR_ULPS,
-            "testing vec_sigmoid",
-        );
+        let test = UnaryOpTester {
+            reference: reference_sigmoid,
+            simd: Sigmoid {},
+            range: AllF32s::new(),
+            tolerance: Tolerance::Ulp(MAX_SIGMOID_ERROR_ULPS),
+        };
+        test.run_with_progress();
     }
 
     #[test]
