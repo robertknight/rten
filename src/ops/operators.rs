@@ -68,7 +68,7 @@ pub trait Operators {
         val: Self::Elem,
     ) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy;
+        Self::Elem: Copy + Default + PartialEq;
 
     fn topk(
         &self,
@@ -170,7 +170,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy,
+        Self::Elem: Copy + Default + PartialEq,
     {
         let view = self.as_dyn();
         use_thread_pool(move || pad(&BufferPool::new(), view, &padding, PadMode::Constant, val))

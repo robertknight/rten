@@ -16,7 +16,7 @@ pub enum PadMode {
     Wrap,
 }
 
-pub fn pad<T: Copy>(
+pub fn pad<T: Copy + Default + PartialEq>(
     pool: &BufferPool,
     input: TensorView<T>,
     padding: &NdTensorView<i32, 1>,
@@ -60,7 +60,14 @@ pub fn pad<T: Copy>(
                 })
                 .collect();
 
-            let mut output = Tensor::full_in(pool, &out_shape, const_val);
+            let mut output = if const_val == T::default() {
+                // Special case zero for platforms that have optimized
+                // instructions for this.
+                Tensor::zeros_in(pool, &out_shape)
+            } else {
+                Tensor::full_in(pool, &out_shape, const_val)
+            };
+
             output
                 .slice_mut(non_pad_region.as_slice())
                 .copy_from(&input);
