@@ -15,6 +15,28 @@ macro_rules! simd_type {
         #[derive(Copy, Clone, Debug)]
         pub struct $simd([$elem; $len]);
 
+        impl $simd {
+            /// Apply a unary operation to each lane of this vector.
+            #[allow(unused)]
+            #[inline]
+            fn map<U, F: Fn($elem) -> U, R>(self, op: F) -> R
+            where
+                R: From<[U; $len]>,
+            {
+                self.0.map(op).into()
+            }
+
+            /// Apply a binary operation to pairs of elements from `self` and `y`.
+            #[allow(unused)]
+            #[inline]
+            fn map_with<U, F: Fn($elem, $elem) -> U, R>(self, y: Self, op: F) -> R
+            where
+                R: From<[U; $len]>,
+            {
+                array::from_fn(|i| op(self.0[i], y.0[i])).into()
+            }
+        }
+
         impl From<[$elem; $len]> for $simd {
             fn from(val: [$elem; $len]) -> $simd {
                 $simd(val)
@@ -164,20 +186,17 @@ macro_rules! simd_ops_common {
 
         #[inline]
         fn add(self, x: $simd, y: $simd) -> $simd {
-            let xs = array::from_fn(|i| x.0[i] + y.0[i]);
-            $simd(xs)
+            x.map_with(y, |x, y| x + y)
         }
 
         #[inline]
         fn sub(self, x: $simd, y: $simd) -> $simd {
-            let xs = array::from_fn(|i| x.0[i] - y.0[i]);
-            $simd(xs)
+            x.map_with(y, |x, y| x - y)
         }
 
         #[inline]
         fn mul(self, x: $simd, y: $simd) -> $simd {
-            let xs = array::from_fn(|i| x.0[i] * y.0[i]);
-            $simd(xs)
+            x.map_with(y, |x, y| x * y)
         }
 
         #[inline]
@@ -188,32 +207,27 @@ macro_rules! simd_ops_common {
 
         #[inline]
         fn eq(self, x: $simd, y: $simd) -> $mask {
-            let xs = array::from_fn(|i| if x.0[i] == y.0[i] { !0 } else { 0 });
-            $mask(xs)
+            x.map_with(y, |x, y| if x == y { !0 } else { 0 })
         }
 
         #[inline]
         fn ge(self, x: $simd, y: $simd) -> $mask {
-            let xs = array::from_fn(|i| if x.0[i] >= y.0[i] { !0 } else { 0 });
-            $mask(xs)
+            x.map_with(y, |x, y| if x >= y { !0 } else { 0 })
         }
 
         #[inline]
         fn gt(self, x: $simd, y: $simd) -> $mask {
-            let xs = array::from_fn(|i| if x.0[i] > y.0[i] { !0 } else { 0 });
-            $mask(xs)
+            x.map_with(y, |x, y| if x > y { !0 } else { 0 })
         }
 
         #[inline]
         fn min(self, x: $simd, y: $simd) -> $simd {
-            let xs = array::from_fn(|i| x.0[i].min(y.0[i]));
-            $simd(xs)
+            x.map_with(y, |x, y| x.min(y))
         }
 
         #[inline]
         fn max(self, x: $simd, y: $simd) -> $simd {
-            let xs = array::from_fn(|i| x.0[i].max(y.0[i]));
-            $simd(xs)
+            x.map_with(y, |x, y| x.max(y))
         }
 
         #[inline]
@@ -246,22 +260,22 @@ macro_rules! simd_int_ops_common {
     ($simd:ty) => {
         #[inline]
         fn and(self, x: $simd, y: $simd) -> $simd {
-            array::from_fn(|i| x.0[i] & y.0[i]).into()
+            x.map_with(y, |x, y| x & y)
         }
 
         #[inline]
         fn or(self, x: $simd, y: $simd) -> $simd {
-            array::from_fn(|i| x.0[i] | y.0[i]).into()
+            x.map_with(y, |x, y| x | y)
         }
 
         #[inline]
         fn not(self, x: $simd) -> $simd {
-            array::from_fn(|i| !x.0[i]).into()
+            x.map(|x| !x)
         }
 
         #[inline]
         fn xor(self, x: $simd, y: $simd) -> $simd {
-            array::from_fn(|i| x.0[i] ^ y.0[i]).into()
+            x.map_with(y, |x, y| x ^ y)
         }
     };
 }
@@ -273,22 +287,22 @@ unsafe impl NumOps<f32> for GenericIsa {
 
     #[inline]
     fn and(self, x: F32x4, y: F32x4) -> F32x4 {
-        array::from_fn(|i| f32::from_bits(x.0[i].to_bits() & y.0[i].to_bits())).into()
+        x.map_with(y, |x, y| f32::from_bits(x.to_bits() & y.to_bits()))
     }
 
     #[inline]
     fn not(self, x: F32x4) -> F32x4 {
-        array::from_fn(|i| f32::from_bits(!x.0[i].to_bits())).into()
+        x.map(|x| f32::from_bits(!x.to_bits()))
     }
 
     #[inline]
     fn or(self, x: F32x4, y: F32x4) -> F32x4 {
-        array::from_fn(|i| f32::from_bits(x.0[i].to_bits() | y.0[i].to_bits())).into()
+        x.map_with(y, |x, y| f32::from_bits(x.to_bits() | y.to_bits()))
     }
 
     #[inline]
     fn xor(self, x: F32x4, y: F32x4) -> F32x4 {
-        array::from_fn(|i| f32::from_bits(x.0[i].to_bits() ^ y.0[i].to_bits())).into()
+        x.map_with(y, |x, y| f32::from_bits(x.to_bits() ^ y.to_bits()))
     }
 }
 
@@ -297,38 +311,32 @@ impl FloatOps<f32> for GenericIsa {
 
     #[inline]
     fn div(self, x: F32x4, y: F32x4) -> F32x4 {
-        let xs = array::from_fn(|i| x.0[i] / y.0[i]);
-        F32x4(xs)
+        x.map_with(y, |x, y| x / y)
     }
 
     #[inline]
     fn round_ties_even(self, x: F32x4) -> F32x4 {
-        let xs = array::from_fn(|i| x.0[i].round_ties_even());
-        F32x4(xs)
+        x.map(|x| x.round_ties_even())
     }
 
     #[inline]
     fn neg(self, x: F32x4) -> F32x4 {
-        let xs = array::from_fn(|i| -x.0[i]);
-        F32x4(xs)
+        x.map(|x| -x)
     }
 
     #[inline]
     fn abs(self, x: F32x4) -> F32x4 {
-        let xs = array::from_fn(|i| x.0[i].abs());
-        F32x4(xs)
+        x.map(|x| x.abs())
     }
 
     #[inline]
     fn to_int_trunc(self, x: F32x4) -> Self::Int {
-        let xs = array::from_fn(|i| x.0[i] as i32);
-        I32x4(xs)
+        x.map(|x| x as i32)
     }
 
     #[inline]
     fn to_int_round(self, x: F32x4) -> Self::Int {
-        let xs = array::from_fn(|i| x.0[i].round_ties_even() as i32);
-        I32x4(xs)
+        x.map(|x| x.round_ties_even() as i32)
     }
 }
 
@@ -344,8 +352,7 @@ macro_rules! impl_simd_int_ops {
         impl IntOps<$elem> for GenericIsa {
             #[inline]
             fn shift_left<const SHIFT: i32>(self, x: $simd) -> $simd {
-                let xs = array::from_fn(|i| x.0[i] << SHIFT);
-                $simd(xs)
+                x.map(|x| x << SHIFT)
             }
         }
     };
@@ -358,8 +365,7 @@ macro_rules! impl_simd_signed_int_ops {
         impl SignedIntOps<$elem> for GenericIsa {
             #[inline]
             fn neg(self, x: $simd) -> $simd {
-                let xs = array::from_fn(|i| -x.0[i]);
-                $simd(xs)
+                x.map(|x| -x)
             }
         }
     };
