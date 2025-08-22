@@ -506,6 +506,16 @@ pub trait FloatOps<T: Elem>: NumOps<T> {
         self.select(self.neg(x), x, self.lt(x, self.zero()))
     }
 
+    /// Round `x` to the nearest integer value, with ties to even.
+    ///
+    /// This is like [`f32::round_ties_even`].
+    fn round_ties_even(self, x: Self::Simd) -> Self::Simd;
+
+    /// Compute `c - a * b`.
+    fn mul_sub_from(self, a: Self::Simd, b: Self::Simd, c: Self::Simd) -> Self::Simd {
+        self.sub(c, self.mul(a, b))
+    }
+
     /// Convert each lane to an integer of the same width, rounding towards zero.
     fn to_int_trunc(self, x: Self::Simd) -> Self::Int;
 
@@ -987,6 +997,35 @@ mod tests {
 
                         let expected = ops.splat(-3 as $elem);
                         let actual = ops.neg(x);
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+
+                #[test]
+                fn test_mul_sub_from() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let a = ops.splat(2 as $elem);
+                        let b = ops.splat(3 as $elem);
+                        let c = ops.splat(4 as $elem);
+
+                        let actual = ops.mul_sub_from(a, b, c);
+                        let expected = ops.splat((-(2. * 3.) + 4.) as $elem);
+
+                        assert_simd_eq!(actual, expected);
+                    })
+                }
+
+                #[test]
+                fn test_round_ties_even() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(3.5 as $elem);
+
+                        let expected = ops.splat(4 as $elem);
+                        let actual = ops.round_ties_even(x);
                         assert_simd_eq!(actual, expected);
                     })
                 }
