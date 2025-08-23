@@ -1,5 +1,6 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
+use std::path::Path;
 use std::time::Instant;
 
 use rten::{
@@ -8,6 +9,7 @@ use rten::{
 };
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
+use safetensors::SafeTensors;
 
 mod dim_size;
 use dim_size::DimSize;
@@ -47,6 +49,9 @@ struct Args {
     /// Run model and don't produce other output
     quiet: bool,
 
+    /// Print output values produced by inference.
+    print_outputs: bool,
+
     /// Record and display operator timing stats.
     profile_mode: ProfileMode,
 
@@ -55,6 +60,9 @@ struct Args {
 
     /// Sizes for dynamic dimensions of inputs.
     input_sizes: Vec<DimSize>,
+
+    /// Path to Safetensors file containing map of input name to value.
+    input_data: Option<String>,
 
     /// Number of times to run model.
     n_iters: u32,
@@ -71,15 +79,17 @@ fn parse_args() -> Result<Args, lexopt::Error> {
 
     let mut values = VecDeque::new();
 
+    let mut input_data = None;
+    let mut input_sizes = Vec::new();
     let mut mmap = false;
     let mut n_iters = 1;
-    let mut quiet = false;
-    let mut profile_mode = ProfileMode::None;
-    let mut verbose = false;
-    let mut input_sizes = Vec::new();
+    let mut num_threads = None;
     let mut optimize = true;
     let mut prepack_weights = false;
-    let mut num_threads = None;
+    let mut print_outputs = false;
+    let mut profile_mode = ProfileMode::None;
+    let mut quiet = false;
+    let mut verbose = false;
 
     let parse_uint = |parser: &mut lexopt::Parser, opt_name| -> Result<u32, lexopt::Error> {
         let value = parser.value()?.string()?;
@@ -92,6 +102,9 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     while let Some(arg) = parser.next()? {
         match arg {
             Value(val) => values.push_back(val.string()?),
+            Short('d') | Long("data") => {
+                input_data = Some(parser.value()?.string()?);
+            }
             Long("mmap") => mmap = true,
             Short('n') | Long("num-iters") => {
                 n_iters = parse_uint(&mut parser, "num-iters")?;
@@ -102,6 +115,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
             }
             Short('k') | Long("prepack") => prepack_weights = true,
             Short('p') | Long("profile") => profile_mode = profile_mode.next_level(),
+            Long("print") => print_outputs = true,
             Short('q') | Long("quiet") => quiet = true,
             Short('v') | Long("verbose") => verbose = true,
             Short('V') | Long("version") => {
@@ -127,6 +141,10 @@ Args:
 Options:
   -h, --help     Print help
 
+  -d, --data <path>
+                 Read values for input tensors from Safetensors file at the
+                 given path. Tensor names in the file are used as input names.
+
   --mmap         Load model via memory mapping
 
   -n, --num-iters <n>
@@ -136,16 +154,18 @@ Options:
 
   --no-optimize  Disable graph optimizations
 
-  -q, --quiet    Run model and don't produce other output
-
   -k, --prepack  Enable prepacking of weights.
 
                  This requires additional memory but makes inference faster.
+
+  --print        Print output tensor values.
 
   -p, --profile  Record and display operator timings.
 
                  If this flag is repeated, more detailed profiling information
                  is displayed.
+
+  -q, --quiet    Run model and don't produce other output
 
   -s, --size <spec>
                  Specify size for a dynamic dimension in the form `dim_name=size`
@@ -170,6 +190,7 @@ Options:
     DimSize::sort_dedup(&mut input_sizes);
 
     Ok(Args {
+        input_data,
         input_sizes,
         mmap,
         model,
@@ -177,6 +198,7 @@ Options:
         num_threads,
         optimize,
         prepack_weights,
+        print_outputs,
         quiet,
         profile_mode,
         verbose,
@@ -209,30 +231,42 @@ fn print_metadata(metadata: &ModelMetadata) {
     print_field("Run URL", metadata.run_url());
 }
 
+struct InputConfig {
+    /// Dimension sizes to use when generating inputs with dimensions that have
+    /// a dynamic size.
+    dim_sizes: Vec<DimSize>,
+
+    /// Map of input name to value.
+    ///
+    /// Inputs use values from this map if present, otherwise a random input is
+    /// generated.
+    values: HashMap<String, Value>,
+}
+
 /// Generate random inputs for `model` using shape metadata and heuristics,
 /// run it, and print details of the output.
 ///
 /// `dim_sizes` specifies the sizes for input dimensions with dynamic sizes.
-fn run_with_random_input(
+fn run_model(
     model: &Model,
-    dim_sizes: &[DimSize],
+    input_config: &InputConfig,
     run_opts: RunOptions,
     n_iters: u32,
     quiet: bool,
+    print_outputs: bool,
 ) -> Result<(), Box<dyn Error>> {
-    let mut rng = fastrand::Rng::new();
-
     // Names of all dynamic dimensions for which no size was explicitly
     // specified.
     let mut dynamic_dims_using_default_size: HashSet<String> = HashSet::new();
 
     // Indexes of entries in `dim_sizes` that didn't match any inputs.
-    let mut unused_dim_sizes: HashSet<usize> = (0..dim_sizes.len()).collect();
+    let mut unused_dim_sizes: HashSet<usize> = (0..input_config.dim_sizes.len()).collect();
 
-    // Generate random model inputs. The `Output` type here is used as an
-    // enum that can hold tensors of different types.
-    let inputs: Vec<(NodeId, Value)> = model.input_ids().iter().copied().try_fold(
-        Vec::<(NodeId, Value)>::new(),
+    let mut input_generator = RandomInputGenerator::new();
+
+    // Fetch or generate model inputs
+    let inputs: Vec<(NodeId, ValueOrView)> = model.input_ids().iter().copied().try_fold(
+        Vec::<(NodeId, ValueOrView)>::new(),
         |mut inputs, id| {
             let info = model.node_info(id).ok_or("Unable to get input info")?;
             let name = info.name().unwrap_or("(unnamed input)");
@@ -241,68 +275,25 @@ fn run_with_random_input(
                 .ok_or(format!("Unable to get shape for input {}", name))?;
             let dtype = info.dtype();
 
-            let resolved_shape: Vec<usize> = shape
-                .iter()
-                .map(|dim| match dim {
-                    Dimension::Symbolic(dim_name) => {
-                        if let Some((idx, dim_size)) = dim_sizes
-                            .iter()
-                            .enumerate()
-                            .find(|(_i, ds)| ds.matches(name, dim_name))
-                        {
+            let value_or_view = if let Some(value) = input_config.values.get(name) {
+                ValueOrView::View(value.as_view())
+            } else {
+                let tensor = input_generator.generate(
+                    name,
+                    dtype,
+                    &shape,
+                    &input_config.dim_sizes,
+                    |dim_name, dim_size_idx| {
+                        if let Some(idx) = dim_size_idx {
                             unused_dim_sizes.remove(&idx);
-                            dim_size.size
                         } else {
                             dynamic_dims_using_default_size.insert(dim_name.to_string());
-                            1
                         }
-                    }
-                    Dimension::Fixed(size) => *size,
-                })
-                .collect();
-
-            fn random_ints<T, F: FnMut() -> T>(shape: &[usize], gen: F) -> Value
-            where
-                Value: From<Tensor<T>>,
-            {
-                Tensor::from_simple_fn(shape, gen).into()
-            }
-
-            // Guess suitable content for the input based on its name.
-            let tensor = match name {
-                // If this is a mask, use all ones on the assumption that we
-                // don't want to mask anything out.
-                name if name.ends_with("_mask") => Value::from(Tensor::full(&resolved_shape, 1i32)),
-
-                // Inputs such as `token_type_ids`, `position_ids`, `input_ids`.
-                // We use zero as a value that is likely to be valid for all
-                // of these.
-                name if name.ends_with("_ids") => {
-                    Value::from(Tensor::<i32>::zeros(&resolved_shape))
-                }
-
-                // Optimum can export "merged" transformer models which have two
-                // branches. One accepts KV-cache inputs and the other does not.
-                // Set this to false as a "safer" value because we don't have
-                // cached outputs from a previous run.
-                "use_cache_branch" => Value::from(Tensor::from(0i32)),
-
-                // For anything else, random values.
-                _ => match dtype {
-                    // Generate floats in [0, 1]
-                    Some(DataType::Float) | None => {
-                        Value::from(Tensor::from_simple_fn(&resolved_shape, || rng.f32()))
-                    }
-                    // Generate random values for int types. The default ranges
-                    // are intended to be suitable for many models, but there
-                    // ought to be a way to override them.
-                    Some(DataType::Int32) => random_ints(&resolved_shape, || rng.i32(0..256)),
-                    Some(DataType::Int8) => random_ints(&resolved_shape, || rng.i8(0..=127)),
-                    Some(DataType::UInt8) => random_ints(&resolved_shape, || rng.u8(0..=255)),
-                },
+                    },
+                );
+                ValueOrView::Value(tensor)
             };
-
-            inputs.push((id, tensor));
+            inputs.push((id, value_or_view));
 
             Ok::<_, Box<dyn Error>>(inputs)
         },
@@ -326,7 +317,7 @@ fn run_with_random_input(
     // cause errors or less work (because a dimension has a smaller value than
     // intended).
     if let Some(idx) = unused_dim_sizes.into_iter().next() {
-        let dim_size = &dim_sizes[idx];
+        let dim_size = &input_config.dim_sizes[idx];
         let err = if let Some(input_name) = &dim_size.input_name {
             format!(
                 "Input and dim name \"{}.{}\" did not match any inputs",
@@ -340,12 +331,6 @@ fn run_with_random_input(
         };
         return Err(err.into());
     }
-
-    // Convert inputs from `Output` (owned) to `Input` (view).
-    let inputs: Vec<(NodeId, ValueOrView)> = inputs
-        .iter()
-        .map(|(id, output)| (*id, ValueOrView::from(output)))
-        .collect();
 
     if !quiet {
         for (id, input) in inputs.iter() {
@@ -433,11 +418,102 @@ fn run_with_random_input(
                     output.dtype(),
                     output.shape()
                 );
+
+                if print_outputs {
+                    println!("  Output {} value: {:?}", name, output);
+                }
             }
         }
     }
 
     Ok(())
+}
+
+struct RandomInputGenerator {
+    rng: fastrand::Rng,
+}
+
+impl RandomInputGenerator {
+    fn new() -> Self {
+        RandomInputGenerator {
+            rng: fastrand::Rng::new(),
+        }
+    }
+
+    /// Generate a random value for an input using the name, shape and dtype
+    /// properties from the model as well as configuration provided when
+    /// running the CLI.
+    ///
+    /// `on_resolve_size` is invoked for each dynamic dimension size that
+    /// is resolved, specifying the dimension name and index of the entry in
+    /// `dim_sizes` that was used, if any.
+    fn generate(
+        &mut self,
+        name: &str,
+        dtype: Option<DataType>,
+        shape: &[Dimension],
+        dim_sizes: &[DimSize],
+        mut on_resolve_size: impl FnMut(&str, Option<usize>),
+    ) -> Value {
+        let resolved_shape: Vec<usize> = shape
+            .iter()
+            .map(|dim| match dim {
+                Dimension::Symbolic(dim_name) => {
+                    if let Some((idx, dim_size)) = dim_sizes
+                        .iter()
+                        .enumerate()
+                        .find(|(_i, ds)| ds.matches(name, dim_name))
+                    {
+                        on_resolve_size(dim_name, Some(idx));
+                        dim_size.size
+                    } else {
+                        on_resolve_size(dim_name, None);
+                        1
+                    }
+                }
+                Dimension::Fixed(size) => *size,
+            })
+            .collect();
+
+        fn random_ints<T, F: FnMut() -> T>(shape: &[usize], gen: F) -> Value
+        where
+            Value: From<Tensor<T>>,
+        {
+            Tensor::from_simple_fn(shape, gen).into()
+        }
+
+        // Guess suitable content for the input based on its name.
+        match name {
+            // If this is a mask, use all ones on the assumption that we
+            // don't want to mask anything out.
+            name if name.ends_with("_mask") => Value::from(Tensor::full(&resolved_shape, 1i32)),
+
+            // Inputs such as `token_type_ids`, `position_ids`, `input_ids`.
+            // We use zero as a value that is likely to be valid for all
+            // of these.
+            name if name.ends_with("_ids") => Value::from(Tensor::<i32>::zeros(&resolved_shape)),
+
+            // Optimum can export "merged" transformer models which have two
+            // branches. One accepts KV-cache inputs and the other does not.
+            // Set this to false as a "safer" value because we don't have
+            // cached outputs from a previous run.
+            "use_cache_branch" => Value::from(Tensor::from(0i32)),
+
+            // For anything else, random values.
+            _ => match dtype {
+                // Generate floats in [0, 1]
+                Some(DataType::Float) | None => {
+                    Value::from(Tensor::from_simple_fn(&resolved_shape, || self.rng.f32()))
+                }
+                // Generate random values for int types. The default ranges
+                // are intended to be suitable for many models, but there
+                // ought to be a way to override them.
+                Some(DataType::Int32) => random_ints(&resolved_shape, || self.rng.i32(0..256)),
+                Some(DataType::Int8) => random_ints(&resolved_shape, || self.rng.i8(0..=127)),
+                Some(DataType::UInt8) => random_ints(&resolved_shape, || self.rng.u8(0..=255)),
+            },
+        }
+    }
 }
 
 /// Format an input or output shape as a `[dim0, dim1, ...]` string, where each
@@ -471,6 +547,41 @@ fn print_input_output_list(model: &Model, node_ids: &[NodeId]) {
                 .unwrap_or("(unknown shape)".to_string())
         );
     }
+}
+
+/// Convert a tensor from a Safetensors file into an rten Tensor.
+fn read_tensor<T, const ELEM_BYTES: usize>(
+    view: safetensors::tensor::TensorView,
+    convert: impl Fn([u8; ELEM_BYTES]) -> T,
+) -> Tensor<T> {
+    // We assume that safetensors has validated the length of the data.
+    let (chunks, remainder) = view.data().as_chunks::<ELEM_BYTES>();
+    assert!(remainder.is_empty());
+    let data: Vec<T> = chunks.iter().copied().map(convert).collect();
+    Tensor::from_data(view.shape(), data)
+}
+
+/// Read values for model inputs from a Safetensors file.
+///
+/// Returns a map of input name to value.
+fn read_inputs_from_safetensors(path: &Path) -> Result<HashMap<String, Value>, Box<dyn Error>> {
+    use safetensors::tensor::Dtype;
+
+    let data = std::fs::read(path)?;
+    let tensors = SafeTensors::deserialize(&data)?;
+
+    let mut result = HashMap::new();
+    for (name, view) in tensors.iter() {
+        let value: Value = match view.dtype() {
+            Dtype::F32 => read_tensor::<f32, _>(view, f32::from_le_bytes).into(),
+            Dtype::I32 => read_tensor::<i32, _>(view, i32::from_le_bytes).into(),
+            _ => {
+                return Err(format!("Unsupported tensor dtype {:?}", view.dtype()).into());
+            }
+        };
+        result.insert(name.to_string(), value);
+    }
+    Ok(result)
 }
 
 /// Tool for inspecting converted ONNX models and running them with randomly
@@ -543,12 +654,29 @@ fn main() {
         ..Default::default()
     };
 
-    if let Err(err) = run_with_random_input(
+    let mut input_values = HashMap::new();
+    if let Some(data_path) = args.input_data {
+        input_values = match read_inputs_from_safetensors(Path::new(&data_path)) {
+            Ok(values) => values,
+            Err(err) => {
+                eprintln!("Reading inputs failed: {}", err);
+                std::process::exit(1);
+            }
+        };
+    }
+
+    let inputs = InputConfig {
+        dim_sizes: args.input_sizes,
+        values: input_values,
+    };
+
+    if let Err(err) = run_model(
         &model,
-        &args.input_sizes,
+        &inputs,
         run_opts,
         args.n_iters,
         args.quiet,
+        args.print_outputs,
     ) {
         // For readability, add a blank line after any output before the final
         // error.
