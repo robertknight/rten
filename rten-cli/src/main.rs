@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
+use std::fmt::Debug;
 use std::path::Path;
 use std::time::Instant;
 
@@ -8,7 +9,7 @@ use rten::{
     ValueOrView,
 };
 use rten_tensor::prelude::*;
-use rten_tensor::Tensor;
+use rten_tensor::{Tensor, TensorView};
 use safetensors::SafeTensors;
 
 mod dim_size;
@@ -62,7 +63,10 @@ struct Args {
     input_sizes: Vec<DimSize>,
 
     /// Path to Safetensors file containing map of input name to value.
-    input_data: Option<String>,
+    inputs: Option<String>,
+
+    /// Path to Safetensors file containing map of output name to expected value.
+    check_outputs: Option<String>,
 
     /// Number of times to run model.
     n_iters: u32,
@@ -79,6 +83,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
 
     let mut values = VecDeque::new();
 
+    let mut check_outputs = None;
     let mut input_data = None;
     let mut input_sizes = Vec::new();
     let mut mmap = false;
@@ -102,7 +107,10 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     while let Some(arg) = parser.next()? {
         match arg {
             Value(val) => values.push_back(val.string()?),
-            Short('d') | Long("data") => {
+            Long("check-outputs") => {
+                check_outputs = Some(parser.value()?.string()?);
+            }
+            Short('i') | Long("inputs") => {
                 input_data = Some(parser.value()?.string()?);
             }
             Long("mmap") => mmap = true,
@@ -141,7 +149,11 @@ Args:
 Options:
   -h, --help     Print help
 
-  -d, --data <path>
+  --check-outputs <path>
+                 Check outputs against the values provided in the Safetensors
+                 file specified by <path>. This must be used together with `--inputs`.
+
+  -i, --inputs <path>
                  Read values for input tensors from Safetensors file at the
                  given path. Tensor names in the file are used as input names.
 
@@ -190,7 +202,8 @@ Options:
     DimSize::sort_dedup(&mut input_sizes);
 
     Ok(Args {
-        input_data,
+        check_outputs,
+        inputs: input_data,
         input_sizes,
         mmap,
         model,
@@ -254,6 +267,7 @@ fn run_model(
     n_iters: u32,
     quiet: bool,
     print_outputs: bool,
+    expected_outputs: Option<HashMap<String, Value>>,
 ) -> Result<(), Box<dyn Error>> {
     // Names of all dynamic dimensions for which no size was explicitly
     // specified.
@@ -412,21 +426,78 @@ fn run_model(
 
     if !quiet {
         if let Some(outputs) = last_outputs {
-            for (i, (output, name)) in outputs.iter().zip(output_names).enumerate() {
+            for (output, name) in outputs.iter().zip(output_names) {
+                // Print basic information about the output.
                 println!(
-                    "  Output {i} \"{name}\" data type {} shape: {:?}",
+                    "  Output \"{name}\" data type {} shape: {:?}",
                     output.dtype(),
                     output.shape()
                 );
 
+                // Print a debug representation of the output.
                 if print_outputs {
                     println!("  Output {} value: {:?}", name, output);
+                }
+
+                // Compare output against expected value.
+                if let Some(expected) = expected_outputs.as_ref().and_then(|eo| eo.get(&name)) {
+                    if expected.shape() != output.shape() {
+                        println!(
+                            "  Output \"{name}\" shape {:?} does not match expected {:?}",
+                            output.shape(),
+                            expected.shape()
+                        );
+                        continue;
+                    } else if expected.dtype() != output.dtype() {
+                        println!(
+                            "  Output \"{name}\" dtype {:?} does not match expected {:?}",
+                            output.dtype(),
+                            expected.dtype()
+                        );
+                        continue;
+                    }
+
+                    let compare_result = match (output, expected) {
+                        (Value::FloatTensor(actual), Value::FloatTensor(expected)) => {
+                            compare_tensors(actual.view(), expected.view(), |x, y| (x - y).abs())
+                        }
+                        _ => {
+                            eprintln!("  Unable to compare outputs. Unsupported tensor types.");
+                            continue;
+                        }
+                    };
+                    println!(
+                        "  Output \"{name}\" vs expected: max diff {:.6}",
+                        compare_result.max_diff
+                    );
                 }
             }
         }
     }
 
     Ok(())
+}
+
+struct CompareMetrics {
+    /// Maximum absolute difference between any corresponding pair of elements.
+    max_diff: f32,
+}
+
+/// Compute metrics for the difference between elements of `actual` and
+/// `expected`, which must have the same shape.
+fn compare_tensors<T: Copy + Debug>(
+    actual: TensorView<T>,
+    expected: TensorView<T>,
+    diff: impl Fn(T, T) -> f32,
+) -> CompareMetrics {
+    assert_eq!(actual.shape(), expected.shape());
+
+    let mut max_diff = 0.0f32;
+    for (x, y) in actual.iter().zip(expected.iter()) {
+        let diff = diff(*x, *y);
+        max_diff = max_diff.max(diff);
+    }
+    CompareMetrics { max_diff }
 }
 
 struct RandomInputGenerator {
@@ -561,10 +632,10 @@ fn read_tensor<T, const ELEM_BYTES: usize>(
     Tensor::from_data(view.shape(), data)
 }
 
-/// Read values for model inputs from a Safetensors file.
+/// Read tensor values from a Safetensors file.
 ///
 /// Returns a map of input name to value.
-fn read_inputs_from_safetensors(path: &Path) -> Result<HashMap<String, Value>, Box<dyn Error>> {
+fn read_safetensors(path: &Path) -> Result<HashMap<String, Value>, Box<dyn Error>> {
     use safetensors::tensor::Dtype;
 
     let data = std::fs::read(path)?;
@@ -654,12 +725,25 @@ fn main() {
         ..Default::default()
     };
 
+    // Read values for inputs, if provided.
     let mut input_values = HashMap::new();
-    if let Some(data_path) = args.input_data {
-        input_values = match read_inputs_from_safetensors(Path::new(&data_path)) {
+    if let Some(data_path) = args.inputs {
+        input_values = match read_safetensors(Path::new(&data_path)) {
             Ok(values) => values,
             Err(err) => {
                 eprintln!("Reading inputs failed: {}", err);
+                std::process::exit(1);
+            }
+        };
+    }
+
+    // Read expected values for outputs, if provided.
+    let mut expected_outputs = None;
+    if let Some(data_path) = args.check_outputs {
+        expected_outputs = match read_safetensors(Path::new(&data_path)) {
+            Ok(values) => Some(values),
+            Err(err) => {
+                eprintln!("Reading expected outputs failed: {}", err);
                 std::process::exit(1);
             }
         };
@@ -677,6 +761,7 @@ fn main() {
         args.n_iters,
         args.quiet,
         args.print_outputs,
+        expected_outputs,
     ) {
         // For readability, add a blank line after any output before the final
         // error.
