@@ -14,6 +14,7 @@
 
 use std::any::Any;
 use std::borrow::Cow;
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
@@ -326,6 +327,12 @@ impl From<CastError> for OpError {
     }
 }
 
+impl From<Infallible> for OpError {
+    fn from(x: Infallible) -> OpError {
+        match x {}
+    }
+}
+
 impl Display for OpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -610,35 +617,29 @@ pub trait OperatorExt: Operator {
     ///
     /// `inputs` is a tuple of tensor references or other values that can be
     /// converted to [`ValueView`].
-    fn run_simple<'a, I: Into<InputList<'a>>, O: TryFrom<Value, Error = CastError>>(
+    fn run_simple<'a, I: Into<InputList<'a>>, O: TryFrom<Value>>(
         &self,
         inputs: I,
-    ) -> Result<O, OpError> {
-        let result = self.run_simple_no_cast(inputs)?;
-        let typed_result = result.try_into()?;
-        Ok(typed_result)
-    }
-
-    /// Run an operator and extract the first output.
-    fn run_simple_no_cast<'a, I: Into<InputList<'a>>>(&self, inputs: I) -> Result<Value, OpError> {
+    ) -> Result<O, OpError>
+    where
+        OpError: From<<O as TryFrom<Value>>::Error>,
+    {
         let pool = BufferPool::new();
         let inputs = inputs.into();
         let ctx = OpRunContext::new(&pool, &inputs);
         let mut outputs = self.run(&ctx)?;
-        Ok(outputs.remove(0))
+        Ok(outputs.remove(0).try_into()?)
     }
 
     /// Run an operator with a mutable input and extract the first output.
-    fn run_simple_in_place<
-        'a,
-        M: Into<Value>,
-        I: Into<InputList<'a>>,
-        O: TryFrom<Value, Error = CastError>,
-    >(
+    fn run_simple_in_place<'a, M: Into<Value>, I: Into<InputList<'a>>, O: TryFrom<Value>>(
         &self,
         mut_input: M,
         inputs: I,
-    ) -> Result<O, OpError> {
+    ) -> Result<O, OpError>
+    where
+        OpError: From<<O as TryFrom<Value>>::Error>,
+    {
         let pool = BufferPool::new();
         let inputs = inputs.into();
         let ctx = OpRunContext::new(&pool, &inputs);

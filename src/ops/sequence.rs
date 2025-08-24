@@ -381,7 +381,7 @@ mod tests {
             let op = SequenceAt {};
             let seq = ValueView::Sequence(&case.seq);
             let pos = Tensor::from(case.pos);
-            let value = op.run_simple_no_cast((seq, pos.view()));
+            let value = op.run_simple((seq, pos.view()));
             assert_eq!(value, case.expected);
         });
     }
@@ -601,7 +601,7 @@ mod tests {
                 axis: case.axis,
                 new_axis: case.new_axis,
             };
-            let result = op.run_simple_no_cast(ValueView::Sequence(&case.seq));
+            let result = op.run_simple(ValueView::Sequence(&case.seq));
             assert_eq!(result, case.expected);
         });
     }
