@@ -22,6 +22,16 @@ pub enum DataType {
     UInt8,
 }
 
+impl DataType {
+    /** Return the size of elements of this type in bytes. */
+    pub fn size(self) -> u8 {
+        match self {
+            DataType::Int32 | DataType::Float => 4,
+            DataType::Int8 | DataType::UInt8 => 1,
+        }
+    }
+}
+
 /// Get the [`DataType`] that corresponds to a given type.
 pub trait DataTypeOf {
     /// Return the data type that corresponds to the `Self` type.

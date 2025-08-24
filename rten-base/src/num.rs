@@ -227,6 +227,29 @@ pub fn div_ceil(x: isize, y: isize) -> isize {
     }
 }
 
+/// Provides Rust's `as` conversions as a trait.
+///
+/// See <https://doc.rust-lang.org/reference/expressions/operator-expr.html#type-cast-expressions>
+/// for details.
+pub trait Cast<T> {
+    /// Convert `self` to type T using `self as T`.
+    fn cast(self) -> T;
+}
+
+macro_rules! impl_cast {
+    ($src:ty, $dest:ty) => {
+        impl Cast<$dest> for $src {
+            fn cast(self) -> $dest {
+                self as $dest
+            }
+        }
+    };
+}
+impl_cast!(i32, f32);
+impl_cast!(f32, i32);
+impl_cast!(i8, u8);
+impl_cast!(u8, i8);
+
 #[cfg(test)]
 mod tests {
     use super::div_ceil;
