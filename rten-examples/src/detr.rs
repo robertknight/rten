@@ -1,20 +1,18 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
+use std::path::Path;
 
 use rten::{FloatOperators, Model, Operators};
 use rten_imageio::{read_image, write_image};
-use rten_imageproc::{normalize_image, Painter, Rect, IMAGENET_MEAN, IMAGENET_STD_DEV};
+use rten_imageproc::{normalize_image, Painter, Rect};
 use rten_tensor::prelude::*;
 use rten_tensor::NdTensor;
+use serde::Deserialize;
 
 struct Args {
-    model: String,
+    model_dir: String,
     image: String,
     annotated_image: Option<String>,
-    min_size: Option<u32>,
-    max_size: Option<u32>,
-    labels: Option<Vec<String>>,
-    threshold: f32,
 }
 
 fn parse_args() -> Result<Args, lexopt::Error> {
@@ -23,10 +21,6 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut values = VecDeque::new();
     let mut parser = lexopt::Parser::from_env();
     let mut annotated_image = None;
-    let mut labels = None;
-    let mut min_size = None;
-    let mut max_size = None;
-    let mut threshold = 0.5;
 
     while let Some(arg) = parser.next()? {
         match arg {
@@ -35,35 +29,25 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                 println!(
                     "Detect objects in images.
 
-Usage: {bin_name} <model> <image>
+Usage: {bin_name} <model_dir>
+
+Arguments:
+  
+  <model_dir>
+
+    Path to directory containing converted model and configuration.
+
+    This should contain:
+
+    - `model.rten` - The DETR or RT-DETR model
+    - `config.json` - JSON file containing class ID to label mappings
+    - `preprocessor_config.json` - JSON file containing preprocessor configuration
 
 Options:
 
   --annotate <path>
 
     Annotate image with bounding boxes and save to <path>
-
-  --labels <string>
-
-    Comma-separated list of class labels. For Hugging Face models see the
-    \"id2label\" map in the model's config.json file.
-
-  --max <length>
-
-    Set the maximum length of the longest side of the model's input. Defaults to
-    `1333 / 800` * `<shortest side or 800>`.
-
-    Models may support smaller sizes, allowing a trade-off between inference
-    time and accuracy.
-
-  --min <length>
-
-    Set the minimum length of the shortest side of the model's input. Defaults to
-    `800 / 1333` * `<longest side or 1333>`.
-
-  --threshold <value>
-
-    Probability threshold for object detections.
 ",
                     bin_name = parser.bin_name().unwrap_or("detr")
                 );
@@ -72,64 +56,60 @@ Options:
             Long("annotate") => {
                 annotated_image = Some(parser.value()?.string()?);
             }
-            Long("labels") => {
-                let label_list = parser.value()?.string()?;
-                labels = Some(
-                    label_list
-                        .split(',')
-                        .map(|lb| lb.trim().to_string())
-                        .collect(),
-                );
-            }
-            Long("max") => {
-                max_size = Some(parser.value()?.parse()?);
-            }
-            Long("min") => {
-                min_size = Some(parser.value()?.parse()?);
-            }
-            Long("threshold") => {
-                threshold = parser.value()?.parse::<f32>()?.clamp(0., 1.);
-            }
             _ => return Err(arg.unexpected()),
         }
     }
 
-    let model = values.pop_front().ok_or("missing `model` arg")?;
+    let model_dir = values.pop_front().ok_or("missing `model_dir` arg")?;
     let image = values.pop_front().ok_or("missing `image` arg")?;
 
     let args = Args {
-        model,
+        model_dir,
         image,
         annotated_image,
-        labels,
-        min_size,
-        max_size,
-        threshold,
     };
 
     Ok(args)
 }
 
-/// Resolve the min/max size to use as inputs for [`rescaled_size`] based on
-/// the min/max CLI args and defaults for the model configuration.
-fn resolve_min_max_size(
-    min: Option<u32>,
-    max: Option<u32>,
-    default_min: u32,
-    default_max: u32,
-) -> (u32, u32) {
-    let default_ratio = default_max as f32 / default_min as f32;
-    let min = min.map(|x| x as f32);
-    let max = max.map(|x| x as f32);
+/// Model configuration from a Hugging Face `config.json` file.
+#[derive(Deserialize)]
+struct ModelConfig {
+    id2label: HashMap<u32, String>,
+}
 
-    let (min, max) = match (min, max) {
-        (Some(min), None) => (min, min * default_ratio),
-        (None, Some(max)) => (max / default_ratio, max),
-        (Some(min), Some(max)) => (min, max),
-        (None, None) => (default_min as f32, default_max as f32),
-    };
+/// Read model configuration from a Hugging Face `config.json` file.
+fn read_config(path: &Path) -> Result<ModelConfig, Box<dyn Error>> {
+    let config_json = std::fs::read_to_string(path)
+        .map_err(|err| format!("failed to read {}: {}", path.display(), err))?;
+    let config = serde_json::from_str(&config_json)?;
+    Ok(config)
+}
 
-    (min.round() as u32, max.round() as u32)
+#[derive(Deserialize)]
+struct SizeSpec {
+    height: Option<u32>,
+    width: Option<u32>,
+    longest_edge: Option<u32>,
+    shortest_edge: Option<u32>,
+}
+
+/// Image preprocessing configuration from a Hugging Face `preprocessor_config.json` file.
+#[derive(Deserialize)]
+struct PreprocessorConfig {
+    do_normalize: bool,
+    image_mean: [f32; 3],
+    image_std: [f32; 3],
+    size: SizeSpec,
+}
+
+/// Read image pre-processing configuration from a Hugging Face
+/// `preprocessor_config.json` file.
+fn read_preprocessor_config(path: &Path) -> Result<PreprocessorConfig, Box<dyn Error>> {
+    let config_json = std::fs::read_to_string(path)
+        .map_err(|err| format!("failed to read {}: {}", path.display(), err))?;
+    let config = serde_json::from_str(&config_json)?;
+    Ok(config)
 }
 
 /// Calculate rescaled size for an image which currently has dimensions `(width,
@@ -185,125 +165,17 @@ fn rescaled_size(
     }
 }
 
-// Labels obtained from `id2label` map in
-// https://huggingface.co/facebook/detr-resnet-50/blob/main/config.json.
-//
-// The original model uses class 0 to represent no object. Some other
-// DETR-based models use the maximum class ID to represent "no object" instead.
-const DEFAULT_LABELS: &[&str] = &[
-    "N/A",
-    "person",
-    "bicycle",
-    "car",
-    "motorcycle",
-    "airplane",
-    "bus",
-    "train",
-    "truck",
-    "boat",
-    "traffic light",
-    "fire hydrant",
-    "street sign",
-    "stop sign",
-    "parking meter",
-    "bench",
-    "bird",
-    "cat",
-    "dog",
-    "horse",
-    "sheep",
-    "cow",
-    "elephant",
-    "bear",
-    "zebra",
-    "giraffe",
-    "hat",
-    "backpack",
-    "umbrella",
-    "shoe",
-    "eye glasses",
-    "handbag",
-    "tie",
-    "suitcase",
-    "frisbee",
-    "skis",
-    "snowboard",
-    "sports ball",
-    "kite",
-    "baseball bat",
-    "baseball glove",
-    "skateboard",
-    "surfboard",
-    "tennis racket",
-    "bottle",
-    "plate",
-    "wine glass",
-    "cup",
-    "fork",
-    "knife",
-    "spoon",
-    "bowl",
-    "banana",
-    "apple",
-    "sandwich",
-    "orange",
-    "broccoli",
-    "carrot",
-    "hot dog",
-    "pizza",
-    "donut",
-    "cake",
-    "chair",
-    "couch",
-    "potted plant",
-    "bed",
-    "mirror",
-    "dining table",
-    "window",
-    "desk",
-    "toilet",
-    "door",
-    "tv",
-    "laptop",
-    "mouse",
-    "remote",
-    "keyboard",
-    "cell phone",
-    "microwave",
-    "oven",
-    "toaster",
-    "sink",
-    "refrigerator",
-    "blender",
-    "book",
-    "clock",
-    "vase",
-    "scissors",
-    "teddy bear",
-    "hair drier",
-    "toothbrush",
-];
-
 /// Labels which represent no detection.
 const NO_OBJECT_LABELS: &[&str] = &["N/A"];
 
-/// Detect objects in images using DETR [^1].
+/// Detect objects in images using DETR [^1] or RT-DETR.
 ///
 /// The DETR model [^2] can be obtained from Hugging Face and converted to this
 /// library's format using Optimum [^3]:
 ///
 /// ```
 /// optimum-cli export onnx --model facebook/detr-resnet-50 detr
-/// rten-convert detr/model.onnx detr.rten
-/// ```
-///
-/// This model also works with YOLOS. Use `hustvl/yolos-tiny` or
-/// `hustvl/yolos-small` as the `--model` argument in the command above.
-///
-/// Run this program on an image:
-///
-/// ```
-/// cargo run --release --bin detr detr.rten image.jpg
+/// rten-convert detr/model.onnx
 /// ```
 ///
 /// [^1]: <https://arxiv.org/abs/2005.12872>
@@ -312,30 +184,52 @@ const NO_OBJECT_LABELS: &[&str] = &["N/A"];
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
 
-    let model = Model::load_file(args.model)?;
+    let model_dir = Path::new(&args.model_dir);
+    let model_file = model_dir.join("model.rten");
+    let config_file = model_dir.join("config.json");
+    let preprocessor_config_file = model_dir.join("preprocessor_config.json");
+
+    let model = Model::load_file(&model_file)
+        .map_err(|err| format!("failed to load {}: {}", model_file.display(), err))?;
+    let config = read_config(&config_file)?;
+    let preprocessor_config = read_preprocessor_config(&preprocessor_config_file)?;
 
     let mut image = read_image(&args.image)?;
 
     // Save a copy of the input before normalization and scaling
     let mut annotated_image = args.annotated_image.as_ref().map(|_| image.clone());
 
-    normalize_image(image.view_mut(), IMAGENET_MEAN, IMAGENET_STD_DEV);
+    if preprocessor_config.do_normalize {
+        normalize_image(
+            image.view_mut(),
+            preprocessor_config.image_mean,
+            preprocessor_config.image_std,
+        );
+    }
 
     let [_, image_height, image_width] = image.shape();
 
     let mut image = image.as_dyn().to_tensor();
     image.insert_axis(0); // Add batch dim
 
-    // Resize input image according to min/max side length constraints.
-    //
-    // The DETR defaults are (800, 1333) for the shortest/longest sides, but
-    // models may work with smaller sizes at lower accuracy but faster inference.
-    let (min_size, max_size) = resolve_min_max_size(args.min_size, args.max_size, 800, 1333);
-    let (rescaled_width, rescaled_height) = rescaled_size(
-        (image_width, image_height),
-        min_size as usize,
-        max_size as usize,
-    );
+    // Resize image according to preprocessing configuration.
+    let (rescaled_width, rescaled_height) = if let (Some(min_size), Some(max_size)) = (
+        preprocessor_config.size.shortest_edge,
+        preprocessor_config.size.longest_edge,
+    ) {
+        rescaled_size(
+            (image_width, image_height),
+            min_size as usize,
+            max_size as usize,
+        )
+    } else if let (Some(width), Some(height)) = (
+        preprocessor_config.size.width,
+        preprocessor_config.size.height,
+    ) {
+        (width as usize, height as usize)
+    } else {
+        return Err("Preprocessor config file does not specify image size".into());
+    };
 
     println!("Input image size: {} x {}", rescaled_width, rescaled_height);
 
@@ -367,6 +261,51 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert!(n_objects == n_boxes);
     assert!(n_coords == 4);
 
+    let threshold = 0.5;
+
+    struct Match<'a> {
+        object_id: u32,
+        class: u32,
+        label: &'a str,
+        prob: f32,
+
+        /// Object coordinates as [center_x, center_y, width, height]. Values
+        /// are relative to the image size.
+        coords: [f32; 4],
+    }
+
+    let mut matches = Vec::new();
+
+    // Extract matches above detection threshold.
+    for object_id in 0..n_objects {
+        let class = classes[[0, object_id]] as u32;
+        let prob = probs[[0, object_id, class as usize]];
+
+        let Some(label) = config.id2label.get(&class) else {
+            continue;
+        };
+        if NO_OBJECT_LABELS.contains(&label.as_str()) {
+            continue;
+        }
+        if prob < threshold {
+            continue;
+        }
+
+        let [center_x, center_y, width, height] = boxes.slice([0, object_id]).to_array();
+
+        matches.push(Match {
+            object_id: object_id as u32,
+            class,
+            label,
+            prob,
+            coords: [center_x, center_y, width, height],
+        });
+    }
+
+    // Sort matches in descending order of probability.
+    matches.sort_by(|a, b| a.prob.total_cmp(&b.prob).reverse());
+
+    // Print match details and save annotated image.
     let mut painter = annotated_image
         .as_mut()
         .map(|img| Painter::new(img.view_mut()));
@@ -377,26 +316,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         painter.set_stroke_width(stroke_width);
     }
 
-    let labels = args
-        .labels
-        .unwrap_or(DEFAULT_LABELS.iter().map(|lb| lb.to_string()).collect());
-
-    for obj in 0..n_objects {
-        let cls = classes[[0, obj]] as usize;
-        let prob = probs[[0, obj, cls]];
-
-        let Some(label) = labels.get(cls) else {
-            continue;
-        };
-        if NO_OBJECT_LABELS.contains(&label.as_str()) {
-            continue;
-        }
-        if prob < args.threshold {
-            continue;
-        }
-
-        let [center_x, center_y, width, height] = boxes.slice([0, obj]).to_array();
-
+    for Match {
+        object_id,
+        class,
+        label,
+        prob,
+        coords: [center_x, center_y, width, height],
+    } in matches
+    {
         let rect = Rect::from_tlhw(
             (center_y - 0.5 * height) * image_height as f32,
             (center_x - 0.5 * width) * image_width as f32,
@@ -416,7 +343,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
 
         println!(
-            "object: {obj} class: {cls} ({label}) prob: {prob:.2} coords: [{:?}]",
+            "object: {object_id} class: {class} ({label}) prob: {prob:.2} coords: [{:?}]",
             [center_x, center_y, width, height]
         );
     }
