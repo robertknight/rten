@@ -75,6 +75,7 @@ The examples have been chosen to cover common tasks and popular models.
 - **deeplab** - Semantic segmentation of images using [DeepLabv3](https://arxiv.org/abs/1706.05587)
 - **depth_anything** - Monocular depth estimation using [Depth Anything](https://github.com/LiheYoung/Depth-Anything)
 - **detr** - Object detection using [DETR](https://research.facebook.com/publications/end-to-end-object-detection-with-transformers/)
+  or [RT-DETR](https://github.com/lyuwenyu/RT-DETR) (Real-time DETR).
 - **distilvit** - Image captioning using [Mozilla's DistilViT](https://hacks.mozilla.org/2024/05/experimenting-with-local-alt-text-generation-in-firefox-nightly/)
 - **nougat** - Extract text from academic PDFs as Markdown using [Nougat](https://github.com/facebookresearch/nougat/)
 - **rmbg** - Background removal using [BRIA Background Removal](https://huggingface.co/briaai/RMBG-1.4)
@@ -85,10 +86,10 @@ The examples have been chosen to cover common tasks and popular models.
 ### Text
 
 - **bert_qa** - Extractive question answering using
-[BERT](https://arxiv.org/abs/1810.04805)-based models which have been fine-tuned
-on the [SQuAD](https://paperswithcode.com/dataset/squad) dataset
+  [BERT](https://arxiv.org/abs/1810.04805)-based models which have been fine-tuned
+  on the [SQuAD](https://paperswithcode.com/dataset/squad) dataset
 - **gpt2** - Text generation using the [GPT-2](https://openai.com/index/better-language-models/)
-language model.
+  language model.
 - **jina_similarity** - Sentence similarity using vector embeddings of sentences
 - **modernbert** - Masked word prediction using [ModernBERT](https://huggingface.co/blog/modernbert). Also works with the base version of the original BERT model.
 - **qwen2_chat** - Chatbot using [Qwen2](https://github.com/QwenLM/Qwen2)
