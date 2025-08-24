@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+This release adds support for the `Loop` operator, sequence types and sequence
+operations. It also adds support for `GridSample`. The object detection example
+now supports RT-DETR (a real-time variant of DETR). The CLI tool now has
+arguments that can be used to check inference results against a reference
+implementation.
+
+### rten
+
+- Enable running `Cast` operations in-place when input and output dtypes have
+  same element size (https://github.com/robertknight/rten/pull/887)
+
+- Optimized `Pad` operator where padding value is zero (https://github.com/robertknight/rten/pull/880)
+
+- Slightly optimized `SiLU` operator (https://github.com/robertknight/rten/pull/875)
+
+- Vectorized `ReduceSum` and `ReduceSumSquare` operators for float inputs
+  (https://github.com/robertknight/rten/pull/873)
+
+- Optimized OneHot operator https://github.com/robertknight/rten/pull/872)
+
+- Fixed a bug where OneHot operator output was inverted (https://github.com/robertknight/rten/pull/871)
+
+- Vectorized `ReduceMin` and `ReduceMax` operators for float inputs (https://github.com/robertknight/rten/pull/870)
+
+- Support `ceil_mode` attribute for AveragePool, MaxPool (https://github.com/robertknight/rten/pull/868)
+
+- Implemented `GridSample` operator (https://github.com/robertknight/rten/pull/867)
+
+- Made errors from operators in subgraphs easier to trace by including
+  details of parent nodes in error messages (https://github.com/robertknight/rten/pull/866)
+
+- Implemented sequence operators: `SequenceAt`, `SequenceEmpty`,
+  `SequenceInsert`, `ConcatFromSequence`, `SplitToSequence`, `SequenceErase`,
+  `SequenceLength`, `SequenceConstruct`
+  (https://github.com/robertknight/rten/pull/858,
+  https://github.com/robertknight/rten/pull/859,
+  https://github.com/robertknight/rten/pull/860,
+  https://github.com/robertknight/rten/pull/863,
+  https://github.com/robertknight/rten/pull/864,
+  https://github.com/robertknight/rten/pull/865)
+
+- Support sequence types as operator inputs and outputs
+  (https://github.com/robertknight/rten/pull/856, https://github.com/robertknight/rten/pull/857)
+
+- Support `Loop` operator (https://github.com/robertknight/rten/pull/855)
+
+- Support `output_padding` attribute for ConvTranspose (https://github.com/robertknight/rten/pull/853)
+
+### rten-cli
+
+- Added CLI options `--inputs`, `--check-outputs` which enables checking RTen's
+  output for a model against outputs from a reference implementation (eg. from
+  PyTorch or ONNX Runtime). These use Safetensors as the format for passing
+  tensors.
+
+### rten-examples
+
+- Simplified using DETR examples with DETR variants and made it work with
+  RT-DETR and RT-DETR v2 (https://github.com/robertknight/rten/pull/885)
+
+### rten-tensor
+
+- Fix an issue where `Tensor::data` and related methods could return a slice
+  that was longer than it should have been (https://github.com/robertknight/rten/pull/861).
+
+  These methods will now always return a slice whose length is equal to the
+  layout's `min_data_len`.
+
+### rten-simd
+
+- Revised APIs for working with mask types and operations (https://github.com/robertknight/rten/pull/874).
+  All SIMD vectors with a given element size in an `Isa` will now use the same
+  mask type.
+
+
 ## [0.21.1] - 2025-08-08
 
 - Fix a bug where model converter would produce an empty model if the input is
