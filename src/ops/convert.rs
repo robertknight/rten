@@ -187,7 +187,7 @@ mod tests {
 
         cases.test_each(|case| {
             let cast_op = Cast { to: case.dtype };
-            let result: Value = cast_op.run_simple_no_cast(&case.input).unwrap();
+            let result: Value = cast_op.run_simple(&case.input).unwrap();
             assert_eq!(result, case.expected);
         })
     }
@@ -215,9 +215,7 @@ mod tests {
 
         cases.test_each(|case| {
             let cast_op = CastLike {};
-            let result = cast_op
-                .run_simple_no_cast((&case.input, &case.other))
-                .unwrap();
+            let result: Value = cast_op.run_simple((&case.input, &case.other)).unwrap();
             assert_eq!(result, case.expected);
         })
     }

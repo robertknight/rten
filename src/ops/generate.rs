@@ -294,11 +294,11 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let result = EyeLike {
+            let result: Value = EyeLike {
                 k: case.k,
                 dtype: case.dtype,
             }
-            .run_simple_no_cast(case.input.as_view())
+            .run_simple(case.input.as_view())
             .unwrap();
             assert_eq!(result, case.expected);
         });
