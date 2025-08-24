@@ -1,4 +1,8 @@
+use rten_base::byte_cast::{cast_pod_vec, Pod};
+use rten_base::num;
+
 use rten_tensor::prelude::*;
+use rten_tensor::Tensor;
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::{
@@ -51,6 +55,50 @@ fn cast(pool: &BufferPool, input: ValueView, dtype: DataType) -> Result<Value, O
     }
 }
 
+/// Cast a tensor from type T to U in-place.
+///
+/// Both T and U must have the same size.
+fn cast_tensor<T, U>(mut data: Tensor<T>) -> Tensor<U>
+where
+    T: Pod + num::Cast<U>,
+    U: Pod<Bytes = T::Bytes>,
+{
+    // Cast elements from type T to U in place.
+    data.apply(|x| num::Cast::<U>::cast(*x).cast_bytes());
+
+    // Extract the converted data and transmute from T to U.
+    let shape = data.shape().to_vec();
+    let data = cast_pod_vec::<T, U>(data.into_data()).unwrap();
+    Tensor::from_data(&shape, data)
+}
+
+/// Cast elements of `input` to a given dtype in place, or return the input
+/// value if the cast is not possible.
+fn cast_in_place(input: Value, dtype: DataType) -> Result<Value, Value> {
+    match dtype {
+        DataType::Int32 => match input {
+            Value::Int32Tensor(t) => Ok(t.into()),
+            Value::FloatTensor(t) => Ok(cast_tensor::<_, i32>(t).into()),
+            _ => Err(input),
+        },
+        DataType::Float => match input {
+            Value::FloatTensor(t) => Ok(t.into()),
+            Value::Int32Tensor(t) => Ok(cast_tensor::<_, f32>(t).into()),
+            _ => Err(input),
+        },
+        DataType::Int8 => match input {
+            Value::Int8Tensor(t) => Ok(t.into()),
+            Value::UInt8Tensor(t) => Ok(cast_tensor::<_, i8>(t).into()),
+            _ => Err(input),
+        },
+        DataType::UInt8 => match input {
+            Value::UInt8Tensor(t) => Ok(t.into()),
+            Value::Int8Tensor(t) => Ok(cast_tensor::<_, u8>(t).into()),
+            _ => Err(input),
+        },
+    }
+}
+
 #[derive(Debug)]
 pub struct Cast {
     pub to: DataType,
@@ -67,16 +115,19 @@ impl Operator for Cast {
     }
 
     fn can_run_in_place(&self) -> bool {
+        // Cast can run in place if the input's dtype already matches `self.to`
+        // or both dtypes have the same element size.
         true
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
-        if input.dtype() == self.to {
-            Ok(input)
-        } else {
-            let converted = cast(ctx.pool(), input.as_view(), self.to)?;
-            input.add_to_pool(ctx.pool());
-            Ok(converted)
+        match cast_in_place(input, self.to) {
+            Ok(output) => Ok(output),
+            Err(input) => {
+                let converted = cast(ctx.pool(), input.as_view(), self.to)?;
+                input.add_to_pool(ctx.pool());
+                Ok(converted)
+            }
         }
     }
 }
@@ -90,10 +141,8 @@ impl Operator for CastLike {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let inputs = ctx.inputs();
-        let input = inputs.require(0)?;
-        let to_type = inputs.require(1)?.dtype();
-        cast(ctx.pool(), input, to_type).into_op_result()
+        let to = ctx.inputs().require(1)?.dtype();
+        Cast { to }.run(ctx)
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -101,15 +150,8 @@ impl Operator for CastLike {
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
-        let to_type = ctx.inputs().require(0)?.dtype();
-
-        if input.dtype() == to_type {
-            Ok(input)
-        } else {
-            let converted = cast(ctx.pool(), input.as_view(), to_type)?;
-            input.add_to_pool(ctx.pool());
-            Ok(converted)
-        }
+        let to = ctx.inputs().require(0)?.dtype();
+        Cast { to }.run_in_place(input, ctx)
     }
 }
 
@@ -118,7 +160,7 @@ mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use crate::ops::{Cast, CastLike, DataType, OperatorExt, Value};
+    use crate::ops::{Cast, CastLike, DataType, InputList, OperatorExt, Value};
 
     #[test]
     fn test_cast() {
@@ -186,9 +228,18 @@ mod tests {
         ];
 
         cases.test_each(|case| {
+            // Copying cast.
             let cast_op = Cast { to: case.dtype };
             let result: Value = cast_op.run_simple(&case.input).unwrap();
             assert_eq!(result, case.expected);
+
+            // In-place cast.
+            if case.input.dtype().size() == case.dtype.size() {
+                let result: Value = cast_op
+                    .run_simple_in_place(case.input.clone(), InputList::new())
+                    .unwrap();
+                assert_eq!(result, case.expected);
+            }
         })
     }
 
