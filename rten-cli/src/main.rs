@@ -424,53 +424,51 @@ fn run_model(
         })
         .collect();
 
-    if !quiet {
-        if let Some(outputs) = last_outputs {
-            for (output, name) in outputs.iter().zip(output_names) {
-                // Print basic information about the output.
-                println!(
-                    "  Output \"{name}\" data type {} shape: {:?}",
-                    output.dtype(),
-                    output.shape()
-                );
+    if !quiet && let Some(outputs) = last_outputs {
+        for (output, name) in outputs.iter().zip(output_names) {
+            // Print basic information about the output.
+            println!(
+                "  Output \"{name}\" data type {} shape: {:?}",
+                output.dtype(),
+                output.shape()
+            );
 
-                // Print a debug representation of the output.
-                if print_outputs {
-                    println!("  Output {} value: {:?}", name, output);
+            // Print a debug representation of the output.
+            if print_outputs {
+                println!("  Output {} value: {:?}", name, output);
+            }
+
+            // Compare output against expected value.
+            if let Some(expected) = expected_outputs.as_ref().and_then(|eo| eo.get(&name)) {
+                if expected.shape() != output.shape() {
+                    println!(
+                        "  Output \"{name}\" shape {:?} does not match expected {:?}",
+                        output.shape(),
+                        expected.shape()
+                    );
+                    continue;
+                } else if expected.dtype() != output.dtype() {
+                    println!(
+                        "  Output \"{name}\" dtype {:?} does not match expected {:?}",
+                        output.dtype(),
+                        expected.dtype()
+                    );
+                    continue;
                 }
 
-                // Compare output against expected value.
-                if let Some(expected) = expected_outputs.as_ref().and_then(|eo| eo.get(&name)) {
-                    if expected.shape() != output.shape() {
-                        println!(
-                            "  Output \"{name}\" shape {:?} does not match expected {:?}",
-                            output.shape(),
-                            expected.shape()
-                        );
-                        continue;
-                    } else if expected.dtype() != output.dtype() {
-                        println!(
-                            "  Output \"{name}\" dtype {:?} does not match expected {:?}",
-                            output.dtype(),
-                            expected.dtype()
-                        );
+                let compare_result = match (output, expected) {
+                    (Value::FloatTensor(actual), Value::FloatTensor(expected)) => {
+                        compare_tensors(actual.view(), expected.view(), |x, y| (x - y).abs())
+                    }
+                    _ => {
+                        eprintln!("  Unable to compare outputs. Unsupported tensor types.");
                         continue;
                     }
-
-                    let compare_result = match (output, expected) {
-                        (Value::FloatTensor(actual), Value::FloatTensor(expected)) => {
-                            compare_tensors(actual.view(), expected.view(), |x, y| (x - y).abs())
-                        }
-                        _ => {
-                            eprintln!("  Unable to compare outputs. Unsupported tensor types.");
-                            continue;
-                        }
-                    };
-                    println!(
-                        "  Output \"{name}\" vs expected: max diff {:.6}",
-                        compare_result.max_diff
-                    );
-                }
+                };
+                println!(
+                    "  Output \"{name}\" vs expected: max diff {:.6}",
+                    compare_result.max_diff
+                );
             }
         }
     }
