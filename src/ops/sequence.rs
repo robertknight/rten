@@ -473,9 +473,7 @@ mod tests {
             let op = SequenceErase {};
             let seq = ValueView::Sequence(&case.seq);
             let pos = case.pos.map(Tensor::from);
-            let mut inputs = InputList::new();
-            inputs.push(seq);
-            inputs.push_optional(pos.as_ref().map(|p| p.view()));
+            let inputs = InputList::from_iter([Some(seq), pos.as_ref().map(|p| p.view().into())]);
             let new_seq: Result<Sequence, OpError> = op.run_simple(inputs);
             assert_eq!(new_seq, case.expected);
         });
@@ -545,10 +543,11 @@ mod tests {
             let op = SequenceInsert {};
             let seq = ValueView::Sequence(&case.seq);
             let pos = case.pos.map(Tensor::from);
-            let mut inputs = InputList::new();
-            inputs.push(seq);
-            inputs.push(case.value.as_view());
-            inputs.push_optional(pos.as_ref().map(|p| p.view()));
+            let inputs = InputList::from_iter([
+                Some(seq),
+                Some(case.value.as_view()),
+                pos.as_ref().map(|p| p.view().into()),
+            ]);
             let new_seq: Result<Sequence, OpError> = op.run_simple(inputs);
             assert_eq!(new_seq, case.expected);
         });

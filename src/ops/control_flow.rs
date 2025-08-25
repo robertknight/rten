@@ -295,12 +295,14 @@ mod tests {
             let max_iter_tensor = max_iterations.map(Tensor::from);
             let cond_tensor = cond.map(|c| if c { 1i32 } else { 0i32 }).map(Tensor::from);
 
-            let mut input_list = InputList::new();
-            input_list.push_optional(max_iter_tensor.as_ref().map(ValueView::from));
-            input_list.push_optional(cond_tensor.as_ref().map(ValueView::from));
-            for input in inputs {
-                input_list.push(input.clone());
-            }
+            let input_list = InputList::from_iter(
+                [
+                    max_iter_tensor.as_ref().map(ValueView::from),
+                    cond_tensor.as_ref().map(ValueView::from),
+                ]
+                .into_iter()
+                .chain(inputs.into_iter().cloned().map(Some)),
+            );
 
             let pool = new_pool();
             let ctx = OpRunContext::new(&pool, &input_list);

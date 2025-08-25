@@ -653,12 +653,13 @@ impl<O: ?Sized + Operator> OperatorExt for O {}
 
 /// List of inputs for an operator evaluation.
 ///
-/// Conceptually this is a `Cow<[Option<ValueView>]>` with methods to conveniently
-/// extract inputs and produce appropriate errors if inputs are missing or of
-/// the wrong type.
+/// This is an owned or borrowed collection of `Option<ValueView>`s with methods
+/// to conveniently extract inputs and produce appropriate errors if inputs are
+/// missing or of the wrong type.
 ///
-/// An InputList can be constructed from a tensor reference or tuple of tensor
-/// references using `into`.
+/// An InputList can be constructed from tuples of `impl Into<ValueView>` types
+/// (eg. `TensorView`, `&Tensor`) via `Into`. It can also be created or
+/// extended from iterators of `ValueView`s or `Option<ValueView>`s.
 #[derive(Clone)]
 pub struct InputList<'a> {
     inputs: Cow<'a, [Option<ValueView<'a>>]>,
@@ -851,6 +852,42 @@ impl<'a, I1: Into<ValueView<'a>>, I2: Into<ValueView<'a>>, I3: Into<ValueView<'a
 {
     fn from((a, b, c): (I1, I2, I3)) -> InputList<'a> {
         InputList::from(&[a.into(), b.into(), c.into()])
+    }
+}
+
+impl<'a> Extend<ValueView<'a>> for InputList<'a> {
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = ValueView<'a>>,
+    {
+        for item in iter {
+            self.push(item);
+        }
+    }
+}
+
+impl<'a> Extend<Option<ValueView<'a>>> for InputList<'a> {
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = Option<ValueView<'a>>>,
+    {
+        for item in iter {
+            self.push_optional(item);
+        }
+    }
+}
+
+impl<'a, A> FromIterator<A> for InputList<'a>
+where
+    InputList<'a>: Extend<A>,
+{
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = A>,
+    {
+        let mut list = InputList::new();
+        list.extend(iter);
+        list
     }
 }
 
