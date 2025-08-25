@@ -146,21 +146,21 @@ impl Operator for Slice {
         let steps = other.get_as::<NdTensorView<i32, 1>>(3)?;
 
         // Fall back to copying if non-default steps are given.
-        if let Some(steps) = steps {
-            if steps.iter().any(|step| *step != 1) {
-                let input = input.auto_return(ctx.pool());
-                let mut inputs: Vec<_> = vec![input.as_view()];
+        if let Some(steps) = steps
+            && steps.iter().any(|step| *step != 1)
+        {
+            let input = input.auto_return(ctx.pool());
+            let mut inputs: Vec<_> = vec![input.as_view()];
 
-                // `inputs.extend(other.iter())` not used here as it triggers
-                // a borrow-checking error.
-                for x in other.iter().flatten() {
-                    inputs.push(x);
-                }
-
-                let input_list = InputList::from(&inputs);
-                let ctx = OpRunContext::new(ctx.pool(), &input_list);
-                return self.run(&ctx).map(|mut outputs| outputs.remove(0));
+            // `inputs.extend(other.iter())` not used here as it triggers
+            // a borrow-checking error.
+            for x in other.iter().flatten() {
+                inputs.push(x);
             }
+
+            let input_list = InputList::from(&inputs);
+            let ctx = OpRunContext::new(ctx.pool(), &input_list);
+            return self.run(&ctx).map(|mut outputs| outputs.remove(0));
         }
 
         map_value!(input, output, {

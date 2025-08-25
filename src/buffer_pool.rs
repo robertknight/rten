@@ -176,10 +176,10 @@ impl BufferPool {
                     return best_fit;
                 };
 
-                if let Some((best_fit_idx, best_fit_size)) = best_fit {
-                    if buffer.capacity >= best_fit_size {
-                        return Some((best_fit_idx, best_fit_size));
-                    }
+                if let Some((best_fit_idx, best_fit_size)) = best_fit
+                    && buffer.capacity >= best_fit_size
+                {
+                    return Some((best_fit_idx, best_fit_size));
                 }
                 Some((idx, buffer.capacity))
             });
@@ -345,10 +345,10 @@ impl<T: ExtractBuffer> DerefMut for PoolRef<'_, T> {
 
 impl<T: ExtractBuffer> Drop for PoolRef<'_, T> {
     fn drop(&mut self) {
-        if let Some(container) = self.container.take() {
-            if let Some(buffer) = container.extract_buffer() {
-                self.pool.add(buffer)
-            }
+        if let Some(container) = self.container.take()
+            && let Some(buffer) = container.extract_buffer()
+        {
+            self.pool.add(buffer)
         }
     }
 }

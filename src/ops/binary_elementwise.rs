@@ -149,22 +149,33 @@ pub fn binary_op<T: Copy, U: Copy, R, F: Fn(T, U) -> R>(
 
     // Fast path for when LHS and RHS are contiguous, and fast broadcasting is
     // possible.
-    if let (true, Some(a_data), Some(b_data)) =
-        (a.shape() == out_shape.as_slice(), a.data(), b.data())
+    if a.shape() == out_shape.as_slice()
+        && let (Some(a_data), Some(b_data)) = (a.data(), b.data())
+        && let Some((cycles, repeats)) = fast_broadcast_cycles_repeats(b.shape(), a.shape())
     {
-        if let Some((cycles, repeats)) = fast_broadcast_cycles_repeats(b.shape(), a.shape()) {
-            assert!(cycles * b_data.len() * repeats == a.len());
+        assert!(cycles * b_data.len() * repeats == a.len());
 
-            let mut output = Tensor::uninit_in(pool, &out_shape);
+        let mut output = Tensor::uninit_in(pool, &out_shape);
 
-            // Unsafe access used to skip bounds checks in inner loop.
-            let out_data = output.data_mut().unwrap();
-            let a_ptr = a_data.as_ptr();
+        // Unsafe access used to skip bounds checks in inner loop.
+        let out_data = output.data_mut().unwrap();
+        let a_ptr = a_data.as_ptr();
 
-            let mut i = 0;
-            for _ in 0..cycles {
-                if repeats == 1 {
-                    for b_elt in b_data {
+        let mut i = 0;
+        for _ in 0..cycles {
+            if repeats == 1 {
+                for b_elt in b_data {
+                    // Safety: We checked the total loop count is in `[0,
+                    // out_data.len())` above, which is the same as
+                    // `a_data.len().
+                    let (a_elt, out_elt) =
+                        unsafe { (*a_ptr.add(i), out_data.get_unchecked_mut(i)) };
+                    out_elt.write(op(a_elt, *b_elt));
+                    i += 1;
+                }
+            } else {
+                for b_elt in b_data {
+                    for _ in 0..repeats {
                         // Safety: We checked the total loop count is in `[0,
                         // out_data.len())` above, which is the same as
                         // `a_data.len().
@@ -173,26 +184,14 @@ pub fn binary_op<T: Copy, U: Copy, R, F: Fn(T, U) -> R>(
                         out_elt.write(op(a_elt, *b_elt));
                         i += 1;
                     }
-                } else {
-                    for b_elt in b_data {
-                        for _ in 0..repeats {
-                            // Safety: We checked the total loop count is in `[0,
-                            // out_data.len())` above, which is the same as
-                            // `a_data.len().
-                            let (a_elt, out_elt) =
-                                unsafe { (*a_ptr.add(i), out_data.get_unchecked_mut(i)) };
-                            out_elt.write(op(a_elt, *b_elt));
-                            i += 1;
-                        }
-                    }
                 }
             }
-
-            // Safety: We initialized all output elements.
-            assert!(i == output.len());
-            let output = unsafe { output.assume_init() };
-            return Ok(output);
         }
+
+        // Safety: We initialized all output elements.
+        assert!(i == output.len());
+        let output = unsafe { output.assume_init() };
+        return Ok(output);
     }
 
     let mut a = a.broadcast(out_shape.as_slice());
@@ -248,32 +247,33 @@ fn binary_op_in_place<T: Copy + Debug, U: Copy + Debug, F: Fn(T, U) -> T>(
 ) {
     // Fast path for when LHS and RHS are contiguous, and fast broadcasting is
     // possible.
-    if let (true, Some(b_data)) = (a.is_contiguous(), b.data()) {
-        if let Some((cycles, repeats)) = fast_broadcast_cycles_repeats(b.shape(), a.shape()) {
-            assert!(cycles * b_data.len() * repeats == a.len());
-            let a_data = a.data_mut().unwrap();
-            let mut i = 0;
-            for _ in 0..cycles {
-                if repeats == 1 {
-                    for b_elt in b_data {
+    if a.is_contiguous()
+        && let Some(b_data) = b.data()
+        && let Some((cycles, repeats)) = fast_broadcast_cycles_repeats(b.shape(), a.shape())
+    {
+        assert!(cycles * b_data.len() * repeats == a.len());
+        let a_data = a.data_mut().unwrap();
+        let mut i = 0;
+        for _ in 0..cycles {
+            if repeats == 1 {
+                for b_elt in b_data {
+                    // Safety: We checked the total loop count is in `[0, a.len())` above.
+                    let a_elt = unsafe { a_data.get_unchecked_mut(i) };
+                    *a_elt = op(*a_elt, *b_elt);
+                    i += 1;
+                }
+            } else {
+                for b_elt in b_data {
+                    for _ in 0..repeats {
                         // Safety: We checked the total loop count is in `[0, a.len())` above.
                         let a_elt = unsafe { a_data.get_unchecked_mut(i) };
                         *a_elt = op(*a_elt, *b_elt);
                         i += 1;
                     }
-                } else {
-                    for b_elt in b_data {
-                        for _ in 0..repeats {
-                            // Safety: We checked the total loop count is in `[0, a.len())` above.
-                            let a_elt = unsafe { a_data.get_unchecked_mut(i) };
-                            *a_elt = op(*a_elt, *b_elt);
-                            i += 1;
-                        }
-                    }
                 }
             }
-            return;
         }
+        return;
     }
 
     // Loop over a statically known number of inner dims for efficiency.

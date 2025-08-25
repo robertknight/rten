@@ -41,12 +41,12 @@ pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar>(
     zero_point: Option<TensorView<T>>,
     axis: isize,
 ) -> Result<Tensor<f32>, OpError> {
-    if let Some(zero_point) = zero_point.as_ref() {
-        if zero_point.shape() != scale.shape() {
-            return Err(OpError::InvalidValue(
-                "scale and zero_point must have same shape",
-            ));
-        }
+    if let Some(zero_point) = zero_point.as_ref()
+        && zero_point.shape() != scale.shape()
+    {
+        return Err(OpError::InvalidValue(
+            "scale and zero_point must have same shape",
+        ));
     }
 
     match scale.ndim() {
@@ -188,12 +188,12 @@ pub fn quantize_linear<T: Copy + Default + Send + Sync + Scalar>(
 where
     f32: Quantize<T>,
 {
-    if let Some(zero_point) = zero_point.as_ref() {
-        if zero_point.shape() != scale.shape() {
-            return Err(OpError::InvalidValue(
-                "scale and zero_point must have same shape",
-            ));
-        }
+    if let Some(zero_point) = zero_point.as_ref()
+        && zero_point.shape() != scale.shape()
+    {
+        return Err(OpError::InvalidValue(
+            "scale and zero_point must have same shape",
+        ));
     }
 
     match scale.ndim() {

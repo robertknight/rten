@@ -399,10 +399,10 @@ pub fn lstm(
     }
 
     let bias = bias.map(|bias| static_dims!(bias, 2)).transpose()?;
-    if let Some(bias) = bias.as_ref() {
-        if bias.size(1) % 8 != 0 {
-            return Err(OpError::InvalidValue("bias dim 1 must be 8 * hidden_size"));
-        }
+    if let Some(bias) = bias.as_ref()
+        && bias.size(1) % 8 != 0
+    {
+        return Err(OpError::InvalidValue("bias dim 1 must be 8 * hidden_size"));
     }
 
     let initial_hidden = initial_hidden
