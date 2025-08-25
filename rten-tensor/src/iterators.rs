@@ -7,7 +7,7 @@ use rten_base::iter::SplitIterator;
 use super::{
     AsView, DynLayout, MutLayout, NdTensorView, NdTensorViewMut, TensorBase, TensorViewMut,
 };
-use crate::layout::{merge_axes, Layout, NdLayout, OverlapPolicy, RemoveDim};
+use crate::layout::{Layout, NdLayout, OverlapPolicy, RemoveDim, merge_axes};
 use crate::storage::{StorageMut, ViewData, ViewMutData};
 
 mod parallel;
@@ -400,7 +400,7 @@ impl<T> FusedIterator for Iter<'_, T> {}
 /// Wrapper around [`transmute`] which allows transmuting only the lifetime,
 /// not the type, of a reference.
 unsafe fn transmute_lifetime_mut<'a, 'b, T>(x: &'a mut T) -> &'b mut T {
-    transmute::<&'a mut T, &'b mut T>(x)
+    unsafe { transmute::<&'a mut T, &'b mut T>(x) }
 }
 
 /// Mutable iterator over elements of a tensor.

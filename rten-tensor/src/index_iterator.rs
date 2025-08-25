@@ -1,7 +1,7 @@
 use std::iter::FusedIterator;
 use std::ops::Range;
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 pub trait IndexArray: AsMut<[usize]> + AsRef<[usize]> + Clone {}
 impl<const N: usize> IndexArray for SmallVec<[usize; N]> {}
