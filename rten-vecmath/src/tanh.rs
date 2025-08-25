@@ -5,7 +5,7 @@ use rten_simd::{Isa, Simd, SimdUnaryOp};
 
 use crate::Exp;
 
-/// Vectorized tanh implementation.
+/// Computes the hyperbolic tangent function.
 #[derive(Default)]
 pub struct Tanh {}
 
@@ -73,7 +73,7 @@ mod tests {
     use crate::testing::{arange, benchmark_op, AllF32s, Tolerance, UnaryOpTester};
     use crate::Tanh;
 
-    // Maximum error of `vec_tanh` compared to `f32::tanh`.
+    // Maximum error of `Tanh` compared to `f32::tanh`.
     const MAX_TANH_ERROR_ULPS: f32 = 3.0;
 
     #[test]
