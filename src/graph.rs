@@ -1143,10 +1143,11 @@ impl Graph {
             // Remove temporary values that are no longer needed
             for node_id in self.operator_dependencies(op_node) {
                 let rc = temp_value_refcount.dec(node_id);
-                if rc == Some(0) {
-                    if let (true, Some(tensor)) = (use_pool, temp_values.remove(&node_id)) {
-                        tensor.add_to_pool(pool)
-                    }
+                if rc == Some(0)
+                    && use_pool
+                    && let Some(tensor) = temp_values.remove(&node_id)
+                {
+                    tensor.add_to_pool(pool)
                 }
             }
 

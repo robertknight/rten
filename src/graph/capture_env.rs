@@ -111,13 +111,13 @@ impl<'a> CaptureEnv<'a> {
 
     /// Look up a node by name in this environment.
     pub fn get_node(&self, name: &str) -> Option<&'a Node> {
-        if let Some(graph) = self.graph {
-            if let Some(node_id) = graph.get_node_id(name) {
-                // If a node by this name exists in this graph, but is a placeholder
-                // for a value captured from a parent graph, then ignore it.
-                if !graph.captures().contains(&node_id) {
-                    return graph.get_node(node_id);
-                }
+        if let Some(graph) = self.graph
+            && let Some(node_id) = graph.get_node_id(name)
+        {
+            // If a node by this name exists in this graph, but is a placeholder
+            // for a value captured from a parent graph, then ignore it.
+            if !graph.captures().contains(&node_id) {
+                return graph.get_node(node_id);
             }
         }
 
@@ -126,33 +126,32 @@ impl<'a> CaptureEnv<'a> {
 
     /// Look up an operator input value by name in this environment.
     pub fn get_input(&self, name: &str) -> Option<ValueView<'_>> {
-        if let Some(graph) = self.graph {
-            if let Some(node_id) = graph.get_node_id(name) {
+        if let Some(graph) = self.graph &&
+            let Some(node_id) = graph.get_node_id(name) &&
                 // If a node by this name exists in this graph, but is a placeholder
                 // for a value captured from a parent graph, then ignore it.
-                if !graph.captures().contains(&node_id) {
-                    // Otherwise, get the value from this scope.
-                    return match graph.get_node(node_id) {
-                        Some(Node::Constant(c)) => Some(c.as_view()),
-                        Some(Node::Value(_)) => self
-                            .temp_values_by_ref
+                !graph.captures().contains(&node_id)
+        {
+            // Otherwise, get the value from this scope.
+            return match graph.get_node(node_id) {
+                Some(Node::Constant(c)) => Some(c.as_view()),
+                Some(Node::Value(_)) => self
+                    .temp_values_by_ref
+                    .and_then(|tv| tv.get(&node_id))
+                    .map(|i| i.as_view())
+                    .or_else(|| {
+                        self.temp_values
+                            .as_ref()
                             .and_then(|tv| tv.get(&node_id))
+                            .map(|o| o.as_view())
+                    })
+                    .or_else(|| {
+                        self.inputs
+                            .and_then(|i| i.get(&node_id))
                             .map(|i| i.as_view())
-                            .or_else(|| {
-                                self.temp_values
-                                    .as_ref()
-                                    .and_then(|tv| tv.get(&node_id))
-                                    .map(|o| o.as_view())
-                            })
-                            .or_else(|| {
-                                self.inputs
-                                    .and_then(|i| i.get(&node_id))
-                                    .map(|i| i.as_view())
-                            }),
-                        _ => None,
-                    };
-                }
-            }
+                    }),
+                _ => None,
+            };
         }
 
         self.parent.and_then(|parent| parent.get_input(name))
