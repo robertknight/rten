@@ -144,17 +144,17 @@ pub unsafe trait Isa: Copy {
 /// ```
 pub trait GetNumOps
 where
-    Self: Elem + 'static,
+    Self: GetSimd + 'static,
 {
     /// Return the [`NumOps`] implementation from a SIMD [`Isa`] that provides
     /// operations on vectors containing elements of type `Self`.
-    fn num_ops<I: Isa>(isa: I) -> impl NumOps<Self, Simd: Simd<Isa = I>>;
+    fn num_ops<I: Isa>(isa: I) -> impl NumOps<Self, Simd = Self::Simd<I>>;
 }
 
 macro_rules! impl_get_ops {
     ($trait:ty, $method:ident, $ops:ident, $type:ident) => {
         impl $trait for $type {
-            fn $method<I: Isa>(isa: I) -> impl $ops<Self, Simd: Simd<Isa = I>> {
+            fn $method<I: Isa>(isa: I) -> impl $ops<Self, Simd = <Self as GetSimd>::Simd<I>> {
                 isa.$type()
             }
         }
@@ -167,14 +167,38 @@ impl_get_ops!(GetNumOps, num_ops, NumOps, i8);
 impl_get_ops!(GetNumOps, num_ops, NumOps, u16);
 impl_get_ops!(GetNumOps, num_ops, NumOps, u8);
 
+/// Get the [`Simd`] implementation from an [`Isa`] for a given element type.
+///
+/// For example the type `<f32 as GetSimd>::Simd<I>` yields `I::F32` where
+/// `I` is an `Isa`. This trait is used for example by
+/// [`SimdUnaryOp`](crate::SimdUnaryOp) to determine the type of SIMD vector
+/// that corresponds to the element type.
+pub trait GetSimd: Elem {
+    type Simd<I: Isa>: Simd<Elem = Self, Isa = I>;
+}
+
+macro_rules! impl_getsimd {
+    ($ty:ty, $simd:ident) => {
+        impl GetSimd for $ty {
+            type Simd<I: Isa> = I::$simd;
+        }
+    };
+}
+impl_getsimd!(f32, F32);
+impl_getsimd!(i16, I16);
+impl_getsimd!(i32, I32);
+impl_getsimd!(i8, I8);
+impl_getsimd!(u16, U16);
+impl_getsimd!(u8, U8);
+
 /// Get the [`FloatOps`] implementation from an [`Isa`] for a given element type.
 ///
 /// This is a specialization of [`GetNumOps`] for float element types.
 pub trait GetFloatOps
 where
-    Self: Elem,
+    Self: GetSimd,
 {
-    fn float_ops<I: Isa>(isa: I) -> impl FloatOps<Self, Simd: Simd<Isa = I>>;
+    fn float_ops<I: Isa>(isa: I) -> impl FloatOps<Self, Simd = Self::Simd<I>>;
 }
 impl_get_ops!(GetFloatOps, float_ops, FloatOps, f32);
 
@@ -183,9 +207,9 @@ impl_get_ops!(GetFloatOps, float_ops, FloatOps, f32);
 /// This is a specialization of [`GetNumOps`] for signed integer element types.
 pub trait GetIntOps
 where
-    Self: Elem,
+    Self: GetSimd,
 {
-    fn int_ops<I: Isa>(isa: I) -> impl IntOps<Self, Simd: Simd<Isa = I>>;
+    fn int_ops<I: Isa>(isa: I) -> impl IntOps<Self, Simd = Self::Simd<I>>;
 }
 impl_get_ops!(GetIntOps, int_ops, IntOps, i16);
 impl_get_ops!(GetIntOps, int_ops, IntOps, i32);
@@ -198,9 +222,9 @@ impl_get_ops!(GetIntOps, int_ops, IntOps, u16);
 /// This is a specialization of [`GetNumOps`] for signed integer element types.
 pub trait GetSignedIntOps
 where
-    Self: Elem,
+    Self: GetSimd,
 {
-    fn signed_int_ops<I: Isa>(isa: I) -> impl SignedIntOps<Self, Simd: Simd<Isa = I>>;
+    fn signed_int_ops<I: Isa>(isa: I) -> impl SignedIntOps<Self, Simd = Self::Simd<I>>;
 }
 impl_get_ops!(GetSignedIntOps, signed_int_ops, SignedIntOps, i32);
 impl_get_ops!(GetSignedIntOps, signed_int_ops, SignedIntOps, i16);

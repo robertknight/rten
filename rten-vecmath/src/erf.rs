@@ -5,7 +5,7 @@
 use std::f32::consts::SQRT_2;
 
 use rten_simd::ops::{FloatOps, NumOps};
-use rten_simd::{Isa, Simd, SimdUnaryOp};
+use rten_simd::{Isa, SimdUnaryOp};
 
 use crate::exp::ReducedRangeExp;
 use crate::tanh::Tanh;
@@ -22,9 +22,8 @@ pub struct Erf {}
 
 impl SimdUnaryOp<f32> for Erf {
     #[inline(always)]
-    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
         let ops = isa.f32();
-        let x = x.same_cast();
 
         let neg_mask = ops.lt(x, ops.zero());
 
@@ -53,7 +52,7 @@ impl SimdUnaryOp<f32> for Erf {
 
         // Approximation is valid only for x >= 0. For negative values approximation
         // can be computed as -erf(-x).
-        ops.select(ops.neg(y), y, neg_mask).same_cast()
+        ops.select(ops.neg(y), y, neg_mask)
     }
 }
 
@@ -65,15 +64,14 @@ pub struct Gelu {}
 
 impl SimdUnaryOp<f32> for Gelu {
     #[inline(always)]
-    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
         let ops = isa.f32();
-        let x = x.same_cast();
 
         let half_x = ops.mul(x, ops.splat(0.5));
         let sqrt_2_rcp = ops.splat(SQRT_2_RCP);
         let y = ops.mul(x, sqrt_2_rcp);
         let y = ops.add(Erf::apply(isa, y), ops.splat(1.0));
-        ops.mul(half_x, y).same_cast()
+        ops.mul(half_x, y)
     }
 }
 
@@ -87,9 +85,8 @@ pub struct ApproxGelu {}
 
 impl SimdUnaryOp<f32> for ApproxGelu {
     #[inline(always)]
-    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
         let ops = isa.f32();
-        let x = x.same_cast();
 
         // 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
         let half_x = ops.mul(x, ops.splat(0.5));
@@ -98,9 +95,7 @@ impl SimdUnaryOp<f32> for ApproxGelu {
         let y = ops.mul(y, ops.splat(SQRT_2_PI));
         let y = Tanh::apply(isa, y);
         let y = ops.add(y, ops.splat(1.));
-        let y = ops.mul(half_x, y);
-
-        y.same_cast()
+        ops.mul(half_x, y)
     }
 }
 
