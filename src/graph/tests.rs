@@ -6,7 +6,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
 use rten_tensor::{Tensor, TensorView};
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 use super::{CachedPlan, CaptureEnv, PlanOptions};
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TypedConstant};

@@ -8,8 +8,8 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::{
-    static_dims, CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
-    Value, ValueView,
+    CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
+    ValueView, static_dims,
 };
 
 /// Specifies an output size for a resize operation.
@@ -480,8 +480,8 @@ mod tests {
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
     use crate::ops::{
-        resize, CoordTransformMode, InputList, NearestMode, OpError, OpRunContext, Operator,
-        Resize, ResizeMode, ResizeTarget,
+        CoordTransformMode, InputList, NearestMode, OpError, OpRunContext, Operator, Resize,
+        ResizeMode, ResizeTarget, resize,
     };
 
     // Reference values for these tests can be computed with either OpenCV

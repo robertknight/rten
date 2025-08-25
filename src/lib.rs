@@ -142,7 +142,7 @@ pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo};
 pub use model_metadata::ModelMetadata;
 pub use op_registry::{OpRegistry, ReadOp, ReadOpError};
 pub use ops::{FloatOperators, Operators};
-pub use threading::{thread_pool, ThreadPool};
+pub use threading::{ThreadPool, thread_pool};
 pub use timing::TimingSort;
 pub use value::{DataType, Sequence, Value, ValueOrView, ValueView};
 
@@ -152,7 +152,13 @@ pub use ops::{Input, InputOrOutput, Output};
 
 // `unknown_lints` is for `mismatched_lifetime_syntaxes`. Remove when that
 // reaches stable.
-#[allow(unknown_lints, dead_code, unused_imports, mismatched_lifetime_syntaxes)]
+#[allow(
+    unknown_lints,
+    dead_code,
+    unused_imports,
+    mismatched_lifetime_syntaxes,
+    unsafe_op_in_unsafe_fn
+)]
 mod schema_generated;
 
 // This is currently exposed for use in ocrs tests. That crate should probably

@@ -4,15 +4,15 @@ use std::mem::MaybeUninit;
 use rten_base::num::IsNaN;
 use rten_tensor::prelude::*;
 use rten_tensor::{
-    to_slice_items, Lane, ResizeLayout, SliceItem, StorageMut, Tensor, TensorView, TensorViewMut,
+    Lane, ResizeLayout, SliceItem, StorageMut, Tensor, TensorView, TensorViewMut, to_slice_items,
 };
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
-    map_value_view, resolve_axis, resolve_index, IntoOpResult, OpError, OpRunContext, Operator,
-    OutputList, ValueView,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView, map_value_view,
+    resolve_axis, resolve_index,
 };
 
 const INVALID_INDEX_ERR: OpError = OpError::InvalidValue("Entry in `indices` is out of range");
@@ -615,15 +615,15 @@ impl Operator for ScatterND {
 mod tests {
     use std::error::Error;
 
+    use rten_tensor::Tensor;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{
-        gather, gather_elements, gather_nd, scatter_elements, scatter_nd, OpError, ScatterReduction,
+        OpError, ScatterReduction, gather, gather_elements, gather_nd, scatter_elements, scatter_nd,
     };
 
     #[test]

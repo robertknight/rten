@@ -7,8 +7,8 @@ use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::{
-    map_dtype, map_value_view, resolve_axis, resolve_index, static_dims, DataType, IntoOpResult,
-    OpError, OpRunContext, Operator, OutputList,
+    DataType, IntoOpResult, OpError, OpRunContext, Operator, OutputList, map_dtype, map_value_view,
+    resolve_axis, resolve_index, static_dims,
 };
 use crate::value::{Scalar, ValueView};
 
@@ -216,7 +216,7 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
-    use crate::ops::{range, ConstantOfShape, DataType, EyeLike, OneHot, OpError, OperatorExt};
+    use crate::ops::{ConstantOfShape, DataType, EyeLike, OneHot, OpError, OperatorExt, range};
     use crate::value::{Scalar, Value};
 
     #[test]

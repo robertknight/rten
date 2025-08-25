@@ -85,8 +85,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
+    use rten_tensor::prelude::*;
 
     use super::{CowTensor, ShiftCast};
 

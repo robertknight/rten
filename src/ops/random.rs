@@ -167,36 +167,35 @@ impl Operator for Dropout {
 
         let training_mode = inputs.get_as::<i32>(2)?.unwrap_or(0) != 0;
 
-        let (output, mask) = if !training_mode || ratio == 0. {
-            let mask = Tensor::<i32>::full(input.shape(), 1);
-            (input.to_tensor(), mask)
-        } else {
-            let mut rng = if let Some(seed) = self.seed {
-                Rng::with_seed(seed as u64)
+        let (output, mask) =
+            if !training_mode || ratio == 0. {
+                let mask = Tensor::<i32>::full(input.shape(), 1);
+                (input.to_tensor(), mask)
             } else {
-                Rng::new()
-            };
-            let scale = 1. / (1. - ratio);
+                let mut rng = if let Some(seed) = self.seed {
+                    Rng::with_seed(seed as u64)
+                } else {
+                    Rng::new()
+                };
+                let scale = 1. / (1. - ratio);
 
-            let mask =
-                Tensor::<i32>::from_simple_fn(
+                let mask = Tensor::<i32>::from_simple_fn(input.shape(), || {
+                    if rng.f32() < ratio { 0 } else { 1 }
+                });
+                let input = input.to_contiguous_in(ctx.pool());
+
+                let output = Tensor::from_data(
                     input.shape(),
-                    || if rng.f32() < ratio { 0 } else { 1 },
+                    input
+                        .data()
+                        .unwrap()
+                        .iter()
+                        .zip(mask.data().unwrap())
+                        .map(|(&x, &mask)| x * scale * mask as f32)
+                        .collect::<Vec<_>>(),
                 );
-            let input = input.to_contiguous_in(ctx.pool());
-
-            let output = Tensor::from_data(
-                input.shape(),
-                input
-                    .data()
-                    .unwrap()
-                    .iter()
-                    .zip(mask.data().unwrap())
-                    .map(|(&x, &mask)| x * scale * mask as f32)
-                    .collect::<Vec<_>>(),
-            );
-            (output, mask)
-        };
+                (output, mask)
+            };
 
         Ok([Value::from(output), Value::from(mask)]
             .into_iter()
@@ -215,8 +214,8 @@ impl Operator for Dropout {
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
+    use rten_tensor::prelude::*;
     use rten_testing::TestCases;
 
     use crate::ops::operators::{FloatOperators, Operators};

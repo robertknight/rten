@@ -8,8 +8,8 @@ use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::{
-    resolve_axis, DataType, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
-    ValueView,
+    DataType, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
+    resolve_axis,
 };
 
 /// Convert a quantized tensor element to a higher precision value.
@@ -432,9 +432,9 @@ impl Operator for DynamicQuantizeLinear {
 
 #[cfg(test)]
 mod tests {
+    use rten_tensor::Tensor;
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal_with_tolerance;
-    use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
     use super::{dequantize_linear, dynamic_quantize_linear, quantize_linear};

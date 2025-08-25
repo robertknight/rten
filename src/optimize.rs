@@ -7,11 +7,11 @@ use rten_tensor::Tensor;
 use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
+use crate::Value;
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, PlanOptions, RunError,
 };
 use crate::ops::{Identity, Operator};
-use crate::Value;
 
 mod fusions;
 mod pattern_matcher;

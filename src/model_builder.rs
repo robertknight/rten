@@ -1,7 +1,7 @@
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 use rten_base::num::LeBytes;
-use rten_tensor::prelude::*;
 use rten_tensor::TensorView;
+use rten_tensor::prelude::*;
 
 use crate::graph::{Dimension, NodeId};
 use crate::header::Header;

@@ -5,8 +5,8 @@ use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::{
-    map_value, map_value_view, resolve_axis, InputList, IntoOpResult, OpError, OpRunContext,
-    Operator, OutputList, Value, ValueView,
+    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
+    map_value, map_value_view, resolve_axis,
 };
 
 macro_rules! check_input {
@@ -174,15 +174,15 @@ impl Operator for Slice {
 mod tests {
     use std::error::Error;
 
+    use rten_tensor::Tensor;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
     use super::{slice, slice_in_place};
-    use crate::ops::tests::new_pool;
     use crate::ops::OpError;
+    use crate::ops::tests::new_pool;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())

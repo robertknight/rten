@@ -8,8 +8,8 @@ use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::{
-    map_value, map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
-    ValueView,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView, map_value,
+    map_value_view,
 };
 
 /// Given the shapes of two inputs to a binary operation, return the shape
@@ -908,16 +908,16 @@ impl Operator for Where {
 mod tests {
     use std::error::Error;
 
+    use rten_tensor::Tensor;
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
     use super::fast_broadcast_cycles_repeats;
     use super::{
-        add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
-        less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
-        where_op, xor, Add, DivMode,
+        Add, DivMode, add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal,
+        less, less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
+        where_op, xor,
     };
     use crate::ops::tests::new_pool;
     use crate::ops::{InputList, OpError, OpRunContext, Operator, OperatorExt, Value};

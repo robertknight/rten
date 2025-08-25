@@ -8,7 +8,7 @@ use rten_tensor::{NdTensor, Tensor, TensorView};
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::binary_elementwise::{add_in_place, mul_in_place};
 use crate::ops::unary_elementwise::{sigmoid, tanh};
-use crate::ops::{static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -603,7 +603,7 @@ mod tests {
     use serde_json::Value;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{concat, gru, lstm, split, Direction};
+    use crate::ops::{Direction, concat, gru, lstm, split};
 
     /// Read a float tensor from a JSON value.
     ///

@@ -118,13 +118,13 @@ impl Operator for GridSample {
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
+    use rten_tensor::prelude::*;
     use rten_testing::TestCases;
 
     use super::grid_sample;
-    use crate::ops::tests::{expect_eq_1e4, new_pool};
     use crate::ops::OpError;
+    use crate::ops::tests::{expect_eq_1e4, new_pool};
 
     /// Increase the rank of a tensor by inserting leading 1-sized dimensions.
     trait IntoNDim<const N: usize> {

@@ -4,7 +4,7 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::{
-    map_value_view, resolve_axis, OpError, OpRunContext, Operator, OutputList, ValueView,
+    OpError, OpRunContext, Operator, OutputList, ValueView, map_value_view, resolve_axis,
 };
 
 #[derive(Clone, Debug)]
@@ -133,7 +133,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{split, InputList, OpError, OpRunContext, Operator};
+    use crate::ops::{InputList, OpError, OpRunContext, Operator, split};
 
     use super::{Split, SplitSizes};
 

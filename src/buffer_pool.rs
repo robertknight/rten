@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rten_gemm::{PackedAMatrix, PackedBMatrix};
 use rten_tensor::{Alloc, CowData, MutLayout, TensorBase};
@@ -356,8 +356,8 @@ impl<T: ExtractBuffer> Drop for PoolRef<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::{AutoReturn, BufferPool, ExtractBuffer};
-    use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
+    use rten_tensor::prelude::*;
 
     #[test]
     fn test_pool_alloc_tensor() {

@@ -3,7 +3,7 @@ use rten_tensor::{Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::graph::{CaptureEnv, Graph, NodeId, RunError, RunOptions};
-use crate::ops::{map_value, OpError, OpRunContext, Operator, OutputList, Value};
+use crate::ops::{OpError, OpRunContext, Operator, OutputList, Value, map_value};
 use crate::timing::Profiler;
 use crate::value::ValueOrView;
 use crate::weight_cache::WeightCache;

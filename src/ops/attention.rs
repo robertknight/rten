@@ -8,7 +8,7 @@ use rten_vecmath::Softmax;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::binary_elementwise::broadcast_shapes;
-use crate::ops::{resolve_axis, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value};
+use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, resolve_axis};
 
 const BROADCAST_ERROR: OpError = OpError::IncompatibleInputShapes("Cannot broadcast inputs");
 

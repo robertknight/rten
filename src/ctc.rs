@@ -386,10 +386,10 @@ impl Default for CtcDecoder {
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
+    use rten_tensor::prelude::*;
 
-    use super::{log_sum_exp, CtcDecoder, CtcHypothesis};
+    use super::{CtcDecoder, CtcHypothesis, log_sum_exp};
 
     const ALPHABET: &str = " abcdefghijklmnopqrstuvwxyz";
 

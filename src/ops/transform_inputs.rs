@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use rten_tensor::prelude::*;
 
-use crate::ops::{map_value_view, OpError, OpRunContext, Operator, OutputList, Value, ValueView};
+use crate::ops::{OpError, OpRunContext, Operator, OutputList, Value, ValueView, map_value_view};
 
 trait TransformInput {
     fn transform(&self, input: &mut ValueView) -> Result<(), OpError>;
@@ -139,8 +139,8 @@ impl Operator for TransformInputs {
 mod tests {
     use std::sync::Arc;
 
-    use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
+    use rten_tensor::prelude::*;
     use rten_testing::TestCases;
 
     use super::TransformInputsBuilder;

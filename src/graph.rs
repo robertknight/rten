@@ -134,11 +134,11 @@ impl fmt::Display for RunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RunError::InvalidNodeId => write!(f, "node ID is invalid"),
-            RunError::InvalidNodeName(ref name) => write!(f, "no node found with name {}", name),
-            RunError::PlanningError(ref err) => write!(f, "planning error {}", err),
+            RunError::InvalidNodeName(name) => write!(f, "no node found with name {}", name),
+            RunError::PlanningError(err) => write!(f, "planning error {}", err),
             RunError::OperatorError {
                 name,
-                error: ref err,
+                error: err,
                 inputs,
             } => {
                 write!(f, "operator \"{}\" failed: {}. Inputs were (", name, err,)?;

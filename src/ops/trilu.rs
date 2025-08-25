@@ -5,7 +5,7 @@ use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::{
-    map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView, map_value_view,
 };
 
 fn trilu_kernel<T: Copy + Default, const UPPER: bool>(
@@ -82,12 +82,12 @@ impl Operator for Trilu {
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
+    use rten_tensor::prelude::*;
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{trilu, OpError};
+    use crate::ops::{OpError, trilu};
 
     #[test]
     fn test_trilu() {

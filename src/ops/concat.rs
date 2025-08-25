@@ -7,8 +7,8 @@ use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::{
-    map_value, map_value_view, resolve_axis, CastError, InputList, IntoOpResult, OpError,
-    OpRunContext, Operator, OutputList, Value, ValueView,
+    CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
+    ValueView, map_value, map_value_view, resolve_axis,
 };
 
 /// Return the shape formed by concatenating all tensors along a given axis.
@@ -284,13 +284,13 @@ impl Operator for Tile {
 mod tests {
     use std::error::Error;
 
+    use rten_tensor::Tensor;
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use crate::ops::tests::new_pool;
     use crate::ops::OpError;
+    use crate::ops::tests::new_pool;
 
     use super::{concat, concat_in_place, tile};
 

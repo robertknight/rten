@@ -166,8 +166,8 @@ impl Tensor {
     /// Return the elements of a float tensor in their logical order.
     #[wasm_bindgen(js_name = floatData)]
     pub fn float_data(&self) -> Option<Vec<f32>> {
-        match *self.data {
-            Value::FloatTensor(ref t) => Some(t.to_vec()),
+        match &*self.data {
+            Value::FloatTensor(t) => Some(t.to_vec()),
             _ => None,
         }
     }
@@ -175,8 +175,8 @@ impl Tensor {
     /// Return the elements of an int tensor in their logical order.
     #[wasm_bindgen(js_name = intData)]
     pub fn int_data(&self) -> Option<Vec<i32>> {
-        match *self.data {
-            Value::Int32Tensor(ref t) => Some(t.to_vec()),
+        match &*self.data {
+            Value::Int32Tensor(t) => Some(t.to_vec()),
             _ => None,
         }
     }
@@ -190,7 +190,7 @@ impl Tensor {
 #[wasm_bindgen]
 impl Tensor {
     fn as_float(&self) -> Result<rten_tensor::TensorView<'_, f32>, String> {
-        let Value::FloatTensor(ref a) = self.data.borrow() else {
+        let Value::FloatTensor(a) = self.data.borrow() else {
             return Err("Expected a float tensor".to_string());
         };
         Ok(a.view())

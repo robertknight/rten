@@ -13,8 +13,8 @@ use rten_vecmath as vecmath;
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::{
-    map_value, map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
-    ValueView,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView, map_value,
+    map_value_view,
 };
 
 /// Trait for operators which take a single float tensor and apply a function
@@ -241,20 +241,12 @@ pub trait Clamp: Copy + PartialOrd {
 
     /// Return the minimum of `self` and `val`.
     fn min(&self, val: Self) -> Self {
-        if *self < val {
-            *self
-        } else {
-            val
-        }
+        if *self < val { *self } else { val }
     }
 
     /// Return the maximum of `self` and `val`.
     fn max(&self, val: Self) -> Self {
-        if *self > val {
-            *self
-        } else {
-            val
-        }
+        if *self > val { *self } else { val }
     }
 
     /// Return self constrained to the range `[min, max]`.
@@ -491,11 +483,7 @@ impl UnaryFloatOp for LeakyRelu {
     }
 
     fn map_element(&self, val: f32) -> f32 {
-        if val < 0.0 {
-            self.alpha * val
-        } else {
-            val
-        }
+        if val < 0.0 { self.alpha * val } else { val }
     }
 }
 
@@ -591,11 +579,7 @@ fn prelu<T: Copy + Default + PartialOrd + std::ops::Mul<Output = T>>(
         x,
         slope,
         |x, alpha| {
-            if x < T::default() {
-                alpha * x
-            } else {
-                x
-            }
+            if x < T::default() { alpha * x } else { x }
         },
     )
 }
@@ -714,9 +698,9 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        ceil, clip, clip_in_place, erf, floor, hard_sigmoid, hard_swish, leaky_relu, round, Abs,
-        Acos, Asin, Atan, Cos, Elu, Exp, Gelu, IsInf, IsNaN, Log, Neg, Not, PRelu, Reciprocal,
-        Relu, Sigmoid, Sign, Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
+        Abs, Acos, Asin, Atan, Cos, Elu, Exp, Gelu, IsInf, IsNaN, Log, Neg, Not, PRelu, Reciprocal,
+        Relu, Sigmoid, Sign, Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh, ceil, clip,
+        clip_in_place, erf, floor, hard_sigmoid, hard_swish, leaky_relu, round,
     };
     use crate::ops::tests::new_pool;
     use crate::ops::{CastError, OpError, Operator, OperatorExt, Value, ValueView};

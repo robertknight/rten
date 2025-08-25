@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 use crate::graph::Graph;
 use crate::ops;
@@ -554,7 +554,7 @@ impl_read_op!(
                 return Err(ReadOpError::AttrError {
                     attr: "mode",
                     error: "unknown value",
-                })?
+                })?;
             }
         };
         let block_size = attrs.block_size();
@@ -824,7 +824,7 @@ impl ReadOp for ops::Pad {
                 return Err(ReadOpError::AttrError {
                     attr: "mode",
                     error: "unknown value",
-                })
+                });
             }
         };
         Ok(ops::Pad { mode })

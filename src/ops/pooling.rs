@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::{
-    check_value, static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding, check_value, static_dims,
 };
 
 /// Rounding method to use when computing the output shape for a pooling
@@ -575,10 +575,10 @@ mod tests {
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use super::{calc_output_size_and_padding, RoundMode};
+    use super::{RoundMode, calc_output_size_and_padding};
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
-    use crate::ops::{average_pool, global_average_pool, max_pool, OpError, Padding};
+    use crate::ops::{OpError, Padding, average_pool, global_average_pool, max_pool};
 
     #[test]
     fn test_average_pool() {

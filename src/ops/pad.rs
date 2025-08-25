@@ -5,7 +5,7 @@ use rten_tensor::{NdTensorView, NdTensorViewMut, SliceItem, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::{
-    map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView, map_value_view,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -291,7 +291,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{pad, CastError, DataType, OpError, OperatorExt, Pad, PadMode, Value};
+    use crate::ops::{CastError, DataType, OpError, OperatorExt, Pad, PadMode, Value, pad};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
