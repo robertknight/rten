@@ -61,7 +61,7 @@ pub unsafe trait Storage {
     ///   can be created.
     unsafe fn get(&self, offset: usize) -> Option<&Self::Elem> {
         if offset < self.len() {
-            Some(&*self.as_ptr().add(offset))
+            Some(unsafe { &*self.as_ptr().add(offset) })
         } else {
             None
         }
@@ -75,7 +75,7 @@ pub unsafe trait Storage {
     /// the caller must ensure that `offset < len`.
     unsafe fn get_unchecked(&self, offset: usize) -> &Self::Elem {
         debug_assert!(offset < self.len());
-        &*self.as_ptr().add(offset)
+        unsafe { &*self.as_ptr().add(offset) }
     }
 
     /// Return a view of a sub-region of the storage.
@@ -107,7 +107,8 @@ pub unsafe trait Storage {
     /// The caller must ensure that no mutable references exist to any element
     /// in the storage.
     unsafe fn as_slice(&self) -> &[Self::Elem] {
-        std::slice::from_raw_parts(self.as_ptr(), self.len())
+        let (ptr, len) = (self.as_ptr(), self.len());
+        unsafe { std::slice::from_raw_parts(ptr, len) }
     }
 }
 
@@ -192,7 +193,7 @@ pub unsafe trait StorageMut: Storage {
     /// This has the same safety requirements as [`get`](Storage::get).
     unsafe fn get_mut(&mut self, offset: usize) -> Option<&mut Self::Elem> {
         if offset < self.len() {
-            Some(&mut *self.as_mut_ptr().add(offset))
+            Some(unsafe { &mut *self.as_mut_ptr().add(offset) })
         } else {
             None
         }
@@ -206,7 +207,7 @@ pub unsafe trait StorageMut: Storage {
     /// the caller must ensure that `offset < self.len()`.
     unsafe fn get_unchecked_mut(&mut self, offset: usize) -> &mut Self::Elem {
         debug_assert!(offset < self.len());
-        &mut *self.as_mut_ptr().add(offset)
+        unsafe { &mut *self.as_mut_ptr().add(offset) }
     }
 
     /// Return a slice of this storage.
@@ -237,7 +238,8 @@ pub unsafe trait StorageMut: Storage {
     /// elements) and that there are no other references to any elements in the
     /// storage.
     unsafe fn as_slice_mut(&mut self) -> &mut [Self::Elem] {
-        std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.len())
+        let (ptr, len) = (self.as_mut_ptr(), self.len());
+        unsafe { std::slice::from_raw_parts_mut(ptr, len) }
     }
 }
 
@@ -307,7 +309,7 @@ impl<'a, T> ViewData<'a, T> {
     /// See [`Storage::get_unchecked`].
     pub unsafe fn get_unchecked(&self, offset: usize) -> &'a T {
         debug_assert!(offset < self.len);
-        &*self.ptr.add(offset)
+        unsafe { &*self.ptr.add(offset) }
     }
 
     /// Variant of [`Storage::slice`] which preserves lifetimes.
@@ -334,7 +336,7 @@ impl<'a, T> ViewData<'a, T> {
     /// The caller must ensure that no mutable references exist to any element
     /// in the storage.
     pub unsafe fn as_slice(&self) -> &'a [T] {
-        std::slice::from_raw_parts(self.ptr, self.len)
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
 
@@ -356,7 +358,7 @@ impl<'a, T> AssumeInit for ViewData<'a, MaybeUninit<T>> {
     type Output = ViewData<'a, T>;
 
     unsafe fn assume_init(self) -> Self::Output {
-        std::mem::transmute(self)
+        unsafe { std::mem::transmute(self) }
     }
 }
 
@@ -382,7 +384,8 @@ impl<'a, T> ViewMutData<'a, T> {
     ///
     /// See [`StorageMut::as_slice_mut`].
     pub unsafe fn to_slice_mut(mut self) -> &'a mut [T] {
-        std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.len())
+        let (ptr, len) = (self.as_mut_ptr(), self.len());
+        unsafe { std::slice::from_raw_parts_mut(ptr, len) }
     }
 
     /// Split the storage into two sub-views.
@@ -453,7 +456,7 @@ impl<'a, T> AssumeInit for ViewMutData<'a, MaybeUninit<T>> {
     type Output = ViewMutData<'a, T>;
 
     unsafe fn assume_init(self) -> Self::Output {
-        std::mem::transmute(self)
+        unsafe { std::mem::transmute(self) }
     }
 }
 

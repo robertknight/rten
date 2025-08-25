@@ -125,7 +125,7 @@ macro_rules! ndtensor {
 #[cfg(test)]
 #[allow(deprecated)]
 mod tests {
-    use crate::{ndtensor, tensor, NdTensor, Tensor};
+    use crate::{NdTensor, Tensor, ndtensor, tensor};
 
     #[test]
     fn test_tensor_scalar() {
