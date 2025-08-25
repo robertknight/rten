@@ -60,11 +60,9 @@ pub struct Exp {}
 //     into multiple steps to extend the domain.
 impl SimdUnaryOp<f32> for Exp {
     #[inline(always)]
-    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
         let ops = isa.f32();
         let int_ops = isa.i32();
-
-        let x = x.same_cast();
 
         // Load constants
         let inv_log_2 = ops.splat(INV_LOG2);
@@ -124,7 +122,7 @@ impl SimdUnaryOp<f32> for Exp {
         let overflow_mask = ops.ge(x, ops.splat(104.0));
         let underflow_mask = ops.le(x, ops.splat(-104.0));
         let r = ops.select(ops.splat(f32::INFINITY), r, overflow_mask);
-        ops.select(ops.zero(), r, underflow_mask).same_cast()
+        ops.select(ops.zero(), r, underflow_mask)
     }
 }
 
@@ -141,11 +139,9 @@ pub struct ReducedRangeExp {}
 
 impl SimdUnaryOp<f32> for ReducedRangeExp {
     #[inline(always)]
-    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
         let ops = isa.f32();
         let int_ops = isa.i32();
-
-        let x = x.same_cast();
 
         // Load constants
         let inv_log_2 = ops.splat(INV_LOG2);
@@ -190,7 +186,7 @@ impl SimdUnaryOp<f32> for ReducedRangeExp {
 
         // Handle underflow. We don't need to handle overflow since x <= 0.
         let underflow_mask = ops.lt(x, ops.splat(EXP_LOWER_CUTOFF));
-        ops.select(ops.zero(), r, underflow_mask).same_cast()
+        ops.select(ops.zero(), r, underflow_mask)
     }
 }
 
@@ -206,13 +202,12 @@ pub struct Sigmoid {}
 
 impl SimdUnaryOp<f32> for Sigmoid {
     #[inline(always)]
-    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
         let ops = isa.f32();
-        let x = x.same_cast();
 
         // 1. + exp(-x)
         let denom = ops.add(ops.one(), Exp::apply(isa, ops.neg(x)));
-        ops.reciprocal(denom).same_cast()
+        ops.reciprocal(denom)
     }
 }
 
@@ -223,13 +218,12 @@ pub struct Silu {}
 
 impl SimdUnaryOp<f32> for Silu {
     #[inline(always)]
-    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
         let ops = isa.f32();
-        let x = x.same_cast();
 
         // 1. + exp(-x)
         let denom = ops.add(ops.one(), Exp::apply(isa, ops.neg(x)));
-        ops.div(x, denom).same_cast()
+        ops.div(x, denom)
     }
 }
 
@@ -242,13 +236,11 @@ pub struct Swish {
 
 impl SimdUnaryOp<f32> for Swish {
     #[inline(always)]
-    fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
         let ops = isa.f32();
-        let x = x.same_cast();
 
         let beta = ops.splat(self.beta);
         ops.mul(x, Sigmoid::apply(isa, ops.mul(x, beta)))
-            .same_cast()
     }
 }
 

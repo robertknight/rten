@@ -1,9 +1,9 @@
 use std::mem::MaybeUninit;
 
 use crate::functional::simd_map;
-use crate::ops::GetNumOps;
+use crate::ops::{GetNumOps, GetSimd};
 use crate::span::SrcDest;
-use crate::{Elem, Isa, Simd};
+use crate::Isa;
 
 /// A vectorized operation which can be instantiated for different instruction
 /// sets.
@@ -82,11 +82,8 @@ pub fn dispatch<Op: SimdOp>(op: Op) -> Op::Output {
 }
 
 /// Convenience trait for defining vectorized unary operations.
-pub trait SimdUnaryOp<T: Elem> {
+pub trait SimdUnaryOp<T: GetSimd> {
     /// Evaluate the unary function on the elements in `x`.
-    ///
-    /// In order to perform operations on `x`, it will need to be cast to
-    /// the specific type used by the ISA:
     ///
     /// ```
     /// use rten_simd::{Isa, Simd, SimdUnaryOp};
@@ -95,15 +92,13 @@ pub trait SimdUnaryOp<T: Elem> {
     /// struct Reciprocal {}
     ///
     /// impl SimdUnaryOp<f32> for Reciprocal {
-    ///     fn eval<I: Isa, S: Simd<Elem=f32, Isa=I>>(&self, isa: I, x: S) -> S {
+    ///     fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
     ///         let ops = isa.f32();
-    ///         let x = x.same_cast();
-    ///         let reciprocal = ops.div(ops.one(), x);
-    ///         reciprocal.same_cast()
+    ///         ops.div(ops.one(), x)
     ///     }
     /// }
     /// ```
-    fn eval<I: Isa, S: Simd<Elem = T, Isa = I>>(&self, isa: I, x: S) -> S;
+    fn eval<I: Isa>(&self, isa: I, x: T::Simd<I>) -> T::Simd<I>;
 
     /// Evaluate the unary function on elements in `x`.
     ///
@@ -111,7 +106,7 @@ pub trait SimdUnaryOp<T: Elem> {
     /// when one vectorized operation needs to call another as part of its
     /// implementation.
     #[inline(always)]
-    fn apply<I: Isa, S: Simd<Elem = T, Isa = I>>(isa: I, x: S) -> S
+    fn apply<I: Isa>(isa: I, x: T::Simd<I>) -> T::Simd<I>
     where
         Self: Default,
     {
@@ -161,18 +156,18 @@ pub trait SimdUnaryOp<T: Elem> {
 
 /// SIMD operation which applies a unary operator `Op` to all elements in
 /// an input buffer using [`simd_map`].
-struct SimdMapOp<'src, 'dst, 'op, T: Elem, Op: SimdUnaryOp<T>> {
+struct SimdMapOp<'src, 'dst, 'op, T: GetSimd, Op: SimdUnaryOp<T>> {
     src_dest: SrcDest<'src, 'dst, T>,
     op: &'op Op,
 }
 
-impl<'src, 'dst, 'op, T: Elem, Op: SimdUnaryOp<T>> SimdMapOp<'src, 'dst, 'op, T, Op> {
+impl<'src, 'dst, 'op, T: GetSimd, Op: SimdUnaryOp<T>> SimdMapOp<'src, 'dst, 'op, T, Op> {
     pub fn wrap(src_dest: SrcDest<'src, 'dst, T>, op: &'op Op) -> Self {
         SimdMapOp { src_dest, op }
     }
 }
 
-impl<'dst, T: GetNumOps, Op: SimdUnaryOp<T>> SimdOp for SimdMapOp<'_, 'dst, '_, T, Op> {
+impl<'dst, T: GetNumOps + GetSimd, Op: SimdUnaryOp<T>> SimdOp for SimdMapOp<'_, 'dst, '_, T, Op> {
     type Output = &'dst mut [T];
 
     #[inline(always)]
@@ -210,19 +205,17 @@ pub(crate) use test_simd_op;
 #[cfg(test)]
 mod tests {
     use super::SimdUnaryOp;
-    use crate::ops::{FloatOps, GetNumOps, NumOps};
-    use crate::{Isa, Simd};
+    use crate::ops::{FloatOps, GetNumOps, GetSimd, NumOps};
+    use crate::Isa;
 
     #[test]
     fn test_unary_float_op() {
         struct Reciprocal {}
 
         impl SimdUnaryOp<f32> for Reciprocal {
-            fn eval<I: Isa, S: Simd<Elem = f32, Isa = I>>(&self, isa: I, x: S) -> S {
+            fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
                 let ops = isa.f32();
-                let x = x.same_cast();
-                let y = ops.div(ops.one(), x);
-                y.same_cast()
+                ops.div(ops.one(), x)
             }
         }
 
@@ -236,11 +229,13 @@ mod tests {
     fn test_unary_generic_op() {
         struct Double {}
 
-        impl<T: GetNumOps> SimdUnaryOp<T> for Double {
-            fn eval<I: Isa, S: Simd<Elem = T, Isa = I>>(&self, isa: I, x: S) -> S {
+        impl<T> SimdUnaryOp<T> for Double
+        where
+            T: GetSimd + GetNumOps,
+        {
+            fn eval<I: Isa>(&self, isa: I, x: T::Simd<I>) -> T::Simd<I> {
                 let ops = T::num_ops(isa);
-                let x = x.same_cast();
-                ops.add(x, x).same_cast()
+                ops.add(x, x)
             }
         }
 
