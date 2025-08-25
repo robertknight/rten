@@ -133,6 +133,7 @@ class OperatorType(object):
     SequenceConstruct = 123
     SequenceErase = 124
     GridSample = 125
+    PRelu = 126
 
 
 class RNNDirection(object):

@@ -139,6 +139,7 @@ enum OperatorType: ubyte {
   SequenceConstruct,
   SequenceErase,
   GridSample,
+  PRelu,
 }
 
 enum RNNDirection: ubyte {

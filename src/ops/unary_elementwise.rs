@@ -11,6 +11,7 @@ use rten_tensor::{Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::ops::binary_elementwise::binary_op;
 use crate::ops::{
     map_value, map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
     ValueView,
@@ -571,6 +572,52 @@ pub fn round(pool: &BufferPool, x: TensorView) -> Tensor {
     Round {}.map(pool, x)
 }
 
+fn prelu<T: Copy + Default + PartialOrd + std::ops::Mul<Output = T>>(
+    pool: &BufferPool,
+    x: TensorView<T>,
+    slope: TensorView<T>,
+) -> Result<Tensor<T>, OpError> {
+    if !slope.can_broadcast_to(x.shape()) {
+        return Err(OpError::IncompatibleInputShapes(
+            "Slope is not broadcastable to input shape",
+        ));
+    }
+
+    // Even though PRelu is technically a binary operation in ONNX, it is
+    // usually described as elementwise because the slope parameter is normally
+    // a constant scalar or vector.
+    binary_op(
+        pool,
+        x,
+        slope,
+        |x, alpha| {
+            if x < T::default() {
+                alpha * x
+            } else {
+                x
+            }
+        },
+    )
+}
+
+#[derive(Debug)]
+pub struct PRelu {}
+
+impl Operator for PRelu {
+    fn name(&self) -> &str {
+        "PRelu"
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
+
+        map_value_view!(input, input, [FloatTensor], {
+            let slope = ctx.inputs().require_as(1)?;
+            prelu(ctx.pool(), input, slope).into_op_result()
+        })
+    }
+}
+
 parallel_unary_float_op!(Sigmoid, sigmoid, vecmath::Sigmoid {});
 
 // Sigmoid Linear Unit (SiLU) function.
@@ -668,11 +715,11 @@ mod tests {
 
     use super::{
         ceil, clip, clip_in_place, erf, floor, hard_sigmoid, hard_swish, leaky_relu, round, Abs,
-        Acos, Asin, Atan, Cos, Elu, Exp, Gelu, IsInf, IsNaN, Log, Neg, Not, Reciprocal, Relu,
-        Sigmoid, Sign, Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
+        Acos, Asin, Atan, Cos, Elu, Exp, Gelu, IsInf, IsNaN, Log, Neg, Not, PRelu, Reciprocal,
+        Relu, Sigmoid, Sign, Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
     };
     use crate::ops::tests::new_pool;
-    use crate::ops::{CastError, Operator, OperatorExt, Value, ValueView};
+    use crate::ops::{CastError, OpError, Operator, OperatorExt, Value, ValueView};
     use rten_tensor::test_util::ApproxEq;
 
     // Test a unary operator's in-place and non-in-place implementations.
@@ -1047,6 +1094,25 @@ mod tests {
         assert!(eq_with_nans(input.view(), result.view()));
 
         Ok(())
+    }
+
+    #[test]
+    fn test_prelu() {
+        let op = PRelu {};
+        let x = Tensor::from([0., 0.5, 1.0, -0.5, -1.0]);
+        let slope = Tensor::from([2.]);
+        let expected = Tensor::from([0., 0.5, 1.0, -1.0, -2.0]);
+        let result: Tensor = op.run_simple((x.view(), slope.view())).unwrap();
+        assert_eq!(result, expected);
+
+        let slope_2d = Tensor::from([[1.], [2.]]);
+        let result: Result<Tensor, _> = op.run_simple((x.view(), slope_2d.view()));
+        assert_eq!(
+            result.err(),
+            Some(OpError::IncompatibleInputShapes(
+                "Slope is not broadcastable to input shape"
+            ))
+        );
     }
 
     test_unary_op!(test_sign, Sign {}, |x: &f32| x.signum());

@@ -163,6 +163,7 @@ impl OpRegistry {
         register_op!(Or);
         register_op!(Pad);
         register_op!(Pow);
+        register_op!(PRelu);
         register_op!(QuantizeLinear);
 
         #[cfg(feature = "random")]
@@ -831,6 +832,7 @@ impl ReadOp for ops::Pad {
 }
 
 impl_read_op!(Pow);
+impl_read_op!(PRelu);
 
 impl_read_op!(
     QuantizeLinear,

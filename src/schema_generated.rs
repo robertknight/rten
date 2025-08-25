@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 125;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 126;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 126] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 127] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -151,6 +151,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 126] = [
     OperatorType::SequenceConstruct,
     OperatorType::SequenceErase,
     OperatorType::GridSample,
+    OperatorType::PRelu,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -284,9 +285,10 @@ impl OperatorType {
     pub const SequenceConstruct: Self = Self(123);
     pub const SequenceErase: Self = Self(124);
     pub const GridSample: Self = Self(125);
+    pub const PRelu: Self = Self(126);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 125;
+    pub const ENUM_MAX: u8 = 126;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -414,6 +416,7 @@ impl OperatorType {
         Self::SequenceConstruct,
         Self::SequenceErase,
         Self::GridSample,
+        Self::PRelu,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -544,6 +547,7 @@ impl OperatorType {
             Self::SequenceConstruct => Some("SequenceConstruct"),
             Self::SequenceErase => Some("SequenceErase"),
             Self::GridSample => Some("GridSample"),
+            Self::PRelu => Some("PRelu"),
             _ => None,
         }
     }
