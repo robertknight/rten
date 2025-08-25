@@ -470,10 +470,11 @@ mod tests {
                 .map(|tm| Tensor::from(if tm { 1i32 } else { 0 }));
 
             let op = Dropout { seed: None };
-            let mut inputs = InputList::new();
-            inputs.push(&data);
-            inputs.push_optional(ratio_input.as_ref());
-            inputs.push_optional(training_mode_input.as_ref());
+            let inputs = InputList::from_iter([
+                Some(data.view().into()),
+                ratio_input.as_ref().map(|ri| ri.view().into()),
+                training_mode_input.as_ref().map(|tm| tm.view().into()),
+            ]);
             let pool = new_pool();
             let ctx = OpRunContext::new(&pool, &inputs);
             let mut outputs = op.run(&ctx).unwrap();
@@ -518,10 +519,11 @@ mod tests {
                 // Seed a fixed seed for consistent results
                 seed: Some(1),
             };
-            let mut inputs = InputList::new();
-            inputs.push(&data);
-            inputs.push_optional(ratio_input.as_ref());
-            inputs.push(&training_mode_input);
+            let inputs = InputList::from_iter([
+                Some(data.view().into()),
+                ratio_input.as_ref().map(|ri| ri.view().into()),
+                Some(training_mode_input.view().into()),
+            ]);
             let pool = new_pool();
             let ctx = OpRunContext::new(&pool, &inputs);
 

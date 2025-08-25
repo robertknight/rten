@@ -211,8 +211,10 @@ mod tests {
                 num_outputs: case.num_outputs,
             };
 
-            let mut inputs: InputList = input.view().into();
-            inputs.push_optional(case.splits.as_ref().map(|s| s.view()));
+            let inputs = InputList::from_iter([
+                Some(input.view().into()),
+                case.splits.as_ref().map(|s| s.view().into()),
+            ]);
             let pool = new_pool();
             let mut ctx = OpRunContext::new(&pool, &inputs);
             if let Some(n_outputs) = case.graph_outputs {
