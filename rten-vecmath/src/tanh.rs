@@ -69,8 +69,8 @@ impl SimdUnaryOp<f32> for Tanh {
 mod tests {
     use rten_simd::SimdUnaryOp;
 
-    use crate::testing::{arange, benchmark_op, AllF32s, Tolerance, UnaryOpTester};
     use crate::Tanh;
+    use crate::testing::{AllF32s, Tolerance, UnaryOpTester, arange, benchmark_op};
 
     // Maximum error of `vec_tanh` compared to `f32::tanh`.
     const MAX_TANH_ERROR_ULPS: f32 = 3.0;

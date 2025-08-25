@@ -347,10 +347,11 @@ mod tests {
             // it is too small. Test with a slightly expanded rect to avoid
             // numerical issues with points exactly on the edge.
             let expanded_min_rect = min_rect.expanded(1e-3, 1e-3);
-            assert!(case
-                .points
-                .iter()
-                .all(|p| expanded_min_rect.contains(PointF::from_yx(p.y as f32, p.x as f32))));
+            assert!(
+                case.points
+                    .iter()
+                    .all(|p| expanded_min_rect.contains(PointF::from_yx(p.y as f32, p.x as f32)))
+            );
 
             // Every edge should touch (within a threshold) an input point,
             // otherwise it is too large.

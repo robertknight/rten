@@ -1,5 +1,5 @@
-use rten_tensor::prelude::*;
 use rten_tensor::NdTensorViewMut;
+use rten_tensor::prelude::*;
 
 /// Standard ImageNet normalization mean values, for use with
 /// [`normalize_image`].

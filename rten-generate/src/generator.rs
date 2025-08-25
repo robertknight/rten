@@ -502,7 +502,10 @@ impl<'a> Generator<'a> {
                 [_, Dimension::Fixed(n_heads), _, Dimension::Fixed(size)] => (Some(n_heads), size),
                 [_, _, Dimension::Fixed(size)] => (None, size),
                 _ => {
-                    return Err(GeneratorError::ShapeMismatch(format!("input \"{}\" has unexpected shape. expected (batch, past_seq_len, chans) or (batch, heads, past_seq_len, chans) where `heads` and `size` are fixed", name)));
+                    return Err(GeneratorError::ShapeMismatch(format!(
+                        "input \"{}\" has unexpected shape. expected (batch, past_seq_len, chans) or (batch, heads, past_seq_len, chans) where `heads` and `size` are fixed",
+                        name
+                    )));
                 }
             };
 
@@ -1313,10 +1316,12 @@ mod tests {
 
             if step == 0 {
                 assert_eq!(step_inputs.size(1), prompt.len());
-                assert!(step_inputs
-                    .iter()
-                    .map(|x| *x as u32)
-                    .eq(prompt.iter().copied()));
+                assert!(
+                    step_inputs
+                        .iter()
+                        .map(|x| *x as u32)
+                        .eq(prompt.iter().copied())
+                );
 
                 assert_eq!(step_attn_mask.size(1), prompt.len());
                 assert!(step_attn_mask.iter().all(|x| *x == 1));
@@ -1325,10 +1330,12 @@ mod tests {
                 assert!(step_pos_ids.iter().map(|x| *x as usize).eq(0..prompt.len()));
 
                 assert_eq!(step_cache_pos.size(0), prompt.len());
-                assert!(step_cache_pos
-                    .iter()
-                    .map(|x| *x as usize)
-                    .eq(0..prompt.len()));
+                assert!(
+                    step_cache_pos
+                        .iter()
+                        .map(|x| *x as usize)
+                        .eq(0..prompt.len())
+                );
 
                 if let Some(cache_branch) = cache_branch {
                     assert_eq!(cache_branch.item(), Some(&0));
@@ -1528,11 +1535,7 @@ mod tests {
                     .max_by(|(_i, x), (_j, y)| x.total_cmp(y))
                     .map(|(i, _x)| i)?;
                 Some(NdTensor::from_fn(logits.shape(), |[i]| {
-                    if i == max_idx * 2 {
-                        1.
-                    } else {
-                        0.
-                    }
+                    if i == max_idx * 2 { 1. } else { 0. }
                 }))
             }
         }

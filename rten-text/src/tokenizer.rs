@@ -19,7 +19,7 @@ use std::ops::Range;
 use std::path::Path;
 
 use crate::models::{
-    merge_pairs_from_lines, Bpe, BpeError, BpeOptions, DecodeError, EncodeError, Model, WordPiece,
+    Bpe, BpeError, BpeOptions, DecodeError, EncodeError, Model, WordPiece, merge_pairs_from_lines,
 };
 use crate::normalizers::{NormalizeError, Normalizer};
 use crate::pre_tokenizers::{PreTokenizeError, PreTokenizer};
@@ -879,7 +879,9 @@ mod tests {
             .unwrap();
         assert_eq!(
             tokenizer.model().get_tokens(encoded.token_ids()).unwrap(),
-            &["[CLS]", "This", "is", "[SEP]", "a", "test", "sequence", "[SEP]"]
+            &[
+                "[CLS]", "This", "is", "[SEP]", "a", "test", "sequence", "[SEP]"
+            ]
         );
 
         let token_type_ids: Vec<_> = encoded.token_type_ids().collect();

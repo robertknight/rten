@@ -546,11 +546,11 @@ impl RandomInputGenerator {
             })
             .collect();
 
-        fn random_ints<T, F: FnMut() -> T>(shape: &[usize], gen: F) -> Value
+        fn random_ints<T, F: FnMut() -> T>(shape: &[usize], generate: F) -> Value
         where
             Value: From<Tensor<T>>,
         {
-            Tensor::from_simple_fn(shape, gen).into()
+            Tensor::from_simple_fn(shape, generate).into()
         }
 
         // Guess suitable content for the input based on its name.

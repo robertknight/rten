@@ -248,8 +248,8 @@ impl SimdUnaryOp<f32> for Swish {
 mod tests {
     use rten_simd::SimdUnaryOp;
 
-    use super::{ReducedRangeExp, EXP_LOWER_CUTOFF};
-    use crate::testing::{arange, benchmark_op, AllF32s, Tolerance, UnaryOpTester};
+    use super::{EXP_LOWER_CUTOFF, ReducedRangeExp};
+    use crate::testing::{AllF32s, Tolerance, UnaryOpTester, arange, benchmark_op};
     use crate::{Exp, Sigmoid, Silu, Swish};
 
     // Maximum error of `Exp` compared to Rust standard library implementation.

@@ -539,7 +539,7 @@ mod tests {
 
     use rten_testing::TestCases;
 
-    use super::{merge_pairs_from_lines, Bpe, BpeOptions, EncodedBytes};
+    use super::{Bpe, BpeOptions, EncodedBytes, merge_pairs_from_lines};
     use crate::pre_tokenizers::Split;
     use crate::tokenizer::{TokenId, Tokenizer};
 

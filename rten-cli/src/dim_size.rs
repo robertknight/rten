@@ -116,9 +116,19 @@ impl ParseError {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.kind {
-            ParseErrorKind::InvalidFormat => write!(fmt, "invalid format for dimension size spec \"{}\". expected \"dim_name=size\" or \"input_name.dim_name=size\"", self.spec),
-            ParseErrorKind::InvalidName => write!(fmt, "invalid name in dimension size spec \"{}\"", self.spec),
-            ParseErrorKind::InvalidSize => write!(fmt, "invalid dimension size in \"{}\". Must be a non-negative integer.", self.spec),
+            ParseErrorKind::InvalidFormat => write!(
+                fmt,
+                "invalid format for dimension size spec \"{}\". expected \"dim_name=size\" or \"input_name.dim_name=size\"",
+                self.spec
+            ),
+            ParseErrorKind::InvalidName => {
+                write!(fmt, "invalid name in dimension size spec \"{}\"", self.spec)
+            }
+            ParseErrorKind::InvalidSize => write!(
+                fmt,
+                "invalid dimension size in \"{}\". Must be a non-negative integer.",
+                self.spec
+            ),
         }
     }
 }

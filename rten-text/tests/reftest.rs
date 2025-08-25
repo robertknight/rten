@@ -4,7 +4,7 @@ use std::fs::read_to_string;
 use std::io;
 use std::path::PathBuf;
 
-use rten_text::models::{merge_pairs_from_lines, Bpe, BpeOptions, WordPiece};
+use rten_text::models::{Bpe, BpeOptions, WordPiece, merge_pairs_from_lines};
 use rten_text::tokenizer::{TokenId, Tokenizer, TokenizerOptions};
 use rten_text::{normalizers, pre_tokenizers};
 use serde::Deserialize;
