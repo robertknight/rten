@@ -1,9 +1,9 @@
 use rten_gemm::{ColOffsets, Im2Col, RowOffsets};
-use rten_tensor::prelude::*;
 use rten_tensor::NdTensorView;
+use rten_tensor::prelude::*;
 
-use crate::ops::pooling::{calc_output_size_and_padding, RoundMode};
 use crate::ops::Padding;
+use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
 
 /// Build a virtual [`Im2Col`] matrix from an image and convolution parameters.
 ///

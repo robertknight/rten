@@ -376,12 +376,12 @@ impl Bpe {
             return Some(vec![byte as u8]);
         }
 
-        if let Some(eow_suffix) = self.end_of_word_suffix.as_deref() {
-            if id < 512 {
-                let mut bytes = self.get_token_bytes(id - 256)?;
-                bytes.extend(eow_suffix.as_bytes());
-                return Some(bytes);
-            }
+        if let Some(eow_suffix) = self.end_of_word_suffix.as_deref()
+            && id < 512
+        {
+            let mut bytes = self.get_token_bytes(id - 256)?;
+            bytes.extend(eow_suffix.as_bytes());
+            return Some(bytes);
         }
 
         let (first, second) = self
@@ -409,10 +409,11 @@ impl Bpe {
 
         // If the end-of-word suffix is enabled, replace the last byte's token
         // with the one that corresponds to "{byte}{end_of_word_suffix}".
-        if self.end_of_word_suffix.is_some() && end_of_word {
-            if let Some(last) = tokens.pop() {
-                tokens.push(last + 256);
-            }
+        if self.end_of_word_suffix.is_some()
+            && end_of_word
+            && let Some(last) = tokens.pop()
+        {
+            tokens.push(last + 256);
         }
 
         // Iteratively merge tokens together until no more are possible.
@@ -476,11 +477,11 @@ impl Model for Bpe {
         // trailing "</w>" in "from</w>" indicates that it should be treated as
         // occurring at the end of a piece from the initial split.
         let mut end_of_word = false;
-        if let Some(suffix) = self.end_of_word_suffix.as_deref() {
-            if text.ends_with(suffix) {
-                text = &text[..text.len() - suffix.len()];
-                end_of_word = true;
-            }
+        if let Some(suffix) = self.end_of_word_suffix.as_deref()
+            && text.ends_with(suffix)
+        {
+            text = &text[..text.len() - suffix.len()];
+            end_of_word = true;
         }
 
         let tokens = self.encode_piece(text, end_of_word);
@@ -539,7 +540,7 @@ mod tests {
 
     use rten_testing::TestCases;
 
-    use super::{merge_pairs_from_lines, Bpe, BpeOptions, EncodedBytes};
+    use super::{Bpe, BpeOptions, EncodedBytes, merge_pairs_from_lines};
     use crate::pre_tokenizers::Split;
     use crate::tokenizer::{TokenId, Tokenizer};
 

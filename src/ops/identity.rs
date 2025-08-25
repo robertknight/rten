@@ -3,7 +3,7 @@ use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::{
-    map_value_view, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView, map_value_view,
 };
 
 fn identity<T: Copy>(pool: &BufferPool, src: TensorView<T>) -> Tensor<T> {
@@ -36,8 +36,8 @@ impl Operator for Identity {
 mod tests {
     use std::error::Error;
 
-    use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
+    use rten_tensor::test_util::expect_equal;
 
     use crate::ops::{Identity, OperatorExt};
 

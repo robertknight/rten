@@ -222,10 +222,10 @@ impl Pattern {
         let mut kind = self.kind.clone();
 
         match Rc::make_mut(&mut kind) {
-            PatternKind::Operator(ref mut op) => {
+            PatternKind::Operator(op) => {
                 op.key = Some(name);
             }
-            PatternKind::Symbol(mut symbol) => {
+            PatternKind::Symbol(symbol) => {
                 symbol.name = name;
             }
             PatternKind::Constant(_) | PatternKind::AnyOf(_) => {}

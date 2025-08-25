@@ -11,7 +11,7 @@ use std::fs::File;
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
 
-use rten_base::byte_cast::{cast_pod_slice, Pod};
+use rten_base::byte_cast::{Pod, cast_pod_slice};
 use rten_base::num::LeBytes;
 use rten_tensor::Tensor;
 
@@ -22,7 +22,7 @@ use crate::graph::{
 };
 use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
-use crate::op_registry::{convert_dtype, OpLoadContext, OpRegistry, ReadOpError};
+use crate::op_registry::{OpLoadContext, OpRegistry, ReadOpError, convert_dtype};
 use crate::optimize::{GraphOptimizer, OptimizeOptions};
 use crate::schema_generated as sg;
 use crate::schema_generated::root_as_model;
@@ -278,7 +278,7 @@ impl ModelOptions {
     #[cfg(feature = "mmap")]
     pub unsafe fn load_mmap<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
         let file = File::open(path).map_err(ModelLoadError::ReadFailed)?;
-        let mmap = Mmap::map(&file).map_err(ModelLoadError::ReadFailed)?;
+        let mmap = unsafe { Mmap::map(&file) }.map_err(ModelLoadError::ReadFailed)?;
         let storage = Arc::new(ConstantStorage::Mmap(mmap));
         Model::load_impl(storage, self)
     }
@@ -354,7 +354,8 @@ impl Model {
     #[cfg(feature = "mmap")]
     #[cfg(not(target_arch = "wasm32"))]
     pub unsafe fn load_mmap<P: AsRef<Path>>(path: P) -> Result<Model, ModelLoadError> {
-        ModelOptions::with_all_ops().load_mmap(path)
+        let opts = ModelOptions::with_all_ops();
+        unsafe { opts.load_mmap(path) }
     }
 
     fn load_impl(
@@ -942,6 +943,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::{NdTensor, Tensor};
 
+    use crate::OpRegistry;
     use crate::graph::{Dimension, NodeId, RunError};
     use crate::model::{Model, ModelOptions};
     use crate::model_builder::{
@@ -952,7 +954,6 @@ mod tests {
         BoxOrder, CoordTransformMode, DepthToSpaceMode, NearestMode, OpError, ResizeMode, Shape,
     };
     use crate::value::{DataType, Scalar, Value};
-    use crate::OpRegistry;
 
     fn generate_model_buffer(format: ModelFormat) -> Vec<u8> {
         let mut builder = ModelBuilder::new(format);
@@ -1041,7 +1042,9 @@ mod tests {
         let result = ModelOptions::with_ops(registry).load(buffer);
         assert_eq!(
             result.err().map(|err| err.to_string()).as_deref(),
-            Some("operator error: in node \"concat\": operator Concat is not supported or not enabled")
+            Some(
+                "operator error: in node \"concat\": operator Concat is not supported or not enabled"
+            )
         );
     }
 

@@ -769,8 +769,11 @@ impl PatternFusion for MatMulIntegerToFloatFusion {
         let (a_src_id, quantize_op) = graph.get_source_node(a)?;
         let (a_zero_src_id, _) = graph.get_source_node(a_zero)?;
 
-        let [Some(quant_out_data), Some(quant_out_scale), Some(quant_out_zero)] =
-            quantize_op.output_ids()
+        let [
+            Some(quant_out_data),
+            Some(quant_out_scale),
+            Some(quant_out_zero),
+        ] = quantize_op.output_ids()
         else {
             return None;
         };

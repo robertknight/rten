@@ -2,14 +2,14 @@
 //! elements.
 
 use rten_tensor::prelude::*;
-use rten_tensor::{is_valid_permutation, NdTensorView, Tensor, TensorView};
+use rten_tensor::{NdTensorView, Tensor, TensorView, is_valid_permutation};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{
-    map_value, map_value_view, resolve_axes, resolve_axis, static_dims, IntoOpResult, OpError,
-    OpRunContext, Operator, OutputList, Value, ValueView,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView, map_value,
+    map_value_view, resolve_axes, resolve_axis, static_dims,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -641,10 +641,10 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
-    use super::{depth_to_space, DepthToSpaceMode};
+    use super::{DepthToSpaceMode, depth_to_space};
     use crate::ops::layout::{
-        expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
-        unsqueeze, Reshape, Shape, Size,
+        Reshape, Shape, Size, expand, flatten, reshape, reshape_in_place, squeeze,
+        squeeze_in_place, transpose, unsqueeze,
     };
     use crate::ops::tests::new_pool;
     use crate::ops::{OpError, OperatorExt, Value};
@@ -1406,7 +1406,12 @@ mod tests {
                 (transpose_stats.mean - copy_stats.mean).max(0.) / copy_stats.mean;
             println!(
                 "transpose shape {:?} perm {:?} copy {:.3}ms ref transpose {:.3}ms opt transpose {:.3}ms overhead {}",
-                shape, perm, copy_stats.median, reference_transpose_stats.median, transpose_stats.median, transpose_overhead
+                shape,
+                perm,
+                copy_stats.median,
+                reference_transpose_stats.median,
+                transpose_stats.median,
+                transpose_overhead
             );
         }
     }

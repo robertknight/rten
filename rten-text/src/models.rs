@@ -8,7 +8,7 @@ mod bpe;
 mod wordpiece;
 
 pub use bpe::{
-    char_to_byte, merge_pairs_from_lines, Bpe, BpeError, BpeOptions, EncodedByteSlice, EncodedBytes,
+    Bpe, BpeError, BpeOptions, EncodedByteSlice, EncodedBytes, char_to_byte, merge_pairs_from_lines,
 };
 pub use wordpiece::{WordPiece, WordPieceOptions};
 

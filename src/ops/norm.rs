@@ -8,7 +8,7 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{resolve_axis, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value};
+use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, resolve_axis};
 use crate::slice_reductions::slice_max;
 
 /// Specifies how to normalize the mean and variance.
@@ -686,8 +686,8 @@ mod tests {
         batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
         rms_normalization, softmax,
     };
-    use crate::ops::tests::{expect_eq_1e4, new_pool};
     use crate::ops::OpError;
+    use crate::ops::tests::{expect_eq_1e4, new_pool};
 
     #[test]
     fn test_batch_norm() {

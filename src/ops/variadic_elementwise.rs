@@ -8,8 +8,8 @@ use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
-    map_value_view, CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator,
-    OutputList, ValueView,
+    CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView,
+    map_value_view,
 };
 
 /// Apply an elementwise reduction to a sequence of tensors.
@@ -164,7 +164,7 @@ mod tests {
 
     use crate::ops::tests::new_pool;
     use crate::ops::{
-        max, mean, min, sum, InputList, Max, Min, OpError, OpRunContext, Operator, Sum, ValueView,
+        InputList, Max, Min, OpError, OpRunContext, Operator, Sum, ValueView, max, mean, min, sum,
     };
 
     fn run_operator<Op: Operator>(op: &Op, inputs: &[TensorView]) -> Tensor {

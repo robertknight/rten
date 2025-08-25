@@ -3,8 +3,8 @@
 use std::cell::RefCell;
 
 use rten::{FloatOperators, Operators};
-use rten_tensor::prelude::*;
 use rten_tensor::NdTensorView;
+use rten_tensor::prelude::*;
 
 use crate::generator::TokenId;
 
@@ -129,8 +129,8 @@ fn multinomial(rng: &mut fastrand::Rng, probs: NdTensorView<f32, 1>) -> Option<u
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
+    use rten_tensor::prelude::*;
     use rten_testing::TestCases;
 
     use super::{ArgMaxSampler, Sampler, TopKSampler};

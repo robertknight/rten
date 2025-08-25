@@ -8,7 +8,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::ops::{static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding};
+use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding, static_dims};
 
 /// Compute the range of input positions along a spatial axis that result in
 /// valid output positions for a col2im operation.
@@ -394,7 +394,7 @@ mod tests {
 
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
-    use rten_tensor::test_util::{expect_equal, ExpectEqualError};
+    use rten_tensor::test_util::{ExpectEqualError, expect_equal};
     use rten_tensor::{NdTensor, Tensor, TensorView};
     use rten_testing::TestCases;
 

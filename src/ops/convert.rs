@@ -1,8 +1,8 @@
-use rten_base::byte_cast::{cast_pod_vec, Pod};
+use rten_base::byte_cast::{Pod, cast_pod_vec};
 use rten_base::num;
 
-use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
+use rten_tensor::prelude::*;
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::{

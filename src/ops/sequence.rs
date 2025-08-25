@@ -2,11 +2,11 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::split::split;
 use crate::ops::split::SplitSizes;
+use crate::ops::split::split;
 use crate::ops::{
-    map_value_view, resolve_axis, resolve_index, Concat, InputList, IntoOpResult, OpError,
-    OpRunContext, Operator, OutputList,
+    Concat, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, map_value_view,
+    resolve_axis, resolve_index,
 };
 use crate::value::{CastError, DataType, Sequence, Value, ValueView};
 
@@ -309,8 +309,8 @@ impl Operator for SplitToSequence {
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
+    use rten_tensor::prelude::*;
     use rten_testing::TestCases;
 
     use super::{

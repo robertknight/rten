@@ -11,8 +11,8 @@ use rten_vecmath as vecmath;
 use crate::buffer_pool::BufferPool;
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
-    map_value_view, resolve_axes, resolve_axis, InputList, IntoOpResult, OpError, OpRunContext,
-    Operator, OutputList, ValueView,
+    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView,
+    map_value_view, resolve_axes, resolve_axis,
 };
 use crate::slice_reductions::{slice_fold_assoc, slice_sum};
 
@@ -877,9 +877,9 @@ mod tests {
 
     use crate::ops::tests::new_pool;
     use crate::ops::{
-        arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
-        reduce_prod, reduce_sum, reduce_sum_square, topk, OpError, Operator, OperatorExt, ReduceL2,
-        ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare,
+        OpError, Operator, OperatorExt, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
+        ReduceSum, ReduceSumSquare, arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max,
+        reduce_mean, reduce_min, reduce_prod, reduce_sum, reduce_sum_square, topk,
     };
 
     #[test]

@@ -104,7 +104,7 @@ mod tests {
     use rten_simd::SimdUnaryOp;
 
     use super::{ApproxGelu, Erf, Gelu};
-    use crate::testing::{arange, benchmark_op, AllF32s, Tolerance, UnaryOpTester};
+    use crate::testing::{AllF32s, Tolerance, UnaryOpTester, arange, benchmark_op};
 
     fn reference_gelu(x: f32) -> f32 {
         0.5 * x * (1. + libm::erff(x / (2.0f32).sqrt()))

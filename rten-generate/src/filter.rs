@@ -53,10 +53,10 @@ pub fn token_id_filter<F: Fn(TokenId) -> bool>(predicate: F) -> impl LogitsFilte
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
+    use rten_tensor::prelude::*;
 
-    use super::{token_id_filter, LogitsFilter};
+    use super::{LogitsFilter, token_id_filter};
 
     #[test]
     fn test_token_id_filter() {

@@ -7,8 +7,8 @@ use rten_tensor::{MutLayout, NdTensorView, Storage, Tensor, TensorBase, TensorVi
 use crate::buffer_pool::BufferPool;
 use crate::ops::OpError;
 use crate::ops::{
-    arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min, reduce_sum,
-    resize_image, softmax, topk, PadMode,
+    PadMode, arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min,
+    reduce_sum, resize_image, softmax, topk,
 };
 use crate::threading::thread_pool;
 

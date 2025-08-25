@@ -372,10 +372,10 @@ impl Iterator for FillIter {
     fn next(&mut self) -> Option<Point> {
         while !self.active_edges.is_empty() {
             let current = self.cursor;
-            let intersections =
-                self.active_edges
-                    .iter()
-                    .fold(0, |i, e| if e.x <= current.x { i + 1 } else { i });
+            let intersections = self
+                .active_edges
+                .iter()
+                .fold(0, |i, e| if e.x <= current.x { i + 1 } else { i });
 
             self.cursor.move_by(0, 1);
             if self.cursor.x == self.bounds.right() {

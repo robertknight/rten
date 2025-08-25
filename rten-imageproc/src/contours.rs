@@ -233,14 +233,14 @@ pub fn find_contours(mask: NdTensorView<bool, 2>, mode: RetrievalMode) -> Polygo
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
+    use rten_tensor::prelude::*;
     use rten_testing::TestCases;
 
     use crate::tests::border_points;
-    use crate::{fill_rect, stroke_rect, Point, Rect};
+    use crate::{Point, Rect, fill_rect, stroke_rect};
 
-    use super::{find_contours, RetrievalMode};
+    use super::{RetrievalMode, find_contours};
 
     #[test]
     fn test_find_contours_in_empty_mask() {

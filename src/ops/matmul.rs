@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use rten_base::byte_cast::{cast_pod_vec, Pod};
+use rten_base::byte_cast::{Pod, cast_pod_vec};
 use rten_gemm::{
     BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, PackedBMatrix, QuantParams,
 };
@@ -12,8 +12,8 @@ use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
 use crate::ops::{
-    static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput,
-    ValueView,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput, ValueView,
+    static_dims,
 };
 
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
@@ -639,8 +639,8 @@ mod tests {
     use crate::ops::{InputList, Operator};
 
     use super::{
-        cast_scale, gemm_op, matmul, matmul_fused, matmul_impl, matmul_integer, FusedMatMul,
-        MatMul, MatMulInteger, MatmulStrategy, OpError, OpRunContext,
+        FusedMatMul, MatMul, MatMulInteger, MatmulStrategy, OpError, OpRunContext, cast_scale,
+        gemm_op, matmul, matmul_fused, matmul_impl, matmul_integer,
     };
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -1003,11 +1003,7 @@ mod tests {
 
             let pool = new_pool();
             let get_prepacked = |idx| {
-                if idx == 1 {
-                    Some(&packed_b)
-                } else {
-                    None
-                }
+                if idx == 1 { Some(&packed_b) } else { None }
             };
             let mut inputs =
                 InputList::from(&[a.view().into(), b.view().into()]).with_prepacked(&get_prepacked);
@@ -1343,11 +1339,7 @@ mod tests {
 
         let pool = new_pool();
         let get_prepacked = |idx| {
-            if idx == 1 {
-                Some(&packed_b)
-            } else {
-                None
-            }
+            if idx == 1 { Some(&packed_b) } else { None }
         };
         let inputs =
             InputList::from(&[a.view().into(), b.view().into()]).with_prepacked(&get_prepacked);

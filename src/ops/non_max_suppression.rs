@@ -216,11 +216,11 @@ impl Operator for NonMaxSuppression {
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
+    use rten_tensor::prelude::*;
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{non_max_suppression, BoxOrder, OpError};
+    use crate::ops::{BoxOrder, OpError, non_max_suppression};
 
     struct NmsBox {
         tlbr: [f32; 4],

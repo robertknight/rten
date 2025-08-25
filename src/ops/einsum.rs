@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
 use crate::ops::layout::expand_to;
 use crate::ops::{
-    matmul, mul, reduce_sum, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, matmul, mul, reduce_sum,
 };
 
 /// A parsed equation for an Einsum operator.
@@ -371,7 +371,7 @@ fn einsum_step(
         // Evaluate the equation with the simplified input shapes using a
         // matmul.
         let reduced_dim = 'K'; // Upper-case to avoid conflict with equation
-                               // terms.
+        // terms.
         let term_simplified: String = step
             .output
             .chars()
@@ -702,9 +702,9 @@ mod tests {
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use super::{einsum_path, EinsumExpr, EinsumInput, EinsumStep, EinsumTerm};
+    use super::{EinsumExpr, EinsumInput, EinsumStep, EinsumTerm, einsum_path};
     use crate::ops::tests::new_pool;
-    use crate::ops::{einsum, matmul, mul, reduce_sum, OpError};
+    use crate::ops::{OpError, einsum, matmul, mul, reduce_sum};
 
     #[test]
     fn test_einsum() {

@@ -36,7 +36,7 @@ typeid = "1.0.3"
 [package]
 name = "rten"
 version = "0.21.0"
-edition = "2021"
+edition = "2024"
 authors = ["Robert Knight"]
 description = "Machine learning runtime"
 license = "MIT OR Apache-2.0"
@@ -94,6 +94,7 @@ needless_range_loop = "allow"
 too_many_arguments = "allow"
 manual_repeat_n = "allow"  # TODO - Address existing failures
 uninlined_format_args = "allow"
+collapsible_if = "allow"  # TODO - Address existing failures
 
 [package.metadata.docs.rs]
 # These features should match the features enabled by `make docs`.

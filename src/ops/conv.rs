@@ -10,9 +10,9 @@ use rten_tensor::{CowTensor, NdTensor, NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
 use crate::ops::matmul::zero_point_to_vec;
-use crate::ops::pooling::{calc_output_size_and_padding, RoundMode};
+use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
 use crate::ops::{
-    static_dims, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding, ValueView,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding, ValueView, static_dims,
 };
 use crate::shift_cast::ShiftCast;
 
@@ -536,15 +536,15 @@ mod tests {
     use rten_gemm::ReducedRangeRng;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
-    use rten_tensor::test_util::{expect_equal, ExpectEqualError};
+    use rten_tensor::test_util::{ExpectEqualError, expect_equal};
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
     use crate::buffer_pool::AutoReturn;
-    use crate::ops::pooling::{calc_output_size_and_padding, RoundMode};
+    use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
-    use crate::ops::{conv, conv_integer, Conv, OpError, OperatorExt, Padding};
+    use crate::ops::{Conv, OpError, OperatorExt, Padding, conv, conv_integer};
 
     trait ReferenceConvKernel<X, W> {
         /// Update a single output element (`self`) with a given input and weight value.

@@ -69,70 +69,70 @@ pub(crate) mod transform_inputs;
 
 pub use attention::AddSoftmax;
 pub use binary_elementwise::{
-    add, and, div, equal, greater, greater_or_equal, less, less_or_equal, mod_op, mul, or, pow,
-    sub, where_op, xor, Add, And, Div, DivMode, Equal, Greater, GreaterOrEqual, Less, LessOrEqual,
-    Mod, Mul, Or, Pow, Sub, Where, Xor,
+    Add, And, Div, DivMode, Equal, Greater, GreaterOrEqual, Less, LessOrEqual, Mod, Mul, Or, Pow,
+    Sub, Where, Xor, add, and, div, equal, greater, greater_or_equal, less, less_or_equal, mod_op,
+    mul, or, pow, sub, where_op, xor,
 };
-pub use concat::{concat, tile, Concat, Tile};
+pub use concat::{Concat, Tile, concat, tile};
 pub use control_flow::{If, Loop};
-pub use conv::{conv, conv_integer, Conv, ConvInteger};
-pub use conv_transpose::{conv_transpose, ConvTranspose};
+pub use conv::{Conv, ConvInteger, conv, conv_integer};
+pub use conv_transpose::{ConvTranspose, conv_transpose};
 pub use convert::{Cast, CastLike};
-pub use einsum::{einsum, Einsum};
+pub use einsum::{Einsum, einsum};
 pub use gather::{
-    gather, gather_elements, gather_nd, scatter_elements, scatter_nd, Gather, GatherElements,
-    GatherND, ScatterElements, ScatterND, ScatterReduction,
+    Gather, GatherElements, GatherND, ScatterElements, ScatterND, ScatterReduction, gather,
+    gather_elements, gather_nd, scatter_elements, scatter_nd,
 };
-pub use generate::{constant_of_shape, onehot, range, ConstantOfShape, EyeLike, OneHot, Range};
+pub use generate::{ConstantOfShape, EyeLike, OneHot, Range, constant_of_shape, onehot, range};
 pub use grid_sample::GridSample;
 pub use identity::Identity;
 pub use layout::{
-    depth_to_space, expand, flatten, reshape, squeeze, DepthToSpace, DepthToSpaceMode, Expand,
-    Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
+    DepthToSpace, DepthToSpaceMode, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose,
+    Unsqueeze, depth_to_space, expand, flatten, reshape, squeeze,
 };
-pub use matmul::{gemm_op, matmul, FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat};
-pub use non_max_suppression::{non_max_suppression, BoxOrder, NonMaxSuppression};
+pub use matmul::{FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat, gemm_op, matmul};
+pub use non_max_suppression::{BoxOrder, NonMaxSuppression, non_max_suppression};
 pub use norm::{
-    batch_norm, instance_normalization, layer_normalization, log_softmax, rms_normalization,
-    softmax, BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax,
-    RmsNormalization, Softmax,
+    BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax, RmsNormalization,
+    Softmax, batch_norm, instance_normalization, layer_normalization, log_softmax,
+    rms_normalization, softmax,
 };
-pub use pad::{pad, Pad, PadMode};
+pub use pad::{Pad, PadMode, pad};
 pub use pooling::{
-    average_pool, global_average_pool, max_pool, AveragePool, GlobalAveragePool, MaxPool,
+    AveragePool, GlobalAveragePool, MaxPool, average_pool, global_average_pool, max_pool,
 };
 pub use quantize::{
-    dequantize_linear, dynamic_quantize_linear, quantize_linear, DequantizeLinear,
-    DynamicQuantizeLinear, QuantizeLinear,
+    DequantizeLinear, DynamicQuantizeLinear, QuantizeLinear, dequantize_linear,
+    dynamic_quantize_linear, quantize_linear,
 };
 
 #[cfg(feature = "random")]
 pub use random::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
 
 pub use reduce::{
-    arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
-    reduce_prod, reduce_sum, reduce_sum_square, topk, ArgMax, ArgMin, CumSum, NonZero, ReduceL2,
-    ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, TopK,
+    ArgMax, ArgMin, CumSum, NonZero, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
+    ReduceSum, ReduceSumSquare, TopK, arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max,
+    reduce_mean, reduce_min, reduce_prod, reduce_sum, reduce_sum_square, topk,
 };
 pub use resize::{
-    resize, resize_image, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget,
+    CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget, resize, resize_image,
 };
-pub use rnn::{gru, lstm, Direction, GRU, LSTM};
+pub use rnn::{Direction, GRU, LSTM, gru, lstm};
 pub use sequence::{
     ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,
     SequenceInsert, SequenceLength, SplitToSequence,
 };
-pub use slice::{slice, Slice};
-pub use split::{split, Split};
-pub use trilu::{trilu, Trilu};
+pub use slice::{Slice, slice};
+pub use split::{Split, split};
+pub use trilu::{Trilu, trilu};
 pub use unary_elementwise::{
-    abs, acos, asin, atan, ceil, clip, cos, elu, erf, exp, floor, gelu, hard_sigmoid, hard_swish,
-    leaky_relu, log, neg, not, reciprocal, relu, round, sigmoid, sign, silu, sin, softplus, sqrt,
-    swish, tan, tanh, Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Elu, Erf, Exp, Floor, Gelu,
-    HardSigmoid, HardSwish, IsInf, IsNaN, LeakyRelu, Log, Neg, Not, PRelu, Reciprocal, Relu, Round,
-    Sigmoid, Sign, Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
+    Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Elu, Erf, Exp, Floor, Gelu, HardSigmoid, HardSwish,
+    IsInf, IsNaN, LeakyRelu, Log, Neg, Not, PRelu, Reciprocal, Relu, Round, Sigmoid, Sign, Silu,
+    Sin, Softplus, Sqrt, Swish, Tan, Tanh, abs, acos, asin, atan, ceil, clip, cos, elu, erf, exp,
+    floor, gelu, hard_sigmoid, hard_swish, leaky_relu, log, neg, not, reciprocal, relu, round,
+    sigmoid, sign, silu, sin, softplus, sqrt, swish, tan, tanh,
 };
-pub use variadic_elementwise::{max, mean, min, sum, Max, Mean, Min, Sum};
+pub use variadic_elementwise::{Max, Mean, Min, Sum, max, mean, min, sum};
 
 mod operators;
 pub use operators::{FloatOperators, Operators};
@@ -1054,7 +1054,7 @@ use check_value;
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
-    use rten_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
+    use rten_tensor::test_util::{ExpectEqualError, expect_equal_with_tolerance};
     use rten_tensor::{Tensor, TensorView};
 
     use super::Operator;
