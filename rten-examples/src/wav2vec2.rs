@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 use std::error::Error;
 
-use rten::ctc::CtcDecoder;
 use rten::Model;
+use rten::ctc::CtcDecoder;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 

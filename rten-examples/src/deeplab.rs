@@ -3,7 +3,7 @@ use std::error::Error;
 
 use rten::{Dimension, FloatOperators, Model, Operators};
 use rten_imageio::{read_image, write_image};
-use rten_imageproc::{normalize_image, IMAGENET_MEAN, IMAGENET_STD_DEV};
+use rten_imageproc::{IMAGENET_MEAN, IMAGENET_STD_DEV, normalize_image};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 

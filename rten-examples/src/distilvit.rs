@@ -5,8 +5,8 @@ use std::io::prelude::*;
 use rten::{FloatOperators, Model};
 use rten_generate::{Generator, GeneratorUtils};
 use rten_imageio::read_image;
-use rten_tensor::prelude::*;
 use rten_tensor::NdTensor;
+use rten_tensor::prelude::*;
 use rten_text::Tokenizer;
 
 struct Args {
