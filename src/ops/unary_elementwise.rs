@@ -327,7 +327,7 @@ impl Operator for Clip {
     }
 }
 
-unary_float_op!(Cos, cos, |val: f32| val.cos());
+parallel_unary_float_op!(Cos, cos, vecmath::Cos::new());
 
 #[derive(Debug)]
 pub struct Elu {
@@ -650,7 +650,7 @@ pub fn swish_in_place(pool: &BufferPool, input: Tensor, beta: f32) -> Tensor {
     par_unary_op_in_place(pool, input, vecmath::Swish { beta })
 }
 
-unary_float_op!(Sin, sin, |val: f32| val.sin());
+parallel_unary_float_op!(Sin, sin, vecmath::Sin::new());
 
 /// Trait for obtaining the sign of a number (-1, 0 or 1) as a value of the
 /// same type.

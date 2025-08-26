@@ -68,7 +68,7 @@ pub struct ARange<T: Copy + PartialOrd + std::ops::Add<Output = T>> {
 ///
 /// Iteration stops if the next value in the series cannot be compared against
 /// the end value (ie. if `next.partial_cmp(end)` yields `None`).
-pub fn arange<T: Copy + PartialOrd + std::ops::Add<Output = T>>(
+pub const fn arange<T: Copy + PartialOrd + std::ops::Add<Output = T>>(
     start: T,
     end: T,
     step: T,
@@ -271,16 +271,24 @@ impl<F: Fn(f32) -> f32, S: SimdUnaryOp<f32>, R: Iterator<Item = f32> + Clone>
     fn run_impl(&self, with_progress: bool) {
         let mut total = 0;
         let mut remaining = self.range.clone();
-        let len = remaining.size_hint().0;
+
+        // Progress reporting uses the upper bound, so it can report a lower
+        // value than the actual progress. For example a range with a filter
+        // applied will jump when values are skipped.
+        let (_lower_bound, upper_bound) = remaining.size_hint();
 
         let chunk_size = 16 * 1024;
         let mut input = Vec::with_capacity(chunk_size);
         let mut actual = Vec::with_capacity(chunk_size);
         let mut expected = Vec::with_capacity(chunk_size);
 
+        if with_progress && upper_bound.is_none() {
+            println!("Testing: ...");
+        }
+
         loop {
-            if with_progress {
-                let progress = total as f32 / len as f32;
+            if with_progress && upper_bound.is_some() {
+                let progress = total as f32 / upper_bound.unwrap() as f32;
                 print!("\rTesting: {:.2}%", progress * 100.);
                 let _ = std::io::stdout().flush();
             }

@@ -10,6 +10,7 @@ repository = "https://github.com/robertknight/rten"
 include = ["/src", "/README.md"]
 
 [dependencies]
+rten-base = { path = "../rten-base", version = "0.21.0" }
 rten-simd = { path = "../rten-simd", version = "0.21.0" }
 
 [dev-dependencies]
