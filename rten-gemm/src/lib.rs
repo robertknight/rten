@@ -737,16 +737,16 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         return Err(GemmError::WrongBiasSize);
     }
 
-    if let Some(a_quant) = a_quant {
-        if a_quant.zero_point.len() != a.rows() {
-            return Err(GemmError::WrongQuantParamSize);
-        }
+    if let Some(a_quant) = a_quant
+        && a_quant.zero_point.len() != a.rows()
+    {
+        return Err(GemmError::WrongQuantParamSize);
     }
 
-    if let Some(b_quant) = b_quant {
-        if b_quant.zero_point.len() != b.cols() {
-            return Err(GemmError::WrongQuantParamSize);
-        }
+    if let Some(b_quant) = b_quant
+        && b_quant.zero_point.len() != b.cols()
+    {
+        return Err(GemmError::WrongQuantParamSize);
     }
 
     // Construct a Matrix from the implied dimensions, to validate the slice length.
