@@ -99,6 +99,7 @@ mod exp;
 mod min_max;
 mod normalize;
 mod quantize;
+mod sin_cos;
 mod softmax;
 mod sum;
 mod tanh;
@@ -115,6 +116,7 @@ mod extend_init;
 pub use erf::{ApproxGelu, Erf, Gelu};
 pub use exp::{Exp, Sigmoid, Silu, Swish};
 pub use quantize::Quantize;
+pub use sin_cos::{Cos, Sin};
 pub use tanh::Tanh;
 
 // Normalization and reduction functions.

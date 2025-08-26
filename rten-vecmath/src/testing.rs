@@ -68,7 +68,7 @@ pub struct ARange<T: Copy + PartialOrd + std::ops::Add<Output = T>> {
 ///
 /// Iteration stops if the next value in the series cannot be compared against
 /// the end value (ie. if `next.partial_cmp(end)` yields `None`).
-pub fn arange<T: Copy + PartialOrd + std::ops::Add<Output = T>>(
+pub const fn arange<T: Copy + PartialOrd + std::ops::Add<Output = T>>(
     start: T,
     end: T,
     step: T,
