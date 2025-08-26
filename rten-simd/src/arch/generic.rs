@@ -97,17 +97,17 @@ unsafe impl Isa for GenericIsa {
     fn i32(
         self,
     ) -> impl SignedIntOps<i32, Simd = Self::I32>
-           + NarrowSaturate<i32, i16, Output = Self::I16>
-           + Concat<i32> {
+    + NarrowSaturate<i32, i16, Output = Self::I16>
+    + Concat<i32> {
         self
     }
 
     fn i16(
         self,
     ) -> impl SignedIntOps<i16, Simd = Self::I16>
-           + NarrowSaturate<i16, u8, Output = Self::U8>
-           + Extend<i16, Output = Self::I32>
-           + Interleave<i16> {
+    + NarrowSaturate<i16, u8, Output = Self::U8>
+    + Extend<i16, Output = Self::I32>
+    + Interleave<i16> {
         self
     }
 

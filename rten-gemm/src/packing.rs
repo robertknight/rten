@@ -31,7 +31,7 @@ impl<'a, T> SliceWriter<'a, T> {
     /// length of the slice.
     unsafe fn write_unchecked(&mut self, val: T) {
         debug_assert!(self.offset < self.slice.len());
-        self.slice.get_unchecked_mut(self.offset).write(val);
+        unsafe { self.slice.get_unchecked_mut(self.offset) }.write(val);
         self.offset += 1;
     }
 
@@ -58,7 +58,7 @@ impl<'a, T> SliceWriter<'a, T> {
     {
         debug_assert!(self.offset + len <= self.slice.len());
         for i in 0..len {
-            self.slice.get_unchecked_mut(self.offset + i).write(val);
+            unsafe { self.slice.get_unchecked_mut(self.offset + i) }.write(val);
         }
         self.offset += len;
     }
@@ -283,7 +283,7 @@ impl PackingBuffer {
 
         let buf_len = rounded_len / size_of::<PackElem>();
         assert!(buf_len <= self.buf.capacity());
-        self.buf.set_len(buf_len);
+        unsafe { self.buf.set_len(buf_len) };
         self.used_len = initialized_len;
     }
 

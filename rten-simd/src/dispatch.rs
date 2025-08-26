@@ -1,9 +1,9 @@
 use std::mem::MaybeUninit;
 
+use crate::Isa;
 use crate::functional::simd_map;
 use crate::ops::{GetNumOps, GetSimd};
 use crate::span::SrcDest;
-use crate::Isa;
 
 /// A vectorized operation which can be instantiated for different instruction
 /// sets.
@@ -205,8 +205,8 @@ pub(crate) use test_simd_op;
 #[cfg(test)]
 mod tests {
     use super::SimdUnaryOp;
-    use crate::ops::{FloatOps, GetNumOps, GetSimd, NumOps};
     use crate::Isa;
+    use crate::ops::{FloatOps, GetNumOps, GetSimd, NumOps};
 
     #[test]
     fn test_unary_float_op() {

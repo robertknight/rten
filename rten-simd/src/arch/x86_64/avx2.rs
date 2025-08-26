@@ -1,23 +1,23 @@
 use std::arch::x86_64::{
-    __m128i, __m256, __m256i, _mm256_add_epi16, _mm256_add_epi32, _mm256_add_epi8, _mm256_add_ps,
-    _mm256_and_ps, _mm256_and_si256, _mm256_andnot_ps, _mm256_andnot_si256, _mm256_blendv_epi8,
-    _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_castsi256_si128, _mm256_cmp_ps,
-    _mm256_cmpeq_epi16, _mm256_cmpeq_epi32, _mm256_cmpeq_epi8, _mm256_cmpgt_epi16,
-    _mm256_cmpgt_epi32, _mm256_cmpgt_epi8, _mm256_cvtepi16_epi32, _mm256_cvtepi8_epi16,
-    _mm256_cvtepu8_epi16, _mm256_cvtps_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
-    _mm256_extractf128_ps, _mm256_extracti128_si256, _mm256_fmadd_ps, _mm256_fnmadd_ps,
-    _mm256_insertf128_si256, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32,
-    _mm256_maskload_ps, _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
+    __m128i, __m256, __m256i, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ,
+    _MM_FROUND_TO_NEAREST_INT, _MM_HINT_ET0, _MM_HINT_T0, _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps,
+    _mm_prefetch, _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps, _mm_unpacklo_epi64,
+    _mm256_add_epi8, _mm256_add_epi16, _mm256_add_epi32, _mm256_add_ps, _mm256_and_ps,
+    _mm256_and_si256, _mm256_andnot_ps, _mm256_andnot_si256, _mm256_blendv_epi8, _mm256_blendv_ps,
+    _mm256_castps256_ps128, _mm256_castsi256_si128, _mm256_cmp_ps, _mm256_cmpeq_epi8,
+    _mm256_cmpeq_epi16, _mm256_cmpeq_epi32, _mm256_cmpgt_epi8, _mm256_cmpgt_epi16,
+    _mm256_cmpgt_epi32, _mm256_cvtepi8_epi16, _mm256_cvtepi16_epi32, _mm256_cvtepu8_epi16,
+    _mm256_cvtps_epi32, _mm256_cvttps_epi32, _mm256_div_ps, _mm256_extractf128_ps,
+    _mm256_extracti128_si256, _mm256_fmadd_ps, _mm256_fnmadd_ps, _mm256_insertf128_si256,
+    _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32, _mm256_maskload_ps,
+    _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
     _mm256_movemask_epi8, _mm256_mul_ps, _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_ps,
     _mm256_or_si256, _mm256_packs_epi32, _mm256_packus_epi16, _mm256_permute2x128_si256,
-    _mm256_permute4x64_epi64, _mm256_round_ps, _mm256_set1_epi16, _mm256_set1_epi32,
-    _mm256_set1_epi8, _mm256_set1_ps, _mm256_set_m128i, _mm256_setr_m128i, _mm256_setzero_si256,
-    _mm256_slli_epi16, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi16,
-    _mm256_sub_epi32, _mm256_sub_epi8, _mm256_sub_ps, _mm256_unpackhi_epi16, _mm256_unpackhi_epi8,
-    _mm256_unpacklo_epi16, _mm256_unpacklo_epi8, _mm256_xor_ps, _mm256_xor_si256, _mm_add_ps,
-    _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps,
-    _mm_unpacklo_epi64, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ,
-    _MM_FROUND_TO_NEAREST_INT, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_permute4x64_epi64, _mm256_round_ps, _mm256_set_m128i, _mm256_set1_epi8,
+    _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setr_m128i, _mm256_setzero_si256,
+    _mm256_slli_epi16, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi8,
+    _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_ps, _mm256_unpackhi_epi8, _mm256_unpackhi_epi16,
+    _mm256_unpacklo_epi8, _mm256_unpacklo_epi16, _mm256_xor_ps, _mm256_xor_si256,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
@@ -73,17 +73,17 @@ unsafe impl Isa for Avx2Isa {
     fn i32(
         self,
     ) -> impl SignedIntOps<i32, Simd = Self::I32>
-           + NarrowSaturate<i32, i16, Output = Self::I16>
-           + Concat<i32> {
+    + NarrowSaturate<i32, i16, Output = Self::I16>
+    + Concat<i32> {
         self
     }
 
     fn i16(
         self,
     ) -> impl SignedIntOps<i16, Simd = Self::I16>
-           + NarrowSaturate<i16, u8, Output = Self::U8>
-           + Extend<i16, Output = Self::I32>
-           + Interleave<i16> {
+    + NarrowSaturate<i16, u8, Output = Self::U8>
+    + Extend<i16, Output = Self::I32>
+    + Interleave<i16> {
         self
     }
 

@@ -1,3 +1,7 @@
+// The `arch` module contains many unsafe calls to SIMD intrinsics. Suppress
+// this lint to simplify migration to the 2024 Rust edition.
+#![allow(unsafe_op_in_unsafe_fn)]
+
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
 

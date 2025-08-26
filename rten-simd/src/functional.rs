@@ -1,8 +1,8 @@
 //! Vectorized higher-order operations (map etc.)
 
+use crate::Elem;
 use crate::ops::NumOps;
 use crate::span::SrcDest;
-use crate::Elem;
 
 /// Transform a slice by applying a vectorized map function to its elements.
 ///

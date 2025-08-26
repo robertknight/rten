@@ -5,7 +5,7 @@ use rten_base::iter::range_chunks;
 use rten_tensor::{Alloc, Matrix, MatrixLayout};
 
 use super::packing::PackingBuffer;
-use super::{depth_block_size, GemmError, Kernel, LhsBlock, RhsBlock};
+use super::{GemmError, Kernel, LhsBlock, RhsBlock, depth_block_size};
 
 /// Common data and logic for a pre-packed A or B matrix.
 ///

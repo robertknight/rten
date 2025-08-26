@@ -2,16 +2,16 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_base::byte_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
-use rten_simd::{isa::Avx2Isa, Isa};
+use rten_simd::{Isa, isa::Avx2Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
 use rten_simd::isa::Avx512Isa;
 
-use super::simd_generic::{simd_gemv, simd_int8_gemm, simd_int8_gemv, GemmDispatch};
+use super::simd_generic::{GemmDispatch, simd_gemv, simd_int8_gemm, simd_int8_gemv};
 use super::{Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
+use crate::Im2Col;
 use crate::packing;
 use crate::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
-use crate::Im2Col;
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
 pub struct FmaKernel {

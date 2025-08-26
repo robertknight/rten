@@ -2,13 +2,13 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_base::byte_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
-use rten_simd::{isa::GenericIsa, Isa};
+use rten_simd::{Isa, isa::GenericIsa};
 use rten_tensor::{Matrix, MatrixLayout};
 
-use super::simd_generic::{simd_gemv, GemmDispatch};
+use super::simd_generic::{GemmDispatch, simd_gemv};
 use super::{Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
-use crate::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 use crate::Im2Col;
+use crate::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
 
 /// This is the base kernel that does not use architecture-specific intrinsics
 /// but is autovectorization-friendly. It is expected to perform the same as

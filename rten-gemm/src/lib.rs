@@ -8,7 +8,7 @@ use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
 use rten_base::byte_cast::Pod;
-use rten_base::iter::{range_chunks, MaybeParIter};
+use rten_base::iter::{MaybeParIter, range_chunks};
 use rten_base::num::Identities;
 use rten_tensor::prelude::*;
 use rten_tensor::{
@@ -25,8 +25,8 @@ mod tiles;
 
 pub use errors::GemmError;
 pub use im2col::{ColOffsets, Im2Col, RowOffsets};
-use kernels::generic::GenericKernel;
 pub use kernels::QuantParams;
+use kernels::generic::GenericKernel;
 use kernels::{Kernel, MatVecOutput};
 use packing::PackingBuffer;
 pub use prepack::{PackedAMatrix, PackedBMatrix};

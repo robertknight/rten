@@ -1,3 +1,7 @@
+// The GEMM kernels contain many unsafe calls for performance reasons. This
+// lint was suppressed to simplify migration to the 2024 Rust edition.
+#![allow(unsafe_op_in_unsafe_fn)]
+
 use std::mem::MaybeUninit;
 use std::ops::Range;
 

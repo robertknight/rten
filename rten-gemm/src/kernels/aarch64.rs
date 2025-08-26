@@ -1,4 +1,4 @@
-use std::arch::aarch64::{int32x4_t, int8x16_t};
+use std::arch::aarch64::{int8x16_t, int32x4_t};
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
@@ -7,11 +7,11 @@ use rten_simd::isa::ArmNeonIsa;
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{
-    simd_gemv, simd_int8_gemm, simd_int8_gemm_epilogue, simd_int8_gemv, GemmDispatch,
+    GemmDispatch, simd_gemv, simd_int8_gemm, simd_int8_gemm_epilogue, simd_int8_gemv,
 };
 use super::{Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
 use crate::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
-use crate::{packing, Im2Col};
+use crate::{Im2Col, packing};
 
 pub struct ArmNeonKernel {
     isa: ArmNeonIsa,
@@ -477,8 +477,8 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MlalKernel {
         _b_quant: Option<QuantParams<i8>>,
     ) {
         use rten_simd::{
-            ops::{Extend, NumOps},
             Isa, Simd,
+            ops::{Extend, NumOps},
         };
         use std::arch::aarch64::{vget_low_u16, vmlal_high_laneq_u16, vmlal_laneq_u16};
 
@@ -660,7 +660,7 @@ unsafe impl Int8DotProduct for NeonNativeDotProd {
         #[inline]
         unsafe fn dot_product(a: int8x16_t, b: int8x16_t, c: int32x4_t) -> int32x4_t {
             use core::arch::aarch64::{
-                vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s8,
+                vreinterpretq_s32_u32, vreinterpretq_u8_s8, vreinterpretq_u32_s32,
             };
             use core::arch::asm;
 
@@ -698,7 +698,7 @@ unsafe impl Int8DotProduct for NeonNativeDotProd {
             c: int32x4_t,
         ) -> int32x4_t {
             use core::arch::aarch64::{
-                vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s8,
+                vreinterpretq_s32_u32, vreinterpretq_u8_s8, vreinterpretq_u32_s32,
             };
             use core::arch::asm;
 
@@ -738,7 +738,7 @@ unsafe impl Int8DotProduct for NeonDotProd {
         unsafe {
             use core::arch::aarch64::{
                 vaddq_u32, vget_low_u8, vmull_high_u8, vmull_u8, vpaddlq_u16, vpaddq_u32,
-                vreinterpretq_s32_u32, vreinterpretq_u32_s32, vreinterpretq_u8_s8,
+                vreinterpretq_s32_u32, vreinterpretq_u8_s8, vreinterpretq_u32_s32,
             };
 
             let a = vreinterpretq_u8_s8(a);
@@ -882,8 +882,8 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
         _b_quant: Option<QuantParams<i8>>,
     ) {
         use rten_simd::{
-            ops::{Concat, NumOps},
             Isa,
+            ops::{Concat, NumOps},
         };
 
         const MR: usize = ArmInt8MMKernel::MR;
