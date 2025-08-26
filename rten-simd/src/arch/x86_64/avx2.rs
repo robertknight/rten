@@ -1012,6 +1012,16 @@ macro_rules! impl_mask_ops {
             fn and(self, x: $mask, y: $mask) -> $mask {
                 $mask(unsafe { _mm256_and_si256(x.0, y.0) })
             }
+
+            #[inline]
+            fn any(self, x: $mask) -> bool {
+                unsafe { _mm256_movemask_epi8(x.0) != 0 }
+            }
+
+            #[inline]
+            fn all(self, x: $mask) -> bool {
+                unsafe { _mm256_movemask_epi8(x.0) == -1 }
+            }
         }
     };
 }

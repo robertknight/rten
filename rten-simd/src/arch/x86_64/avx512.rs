@@ -928,6 +928,16 @@ macro_rules! impl_mask {
             fn and(self, x: $mask, y: $mask) -> $mask {
                 x & y
             }
+
+            #[inline]
+            fn any(self, x: $mask) -> bool {
+                x != 0
+            }
+
+            #[inline]
+            fn all(self, x: $mask) -> bool {
+                x == !0
+            }
         }
     };
 }

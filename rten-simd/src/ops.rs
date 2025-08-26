@@ -239,6 +239,17 @@ impl_get_ops!(GetSignedIntOps, signed_int_ops, SignedIntOps, i8);
 pub unsafe trait MaskOps<M: Mask>: Copy {
     /// Compute `x & y`.
     fn and(self, x: M, y: M) -> M;
+
+    /// Return true if any lanes are true.
+    fn any(self, x: M) -> bool;
+
+    /// Return true if all lanes are false.
+    fn all_false(self, x: M) -> bool {
+        !self.any(x)
+    }
+
+    /// Return true if all lanes are true.
+    fn all(self, x: M) -> bool;
 }
 
 /// Operations available on all SIMD vector types.
@@ -639,11 +650,11 @@ mod tests {
 
     // Generate tests for operations available on all numeric types.
     macro_rules! test_num_ops {
-        ($modname:ident, $elem:ident) => {
+        ($modname:ident, $elem:ident, $mask_elem:ident) => {
             mod $modname {
                 use super::{
-                    Isa, Mask, NumOps, Simd, SimdOp, WrappingAdd, assert_simd_eq, assert_simd_ne,
-                    test_simd_op,
+                    Isa, MaskOps, NumOps, Simd, SimdOp, WrappingAdd, assert_simd_eq,
+                    assert_simd_ne, test_simd_op,
                 };
 
                 #[test]
@@ -744,19 +755,20 @@ mod tests {
                 fn test_cmp_ops() {
                     test_simd_op!(isa, {
                         let ops = isa.$elem();
+                        let mo = isa.$mask_elem();
 
                         let x = ops.splat(1 as $elem);
                         let y = ops.splat(2 as $elem);
 
-                        assert!(ops.eq(x, x).all_true());
-                        assert!(ops.eq(x, y).all_false());
-                        assert!(ops.le(x, x).all_true());
-                        assert!(ops.le(x, y).all_true());
-                        assert!(ops.le(y, x).all_false());
-                        assert!(ops.ge(x, x).all_true());
-                        assert!(ops.ge(x, y).all_false());
-                        assert!(ops.gt(x, y).all_false());
-                        assert!(ops.gt(y, x).all_true());
+                        assert!(mo.all(ops.eq(x, x)));
+                        assert!(mo.all_false(ops.eq(x, y)));
+                        assert!(mo.all(ops.le(x, x)));
+                        assert!(mo.all(ops.le(x, y)));
+                        assert!(mo.all_false(ops.le(y, x)));
+                        assert!(mo.all(ops.ge(x, x)));
+                        assert!(mo.all_false(ops.ge(x, y)));
+                        assert!(mo.all_false(ops.gt(x, y)));
+                        assert!(mo.all(ops.gt(y, x)));
                     })
                 }
 
@@ -921,12 +933,12 @@ mod tests {
         };
     }
 
-    test_num_ops!(num_ops_f32, f32);
-    test_num_ops!(num_ops_i32, i32);
-    test_num_ops!(num_ops_i16, i16);
-    test_num_ops!(num_ops_i8, i8);
-    test_num_ops!(num_ops_u8, u8);
-    test_num_ops!(num_ops_u16, u16);
+    test_num_ops!(num_ops_f32, f32, m32);
+    test_num_ops!(num_ops_i32, i32, m32);
+    test_num_ops!(num_ops_i16, i16, m16);
+    test_num_ops!(num_ops_i8, i8, m8);
+    test_num_ops!(num_ops_u8, u8, m8);
+    test_num_ops!(num_ops_u16, u16, m16);
 
     // Test that x8 multiply truncates result as expected.
     #[test]
@@ -1184,10 +1196,13 @@ mod tests {
     fn test_cmp_gt_ge_u16() {
         test_simd_op!(isa, {
             let ops = isa.u16();
+            let m16 = isa.m16();
+
             let x = ops.splat(i16::MAX as u16);
             let y = ops.splat(i16::MAX as u16 + 1);
-            assert!(ops.gt(y, x).all_true());
-            assert!(ops.ge(y, x).all_true());
+
+            assert!(m16.all(ops.gt(y, x)));
+            assert!(m16.all(ops.ge(y, x)));
         });
     }
 
@@ -1195,10 +1210,13 @@ mod tests {
     fn test_cmp_gt_ge_u8() {
         test_simd_op!(isa, {
             let ops = isa.u8();
+            let m8 = isa.m8();
+
             let x = ops.splat(i8::MAX as u8);
             let y = ops.splat(i8::MAX as u8 + 1);
-            assert!(ops.gt(y, x).all_true());
-            assert!(ops.ge(y, x).all_true());
+
+            assert!(m8.all(ops.gt(y, x)));
+            assert!(m8.all(ops.ge(y, x)));
         });
     }
 
@@ -1213,13 +1231,25 @@ mod tests {
                 let zeros = ops.first_n_mask(0);
                 let first = ops.first_n_mask(1);
 
-                assert!(ones.all_true());
-                assert!(zeros.all_false());
-
                 // Bitwise and
                 assert_simd_eq!(mask_ops.and(ones, ones), ones);
                 assert_simd_eq!(mask_ops.and(first, ones), first);
                 assert_simd_eq!(mask_ops.and(first, zeros), zeros);
+
+                // Any
+                assert!(mask_ops.any(ones));
+                assert!(mask_ops.any(first));
+                assert!(!mask_ops.any(zeros));
+
+                // All
+                assert!(mask_ops.all(ones));
+                assert!(!mask_ops.all(zeros));
+                assert!(!mask_ops.all(first));
+
+                // All false
+                assert!(mask_ops.all_false(zeros));
+                assert!(!mask_ops.all_false(ones));
+                assert!(!mask_ops.all_false(first));
             });
         };
     }
