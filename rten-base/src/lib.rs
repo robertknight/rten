@@ -4,6 +4,7 @@
 //! a more dedicated home.
 
 pub mod byte_cast;
+pub mod hint;
 pub mod iter;
 pub mod num;
 pub mod unroll;
