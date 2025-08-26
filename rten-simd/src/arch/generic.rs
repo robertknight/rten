@@ -505,6 +505,16 @@ macro_rules! impl_mask {
                 let xs = array::from_fn(|i| x.0[i] & y.0[i]);
                 $mask(xs)
             }
+
+            #[inline]
+            fn any(self, x: $mask) -> bool {
+                x.0.iter().any(|x| *x != 0)
+            }
+
+            #[inline]
+            fn all(self, x: $mask) -> bool {
+                x.0.iter().all(|x| *x != 0)
+            }
         }
     };
 }

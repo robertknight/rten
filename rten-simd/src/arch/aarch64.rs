@@ -9,12 +9,13 @@ use std::arch::aarch64::{
     vdupq_laneq_f32, vdupq_n_f32, vdupq_n_s8, vdupq_n_s16, vdupq_n_s32, vdupq_n_u8, vdupq_n_u16,
     veorq_u32, vfmaq_f32, vfmsq_f32, vget_high_s32, vget_low_s8, vget_low_s16, vget_low_s32,
     vget_low_u8, vld1q_f32, vld1q_s8, vld1q_s16, vld1q_s32, vld1q_u8, vld1q_u16, vld1q_u32,
-    vmaxq_f32, vminq_f32, vmovl_high_s8, vmovl_high_s16, vmovl_high_u8, vmovl_s8, vmovl_s16,
-    vmovl_u8, vmulq_f32, vmulq_s8, vmulq_s16, vmulq_s32, vmulq_u8, vmulq_u16, vmvnq_u32, vnegq_f32,
-    vnegq_s8, vnegq_s16, vnegq_s32, vorrq_u32, vqmovn_s32, vqmovun_s16, vrndnq_f32, vshlq_n_s8,
-    vshlq_n_s16, vshlq_n_s32, vshlq_n_u16, vst1q_f32, vst1q_s8, vst1q_s16, vst1q_s32, vst1q_u8,
-    vst1q_u16, vsubq_f32, vsubq_s8, vsubq_s16, vsubq_s32, vsubq_u8, vsubq_u16, vzip1q_s8,
-    vzip1q_s16, vzip2q_s8, vzip2q_s16,
+    vmaxq_f32, vmaxvq_u8, vmaxvq_u16, vmaxvq_u32, vminq_f32, vminvq_u8, vminvq_u16, vminvq_u32,
+    vmovl_high_s8, vmovl_high_s16, vmovl_high_u8, vmovl_s8, vmovl_s16, vmovl_u8, vmulq_f32,
+    vmulq_s8, vmulq_s16, vmulq_s32, vmulq_u8, vmulq_u16, vmvnq_u32, vnegq_f32, vnegq_s8, vnegq_s16,
+    vnegq_s32, vorrq_u32, vqmovn_s32, vqmovun_s16, vrndnq_f32, vshlq_n_s8, vshlq_n_s16,
+    vshlq_n_s32, vshlq_n_u16, vst1q_f32, vst1q_s8, vst1q_s16, vst1q_s32, vst1q_u8, vst1q_u16,
+    vsubq_f32, vsubq_s8, vsubq_s16, vsubq_s32, vsubq_u8, vsubq_u16, vzip1q_s8, vzip1q_s16,
+    vzip2q_s8, vzip2q_s16,
 };
 use std::mem::transmute;
 
@@ -843,6 +844,16 @@ unsafe impl MaskOps<uint32x4_t> for ArmNeonIsa {
     fn and(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
         unsafe { vandq_u32(x, y) }
     }
+
+    #[inline]
+    fn any(self, x: uint32x4_t) -> bool {
+        unsafe { vmaxvq_u32(x) != 0 }
+    }
+
+    #[inline]
+    fn all(self, x: uint32x4_t) -> bool {
+        unsafe { vminvq_u32(x) != 0 }
+    }
 }
 
 unsafe impl MaskOps<uint16x8_t> for ArmNeonIsa {
@@ -850,12 +861,32 @@ unsafe impl MaskOps<uint16x8_t> for ArmNeonIsa {
     fn and(self, x: uint16x8_t, y: uint16x8_t) -> uint16x8_t {
         unsafe { vandq_u16(x, y) }
     }
+
+    #[inline]
+    fn any(self, x: uint16x8_t) -> bool {
+        unsafe { vmaxvq_u16(x) != 0 }
+    }
+
+    #[inline]
+    fn all(self, x: uint16x8_t) -> bool {
+        unsafe { vminvq_u16(x) != 0 }
+    }
 }
 
 unsafe impl MaskOps<uint8x16_t> for ArmNeonIsa {
     #[inline]
     fn and(self, x: uint8x16_t, y: uint8x16_t) -> uint8x16_t {
         unsafe { vandq_u8(x, y) }
+    }
+
+    #[inline]
+    fn any(self, x: uint8x16_t) -> bool {
+        unsafe { vmaxvq_u8(x) != 0 }
+    }
+
+    #[inline]
+    fn all(self, x: uint8x16_t) -> bool {
+        unsafe { vminvq_u8(x) != 0 }
     }
 }
 

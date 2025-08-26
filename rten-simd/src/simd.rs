@@ -20,16 +20,6 @@ pub trait Mask: Copy + Debug {
 
     /// Convert this mask to a bool array.
     fn to_array(self) -> Self::Array;
-
-    /// Return true if all lanes in the mask are one.
-    fn all_true(self) -> bool {
-        self.to_array().as_ref().iter().all(|&x| x)
-    }
-
-    /// Return true if all lanes in the mask are false.
-    fn all_false(self) -> bool {
-        self.to_array().as_ref().iter().all(|&x| !x)
-    }
 }
 
 /// SIMD vector type.
