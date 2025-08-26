@@ -506,14 +506,14 @@ pub fn extract_packed_b<const NR: usize>(b: &[u8]) -> (&[u8], &PackedBMeta<NR>) 
 
 #[cfg(test)]
 mod tests {
-    use rten_base::byte_cast::{cast_pod_slice, AsBytes};
+    use rten_base::byte_cast::{AsBytes, cast_pod_slice};
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::{Matrix, MatrixLayout, NdTensor};
 
     use super::{
-        extract_packed_a, extract_packed_b, pack_a, pack_b, pack_b_cast_i8_u8, packed_a_layout,
-        packed_b_layout, PackedAMeta, PackedBMeta,
+        PackedAMeta, PackedBMeta, extract_packed_a, extract_packed_b, pack_a, pack_b,
+        pack_b_cast_i8_u8, packed_a_layout, packed_b_layout,
     };
 
     // K tile size used by kernels that compute dot product of 4x i8 -> i32.

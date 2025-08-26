@@ -3,12 +3,12 @@ use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 
-use rten::ops::{non_max_suppression, BoxOrder};
+use rten::ops::{BoxOrder, non_max_suppression};
 use rten::{BufferPool, Dimension, FloatOperators, Model};
 use rten_imageio::{read_image, write_image};
 use rten_imageproc::{Painter, Rect};
-use rten_tensor::prelude::*;
 use rten_tensor::NdTensor;
+use rten_tensor::prelude::*;
 
 struct Args {
     model: String,
@@ -212,12 +212,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         if !args.summary {
             println!(
-            "object: {label} score: {score:.3} left: {} top: {} right: {} bottom: {} box index: {box_idx}",
-            int_rect.left(),
-            int_rect.top(),
-            int_rect.right(),
-            int_rect.bottom()
-        );
+                "object: {label} score: {score:.3} left: {} top: {} right: {} bottom: {} box index: {box_idx}",
+                int_rect.left(),
+                int_rect.top(),
+                int_rect.right(),
+                int_rect.bottom()
+            );
         }
     }
 

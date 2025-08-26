@@ -4,9 +4,9 @@ use std::path::Path;
 
 use rten::{FloatOperators, Model, Operators};
 use rten_imageio::{read_image, write_image};
-use rten_imageproc::{normalize_image, Painter, Rect};
-use rten_tensor::prelude::*;
+use rten_imageproc::{Painter, Rect, normalize_image};
 use rten_tensor::NdTensor;
+use rten_tensor::prelude::*;
 use serde::Deserialize;
 
 struct Args {

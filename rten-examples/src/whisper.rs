@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use microfft::Complex32;
 use rten::{Dimension, FloatOperators, Model};
-use rten_generate::filter::{token_id_filter, LogitsFilter};
+use rten_generate::filter::{LogitsFilter, token_id_filter};
 use rten_generate::{Generator, GeneratorConfig, GeneratorUtils};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
@@ -320,11 +320,7 @@ impl LogitsFilter for TimestampFilter {
                     suppress = true;
                 }
 
-                if !suppress {
-                    logit
-                } else {
-                    f32::NEG_INFINITY
-                }
+                if !suppress { logit } else { f32::NEG_INFINITY }
             })
             .collect();
         Some(NdTensor::from_data([logits.len()], filtered_logits))
@@ -618,7 +614,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!(
         "Transcribed {}s of audio in {:.2}s, {:.1}x real-time (encode: {:.2}s, prompt: {:.2}s, decode: {:.2}s)",
         audio_duration,
-        total_duration, real_time_factor,
+        total_duration,
+        real_time_factor,
         encode_time.as_secs_f32(),
         prompt_time.as_secs_f32(),
         decode_time.as_secs_f32()

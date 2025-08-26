@@ -62,7 +62,7 @@ impl<'a, T> OutputTiles<'a, T> {
         let start_col = col * self.tile_cols;
 
         OutputTile {
-            ptr: self.data.add(start_row * self.row_stride + start_col),
+            ptr: unsafe { self.data.add(start_row * self.row_stride + start_col) },
             row_stride: self.row_stride,
             used_rows: (self.rows - start_row).min(self.tile_rows),
             used_cols: (self.cols - start_col).min(self.tile_cols),

@@ -3,8 +3,8 @@ use std::error::Error;
 use std::ops::Range;
 
 use rten::Model;
-use rten_tensor::prelude::*;
 use rten_tensor::NdTensor;
+use rten_tensor::prelude::*;
 
 struct Args {
     model: String,

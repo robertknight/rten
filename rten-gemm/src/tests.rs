@@ -4,7 +4,7 @@ use std::time::Instant;
 use rten_bench::run_bench;
 use rten_tensor::prelude::*;
 use rten_tensor::rng::XorShiftRng;
-use rten_tensor::test_util::{expect_equal, ApproxEq};
+use rten_tensor::test_util::{ApproxEq, expect_equal};
 use rten_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, RandomSource};
 use rten_testing::TestCases;
 

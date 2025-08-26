@@ -1,7 +1,7 @@
-use std::mem::{transmute, MaybeUninit};
+use std::mem::{MaybeUninit, transmute};
 
-use crate::ops::NumOps;
 use crate::Elem;
+use crate::ops::NumOps;
 
 /// Utility for incrementally filling an uninitialized slice, one SIMD vector
 /// at a time.

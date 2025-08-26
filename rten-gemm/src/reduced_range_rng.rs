@@ -1,5 +1,5 @@
-use rten_tensor::rng::XorShiftRng;
 use rten_tensor::RandomSource;
+use rten_tensor::rng::XorShiftRng;
 
 /// Random number generator which produces values with an optionally reduced
 /// range.

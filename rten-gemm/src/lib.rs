@@ -8,7 +8,7 @@ use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
 use rten_base::byte_cast::Pod;
-use rten_base::iter::{range_chunks, MaybeParIter};
+use rten_base::iter::{MaybeParIter, range_chunks};
 use rten_base::num::Identities;
 use rten_tensor::prelude::*;
 use rten_tensor::{
@@ -25,8 +25,8 @@ mod tiles;
 
 pub use errors::GemmError;
 pub use im2col::{ColOffsets, Im2Col, RowOffsets};
-use kernels::generic::GenericKernel;
 pub use kernels::QuantParams;
+use kernels::generic::GenericKernel;
 use kernels::{Kernel, MatVecOutput};
 use packing::PackingBuffer;
 pub use prepack::{PackedAMatrix, PackedBMatrix};
@@ -737,16 +737,16 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         return Err(GemmError::WrongBiasSize);
     }
 
-    if let Some(a_quant) = a_quant {
-        if a_quant.zero_point.len() != a.rows() {
-            return Err(GemmError::WrongQuantParamSize);
-        }
+    if let Some(a_quant) = a_quant
+        && a_quant.zero_point.len() != a.rows()
+    {
+        return Err(GemmError::WrongQuantParamSize);
     }
 
-    if let Some(b_quant) = b_quant {
-        if b_quant.zero_point.len() != b.cols() {
-            return Err(GemmError::WrongQuantParamSize);
-        }
+    if let Some(b_quant) = b_quant
+        && b_quant.zero_point.len() != b.cols()
+    {
+        return Err(GemmError::WrongQuantParamSize);
     }
 
     // Construct a Matrix from the implied dimensions, to validate the slice length.

@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 use std::error::Error;
 
 use rten::{Model, Operators};
-use rten_tensor::prelude::*;
 use rten_tensor::NdTensor;
+use rten_tensor::prelude::*;
 use rten_text::{TokenId, Tokenizer, TokenizerError};
 
 struct Args {

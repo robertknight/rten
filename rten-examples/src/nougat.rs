@@ -7,8 +7,8 @@ use rten_generate::metrics::Metrics;
 use rten_generate::{Generator, GeneratorUtils};
 use rten_imageio::read_image;
 use rten_imageproc::normalize_image;
-use rten_tensor::prelude::*;
 use rten_tensor::NdTensor;
+use rten_tensor::prelude::*;
 use rten_text::Tokenizer;
 
 struct Args {
