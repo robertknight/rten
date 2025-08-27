@@ -377,7 +377,9 @@ mod tests {
     fn bench_exp() {
         benchmark_op(
             |xs, ys| xs.iter().zip(ys.iter_mut()).for_each(|(x, y)| *y = x.exp()),
-            |xs, ys| Exp {}.map(xs, ys),
+            |xs, ys| {
+                Exp {}.map(xs, ys);
+            },
         );
     }
 
@@ -390,7 +392,9 @@ mod tests {
                     .zip(ys.iter_mut())
                     .for_each(|(x, y)| *y = reference_sigmoid(*x))
             },
-            |xs, ys| Sigmoid {}.map(xs, ys),
+            |xs, ys| {
+                Sigmoid {}.map(xs, ys);
+            },
         );
     }
 }

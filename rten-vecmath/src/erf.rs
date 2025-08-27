@@ -181,7 +181,9 @@ mod tests {
                     .zip(ys.iter_mut())
                     .for_each(|(x, y)| *y = libm::erff(*x))
             },
-            |xs, ys| Erf {}.map(xs, ys),
+            |xs, ys| {
+                Erf {}.map(xs, ys);
+            },
         );
     }
 }

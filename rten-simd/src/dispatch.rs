@@ -117,14 +117,13 @@ pub trait SimdUnaryOp<T: GetSimd> {
     ///
     /// This reads elements from `input` in SIMD vector-sized chunks, applies
     /// the operation and writes the results to `output`.
-    #[allow(private_bounds)]
-    fn map(&self, input: &[T], output: &mut [MaybeUninit<T>])
+    fn map<'dst>(&self, input: &[T], output: &'dst mut [MaybeUninit<T>]) -> &'dst mut [T]
     where
         Self: Sized,
         T: GetNumOps,
     {
         let wrapped_op = SimdMapOp::wrap((input, output).into(), self);
-        dispatch(wrapped_op);
+        dispatch(wrapped_op)
     }
 
     /// Apply a vectorized unary function to a mutable slice.
@@ -142,7 +141,6 @@ pub trait SimdUnaryOp<T: GetSimd> {
     }
 
     /// Apply this operation to a single element.
-    #[allow(private_bounds)]
     fn scalar_eval(&self, x: T) -> T
     where
         Self: Sized,
