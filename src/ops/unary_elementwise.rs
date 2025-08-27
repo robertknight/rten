@@ -1,13 +1,13 @@
 use rayon::prelude::*;
 
-use std::any::Any;
 use std::fmt::Debug;
+use std::mem::MaybeUninit;
 
 use rten_base::num::AsBool;
-use rten_simd::ops::GetNumOps;
-use rten_simd::{Elem, SimdUnaryOp};
+use rten_simd::SimdUnaryOp;
+use rten_simd::ops::{GetNumOps, GetSimd};
 use rten_tensor::prelude::*;
-use rten_tensor::{Tensor, TensorView, TensorViewMut};
+use rten_tensor::{AssumeInit, Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
@@ -17,110 +17,53 @@ use crate::ops::{
     map_value_view,
 };
 
-/// Trait for operators which take a single float tensor and apply a function
-/// to each element.
-pub trait UnaryFloatOp {
-    fn name(&self) -> &str;
+trait UnaryKernel<T> {
+    /// Apply the unary operation to elements of `src`, writing to `dst`.
+    fn map<'dst>(&self, src: &[T], dst: &'dst mut [MaybeUninit<T>]) -> &'dst mut [T];
 
-    /// Apply the operator to a single element.
-    fn map_element(&self, val: f32) -> f32;
-
-    /// Apply the operator to all elements in `input`.
-    fn map(&self, pool: &BufferPool, input: TensorView) -> Tensor {
-        input.map_in(pool, |val| self.map_element(*val))
-    }
-
-    /// Apply the operator to all elements in `input`.
-    fn apply(&self, mut input: TensorViewMut) {
-        input.apply(|val| self.map_element(*val))
-    }
+    /// Apply the unary operation in-place to elements of `src`.
+    fn map_mut(&self, src: &mut [T]);
 }
 
-impl<Op: Any + Debug + UnaryFloatOp> Operator for Op {
-    fn name(&self) -> &str {
-        self.name()
+impl<T: Copy, Op: Fn(T) -> T> UnaryKernel<T> for Op {
+    fn map<'dst>(&self, src: &[T], dst: &'dst mut [MaybeUninit<T>]) -> &'dst mut [T] {
+        src.iter().zip(dst.iter_mut()).for_each(|(x, y)| {
+            y.write(self(*x));
+        });
+        unsafe { dst.assume_init() }
     }
 
-    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let input = ctx.inputs().require_as(0)?;
-        self.map(ctx.pool(), input).into_op_result()
-    }
-
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
-        let mut output: Tensor = input.try_into()?;
-        self.apply(output.view_mut());
-        Ok(output.into())
-    }
-}
-
-/// Define a unary operator, with no arguments, which supports all numeric
-/// tensor types.
-///
-/// The operator is defined by a name and generic functions which apply this
-/// operator to 1) an immutable view and 2) a mutable tensor.
-macro_rules! unary_numeric_op {
-    ($name:ident, $view_impl:ident, $mut_impl:ident) => {
-        #[derive(Debug)]
-        pub struct $name {}
-
-        impl Operator for $name {
-            fn name(&self) -> &str {
-                stringify!($name)
-            }
-
-            fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-                let input = ctx.inputs().require(0)?;
-                map_value_view!(input, input, [FloatTensor, Int32Tensor], {
-                    $view_impl(ctx.pool(), input).into_op_result()
-                })
-            }
-
-            fn can_run_in_place(&self) -> bool {
-                true
-            }
-
-            fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
-                map_value!(input, input, [FloatTensor, Int32Tensor], {
-                    let result = $mut_impl(ctx.pool(), input);
-                    Ok(result.into())
-                })
-            }
+    fn map_mut(&self, src: &mut [T]) {
+        for x in src {
+            *x = self(*x);
         }
-    };
+    }
 }
 
-macro_rules! unary_float_funcs {
-    ($name:ident, $func_name:ident) => {
-        pub fn $func_name(pool: &BufferPool, input: TensorView) -> Tensor {
-            $name {}.map(pool, input)
-        }
-    };
+/// A vectorized unary operator kernel wrapping a [`SimdUnaryOp`].
+struct SimdKernel<Op>(Op);
+
+impl<T: GetNumOps + GetSimd, Op: SimdUnaryOp<T>> UnaryKernel<T> for SimdKernel<Op> {
+    fn map<'dst>(&self, src: &[T], dst: &'dst mut [MaybeUninit<T>]) -> &'dst mut [T] {
+        self.0.map(src, dst)
+    }
+
+    fn map_mut(&self, src: &mut [T]) {
+        self.0.map_mut(src)
+    }
 }
 
-/// Define a unary operator, with no arguments, which supports all float tensor
-/// types.
-///
-/// The operator is defined by the names for the operator struct and associated
-/// functions, and a closure which evaluates the operator for a single function.
-macro_rules! unary_float_op {
-    ($name:ident, $func_name:ident, $expr:expr) => {
-        unary_float_funcs!($name, $func_name);
+/// Get the unary op kernel for a given element type.
+trait GetKernel<T> {
+    fn get_kernel(&self) -> impl UnaryKernel<T> + Send + Sync;
+}
 
-        #[derive(Debug)]
-        pub struct $name {}
-
-        impl UnaryFloatOp for $name {
-            fn name(&self) -> &str {
-                stringify!($name)
-            }
-
-            fn map_element(&self, val: f32) -> f32 {
-                #[allow(clippy::redundant_closure_call)]
-                $expr(val)
+/// Impl the [`GetKernel`] trait for a given operator and element type.
+macro_rules! impl_get_kernel {
+    ($op:ty, $elem_ty:ty, $kernel:expr) => {
+        impl GetKernel<$elem_ty> for $op {
+            fn get_kernel(&self) -> impl UnaryKernel<$elem_ty> + Send + Sync {
+                $kernel
             }
         }
     };
@@ -130,19 +73,19 @@ macro_rules! unary_float_op {
 const CHUNK_SIZE: usize = 32 * 1024;
 
 /// Apply a unary operation in parallel to contiguous slices of `input`.
-fn par_unary_op<T: GetNumOps + Elem + Send + Sync>(
+fn unary_op<T: Clone + Send + Sync>(
     pool: &BufferPool,
     input: TensorView<T>,
-    op: impl SimdUnaryOp<T> + Send + Sync,
+    op: &(dyn UnaryKernel<T> + Send + Sync),
 ) -> Tensor<T> {
     let input = input.to_contiguous_in(pool).auto_return(pool);
     let mut output = Tensor::uninit_in(pool, input.shape());
 
     let in_chunks = input.data().unwrap().par_chunks(CHUNK_SIZE);
     let out_chunks = output.data_mut().unwrap().par_chunks_mut(CHUNK_SIZE);
-    in_chunks
-        .zip(out_chunks)
-        .for_each(|(in_chunk, out_chunk)| op.map(in_chunk, out_chunk));
+    in_chunks.zip(out_chunks).for_each(|(in_chunk, out_chunk)| {
+        op.map(in_chunk, out_chunk);
+    });
 
     // Safety: `op` initialized each chunk of `out_chunks`.
     unsafe { output.assume_init() }
@@ -150,27 +93,31 @@ fn par_unary_op<T: GetNumOps + Elem + Send + Sync>(
 
 /// Apply a unary operation in parallel to contiguous slices of `input`,
 /// writing the results in-place.
-fn par_unary_op_in_place<T: GetNumOps + Elem + Send + Sync>(
+fn unary_op_in_place<T: Clone + Send + Sync>(
     pool: &BufferPool,
     mut input: Tensor<T>,
-    op: impl SimdUnaryOp<T> + Send + Sync,
+    op: &(dyn UnaryKernel<T> + Send + Sync),
 ) -> Tensor<T> {
     if let Some(data) = input.data_mut() {
         data.par_chunks_mut(CHUNK_SIZE)
             .for_each(|chunk| op.map_mut(chunk));
         input
     } else {
-        par_unary_op(pool, input.view(), op)
+        unary_op(pool, input.view(), op)
     }
 }
 
-/// Define an operator which supports float tensors and is optimized using SIMD
-/// and multithreading.
-macro_rules! parallel_unary_float_op {
-    ($op_name:ident, $func_name:ident, $simd_kernel:expr) => {
+/// Create a struct for a unary operator with no parameters.
+macro_rules! declare_operator {
+    ($op_name:ident) => {
         #[derive(Debug)]
         pub struct $op_name {}
+    };
+}
 
+/// Impl [`Operator`] for a unary operator type.
+macro_rules! impl_operator {
+    ($op_name:ident, $types:tt) => {
         impl Operator for $op_name {
             fn name(&self) -> &str {
                 stringify!($op_name)
@@ -181,20 +128,40 @@ macro_rules! parallel_unary_float_op {
             }
 
             fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-                $func_name(ctx.pool(), ctx.inputs().require_as(0)?).into_op_result()
+                let input = ctx.inputs().require(0)?;
+                map_value_view!(input, input, $types, {
+                    let kernel = self.get_kernel();
+                    unary_op(ctx.pool(), input, &kernel).into_op_result()
+                })
             }
 
             fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
-                let tensor: Tensor = input.try_into()?;
-                let kernel = $simd_kernel;
-                let result = par_unary_op_in_place(ctx.pool(), tensor, kernel);
-                Ok(result.into())
+                map_value!(input, input, $types, {
+                    let kernel = self.get_kernel();
+                    let result = unary_op_in_place(ctx.pool(), input, &kernel);
+                    Ok(result.into())
+                })
             }
         }
+    };
+}
 
+/// Define a function that runs a unary operator.
+macro_rules! impl_operator_fn {
+    ($op_name:ident, $func_name:ident) => {
         pub fn $func_name(pool: &BufferPool, input: TensorView) -> Tensor {
-            let kernel = $simd_kernel;
-            par_unary_op(pool, input, kernel)
+            let op = $op_name {};
+            let kernel = op.get_kernel();
+            unary_op(pool, input, &kernel)
+        }
+    };
+
+    ($op_name:ident, $func_name:ident, cfg_test) => {
+        #[cfg(test)]
+        pub fn $func_name(pool: &BufferPool, input: TensorView) -> Tensor {
+            let op = $op_name {};
+            let kernel = op.get_kernel();
+            unary_op(pool, input, &kernel)
         }
     };
 }
@@ -215,20 +182,31 @@ impl AbsValue for i32 {
     }
 }
 
-pub fn abs<T: AbsValue>(pool: &BufferPool, input: TensorView<T>) -> Tensor<T> {
-    input.map_in(pool, |x| x.abs())
+declare_operator!(Abs);
+impl_operator!(Abs, [FloatTensor, Int32Tensor]);
+
+impl<T: AbsValue + Copy> GetKernel<T> for Abs {
+    fn get_kernel(&self) -> impl UnaryKernel<T> + Send + Sync {
+        |val: T| val.abs()
+    }
 }
 
-pub fn abs_in_place<T: AbsValue>(_pool: &BufferPool, mut input: Tensor<T>) -> Tensor<T> {
-    input.apply(|x| x.abs());
-    input
-}
+declare_operator!(Acos);
+impl_operator!(Acos, [FloatTensor]);
+impl_get_kernel!(Acos, f32, |val: f32| val.acos());
 
-unary_numeric_op!(Abs, abs, abs_in_place);
-unary_float_op!(Acos, acos, |val: f32| val.acos());
-unary_float_op!(Asin, asin, |val: f32| val.asin());
-unary_float_op!(Atan, atan, |val: f32| val.atan());
-unary_float_op!(Ceil, ceil, |val: f32| val.ceil());
+declare_operator!(Asin);
+impl_operator!(Asin, [FloatTensor]);
+impl_get_kernel!(Asin, f32, |val: f32| val.asin());
+
+declare_operator!(Atan);
+impl_operator!(Atan, [FloatTensor]);
+impl_get_kernel!(Atan, f32, |val: f32| val.atan());
+
+declare_operator!(Ceil);
+impl_operator!(Ceil, [FloatTensor]);
+impl_operator_fn!(Ceil, ceil, cfg_test);
+impl_get_kernel!(Ceil, f32, |val: f32| val.ceil());
 
 /// Numeric value with a finite minimum and maximum and operations to clamp
 /// values.
@@ -327,77 +305,86 @@ impl Operator for Clip {
     }
 }
 
-parallel_unary_float_op!(Cos, cos, vecmath::Cos::new());
+declare_operator!(Cos);
+impl_operator!(Cos, [FloatTensor]);
+impl_get_kernel!(Cos, f32, SimdKernel(vecmath::Cos::new()));
 
 #[derive(Debug)]
 pub struct Elu {
     pub alpha: f32,
 }
 
-impl UnaryFloatOp for Elu {
-    fn name(&self) -> &str {
-        "Elu"
-    }
+impl_operator!(Elu, [FloatTensor]);
 
-    fn map_element(&self, val: f32) -> f32 {
-        // The ONNX spec and the original paper [1] define Elu in slightly
-        // different, but equivalent ways:
-        //
-        // Original: `f(x) = x if x > 0 else alpha * (exp(x) - 1)`
-        // ONNX: `f(x) = x if x >= 0 else alpha * (exp(x) - 1)`
-        //
-        // [1] https://arxiv.org/pdf/1511.07289
+impl GetKernel<f32> for Elu {
+    fn get_kernel(&self) -> impl UnaryKernel<f32> + Sync + Send {
+        |val: f32| {
+            // The ONNX spec and the original paper [1] define Elu in slightly
+            // different, but equivalent ways:
+            //
+            // Original: `f(x) = x if x > 0 else alpha * (exp(x) - 1)`
+            // ONNX: `f(x) = x if x >= 0 else alpha * (exp(x) - 1)`
+            //
+            // [1] https://arxiv.org/pdf/1511.07289
 
-        if val >= 0. {
-            val
-        } else {
-            self.alpha * (val.exp() - 1.)
+            if val >= 0. {
+                val
+            } else {
+                self.alpha * (val.exp() - 1.)
+            }
         }
     }
 }
 
-pub fn elu(pool: &BufferPool, input: TensorView, alpha: f32) -> Tensor {
-    Elu { alpha }.map(pool, input)
-}
+declare_operator!(Erf);
+impl_operator!(Erf, [FloatTensor]);
+impl_operator_fn!(Erf, erf, cfg_test);
+impl_get_kernel!(Erf, f32, SimdKernel(vecmath::Erf {}));
 
-parallel_unary_float_op!(Erf, erf, vecmath::Erf {});
-parallel_unary_float_op!(Exp, exp, vecmath::Exp {});
-unary_float_op!(Floor, floor, |val: f32| val.floor());
+declare_operator!(Exp);
+impl_operator!(Exp, [FloatTensor]);
+impl_get_kernel!(Exp, f32, SimdKernel(vecmath::Exp {}));
+
+declare_operator!(Floor);
+impl_operator!(Floor, [FloatTensor]);
+impl_operator_fn!(Floor, floor, cfg_test);
+impl_get_kernel!(Floor, f32, |val: f32| val.floor());
 
 #[derive(Debug)]
 pub struct Gelu {
     pub approximate: bool,
 }
 
-impl Operator for Gelu {
-    fn name(&self) -> &str {
-        "Gelu"
-    }
+impl_operator!(Gelu, [FloatTensor]);
 
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        gelu(ctx.pool(), ctx.inputs().require_as(0)?, self.approximate).into_op_result()
-    }
-
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
-        let tensor: Tensor = input.try_into()?;
-        let result = if self.approximate {
-            par_unary_op_in_place(ctx.pool(), tensor, vecmath::ApproxGelu {})
+impl GetKernel<f32> for Gelu {
+    fn get_kernel(&self) -> impl UnaryKernel<f32> + Send + Sync {
+        if self.approximate {
+            GeluKernel::Approximate(SimdKernel(vecmath::ApproxGelu {}))
         } else {
-            par_unary_op_in_place(ctx.pool(), tensor, vecmath::Gelu {})
-        };
-        Ok(result.into())
+            GeluKernel::Standard(SimdKernel(vecmath::Gelu {}))
+        }
     }
 }
 
-pub fn gelu(pool: &BufferPool, input: TensorView, approximate: bool) -> Tensor {
-    if approximate {
-        par_unary_op(pool, input, vecmath::ApproxGelu {})
-    } else {
-        par_unary_op(pool, input, vecmath::Gelu {})
+enum GeluKernel {
+    Approximate(SimdKernel<vecmath::ApproxGelu>),
+    Standard(SimdKernel<vecmath::Gelu>),
+}
+
+impl UnaryKernel<f32> for GeluKernel {
+    fn map<'dst>(&self, src: &[f32], dst: &'dst mut [MaybeUninit<f32>]) -> &'dst mut [f32] {
+        match self {
+            Self::Approximate(kern) => kern.map(src, dst),
+            Self::Standard(kern) => kern.map(src, dst),
+        }
+    }
+
+    fn map_mut(&self, src: &mut [f32]) {
+        match self {
+            Self::Approximate(kern) => kern.map_mut(src),
+            Self::Standard(kern) => kern.map_mut(src),
+        }
     }
 }
 
@@ -407,36 +394,36 @@ pub struct HardSigmoid {
     pub beta: f32,
 }
 
-impl UnaryFloatOp for HardSigmoid {
-    fn name(&self) -> &str {
-        "HardSigmoid"
-    }
+impl_operator!(HardSigmoid, [FloatTensor]);
 
-    fn map_element(&self, val: f32) -> f32 {
-        (self.alpha * val + self.beta).clamp(0., 1.)
+impl GetKernel<f32> for HardSigmoid {
+    fn get_kernel(&self) -> impl UnaryKernel<f32> + Send + Sync {
+        move |val: f32| (self.alpha * val + self.beta).clamp(0., 1.)
     }
 }
 
+#[cfg(test)]
 pub fn hard_sigmoid(pool: &BufferPool, input: TensorView, alpha: f32, beta: f32) -> Tensor {
-    HardSigmoid { alpha, beta }.map(pool, input)
+    let op = HardSigmoid { alpha, beta };
+    unary_op(pool, input, &op.get_kernel())
 }
 
 #[derive(Debug)]
 pub struct HardSwish {}
 
-impl UnaryFloatOp for HardSwish {
-    fn name(&self) -> &str {
-        "HardSwish"
-    }
+impl_operator!(HardSwish, [FloatTensor]);
 
-    fn map_element(&self, val: f32) -> f32 {
-        let alpha = 1. / 6.;
-        let beta = 0.5;
-        val * HardSigmoid { alpha, beta }.map_element(val)
+impl GetKernel<f32> for HardSwish {
+    fn get_kernel(&self) -> impl UnaryKernel<f32> + Send + Sync {
+        |val: f32| {
+            let alpha = 1. / 6.;
+            let beta = 0.5;
+            val * (alpha * val + beta).clamp(0., 1.)
+        }
     }
 }
 
-unary_float_funcs!(HardSwish, hard_swish);
+impl_operator_fn!(HardSwish, hard_swish, cfg_test);
 
 #[derive(Debug)]
 pub struct IsInf {}
@@ -468,43 +455,39 @@ impl Operator for IsNaN {
     }
 }
 
-pub fn leaky_relu(pool: &BufferPool, input: TensorView, alpha: f32) -> Tensor {
-    LeakyRelu { alpha }.map(pool, input)
-}
-
 #[derive(Debug)]
 pub struct LeakyRelu {
     pub alpha: f32,
 }
 
-impl UnaryFloatOp for LeakyRelu {
-    fn name(&self) -> &str {
-        "LeakyRelu"
+impl_operator!(LeakyRelu, [FloatTensor]);
+
+impl GetKernel<f32> for LeakyRelu {
+    fn get_kernel(&self) -> impl UnaryKernel<f32> + Send + Sync {
+        |val: f32| {
+            if val < 0.0 { self.alpha * val } else { val }
+        }
     }
+}
 
-    fn map_element(&self, val: f32) -> f32 {
-        if val < 0.0 { self.alpha * val } else { val }
+#[cfg(test)]
+pub fn leaky_relu(pool: &BufferPool, input: TensorView, alpha: f32) -> Tensor {
+    let op = LeakyRelu { alpha };
+    unary_op(pool, input, &op.get_kernel())
+}
+
+declare_operator!(Log);
+impl_operator!(Log, [FloatTensor]);
+impl_get_kernel!(Log, f32, |val: f32| val.ln());
+
+declare_operator!(Neg);
+impl_operator!(Neg, [FloatTensor, Int32Tensor]);
+
+impl<T: Copy + std::ops::Neg<Output = T>> GetKernel<T> for Neg {
+    fn get_kernel(&self) -> impl UnaryKernel<T> + Send + Sync {
+        |val: T| val.neg()
     }
 }
-
-unary_float_op!(Log, log, |val: f32| val.ln());
-
-pub fn neg<T: Copy + std::ops::Neg<Output = T>>(
-    pool: &BufferPool,
-    input: TensorView<T>,
-) -> Tensor<T> {
-    input.map_in(pool, |x| x.neg())
-}
-
-pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(
-    _pool: &BufferPool,
-    mut input: Tensor<T>,
-) -> Tensor<T> {
-    input.apply(|x| x.neg());
-    input
-}
-
-unary_numeric_op!(Neg, neg, neg_in_place);
 
 pub fn not<T: AsBool + PartialEq>(pool: &BufferPool, input: TensorView<T>) -> Tensor<i32> {
     input.map_in(pool, |x| i32::from(!x.as_bool()))
@@ -538,27 +521,22 @@ impl Operator for Not {
     }
 }
 
-unary_float_op!(Reciprocal, reciprocal, |val: f32| 1. / val);
-unary_float_op!(Relu, relu, |val: f32| val.max(0.));
+declare_operator!(Reciprocal);
+impl_operator!(Reciprocal, [FloatTensor]);
+impl_get_kernel!(Reciprocal, f32, |val: f32| 1. / val);
+
+declare_operator!(Relu);
+impl_operator!(Relu, [FloatTensor]);
+impl_get_kernel!(Relu, f32, |val: f32| val.max(0.));
 
 /// Round float values to the nearest integer. Values with a fractional part
 /// of 0.5 are rounded to the nearest even number, like `round` in Python and
 /// unlike [`f32::round`] in Rust.
 #[derive(Debug)]
 pub struct Round {}
-impl UnaryFloatOp for Round {
-    fn name(&self) -> &str {
-        "Round"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        val.round_ties_even()
-    }
-}
-
-pub fn round(pool: &BufferPool, x: TensorView) -> Tensor {
-    Round {}.map(pool, x)
-}
+impl_operator!(Round, [FloatTensor]);
+impl_get_kernel!(Round, f32, |val: f32| val.round_ties_even());
+impl_operator_fn!(Round, round, cfg_test);
 
 fn prelu<T: Copy + Default + PartialOrd + std::ops::Mul<Output = T>>(
     pool: &BufferPool,
@@ -602,7 +580,10 @@ impl Operator for PRelu {
     }
 }
 
-parallel_unary_float_op!(Sigmoid, sigmoid, vecmath::Sigmoid {});
+declare_operator!(Sigmoid);
+impl_operator!(Sigmoid, [FloatTensor]);
+impl_operator_fn!(Sigmoid, sigmoid);
+impl_get_kernel!(Sigmoid, f32, SimdKernel(vecmath::Sigmoid {}));
 
 // Sigmoid Linear Unit (SiLU) function.
 //
@@ -611,7 +592,9 @@ parallel_unary_float_op!(Sigmoid, sigmoid, vecmath::Sigmoid {});
 //
 // Not an official ONNX operator, but used in popular object detection models.
 // See https://github.com/onnx/onnx/issues/4854.
-parallel_unary_float_op!(Silu, silu, vecmath::Silu {});
+declare_operator!(Silu);
+impl_operator!(Silu, [FloatTensor]);
+impl_get_kernel!(Silu, f32, SimdKernel(vecmath::Silu {}));
 
 /// Swish function (<https://en.wikipedia.org/wiki/Swish_function>).
 ///
@@ -622,35 +605,17 @@ pub struct Swish {
     pub beta: f32,
 }
 
-impl Operator for Swish {
-    fn name(&self) -> &str {
-        "Swish"
-    }
+impl_operator!(Swish, [FloatTensor]);
 
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        swish(ctx.pool(), ctx.inputs().require_as(0)?, self.beta).into_op_result()
-    }
-
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
-        let tensor: Tensor = input.try_into()?;
-        let output = swish_in_place(ctx.pool(), tensor, self.beta);
-        Ok(output.into())
+impl GetKernel<f32> for Swish {
+    fn get_kernel(&self) -> impl UnaryKernel<f32> + Send + Sync {
+        SimdKernel(vecmath::Swish { beta: self.beta })
     }
 }
 
-pub fn swish(pool: &BufferPool, input: TensorView, beta: f32) -> Tensor {
-    par_unary_op(pool, input, vecmath::Swish { beta })
-}
-
-pub fn swish_in_place(pool: &BufferPool, input: Tensor, beta: f32) -> Tensor {
-    par_unary_op_in_place(pool, input, vecmath::Swish { beta })
-}
-
-parallel_unary_float_op!(Sin, sin, vecmath::Sin::new());
+declare_operator!(Sin);
+impl_operator!(Sin, [FloatTensor]);
+impl_get_kernel!(Sin, f32, SimdKernel(vecmath::Sin::new()));
 
 /// Trait for obtaining the sign of a number (-1, 0 or 1) as a value of the
 /// same type.
@@ -672,20 +637,31 @@ macro_rules! impl_signum {
 impl_signum!(i32);
 impl_signum!(f32);
 
-pub fn sign<T: Signum>(pool: &BufferPool, input: TensorView<T>) -> Tensor<T> {
-    input.map_in(pool, |x| x.signum())
+declare_operator!(Sign);
+impl_operator!(Sign, [FloatTensor, Int32Tensor]);
+
+impl<T: Copy + Signum> GetKernel<T> for Sign {
+    fn get_kernel(&self) -> impl UnaryKernel<T> + Send + Sync {
+        |val: T| val.signum()
+    }
 }
 
-pub fn sign_in_place<T: Signum>(_pool: &BufferPool, mut input: Tensor<T>) -> Tensor<T> {
-    input.apply(|x| x.signum());
-    input
-}
+declare_operator!(Sqrt);
+impl_operator!(Sqrt, [FloatTensor]);
+impl_get_kernel!(Sqrt, f32, |val: f32| val.sqrt());
 
-unary_numeric_op!(Sign, sign, sign_in_place);
-unary_float_op!(Sqrt, sqrt, |val: f32| val.sqrt());
-unary_float_op!(Softplus, softplus, |val: f32| { val.exp().ln_1p() });
-unary_float_op!(Tan, tan, |val: f32| val.tan());
-parallel_unary_float_op!(Tanh, tanh, vecmath::Tanh {});
+declare_operator!(Softplus);
+impl_operator!(Softplus, [FloatTensor]);
+impl_get_kernel!(Softplus, f32, |val: f32| val.exp().ln_1p());
+
+declare_operator!(Tan);
+impl_operator!(Tan, [FloatTensor]);
+impl_get_kernel!(Tan, f32, |val: f32| val.tan());
+
+declare_operator!(Tanh);
+impl_operator!(Tanh, [FloatTensor]);
+impl_operator_fn!(Tanh, tanh);
+impl_get_kernel!(Tanh, f32, SimdKernel(vecmath::Tanh {}));
 
 #[cfg(test)]
 mod tests {

@@ -107,7 +107,9 @@ mod tests {
                     .zip(ys.iter_mut())
                     .for_each(|(x, y)| *y = x.tanh())
             },
-            |xs, ys| Tanh {}.map(xs, ys),
+            |xs, ys| {
+                Tanh {}.map(xs, ys);
+            },
         );
     }
 }

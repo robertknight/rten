@@ -128,9 +128,7 @@ pub use trilu::{Trilu, trilu};
 pub use unary_elementwise::{
     Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Elu, Erf, Exp, Floor, Gelu, HardSigmoid, HardSwish,
     IsInf, IsNaN, LeakyRelu, Log, Neg, Not, PRelu, Reciprocal, Relu, Round, Sigmoid, Sign, Silu,
-    Sin, Softplus, Sqrt, Swish, Tan, Tanh, abs, acos, asin, atan, ceil, clip, cos, elu, erf, exp,
-    floor, gelu, hard_sigmoid, hard_swish, leaky_relu, log, neg, not, reciprocal, relu, round,
-    sigmoid, sign, silu, sin, softplus, sqrt, swish, tan, tanh,
+    Sin, Softplus, Sqrt, Swish, Tan, Tanh,
 };
 pub use variadic_elementwise::{Max, Mean, Min, Sum, max, mean, min, sum};
 
