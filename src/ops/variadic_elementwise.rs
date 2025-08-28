@@ -23,12 +23,12 @@ fn reduce_elementwise<T: Copy, R: Fn(T, T) -> T + Copy>(
     match inputs {
         [] => Err(OpError::InvalidValue("Expected at least one input")),
         [a] => Ok(a.to_tensor_in(pool)),
-        [a, b] => binary_op(pool, a.view(), b.view(), reduce),
+        [a, b] => binary_op(pool, a.view(), b.view(), &reduce),
         [a, b, c @ ..] => {
-            let mut tmp = binary_op(pool, a.view(), b.view(), reduce)?;
+            let mut tmp = binary_op(pool, a.view(), b.view(), &reduce)?;
             for arg in c {
                 let old_tmp = tmp.auto_return(pool);
-                tmp = binary_op(pool, old_tmp.view(), arg.view(), reduce)?;
+                tmp = binary_op(pool, old_tmp.view(), arg.view(), &reduce)?;
             }
             Ok(tmp)
         }
