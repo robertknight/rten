@@ -3,7 +3,7 @@ use rten_tensor::{Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::graph::{CaptureEnv, Graph, NodeId, RunError, RunOptions};
-use crate::ops::{OpError, OpRunContext, Operator, OutputList, Value, map_value};
+use crate::ops::{OpError, OpRunContext, Operator, OutputList, SubgraphOperator, Value, map_value};
 use crate::timing::Profiler;
 use crate::value::ValueOrView;
 use crate::weight_cache::WeightCache;
@@ -34,6 +34,12 @@ impl Operator for If {
         ))
     }
 
+    fn as_subgraph_op(&self) -> Option<&dyn SubgraphOperator> {
+        Some(self as &dyn SubgraphOperator)
+    }
+}
+
+impl SubgraphOperator for If {
     fn subgraphs(&self) -> SmallVec<[&Graph; 2]> {
         [&self.then_branch, &self.else_branch].into()
     }
@@ -108,6 +114,12 @@ impl Operator for Loop {
         ))
     }
 
+    fn as_subgraph_op(&self) -> Option<&dyn SubgraphOperator> {
+        Some(self as &dyn SubgraphOperator)
+    }
+}
+
+impl SubgraphOperator for Loop {
     fn subgraphs(&self) -> SmallVec<[&Graph; 2]> {
         SmallVec::from_slice(&[&self.body])
     }
@@ -271,7 +283,7 @@ mod tests {
     use crate::graph::builder::Expr;
     use crate::graph::{CaptureEnv, Graph};
     use crate::ops::tests::new_pool;
-    use crate::ops::{InputList, OpError, OpRunContext, Operator, RunError};
+    use crate::ops::{InputList, OpError, OpRunContext, RunError, SubgraphOperator};
     use crate::value::{Scalar, Value, ValueView};
 
     use super::Loop;
