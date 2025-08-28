@@ -12,7 +12,7 @@ use super::{CachedPlan, CaptureEnv, PlanOptions};
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TypedConstant};
 use crate::ops::{
     Add, Concat, Conv, Identity, If, IntoOpResult, MatMul, Mul, OpError, OpRunContext, Operator,
-    OutputList, PrepackedInput, Relu, Shape,
+    OutputList, PrepackedInput, Relu, Shape, SubgraphOperator,
 };
 use crate::timing::Profiler;
 use crate::value::{DataType, Value, ValueView};
@@ -1057,6 +1057,12 @@ impl Operator for Subgraph {
         ))
     }
 
+    fn as_subgraph_op(&self) -> Option<&dyn SubgraphOperator> {
+        Some(self as &dyn SubgraphOperator)
+    }
+}
+
+impl SubgraphOperator for Subgraph {
     fn subgraphs(&self) -> SmallVec<[&Graph; 2]> {
         SmallVec::from_slice(&[&self.graph])
     }

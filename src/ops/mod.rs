@@ -496,6 +496,10 @@ pub trait Operator: Any + Debug {
     ///
     /// `ctx` provides access to operator inputs and the [`BufferPool`] from
     /// which the output and temporary buffers should be allocated.
+    ///
+    /// For operators which have subgraphs (see
+    /// [`as_subgraph_op`](Operator::as_subgraph_op)), the
+    /// [`SubgraphOperator::run_subgraph`] method should be used instead.
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError>;
 
     /// Return true if this operator supports in-place execution via
@@ -550,16 +554,6 @@ pub trait Operator: Any + Debug {
         Err(OpError::InvalidValue("In-place execution not supported"))
     }
 
-    /// Return true if this operator executes a subgraph.
-    fn has_subgraph(&self) -> bool {
-        !self.subgraphs().is_empty()
-    }
-
-    /// Return a list of subgraphs used by this operator.
-    fn subgraphs(&self) -> SmallVec<[&Graph; 2]> {
-        SmallVec::new()
-    }
-
     /// Return the IDs of inputs which can be pre-packed using [`prepack`](Operator::prepack).
     fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
         SmallVec::new()
@@ -577,27 +571,10 @@ pub trait Operator: Any + Debug {
         None
     }
 
-    /// Execute the operator with the given inputs and captured values.
-    ///
-    /// This method will be called instead of `run` if the operator reports that
-    /// it runs a subgraph (see [`has_subgraph`](Operator::has_subgraph)).
-    /// Compared to `run`, it takes an additional `captures` argument which
-    /// provides access to values captured from the surrounding scope (like a
-    /// closure in Rust) and it returns a [`RunError`] instead of an
-    /// [`OpError`].
-    ///
-    /// The default implementation delegates to `run`. In other words it treats
-    /// the operator as a subgraph with a single node.
-    fn run_subgraph<'a>(
-        &'a self,
-        ctx: &OpRunContext,
-        #[allow(unused)] captures: CaptureEnv,
-        #[allow(unused)] weight_cache: Option<&[WeightCache]>,
-        #[allow(unused)] profiler: Option<&mut Profiler<'a>>,
-        #[allow(unused)] run_opts: Option<RunOptions>,
-    ) -> Result<OutputList, RunError> {
-        self.run(ctx)
-            .map_err(|error| RunError::op_error(self.name(), error, ctx))
+    /// Return the [`SubgraphOperator`] implementation for this operator, if
+    /// this operator has subgraphs.
+    fn as_subgraph_op(&self) -> Option<&dyn SubgraphOperator> {
+        None
     }
 }
 
@@ -606,6 +583,27 @@ impl dyn Operator {
     pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
         (self as &dyn Any).downcast_ref()
     }
+}
+
+/// Trait for operators which contain subgraphs, such as `If`, `Loop` etc.
+pub trait SubgraphOperator: Operator {
+    /// Return a list of subgraphs used by this operator.
+    fn subgraphs(&self) -> SmallVec<[&Graph; 2]> {
+        SmallVec::new()
+    }
+
+    /// Execute the operator with the given inputs and captured values.
+    ///
+    /// This should be used instead of [`Operator::run`] for operators that
+    /// implement this trait.
+    fn run_subgraph<'a>(
+        &'a self,
+        ctx: &OpRunContext,
+        #[allow(unused)] captures: CaptureEnv,
+        #[allow(unused)] weight_cache: Option<&[WeightCache]>,
+        #[allow(unused)] profiler: Option<&mut Profiler<'a>>,
+        #[allow(unused)] run_opts: Option<RunOptions>,
+    ) -> Result<OutputList, RunError>;
 }
 
 /// Convenience methods that make it easier to run operators in tests.

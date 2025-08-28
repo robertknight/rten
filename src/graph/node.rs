@@ -103,8 +103,8 @@ impl OperatorNode {
         operator: Arc<dyn Operator + Send + Sync>,
     ) -> Self {
         let mut capture_names = Vec::new();
-        if operator.has_subgraph() {
-            for subgraph in operator.subgraphs() {
+        if let Some(subgraph_op) = operator.as_subgraph_op() {
+            for subgraph in subgraph_op.subgraphs() {
                 capture_names.extend(subgraph.capture_names().iter().map(|s| s.to_string()));
             }
         }

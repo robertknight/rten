@@ -425,8 +425,10 @@ impl Graph {
             .collect();
 
         for node in self.nodes.values() {
-            if let Node::Operator(op) = node {
-                for subgraph in op.operator().subgraphs() {
+            if let Node::Operator(op) = node
+                && let Some(subgraph_op) = op.operator().as_subgraph_op()
+            {
+                for subgraph in subgraph_op.subgraphs() {
                     captures.extend(subgraph.capture_names())
                 }
             }
@@ -588,16 +590,16 @@ impl Graph {
                         entries.push(Entry::Cache((input_id, packed)));
                     }
 
-                    let subgraph_caches: Vec<_> = op_node
-                        .operator()
-                        .subgraphs()
-                        .into_iter()
-                        .map(|subgraph| {
+                    let mut subgraph_caches = Vec::new();
+
+                    if let Some(sg_op) = op_node.operator().as_subgraph_op() {
+                        subgraph_caches.extend(sg_op.subgraphs().into_iter().map(|subgraph| {
                             let mut subgraph_cache = WeightCache::new();
                             subgraph.prepack_weights(&mut subgraph_cache);
                             subgraph_cache
-                        })
-                        .collect();
+                        }));
+                    }
+
                     if !subgraph_caches.is_empty() {
                         entries.push(Entry::SubgraphCache((op_node_id, subgraph_caches)));
                     }
@@ -715,10 +717,9 @@ impl Graph {
             .map(|node| match node {
                 Node::Operator(op_node) => op_node
                     .operator()
-                    .subgraphs()
-                    .iter()
-                    .map(|sg| sg.total_params())
-                    .sum(),
+                    .as_subgraph_op()
+                    .map(|sg| sg.subgraphs().iter().map(|sg| sg.total_params()).sum())
+                    .unwrap_or(0),
                 Node::Value(_) => 0,
                 Node::Constant(constant) => constant.layout().len(),
             })
@@ -991,8 +992,8 @@ impl Graph {
 
             // Extract values used by the operator's subgraphs which can be
             // passed by value.
-            let has_subgraph = op_node.operator().has_subgraph();
-            let by_value_captures = has_subgraph.then(|| {
+            let subgraph_op = op_node.operator().as_subgraph_op();
+            let by_value_captures = subgraph_op.is_some().then(|| {
                 let mut by_value_captures = FxHashMap::default();
                 for node_id in self.operator_dependencies(op_node) {
                     if op_node.input_ids().contains(&Some(node_id)) {
@@ -1081,7 +1082,7 @@ impl Graph {
                             &input_shape,
                         )
                     })
-            } else if has_subgraph {
+            } else if let Some(subgraph_op) = subgraph_op {
                 ctx.set_name(op_node.name());
 
                 let capture_env = CaptureEnv::new(
@@ -1091,8 +1092,7 @@ impl Graph {
                     Some(&temp_values),
                     by_value_captures,
                 );
-                op_node
-                    .operator()
+                subgraph_op
                     .run_subgraph(
                         &ctx,
                         capture_env,
@@ -1158,7 +1158,7 @@ impl Graph {
 
                 // Skip control flow ops to avoid double-counting the time from
                 // ops inside the subgraph.
-                if !has_subgraph {
+                if subgraph_op.is_none() {
                     profiler.add_record(TimingRecord {
                         name: op_node.operator().name(),
                         input_meta,
