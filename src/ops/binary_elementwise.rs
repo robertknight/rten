@@ -1,9 +1,11 @@
 use smallvec::SmallVec;
 use std::fmt::Debug;
 use std::iter::repeat;
+use std::mem::MaybeUninit;
 
 use rten_base::num::{AsBool, Identities, IsInt};
 use rten_tensor::prelude::*;
+use rten_tensor::{AssumeInit, NdTensorView, NdTensorViewMut};
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
@@ -135,14 +137,119 @@ pub fn fast_broadcast_cycles_repeats(
     Some((cycles, repeats))
 }
 
+/// Kernel for a binary operator.
+///
+/// This has a blanket impl for `Fn(T, U) -> R`.
+pub trait BinaryKernel<T, U = T, R = T> {
+    /// Apply the binary operation to corresponding elements of `a` and `b`,
+    /// writing to `out`.
+    ///
+    /// The lengths of `a` and `b` must match. The length of `b` is
+    /// `a.len() / (cycles * repeats)`. Every element of `b` is repeated
+    /// `repeats` times and the whole sequence is repeated `cycles` times.
+    fn apply_fast<'dst>(
+        &self,
+        a: &[T],
+        b: &[U],
+        out: &'dst mut [MaybeUninit<R>],
+        cycles: usize,
+        repeats: usize,
+    ) -> &'dst mut [R];
+
+    /// Apply the binary operation to corresponding elements of `a` and `b`,
+    /// writing to `out`.
+    ///
+    /// `a` and `b` must have the same shape and the number of elements in
+    /// each must match `out.len()`.
+    fn apply_indexed<'dst>(
+        &self,
+        a: NdTensorView<T, 4>,
+        b: NdTensorView<U, 4>,
+        out: &'dst mut [MaybeUninit<R>],
+    ) -> &'dst mut [R];
+}
+
+impl<T: Copy, U: Copy, R, F: Fn(T, U) -> R> BinaryKernel<T, U, R> for F {
+    fn apply_fast<'dst>(
+        &self,
+        a: &[T],
+        b: &[U],
+        out: &'dst mut [MaybeUninit<R>],
+        cycles: usize,
+        repeats: usize,
+    ) -> &'dst mut [R] {
+        assert_eq!(a.len(), out.len());
+        assert_eq!(a.len(), b.len() * cycles * repeats);
+
+        let mut i = 0;
+        for _ in 0..cycles {
+            if repeats == 1 {
+                for b_elt in b {
+                    // Safety: We checked the total loop count is in `[0,
+                    // out.len())` above, which is the same as
+                    // `a.len().
+                    let (a_elt, out_elt) =
+                        unsafe { (*a.get_unchecked(i), out.get_unchecked_mut(i)) };
+                    out_elt.write(self(a_elt, *b_elt));
+                    i += 1;
+                }
+            } else {
+                for b_elt in b {
+                    for _ in 0..repeats {
+                        // Safety: We checked the total loop count is in `[0,
+                        // out.len())` above, which is the same as
+                        // `a.len().
+                        let (a_elt, out_elt) =
+                            unsafe { (*a.get_unchecked(i), out.get_unchecked_mut(i)) };
+                        out_elt.write(self(a_elt, *b_elt));
+                        i += 1;
+                    }
+                }
+            }
+        }
+        unsafe { out.assume_init() }
+    }
+
+    fn apply_indexed<'dst>(
+        &self,
+        a: NdTensorView<T, 4>,
+        b: NdTensorView<U, 4>,
+        out: &'dst mut [MaybeUninit<R>],
+    ) -> &'dst mut [R] {
+        assert_eq!(a.shape(), b.shape());
+        assert_eq!(a.len(), out.len());
+
+        let mut out_offset = 0;
+        for i0 in 0..a.size(0) {
+            for i1 in 0..a.size(1) {
+                for i2 in 0..a.size(2) {
+                    for i3 in 0..a.size(3) {
+                        // Safety:
+                        // - `a` and `b` have the same shape, and i0..i3 are in `[0, a.size(i))`.
+                        // - The length of `out` is the same as `a.len()`.
+                        unsafe {
+                            let a_elt = a.get_unchecked([i0, i1, i2, i3]);
+                            let b_elt = b.get_unchecked([i0, i1, i2, i3]);
+                            out.get_unchecked_mut(out_offset)
+                                .write(self(*a_elt, *b_elt));
+                            out_offset += 1;
+                        }
+                    }
+                }
+            }
+        }
+        unsafe { out.assume_init() }
+    }
+}
+
 /// Compute the result of applying the binary operation `op` to corresponding
 /// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
 /// matching shape if necessary.
-pub fn binary_op<T: Copy, U: Copy, R, F: Fn(T, U) -> R>(
+pub fn binary_op<T: Copy, U: Copy, R>(
     pool: &BufferPool,
     a: TensorView<T>,
     b: TensorView<U>,
-    op: F,
+    op: &dyn BinaryKernel<T, U, R>,
 ) -> Result<Tensor<R>, OpError> {
     let out_shape = broadcast_shapes(a.shape(), b.shape())
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
@@ -156,40 +263,10 @@ pub fn binary_op<T: Copy, U: Copy, R, F: Fn(T, U) -> R>(
         assert!(cycles * b_data.len() * repeats == a.len());
 
         let mut output = Tensor::uninit_in(pool, &out_shape);
-
-        // Unsafe access used to skip bounds checks in inner loop.
-        let out_data = output.data_mut().unwrap();
-        let a_ptr = a_data.as_ptr();
-
-        let mut i = 0;
-        for _ in 0..cycles {
-            if repeats == 1 {
-                for b_elt in b_data {
-                    // Safety: We checked the total loop count is in `[0,
-                    // out_data.len())` above, which is the same as
-                    // `a_data.len().
-                    let (a_elt, out_elt) =
-                        unsafe { (*a_ptr.add(i), out_data.get_unchecked_mut(i)) };
-                    out_elt.write(op(a_elt, *b_elt));
-                    i += 1;
-                }
-            } else {
-                for b_elt in b_data {
-                    for _ in 0..repeats {
-                        // Safety: We checked the total loop count is in `[0,
-                        // out_data.len())` above, which is the same as
-                        // `a_data.len().
-                        let (a_elt, out_elt) =
-                            unsafe { (*a_ptr.add(i), out_data.get_unchecked_mut(i)) };
-                        out_elt.write(op(a_elt, *b_elt));
-                        i += 1;
-                    }
-                }
-            }
-        }
+        let out_init = op.apply_fast(a_data, b_data, output.data_mut().unwrap(), cycles, repeats);
 
         // Safety: We initialized all output elements.
-        assert!(i == output.len());
+        assert!(out_init.len() == output.len());
         let output = unsafe { output.assume_init() };
         return Ok(output);
     }
@@ -209,25 +286,9 @@ pub fn binary_op<T: Copy, U: Copy, R, F: Fn(T, U) -> R>(
     a.inner_iter::<4>()
         .zip(b.inner_iter::<4>())
         .for_each(|(a, b)| {
-            for i0 in 0..a.size(0) {
-                for i1 in 0..a.size(1) {
-                    for i2 in 0..a.size(2) {
-                        for i3 in 0..a.size(3) {
-                            // Safety:
-                            // - `a` and `b` have the same shape, and i0..i3 are in `[0, a.size(i))`.
-                            // - The length of `out_uninit` is the same as `a.len()`.
-                            unsafe {
-                                let a_elt = a.get_unchecked([i0, i1, i2, i3]);
-                                let b_elt = b.get_unchecked([i0, i1, i2, i3]);
-                                out_uninit
-                                    .get_unchecked_mut(out_offset)
-                                    .write(op(*a_elt, *b_elt));
-                                out_offset += 1;
-                            }
-                        }
-                    }
-                }
-            }
+            let len = a.len();
+            let out_init = op.apply_indexed(a, b, &mut out_uninit[out_offset..out_offset + len]);
+            out_offset += out_init.len();
         });
 
     // Safety: We initialized `out_offset` elements.
@@ -237,42 +298,82 @@ pub fn binary_op<T: Copy, U: Copy, R, F: Fn(T, U) -> R>(
     Ok(Tensor::from_data(&out_shape, out_data))
 }
 
-/// Perform an elementwise binary operation in-place.
+/// Kernel for a binary operator that modifies the LHS input in-place.
 ///
-/// This requires that `b` can be broadcast to the shape of `a`.
-fn binary_op_in_place<T: Copy + Debug, U: Copy + Debug, F: Fn(T, U) -> T>(
-    mut a: TensorViewMut<T>,
-    b: TensorView<U>,
-    op: F,
-) {
-    // Fast path for when LHS and RHS are contiguous, and fast broadcasting is
-    // possible.
-    if a.is_contiguous()
-        && let Some(b_data) = b.data()
-        && let Some((cycles, repeats)) = fast_broadcast_cycles_repeats(b.shape(), a.shape())
-    {
-        assert!(cycles * b_data.len() * repeats == a.len());
-        let a_data = a.data_mut().unwrap();
+/// This has a blanket impl for `Fn(T, U) -> T`.
+pub trait BinaryMutKernel<T, U> {
+    fn apply_fast(&self, a: &mut [T], b: &[U], cycles: usize, repeats: usize);
+    fn apply_indexed(&self, a: NdTensorViewMut<T, 4>, b: NdTensorView<U, 4>);
+}
+
+impl<T: Copy, U: Copy, F: Fn(T, U) -> T> BinaryMutKernel<T, U> for F {
+    /// Apply a binary operator in place to contiguous inputs.
+    ///
+    /// The length of `a` must equal `b.len() * cycles * repeats`. Each element
+    /// of `b` is repeated `repeats` times and each sequence of `b`s is repeated
+    /// `cycles` times.
+    fn apply_fast(&self, a: &mut [T], b: &[U], cycles: usize, repeats: usize) {
+        assert!(cycles * b.len() * repeats == a.len());
         let mut i = 0;
         for _ in 0..cycles {
             if repeats == 1 {
-                for b_elt in b_data {
+                for b_elt in b {
                     // Safety: We checked the total loop count is in `[0, a.len())` above.
-                    let a_elt = unsafe { a_data.get_unchecked_mut(i) };
-                    *a_elt = op(*a_elt, *b_elt);
+                    let a_elt = unsafe { a.get_unchecked_mut(i) };
+                    *a_elt = self(*a_elt, *b_elt);
                     i += 1;
                 }
             } else {
-                for b_elt in b_data {
+                for b_elt in b {
                     for _ in 0..repeats {
                         // Safety: We checked the total loop count is in `[0, a.len())` above.
-                        let a_elt = unsafe { a_data.get_unchecked_mut(i) };
-                        *a_elt = op(*a_elt, *b_elt);
+                        let a_elt = unsafe { a.get_unchecked_mut(i) };
+                        *a_elt = self(*a_elt, *b_elt);
                         i += 1;
                     }
                 }
             }
         }
+    }
+
+    /// Apply a binary operator in place.
+    ///
+    /// Inputs `a` and `b` must have the same shape.
+    fn apply_indexed(&self, mut a: NdTensorViewMut<T, 4>, b: NdTensorView<U, 4>) {
+        assert_eq!(a.shape(), b.shape());
+        for i0 in 0..a.size(0) {
+            for i1 in 0..a.size(1) {
+                for i2 in 0..a.size(2) {
+                    for i3 in 0..a.size(3) {
+                        // Safety: `a` and `b` have the same shape, and
+                        // i0..i3 are in `[0, a.size(i))`.
+                        unsafe {
+                            let a_elt = a.get_unchecked_mut([i0, i1, i2, i3]);
+                            let b_elt = b.get_unchecked([i0, i1, i2, i3]);
+                            *a_elt = self(*a_elt, *b_elt);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Perform an elementwise binary operation in-place.
+///
+/// This requires that `b` can be broadcast to the shape of `a`.
+fn binary_op_in_place<T: Copy + Debug, U: Copy + Debug>(
+    mut a: TensorViewMut<T>,
+    b: TensorView<U>,
+    op: &dyn BinaryMutKernel<T, U>,
+) {
+    // Fast path for when LHS and RHS are contiguous, and fast broadcasting is
+    // possible.
+    if let Some(b_data) = b.data()
+        && let Some((cycles, repeats)) = fast_broadcast_cycles_repeats(b.shape(), a.shape())
+        && let Some(a_data) = a.data_mut()
+    {
+        op.apply_fast(a_data, b_data, cycles, repeats);
         return;
     }
 
@@ -285,22 +386,8 @@ fn binary_op_in_place<T: Copy + Debug, U: Copy + Debug, F: Fn(T, U) -> T>(
 
     a.inner_iter_mut::<4>()
         .zip(b.inner_iter::<4>())
-        .for_each(|(mut a, b)| {
-            for i0 in 0..a.size(0) {
-                for i1 in 0..a.size(1) {
-                    for i2 in 0..a.size(2) {
-                        for i3 in 0..a.size(3) {
-                            // Safety: `a` and `b` have the same shape, and
-                            // i0..i3 are in `[0, a.size(i))`.
-                            unsafe {
-                                let a_elt = a.get_unchecked_mut([i0, i1, i2, i3]);
-                                let b_elt = b.get_unchecked([i0, i1, i2, i3]);
-                                *a_elt = op(*a_elt, *b_elt);
-                            }
-                        }
-                    }
-                }
-            }
+        .for_each(|(a, b)| {
+            op.apply_indexed(a, b);
         });
 }
 
@@ -310,11 +397,11 @@ fn binary_op_in_place<T: Copy + Debug, U: Copy + Debug, F: Fn(T, U) -> T>(
 /// operands can be swapped without affecting the result. In this case we
 /// can make the larger of the two operands the LHS and benefit from
 /// optimizations in `binary_op` that assume this.
-fn binary_commutative_op<T: Copy + Debug + Default, F: Fn(T, T) -> T>(
+fn binary_commutative_op<T: Copy + Debug + Default>(
     pool: &BufferPool,
     a: TensorView<T>,
     b: TensorView<T>,
-    op: F,
+    op: &dyn BinaryKernel<T>,
 ) -> Result<Tensor<T>, OpError> {
     if b.len() > a.len() {
         // `a` must be broadcast to `b`s shape. Swap operands so we can take
@@ -364,7 +451,7 @@ pub fn add<T: Copy + Debug + Default + std::ops::Add<Output = T>>(
     a: TensorView<T>,
     b: TensorView<T>,
 ) -> Result<Tensor<T>, OpError> {
-    binary_commutative_op(pool, a, b, |x, y| x + y)
+    binary_commutative_op(pool, a, b, &|x, y| x + y)
 }
 
 /// Perform in-place elementwise addition of two tensors.
@@ -372,7 +459,7 @@ pub fn add_in_place<T: Copy + Debug + std::ops::Add<Output = T>>(
     a: TensorViewMut<T>,
     b: TensorView<T>,
 ) {
-    binary_op_in_place(a, b, |x, y| x + y);
+    binary_op_in_place(a, b, &|x, y| x + y);
 }
 
 #[derive(Debug)]
@@ -411,7 +498,9 @@ macro_rules! logical_boolean_op {
             b: TensorView<T>,
         ) -> Result<Tensor<i32>, OpError> {
             #[allow(clippy::redundant_closure_call)]
-            binary_op(pool, a, b, |x, y| $expr(x.as_bool(), y.as_bool()).into())
+            binary_op(pool, a, b, &|x: T, y: T| {
+                $expr(x.as_bool(), y.as_bool()).into()
+            })
         }
 
         #[derive(Debug)]
@@ -462,7 +551,7 @@ pub fn div<
         //
         // This loses some precision, so we might want to revisit this in future.
         (false, Some(scalar)) => mul(pool, a, Tensor::from_scalar(T::one() / *scalar).view()),
-        _ => binary_op(pool, a, b, |x, y| x / y),
+        _ => binary_op(pool, a, b, &|x, y| x / y),
     }
 }
 
@@ -475,7 +564,7 @@ pub fn div_in_place<
 ) {
     match (T::is_int(), b.item()) {
         (false, Some(scalar)) => mul_in_place(a, Tensor::from_scalar(T::one() / *scalar).view()),
-        _ => binary_op_in_place(a, b, |x, y| x / y),
+        _ => binary_op_in_place(a, b, &|x, y| x / y),
     }
 }
 
@@ -514,7 +603,7 @@ fn boolean_op<T: Copy + Debug + PartialEq + PartialOrd>(
     b: TensorView<T>,
     op: BooleanOp,
 ) -> Result<Tensor<i32>, OpError> {
-    binary_op(pool, a, b, |x, y| {
+    binary_op(pool, a, b, &|x, y| {
         i32::from(match op {
             BooleanOp::Equal => x == y,
             BooleanOp::Less => x < y,
@@ -611,8 +700,8 @@ pub fn mod_op<
         a,
         b,
         match mode {
-            DivMode::FloorDiv => |x, y| rem_floor(x, y),
-            DivMode::TruncDiv => |x, y| x % y,
+            DivMode::FloorDiv => &|x, y| rem_floor(x, y),
+            DivMode::TruncDiv => &|x, y| x % y,
         },
     )
 }
@@ -651,7 +740,7 @@ pub fn mul<T: Copy + Debug + Default + std::ops::Mul<Output = T>>(
     a: TensorView<T>,
     b: TensorView<T>,
 ) -> Result<Tensor<T>, OpError> {
-    binary_commutative_op(pool, a, b, |x, y| x * y)
+    binary_commutative_op(pool, a, b, &|x, y| x * y)
 }
 
 /// Perform in-place elementwise multiplication of two tensors.
@@ -659,7 +748,7 @@ pub fn mul_in_place<T: Copy + Debug + std::ops::Mul<Output = T>>(
     a: TensorViewMut<T>,
     b: TensorView<T>,
 ) {
-    binary_op_in_place(a, b, |a_elt, b_elt| a_elt * b_elt);
+    binary_op_in_place(a, b, &|a_elt, b_elt| a_elt * b_elt);
 }
 
 #[derive(Debug)]
@@ -735,7 +824,7 @@ pub fn pow<E: Copy, T: FastPow<E>>(
     if let Some(&exp) = exp.item() {
         Ok(base.map_in(pool, |x| x.fast_pow(exp)))
     } else {
-        binary_op(pool, base, exp, |b, e| b.fast_pow(e))
+        binary_op(pool, base, exp, &|b: T, e: E| b.fast_pow(e))
     }
 }
 
@@ -747,7 +836,7 @@ pub fn pow_in_place<E: Copy + Debug, T: Copy + Debug + FastPow<E>>(
     if let Some(exp) = exp.item() {
         base.apply(|x| x.fast_pow(*exp))
     } else {
-        binary_op_in_place(base, exp, |b, e| b.fast_pow(e));
+        binary_op_in_place(base, exp, &|b: T, e: E| b.fast_pow(e));
     }
 }
 
@@ -791,7 +880,7 @@ pub fn sub<T: Copy + Debug + Default + std::ops::Sub<Output = T>>(
     a: TensorView<T>,
     b: TensorView<T>,
 ) -> Result<Tensor<T>, OpError> {
-    binary_op(pool, a, b, |x, y| x - y)
+    binary_op(pool, a, b, &|x, y| x - y)
 }
 
 /// Perform in-place elementwise subtraction of two tensors.
@@ -799,7 +888,7 @@ pub fn sub_in_place<T: Copy + Debug + std::ops::Sub<Output = T>>(
     a: TensorViewMut<T>,
     b: TensorView<T>,
 ) {
-    binary_op_in_place(a, b, |x, y| x - y);
+    binary_op_in_place(a, b, &|x, y| x - y);
 }
 
 #[derive(Debug)]

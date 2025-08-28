@@ -552,14 +552,9 @@ fn prelu<T: Copy + Default + PartialOrd + std::ops::Mul<Output = T>>(
     // Even though PRelu is technically a binary operation in ONNX, it is
     // usually described as elementwise because the slope parameter is normally
     // a constant scalar or vector.
-    binary_op(
-        pool,
-        x,
-        slope,
-        |x, alpha| {
-            if x < T::default() { alpha * x } else { x }
-        },
-    )
+    binary_op(pool, x, slope, &|x, alpha| {
+        if x < T::default() { alpha * x } else { x }
+    })
 }
 
 #[derive(Debug)]
