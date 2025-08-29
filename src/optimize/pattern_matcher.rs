@@ -125,11 +125,10 @@ impl OpPattern {
 
         // For commutative binary operators, we allow the pattern to match
         // either way around.
-        if let (true, [pat_a, pat_b], [Some(input_a), Some(input_b)]) = (
-            node.operator().is_commutative(),
-            &self.inputs[..],
-            node.input_ids(),
-        ) {
+        if node.operator().is_commutative()
+            && let [pat_a, pat_b] = &self.inputs[..]
+            && let [Some(input_a), Some(input_b)] = node.input_ids()
+        {
             symbols.checkpoint();
 
             if pat_a.test_impl(*input_a, graph, symbols)

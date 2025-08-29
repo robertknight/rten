@@ -1219,7 +1219,9 @@ impl Graph {
             op_node.name().unwrap_or("")
         );
         for (index, (id, meta)) in op_node.input_ids().iter().zip(input_meta).enumerate() {
-            if let (Some(id), Some(meta)) = (id, meta) {
+            if let Some(id) = id
+                && let Some(meta) = meta
+            {
                 let name = self.node_name(*id);
                 println!(
                     "  input {}: {} ({} {:?})",

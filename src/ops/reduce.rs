@@ -188,7 +188,9 @@ impl Operator for CumSum {
 /// Return the indices of nonzero elements in `input` as a `(dim, index)` tensor.
 pub fn nonzero<T: Default + PartialEq>(pool: &BufferPool, input: TensorView<T>) -> Tensor<i32> {
     // Special case for scalar inputs.
-    if let (Some(item), 0) = (input.item(), input.ndim()) {
+    if let Some(item) = input.item()
+        && input.ndim() == 0
+    {
         return Tensor::zeros(&[0, if *item != T::default() { 1 } else { 0 }]);
     }
 

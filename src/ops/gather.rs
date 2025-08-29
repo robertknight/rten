@@ -69,7 +69,9 @@ pub fn gather<T: Copy + Default>(
 
     // Fast path for scalar `indices`. This amounts to indexing `input` along
     // `axis`.
-    if let (0, Some(index)) = (indices.ndim(), indices.item()) {
+    if indices.ndim() == 0
+        && let Some(index) = indices.item()
+    {
         let output = if input.ndim() == 1 {
             // Fast path for indexing a vector with a scalar. This is common
             // in subgraphs that process tensor shapes.
@@ -96,7 +98,9 @@ pub fn gather<T: Copy + Default>(
     // Fast path for common case of gathering from a contiguous input along
     // axis zero. For example, when gathering from a `[token_id, embed_dim]`
     // embedding matrix.
-    if let (0, Some(in_data)) = (axis, input.data()) {
+    if axis == 0
+        && let Some(in_data) = input.data()
+    {
         let in_slice_len = input.shape()[axis + 1..].iter().product();
         let mut out_data = pool.alloc(out_shape.iter().product());
         for index in indices.iter() {
@@ -240,12 +244,11 @@ pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
 
     // When gathering from a stride-1 axis in a contiguous tensor, we can get
     // the 1D lanes by just splitting the data into chunks.
-    if let (Some(input_data), 1, Some(indices_data), 1) = (
-        input.data(),
-        input.stride(axis),
-        indices.data(),
-        indices.stride(axis),
-    ) {
+    if let Some(input_data) = input.data()
+        && input.stride(axis) == 1
+        && let Some(indices_data) = indices.data()
+        && indices.stride(axis) == 1
+    {
         let idx_size = indices.size(axis);
         input_data
             .par_chunks(input.size(axis))
