@@ -162,174 +162,7 @@ impl<'a> Planner<'a> {
             }
         }
 
-        // Build an execution plan via a depth first traversal of the graph
-        // starting at the output nodes. A helper struct is used as recursive
-        // closures are not supported in Rust.
-        struct PlanBuilder<'a> {
-            graph: &'a Graph,
-            resolved_values: ResolvedValueSet<'a>,
-            plan: Vec<(NodeId, &'a OperatorNode)>,
-            options: PlanOptions,
-        }
-        impl<'a> PlanBuilder<'a> {
-            /// Add all the transitive dependencies of `op_node` to the plan,
-            /// followed by `op_node`.
-            fn visit(
-                &mut self,
-                op_node_id: NodeId,
-                op_node: &'a OperatorNode,
-            ) -> Result<(), RunError> {
-                for input in self.graph.operator_dependencies(op_node) {
-                    if self.resolved_values.contains(input) {
-                        continue;
-                    }
-                    if let Some((input_op_id, input_op_node)) = self.graph.get_source_node(input) {
-                        self.visit(input_op_id, input_op_node)?;
-                    } else if self.options.allow_missing_inputs {
-                        continue;
-                    } else {
-                        let msg = format!(
-                            "Missing input \"{}\" for op \"{}\"",
-                            self.graph.node_name(input),
-                            self.graph.node_name(op_node_id)
-                        );
-                        return Err(RunError::PlanningError(msg));
-                    }
-                }
-                for output_id in op_node.output_ids().iter().filter_map(|node| *node) {
-                    self.resolved_values.insert(output_id);
-                }
-                self.plan.push((op_node_id, op_node));
-                Ok(())
-            }
-
-            /// Take the current execution plan and re-order it for more
-            /// efficient execution.
-            fn sort_plan(self, mut resolved_values: ResolvedValueSet) -> Vec<NodeId> {
-                // Build map of value node to operators that depend on the value.
-                let mut dependent_ops: FxHashMap<NodeId, Vec<(NodeId, &OperatorNode)>> =
-                    FxHashMap::default();
-                for (op_node_id, op_node) in &self.plan {
-                    for input_id in self.graph.operator_dependencies(op_node) {
-                        if let Some(deps) = dependent_ops.get_mut(&input_id) {
-                            deps.push((*op_node_id, op_node));
-                        } else {
-                            dependent_ops.insert(input_id, [(*op_node_id, *op_node)].into());
-                        }
-                    }
-                }
-
-                let mut output_plan = Vec::with_capacity(self.plan.len());
-
-                // Initialize frontier with all operators that can be executed
-                // from initially-available values.
-                let mut frontier: Vec<(NodeId, &OperatorNode)> = Vec::new();
-                for (op_node_id, op_node) in &self.plan {
-                    if self
-                        .graph
-                        .operator_dependencies(op_node)
-                        .all(|id| resolved_values.contains(id))
-                    {
-                        frontier.push((*op_node_id, op_node));
-                    }
-                }
-
-                debug_assert!(!frontier.is_empty(), "initial frontier is empty");
-
-                // Loop while we still have operators to compute.
-                while !frontier.is_empty() {
-                    // Choose an operator to execute next and add it to the plan.
-                    //
-                    // We run non-in-place operators first, so that operators
-                    // which can run in-place are more likely to have their
-                    // inputs available for in-place execution.
-                    let op_pos = frontier
-                        .iter()
-                        .position(|(_id, op)| !op.operator().can_run_in_place())
-                        .unwrap_or(0);
-                    let (next_op_id, op_node) = frontier.remove(op_pos);
-                    output_plan.push(next_op_id);
-
-                    // Mark the operator's outputs as computed.
-                    resolved_values.extend(op_node.output_ids().iter().filter_map(|id| *id));
-
-                    // Visit operators that depend on current op outputs. Add
-                    // to frontier set if all dependencies have been resolved.
-                    for output_id in op_node.output_ids() {
-                        let Some(output_id) = output_id else {
-                            continue;
-                        };
-                        let Some(deps) = dependent_ops.get(output_id) else {
-                            continue;
-                        };
-                        for (candidate_op_id, candidate_op) in deps {
-                            if frontier.iter().any(|(op_id, _)| op_id == candidate_op_id) {
-                                continue;
-                            }
-
-                            if self
-                                .graph
-                                .operator_dependencies(candidate_op)
-                                .all(|id| resolved_values.contains(id))
-                            {
-                                frontier.push((*candidate_op_id, candidate_op));
-                            }
-                        }
-                    }
-                }
-
-                output_plan
-            }
-
-            /// Return a sequential plan to generate `outputs`.
-            fn plan(mut self, outputs: &[NodeId]) -> Result<Vec<NodeId>, RunError> {
-                let initial_resolved_values = self.resolved_values.clone();
-
-                // Build initial plan by traversing graph backwards from outputs.
-                for output_id in outputs.iter() {
-                    if self.resolved_values.contains(*output_id) {
-                        // Value is either a constant node or is produced by
-                        // an operator that is already in the plan.
-                        continue;
-                    }
-
-                    if let Some((op_node_id, op_node)) = self.graph.get_source_node(*output_id) {
-                        self.visit(op_node_id, op_node)?;
-                    } else {
-                        let output_name = self.graph.node_name(*output_id);
-                        let msg = format!("Source node not found for output \"{}\"", output_name);
-                        return Err(RunError::PlanningError(msg));
-                    }
-                }
-
-                // When doing partial evaluation, just return the initial plan.
-                // This avoids having to handle missing inputs when sorting the
-                // plan.
-                if self.options.allow_missing_inputs || self.plan.is_empty() {
-                    return Ok(self.plan.into_iter().map(|(op_id, _)| op_id).collect());
-                }
-
-                // Re-order initial plan to get a more efficient execution
-                // order.
-                let sorted_plan = self.sort_plan(initial_resolved_values);
-
-                Ok(sorted_plan)
-            }
-        }
-
-        // Set of values that are available after executing the plan
-        let resolved_values = ResolvedValueSet::new(
-            self.graph,
-            inputs.iter().copied(),
-            options.captures_available,
-        );
-
-        let builder = PlanBuilder {
-            graph: self.graph,
-            resolved_values,
-            plan: Vec::new(),
-            options,
-        };
+        let builder = PlanBuilder::new(self.graph, inputs, options);
         builder.plan(outputs)
     }
 
@@ -406,6 +239,170 @@ impl<'a> Planner<'a> {
             .collect();
 
         (pruned_plan, new_outputs)
+    }
+}
+
+/// Helper that builds an execution plan via a depth first traversal of the graph
+/// starting at the output nodes.
+struct PlanBuilder<'a> {
+    graph: &'a Graph,
+    resolved_values: ResolvedValueSet<'a>,
+    plan: Vec<(NodeId, &'a OperatorNode)>,
+    options: PlanOptions,
+}
+
+impl<'a> PlanBuilder<'a> {
+    fn new(graph: &'a Graph, inputs: &[NodeId], options: PlanOptions) -> PlanBuilder<'a> {
+        // Set of values that are available after executing the plan
+        let resolved_values =
+            ResolvedValueSet::new(graph, inputs.iter().copied(), options.captures_available);
+
+        PlanBuilder {
+            graph,
+            resolved_values,
+            plan: Vec::new(),
+            options,
+        }
+    }
+
+    /// Add all the transitive dependencies of `op_node` to the plan,
+    /// followed by `op_node`.
+    fn visit(&mut self, op_node_id: NodeId, op_node: &'a OperatorNode) -> Result<(), RunError> {
+        for input in self.graph.operator_dependencies(op_node) {
+            if self.resolved_values.contains(input) {
+                continue;
+            }
+            if let Some((input_op_id, input_op_node)) = self.graph.get_source_node(input) {
+                self.visit(input_op_id, input_op_node)?;
+            } else if self.options.allow_missing_inputs {
+                continue;
+            } else {
+                let msg = format!(
+                    "Missing input \"{}\" for op \"{}\"",
+                    self.graph.node_name(input),
+                    self.graph.node_name(op_node_id)
+                );
+                return Err(RunError::PlanningError(msg));
+            }
+        }
+        for output_id in op_node.output_ids().iter().filter_map(|node| *node) {
+            self.resolved_values.insert(output_id);
+        }
+        self.plan.push((op_node_id, op_node));
+        Ok(())
+    }
+
+    /// Take the current execution plan and re-order it for more
+    /// efficient execution.
+    fn sort_plan(self, mut resolved_values: ResolvedValueSet) -> Vec<NodeId> {
+        // Build map of value node to operators that depend on the value.
+        let mut dependent_ops: FxHashMap<NodeId, Vec<(NodeId, &OperatorNode)>> =
+            FxHashMap::default();
+        for (op_node_id, op_node) in &self.plan {
+            for input_id in self.graph.operator_dependencies(op_node) {
+                if let Some(deps) = dependent_ops.get_mut(&input_id) {
+                    deps.push((*op_node_id, op_node));
+                } else {
+                    dependent_ops.insert(input_id, [(*op_node_id, *op_node)].into());
+                }
+            }
+        }
+
+        let mut output_plan = Vec::with_capacity(self.plan.len());
+
+        // Initialize frontier with all operators that can be executed
+        // from initially-available values.
+        let mut frontier: Vec<(NodeId, &OperatorNode)> = Vec::new();
+        for (op_node_id, op_node) in &self.plan {
+            if self
+                .graph
+                .operator_dependencies(op_node)
+                .all(|id| resolved_values.contains(id))
+            {
+                frontier.push((*op_node_id, op_node));
+            }
+        }
+
+        debug_assert!(!frontier.is_empty(), "initial frontier is empty");
+
+        // Loop while we still have operators to compute.
+        while !frontier.is_empty() {
+            // Choose an operator to execute next and add it to the plan.
+            //
+            // We run non-in-place operators first, so that operators
+            // which can run in-place are more likely to have their
+            // inputs available for in-place execution.
+            let op_pos = frontier
+                .iter()
+                .position(|(_id, op)| !op.operator().can_run_in_place())
+                .unwrap_or(0);
+            let (next_op_id, op_node) = frontier.remove(op_pos);
+            output_plan.push(next_op_id);
+
+            // Mark the operator's outputs as computed.
+            resolved_values.extend(op_node.output_ids().iter().filter_map(|id| *id));
+
+            // Visit operators that depend on current op outputs. Add
+            // to frontier set if all dependencies have been resolved.
+            for output_id in op_node.output_ids() {
+                let Some(output_id) = output_id else {
+                    continue;
+                };
+                let Some(deps) = dependent_ops.get(output_id) else {
+                    continue;
+                };
+                for (candidate_op_id, candidate_op) in deps {
+                    if frontier.iter().any(|(op_id, _)| op_id == candidate_op_id) {
+                        continue;
+                    }
+
+                    if self
+                        .graph
+                        .operator_dependencies(candidate_op)
+                        .all(|id| resolved_values.contains(id))
+                    {
+                        frontier.push((*candidate_op_id, candidate_op));
+                    }
+                }
+            }
+        }
+
+        output_plan
+    }
+
+    /// Return a sequential plan to generate `outputs`.
+    fn plan(mut self, outputs: &[NodeId]) -> Result<Vec<NodeId>, RunError> {
+        let initial_resolved_values = self.resolved_values.clone();
+
+        // Build initial plan by traversing graph backwards from outputs.
+        for output_id in outputs.iter() {
+            if self.resolved_values.contains(*output_id) {
+                // Value is either a constant node or is produced by
+                // an operator that is already in the plan.
+                continue;
+            }
+
+            if let Some((op_node_id, op_node)) = self.graph.get_source_node(*output_id) {
+                self.visit(op_node_id, op_node)?;
+            } else {
+                let output_name = self.graph.node_name(*output_id);
+                let msg = format!("Source node not found for output \"{}\"", output_name);
+                return Err(RunError::PlanningError(msg));
+            }
+        }
+
+        // When doing partial evaluation, just return the initial plan.
+        // This avoids having to handle missing inputs when sorting the
+        // plan.
+        if self.options.allow_missing_inputs || self.plan.is_empty() {
+            return Ok(self.plan.into_iter().map(|(op_id, _)| op_id).collect());
+        }
+
+        // Re-order initial plan to get a more efficient execution
+        // order.
+        let sorted_plan = self.sort_plan(initial_resolved_values);
+
+        Ok(sorted_plan)
     }
 }
 
