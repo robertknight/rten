@@ -794,15 +794,22 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
     # Map from name of constant or value node to index in `nodes`.
     value_name_to_index: dict[str, int] = {}
 
+    # Names of all constant or value nodes that are either provided as inputs
+    # to this graph or produced as outputs from one of its operators.
+    #
+    # This is used to determine which operator inputs need to be captured from
+    # a parent graph.
+    available_values = set()
+
     # Map of constant/initializer name to node.
     constant_map: dict[str, ConstantNode] = {}
 
     # IDs of value nodes that are not listed in the graph's inputs or computed
     # by operator outputs. These are resolved at runtime by looking up the name
     # in parent scopes.
-    capture_ids: list[int] | None
+    capture_ids: set[int] | None
     if allow_captures:
-        capture_ids = []
+        capture_ids = set()
     else:
         capture_ids = None
 
@@ -862,6 +869,22 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
         value_node = value_node_from_onnx_value(value)
         add_node(value_node)
 
+    # Get the ID of an existing value or constant node, or create a new value
+    # node otherwise.
+    def get_or_create_value_node(name: str) -> int:
+        value_id = value_name_to_index.get(name)
+        if value_id is None:
+            value_id = add_node(ValueNode(name=name, shape=None, dtype=None))
+        return value_id
+
+    # Record names of graph inputs and computed values.
+    for value_info in onnx_graph.input:
+        available_values.add(value_info.name)
+
+    for operator in onnx_graph.node:
+        for output_name in operator.output:
+            available_values.add(output_name)
+
     # Create value nodes for inputs, outputs and internal values for which the
     # ONNX model contains dtype or shape information.
     for value_info in onnx_graph.input:
@@ -880,23 +903,18 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
         if operator.op_type == "Constant":
             continue
 
-        # If converting a subgraph, create capture nodes for any input names
-        # which don't appear in the graph.
+        # When converting a subgraph, create value nodes for any operator inputs
+        # which need to be captured from a parent graph and add their IDs to
+        # the capture list.
         if capture_ids is not None:
             for input_name in operator.input:
-                if input_name not in value_name_to_index:
-                    capture_id = add_node(
-                        ValueNode(name=input_name, shape=None, dtype=None)
-                    )
-                    capture_ids.append(capture_id)
+                if input_name not in available_values:
+                    capture_ids.add(get_or_create_value_node(input_name))
 
+        # Create value nodes for operator outputs, if no value with this name
+        # already exists.
         for output_name in operator.output:
-            # If this output value hasn't been registered already, create a
-            # value node without shape or dtype info.
-            if output_name in value_name_to_index:
-                continue
-            value_node = ValueNode(output_name, shape=None, dtype=None)
-            add_node(value_node)
+            get_or_create_value_node(output_name)
 
         try:
             op_node = op_node_from_onnx_operator(
@@ -937,7 +955,8 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> 
 
     inputs = [value_name_to_index[info.name] for info in onnx_graph.input]
     outputs = [value_name_to_index[info.name] for info in onnx_graph.output]
-    return Graph(nodes=nodes, inputs=inputs, outputs=outputs, captures=capture_ids)
+    captures = list(capture_ids) if capture_ids else None
+    return Graph(nodes=nodes, inputs=inputs, outputs=outputs, captures=captures)
 
 
 def build_constant_node(
