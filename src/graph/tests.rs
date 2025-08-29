@@ -592,6 +592,37 @@ fn test_invalid_output_id() {
 }
 
 #[test]
+fn test_cycle() {
+    let mut g = Graph::new();
+
+    let input_id = g.add_value(Some("input"), None, None);
+    let output_id = g.add_value(Some("output"), None, None);
+
+    // Add an operator which depends on its own output, creating a cycle.
+    let _op_id = g.add_op(
+        Some("identity_0"),
+        Arc::new(Identity {}),
+        &[Some(output_id)],
+        &[Some(output_id)],
+    );
+
+    let input = Tensor::from([1.]);
+    let result = g.run(
+        [(input_id, input.view().into())].into(),
+        &[output_id],
+        None,
+        None,
+    );
+
+    assert_eq!(
+        result,
+        Err(RunError::PlanningError(format!(
+            "Encountered cycle visiting dependency \"output\" of operator \"identity_0\""
+        )))
+    );
+}
+
+#[test]
 fn test_call_op_with_missing_input() {
     let mut g = Graph::new();
 

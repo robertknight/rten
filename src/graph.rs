@@ -135,7 +135,7 @@ impl fmt::Display for RunError {
         match self {
             RunError::InvalidNodeId => write!(f, "node ID is invalid"),
             RunError::InvalidNodeName(name) => write!(f, "no node found with name {}", name),
-            RunError::PlanningError(err) => write!(f, "planning error {}", err),
+            RunError::PlanningError(err) => write!(f, "planning error: {}", err),
             RunError::OperatorError {
                 name,
                 error: err,

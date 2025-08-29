@@ -267,13 +267,31 @@ impl<'a> PlanBuilder<'a> {
 
     /// Add all the transitive dependencies of `op_node` to the plan,
     /// followed by `op_node`.
-    fn visit(&mut self, op_node_id: NodeId, op_node: &'a OperatorNode) -> Result<(), RunError> {
+    ///
+    /// `active_set` tracks the IDs of operator nodes that are currently being
+    /// visited.
+    fn visit(
+        &mut self,
+        op_node_id: NodeId,
+        op_node: &'a OperatorNode,
+        active_set: &mut FxHashSet<NodeId>,
+    ) -> Result<(), RunError> {
+        active_set.insert(op_node_id);
+
         for input in self.graph.operator_dependencies(op_node) {
             if self.resolved_values.contains(input) {
                 continue;
             }
             if let Some((input_op_id, input_op_node)) = self.graph.get_source_node(input) {
-                self.visit(input_op_id, input_op_node)?;
+                if active_set.contains(&input_op_id) {
+                    let msg = format!(
+                        "Encountered cycle visiting dependency \"{}\" of operator \"{}\"",
+                        self.graph.node_name(input),
+                        self.graph.node_name(op_node_id)
+                    );
+                    return Err(RunError::PlanningError(msg));
+                }
+                self.visit(input_op_id, input_op_node, active_set)?;
             } else if self.options.allow_missing_inputs {
                 continue;
             } else {
@@ -289,6 +307,9 @@ impl<'a> PlanBuilder<'a> {
             self.resolved_values.insert(output_id);
         }
         self.plan.push((op_node_id, op_node));
+
+        active_set.remove(&op_node_id);
+
         Ok(())
     }
 
@@ -374,6 +395,9 @@ impl<'a> PlanBuilder<'a> {
     fn plan(mut self, outputs: &[NodeId]) -> Result<Vec<NodeId>, RunError> {
         let initial_resolved_values = self.resolved_values.clone();
 
+        // Set of operator nodes currently being visited.
+        let mut active_set = FxHashSet::default();
+
         // Build initial plan by traversing graph backwards from outputs.
         for output_id in outputs.iter() {
             if self.resolved_values.contains(*output_id) {
@@ -383,7 +407,7 @@ impl<'a> PlanBuilder<'a> {
             }
 
             if let Some((op_node_id, op_node)) = self.graph.get_source_node(*output_id) {
-                self.visit(op_node_id, op_node)?;
+                self.visit(op_node_id, op_node, &mut active_set)?;
             } else {
                 let output_name = self.graph.node_name(*output_id);
                 let msg = format!("Source node not found for output \"{}\"", output_name);
