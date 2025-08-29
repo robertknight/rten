@@ -15,6 +15,20 @@ implementation.
 
 ### rten
 
+- Report error instead of crashing with stack overflow when loading a model
+  if the graph has cycles (https://github.com/robertknight/rten/pull/899)
+
+- Revised unary, binary and control-flow operator implementations to reduce
+  code size (https://github.com/robertknight/rten/pull/896,
+  https://github.com/robertknight/rten/pull/897,
+  https://github.com/robertknight/rten/pull/898)
+
+- Revised unary operator kernels to decouple paralleism and vectorization.
+  This enabled parallelizing several unary operators that do not yet have
+  vectorized implementations (https://github.com/robertknight/rten/pull/896)
+
+- Implemented `PRelu` operator (https://github.com/robertknight/rten/pull/888)
+
 - Enable running `Cast` operations in-place when input and output dtypes have
   same element size (https://github.com/robertknight/rten/pull/887)
 
@@ -77,10 +91,15 @@ implementation.
 
 ### rten-simd
 
+- Added [`MaskOps::{any, all}`](https://github.com/robertknight/rten/pull/895)
+  for testing whether any or all lanes of a mask are set.
+
+- Added trait for getting the associated SIMD type of an `Isa` that corresponds
+  to a given element type (https://github.com/robertknight/rten/pull/890)
+
 - Revised APIs for working with mask types and operations (https://github.com/robertknight/rten/pull/874).
   All SIMD vectors with a given element size in an `Isa` will now use the same
   mask type.
-
 
 ## [0.21.1] - 2025-08-08
 
