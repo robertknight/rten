@@ -3100,8 +3100,18 @@ class GridSampleAttrs(object):
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
+    # GridSampleAttrs
+    def AlignCorners(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
 def GridSampleAttrsStart(builder):
-    builder.StartObject(0)
+    builder.StartObject(1)
+
+def GridSampleAttrsAddAlignCorners(builder, alignCorners):
+    builder.PrependBoolSlot(0, alignCorners, 0)
 
 def GridSampleAttrsEnd(builder):
     return builder.EndObject()
@@ -3112,7 +3122,7 @@ class GridSampleAttrsT(object):
 
     # GridSampleAttrsT
     def __init__(self):
-        pass
+        self.alignCorners = False  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3135,10 +3145,12 @@ class GridSampleAttrsT(object):
     def _UnPack(self, gridSampleAttrs):
         if gridSampleAttrs is None:
             return
+        self.alignCorners = gridSampleAttrs.AlignCorners()
 
     # GridSampleAttrsT
     def Pack(self, builder):
         GridSampleAttrsStart(builder)
+        GridSampleAttrsAddAlignCorners(builder, self.alignCorners)
         gridSampleAttrs = GridSampleAttrsEnd(builder)
         return gridSampleAttrs
 

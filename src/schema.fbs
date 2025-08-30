@@ -399,7 +399,9 @@ table GemmAttrs {
   transpose_b:bool;
 }
 
-table GridSampleAttrs {}
+table GridSampleAttrs {
+  align_corners:bool;
+}
 
 table GRUAttrs {
   direction:RNNDirection;
