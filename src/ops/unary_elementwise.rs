@@ -464,9 +464,7 @@ impl_operator!(LeakyRelu, [FloatTensor]);
 
 impl GetKernel<f32> for LeakyRelu {
     fn get_kernel(&self) -> impl UnaryKernel<f32> + Send + Sync {
-        |val: f32| {
-            if val < 0.0 { self.alpha * val } else { val }
-        }
+        SimdKernel(vecmath::LeakyRelu { alpha: self.alpha })
     }
 }
 
