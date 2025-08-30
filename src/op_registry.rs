@@ -638,7 +638,11 @@ impl_read_op!(GreaterOrEqual);
 impl_read_op!(
     GridSample,
     attrs_as_grid_sample_attrs,
-    |_attrs: sg::GridSampleAttrs| { Ok(ops::GridSample {}) }
+    |attrs: sg::GridSampleAttrs| {
+        Ok(ops::GridSample {
+            align_corners: attrs.align_corners(),
+        })
+    }
 );
 impl_read_op!(GRU, attrs_as_gruattrs, |attrs: sg::GRUAttrs| {
     let hidden_size = attrs.hidden_size() as usize;

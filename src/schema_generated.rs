@@ -5664,6 +5664,8 @@ impl<'a> flatbuffers::Follow<'a> for GridSampleAttrs<'a> {
 }
 
 impl<'a> GridSampleAttrs<'a> {
+    pub const VT_ALIGN_CORNERS: flatbuffers::VOffsetT = 4;
+
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         GridSampleAttrs { _tab: table }
@@ -5671,10 +5673,23 @@ impl<'a> GridSampleAttrs<'a> {
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-        _args: &'args GridSampleAttrsArgs,
+        args: &'args GridSampleAttrsArgs,
     ) -> flatbuffers::WIPOffset<GridSampleAttrs<'bldr>> {
         let mut builder = GridSampleAttrsBuilder::new(_fbb);
+        builder.add_align_corners(args.align_corners);
         builder.finish()
+    }
+
+    #[inline]
+    pub fn align_corners(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(GridSampleAttrs::VT_ALIGN_CORNERS, Some(false))
+                .unwrap()
+        }
     }
 }
 
@@ -5685,15 +5700,21 @@ impl flatbuffers::Verifiable for GridSampleAttrs<'_> {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        v.visit_table(pos)?.finish();
+        v.visit_table(pos)?
+            .visit_field::<bool>("align_corners", Self::VT_ALIGN_CORNERS, false)?
+            .finish();
         Ok(())
     }
 }
-pub struct GridSampleAttrsArgs {}
+pub struct GridSampleAttrsArgs {
+    pub align_corners: bool,
+}
 impl<'a> Default for GridSampleAttrsArgs {
     #[inline]
     fn default() -> Self {
-        GridSampleAttrsArgs {}
+        GridSampleAttrsArgs {
+            align_corners: false,
+        }
     }
 }
 
@@ -5702,6 +5723,11 @@ pub struct GridSampleAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> GridSampleAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_align_corners(&mut self, align_corners: bool) {
+        self.fbb_
+            .push_slot::<bool>(GridSampleAttrs::VT_ALIGN_CORNERS, align_corners, false);
+    }
     #[inline]
     pub fn new(
         _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
@@ -5722,6 +5748,7 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> GridSampleAttrsBuilder<'a, 'b, 
 impl core::fmt::Debug for GridSampleAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("GridSampleAttrs");
+        ds.field("align_corners", &self.align_corners());
         ds.finish()
     }
 }

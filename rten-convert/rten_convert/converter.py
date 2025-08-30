@@ -499,7 +499,7 @@ def op_node_from_onnx_operator(
 
         case "GridSample":
             attrs = sg.GridSampleAttrsT()
-            attr_reader.check_attr("align_corners", "int", 0)
+            attrs.alignCorners = attr_reader.get_bool_attr("align_corners", False)
             attr_reader.check_attr("mode", "string", "bilinear")
             attr_reader.check_attr("padding_mode", "string", "zeros")
 
