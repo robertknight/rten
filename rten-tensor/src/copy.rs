@@ -186,6 +186,10 @@ pub fn copy_into_slice<'a, T: Clone>(
     // use it all the time.
     let use_blocked_copy = src.stride(3) % 16 == 0 && src.stride(3) >= 32;
 
+    // Threshold for copying contiguous inner lane using bulk-copying methods
+    // (eg. memcpy).
+    let bulk_copy_inner_lane_min_size_bytes = 32;
+
     if use_blocked_copy {
         // Source is transposed or otherwise not contiguous in the last lane
         let mut dest_mat = NdTensorViewMut::from_data(src.shape(), &mut dest[..]);
@@ -196,8 +200,11 @@ pub fn copy_into_slice<'a, T: Clone>(
                 copy_blocked(src, dest);
             }
         }
-    } else if src.stride(3) == 1 {
-        // Inner lane of source is contiguous
+    } else if src.stride(3) == 1
+        && src.size(3) * size_of::<T>() >= bulk_copy_inner_lane_min_size_bytes
+    {
+        // Inner lane of source is contiguous and large enough to make it
+        // worthwhile to copy contiguous chunks using a memcpy.
         let inner_lane_size = src.size(3);
         let mut dest_chunks = dest.chunks_mut(inner_lane_size);
 
