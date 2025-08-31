@@ -113,39 +113,6 @@ fn resource_path(path: &str) -> PathBuf {
     abs_path
 }
 
-// Config for MobileViT model exported from https://huggingface.co/apple/mobilevit-small
-const MOBILEVIT_CONFIG: InputConfig = InputConfig {
-    chan_order: ChannelOrder::Bgr,
-    norm: PixelNorm::NoNorm,
-    dim_order: DimOrder::Nchw,
-    default_width: 256,
-    default_height: 256,
-};
-
-// Config for EfficientNet model from ONNX Model Zoo.
-//
-// See https://github.com/onnx/models/tree/main/validated/vision/classification/efficientnet-lite4
-const EFFICIENTNET_CONFIG: InputConfig = InputConfig {
-    chan_order: ChannelOrder::Rgb,
-    norm: PixelNorm::ImageNetNorm,
-    dim_order: DimOrder::Nhwc,
-    default_width: 224,
-    default_height: 224,
-};
-
-// Config for MobileNet model from ONNX Model Zoo.
-//
-// This also works with MobileNet v3 exported from torchvision.
-//
-// See https://github.com/onnx/models/tree/main/validated/vision/classification/mobilenet
-const MOBILENET_CONFIG: InputConfig = InputConfig {
-    chan_order: ChannelOrder::Rgb,
-    norm: PixelNorm::ImageNetNorm,
-    dim_order: DimOrder::Nchw,
-    default_width: 224,
-    default_height: 224,
-};
-
 struct Args {
     config: InputConfig,
     model: String,
@@ -158,38 +125,69 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut values = VecDeque::new();
     let mut parser = lexopt::Parser::from_env();
 
+    // Default values are the most common settings. They match MobileNet,
+    // ResNet etc.
+    let mut config = InputConfig {
+        norm: PixelNorm::ImageNetNorm,
+        chan_order: ChannelOrder::Rgb,
+        dim_order: DimOrder::Nchw,
+        default_width: 224,
+        default_height: 224,
+    };
+
     while let Some(arg) = parser.next()? {
         match arg {
             Value(val) => values.push_back(val.string()?),
             Long("help") => {
                 println!(
-                    "Classify images.
+                    "Classify images using a model trained on ImageNet 1K or ImageNet 22K.
 
-Usage: {bin_name} <config> <model> <image>
+Usage: {bin_name} <model> <image>
 
-Where config is one of:
+Options:
 
-  - efficientnet
-  - mobilenet
-  - mobilevit
+  --bgr                 Use BGR channel order for input. Default is RGB.
+
+  -h, --height <size>   Specify height to resize input image to, if model has a
+                        variable input size. Default is 224.
+
+  --nhwc                Pass input image in channels-last NHWC format. Default is NCHW.
+
+  --no-norm             Do not apply standard ImageNet per-channel normalization.
+
+  -s, --size <size>     Specify width and height to resize image to. This is
+                        equivalent to `--width <size> --height <size>`.
+
+  -w, --width <size>    Specify width to resize input image to, if model has a
+                        variable input size. Default is 224.
 ",
                     bin_name = parser.bin_name().unwrap_or("imagenet")
                 );
                 std::process::exit(0);
             }
+            Long("bgr") => {
+                config.chan_order = ChannelOrder::Bgr;
+            }
+            Short('h') | Long("height") => {
+                config.default_height = parser.value()?.parse()?;
+            }
+            Long("nhwc") => {
+                config.dim_order = DimOrder::Nhwc;
+            }
+            Long("no-norm") => {
+                config.norm = PixelNorm::NoNorm;
+            }
+            Short('s') | Long("size") => {
+                let size = parser.value()?.parse()?;
+                config.default_width = size;
+                config.default_height = size;
+            }
+            Short('w') | Long("width") => {
+                config.default_width = parser.value()?.parse()?;
+            }
             _ => return Err(arg.unexpected()),
         }
     }
-
-    let config = values.pop_front().ok_or("missing `config` arg")?;
-    let config = match config.as_str() {
-        "efficientnet" => EFFICIENTNET_CONFIG,
-        "mobilenet" => MOBILENET_CONFIG,
-        "mobilevit" => MOBILEVIT_CONFIG,
-        _ => {
-            return Err(format!("Unknown config {config}").into());
-        }
-    };
 
     let model = values.pop_front().ok_or("missing `model` arg")?;
     let image = values.pop_front().ok_or("missing `image` arg")?;
@@ -208,18 +206,27 @@ Where config is one of:
 ///
 /// Steps to run:
 ///
-/// 1. Download an ImageNet image classification ONNX model. See the `_CONFIG`
-///    constants above for available models and links.
+/// 1. Download an ImageNet image classification ONNX model. Using Optimum
+///    for example to export a classic ResNet (https://huggingface.co/microsoft/resnet-50):
+///
+///    optimum-cli export onnx --model microsoft/resnet-50 resnet-50
+///
+///    Or for a model from the PyTorch Image Models (timm) library:
+///
+///    ./tools/export-timm-model.py timm/convnext_base.fb_in1k --dynamo
 ///
 /// 2. Convert the model to .rten format using:
 ///
-///    rten-convert mobilenet.onnx
+///    rten-convert resnet-50/model.onnx
 ///
-/// 3. Run this example specifying the model type, model and path to an image:
+/// 3. Run this example specifying the path to the converted image:
 ///
-///    ```
-///    cargo run --release --bin imagenet mobilenet mobilenet.rten image.jpg
-///    ```
+///    cargo run --release --bin imagenet resnet-50/model.rten image.jpg
+///
+/// By default the example assumes the model expects 224x224 RGB input with
+/// standard ImageNet normalization applied. You can change these using CLI
+/// arguments such as `--size <size>`. For models from Hugging Face, the expected
+/// input format is described by the `preprocess_config.json` file.
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
     let model = Model::load_file(args.model)?;
@@ -305,7 +312,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .as_ref()
             .and_then(|labels| labels.label_for_index(cls as usize))
             .unwrap_or("unknown");
-        println!("  {} ({}) ({})", label, cls, score);
+        println!("  {}: {}, prob: {:.3}", cls, label, score);
     }
 
     Ok(())
