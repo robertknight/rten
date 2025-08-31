@@ -51,26 +51,41 @@ class AttributeReader:
         self._handled_attrs = set()
 
     def get_attr(self, name: str, expected_type: str, default):
-        """Get the value of an optional operator attribute."""
+        """
+        Get the value of an optional operator attribute.
+
+        :param expected_type:
+            The name of the `onnx.AttributeProto.AttributeType` enum value for
+            the attribute type. This can be lower-case.
+        """
 
         self._handled_attrs.add(name)
 
-        type_code = getattr(onnx.AttributeProto, expected_type.upper())
-        for attr in self.onnx_op.attribute:
-            if attr.name == name:
-                if attr.type != type_code:
-                    raise ConversionError(
-                        f"Attribute {name} type does not match {expected_type}"
-                    )
-                val = getattr(attr, _value_fields[type_code])
+        type_name = expected_type.upper()
+        type_code = onnx.AttributeProto.AttributeType.Value(type_name)
 
-                # String attribute values are stored as bytes, so we have to decode
-                # them.
-                if expected_type == "string":
-                    val = val.decode()
+        attrs = [a for a in self.onnx_op.attribute if a.name == name]
+        if not attrs:
+            return default
 
-                return val
-        return default
+        if len(attrs) > 1:
+            raise ConversionError(f"Found multiple values for attribute {name}")
+
+        attr = attrs[0]
+
+        if attr.type != type_code:
+            raise ConversionError(
+                f"Attribute {name} type does not match {expected_type}"
+            )
+
+        val = onnx.helper.get_attribute_value(attr)
+
+        # String attribute values are stored as bytes, so we have to decode
+        # them.
+        if expected_type == "string":
+            val = val.decode()
+
+        return val
 
     def get_bool_attr(self, name: str, default: bool) -> bool:
         """
@@ -230,16 +245,3 @@ class AttributeReader:
 def _snake_case_to_pascal_case(s: str) -> str:
     """Transform a snake_case string to PascalCase."""
     return "".join([word[0].upper() + word[1:] for word in s.split("_")])
-
-
-# Mapping of ONNX attribute types to the field on an AttributeProto which
-# contains the value. Note that if you try to access the wrong field on an
-# AttributeProto, you get a default value instead of an exception.
-_value_fields = {
-    onnx.AttributeProto.FLOAT: "f",
-    onnx.AttributeProto.GRAPH: "g",
-    onnx.AttributeProto.INT: "i",
-    onnx.AttributeProto.INTS: "ints",
-    onnx.AttributeProto.STRING: "s",
-    onnx.AttributeProto.TENSOR: "t",
-}
