@@ -204,7 +204,17 @@ pub fn benchmark_op<RF: Fn(&[f32], &mut [f32]), VF: Fn(&[f32], &mut [MaybeUninit
     reference: RF,
     vectorized: VF,
 ) {
-    let input: Vec<_> = repeat_with(|| fastrand::f32()).take(1_000_000).collect();
+    // Generate values in [-0.5, 0.5].
+    //
+    // This range is chosen because a) it is a common range for inputs to NN
+    // functions and b) some of the vectorized functions are activations which
+    // change behavior above/below zero. If we used the default `fastrand::f32`
+    // range of [0, 1] this would give misleading results for reference
+    // implementations as they would always take the same branch.
+    let input: Vec<_> = repeat_with(|| -0.5 + fastrand::f32())
+        .take(1_000_000)
+        .collect();
+
     let mut output = vec![0.; input.len()];
     let iters = 100;
 

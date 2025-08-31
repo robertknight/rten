@@ -115,7 +115,7 @@ mod extend_init;
 
 // Unary functions.
 pub use erf::{ApproxGelu, Erf, Gelu};
-pub use exp::{Exp, Sigmoid, Silu, Swish};
+pub use exp::{Elu, Exp, Sigmoid, Silu, Swish};
 pub use quantize::Quantize;
 pub use relu::LeakyRelu;
 pub use sin_cos::{Cos, Sin};
