@@ -244,19 +244,51 @@ impl SimdUnaryOp<f32> for Swish {
     }
 }
 
+/// Computes the Exponential Linear Unit function.
+///
+/// Computes `if x >= 0 { x } else { alpha * (exp(x) - 1) }`.
+pub struct Elu {
+    pub alpha: f32,
+}
+
+impl SimdUnaryOp<f32> for Elu {
+    #[inline(always)]
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
+        // The ONNX spec and the original paper [1] define Elu in slightly
+        // different, but equivalent ways:
+        //
+        // Original: `f(x) = x if x > 0 else alpha * (exp(x) - 1)`
+        // ONNX: `f(x) = x if x >= 0 else alpha * (exp(x) - 1)`
+        //
+        // [1] https://arxiv.org/pdf/1511.07289
+
+        let ops = isa.f32();
+        let x_pos = ops.ge(x, ops.zero());
+        let x_exp = ops.mul(
+            ops.splat(self.alpha),
+            ops.sub(Exp::apply(isa, x), ops.splat(1.)),
+        );
+        ops.select(x, x_exp, x_pos)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_simd::SimdUnaryOp;
 
     use super::{EXP_LOWER_CUTOFF, ReducedRangeExp};
     use crate::testing::{AllF32s, Tolerance, UnaryOpTester, arange, benchmark_op};
-    use crate::{Exp, Sigmoid, Silu, Swish};
+    use crate::{Elu, Exp, Sigmoid, Silu, Swish};
 
     // Maximum error of `Exp` compared to Rust standard library implementation.
     const MAX_EXP_ERROR_ULPS: f32 = 1.0;
 
     // Maximum error of `Sigmoid` compared to reference implementation below.
     const MAX_SIGMOID_ERROR_ULPS: f32 = 4.0;
+
+    fn reference_elu(x: f32, alpha: f32) -> f32 {
+        if x >= 0. { x } else { alpha * (x.exp() - 1.) }
+    }
 
     fn reference_sigmoid(x: f32) -> f32 {
         1. / (1. + (-x).exp())
@@ -310,6 +342,18 @@ mod tests {
             simd: ReducedRangeExp {},
             range: arange(EXP_LOWER_CUTOFF, 0., 0.015),
             tolerance: Tolerance::Ulp(MAX_EXP_ERROR_ULPS),
+        };
+        test.run();
+    }
+
+    #[test]
+    fn test_elu() {
+        let alpha = 0.5;
+        let test = UnaryOpTester {
+            reference: |x| reference_elu(x, alpha),
+            simd: Elu { alpha },
+            range: [-2., -1., 0., 1., 2.].into_iter(),
+            tolerance: Tolerance::Ulp(1.0),
         };
         test.run();
     }
@@ -370,6 +414,22 @@ mod tests {
             tolerance: Tolerance::Ulp(MAX_SIGMOID_ERROR_ULPS),
         };
         test.run();
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_elu() {
+        let alpha = 0.5;
+        benchmark_op(
+            |xs, ys| {
+                xs.iter()
+                    .zip(ys.iter_mut())
+                    .for_each(|(x, y)| *y = reference_elu(*x, alpha))
+            },
+            |xs, ys| {
+                Elu { alpha }.map(xs, ys);
+            },
+        );
     }
 
     #[test]

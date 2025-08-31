@@ -318,21 +318,7 @@ impl_operator!(Elu, [FloatTensor]);
 
 impl GetKernel<f32> for Elu {
     fn get_kernel(&self) -> impl UnaryKernel<f32> + Sync + Send {
-        |val: f32| {
-            // The ONNX spec and the original paper [1] define Elu in slightly
-            // different, but equivalent ways:
-            //
-            // Original: `f(x) = x if x > 0 else alpha * (exp(x) - 1)`
-            // ONNX: `f(x) = x if x >= 0 else alpha * (exp(x) - 1)`
-            //
-            // [1] https://arxiv.org/pdf/1511.07289
-
-            if val >= 0. {
-                val
-            } else {
-                self.alpha * (val.exp() - 1.)
-            }
-        }
+        SimdKernel(vecmath::Elu { alpha: self.alpha })
     }
 }
 
