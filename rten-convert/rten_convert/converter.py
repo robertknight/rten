@@ -294,7 +294,7 @@ def op_node_from_onnx_operator(
       node ID. This is called if an operator attribute needs to be converted
       to a constant input.
     """
-    input_indexes = []
+    input_indexes: list[int | None] = []
     for input_name in onnx_op.input:
         if input_name:
             index = node_index_from_name.get(input_name)
@@ -303,20 +303,23 @@ def op_node_from_onnx_operator(
                     f'Unable to find input "{input_name}" for operator {onnx_op.name}'
                 )
         else:
-            # An empty input name indicates an omitted optional input. This is
-            # only required in cases where at least one subsequent optional
-            # input is provided. All trailing optional inputs can simply be
-            # omitted.
+            # An empty name indicates an omitted optional input. Only required
+            # if a subsequent optional input is provided.
             index = None
         input_indexes.append(index)
 
-    output_indexes = []
+    output_indexes: list[int | None] = []
     for output_name in onnx_op.output:
-        index = node_index_from_name.get(output_name)
-        if index is None:
-            raise ConversionError(
-                f'Unable to find output "{output_name}" for operator {onnx_op.name}'
-            )
+        if output_name:
+            index = node_index_from_name.get(output_name)
+            if index is None:
+                raise ConversionError(
+                    f'Unable to find output "{output_name}" for operator {onnx_op.name}'
+                )
+        else:
+            # An empty name indicates an unused output. Only required if a
+            # subsequent output is used.
+            index = None
         output_indexes.append(index)
 
     # Operator attributes. This will be `None` for operators with no attributes,
