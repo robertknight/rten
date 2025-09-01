@@ -51,13 +51,16 @@ def print_predictions(scores: torch.Tensor):
         print(f"  {label_desc} ({prob:.2f})")
 
 
-def export_timm_model(config: str, onnx_path: str, dynamo: bool = False):
+def export_timm_model(
+    config: str, onnx_path: str, dynamo: bool = False, save_tensors: bool = False
+):
     """
     Export a PyTorch model from timm to ONNX.
 
     :param config: Name of the model configuration to pass to the
         `timm.create_model` function.
     :param onnx_path: Path of exported ONNX model
+    :param save_tensors: Save input and output tensors
     """
     test_img_path = os.path.join(os.path.dirname(__file__), "test-images/horses.jpeg")
     img = Image.open(test_img_path)
@@ -115,6 +118,18 @@ def export_timm_model(config: str, onnx_path: str, dynamo: bool = False):
     print(f"ONNX Runtime unoptimized eval time {elapsed:.3f}s")
     ort_scores = torch.tensor(ort_output[0])
 
+    # Optionally save input and output tensors.
+    #
+    # This is useful for verifying that RTen produces the same results as PyTorch.
+    # The resulting safetensors files can be passed to the RTen CLI as reference
+    # inputs and outputs via `rten --inputs inputs.safetensors --check-outputs outputs.safetensors`.
+    if save_tensors:
+        import safetensors.torch
+
+        output_name = ort_session.get_outputs()[0].name
+        safetensors.torch.save_file({input_name: input_img}, "inputs.safetensors")
+        safetensors.torch.save_file({output_name: output}, "outputs.safetensors")
+
     print(f"Predictions from ONNX Runtime (unoptimized):")
     print_predictions(ort_scores)
 
@@ -154,6 +169,11 @@ available models.
         action="store_true",
         help="Use PyTorch's newer TorchDynamo-based ONNX exporter",
     )
+    parser.add_argument(
+        "--save-tensors",
+        action="store_true",
+        help="Save test model inputs and outputs to SafeTensors files",
+    )
     args = parser.parse_args()
 
     config_name = extract_config_name(args.model_config)
@@ -161,7 +181,9 @@ available models.
     if onnx_path is None:
         onnx_path = config_name + ".onnx"
 
-    export_timm_model(config_name, onnx_path, dynamo=args.dynamo)
+    export_timm_model(
+        config_name, onnx_path, dynamo=args.dynamo, save_tensors=args.save_tensors
+    )
 
 
 if __name__ == "__main__":
