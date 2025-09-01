@@ -631,6 +631,10 @@ table ConstantNode {
   // Offset of tensor data from the start of the tensor data segment in the
   // model file. Null if the tensor data is stored inline.
   data_offset:uint64 = null;
+
+  // Custom strides for each dimension. This enables pre-transposing weights.
+  // If not specified the strides default to contiguous.
+  strides:[uint];
 }
 
 // Dimension of a ValueNode's shape. This can be either a fixed value or a
