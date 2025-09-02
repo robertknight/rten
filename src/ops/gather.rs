@@ -960,39 +960,46 @@ mod tests {
 
     #[test]
     fn test_scatter_elements() {
-        let pool = new_pool();
+        #[derive(Debug)]
+        struct Case {
+            data: Tensor,
+            indices: Tensor<i32>,
+            updates: Tensor,
+            axis: isize,
+            expected: Result<Tensor, OpError>,
+        }
 
-        // Example #1 from ONNX spec
-        let data = Tensor::zeros(&[3, 3]);
-        let indices = Tensor::from([[1, 0, 2], [0, 2, 1]]);
-        let updates = Tensor::from([[1., 1.1, 1.2], [2., 2.1, 2.2]]);
-        let expected = Tensor::from([[2., 1.1, 0.], [1., 0., 2.2], [0., 2.1, 1.2]]);
-        let result = scatter_elements(
-            &pool,
-            data.view(),
-            indices.view(),
-            updates.view(),
-            0, /* axis */
-            None,
-        )
-        .unwrap();
-        assert_eq!(result, expected);
+        let cases = [
+            // Example #1 from ONNX spec
+            Case {
+                data: Tensor::zeros(&[3, 3]),
+                indices: Tensor::from([[1, 0, 2], [0, 2, 1]]),
+                updates: Tensor::from([[1., 1.1, 1.2], [2., 2.1, 2.2]]),
+                axis: 0,
+                expected: Ok(Tensor::from([[2., 1.1, 0.], [1., 0., 2.2], [0., 2.1, 1.2]])),
+            },
+            // Example #2 from ONNX spec
+            Case {
+                data: Tensor::from([[1., 2., 3., 4., 5.]]),
+                indices: Tensor::from([[1, 3]]),
+                updates: Tensor::from([[1.1, 2.1]]),
+                axis: 1,
+                expected: Ok(Tensor::from([[1., 1.1, 3., 2.1, 5.]])),
+            },
+        ];
 
-        // Example #2 from ONNX spec
-        let data = Tensor::from([[1., 2., 3., 4., 5.]]);
-        let indices = Tensor::from([[1, 3]]);
-        let updates = Tensor::from([[1.1, 2.1]]);
-        let expected = Tensor::from([[1., 1.1, 3., 2.1, 5.]]);
-        let result = scatter_elements(
-            &pool,
-            data.view(),
-            indices.view(),
-            updates.view(),
-            1, /* axis */
-            None,
-        )
-        .unwrap();
-        assert_eq!(result, expected);
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let result = scatter_elements(
+                &pool,
+                case.data.view(),
+                case.indices.view(),
+                case.updates.view(),
+                case.axis,
+                None,
+            );
+            assert_eq!(result, case.expected);
+        });
     }
 
     #[test]
