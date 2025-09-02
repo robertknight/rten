@@ -665,6 +665,11 @@ impl<'a, T> Lane<'a, T> {
     pub fn get(&self, idx: usize) -> Option<&'a T> {
         self.view.get([idx])
     }
+
+    /// Return the entire lane as a 1D tensor view.
+    pub fn as_view(&self) -> NdTensorView<'a, T, 1> {
+        self.view
+    }
 }
 
 impl<'a, T> From<NdTensorView<'a, T, 1>> for Lane<'a, T> {
@@ -899,6 +904,11 @@ impl<'a, T> LaneMut<'a, T> {
     /// Return the remaining part of the lane as a slice, if it is contiguous.
     pub fn as_slice_mut(&mut self) -> Option<&mut [T]> {
         self.view.data_mut().map(|data| &mut data[self.index..])
+    }
+
+    /// Return the entire lane as a mutable 1D tensor view.
+    pub fn into_view(self) -> NdTensorViewMut<'a, T, 1> {
+        self.view
     }
 }
 

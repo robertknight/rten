@@ -4,7 +4,8 @@ use std::mem::MaybeUninit;
 use rten_base::num::IsNaN;
 use rten_tensor::prelude::*;
 use rten_tensor::{
-    Lane, ResizeLayout, SliceItem, StorageMut, Tensor, TensorView, TensorViewMut, to_slice_items,
+    NdTensorView, ResizeLayout, SliceItem, StorageMut, Tensor, TensorView, TensorViewMut,
+    to_slice_items,
 };
 use smallvec::SmallVec;
 
@@ -37,7 +38,7 @@ impl<T> GetItem for &[T] {
     }
 }
 
-impl<T> GetItem for Lane<'_, T> {
+impl<T> GetItem for NdTensorView<'_, T, 1> {
     type Item = T;
 
     fn get(&self, index: usize) -> Option<&T> {
@@ -45,7 +46,7 @@ impl<T> GetItem for Lane<'_, T> {
     }
 
     fn len(&self) -> usize {
-        <Self as ExactSizeIterator>::len(self)
+        self.size(0)
     }
 }
 
@@ -263,7 +264,7 @@ pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
             .zip(indices.lanes(axis))
             .zip(output.lanes_mut(axis))
         {
-            gather_lane(data_lane, index_lane, out_lane)?;
+            gather_lane(data_lane.as_view(), index_lane, out_lane)?;
         }
     }
 
