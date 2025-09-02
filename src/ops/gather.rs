@@ -986,6 +986,34 @@ mod tests {
                 axis: 1,
                 expected: Ok(Tensor::from([[1., 1.1, 3., 2.1, 5.]])),
             },
+            // Invalid index
+            Case {
+                data: Tensor::from([1., 2., 3.]),
+                indices: Tensor::from([4]),
+                updates: Tensor::from([1.]),
+                axis: 0,
+                expected: Err(OpError::InvalidValue("Index is invalid")),
+            },
+            // Rank mismatch
+            Case {
+                data: Tensor::from([1., 2., 3.]),
+                indices: Tensor::from([[4]]),
+                updates: Tensor::from([[1.]]),
+                axis: 0,
+                expected: Err(OpError::InvalidValue(
+                    "`data` and `indices` must have same rank",
+                )),
+            },
+            // `indices` and `updates` shape mismatch
+            Case {
+                data: Tensor::from([1., 2., 3.]),
+                indices: Tensor::from([4]),
+                updates: Tensor::from([1., 2.]),
+                axis: 0,
+                expected: Err(OpError::InvalidValue(
+                    "`indices` and `updates` must have same shape",
+                )),
+            },
         ];
 
         cases.test_each(|case| {
