@@ -4,7 +4,8 @@ use std::mem::MaybeUninit;
 use rten_base::num::IsNaN;
 use rten_tensor::prelude::*;
 use rten_tensor::{
-    Lane, ResizeLayout, SliceItem, StorageMut, Tensor, TensorView, TensorViewMut, to_slice_items,
+    NdTensorView, ResizeLayout, SliceItem, StorageMut, Tensor, TensorView, TensorViewMut,
+    to_slice_items,
 };
 use smallvec::SmallVec;
 
@@ -37,7 +38,7 @@ impl<T> GetItem for &[T] {
     }
 }
 
-impl<T> GetItem for Lane<'_, T> {
+impl<T> GetItem for NdTensorView<'_, T, 1> {
     type Item = T;
 
     fn get(&self, index: usize) -> Option<&T> {
@@ -45,7 +46,7 @@ impl<T> GetItem for Lane<'_, T> {
     }
 
     fn len(&self) -> usize {
-        <Self as ExactSizeIterator>::len(self)
+        self.size(0)
     }
 }
 
@@ -263,7 +264,7 @@ pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
             .zip(indices.lanes(axis))
             .zip(output.lanes_mut(axis))
         {
-            gather_lane(data_lane, index_lane, out_lane)?;
+            gather_lane(data_lane.as_view(), index_lane, out_lane)?;
         }
     }
 
@@ -476,26 +477,24 @@ pub fn scatter_elements<
     }
     let axis = resolve_axis(data.ndim(), axis)?;
 
+    let axis_size = data.size(axis);
     let mut output = data.to_tensor_in(pool);
-    for (index, update) in updates.indices().zip(updates.iter()) {
-        let target_index: SmallVec<[usize; 5]> = index
-            .iter()
-            .enumerate()
-            .filter_map(|(dim, idx)| {
-                if dim == axis {
-                    resolve_index(data.size(dim), indices[&index] as isize)
-                } else {
-                    Some(*idx)
-                }
-            })
-            .collect();
-        if target_index.len() < data.ndim() {
-            return Err(OpError::InvalidValue("Index is invalid"));
-        }
 
-        let out_el = &mut output[target_index];
-        *out_el = scatter_reduce(*out_el, *update, reduction);
+    for (output_lane, (update_lane, index_lane)) in output
+        .lanes_mut(axis)
+        .zip(updates.lanes(axis).zip(indices.lanes(axis)))
+    {
+        let mut output_lane = output_lane.into_view();
+
+        for (idx, update) in index_lane.zip(update_lane) {
+            let Some(idx) = resolve_index(axis_size, *idx as isize) else {
+                return Err(OpError::InvalidValue("Index is invalid"));
+            };
+            let out_el = &mut output_lane[[idx]];
+            *out_el = scatter_reduce(*out_el, *update, reduction);
+        }
     }
+
     Ok(output)
 }
 
@@ -961,39 +960,74 @@ mod tests {
 
     #[test]
     fn test_scatter_elements() {
-        let pool = new_pool();
+        #[derive(Debug)]
+        struct Case {
+            data: Tensor,
+            indices: Tensor<i32>,
+            updates: Tensor,
+            axis: isize,
+            expected: Result<Tensor, OpError>,
+        }
 
-        // Example #1 from ONNX spec
-        let data = Tensor::zeros(&[3, 3]);
-        let indices = Tensor::from([[1, 0, 2], [0, 2, 1]]);
-        let updates = Tensor::from([[1., 1.1, 1.2], [2., 2.1, 2.2]]);
-        let expected = Tensor::from([[2., 1.1, 0.], [1., 0., 2.2], [0., 2.1, 1.2]]);
-        let result = scatter_elements(
-            &pool,
-            data.view(),
-            indices.view(),
-            updates.view(),
-            0, /* axis */
-            None,
-        )
-        .unwrap();
-        assert_eq!(result, expected);
+        let cases = [
+            // Example #1 from ONNX spec
+            Case {
+                data: Tensor::zeros(&[3, 3]),
+                indices: Tensor::from([[1, 0, 2], [0, 2, 1]]),
+                updates: Tensor::from([[1., 1.1, 1.2], [2., 2.1, 2.2]]),
+                axis: 0,
+                expected: Ok(Tensor::from([[2., 1.1, 0.], [1., 0., 2.2], [0., 2.1, 1.2]])),
+            },
+            // Example #2 from ONNX spec
+            Case {
+                data: Tensor::from([[1., 2., 3., 4., 5.]]),
+                indices: Tensor::from([[1, 3]]),
+                updates: Tensor::from([[1.1, 2.1]]),
+                axis: 1,
+                expected: Ok(Tensor::from([[1., 1.1, 3., 2.1, 5.]])),
+            },
+            // Invalid index
+            Case {
+                data: Tensor::from([1., 2., 3.]),
+                indices: Tensor::from([4]),
+                updates: Tensor::from([1.]),
+                axis: 0,
+                expected: Err(OpError::InvalidValue("Index is invalid")),
+            },
+            // Rank mismatch
+            Case {
+                data: Tensor::from([1., 2., 3.]),
+                indices: Tensor::from([[4]]),
+                updates: Tensor::from([[1.]]),
+                axis: 0,
+                expected: Err(OpError::InvalidValue(
+                    "`data` and `indices` must have same rank",
+                )),
+            },
+            // `indices` and `updates` shape mismatch
+            Case {
+                data: Tensor::from([1., 2., 3.]),
+                indices: Tensor::from([4]),
+                updates: Tensor::from([1., 2.]),
+                axis: 0,
+                expected: Err(OpError::InvalidValue(
+                    "`indices` and `updates` must have same shape",
+                )),
+            },
+        ];
 
-        // Example #2 from ONNX spec
-        let data = Tensor::from([[1., 2., 3., 4., 5.]]);
-        let indices = Tensor::from([[1, 3]]);
-        let updates = Tensor::from([[1.1, 2.1]]);
-        let expected = Tensor::from([[1., 1.1, 3., 2.1, 5.]]);
-        let result = scatter_elements(
-            &pool,
-            data.view(),
-            indices.view(),
-            updates.view(),
-            1, /* axis */
-            None,
-        )
-        .unwrap();
-        assert_eq!(result, expected);
+        cases.test_each(|case| {
+            let pool = new_pool();
+            let result = scatter_elements(
+                &pool,
+                case.data.view(),
+                case.indices.view(),
+                case.updates.view(),
+                case.axis,
+                None,
+            );
+            assert_eq!(result, case.expected);
+        });
     }
 
     #[test]
