@@ -128,7 +128,7 @@ pub use iterators::{
 };
 pub use layout::{
     AsIndex, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout, OverlapPolicy,
-    ResizeLayout, is_valid_permutation,
+    ResizeLayout, TrustedLayout, is_valid_permutation,
 };
 pub use slice_range::{DynSliceItems, IntoSliceItems, SliceItem, SliceRange, to_slice_items};
 
