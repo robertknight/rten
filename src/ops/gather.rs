@@ -477,26 +477,24 @@ pub fn scatter_elements<
     }
     let axis = resolve_axis(data.ndim(), axis)?;
 
+    let axis_size = data.size(axis);
     let mut output = data.to_tensor_in(pool);
-    for (index, update) in updates.indices().zip(updates.iter()) {
-        let target_index: SmallVec<[usize; 5]> = index
-            .iter()
-            .enumerate()
-            .filter_map(|(dim, idx)| {
-                if dim == axis {
-                    resolve_index(data.size(dim), indices[&index] as isize)
-                } else {
-                    Some(*idx)
-                }
-            })
-            .collect();
-        if target_index.len() < data.ndim() {
-            return Err(OpError::InvalidValue("Index is invalid"));
-        }
 
-        let out_el = &mut output[target_index];
-        *out_el = scatter_reduce(*out_el, *update, reduction);
+    for (output_lane, (update_lane, index_lane)) in output
+        .lanes_mut(axis)
+        .zip(updates.lanes(axis).zip(indices.lanes(axis)))
+    {
+        let mut output_lane = output_lane.into_view();
+
+        for (idx, update) in index_lane.zip(update_lane) {
+            let Some(idx) = resolve_index(axis_size, *idx as isize) else {
+                return Err(OpError::InvalidValue("Index is invalid"));
+            };
+            let out_el = &mut output_lane[[idx]];
+            *out_el = scatter_reduce(*out_el, *update, reduction);
+        }
     }
+
     Ok(output)
 }
 
