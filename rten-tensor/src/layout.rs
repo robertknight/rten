@@ -74,26 +74,12 @@ pub trait Layout {
     /// Iterator over indices in this tensor.
     type Indices;
 
-    /// Map an index to a storage offset.
-    ///
-    /// Panics if any dimension of the index is out of bounds.
-    #[inline]
-    fn offset(&self, index: Self::Index<'_>) -> usize {
-        self.try_offset(index.clone()).unwrap_or_else(|| {
-            panic!(
-                "index {:?} out of bounds for shape {:?}",
-                index.as_ref(),
-                self.shape().as_ref()
-            );
-        })
-    }
-
     /// Map an index to a storage offset, without checking if it is valid for
     /// the tensor's shape.
     ///
     /// This method is not itself unsafe, because it only computes a storage
     /// offset but does not access any data. Using the offset to index into
-    /// storage with a bounds check is unsafe however.
+    /// storage without a bounds check is unsafe however.
     fn offset_unchecked(&self, index: Self::Index<'_>) -> usize {
         index
             .as_ref()
@@ -105,7 +91,12 @@ pub trait Layout {
 
     /// Map an index to a storage offset, or return `None` if the index is out
     /// of bounds along any dimension.
-    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize>;
+    ///
+    /// Offsets returned by this method must be less than the layout's minimum
+    /// storage length reported by [`min_data_len`](Layout::min_data_len).
+    /// If a layout also implements [`TrustedLayout`] then callers can rely
+    /// on this to avoid subsequent bounds checks.
+    fn offset(&self, index: Self::Index<'_>) -> Option<usize>;
 
     /// Return the number of dimensions.
     fn ndim(&self) -> usize;
@@ -226,6 +217,38 @@ pub trait Layout {
     }
 }
 
+/// A layout which upholds guarantees on returned storage offsets.
+///
+/// # Safety
+///
+/// Layouts which implement this trait promise that any offsets returned by
+/// [`offset`](Layout::offset) and
+/// [`offset_unchecked`](Layout::offset_unchecked) are less than the than the
+/// minimum required storage length reported by
+/// [`min_data_len`](Layout::min_data_len). This promise means that the offsets
+/// can be used to access elements in a buffer without a bounds check.
+pub unsafe trait TrustedLayout: Layout {}
+
+/// Extension methods for layouts.
+///
+/// These are separate from the [`Layout`] trait to prevent them from being
+/// overridden.
+pub trait LayoutExt: Layout {
+    /// Return the offset for an index or panic if invalid.
+    #[inline]
+    fn must_offset(&self, index: Self::Index<'_>) -> usize {
+        self.offset(index.clone()).unwrap_or_else(|| {
+            panic!(
+                "index {:?} out of bounds for shape {:?}",
+                index.as_ref(),
+                self.shape().as_ref()
+            )
+        })
+    }
+}
+
+impl<L: Layout> LayoutExt for L {}
+
 /// Provides convenience methods for querying the shape and strides of a matrix.
 pub trait MatrixLayout {
     fn rows(&self) -> usize;
@@ -265,7 +288,7 @@ impl<const N: usize> Layout for NdLayout<N> {
     }
 
     #[inline]
-    fn try_offset(&self, index: [usize; N]) -> Option<usize> {
+    fn offset(&self, index: [usize; N]) -> Option<usize> {
         if !self.index_valid(index) {
             return None;
         }
@@ -296,6 +319,8 @@ impl<const N: usize> Layout for NdLayout<N> {
     }
 }
 
+unsafe impl<const N: usize> TrustedLayout for NdLayout<N> {}
+
 impl<L: Layout> Layout for &L {
     type Index<'b> = L::Index<'b>;
     type Indices = L::Indices;
@@ -308,8 +333,8 @@ impl<L: Layout> Layout for &L {
         (*self).len()
     }
 
-    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
-        (*self).try_offset(index)
+    fn offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        (*self).offset(index)
     }
 
     fn offset_unchecked(&self, index: Self::Index<'_>) -> usize {
@@ -328,6 +353,10 @@ impl<L: Layout> Layout for &L {
         (*self).indices()
     }
 }
+
+// The `Layout` impl for references proxies to the target, so upholds invariants
+// if the target does.
+unsafe impl<L: TrustedLayout> TrustedLayout for &L {}
 
 impl MatrixLayout for NdLayout<2> {
     #[inline]
@@ -529,7 +558,7 @@ impl Layout for DynLayout {
     }
 
     #[inline]
-    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+    fn offset(&self, index: Self::Index<'_>) -> Option<usize> {
         let shape = self.shape();
         let strides = self.strides();
         let mut valid = index.as_ref().len() == shape.len();
@@ -581,6 +610,8 @@ impl Layout for DynLayout {
         DynIndices::from_shape(self.shape())
     }
 }
+
+unsafe impl TrustedLayout for DynLayout {}
 
 impl DynLayout {
     pub fn make_contiguous(&mut self) {

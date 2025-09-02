@@ -13,8 +13,8 @@ use crate::iterators::{
     Lanes, LanesMut, for_each_mut,
 };
 use crate::layout::{
-    AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
-    OverlapPolicy, RemoveDim, ResizeLayout, SliceWith,
+    AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, LayoutExt, MatrixLayout, MutLayout,
+    NdLayout, OverlapPolicy, RemoveDim, ResizeLayout, SliceWith, TrustedLayout,
 };
 use crate::overlap::may_have_internal_overlap;
 use crate::storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
@@ -145,7 +145,10 @@ pub trait AsView: Layout {
 
     /// Return a reference to the element at a given index, or `None` if the
     /// index is invalid.
-    fn get<I: AsIndex<Self::Layout>>(&self, index: I) -> Option<&Self::Elem> {
+    fn get<I: AsIndex<Self::Layout>>(&self, index: I) -> Option<&Self::Elem>
+    where
+        Self::Layout: TrustedLayout,
+    {
         self.view().get(index)
     }
 
@@ -794,8 +797,11 @@ impl<S: StorageMut, L: Clone + Layout> TensorBase<S, L> {
 
     /// Return a mutable reference to the element at `index`, or `None` if the
     /// index is invalid.
-    pub fn get_mut<I: AsIndex<L>>(&mut self, index: I) -> Option<&mut S::Elem> {
-        self.try_offset(index.as_index()).map(|offset| unsafe {
+    pub fn get_mut<I: AsIndex<L>>(&mut self, index: I) -> Option<&mut S::Elem>
+    where
+        L: TrustedLayout,
+    {
+        self.offset(index.as_index()).map(|offset| unsafe {
             // Safety: We verified the offset is in-bounds.
             self.data.get_unchecked_mut(offset)
         })
@@ -1485,11 +1491,17 @@ impl<'a, T, L: Clone + Layout> TensorBase<ViewData<'a, T>, L> {
         self.data.view()
     }
 
-    pub fn get<I: AsIndex<L>>(&self, index: I) -> Option<&'a T> {
-        self.try_offset(index.as_index()).map(|offset|
-                // Safety: No logically overlapping mutable view exist.
+    pub fn get<I: AsIndex<L>>(&self, index: I) -> Option<&'a T>
+    where
+        L: TrustedLayout,
+    {
+        self.offset(index.as_index()).map(|offset|
+                // Safety:
+                // - No logically overlapping mutable view exist.
+                // - For trusted layouts, offset is promised to be less than
+                //   the storage length
                 unsafe {
-                self.data.get(offset).unwrap()
+                self.data.get_unchecked(offset)
             })
     }
 
@@ -1876,8 +1888,8 @@ impl<S: Storage, L: Layout> Layout for TensorBase<S, L> {
         self.layout.indices()
     }
 
-    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
-        self.layout.try_offset(index)
+    fn offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        self.layout.offset(index)
     }
 }
 
@@ -2000,7 +2012,7 @@ impl<T, S: Storage<Elem = T>, L: Layout + Clone> AsView for TensorBase<S, L> {
     // the trait to skip view creation.
 
     fn get<I: AsIndex<L>>(&self, index: I) -> Option<&Self::Elem> {
-        self.try_offset(index.as_index()).map(|offset| unsafe {
+        self.offset(index.as_index()).map(|offset| unsafe {
             // Safety: We verified the offset is in-bounds
             self.data.get_unchecked(offset)
         })
@@ -2229,7 +2241,7 @@ fn array_offsets<const N: usize, const M: usize>(
         "array indices invalid"
     );
 
-    let offset = layout.offset(base);
+    let offset = layout.must_offset(base);
     let stride = layout.stride(dim);
     let mut offsets = [0; M];
     for i in 0..M {
@@ -2323,31 +2335,32 @@ pub type TensorViewMut<'a, T = f32> = TensorBase<ViewMutData<'a, T>, DynLayout>;
 /// The name comes from [`std::borrow::Cow`].
 pub type CowTensor<'a, T> = TensorBase<CowData<'a, T>, DynLayout>;
 
-impl<T, S: Storage<Elem = T>, L: MutLayout, I: AsIndex<L>> Index<I> for TensorBase<S, L> {
+impl<T, S: Storage<Elem = T>, L: TrustedLayout, I: AsIndex<L>> Index<I> for TensorBase<S, L> {
     type Output = T;
 
     /// Return the element at a given index.
     ///
     /// Panics if the index is out of bounds along any dimension.
     fn index(&self, index: I) -> &Self::Output {
-        let offset = self.layout.offset(index.as_index());
-        unsafe {
-            // Safety: See comments in [Storage] trait.
-            self.data.get(offset).expect("invalid offset")
-        }
+        let offset = self.layout.must_offset(index.as_index());
+
+        // Safety: `TrustedLayout` guarantees offsets are < `min_data_len`.
+        // TensorBase guarantees storage length is >= `min_data_len`.
+        unsafe { self.data.get_unchecked(offset) }
     }
 }
 
-impl<T, S: StorageMut<Elem = T>, L: MutLayout, I: AsIndex<L>> IndexMut<I> for TensorBase<S, L> {
+impl<T, S: StorageMut<Elem = T>, L: TrustedLayout, I: AsIndex<L>> IndexMut<I> for TensorBase<S, L> {
     /// Return the element at a given index.
     ///
     /// Panics if the index is out of bounds along any dimension.
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        let offset = self.layout.offset(index.as_index());
-        unsafe {
-            // Safety: See comments in [Storage] trait.
-            self.data.get_mut(offset).expect("invalid offset")
-        }
+        let index = index.as_index();
+        let offset = self.layout.must_offset(index);
+
+        // Safety: `TrustedLayout` guarantees offsets are < `min_data_len`.
+        // TensorBase guarantees storage length is >= `min_data_len`.
+        unsafe { self.data.get_unchecked_mut(offset) }
     }
 }
 
@@ -2499,8 +2512,8 @@ impl<T, S: Storage<Elem = T>, L: Layout> Layout for WeaklyCheckedView<S, L> {
         self.base.ndim()
     }
 
-    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
-        self.base.try_offset(index)
+    fn offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        self.base.offset(index)
     }
 
     fn len(&self) -> usize {

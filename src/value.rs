@@ -168,9 +168,9 @@ macro_rules! impl_proxy_layout {
             }
         }
 
-        fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        fn offset(&self, index: Self::Index<'_>) -> Option<usize> {
             match self.layout() {
-                ValueLayout::Tensor(layout) => layout.try_offset(&index),
+                ValueLayout::Tensor(layout) => layout.offset(&index),
                 ValueLayout::Vector(len) => index
                     .get(0)
                     .and_then(|&idx| if idx < len { Some(idx) } else { None }),

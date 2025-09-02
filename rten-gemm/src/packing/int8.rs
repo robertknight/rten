@@ -314,7 +314,7 @@ impl Layout for RowMajorLayout {
     }
 
     #[inline]
-    fn try_offset(&self, index: [usize; 2]) -> Option<usize> {
+    fn offset(&self, index: [usize; 2]) -> Option<usize> {
         self.index_valid(index)
             .then_some(self.offset_unchecked(index))
     }
