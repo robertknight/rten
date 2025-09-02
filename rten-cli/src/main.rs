@@ -555,18 +555,24 @@ impl RandomInputGenerator {
         match name {
             // If this is a mask, use all ones on the assumption that we
             // don't want to mask anything out.
-            name if name.ends_with("_mask") => Value::from(Tensor::full(&resolved_shape, 1i32)),
+            name if name.ends_with("_mask") && matches!(dtype, Some(DataType::Int32) | None) => {
+                Value::from(Tensor::full(&resolved_shape, 1i32))
+            }
 
             // Inputs such as `token_type_ids`, `position_ids`, `input_ids`.
             // We use zero as a value that is likely to be valid for all
             // of these.
-            name if name.ends_with("_ids") => Value::from(Tensor::<i32>::zeros(&resolved_shape)),
+            name if name.ends_with("_ids") && matches!(dtype, Some(DataType::Int32) | None) => {
+                Value::from(Tensor::<i32>::zeros(&resolved_shape))
+            }
 
             // Optimum can export "merged" transformer models which have two
             // branches. One accepts KV-cache inputs and the other does not.
             // Set this to false as a "safer" value because we don't have
             // cached outputs from a previous run.
-            "use_cache_branch" => Value::from(Tensor::from(0i32)),
+            "use_cache_branch" if matches!(dtype, Some(DataType::Int32) | None) => {
+                Value::from(Tensor::from(0i32))
+            }
 
             // For anything else, random values.
             _ => match dtype {
