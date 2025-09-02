@@ -17,10 +17,10 @@ mod fusions;
 mod pattern_matcher;
 
 use fusions::{
-    AddSoftmaxFusion, ApproxGeluFusion, Fusion, FusionVisitor, GeluFusion, IdentityFusion,
-    LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
-    PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion, RmsNormalizationFusion,
-    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
+    AddSoftmaxFusion, ApproxGeluFusion, CastElimination, Fusion, FusionVisitor, GeluFusion,
+    IdentityFusion, LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion,
+    MatMulScaleFusion, PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion,
+    RmsNormalizationFusion, ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -365,6 +365,7 @@ impl GraphOptimizer {
 
         // Replace no-op operators with an `Identity` op.
         fusions.push(IdentityFusion {});
+        fusions.push(CastElimination {});
 
         // Canonicalizations to make other fusions support a wider range of
         // patterns.

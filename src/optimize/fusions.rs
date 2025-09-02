@@ -11,8 +11,9 @@ use crate::graph::{
 };
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, DynamicQuantizeLinear, FusedMatMul, Gelu, LayerNormalization, MatMulIntegerToFloat,
-    Mul, Operator, Reciprocal, ReduceMean, RmsNormalization, Silu, Softmax, Swish, Transpose,
+    AddSoftmax, Cast, DynamicQuantizeLinear, FusedMatMul, Gelu, LayerNormalization,
+    MatMulIntegerToFloat, Mul, Operator, Reciprocal, ReduceMean, RmsNormalization, Silu, Softmax,
+    Swish, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 
@@ -356,6 +357,45 @@ impl FusionVisitor for IdentityFusion {
         let &[Some(output_id)] = op_node.output_ids() else {
             return None;
         };
+        Some(Fusion::Identity {
+            input_id,
+            output_id,
+        })
+    }
+}
+
+/// Eliminate Cast operations where the output dtype is the same as the input
+/// dtype.
+pub struct CastElimination {}
+
+impl FusionVisitor for CastElimination {
+    type State = ();
+
+    fn prepare(&self, _: &Graph) {}
+
+    fn maybe_fuse(
+        &self,
+        _state: &(),
+        graph: &Graph,
+        _op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Option<Fusion> {
+        let to_dtype = op_node.operator().downcast_ref::<Cast>().map(|op| op.to)?;
+
+        let &[Some(input_id)] = op_node.input_ids() else {
+            return None;
+        };
+
+        let input_dtype = graph.get_node(input_id).and_then(|n| n.dtype())?;
+        if input_dtype != to_dtype {
+            // This Cast op is not a no-op.
+            return None;
+        }
+
+        let &[Some(output_id)] = op_node.output_ids() else {
+            return None;
+        };
+
         Some(Fusion::Identity {
             input_id,
             output_id,

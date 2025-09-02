@@ -38,6 +38,7 @@ fn arc_tensor_view(val: f32) -> ArcTensorView<f32> {
 /// For example `a.matmul(b)` returns an expression for a `MatMul` graph
 /// node with `a` and `b` as inputs.
 trait OpExprs {
+    fn cast(&self, to: DataType) -> Expr;
     fn erf(&self) -> Expr;
     fn pow(&self, rhs: Expr) -> Expr;
     fn matmul(&self, rhs: Expr) -> Expr;
@@ -54,6 +55,10 @@ trait OpExprs {
 }
 
 impl OpExprs for Expr {
+    fn cast(&self, to: DataType) -> Expr {
+        self.unary(Cast { to })
+    }
+
     fn erf(&self) -> Expr {
         self.unary(Erf {})
     }
@@ -639,6 +644,34 @@ fn test_eliminate_identity_op() {
 
     // Identity nodes should be removed from the graph.
     assert!(graph.get_node(mul_op).is_none());
+}
+
+#[test]
+fn test_eliminate_noop_cast() {
+    let graph = {
+        let x = Expr::value_with_info(
+            "x",
+            DataType::Float,
+            &[Dimension::Symbolic("x".to_string())],
+        );
+        x.cast(DataType::Float).erf().build_graph(["x"])
+    };
+    let graph = optimize_graph(graph).unwrap();
+
+    let input_id = graph.input_ids()[0];
+    let erf_op = graph.get_consumers(input_id).unwrap()[0];
+
+    // Verify that Cast operation was eliminated.
+    assert_eq!(
+        graph
+            .get_node(erf_op)
+            .unwrap()
+            .as_operator()
+            .unwrap()
+            .operator()
+            .name(),
+        "Erf"
+    );
 }
 
 #[test]
