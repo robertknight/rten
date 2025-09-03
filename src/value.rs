@@ -112,7 +112,7 @@ impl Display for CastError {
             Self::WrongRank { actual, expected } => {
                 write!(
                     f,
-                    "expected tensor with {} dims must has {} dims",
+                    "expected tensor with {} dims but has {} dims",
                     expected, actual
                 )
             }
