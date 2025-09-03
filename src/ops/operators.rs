@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use rten_base::num::{Identities, IsInt, IsNaN, MinMax};
 use rten_tensor::prelude::*;
-use rten_tensor::{MutLayout, NdTensorView, Storage, Tensor, TensorBase, TensorView};
+use rten_tensor::{NdTensorView, Storage, Tensor, TensorBase, TensorView};
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::OpError;
@@ -93,29 +93,35 @@ pub trait FloatOperators {
     /// Resize an NCHW image tensor to a given `[height, width]` using bilinear
     /// interpolation.
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError>;
+
     fn softmax(&self, axis: isize) -> Result<Tensor, OpError>;
 }
 
-/// Run `op` in this library's global thread pool.
+/// Set up the environment to run an operation and dispatch it.
+///
+/// This runs `op` in the same thread pool as model inference using `Model::run`
+/// and passes a `BufferPool` for allocating outputs and temporary buffers.
 ///
 /// Ideally this would run the task on the current thread, but cause any
 /// parallel tasks to be spawned in the thread pool.
 /// `rayon::ThreadPool::in_place_scope` looks like the ideal API for this, but
 /// it does not change which thread pool is used by parallel iterators. See
 /// https://github.com/rayon-rs/rayon/issues/1165.
-fn use_thread_pool<R: Send, F: Send + FnOnce() -> R>(op: F) -> R {
-    thread_pool().run(op)
+fn run_operator<R: Send, F: Send + FnOnce(&BufferPool) -> R>(op: F) -> R {
+    let pool = BufferPool::new();
+    thread_pool().run(|| op(&pool))
 }
 
-impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L> {
+impl<T: Send, S: Storage<Elem = T> + Sync, L: Layout + Clone + Sync> Operators
+    for TensorBase<S, L>
+{
     type Elem = T;
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
     where
         T: Copy + PartialOrd + IsNaN,
     {
-        let view = self.as_dyn();
-        use_thread_pool(|| arg_max(&BufferPool::new(), view, axis, keep_dims))
+        run_operator(|pool| arg_max(pool, self.as_dyn(), axis, keep_dims))
     }
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
@@ -128,32 +134,28 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
             + IsInt
             + Identities,
     {
-        let view = self.as_dyn();
-        use_thread_pool(|| div(&BufferPool::new(), view, other))
+        run_operator(|pool| div(pool, self.as_dyn(), other))
     }
 
     fn mul(&self, other: TensorView<T>) -> Result<Tensor<T>, OpError>
     where
         T: Copy + Debug + Default + std::ops::Mul<Output = T>,
     {
-        let view = self.as_dyn();
-        use_thread_pool(|| mul(&BufferPool::new(), view, other))
+        run_operator(|pool| mul(pool, self.as_dyn(), other))
     }
 
     fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor<T>, OpError>
     where
         T: Copy + PartialOrd + IsNaN + MinMax,
     {
-        let view = self.as_dyn();
-        use_thread_pool(|| reduce_max(&BufferPool::new(), view, axes, keep_dims))
+        run_operator(|pool| reduce_max(pool, self.as_dyn(), axes, keep_dims))
     }
 
     fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor<T>, OpError>
     where
         T: Copy + PartialOrd + IsNaN + MinMax,
     {
-        let view = self.as_dyn();
-        use_thread_pool(|| reduce_min(&BufferPool::new(), view, axes, keep_dims))
+        run_operator(|pool| reduce_min(pool, self.as_dyn(), axes, keep_dims))
     }
 
     fn reduce_sum(
@@ -164,16 +166,14 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
     where
         Self::Elem: Copy + Default + std::ops::Add<Self::Elem, Output = Self::Elem>,
     {
-        let view = self.as_dyn();
-        use_thread_pool(|| reduce_sum(&BufferPool::new(), view, axes, keep_dims))
+        run_operator(|pool| reduce_sum(pool, self.as_dyn(), axes, keep_dims))
     }
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
     where
         Self::Elem: Copy + Default + PartialEq,
     {
-        let view = self.as_dyn();
-        use_thread_pool(move || pad(&BufferPool::new(), view, &padding, PadMode::Constant, val))
+        run_operator(move |pool| pad(pool, self.as_dyn(), &padding, PadMode::Constant, val))
     }
 
     fn topk(
@@ -186,34 +186,28 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
     where
         T: Copy + Default + PartialOrd + IsNaN,
     {
-        let view = self.as_dyn();
-        use_thread_pool(|| topk(&BufferPool::new(), view, k, axis, largest, sorted))
+        run_operator(|pool| topk(pool, self.as_dyn(), k, axis, largest, sorted))
     }
 }
 
-impl<S: Storage<Elem = f32>, L: MutLayout> FloatOperators for TensorBase<S, L> {
+impl<S: Storage<Elem = f32> + Sync, L: Layout + Clone + Sync> FloatOperators for TensorBase<S, L> {
     fn matmul(&self, other: TensorView) -> Result<Tensor, OpError> {
-        let view = self.as_dyn();
-        use_thread_pool(|| matmul(&BufferPool::new(), view, other, None))
+        run_operator(|pool| matmul(pool, self.as_dyn(), other, None))
     }
 
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        let view = self.as_dyn();
-        use_thread_pool(|| reduce_l2(&BufferPool::new(), view, axes, keep_dims))
+        run_operator(|pool| reduce_l2(pool, self.as_dyn(), axes, keep_dims))
     }
 
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        let view = self.as_dyn();
-        use_thread_pool(|| reduce_mean(&BufferPool::new(), view, axes, keep_dims))
+        run_operator(|pool| reduce_mean(pool, self.as_dyn(), axes, keep_dims))
     }
 
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError> {
-        let view = self.as_dyn();
-        use_thread_pool(|| resize_image(view, size))
+        run_operator(|_pool| resize_image(self.as_dyn(), size))
     }
 
     fn softmax(&self, axis: isize) -> Result<Tensor, OpError> {
-        let view = self.as_dyn();
-        use_thread_pool(|| softmax(&BufferPool::new(), view, axis))
+        run_operator(|pool| softmax(pool, self.as_dyn(), axis))
     }
 }
