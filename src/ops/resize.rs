@@ -297,33 +297,85 @@ fn target_from_scale_size_inputs<'a>(
     scales.or(sizes).ok_or(OpError::MissingInputs)
 }
 
+struct ResizeOptions {
+    mode: ResizeMode,
+    coord_mode: CoordTransformMode,
+    nearest_mode: NearestMode,
+}
+
+/// Expand a tensor to NCHW, resize and then remove any added dimensions.
 fn resize_impl(
     pool: &BufferPool,
     input: TensorView,
     output_size: &[usize],
-    mode: ResizeMode,
-    coord_mode: CoordTransformMode,
-    nearest_mode: NearestMode,
+    opts: ResizeOptions,
 ) -> Result<Tensor, OpError> {
-    // Fall back to a simple copy if this is a no-op resize.
-    if input.shape() == output_size {
-        return Ok(input.to_tensor_in(pool));
+    match (input.shape(), output_size) {
+        // ND with nothing resized, so we can just copy the input.
+        (in_shape, out_shape) if in_shape == out_shape => Ok(input.to_tensor_in(pool)),
+        // 4D - NHWC
+        (&[in_n, in_c, _in_h, _in_w], &[out_n, out_c, out_h, out_w])
+            if in_n == out_n && in_c == out_c =>
+        {
+            resize_4d(pool, input.nd_view(), [out_n, out_c, out_h, out_w], opts)
+                .map(|y| y.into_dyn())
+        }
+        // 3D - NCW
+        (&[in_n, in_c, in_w], &[out_n, out_c, out_w]) if in_n == out_n && in_c == out_c => {
+            resize_4d(
+                pool,
+                input.reshaped([in_n, in_c, 1, in_w]).view(),
+                [out_n, out_c, 1, out_w],
+                opts,
+            )
+            .map(|y| y.into_shape(output_size))
+        }
+        // 3D - NHW
+        (&[in_n, in_h, in_w], &[out_n, out_h, out_w]) if in_n == out_n => resize_4d(
+            pool,
+            input.reshaped([in_n, 1, in_h, in_w]).view(),
+            [out_n, 1, out_h, out_w],
+            opts,
+        )
+        .map(|y| y.into_shape(output_size)),
+        // 2D - HW
+        (&[in_h, in_w], &[out_h, out_w]) => resize_4d(
+            pool,
+            input.reshaped([1, 1, in_h, in_w]).view(),
+            [1, 1, out_h, out_w],
+            opts,
+        )
+        .map(|y| y.into_shape(output_size)),
+        // 1D - W
+        (&[in_w], &[out_w]) => resize_4d(
+            pool,
+            input.reshaped([1, 1, 1, in_w]).view(),
+            [1, 1, 1, out_w],
+            opts,
+        )
+        .map(|y| y.into_shape(output_size)),
+        _ => Err(OpError::UnsupportedValue(
+            "Only 1D to 4D inputs are supported with up to two resized dimensions",
+        )),
     }
+}
 
-    // The current implementation only supports NCHW tensors with scale factors
-    // other than 1.0 for the H and W dims.
-    let input = static_dims!(input, 4, "NCHW")?;
+/// Resize an NCHW tensor.
+fn resize_4d(
+    pool: &BufferPool,
+    input: NdTensorView<f32, 4>,
+    output_size: [usize; 4],
+    opts: ResizeOptions,
+) -> Result<NdTensor<f32, 4>, OpError> {
+    let ResizeOptions {
+        mode,
+        coord_mode,
+        nearest_mode,
+    } = opts;
+
     let [batch, _chans, _height, _width] = input.shape();
-    let sizes_valid = (0..input.ndim()).zip(input.shape()).all(|(dim, in_size)| {
-        dim == input.ndim() - 1 || dim == input.ndim() - 2 || output_size[dim] == in_size
-    });
-    if !sizes_valid {
-        return Err(OpError::UnsupportedValue(
-            "only height and width dimensions can be resized",
-        ));
-    }
 
-    let mut output = Tensor::uninit_in(pool, output_size);
+    let mut output = NdTensor::uninit_in(pool, output_size);
 
     if output.is_empty() {
         // Safety: Empty output is already initialized.
@@ -369,7 +421,16 @@ pub fn resize(
     nearest_mode: NearestMode,
 ) -> Result<Tensor, OpError> {
     let sizes = calc_output_size(input.shape(), target)?;
-    resize_impl(pool, input, &sizes, mode, coord_mode, nearest_mode)
+    resize_impl(
+        pool,
+        input,
+        &sizes,
+        ResizeOptions {
+            mode,
+            coord_mode,
+            nearest_mode,
+        },
+    )
 }
 
 /// Get an optional input for the Resize operator, treating empty tensors as
@@ -462,9 +523,11 @@ impl Operator for Resize {
             ctx.pool(),
             input.view(),
             &output_size,
-            self.mode,
-            self.coord_mode,
-            self.nearest_mode,
+            ResizeOptions {
+                mode: self.mode,
+                coord_mode: self.coord_mode,
+                nearest_mode: self.nearest_mode,
+            },
         )
         .map(|t| t.into())
     }
@@ -862,7 +925,7 @@ mod tests {
                 scales: Some(Tensor::from([2., 1., 3., 3.])),
                 sizes: None,
                 expected: CaseOutput::Error(OpError::UnsupportedValue(
-                    "only height and width dimensions can be resized",
+                    "Only 1D to 4D inputs are supported with up to two resized dimensions",
                 )),
             },
             // 1D input, with identity scale
@@ -872,12 +935,33 @@ mod tests {
                 sizes: None,
                 expected: CaseOutput::Shape(vec![2]),
             },
-            // 1D input, with non-identity scale. This is not currently supported.
+            // 1D input, with non-identity scale.
             Case {
                 image: [1., 1.].into(),
                 scales: Some(Tensor::from([2.])),
                 sizes: None,
-                expected: CaseOutput::Error(OpError::InvalidValue("input must have 4 dims (NCHW)")),
+                expected: CaseOutput::Shape(vec![4]),
+            },
+            // 2D input
+            Case {
+                image: [[1., 1.], [1., 1.]].into(),
+                scales: Some(Tensor::from([2., 2.])),
+                sizes: None,
+                expected: CaseOutput::Shape(vec![4, 4]),
+            },
+            // 3D input, one resized dimension (NCW)
+            Case {
+                image: [[[1., 1.], [1., 1.]]].into(),
+                scales: Some(Tensor::from([1., 1., 2.])),
+                sizes: None,
+                expected: CaseOutput::Shape(vec![1, 2, 4]),
+            },
+            // 3D input, two resized dimensions (NHW)
+            Case {
+                image: [[[1., 1.], [1., 1.]]].into(),
+                scales: Some(Tensor::from([1., 2., 2.])),
+                sizes: None,
+                expected: CaseOutput::Shape(vec![1, 4, 4]),
             },
         ];
 
