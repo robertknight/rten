@@ -320,6 +320,7 @@ impl PatternFusion for GeluFusion {
     }
 }
 
+/// Remove operations such as `Identity(x)` or `Add(x, 0)` which have no effect.
 pub struct IdentityFusion {}
 
 impl FusionVisitor for IdentityFusion {
@@ -335,6 +336,8 @@ impl FusionVisitor for IdentityFusion {
 
         Pattern::any_of(
             [
+                // Unary op identities
+                Pattern::unary_op("Identity", x.clone()),
                 // Binary op identities
                 x.clone() + zero.clone(),
                 x.clone() - zero.clone(),
