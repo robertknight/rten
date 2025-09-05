@@ -363,9 +363,9 @@ impl GraphOptimizer {
         // match is found.
         let mut fusions = FusionList::new();
 
-        // Replace no-op operators with an `Identity` op.
-        fusions.push(IdentityFusion {});
+        // Remove operators which return inputs unmodified.
         fusions.push(CastElimination {});
+        fusions.push(IdentityFusion {});
 
         // Canonicalizations to make other fusions support a wider range of
         // patterns.

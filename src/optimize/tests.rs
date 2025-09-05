@@ -8,9 +8,11 @@ use rten_testing::TestCases;
 use super::{GraphOptimizer, OptimizeError, OptimizeOptions};
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
 use crate::graph::builder::{Expr, OutputMeta};
-use crate::graph::{CaptureEnv, Constant, Graph, Node, NodeId, PlanOptions, TypedConstant};
+use crate::graph::{
+    CaptureEnv, Constant, Graph, Node, NodeId, OperatorNode, PlanOptions, TypedConstant,
+};
 use crate::ops::{
-    Add, Cast, DynamicQuantizeLinear, Erf, FusedMatMul, Gelu, LayerNormalization, MatMul,
+    Add, Cast, DynamicQuantizeLinear, Erf, FusedMatMul, Gelu, Identity, LayerNormalization, MatMul,
     MatMulInteger, Neg, Pow, ReduceMean, RmsNormalization, Shape, Sigmoid, Slice, Softmax, Sqrt,
     Swish, Tanh, Transpose,
 };
@@ -40,6 +42,7 @@ fn arc_tensor_view(val: f32) -> ArcTensorView<f32> {
 trait OpExprs {
     fn cast(&self, to: DataType) -> Expr;
     fn erf(&self) -> Expr;
+    fn identity(&self) -> Expr;
     fn pow(&self, rhs: Expr) -> Expr;
     fn matmul(&self, rhs: Expr) -> Expr;
     fn mean(&self) -> Expr;
@@ -61,6 +64,10 @@ impl OpExprs for Expr {
 
     fn erf(&self) -> Expr {
         self.unary(Erf {})
+    }
+
+    fn identity(&self) -> Expr {
+        self.unary(Identity {})
     }
 
     fn matmul(&self, rhs: Expr) -> Expr {
@@ -121,6 +128,20 @@ impl OpExprs for Expr {
 
     fn transpose(&self) -> Expr {
         self.unary(Transpose { perm: None })
+    }
+}
+
+trait GetConsumingOp {
+    /// Get the operator node that consumes a value.
+    fn get_consuming_op(&self, value: NodeId) -> Option<&OperatorNode>;
+}
+
+impl GetConsumingOp for Graph {
+    fn get_consuming_op(&self, value: NodeId) -> Option<&OperatorNode> {
+        self.get_consumers(value)
+            .and_then(|c| c.first())
+            .and_then(|consumer_id| self.get_node(*consumer_id))
+            .and_then(|node| node.as_operator())
     }
 }
 
@@ -609,7 +630,7 @@ fn test_fuse_identity_op() {
 }
 
 #[test]
-fn test_eliminate_identity_op() {
+fn test_eliminate_binary_identity_pattern() {
     let graph = {
         let x = Expr::value("x");
         let expr = x * 1. + 2.;
@@ -647,6 +668,23 @@ fn test_eliminate_identity_op() {
 }
 
 #[test]
+fn test_eliminate_unary_identity_pattern() {
+    let graph = {
+        let x = Expr::value("x");
+        x.identity().sqrt().build_graph(["x"])
+    };
+
+    let graph = optimize_graph(graph).unwrap();
+
+    // Verify that Identity operation was eliminated.
+    let input_id = graph.input_ids()[0];
+    assert_eq!(
+        graph.get_consuming_op(input_id).unwrap().operator().name(),
+        "Sqrt"
+    );
+}
+
+#[test]
 fn test_eliminate_noop_cast() {
     let graph = {
         let x = Expr::value_with_info(
@@ -659,17 +697,10 @@ fn test_eliminate_noop_cast() {
     let graph = optimize_graph(graph).unwrap();
 
     let input_id = graph.input_ids()[0];
-    let erf_op = graph.get_consumers(input_id).unwrap()[0];
 
     // Verify that Cast operation was eliminated.
     assert_eq!(
-        graph
-            .get_node(erf_op)
-            .unwrap()
-            .as_operator()
-            .unwrap()
-            .operator()
-            .name(),
+        graph.get_consuming_op(input_id).unwrap().operator().name(),
         "Erf"
     );
 }
