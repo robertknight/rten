@@ -50,15 +50,31 @@ impl OpRegistry {
         );
     }
 
+    /// Register a stub implementation of an operator.
+    ///
+    /// This registers stubs for an operator that is not available because
+    /// necessary crate features were not enabled. The purpose of the stub is
+    /// to generate a more helpful error message.
+    #[allow(unused)]
+    pub(crate) fn register_stub_op(&mut self, op_type: sg::OperatorType, feature: &'static str) {
+        self.register_op_with_factory(
+            op_type,
+            Box::new(move |_op, _ctx| {
+                Err(ReadOpError::FeatureNotEnabled {
+                    name: op_type.variant_name().unwrap_or(""),
+                    feature,
+                })
+            }),
+        );
+    }
+
     /// Deserialize an operator from a model file using the operators in the
     /// registry.
     pub(crate) fn read_op(&self, op: &OperatorNode, ctx: &dyn OpLoadContext) -> ReadOpResult {
         self.ops
             .get(&op.type_())
-            .ok_or_else(|| {
-                ReadOpError::UnsupportedOperator(
-                    op.type_().variant_name().unwrap_or("(unknown)").to_string(),
-                )
+            .ok_or_else(|| ReadOpError::OperatorUnavailable {
+                name: op.type_().variant_name(),
             })
             .and_then(|read_fn| read_fn(op, ctx))
     }
@@ -80,6 +96,13 @@ impl OpRegistry {
         macro_rules! register_op {
             ($op:ident) => {
                 reg.register_op::<ops::$op>()
+            };
+
+            ($op:ident, feature=$feature:literal) => {
+                #[cfg(feature = $feature)]
+                reg.register_op::<ops::$op>();
+                #[cfg(not(feature = $feature))]
+                reg.register_stub_op(sg::OperatorType::$op, $feature);
             };
         }
 
@@ -108,10 +131,7 @@ impl OpRegistry {
         register_op!(DequantizeLinear);
         register_op!(DepthToSpace);
         register_op!(Div);
-
-        #[cfg(feature = "random")]
-        register_op!(Dropout);
-
+        register_op!(Dropout, feature = "random");
         register_op!(DynamicQuantizeLinear);
         register_op!(Einsum);
         register_op!(Elu);
@@ -165,15 +185,10 @@ impl OpRegistry {
         register_op!(Pow);
         register_op!(PRelu);
         register_op!(QuantizeLinear);
-
-        #[cfg(feature = "random")]
-        {
-            register_op!(RandomNormal);
-            register_op!(RandomNormalLike);
-            register_op!(RandomUniform);
-            register_op!(RandomUniformLike);
-        }
-
+        register_op!(RandomNormal, feature = "random");
+        register_op!(RandomNormalLike, feature = "random");
+        register_op!(RandomUniform, feature = "random");
+        register_op!(RandomUniformLike, feature = "random");
         register_op!(Range);
         register_op!(Reciprocal);
         register_op!(ReduceL2);
@@ -235,8 +250,19 @@ pub enum ReadOpError {
         /// Description of the attribute error.
         error: &'static str,
     },
-    /// The operator type is incorrect or unsupported.
-    UnsupportedOperator(String),
+    /// The operator is either unrecognized or not available.
+    OperatorUnavailable {
+        /// Name of the operator, if recognized but not enabled.
+        name: Option<&'static str>,
+    },
+    /// The operator requires a crate feature that was not enabled.
+    FeatureNotEnabled {
+        /// Name of the operator.
+        name: &'static str,
+
+        /// Crate feature needed to enable it.
+        feature: &'static str,
+    },
     /// An error occurred deserializing a subgraph.
     SubgraphError(Box<dyn Error + Send + Sync>),
 }
@@ -249,8 +275,18 @@ impl Display for ReadOpError {
                 write!(f, "error in attribute \"{}\": {}", attr, error)
             }
             ReadOpError::SubgraphError(err) => write!(f, "subgraph error: {}", err),
-            ReadOpError::UnsupportedOperator(name) => {
-                write!(f, "operator {name} is not supported or not enabled")
+            ReadOpError::OperatorUnavailable { name } => {
+                if let Some(name) = name {
+                    write!(f, "{name} operator not enabled")
+                } else {
+                    write!(f, "operator not supported")
+                }
+            }
+            ReadOpError::FeatureNotEnabled { name, feature } => {
+                write!(
+                    f,
+                    "{name} operator not enabled because rten was compiled without the \"{feature}\" feature"
+                )
             }
         }
     }
