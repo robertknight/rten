@@ -4,13 +4,13 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use microfft::Complex32;
 use rten::{Dimension, FloatOperators, Model};
 use rten_generate::filter::{LogitsFilter, token_id_filter};
 use rten_generate::{Generator, GeneratorConfig, GeneratorUtils};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 use rten_text::Tokenizer;
+use rustfft::{FftPlanner, num_complex::Complex32};
 use serde::Deserialize;
 
 struct Args {
@@ -124,27 +124,28 @@ fn stft(
     hop_length: usize,
     window: Option<NdTensorView<f32, 1>>,
 ) -> NdTensor<Complex32, 2> {
-    assert!(n_fft <= 512);
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(n_fft);
 
-    let window_length = n_fft;
     let n_windows = signal.len() / hop_length;
     let out_freqs = n_fft / 2 + 1;
     let mut output = NdTensor::zeros([out_freqs, n_windows]);
 
-    for w in 0..n_windows {
-        let mut window_signal = std::array::from_fn(|k| {
-            if k < window_length {
-                let weight = window.as_ref().map(|win| win[[k]]).unwrap_or(0.);
-                weight * signal.get(w * hop_length + k).copied().unwrap_or(0.)
-            } else {
-                0.
-            }
-        });
+    let mut tmp_fft = Vec::with_capacity(n_fft);
 
-        let fft = microfft::real::rfft_512(&mut window_signal);
+    for (w, out_window) in output.lanes_mut(0).enumerate() {
+        tmp_fft.clear();
+        tmp_fft.extend((0..n_fft).map(|k| {
+            let weight = window.as_ref().map(|win| win[[k]]).unwrap_or(0.);
+            let re = weight * signal.get(w * hop_length + k).copied().unwrap_or(0.);
+            Complex32 { re, im: 0. }
+        }));
 
-        let win_signal = NdTensorView::from_data([out_freqs], &fft[..out_freqs]);
-        output.slice_mut((.., w)).copy_from(&win_signal);
+        fft.process(&mut tmp_fft);
+
+        for (src, dst) in tmp_fft.iter().copied().take(out_freqs).zip(out_window) {
+            *dst = src;
+        }
     }
 
     output
