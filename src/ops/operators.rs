@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use rten_base::num::{Identities, IsInt, IsNaN, MinMax};
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, Storage, Tensor, TensorBase, TensorView};
+use rten_tensor::{NdTensorView, Storage, Tensor, TensorBase, TensorView};
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::OpError;
@@ -11,6 +11,9 @@ use crate::ops::{
     reduce_sum, resize_image, softmax, topk,
 };
 use crate::threading::thread_pool;
+
+#[cfg(feature = "fft")]
+use rten_tensor::NdTensor;
 
 #[cfg(feature = "fft")]
 use crate::ops::stft;
