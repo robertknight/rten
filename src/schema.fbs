@@ -140,6 +140,7 @@ enum OperatorType: ubyte {
   SequenceErase,
   GridSample,
   PRelu,
+  STFT,
 }
 
 enum RNNDirection: ubyte {
@@ -245,6 +246,7 @@ union OperatorAttrs {
   ConcatFromSequenceAttrs,
   SplitToSequenceAttrs,
   GridSampleAttrs,
+  STFTAttrs,
 }
 
 table ArgMaxAttrs {
@@ -551,6 +553,10 @@ table SplitAttrs {
 table SplitToSequenceAttrs {
   axis:int;
   keep_dims:bool = true;
+}
+
+table STFTAttrs {
+  onesided:bool = true;
 }
 
 table TopKAttrs {

@@ -222,6 +222,7 @@ impl OpRegistry {
         register_op!(SplitToSequence);
         register_op!(Sqrt);
         register_op!(Squeeze);
+        register_op!(STFT, feature = "fft");
         register_op!(Sub);
         register_op!(Sum);
         register_op!(Tan);
@@ -1073,6 +1074,14 @@ impl_read_op!(
 );
 impl_read_op!(Sqrt);
 impl_read_op!(Squeeze);
+
+#[cfg(feature = "fft")]
+impl_read_op!(STFT, attrs_as_stftattrs, |attrs: sg::STFTAttrs| {
+    Ok(ops::STFT {
+        onesided: attrs.onesided(),
+    })
+});
+
 impl_read_op!(Sub);
 impl_read_op!(Sum);
 impl_read_op!(Tan);

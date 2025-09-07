@@ -144,32 +144,7 @@ mod tests {
 
     use super::grid_sample;
     use crate::ops::OpError;
-    use crate::ops::tests::{expect_eq_1e4, new_pool};
-
-    /// Increase the rank of a tensor by inserting leading 1-sized dimensions.
-    trait IntoNDim<const N: usize> {
-        /// Variant of `Self` with N dimensions.
-        type Output;
-
-        /// Insert leading 1-sized dimensions into the shape of `self` so that
-        /// it has N dimensions.
-        ///
-        /// Panics if `self` already has more than N dimensions.
-        fn into_ndim(self) -> Self::Output;
-    }
-
-    impl<T: Clone, const M: usize, const N: usize> IntoNDim<N> for NdTensor<T, M> {
-        type Output = NdTensor<T, N>;
-
-        fn into_ndim(self) -> Self::Output {
-            assert!(N >= M);
-            let new_dims = N - M;
-            let shape = self.shape();
-            let new_shape =
-                std::array::from_fn(|d| if d < new_dims { 1 } else { shape[d - new_dims] });
-            self.into_shape(new_shape)
-        }
-    }
+    use crate::ops::tests::{IntoNDim, expect_eq_1e4, new_pool};
 
     #[test]
     fn test_grid_sample() {

@@ -734,6 +734,10 @@ def op_node_from_onnx_operator(
         case "Squeeze":
             attr_reader.generate_input_from_attr(1, "axes", "ints")
 
+        case "STFT":
+            attrs = sg.STFTAttrsT()
+            attrs.onesided = attr_reader.get_bool_attr("onesided", True)
+
         case "TopK":
             attrs = sg.TopKAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", -1)

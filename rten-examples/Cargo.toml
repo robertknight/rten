@@ -16,14 +16,14 @@ lexopt = "0.3.0"
 png = "0.17.6"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-rten = { path = "../", features = ["mmap", "random"] }
+rten = { path = "../", features = ["fft", "mmap", "random"] }
 rten-generate = { path = "../rten-generate", features=["text-decoder"] }
 rten-imageio = { path = "../rten-imageio" }
 rten-imageproc = { path = "../rten-imageproc" }
 rten-tensor = { path = "../rten-tensor", features=["serde"] }
 rten-text = { path = "../rten-text" }
+rustfft = { workspace = true }
 smallvec = "1.13.2"
-rustfft = "6.4.0"
 
 [lints.clippy]
 # Allows use of `..Default::default()` for future compatibility even when not

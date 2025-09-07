@@ -400,6 +400,7 @@ dependencies = [
  "rten-testing",
  "rten-vecmath",
  "rustc-hash",
+ "rustfft",
  "serde_json",
  "smallvec",
  "typeid",
