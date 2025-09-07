@@ -167,4 +167,5 @@ mod schema_generated;
 // This is currently exposed for use in ocrs tests. That crate should probably
 // create an abstraction around model execution instead.
 #[doc(hidden)]
+#[cfg(any(test, feature = "model_builder"))]
 pub mod model_builder;

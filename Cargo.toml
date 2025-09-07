@@ -85,6 +85,8 @@ wasm_api = []
 random = ["dep:fastrand", "dep:fastrand-contrib"]
 # Enable all features that affect supported operators
 all-ops = ["fft", "random"]
+# Enable module for building .rten models
+model_builder = []
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.100"
