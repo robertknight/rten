@@ -67,7 +67,7 @@ specification](https://onnx.ai/onnx/operators/). Constant nodes describe the
 data type and shape of tensors. The data for a tensor can either be stored
 inline in the model or externally in the tensor data section.
 
-The FlatBuffers schema can be found in `src/schema.fbs`.
+The FlatBuffers schema can be found in `rten-model-file/src/schema.fbs`.
 
 ### Tensor data
 

@@ -3,6 +3,8 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+use rten_model_file::schema as sg;
+use rten_model_file::schema::{AutoPad, OperatorNode, OperatorType};
 use smallvec::{SmallVec, smallvec};
 
 use crate::graph::Graph;
@@ -11,8 +13,6 @@ use crate::ops::{
     BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, Operator, PadMode,
     Padding, ResizeMode, ScatterReduction,
 };
-use crate::schema_generated as sg;
-use crate::schema_generated::{AutoPad, OperatorNode, OperatorType};
 use crate::value::{DataType, Scalar};
 
 /// Context object passed to [`ReadOp::read`] implementations.
