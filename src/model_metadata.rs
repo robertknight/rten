@@ -1,4 +1,4 @@
-use crate::schema_generated as sg;
+use rten_model_file::schema_generated as sg;
 
 /// Metadata for an RTen model.
 ///
@@ -92,9 +92,10 @@ impl ModelMetadata {
 
 #[cfg(test)]
 mod tests {
-    use super::ModelMetadata;
-    use crate::schema_generated as sg;
     use flatbuffers::FlatBufferBuilder;
+    use rten_model_file::schema_generated as sg;
+
+    use super::ModelMetadata;
 
     #[test]
     fn test_model_metadata() {

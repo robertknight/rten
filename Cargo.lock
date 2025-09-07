@@ -395,6 +395,7 @@ dependencies = [
  "rten-base",
  "rten-bench",
  "rten-gemm",
+ "rten-model-file",
  "rten-simd",
  "rten-tensor",
  "rten-testing",
@@ -491,6 +492,15 @@ dependencies = [
  "rten-tensor",
  "rten-testing",
  "serde",
+]
+
+[[package]]
+name = "rten-model-file"
+version = "0.21.0"
+dependencies = [
+ "flatbuffers",
+ "rten-base",
+ "rten-testing",
 ]
 
 [[package]]

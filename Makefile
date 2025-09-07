@@ -3,7 +3,7 @@ all:
 	cargo build --workspace
 
 .PHONY: schema
-schema: src/schema_generated.rs rten-convert/rten_convert/schema_generated.py
+schema: rten-model-file/src/schema_generated.rs rten-convert/rten_convert/schema_generated.py
 
 .PHONY: clean
 clean:
@@ -82,15 +82,14 @@ wasm-bench:
 	RUSTFLAGS="$(WASM_TARGET_FEATURES)" cargo build --target wasm32-wasip1 --tests -p $(PACKAGE) -r
 	wasmtime --dir . target/wasm32-wasip1/release/deps/$(CRATE)-*.wasm --nocapture --ignored $(BENCH)
 
-src/schema_generated.rs: src/schema.fbs
-	flatc -o src/ --rust src/schema.fbs
+MODEL_SCHEMA=rten-model-file/src/schema.fbs
+
+rten-model-file/src/schema_generated.rs: $(MODEL_SCHEMA)
+	flatc -o rten-model-file/src/ --rust $(MODEL_SCHEMA)
 	cargo fmt
-	(echo "#![allow(clippy::all)]" && cat src/schema_generated.rs) > src/schema_generated.rs.tmp
-	mv src/schema_generated.rs.tmp src/schema_generated.rs
 
-rten-convert/rten_convert/schema_generated.py: src/schema.fbs
-	flatc -o rten-convert/rten_convert --gen-onefile --gen-object-api --python src/schema.fbs
-
+rten-convert/rten_convert/schema_generated.py: $(MODEL_SCHEMA)
+	flatc -o rten-convert/rten_convert --gen-onefile --gen-object-api --python $(MODEL_SCHEMA)
 
 .PHONY: gen-pytorch-references
 gen-pytorch-references:

@@ -13,6 +13,9 @@ use memmap2::Mmap;
 
 use rten_base::byte_cast::{Pod, cast_pod_slice};
 use rten_base::num::LeBytes;
+use rten_model_file::header::{Header, HeaderError};
+use rten_model_file::schema as sg;
+use rten_model_file::schema::root_as_model;
 use rten_tensor::Tensor;
 
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
@@ -20,12 +23,9 @@ use crate::env::str_as_bool;
 use crate::graph::{
     CaptureEnv, ConstantNodeData, Dimension, Graph, Node, NodeId, RunError, RunOptions,
 };
-use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
 use crate::op_registry::{OpLoadContext, OpRegistry, ReadOpError, convert_dtype};
 use crate::optimize::{GraphOptimizer, OptimizeOptions};
-use crate::schema_generated as sg;
-use crate::schema_generated::root_as_model;
 use crate::timing::TimingSort;
 use crate::value::{DataType, Value, ValueOrView};
 use crate::weight_cache::WeightCache;

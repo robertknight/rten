@@ -53,6 +53,7 @@ flatbuffers = "24.3.25"
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
 rten-base = { path = "./rten-base", version = "0.21.0" }
 rten-gemm = { path = "./rten-gemm", version = "0.21.0" }
+rten-model-file = { path = "./rten-model-file", version = "0.21.0" }
 rten-tensor = { path = "./rten-tensor", version = "0.21.0" }
 rten-vecmath = { path = "./rten-vecmath", version = "0.21.0" }
 rten-simd = { path = "./rten-simd", version = "0.21.0" }

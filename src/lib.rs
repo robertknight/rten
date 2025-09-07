@@ -118,7 +118,6 @@ mod buffer_pool;
 mod constant_storage;
 mod env;
 mod graph;
-mod header;
 mod model;
 mod model_metadata;
 mod op_registry;
@@ -152,17 +151,6 @@ pub use value::{DataType, Sequence, Value, ValueOrView, ValueView};
 // Deprecated aliases for `ValueView`, `ValueOrView` and `Value`.
 #[allow(deprecated)]
 pub use ops::{Input, InputOrOutput, Output};
-
-// `unknown_lints` is for `mismatched_lifetime_syntaxes`. Remove when that
-// reaches stable.
-#[allow(
-    unknown_lints,
-    dead_code,
-    unused_imports,
-    mismatched_lifetime_syntaxes,
-    unsafe_op_in_unsafe_fn
-)]
-mod schema_generated;
 
 // This is currently exposed for use in ocrs tests. That crate should probably
 // create an abstraction around model execution instead.
