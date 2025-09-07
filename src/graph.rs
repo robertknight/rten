@@ -1038,12 +1038,22 @@ impl Graph {
 
             // Collect input metadata if we'll need it for timing or logging.
             let input_meta = if opts.timing_by_shape || opts.verbose {
-                let mut meta: Vec<Option<ValueMeta>> = Vec::new();
-                if let Some(ref input) = in_place_input {
-                    meta.push(Some(input.to_meta()));
+                // Record the input value IDs and metadata together here because
+                // inputs may be reordered if the operator is commutative.
+                let mut meta: Vec<(Option<NodeId>, Option<ValueMeta>)> = Vec::new();
+                if let Some(ref input) = in_place_input
+                    && let Some(id) = in_place_input_id
+                {
+                    meta.push((Some(id), Some(input.to_meta())));
                 }
-                for input in &op_inputs {
-                    meta.push(input.as_ref().map(|i| i.to_meta()))
+                for (id, input) in op_node
+                    .input_ids()
+                    .iter()
+                    .copied()
+                    .filter(|id| *id != in_place_input_id)
+                    .zip(&op_inputs)
+                {
+                    meta.push((id, input.as_ref().map(|i| i.to_meta())))
                 }
                 meta
             } else {
@@ -1210,7 +1220,7 @@ impl Graph {
         op_node: &OperatorNode,
         op_result: &Result<OutputList, RunError>,
         op_duration: Duration,
-        input_meta: &[Option<ValueMeta>],
+        input_meta: &[(Option<NodeId>, Option<ValueMeta>)],
     ) {
         println!(
             "#{} {} ({})",
@@ -1218,7 +1228,7 @@ impl Graph {
             op_node.operator().name(),
             op_node.name().unwrap_or("")
         );
-        for (index, (id, meta)) in op_node.input_ids().iter().zip(input_meta).enumerate() {
+        for (index, (id, meta)) in input_meta.iter().enumerate() {
             if let Some(id) = id
                 && let Some(meta) = meta
             {

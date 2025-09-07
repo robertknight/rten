@@ -6,6 +6,7 @@ use std::time::Duration;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use std::time;
 
+use crate::NodeId;
 use crate::value::ValueMeta;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
@@ -250,11 +251,12 @@ fn shape_to_string(shape: &[usize]) -> String {
 }
 
 /// Format a list of operator input shapes as a string.
-fn shapes_to_string(meta: &[Option<ValueMeta>]) -> String {
+fn shapes_to_string(meta: &[(Option<NodeId>, Option<ValueMeta>)]) -> String {
     let formatted_shapes: Vec<_> = meta
         .iter()
         .map(|meta| {
-            meta.as_ref()
+            meta.1
+                .as_ref()
                 .map(|m| shape_to_string(&m.shape))
                 .unwrap_or("_".to_string())
         })
@@ -285,7 +287,8 @@ impl FormattedRunTiming<'_> {
                     .input_meta
                     .iter()
                     .map(|meta| {
-                        meta.as_ref()
+                        meta.1
+                            .as_ref()
                             .map(|meta| meta.shape.iter().product::<usize>())
                             .unwrap_or(0)
                     })
@@ -385,8 +388,8 @@ pub struct TimingRecord<'a> {
     /// Name of the graph node
     pub node_name: &'a str,
 
-    /// Shapes of the operator's inputs
-    pub input_meta: Vec<Option<ValueMeta>>,
+    /// IDs and shapes of the operator's inputs
+    pub input_meta: Vec<(Option<NodeId>, Option<ValueMeta>)>,
 
     /// Execution time of this step
     pub elapsed: Duration,
