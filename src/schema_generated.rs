@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 126;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 127;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 127] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 128] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -152,6 +152,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 127] = [
     OperatorType::SequenceErase,
     OperatorType::GridSample,
     OperatorType::PRelu,
+    OperatorType::STFT,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -286,9 +287,10 @@ impl OperatorType {
     pub const SequenceErase: Self = Self(124);
     pub const GridSample: Self = Self(125);
     pub const PRelu: Self = Self(126);
+    pub const STFT: Self = Self(127);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 126;
+    pub const ENUM_MAX: u8 = 127;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -417,6 +419,7 @@ impl OperatorType {
         Self::SequenceErase,
         Self::GridSample,
         Self::PRelu,
+        Self::STFT,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -548,6 +551,7 @@ impl OperatorType {
             Self::SequenceErase => Some("SequenceErase"),
             Self::GridSample => Some("GridSample"),
             Self::PRelu => Some("PRelu"),
+            Self::STFT => Some("STFT"),
             _ => None,
         }
     }
@@ -1190,13 +1194,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 53;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 54;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 54] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 55] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1251,6 +1255,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 54] = [
     OperatorAttrs::ConcatFromSequenceAttrs,
     OperatorAttrs::SplitToSequenceAttrs,
     OperatorAttrs::GridSampleAttrs,
+    OperatorAttrs::STFTAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1312,9 +1317,10 @@ impl OperatorAttrs {
     pub const ConcatFromSequenceAttrs: Self = Self(51);
     pub const SplitToSequenceAttrs: Self = Self(52);
     pub const GridSampleAttrs: Self = Self(53);
+    pub const STFTAttrs: Self = Self(54);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 53;
+    pub const ENUM_MAX: u8 = 54;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1370,6 +1376,7 @@ impl OperatorAttrs {
         Self::ConcatFromSequenceAttrs,
         Self::SplitToSequenceAttrs,
         Self::GridSampleAttrs,
+        Self::STFTAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1428,6 +1435,7 @@ impl OperatorAttrs {
             Self::ConcatFromSequenceAttrs => Some("ConcatFromSequenceAttrs"),
             Self::SplitToSequenceAttrs => Some("SplitToSequenceAttrs"),
             Self::GridSampleAttrs => Some("GridSampleAttrs"),
+            Self::STFTAttrs => Some("STFTAttrs"),
             _ => None,
         }
     }
@@ -9049,6 +9057,108 @@ impl core::fmt::Debug for SplitToSequenceAttrs<'_> {
         ds.finish()
     }
 }
+pub enum STFTAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct STFTAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for STFTAttrs<'a> {
+    type Inner = STFTAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> STFTAttrs<'a> {
+    pub const VT_ONESIDED: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        STFTAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args STFTAttrsArgs,
+    ) -> flatbuffers::WIPOffset<STFTAttrs<'bldr>> {
+        let mut builder = STFTAttrsBuilder::new(_fbb);
+        builder.add_onesided(args.onesided);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn onesided(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(STFTAttrs::VT_ONESIDED, Some(true))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for STFTAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<bool>("onesided", Self::VT_ONESIDED, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct STFTAttrsArgs {
+    pub onesided: bool,
+}
+impl<'a> Default for STFTAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        STFTAttrsArgs { onesided: true }
+    }
+}
+
+pub struct STFTAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> STFTAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_onesided(&mut self, onesided: bool) {
+        self.fbb_
+            .push_slot::<bool>(STFTAttrs::VT_ONESIDED, onesided, true);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> STFTAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        STFTAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<STFTAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for STFTAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("STFTAttrs");
+        ds.field("onesided", &self.onesided());
+        ds.finish()
+    }
+}
 pub enum TopKAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -10311,6 +10421,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_stftattrs(&self) -> Option<STFTAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::STFTAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { STFTAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -10377,6 +10502,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::ConcatFromSequenceAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConcatFromSequenceAttrs>>("OperatorAttrs::ConcatFromSequenceAttrs", pos),
           OperatorAttrs::SplitToSequenceAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SplitToSequenceAttrs>>("OperatorAttrs::SplitToSequenceAttrs", pos),
           OperatorAttrs::GridSampleAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GridSampleAttrs>>("OperatorAttrs::GridSampleAttrs", pos),
+          OperatorAttrs::STFTAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<STFTAttrs>>("OperatorAttrs::STFTAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -10984,6 +11110,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::GridSampleAttrs => {
                 if let Some(x) = self.attrs_as_grid_sample_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::STFTAttrs => {
+                if let Some(x) = self.attrs_as_stftattrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

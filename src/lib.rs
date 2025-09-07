@@ -64,17 +64,20 @@
 //! Support for additional types (eg. `f16`, `bf16`) is planned for the
 //! future.
 //!
-//! ## Operators
+//! ## Supported operators
 //!
-//! RTen currently implements a subset of [ONNX operators][onnx_operators]. See
-//! the [`schema.fbs` FlatBuffers schema][schema_fbs] for currently supported
-//! operators and attributes.
+//! RTen supports most ONNX operators. See the [tracking
+//! issue](https://github.com/robertknight/rten/issues/14) for details.
 //!
 //! Some operators require additional dependencies and are only available if
 //! certain crate features are enabled:
 //!
+//! - The `fft` feature enables operators related to the Fast Fourier Transform
+//!   (eg. STFT) using [rustfft](https://docs.rs/crate/rustfft).
 //! - The `random` feature enables operators that generate random numbers (eg.
-//!   `RandomUniform`).
+//!   `RandomUniform`) using [fastrand](https://docs.rs/crate/fastrand).
+//!
+//! As a convenience, the `all-ops` feature enables all of the above features.
 //!
 //! ## Quantized models
 //!

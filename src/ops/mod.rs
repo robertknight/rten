@@ -51,6 +51,9 @@ mod pad;
 mod pooling;
 mod quantize;
 
+#[cfg(feature = "fft")]
+mod fft;
+
 #[cfg(feature = "random")]
 mod random;
 
@@ -105,6 +108,9 @@ pub use quantize::{
     DequantizeLinear, DynamicQuantizeLinear, QuantizeLinear, dequantize_linear,
     dynamic_quantize_linear, quantize_linear,
 };
+
+#[cfg(feature = "fft")]
+pub use fft::{STFT, stft};
 
 #[cfg(feature = "random")]
 pub use random::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
@@ -1051,7 +1057,7 @@ use check_value;
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{ExpectEqualError, expect_equal_with_tolerance};
-    use rten_tensor::{Tensor, TensorView};
+    use rten_tensor::{NdTensor, Tensor, TensorView};
 
     use super::Operator;
     use crate::buffer_pool::BufferPool;
@@ -1075,6 +1081,31 @@ mod tests {
         expected: &V,
     ) -> Result<(), ExpectEqualError> {
         expect_equal_with_tolerance(result, expected, 1e-4, 0.)
+    }
+
+    /// Increase the rank of a tensor by inserting leading 1-sized dimensions.
+    pub trait IntoNDim<const N: usize> {
+        /// Variant of `Self` with N dimensions.
+        type Output;
+
+        /// Insert leading 1-sized dimensions into the shape of `self` so that
+        /// it has N dimensions.
+        ///
+        /// Panics if `self` already has more than N dimensions.
+        fn into_ndim(self) -> Self::Output;
+    }
+
+    impl<T: Clone, const M: usize, const N: usize> IntoNDim<N> for NdTensor<T, M> {
+        type Output = NdTensor<T, N>;
+
+        fn into_ndim(self) -> Self::Output {
+            assert!(N >= M);
+            let new_dims = N - M;
+            let shape = self.shape();
+            let new_shape =
+                std::array::from_fn(|d| if d < new_dims { 1 } else { shape[d - new_dims] });
+            self.into_shape(new_shape)
+        }
     }
 
     #[test]

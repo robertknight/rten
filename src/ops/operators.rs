@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use rten_base::num::{Identities, IsInt, IsNaN, MinMax};
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, Storage, Tensor, TensorBase, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, Storage, Tensor, TensorBase, TensorView};
 
 use crate::buffer_pool::BufferPool;
 use crate::ops::OpError;
@@ -11,6 +11,9 @@ use crate::ops::{
     reduce_sum, resize_image, softmax, topk,
 };
 use crate::threading::thread_pool;
+
+#[cfg(feature = "fft")]
+use crate::ops::stft;
 
 /// Trait which exposes ONNX operators as methods of tensors.
 ///
@@ -95,6 +98,17 @@ pub trait FloatOperators {
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError>;
 
     fn softmax(&self, axis: isize) -> Result<Tensor, OpError>;
+
+    /// Compute the Short-Time Fourier Transform of the input signal in this
+    /// tensor.
+    #[cfg(feature = "fft")]
+    fn stft(
+        &self,
+        frame_step: i32,
+        window: Option<NdTensorView<f32, 1>>,
+        frame_length: Option<i32>,
+        onesided: bool,
+    ) -> Result<NdTensor<f32, 4>, OpError>;
 }
 
 /// Set up the environment to run an operation and dispatch it.
@@ -209,5 +223,25 @@ impl<S: Storage<Elem = f32> + Sync, L: Layout + Clone + Sync> FloatOperators for
 
     fn softmax(&self, axis: isize) -> Result<Tensor, OpError> {
         run_operator(|pool| softmax(pool, self.as_dyn(), axis))
+    }
+
+    #[cfg(feature = "fft")]
+    fn stft(
+        &self,
+        frame_step: i32,
+        window: Option<NdTensorView<f32, 1>>,
+        frame_length: Option<i32>,
+        onesided: bool,
+    ) -> Result<NdTensor<f32, 4>, OpError> {
+        run_operator(|pool| {
+            stft(
+                pool,
+                self.as_dyn(),
+                frame_step,
+                window,
+                frame_length,
+                onesided,
+            )
+        })
     }
 }

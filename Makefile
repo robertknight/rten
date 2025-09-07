@@ -35,7 +35,7 @@ miri:
 # nightly Rust.
 .PHONY: test
 test:
-	cargo test --no-fail-fast --workspace --features mmap,random,text-decoder,serde
+	cargo test --no-fail-fast --workspace --features all-ops,mmap,text-decoder,serde
 
 # Default to running tests for the main crate unless otherwise specified.
 PACKAGE ?= rten
