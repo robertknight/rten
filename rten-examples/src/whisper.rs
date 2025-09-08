@@ -104,13 +104,17 @@ fn read_wav_file(path: &str, expected_sample_rate: u32) -> Result<Vec<f32>, houn
 
 /// Compute the Hann window function.
 ///
-/// See https://pytorch.org/docs/stable/generated/torch.hann_window.html.
-fn hann_window(size: usize) -> NdTensor<f32, 1> {
-    NdTensor::from_fn([size], |[i]| {
-        ((std::f32::consts::PI * i as f32) / (size as f32 - 1.))
-            .sin()
-            .powf(2.)
-    })
+/// See https://pytorch.org/docs/stable/generated/torch.hann_window.html. Note
+/// this behaves like the `periodic=True` case where the denominator is `N`
+/// rather than `N - 1`.
+fn hann_window(size: usize) -> Vec<f32> {
+    (0..size)
+        .map(|i| {
+            ((std::f32::consts::PI * i as f32) / size as f32)
+                .sin()
+                .powf(2.)
+        })
+        .collect()
 }
 
 /// Compute the Short Time Fourier Transform (STFT) of an input signal.
@@ -122,7 +126,7 @@ fn stft(
     signal: &[f32],
     n_fft: usize,
     hop_length: usize,
-    window: Option<NdTensorView<f32, 1>>,
+    window: Option<&[f32]>,
 ) -> NdTensor<Complex32, 2> {
     let mut planner = FftPlanner::new();
     let fft = planner.plan_fft_forward(n_fft);
@@ -136,7 +140,7 @@ fn stft(
     for (w, out_window) in output.lanes_mut(0).enumerate() {
         tmp_fft.clear();
         tmp_fft.extend((0..n_fft).map(|k| {
-            let weight = window.as_ref().map(|win| win[[k]]).unwrap_or(0.);
+            let weight = window.as_ref().map(|win| win[k]).unwrap_or(0.);
             let re = weight * signal.get(w * hop_length + k).copied().unwrap_or(0.);
             Complex32 { re, im: 0. }
         }));
@@ -179,7 +183,7 @@ fn log_mel_spectrogram(
     n_mels: u32,
     sample_rate: u32,
     mel_filter_map: &MelFilters,
-    hann_window: NdTensorView<f32, 1>,
+    hann_window: &[f32],
 ) -> Result<NdTensor<f32, 2>, Box<dyn Error>> {
     let hop_length = 160;
 
@@ -444,7 +448,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             n_mels,
             sample_rate,
             &mel_filters,
-            hann_window.view(),
+            &hann_window,
         )?
         .into_dyn();
         mel_spec.insert_axis(0); // Add batch dim
