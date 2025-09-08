@@ -343,9 +343,20 @@ impl GraphOptimizer {
     ) -> Result<Graph, OptimizeError> {
         let mut graph_mut = GraphMutator::from_graph(graph);
 
-        // Fusions which can enable additional constant propagation.
+        // "Early" fusions. These are fusions which can benefit constant
+        // propagation by enabling it to eliminate more nodes, or by avoiding
+        // unnecessary work during constant propagation.
         let mut early_fusions = FusionList::new();
+
+        // Fusions which replace dynamic values with constants, extending the
+        // reach of constant prop.
         early_fusions.push(ShapeSliceToConstant {});
+
+        // Fusions which eliminate no-op nodes, saving work during constant prop
+        // and inference.
+        early_fusions.push(CastElimination {});
+        early_fusions.push(IdentityFusion {});
+
         self.apply_fusions(&mut graph_mut, early_fusions.visitors())?;
 
         // Constant propagation.
@@ -363,8 +374,8 @@ impl GraphOptimizer {
         // match is found.
         let mut fusions = FusionList::new();
 
-        // Remove operators which return inputs unmodified.
-        fusions.push(CastElimination {});
+        // Another identity elimination pass. This can eliminate patterns which
+        // are discovered to be identity ops (eg. `x + 0`) after constant prop.
         fusions.push(IdentityFusion {});
 
         // Canonicalizations to make other fusions support a wider range of
