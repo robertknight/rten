@@ -6,30 +6,9 @@ use std::io::BufWriter;
 
 use hound::{SampleFormat, WavSpec, WavWriter};
 use rten::Model;
+use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView};
 use serde::Deserialize;
-
-/// Convert a float audio sample to a 16-bit int, suitable for writing to a
-/// .wav file with format `WAVE_FORMAT_PCM`.
-///
-/// Converted from https://github.com/rhasspy/piper/blob/master/src/python_run/piper/util.py.
-fn audio_float_to_int16(
-    audio: NdTensorView<f32, 1>,
-    max_wav_value: Option<f32>,
-) -> NdTensor<i16, 1> {
-    let max_wav_value = max_wav_value.unwrap_or(32767.0);
-    let audio_max = audio
-        .iter()
-        .map(|x| x.abs())
-        .max_by(|a, b| a.total_cmp(b))
-        .unwrap_or(0.)
-        .max(0.01);
-    audio.map(|x| {
-        let sample = x * (max_wav_value / audio_max);
-        sample.clamp(-max_wav_value, max_wav_value) as i16
-    })
-}
 
 /// Deserialized JSON config for a voice model.
 ///
@@ -205,41 +184,32 @@ fn main() -> Result<(), Box<dyn Error>> {
     ]);
 
     // Run inference and generate audio samples as floats.
-    let input_id = model.find_node("input").unwrap();
-    let input_lengths_id = model.find_node("input_lengths").unwrap();
-    let output_id = model.find_node("output").unwrap();
-    let scales_id = model.find_node("scales").unwrap();
-
     let [samples] = model.run_n(
-        vec![
-            (input_id, phoneme_ids.into()),
-            (input_lengths_id, input_lengths.into()),
-            (scales_id, scales.into()),
-        ],
-        [output_id],
+        [
+            (model.node_id("input")?, phoneme_ids.into()),
+            (model.node_id("input_lengths")?, input_lengths.into()),
+            (model.node_id("scales")?, scales.into()),
+        ]
+        .into(),
+        [model.node_id("output")?],
         None,
     )?;
     let samples: NdTensor<f32, 4> = samples.try_into()?; // (batch, time, 1, sample)
 
-    // Convert audio samples from float to 16-bit ints and write to output .wav
-    // file.
-    let int_samples = audio_float_to_int16(samples.slice((0, 0, 0)), None);
+    // Write audio samples to output .wav file.
     let wav_file = BufWriter::new(File::create("output.wav")?);
-
     let mut wav_writer = WavWriter::new(
         wav_file,
         WavSpec {
             channels: 1,
             sample_rate: config.audio.sample_rate,
-            bits_per_sample: 16,
-            sample_format: SampleFormat::Int,
+            bits_per_sample: 32,
+            sample_format: SampleFormat::Float,
         },
     )?;
-    let mut wav_16_writer = wav_writer.get_i16_writer(int_samples.len() as u32);
-    for sample in int_samples.iter().copied() {
-        wav_16_writer.write_sample(sample);
+    for sample in samples.iter() {
+        wav_writer.write_sample(*sample)?;
     }
-    wav_16_writer.flush()?;
     wav_writer.finalize()?;
 
     Ok(())
