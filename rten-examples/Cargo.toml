@@ -118,6 +118,11 @@ test = false
 
 # Audio
 [[bin]]
+name = "byt5_g2p"
+path = "src/byt5_g2p.rs"
+test = false
+
+[[bin]]
 name = "piper"
 path = "src/piper.rs"
 test = false
