@@ -96,6 +96,8 @@ The examples have been chosen to cover common tasks and popular models.
 
 ### Audio
 
+- **byt5_g2p** - Convert text to phonemes using [ByT5](https://huggingface.co/fdemelo/g2p-mbyt5-12l-ipa-childes-espeak).
+  The phonemes can be used as inputs for the **piper** example.
 - **piper** - Text-to-speech using [Piper](https://github.com/rhasspy/piper) models
 - **silero** - Speech detection using [Silero VAD](https://github.com/snakers4/silero-vad)
 - **wav2vec2** - Speech recognition of .wav audio using [wav2vec2](https://arxiv.org/abs/2006.11477)
