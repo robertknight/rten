@@ -1,5 +1,5 @@
 import math
-from typing import BinaryIO
+from typing import Any, BinaryIO
 import sys
 
 
@@ -28,14 +28,18 @@ def write_padding(fp: BinaryIO, n: int, max_padding=1024):
 EMITTED_WARNINGS: set[str] = set()
 
 
-def warn_once(msg: str):
+def warn_once(format_str: str, *args: Any):
     """
     Emit a warning if not already emitted.
 
     This is used to reduce output noise if the same problem arises many times
     when converting a model.
+
+    :param format_str: Message format string
+    :param args: Arguments passed to `format_str.format`
     """
-    if msg in EMITTED_WARNINGS:
+    if format_str in EMITTED_WARNINGS:
         return
-    EMITTED_WARNINGS.add(msg)
+    EMITTED_WARNINGS.add(format_str)
+    msg = format_str.format(*args)
     print(f"WARNING: {msg}", file=sys.stderr)
