@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from rten_convert.errors import ConversionError
+from rten_convert.util import warn_once
 
 
 class Node:
@@ -110,6 +111,18 @@ class ValueNode(Node):
         :param dtype: Expected data type of tensor at runtime. Value from `sg.DataType`.
         """
         super().__init__(name)
+
+        if shape is not None:
+            # RTen models can only store unsigned ints in shape metadata, so
+            # discard any invalid negative values.
+            for i, size_or_name in enumerate(shape):
+                if isinstance(size_or_name, int) and size_or_name < 0:
+                    warn_once(
+                        "shape metadata for {} contains invalid size {}",
+                        name,
+                        size_or_name,
+                    )
+                    shape[i] = "unknown"
 
         self.shape = shape
         self.dtype = dtype
