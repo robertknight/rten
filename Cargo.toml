@@ -7,6 +7,7 @@ members = [
   "rten-generate",
   "rten-imageio",
   "rten-imageproc",
+  "rten-model-file",
   "rten-simd",
   "rten-tensor",
   "rten-text",
@@ -27,6 +28,7 @@ default-members = [
 ]
 
 [workspace.dependencies]
+flatbuffers = "24.3.25"
 image = { version = "0.25.1", default-features = false, features = ["png", "jpeg", "webp"] }
 rayon = "1.7.0"
 rustfft = { version = "6.4.0" }
@@ -49,7 +51,7 @@ include = ["/src", "/CHANGELOG.md", "/README.md"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-flatbuffers = "24.3.25"
+flatbuffers = { workspace = true }
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
 rten-base = { path = "./rten-base", version = "0.21.0" }
 rten-gemm = { path = "./rten-gemm", version = "0.21.0" }

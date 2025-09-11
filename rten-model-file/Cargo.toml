@@ -9,7 +9,7 @@ homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
 
 [dependencies]
-flatbuffers = "24.3.25"
+flatbuffers = { workspace = true }
 rten-base = { path = "../rten-base", version = "0.21.0" }
 
 [dev-dependencies]
