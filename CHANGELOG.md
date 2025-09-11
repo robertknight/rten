@@ -7,13 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-This release adds support for the `Loop` operator, sequence types and sequence
-operations. It also adds support for `GridSample`. The object detection example
-now supports RT-DETR (a real-time variant of DETR). The CLI tool now has
-arguments that can be used to check inference results against a reference
-implementation.
+### Highlights
+
+- This release adds support for the `Loop` operator, sequence types and sequence
+  operations, as well as `GridSample`, `PRelu` and `STFT`
+- Performance of several `Reduce*` ops, `Sin`, `Cos`, `Elu`, `LeakyRelu` and
+  `ScatterElements` has been improved.
+- New examples have been added for Kokoro text-to-speech and ByT5
+  text-to-phoneme. Image recognition examples have been updated to support
+  RT-DETR for object detection.
+- The CLI tool can now check inference results against a reference implementation.
 
 ### rten
+
+- Fixed incorrect reporting of operator input shapes during verbose logging
+  when an operator runs in-place (https://github.com/robertknight/rten/pull/925)
+
+- Put the undocumented `ModelBuilder` API behind a `model_builder` crate feature
+  to avoid compiling it for consumers that won't need this (https://github.com/robertknight/rten/pull/923)
+
+- Moved FlatBuffers schema for .rten models into a separate crate to improve
+  compile times (https://github.com/robertknight/rten/pull/924)
+
+- Implement STFT operator using rustfft as the backend (https://github.com/robertknight/rten/pull/921)
+
+- Improve errors when running a model fails because it uses operators that
+  require non-enabled crate features (https://github.com/robertknight/rten/pull/920)
+
+- Eliminate `Identity` operations during optimization (https://github.com/robertknight/rten/pull/918,
+  https://github.com/robertknight/rten/pull/927)
+
+- Support 1D-3D inputs in `Resize` op, with up to two resized dimensions (https://github.com/robertknight/rten/pull/917)
+
+- Eliminate no-op `Cast` operations during optimization (https://github.com/robertknight/rten/pull/914)
+
+- Improved performance of `ScatterElements` (https://github.com/robertknight/rten/pull/912)
+
+- Vectorized `Elu` operator (https://github.com/robertknight/rten/pull/909)
+
+- Fixed slow copying of tensor slices when last dimension was contiguous but
+  very small (https://github.com/robertknight/rten/pull/905)
+
+- Vectorized `LeakyRelu` operator (https://github.com/robertknight/rten/pull/904)
 
 - Report error instead of crashing with stack overflow when loading a model
   if the graph has cycles (https://github.com/robertknight/rten/pull/899)
@@ -47,7 +82,8 @@ implementation.
 
 - Support `ceil_mode` attribute for AveragePool, MaxPool (https://github.com/robertknight/rten/pull/868)
 
-- Implemented `GridSample` operator (https://github.com/robertknight/rten/pull/867)
+- Implemented `GridSample` operator (https://github.com/robertknight/rten/pull/867,
+  https://github.com/robertknight/rten/pull/903)
 
 - Made errors from operators in subgraphs easier to trace by including
   details of parent nodes in error messages (https://github.com/robertknight/rten/pull/866)
@@ -76,12 +112,38 @@ implementation.
   PyTorch or ONNX Runtime). These use Safetensors as the format for passing
   tensors.
 
+### rten-convert
+
+- Gracefully handle invalid negative sizes in value shape metadata (https://github.com/robertknight/rten/pull/930)
+
+- Handle unused optional outputs better (https://github.com/robertknight/rten/pull/908)
+
+- Slightly improve Whisper output by fixing correnctness issues in STFT and
+  Hann window implementations (https://github.com/robertknight/rten/pull/919,
+  https://github.com/robertknight/rten/pull/926)
+
+- Support conversion of ONNX attributes with `floats` type (https://github.com/robertknight/rten/pull/906)
+
+- Fixed a bug in converting captured values in subgraphs in some cases
+  (https://github.com/robertknight/rten/pull/902)
+
 ### rten-examples
+
+- Added text-to-phoneme example using a ByT5 model (https://github.com/robertknight/rten/pull/931,
+  https://github.com/robertknight/rten/pull/932).
+  This can be used to generate inputs for the Piper and Kokoro examples.
+
+- Added Kokoro TTS example (https://github.com/robertknight/rten/pull/928)
+
+- Updated ImageNet example to support more models (https://github.com/robertknight/rten/pull/907)
 
 - Simplified using DETR examples with DETR variants and made it work with
   RT-DETR and RT-DETR v2 (https://github.com/robertknight/rten/pull/885)
 
 ### rten-tensor
+
+- Reduce bounds checks when indexing tensors with "trusted" layout types
+  (https://github.com/robertknight/rten/pull/913)
 
 - Fix an issue where `Tensor::data` and related methods could return a slice
   that was longer than it should have been (https://github.com/robertknight/rten/pull/861).
