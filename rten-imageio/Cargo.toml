@@ -1,6 +1,6 @@
 [package]
 name = "rten-imageio"
-version = "0.21.0"
+version = "0.22.0"
 edition = "2024"
 authors = ["Robert Knight"]
 description = "Utilities for loading images for use with RTen"
@@ -11,7 +11,7 @@ include = ["/src", "/README.md"]
 
 [dependencies]
 png = "0.17.6"
-rten-tensor = { path = "../rten-tensor", version = "0.21.0" }
+rten-tensor = { path = "../rten-tensor", version = "0.22.0" }
 image = { workspace = true }
 
 [lints.clippy]
