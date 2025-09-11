@@ -8,9 +8,17 @@ use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 
 struct Args {
+    /// Path to ByT5 encoder model.
     encoder_model: String,
+
+    /// Path to ByT5 decoder model.
     decoder_model: String,
+
+    /// The text to encode into phonemes.
     text: String,
+
+    /// Language tag, eg. "en-GB"
+    language_tag: Option<String>,
 }
 
 fn parse_args() -> Result<Args, lexopt::Error> {
@@ -18,6 +26,8 @@ fn parse_args() -> Result<Args, lexopt::Error> {
 
     let mut values = VecDeque::new();
     let mut parser = lexopt::Parser::from_env();
+
+    let mut language_tag = None;
 
     while let Some(arg) = parser.next()? {
         match arg {
@@ -27,10 +37,24 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                     "Convert text to phonemes.
 
 Usage: {bin_name} <encder_model> <decoder_model> <text>
+
+Options:
+
+  -h, --help    Print help
+
+  -l, --lang    Set language tag. See https://huggingface.co/fdemelo/g2p-mbyt5-12l-ipa-childes-espeak#language-tags.
+                The default is en-US.
 ",
                     bin_name = parser.bin_name().unwrap_or("byt5_g2p")
                 );
                 std::process::exit(0);
+            }
+            Short('l') | Long("lang") => {
+                let lang_tag = parser.value()?.string()?;
+                if !SUPPORTED_LANGS.contains(&lang_tag.as_str()) {
+                    eprintln!("WARNING: {} is an unrecognized language tag", lang_tag);
+                }
+                language_tag = Some(lang_tag);
             }
             _ => return Err(arg.unexpected()),
         }
@@ -43,6 +67,7 @@ Usage: {bin_name} <encder_model> <decoder_model> <text>
     let args = Args {
         encoder_model,
         decoder_model,
+        language_tag,
         text,
     };
 
@@ -65,8 +90,8 @@ Usage: {bin_name} <encder_model> <decoder_model> <text>
 /// cargo run -p rten-examples --release --bin byt5_g2p -- g2p/encoder_model.rten g2p/decoder_model_merged.rten "This is some text to convert."
 /// ```
 ///
-/// The example assumes US English text. To use a different language, change
-/// the prompt. See https://huggingface.co/fdemelo/g2p-mbyt5-12l-ipa-childes-espeak#language-tags.
+/// The example assumes US English text. To use a different language, specify
+/// a language tag with `--lang`. See https://huggingface.co/fdemelo/g2p-mbyt5-12l-ipa-childes-espeak#language-tags.
 ///
 /// [^1]: https://huggingface.co/fdemelo/g2p-mbyt5-12l-ipa-childes-espeak
 fn main() -> Result<(), Box<dyn Error>> {
@@ -75,7 +100,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let encoder = Model::load_file(&args.encoder_model)?;
     let decoder = Model::load_file(&args.decoder_model)?;
 
-    let prompt = format!("<en-US>: {}", args.text);
+    // Per model card: "The tag must be prepended to the prompt as a prefix
+    // using the format <{tag}>: (e.g., <pt-BR>: ). Note: a space between the
+    // prefix colon (:) and the beginning of the text is mandatory."
+    let language_tag = args.language_tag.as_deref().unwrap_or("en-US");
+    let prompt = format!("<{}>: {}", language_tag, args.text);
     let input_ids = encode_text(&prompt);
 
     let input_ids = NdTensor::from_data([1, input_ids.len()], input_ids);
@@ -136,6 +165,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Supported language tags from
+/// https://huggingface.co/fdemelo/g2p-mbyt5-12l-ipa-childes-espeak#language-tags.
+const SUPPORTED_LANGS: [&str; 31] = [
+    "ca-ES", "cy-GB", "da-DK", "de-DE", "en-US", "en-GB", "es-ES", "et-EE", "eu-ES", "fa-IR",
+    "fr-FR", "ga-IE", "hr-HR", "hu-HU", "id-ID", "is-IS", "it-IT", "ja-JP", "ko-KR", "nb-NO",
+    "nl-NL", "pl-PL", "pt-BR", "pt-PT", "qu-PE", "ro-RO", "sr-RS", "sv-SE", "tr-TR", "yue-CN",
+    "zh-CN",
+];
+
 /// Start-of-text token.
 const BOS_ID: u32 = 0;
 
@@ -152,14 +190,11 @@ const MAX_TOKENS: usize = 512;
 /// ByT5 tokens are byte values but shifted to allow for a few special tokens.
 /// See https://huggingface.co/fdemelo/g2p-mbyt5-12l-ipa-childes-espeak#example-2-inference-without-tokenizer.
 fn encode_text(text: &str) -> Vec<i32> {
-    let mut ids = Vec::from([BOS_ID as i32]);
-    ids.extend(
-        text.chars()
-            .map(|c| c as u32 + SPECIAL_TOKEN_COUNT)
-            .map(|id| id as i32),
-    );
-    ids.push(EOS_ID as i32);
-    ids
+    text.as_bytes()
+        .iter()
+        .map(|c| *c as u32 + SPECIAL_TOKEN_COUNT)
+        .map(|id| id as i32)
+        .collect()
 }
 
 /// Decode ByT5 token IDs to text.
