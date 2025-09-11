@@ -61,6 +61,11 @@ path = "src/imagenet.rs"
 test = false
 
 [[bin]]
+name = "kokoro"
+path = "src/kokoro.rs"
+test= false
+
+[[bin]]
 name = "nougat"
 path = "src/nougat.rs"
 test = false

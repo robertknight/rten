@@ -56,6 +56,9 @@ struct Args {
     /// >> ''.join(pp.phonemize_espeak('This is a text to speech system', 'en-US')[0])
     /// ```
     ///
+    /// The phonemes can be generated in Rust using the byt5_g2p example in
+    /// this repository, which is a translation model that emulates espeak.
+    ///
     /// The voice name ("en-US" here) can be found in the `espeak.voice`
     /// property of the voice model config.
     phonemes: Option<String>,
