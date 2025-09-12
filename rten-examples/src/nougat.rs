@@ -89,8 +89,8 @@ Args:
 /// [^1]: https://arxiv.org/abs/2308.13418
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
-    let encoder_model = unsafe { Model::load_mmap(args.encoder_model)? };
-    let decoder_model = unsafe { Model::load_mmap(args.decoder_model)? };
+    let encoder = unsafe { Model::load_mmap(args.encoder_model)? };
+    let decoder = unsafe { Model::load_mmap(args.decoder_model)? };
     let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
     let mut image = read_image(args.image_path)?.into_dyn();
     image.insert_axis(0); // Add batch dim
@@ -103,11 +103,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut image: NdTensor<_, 4> = image.resize_image(img_size)?.try_into()?;
     normalize_image(image.slice_mut(0), mean, std_dev);
 
-    let encoded_image: NdTensor<f32, 3> = encoder_model
-        .run_one(image.view().into(), None)?
-        .try_into()?;
-
-    let encoder_hidden_states_id = decoder_model.node_id("encoder_hidden_states")?;
+    let encoded_image: NdTensor<f32, 3> = encoder.run_one(image.view().into(), None)?.try_into()?;
 
     // `bos_token_id` from `generation_config.json`.
     // token.
@@ -118,9 +114,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let prompt = [decoder_start_token];
     let mut metrics = Metrics::new();
-    let generator = Generator::from_model(&decoder_model)?
+    let generator = Generator::from_model(&decoder)?
         .with_prompt(&prompt)
-        .with_constant_input(encoder_hidden_states_id, encoded_image.view().into())
+        .with_constant_input(
+            decoder.node_id("encoder_hidden_states")?,
+            encoded_image.view().into(),
+        )
         .stop_on_tokens([eos_token])
         .profile(&mut metrics)
         .take(max_tokens)

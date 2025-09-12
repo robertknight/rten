@@ -138,13 +138,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let input_ids = NdTensor::from_data([1, input_ids.len()], input_ids).map(|id| *id as i32);
     let attention_mask = NdTensor::full(input_ids.shape(), 1);
 
-    let input_ids_id = model.node_id("input_ids")?;
-    let attention_mask_id = model.node_id("attention_mask")?;
-    let logits_id = model.node_id("logits")?;
-
     let mut model_inputs = Vec::from([
-        (input_ids_id, input_ids.view().into()),
-        (attention_mask_id, attention_mask.into()),
+        (model.node_id("input_ids")?, input_ids.view().into()),
+        (model.node_id("attention_mask")?, attention_mask.into()),
     ]);
 
     // ModernBERT doesn't have a `token_type_ids` input, but this example also
@@ -156,7 +152,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Run model and predict masked words.
-    let [logits] = model.run_n(model_inputs, [logits_id], None)?;
+    let [logits] = model.run_n(model_inputs, [model.node_id("logits")?], None)?;
 
     // Get the most likely token for each position, filter out special tokens
     // and decode into text.

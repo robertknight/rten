@@ -117,12 +117,12 @@ fn embed_sentence_batch(
             .fill(1i32);
     }
 
-    let input_ids_id = model.node_id("input_ids")?;
-    let attention_mask_id = model.node_id("attention_mask")?;
-
     let mut inputs: Vec<(NodeId, ValueOrView)> = vec![
-        (input_ids_id, input_ids.view().into()),
-        (attention_mask_id, attention_mask.view().into()),
+        (model.node_id("input_ids")?, input_ids.view().into()),
+        (
+            model.node_id("attention_mask")?,
+            attention_mask.view().into(),
+        ),
     ];
 
     // Generate token type IDs if this model needs them. These are all zeros
@@ -133,8 +133,7 @@ fn embed_sentence_batch(
         inputs.push((type_ids_id, type_ids.view().into()));
     }
 
-    let output_id = model.node_id("last_hidden_state")?;
-    let [last_hidden_state] = model.run_n(inputs, [output_id], None)?;
+    let [last_hidden_state] = model.run_n(inputs, [model.node_id("last_hidden_state")?], None)?;
     let last_hidden_state: Tensor = last_hidden_state.try_into()?;
 
     // Mean pool each item in the batch. We process each batch item separately

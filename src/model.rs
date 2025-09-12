@@ -40,20 +40,25 @@ use crate::weight_cache::WeightCache;
 ///
 /// ```no_run
 /// use rten_tensor::prelude::*;
-/// use rten_tensor::Tensor;
+/// use rten_tensor::NdTensor;
 ///
 /// use rten::Model;
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     let model = Model::load_file("model.rten")?;
-///     let input_id = model.node_id("input")?;
-///     let output_id = model.node_id("output")?;
 ///
 ///     // Prepare inputs in format expected by model.
-///     let input_data: Tensor<f32> = Tensor::zeros(&[1, 3, 224, 224]);
+///     let input_data: NdTensor<f32, 4> = NdTensor::zeros([1, 3, 224, 224]);
 ///
-///     let mut outputs = model.run(vec![(input_id, input_data.into())], &[output_id], None)?;
-///     let output: Tensor<f32> = outputs.remove(0).try_into()?;
+///     // Run the model.
+///     let inputs = vec![
+///         (model.node_id("input")?, input_data.into()),
+///     ];
+///     let outputs = [model.node_id("output")?];
+///     let [output] = model.run_n(inputs, outputs, None)?;
+///
+///     // Convert outputs to expected type and rank.
+///     let output: NdTensor<f32, 2> = output.try_into()?;
 ///
 ///     // Post-process outputs.
 ///
@@ -733,12 +738,13 @@ impl Model {
 
     /// Execute the model and return the outputs specified by `outputs`.
     ///
-    /// This method allows for running a model with a variable number of inputs
-    /// and outputs of different types. See [`Model::run_one`] or [`Model::run_n`]
-    /// for the common case of running a model with a single or statically
-    /// known number of inputs and outputs.
+    /// This method allows for a variable number of outputs. For the common
+    /// case where the number of outputs is fixed, [`Model::run_n`] is preferred
+    /// as it returns an array which can be destructured to extract individual
+    /// outputs: `let [output_one, output_two] = model.run_n(...)`.
     ///
-    /// The input and output nodes are specified via IDs looked up via `find_node`.
+    /// The input and output nodes are specified via IDs looked up via
+    /// [`node_id`](Model::node_id).
     pub fn run(
         &self,
         inputs: Vec<(NodeId, ValueOrView)>,
@@ -759,6 +765,9 @@ impl Model {
     /// This is a simplified version of [`Model::run`] for the common case of
     /// executing a model with a statically known number of outputs. Use
     /// [`Model::run`] instead if the number of outputs is known only at runtime.
+    ///
+    /// The input and output nodes are specified via IDs looked up via
+    /// [`node_id`](Model::node_id).
     pub fn run_n<const N: usize>(
         &self,
         inputs: Vec<(NodeId, ValueOrView)>,

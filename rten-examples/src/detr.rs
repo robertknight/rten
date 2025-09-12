@@ -237,13 +237,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         image = image.resize_image([rescaled_height, rescaled_width])?;
     }
 
-    let pixel_input_id = model.node_id("pixel_values")?;
-    let logits_output_id = model.node_id("logits")?;
-    let boxes_output_id = model.node_id("pred_boxes")?;
-
     let [logits, boxes] = model.run_n(
-        vec![(pixel_input_id, image.into())],
-        [logits_output_id, boxes_output_id],
+        vec![(model.node_id("pixel_values")?, image.into())],
+        [model.node_id("logits")?, model.node_id("pred_boxes")?],
         None,
     )?;
     let logits: NdTensor<f32, 3> = logits.try_into()?;
