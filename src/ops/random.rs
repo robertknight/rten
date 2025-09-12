@@ -101,8 +101,17 @@ impl Operator for RandomNormal {
             Rng::new()
         };
 
-        Tensor::from_simple_fn_in(ctx.pool(), shape, || rng.f32_normal(self.mean, self.scale))
-            .into_op_result()
+        // Use `Rng::f32_normal_approx` here rather than `Rng::f32_normal`
+        // because the approximation is much faster and good enough for use
+        // cases for random normal distributions in ML models.
+        //
+        // See https://marc-b-reynolds.github.io/distribution/2021/03/18/CheapGaussianApprox.html
+        // for more info on the algorithm. The non-approximate version uses the
+        // Box-Muller transform.
+        Tensor::from_simple_fn_in(ctx.pool(), shape, || {
+            rng.f32_normal_approx(self.mean, self.scale)
+        })
+        .into_op_result()
     }
 }
 
@@ -351,21 +360,21 @@ mod tests {
             Case {
                 mean: 0.,
                 scale: 1.,
-                shape: vec![10, 10],
+                shape: vec![10, 100],
                 seed: None,
             },
             // Custom mean/scale values.
             Case {
                 mean: 5.,
                 scale: 0.5,
-                shape: vec![10, 10],
+                shape: vec![10, 100],
                 seed: None,
             },
             // Custom seed
             Case {
                 mean: 0.,
                 scale: 1.,
-                shape: vec![10, 10],
+                shape: vec![10, 100],
                 seed: Some(0.5),
             },
         ];
@@ -396,9 +405,9 @@ mod tests {
                 .unwrap();
             let delta = (mean - op.mean).abs();
 
-            // nb. This threshold is large because we're only generating a small
-            // number of values.
-            let threshold = 0.5;
+            // Threshold is inversely proportional to number of samples (ie.
+            // with more samples, values will approach expectation).
+            let threshold = 0.05;
             assert!(delta <= threshold, "delta {delta} > {threshold}");
 
             let var: f32 = output
