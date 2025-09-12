@@ -94,14 +94,12 @@ fn extract_nbest_answers<'a>(
         .into_shape([1, query_context.token_ids().len()].as_slice());
     let attention_mask = Tensor::full(&[batch, input_ids.len()], 1i32);
 
-    let input_ids_id = model.node_id("input_ids")?;
-    let attention_mask_id = model.node_id("attention_mask")?;
-    let start_logits_id = model.node_id("start_logits")?;
-    let end_logits_id = model.node_id("end_logits")?;
-
     let mut inputs: Vec<(NodeId, ValueOrView)> = vec![
-        (input_ids_id, input_ids.view().into()),
-        (attention_mask_id, attention_mask.view().into()),
+        (model.node_id("input_ids")?, input_ids.view().into()),
+        (
+            model.node_id("attention_mask")?,
+            attention_mask.view().into(),
+        ),
     ];
 
     // Generate token type IDs if this model needs them. The original BERT
@@ -116,7 +114,11 @@ fn extract_nbest_answers<'a>(
         inputs.push((type_ids_id, type_ids.view().into()));
     }
 
-    let [start_logits, end_logits] = model.run_n(inputs, [start_logits_id, end_logits_id], None)?;
+    let [start_logits, end_logits] = model.run_n(
+        inputs,
+        [model.node_id("start_logits")?, model.node_id("end_logits")?],
+        None,
+    )?;
 
     // Extract (batch, sequence)
     let mut start_logits: NdTensor<f32, 2> = start_logits.try_into()?;

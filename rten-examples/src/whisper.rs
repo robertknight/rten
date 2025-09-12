@@ -381,8 +381,8 @@ fn format_timestamp(sec: f32) -> String {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
 
-    let encoder_model = unsafe { Model::load_mmap(args.encoder_model)? };
-    let decoder_model = unsafe { Model::load_mmap(args.decoder_model)? };
+    let encoder = unsafe { Model::load_mmap(args.encoder_model)? };
+    let decoder = unsafe { Model::load_mmap(args.decoder_model)? };
     let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
 
     // Length of audio chunks expected by model, in seconds.
@@ -399,7 +399,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let max_tokens_per_chunk: usize = 448;
 
     // Number of mel bins used by the spectrogram.
-    let n_mels = match encoder_model.input_shape(0).as_deref() {
+    let n_mels = match encoder.input_shape(0).as_deref() {
         // Encoder input shape is [batch, n_mels, sequence].
         Some([_, Dimension::Fixed(mels), _]) => *mels as u32,
         _ => 80,
@@ -454,18 +454,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         mel_spec.insert_axis(0); // Add batch dim
 
         let encode_start = start.elapsed();
-        let input_features_id = encoder_model.node_id("input_features")?;
-        let output_id = encoder_model.node_id("last_hidden_state")?;
-        let [encoded_audio] = encoder_model.run_n(
-            [(input_features_id, mel_spec.view().into())].into(),
-            [output_id],
+        let [encoded_audio] = encoder.run_n(
+            [(encoder.node_id("input_features")?, mel_spec.view().into())].into(),
+            [encoder.node_id("last_hidden_state")?],
             None,
         )?;
         let encoded_audio: NdTensor<f32, 3> = encoded_audio.try_into()?;
         encode_time += start.elapsed() - encode_start;
 
         let start_of_transcript = tokenizer.get_token_id("<|startoftranscript|>")?;
-        let encoder_hidden_states_id = decoder_model.node_id("encoder_hidden_states")?;
 
         // Get the language ID token (eg. "<|en|>").
         //
@@ -476,9 +473,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let lang_id_min = tokenizer.get_token_id("<|en|>")?;
                 let lang_id_max = tokenizer.get_token_id("<|su|>")?;
                 let prompt = [start_of_transcript];
-                let mut generator = Generator::from_model(&decoder_model)?
+                let mut generator = Generator::from_model(&decoder)?
                     .with_prompt(&prompt)
-                    .with_constant_input(encoder_hidden_states_id, encoded_audio.view().into())
+                    .with_constant_input(
+                        decoder.node_id("encoder_hidden_states")?,
+                        encoded_audio.view().into(),
+                    )
                     .with_logits_filter(token_id_filter(|token| {
                         // Keep only language ID tokens
                         token >= lang_id_min && token <= lang_id_max
@@ -524,9 +524,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             kv_cache_capacity: Some(max_tokens_per_chunk),
             ..Default::default()
         };
-        let generator = Generator::from_model_config(&decoder_model, generator_config)?
+        let generator = Generator::from_model_config(&decoder, generator_config)?
             .with_prompt(&prompt)
-            .with_constant_input(encoder_hidden_states_id, encoded_audio.view().into())
+            .with_constant_input(
+                decoder.node_id("encoder_hidden_states")?,
+                encoded_audio.view().into(),
+            )
             .with_logits_filter(TimestampFilter::new(
                 timestamp_min,
                 timestamp_max,

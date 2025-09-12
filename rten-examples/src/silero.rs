@@ -205,12 +205,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let model = Model::load_file(args.model)?;
     let samples = read_wav_file(&args.wav_file)?;
 
-    let sr_id = model.node_id("sr")?;
-    let input_id = model.node_id("input")?;
-    let state_id = model.node_id("state")?;
-    let state_n_id = model.node_id("stateN")?;
-    let output_id = model.node_id("output")?;
-
     // Create initial internal state for the model.
     let mut state: NdTensor<f32, 3> = NdTensor::zeros([2, 1, 128]); // [2, batch, 128]
     let sample_rate = 16_000;
@@ -233,14 +227,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         let [output, next_state] = model.run_n(
             [
                 (
-                    input_id,
+                    model.node_id("input")?,
                     NdTensor::from_data([1, samples_per_chunk], padded_chunk).into(),
                 ),
-                (sr_id, NdTensor::from(sample_rate as i32).into()),
-                (state_id, state.view().into()),
+                (
+                    model.node_id("sr")?,
+                    NdTensor::from(sample_rate as i32).into(),
+                ),
+                (model.node_id("state")?, state.view().into()),
             ]
             .into(),
-            [output_id, state_n_id],
+            [model.node_id("output")?, model.node_id("stateN")?],
             None,
         )?;
 
