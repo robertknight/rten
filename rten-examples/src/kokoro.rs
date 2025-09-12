@@ -257,8 +257,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Set playback rate of generated audio.
     let speed = NdTensor::from([1.]);
 
-    // nb. Some variants of the Kokoro model use the name `tokens` instead of
-    // `input_ids` in the inputs and `audio` instead of `waveform` in the outputs.
+    // Run the model and generate audio samples.
     let [output] = model.run_n(
         [
             (model.node_id("input_ids")?, tokens.into()),
