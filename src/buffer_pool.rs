@@ -8,9 +8,11 @@ use rten_tensor::{Alloc, CowData, MutLayout, TensorBase};
 /// A memory buffer that can be used to satisfy a future allocation from
 /// a [`BufferPool`].
 pub struct Buffer {
-    /// Pointer and capacity extracted from the `Vec`. The length is always
-    /// zero.
+    /// Pointer to the allocation.
     ptr: *mut u8,
+
+    /// Capacity of the Vec from which the buffer was constructed. Note this
+    /// is a count of elements rather than bytes.
     capacity: usize,
 
     /// The original layout, based on `Layout::array`.
@@ -100,13 +102,17 @@ impl<T> From<Vec<T>> for Buffer {
 /// The purpose of this pool is to minimize the overhead from allocating and
 /// de-allocating large buffers repeatedly during model inference.
 ///
+/// This pool is optimized to store a small number of large buffers. For
+/// allocations below a configurable threshold, the global allocator is used.
+///
 /// # Usage
 ///
 /// [`BufferPool`] implements the [`Alloc`] trait, enabling tensors to be
 /// allocated from the pool using the various `Tensor::*_in` methods, eg.
 /// [`Tensor::zeros_in`](rten_tensor::Tensor::zeros_in). Allocation requests
-/// will be satisfied from the pool if there is a suitable buffer available, or
-/// it will fall back to the global allocator otherwise.
+/// will be satisfied from the pool if there is a suitable buffer available and
+/// the requested capacity exceeds a threshold, otherwise the global allocator
+/// is used.
 ///
 /// When a tensor is no longer needed, its buffer can be added to the pool
 /// using `pool.add(tensor.extract_buffer())`, making it available for future
@@ -141,6 +147,13 @@ pub struct BufferPool {
 
     /// Number of allocation requests fulfilled from the pool.
     hit_count: AtomicUsize,
+
+    /// Minimum size, in bytes, of buffers to store in the pool.
+    ///
+    /// For small buffers it is more efficient to use the system allocator.
+    /// The purpose of this pool is to avoid the overhead of allocating and
+    /// freeing large buffers.
+    min_size: usize,
 }
 
 impl BufferPool {
@@ -154,7 +167,16 @@ impl BufferPool {
             buffers: Mutex::new(Vec::new()),
             alloc_count: AtomicUsize::new(0),
             hit_count: AtomicUsize::new(0),
+            min_size: 128,
         }
+    }
+
+    /// Configure the minimum size for allocations from the pool.
+    ///
+    /// Allocations below this size will fall back to the global allocator.
+    pub fn with_min_size(mut self, n_bytes: usize) -> Self {
+        self.min_size = n_bytes;
+        self
     }
 
     /// Allocate an empty vec with a given capacity from the pool.
@@ -162,6 +184,11 @@ impl BufferPool {
     /// The returned buffer will have a [`capacity`](Vec::capacity) of at least
     /// the requested size, but _may have more_.
     pub fn alloc<T>(&self, capacity: usize) -> Vec<T> {
+        // Skip the pool for small buffers.
+        if capacity * size_of::<T>() < self.min_size {
+            return Vec::with_capacity(capacity);
+        }
+
         self.alloc_count.fetch_add(1, Ordering::AcqRel);
 
         let mut buffers = self.buffers.lock().unwrap();
@@ -203,10 +230,15 @@ impl BufferPool {
     /// The buffer will be cleared using [`Vec::clear`] and then made available
     /// to fulfill future allocation requests.
     pub fn add<B: Into<Buffer>>(&self, buf: B) {
-        self.buffers.lock().unwrap().push(buf.into());
+        let buf: Buffer = buf.into();
+        if buf.layout.size() >= self.min_size {
+            self.buffers.lock().unwrap().push(buf);
+        }
     }
 
     /// Return the total number of allocation requests.
+    ///
+    /// This excludes allocations below the minimum size threshold.
     pub fn alloc_count(&self) -> usize {
         self.alloc_count.load(Ordering::Acquire)
     }
@@ -361,7 +393,7 @@ mod tests {
 
     #[test]
     fn test_pool_alloc_tensor() {
-        let pool = BufferPool::new();
+        let pool = BufferPool::new().with_min_size(0);
 
         // Initial alloc. There is nothing in the pool so this will use the
         // system allocator.
@@ -417,7 +449,7 @@ mod tests {
 
     #[test]
     fn test_pool_alloc() {
-        let pool = BufferPool::new();
+        let pool = BufferPool::new().with_min_size(0);
 
         let vec = pool.alloc::<f32>(128);
         assert_eq!(vec.capacity(), 128);
@@ -435,8 +467,40 @@ mod tests {
     }
 
     #[test]
+    fn test_pool_alloc_small() {
+        let pool = BufferPool::new().with_min_size(18);
+
+        // 16 byte allocation, just below min size.
+        let vec = pool.alloc::<f32>(4);
+        assert_eq!(vec.capacity(), 4);
+        assert_eq!(vec.len(), 0);
+        assert_eq!(pool.alloc_count(), 0);
+        assert_eq!(pool.hit_count(), 0);
+
+        // 20 byte allocation, just above min size
+        let vec = pool.alloc::<f32>(5);
+        assert_eq!(vec.capacity(), 5);
+        assert_eq!(vec.len(), 0);
+        assert_eq!(pool.alloc_count(), 1);
+        assert_eq!(pool.hit_count(), 0);
+    }
+
+    #[test]
+    fn test_pool_add_small() {
+        let pool = BufferPool::new().with_min_size(18);
+
+        // `add` discards buffers < min size.
+        pool.add(vec![0.0f32; 4]);
+        assert_eq!(pool.len(), 0);
+
+        // `add` saves buffers >= min size.
+        pool.add(vec![0.0f32; 5]);
+        assert_eq!(pool.len(), 1);
+    }
+
+    #[test]
     fn test_pool_alloc_zst() {
-        let pool = BufferPool::new();
+        let pool = BufferPool::new().with_min_size(0);
 
         let vec = pool.alloc::<()>(128);
         assert_eq!(vec.capacity(), usize::MAX);
@@ -452,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_pool_alloc_non_copy_type() {
-        let pool = BufferPool::new();
+        let pool = BufferPool::new().with_min_size(0);
 
         let mut vec = pool.alloc::<String>(5);
         vec.push("hello".into());
@@ -469,7 +533,7 @@ mod tests {
 
     #[test]
     fn test_pool_ref_auto_return() {
-        let pool = BufferPool::new();
+        let pool = BufferPool::new().with_min_size(0);
         assert_eq!(pool.len(), 0);
 
         // Owned tensor. This will auto-return to the pool.
@@ -509,7 +573,7 @@ mod tests {
 
     #[test]
     fn test_pool_ref_take() {
-        let pool = BufferPool::new();
+        let pool = BufferPool::new().with_min_size(0);
         assert_eq!(pool.len(), 0);
         {
             let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]).auto_return(&pool);
