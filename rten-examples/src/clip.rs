@@ -199,19 +199,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
     );
 
-    let input_ids_id = model.node_id("input_ids")?;
-    let pixel_values_id = model.node_id("pixel_values")?;
-    let attention_mask_id = model.node_id("attention_mask")?;
-    let logits_per_image_id = model.node_id("logits_per_image")?;
-
     let [logits_per_image] = model.run_n(
         [
-            (input_ids_id, input_ids.into()),
-            (pixel_values_id, pixel_values.into()),
-            (attention_mask_id, attention_mask.into()),
+            ("input_ids", input_ids.into()),
+            ("pixel_values", pixel_values.into()),
+            ("attention_mask", attention_mask.into()),
         ]
         .into(),
-        [logits_per_image_id],
+        ["logits_per_image"],
         None,
     )?;
     let logits_per_image: NdTensor<f32, 2> = logits_per_image.try_into()?;

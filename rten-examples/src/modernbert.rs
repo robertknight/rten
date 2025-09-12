@@ -138,25 +138,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     let input_ids = NdTensor::from_data([1, input_ids.len()], input_ids).map(|id| *id as i32);
     let attention_mask = NdTensor::full(input_ids.shape(), 1);
 
-    let input_ids_id = model.node_id("input_ids")?;
-    let attention_mask_id = model.node_id("attention_mask")?;
-    let logits_id = model.node_id("logits")?;
-
     let mut model_inputs = Vec::from([
-        (input_ids_id, input_ids.view().into()),
-        (attention_mask_id, attention_mask.into()),
+        ("input_ids", input_ids.view().into()),
+        ("attention_mask", attention_mask.into()),
     ]);
 
     // ModernBERT doesn't have a `token_type_ids` input, but this example also
     // works with older BERT models that do. If using such a model, such as
     // "bert-base-uncased", provide this input.
-    if let Ok(token_type_ids_id) = model.node_id("token_type_ids") {
+    if model.find_node("token_type_ids").is_some() {
         let token_type_ids = NdTensor::full(input_ids.shape(), 0);
-        model_inputs.push((token_type_ids_id, token_type_ids.into()));
+        model_inputs.push(("token_type_ids", token_type_ids.into()));
     }
 
     // Run model and predict masked words.
-    let [logits] = model.run_n(model_inputs, [logits_id], None)?;
+    let [logits] = model.run_n(model_inputs, ["logits"], None)?;
 
     // Get the most likely token for each position, filter out special tokens
     // and decode into text.

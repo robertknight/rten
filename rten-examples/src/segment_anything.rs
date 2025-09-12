@@ -138,9 +138,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     //
     // This currently does the mandatory resizing of the input image, but
     // doesn't normalize the pixel values.
-    let pixel_values_id = encoder_model.node_id("pixel_values")?;
     let [input_h, input_w] = match encoder_model
-        .node_info(pixel_values_id)
+        .node_info("pixel_values")
         .and_then(|ni| ni.shape())
         .as_deref()
     {
@@ -151,26 +150,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Generate image embeddings.
     println!("Generating image embedding...");
-    let image_embeddings_id = encoder_model.node_id("image_embeddings")?;
-    let image_pos_embeddings_id = encoder_model.node_id("image_positional_embeddings")?;
-
     let [image_embeddings, image_pos_embeddings] = encoder_model.run_n(
-        vec![(pixel_values_id, image.view().into())],
-        [image_embeddings_id, image_pos_embeddings_id],
+        vec![("pixel_values", image.view().into())],
+        ["image_embeddings", "image_positional_embeddings"],
         None,
     )?;
 
     println!("Segmenting image with {} points...", args.points.len());
 
     // Prepare decoder inputs.
-    let input_points_id = decoder_model.node_id("input_points")?;
-    let input_labels_id = decoder_model.node_id("input_labels")?;
-    let decoder_embeddings_id = decoder_model.node_id("image_embeddings")?;
-    let decoder_pos_embeddings_id = decoder_model.node_id("image_positional_embeddings")?;
-
-    let iou_scores_id = decoder_model.node_id("iou_scores")?;
-    let pred_masks_id = decoder_model.node_id("pred_masks")?;
-
     let h_scale = input_h as f32 / image_h as f32;
     let w_scale = input_w as f32 / image_w as f32;
 
@@ -195,12 +183,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Run decoder and generate segmentation masks.
     let [_iou_scores, pred_masks] = decoder_model.run_n(
         vec![
-            (input_points_id, input_points.into()),
-            (input_labels_id, input_labels.into()),
-            (decoder_embeddings_id, image_embeddings.into()),
-            (decoder_pos_embeddings_id, image_pos_embeddings.into()),
+            ("input_points", input_points.into()),
+            ("input_labels", input_labels.into()),
+            ("image_embeddings", image_embeddings.into()),
+            ("image_positional_embeddings", image_pos_embeddings.into()),
         ],
-        [iou_scores_id, pred_masks_id],
+        ["iou_scores", "pred_masks"],
         None,
     )?;
 

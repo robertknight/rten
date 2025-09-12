@@ -115,14 +115,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let [encoded_state] = encoder
         .run_n(
             [
-                (encoder.node_id("input_ids")?, input_ids.into()),
-                (
-                    encoder.node_id("attention_mask")?,
-                    attention_mask.view().into(),
-                ),
+                ("input_ids", input_ids.into()),
+                ("attention_mask", attention_mask.view().into()),
             ]
             .into(),
-            [encoder.node_id("last_hidden_state")?],
+            ["last_hidden_state"],
             None,
         )
         .map_err(|e| format!("failed to run encoder: {}", e))?;
@@ -132,14 +129,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Run the decoder to generate phonemes.
     let generator = Generator::from_model(&decoder)?
-        .with_constant_input(
-            decoder.node_id("encoder_attention_mask")?,
-            attention_mask.view().into(),
-        )
-        .with_constant_input(
-            decoder.node_id("encoder_hidden_states")?,
-            encoded_state.view().into(),
-        )
+        .with_constant_input("encoder_attention_mask", attention_mask.view().into())
+        .with_constant_input("encoder_hidden_states", encoded_state.view().into())
         .with_prompt(&[BOS_ID])
         .take(MAX_TOKENS);
 

@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs;
 
 use rten::ops::FloatOperators;
-use rten::{Model, NodeId, ValueOrView};
+use rten::{Model, ValueOrView};
 use rten_tensor::prelude::*;
 use rten_tensor::*;
 use rten_text::tokenizer::{EncodeOptions, Encoded, Tokenizer};
@@ -94,29 +94,24 @@ fn extract_nbest_answers<'a>(
         .into_shape([1, query_context.token_ids().len()].as_slice());
     let attention_mask = Tensor::full(&[batch, input_ids.len()], 1i32);
 
-    let input_ids_id = model.node_id("input_ids")?;
-    let attention_mask_id = model.node_id("attention_mask")?;
-    let start_logits_id = model.node_id("start_logits")?;
-    let end_logits_id = model.node_id("end_logits")?;
-
-    let mut inputs: Vec<(NodeId, ValueOrView)> = vec![
-        (input_ids_id, input_ids.view().into()),
-        (attention_mask_id, attention_mask.view().into()),
+    let mut inputs: Vec<(&str, ValueOrView)> = vec![
+        ("input_ids", input_ids.view().into()),
+        ("attention_mask", attention_mask.view().into()),
     ];
 
     // Generate token type IDs if this model needs them. The original BERT
     // uses them, DistilBERT for example does not.
     let type_ids: Tensor<i32>;
-    if let Some(type_ids_id) = model.find_node("token_type_ids") {
+    if model.find_node("token_type_ids").is_some() {
         type_ids = query_context
             .token_type_ids()
             .map(|tid| tid as i32)
             .collect::<Tensor<_>>()
             .into_shape([1, query_context.token_ids().len()].as_slice());
-        inputs.push((type_ids_id, type_ids.view().into()));
+        inputs.push(("token_type_ids", type_ids.view().into()));
     }
 
-    let [start_logits, end_logits] = model.run_n(inputs, [start_logits_id, end_logits_id], None)?;
+    let [start_logits, end_logits] = model.run_n(inputs, ["start_logits", "end_logits"], None)?;
 
     // Extract (batch, sequence)
     let mut start_logits: NdTensor<f32, 2> = start_logits.try_into()?;

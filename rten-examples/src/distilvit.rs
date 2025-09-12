@@ -91,8 +91,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         .run_one(image.view().into(), None)?
         .try_into()?;
 
-    let encoder_hidden_states_id = decoder_model.node_id("encoder_hidden_states")?;
-
     // `decoder_start_token_id` value from
     // https://huggingface.co/Mozilla/distilvit/blob/main/config.json.
     let bos_token = 50256;
@@ -104,7 +102,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let prompt = vec![bos_token];
     let generator = Generator::from_model(&decoder_model)?
         .with_prompt(&prompt)
-        .with_constant_input(encoder_hidden_states_id, encoded_image.view().into())
+        .with_constant_input("encoder_hidden_states", encoded_image.view().into())
         .stop_on_tokens([eos_token])
         .take(max_tokens)
         .decode(&tokenizer);

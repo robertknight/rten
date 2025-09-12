@@ -260,12 +260,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Run the model and generate audio samples.
     let [output] = model.run_n(
         [
-            (model.node_id("input_ids")?, tokens.into()),
-            (model.node_id("style")?, style.into()),
-            (model.node_id("speed")?, speed.into()),
+            ("input_ids", tokens.into()),
+            ("style", style.into()),
+            ("speed", speed.into()),
         ]
         .into(),
-        [model.node_id("waveform")?],
+        ["waveform"],
         Some(RunOptions {
             ..Default::default()
         }),

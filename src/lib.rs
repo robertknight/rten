@@ -140,7 +140,7 @@ pub mod ops;
 
 pub use buffer_pool::{BufferPool, ExtractBuffer, PoolRef};
 pub use graph::{Dimension, NodeId, RunError, RunOptions};
-pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo};
+pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo, ResolveName};
 pub use model_metadata::ModelMetadata;
 pub use op_registry::{OpRegistry, ReadOp, ReadOpError};
 pub use ops::{FloatOperators, Operators};

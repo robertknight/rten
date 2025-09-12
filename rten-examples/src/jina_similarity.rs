@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 
 use rten::ops::concat;
-use rten::{BufferPool, FloatOperators, Model, NodeId, Operators, ValueOrView};
+use rten::{BufferPool, FloatOperators, Model, Operators, ValueOrView};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 use rten_text::tokenizer::{EncodeOptions, Tokenizer};
@@ -117,24 +117,20 @@ fn embed_sentence_batch(
             .fill(1i32);
     }
 
-    let input_ids_id = model.node_id("input_ids")?;
-    let attention_mask_id = model.node_id("attention_mask")?;
-
-    let mut inputs: Vec<(NodeId, ValueOrView)> = vec![
-        (input_ids_id, input_ids.view().into()),
-        (attention_mask_id, attention_mask.view().into()),
+    let mut inputs: Vec<(&str, ValueOrView)> = vec![
+        ("input_ids", input_ids.view().into()),
+        ("attention_mask", attention_mask.view().into()),
     ];
 
     // Generate token type IDs if this model needs them. These are all zeros
     // since each item has just one sequence.
     let type_ids: NdTensor<i32, 2>;
-    if let Some(type_ids_id) = model.find_node("token_type_ids") {
+    if model.find_node("token_type_ids").is_some() {
         type_ids = NdTensor::zeros([batch, max_sequence_len]);
-        inputs.push((type_ids_id, type_ids.view().into()));
+        inputs.push(("token_type_ids", type_ids.view().into()));
     }
 
-    let output_id = model.node_id("last_hidden_state")?;
-    let [last_hidden_state] = model.run_n(inputs, [output_id], None)?;
+    let [last_hidden_state] = model.run_n(inputs, ["last_hidden_state"], None)?;
     let last_hidden_state: Tensor = last_hidden_state.try_into()?;
 
     // Mean pool each item in the batch. We process each batch item separately

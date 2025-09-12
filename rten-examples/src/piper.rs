@@ -189,12 +189,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Run inference and generate audio samples as floats.
     let [samples] = model.run_n(
         [
-            (model.node_id("input")?, phoneme_ids.into()),
-            (model.node_id("input_lengths")?, input_lengths.into()),
-            (model.node_id("scales")?, scales.into()),
+            ("input", phoneme_ids.into()),
+            ("input_lengths", input_lengths.into()),
+            ("scales", scales.into()),
         ]
         .into(),
-        [model.node_id("output")?],
+        ["output"],
         None,
     )?;
     let samples: NdTensor<f32, 4> = samples.try_into()?; // (batch, time, 1, sample)

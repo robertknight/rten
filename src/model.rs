@@ -38,24 +38,34 @@ use crate::weight_cache::WeightCache;
 ///
 /// ## Example
 ///
+/// This shows the outline of running an image classification model using RTen.
+/// See the
+/// [rten-examples](https://github.com/robertknight/rten/tree/main/rten-examples)
+/// crate for practical examples for different tasks.
+///
 /// ```no_run
 /// use rten_tensor::prelude::*;
-/// use rten_tensor::Tensor;
-///
+/// use rten_tensor::NdTensor;
 /// use rten::Model;
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let model = Model::load_file("model.rten")?;
-///     let input_id = model.node_id("input")?;
-///     let output_id = model.node_id("output")?;
+///     let model = Model::load_file("image_classifier.rten")?;
 ///
-///     // Prepare inputs in format expected by model.
-///     let input_data: Tensor<f32> = Tensor::zeros(&[1, 3, 224, 224]);
+///     // Prepare input tensor, eg. as (batch, channels, height, width).
+///     // For this example we just fill the input with zeros.
+///     let input_data: NdTensor<f32, 4> = NdTensor::zeros([1, 3, 224, 224]);
 ///
-///     let mut outputs = model.run(vec![(input_id, input_data.into())], &[output_id], None)?;
-///     let output: Tensor<f32> = outputs.remove(0).try_into()?;
+///     // Run model specifying input names and values and the names of the
+///     // outputs we want. We use `run_n` since we are retrieving a fixed
+///     // number of outputs (one).
+///     let inputs = [("pixel_values", input_data.into())];
+///     let [output] = model.run_n(inputs.into(), ["logits"], None)?;
 ///
-///     // Post-process outputs.
+///     // Convert the model output (a `Value`) to a tensor of the expected type
+///     // and rank.
+///     let output: NdTensor<f32, 2> = output.try_into()?;
+///
+///     // ...extract the highest score, look up the class label etc.
 ///
 ///     Ok(())
 /// }
@@ -75,11 +85,12 @@ use crate::weight_cache::WeightCache;
 ///  - Operators which combine the values and constants using operations such
 ///    as matrix multiplication, convolution etc.
 ///
-/// Some of these nodes are designated as inputs and outputs. The IDs of these
-/// nodes can be obtained using [`Model::input_ids`] and [`Model::output_ids`].
-/// These IDs are then used when calling [`Model::run`]. Model execution consists
-/// of generating a plan which starts with the input nodes, and executes the
-/// necessary operators to generate the requested outputs.
+/// Some of the value nodes are designated as inputs and outputs. The IDs of
+/// these nodes can be obtained using [`Model::input_ids`] and
+/// [`Model::output_ids`]. The names or IDs of these inputs and outputs are then
+/// used when calling [`Model::run`]. Model execution consists of generating a
+/// plan which starts with the input nodes, and executing the necessary
+/// operators to generate the requested outputs.
 ///
 /// ## Graph optimizations
 ///
@@ -698,7 +709,14 @@ impl Model {
     }
 
     /// Return metadata about a node in the model's graph.
-    pub fn node_info(&self, id: NodeId) -> Option<NodeInfo<'_>> {
+    ///
+    /// This can be used to obtain the name, shape and data types of inputs
+    /// and outputs.
+    pub fn node_info<N>(&self, name: N) -> Option<NodeInfo<'_>>
+    where
+        Self: ResolveName<N>,
+    {
+        let id = self.resolve_name(&name).ok()?;
         self.graph.get_node(id).map(|node| NodeInfo { node })
     }
 
@@ -708,11 +726,15 @@ impl Model {
     }
 
     /// Return the IDs of input nodes.
+    ///
+    /// To get more information about an input, use [`node_info`](Self::node_info).
     pub fn input_ids(&self) -> &[NodeId] {
         self.graph.input_ids()
     }
 
     /// Return the IDs of output nodes.
+    ///
+    /// To get more information about an output, use [`node_info`](Self::node_info).
     pub fn output_ids(&self) -> &[NodeId] {
         self.graph.output_ids()
     }
@@ -733,38 +755,49 @@ impl Model {
 
     /// Execute the model and return the outputs specified by `outputs`.
     ///
-    /// This method allows for running a model with a variable number of inputs
-    /// and outputs of different types. See [`Model::run_one`] or [`Model::run_n`]
-    /// for the common case of running a model with a single or statically
-    /// known number of inputs and outputs.
+    /// The inputs are a vector of `(name, value)` tuples. The outputs are a
+    /// list of node names or IDs. Inputs and outputs can be strings or
+    /// [`NodeId`]s obtained with [`find_node`](Model::find_node). Values are
+    /// created from tensors or tensor views using `into`.
     ///
-    /// The input and output nodes are specified via IDs looked up via `find_node`.
-    pub fn run(
+    /// This method allows for a variable number of inputs and outputs. For a
+    /// fixed number of outputs, it is easier to use [`run_n`](Model::run_n)
+    /// which returns an array, from which individual outputs can be easily
+    /// extracted using destructuring: `let [output_one, output_two] =
+    /// model.run_n(...)`.
+    pub fn run<N>(
         &self,
-        inputs: Vec<(NodeId, ValueOrView)>,
-        outputs: &[NodeId],
+        inputs: Vec<(N, ValueOrView)>,
+        outputs: &[N],
         opts: Option<RunOptions>,
-    ) -> Result<Vec<Value>, RunError> {
+    ) -> Result<Vec<Value>, RunError>
+    where
+        Self: ResolveName<N, Error = RunError>,
+    {
         let mut opts = opts.unwrap_or_default();
         if let Some(timing_var) = env::var_os("RTEN_TIMING") {
             let timing_var = timing_var.to_string_lossy();
             parse_timing_config(&timing_var, &mut opts);
         }
+        let inputs = self.resolve_input_ids(inputs)?;
+        let outputs = self.resolve_output_ids(outputs)?;
         self.graph
-            .run(inputs, outputs, Some(&self.weight_cache), Some(opts))
+            .run(inputs, &outputs, Some(&self.weight_cache), Some(opts))
     }
 
-    /// Run a model and retrieve `N` outputs.
+    /// Run a model and retrieve exactly `N_OUT` outputs.
     ///
     /// This is a simplified version of [`Model::run`] for the common case of
-    /// executing a model with a statically known number of outputs. Use
-    /// [`Model::run`] instead if the number of outputs is known only at runtime.
-    pub fn run_n<const N: usize>(
+    /// executing a model with a statically known number of outputs.
+    pub fn run_n<N, const N_OUT: usize>(
         &self,
-        inputs: Vec<(NodeId, ValueOrView)>,
-        outputs: [NodeId; N],
+        inputs: Vec<(N, ValueOrView)>,
+        outputs: [N; N_OUT],
         opts: Option<RunOptions>,
-    ) -> Result<[Value; N], RunError> {
+    ) -> Result<[Value; N_OUT], RunError>
+    where
+        Self: ResolveName<N, Error = RunError>,
+    {
         let result = self.run(inputs, &outputs, opts)?;
         Ok(result.try_into().expect("wrong output count"))
     }
@@ -795,13 +828,69 @@ impl Model {
     /// reduced by performing a `partial_run` once outside the loop, providing
     /// the constant inputs, and the results can be provided together with the
     /// the remaining inputs to `run` calls inside the loop.
-    pub fn partial_run(
+    pub fn partial_run<N>(
         &self,
-        inputs: Vec<(NodeId, ValueOrView)>,
-        outputs: &[NodeId],
+        inputs: Vec<(N, ValueOrView)>,
+        outputs: &[N],
         opts: Option<RunOptions>,
-    ) -> Result<Vec<(NodeId, Value)>, RunError> {
-        self.graph.partial_run(inputs, outputs, opts)
+    ) -> Result<Vec<(NodeId, Value)>, RunError>
+    where
+        Self: ResolveName<N, Error = RunError>,
+    {
+        let inputs = self.resolve_input_ids(inputs)?;
+        let outputs = self.resolve_output_ids(outputs)?;
+        self.graph.partial_run(inputs, &outputs, opts)
+    }
+
+    fn resolve_input_ids<'a, N>(
+        &self,
+        inputs: Vec<(N, ValueOrView<'a>)>,
+    ) -> Result<Vec<(NodeId, ValueOrView<'a>)>, RunError>
+    where
+        Self: ResolveName<N, Error = RunError>,
+    {
+        inputs
+            .into_iter()
+            .map(|(name_or_id, value)| {
+                let id = self.resolve_name(&name_or_id)?;
+                Ok((id, value))
+            })
+            .collect()
+    }
+
+    fn resolve_output_ids<N>(&self, ids: &[N]) -> Result<Vec<NodeId>, RunError>
+    where
+        Self: ResolveName<N, Error = RunError>,
+    {
+        ids.iter().map(|id| self.resolve_name(id)).collect()
+    }
+}
+
+/// Resolve the name of a model node to an ID.
+///
+/// This trait is implemented by [`Model`] to allow various methods to accept
+/// either names or IDs to identify nodes.
+pub trait ResolveName<N> {
+    /// Error returned if a name cannot be resolved (eg. [`RunError`]).
+    type Error;
+
+    /// Resolve this name to the ID of a node in a model.
+    fn resolve_name(&self, name: &N) -> Result<NodeId, Self::Error>;
+}
+
+impl ResolveName<NodeId> for Model {
+    type Error = RunError;
+
+    fn resolve_name(&self, name: &NodeId) -> Result<NodeId, RunError> {
+        Ok(*name)
+    }
+}
+
+impl<S: AsRef<str>> ResolveName<S> for Model {
+    type Error = RunError;
+
+    fn resolve_name(&self, name: &S) -> Result<NodeId, RunError> {
+        self.node_id(name.as_ref())
     }
 }
 

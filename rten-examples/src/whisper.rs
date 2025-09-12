@@ -454,18 +454,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         mel_spec.insert_axis(0); // Add batch dim
 
         let encode_start = start.elapsed();
-        let input_features_id = encoder_model.node_id("input_features")?;
-        let output_id = encoder_model.node_id("last_hidden_state")?;
         let [encoded_audio] = encoder_model.run_n(
-            [(input_features_id, mel_spec.view().into())].into(),
-            [output_id],
+            [("input_features", mel_spec.view().into())].into(),
+            ["last_hidden_state"],
             None,
         )?;
         let encoded_audio: NdTensor<f32, 3> = encoded_audio.try_into()?;
         encode_time += start.elapsed() - encode_start;
 
         let start_of_transcript = tokenizer.get_token_id("<|startoftranscript|>")?;
-        let encoder_hidden_states_id = decoder_model.node_id("encoder_hidden_states")?;
 
         // Get the language ID token (eg. "<|en|>").
         //
@@ -478,7 +475,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let prompt = [start_of_transcript];
                 let mut generator = Generator::from_model(&decoder_model)?
                     .with_prompt(&prompt)
-                    .with_constant_input(encoder_hidden_states_id, encoded_audio.view().into())
+                    .with_constant_input("encoder_hidden_states", encoded_audio.view().into())
                     .with_logits_filter(token_id_filter(|token| {
                         // Keep only language ID tokens
                         token >= lang_id_min && token <= lang_id_max
@@ -526,7 +523,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
         let generator = Generator::from_model_config(&decoder_model, generator_config)?
             .with_prompt(&prompt)
-            .with_constant_input(encoder_hidden_states_id, encoded_audio.view().into())
+            .with_constant_input("encoder_hidden_states", encoded_audio.view().into())
             .with_logits_filter(TimestampFilter::new(
                 timestamp_min,
                 timestamp_max,

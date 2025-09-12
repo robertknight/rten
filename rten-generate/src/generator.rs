@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt;
 use std::ops::Range;
 
-use rten::{Dimension, NodeId, RunOptions, Value, ValueOrView, ValueView};
+use rten::{Dimension, NodeId, ResolveName, RunOptions, Value, ValueOrView, ValueView};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
@@ -410,6 +410,12 @@ pub struct Generator<'a> {
     /// This is used by encoder-decoder models. The cross-attention values
     /// are computed on the first run and reused in subsequent runs.
     encoder_kv_cache: Vec<KvCache>,
+
+    /// Error to return when the next token is generated.
+    ///
+    /// This is set by some generator builder methods to preserve existing APIs.
+    /// Those methods could be changed to return the error directly in future.
+    pending_error: Option<GeneratorError>,
 }
 
 impl<'a> Generator<'a> {
@@ -578,6 +584,7 @@ impl<'a> Generator<'a> {
             encoder_kv_cache,
             prev_tokens: Vec::new(),
             sampler: Box::new(ArgMaxSampler {}),
+            pending_error: None,
         };
 
         let attention_mask_input = model.find_node(model_inputs.attention_mask);
@@ -640,9 +647,19 @@ impl<'a> Generator<'a> {
     ///
     /// A common use case is to pass the outputs of an encoder model to
     /// an auto-regressive decoder.
-    pub fn with_constant_input(mut self, input_id: NodeId, value: ValueView<'a>) -> Self {
-        self.constant_prop_inputs = None;
-        self.constant_inputs.push((input_id, value.into()));
+    ///
+    /// The input name can be a string or [`NodeId`].
+    pub fn with_constant_input<N>(mut self, input_name: N, value: ValueView<'a>) -> Self
+    where
+        Self: ResolveName<N, Error = GeneratorError>,
+    {
+        match self.resolve_name(&input_name) {
+            Ok(input_id) => {
+                self.constant_prop_inputs = None;
+                self.constant_inputs.push((input_id, value.into()));
+            }
+            Err(err) => self.pending_error = Some(err),
+        }
         self
     }
 
@@ -653,12 +670,22 @@ impl<'a> Generator<'a> {
     ///
     /// A common use case is to pass position embeddings, if they are not
     /// computed internally by the model.
-    pub fn with_varying_input<F: Fn(usize, Range<usize>) -> ValueOrView<'a>>(
+    ///
+    /// The input name can be a string or [`NodeId`].
+    pub fn with_varying_input<N, F: Fn(usize, Range<usize>) -> ValueOrView<'a>>(
         mut self,
-        input_id: NodeId,
+        input_name: N,
         value_fn: &'a F,
-    ) -> Self {
-        self.varying_inputs.push((input_id, value_fn));
+    ) -> Self
+    where
+        Self: ResolveName<N, Error = GeneratorError>,
+    {
+        match self.resolve_name(&input_name) {
+            Ok(input_id) => {
+                self.varying_inputs.push((input_id, value_fn));
+            }
+            Err(err) => self.pending_error = Some(err),
+        }
         self
     }
 
@@ -692,6 +719,12 @@ impl<'a> Generator<'a> {
                 context: context.to_string(),
             };
             GeneratorError::GenerateError(error_ctx.into())
+        }
+
+        // If an error occurred preparing the generator but was deferred, report
+        // it first.
+        if let Some(err) = self.pending_error.take() {
+            return Err(err);
         }
 
         let batch_size = 1;
@@ -873,6 +906,26 @@ impl<'a> Generator<'a> {
         }
 
         Ok(next_id)
+    }
+}
+
+impl ResolveName<NodeId> for Generator<'_> {
+    type Error = GeneratorError;
+
+    fn resolve_name(&self, name: &NodeId) -> Result<NodeId, Self::Error> {
+        Ok(*name)
+    }
+}
+
+impl ResolveName<&str> for Generator<'_> {
+    type Error = GeneratorError;
+
+    fn resolve_name(&self, name: &&str) -> Result<NodeId, GeneratorError> {
+        if let Some(id) = self.model.find_node(name.as_ref()) {
+            Ok(id)
+        } else {
+            Err(GeneratorError::InputNotFound(name.to_string()))
+        }
     }
 }
 
