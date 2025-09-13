@@ -361,21 +361,21 @@ mod tests {
                 mean: 0.,
                 scale: 1.,
                 shape: vec![10, 100],
-                seed: None,
+                seed: Some(0.1),
             },
             // Custom mean/scale values.
             Case {
                 mean: 5.,
                 scale: 0.5,
                 shape: vec![10, 100],
-                seed: None,
+                seed: Some(0.5),
             },
-            // Custom seed
+            // Auto-generate a seed
             Case {
                 mean: 0.,
                 scale: 1.,
                 shape: vec![10, 100],
-                seed: Some(0.5),
+                seed: None,
             },
         ];
 
@@ -406,8 +406,10 @@ mod tests {
             let delta = (mean - op.mean).abs();
 
             // Threshold is inversely proportional to number of samples (ie.
-            // with more samples, values will approach expectation).
-            let threshold = 0.05;
+            // with more samples, values will approach expectation). For a
+            // random seed use a higher threshold to avoid flakiness in case
+            // mean/std-dev are far from expectation by chance.
+            let threshold = if seed.is_some() { 0.05 } else { 0.5 };
             assert!(delta <= threshold, "delta {delta} > {threshold}");
 
             let var: f32 = output
