@@ -166,24 +166,21 @@ fn normalize_each_channel<'a>(
     // of size N in which case C is assumed to be 1"
     let chans = if input.ndim() >= 2 { input.size(1) } else { 1 };
 
+    // Make tensor contiguous so we can reshape into `(N * C, ...)` with a
+    // contiguous inner lane.
     input.make_contiguous();
 
     let elts_per_chan = input.len() / (batch * chans);
-    let mut input_3d = input.reshaped_mut([batch, chans, elts_per_chan]).unwrap();
-
-    for n in 0..batch {
-        let mut item = input_3d.slice_mut(n);
-        item.lanes_mut(1)
-            .into_par_iter()
-            .enumerate()
-            .for_each(|(c, mut chan)| {
-                let opts = chan_opts(c);
-
-                // OK as we made tensor contiguous.
-                let chan_data = chan.as_slice_mut().unwrap();
-                normalize_slice(chan_data.into(), opts);
-            });
-    }
+    let mut input_2d = input.reshaped_mut([batch * chans, elts_per_chan]).unwrap();
+    input_2d
+        .lanes_mut(1)
+        .into_par_iter()
+        .enumerate()
+        .for_each(|(batch_chan, mut chan)| {
+            let chan_idx = batch_chan % chans;
+            let chan_data = chan.as_slice_mut().unwrap();
+            normalize_slice(chan_data.into(), chan_opts(chan_idx));
+        });
 }
 
 /// Perform in-place batch normalization on an `NC*` tensor.
