@@ -950,7 +950,7 @@ impl Graph {
             // For non-commutative ops we have to use the first input. For
             // commutative ops we can swap inputs around if that enables us to
             // run an op in place.
-            let in_place_input_id = if op_node.operator().can_run_in_place() {
+            let try_in_place_input_id = if op_node.operator().can_run_in_place() {
                 if op_node.operator().is_commutative() {
                     // Pick the largest input by number of elements. This
                     // assumes that commutative op outputs will have a shape
@@ -991,11 +991,16 @@ impl Graph {
                 }
             };
 
-            // If the operator can run in place, check if we have a tensor
-            // that can be used as the output. This requires that the tensor
-            // is not a constant (eg. weights) and is not going to be used by
-            // other ops in future.
-            let in_place_input = in_place_input_id.and_then(&mut take_value);
+            // If the operator can run in place, try to get the owned tensor to
+            // use as an output. This requires that the tensor is not a constant
+            // (eg. weights) and is not going to be used by other ops in future.
+            let in_place_input: Option<(NodeId, Value)> = if let Some(id) = try_in_place_input_id
+                && let Some(value) = take_value(id)
+            {
+                Some((id, value))
+            } else {
+                None
+            };
 
             // Extract values used by the operator's subgraphs which can be
             // passed by value.
@@ -1017,11 +1022,15 @@ impl Graph {
             let mut op_inputs: SmallVec<[Option<ValueView>; 4]> =
                 SmallVec::with_capacity(op_node.input_ids().len());
             for node_id in op_node.input_ids().iter() {
-                if in_place_input.is_some() && *node_id == in_place_input_id {
-                    continue;
-                }
-
                 if let Some(node_id) = node_id {
+                    if let Some((id, _value)) = &in_place_input
+                        && node_id == id
+                    {
+                        // This input is being passed separately as a mutable
+                        // value.
+                        continue;
+                    }
+
                     if let Some(value) = get_value_from_constant_or_input(*node_id) {
                         op_inputs.push(Some(value));
                     } else if let Some(value) = temp_values.get(node_id) {
@@ -1048,16 +1057,14 @@ impl Graph {
                 // Record the input value IDs and metadata together here because
                 // inputs may be reordered if the operator is commutative.
                 let mut meta: Vec<(Option<NodeId>, Option<ValueMeta>)> = Vec::new();
-                if let Some(ref input) = in_place_input
-                    && let Some(id) = in_place_input_id
-                {
-                    meta.push((Some(id), Some(input.to_meta())));
+                if let Some((id, value)) = &in_place_input {
+                    meta.push((Some(*id), Some(value.to_meta())));
                 }
                 for (id, input) in op_node
                     .input_ids()
                     .iter()
                     .copied()
-                    .filter(|id| *id != in_place_input_id)
+                    .filter(|id| *id != in_place_input.as_ref().map(|(id, _value)| *id))
                     .zip(&op_inputs)
                 {
                     meta.push((id, input.as_ref().map(|i| i.to_meta())))
@@ -1082,12 +1089,12 @@ impl Graph {
             let mut ctx = OpRunContext::new(pool, &inputs);
             ctx.set_num_outputs(op_node.output_ids().len() as u32);
 
-            let op_result = if let Some(input) = in_place_input {
-                let input_dtype = input.dtype();
-                let input_shape = input.shape();
+            let op_result = if let Some((_id, value)) = in_place_input {
+                let input_dtype = value.dtype();
+                let input_shape = value.shape();
                 op_node
                     .operator()
-                    .run_in_place(input, &ctx)
+                    .run_in_place(value, &ctx)
                     .map(|out| [out].into())
                     .map_err(|e| {
                         // The error here is currently missing information about operator inputs.
