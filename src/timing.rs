@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Sub;
@@ -381,6 +382,7 @@ impl fmt::Display for FormattedRunTiming<'_> {
 }
 
 /// Timing record for a single graph computation step.
+#[derive(Clone)]
 pub struct TimingRecord<'a> {
     /// Operator name (eg. `MatMul`)
     pub name: &'a str,
@@ -406,9 +408,26 @@ pub enum TimingSort {
     ByTime,
 }
 
+/// Filter which records (ie. which operator nodes) are included in run timings.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TimingFilter {
+    /// Include only certain operators (eg. MatMul, Add).
+    Operator(String),
+}
+
+impl TimingFilter {
+    fn matches(&self, record: &TimingRecord) -> bool {
+        match self {
+            Self::Operator(op) => record.name == op,
+        }
+    }
+}
+
 /// Formatting options for use with [`Profiler::print`].
 pub struct ProfileFormat {
-    pub timing_sort: TimingSort,
+    pub sort: TimingSort,
+
+    pub filter: Vec<TimingFilter>,
 
     /// Whether to break down operator timings by the shape of inputs.
     pub timing_by_shape: bool,
@@ -451,22 +470,35 @@ impl<'a> Profiler<'a> {
 
     /// Print a summary of the profile to stdout.
     pub fn print(&self, opts: ProfileFormat) {
-        let run_duration: Duration = self.records.iter().map(|r| r.elapsed).sum();
+        // Apply filters to timing records.
+        let mut records = Cow::Borrowed(&self.records);
+        if !opts.filter.is_empty() {
+            records
+                .to_mut()
+                .retain(|entry| opts.filter.iter().any(|f| f.matches(entry)));
+        }
+
+        // Print overall stats for all operators.
+        let run_duration: Duration = records.iter().map(|r| r.elapsed).sum();
         let run_duration_ms = run_duration.as_secs_f64() * 1000.0;
         println!(
-            "Graph run of {} ops finished in {:.3}ms",
-            self.records.len(),
+            "{} ops evaluated in {:.3}ms",
+            records.len(),
             run_duration_ms,
         );
+
+        // Print memory-related stats.
         println!("Pool allocs {} hits {}", self.pool_allocs, self.pool_hits,);
 
+        // Print detailed breakdown by operator.
         let timing = RunTiming {
-            records: &self.records,
+            records: &records,
             total_time: run_duration,
         };
+
         print!(
-            "{}",
-            timing.display(opts.timing_sort.clone(), opts.timing_by_shape)
+            "\n{}",
+            timing.display(opts.sort.clone(), opts.timing_by_shape)
         );
     }
 }

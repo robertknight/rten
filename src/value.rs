@@ -74,7 +74,7 @@ impl std::fmt::Display for DataType {
 ///
 /// This is used in profiling and errors which need to contain metadata about
 /// a tensor but not the content.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValueMeta {
     pub(crate) dtype: DataType,
     pub(crate) shape: Vec<usize>,

@@ -19,7 +19,7 @@ use crate::buffer_pool::BufferPool;
 use crate::env::env_flag;
 use crate::ops::{InputList, OpError, OpRunContext, Operator, OutputList, PrepackedInput};
 use crate::threading;
-use crate::timing::{Instant, ProfileFormat, Profiler, TimingRecord, TimingSort};
+use crate::timing::{Instant, ProfileFormat, Profiler, TimingFilter, TimingRecord, TimingSort};
 use crate::value::{DataType, Value, ValueMeta, ValueOrView, ValueView};
 use crate::weight_cache::WeightCache;
 
@@ -217,13 +217,18 @@ pub struct RunOptions {
     /// Whether to log times spent in different operators when run completes.
     pub timing: bool,
 
-    /// Order in which timings should be sorted. Defaults to sorting in
-    /// descending order by time.
-    pub timing_sort: TimingSort,
+    /// Filter which operator nodes are included in the timing report.
+    ///
+    /// Nodes matching any of the filters are included.
+    pub timing_filter: Vec<TimingFilter>,
 
     /// Whether to include a breakdown of execution time by input shape, in
     /// timing reports.
     pub timing_by_shape: bool,
+
+    /// Order in which timings should be sorted. Defaults to sorting in
+    /// descending order by time.
+    pub timing_sort: TimingSort,
 
     /// Whether to log information about each graph operation as it is executed,
     /// including input shapes and execution time. This will slow down
@@ -262,6 +267,7 @@ impl std::fmt::Debug for RunOptions {
 impl PartialEq<Self> for RunOptions {
     fn eq(&self, other: &Self) -> bool {
         self.timing == other.timing
+            && self.timing_filter == other.timing_filter
             && self.timing_sort == other.timing_sort
             && self.timing_by_shape == other.timing_by_shape
             && self.verbose == other.verbose
@@ -772,7 +778,8 @@ impl Graph {
 
             if let Some(profiler) = &profiler {
                 let print_opts = ProfileFormat {
-                    timing_sort: opts.timing_sort.clone(),
+                    sort: opts.timing_sort.clone(),
+                    filter: opts.timing_filter.clone(),
                     timing_by_shape: opts.timing_by_shape,
                 };
                 profiler.print(print_opts);
@@ -1296,7 +1303,8 @@ impl Graph {
 
             if let Some(profiler) = &profiler {
                 let print_opts = ProfileFormat {
-                    timing_sort: opts.timing_sort.clone(),
+                    sort: opts.timing_sort.clone(),
+                    filter: opts.timing_filter.clone(),
                     timing_by_shape: opts.timing_by_shape,
                 };
                 profiler.print(print_opts);
