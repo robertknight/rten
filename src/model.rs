@@ -26,7 +26,7 @@ use crate::graph::{
 use crate::model_metadata::ModelMetadata;
 use crate::op_registry::{OpLoadContext, OpRegistry, ReadOpError, convert_dtype};
 use crate::optimize::{GraphOptimizer, OptimizeOptions};
-use crate::timing::TimingSort;
+use crate::timing::{TimingFilter, TimingSort};
 use crate::value::{DataType, Value, ValueOrView};
 use crate::weight_cache::WeightCache;
 
@@ -165,6 +165,12 @@ fn parse_timing_config(config: &str, opts: &mut RunOptions) {
 
             match key {
                 "by-shape" => opts.timing_by_shape = str_as_bool(val),
+                "filter-op" => {
+                    for op_name in val.split(',') {
+                        opts.timing_filter
+                            .push(TimingFilter::Operator(op_name.to_string()));
+                    }
+                }
                 "sort" => match val {
                     "name" => opts.timing_sort = TimingSort::ByName,
                     "time" => opts.timing_sort = TimingSort::ByTime,
