@@ -47,6 +47,7 @@ homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
 resolver = "2"
 include = ["/src", "/CHANGELOG.md", "/README.md"]
+rust-version = "1.89.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
