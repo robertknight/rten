@@ -9,7 +9,7 @@ use rten_vecmath as vecmath;
 use crate::buffer_pool::BufferPool;
 use crate::ops::{
     DataType, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
-    resolve_axis,
+    map_value_view, resolve_axis,
 };
 
 /// Convert a quantized tensor element to a higher precision value.
@@ -18,21 +18,21 @@ pub trait Dequantize<To> {
     fn dequantize(self, scale: To, zero_point: Self) -> To;
 }
 
-impl Dequantize<f32> for u8 {
-    fn dequantize(self, scale: f32, zero_point: u8) -> f32 {
-        // Promote to i32 to avoid underflow.
-        let x = (self as i32) - zero_point as i32;
-        (x as f32) * scale
-    }
+macro_rules! impl_dequantize_f32 {
+    ($src:ty) => {
+        impl Dequantize<f32> for $src {
+            fn dequantize(self, scale: f32, zero_point: Self) -> f32 {
+                // Promote to i32 to avoid underflow.
+                let x = (self as i32) - zero_point as i32;
+                (x as f32) * scale
+            }
+        }
+    };
 }
 
-impl Dequantize<f32> for i8 {
-    fn dequantize(self, scale: f32, zero_point: i8) -> f32 {
-        // Promote to i32 to avoid underflow.
-        let x = (self as i32) - zero_point as i32;
-        (x as f32) * scale
-    }
-}
+impl_dequantize_f32!(i32);
+impl_dequantize_f32!(i8);
+impl_dequantize_f32!(u8);
 
 pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar>(
     pool: &BufferPool,
@@ -103,17 +103,10 @@ impl Operator for DequantizeLinear {
         let input = inputs.require(0)?;
         let scale = inputs.require_as(1)?;
 
-        match input {
-            ValueView::Int8Tensor(x) => {
-                let zero_point = inputs.get_as(2)?;
-                dequantize_linear(ctx.pool(), x, scale, zero_point, self.axis).into_op_result()
-            }
-            ValueView::UInt8Tensor(x) => {
-                let zero_point = inputs.get_as(2)?;
-                dequantize_linear(ctx.pool(), x, scale, zero_point, self.axis).into_op_result()
-            }
-            _ => Err(OpError::UnsupportedType),
-        }
+        map_value_view!(input, x, [Int8Tensor, UInt8Tensor, Int32Tensor], {
+            let zero_point = inputs.get_as(2)?;
+            dequantize_linear(ctx.pool(), x, scale, zero_point, self.axis).into_op_result()
+        })
     }
 }
 
