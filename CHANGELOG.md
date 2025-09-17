@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### rten
+
+- Declare `rust-version` in Cargo.toml for rten, rten-simd. Build with the
+  MSRV version in CI (https://github.com/robertknight/rten/pull/943)
+
+- Support i32 input tensors in `DequantizeLinear` (https://github.com/robertknight/rten/pull/941)
+
+- Fixed missing shapes for in-placed inputs in timing reports (https://github.com/robertknight/rten/pull/940)
+
+- Add operator type filter in timing report (https://github.com/robertknight/rten/pull/939)
+
+- Make BatchNormalization, InstanceNormalization parallel over batch dimension
+  (https://github.com/robertknight/rten/pull/937)
+
+- Avoid storing small buffers in buffer pool, as this can degrade allocation
+  performance (https://github.com/robertknight/rten/pull/936)
+
+- Optimize `RandomNormal`, `RandomNormalLike` by using approximate algorithm
+  (https://github.com/robertknight/rten/pull/935)
+
 ## [0.22.0] - 2025-09-11
 
 ### Highlights
