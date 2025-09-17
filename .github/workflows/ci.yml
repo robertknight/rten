@@ -16,6 +16,14 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+    - name: Install and use MSRV Rust toolchain
+      run: |
+        rustup toolchain install 1.89.0 --component clippy,rustfmt
+        rustup override set 1.89.0
+    - name: Verify Rust version
+      run: |
+        rustc --version
+        cargo --version
     - name: Install Rust WASM targets
       run: |
         rustup target add wasm32-unknown-unknown
@@ -27,17 +35,9 @@ jobs:
         curl -L https://github.com/bytecodealliance/wasmtime/releases/download/v29.0.1/wasmtime-v29.0.1-x86_64-linux.tar.xz | tar xf - --xz -C ~/.wasmtime --strip-components=1
         echo "$HOME/.wasmtime" >> "$GITHUB_PATH"
       if: ${{ matrix.os == 'ubuntu-latest' }}
-      # Needed to install Rust v1.89+ for AVX-512. This can be removed once
-      # the default build provided on GitHub CI runners is updated.
-    - name: Install latest Rust stable toolchain
-      run: rustup update stable
     - name: Install Rust x86_64-apple-darwin target
       run: rustup target add x86_64-apple-darwin
       if: ${{ matrix.os == 'macos-14' }}
-    - name: Query Rust version
-      run: |
-        rustc --version
-        cargo --version
     - name: Cache
       uses: actions/cache@v3
       with:
