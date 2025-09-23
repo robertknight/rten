@@ -1,0 +1,4 @@
+# Make rustfmt use same settings as `cargo fmt`.
+#
+# See https://github.com/dense-analysis/ale/issues/3814#issuecomment-958947463
+edition = "2024"
