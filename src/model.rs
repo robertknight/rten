@@ -503,9 +503,8 @@ pub enum ModelLoadError {
     /// An error occurred reading the file from disk.
     ReadFailed(std::io::Error),
 
-    /// An error occurred parsing the FlatBuffers data describing the model
-    /// structure.
-    ParseFailed(flatbuffers::InvalidFlatbuffer),
+    /// An error occurred parsing the data describing the model structure.
+    ParseFailed(Box<dyn Error + Send + Sync>),
 
     /// An error occurred deserializing an operator.
     OperatorInvalid(Box<dyn Error + Send + Sync>),

@@ -42,7 +42,8 @@ pub fn load(
         file_data
     };
 
-    let model = root_as_model(model_data).map_err(ModelLoadError::ParseFailed)?;
+    let model =
+        root_as_model(model_data).map_err(|err| ModelLoadError::ParseFailed(Box::new(err)))?;
 
     if model.schema_version() != 1 {
         return Err(ModelLoadError::SchemaVersionUnsupported);
