@@ -402,6 +402,7 @@ dependencies = [
  "rten-bench",
  "rten-gemm",
  "rten-model-file",
+ "rten-onnx",
  "rten-simd",
  "rten-tensor",
  "rten-testing",
