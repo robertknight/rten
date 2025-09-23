@@ -180,7 +180,7 @@ fn tile_inner<T: Copy>(
             }
         }
         ([size, inner_size @ ..], [repeats, inner_repeats @ ..]) => {
-            assert!(output.len() % repeats == 0);
+            assert!(output.len().is_multiple_of(*repeats));
             let out_chunk_len = output.len() / repeats;
             let inner_input_len = input.len() / size;
             let inner_output_len = out_chunk_len / size;

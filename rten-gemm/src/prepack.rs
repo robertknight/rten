@@ -176,7 +176,7 @@ pub fn prepack_a<A: Alloc, LhsT, RhsT, OutT>(
     let depth_block = depth_block_size::<RhsT>(a.cols());
 
     let layout = kernel.packed_a_layout(a, a.rows(), depth_block, None);
-    let tail_layout = if a.cols() % depth_block != 0 {
+    let tail_layout = if !a.cols().is_multiple_of(depth_block) {
         Some(kernel.packed_a_layout(a, a.rows(), a.cols() % depth_block, None))
     } else {
         None
@@ -232,7 +232,7 @@ pub fn prepack_b<A: Alloc, LhsT, RhsT, OutT>(
     let depth_block = depth_block_size::<RhsT>(b.rows());
 
     let layout = kernel.packed_b_layout(depth_block, b.cols(), None);
-    let tail_layout = if b.rows() % depth_block != 0 {
+    let tail_layout = if !b.rows().is_multiple_of(depth_block) {
         Some(kernel.packed_b_layout(b.rows() % depth_block, b.cols(), None))
     } else {
         None

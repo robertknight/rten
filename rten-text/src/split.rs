@@ -76,7 +76,7 @@ impl<T> SliceExt for [T] {
 
         let byte_start = subslice_start.wrapping_sub(self_start);
 
-        if byte_start % core::mem::size_of::<T>() != 0 {
+        if !byte_start.is_multiple_of(core::mem::size_of::<T>()) {
             return None;
         }
 

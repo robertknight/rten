@@ -184,7 +184,7 @@ pub fn copy_into_slice<'a, T: Clone>(
     // to cache conflicts. Otherwise a simple direct copy is probably going to
     // be faster. With a better optimized blocked copy path, we might be able to
     // use it all the time.
-    let use_blocked_copy = src.stride(3) % 16 == 0 && src.stride(3) >= 32;
+    let use_blocked_copy = src.stride(3).is_multiple_of(16) && src.stride(3) >= 32;
 
     // Threshold for copying contiguous inner lane using bulk-copying methods
     // (eg. memcpy).
