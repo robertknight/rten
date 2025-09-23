@@ -8,6 +8,7 @@ members = [
   "rten-imageio",
   "rten-imageproc",
   "rten-model-file",
+  "rten-onnx",
   "rten-simd",
   "rten-tensor",
   "rten-text",

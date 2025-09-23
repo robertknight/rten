@@ -330,6 +330,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "protozero"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4cf30874034ed65953a8e97cc18273b57e1802bf04b9ec164ab0df405571980"
+
+[[package]]
 name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -501,6 +507,13 @@ dependencies = [
  "flatbuffers",
  "rten-base",
  "rten-testing",
+]
+
+[[package]]
+name = "rten-onnx"
+version = "0.22.1"
+dependencies = [
+ "protozero",
 ]
 
 [[package]]
