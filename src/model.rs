@@ -26,6 +26,7 @@ use crate::timing::{TimingFilter, TimingSort};
 use crate::value::{DataType, Value, ValueOrView};
 use crate::weight_cache::WeightCache;
 
+mod onnx_loader;
 mod rten_loader;
 
 /// The central type used to execute RTen machine learning models.
@@ -198,6 +199,25 @@ struct SubgraphOptions<'a> {
     capture_env: Option<&'a CaptureEnv<'a>>,
 }
 
+/// File type of a machine learning model.
+enum FileType {
+    /// An RTen model using the RTen FlatBuffers schema.
+    Rten,
+    /// An ONNX model using the ONNX Protocol Buffers schema.
+    Onnx,
+}
+
+impl FileType {
+    /// Return the file type that corresponds to the extension of `path`.
+    fn from_path(path: &Path) -> Result<Self, ModelLoadError> {
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("rten") => Ok(FileType::Rten),
+            Some("onnx") => Ok(FileType::Onnx),
+            _ => Err(ModelLoadError::ParseFailed("unsupported file type".into())),
+        }
+    }
+}
+
 /// Options which customize how a model is loaded.
 ///
 /// This enables more advanced use cases such as loading a model with only
@@ -253,8 +273,14 @@ impl ModelOptions {
 
     /// Load the model from a file. See [`Model::load_file`].
     pub fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
-        let data = std::fs::read(path).map_err(ModelLoadError::ReadFailed)?;
-        self.load(data)
+        let data = std::fs::read(&path).map_err(ModelLoadError::ReadFailed)?;
+        match FileType::from_path(path.as_ref())? {
+            FileType::Rten => {
+                let storage = Arc::new(ConstantStorage::Buffer(data));
+                rten_loader::load(storage, self)
+            }
+            FileType::Onnx => onnx_loader::load(&data, self),
+        }
     }
 
     /// Load the model from a data buffer. See [`Model::load`].
@@ -286,10 +312,15 @@ impl ModelOptions {
     /// See notes in [`Model::load_mmap`].
     #[cfg(feature = "mmap")]
     pub unsafe fn load_mmap<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
-        let file = File::open(path).map_err(ModelLoadError::ReadFailed)?;
+        let file = File::open(&path).map_err(ModelLoadError::ReadFailed)?;
         let mmap = unsafe { Mmap::map(&file) }.map_err(ModelLoadError::ReadFailed)?;
-        let storage = Arc::new(ConstantStorage::Mmap(mmap));
-        rten_loader::load(storage, self)
+        match FileType::from_path(path.as_ref())? {
+            FileType::Rten => {
+                let storage = Arc::new(ConstantStorage::Mmap(mmap));
+                rten_loader::load(storage, self)
+            }
+            FileType::Onnx => onnx_loader::load(&mmap, self),
+        }
     }
 }
 
