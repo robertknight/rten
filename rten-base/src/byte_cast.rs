@@ -65,12 +65,12 @@ impl_pod!(u64);
 /// Return the length of a slice transmuted from `Src` to `Dst`, or `None` if
 /// the transmute is not possible.
 fn transmuted_slice_len<Src, Dst>(src: &[Src]) -> Option<usize> {
-    if (src.as_ptr() as usize) % align_of::<Dst>() != 0 {
+    if !(src.as_ptr() as usize).is_multiple_of(align_of::<Dst>()) {
         return None;
     }
 
     let src_byte_len = std::mem::size_of_val(src);
-    if src_byte_len % size_of::<Dst>() != 0 {
+    if !src_byte_len.is_multiple_of(size_of::<Dst>()) {
         return None;
     }
 
@@ -180,7 +180,8 @@ pub unsafe trait FromBytes: Sized {
     /// for `self`.
     fn from_bytes(bytes: &[u8]) -> &Self {
         assert!(
-            bytes.len() == size_of::<Self>() && bytes.as_ptr() as usize % align_of::<Self>() == 0
+            bytes.len() == size_of::<Self>()
+                && (bytes.as_ptr() as usize).is_multiple_of(align_of::<Self>())
         );
         unsafe { &*bytes.as_ptr().cast::<Self>() }
     }

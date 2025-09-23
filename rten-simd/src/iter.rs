@@ -223,7 +223,7 @@ impl<'a, T: Elem, O: NumOps<T>> IterPad<'a, T, O> {
     #[inline]
     fn new(ops: O, xs: &'a [T]) -> Self {
         let iter = Iter::new(ops, xs);
-        let has_tail = xs.len() % ops.len() != 0;
+        let has_tail = !xs.len().is_multiple_of(ops.len());
         Self { iter, has_tail }
     }
 }
