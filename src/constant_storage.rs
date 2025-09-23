@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
+use rten_base::byte_cast::Pod;
 use rten_tensor::{DynLayout, Storage, TensorBase};
 
 #[cfg(feature = "mmap")]
@@ -106,6 +107,29 @@ impl<T> ArcSlice<T> {
             storage,
             byte_offset: byte_range.start,
             len: data.len(),
+            phantom: PhantomData,
+        })
+    }
+
+    /// Create an ArcSlice from a buffer of bytes.
+    ///
+    /// This places `buf` in a reference-counted [`ConstantStorage`] container
+    /// and returns a view of the data as a slice of `T`s. The size and
+    /// alignment of the buffer must be a multiple of the size and alignment of
+    /// `T` respectively.
+    pub fn from_bytes(buf: Vec<u8>) -> Option<ArcSlice<T>>
+    where
+        T: Pod,
+    {
+        if !(buf.as_ptr() as usize).is_multiple_of(align_of::<T>()) {
+            return None;
+        }
+        let len = buf.len().checked_div(size_of::<T>())?;
+        let storage = Arc::new(ConstantStorage::Buffer(buf));
+        Some(ArcSlice::<T> {
+            storage,
+            byte_offset: 0,
+            len,
             phantom: PhantomData,
         })
     }
