@@ -26,7 +26,10 @@ use crate::timing::{TimingFilter, TimingSort};
 use crate::value::{DataType, Value, ValueOrView};
 use crate::weight_cache::WeightCache;
 
+mod file_type;
 mod rten_loader;
+
+use file_type::FileType;
 
 /// The central type used to execute RTen machine learning models.
 ///
@@ -253,20 +256,42 @@ impl ModelOptions {
 
     /// Load the model from a file. See [`Model::load_file`].
     pub fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
-        let data = std::fs::read(path).map_err(ModelLoadError::ReadFailed)?;
-        self.load(data)
+        match FileType::from_path(path.as_ref()).ok_or(ModelLoadError::UnknownFileType)? {
+            FileType::Rten => {
+                let data = std::fs::read(&path).map_err(ModelLoadError::ReadFailed)?;
+                let storage = Arc::new(ConstantStorage::Buffer(data));
+                rten_loader::load(storage, self)
+            }
+            FileType::Onnx => Err(ModelLoadError::ParseFailed(
+                "ONNX model loading not implemented yet".into(),
+            )),
+        }
     }
 
     /// Load the model from a data buffer. See [`Model::load`].
     pub fn load(&self, data: Vec<u8>) -> Result<Model, ModelLoadError> {
-        let storage = Arc::new(ConstantStorage::Buffer(data));
-        rten_loader::load(storage, self)
+        match FileType::from_buffer(&data).ok_or(ModelLoadError::UnknownFileType)? {
+            FileType::Rten => {
+                let storage = Arc::new(ConstantStorage::Buffer(data));
+                rten_loader::load(storage, self)
+            }
+            FileType::Onnx => Err(ModelLoadError::ParseFailed(
+                "ONNX model loading not implemented yet".into(),
+            )),
+        }
     }
 
     /// Load the model from a static slice of bytes. See [`Model::load_static_slice`].
     pub fn load_static_slice(&self, data: &'static [u8]) -> Result<Model, ModelLoadError> {
-        let storage = Arc::new(ConstantStorage::StaticSlice(data));
-        rten_loader::load(storage, self)
+        match FileType::from_buffer(data).ok_or(ModelLoadError::UnknownFileType)? {
+            FileType::Rten => {
+                let storage = Arc::new(ConstantStorage::StaticSlice(data));
+                rten_loader::load(storage, self)
+            }
+            FileType::Onnx => Err(ModelLoadError::ParseFailed(
+                "ONNX model loading not implemented yet".into(),
+            )),
+        }
     }
 
     /// Load the model from a memory-mapped view of a file. See [`Model::load_mmap`].
@@ -286,10 +311,17 @@ impl ModelOptions {
     /// See notes in [`Model::load_mmap`].
     #[cfg(feature = "mmap")]
     pub unsafe fn load_mmap<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
-        let file = File::open(path).map_err(ModelLoadError::ReadFailed)?;
+        let file = File::open(&path).map_err(ModelLoadError::ReadFailed)?;
         let mmap = unsafe { Mmap::map(&file) }.map_err(ModelLoadError::ReadFailed)?;
-        let storage = Arc::new(ConstantStorage::Mmap(mmap));
-        rten_loader::load(storage, self)
+        match FileType::from_path(path.as_ref()).ok_or(ModelLoadError::UnknownFileType)? {
+            FileType::Rten => {
+                let storage = Arc::new(ConstantStorage::Mmap(mmap));
+                rten_loader::load(storage, self)
+            }
+            FileType::Onnx => Err(ModelLoadError::ParseFailed(
+                "ONNX model loading not implemented yet".into(),
+            )),
+        }
     }
 }
 
@@ -518,6 +550,9 @@ pub enum ModelLoadError {
 
     /// The file's header is invalid.
     InvalidHeader(Box<dyn Error + Send + Sync>),
+
+    /// The file type of the model could not be determined.
+    UnknownFileType,
 }
 
 impl Display for ModelLoadError {
@@ -530,6 +565,7 @@ impl Display for ModelLoadError {
             ModelLoadError::GraphError(e) => write!(f, "graph error: {e}"),
             ModelLoadError::OptimizeError(e) => write!(f, "graph optimization error: {e}"),
             ModelLoadError::InvalidHeader(e) => write!(f, "invalid header: {e}"),
+            ModelLoadError::UnknownFileType => write!(f, "unknown model file type"),
         }
     }
 }
@@ -613,7 +649,7 @@ mod tests {
 
     use crate::OpRegistry;
     use crate::graph::{Dimension, NodeId, RunError};
-    use crate::model::{Model, ModelOptions};
+    use crate::model::{Model, ModelLoadError, ModelOptions};
     use crate::model_builder::{
         GraphBuilder, IfArgs, MetadataArgs, ModelBuilder, ModelFormat, OpType,
     };
@@ -915,6 +951,23 @@ mod tests {
             .run(vec![(input_id, input.into())], &[output_id], None)
             .unwrap();
         check_output(result);
+    }
+
+    #[test]
+    fn test_load_unknown_type() {
+        let err = Model::load_file("README.md").err().unwrap();
+        assert!(matches!(err, ModelLoadError::UnknownFileType));
+    }
+
+    #[test]
+    fn test_load_onnx() {
+        let expected = "parse error: ONNX model loading not implemented yet";
+        let err = Model::load_file("model.onnx").err().unwrap();
+        assert_eq!(err.to_string(), expected);
+
+        let onnx_buf = std::fs::read("rten-onnx/test-data/mnist.onnx").unwrap();
+        let err = Model::load(onnx_buf).err().unwrap();
+        assert_eq!(err.to_string(), expected);
     }
 
     #[test]
