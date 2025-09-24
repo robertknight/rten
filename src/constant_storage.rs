@@ -31,6 +31,11 @@ pub enum ConstantStorage {
     /// An in-memory buffer, such as a FlatBuffers file that has been read
     /// into memory using functions from `std::fs`.
     Buffer(Vec<u8>),
+
+    /// A static buffer.
+    ///
+    /// This can be used to load a model baked into the binary using
+    /// [`include_bytes`].
     StaticSlice(&'static [u8]),
 }
 
