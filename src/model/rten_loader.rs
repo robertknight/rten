@@ -15,7 +15,8 @@ use super::{
 };
 use crate::constant_storage::{ArcSlice, ArcTensorView};
 use crate::graph::{CaptureEnv, ConstantNodeData, Dimension, Graph, NodeId};
-use crate::op_registry::{OpLoadContext, OpRegistry, ReadOpError, convert_dtype};
+use crate::op_registry::rten_registry::{OpLoadContext, convert_dtype};
+use crate::op_registry::{OpRegistry, ReadOpError};
 use crate::optimize::GraphOptimizer;
 use crate::weight_cache::WeightCache;
 
@@ -200,6 +201,7 @@ fn add_graph_operator(
         load_graph: &load_subgraph,
     };
     let op = registry
+        .rten_registry()
         .read_op(&operator, &ctx)
         .map_err(|err| ModelLoadError::OperatorInvalid(NodeError::for_node(name, err).into()))?;
 
