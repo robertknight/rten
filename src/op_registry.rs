@@ -4,7 +4,6 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use rten_model_file::schema as sg;
-use rten_model_file::schema::{AutoPad, OperatorNode, OperatorType};
 use smallvec::{SmallVec, smallvec};
 
 use crate::graph::Graph;
@@ -46,7 +45,7 @@ impl OpRegistry {
     pub fn register_op<Op: ReadOp + 'static>(&mut self) {
         self.register_op_with_factory(
             Op::op_type(),
-            Box::new(|op: &OperatorNode, ctx: &dyn OpLoadContext| Op::read_boxed(op, ctx)),
+            Box::new(|op: &sg::OperatorNode, ctx: &dyn OpLoadContext| Op::read_boxed(op, ctx)),
         );
     }
 
@@ -70,7 +69,7 @@ impl OpRegistry {
 
     /// Deserialize an operator from a model file using the operators in the
     /// registry.
-    pub(crate) fn read_op(&self, op: &OperatorNode, ctx: &dyn OpLoadContext) -> ReadOpResult {
+    pub(crate) fn read_op(&self, op: &sg::OperatorNode, ctx: &dyn OpLoadContext) -> ReadOpResult {
         self.ops
             .get(&op.type_())
             .ok_or_else(|| ReadOpError::OperatorUnavailable {
@@ -328,10 +327,15 @@ fn convert_reduction(
     Ok(reduction)
 }
 
-fn padding_from_attrs(auto_pad: AutoPad, pads: Option<flatbuffers::Vector<'_, u32>>) -> Padding {
+fn padding_from_attrs(
+    auto_pad: sg::AutoPad,
+    pads: Option<flatbuffers::Vector<'_, u32>>,
+) -> Padding {
     match (auto_pad, pads) {
-        (AutoPad::Same, _) => Padding::Same,
-        (AutoPad::NotSet, Some(pads)) => Padding::Fixed(pads.iter().map(|p| p as usize).collect()),
+        (sg::AutoPad::Same, _) => Padding::Same,
+        (sg::AutoPad::NotSet, Some(pads)) => {
+            Padding::Fixed(pads.iter().map(|p| p as usize).collect())
+        }
         _ => Padding::Fixed(smallvec!(0; 4)),
     }
 }
@@ -349,7 +353,7 @@ fn opt_vec_from_attr(attr: Option<flatbuffers::Vector<u32>>) -> Option<Vec<usize
 pub type ReadOpResult = Result<Arc<dyn Operator + Send + Sync>, ReadOpError>;
 
 /// A function that deserializes an operator node.
-pub type ReadOpFunction = dyn Fn(&OperatorNode, &dyn OpLoadContext) -> ReadOpResult;
+pub type ReadOpFunction = dyn Fn(&sg::OperatorNode, &dyn OpLoadContext) -> ReadOpResult;
 
 /// Trait that deserializes an operator from a `.rten` file into an [`Operator`]
 /// implementation.
@@ -362,12 +366,12 @@ pub trait ReadOp: Operator + Sized + Send + Sync {
     /// Deserialize an operator.
     ///
     /// The node's type must correspond to the result of `op_type`.
-    fn read(op: &OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError>;
+    fn read(op: &sg::OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError>;
 
     /// Deserialize an operator into a boxed `dyn Operator`.
     ///
     /// The node's type must correspond to the result of `op_type`.
-    fn read_boxed(op: &OperatorNode, ctx: &dyn OpLoadContext) -> ReadOpResult
+    fn read_boxed(op: &sg::OperatorNode, ctx: &dyn OpLoadContext) -> ReadOpResult
     where
         Self: 'static,
     {
@@ -388,11 +392,11 @@ pub trait ReadOp: Operator + Sized + Send + Sync {
 macro_rules! impl_read_op {
     ($op:ident) => {
         impl ReadOp for ops::$op {
-            fn op_type() -> OperatorType {
-                OperatorType::$op
+            fn op_type() -> sg::OperatorType {
+                sg::OperatorType::$op
             }
 
-            fn read(_op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+            fn read(_op: &sg::OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
                 Ok(ops::$op {})
             }
         }
@@ -400,11 +404,11 @@ macro_rules! impl_read_op {
 
     ($op:ident, $attrs_method:ident, axis) => {
         impl ReadOp for ops::$op {
-            fn op_type() -> OperatorType {
-                OperatorType::$op
+            fn op_type() -> sg::OperatorType {
+                sg::OperatorType::$op
             }
 
-            fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+            fn read(op: &sg::OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
                 let attrs = op.$attrs_method().ok_or(ReadOpError::AttrsMissingError)?;
                 let op = ops::$op {
                     axis: attrs.axis() as isize,
@@ -416,11 +420,11 @@ macro_rules! impl_read_op {
 
     ($op:ident, $attrs_method:ident, reduce_axis) => {
         impl ReadOp for ops::$op {
-            fn op_type() -> OperatorType {
-                OperatorType::$op
+            fn op_type() -> sg::OperatorType {
+                sg::OperatorType::$op
             }
 
-            fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+            fn read(op: &sg::OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
                 let attrs = op.$attrs_method().ok_or(ReadOpError::AttrsMissingError)?;
                 let op = ops::$op {
                     axis: attrs.axis() as isize,
@@ -433,11 +437,11 @@ macro_rules! impl_read_op {
 
     ($op:ident, $attrs_method:ident, reduce_axes) => {
         impl ReadOp for ops::$op {
-            fn op_type() -> OperatorType {
-                OperatorType::$op
+            fn op_type() -> sg::OperatorType {
+                sg::OperatorType::$op
             }
 
-            fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+            fn read(op: &sg::OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
                 let attrs = op.$attrs_method().ok_or(ReadOpError::AttrsMissingError)?;
                 let axes = attrs.axes().map(|axes| axes.iter().collect());
                 let op = ops::$op {
@@ -451,11 +455,11 @@ macro_rules! impl_read_op {
 
     ($op:ident, $attrs_method:ident, $read_op:expr) => {
         impl ReadOp for ops::$op {
-            fn op_type() -> OperatorType {
-                OperatorType::$op
+            fn op_type() -> sg::OperatorType {
+                sg::OperatorType::$op
             }
 
-            fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+            fn read(op: &sg::OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
                 let attrs = op.$attrs_method().ok_or(ReadOpError::AttrsMissingError)?;
                 #[allow(clippy::redundant_closure_call)]
                 let op = { $read_op(attrs)? };
@@ -711,10 +715,10 @@ impl_read_op!(Identity);
 
 impl ReadOp for ops::If {
     fn op_type() -> sg::OperatorType {
-        OperatorType::If
+        sg::OperatorType::If
     }
 
-    fn read(op: &OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+    fn read(op: &sg::OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
         let attrs = op
             .attrs_as_if_attrs()
             .ok_or(ReadOpError::AttrsMissingError)?;
@@ -773,10 +777,10 @@ impl_read_op!(LogSoftmax, attrs_as_softmax_attrs, axis);
 
 impl ReadOp for ops::Loop {
     fn op_type() -> sg::OperatorType {
-        OperatorType::Loop
+        sg::OperatorType::Loop
     }
 
-    fn read(op: &OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+    fn read(op: &sg::OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
         let attrs = op
             .attrs_as_loop_attrs()
             .ok_or(ReadOpError::AttrsMissingError)?;
@@ -850,10 +854,10 @@ impl_read_op!(Or);
 
 impl ReadOp for ops::Pad {
     fn op_type() -> sg::OperatorType {
-        OperatorType::Pad
+        sg::OperatorType::Pad
     }
 
-    fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+    fn read(op: &sg::OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
         // Pad attributes are optional for backwards compatibility.
         let attrs = op.attrs_as_pad_attrs();
         let mode = match attrs.map(|a| a.mode()).unwrap_or(sg::PadMode::Constant) {
@@ -1038,10 +1042,10 @@ impl_read_op!(SequenceLength);
 
 impl ReadOp for ops::Shape {
     fn op_type() -> sg::OperatorType {
-        OperatorType::Shape
+        sg::OperatorType::Shape
     }
 
-    fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+    fn read(op: &sg::OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
         // Shape attributes are optional for backwards compatibility
         let attrs = op.attrs_as_shape_attrs();
         let start = attrs.and_then(|a| a.start());
