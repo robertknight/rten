@@ -7,8 +7,14 @@ use rten_tensor::{Alloc, CowData, MutLayout, TensorBase};
 
 /// A memory buffer that can be used to satisfy a future allocation from
 /// a [`BufferPool`].
+///
+/// This is conceptually like a `Vec` which has zero length, possibly non-zero
+/// capacity and has been type-erased. A buffer can be cheaply converted into an
+/// empty `Vec` of any type which has the same size and alignment as the type
+/// of Vec from which the buffer was constructed. Converting a `Vec` to a
+/// `Buffer` and back preserves the capacity of the vec but not the length.
 pub struct Buffer {
-    /// Pointer to the allocation.
+    /// Pointer to the allocation. The data may be uninitialized.
     ptr: *mut u8,
 
     /// Capacity of the Vec from which the buffer was constructed. Note this
@@ -46,20 +52,26 @@ impl Buffer {
     }
 
     /// Convert this buffer into a zero-length vector.
-    fn into_vec<T>(self) -> Vec<T> {
+    ///
+    /// This will return `None` if the size or alignment of `T` does not match
+    /// the size and alignment of the `Vec` that the buffer was originally
+    /// created from.
+    fn into_vec<T>(self) -> Option<Vec<T>> {
         // This code assumes that it is safe to transmute the buffer provided
         // that the original and new array layouts are the same.
-        assert!(self.layout_match::<T>());
+        if !self.layout_match::<T>() {
+            return None;
+        }
 
         // Safety: We are reconstructing the vec with the same raw parts into
         // which it was decomposed in `from_vec`. The type may be different,
-        // but it has the same alignment.
+        // but it has the same size and alignment.
         let vec = unsafe { Vec::from_raw_parts(self.ptr as *mut T, 0, self.capacity) };
 
         // Don't drop self, as that would deallocate the buffer.
         std::mem::forget(self);
 
-        vec
+        Some(vec)
     }
 
     /// Test if this buffer has the same layout as one with the same capacity
@@ -215,7 +227,7 @@ impl BufferPool {
             self.hit_count.fetch_add(1, Ordering::AcqRel);
 
             let item = buffers.remove(best_fit);
-            return item.into_vec::<T>();
+            return item.into_vec::<T>().expect("alignment should match");
         }
 
         // No suitable buffer was found. Fall back to the global allocator, but
@@ -387,9 +399,53 @@ impl<T: ExtractBuffer> Drop for PoolRef<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AutoReturn, BufferPool, ExtractBuffer};
+    use super::{AutoReturn, Buffer, BufferPool, ExtractBuffer};
     use rten_tensor::NdTensor;
     use rten_tensor::prelude::*;
+
+    #[test]
+    fn test_buffer() {
+        let vec = vec![1i32, 2, 3];
+        let cap = vec.capacity();
+        let buf = Buffer::from_vec(vec);
+
+        // Convert into Vec with a different type that has the same layout.
+        let new_vec: Vec<f32> = buf.into_vec().unwrap();
+        assert_eq!(new_vec.capacity(), cap); // Capacity is preserved
+        assert_eq!(new_vec.len(), 0); // ...but the length is not.
+
+        // Attempt to convert into Vec with larger alignment.
+        let buf = Buffer::from_vec(new_vec);
+        let new_vec: Option<Vec<i64>> = buf.into_vec();
+        assert!(new_vec.is_none());
+
+        // Attempt to convert into Vec with smaller alignment.
+        let vec = vec![1i32, 2, 3];
+        let buf = Buffer::from_vec(vec);
+        let new_vec: Option<Vec<u8>> = buf.into_vec();
+        assert!(new_vec.is_none());
+    }
+
+    #[test]
+    fn test_empty_buffer() {
+        // Empty Vec is special as it doesn't allocate.
+        let buf = Buffer::from_vec(Vec::<i32>::new());
+        std::mem::drop(buf);
+    }
+
+    #[test]
+    fn test_zst_buffer() {
+        // Make sure Buffer behaves correctly with zero-sized types.
+        let vec = vec![(), ()];
+        let cap = vec.capacity();
+        let buf = Buffer::from_vec(vec);
+        let new_vec: Vec<()> = buf.into_vec().unwrap();
+        assert_eq!(new_vec.len(), 0);
+        assert_eq!(new_vec.capacity(), cap);
+
+        let buf = Buffer::from_vec(new_vec);
+        std::mem::drop(buf);
+    }
 
     #[test]
     fn test_pool_alloc_tensor() {
