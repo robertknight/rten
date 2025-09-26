@@ -147,8 +147,8 @@ pub fn cast_pod_vec<Src: Pod, Dst: Pod>(src: Vec<Src>) -> Option<Vec<Dst>> {
 
 /// Transmute a reference counted slice of elements from one [`Pod`] type to another.
 ///
-/// The source and destination types must have the same size and alignment.
-/// The length and slice will be the same afterwards.
+/// The source and destination types must have the same size and alignment. The
+/// length of the returned slice will be the same as the input.
 pub fn cast_pod_arc<Src: Pod, Dst: Pod>(src: Arc<[Src]>) -> Option<Arc<[Dst]>> {
     if Layout::array::<Src>(src.len()) != Layout::array::<Dst>(src.len()) {
         return None;
@@ -157,7 +157,7 @@ pub fn cast_pod_arc<Src: Pod, Dst: Pod>(src: Arc<[Src]>) -> Option<Arc<[Dst]>> {
     let ptr = Arc::into_raw(src);
 
     // Safety: `Src` and `Dst` types have the same layout for an array of
-    // `src.len()` elements, so the allocation is compatible. Both are `Pod`
+    // `src.len()` elements so the allocation is compatible. Both are `Pod`
     // types so we can transmute any value of `Src` to a value of `Dst`.
     Some(unsafe { Arc::from_raw(ptr as *const [Dst]) })
 }
