@@ -483,8 +483,17 @@ impl ExternalFileLoader {
             .map_err(ExternalDataError::IoError)?;
         let dst_slice = Arc::get_mut(&mut buf).unwrap();
         let dst_bytes = cast_uninit_pod_mut_slice::<T, u8>(dst_slice).unwrap();
+
+        // FIXME: This should use `read_buf` to fill the buffer when that is
+        // stabilized. Passing an uninitialized slice to `read_exact` is UB. We
+        // are relying on the impl for `File` to follow the recommendations for
+        // `read_exact` that impls should only write to the slice and not read
+        // from it.
         file.read_exact(unsafe { dst_bytes.assume_init() })
             .map_err(ExternalDataError::IoError)?;
+
+        // FIXME: We assume here that `read_exact` initialized the buffer,
+        // although the contract does not guarantee this.
         Ok(unsafe { buf.assume_init() })
     }
 }
