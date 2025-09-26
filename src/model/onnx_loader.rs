@@ -518,13 +518,13 @@ impl ExternalDataLoader for ExternalFileLoader {
 /// Get a handle to the open file named `path` in `files` or open the file for reading.
 fn get_or_open_file<'a>(
     files: &'a mut HashMap<String, File>,
-    base_path: &PathBuf,
+    base_path: &Path,
     path: &str,
 ) -> Result<&'a mut File, ExternalDataError> {
-    if !files.get(path).is_some() {
+    if files.get(path).is_none() {
         // TODO - Disallow file paths that don't contain an `onnx_data` extension
         // or contain a directory path.
-        let mut file_path = base_path.clone();
+        let mut file_path = base_path.to_path_buf();
         file_path.push(path);
         let file = File::open(file_path).map_err(ExternalDataError::IoError)?;
         files.insert(path.to_string(), file);
