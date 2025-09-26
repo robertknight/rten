@@ -250,6 +250,16 @@ impl<'a> DecodeField<'a> for NodeProto<'a> {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct DataLocation(pub i32);
+
+impl DataLocation {
+    pub const DEFAULT: Self = Self(0);
+    pub const EXTERNAL: Self = Self(1);
+}
+
+impl_decode_from_enum!(DataLocation);
+
 #[derive(Debug, Default)]
 pub struct TensorProto<'a> {
     pub name: Option<&'a str>,
@@ -259,6 +269,8 @@ pub struct TensorProto<'a> {
     pub float_data: Vec<f32>,
     pub int32_data: Vec<i32>,
     pub int64_data: Vec<i64>,
+    pub external_data: Option<StringStringEntryProto<'a>>,
+    pub data_location: Option<DataLocation>,
 }
 
 impl TensorProto<'_> {
@@ -283,9 +295,30 @@ impl<'a> DecodeField<'a> for TensorProto<'a> {
             Self::INT64_DATA => self.int64_data.decode_from(field.value),
             Self::NAME => self.name.decode_from(field.value),
             Self::RAW_DATA => self.raw_data.decode_from(field.value),
-            Self::EXTERNAL_DATA => Ok(()),
-            Self::DATA_LOCATION => Ok(()),
+            Self::EXTERNAL_DATA => self.external_data.decode_from(field.value),
+            Self::DATA_LOCATION => self.data_location.decode_from(field.value),
             _ => unknown_field("TensorProto", field),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct StringStringEntryProto<'a> {
+    key: Option<&'a str>,
+    value: Option<&'a str>,
+}
+
+impl StringStringEntryProto<'_> {
+    const KEY: u64 = 1; // string
+    const VALUE: u64 = 2; // string
+}
+
+impl<'a> DecodeField<'a> for StringStringEntryProto<'a> {
+    fn decode_field(&mut self, field: Field<'a>) -> Result<(), DecodeError> {
+        match field.number {
+            Self::KEY => self.key.decode_from(field.value),
+            Self::VALUE => self.value.decode_from(field.value),
+            _ => unknown_field("StringStringEntryProto", field),
         }
     }
 }
