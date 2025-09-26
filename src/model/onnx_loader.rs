@@ -522,6 +522,8 @@ fn get_or_open_file<'a>(
     path: &str,
 ) -> Result<&'a mut File, ExternalDataError> {
     if !files.get(path).is_some() {
+        // TODO - Disallow file paths that don't contain an `onnx_data` extension
+        // or contain a directory path.
         let mut file_path = base_path.clone();
         file_path.push(path);
         let file = File::open(file_path).map_err(ExternalDataError::IoError)?;
