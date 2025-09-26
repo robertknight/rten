@@ -2,6 +2,7 @@
 
 use std::alloc::Layout;
 use std::mem::{ManuallyDrop, MaybeUninit};
+use std::sync::Arc;
 
 /// Marker trait for "plain old data".
 ///
@@ -138,10 +139,27 @@ pub fn cast_pod_vec<Src: Pod, Dst: Pod>(src: Vec<Src>) -> Option<Vec<Dst>> {
         return None;
     }
 
-    // Safety: `Src` and `Dest` types have the same layout for an array of
+    // Safety: `Src` and `Dst` types have the same layout for an array of
     // `src_cap` elements, so the allocation is compatible, and are `Pod` types
     // so we can transmute any value of `Src` to a value of `Dst`.
     Some(unsafe { Vec::from_raw_parts(src_ptr as *mut Dst, src_len, src_cap) })
+}
+
+/// Transmute a reference counted slice of elements from one [`Pod`] type to another.
+///
+/// The source and destination types must have the same size and alignment.
+/// The length and slice will be the same afterwards.
+pub fn cast_pod_arc<Src: Pod, Dst: Pod>(src: Arc<[Src]>) -> Option<Arc<[Dst]>> {
+    if Layout::array::<Src>(src.len()) != Layout::array::<Dst>(src.len()) {
+        return None;
+    }
+
+    let ptr = Arc::into_raw(src);
+
+    // Safety: `Src` and `Dst` types have the same layout for an array of
+    // `src.len()` elements, so the allocation is compatible. Both are `Pod`
+    // types so we can transmute any value of `Src` to a value of `Dst`.
+    Some(unsafe { Arc::from_raw(ptr as *const [Dst]) })
 }
 
 /// Types which can be viewed as a slice of bytes.
@@ -190,9 +208,10 @@ pub unsafe trait FromBytes: Sized {
 #[cfg(test)]
 mod tests {
     use std::mem::MaybeUninit;
+    use std::sync::Arc;
 
     use super::{
-        AsBytes, FromBytes, Pod, cast_pod_mut_slice, cast_pod_slice, cast_pod_vec,
+        AsBytes, FromBytes, Pod, cast_pod_arc, cast_pod_mut_slice, cast_pod_slice, cast_pod_vec,
         cast_uninit_pod_mut_slice,
     };
 
@@ -229,6 +248,21 @@ mod tests {
         // Incompatible types
         let i32s = Vec::from([1, 2, 3]);
         let i8s = cast_pod_vec::<i32, i8>(i32s);
+        assert!(i8s.is_none());
+    }
+
+    #[test]
+    fn test_cast_pod_arc() {
+        // Compatible types
+        let i32s = Arc::<[i32]>::from([1, 2, 3]);
+        let (ptr, len) = (i32s.as_ptr(), i32s.len());
+        let f32s = cast_pod_arc::<i32, f32>(i32s).unwrap();
+        assert_eq!(f32s.as_ptr(), ptr as *const f32);
+        assert_eq!(f32s.len(), len);
+
+        // Incompatible types
+        let i32s = Arc::from([1, 2, 3]);
+        let i8s = cast_pod_arc::<i32, i8>(i32s);
         assert!(i8s.is_none());
     }
 
