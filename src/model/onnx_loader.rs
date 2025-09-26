@@ -1,9 +1,16 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
+use std::mem::MaybeUninit;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rten_base::byte_cast::{Pod, cast_pod_arc, cast_uninit_pod_mut_slice};
 use rten_onnx::DecodeMessage;
 use rten_onnx::onnx;
 use rten_onnx::onnx::{GraphProto, ModelProto};
-use rten_tensor::ArcTensor;
+use rten_tensor::{ArcTensor, AssumeInit};
 
 use super::NodeError;
 use super::{Model, ModelLoadError, ModelOptions, OptimizeMode};
@@ -19,7 +26,11 @@ use crate::weight_cache::WeightCache;
 ///
 /// An ONNX model is the serialized `ModelProto` Protocol Buffers message
 /// defined in https://github.com/onnx/onnx/blob/main/onnx/onnx.proto3.
-pub fn load(data: &[u8], options: &ModelOptions) -> Result<Model, ModelLoadError> {
+pub fn load(
+    data: &[u8],
+    options: &ModelOptions,
+    data_loader: &dyn ExternalDataLoader,
+) -> Result<Model, ModelLoadError> {
     let model =
         ModelProto::decode(data).map_err(|err| ModelLoadError::ParseFailed(Box::new(err)))?;
 
@@ -30,7 +41,13 @@ pub fn load(data: &[u8], options: &ModelOptions) -> Result<Model, ModelLoadError
     };
 
     let graph = if let Some(onnx_graph) = model.graph {
-        load_graph(&onnx_graph, &options.registry, optimize_opts, None)?
+        load_graph(
+            &onnx_graph,
+            &options.registry,
+            optimize_opts,
+            None,
+            data_loader,
+        )?
     } else {
         Graph::new()
     };
@@ -61,6 +78,7 @@ fn load_graph(
     registry: &OpRegistry,
     optimize: OptimizeMode,
     capture_env: Option<&CaptureEnv>,
+    data_loader: &dyn ExternalDataLoader,
 ) -> Result<Graph, ModelLoadError> {
     let approx_node_count = onnx_graph.node.len() + onnx_graph.value_info.len();
     let mut graph = Graph::with_capacity(approx_node_count);
@@ -83,7 +101,7 @@ fn load_graph(
 
     // Add constants from initializers.
     for initializer in &onnx_graph.initializer {
-        let constant = load_constant(initializer, None)?;
+        let constant = load_constant(initializer, None, data_loader)?;
         graph.add_constant_node(constant);
     }
 
@@ -93,7 +111,7 @@ fn load_graph(
         .iter()
         .filter(|op| op.op_type == Some("Constant"))
     {
-        let constant = load_constant_from_constant_op(const_op)?;
+        let constant = load_constant_from_constant_op(const_op, data_loader)?;
         graph.add_constant_node(constant);
     }
 
@@ -172,6 +190,7 @@ fn load_graph(
             SubgraphOptions {
                 optimize: optimize.clone(),
                 capture_env,
+                data_loader,
             },
         )?;
     }
@@ -227,12 +246,27 @@ fn load_value_info(value: &onnx::ValueInfoProto) -> (Option<DataType>, Option<Ve
 fn load_constant(
     initializer: &onnx::TensorProto,
     name: Option<&str>,
+    external_loader: &dyn ExternalDataLoader,
 ) -> Result<Constant, ModelLoadError> {
     let name = name.or(initializer.name);
 
     let shape: Result<Vec<usize>, _> = initializer.dims.iter().map(|&dim| dim.try_into()).collect();
     let shape =
         shape.map_err(|_| load_error!(GraphError, name, "initializer has invalid shape"))?;
+
+    // Check if this tensor data is stored in the .onnx file or an external file.
+    let data_location = initializer
+        .data_location
+        .unwrap_or(onnx::DataLocation::DEFAULT);
+    let external_location = match data_location {
+        onnx::DataLocation::DEFAULT => None,
+        onnx::DataLocation::EXTERNAL => {
+            Some(external_data_location(name, &initializer.external_data)?)
+        }
+        _ => {
+            return Err(load_error!(GraphError, name, "unsupported data location"));
+        }
+    };
 
     // TensorProto can store data in one of several fields. Most use the
     // `raw_data` field.
@@ -242,6 +276,9 @@ fn load_constant(
         Some(onnx::DataType::FLOAT) => {
             let data = if let Some(data) = raw_data {
                 load_raw_data(data, f32::from_le_bytes)
+            } else if let Some(loc) = external_location {
+                let u32s = external_loader.load_u32(loc)?;
+                cast_pod_arc(u32s).unwrap()
             } else {
                 initializer.float_data.as_slice().into()
             };
@@ -251,6 +288,9 @@ fn load_constant(
         Some(onnx::DataType::INT32) => {
             let data = if let Some(data) = raw_data {
                 load_raw_data(data, i32::from_le_bytes)
+            } else if let Some(loc) = external_location {
+                let u32s = external_loader.load_u32(loc)?;
+                cast_pod_arc(u32s).unwrap()
             } else {
                 initializer.int32_data.as_slice().into()
             };
@@ -260,6 +300,8 @@ fn load_constant(
         Some(onnx::DataType::UINT8) => {
             let data = if let Some(data) = raw_data {
                 data.into()
+            } else if let Some(loc) = external_location {
+                external_loader.load_u8(loc)?
             } else {
                 initializer.int32_data.iter().map(|x| *x as u8).collect()
             };
@@ -270,6 +312,9 @@ fn load_constant(
             let data = if let Some(data) = raw_data {
                 let u8_to_i8 = |bytes: [u8; 1]| bytes[0] as i8;
                 load_raw_data(data, u8_to_i8)
+            } else if let Some(loc) = external_location {
+                let u8s = external_loader.load_u8(loc)?;
+                cast_pod_arc(u8s).unwrap()
             } else {
                 initializer.int32_data.iter().map(|x| *x as i8).collect()
             };
@@ -284,6 +329,9 @@ fn load_constant(
                 let i64_to_i32 =
                     |bytes: [u8; 8]| saturating_cast_i64_to_i32(i64::from_le_bytes(bytes));
                 load_raw_data(data, i64_to_i32)
+            } else if let Some(loc) = external_location {
+                let u64s = external_loader.load_u64(loc)?;
+                cast_pod_arc(u64s).unwrap()
             } else {
                 initializer
                     .int64_data
@@ -296,9 +344,12 @@ fn load_constant(
             Constant::new(name, tensor)
         }
         Some(onnx::DataType::BOOL) => {
+            let u8_to_i32 = |bytes: [u8; 1]| if bytes[0] != 0 { 1 } else { 0 };
             let data = if let Some(data) = raw_data {
-                let u8_to_i32 = |bytes: [u8; 1]| if bytes[0] != 0 { 1 } else { 0 };
                 load_raw_data(data, u8_to_i32)
+            } else if let Some(loc) = external_location {
+                let u8s = external_loader.load_u8(loc)?;
+                u8s.as_chunks().0.iter().copied().map(u8_to_i32).collect()
             } else {
                 initializer
                     .int32_data
@@ -330,6 +381,208 @@ fn load_constant(
     Ok(constant)
 }
 
+/// Specifies the location of tensor data which is stored externally.
+///
+/// See https://github.com/onnx/onnx/blob/d2813e19cd9f0394f4b66fb392f0a09f231af77f/onnx/onnx.proto3#L743.
+pub struct ExternalDataLocation<'a> {
+    /// Path relative to the directory containing the ONNX protobuf model.
+    path: &'a str,
+
+    /// Offset of the start of the tensor data in the file.
+    offset: u64,
+
+    /// Length of the tensor data in bytes.
+    length: u64,
+}
+
+/// Errors reading tensor data from an external file.
+#[derive(Debug)]
+pub enum ExternalDataError {
+    /// An IO error occurred when accessing the external file.
+    IoError(std::io::Error),
+
+    /// The length of the external data is not a multiple of the element size
+    /// (eg. if reading i32 elements, the length must be a multiple of 4).
+    InvalidLength,
+
+    /// External data is not supported in the current environment.
+    NotSupported,
+}
+
+impl std::fmt::Display for ExternalDataError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IoError(err) => write!(f, "io error: {}", err),
+            Self::InvalidLength => write!(f, "length is not a multiple of element size"),
+            Self::NotSupported => {
+                write!(f, "external data not supported on this system")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ExternalDataError {}
+
+impl From<ExternalDataError> for ModelLoadError {
+    fn from(err: ExternalDataError) -> ModelLoadError {
+        ModelLoadError::ExternalDataError(Box::new(err))
+    }
+}
+
+/// Trait for loading data from an external file.
+pub trait ExternalDataLoader {
+    /// Load 8-bit elements from an external file.
+    fn load_u8(&self, location: ExternalDataLocation) -> Result<Arc<[u8]>, ExternalDataError>;
+
+    /// Load 32-bit elements from an external file.
+    fn load_u32(&self, location: ExternalDataLocation) -> Result<Arc<[u32]>, ExternalDataError>;
+
+    /// Load 64-bit elements from an external file.
+    fn load_u64(&self, location: ExternalDataLocation) -> Result<Arc<[u64]>, ExternalDataError>;
+}
+
+/// External file loader that uses standard file IO.
+pub struct ExternalFileLoader {
+    /// Path to the directory external data files.
+    base_path: PathBuf,
+
+    /// Map of external data file name to open file.
+    files: RefCell<HashMap<String, File>>,
+}
+
+impl ExternalFileLoader {
+    pub fn new(model_path: &Path) -> Self {
+        let base_path = model_path.parent().expect("should have a parent dir");
+        Self {
+            base_path: base_path.to_path_buf(),
+            files: HashMap::new().into(),
+        }
+    }
+
+    /// Read a chunk of a file specified by `location` into `buf`.
+    ///
+    /// The path specified by `location.path` is resolved relative to this
+    /// loader's base path.
+    ///
+    /// The size of the file chunk specified by `location.length` must match
+    /// the length of `buf`.
+    fn read<T: Pod>(
+        &self,
+        location: ExternalDataLocation,
+        mut buf: Arc<[MaybeUninit<T>]>,
+    ) -> Result<Arc<[T]>, ExternalDataError> {
+        // On a big-endian system we'd need to transmute bytes after reading
+        // if we're reading multi-byte elements.
+        if cfg!(target_endian = "big") {
+            return Err(ExternalDataError::NotSupported);
+        }
+
+        let mut files = self.files.borrow_mut();
+        let file = get_or_open_file(&mut files, &self.base_path, location.path)?;
+        file.seek(SeekFrom::Start(location.offset))
+            .map_err(ExternalDataError::IoError)?;
+        let dst_slice = Arc::get_mut(&mut buf).unwrap();
+        let dst_bytes = cast_uninit_pod_mut_slice::<T, u8>(dst_slice).unwrap();
+        file.read_exact(unsafe { dst_bytes.assume_init() })
+            .map_err(ExternalDataError::IoError)?;
+        Ok(unsafe { buf.assume_init() })
+    }
+}
+
+impl ExternalDataLoader for ExternalFileLoader {
+    fn load_u8(&self, location: ExternalDataLocation) -> Result<Arc<[u8]>, ExternalDataError> {
+        let uninit_data = Arc::<[u8]>::new_uninit_slice(location.length as usize);
+        let data = self.read(location, uninit_data)?;
+        Ok(cast_pod_arc(data).unwrap())
+    }
+
+    fn load_u32(&self, location: ExternalDataLocation) -> Result<Arc<[u32]>, ExternalDataError> {
+        let Some(len_u32) = location.length.checked_div(size_of::<u32>() as u64) else {
+            return Err(ExternalDataError::InvalidLength);
+        };
+        let uninit_data = Arc::<[u32]>::new_uninit_slice(len_u32 as usize);
+        let data = self.read(location, uninit_data)?;
+        Ok(cast_pod_arc(data).unwrap())
+    }
+
+    fn load_u64(&self, location: ExternalDataLocation) -> Result<Arc<[u64]>, ExternalDataError> {
+        let Some(len_u64) = location.length.checked_div(size_of::<u64>() as u64) else {
+            return Err(ExternalDataError::InvalidLength);
+        };
+        let uninit_data = Arc::<[u64]>::new_uninit_slice(len_u64 as usize);
+        let data = self.read(location, uninit_data)?;
+        Ok(cast_pod_arc(data).unwrap())
+    }
+}
+
+/// Get a handle to the open file named `path` in `files` or open the file for reading.
+fn get_or_open_file<'a>(
+    files: &'a mut HashMap<String, File>,
+    base_path: &PathBuf,
+    path: &str,
+) -> Result<&'a mut File, ExternalDataError> {
+    if !files.get(path).is_some() {
+        let mut file_path = base_path.clone();
+        file_path.push(path);
+        let file = File::open(file_path).map_err(ExternalDataError::IoError)?;
+        files.insert(path.to_string(), file);
+    }
+    Ok(files.get_mut(path).unwrap())
+}
+
+/// Parse the external location metadata from a `TensorProto.external_data` field.
+fn external_data_location<'a>(
+    name: Option<&str>,
+    metadata: &[onnx::StringStringEntryProto<'a>],
+) -> Result<ExternalDataLocation<'a>, ModelLoadError> {
+    let mut location = None;
+    let mut offset = None;
+    let mut length = None;
+
+    for metadata in metadata {
+        let key = metadata.key.unwrap_or_default();
+        let value = metadata.value.unwrap_or_default();
+
+        match key {
+            "location" => location = Some(value),
+            "offset" => {
+                offset =
+                    Some(value.parse::<u64>().map_err(|_| {
+                        load_error!(GraphError, name, "invalid external data offset")
+                    })?);
+            }
+            "length" => {
+                length =
+                    Some(value.parse::<u64>().map_err(|_| {
+                        load_error!(GraphError, name, "invalid external data length")
+                    })?);
+            }
+            "checksum" => {}
+            _ => {
+                return Err(load_error!(
+                    GraphError,
+                    name,
+                    "unsupported external data key {}",
+                    key
+                ));
+            }
+        }
+    }
+
+    let location =
+        location.ok_or_else(|| load_error!(GraphError, name, "missing external data location"))?;
+    let offset =
+        offset.ok_or_else(|| load_error!(GraphError, name, "missing external data offset"))?;
+    let length =
+        length.ok_or_else(|| load_error!(GraphError, name, "missing external data length"))?;
+
+    Ok(ExternalDataLocation {
+        path: location,
+        offset,
+        length,
+    })
+}
+
 /// Convert `x` to i32 with saturation.
 ///
 /// RTen internally does not support i64 values so we convert to i32. We use a
@@ -341,7 +594,10 @@ fn saturating_cast_i64_to_i32(x: i64) -> i32 {
 }
 
 /// Load a tensor from a "Constant" operator.
-fn load_constant_from_constant_op(op: &onnx::NodeProto) -> Result<Constant, ModelLoadError> {
+fn load_constant_from_constant_op(
+    op: &onnx::NodeProto,
+    data_loader: &dyn ExternalDataLoader,
+) -> Result<Constant, ModelLoadError> {
     // The name of the constant node will be the name of its single output,
     // as that is the name that will be referenced by operator inputs.
     let [output] = &op.output[..] else {
@@ -366,7 +622,7 @@ fn load_constant_from_constant_op(op: &onnx::NodeProto) -> Result<Constant, Mode
                         "invalid \"value\" attribute"
                     ));
                 };
-                load_constant(value, const_name)?
+                load_constant(value, const_name, data_loader)?
             }
             "value_int" => {
                 let value = attr.i.unwrap_or_default();
@@ -463,6 +719,8 @@ struct SubgraphOptions<'a> {
     /// Provides access to info about nodes captured from parent graphs.
     /// This is needed for some optimization passes.
     capture_env: Option<&'a CaptureEnv<'a>>,
+
+    data_loader: &'a dyn ExternalDataLoader,
 }
 
 /// Load an ONNX operator and its subgraphs.
@@ -479,9 +737,16 @@ fn add_operator(
         let SubgraphOptions {
             optimize,
             capture_env,
+            data_loader,
         } = &subgraph_opts;
         let capture_env = CaptureEnv::new(*capture_env, graph, None, None, None);
-        load_graph(g, registry, optimize.clone(), Some(&capture_env))
+        load_graph(
+            g,
+            registry,
+            optimize.clone(),
+            Some(&capture_env),
+            *data_loader,
+        )
     };
 
     struct LoadContext<'a> {

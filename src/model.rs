@@ -279,7 +279,10 @@ impl ModelOptions {
                 let storage = Arc::new(ConstantStorage::Buffer(data));
                 rten_loader::load(storage, self)
             }
-            FileType::Onnx => onnx_loader::load(&data, self),
+            FileType::Onnx => {
+                let data_loader = onnx_loader::ExternalFileLoader::new(path.as_ref());
+                onnx_loader::load(&data, self, &data_loader)
+            }
         }
     }
 
@@ -319,7 +322,10 @@ impl ModelOptions {
                 let storage = Arc::new(ConstantStorage::Mmap(mmap));
                 rten_loader::load(storage, self)
             }
-            FileType::Onnx => onnx_loader::load(&mmap, self),
+            FileType::Onnx => {
+                let data_loader = onnx_loader::ExternalFileLoader::new(path.as_ref());
+                onnx_loader::load(&mmap, self, &data_loader)
+            }
         }
     }
 }
@@ -549,6 +555,9 @@ pub enum ModelLoadError {
 
     /// The file's header is invalid.
     InvalidHeader(Box<dyn Error + Send + Sync>),
+
+    /// An error occurred reading data from an external file.
+    ExternalDataError(Box<dyn Error + Send + Sync>),
 }
 
 impl Display for ModelLoadError {
@@ -561,6 +570,7 @@ impl Display for ModelLoadError {
             ModelLoadError::GraphError(e) => write!(f, "graph error: {e}"),
             ModelLoadError::OptimizeError(e) => write!(f, "graph optimization error: {e}"),
             ModelLoadError::InvalidHeader(e) => write!(f, "invalid header: {e}"),
+            ModelLoadError::ExternalDataError(e) => write!(f, "external data error: {e}"),
         }
     }
 }
