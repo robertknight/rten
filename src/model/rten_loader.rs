@@ -7,7 +7,7 @@ use rten_base::byte_cast::Pod;
 use rten_model_file::header::{Header, HeaderError};
 use rten_model_file::schema as sg;
 use rten_model_file::schema::root_as_model;
-use rten_tensor::Tensor;
+use rten_tensor::ArcTensor;
 
 use super::{
     ConstantStorage, Model, ModelLoadError, ModelMetadata, ModelOptions, NodeError, OptimizeMode,
@@ -355,7 +355,7 @@ fn constant_data_from_flatbuffers_vec<'a, T: Pod + flatbuffers::Follow<'a, Inner
             ArcSlice::new(storage.clone(), elements).expect("storage does not contain data");
         ArcTensorView::from_data(shape, storage).into()
     } else {
-        let storage: Vec<T> = fb_vec.iter().collect();
-        Tensor::from_data(shape, storage).into()
+        let storage: Arc<[T]> = fb_vec.iter().collect();
+        ArcTensor::from_data(shape, storage).into()
     }
 }

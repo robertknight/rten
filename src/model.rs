@@ -12,7 +12,7 @@ use memmap2::Mmap;
 
 use rten_base::byte_cast::{Pod, cast_pod_slice};
 use rten_base::num::LeBytes;
-use rten_tensor::Tensor;
+use rten_tensor::ArcTensor;
 
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
 use crate::env::str_as_bool;
@@ -598,11 +598,11 @@ fn constant_data_from_storage_offset<T: LeBytes + Pod>(
         let const_data: ConstantNodeData<T> = ArcTensorView::from_data(shape, storage).into();
         Ok(const_data)
     } else {
-        let data: Vec<T> = bytes
+        let data: Arc<_> = bytes
             .chunks(std::mem::size_of::<T>())
             .map(|chunk| T::from_le_bytes(chunk.try_into().unwrap()))
             .collect();
-        Ok(Tensor::from_data(shape, data).into())
+        Ok(ArcTensor::from_data(shape, data).into())
     }
 }
 

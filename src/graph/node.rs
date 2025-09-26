@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{DynLayout, Tensor, TensorView};
+use rten_tensor::{ArcTensor, DynLayout, Tensor, TensorView};
 
 use super::NodeId;
 use crate::constant_storage::ArcTensorView;
@@ -272,6 +272,7 @@ impl<T> ConstantNode<T> {
     pub fn view(&self) -> TensorView<'_, T> {
         match &self.data {
             ConstantNodeData::Owned(data) => data.view(),
+            ConstantNodeData::ArcSlice(data) => data.view(),
             ConstantNodeData::Arc(data) => data.view(),
         }
     }
@@ -287,6 +288,7 @@ impl<T> ConstantNode<T> {
     fn layout(&self) -> &DynLayout {
         match &self.data {
             ConstantNodeData::Owned(data) => data.layout(),
+            ConstantNodeData::ArcSlice(data) => data.layout(),
             ConstantNodeData::Arc(data) => data.layout(),
         }
     }
@@ -308,16 +310,34 @@ impl_constant_node!(i8, Int8);
 impl_constant_node!(u8, UInt8);
 
 /// Data for a constant node (ie. model weights) in a [`Graph`].
+///
+/// Constant data can be owned or shared. It is generally preferable to use
+/// shared types when possible as this enables constants to be cheaply cloned
+/// and shared between graphs.
 #[derive(Debug)]
 pub enum ConstantNodeData<T> {
+    /// Uniquely-owned buffer.
     Owned(Tensor<T>),
-    Arc(ArcTensorView<T>),
+
+    /// Slice of a shared, reference-counted buffer that contains data for
+    /// multiple tensors of heterogenous types.
+    ///
+    /// This is used when a file containing suitably aligned weights is read
+    /// into a single buffer or mmap-ed.
+    ArcSlice(ArcTensorView<T>),
+
+    /// Shared, reference-counted buffer.
+    Arc(ArcTensor<T>),
 }
 
 impl<T> ConstantNodeData<T> {
+    /// Perform a cheap copy of this constant data.
+    ///
+    /// This will succeed only for reference-counted types.
     fn clone_ref(&self) -> Option<ConstantNodeData<T>> {
         match self {
             ConstantNodeData::Owned(_) => None,
+            ConstantNodeData::ArcSlice(view) => Some(ConstantNodeData::ArcSlice(view.clone())),
             ConstantNodeData::Arc(view) => Some(ConstantNodeData::Arc(view.clone())),
         }
     }
@@ -331,6 +351,12 @@ impl<T> From<Tensor<T>> for ConstantNodeData<T> {
 
 impl<T> From<ArcTensorView<T>> for ConstantNodeData<T> {
     fn from(val: ArcTensorView<T>) -> ConstantNodeData<T> {
+        ConstantNodeData::ArcSlice(val)
+    }
+}
+
+impl<T> From<ArcTensor<T>> for ConstantNodeData<T> {
+    fn from(val: ArcTensor<T>) -> ConstantNodeData<T> {
         ConstantNodeData::Arc(val)
     }
 }

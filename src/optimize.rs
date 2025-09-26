@@ -3,13 +3,13 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
-use rten_tensor::Tensor;
 use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
 use crate::Value;
 use crate::graph::{
-    CaptureEnv, Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, PlanOptions, RunError,
+    CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
+    PlanOptions, RunError,
 };
 use crate::ops::{Identity, Operator};
 
@@ -57,7 +57,11 @@ impl GraphMutator {
     }
 
     /// Add a new constant value to the graph.
-    fn add_constant<T>(&mut self, name: Option<&str>, value: Tensor<T>) -> NodeId
+    fn add_constant<T>(
+        &mut self,
+        name: Option<&str>,
+        value: impl Into<ConstantNodeData<T>>,
+    ) -> NodeId
     where
         Constant: From<ConstantNode<T>>,
     {
