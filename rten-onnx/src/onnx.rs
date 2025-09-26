@@ -269,7 +269,7 @@ pub struct TensorProto<'a> {
     pub float_data: Vec<f32>,
     pub int32_data: Vec<i32>,
     pub int64_data: Vec<i64>,
-    pub external_data: Option<StringStringEntryProto<'a>>,
+    pub external_data: Vec<StringStringEntryProto<'a>>,
     pub data_location: Option<DataLocation>,
 }
 
@@ -304,8 +304,8 @@ impl<'a> DecodeField<'a> for TensorProto<'a> {
 
 #[derive(Debug, Default)]
 pub struct StringStringEntryProto<'a> {
-    key: Option<&'a str>,
-    value: Option<&'a str>,
+    pub key: Option<&'a str>,
+    pub value: Option<&'a str>,
 }
 
 impl StringStringEntryProto<'_> {
