@@ -26,6 +26,9 @@ use crate::timing::{TimingFilter, TimingSort};
 use crate::value::{DataType, Value, ValueOrView};
 use crate::weight_cache::WeightCache;
 
+mod external_data;
+use external_data::ExternalFileLoader;
+
 mod onnx_loader;
 mod rten_loader;
 
@@ -280,7 +283,7 @@ impl ModelOptions {
                 rten_loader::load(storage, self)
             }
             FileType::Onnx => {
-                let data_loader = onnx_loader::ExternalFileLoader::new(path.as_ref());
+                let data_loader = ExternalFileLoader::new(path.as_ref());
                 onnx_loader::load(&data, self, &data_loader)
             }
         }
@@ -323,7 +326,7 @@ impl ModelOptions {
                 rten_loader::load(storage, self)
             }
             FileType::Onnx => {
-                let data_loader = onnx_loader::ExternalFileLoader::new(path.as_ref());
+                let data_loader = ExternalFileLoader::new(path.as_ref());
                 onnx_loader::load(&mmap, self, &data_loader)
             }
         }
