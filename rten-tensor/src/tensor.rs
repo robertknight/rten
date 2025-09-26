@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::fmt::Debug;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Range};
+use std::sync::Arc;
 
 use crate::assume_init::AssumeInit;
 use crate::copy::{
@@ -2334,6 +2335,12 @@ pub type TensorViewMut<'a, T = f32> = TensorBase<ViewMutData<'a, T>, DynLayout>;
 ///
 /// The name comes from [`std::borrow::Cow`].
 pub type CowTensor<'a, T> = TensorBase<CowData<'a, T>, DynLayout>;
+
+/// Reference-counted tensor with a dynamic dimension count.
+pub type ArcTensor<T> = TensorBase<Arc<[T]>, DynLayout>;
+
+/// Reference-counted tensor with N dimensions.
+pub type ArcNdTensor<T, const N: usize> = TensorBase<Arc<[T]>, NdLayout<N>>;
 
 impl<T, S: Storage<Elem = T>, L: TrustedLayout, I: AsIndex<L>> Index<I> for TensorBase<S, L> {
     type Output = T;
