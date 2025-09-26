@@ -8,6 +8,7 @@ members = [
   "rten-imageio",
   "rten-imageproc",
   "rten-model-file",
+  "rten-onnx",
   "rten-simd",
   "rten-tensor",
   "rten-text",
@@ -57,6 +58,7 @@ smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_n
 rten-base = { path = "./rten-base", version = "0.22.1" }
 rten-gemm = { path = "./rten-gemm", version = "0.22.1" }
 rten-model-file = { path = "./rten-model-file", version = "0.22.1" }
+rten-onnx = { path = "./rten-onnx", version = "0.22.1" }
 rten-tensor = { path = "./rten-tensor", version = "0.22.1" }
 rten-vecmath = { path = "./rten-vecmath", version = "0.22.1" }
 rten-simd = { path = "./rten-simd", version = "0.22.1" }
