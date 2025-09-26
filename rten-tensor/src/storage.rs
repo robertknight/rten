@@ -1,7 +1,8 @@
-use std::borrow::Cow;
+use std::borrow::{Borrow, Cow};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ops::Range;
+use std::sync::Arc;
 
 use crate::assume_init::AssumeInit;
 
@@ -31,15 +32,20 @@ use crate::assume_init::AssumeInit;
 /// [`slice::from_raw_parts`](std::slice::from_raw_parts).
 ///
 /// The [`MUTABLE`](Storage::MUTABLE) associated const must be true if the
-/// storage also implements [`StorageMut`].
+/// storage is mutable.
 pub unsafe trait Storage {
     /// The element type.
     type Elem;
 
-    /// True if this storage allows mutable access via [`StorageMut`]. This is
-    /// used to determine if a layout can be safely used with a storage.
-    /// Layouts where multiple indices map to the same offset must not be used
-    /// with mutable storage.
+    /// True if this storage allows mutable access, either directly or by
+    /// creating a mutable view with dynamically-checked borrowing (think
+    /// [`Arc::get_mut`]).
+    ///
+    /// This used to determine if a layout can be safely used with a storage.
+    /// Mutable storage can only be used with layouts where every index maps
+    /// to a unique element (ie. non-broadcasting layouts), in order to comply
+    /// with Rust rules for mutable references. Conversely non-mutable storage
+    /// _can_ be used with broadcasting layouts.
     const MUTABLE: bool;
 
     /// Return the number of elements in the storage.
@@ -260,6 +266,26 @@ unsafe impl<T> Storage for Vec<T> {
 unsafe impl<T> StorageMut for Vec<T> {
     fn as_mut_ptr(&mut self) -> *mut T {
         self.as_mut_ptr()
+    }
+}
+
+unsafe impl<T> Storage for Arc<[T]> {
+    type Elem = T;
+
+    // This storage as marked as mutable to allow for adding methods to
+    // `ArcTensor` in future which are analagous to `Arc::{get_mut, make_mut}`
+    // (ie. they would return a mutable view or cloned tensor after a dynamic
+    // check of the reference count).
+    const MUTABLE: bool = true;
+
+    fn len(&self) -> usize {
+        let slice: &[T] = self.borrow();
+        slice.len()
+    }
+
+    fn as_ptr(&self) -> *const T {
+        let slice: &[T] = self.borrow();
+        slice.as_ptr()
     }
 }
 

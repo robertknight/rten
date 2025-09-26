@@ -9,6 +9,7 @@
 //! - Owned (like `Vec<T>`)
 //! - Borrowed (like `&[T]` or `&mut [T]`)
 //! - Maybe-owned (like `Cow[T]`)
+//! - Shared / reference-counted (like `Arc<[T]>`)
 //!
 //! The layout determines the number of dimensions (the _rank_) and size of each
 //! (the _shape_) and how indices map to offsets in the storage. The dimension
@@ -21,10 +22,10 @@
 //! directly but instead via a type alias which specifies the data ownership
 //! and layout:
 //!
-//! | Rank    | Owned | Borrowed | Mutably borrowed | Owned or borrowed |
-//! | ----    | ----- | -------- | ---------------- | ----------------- |
-//! | Static  | [NdTensor] | [NdTensorView] | [NdTensorViewMut] | [CowNdTensor] |
-//! | Dynamic | [Tensor]   | [TensorView]   | [TensorViewMut]   | [CowTensor]   |
+//! | Rank    | Owned | Borrowed | Mutably borrowed | Owned or borrowed | Reference counted |
+//! | ----    | ----- | -------- | ---------------- | ----------------- | ----------------- |
+//! | Static  | [NdTensor] | [NdTensorView] | [NdTensorViewMut] | [CowNdTensor] | [ArcNdTensor] |
+//! | Dynamic | [Tensor]   | [TensorView]   | [TensorViewMut]   | [CowTensor]   | [ArcTensor]   |
 //!
 //! All tensors implement the [Layout] trait, which provide methods to query
 //! the shape, dimension count and strides of the tensor. Tensor views provide
@@ -133,8 +134,9 @@ pub use layout::{
 pub use slice_range::{DynSliceItems, IntoSliceItems, SliceItem, SliceRange, to_slice_items};
 
 pub use tensor::{
-    AsView, CowNdTensor, CowTensor, Matrix, MatrixMut, NdTensor, NdTensorView, NdTensorViewMut,
-    Scalar, Tensor, TensorBase, TensorView, TensorViewMut, WeaklyCheckedView,
+    ArcNdTensor, ArcTensor, AsView, CowNdTensor, CowTensor, Matrix, MatrixMut, NdTensor,
+    NdTensorView, NdTensorViewMut, Scalar, Tensor, TensorBase, TensorView, TensorViewMut,
+    WeaklyCheckedView,
 };
 
 pub use storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};

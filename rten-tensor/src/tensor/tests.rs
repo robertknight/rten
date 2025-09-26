@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::sync::Arc;
 
 use super::{AsView, NdTensor, NdTensorView, NdTensorViewMut, Tensor};
 use crate::errors::{ExpandError, FromDataError};
@@ -7,7 +8,7 @@ use crate::layout::{DynLayout, MatrixLayout, MutLayout};
 use crate::prelude::*;
 use crate::rng::XorShiftRng;
 use crate::storage::IntoStorage;
-use crate::{Alloc, NdLayout, SliceItem, SliceRange, Storage};
+use crate::{Alloc, ArcTensor, NdLayout, SliceItem, SliceRange, Storage};
 
 struct FakeAlloc {
     count: RefCell<usize>,
@@ -84,6 +85,21 @@ fn test_arange() {
     let y = NdTensor::arange(2, 6, None);
     assert_eq!(x.data(), Some([2, 3, 4, 5].as_slice()));
     assert_eq!(y.data(), Some([2, 3, 4, 5].as_slice()));
+}
+
+#[test]
+fn test_arc_tensor() {
+    let data: Arc<_> = (0..5i32).collect();
+    let tensor_a = ArcTensor::from_data(&[data.len()], data.clone());
+    let tensor_b = tensor_a.clone();
+    assert_eq!(tensor_a, tensor_b);
+    assert_eq!(tensor_a, NdTensorView::from_data([5], &[0, 1, 2, 3, 4]));
+
+    // Verify that cloned tensor shares the data.
+    assert_eq!(
+        tensor_a.data().unwrap().as_ptr(),
+        tensor_b.data().unwrap().as_ptr()
+    );
 }
 
 #[test]
