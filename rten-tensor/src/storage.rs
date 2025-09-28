@@ -1,4 +1,4 @@
-use std::borrow::{Borrow, Cow};
+use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ops::Range;
@@ -269,7 +269,7 @@ unsafe impl<T> StorageMut for Vec<T> {
     }
 }
 
-unsafe impl<T> Storage for Arc<[T]> {
+unsafe impl<T> Storage for Arc<Vec<T>> {
     type Elem = T;
 
     // This storage as marked as mutable to allow for adding methods to
@@ -279,13 +279,11 @@ unsafe impl<T> Storage for Arc<[T]> {
     const MUTABLE: bool = true;
 
     fn len(&self) -> usize {
-        let slice: &[T] = self.borrow();
-        slice.len()
+        self.as_ref().len()
     }
 
     fn as_ptr(&self) -> *const T {
-        let slice: &[T] = self.borrow();
-        slice.as_ptr()
+        self.as_ref().as_ptr()
     }
 }
 

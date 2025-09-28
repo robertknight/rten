@@ -355,7 +355,7 @@ fn constant_data_from_flatbuffers_vec<'a, T: Pod + flatbuffers::Follow<'a, Inner
             ArcSlice::new(storage.clone(), elements).expect("storage does not contain data");
         ArcTensorView::from_data(shape, storage).into()
     } else {
-        let storage: Arc<[T]> = fb_vec.iter().collect();
-        ArcTensor::from_data(shape, storage).into()
+        let data: Vec<T> = fb_vec.iter().collect();
+        ArcTensor::from_data(shape, Arc::new(data)).into()
     }
 }

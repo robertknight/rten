@@ -89,8 +89,8 @@ fn test_arange() {
 
 #[test]
 fn test_arc_tensor() {
-    let data: Arc<_> = (0..5i32).collect();
-    let tensor_a = ArcTensor::from_data(&[data.len()], data.clone());
+    let data: Vec<_> = (0..5i32).collect();
+    let tensor_a = ArcTensor::from_data(&[data.len()], Arc::new(data));
     let tensor_b = tensor_a.clone();
     assert_eq!(tensor_a, tensor_b);
     assert_eq!(tensor_a, NdTensorView::from_data([5], &[0, 1, 2, 3, 4]));
@@ -689,6 +689,13 @@ fn test_init_from_shape_mismatch() {
     let dest = NdTensor::uninit([2, 3]);
     let dest = dest.init_from(&src);
     assert_eq!(dest.to_vec(), &[0, 1, 2, 3]);
+}
+
+#[test]
+fn test_into_arc() {
+    let tensor = NdTensor::from([2., 3.]);
+    let arc_tensor = tensor.into_arc();
+    assert_eq!(arc_tensor.data().unwrap(), [2., 3.]);
 }
 
 #[test]
