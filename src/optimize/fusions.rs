@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use rten_tensor::{NdTensorView, SliceRange, Tensor};
+use rten_tensor::{ArcTensor, NdTensorView, SliceRange};
 
 use crate::graph::{
     Constant, ConstantNode, ConstantNodeData, Dimension, Graph, Node, NodeId, OperatorNode,
@@ -1030,7 +1030,7 @@ impl FusionVisitor for ShapeSliceToConstant {
             output_id,
             value: ConstantNode::new(
                 op_node.name(),
-                ConstantNodeData::Owned(Tensor::from_data(&[dims.len()], dims)),
+                ConstantNodeData::Arc(ArcTensor::from_data(&[dims.len()], Arc::new(dims))),
             )
             .into(),
         })

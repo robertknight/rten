@@ -181,8 +181,8 @@ fn test_constant_propagation() -> Result<(), Box<dyn Error>> {
     let mut graph = Graph::new();
 
     // Add an operator with constant inputs.
-    let const_a = graph.add_constant(Some("const_a"), Tensor::from([1, 2, 3]));
-    let const_b = graph.add_constant(Some("const_b"), Tensor::from([4, 5, 6]));
+    let const_a = graph.add_constant(Some("const_a"), Tensor::from([1, 2, 3]).into_arc());
+    let const_b = graph.add_constant(Some("const_b"), Tensor::from([4, 5, 6]).into_arc());
     let (_, add_out) = graph.add_simple_op("add_1", Add {}, &[const_a, const_b]);
 
     // Add an operator with a dynamic input and the output of the previous operator.
