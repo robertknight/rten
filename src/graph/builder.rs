@@ -213,13 +213,13 @@ impl Expr {
                 let name = name_gen.generate("const");
                 let const_id = match value {
                     Value::FloatTensor(value) => {
-                        graph.add_constant(Some(name.as_str()), value.clone())
+                        graph.add_constant(Some(name.as_str()), value.clone().into_arc())
                     }
                     Value::Int32Tensor(value) => {
-                        graph.add_constant(Some(name.as_str()), value.clone())
+                        graph.add_constant(Some(name.as_str()), value.clone().into_arc())
                     }
                     Value::Int8Tensor(value) => {
-                        graph.add_constant(Some(name.as_str()), value.clone())
+                        graph.add_constant(Some(name.as_str()), value.clone().into_arc())
                     }
                     _ => unimplemented!("constant type not supported"),
                 };

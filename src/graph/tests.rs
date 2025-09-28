@@ -117,7 +117,8 @@ fn test_graph_run() -> Result<(), Box<dyn Error>> {
         vec![
             0.3230, 0.7632, 0.4616, 0.8837, 0.5898, 0.3424, 0.2101, 0.7821, 0.6861,
         ],
-    );
+    )
+    .into_arc();
     let weights_id = g.add_constant(Some("weight"), weights);
     let input_id = g.add_value(Some("input"), None, None);
 
@@ -165,7 +166,7 @@ fn test_graph_run() -> Result<(), Box<dyn Error>> {
 fn test_graph_node_debug_names() {
     let mut g = Graph::new();
 
-    let weights = Tensor::from([0.3230]);
+    let weights = Tensor::from([0.3230]).into_arc();
     let weights_id = g.add_constant(Some("weights"), weights.clone());
     let input_id = g.add_value(Some("input"), None, None);
     let relu_out_id = g.add_value(Some("relu_out"), None, None);
@@ -205,7 +206,7 @@ fn test_graph_node_debug_names() {
 fn test_graph_node_shapes() {
     let mut g = Graph::new();
 
-    let weights = Tensor::from_data(&[1, 1, 2], vec![0.3230, 0.5]);
+    let weights = Tensor::from_data(&[1, 1, 2], vec![0.3230, 0.5]).into_arc();
     let weights_id = g.add_constant(Some("weights"), weights.clone());
     let input_id = g.add_value(
         Some("input"),
@@ -424,7 +425,7 @@ fn test_noop_graph() -> Result<(), Box<dyn Error>> {
 fn test_constant_graph() -> Result<(), Box<dyn Error>> {
     let mut g = Graph::new();
 
-    let value = Tensor::from([1., 2., 3., 4., 5.]);
+    let value = Tensor::from([1., 2., 3., 4., 5.]).into_arc();
     let const_id = g.add_constant(Some("weight"), value.clone());
 
     let results = g.run(vec![], &[const_id], None, None).unwrap();
@@ -437,8 +438,8 @@ fn test_constant_graph() -> Result<(), Box<dyn Error>> {
 #[test]
 fn test_typed_constant() {
     let mut g = Graph::new();
-    let scalar_id = g.add_constant(None, Tensor::from(42.));
-    let vec_id = g.add_constant(None, Tensor::from([1, 2, 3]));
+    let scalar_id = g.add_constant(None, Tensor::from(42.).into_arc());
+    let vec_id = g.add_constant(None, Tensor::from([1, 2, 3]).into_arc());
 
     let scalar_node = match g.get_node(scalar_id) {
         Some(Node::Constant(c)) => Some(c),
@@ -462,11 +463,14 @@ fn test_typed_constant() {
 #[test]
 fn test_total_params() {
     let mut g = Graph::new();
-    g.add_constant(Some("floats"), Tensor::<f32>::zeros(&[10, 10]));
-    g.add_constant(Some("ints"), Tensor::<i32>::zeros(&[10, 10]));
+    g.add_constant(Some("floats"), Tensor::<f32>::zeros(&[10, 10]).into_arc());
+    g.add_constant(Some("ints"), Tensor::<i32>::zeros(&[10, 10]).into_arc());
 
     let mut subgraph = Graph::new();
-    subgraph.add_constant(Some("sg_floats"), Tensor::<f32>::zeros(&[10, 10]));
+    subgraph.add_constant(
+        Some("sg_floats"),
+        Tensor::<f32>::zeros(&[10, 10]).into_arc(),
+    );
     g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
 
     assert_eq!(g.total_params(), 300);
@@ -946,9 +950,9 @@ fn test_partial_run() -> Result<(), Box<dyn Error>> {
     // Where `Cn` are constants, `Vn` are input values and `OpN` are
     // operators.
     let mut g = Graph::new();
-    let const_0 = g.add_constant(Some("c0"), Tensor::from(3.));
+    let const_0 = g.add_constant(Some("c0"), Tensor::from(3.).into_arc());
     let val_0 = g.add_value(Some("i0"), None, None);
-    let const_1 = g.add_constant(Some("c1"), Tensor::from(4.));
+    let const_1 = g.add_constant(Some("c1"), Tensor::from(4.).into_arc());
     let val_1 = g.add_value(Some("i1"), None, None);
 
     let (_, op_0_out) = g.add_simple_op("Add_0", Add {}, &[const_0, val_0]);
@@ -1013,7 +1017,7 @@ impl Operator for Counter {
 #[test]
 fn test_partial_run_non_deterministic_ops() -> Result<(), Box<dyn Error>> {
     let mut g = Graph::new();
-    let const_val = g.add_constant(Some("c0"), Tensor::from(3));
+    let const_val = g.add_constant(Some("c0"), Tensor::from(3).into_arc());
 
     // Add deterministic op with constant inputs.
     let (_, add_op_0_out) = g.add_simple_op("Add_0", Add {}, &[const_val, const_val]);
@@ -1135,14 +1139,14 @@ fn test_subgraph() {
     // Add subgraphs for `If` operation. These capture `input`.
     let mut then_branch = Graph::new();
     let tb_input = then_branch.add_value(Some("input"), None, None);
-    let two = then_branch.add_constant(None, Tensor::from(2.));
+    let two = then_branch.add_constant(None, Tensor::from(2.).into_arc());
     let (_, tb_output) = then_branch.add_simple_op("Mul", Mul {}, &[tb_input, two]);
     then_branch.set_captures(&[tb_input]);
     then_branch.set_output_ids(&[tb_output]);
 
     let mut else_branch = Graph::new();
     let eb_input = else_branch.add_value(Some("input"), None, None);
-    let three = else_branch.add_constant(None, Tensor::from(3.));
+    let three = else_branch.add_constant(None, Tensor::from(3.).into_arc());
     let (_, eb_output) = else_branch.add_simple_op("Mul", Mul {}, &[eb_input, three]);
     else_branch.set_captures(&[eb_input]);
     else_branch.set_output_ids(&[eb_output]);
@@ -1458,13 +1462,13 @@ fn test_prepack_weights() {
     let mut cache = WeightCache::new();
 
     let input = graph.add_value(Some("input"), None, None);
-    let weights = graph.add_constant(None, Tensor::<f32>::zeros(&[10, 7]));
+    let weights = graph.add_constant(None, Tensor::<f32>::zeros(&[10, 7]).into_arc());
     let (_, matmul_out) =
         graph.add_simple_op("MatMul", MatMulExpectPacked::new(), &[input, weights]);
 
     let mut subgraph = Graph::new();
     let sg_input = subgraph.add_value(Some("sg-input"), None, None);
-    let sg_weights = subgraph.add_constant(None, Tensor::<f32>::zeros(&[7, 5]));
+    let sg_weights = subgraph.add_constant(None, Tensor::<f32>::zeros(&[7, 5]).into_arc());
     let (_, sg_matmul_out) = subgraph.add_simple_op(
         "sg-MatMul",
         MatMulExpectPacked::new(),
