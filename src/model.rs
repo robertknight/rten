@@ -598,11 +598,11 @@ fn constant_data_from_storage_offset<T: LeBytes + Pod>(
         let const_data: ConstantNodeData<T> = ArcTensorView::from_data(shape, storage).into();
         Ok(const_data)
     } else {
-        let data: Arc<_> = bytes
+        let data: Vec<_> = bytes
             .chunks(std::mem::size_of::<T>())
             .map(|chunk| T::from_le_bytes(chunk.try_into().unwrap()))
             .collect();
-        Ok(ArcTensor::from_data(shape, data).into())
+        Ok(ArcTensor::from_data(shape, Arc::new(data)).into())
     }
 }
 

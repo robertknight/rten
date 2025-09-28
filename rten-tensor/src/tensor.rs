@@ -1118,6 +1118,18 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
         }
     }
 
+    /// Convert the storage of this tensor to be reference counted.
+    ///
+    /// This is a (relatively) cheap operation that does not copy the tensor
+    /// data.
+    pub fn into_arc(self) -> TensorBase<Arc<Vec<T>>, L> {
+        let TensorBase { data, layout } = self;
+        TensorBase {
+            layout,
+            data: Arc::new(data),
+        }
+    }
+
     /// Consume self and return the underlying data as a contiguous tensor.
     ///
     /// See also [`TensorBase::to_vec`].
@@ -2337,10 +2349,16 @@ pub type TensorViewMut<'a, T = f32> = TensorBase<ViewMutData<'a, T>, DynLayout>;
 pub type CowTensor<'a, T> = TensorBase<CowData<'a, T>, DynLayout>;
 
 /// Reference-counted tensor with a dynamic dimension count.
-pub type ArcTensor<T> = TensorBase<Arc<[T]>, DynLayout>;
+///
+/// This uses `Arc<Vec<T>>` rather than `Arc<[T]>` as the backing storage. This
+/// adds an extra indirection when accessing the data, but it enables cheap
+/// conversion between owned and reference-counted tensors.
+pub type ArcTensor<T> = TensorBase<Arc<Vec<T>>, DynLayout>;
 
 /// Reference-counted tensor with N dimensions.
-pub type ArcNdTensor<T, const N: usize> = TensorBase<Arc<[T]>, NdLayout<N>>;
+///
+/// See also the notes for [`ArcTensor`].
+pub type ArcNdTensor<T, const N: usize> = TensorBase<Arc<Vec<T>>, NdLayout<N>>;
 
 impl<T, S: Storage<Elem = T>, L: TrustedLayout, I: AsIndex<L>> Index<I> for TensorBase<S, L> {
     type Output = T;
