@@ -7,13 +7,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use super::ModelLoadError;
-use rten_base::byte_cast::{Pod, cast_pod_arc, cast_uninit_pod_mut_slice};
-use rten_tensor::AssumeInit;
+use rten_base::byte_cast::{Pod, cast_pod_slice};
 
 /// Specifies the location of tensor data which is stored externally from the
 /// main model file.
@@ -35,11 +32,19 @@ pub enum ExternalDataError {
     IoError(std::io::Error),
 
     /// The length of the external data is not a multiple of the element size
-    /// (eg. if reading i32 elements, the length must be a multiple of 4).
+    /// (eg. if reading i32 elements, the length must be a multiple of 4), or
+    /// is larger than the maximum supported length (4GB in a 32-bit environment).
     InvalidLength,
 
     /// External data is not supported in the current environment.
     NotSupported,
+
+    /// The length of the external data file is too short for the offset and
+    /// length of the external data.
+    TooShort {
+        required_len: usize,
+        actual_len: usize,
+    },
 }
 
 impl std::fmt::Display for ExternalDataError {
@@ -50,6 +55,13 @@ impl std::fmt::Display for ExternalDataError {
             Self::NotSupported => {
                 write!(f, "external data not supported on this system")
             }
+            Self::TooShort {
+                required_len,
+                actual_len,
+            } => write!(
+                f,
+                "external data file too short. read {required_len} of {actual_len} bytes"
+            ),
         }
     }
 }
@@ -65,13 +77,13 @@ impl From<ExternalDataError> for ModelLoadError {
 /// Trait for loading data from an external file.
 pub trait ExternalDataLoader {
     /// Load 8-bit elements from an external file.
-    fn load_u8(&self, location: ExternalDataLocation) -> Result<Arc<[u8]>, ExternalDataError>;
+    fn load_u8(&self, location: ExternalDataLocation) -> Result<Vec<u8>, ExternalDataError>;
 
     /// Load 32-bit elements from an external file.
-    fn load_u32(&self, location: ExternalDataLocation) -> Result<Arc<[u32]>, ExternalDataError>;
+    fn load_u32(&self, location: ExternalDataLocation) -> Result<Vec<u32>, ExternalDataError>;
 
     /// Load 64-bit elements from an external file.
-    fn load_u64(&self, location: ExternalDataLocation) -> Result<Arc<[u64]>, ExternalDataError>;
+    fn load_u64(&self, location: ExternalDataLocation) -> Result<Vec<u64>, ExternalDataError>;
 }
 
 /// External file loader that uses standard file IO.
@@ -99,61 +111,87 @@ impl ExternalFileLoader {
     ///
     /// The size of the file chunk specified by `location.length` must match
     /// the length of `buf`.
-    fn read<T: Pod>(
-        &self,
-        location: ExternalDataLocation,
-        mut buf: Arc<[MaybeUninit<T>]>,
-    ) -> Result<Arc<[T]>, ExternalDataError> {
+    fn read<T: Pod>(&self, location: ExternalDataLocation) -> Result<Vec<T>, ExternalDataError> {
         // On a big-endian system we'd need to transmute bytes after reading
         // if we're reading multi-byte elements.
         if cfg!(target_endian = "big") {
             return Err(ExternalDataError::NotSupported);
         }
 
+        let elem_size = size_of::<T>();
+        assert!(elem_size != 0);
+
+        if !location.length.is_multiple_of(elem_size as u64) || location.length > usize::MAX as u64
+        {
+            return Err(ExternalDataError::InvalidLength);
+        }
+        let vec_len = location.length as usize / elem_size;
+
         let mut files = self.files.borrow_mut();
-        let file = get_or_open_file(&mut files, &self.base_path, location.path)?;
+        let mut file = get_or_open_file(&mut files, &self.base_path, location.path)?;
         file.seek(SeekFrom::Start(location.offset))
             .map_err(ExternalDataError::IoError)?;
-        let dst_slice = Arc::get_mut(&mut buf).unwrap();
-        let dst_bytes = cast_uninit_pod_mut_slice::<T, u8>(dst_slice).unwrap();
 
-        // FIXME: This should use `read_buf` to fill the buffer when that is
-        // stabilized. Passing an uninitialized slice to `read_exact` is UB. We
-        // are relying on the impl for `File` to follow the recommendations for
-        // `read_exact` that impls should only write to the slice and not read
-        // from it.
-        file.read_exact(unsafe { dst_bytes.assume_init() })
-            .map_err(ExternalDataError::IoError)?;
+        // Ideally we would fill the buffer in one call via [`Read::read_buf`].
+        // Since that API is not stabilized yet, we fill in small chunks, which
+        // requires extra copying.
+        let mut remaining = vec_len;
+        let mut buf = Vec::with_capacity(remaining);
+        const TMP_SIZE: usize = 4096;
+        let mut tmp = [0u8; TMP_SIZE];
 
-        // FIXME: We assume here that `read_exact` initialized the buffer,
-        // although the contract does not guarantee this.
-        Ok(unsafe { buf.assume_init() })
+        loop {
+            let tmp_size = (remaining * elem_size).min(TMP_SIZE);
+            let n_read =
+                read_fill(&mut file, &mut tmp[..tmp_size]).map_err(ExternalDataError::IoError)?;
+
+            // Reinterpret the bytes assuming we're on a little-endian system.
+            // To support big-endian we'd need to byte-swap.
+            let chunk = cast_pod_slice(&tmp[..n_read]).unwrap();
+            remaining -= chunk.len();
+            buf.extend_from_slice(chunk);
+
+            if n_read < tmp.len() || remaining == 0 {
+                break;
+            }
+        }
+
+        if buf.len() != vec_len {
+            return Err(ExternalDataError::TooShort {
+                required_len: vec_len,
+                actual_len: buf.len(),
+            });
+        }
+
+        Ok(buf)
     }
 }
 
+/// Read from `src` repeatedly until `buf` is filled or we reach the end of the
+/// file.
+fn read_fill<R: Read>(mut src: R, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut total_read = 0;
+    loop {
+        let n = src.read(&mut buf[total_read..])?;
+        total_read += n;
+        if n == 0 || total_read == buf.len() {
+            break;
+        }
+    }
+    Ok(total_read)
+}
+
 impl ExternalDataLoader for ExternalFileLoader {
-    fn load_u8(&self, location: ExternalDataLocation) -> Result<Arc<[u8]>, ExternalDataError> {
-        let uninit_data = Arc::<[u8]>::new_uninit_slice(location.length as usize);
-        let data = self.read(location, uninit_data)?;
-        Ok(cast_pod_arc(data).unwrap())
+    fn load_u8(&self, location: ExternalDataLocation) -> Result<Vec<u8>, ExternalDataError> {
+        self.read(location)
     }
 
-    fn load_u32(&self, location: ExternalDataLocation) -> Result<Arc<[u32]>, ExternalDataError> {
-        let Some(len_u32) = location.length.checked_div(size_of::<u32>() as u64) else {
-            return Err(ExternalDataError::InvalidLength);
-        };
-        let uninit_data = Arc::<[u32]>::new_uninit_slice(len_u32 as usize);
-        let data = self.read(location, uninit_data)?;
-        Ok(cast_pod_arc(data).unwrap())
+    fn load_u32(&self, location: ExternalDataLocation) -> Result<Vec<u32>, ExternalDataError> {
+        self.read(location)
     }
 
-    fn load_u64(&self, location: ExternalDataLocation) -> Result<Arc<[u64]>, ExternalDataError> {
-        let Some(len_u64) = location.length.checked_div(size_of::<u64>() as u64) else {
-            return Err(ExternalDataError::InvalidLength);
-        };
-        let uninit_data = Arc::<[u64]>::new_uninit_slice(len_u64 as usize);
-        let data = self.read(location, uninit_data)?;
-        Ok(cast_pod_arc(data).unwrap())
+    fn load_u64(&self, location: ExternalDataLocation) -> Result<Vec<u64>, ExternalDataError> {
+        self.read(location)
     }
 }
 

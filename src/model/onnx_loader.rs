@@ -1,10 +1,8 @@
-use std::sync::Arc;
-
-use rten_base::byte_cast::cast_pod_arc;
+use rten_base::byte_cast::cast_pod_vec;
 use rten_onnx::DecodeMessage;
 use rten_onnx::onnx;
 use rten_onnx::onnx::{GraphProto, ModelProto};
-use rten_tensor::ArcTensor;
+use rten_tensor::Tensor;
 
 use super::NodeError;
 use super::external_data::{ExternalDataLoader, ExternalDataLocation};
@@ -273,24 +271,24 @@ fn load_constant(
                 load_raw_data(data, f32::from_le_bytes)
             } else if let Some(loc) = external_location {
                 let u32s = external_loader.load_u32(loc)?;
-                cast_pod_arc(u32s).unwrap()
+                cast_pod_vec(u32s).unwrap()
             } else {
                 initializer.float_data.as_slice().into()
             };
             let tensor = load_tensor(&shape, data, name)?;
-            Constant::new(name, tensor)
+            Constant::new(name, tensor.into_arc())
         }
         Some(onnx::DataType::INT32) => {
             let data = if let Some(data) = raw_data {
                 load_raw_data(data, i32::from_le_bytes)
             } else if let Some(loc) = external_location {
                 let u32s = external_loader.load_u32(loc)?;
-                cast_pod_arc(u32s).unwrap()
+                cast_pod_vec(u32s).unwrap()
             } else {
                 initializer.int32_data.as_slice().into()
             };
             let tensor = load_tensor(&shape, data, name)?;
-            Constant::new(name, tensor)
+            Constant::new(name, tensor.into_arc())
         }
         Some(onnx::DataType::UINT8) => {
             let data = if let Some(data) = raw_data {
@@ -301,7 +299,7 @@ fn load_constant(
                 initializer.int32_data.iter().map(|x| *x as u8).collect()
             };
             let tensor = load_tensor(&shape, data, name)?;
-            Constant::new(name, tensor)
+            Constant::new(name, tensor.into_arc())
         }
         Some(onnx::DataType::INT8) => {
             let data = if let Some(data) = raw_data {
@@ -309,12 +307,12 @@ fn load_constant(
                 load_raw_data(data, u8_to_i8)
             } else if let Some(loc) = external_location {
                 let u8s = external_loader.load_u8(loc)?;
-                cast_pod_arc(u8s).unwrap()
+                cast_pod_vec(u8s).unwrap()
             } else {
                 initializer.int32_data.iter().map(|x| *x as i8).collect()
             };
             let tensor = load_tensor(&shape, data, name)?;
-            Constant::new(name, tensor)
+            Constant::new(name, tensor.into_arc())
         }
 
         // RTen internally does not support i64 or bool tensors. Instead both
@@ -326,7 +324,7 @@ fn load_constant(
                 load_raw_data(data, i64_to_i32)
             } else if let Some(loc) = external_location {
                 let u64s = external_loader.load_u64(loc)?;
-                cast_pod_arc(u64s).unwrap()
+                cast_pod_vec(u64s).unwrap()
             } else {
                 initializer
                     .int64_data
@@ -336,7 +334,7 @@ fn load_constant(
                     .collect()
             };
             let tensor = load_tensor(&shape, data, name)?;
-            Constant::new(name, tensor)
+            Constant::new(name, tensor.into_arc())
         }
         Some(onnx::DataType::BOOL) => {
             let u8_to_i32 = |bytes: [u8; 1]| if bytes[0] != 0 { 1 } else { 0 };
@@ -353,7 +351,7 @@ fn load_constant(
                     .collect()
             };
             let tensor = load_tensor(&shape, data, name)?;
-            Constant::new(name, tensor)
+            Constant::new(name, tensor.into_arc())
         }
 
         Some(dtype) => {
@@ -472,29 +470,29 @@ fn load_constant_from_constant_op(
             }
             "value_int" => {
                 let value = attr.i.unwrap_or_default();
-                let data = Arc::from([saturating_cast_i64_to_i32(value)]);
-                let tensor = ArcTensor::from_data(&[], data);
-                Constant::new(const_name, tensor)
+                let data = Vec::from([saturating_cast_i64_to_i32(value)]);
+                let tensor = Tensor::from_data(&[], data);
+                Constant::new(const_name, tensor.into_arc())
             }
             "value_ints" => {
-                let i32s: Arc<_> = attr
+                let i32s: Vec<_> = attr
                     .ints
                     .iter()
                     .copied()
                     .map(saturating_cast_i64_to_i32)
                     .collect();
-                let tensor = ArcTensor::from_data(&[i32s.len()], i32s);
-                Constant::new(const_name, tensor)
+                let tensor = Tensor::from_data(&[i32s.len()], i32s);
+                Constant::new(const_name, tensor.into_arc())
             }
             "value_float" => {
-                let data = Arc::from([attr.f.unwrap_or_default()]);
-                let tensor = ArcTensor::from_data(&[], data);
-                Constant::new(const_name, tensor)
+                let data = Vec::from([attr.f.unwrap_or_default()]);
+                let tensor = Tensor::from_data(&[], data);
+                Constant::new(const_name, tensor.into_arc())
             }
             "value_floats" => {
-                let data = Arc::from(attr.floats.as_slice());
-                let tensor = ArcTensor::from_data(&[attr.floats.len()], data);
-                Constant::new(const_name, tensor)
+                let data = attr.floats.clone();
+                let tensor = Tensor::from_data(&[attr.floats.len()], data);
+                Constant::new(const_name, tensor.into_arc())
             }
             _ => {
                 // Known unsupported attributes: sparse_tensor, value_string,
@@ -523,11 +521,11 @@ fn load_constant_from_constant_op(
 
 fn load_tensor<T>(
     shape: &[usize],
-    data: Arc<[T]>,
+    data: Vec<T>,
     name: Option<&str>,
-) -> Result<ArcTensor<T>, ModelLoadError> {
+) -> Result<Tensor<T>, ModelLoadError> {
     let data_len = data.len();
-    ArcTensor::try_from_data(shape, data).map_err(|_| {
+    Tensor::try_from_data(shape, data).map_err(|_| {
         load_error!(
             GraphError,
             name,
@@ -541,7 +539,7 @@ fn load_tensor<T>(
 fn load_raw_data<T, const SIZE_OF_T: usize>(
     data: &[u8],
     convert: impl Fn([u8; SIZE_OF_T]) -> T,
-) -> Arc<[T]> {
+) -> Vec<T> {
     // TODO - Evaluate whether an explicit memcpy provides a performance benefit
     // for cases where the data is stored in the correct format except for
     // alignment.
