@@ -591,6 +591,13 @@ impl dyn Operator {
     }
 }
 
+impl dyn Operator + Send + Sync {
+    /// Downcast this operator to a concrete type.
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        (self as &dyn Any).downcast_ref()
+    }
+}
+
 /// Trait for operators which contain subgraphs, such as `If`, `Loop` etc.
 pub trait SubgraphOperator: Operator {
     /// Return a list of subgraphs used by this operator.

@@ -4,6 +4,9 @@ use std::fmt::{Display, Formatter};
 pub mod rten_registry;
 use rten_registry::RtenOpRegistry;
 
+pub mod onnx_registry;
+use onnx_registry::OnnxOpRegistry;
+
 /// Registry used to deserialize operators when loading a model.
 ///
 /// New registries have no operators registered by default. To create a registry
@@ -16,6 +19,9 @@ use rten_registry::RtenOpRegistry;
 pub struct OpRegistry {
     /// Registry for deserializing operators from .rten model files.
     rten_registry: RtenOpRegistry,
+
+    /// Registry for deserializing operators from .onnx model files.
+    onnx_registry: OnnxOpRegistry,
 }
 
 impl OpRegistry {
@@ -23,6 +29,7 @@ impl OpRegistry {
     pub fn new() -> OpRegistry {
         OpRegistry {
             rten_registry: RtenOpRegistry::new(),
+            onnx_registry: OnnxOpRegistry::new(),
         }
     }
 
@@ -36,10 +43,17 @@ impl OpRegistry {
         &self.rten_registry
     }
 
+    /// Return the inner registry for deserializing operators from .onnx models.
+    #[expect(unused)]
+    pub(crate) fn onnx_registry(&self) -> &onnx_registry::OnnxOpRegistry {
+        &self.onnx_registry
+    }
+
     /// Create a new registry with all built-in operators registered.
     pub fn with_all_ops() -> OpRegistry {
         OpRegistry {
             rten_registry: RtenOpRegistry::with_all_ops(),
+            onnx_registry: OnnxOpRegistry::with_all_ops(),
         }
     }
 }
