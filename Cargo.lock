@@ -396,6 +396,7 @@ dependencies = [
  "rten-bench",
  "rten-gemm",
  "rten-model-file",
+ "rten-onnx",
  "rten-simd",
  "rten-tensor",
  "rten-testing",
@@ -502,6 +503,10 @@ dependencies = [
  "rten-base",
  "rten-testing",
 ]
+
+[[package]]
+name = "rten-onnx"
+version = "0.22.1"
 
 [[package]]
 name = "rten-simd"
