@@ -54,8 +54,8 @@ impl RtenOpRegistry {
             op_type,
             Box::new(move |_op, _ctx| {
                 Err(ReadOpError::FeatureNotEnabled {
-                    name: op_type.variant_name().unwrap_or(""),
-                    feature,
+                    name: op_type.variant_name().unwrap_or("").to_string(),
+                    feature: feature.to_string(),
                 })
             }),
         );
@@ -67,7 +67,7 @@ impl RtenOpRegistry {
         self.ops
             .get(&op.type_())
             .ok_or_else(|| ReadOpError::OperatorUnavailable {
-                name: op.type_().variant_name(),
+                name: op.type_().variant_name().map(|s| s.to_string()),
             })
             .and_then(|read_fn| read_fn(op, ctx))
     }
@@ -238,10 +238,7 @@ pub fn convert_dtype(attr: &'static str, dtype: sg::DataType) -> Result<DataType
         sg::DataType::Float => Ok(DataType::Float),
         sg::DataType::UInt8 => Ok(DataType::UInt8),
         sg::DataType::Int8 => Ok(DataType::Int8),
-        _ => Err(ReadOpError::AttrError {
-            attr,
-            error: "unknown value",
-        }),
+        _ => Err(ReadOpError::attr_error(attr, "unknown value")),
     }
 }
 
@@ -256,10 +253,7 @@ fn convert_reduction(
         sg::ScatterReduction::Min => Some(ScatterReduction::Min),
         sg::ScatterReduction::Max => Some(ScatterReduction::Max),
         _ => {
-            return Err(ReadOpError::AttrError {
-                attr,
-                error: "unknown value",
-            });
+            return Err(ReadOpError::attr_error(attr, "unknown value"));
         }
     };
     Ok(reduction)
@@ -530,10 +524,7 @@ impl_read_op!(
             sg::DepthToSpaceMode::DCR => DepthToSpaceMode::DepthColumnRow,
             sg::DepthToSpaceMode::CRD => DepthToSpaceMode::ColumnRowDepth,
             _ => {
-                return Err(ReadOpError::AttrError {
-                    attr: "mode",
-                    error: "unknown value",
-                })?;
+                return Err(ReadOpError::attr_error("mode", "unknown value"));
             }
         };
         let block_size = attrs.block_size();
@@ -595,10 +586,10 @@ impl_read_op!(Gelu, attrs_as_gelu_attrs, |attrs: sg::GeluAttrs| {
         sg::GeluApproximation::None => false,
         sg::GeluApproximation::Tanh => true,
         _ => {
-            return Err(ReadOpError::AttrError {
-                attr: "approximate",
-                error: "unsupported gelu approximation",
-            });
+            return Err(ReadOpError::attr_error(
+                "approximate",
+                "unsupported gelu approximation",
+            ));
         }
     };
     Ok(ops::Gelu { approximate })
@@ -660,14 +651,16 @@ impl ReadOp for ops::If {
         let attrs = op
             .attrs_as_if_attrs()
             .ok_or(ReadOpError::AttrsMissingError)?;
-        let then_branch = ctx.load_graph(attrs.then_branch().ok_or(ReadOpError::AttrError {
-            attr: "then",
-            error: "missing branch",
-        })?)?;
-        let else_branch = ctx.load_graph(attrs.else_branch().ok_or(ReadOpError::AttrError {
-            attr: "else",
-            error: "missing branch",
-        })?)?;
+        let then_branch = ctx.load_graph(
+            attrs
+                .then_branch()
+                .ok_or(ReadOpError::attr_error("then", "missing branch"))?,
+        )?;
+        let else_branch = ctx.load_graph(
+            attrs
+                .else_branch()
+                .ok_or(ReadOpError::attr_error("else", "missing branch"))?,
+        )?;
 
         Ok(ops::If {
             then_branch,
@@ -722,10 +715,11 @@ impl ReadOp for ops::Loop {
         let attrs = op
             .attrs_as_loop_attrs()
             .ok_or(ReadOpError::AttrsMissingError)?;
-        let body = ctx.load_graph(attrs.body().ok_or(ReadOpError::AttrError {
-            attr: "loop",
-            error: "missing body",
-        })?)?;
+        let body = ctx.load_graph(
+            attrs
+                .body()
+                .ok_or(ReadOpError::attr_error("loop", "missing body"))?,
+        )?;
 
         Ok(ops::Loop { body })
     }
@@ -804,10 +798,7 @@ impl ReadOp for ops::Pad {
             sg::PadMode::Edge => PadMode::Edge,
             sg::PadMode::Wrap => PadMode::Wrap,
             _ => {
-                return Err(ReadOpError::AttrError {
-                    attr: "mode",
-                    error: "unknown value",
-                });
+                return Err(ReadOpError::attr_error("mode", "unknown value"));
             }
         };
         Ok(ops::Pad { mode })

@@ -52,25 +52,34 @@ pub enum ReadOpError {
     /// An attribute has an unsupported or invalid value.
     AttrError {
         /// Name of the attribute.
-        attr: &'static str,
+        attr: String,
         /// Description of the attribute error.
-        error: &'static str,
+        error: String,
     },
     /// The operator is either unrecognized or not available.
     OperatorUnavailable {
         /// Name of the operator, if recognized but not enabled.
-        name: Option<&'static str>,
+        name: Option<String>,
     },
     /// The operator requires a crate feature that was not enabled.
     FeatureNotEnabled {
         /// Name of the operator.
-        name: &'static str,
+        name: String,
 
         /// Crate feature needed to enable it.
-        feature: &'static str,
+        feature: String,
     },
     /// An error occurred deserializing a subgraph.
     SubgraphError(Box<dyn Error + Send + Sync>),
+}
+
+impl ReadOpError {
+    fn attr_error(attr: impl AsRef<str>, error: impl AsRef<str>) -> Self {
+        Self::AttrError {
+            attr: attr.as_ref().to_string(),
+            error: error.as_ref().to_string(),
+        }
+    }
 }
 
 impl Display for ReadOpError {
