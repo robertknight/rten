@@ -567,18 +567,68 @@ impl DecodeMessage for ModelProto {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::fs::File;
+    use std::io::{BufReader, Cursor};
+    use std::path::PathBuf;
 
     use super::ModelProto;
-    use crate::protobuf::{DecodeMessage, ValueReader};
+    use crate::protobuf::{DecodeMessage, ReadPos, ValueReader};
+
+    fn test_file_path(path: &str) -> PathBuf {
+        let mut abs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        abs_path.push("test-data");
+        abs_path.push(path);
+        abs_path
+    }
 
     // Test decoding an empty buffer. This should succeed and return a
     // default ModelProto.
     #[test]
-    fn test_decode_model() {
+    fn test_decode_empty_model() {
         let buf = Vec::new();
         let value_reader = ValueReader::new(Cursor::new(buf));
         let model = ModelProto::decode(value_reader).unwrap();
         assert!(model.graph.is_none());
+    }
+
+    #[test]
+    fn test_decode_mnist() {
+        let model_path = test_file_path("mnist.onnx");
+        let file = File::open(model_path).unwrap();
+        let reader = ReadPos::new(BufReader::new(file));
+        let value_reader = ValueReader::new(reader);
+        let model = ModelProto::decode(value_reader).unwrap();
+
+        let graph = model.graph.unwrap();
+        assert_eq!(graph.node.len(), 13);
+        assert_eq!(graph.initializer.len(), 8);
+
+        let ops: Vec<_> = graph
+            .node
+            .iter()
+            .map(|node| node.op_type.as_deref().unwrap_or_default())
+            .filter(|op_type| *op_type != "Constant")
+            .collect();
+        assert_eq!(
+            ops,
+            &[
+                "Conv",
+                "Relu",
+                "MaxPool",
+                "Conv",
+                "Relu",
+                "MaxPool",
+                "Conv",
+                "Relu",
+                "ReduceMean",
+                "Reshape",
+                "Gemm"
+            ]
+        );
+
+        assert_eq!(graph.input.len(), 1);
+        assert_eq!(graph.input[0].name.as_deref(), Some("input"));
+        assert_eq!(graph.output.len(), 1);
+        assert_eq!(graph.output[0].name.as_deref(), Some("logits"));
     }
 }
