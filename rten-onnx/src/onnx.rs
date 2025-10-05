@@ -537,10 +537,12 @@ impl DecodeMessage for GraphProto {
 
 #[derive(Default)]
 pub struct ModelProto {
+    pub ir_version: Option<i64>,
     pub graph: Option<GraphProto>,
 }
 
 impl ModelProto {
+    const IR_VERSION: u64 = 1;
     const GRAPH: u64 = 7;
 }
 
@@ -553,6 +555,9 @@ impl DecodeMessage for ModelProto {
         let mut msg = Self::default();
         while let Some(mut field) = fields.next()? {
             match field.number() {
+                Self::IR_VERSION => {
+                    msg.ir_version = Some(field.get_int64()?);
+                }
                 Self::GRAPH => {
                     msg.graph = Some(GraphProto::decode_field(&mut field)?);
                 }
@@ -565,13 +570,69 @@ impl DecodeMessage for ModelProto {
     }
 }
 
+/// Simplified version of [`ModelProto`] used for file type detection.
+#[derive(Debug, Default)]
+struct SlimModelProto {
+    pub ir_version: Option<i64>,
+    pub graph: bool,
+}
+
+impl DecodeMessage for SlimModelProto {
+    type Types = OwnedValues;
+
+    fn decode_fields<R: ReadValue<Types = Self::Types>>(
+        mut fields: Fields<R>,
+    ) -> Result<Self, ProtobufError> {
+        let mut msg = Self::default();
+        while let Some(mut field) = fields.next()? {
+            match field.number() {
+                ModelProto::IR_VERSION => {
+                    msg.ir_version = Some(field.get_int64()?);
+                }
+                ModelProto::GRAPH => {
+                    msg.graph = true;
+                    field.skip()?;
+                }
+                _ => {
+                    field.skip()?;
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+/// Test whether a file or buffer contains an ONNX model.
+///
+/// ONNX models do not contain any magic bytes that would make detection simple.
+/// Instead this function attempts to parse the data as a simplified version of
+/// the `ModelProto` message type, testing for the presence of a few key fields
+/// but skipping over the main graph.
+///
+/// ```
+/// use std::io::Cursor;
+/// use rten_onnx::protobuf::ValueReader;
+/// use rten_onnx::onnx::is_onnx_model;
+///
+/// let value_reader = ValueReader::new(Cursor::new(b"NOT AN ONNX MODEL"));
+/// assert!(!is_onnx_model(value_reader));
+/// ```
+pub fn is_onnx_model(reader: impl ReadValue<Types = OwnedValues>) -> bool {
+    let Ok(model) = SlimModelProto::decode(reader) else {
+        return false;
+    };
+    // The `ir_version` field is required, and a model without a graph is not
+    // useful.
+    model.ir_version.is_some() && model.graph
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::File;
     use std::io::{BufReader, Cursor};
     use std::path::PathBuf;
 
-    use super::ModelProto;
+    use super::{ModelProto, is_onnx_model};
     use crate::protobuf::{DecodeMessage, ReadPos, ValueReader};
 
     fn test_file_path(path: &str) -> PathBuf {
@@ -630,5 +691,17 @@ mod tests {
         assert_eq!(graph.input[0].name.as_deref(), Some("input"));
         assert_eq!(graph.output.len(), 1);
         assert_eq!(graph.output[0].name.as_deref(), Some("logits"));
+    }
+
+    #[test]
+    fn test_is_onnx_model() {
+        let model_path = test_file_path("mnist.onnx");
+        let file = File::open(model_path).unwrap();
+        let reader = ReadPos::new(BufReader::new(file));
+        let value_reader = ValueReader::new(reader);
+        assert!(is_onnx_model(value_reader));
+
+        let value_reader = ValueReader::new(Cursor::new(vec![]));
+        assert!(!is_onnx_model(value_reader));
     }
 }
