@@ -368,17 +368,14 @@ impl<T: Copy, I: Iterator<Item = Result<T, ProtobufError>>> Iterator for Repeate
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use std::io::Cursor;
-///
-/// use rten_onnx::protobuf::{Fields, ReadPos, ValueReader};
+/// use rten_onnx::protobuf::{Fields, ValueReader};
 ///
 /// // A minimal but valid message. This could also be a `BufReader<File>`
 /// // or other buffered reader.
 /// let message = vec![0x08, 0x96, 0x01];
-/// let mut cursor = ReadPos::new(Cursor::new(message));
 ///
 /// // Incrementally decode message fields.
-/// let mut value_reader = ValueReader::new(cursor);
+/// let mut value_reader = ValueReader::from_buf(message);
 /// let mut fields = Fields::new(&mut value_reader, None);
 /// while let Some(mut field) = fields.next()? {
 ///     // Process field according to its number. Variable length fields must
@@ -469,14 +466,12 @@ impl<'r, R: ReadValue> Fields<'r, R> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::{FieldValue, Fields};
     use crate::protobuf::varint::encode_varint;
     use crate::protobuf::{ErrorKind, ProtobufError, ValueReader};
 
     fn read_fields(buf: &[u8]) -> Result<Vec<(u64, FieldValue)>, ProtobufError> {
-        let mut reader = ValueReader::new(Cursor::new(buf));
+        let mut reader = ValueReader::from_buf(buf);
         let mut fields = Fields::new(&mut reader, Some("TestMessage"));
 
         let mut field_vals = Vec::new();
@@ -527,7 +522,7 @@ mod tests {
         buf.extend([1, 2, 3, 4]);
         buf.extend(FieldValue::I64(678).encode(4));
 
-        let mut reader = ValueReader::new(Cursor::new(buf));
+        let mut reader = ValueReader::from_buf(buf);
         let mut fields = Fields::new(&mut reader, Some("TestMessage"));
 
         let len_field = fields.next().unwrap().unwrap();
@@ -547,7 +542,7 @@ mod tests {
         buf.extend(FieldValue::Len(3).encode(1));
         buf.extend([1, 2, 3]);
 
-        let mut reader = ValueReader::new(Cursor::new(buf));
+        let mut reader = ValueReader::from_buf(buf);
         let mut fields = Fields::new(&mut reader, Some("TestMessage"));
         let mut len_field = fields.next().unwrap().unwrap();
         let bytes = len_field.read_bytes().unwrap();
@@ -561,7 +556,7 @@ mod tests {
         buf.extend(FieldValue::Len(5).encode(1));
         buf.extend("hello".as_bytes());
 
-        let mut reader = ValueReader::new(Cursor::new(buf));
+        let mut reader = ValueReader::from_buf(buf);
         let mut fields = Fields::new(&mut reader, Some("TestMessage"));
         let mut len_field = fields.next().unwrap().unwrap();
         let string = len_field.read_string().unwrap();
@@ -580,7 +575,7 @@ mod tests {
         buf.extend(sub_msg);
         buf.extend(FieldValue::Varint(3).encode(2));
 
-        let mut reader = ValueReader::new(Cursor::new(buf));
+        let mut reader = ValueReader::from_buf(buf);
         let mut fields = Fields::new(&mut reader, Some("TestMessage"));
 
         // Read embedded message.
@@ -606,7 +601,7 @@ mod tests {
         buf.extend(encode_varint(2));
         buf.extend(encode_varint(3));
 
-        let mut reader = ValueReader::new(Cursor::new(buf));
+        let mut reader = ValueReader::from_buf(buf);
         let mut fields = Fields::new(&mut reader, Some("TestMessage"));
 
         let mut vals = Vec::new();
@@ -631,7 +626,7 @@ mod tests {
         buf.extend((1.0f32).to_le_bytes());
         buf.extend((2.0f32).to_le_bytes());
 
-        let mut reader = ValueReader::new(Cursor::new(buf));
+        let mut reader = ValueReader::from_buf(buf);
         let mut fields = Fields::new(&mut reader, Some("TestMessage"));
 
         let mut vals = Vec::new();
@@ -656,7 +651,7 @@ mod tests {
         buf.extend((1.0f64).to_le_bytes());
         buf.extend((2.0f64).to_le_bytes());
 
-        let mut reader = ValueReader::new(Cursor::new(buf));
+        let mut reader = ValueReader::from_buf(buf);
         let mut fields = Fields::new(&mut reader, Some("TestMessage"));
 
         let mut vals = Vec::new();
