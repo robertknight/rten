@@ -497,27 +497,32 @@ struct ConvAttrs {
 }
 
 fn get_common_conv_attrs(attrs: &Attrs) -> ConvAttrs {
-    attrs.get("kernel_shape"); // Ignored
+    // nb. Spec says that spatial dims should be inferred from input if
+    // `kernel_shape` attribute is not set. We don't have access to the input
+    // here, so this would have to be handled by making various fields optional
+    // in convolution operators.
+    let n_spatial_dims = attrs
+        .get("kernel_shape")
+        .map(|v| v.as_ints().len())
+        .unwrap_or(0);
 
     let dilations = attrs
         .get("dilations")
         .map(|v| v.as_usize_ints())
         .unwrap_or_default();
 
-    // TODO - Padding should default to 0 along each spatial axis.
     let pads = attrs
         .get("pads")
         .map(|v| v.as_usize_ints())
-        .unwrap_or_default();
+        .unwrap_or_else(|| vec![0; n_spatial_dims * 2]);
     let padding = Padding::Fixed(pads.into());
     let groups = attrs.get("group").map(|v| v.as_i64()).unwrap_or(1);
     let groups = groups as usize; // TODO - Handle invalid values
 
-    // TODO - This should default to [1] x spatial axis size.
     let strides = attrs
         .get("strides")
         .map(|v| v.as_usize_ints())
-        .unwrap_or_default();
+        .unwrap_or_else(|| vec![1; n_spatial_dims]);
 
     ConvAttrs {
         dilations,
@@ -1244,7 +1249,7 @@ mod tests {
 
     use super::{OnnxOpRegistry, OpLoadContext, ReadOpError};
     use crate::graph::Graph;
-    use crate::ops::ArgMax;
+    use crate::ops::{ArgMax, Conv, Padding};
 
     struct FakeOpLoadContext;
 
@@ -1258,6 +1263,7 @@ mod tests {
     enum AttrValue {
         Bool(bool),
         Int(i64),
+        Ints(Vec<i64>),
     }
 
     fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
@@ -1266,6 +1272,7 @@ mod tests {
         match value {
             AttrValue::Bool(val) => attr.i = Some(val as i64),
             AttrValue::Int(val) => attr.i = Some(val),
+            AttrValue::Ints(val) => attr.ints = val,
         }
         attr
     }
@@ -1317,5 +1324,17 @@ mod tests {
         assert!(
             matches!(op, Err(ReadOpError::OperatorUnavailable { name }) if name == Some("UnsupportedOp".to_string()))
         );
+    }
+
+    #[test]
+    fn test_conv_op_defaults() {
+        let reg = OnnxOpRegistry::with_all_ops();
+        let node = create_node("Conv", &[("kernel_shape", AttrValue::Ints([3, 3].into()))]);
+
+        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap();
+        let conv_op = op.downcast_ref::<Conv>().unwrap();
+
+        assert_eq!(conv_op.padding, Padding::Fixed([0, 0, 0, 0].into()));
+        assert_eq!(conv_op.strides, vec![1, 1]);
     }
 }

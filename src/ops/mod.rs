@@ -141,7 +141,7 @@ pub use variadic_elementwise::{Max, Mean, Min, Sum, max, mean, min, sum};
 mod operators;
 pub use operators::{FloatOperators, Operators};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Padding {
     /// Apply enough padding such that the output and input have the same size.
     ///
