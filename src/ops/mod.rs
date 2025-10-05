@@ -141,7 +141,7 @@ pub use variadic_elementwise::{Max, Mean, Min, Sum, max, mean, min, sum};
 mod operators;
 pub use operators::{FloatOperators, Operators};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Padding {
     /// Apply enough padding such that the output and input have the same size.
     ///
@@ -585,6 +585,13 @@ pub trait Operator: Any + Debug {
 }
 
 impl dyn Operator {
+    /// Downcast this operator to a concrete type.
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        (self as &dyn Any).downcast_ref()
+    }
+}
+
+impl dyn Operator + Send + Sync {
     /// Downcast this operator to a concrete type.
     pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
         (self as &dyn Any).downcast_ref()

@@ -141,6 +141,7 @@ impl_le_bytes!(u8, 1);
 impl_le_bytes!(i32, 4);
 impl_le_bytes!(f32, 4);
 impl_le_bytes!(u32, 4);
+impl_le_bytes!(i64, 8);
 impl_le_bytes!(u64, 8);
 
 pub trait MinMax {
