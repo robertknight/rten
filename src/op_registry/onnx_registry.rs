@@ -1306,4 +1306,16 @@ mod tests {
         assert_eq!(argmax_op.axis, 1);
         assert_eq!(argmax_op.keep_dims, true);
     }
+
+    #[test]
+    fn test_read_unsupported_op() {
+        let reg = OnnxOpRegistry::with_all_ops();
+        let node = create_node("UnsupportedOp", &[]);
+
+        let op = reg.read_op(&node, &FakeOpLoadContext);
+
+        assert!(
+            matches!(op, Err(ReadOpError::OperatorUnavailable { name }) if name == Some("UnsupportedOp".to_string()))
+        );
+    }
 }
