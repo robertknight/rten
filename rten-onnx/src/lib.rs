@@ -19,15 +19,13 @@
 //! ```no_run
 //! use std::error::Error;
 //! use std::fs::File;
-//! use std::io::BufReader;
 //!
 //! use rten_onnx::onnx::ModelProto;
 //! use rten_onnx::protobuf::{DecodeMessage, ReadPos, ValueReader};
 //!
 //! fn main() -> Result<(), Box<dyn Error>> {
 //!     let file = File::open("model.onnx")?;
-//!     let reader = ReadPos::new(BufReader::new(file));
-//!     let value_reader = ValueReader::new(reader);
+//!     let value_reader = ValueReader::from_file(file);
 //!     let model = ModelProto::decode(value_reader)?;
 //!
 //!     let op_count = model.graph.as_ref().map(|g| g.node.len()).unwrap_or(0);
@@ -45,10 +43,7 @@
 //! # use rten_onnx::{onnx::ModelProto, protobuf::{ValueReader, DecodeMessage}};
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let buffer = std::fs::read("model.onnx")?;
-//! use std::io::Cursor;
-//!
-//! let reader = Cursor::new(&buffer);
-//! let value_reader = ValueReader::new(reader);
+//! let value_reader = ValueReader::from_buf(&buffer);
 //! let model = ModelProto::decode(value_reader)?;
 //! # Ok(()) }
 //! ```

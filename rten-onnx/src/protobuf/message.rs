@@ -17,7 +17,7 @@ use crate::protobuf::{Field, FieldTypes, Fields, ProtobufError, ReadValue};
 /// A decoder could be written as follows:
 ///
 /// ```
-/// use std::io::{BufRead, Cursor};
+/// use std::io::BufRead;
 /// use std::sync::Arc;
 /// use rten_onnx::protobuf::{DecodeMessage, Fields, OwnedValues, ReadPos, ProtobufError,
 /// ReadValue, ValueReader};
@@ -69,8 +69,7 @@ use crate::protobuf::{Field, FieldTypes, Fields, ProtobufError, ReadValue};
 ///         0x12, 0x02, 0x68, 0x69, // string_field = "hi"
 ///         0x1A, 0x02, 0x01, 0x02, // bytes_field = [0x01, 0x02]
 ///     ];
-///     let reader = Cursor::new(message);
-///     let value_reader = ValueReader::new(reader);
+///     let value_reader = ValueReader::from_buf(message);
 ///     let msg = Message::decode(value_reader)?;
 ///
 ///     assert_eq!(msg.int_field, 150);

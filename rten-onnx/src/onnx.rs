@@ -610,11 +610,10 @@ impl DecodeMessage for SlimModelProto {
 /// but skipping over the main graph.
 ///
 /// ```
-/// use std::io::Cursor;
 /// use rten_onnx::protobuf::ValueReader;
 /// use rten_onnx::onnx::is_onnx_model;
 ///
-/// let value_reader = ValueReader::new(Cursor::new(b"NOT AN ONNX MODEL"));
+/// let value_reader = ValueReader::from_buf(b"NOT AN ONNX MODEL");
 /// assert!(!is_onnx_model(value_reader));
 /// ```
 pub fn is_onnx_model(reader: impl ReadValue<Types = OwnedValues>) -> bool {
@@ -629,11 +628,10 @@ pub fn is_onnx_model(reader: impl ReadValue<Types = OwnedValues>) -> bool {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
-    use std::io::{BufReader, Cursor};
     use std::path::PathBuf;
 
     use super::{ModelProto, is_onnx_model};
-    use crate::protobuf::{DecodeMessage, ReadPos, ValueReader};
+    use crate::protobuf::{DecodeMessage, ValueReader};
 
     fn test_file_path(path: &str) -> PathBuf {
         let mut abs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -646,8 +644,7 @@ mod tests {
     // default ModelProto.
     #[test]
     fn test_decode_empty_model() {
-        let buf = Vec::new();
-        let value_reader = ValueReader::new(Cursor::new(buf));
+        let value_reader = ValueReader::from_buf(Vec::new());
         let model = ModelProto::decode(value_reader).unwrap();
         assert!(model.graph.is_none());
     }
@@ -656,8 +653,7 @@ mod tests {
     fn test_decode_mnist() {
         let model_path = test_file_path("mnist.onnx");
         let file = File::open(model_path).unwrap();
-        let reader = ReadPos::new(BufReader::new(file));
-        let value_reader = ValueReader::new(reader);
+        let value_reader = ValueReader::from_file(file);
         let model = ModelProto::decode(value_reader).unwrap();
 
         let graph = model.graph.unwrap();
@@ -697,11 +693,10 @@ mod tests {
     fn test_is_onnx_model() {
         let model_path = test_file_path("mnist.onnx");
         let file = File::open(model_path).unwrap();
-        let reader = ReadPos::new(BufReader::new(file));
-        let value_reader = ValueReader::new(reader);
+        let value_reader = ValueReader::from_file(file);
         assert!(is_onnx_model(value_reader));
 
-        let value_reader = ValueReader::new(Cursor::new(vec![]));
+        let value_reader = ValueReader::from_buf(vec![]);
         assert!(!is_onnx_model(value_reader));
     }
 }

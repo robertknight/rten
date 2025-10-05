@@ -1,6 +1,7 @@
 //! Traits and types for reading primitive values in Protocol Buffers messages.
 
-use std::io::{BufRead, Cursor, Read, Seek, SeekFrom};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
 
 use crate::protobuf::errors::{ErrorKind, ProtobufError};
 use crate::protobuf::varint::read_varint;
@@ -87,8 +88,27 @@ pub struct ValueReader<R> {
 }
 
 impl<R: BufRead + Seek + Position> ValueReader<R> {
+    /// Create a value reader from an underlying file or buffer.
+    ///
+    /// See [`from_buf`](Self::from_buf) and [`from_file`](Self::from_file)
+    /// for convenient wrappers for this which create readers from byte buffers
+    /// and files.
     pub fn new(inner: R) -> Self {
         Self { inner }
+    }
+}
+
+impl<T: AsRef<[u8]>> ValueReader<Cursor<T>> {
+    /// Convenience method that creates a reader from a byte buffer.
+    pub fn from_buf(buf: T) -> Self {
+        Self::new(Cursor::new(buf))
+    }
+}
+
+impl ValueReader<ReadPos<BufReader<File>>> {
+    /// Convenience method that creates a reader from a file.
+    pub fn from_file(file: File) -> Self {
+        Self::new(ReadPos::new(BufReader::new(file)))
     }
 }
 
@@ -308,8 +328,6 @@ impl<'a, R: ReadValue> ReadValue for LimitReader<'a, R> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::{LimitReader, ReadValue, ValueReader};
     use crate::protobuf::ErrorKind;
     use crate::protobuf::varint::encode_varint;
@@ -352,7 +370,7 @@ mod tests {
 
     #[test]
     fn test_value_reader() {
-        test_read_value(|buf| ValueReader::new(Cursor::new(buf)));
+        test_read_value(|buf| ValueReader::from_buf(buf));
     }
 
     #[test]
@@ -367,8 +385,7 @@ mod tests {
         let limit = buf.len();
         buf.extend(encode_varint(5678));
 
-        let cur = Cursor::new(buf);
-        let mut reader = ValueReader::new(cur);
+        let mut reader = ValueReader::from_buf(buf);
 
         // Create a sub-reader which only reads up to `limit`.
         let mut lr = LimitReader::new(&mut reader, limit as u64);
