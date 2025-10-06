@@ -1,0 +1,648 @@
+use std::fs::File;
+use std::path::Path;
+
+use rten_base::byte_cast::Pod;
+use rten_onnx::onnx;
+use rten_onnx::protobuf::{DecodeMessage, ValueReader};
+use rten_tensor::{ArcTensor, Storage, Tensor};
+
+use super::NodeError;
+use super::{Model, ModelLoadError, ModelOptions, OptimizeMode};
+use crate::constant_storage::{ArcSlice, ArcTensorView};
+use crate::graph::{
+    CaptureEnv, Constant, ConstantNode, ConstantNodeData, Dimension, Graph, NodeId,
+};
+use crate::model_metadata::ModelMetadata;
+use crate::op_registry::onnx_registry::OpLoadContext;
+use crate::op_registry::{OpRegistry, ReadOpError};
+use crate::optimize::{GraphOptimizer, OptimizeOptions};
+use crate::value::DataType;
+use crate::weight_cache::WeightCache;
+
+/// Specifies where to load an ONNX model from.
+pub enum Source<'a> {
+    Path(&'a Path),
+    Buffer(&'a [u8]),
+}
+
+/// Load a serialized ONNX model from a file or buffer.
+///
+/// An ONNX model is the serialized `ModelProto` Protocol Buffers message
+/// defined in https://github.com/onnx/onnx/blob/main/onnx/onnx.proto3.
+pub fn load(source: Source, options: &ModelOptions) -> Result<Model, ModelLoadError> {
+    let model = match source {
+        Source::Path(path) => {
+            let file = File::open(path).map_err(ModelLoadError::ReadFailed)?;
+            let reader = ValueReader::from_file(file);
+            onnx::ModelProto::decode(reader)
+        }
+        Source::Buffer(buf) => {
+            let reader = ValueReader::from_buf(buf);
+            onnx::ModelProto::decode(reader)
+        }
+    }
+    .map_err(|err| ModelLoadError::ParseFailed(Box::new(err)))?;
+
+    let optimize_opts = if options.optimize {
+        OptimizeMode::On(OptimizeOptions::default())
+    } else {
+        OptimizeMode::Off
+    };
+
+    let graph = if let Some(onnx_graph) = model.graph {
+        load_graph(&onnx_graph, &options.registry, optimize_opts, None)?
+    } else {
+        Graph::new()
+    };
+
+    let mut weight_cache = WeightCache::new();
+    if options.prepack_weights {
+        graph.prepack_weights(&mut weight_cache);
+    }
+
+    Ok(Model {
+        graph,
+        weight_cache,
+
+        // Not implemented yet.
+        metadata: ModelMetadata::default(),
+    })
+}
+
+/// Create a [`ModelLoadError`] that relates to a specific graph node.
+macro_rules! load_error {
+    ($kind:ident, $node_name:expr, $format_str:literal, $($arg:tt)*) => {{
+        let err = format!($format_str, $($arg)*);
+        ModelLoadError::$kind(NodeError::for_node($node_name, err).into())
+    }};
+
+    ($kind:ident, $node_name:expr, $err:expr) => {{
+        ModelLoadError::$kind(NodeError::for_node($node_name, $err).into())
+    }}
+}
+
+fn load_graph(
+    onnx_graph: &onnx::GraphProto,
+    registry: &OpRegistry,
+    optimize: OptimizeMode,
+    capture_env: Option<&CaptureEnv>,
+) -> Result<Graph, ModelLoadError> {
+    let approx_node_count = onnx_graph.node.len() + onnx_graph.value_info.len();
+    let mut graph = Graph::with_capacity(approx_node_count);
+
+    // Create value nodes corresponding to `ValueInfoProto`s in the ONNX graph.
+    for value in onnx_graph
+        .value_info
+        .iter()
+        .chain(&onnx_graph.input)
+        .chain(&onnx_graph.output)
+    {
+        let Some(name) = value.name.as_deref() else {
+            continue;
+        };
+        let (dtype, shape) = load_value_info(value);
+        graph.add_value(Some(name), shape, dtype);
+    }
+
+    let mut capture_ids = Vec::new();
+
+    // Add constants from initializers.
+    for initializer in &onnx_graph.initializer {
+        let constant = load_constant(initializer, None)?;
+        graph.add_constant_node(constant);
+    }
+
+    // Add constants from "Constant" operators in the graph.
+    for const_op in onnx_graph
+        .node
+        .iter()
+        .filter(|op| op.op_type.as_deref() == Some("Constant"))
+    {
+        let constant = load_constant_from_constant_op(const_op)?;
+        graph.add_constant_node(constant);
+    }
+
+    // Create value nodes for operator inputs and outputs.
+    for op in &onnx_graph.node {
+        if op.op_type.as_deref() == Some("Constant") {
+            // Constant operators are added to the graph as constants rather
+            // than operators.
+            continue;
+        }
+        for name in op.input.iter().chain(&op.output) {
+            if name.is_empty() {
+                // Empty names represent unused optional inputs or outputs.
+                continue;
+            }
+            if graph.get_node_id(name).is_none() {
+                let value_id = graph.add_value(Some(name), None, None);
+
+                // If no value with this name was present in this graph, but
+                // is available in a parent, mark it as a capture.
+                //
+                // FIXME - This relies on `onnx_graph.node` being sorted in
+                // toplogical order so that if the value is available from the
+                // current graph, it will be present in `graph` at this point.
+                if let Some(capture_env) = capture_env
+                    && capture_env.get_node(name).is_some()
+                {
+                    capture_ids.push(value_id);
+                }
+            }
+        }
+    }
+
+    // Record which of the value nodes represent values coming from a parent graph.
+    graph.set_captures(&capture_ids);
+
+    // Set graph inputs and outputs.
+    //
+    // Value nodes should exist in the graph for all inputs and outputs at
+    // this point.
+    let input_ids: Vec<NodeId> = onnx_graph
+        .input
+        .iter()
+        .filter_map(|value| value.name.as_deref())
+        .map(|name| {
+            graph
+                .get_node_id(name)
+                .expect("input node should exist in graph")
+        })
+        .collect();
+    graph.set_input_ids(&input_ids);
+
+    let output_ids: Vec<NodeId> = onnx_graph
+        .output
+        .iter()
+        .filter_map(|value| value.name.as_deref())
+        .map(|name| {
+            graph
+                .get_node_id(name)
+                .expect("output node should exist in graph")
+        })
+        .collect();
+    graph.set_output_ids(&output_ids);
+
+    // Add model operators
+    for onnx_op in &onnx_graph.node {
+        if onnx_op.op_type.as_deref() == Some("Constant") {
+            // Constant operators are added to the graph as constants rather
+            // than operators.
+            continue;
+        }
+        add_operator(
+            &mut graph,
+            onnx_op,
+            registry,
+            SubgraphOptions {
+                optimize: optimize.clone(),
+                capture_env,
+            },
+        )?;
+    }
+
+    if let OptimizeMode::On(opts) = optimize {
+        let optimizer = GraphOptimizer::new();
+        optimizer
+            .optimize(graph, capture_env, opts)
+            .map_err(|err| ModelLoadError::OptimizeError(Box::new(err)))
+    } else {
+        Ok(graph)
+    }
+}
+
+/// Convert data type and shape information from an ONNX value to RTen's
+/// types.
+fn load_value_info(value: &onnx::ValueInfoProto) -> (Option<DataType>, Option<Vec<Dimension>>) {
+    let Some(type_info) = &value.r#type else {
+        return (None, None);
+    };
+
+    // `ValueInfoProto`s can represent tensors, sequences and other types.
+    // Only tensor types are supported here.
+    let Some(tensor_type) = &type_info.tensor_type else {
+        return (None, None);
+    };
+
+    let mut dtype = None;
+    let mut shape = None;
+
+    if let Some(elem_type) = &tensor_type.elem_type {
+        dtype = match *elem_type {
+            onnx::DataType::FLOAT => Some(DataType::Float),
+            onnx::DataType::INT32 => Some(DataType::Int32),
+            onnx::DataType::INT8 => Some(DataType::Int8),
+            onnx::DataType::UINT8 => Some(DataType::UInt8),
+
+            // RTen doesn't internally support i64 or bool tensors but converts
+            // them to i32 tensors instead. Adjust the value type here to match.
+            //
+            // This does mean that when querying metadata for an input via
+            // `Model::node_info`, the caller may get a type that doesn't
+            // match the ONNX model. It will however match the type that RTen
+            // expects for that input.
+            onnx::DataType::INT64 | onnx::DataType::BOOL => Some(DataType::Int32),
+
+            _ => None,
+        };
+    }
+    if let Some(onnx_shape) = &tensor_type.shape {
+        let mut dims = Vec::with_capacity(onnx_shape.dim.len());
+        for dim in &onnx_shape.dim {
+            if let Some(value) = dim.dim_value
+                && let Ok(size) = value.try_into()
+            {
+                dims.push(Dimension::Fixed(size));
+            } else if let Some(name) = &dim.dim_param {
+                dims.push(Dimension::Symbolic(name.to_string()))
+            }
+        }
+        shape = Some(dims)
+    }
+
+    (dtype, shape)
+}
+
+/// Create a constant graph node from an ONNX tensor.
+///
+/// If `name` is provided, it overrides the name from `initializer.name`.
+fn load_constant(
+    initializer: &onnx::TensorProto,
+    name: Option<&str>,
+) -> Result<Constant, ModelLoadError> {
+    let name = name.or(initializer.name.as_deref());
+
+    let shape: Result<Vec<usize>, _> = initializer.dims.iter().map(|&dim| dim.try_into()).collect();
+    let shape =
+        shape.map_err(|_| load_error!(GraphError, name, "initializer has invalid shape"))?;
+
+    // Check if this tensor data is stored in the .onnx file or an external file.
+    let data_location = initializer
+        .data_location
+        .unwrap_or(onnx::DataLocation::DEFAULT);
+
+    match data_location {
+        onnx::DataLocation::DEFAULT => {}
+        onnx::DataLocation::EXTERNAL => {
+            return Err(load_error!(
+                GraphError,
+                name,
+                "external data not supported yet"
+            ));
+        }
+        _ => {
+            return Err(load_error!(GraphError, name, "unsupported data location"));
+        }
+    };
+
+    // Tensor data can be stored in the `raw_data` field, one of several typed
+    // fields, or externally.
+    //
+    // When data is not stored externally, most tensors use the `raw_data`
+    // field, especially for large tensors. To make models load as fast as
+    // possible, it is important to minimize copying of weights. Hence if the
+    // data is stored in `raw_data`, we take and use that buffer rather than
+    // copy here. If the data is stored in one of the typed fields
+    // (`float_data`), we assume it is smaller and that copying them won't have
+    // a significant impact.
+    let raw_data = initializer.raw_data.as_ref().map(|data| data.take());
+
+    let constant: Constant = match initializer.data_type {
+        Some(onnx::DataType::FLOAT) => {
+            make_constant(name, &shape, raw_data, &initializer.float_data, |x| x)?
+        }
+        Some(onnx::DataType::INT32) => {
+            make_constant(name, &shape, raw_data, &initializer.int32_data, |x| x)?
+        }
+        Some(onnx::DataType::UINT8) => {
+            make_constant(name, &shape, raw_data, &initializer.int32_data, |x| x as u8)?
+        }
+        Some(onnx::DataType::INT8) => {
+            make_constant(name, &shape, raw_data, &initializer.int32_data, |x| x as i8)?
+        }
+
+        // RTen internally does not support i64 or bool tensors. Instead both
+        // are converted to i32 at load time.
+        Some(onnx::DataType::INT64) => {
+            let data = if let Some(data) = raw_data {
+                let i64_to_i32 =
+                    |bytes: [u8; 8]| saturating_cast_i64_to_i32(i64::from_le_bytes(bytes));
+                elements_from_le_bytes(&data, i64_to_i32)
+            } else {
+                initializer
+                    .int64_data
+                    .iter()
+                    .copied()
+                    .map(saturating_cast_i64_to_i32)
+                    .collect()
+            };
+            let tensor = tensor_from_elements(&shape, data, name)?;
+            Constant::new(name, tensor)
+        }
+        Some(onnx::DataType::BOOL) => {
+            let u8_to_i32 = |bytes: [u8; 1]| if bytes[0] != 0 { 1 } else { 0 };
+            let data = if let Some(data) = raw_data {
+                elements_from_le_bytes(&data, u8_to_i32)
+            } else {
+                initializer
+                    .int32_data
+                    .iter()
+                    .map(|x| if *x != 0 { 1 } else { 0 })
+                    .collect()
+            };
+            let tensor = tensor_from_elements(&shape, data, name)?;
+            Constant::new(name, tensor)
+        }
+
+        Some(dtype) => {
+            return Err(load_error!(
+                GraphError,
+                name,
+                "initializer has unsupported data type {}",
+                dtype.0
+            ));
+        }
+        None => {
+            return Err(load_error!(
+                GraphError,
+                name,
+                "initializer is missing data type"
+            ));
+        }
+    };
+
+    Ok(constant)
+}
+
+/// Create a constant with elements of type `T`.
+///
+/// The tensor will use `raw_data` without copying if provided, otherwise the
+/// data in `typed_data` will be copied and converted.
+fn make_constant<T: Pod, U: Pod>(
+    name: Option<&str>,
+    shape: &[usize],
+    raw_data: Option<Vec<u8>>,
+    typed_data: &[U],
+    convert: impl Fn(U) -> T,
+) -> Result<Constant, ModelLoadError>
+where
+    Constant: From<ConstantNode<T>>,
+{
+    let tensor: ConstantNodeData<T> = if let Some(data) = raw_data {
+        tensor_from_bytes::<T>(shape, data, name)?.into()
+    } else {
+        let data = typed_data.iter().copied().map(convert).collect();
+        tensor_from_elements(shape, data, name)?.into()
+    };
+    Ok(Constant::new(name, tensor))
+}
+
+/// Convert `x` to i32 with saturation.
+///
+/// RTen internally does not support i64 values so we convert to i32. We use a
+/// saturating cast because there is a convention in ONNX models to use values
+/// like `i64::{MIN, MAX}` to represent slicing to the end of a dimension in
+/// Slice ops. This is handled by converting to `i32::{MIN, MAX}`.
+fn saturating_cast_i64_to_i32(x: i64) -> i32 {
+    x.clamp(i32::MIN as i64, i32::MAX as i64) as i32
+}
+
+/// Load a tensor from a "Constant" operator.
+fn load_constant_from_constant_op(op: &onnx::NodeProto) -> Result<Constant, ModelLoadError> {
+    // The name of the constant node will be the name of its single output,
+    // as that is the name that will be referenced by operator inputs.
+    let [output] = &op.output[..] else {
+        return Err(load_error!(
+            OperatorInvalid,
+            op.name.as_deref(),
+            "missing output"
+        ));
+    };
+    let const_name = Some(output.as_str());
+
+    // Get constant value from attributes. The spec requires that exactly one
+    // value attribute must be set.
+    let mut constant = None;
+    for attr in op.attribute.iter() {
+        let Some(attr_name) = &attr.name else {
+            continue;
+        };
+
+        let attr_constant = match attr_name.as_str() {
+            "value" => {
+                let Some(value) = &attr.t else {
+                    return Err(load_error!(
+                        OperatorInvalid,
+                        op.name.as_deref(),
+                        "invalid \"value\" attribute"
+                    ));
+                };
+                load_constant(value, const_name)?
+            }
+            "value_int" => {
+                let value = attr.i.unwrap_or_default();
+                let data = Vec::from([saturating_cast_i64_to_i32(value)]);
+                let tensor = Tensor::from_data(&[], data);
+                Constant::new(const_name, tensor.into_arc())
+            }
+            "value_ints" => {
+                let i32s: Vec<_> = attr
+                    .ints
+                    .iter()
+                    .copied()
+                    .map(saturating_cast_i64_to_i32)
+                    .collect();
+                let tensor = Tensor::from_data(&[i32s.len()], i32s);
+                Constant::new(const_name, tensor.into_arc())
+            }
+            "value_float" => {
+                let data = Vec::from([attr.f.unwrap_or_default()]);
+                let tensor = Tensor::from_data(&[], data);
+                Constant::new(const_name, tensor.into_arc())
+            }
+            "value_floats" => {
+                let data = attr.floats.clone();
+                let tensor = Tensor::from_data(&[attr.floats.len()], data);
+                Constant::new(const_name, tensor.into_arc())
+            }
+            _ => {
+                // Known unsupported attributes: sparse_tensor, value_string,
+                // value_strings.
+                return Err(load_error!(
+                    OperatorInvalid,
+                    op.name.as_deref(),
+                    "unsupported attribute {}",
+                    attr_name
+                ));
+            }
+        };
+
+        if constant.is_some() {
+            return Err(load_error!(
+                OperatorInvalid,
+                op.name.as_deref(),
+                "multiple value attributes set"
+            ));
+        }
+        constant = Some(attr_constant);
+    }
+
+    constant.ok_or_else(|| {
+        load_error!(
+            OperatorInvalid,
+            op.name.as_deref(),
+            "value attribute not found"
+        )
+    })
+}
+
+fn tensor_from_elements<T>(
+    shape: &[usize],
+    data: Vec<T>,
+    name: Option<&str>,
+) -> Result<ArcTensor<T>, ModelLoadError> {
+    let data_len = data.len();
+    let tensor = Tensor::try_from_data(shape, data)
+        .map_err(|_| {
+            load_error!(
+                GraphError,
+                name,
+                "length {} does not match shape {:?}",
+                data_len,
+                shape
+            )
+        })?
+        .into_arc();
+    Ok(tensor)
+}
+
+/// Create a tensor by reinterpreting the little-endian bytes in `data` as type T.
+fn tensor_from_bytes<T: Pod>(
+    shape: &[usize],
+    data: Vec<u8>,
+    name: Option<&str>,
+) -> Result<ArcTensorView<T>, ModelLoadError> {
+    // To support big-endian systems, this function would need to byte-swap
+    // `T`-sized chunks of `data`.
+    if !cfg!(target_endian = "little") {
+        return Err(load_error!(
+            GraphError,
+            name,
+            "ONNX model loading not supported on big-endian systems"
+        ));
+    }
+
+    // We assume here that the allocator of `data` will always ensure some
+    // minimum alignment regardless of type, and that alignment will be
+    // sufficient for all the types of tensor `T` that we want to create using
+    // this method. If that ever turns out not to be the case, we'll need to
+    // copy the bytes into a new suitably-aligned buffer.
+    let data = ArcSlice::<T>::from_bytes(data)
+        .ok_or_else(|| load_error!(GraphError, name, "data has incorrect alignment"))?;
+    let data_len = data.len();
+    ArcTensorView::try_from_data(shape, data).map_err(|_| {
+        load_error!(
+            GraphError,
+            name,
+            "length {} does not match shape {:?}",
+            data_len,
+            shape
+        )
+    })
+}
+
+/// Create a `Vec<T>` from a slice of little-endian bytes.
+///
+/// `convert` is used to convert each chunk of bytes into an element. There
+/// may be unused bytes if `data.len()` is not a multiple of `ELEM_SIZE`.
+fn elements_from_le_bytes<T, const ELEM_SIZE: usize>(
+    data: &[u8],
+    convert: impl Fn([u8; ELEM_SIZE]) -> T,
+) -> Vec<T> {
+    data.as_chunks::<ELEM_SIZE>()
+        .0
+        .iter()
+        .copied()
+        .map(convert)
+        .collect()
+}
+
+/// Configuration for loading subgraphs.
+struct SubgraphOptions<'a> {
+    /// Configuration for graph optimizer.
+    optimize: OptimizeMode,
+
+    /// Provides access to info about nodes captured from parent graphs.
+    /// This is needed for some optimization passes.
+    capture_env: Option<&'a CaptureEnv<'a>>,
+}
+
+/// Load an ONNX operator and its subgraphs.
+///
+/// Value nodes must have been created in the graph for the operator's inputs
+/// and outputs before this is called.
+fn add_operator(
+    graph: &mut Graph,
+    onnx_op: &onnx::NodeProto,
+    registry: &OpRegistry,
+    subgraph_opts: SubgraphOptions,
+) -> Result<(), ModelLoadError> {
+    let load_subgraph = |g: &onnx::GraphProto| -> Result<Graph, ModelLoadError> {
+        let SubgraphOptions {
+            optimize,
+            capture_env,
+        } = &subgraph_opts;
+        let capture_env = CaptureEnv::new(*capture_env, graph, None, None, None);
+        load_graph(g, registry, optimize.clone(), Some(&capture_env))
+    };
+
+    struct LoadContext<'a> {
+        load_graph: &'a dyn Fn(&onnx::GraphProto) -> Result<Graph, ModelLoadError>,
+    }
+
+    impl OpLoadContext for LoadContext<'_> {
+        fn load_graph(&self, graph: &onnx::GraphProto) -> Result<Graph, ReadOpError> {
+            (self.load_graph)(graph).map_err(|err| ReadOpError::SubgraphError(err.into()))
+        }
+    }
+
+    let ctx = LoadContext {
+        load_graph: &load_subgraph,
+    };
+
+    let inputs: Vec<Option<NodeId>> = onnx_op
+        .input
+        .iter()
+        .map(|name| {
+            if name.is_empty() {
+                None
+            } else {
+                // nb. We expect graph nodes to be created for all inputs
+                // before this method is called.
+                Some(graph.get_node_id(name).unwrap())
+            }
+        })
+        .collect();
+    let outputs: Vec<Option<NodeId>> = onnx_op
+        .output
+        .iter()
+        .map(|name| {
+            if name.is_empty() {
+                None
+            } else {
+                // nb. We expect graph nodes to be created for all inputs
+                // before this method is called.
+                Some(graph.get_node_id(name).unwrap())
+            }
+        })
+        .collect();
+
+    let op = registry
+        .onnx_registry()
+        .read_op(onnx_op, &ctx)
+        .map_err(|err| load_error!(OperatorInvalid, onnx_op.name.as_deref(), err))?;
+
+    graph.add_op(onnx_op.name.as_deref(), op, &inputs, &outputs);
+
+    Ok(())
+}

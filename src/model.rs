@@ -27,6 +27,7 @@ use crate::value::{DataType, Value, ValueOrView};
 use crate::weight_cache::WeightCache;
 
 mod file_type;
+mod onnx_loader;
 mod rten_loader;
 
 use file_type::FileType;
@@ -262,9 +263,7 @@ impl ModelOptions {
                 let storage = Arc::new(ConstantStorage::Buffer(data));
                 rten_loader::load(storage, self)
             }
-            FileType::Onnx => Err(ModelLoadError::ParseFailed(
-                "ONNX model loading not implemented yet".into(),
-            )),
+            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Path(path.as_ref()), self),
         }
     }
 
@@ -275,9 +274,7 @@ impl ModelOptions {
                 let storage = Arc::new(ConstantStorage::Buffer(data));
                 rten_loader::load(storage, self)
             }
-            FileType::Onnx => Err(ModelLoadError::ParseFailed(
-                "ONNX model loading not implemented yet".into(),
-            )),
+            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(&data), self),
         }
     }
 
@@ -288,9 +285,7 @@ impl ModelOptions {
                 let storage = Arc::new(ConstantStorage::StaticSlice(data));
                 rten_loader::load(storage, self)
             }
-            FileType::Onnx => Err(ModelLoadError::ParseFailed(
-                "ONNX model loading not implemented yet".into(),
-            )),
+            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(data), self),
         }
     }
 
@@ -318,9 +313,7 @@ impl ModelOptions {
                 let storage = Arc::new(ConstantStorage::Mmap(mmap));
                 rten_loader::load(storage, self)
             }
-            FileType::Onnx => Err(ModelLoadError::ParseFailed(
-                "ONNX model loading not implemented yet".into(),
-            )),
+            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(&mmap), self),
         }
     }
 }
@@ -961,13 +954,34 @@ mod tests {
 
     #[test]
     fn test_load_onnx() {
-        let expected = "parse error: ONNX model loading not implemented yet";
-        let err = Model::load_file("model.onnx").err().unwrap();
-        assert_eq!(err.to_string(), expected);
+        let check_model = |model: Model| {
+            assert_eq!(model.input_ids().len(), 1);
+            let input_info = model.node_info(model.input_ids()[0]).unwrap();
+            assert_eq!(input_info.name().unwrap(), "input");
+            assert_eq!(
+                input_info.shape().unwrap(),
+                [1, 1, 28, 28].map(Dimension::Fixed)
+            );
 
+            assert_eq!(model.output_ids().len(), 1);
+            let output_info = model.node_info(model.output_ids()[0]).unwrap();
+            assert_eq!(output_info.name().unwrap(), "logits");
+            assert_eq!(output_info.shape().unwrap(), [1, 10].map(Dimension::Fixed));
+
+            let result = model
+                .run_one(NdTensor::full([1, 1, 28, 28], 0.5).into(), None)
+                .unwrap();
+            assert_eq!(result.shape().as_slice(), &[1, 10]);
+        };
+
+        // Load from file path.
+        let model = Model::load_file("rten-onnx/test-data/mnist.onnx").unwrap();
+        check_model(model);
+
+        // Load from buffer.
         let onnx_buf = std::fs::read("rten-onnx/test-data/mnist.onnx").unwrap();
-        let err = Model::load(onnx_buf).err().unwrap();
-        assert_eq!(err.to_string(), expected);
+        let model = Model::load(onnx_buf).unwrap();
+        check_model(model);
     }
 
     #[test]

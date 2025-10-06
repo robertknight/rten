@@ -64,7 +64,6 @@ impl OnnxOpRegistry {
 
     /// Deserialize an operator from a model file using the operators in the
     /// registry.
-    #[allow(unused)] // ONNX model loading is not implemented yet.
     pub(crate) fn read_op(&self, op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> ReadOpResult {
         let op_type = op.op_type.as_deref().unwrap_or_default();
         self.ops

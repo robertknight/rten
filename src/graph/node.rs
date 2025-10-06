@@ -198,6 +198,13 @@ pub enum Constant {
 }
 
 impl Constant {
+    pub fn new<T>(name: Option<&str>, tensor: impl Into<ConstantNodeData<T>>) -> Self
+    where
+        Self: From<ConstantNode<T>>,
+    {
+        ConstantNode::new(name, tensor.into()).into()
+    }
+
     pub fn name(&self) -> Option<&str> {
         match self {
             Constant::Float(f) => f.name.as_deref(),

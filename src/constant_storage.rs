@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
+use rten_base::byte_cast::Pod;
 use rten_tensor::{DynLayout, Storage, TensorBase};
 
 #[cfg(feature = "mmap")]
@@ -76,9 +77,16 @@ impl ConstantStorage {
 /// Tensor storage which references data owned by an `Arc<ConstantStorage>`.
 #[derive(Debug)]
 pub struct ArcSlice<T> {
+    /// Shared byte buffer. The alignment must be a multiple of `T`s alignment.
     storage: Arc<ConstantStorage>,
+
+    /// Offset of first element as a count of bytes. This must be a multiple
+    /// of the size and alignment of `T`.
     byte_offset: usize,
+
+    /// Number of elements in this storage.
     len: usize,
+
     phantom: PhantomData<T>,
 }
 
@@ -106,6 +114,31 @@ impl<T> ArcSlice<T> {
             storage,
             byte_offset: byte_range.start,
             len: data.len(),
+            phantom: PhantomData,
+        })
+    }
+
+    /// Create an ArcSlice from a buffer of bytes.
+    ///
+    /// This places `buf` in a reference-counted [`ConstantStorage`] container
+    /// and returns a view of the data as a slice of `T`s. The size and
+    /// alignment of the buffer must be a multiple of the size and alignment of
+    /// `T` respectively.
+    pub fn from_bytes(buf: Vec<u8>) -> Option<ArcSlice<T>>
+    where
+        T: Pod,
+    {
+        if !(buf.as_ptr() as usize).is_multiple_of(align_of::<T>())
+            || !buf.len().is_multiple_of(size_of::<T>())
+        {
+            return None;
+        }
+        let len = buf.len().checked_div(size_of::<T>())?;
+        let storage = Arc::new(ConstantStorage::Buffer(buf));
+        Some(ArcSlice::<T> {
+            storage,
+            byte_offset: 0,
+            len,
             phantom: PhantomData,
         })
     }
@@ -181,5 +214,22 @@ mod tests {
         // Try with a zero-sized type.
         let zst_slice = &[(), ()];
         assert!(ArcSlice::new(storage.clone(), zst_slice).is_none());
+    }
+
+    #[test]
+    fn test_arc_slice_from_bytes() {
+        let data: Vec<i32> = (0..16).collect();
+        let bytes = vec_to_ne_bytes(data.clone());
+        let slice = ArcSlice::<i32>::from_bytes(bytes).unwrap();
+        let tensor = ArcTensorView::from_data(&[16], slice);
+        assert_eq!(tensor.data().unwrap(), data);
+    }
+
+    #[test]
+    fn test_arc_slice_from_bytes_invalid() {
+        let data: Vec<i32> = (0..16).collect();
+        let mut bytes = vec_to_ne_bytes(data.clone());
+        bytes.push(0u8); // Make length a non-multiple of i32 size.
+        assert!(ArcSlice::<i32>::from_bytes(bytes).is_none());
     }
 }

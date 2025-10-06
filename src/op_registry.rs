@@ -44,7 +44,6 @@ impl OpRegistry {
     }
 
     /// Return the inner registry for deserializing operators from .onnx models.
-    #[expect(unused)]
     pub(crate) fn onnx_registry(&self) -> &onnx_registry::OnnxOpRegistry {
         &self.onnx_registry
     }
