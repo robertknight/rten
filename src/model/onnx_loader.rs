@@ -23,6 +23,8 @@ use crate::weight_cache::WeightCache;
 pub enum Source<'a> {
     Path(&'a Path),
     Buffer(&'a [u8]),
+    #[cfg(test)]
+    Proto(onnx::ModelProto),
 }
 
 /// Load a serialized ONNX model from a file or buffer.
@@ -40,6 +42,8 @@ pub fn load(source: Source, options: &ModelOptions) -> Result<Model, ModelLoadEr
             let reader = ValueReader::from_buf(buf);
             onnx::ModelProto::decode(reader)
         }
+        #[cfg(test)]
+        Source::Proto(proto) => Ok(proto),
     }
     .map_err(|err| ModelLoadError::ParseFailed(Box::new(err)))?;
 
@@ -90,21 +94,48 @@ fn load_graph(
     let approx_node_count = onnx_graph.node.len() + onnx_graph.value_info.len();
     let mut graph = Graph::with_capacity(approx_node_count);
 
-    // Create value nodes corresponding to `ValueInfoProto`s in the ONNX graph.
-    for value in onnx_graph
-        .value_info
-        .iter()
-        .chain(&onnx_graph.input)
-        .chain(&onnx_graph.output)
-    {
-        let Some(name) = value.name.as_deref() else {
-            continue;
-        };
+    let add_value = |graph: &mut Graph, name, value| {
         let (dtype, shape) = load_value_info(value);
         graph.add_value(Some(name), shape, dtype);
+    };
+
+    // Create value nodes corresponding to `ValueInfoProto`s in the ONNX graph.
+    for value in &onnx_graph.input {
+        let name = value.name.as_deref().unwrap_or_default();
+        if name.is_empty() {
+            return Err(ModelLoadError::GraphError(
+                "graph input has missing or invalid name".into(),
+            ));
+        }
+        add_value(&mut graph, name, value);
     }
 
-    let mut capture_ids = Vec::new();
+    for value in &onnx_graph.output {
+        let name = value.name.as_deref().unwrap_or_default();
+        if name.is_empty() {
+            return Err(ModelLoadError::GraphError(
+                "graph output has missing or invalid name".into(),
+            ));
+        }
+        add_value(&mut graph, name, value);
+    }
+
+    for value in &onnx_graph.value_info {
+        let name = match value.name.as_deref() {
+            Some(name) if !name.is_empty() => name,
+            _ => {
+                // The name is optional in the protobuf schema, but required
+                // in current ONNX IR versions.
+                //
+                // We ignore values with missing names here on the basis that
+                // missing names, except for inputs/outputs, don't prevent
+                // inference from working. It might prevent some graph
+                // optimizations from being applied though.
+                continue;
+            }
+        };
+        add_value(&mut graph, name, value);
+    }
 
     // Add constants from initializers.
     for initializer in &onnx_graph.initializer {
@@ -123,6 +154,7 @@ fn load_graph(
     }
 
     // Create value nodes for operator inputs and outputs.
+    let mut capture_ids = Vec::new();
     for op in &onnx_graph.node {
         if op.op_type.as_deref() == Some("Constant") {
             // Constant operators are added to the graph as constants rather
@@ -155,32 +187,27 @@ fn load_graph(
     // Record which of the value nodes represent values coming from a parent graph.
     graph.set_captures(&capture_ids);
 
+    let node_ids_from_value_info =
+        |graph: &Graph, values: &[onnx::ValueInfoProto]| -> Vec<NodeId> {
+            values
+                .iter()
+                .map(|val| {
+                    let name = val.name.as_deref().unwrap_or_default();
+                    graph
+                        .get_node_id(name)
+                        .expect("value node should exist in graph")
+                })
+                .collect()
+        };
+
     // Set graph inputs and outputs.
     //
     // Value nodes should exist in the graph for all inputs and outputs at
     // this point.
-    let input_ids: Vec<NodeId> = onnx_graph
-        .input
-        .iter()
-        .filter_map(|value| value.name.as_deref())
-        .map(|name| {
-            graph
-                .get_node_id(name)
-                .expect("input node should exist in graph")
-        })
-        .collect();
+    let input_ids = node_ids_from_value_info(&graph, &onnx_graph.input);
     graph.set_input_ids(&input_ids);
 
-    let output_ids: Vec<NodeId> = onnx_graph
-        .output
-        .iter()
-        .filter_map(|value| value.name.as_deref())
-        .map(|name| {
-            graph
-                .get_node_id(name)
-                .expect("output node should exist in graph")
-        })
-        .collect();
+    let output_ids = node_ids_from_value_info(&graph, &onnx_graph.output);
     graph.set_output_ids(&output_ids);
 
     // Add model operators
@@ -610,33 +637,23 @@ fn add_operator(
         load_graph: &load_subgraph,
     };
 
-    let inputs: Vec<Option<NodeId>> = onnx_op
-        .input
-        .iter()
-        .map(|name| {
-            if name.is_empty() {
-                None
-            } else {
-                // nb. We expect graph nodes to be created for all inputs
-                // before this method is called.
-                Some(graph.get_node_id(name).unwrap())
-            }
-        })
-        .collect();
-    let outputs: Vec<Option<NodeId>> = onnx_op
-        .output
-        .iter()
-        .map(|name| {
-            if name.is_empty() {
-                None
-            } else {
-                // nb. We expect graph nodes to be created for all inputs
-                // before this method is called.
-                Some(graph.get_node_id(name).unwrap())
-            }
-        })
-        .collect();
+    let node_ids_from_names = |names: &[String]| -> Vec<Option<NodeId>> {
+        names
+            .iter()
+            .map(|name| {
+                if name.is_empty() {
+                    None
+                } else {
+                    // nb. We expect graph nodes to be created for all inputs
+                    // before this method is called.
+                    Some(graph.get_node_id(name).unwrap())
+                }
+            })
+            .collect()
+    };
 
+    let inputs = node_ids_from_names(&onnx_op.input);
+    let outputs = node_ids_from_names(&onnx_op.output);
     let op = registry
         .onnx_registry()
         .read_op(onnx_op, &ctx)
@@ -645,4 +662,46 @@ fn add_operator(
     graph.add_op(onnx_op.name.as_deref(), op, &inputs, &outputs);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use rten_onnx::onnx;
+
+    use super::{Source, load};
+    use crate::model::ModelOptions;
+
+    #[test]
+    fn test_graph_invalid_input_name() {
+        let mut graph = onnx::GraphProto::default();
+        graph.input.push(onnx::ValueInfoProto::default());
+        let mut model = onnx::ModelProto::default();
+        model.graph = Some(graph);
+
+        let err = load(Source::Proto(model), &ModelOptions::default())
+            .err()
+            .unwrap();
+
+        assert_eq!(
+            err.to_string(),
+            "graph error: graph input has missing or invalid name"
+        );
+    }
+
+    #[test]
+    fn test_graph_invalid_output_name() {
+        let mut graph = onnx::GraphProto::default();
+        graph.output.push(onnx::ValueInfoProto::default());
+        let mut model = onnx::ModelProto::default();
+        model.graph = Some(graph);
+
+        let err = load(Source::Proto(model), &ModelOptions::default())
+            .err()
+            .unwrap();
+
+        assert_eq!(
+            err.to_string(),
+            "graph error: graph output has missing or invalid name"
+        );
+    }
 }
