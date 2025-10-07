@@ -26,10 +26,12 @@ use crate::timing::{TimingFilter, TimingSort};
 use crate::value::{DataType, Value, ValueOrView};
 use crate::weight_cache::WeightCache;
 
+mod external_data;
 mod file_type;
 mod onnx_loader;
 mod rten_loader;
 
+use external_data::ExternalFileLoader;
 use file_type::FileType;
 
 /// The central type used to execute RTen machine learning models.
@@ -263,7 +265,14 @@ impl ModelOptions {
                 let storage = Arc::new(ConstantStorage::Buffer(data));
                 rten_loader::load(storage, self)
             }
-            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Path(path.as_ref()), self),
+            FileType::Onnx => {
+                let loader = ExternalFileLoader::new(path.as_ref())?;
+                onnx_loader::load(
+                    onnx_loader::Source::Path(path.as_ref()),
+                    Some(&loader),
+                    self,
+                )
+            }
         }
     }
 
@@ -274,7 +283,7 @@ impl ModelOptions {
                 let storage = Arc::new(ConstantStorage::Buffer(data));
                 rten_loader::load(storage, self)
             }
-            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(&data), self),
+            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(&data), None, self),
         }
     }
 
@@ -285,7 +294,7 @@ impl ModelOptions {
                 let storage = Arc::new(ConstantStorage::StaticSlice(data));
                 rten_loader::load(storage, self)
             }
-            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(data), self),
+            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(data), None, self),
         }
     }
 
@@ -313,7 +322,10 @@ impl ModelOptions {
                 let storage = Arc::new(ConstantStorage::Mmap(mmap));
                 rten_loader::load(storage, self)
             }
-            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(&mmap), self),
+            FileType::Onnx => {
+                let loader = ExternalFileLoader::new(path.as_ref())?;
+                onnx_loader::load(onnx_loader::Source::Buffer(&mmap), Some(&loader), self)
+            }
         }
     }
 }
@@ -546,6 +558,9 @@ pub enum ModelLoadError {
 
     /// The file type of the model could not be determined.
     UnknownFileType,
+
+    /// An error occurred reading tensor data stored externally.
+    ExternalDataError(Box<dyn Error + Send + Sync>),
 }
 
 impl Display for ModelLoadError {
@@ -559,6 +574,7 @@ impl Display for ModelLoadError {
             ModelLoadError::OptimizeError(e) => write!(f, "graph optimization error: {e}"),
             ModelLoadError::InvalidHeader(e) => write!(f, "invalid header: {e}"),
             ModelLoadError::UnknownFileType => write!(f, "unknown model file type"),
+            ModelLoadError::ExternalDataError(e) => write!(f, "external data error: {e}"),
         }
     }
 }
@@ -981,6 +997,10 @@ mod tests {
         // Load from buffer.
         let onnx_buf = std::fs::read("rten-onnx/test-data/mnist.onnx").unwrap();
         let model = Model::load(onnx_buf).unwrap();
+        check_model(model);
+
+        // Load file with external data.
+        let model = Model::load_file("rten-onnx/test-data/mnist-external/mnist.onnx").unwrap();
         check_model(model);
     }
 
