@@ -130,6 +130,9 @@ def run_model(
         durations.append(elapsed * 1000.0)
         print("Model eval time: {:.2f}ms".format(elapsed * 1000))
 
+    if n_evals == 0:
+        return
+
     # Print duration statistics
     mean = sum(durations) / n_evals
     variance = sum((dur - mean) ** 2 for dur in durations) / n_evals
