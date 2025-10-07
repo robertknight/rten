@@ -1,13 +1,13 @@
 use std::fs::File;
 use std::path::Path;
 
-use rten_base::byte_cast::Pod;
+use rten_base::byte_cast::{Pod, cast_pod_slice};
 use rten_onnx::onnx;
 use rten_onnx::protobuf::{DecodeMessage, ValueReader};
 use rten_tensor::{ArcTensor, Storage, Tensor};
 
 use super::NodeError;
-use super::external_data::{DataLoader, DataLocation};
+use super::external_data::{DataLoader, DataLocation, DataSlice};
 use super::{Model, ModelLoadError, ModelOptions, OptimizeMode};
 use crate::constant_storage::{ArcSlice, ArcTensorView};
 use crate::graph::{
@@ -507,7 +507,7 @@ where
     } else if let Some(loc) = external_data {
         if let Some(loader) = &loader {
             let data = loader.load(&loc)?;
-            tensor_from_bytes::<T>(shape, data, name)?.into()
+            tensor_from_external_data::<T>(shape, &data, name)?.into()
         } else {
             return Err(load_error!(
                 ExternalDataError,
@@ -667,6 +667,28 @@ fn tensor_from_bytes<T: Pod>(
     // copy the bytes into a new suitably-aligned buffer.
     let data = ArcSlice::<T>::from_bytes(data)
         .ok_or_else(|| load_error!(GraphError, name, "data has incorrect alignment"))?;
+    let data_len = data.len();
+    ArcTensorView::try_from_data(shape, data).map_err(|_| {
+        load_error!(
+            GraphError,
+            name,
+            "length {} does not match shape {:?}",
+            data_len,
+            shape
+        )
+    })
+}
+
+/// Create a tensor by reinterpreting bytes that have been loaded or
+/// memory-mapped from an external file.
+fn tensor_from_external_data<T: Pod>(
+    shape: &[usize],
+    data: &DataSlice,
+    name: Option<&str>,
+) -> Result<ArcTensorView<T>, ModelLoadError> {
+    let elements = cast_pod_slice(data.data())
+        .ok_or_else(|| load_error!(GraphError, name, "data has incorrect alignment"))?;
+    let data = ArcSlice::<T>::new(data.storage.clone(), elements).unwrap();
     let data_len = data.len();
     ArcTensorView::try_from_data(shape, data).map_err(|_| {
         load_error!(

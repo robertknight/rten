@@ -7,9 +7,12 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use super::ModelLoadError;
+use crate::constant_storage::ConstantStorage;
 
 /// Specifies the location of tensor data which is stored externally from the
 /// main model file.
@@ -23,6 +26,24 @@ pub struct DataLocation {
 
     /// Length of the tensor data in bytes.
     pub length: u64,
+}
+
+/// A slice of a shared buffer, where the slice contains the data for one
+/// tensor.
+#[derive(Debug)]
+pub struct DataSlice {
+    /// The shared buffer. This may contain data for one or multiple tensors
+    /// and may be a `Vec<u8>`, a memory-mapped file or static slice.
+    pub storage: Arc<ConstantStorage>,
+
+    /// The range of bytes within `storage` that contain the tensor data.
+    pub bytes: Range<usize>,
+}
+
+impl DataSlice {
+    pub fn data(&self) -> &[u8] {
+        &self.storage.data()[self.bytes.clone()]
+    }
 }
 
 /// Errors reading tensor data from an external file.
@@ -92,7 +113,7 @@ impl From<ExternalDataError> for ModelLoadError {
 /// Trait for loading data from an external file.
 pub trait DataLoader {
     /// Load data from the file and offset specified by `location`.
-    fn load(&self, location: &DataLocation) -> Result<Vec<u8>, ExternalDataError>;
+    fn load(&self, location: &DataLocation) -> Result<DataSlice, ExternalDataError>;
 }
 
 /// Check if `path` is an allowed path for external data files for a given
@@ -237,8 +258,12 @@ fn read_fill<R: Read>(mut src: R, buf: &mut [u8]) -> std::io::Result<usize> {
 }
 
 impl DataLoader for FileLoader {
-    fn load(&self, location: &DataLocation) -> Result<Vec<u8>, ExternalDataError> {
-        self.read(location)
+    fn load(&self, location: &DataLocation) -> Result<DataSlice, ExternalDataError> {
+        let bytes = self.read(location)?;
+        Ok(DataSlice {
+            bytes: 0..bytes.len(),
+            storage: Arc::new(ConstantStorage::Buffer(bytes)),
+        })
     }
 }
 
@@ -392,7 +417,7 @@ mod tests {
             let loader = FileLoader::new(model_file.path()).unwrap();
             let data = loader.load(&case.location).map_err(|e| e.to_string());
             match (&data, &case.expected) {
-                (Ok(actual), Ok(expected)) => assert_eq!(actual, expected),
+                (Ok(actual), Ok(expected)) => assert_eq!(actual.data(), expected),
                 (Err(actual), Err(expected)) => assert!(
                     actual.contains(expected),
                     "{} does not contain {}",
