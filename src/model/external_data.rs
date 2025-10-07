@@ -14,7 +14,7 @@ use super::ModelLoadError;
 /// Specifies the location of tensor data which is stored externally from the
 /// main model file.
 #[derive(Debug)]
-pub struct ExternalDataLocation {
+pub struct DataLocation {
     /// Name of the external data file.
     pub path: String,
 
@@ -90,9 +90,9 @@ impl From<ExternalDataError> for ModelLoadError {
 }
 
 /// Trait for loading data from an external file.
-pub trait ExternalDataLoader {
+pub trait DataLoader {
     /// Load data from the file and offset specified by `location`.
-    fn load(&self, location: &ExternalDataLocation) -> Result<Vec<u8>, ExternalDataError>;
+    fn load(&self, location: &DataLocation) -> Result<Vec<u8>, ExternalDataError>;
 }
 
 /// Check if `path` is an allowed path for external data files for a given
@@ -130,8 +130,8 @@ fn is_allowed_external_data_path(path: &Path) -> bool {
     }
 }
 
-/// External file loader that uses standard file IO.
-pub struct ExternalFileLoader {
+/// External data loader that uses standard file IO.
+pub struct FileLoader {
     /// Path to directory containing external data.
     dir_path: PathBuf,
 
@@ -139,7 +139,7 @@ pub struct ExternalFileLoader {
     files: RefCell<HashMap<PathBuf, File>>,
 }
 
-impl ExternalFileLoader {
+impl FileLoader {
     /// Create an external data loader which loads data for the model file
     /// specified by `model_path`.
     ///
@@ -171,7 +171,7 @@ impl ExternalFileLoader {
         })
     }
 
-    fn read(&self, location: &ExternalDataLocation) -> Result<Vec<u8>, ExternalDataError> {
+    fn read(&self, location: &DataLocation) -> Result<Vec<u8>, ExternalDataError> {
         // On a big-endian system we'd need to perform byte-swapping while loading.
         if cfg!(target_endian = "big") {
             return Err(ExternalDataError::NotSupported);
@@ -236,8 +236,8 @@ fn read_fill<R: Read>(mut src: R, buf: &mut [u8]) -> std::io::Result<usize> {
     Ok(total_read)
 }
 
-impl ExternalDataLoader for ExternalFileLoader {
-    fn load(&self, location: &ExternalDataLocation) -> Result<Vec<u8>, ExternalDataError> {
+impl DataLoader for FileLoader {
+    fn load(&self, location: &DataLocation) -> Result<Vec<u8>, ExternalDataError> {
         self.read(location)
     }
 }
@@ -267,7 +267,7 @@ fn get_or_open_file<'a>(
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{ExternalDataLoader, ExternalDataLocation, ExternalFileLoader};
+    use super::{DataLoader, DataLocation, FileLoader};
     use rten_testing::TestCases;
 
     fn temp_dir() -> PathBuf {
@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_external_data() {
+    fn test_file_loader() {
         let bytes: Vec<u8> = (0..32).collect();
         let model_file = TempFile::new("test_load_external_data.onnx", &[]).unwrap();
         let data_file = TempFile::new("test_load_external_data.onnx.data", &bytes).unwrap();
@@ -318,14 +318,14 @@ mod tests {
 
         #[derive(Debug)]
         struct Case {
-            location: ExternalDataLocation,
+            location: DataLocation,
             expected: Result<Vec<u8>, String>,
         }
 
         let cases = [
             // Part of file
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: data_filename.clone(),
                     offset: 8,
                     length: 8,
@@ -334,7 +334,7 @@ mod tests {
             },
             // Full file
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: data_filename.clone(),
                     offset: 0,
                     length: bytes.len() as u64,
@@ -343,7 +343,7 @@ mod tests {
             },
             // Empty path
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: String::new(),
                     offset: 0,
                     length: 0,
@@ -352,7 +352,7 @@ mod tests {
             },
             // Path containing parent directory
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: "../foo.data".into(),
                     offset: 0,
                     length: 0,
@@ -361,7 +361,7 @@ mod tests {
             },
             // Path with disallowed extension
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: "not_a_data_file.md".into(),
                     offset: 0,
                     length: 0,
@@ -370,7 +370,7 @@ mod tests {
             },
             // File does not exist
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: "file_does_not_exist.data".into(),
                     offset: 0,
                     length: 0,
@@ -379,7 +379,7 @@ mod tests {
             },
             // Range extends beyond end of file
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: data_filename,
                     offset: 0,
                     length: 36,
@@ -389,7 +389,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let loader = ExternalFileLoader::new(model_file.path()).unwrap();
+            let loader = FileLoader::new(model_file.path()).unwrap();
             let data = loader.load(&case.location).map_err(|e| e.to_string());
             match (&data, &case.expected) {
                 (Ok(actual), Ok(expected)) => assert_eq!(actual, expected),

@@ -31,7 +31,6 @@ mod file_type;
 mod onnx_loader;
 mod rten_loader;
 
-use external_data::ExternalFileLoader;
 use file_type::FileType;
 
 /// The central type used to execute RTen machine learning models.
@@ -266,7 +265,7 @@ impl ModelOptions {
                 rten_loader::load(storage, self)
             }
             FileType::Onnx => {
-                let loader = ExternalFileLoader::new(path.as_ref())?;
+                let loader = external_data::FileLoader::new(path.as_ref())?;
                 onnx_loader::load(
                     onnx_loader::Source::Path(path.as_ref()),
                     Some(&loader),
@@ -323,7 +322,7 @@ impl ModelOptions {
                 rten_loader::load(storage, self)
             }
             FileType::Onnx => {
-                let loader = ExternalFileLoader::new(path.as_ref())?;
+                let loader = external_data::FileLoader::new(path.as_ref())?;
                 onnx_loader::load(onnx_loader::Source::Buffer(&mmap), Some(&loader), self)
             }
         }
