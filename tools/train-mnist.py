@@ -137,7 +137,9 @@ def evaluate(model, loader, device):
     return running_loss / total, correct / total
 
 
-def export_onnx(model, onnx_path: str, opset: int, device: str):
+def export_onnx(
+    model, onnx_path: str, opset: int, device: str, dynamo: bool, external_data: bool
+):
     model.eval()
     dummy = torch.randn(1, 1, 28, 28, device=device)  # NCHW
     input_names = ["input"]
@@ -161,8 +163,8 @@ def export_onnx(model, onnx_path: str, opset: int, device: str):
         input_names=input_names,
         output_names=output_names,
         dynamic_axes=dynamic_axes,
-        dynamo=True,
-        external_data=False,
+        dynamo=dynamo,
+        external_data=external_data,
     )
     print(f"[OK] Exported ONNX to: {onnx_path}")
 
@@ -198,6 +200,18 @@ def main():
         else "cpu",
         choices=["cpu", "cuda", "mps"],
         help="Computation device.",
+    )
+    parser.add_argument(
+        "--dynamo",
+        action="store_true",
+        default=True,
+        help="Use the newer dynamo exporter",
+    )
+    parser.add_argument(
+        "--external-data",
+        action="store_true",
+        default=False,
+        help="Store data in external file",
     )
     args = parser.parse_args()
 
@@ -254,7 +268,14 @@ def main():
         print("Skipping training (epochs=0). Exporting randomly initialized weights.")
 
     # Export to ONNX
-    export_onnx(model, cfg.onnx_path, cfg.opset, cfg.device)
+    export_onnx(
+        model,
+        cfg.onnx_path,
+        cfg.opset,
+        cfg.device,
+        dynamo=args.dynamo,
+        external_data=args.external_data,
+    )
 
 
 if __name__ == "__main__":

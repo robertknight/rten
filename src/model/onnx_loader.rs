@@ -7,6 +7,7 @@ use rten_onnx::protobuf::{DecodeMessage, ValueReader};
 use rten_tensor::{ArcTensor, Storage, Tensor};
 
 use super::NodeError;
+use super::external_data::{ExternalDataLoader, ExternalDataLocation};
 use super::{Model, ModelLoadError, ModelOptions, OptimizeMode};
 use crate::constant_storage::{ArcSlice, ArcTensorView};
 use crate::graph::{
@@ -31,7 +32,11 @@ pub enum Source<'a> {
 ///
 /// An ONNX model is the serialized `ModelProto` Protocol Buffers message
 /// defined in https://github.com/onnx/onnx/blob/main/onnx/onnx.proto3.
-pub fn load(source: Source, options: &ModelOptions) -> Result<Model, ModelLoadError> {
+pub fn load(
+    source: Source,
+    loader: Option<&dyn ExternalDataLoader>,
+    options: &ModelOptions,
+) -> Result<Model, ModelLoadError> {
     let model = match source {
         Source::Path(path) => {
             let file = File::open(path).map_err(ModelLoadError::ReadFailed)?;
@@ -54,7 +59,7 @@ pub fn load(source: Source, options: &ModelOptions) -> Result<Model, ModelLoadEr
     };
 
     let graph = if let Some(onnx_graph) = model.graph {
-        load_graph(&onnx_graph, &options.registry, optimize_opts, None)?
+        load_graph(&onnx_graph, &options.registry, optimize_opts, None, loader)?
     } else {
         Graph::new()
     };
@@ -90,6 +95,7 @@ fn load_graph(
     registry: &OpRegistry,
     optimize: OptimizeMode,
     capture_env: Option<&CaptureEnv>,
+    loader: Option<&dyn ExternalDataLoader>,
 ) -> Result<Graph, ModelLoadError> {
     let approx_node_count = onnx_graph.node.len() + onnx_graph.value_info.len();
     let mut graph = Graph::with_capacity(approx_node_count);
@@ -139,7 +145,7 @@ fn load_graph(
 
     // Add constants from initializers.
     for initializer in &onnx_graph.initializer {
-        let constant = load_constant(initializer, None)?;
+        let constant = load_constant(initializer, loader, None)?;
         graph.add_constant_node(constant);
     }
 
@@ -149,7 +155,7 @@ fn load_graph(
         .iter()
         .filter(|op| op.op_type.as_deref() == Some("Constant"))
     {
-        let constant = load_constant_from_constant_op(const_op)?;
+        let constant = load_constant_from_constant_op(const_op, loader)?;
         graph.add_constant_node(constant);
     }
 
@@ -224,6 +230,7 @@ fn load_graph(
             SubgraphOptions {
                 optimize: optimize.clone(),
                 capture_env,
+                loader,
             },
         )?;
     }
@@ -295,6 +302,7 @@ fn load_value_info(value: &onnx::ValueInfoProto) -> (Option<DataType>, Option<Ve
 /// If `name` is provided, it overrides the name from `initializer.name`.
 fn load_constant(
     initializer: &onnx::TensorProto,
+    loader: Option<&dyn ExternalDataLoader>,
     name: Option<&str>,
 ) -> Result<Constant, ModelLoadError> {
     let name = name.or(initializer.name.as_deref());
@@ -308,14 +316,10 @@ fn load_constant(
         .data_location
         .unwrap_or(onnx::DataLocation::DEFAULT);
 
-    match data_location {
-        onnx::DataLocation::DEFAULT => {}
+    let external_location = match data_location {
+        onnx::DataLocation::DEFAULT => None,
         onnx::DataLocation::EXTERNAL => {
-            return Err(load_error!(
-                GraphError,
-                name,
-                "external data not supported yet"
-            ));
+            Some(external_data_location(name, &initializer.external_data)?)
         }
         _ => {
             return Err(load_error!(GraphError, name, "unsupported data location"));
@@ -335,18 +339,42 @@ fn load_constant(
     let raw_data = initializer.raw_data.as_ref().map(|data| data.take());
 
     let constant: Constant = match initializer.data_type {
-        Some(onnx::DataType::FLOAT) => {
-            make_constant(name, &shape, raw_data, &initializer.float_data, |x| x)?
-        }
-        Some(onnx::DataType::INT32) => {
-            make_constant(name, &shape, raw_data, &initializer.int32_data, |x| x)?
-        }
-        Some(onnx::DataType::UINT8) => {
-            make_constant(name, &shape, raw_data, &initializer.int32_data, |x| x as u8)?
-        }
-        Some(onnx::DataType::INT8) => {
-            make_constant(name, &shape, raw_data, &initializer.int32_data, |x| x as i8)?
-        }
+        Some(onnx::DataType::FLOAT) => make_constant(
+            name,
+            &shape,
+            raw_data,
+            external_location,
+            loader,
+            &initializer.float_data,
+            |x| x,
+        )?,
+        Some(onnx::DataType::INT32) => make_constant(
+            name,
+            &shape,
+            raw_data,
+            external_location,
+            loader,
+            &initializer.int32_data,
+            |x| x,
+        )?,
+        Some(onnx::DataType::UINT8) => make_constant(
+            name,
+            &shape,
+            raw_data,
+            external_location,
+            loader,
+            &initializer.int32_data,
+            |x| x as u8,
+        )?,
+        Some(onnx::DataType::INT8) => make_constant(
+            name,
+            &shape,
+            raw_data,
+            external_location,
+            loader,
+            &initializer.int32_data,
+            |x| x as i8,
+        )?,
 
         // RTen internally does not support i64 or bool tensors. Instead both
         // are converted to i32 at load time.
@@ -401,6 +429,63 @@ fn load_constant(
     Ok(constant)
 }
 
+/// Parse the external location metadata from a `TensorProto.external_data` field.
+fn external_data_location(
+    name: Option<&str>,
+    metadata: &[onnx::StringStringEntryProto],
+) -> Result<ExternalDataLocation, ModelLoadError> {
+    let mut location = None;
+    let mut offset = None;
+    let mut length = None;
+
+    for metadata in metadata {
+        let Some(key) = &metadata.key else {
+            continue;
+        };
+        let Some(value) = &metadata.value else {
+            continue;
+        };
+
+        match key.as_str() {
+            "location" => location = Some(value),
+            "offset" => {
+                offset =
+                    Some(value.parse::<u64>().map_err(|_| {
+                        load_error!(GraphError, name, "invalid external data offset")
+                    })?);
+            }
+            "length" => {
+                length =
+                    Some(value.parse::<u64>().map_err(|_| {
+                        load_error!(GraphError, name, "invalid external data length")
+                    })?);
+            }
+            "checksum" => {}
+            _ => {
+                return Err(load_error!(
+                    GraphError,
+                    name,
+                    "unsupported external data key {}",
+                    key
+                ));
+            }
+        }
+    }
+
+    let location =
+        location.ok_or_else(|| load_error!(GraphError, name, "missing external data location"))?;
+    let offset =
+        offset.ok_or_else(|| load_error!(GraphError, name, "missing external data offset"))?;
+    let length =
+        length.ok_or_else(|| load_error!(GraphError, name, "missing external data length"))?;
+
+    Ok(ExternalDataLocation {
+        path: location.to_string(),
+        offset,
+        length,
+    })
+}
+
 /// Create a constant with elements of type `T`.
 ///
 /// The tensor will use `raw_data` without copying if provided, otherwise the
@@ -409,6 +494,8 @@ fn make_constant<T: Pod, U: Pod>(
     name: Option<&str>,
     shape: &[usize],
     raw_data: Option<Vec<u8>>,
+    external_data: Option<ExternalDataLocation>,
+    loader: Option<&dyn ExternalDataLoader>,
     typed_data: &[U],
     convert: impl Fn(U) -> T,
 ) -> Result<Constant, ModelLoadError>
@@ -417,6 +504,17 @@ where
 {
     let tensor: ConstantNodeData<T> = if let Some(data) = raw_data {
         tensor_from_bytes::<T>(shape, data, name)?.into()
+    } else if let Some(loc) = external_data {
+        if let Some(loader) = &loader {
+            let data = loader.load(&loc)?;
+            tensor_from_bytes::<T>(shape, data, name)?.into()
+        } else {
+            return Err(load_error!(
+                ExternalDataError,
+                name,
+                "tensor has external data but model was loaded without external data source"
+            ));
+        }
     } else {
         let data = typed_data.iter().copied().map(convert).collect();
         tensor_from_elements(shape, data, name)?.into()
@@ -435,7 +533,10 @@ fn saturating_cast_i64_to_i32(x: i64) -> i32 {
 }
 
 /// Load a tensor from a "Constant" operator.
-fn load_constant_from_constant_op(op: &onnx::NodeProto) -> Result<Constant, ModelLoadError> {
+fn load_constant_from_constant_op(
+    op: &onnx::NodeProto,
+    loader: Option<&dyn ExternalDataLoader>,
+) -> Result<Constant, ModelLoadError> {
     // The name of the constant node will be the name of its single output,
     // as that is the name that will be referenced by operator inputs.
     let [output] = &op.output[..] else {
@@ -464,7 +565,7 @@ fn load_constant_from_constant_op(op: &onnx::NodeProto) -> Result<Constant, Mode
                         "invalid \"value\" attribute"
                     ));
                 };
-                load_constant(value, const_name)?
+                load_constant(value, loader, const_name)?
             }
             "value_int" => {
                 let value = attr.i.unwrap_or_default();
@@ -602,6 +703,9 @@ struct SubgraphOptions<'a> {
     /// Provides access to info about nodes captured from parent graphs.
     /// This is needed for some optimization passes.
     capture_env: Option<&'a CaptureEnv<'a>>,
+
+    /// Data source for tensors with data stored outside model.
+    loader: Option<&'a dyn ExternalDataLoader>,
 }
 
 /// Load an ONNX operator and its subgraphs.
@@ -618,9 +722,10 @@ fn add_operator(
         let SubgraphOptions {
             optimize,
             capture_env,
+            loader,
         } = &subgraph_opts;
         let capture_env = CaptureEnv::new(*capture_env, graph, None, None, None);
-        load_graph(g, registry, optimize.clone(), Some(&capture_env))
+        load_graph(g, registry, optimize.clone(), Some(&capture_env), *loader)
     };
 
     struct LoadContext<'a> {
@@ -678,7 +783,7 @@ mod tests {
         let mut model = onnx::ModelProto::default();
         model.graph = Some(graph);
 
-        let err = load(Source::Proto(model), &ModelOptions::default())
+        let err = load(Source::Proto(model), None, &ModelOptions::default())
             .err()
             .unwrap();
 
@@ -695,7 +800,7 @@ mod tests {
         let mut model = onnx::ModelProto::default();
         model.graph = Some(graph);
 
-        let err = load(Source::Proto(model), &ModelOptions::default())
+        let err = load(Source::Proto(model), None, &ModelOptions::default())
             .err()
             .unwrap();
 
