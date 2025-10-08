@@ -7,14 +7,20 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
+
+#[cfg(feature = "mmap")]
+use memmap2::Mmap;
 
 use super::ModelLoadError;
+use crate::constant_storage::ConstantStorage;
 
 /// Specifies the location of tensor data which is stored externally from the
 /// main model file.
 #[derive(Debug)]
-pub struct ExternalDataLocation {
+pub struct DataLocation {
     /// Name of the external data file.
     pub path: String,
 
@@ -23,6 +29,24 @@ pub struct ExternalDataLocation {
 
     /// Length of the tensor data in bytes.
     pub length: u64,
+}
+
+/// A slice of a shared buffer, where the slice contains the data for one
+/// tensor.
+#[derive(Debug)]
+pub struct DataSlice {
+    /// The shared buffer. This may contain data for one or multiple tensors
+    /// and may be a `Vec<u8>`, a memory-mapped file or static slice.
+    pub storage: Arc<ConstantStorage>,
+
+    /// The range of bytes within `storage` that contain the tensor data.
+    pub bytes: Range<usize>,
+}
+
+impl DataSlice {
+    pub fn data(&self) -> &[u8] {
+        &self.storage.data()[self.bytes.clone()]
+    }
 }
 
 /// Errors reading tensor data from an external file.
@@ -90,9 +114,9 @@ impl From<ExternalDataError> for ModelLoadError {
 }
 
 /// Trait for loading data from an external file.
-pub trait ExternalDataLoader {
+pub trait DataLoader {
     /// Load data from the file and offset specified by `location`.
-    fn load(&self, location: &ExternalDataLocation) -> Result<Vec<u8>, ExternalDataError>;
+    fn load(&self, location: &DataLocation) -> Result<DataSlice, ExternalDataError>;
 }
 
 /// Check if `path` is an allowed path for external data files for a given
@@ -130,8 +154,8 @@ fn is_allowed_external_data_path(path: &Path) -> bool {
     }
 }
 
-/// External file loader that uses standard file IO.
-pub struct ExternalFileLoader {
+/// External data loader that uses standard file IO.
+pub struct FileLoader {
     /// Path to directory containing external data.
     dir_path: PathBuf,
 
@@ -139,31 +163,14 @@ pub struct ExternalFileLoader {
     files: RefCell<HashMap<PathBuf, File>>,
 }
 
-impl ExternalFileLoader {
+impl FileLoader {
     /// Create an external data loader which loads data for the model file
     /// specified by `model_path`.
     ///
     /// Data file paths will be resolved relative to the directory containing
     /// `model_path`.
     pub fn new(model_path: &Path) -> Result<Self, ExternalDataError> {
-        // Resolve the path now to avoid the possibility of loading data from
-        // an unexpected location if `model_path` is relative and the current
-        // working directory changes before a data file is loaded.
-        let model_path = if !cfg!(target_arch = "wasm32") {
-            model_path.canonicalize()?
-        } else {
-            // On WASM / WASI `Path::canonicalize` is not available.
-            model_path.to_path_buf()
-        };
-
-        if !model_path.is_file() {
-            return Err(ExternalDataError::InvalidPath(model_path));
-        }
-        let dir_path = model_path
-            .parent()
-            // Since `model_path` is a file path, it cannot be the root ("/").
-            .expect("should have parent dir")
-            .to_path_buf();
+        let dir_path = dir_path_from_model_path(model_path)?;
 
         Ok(Self {
             dir_path,
@@ -171,7 +178,7 @@ impl ExternalFileLoader {
         })
     }
 
-    fn read(&self, location: &ExternalDataLocation) -> Result<Vec<u8>, ExternalDataError> {
+    fn read(&self, location: &DataLocation) -> Result<Vec<u8>, ExternalDataError> {
         // On a big-endian system we'd need to perform byte-swapping while loading.
         if cfg!(target_endian = "big") {
             return Err(ExternalDataError::NotSupported);
@@ -236,9 +243,13 @@ fn read_fill<R: Read>(mut src: R, buf: &mut [u8]) -> std::io::Result<usize> {
     Ok(total_read)
 }
 
-impl ExternalDataLoader for ExternalFileLoader {
-    fn load(&self, location: &ExternalDataLocation) -> Result<Vec<u8>, ExternalDataError> {
-        self.read(location)
+impl DataLoader for FileLoader {
+    fn load(&self, location: &DataLocation) -> Result<DataSlice, ExternalDataError> {
+        let bytes = self.read(location)?;
+        Ok(DataSlice {
+            bytes: 0..bytes.len(),
+            storage: Arc::new(ConstantStorage::Buffer(bytes)),
+        })
     }
 }
 
@@ -263,11 +274,127 @@ fn get_or_open_file<'a>(
     Ok(files.get_mut(data_path).unwrap())
 }
 
+fn dir_path_from_model_path(model_path: &Path) -> Result<PathBuf, ExternalDataError> {
+    // Resolve the path now to avoid the possibility of loading data from
+    // an unexpected location if `model_path` is relative and the current
+    // working directory changes before a data file is loaded.
+    let model_path = if !cfg!(target_arch = "wasm32") {
+        model_path.canonicalize()?
+    } else {
+        // On WASM / WASI `Path::canonicalize` is not available.
+        model_path.to_path_buf()
+    };
+
+    if !model_path.is_file() {
+        return Err(ExternalDataError::InvalidPath(model_path));
+    }
+    let dir_path = model_path
+        .parent()
+        // Since `model_path` is a file path, it cannot be the root ("/").
+        .expect("should have parent dir")
+        .to_path_buf();
+    Ok(dir_path)
+}
+
+/// External data loader that uses memory mapping.
+///
+/// # Alignment requirements
+///
+/// The ONNX Protocol Buffers schema and external data documentation state that
+/// data offsets for individual tensors should be aligned to the page size,
+/// which is the granularity of the `offset` argument to `mmap`. RTen only
+/// requires offsets to be a multiple of the tensor element type's alignment.
+/// This is because RTen creates only one memory map for each external data
+/// file, covering the whole file. Each tensor using data from that file will
+/// then share the memory mapping.
+#[cfg(feature = "mmap")]
+pub struct MmapLoader {
+    /// Path to directory containing external data.
+    dir_path: PathBuf,
+
+    /// Map of filename to open mmap-ed content.
+    mmaps: RefCell<HashMap<PathBuf, Arc<ConstantStorage>>>,
+}
+
+#[cfg(feature = "mmap")]
+impl MmapLoader {
+    /// Create a data loader which will use memory mapping to load data from
+    /// files in the same directory as `model_path`.
+    ///
+    /// One memory map will be created per external file. This map will remain
+    /// open as long as the `MmapLoader` or any tensors using data from it are
+    /// still open.
+    ///
+    /// # Safety
+    ///
+    /// This method is marked as unsafe because truncating the file on disk
+    /// while the file is mapped could cause undefined behavior. Applications
+    /// must decide this is an acceptable risk for their use. See the notes for
+    /// [`Model::load_mmap`](crate::model::Model::load_mmap).
+    pub unsafe fn new(model_path: &Path) -> Result<Self, ExternalDataError> {
+        let dir_path = dir_path_from_model_path(model_path)?;
+
+        Ok(Self {
+            dir_path,
+            mmaps: HashMap::new().into(),
+        })
+    }
+
+    fn get_or_open_mmap(
+        &self,
+        data_path: &Path,
+    ) -> Result<Arc<ConstantStorage>, ExternalDataError> {
+        let mut mmaps = self.mmaps.borrow_mut();
+
+        let data_path = Path::new(data_path);
+        if !is_allowed_external_data_path(data_path) {
+            return Err(ExternalDataError::DisallowedPath(data_path.into()));
+        }
+
+        // Check if we already opened the file.
+        if mmaps.get(data_path).is_none() {
+            let mut file_path = self.dir_path.to_path_buf();
+            file_path.push(data_path);
+            let file = File::open(file_path).map_err(ExternalDataError::IoError)?;
+
+            // Safety: By constructing an instance of `Self`, the caller has
+            // accepted the risks that come with mmap.
+            let mmap = unsafe { Mmap::map(&file) }?;
+
+            let storage = Arc::new(ConstantStorage::Mmap(mmap));
+            mmaps.insert(data_path.into(), storage);
+        }
+
+        Ok(mmaps.get(data_path).unwrap().clone())
+    }
+}
+
+#[cfg(feature = "mmap")]
+impl DataLoader for MmapLoader {
+    fn load(&self, location: &DataLocation) -> Result<DataSlice, ExternalDataError> {
+        let storage = self.get_or_open_mmap(Path::new(&location.path))?;
+
+        let end_offset = location.offset.saturating_add(location.length);
+        if end_offset > storage.data().len() as u64 {
+            return Err(ExternalDataError::TooShort {
+                required_len: end_offset as usize,
+                actual_len: storage.data().len(),
+            });
+        }
+
+        Ok(DataSlice {
+            storage,
+            bytes: location.offset as usize..location.offset as usize + location.length as usize,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::panic::RefUnwindSafe;
     use std::path::{Path, PathBuf};
 
-    use super::{ExternalDataLoader, ExternalDataLocation, ExternalFileLoader};
+    use super::{DataLoader, DataLocation, ExternalDataError, FileLoader};
     use rten_testing::TestCases;
 
     fn temp_dir() -> PathBuf {
@@ -303,11 +430,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_load_external_data() {
+    // Run common tests for `DataLoader` impls. The `base_name` must be unique
+    // for each test.
+    fn test_loader<L: DataLoader>(
+        base_name: &str,
+        make_loader: impl Fn(&Path) -> Result<L, ExternalDataError> + RefUnwindSafe,
+    ) {
         let bytes: Vec<u8> = (0..32).collect();
-        let model_file = TempFile::new("test_load_external_data.onnx", &[]).unwrap();
-        let data_file = TempFile::new("test_load_external_data.onnx.data", &bytes).unwrap();
+        let model_file = TempFile::new(format!("{base_name}.onnx"), &[]).unwrap();
+        let data_file = TempFile::new(format!("{base_name}.onnx.data"), &bytes).unwrap();
 
         let data_filename = data_file
             .path()
@@ -318,14 +449,14 @@ mod tests {
 
         #[derive(Debug)]
         struct Case {
-            location: ExternalDataLocation,
+            location: DataLocation,
             expected: Result<Vec<u8>, String>,
         }
 
         let cases = [
             // Part of file
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: data_filename.clone(),
                     offset: 8,
                     length: 8,
@@ -334,7 +465,7 @@ mod tests {
             },
             // Full file
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: data_filename.clone(),
                     offset: 0,
                     length: bytes.len() as u64,
@@ -343,7 +474,7 @@ mod tests {
             },
             // Empty path
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: String::new(),
                     offset: 0,
                     length: 0,
@@ -352,7 +483,7 @@ mod tests {
             },
             // Path containing parent directory
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: "../foo.data".into(),
                     offset: 0,
                     length: 0,
@@ -361,7 +492,7 @@ mod tests {
             },
             // Path with disallowed extension
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: "not_a_data_file.md".into(),
                     offset: 0,
                     length: 0,
@@ -370,7 +501,7 @@ mod tests {
             },
             // File does not exist
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: "file_does_not_exist.data".into(),
                     offset: 0,
                     length: 0,
@@ -379,7 +510,7 @@ mod tests {
             },
             // Range extends beyond end of file
             Case {
-                location: ExternalDataLocation {
+                location: DataLocation {
                     path: data_filename,
                     offset: 0,
                     length: 36,
@@ -389,10 +520,10 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let loader = ExternalFileLoader::new(model_file.path()).unwrap();
+            let loader = make_loader(model_file.path()).unwrap();
             let data = loader.load(&case.location).map_err(|e| e.to_string());
             match (&data, &case.expected) {
-                (Ok(actual), Ok(expected)) => assert_eq!(actual, expected),
+                (Ok(actual), Ok(expected)) => assert_eq!(actual.data(), expected),
                 (Err(actual), Err(expected)) => assert!(
                     actual.contains(expected),
                     "{} does not contain {}",
@@ -402,5 +533,19 @@ mod tests {
                 (actual, expected) => assert_eq!(actual.is_ok(), expected.is_ok()),
             }
         });
+    }
+
+    #[test]
+    fn test_file_loader() {
+        test_loader("test_file_loader", FileLoader::new)
+    }
+
+    #[cfg(feature = "mmap")]
+    #[test]
+    fn test_mmap_loader() {
+        use super::MmapLoader;
+        test_loader("test_mmap_loader", |model_path| unsafe {
+            MmapLoader::new(model_path)
+        })
     }
 }

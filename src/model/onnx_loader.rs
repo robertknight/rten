@@ -1,13 +1,13 @@
 use std::fs::File;
 use std::path::Path;
 
-use rten_base::byte_cast::Pod;
+use rten_base::byte_cast::{Pod, cast_pod_slice};
 use rten_onnx::onnx;
 use rten_onnx::protobuf::{DecodeMessage, ValueReader};
 use rten_tensor::{ArcTensor, Storage, Tensor};
 
 use super::NodeError;
-use super::external_data::{ExternalDataLoader, ExternalDataLocation};
+use super::external_data::{DataLoader, DataLocation, DataSlice};
 use super::{Model, ModelLoadError, ModelOptions, OptimizeMode};
 use crate::constant_storage::{ArcSlice, ArcTensorView};
 use crate::graph::{
@@ -34,7 +34,7 @@ pub enum Source<'a> {
 /// defined in https://github.com/onnx/onnx/blob/main/onnx/onnx.proto3.
 pub fn load(
     source: Source,
-    loader: Option<&dyn ExternalDataLoader>,
+    loader: Option<&dyn DataLoader>,
     options: &ModelOptions,
 ) -> Result<Model, ModelLoadError> {
     let model = match source {
@@ -95,7 +95,7 @@ fn load_graph(
     registry: &OpRegistry,
     optimize: OptimizeMode,
     capture_env: Option<&CaptureEnv>,
-    loader: Option<&dyn ExternalDataLoader>,
+    loader: Option<&dyn DataLoader>,
 ) -> Result<Graph, ModelLoadError> {
     let approx_node_count = onnx_graph.node.len() + onnx_graph.value_info.len();
     let mut graph = Graph::with_capacity(approx_node_count);
@@ -302,7 +302,7 @@ fn load_value_info(value: &onnx::ValueInfoProto) -> (Option<DataType>, Option<Ve
 /// If `name` is provided, it overrides the name from `initializer.name`.
 fn load_constant(
     initializer: &onnx::TensorProto,
-    loader: Option<&dyn ExternalDataLoader>,
+    loader: Option<&dyn DataLoader>,
     name: Option<&str>,
 ) -> Result<Constant, ModelLoadError> {
     let name = name.or(initializer.name.as_deref());
@@ -433,7 +433,7 @@ fn load_constant(
 fn external_data_location(
     name: Option<&str>,
     metadata: &[onnx::StringStringEntryProto],
-) -> Result<ExternalDataLocation, ModelLoadError> {
+) -> Result<DataLocation, ModelLoadError> {
     let mut location = None;
     let mut offset = None;
     let mut length = None;
@@ -479,7 +479,7 @@ fn external_data_location(
     let length =
         length.ok_or_else(|| load_error!(GraphError, name, "missing external data length"))?;
 
-    Ok(ExternalDataLocation {
+    Ok(DataLocation {
         path: location.to_string(),
         offset,
         length,
@@ -494,8 +494,8 @@ fn make_constant<T: Pod, U: Pod>(
     name: Option<&str>,
     shape: &[usize],
     raw_data: Option<Vec<u8>>,
-    external_data: Option<ExternalDataLocation>,
-    loader: Option<&dyn ExternalDataLoader>,
+    external_data: Option<DataLocation>,
+    loader: Option<&dyn DataLoader>,
     typed_data: &[U],
     convert: impl Fn(U) -> T,
 ) -> Result<Constant, ModelLoadError>
@@ -507,7 +507,7 @@ where
     } else if let Some(loc) = external_data {
         if let Some(loader) = &loader {
             let data = loader.load(&loc)?;
-            tensor_from_bytes::<T>(shape, data, name)?.into()
+            tensor_from_external_data::<T>(shape, &data, name)?.into()
         } else {
             return Err(load_error!(
                 ExternalDataError,
@@ -535,7 +535,7 @@ fn saturating_cast_i64_to_i32(x: i64) -> i32 {
 /// Load a tensor from a "Constant" operator.
 fn load_constant_from_constant_op(
     op: &onnx::NodeProto,
-    loader: Option<&dyn ExternalDataLoader>,
+    loader: Option<&dyn DataLoader>,
 ) -> Result<Constant, ModelLoadError> {
     // The name of the constant node will be the name of its single output,
     // as that is the name that will be referenced by operator inputs.
@@ -679,6 +679,28 @@ fn tensor_from_bytes<T: Pod>(
     })
 }
 
+/// Create a tensor by reinterpreting bytes that have been loaded or
+/// memory-mapped from an external file.
+fn tensor_from_external_data<T: Pod>(
+    shape: &[usize],
+    data: &DataSlice,
+    name: Option<&str>,
+) -> Result<ArcTensorView<T>, ModelLoadError> {
+    let elements = cast_pod_slice(data.data())
+        .ok_or_else(|| load_error!(GraphError, name, "data has incorrect alignment"))?;
+    let data = ArcSlice::<T>::new(data.storage.clone(), elements).unwrap();
+    let data_len = data.len();
+    ArcTensorView::try_from_data(shape, data).map_err(|_| {
+        load_error!(
+            GraphError,
+            name,
+            "length {} does not match shape {:?}",
+            data_len,
+            shape
+        )
+    })
+}
+
 /// Create a `Vec<T>` from a slice of little-endian bytes.
 ///
 /// `convert` is used to convert each chunk of bytes into an element. There
@@ -705,7 +727,7 @@ struct SubgraphOptions<'a> {
     capture_env: Option<&'a CaptureEnv<'a>>,
 
     /// Data source for tensors with data stored outside model.
-    loader: Option<&'a dyn ExternalDataLoader>,
+    loader: Option<&'a dyn DataLoader>,
 }
 
 /// Load an ONNX operator and its subgraphs.

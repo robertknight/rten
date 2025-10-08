@@ -31,7 +31,6 @@ mod file_type;
 mod onnx_loader;
 mod rten_loader;
 
-use external_data::ExternalFileLoader;
 use file_type::FileType;
 
 /// The central type used to execute RTen machine learning models.
@@ -266,7 +265,7 @@ impl ModelOptions {
                 rten_loader::load(storage, self)
             }
             FileType::Onnx => {
-                let loader = ExternalFileLoader::new(path.as_ref())?;
+                let loader = external_data::FileLoader::new(path.as_ref())?;
                 onnx_loader::load(
                     onnx_loader::Source::Path(path.as_ref()),
                     Some(&loader),
@@ -310,6 +309,9 @@ impl ModelOptions {
     /// let model = unsafe { opts.load_mmap("model.rten") };
     /// ```
     ///
+    /// If the model references tensor data in external files, that data will
+    /// also be loaded via memory-mapping.
+    ///
     /// # Safety
     ///
     /// See notes in [`Model::load_mmap`].
@@ -323,7 +325,10 @@ impl ModelOptions {
                 rten_loader::load(storage, self)
             }
             FileType::Onnx => {
-                let loader = ExternalFileLoader::new(path.as_ref())?;
+                // Safety: By calling `load_mmap` the caller has accepted the
+                // associated risks, so we can also use mmap to load external
+                // data files.
+                let loader = unsafe { external_data::MmapLoader::new(path.as_ref()) }?;
                 onnx_loader::load(onnx_loader::Source::Buffer(&mmap), Some(&loader), self)
             }
         }
@@ -1002,6 +1007,15 @@ mod tests {
         // Load file with external data.
         let model = Model::load_file("rten-onnx/test-data/mnist-external/mnist.onnx").unwrap();
         check_model(model);
+
+        // Load model file and external data using mmap.
+        #[cfg(feature = "mmap")]
+        {
+            let model =
+                unsafe { Model::load_mmap("rten-onnx/test-data/mnist-external/mnist.onnx") }
+                    .unwrap();
+            check_model(model);
+        }
     }
 
     #[test]
