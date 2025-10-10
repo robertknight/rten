@@ -33,6 +33,9 @@ mod rten_loader;
 
 use file_type::FileType;
 
+#[cfg(test)]
+pub mod onnx_builder;
+
 /// The central type used to execute RTen machine learning models.
 ///
 /// Models are loaded from `.rten` format model files and executed using
@@ -532,6 +535,11 @@ impl Model {
         opts: Option<RunOptions>,
     ) -> Result<Vec<(NodeId, Value)>, RunError> {
         self.graph.partial_run(inputs, outputs, opts)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn graph(&self) -> &Graph {
+        &self.graph
     }
 }
 

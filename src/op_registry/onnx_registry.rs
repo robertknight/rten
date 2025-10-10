@@ -229,7 +229,52 @@ pub trait OpLoadContext {
     fn load_graph(&self, graph: &onnx::GraphProto) -> Result<Graph, ReadOpError>;
 }
 
-type ReadOpResult = Result<Arc<dyn Operator + Send + Sync>, ReadOpError>;
+/// Value for an operator input created from an attribute (`onnx::AttributeProto`).
+#[derive(Debug, PartialEq)]
+pub enum ConstInput {
+    Ints(Vec<i64>),
+    Float(f32),
+}
+
+/// Result of deserializing an ONNX operator and converting it to RTen's
+/// corresponding internal type.
+pub struct ParsedOp<Op: Operator + Send + Sync> {
+    op: Op,
+
+    /// Tuples of (input_index, value) for operator inputs generated from
+    /// attributes.
+    ///
+    /// This is used to handle cases where ONNX attributes have been upgraded
+    /// to inputs in newer ONNX releases.
+    const_inputs: Vec<(u32, ConstInput)>,
+}
+
+impl<Op: Operator + Send + Sync> From<Op> for ParsedOp<Op> {
+    fn from(op: Op) -> Self {
+        ParsedOp {
+            op,
+            const_inputs: Vec::new(),
+        }
+    }
+}
+
+/// Type-erased version of [`ParsedOp`].
+pub struct DynParsedOp {
+    pub op: Arc<dyn Operator + Send + Sync>,
+    pub const_inputs: Vec<(u32, ConstInput)>,
+}
+
+impl<Op: Operator + Send + Sync> From<ParsedOp<Op>> for DynParsedOp {
+    fn from(val: ParsedOp<Op>) -> DynParsedOp {
+        let ParsedOp { op, const_inputs } = val;
+        DynParsedOp {
+            op: Arc::new(op),
+            const_inputs,
+        }
+    }
+}
+
+type ReadOpResult = Result<DynParsedOp, ReadOpError>;
 
 type ReadOpFunction = dyn Fn(&onnx::NodeProto, &dyn OpLoadContext) -> ReadOpResult;
 
@@ -238,14 +283,14 @@ pub trait ReadOp: Operator + Sized + Send + Sync {
     fn op_type() -> &'static str;
 
     /// Deserialize an operator from a `NodeProto` into an RTen operator.
-    fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError>;
+    fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<ParsedOp<Self>, ReadOpError>;
 
     /// Deserialize an operator into a boxed `dyn Operator`.
     ///
     /// The node's type must correspond to the result of `op_type`.
     fn read_boxed(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> ReadOpResult {
         let op = Self::read(op, ctx)?;
-        Ok(Arc::new(op))
+        Ok(op.into())
     }
 }
 
@@ -391,9 +436,12 @@ macro_rules! impl_read_op {
                 stringify!($op)
             }
 
-            fn read(_op: &onnx::NodeProto, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+            fn read(
+                _op: &onnx::NodeProto,
+                _ctx: &dyn OpLoadContext,
+            ) -> Result<ParsedOp<Self>, ReadOpError> {
                 // TODO - Check for unsupported attributes.
-                Ok(ops::$op {})
+                Ok(ops::$op {}.into())
             }
         }
     };
@@ -404,10 +452,13 @@ macro_rules! impl_read_op {
                 stringify!($op)
             }
 
-            fn read(op: &onnx::NodeProto, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+            fn read(
+                op: &onnx::NodeProto,
+                _ctx: &dyn OpLoadContext,
+            ) -> Result<ParsedOp<Self>, ReadOpError> {
                 // TODO - Check for unsupported attributes.
                 let attrs = Attrs::new(&op.attribute);
-                $read(&attrs)
+                $read(&attrs).map(|op| op.into())
             }
         }
     };
@@ -475,7 +526,22 @@ impl_read_op!(Cast, |attrs: &Attrs| {
 
 impl_read_op!(CastLike);
 impl_read_op!(Ceil);
-impl_read_op!(Clip);
+
+impl_read_op!(Clip, |attrs: &Attrs| {
+    let mut const_inputs = Vec::new();
+
+    if let Some(min) = attrs.get("min") {
+        const_inputs.push((1, ConstInput::Float(min.as_f32())));
+    }
+    if let Some(max) = attrs.get("max") {
+        const_inputs.push((2, ConstInput::Float(max.as_f32())));
+    }
+
+    Ok(ParsedOp {
+        op: ops::Clip {},
+        const_inputs,
+    })
+});
 
 impl_read_op!(Concat, |attrs: &Attrs| {
     let axis = attrs.require("axis")?.as_i64() as isize;
@@ -780,14 +846,15 @@ impl ReadOp for ops::If {
         "If"
     }
 
-    fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+    fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<ParsedOp<Self>, ReadOpError> {
         let attrs = Attrs::new(&op.attribute);
         let then_branch = ctx.load_graph(attrs.require("then_branch")?.as_graph()?)?;
         let else_branch = ctx.load_graph(attrs.require("else_branch")?.as_graph()?)?;
         Ok(ops::If {
             then_branch,
             else_branch,
-        })
+        }
+        .into())
     }
 }
 
@@ -830,10 +897,10 @@ impl ReadOp for ops::Loop {
         "Loop"
     }
 
-    fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+    fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<ParsedOp<Self>, ReadOpError> {
         let attrs = Attrs::new(&op.attribute);
         let body = ctx.load_graph(attrs.require("body")?.as_graph()?)?;
-        Ok(ops::Loop { body })
+        Ok(ops::Loop { body }.into())
     }
 }
 
@@ -1193,7 +1260,16 @@ impl_read_op!(Split, |attrs: &Attrs| {
         .map(|val: i64| val as isize)
         .unwrap_or(0);
     let num_outputs = attrs.get_as("num_outputs").map(|val: i64| val as u32);
-    Ok(ops::Split { axis, num_outputs })
+
+    let mut const_inputs = Vec::new();
+    if let Some(splits) = attrs.get("split") {
+        const_inputs.push((1, ConstInput::Ints(splits.as_ints().into())));
+    }
+
+    Ok(ParsedOp {
+        op: ops::Split { axis, num_outputs },
+        const_inputs,
+    })
 });
 
 impl_read_op!(SplitToSequence, |attrs: &Attrs| {
@@ -1203,7 +1279,17 @@ impl_read_op!(SplitToSequence, |attrs: &Attrs| {
 });
 
 impl_read_op!(Sqrt);
-impl_read_op!(Squeeze);
+
+impl_read_op!(Squeeze, |attrs: &Attrs| {
+    let mut const_inputs = Vec::new();
+    if let Some(axes) = attrs.get("axes") {
+        const_inputs.push((1, ConstInput::Ints(axes.as_ints().to_vec())));
+    }
+    Ok(ParsedOp {
+        op: ops::Squeeze {},
+        const_inputs,
+    })
+});
 
 #[cfg(feature = "fft")]
 impl_read_op!(STFT, |attrs: &Attrs| {
@@ -1238,16 +1324,28 @@ impl_read_op!(Trilu, |attrs: &Attrs| {
     Ok(ops::Trilu { upper })
 });
 
-impl_read_op!(Unsqueeze);
+impl_read_op!(Unsqueeze, |attrs: &Attrs| {
+    let mut const_inputs = Vec::new();
+    if let Some(axes) = attrs.get("axes") {
+        const_inputs.push((1, ConstInput::Ints(axes.as_ints().to_vec())));
+    }
+    Ok(ParsedOp {
+        op: ops::Unsqueeze {},
+        const_inputs,
+    })
+});
+
 impl_read_op!(Where);
 impl_read_op!(Xor);
 
 #[cfg(test)]
 mod tests {
     use rten_onnx::onnx;
+    use rten_testing::TestCases;
 
-    use super::{OnnxOpRegistry, OpLoadContext, ReadOpError};
+    use super::{ConstInput, OnnxOpRegistry, OpLoadContext, ReadOpError};
     use crate::graph::Graph;
+    use crate::model::onnx_builder::{AttrValue, create_node};
     use crate::ops::{ArgMax, Conv, Padding};
 
     struct FakeOpLoadContext;
@@ -1258,39 +1356,12 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
-    enum AttrValue {
-        Bool(bool),
-        Int(i64),
-        Ints(Vec<i64>),
-    }
-
-    fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
-        let mut attr = onnx::AttributeProto::default();
-        attr.name = Some(name.to_string());
-        match value {
-            AttrValue::Bool(val) => attr.i = Some(val as i64),
-            AttrValue::Int(val) => attr.i = Some(val),
-            AttrValue::Ints(val) => attr.ints = val,
-        }
-        attr
-    }
-
-    fn create_node(op_type: &str, attrs: &[(&str, AttrValue)]) -> onnx::NodeProto {
-        let mut node = onnx::NodeProto::default();
-        node.op_type = Some(op_type.to_string());
-        for (name, val) in attrs {
-            node.attribute.push(create_attr(name, val.clone()));
-        }
-        node
-    }
-
     #[test]
     fn test_read_op() {
         let reg = OnnxOpRegistry::with_all_ops();
         let node = create_node("MatMul", &[]);
 
-        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap();
+        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
 
         assert_eq!(op.name(), "MatMul")
     }
@@ -1306,7 +1377,7 @@ mod tests {
             ],
         );
 
-        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap();
+        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
 
         let argmax_op = op.downcast_ref::<ArgMax>().unwrap();
         assert_eq!(argmax_op.axis, 1);
@@ -1330,10 +1401,50 @@ mod tests {
         let reg = OnnxOpRegistry::with_all_ops();
         let node = create_node("Conv", &[("kernel_shape", AttrValue::Ints([3, 3].into()))]);
 
-        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap();
+        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
         let conv_op = op.downcast_ref::<Conv>().unwrap();
 
         assert_eq!(conv_op.padding, Padding::Fixed([0, 0, 0, 0].into()));
         assert_eq!(conv_op.strides, vec![1, 1]);
+    }
+
+    #[test]
+    fn test_promote_attributes() {
+        #[derive(Debug)]
+        struct Case {
+            op: onnx::NodeProto,
+            expected_inputs: Vec<(u32, ConstInput)>,
+        }
+
+        let cases = [
+            Case {
+                op: create_node(
+                    "Clip",
+                    &[
+                        ("min", AttrValue::Float(-0.5)),
+                        ("max", AttrValue::Float(0.5)),
+                    ],
+                ),
+                expected_inputs: [(1, ConstInput::Float(-0.5)), (2, ConstInput::Float(0.5))].into(),
+            },
+            Case {
+                op: create_node("Squeeze", &[("axes", AttrValue::Ints([-1].into()))]),
+                expected_inputs: [(1, ConstInput::Ints([-1].into()))].into(),
+            },
+            Case {
+                op: create_node("Split", &[("split", AttrValue::Ints([10].into()))]),
+                expected_inputs: [(1, ConstInput::Ints([10].into()))].into(),
+            },
+            Case {
+                op: create_node("Unsqueeze", &[("axes", AttrValue::Ints([-1].into()))]),
+                expected_inputs: [(1, ConstInput::Ints([-1].into()))].into(),
+            },
+        ];
+
+        cases.test_each_value(|case| {
+            let reg = OnnxOpRegistry::with_all_ops();
+            let op = reg.read_op(&case.op, &FakeOpLoadContext).unwrap();
+            assert_eq!(op.const_inputs, case.expected_inputs);
+        });
     }
 }

@@ -14,7 +14,7 @@ use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Dimension, Graph, NodeId,
 };
 use crate::model_metadata::ModelMetadata;
-use crate::op_registry::onnx_registry::OpLoadContext;
+use crate::op_registry::onnx_registry::{ConstInput, DynParsedOp, OpLoadContext};
 use crate::op_registry::{OpRegistry, ReadOpError};
 use crate::optimize::{GraphOptimizer, OptimizeOptions};
 use crate::value::DataType;
@@ -624,6 +624,16 @@ fn load_constant_from_constant_op(
     })
 }
 
+fn constant_from_attr_value(val: ConstInput) -> Constant {
+    match val {
+        ConstInput::Ints(vals) => {
+            let vals: Vec<i32> = vals.into_iter().map(saturating_cast_i64_to_i32).collect();
+            Constant::new(None, Tensor::from(vals).into_arc())
+        }
+        ConstInput::Float(float) => Constant::new(None, Tensor::from(float).into_arc()),
+    }
+}
+
 fn tensor_from_elements<T>(
     shape: &[usize],
     data: Vec<T>,
@@ -779,12 +789,35 @@ fn add_operator(
             .collect()
     };
 
-    let inputs = node_ids_from_names(&onnx_op.input);
-    let outputs = node_ids_from_names(&onnx_op.output);
-    let op = registry
+    let DynParsedOp { op, const_inputs } = registry
         .onnx_registry()
         .read_op(onnx_op, &ctx)
         .map_err(|err| load_error!(OperatorInvalid, onnx_op.name.as_deref(), err))?;
+
+    // Map input and output names to graph node IDs.
+    //
+    // If there are attributes that need to be promoted to inputs, then create
+    // constants for the attribute values and add those inputs.
+    let mut inputs = node_ids_from_names(&onnx_op.input);
+    let outputs = node_ids_from_names(&onnx_op.output);
+    for (idx, value) in const_inputs {
+        let constant = constant_from_attr_value(value);
+        let const_id = graph.add_constant_node(constant);
+
+        let idx = idx as usize;
+        if inputs.len() <= idx {
+            inputs.resize(idx + 1, None);
+        }
+        if inputs[idx].is_some() {
+            return Err(load_error!(
+                OperatorInvalid,
+                onnx_op.name.as_deref(),
+                "input {} specified as both attribute and input",
+                idx
+            ));
+        }
+        inputs[idx] = Some(const_id);
+    }
 
     graph.add_op(onnx_op.name.as_deref(), op, &inputs, &outputs);
 
@@ -796,7 +829,9 @@ mod tests {
     use rten_onnx::onnx;
 
     use super::{Source, load};
+    use crate::graph::TypedConstant;
     use crate::model::ModelOptions;
+    use crate::model::onnx_builder::{AttrValue, create_node, create_value_info};
 
     #[test]
     fn test_graph_invalid_input_name() {
@@ -830,5 +865,55 @@ mod tests {
             err.to_string(),
             "graph error: graph output has missing or invalid name"
         );
+    }
+
+    #[test]
+    fn test_promote_attribute_to_input() {
+        let mut graph = onnx::GraphProto::default();
+        graph.input.push(create_value_info("x"));
+
+        let mut node = create_node(
+            "Clip",
+            &[
+                ("min", AttrValue::Float(-0.5)),
+                ("max", AttrValue::Float(0.5)),
+            ],
+        );
+        node.name = Some("clip_op".into());
+        graph.node.push(node);
+
+        let mut model = onnx::ModelProto::default();
+        model.graph = Some(graph);
+
+        let model = load(
+            Source::Proto(model),
+            None,
+            &ModelOptions::with_all_ops().enable_optimization(false),
+        )
+        .unwrap();
+
+        let graph = model.graph();
+        let clip_op_id = graph.get_node_id("clip_op").unwrap();
+        let clip_op = graph
+            .get_node(clip_op_id)
+            .and_then(|n| n.as_operator())
+            .unwrap();
+        assert_eq!(clip_op.input_ids().len(), 3);
+
+        let min_val_id = clip_op.input_ids()[1].unwrap();
+        let min_val: f32 = graph
+            .get_node(min_val_id)
+            .and_then(|n| n.as_constant())
+            .and_then(|c| c.as_scalar())
+            .unwrap();
+        assert_eq!(min_val, -0.5);
+
+        let max_val_id = clip_op.input_ids()[2].unwrap();
+        let max_val: f32 = graph
+            .get_node(max_val_id)
+            .and_then(|n| n.as_constant())
+            .and_then(|c| c.as_scalar())
+            .unwrap();
+        assert_eq!(max_val, 0.5);
     }
 }
