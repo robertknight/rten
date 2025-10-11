@@ -409,6 +409,24 @@ fn load_constant(
             Constant::new(name, tensor)
         }
 
+        // RTen does not natively support f64 tensors. Instead convert to f32
+        // at load time.
+        Some(onnx::DataType::DOUBLE) => {
+            let data = if let Some(data) = raw_data {
+                let f64_to_f32 = |bytes: [u8; 8]| f64::from_le_bytes(bytes) as f32;
+                elements_from_le_bytes(&data, f64_to_f32)
+            } else {
+                initializer
+                    .double_data
+                    .iter()
+                    .copied()
+                    .map(|x| x as f32)
+                    .collect()
+            };
+            let tensor = tensor_from_elements(&shape, data, name)?;
+            Constant::new(name, tensor)
+        }
+
         Some(dtype) => {
             return Err(load_error!(
                 GraphError,
@@ -839,18 +857,56 @@ fn add_operator(
 #[cfg(test)]
 mod tests {
     use rten_onnx::onnx;
+    use rten_tensor::{Tensor, TensorView};
 
     use super::{Source, load};
-    use crate::graph::TypedConstant;
-    use crate::model::ModelOptions;
-    use crate::model::onnx_builder::{AttrValue, create_node, create_value_info};
+    use crate::graph::{Constant, Graph, TypedConstant};
+    use crate::model::onnx_builder::{
+        AttrValue, TensorData, create_model, create_node, create_tensor, create_value_info,
+    };
+    use crate::model::{Model, ModelLoadError, ModelOptions};
+
+    /// Load a model from a parsed `ModelProto` message.
+    fn load_model(model: onnx::ModelProto) -> Result<Model, ModelLoadError> {
+        load(
+            Source::Proto(model),
+            None,
+            // Disable optimization by default to test just the basic graph
+            // creation.
+            &ModelOptions::with_all_ops().enable_optimization(false),
+        )
+    }
+
+    trait GetTensorByName {
+        fn get_tensor_by_name<T>(&self, name: &str) -> Option<TensorView<'_, T>>
+        where
+            Constant: TypedConstant<T>;
+    }
+
+    impl GetTensorByName for Graph {
+        fn get_tensor_by_name<T>(&self, name: &str) -> Option<TensorView<'_, T>>
+        where
+            Constant: TypedConstant<T>,
+        {
+            let id = self.get_node_id(name)?;
+            self.get_node(id)?.as_constant()?.as_typed_view()
+        }
+    }
+
+    impl GetTensorByName for Model {
+        fn get_tensor_by_name<T>(&self, name: &str) -> Option<TensorView<'_, T>>
+        where
+            Constant: TypedConstant<T>,
+        {
+            self.graph.get_tensor_by_name(name)
+        }
+    }
 
     #[test]
     fn test_graph_invalid_input_name() {
         let mut graph = onnx::GraphProto::default();
         graph.input.push(onnx::ValueInfoProto::default());
-        let mut model = onnx::ModelProto::default();
-        model.graph = Some(graph);
+        let model = create_model(graph);
 
         let err = load(Source::Proto(model), None, &ModelOptions::default())
             .err()
@@ -866,8 +922,7 @@ mod tests {
     fn test_graph_invalid_output_name() {
         let mut graph = onnx::GraphProto::default();
         graph.output.push(onnx::ValueInfoProto::default());
-        let mut model = onnx::ModelProto::default();
-        model.graph = Some(graph);
+        let model = create_model(graph);
 
         let err = load(Source::Proto(model), None, &ModelOptions::default())
             .err()
@@ -894,15 +949,8 @@ mod tests {
         node.name = Some("clip_op".into());
         graph.node.push(node);
 
-        let mut model = onnx::ModelProto::default();
-        model.graph = Some(graph);
-
-        let model = load(
-            Source::Proto(model),
-            None,
-            &ModelOptions::with_all_ops().enable_optimization(false),
-        )
-        .unwrap();
+        let model_proto = create_model(graph);
+        let model = load_model(model_proto).unwrap();
 
         let graph = model.graph();
         let clip_op_id = graph.get_node_id("clip_op").unwrap();
@@ -927,5 +975,38 @@ mod tests {
             .and_then(|c| c.as_scalar())
             .unwrap();
         assert_eq!(max_val, 0.5);
+    }
+
+    #[test]
+    fn test_load_f64_initializer() {
+        let mut graph = onnx::GraphProto::default();
+
+        // TensorProto using the `raw_data` field.
+        let doubles_raw = create_tensor(
+            "doubles_raw",
+            &[],
+            onnx::DataType::DOUBLE,
+            TensorData::Raw((0.5f64).to_le_bytes().into()),
+        );
+        graph.initializer.push(doubles_raw);
+
+        // TensorProto using the `double_data` field.
+        let doubles_vec = create_tensor(
+            "doubles_vec",
+            &[3],
+            onnx::DataType::DOUBLE,
+            TensorData::Double(vec![0.1, 0.2, 0.3]),
+        );
+        graph.initializer.push(doubles_vec);
+
+        let model_proto = create_model(graph);
+
+        let model = load_model(model_proto).unwrap();
+
+        let floats_raw = model.get_tensor_by_name::<f32>("doubles_raw").unwrap();
+        assert_eq!(floats_raw, Tensor::from(0.5));
+
+        let floats_vec = model.get_tensor_by_name::<f32>("doubles_vec").unwrap();
+        assert_eq!(floats_vec, TensorView::from(&[0.1, 0.2, 0.3]));
     }
 }

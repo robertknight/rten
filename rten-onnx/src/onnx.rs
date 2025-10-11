@@ -152,6 +152,7 @@ pub struct TensorProto {
     pub float_data: Vec<f32>,
     pub int32_data: Vec<i32>,
     pub int64_data: Vec<i64>,
+    pub double_data: Vec<f64>,
 
     /// Field containing tensor data as bytes in packed little-endian order.
     ///
@@ -173,6 +174,7 @@ impl TensorProto {
     const INT64_DATA: u64 = 7;
     const NAME: u64 = 8;
     const RAW_DATA: u64 = 9;
+    const DOUBLE_DATA: u64 = 10;
     const EXTERNAL_DATA: u64 = 13;
     const DATA_LOCATION: u64 = 14;
 }
@@ -218,6 +220,11 @@ impl DecodeMessage for TensorProto {
                         msg.int64_data.push(int64?);
                     }
                 }
+                Self::DOUBLE_DATA => {
+                    for double in field.read_repeated_double()? {
+                        msg.double_data.push(double?);
+                    }
+                }
                 Self::NAME => {
                     msg.name = Some(field.read_string()?);
                 }
@@ -258,6 +265,7 @@ impl DataType {
     pub const UINT8: Self = Self(2);
     pub const INT8: Self = Self(3);
     pub const BOOL: Self = Self(9);
+    pub const DOUBLE: Self = Self(11);
 }
 
 #[derive(Debug, Default)]
