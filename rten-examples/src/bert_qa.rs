@@ -202,18 +202,16 @@ fn extract_nbest_answers<'a>(
 /// answering, such as <https://huggingface.co/deepset/bert-base-cased-squad2> or
 /// <https://huggingface.co/distilbert-base-cased-distilled-squad>.
 ///
-/// You can export a BERT model in ONNX format from Hugging Face and convert
-/// it as follows, using Optimium [^2].
+/// You can export a BERT model in ONNX format from Hugging Face using Optimium [^2].
 ///
 /// ```
 /// optimum-cli export onnx --model distilbert-base-cased-distilled-squad distilbert
-/// rten-convert distilbert/model.onnx distilbert/distilbert.rten
 /// ```
 ///
 /// Then run the example with:
 ///
 /// ```
-/// cargo run -r --bin bert_qa distilbert/distilbert.rten distilbert/tokenizer.json <context> <query>
+/// cargo run -r --bin bert_qa distilbert/distilbert.onnx distilbert/tokenizer.json <context> <query>
 /// ```
 ///
 /// Where `<context>` is a text file to search, and `<query>` is a question.

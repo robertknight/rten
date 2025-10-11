@@ -71,18 +71,10 @@ Args:
 /// optimum-cli export onnx --model microsoft/trocr-base-printed trocr-base-printed
 /// ```
 ///
-/// Convert the models to `.rten` format. For the decoder you need to use the
-/// "merged" model.
-///
-/// ```
-/// rten-convert trocr-base-printed/encoder_model.onnx
-/// rten-convert trocr-base-printed/decoder_model_merged.onnx
-/// ```
-///
 /// Run the model, specifying the image to recognize:
 ///
 /// ```sh
-/// cargo run --release --bin trocr trocr-base-printed/encoder_model.rten trocr-base-printed/decoder_model_merged.rten tokenizer.json <image>
+/// cargo run --release --bin trocr trocr-base-printed/encoder_model.onnx trocr-base-printed/decoder_model_merged.onnx tokenizer.json <image>
 /// ```
 ///
 /// [^1]: https://arxiv.org/abs/2109.10282

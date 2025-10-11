@@ -66,17 +66,10 @@ Args:
 /// 1. Download the `onnx/encoder.onnx` and `onnx/decoder_with_past.onnx` ONNX
 ///    models from https://huggingface.co/Mozilla/distilvit/tree/main, as well
 ///    as the `tokenizer.json` file.
-/// 2. Convert the models
+/// 2. Run the model, specifying the image to caption:
 ///
 /// ```sh
-/// rten-convert encoder_model.onnx
-/// rten-convert decoder_model_with_past.onnx
-/// ```
-///
-/// 3. Run the converted model, specifying the image to caption:
-///
-/// ```sh
-/// cargo run --release --bin distilvit encoder_model.rten decoder_model.rten tokenizer.json <image>
+/// cargo run --release --bin distilvit encoder_model.onnx decoder_model_with_past.onnx tokenizer.json <image>
 /// ```
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;

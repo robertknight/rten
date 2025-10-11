@@ -170,12 +170,11 @@ const NO_OBJECT_LABELS: &[&str] = &["N/A"];
 
 /// Detect objects in images using DETR [^1] or RT-DETR.
 ///
-/// The DETR model [^2] can be obtained from Hugging Face and converted to this
-/// library's format using Optimum [^3]:
+/// The DETR model [^2] can be obtained from Hugging Face and converted to ONNX
+/// using Optimum [^3]:
 ///
 /// ```
 /// optimum-cli export onnx --model facebook/detr-resnet-50 detr
-/// rten-convert detr/model.onnx
 /// ```
 ///
 /// [^1]: <https://arxiv.org/abs/2005.12872>

@@ -215,13 +215,9 @@ Options:
 ///
 ///    ./tools/export-timm-model.py timm/convnext_base.fb_in1k --dynamo
 ///
-/// 2. Convert the model to .rten format using:
+/// 2. Run this example specifying the path to the converted image:
 ///
-///    rten-convert resnet-50/model.onnx
-///
-/// 3. Run this example specifying the path to the converted image:
-///
-///    cargo run --release --bin imagenet resnet-50/model.rten image.jpg
+///    cargo run --release --bin imagenet resnet-50/model.onnx image.jpg
 ///
 /// By default the example assumes the model expects 224x224 RGB input with
 /// standard ImageNet normalization applied. You can change these using CLI

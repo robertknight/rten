@@ -173,13 +173,8 @@ impl VadState {
 
 /// Detect speech in .wav audio files using Silero VAD [^1].
 ///
-/// Download the ONNX model from the Silero VAD repository at
-/// https://github.com/snakers4/silero-vad/tree/master/src/silero_vad/data,
-/// then convert it using:
-///
-/// ```
-/// rten-convert silero_vad.onnx
-/// ```
+/// First, download the ONNX model from the Silero VAD repository at
+/// https://github.com/snakers4/silero-vad/tree/master/src/silero_vad/data.
 ///
 /// To record a .wav file and run this example:
 ///
@@ -195,7 +190,7 @@ impl VadState {
 /// 3. Run this program on the generated .wav file:
 ///
 ///    ```
-///    cargo run --release --bin silero_vad silero.rten output.wav
+///    cargo run --release --bin silero_vad silero.onnx output.wav
 ///    ```
 ///
 /// [^1]: <https://github.com/snakers4/silero-vad>

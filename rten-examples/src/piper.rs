@@ -142,12 +142,11 @@ fn phonemes_to_ids(phonemes: &str, config: &ModelConfig) -> NdTensor<i32, 1> {
 ///    Other voice models should also work, but have not been tested
 ///    extensively.
 ///
-/// 2. Convert the model to `.rten` format using `rten-convert`
-/// 3. Run the demo with:
+/// 2. Run the demo with:
 ///
 ///    ```
 ///    cargo run -p rten-examples -r --bin piper \
-///      en_US-lessac-medium.rten en_US-lessac-medium.onnx.json
+///      en_US-lessac-medium.onnx en_US-lessac-medium.onnx.json
 ///    ```
 ///
 ///    This will generate an `output.wav` file, which you can play using
