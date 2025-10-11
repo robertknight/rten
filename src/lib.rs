@@ -1,18 +1,43 @@
-//! rten is a runtime for machine learning models.
+//! rten is an inference runtime for machine learning models.
+//!
+//! It enables you to take machine learning models trained using PyTorch
+//! or other frameworks and run them in Rust.
 //!
 //! # Preparing models
 //!
 //! To use a model trained with a framework such as
 //! [PyTorch](https://pytorch.org), it needs to first be exported into
-//! [ONNX](https://onnx.ai) format and then converted into `.rten` format using
-//! the [`rten-convert`](https://pypi.org/project/rten-convert/) tool. See the
-//! [rten model format][file_format] docs for more details on the file format.
+//! [ONNX](https://onnx.ai) format. There are several ways to obtain models
+//! in this format:
+//!
+//! - The model authors may already provide the model in ONNX
+//!   format. On [Hugging Face](https://huggingface.co/) you can find models
+//!   available in ONNX format by searching for the [ONNX
+//!   tag](https://huggingface.co/models?library=onnx&sort=trending).
+//!
+//! - Hugging Face provides a tool called
+//! [Optimum](https://huggingface.co/docs/optimum-onnx/onnx/usage_guides/export_a_model)
+//!   which takes as input a Hugging Face model repository URL and exports an
+//!   ONNX model. This is a convenient way to export many popular pre-trained
+//!   models to ONNX format.
+//!
+//! - PyTorch has built-in [ONNX export functions](https://docs.pytorch.org/tutorials/beginner/onnx/export_simple_model_to_onnx_tutorial.html).
+//!   This can be used to convert custom models or any other model which is not
+//!   available in ONNX format via another means.
+//!
+//! RTen can load and run ONNX models directly, but it also supports a custom
+//! `.rten` file format. Models can be converted from ONNX to this format via
+//! [rten-convert](https://pypi.org/project/rten-convert/). The `.rten` format
+//! can be faster to load and supports large (> 2GB) models in a single file,
+//! whereas ONNX models of this size must use external files for weights. It
+//! is recommended to start with the ONNX format and consider `.rten` later if
+//! you need these benefits.
 //!
 //! # Loading and running models
 //!
 //! The basic workflow for loading and running a model is:
 //!
-//! 1. Load the model using [`Model::load_file`].
+//! 1. Load the model using [`Model::load_file`] or [`Model::load_mmap`].
 //! 2. Load the input data (images, audio, text etc.)
 //! 3. Pre-process the input data to convert it into tensors in the format the
 //!    model expects. For this you can use RTen's own tensor types (see
@@ -53,9 +78,10 @@
 //! RTen supports tensors with the following data types:
 //!
 //! - `f32`, `i32`, `i8`, `u8`
-//! - `i64` and `bool` tensors are supported by converting them to `i32` as
-//!   part of the model conversion process. When preparing model inputs that
-//!   expect these data types in ONNX, you will need to convert them to `i32`.
+//! - `i64` and `bool` tensors are supported by converting them to `i32`
+//! tensors, on the assumption that the values in `i64` tensors will be in the
+//! `i32` range. When preparing model inputs that expect these data types in
+//! ONNX, you will need to convert them to `i32`.
 //!
 //! Some operators support a more limited set of data types than described in
 //! the ONNX specification. Please file an issue if you need an operator to
@@ -96,9 +122,13 @@
 //! # Inspecting models
 //!
 //! The [rten-cli](https://crates.io/crates/rten-cli) tool can be used to query
-//! basic information about a `.rten` model, such as the inputs and outputs.
-//! It can also be used to test model compatibility and inference performance
-//! by running models with randomly generated inputs.
+//! basic information about a `.rten` or `.onnx` model, such as the inputs and
+//! outputs. It can also be used to test model compatibility and inference
+//! performance by running models with randomly generated inputs.
+//!
+//! To examine a `.onnx` model in more detail, the [Netron](https://netron.app/)
+//! application is very useful. It shows the complete model graph and enables
+//! inspecting individual nodes.
 //!
 //! # Performance
 //!

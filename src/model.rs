@@ -36,11 +36,11 @@ use file_type::FileType;
 #[cfg(test)]
 pub mod onnx_builder;
 
-/// The central type used to execute RTen machine learning models.
+/// The central type used to execute machine learning models.
 ///
-/// Models are loaded from `.rten` format model files and executed using
-/// [`Model::run`]. They take a list of tensor views as inputs, perform a series
-/// of computations and return one or more output tensors.
+/// Models are loaded from either `.onnx` or `.rten` format model files and
+/// executed using [`Model::run`]. They take a list of tensor views as inputs,
+/// perform a series of computations and return one or more output tensors.
 ///
 /// ## Example
 ///
@@ -51,7 +51,8 @@ pub mod onnx_builder;
 /// use rten::Model;
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let model = Model::load_file("model.rten")?;
+///     // Load the model. If the model is large, using `load_mmap` can be faster.
+///     let model = Model::load_file("model.onnx")?;
 ///
 ///     // Prepare inputs in format expected by model.
 ///     let input_data: NdTensor<f32, 4> = NdTensor::zeros([1, 3, 224, 224]);
@@ -72,18 +73,15 @@ pub mod onnx_builder;
 /// }
 /// ```
 ///
-/// ## About RTen models
+/// ## About models
 ///
-/// `.rten` models use the [FlatBuffers](https://github.com/google/flatbuffers)
-/// format and are conceptually similar to the `.ort` format used by ONNX
-/// Runtime and `.tflite` used by TensorFlow Lite.
+/// Machine learning models in RTen are logically graphs consisting of three
+/// types of nodes:
 ///
-/// RTen models are logically graphs consisting of three types of nodes:
-///
-///  - Values which are supplied or generated at runtime
-///  - Constants which are the weights, biases and other parameters of the
+///  - _Values_ which are supplied or generated at runtime
+///  - _Constants_ which are the weights, biases and other parameters of the
 ///    model. Their values are determined when the model is trained.
-///  - Operators which combine the values and constants using operations such
+///  - _Operators_ which combine the values and constants using operations such
 ///    as matrix multiplication, convolution etc.
 ///
 /// Some of these nodes are designated as inputs and outputs. The IDs of these
@@ -348,7 +346,7 @@ enum OptimizeMode {
 }
 
 impl Model {
-    /// Load a serialized model from a `.rten` file.
+    /// Load a serialized model from a `.onnx` or `.rten` file.
     ///
     /// This method reads the entire file into memory. For large models (hundreds
     /// of MB or more), [`load_mmap`](Model::load_mmap) can be faster.
@@ -357,6 +355,9 @@ impl Model {
     }
 
     /// Load a serialized model from a byte buffer.
+    ///
+    /// The model can be in either ONNX or RTen format. The model type is
+    /// detected automatically.
     pub fn load(data: Vec<u8>) -> Result<Model, ModelLoadError> {
         ModelOptions::with_all_ops().load(data)
     }
@@ -365,6 +366,9 @@ impl Model {
     ///
     /// This is useful for loading models embedded in the binary via
     /// [`include_bytes`] for example.
+    ///
+    /// The model can be in either ONNX or RTen format. The model type is
+    /// detected automatically.
     pub fn load_static_slice(data: &'static [u8]) -> Result<Model, ModelLoadError> {
         ModelOptions::with_all_ops().load_static_slice(data)
     }
