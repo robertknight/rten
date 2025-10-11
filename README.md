@@ -6,13 +6,14 @@
 [docs.rs]: https://docs.rs/rten
 [crates.io]: https://crates.io/crates/rten
 
-RTen (the _Rust Tensor engine_) † is a runtime for machine learning models
-converted from [ONNX](https://onnx.ai) format, which you can export from
-PyTorch and other frameworks.
+RTen (the _Rust Tensor engine_) † is a machine learning runtime. It supports
+models in [ONNX](https://onnx.ai) format. It enables you to take machine
+learning models which have been trained in Python using frameworks such as
+PyTorch and run them in Rust.
 
-The project also provides supporting libraries for common pre-processing and
-post-processing tasks in various domains. This makes RTen a more complete
-toolkit for running models in Rust applications.
+In addition to ML inference, the project also provides supporting libraries for
+common pre-processing and post-processing tasks in various domains. This makes
+RTen a more complete toolkit for running models in Rust applications.
 
 † _The name is also a reference to PyTorch's ATen library._
 
@@ -23,24 +24,35 @@ toolkit for running models in Rust applications.
   Rust applications.
 - Be easy to compile and run on a variety of platforms, including WebAssembly
 - End-to-end Rust. This project and all of its required dependencies are
-  written in Rust.
+  written in Rust. This simplifies the build and deployment process.
 
-## Limitations
+## Supported devices
 
-This project has a number of limitations to be aware of. Addressing them is
-planned for the future:
+RTen currently supports CPU inference only. It supports SIMD via AVX2, AVX-512,
+Arm Neon and WebAssembly SIMD. Inference uses multiple threads by default,
+defaulting to the number of physical cores (or performance cores). This can be
+customized.
 
-- Supports CPU inference only. There is currently no support for running models
-  on GPUs or other accelerators.
-- Not all ONNX operators are supported. See `OperatorType` in
-  [src/schema.fbs](src/schema.fbs) and [this issue](https://github.com/robertknight/rten/issues/14) for currently supported operators. For
-  implemented operators, some attributes or input shapes may not be supported.
-- Not all ONNX data types are supported. Currently supported data types for
-  tensors are: float32, int32, int64 (converted to int32), bool (converted to
-  int32), int8, uint8.
-- RTen is not as well optimized as more mature runtimes such as ONNX Runtime
-  or TensorFlow Lite. The performance difference depends on the operators used,
-  model structure, CPU architecture and platform.
+## Supported ONNX operators
+
+RTen supports most standard ONNX operators. See [this tracking
+issue](https://github.com/robertknight/rten/issues/14) for details. Please open
+an issue if you find that you cannot run a model because an operator is not
+supported.
+
+## Supported data types
+
+RTen supports models with float32 weights as well as quantized models with int8
+or uint8 weights. Quantized models can take advantage of CPU features such
+as VNNI (x86) and UDOT / i8mm (Arm) for better performance.
+
+## Supported model formats
+
+RTen can load models in ONNX format directly. It also supports a custom `.rten`
+format which can offer faster load times and supports arbitrarily large models
+in a single file. See the [rten file format
+documentation](docs/rten-file-format.md) for more details on the format and
+information on how to convert models.
 
 ## Getting started
 
@@ -57,40 +69,15 @@ classification example:
 git clone https://github.com/robertknight/rten.git
 cd rten
 
-# Install model conversion tool
-pip install -e rten-convert
-
 # Install dependencies for Python scripts
 pip install -r tools/requirements.txt
 
 # Export an ONNX model. We're using resnet-50, a classic image classification model.
 python -m tools.export-timm-model timm/resnet50.a1_in1k
 
-# Convert model to this library's format
-rten-convert resnet50.a1_in1k.onnx resnet50.rten
-
 # Run image classification example. Replace `image.png` with your own image.
-cargo run -p rten-examples --release --bin imagenet mobilenet resnet50.rten image.png
+cargo run -p rten-examples --release --bin imagenet mobilenet resnet50.a1_in1k.onnx image.png
 ```
-
-## Converting ONNX models
-
-RTen does not load ONNX models directly. ONNX models must be run through a
-conversion tool which produces an optimized model in a
-[FlatBuffers](https://google.github.io/flatbuffers/)-based format (`.rten`) that
-the engine can load. This is conceptually similar to the `.tflite` and `.ort`
-formats that TensorFlow Lite and ONNX Runtime use.
-
-The conversion tool requires Python >= 3.10. To convert an existing ONNX model,
-run:
-
-```sh
-pip install rten-convert
-rten-convert your-model.onnx
-```
-
-See the [rten-convert README](rten-convert/) for more information about usage
-and version compatibility.
 
 ## Usage in JavaScript
 
