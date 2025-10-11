@@ -36,11 +36,11 @@ use file_type::FileType;
 #[cfg(test)]
 pub mod onnx_builder;
 
-/// The central type used to execute RTen machine learning models.
+/// The central type used to execute machine learning models.
 ///
-/// Models are loaded from `.rten` format model files and executed using
-/// [`Model::run`]. They take a list of tensor views as inputs, perform a series
-/// of computations and return one or more output tensors.
+/// Models are loaded from either `.onnx` or `.rten` format model files and
+/// executed using [`Model::run`]. They take a list of tensor views as inputs,
+/// perform a series of computations and return one or more output tensors.
 ///
 /// ## Example
 ///
@@ -51,7 +51,8 @@ pub mod onnx_builder;
 /// use rten::Model;
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let model = Model::load_file("model.rten")?;
+///     // Load the model. If the model is large, using `load_mmap` can be faster.
+///     let model = Model::load_file("model.onnx")?;
 ///
 ///     // Prepare inputs in format expected by model.
 ///     let input_data: NdTensor<f32, 4> = NdTensor::zeros([1, 3, 224, 224]);
@@ -72,18 +73,15 @@ pub mod onnx_builder;
 /// }
 /// ```
 ///
-/// ## About RTen models
+/// ## About models
 ///
-/// `.rten` models use the [FlatBuffers](https://github.com/google/flatbuffers)
-/// format and are conceptually similar to the `.ort` format used by ONNX
-/// Runtime and `.tflite` used by TensorFlow Lite.
+/// Machine learning models in RTen are logically graphs consisting of three
+/// types of nodes:
 ///
-/// RTen models are logically graphs consisting of three types of nodes:
-///
-///  - Values which are supplied or generated at runtime
-///  - Constants which are the weights, biases and other parameters of the
+///  - _Values_ which are supplied or generated at runtime
+///  - _Constants_ which are the weights, biases and other parameters of the
 ///    model. Their values are determined when the model is trained.
-///  - Operators which combine the values and constants using operations such
+///  - _Operators_ which combine the values and constants using operations such
 ///    as matrix multiplication, convolution etc.
 ///
 /// Some of these nodes are designated as inputs and outputs. The IDs of these
@@ -348,15 +346,27 @@ enum OptimizeMode {
 }
 
 impl Model {
-    /// Load a serialized model from a `.rten` file.
+    /// Load a serialized model from a `.onnx` or `.rten` file.
     ///
     /// This method reads the entire file into memory. For large models (hundreds
     /// of MB or more), [`load_mmap`](Model::load_mmap) can be faster.
+    ///
+    /// # External data
+    ///
+    /// When using this method, ONNX models with external data are supported.
+    /// See the notes in [`load_mmap`](Self::load_mmap) for more details.
     pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Model, ModelLoadError> {
         ModelOptions::with_all_ops().load_file(path)
     }
 
     /// Load a serialized model from a byte buffer.
+    ///
+    /// The model can be in either ONNX or RTen format. The model type is
+    /// detected automatically.
+    ///
+    /// # External data
+    ///
+    /// This method does not currently support ONNX models with external data.
     pub fn load(data: Vec<u8>) -> Result<Model, ModelLoadError> {
         ModelOptions::with_all_ops().load(data)
     }
@@ -365,6 +375,13 @@ impl Model {
     ///
     /// This is useful for loading models embedded in the binary via
     /// [`include_bytes`] for example.
+    ///
+    /// The model can be in either ONNX or RTen format. The model type is
+    /// detected automatically.
+    ///
+    /// # External data
+    ///
+    /// This method does not currently support ONNX models with external data.
     pub fn load_static_slice(data: &'static [u8]) -> Result<Model, ModelLoadError> {
         ModelOptions::with_all_ops().load_static_slice(data)
     }
@@ -385,12 +402,28 @@ impl Model {
     /// the model, the overall time taken for load + first run may be less or
     /// about the same.  Subsequent model executions should the same time.
     ///
+    /// # External data
+    ///
+    /// Models in ONNX format may store data in an external file (eg.
+    /// `model.onnx.data`). When weights are loaded from an external file, they
+    /// are loaded via regular IO if the model is loaded with
+    /// [`load_file`](Self::load_mmap) or memory-mapping if the model is loaded
+    /// with [`load_mmap`](Self::load_mmap).
+    ///
     /// # Safety
     ///
-    /// This method is marked unsafe because undefined behavior can be caused
-    /// if the model file is modified on disk while it is being used by a
-    /// `Model`. Callers will need to decide whether this is an acceptable risk
-    /// for their context.
+    /// This method is marked unsafe because undefined behavior can be caused if
+    /// a memory-mapped model file is modified on disk while it is being used by
+    /// a `Model`. Callers will need to decide whether this is an acceptable
+    /// risk for their context. As a rule of thumb, this risk will be acceptable
+    /// for most applications (see [this
+    /// discussion](https://github.com/BurntSushi/ripgrep/issues/581) for
+    /// example), but when writing a library, you will most likely want to defer
+    /// the choice to the caller of the library.
+    ///
+    /// As a point of comparison, other machine learning
+    /// runtimes like ONNX Runtime and llama.cpp do use memory mapping by
+    /// default.
     ///
     /// # Platform support
     ///
