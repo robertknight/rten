@@ -39,7 +39,7 @@ Arguments:
 
     This should contain:
 
-    - `model.rten` - The DETR or RT-DETR model
+    - `model.onnx` - The DETR or RT-DETR model
     - `config.json` - JSON file containing class ID to label mappings
     - `preprocessor_config.json` - JSON file containing preprocessor configuration
 

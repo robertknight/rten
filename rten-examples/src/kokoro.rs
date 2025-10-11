@@ -194,23 +194,20 @@ const BOS_ID: i32 = 0;
 
 /// Convert text to speech using Kokoro.
 ///
-/// Download the ONNX model from https://huggingface.co/robertknight/kokoro-onnx/tree/main
-/// and convert it using rten-convert:
-///
-/// ```
-/// rten-convert kokoro.onnx
-/// ```
+/// Download the ONNX model from https://huggingface.co/robertknight/kokoro-onnx/tree/main.
 ///
 /// Then run with:
 ///
 /// ```txt
-/// cargo run -p rten-examples -r --bin kokoro -- kokoro.rten voice.bin [<phonemes>]
+/// cargo run -p rten-examples -r --bin kokoro -- kokoro.onnx voice.bin [<phonemes>]
 /// ```
 ///
 /// The voice files can be downloaded from
 /// https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/tree/main/voices.
 ///
-/// (Note: Don't use the version of the ONNX model from the onnx-community repository).
+/// (Note: Don't use the version of the ONNX model from the onnx-community repository.
+///  It relies on some particular behaviors of ONNX Runtime which do not work
+///  in other runtimes)
 ///
 /// _phonemes_ is an optional argument that specifies the text to read as a
 /// sequence of phonemes. See [`Args::phonemes`].

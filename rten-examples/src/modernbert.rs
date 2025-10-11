@@ -70,16 +70,10 @@ Options:
 /// https://huggingface.co/answerdotai/ModernBERT-base/tree/main, as well
 /// as the `tokenizer.json` file.
 ///
-/// Convert the model using `rten-convert`:
-///
-/// ```
-/// rten-convert modernbert.onnx
-/// ```
-///
 /// Run the example using:
 ///
 /// ```
-/// cargo run --release --bin modernbert modernbert.rten tokenizer.json "Earth is a [MASK]."
+/// cargo run --release --bin modernbert modernbert.onnx tokenizer.json "Earth is a [MASK]."
 /// ```
 ///
 /// This should print "Earth is a planet." Note the period at the end of the
