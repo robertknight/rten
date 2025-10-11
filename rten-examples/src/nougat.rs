@@ -72,18 +72,10 @@ Args:
 /// optimum-cli export onnx --model facebook/nougat-base nougat-base
 /// ```
 ///
-/// Convert the models to `.rten` format. For the decoder you need to use the
-/// "merged" model.
-///
-/// ```
-/// rten-convert nougat-base/encoder_model.onnx
-/// rten-convert nougat-base/decoder_model_merged.onnx
-/// ```
-///
 /// Run the model, specifying the image to recognize:
 ///
 /// ```sh
-/// cargo run --release --bin nougat nougat-base/encoder_model.rten nougat-base/decoder_model_merged.rten tokenizer.json <image>
+/// cargo run --release --bin nougat nougat-base/encoder_model.onnx nougat-base/decoder_model_merged.onnx tokenizer.json <image>
 /// ```
 ///
 /// [^1]: https://arxiv.org/abs/2308.13418

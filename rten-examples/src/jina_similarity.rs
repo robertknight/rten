@@ -169,19 +169,13 @@ fn embed_sentence_batch(
 ///
 /// It uses the Jina embeddings model from
 /// <https://huggingface.co/jinaai/jina-embeddings-v2-small-en>. You can download
-/// the in ONNX format, along with the `tokenizer.json` tokenizer configuration
+/// the model in ONNX format, along with the `tokenizer.json` tokenizer configuration
 /// <https://huggingface.co/jinaai/jina-embeddings-v2-small-en/tree/main>.
 ///
-/// Convert the model using:
+/// After downloading the model, run the example with:
 ///
 /// ```text
-/// rten-convert jina-embed.onnx jina-embed.rten
-/// ```
-///
-/// Then run the example with:
-///
-/// ```text
-/// cargo run -r --bin jina_similarity jina-embed.rten tokenizer.json
+/// cargo run -r --bin jina_similarity jina-embed.onnx tokenizer.json
 ///   data/rust-questions.txt "How can I make a function work with any type that supports addition?"
 /// ```
 ///

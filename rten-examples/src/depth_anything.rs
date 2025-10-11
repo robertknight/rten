@@ -66,8 +66,7 @@ Args:
 /// After downloading the model, it can be run on an image using:
 ///
 /// ```
-/// rten-convert depth_anything.onnx
-/// cargo run --release --bin depth_anything depth_anything.rten image.jpg
+/// cargo run --release --bin depth_anything depth_anything.onnx image.jpg
 /// ```
 ///
 /// This will generate a depth map as `depth-map.png`.

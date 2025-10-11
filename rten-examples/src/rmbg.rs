@@ -78,8 +78,7 @@ fn fill_mask(mut image: NdTensorViewMut<f32, 3>, mask: NdTensorView<bool, 2>, co
 /// run on an image using:
 ///
 /// ```
-/// rten-convert rmbg.onnx
-/// cargo run --release --bin rmbg rmbg.rten image.jpg
+/// cargo run --release --bin rmbg rmbg.onnx image.jpg
 /// ```
 ///
 /// This will generate `output.png`, a copy of the input image with the

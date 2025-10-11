@@ -80,14 +80,12 @@ Options:
 ///
 /// ```
 /// optimum-cli export onnx --model fdemelo/g2p-mbyt5-12l-ipa-childes-espeak g2p --task text2text-generation-with-past
-/// rten-convert g2p/encoder_model.onnx
-/// rten-convert g2p/decoder_model_merged.onnx
 /// ```
 ///
 /// To run the example:
 ///
 /// ```
-/// cargo run -p rten-examples --release --bin byt5_g2p -- g2p/encoder_model.rten g2p/decoder_model_merged.rten "This is some text to convert."
+/// cargo run -p rten-examples --release --bin byt5_g2p -- g2p/encoder_model.onnx g2p/decoder_model_merged.onnx "This is some text to convert."
 /// ```
 ///
 /// The example assumes US English text. To use a different language, specify

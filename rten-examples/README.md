@@ -16,18 +16,8 @@ The general steps to run an example are:
    Face](https://huggingface.co/docs/optimum/exporters/onnx/overview),
    the [ONNX Model Zoo](https://github.com/onnx/models) or pre-created ONNX
    models by the model authors.
-2. Convert the ONNX model to this library's format using the `rten-convert`
-   package:
 
-   ```sh
-   $ pip install rten-convert
-   $ rten-convert model.onnx
-   ```
-
-   This will create a `model.rten` file in the same directory as the ONNX
-   model.
-
-3. Run the example from the `rten-examples` directory using:
+2. Run the example from the `rten-examples` directory using:
 
    ```sh
    $ cargo run -r --bin <example_name> <model_path> <...args>
@@ -54,6 +44,18 @@ The general steps to run an example are:
    ```sh
    $ cargo run -p rten-examples -r --bin <example_name> -- <...args>
    ```
+
+Optionally you can convert ONNX models to the custom `.rten` format using the
+`rten-convert` package. This can improve model load times.
+
+ ```sh
+ $ pip install rten-convert
+ $ rten-convert model.onnx
+ ```
+
+This will create a `model.rten` file in the same directory as the ONNX model.
+When running an example, specify the path to the `.rten` versions of the model
+instead of the `.onnx` versions.
 
 ## Reference implementations
 
