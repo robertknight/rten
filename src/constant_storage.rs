@@ -128,6 +128,18 @@ impl<T> ArcSlice<T> {
     where
         T: Pod,
     {
+        // Vecs with zero capacity have a non-null dangling pointer which can
+        // have a smaller alignment that the minimum used by the global
+        // allocator. Create a new vec with zero length but non-zero capacity to
+        // ensure the data pointer has the required alignment. This assumes that
+        // `T` has an alignment <= the minimum alignment of the allocator. If
+        // not, this operation will still fail.
+        let buf = if buf.capacity() == 0 {
+            Vec::with_capacity(1)
+        } else {
+            buf
+        };
+
         if !(buf.as_ptr() as usize).is_multiple_of(align_of::<T>())
             || !buf.len().is_multiple_of(size_of::<T>())
         {
@@ -144,6 +156,10 @@ impl<T> ArcSlice<T> {
     }
 }
 
+// Safety: ArcSlice constructors ensure that the byte range defined by
+// `self.byte_offset..self.byte_offset + self.len` is in-bounds for the storage
+// length and that the storage's data pointer is correctly aligned for the type
+// T.
 unsafe impl<T> Storage for ArcSlice<T> {
     type Elem = T;
 
@@ -222,6 +238,15 @@ mod tests {
         let bytes = vec_to_ne_bytes(data.clone());
         let slice = ArcSlice::<i32>::from_bytes(bytes).unwrap();
         let tensor = ArcTensorView::from_data(&[16], slice);
+        assert_eq!(tensor.data().unwrap(), data);
+    }
+
+    #[test]
+    fn test_arc_slice_from_empty_bytes() {
+        let data: Vec<i32> = Vec::new();
+        let bytes = vec_to_ne_bytes(data.clone());
+        let slice = ArcSlice::<i32>::from_bytes(bytes).unwrap();
+        let tensor = ArcTensorView::from_data(&[0], slice);
         assert_eq!(tensor.data().unwrap(), data);
     }
 

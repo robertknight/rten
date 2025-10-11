@@ -696,9 +696,21 @@ fn tensor_from_external_data<T: Pod>(
     data: &DataSlice,
     name: Option<&str>,
 ) -> Result<ArcTensorView<T>, ModelLoadError> {
-    let elements = cast_pod_slice(data.data())
-        .ok_or_else(|| load_error!(GraphError, name, "data has incorrect alignment"))?;
-    let data = ArcSlice::<T>::new(data.storage.clone(), elements).unwrap();
+    let data: ArcSlice<T> = if let Some(elements) = cast_pod_slice(data.data()) {
+        ArcSlice::new(data.storage.clone(), elements).unwrap()
+    } else if data.data().is_empty() {
+        // If `data.storage`'s backing storage is a zero-length `Vec<u8>` it
+        // might have smaller alignment than required. Use
+        // `ArcSlice::from_bytes` which has special handling of empty inputs.
+        ArcSlice::from_bytes(Vec::new()).unwrap()
+    } else {
+        return Err(load_error!(
+            GraphError,
+            name,
+            "data has incorrect alignment"
+        ));
+    };
+
     let data_len = data.len();
     ArcTensorView::try_from_data(shape, data).map_err(|_| {
         load_error!(
