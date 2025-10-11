@@ -144,6 +144,10 @@ impl<T> ArcSlice<T> {
     }
 }
 
+// Safety: ArcSlice constructors ensure that the byte range defined by
+// `self.byte_offset..self.byte_offset + self.len` is in-bounds for the storage
+// length and that the storage's data pointer is correctly aligned for the type
+// T.
 unsafe impl<T> Storage for ArcSlice<T> {
     type Elem = T;
 
