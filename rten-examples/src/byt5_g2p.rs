@@ -1,77 +1,30 @@
-use std::collections::VecDeque;
 use std::error::Error;
 use std::time::Instant;
 
+use argh::FromArgs;
 use rten::Model;
 use rten_generate::Generator;
 use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 
+/// Convert text to phonemes.
+#[derive(FromArgs)]
 struct Args {
-    /// Path to ByT5 encoder model.
+    /// encoder model path
+    #[argh(positional)]
     encoder_model: String,
 
-    /// Path to ByT5 decoder model.
+    /// decoder model path
+    #[argh(positional)]
     decoder_model: String,
 
-    /// The text to encode into phonemes.
+    /// text to convert to phonemes
+    #[argh(positional)]
     text: String,
 
-    /// Language tag, eg. "en-GB"
-    language_tag: Option<String>,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-
-    let mut language_tag = None;
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Convert text to phonemes.
-
-Usage: {bin_name} <encder_model> <decoder_model> <text>
-
-Options:
-
-  -h, --help    Print help
-
-  -l, --lang    Set language tag. See https://huggingface.co/fdemelo/g2p-mbyt5-12l-ipa-childes-espeak#language-tags.
-                The default is en-US.
-",
-                    bin_name = parser.bin_name().unwrap_or("byt5_g2p")
-                );
-                std::process::exit(0);
-            }
-            Short('l') | Long("lang") => {
-                let lang_tag = parser.value()?.string()?;
-                if !SUPPORTED_LANGS.contains(&lang_tag.as_str()) {
-                    eprintln!("WARNING: {} is an unrecognized language tag", lang_tag);
-                }
-                language_tag = Some(lang_tag);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let encoder_model = values.pop_front().ok_or("missing `encoder_model` arg")?;
-    let decoder_model = values.pop_front().ok_or("missing `decoder_model` arg")?;
-    let text = values.pop_front().ok_or("missing `text` arg")?;
-
-    let args = Args {
-        encoder_model,
-        decoder_model,
-        language_tag,
-        text,
-    };
-
-    Ok(args)
+    /// language tag (default: en-US). see https://huggingface.co/fdemelo/g2p-mbyt5-12l-ipa-childes-espeak#language-tags
+    #[argh(option, short = 'l')]
+    lang: Option<String>,
 }
 
 /// Convert a sequence of characters (graphemes) to phonemes using a ByT5 model [^1].
@@ -93,7 +46,13 @@ Options:
 ///
 /// [^1]: https://huggingface.co/fdemelo/g2p-mbyt5-12l-ipa-childes-espeak
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
+
+    if let Some(ref lang_tag) = args.lang
+        && !SUPPORTED_LANGS.contains(&lang_tag.as_str())
+    {
+        eprintln!("WARNING: {} is an unrecognized language tag", lang_tag);
+    }
 
     let encoder = Model::load_file(&args.encoder_model)?;
     let decoder = Model::load_file(&args.decoder_model)?;
@@ -101,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Per model card: "The tag must be prepended to the prompt as a prefix
     // using the format <{tag}>: (e.g., <pt-BR>: ). Note: a space between the
     // prefix colon (:) and the beginning of the text is mandatory."
-    let language_tag = args.language_tag.as_deref().unwrap_or("en-US");
+    let language_tag = args.lang.as_deref().unwrap_or("en-US");
     let prompt = format!("<{}>: {}", language_tag, args.text);
     let input_ids = encode_text(&prompt);
 

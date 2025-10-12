@@ -1,58 +1,27 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::error::Error;
 
+use argh::FromArgs;
 use rten::{Dimension, FloatOperators, Model, Operators};
 use rten_imageio::{read_image, write_image};
 use rten_imageproc::{IMAGENET_MEAN, IMAGENET_STD_DEV, normalize_image};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
+/// Perform semantic segmentation on an image.
+#[derive(FromArgs)]
 struct Args {
+    /// input DeepLab model
+    #[argh(positional)]
     model: String,
+
+    /// image to segment
+    #[argh(positional)]
     image: String,
+
+    /// path to save annotated image to (default: "out.png")
+    #[argh(positional, default = "String::from(\"out.png\")")]
     output: String,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Perform semantic segmentation on an image.
-
-Usage: {bin_name} <model> <image> [<output>]
-
-Args:
-
-  <model> - Input DeepLab model
-  <image> - Image to segment
-  <output> - Path to save annotated image to. Defaults to \"out.png\".
-",
-                    bin_name = parser.bin_name().unwrap_or("deeplab")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let image = values.pop_front().ok_or("missing `image` arg")?;
-    let output = values.pop_front().unwrap_or("out.png".into());
-
-    let args = Args {
-        image,
-        model,
-        output,
-    };
-
-    Ok(args)
 }
 
 type Rgb = (f32, f32, f32);
@@ -105,7 +74,7 @@ const PASCAL_VOC_LABELS: [(&str, Rgb); 21] = [
 ///
 /// [^1]: <https://arxiv.org/abs/1706.05587>
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
     let model = Model::load_file(args.model)?;
 
     let mut image: Tensor = read_image(&args.image)?.into();

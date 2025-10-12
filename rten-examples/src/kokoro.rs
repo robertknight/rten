@@ -1,63 +1,28 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufWriter;
 
+use argh::FromArgs;
 use hound::{SampleFormat, WavSpec, WavWriter};
 use rten::{Model, RunOptions};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
+/// Convert text to speech using Kokoro.
+#[derive(FromArgs)]
 struct Args {
-    /// Path to ONNX model.
+    /// path to ONNX model
+    #[argh(positional)]
     model: String,
 
-    /// Path to voice data.
-    ///
-    /// Voice data consists of an f32 vector serialized as bytes in
-    /// little-endian order, eg. using `numpy.tofile`.
+    /// path to voice data (f32 vector serialized as bytes in little-endian order)
+    #[argh(positional)]
     voice: String,
 
-    /// Phonemes to speak.
-    ///
-    /// The original repository uses espeak to generate these. The byt5_g2p
-    /// example in this repository can be used as a Rust-only solution. See
-    /// notes in the Piper example for additional notes.
+    /// phonemes to speak (optional)
+    #[argh(positional)]
     phonemes: Option<String>,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Convert text to speech using Kokoro.
-
-Usage: {bin_name} <model> <voice> [<phonemes>]
-",
-                    bin_name = parser.bin_name().unwrap_or("kokoro")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let voice = values.pop_front().ok_or("missing `voice` arg")?;
-    let phonemes = values.pop_front();
-
-    Ok(Args {
-        model,
-        phonemes,
-        voice,
-    })
 }
 
 /// Return a char => token ID map for tokenizing input phonemes.
@@ -212,7 +177,7 @@ const BOS_ID: i32 = 0;
 /// _phonemes_ is an optional argument that specifies the text to read as a
 /// sequence of phonemes. See [`Args::phonemes`].
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
     let model = Model::load_file(&args.model)?;
 
     let phonemes = args

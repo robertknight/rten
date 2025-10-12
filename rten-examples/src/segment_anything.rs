@@ -1,88 +1,31 @@
-use std::collections::VecDeque;
 use std::error::Error;
 
+use argh::FromArgs;
 use rten::{Dimension, FloatOperators, Model};
 use rten_imageio::{read_image, write_image};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
+/// Segment an image.
+#[derive(FromArgs)]
 struct Args {
-    /// Path to image encoder model.
+    /// path to image encoder model
+    #[argh(positional)]
     encoder_model: String,
 
-    /// Path to prompt encoder / mask decoder model.
+    /// path to prompt encoder / mask decoder model
+    #[argh(positional)]
     decoder_model: String,
 
-    /// Path to input image to segment.
+    /// path to input image to segment
+    #[argh(positional)]
     image: String,
 
-    /// (x, y) query points identifying the object(s) to generate segmentation
-    /// masks for.
-    points: Vec<(u32, u32)>,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Segment an image.
-
-Usage: {bin_name} <encoder_model> <decoder_model> <image> <points>
-
-Args:
-
-  <encoder_model> - Image encoder model
-  <decoder_model> - Prompt decoder model
-  <image> - Image to process
-  <points> -
-
-    List of points identifying the object to segment.
-
-    This has the form `x1,y1;x2,y2;...`. At least one point must be provided.
-",
-                    bin_name = parser.bin_name().unwrap_or("segment_anything")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let encoder_model = values.pop_front().ok_or("missing `encoder_model` arg")?;
-    let decoder_model = values.pop_front().ok_or("missing `decoder_model` arg")?;
-    let image = values.pop_front().ok_or("missing `image` arg")?;
-    let points_str = values.pop_front().ok_or("missing `points` arg")?;
-
-    let mut points: Vec<(u32, u32)> = Vec::new();
-    for xy_str in points_str.split(";") {
-        let Some(xy_coords) = xy_str.trim().split_once(",") else {
-            return Err(lexopt::Error::Custom(
-                "points should be x,y coordinate pairs".into(),
-            ));
-        };
-        let (Ok(x), Ok(y)) = (xy_coords.0.parse(), xy_coords.1.parse()) else {
-            return Err(lexopt::Error::Custom(
-                "points should be positive integer values".into(),
-            ));
-        };
-        points.push((x, y));
-    }
-
-    let args = Args {
-        image,
-        encoder_model,
-        decoder_model,
-        points,
-    };
-
-    Ok(args)
+    /// list of points identifying the object to segment.
+    ///
+    /// this has the form `x1,y1;x2,y2;...`. At least one point must be provided
+    #[argh(positional)]
+    points: String,
 }
 
 /// Perform image segmentation using Segment Anything [^1].
@@ -119,7 +62,19 @@ Args:
 ///
 /// [^1]: https://segment-anything.com
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
+
+    // Parse points string
+    let mut points: Vec<(u32, u32)> = Vec::new();
+    for xy_str in args.points.split(";") {
+        let Some(xy_coords) = xy_str.trim().split_once(",") else {
+            return Err("points should be x,y coordinate pairs".into());
+        };
+        let (Ok(x), Ok(y)) = (xy_coords.0.parse(), xy_coords.1.parse()) else {
+            return Err("points should be positive integer values".into());
+        };
+        points.push((x, y));
+    }
 
     println!("Loading model...");
     let encoder = Model::load_file(args.encoder_model)?;
@@ -158,21 +113,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         None,
     )?;
 
-    println!("Segmenting image with {} points...", args.points.len());
+    println!("Segmenting image with {} points...", points.len());
 
     // Prepare decoder inputs.
     let h_scale = input_h as f32 / image_h as f32;
     let w_scale = input_w as f32 / image_w as f32;
 
     let point_batch = 1;
-    let nb_points_per_image = args.points.len();
+    let nb_points_per_image = points.len();
     let input_points = NdTensor::from_fn(
         [1, point_batch, nb_points_per_image, 2],
         |[_, _, point, coord]| {
             if coord == 0 {
-                args.points[point].0 as f32 * w_scale
+                points[point].0 as f32 * w_scale
             } else {
-                args.points[point].1 as f32 * h_scale
+                points[point].1 as f32 * h_scale
             }
         },
     );

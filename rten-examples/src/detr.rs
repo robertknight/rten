@@ -1,7 +1,8 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
 
+use argh::FromArgs;
 use rten::{FloatOperators, Model, Operators};
 use rten_imageio::{read_image, write_image};
 use rten_imageproc::{Painter, Rect, normalize_image};
@@ -9,67 +10,20 @@ use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 use serde::Deserialize;
 
+/// Detect objects in images.
+#[derive(FromArgs)]
 struct Args {
+    /// path to directory containing converted model and configuration. This should contain the DETR or RT-DETR model (model.onnx), the JSON file containing class ID to label mappings (config.json) and the JSON file containing preprocessor configuration (preprocessor_config.json).
+    #[argh(positional)]
     model_dir: String,
+
+    /// path to input image
+    #[argh(positional)]
     image: String,
-    annotated_image: Option<String>,
-}
 
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-    let mut annotated_image = None;
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Detect objects in images.
-
-Usage: {bin_name} <model_dir>
-
-Arguments:
-  
-  <model_dir>
-
-    Path to directory containing converted model and configuration.
-
-    This should contain:
-
-    - `model.onnx` - The DETR or RT-DETR model
-    - `config.json` - JSON file containing class ID to label mappings
-    - `preprocessor_config.json` - JSON file containing preprocessor configuration
-
-Options:
-
-  --annotate <path>
-
-    Annotate image with bounding boxes and save to <path>
-",
-                    bin_name = parser.bin_name().unwrap_or("detr")
-                );
-                std::process::exit(0);
-            }
-            Long("annotate") => {
-                annotated_image = Some(parser.value()?.string()?);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model_dir = values.pop_front().ok_or("missing `model_dir` arg")?;
-    let image = values.pop_front().ok_or("missing `image` arg")?;
-
-    let args = Args {
-        model_dir,
-        image,
-        annotated_image,
-    };
-
-    Ok(args)
+    /// annotate image with bounding boxes and save to <path>
+    #[argh(option)]
+    annotate: Option<String>,
 }
 
 /// Model configuration from a Hugging Face `config.json` file.
@@ -180,7 +134,7 @@ const NO_OBJECT_LABELS: &[&str] = &["N/A"];
 /// [^2]: <https://huggingface.co/facebook/detr-resnet-50>
 /// [^3]: <https://huggingface.co/docs/optimum/main/en/exporters/onnx/usage_guides/export_a_model>
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
 
     let model_dir = Path::new(&args.model_dir);
     let model_file = model_dir.join("model.onnx");
@@ -195,7 +149,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut image = read_image(&args.image)?;
 
     // Save a copy of the input before normalization and scaling
-    let mut annotated_image = args.annotated_image.as_ref().map(|_| image.clone());
+    let mut annotated_image = args.annotate.as_ref().map(|_| image.clone());
 
     if preprocessor_config.do_normalize {
         normalize_image(
@@ -342,7 +296,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
-    if let (Some(annotated_image), Some(path)) = (annotated_image, args.annotated_image) {
+    if let (Some(annotated_image), Some(path)) = (annotated_image, args.annotate) {
         write_image(&path, annotated_image.view())?;
     }
 

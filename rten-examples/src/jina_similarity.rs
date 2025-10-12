@@ -1,72 +1,30 @@
-use std::collections::VecDeque;
 use std::error::Error;
 
+use argh::FromArgs;
 use rten::ops::concat;
 use rten::{BufferPool, FloatOperators, Model, NodeId, Operators, ValueOrView};
 use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 use rten_text::tokenizer::{EncodeOptions, Tokenizer};
 
+/// Estimate semantic similarity of two sentences.
+#[derive(FromArgs)]
 struct Args {
+    /// input model
+    #[argh(positional)]
     model: String,
+
+    /// tokenizer configuration (tokenizer.json)
+    #[argh(positional)]
     tokenizer: String,
+
+    /// file containing sentences to search (one per line)
+    #[argh(positional)]
     index_file: String,
+
+    /// sentence to match against index file
+    #[argh(positional)]
     query: String,
-
-    #[allow(dead_code)]
-    verbose: bool,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-    let mut verbose = false;
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Short('v') | Long("verbose") => verbose = true,
-            Long("help") => {
-                println!(
-                    "Estimate semantic similarity of two sentences.
-
-Usage: {bin_name} <model> <tokenizer> <index_file> <query>
-
-Args:
-
-  <model>       - Input model
-  <tokenizer>   - Tokenizer configuration (tokenizer.json)
-  <index_file>  - File containing sentences to search (one per line)
-  <query>       - Sentence to match against index file
-
-Options:
-
-  -v, --verbose - Output debug info
-",
-                    bin_name = parser.bin_name().unwrap_or("jina_similarity")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let tokenizer = values.pop_front().ok_or("missing `tokenizer` arg")?;
-    let index_file = values.pop_front().ok_or("missing `index_file` arg")?;
-    let query = values.pop_front().ok_or("missing `query` arg")?;
-
-    let args = Args {
-        model,
-        tokenizer,
-        index_file,
-        query,
-        verbose,
-    };
-
-    Ok(args)
 }
 
 /// Generate embeddings for a slice of sentences.
@@ -192,7 +150,7 @@ fn embed_sentence_batch(
 ///   ...
 /// ```
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
     let model = Model::load_file(args.model)?;
     let tokenizer = Tokenizer::from_file(&args.tokenizer)?;
 

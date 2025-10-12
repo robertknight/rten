@@ -1,9 +1,9 @@
 use std::borrow::Cow;
-use std::collections::VecDeque;
 use std::error::Error;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use argh::FromArgs;
 use rten::{Dimension, FloatOperators, Model};
 use rten_generate::filter::{LogitsFilter, token_id_filter};
 use rten_generate::{Generator, GeneratorConfig, GeneratorUtils};
@@ -13,63 +13,24 @@ use rten_text::Tokenizer;
 use rustfft::{FftPlanner, num_complex::Complex32};
 use serde::Deserialize;
 
+/// Recognize speech in an audio file using OpenAI's Whisper.
+#[derive(FromArgs)]
 struct Args {
-    /// Path to Whisper encoder model.
+    /// audio encoder model
+    #[argh(positional)]
     encoder_model: String,
 
-    /// Path to Whisper decoder model.
+    /// text decoder model
+    #[argh(positional)]
     decoder_model: String,
 
-    /// Path to tokenizer.json file.
+    /// tokenizer.json file
+    #[argh(positional)]
     tokenizer_config: String,
 
-    /// Path to input audio file. This must be a .wav file with a 16 kHz sample rate.
+    /// path to audio file (16 kHz .wav)
+    #[argh(positional)]
     audio_path: String,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Recognize speech in an audio file using OpenAI's Whisper.
-
-Usage: {bin_name} [options] <encoder_model> <decoder_model> <tokenizer> <audio>
-
-Args:
-
-  <encoder_model>  - Audio encoder model
-  <decoder_model>  - Text decoder model
-  <tokenizer>      - `tokenizer.json` file
-  <audio>          - Path to audio file (16 kHz .wav)
-",
-                    bin_name = parser.bin_name().unwrap_or("whisper")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let encoder_model = values.pop_front().ok_or("missing `encoder_model` arg")?;
-    let decoder_model = values.pop_front().ok_or("missing `decoder_model` arg")?;
-    let tokenizer_config = values.pop_front().ok_or("missing `tokenizer` arg")?;
-    let audio_path = values.pop_front().ok_or("missing `audio_path` arg")?;
-
-    let args = Args {
-        encoder_model,
-        decoder_model,
-        tokenizer_config,
-        audio_path,
-    };
-
-    Ok(args)
 }
 
 /// Read a .wav audio file into a sequence of samples with values in [1, -1].
@@ -371,7 +332,7 @@ fn format_timestamp(sec: f32) -> String {
 /// [^1]: https://arxiv.org/abs/2212.04356
 /// [^2]: https://github.com/openai/whisper
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
 
     let encoder = unsafe { Model::load_mmap(args.encoder_model)? };
     let decoder = unsafe { Model::load_mmap(args.decoder_model)? };

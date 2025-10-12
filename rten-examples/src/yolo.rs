@@ -1,8 +1,8 @@
-use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 
+use argh::FromArgs;
 use rten::ops::{BoxOrder, non_max_suppression};
 use rten::{BufferPool, Dimension, FloatOperators, Model};
 use rten_imageio::{read_image, write_image};
@@ -10,63 +10,24 @@ use rten_imageproc::{Painter, Rect};
 use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 
+/// Detect objects in images.
+#[derive(FromArgs)]
 struct Args {
+    /// path to YOLO model
+    #[argh(positional)]
     model: String,
+
+    /// path to input image
+    #[argh(positional)]
     image: String,
-    annotated_image: Option<String>,
+
+    /// annotate image with bounding boxes and save to <path>
+    #[argh(option)]
+    annotate: Option<String>,
+
+    /// print only a summary of the objects found
+    #[argh(switch, short = 's')]
     summary: bool,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-    let mut annotated_image = None;
-    let mut summary = false;
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Detect objects in images.
-
-Usage: {bin_name} <model> <image>
-
-Options:
-
-  --annotate <path>
-
-    Annotate image with bounding boxes and save to <path>
-
-  -s, --summary
-
-    Print only a summary of the objects found
-",
-                    bin_name = parser.bin_name().unwrap_or("yolo")
-                );
-                std::process::exit(0);
-            }
-            Long("annotate") => {
-                annotated_image = Some(parser.value()?.string()?);
-            }
-            Short('s') | Long("summary") => summary = true,
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let image = values.pop_front().ok_or("missing `image` arg")?;
-
-    let args = Args {
-        model,
-        image,
-        annotated_image,
-        summary,
-    };
-
-    Ok(args)
 }
 
 fn resource_path(path: &str) -> PathBuf {
@@ -102,7 +63,7 @@ fn resource_path(path: &str) -> PathBuf {
 /// Add the `--annotate output.png` argument to save an annotated copy of the
 /// input image.
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
 
     let model = Model::load_file(args.model)?;
 
@@ -113,7 +74,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect();
 
     // Save a copy of the input before normalization and scaling
-    let mut annotated_image = args.annotated_image.as_ref().map(|_| image.clone());
+    let mut annotated_image = args.annotate.as_ref().map(|_| image.clone());
 
     let [_, image_height, image_width] = image.shape();
 
@@ -224,7 +185,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    if let (Some(annotated_image), Some(path)) = (annotated_image, args.annotated_image) {
+    if let (Some(annotated_image), Some(path)) = (annotated_image, args.annotate) {
         write_image(&path, annotated_image.view())?;
     }
 

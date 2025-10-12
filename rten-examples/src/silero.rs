@@ -1,45 +1,21 @@
-use std::collections::VecDeque;
 use std::error::Error;
 use std::ops::Range;
 
+use argh::FromArgs;
 use rten::Model;
 use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 
+/// Detect speech in .wav files.
+#[derive(FromArgs)]
 struct Args {
+    /// silero model path
+    #[argh(positional)]
     model: String,
+
+    /// wav file to process (16 kHz sample rate)
+    #[argh(positional)]
     wav_file: String,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-
-    let mut parser = lexopt::Parser::from_env();
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Detect speech in .wav files.
-
-Usage: {bin_name} <model_path> <wav_file>
-",
-                    bin_name = parser.bin_name().unwrap_or("silero")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let wav_file = values.pop_front().ok_or("missing `wav_file` arg")?;
-
-    let args = Args { model, wav_file };
-
-    Ok(args)
 }
 
 /// Read a .wav audio file into a sequence of samples with values in [1, -1].
@@ -195,7 +171,7 @@ impl VadState {
 ///
 /// [^1]: <https://github.com/snakers4/silero-vad>
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
 
     let model = Model::load_file(args.model)?;
     let samples = read_wav_file(&args.wav_file)?;

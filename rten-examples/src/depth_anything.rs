@@ -1,58 +1,26 @@
-use std::collections::VecDeque;
 use std::error::Error;
 
+use argh::FromArgs;
 use rten::{FloatOperators, Model, Operators};
 use rten_imageio::{read_image, write_image};
 use rten_imageproc::{IMAGENET_MEAN, IMAGENET_STD_DEV, normalize_image};
 use rten_tensor::Tensor;
 use rten_tensor::prelude::*;
 
+/// Perform monocular depth estimation on an image.
+#[derive(FromArgs)]
 struct Args {
+    /// input Depth Anything model
+    #[argh(positional)]
     model: String,
+
+    /// image to process
+    #[argh(positional)]
     image: String,
+
+    /// path to save depth image to (default: "depth-map.png")
+    #[argh(positional, default = "String::from(\"depth-map.png\")")]
     output: String,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Perform monocular depth estimation on an image.
-
-Usage: {bin_name} <model> <image> [<output>]
-
-Args:
-
-  <model> - Input Depth Anything model
-  <image> - Image to process
-  <output> - Path to save depth image to. Defaults to \"depth-map.png\".
-",
-                    bin_name = parser.bin_name().unwrap_or("depth_anything")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let image = values.pop_front().ok_or("missing `image` arg")?;
-    let output = values.pop_front().unwrap_or("depth-map.png".into());
-
-    let args = Args {
-        image,
-        model,
-        output,
-    };
-
-    Ok(args)
 }
 
 /// Perform monocular depth estimation using [Depth Anything][depth_anything].
@@ -73,7 +41,7 @@ Args:
 ///
 /// [depth_anything]: <https://github.com/LiheYoung/Depth-Anything>
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
     let model = Model::load_file(args.model)?;
 
     let mut image: Tensor = read_image(&args.image)?.into();

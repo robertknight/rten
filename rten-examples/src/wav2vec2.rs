@@ -1,55 +1,25 @@
-use std::collections::VecDeque;
 use std::error::Error;
 
+use argh::FromArgs;
 use rten::Model;
 use rten::ctc::CtcDecoder;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
+/// Recognize speech in .wav files.
+#[derive(FromArgs)]
 struct Args {
+    /// path to model
+    #[argh(positional)]
     model: String,
+
+    /// path to .wav file
+    #[argh(positional)]
     wav_file: String,
-    raw_text: bool,
-}
 
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut raw_text = false;
-
-    let mut parser = lexopt::Parser::from_env();
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Short('r') | Long("raw") => raw_text = true,
-            Long("help") => {
-                println!(
-                    "Recognize speech in .wav files.
-
-Usage: {bin_name} <model_path> <wav_file>
-
-Options:
-  -r, --raw    Output the characters predicted by the model without any cleanup
-",
-                    bin_name = parser.bin_name().unwrap_or("wav2vec2")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let wav_file = values.pop_front().ok_or("missing `wav_file` arg")?;
-
-    let args = Args {
-        model,
-        wav_file,
-        raw_text,
-    };
-
-    Ok(args)
+    /// output the characters predicted by the model without any cleanup
+    #[argh(switch, short = 'r')]
+    raw: bool,
 }
 
 /// Normalize values in `data` to have zero mean and unit variance.
@@ -121,7 +91,7 @@ fn read_wav_file(path: &str, expected_sample_rate: u32) -> Result<Vec<f32>, houn
 /// [^2]: <https://huggingface.co/facebook/wav2vec2-base-960h>
 /// [^3]: <https://huggingface.co/docs/optimum/main/en/exporters/onnx/usage_guides/export_a_model>
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
 
     // Vocabulary converted from the vocab.json file at
     // https://huggingface.co/facebook/wav2vec2-base-960h/tree/main.
@@ -154,7 +124,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Lower-case output for readibility.
         let text = raw_text.replace("|", " ").to_lowercase();
 
-        if args.raw_text {
+        if args.raw {
             println!("{}", raw_text);
         } else {
             println!("{}", text);

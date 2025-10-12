@@ -1,73 +1,35 @@
-use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 
+use argh::FromArgs;
 use rten::ops::FloatOperators;
 use rten::{Model, NodeId, ValueOrView};
 use rten_tensor::prelude::*;
 use rten_tensor::*;
 use rten_text::tokenizer::{EncodeOptions, Encoded, Tokenizer};
 
+/// Find answers to questions in a text file.
+#[derive(FromArgs)]
 struct Args {
+    /// path to BERT or RoBERTa model
+    #[argh(positional)]
     model: String,
+
+    /// path to tokenizer configuration (tokenizer.json file)
+    #[argh(positional)]
     tokenizer: String,
+
+    /// path to text document to search
+    #[argh(positional)]
     context_doc: String,
-    query: String,
+
+    /// question to search for answer to
+    #[argh(positional)]
+    query: Vec<String>,
+
+    /// number of answers to produce
+    #[argh(option, short = 'n', default = "1")]
     n_best: usize,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-    let mut n_best = 1;
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Short('n') | Long("n-best") => {
-                n_best = parser.value()?.parse()?;
-            }
-            Long("help") => {
-                println!(
-                    "Find answers to questions in a text file.
-
-Usage: {bin_name} <model> <tokenizer> <context_doc> <query...> [options]
-
-Args:
-
-  <model>       - Input BERT or RoBERTa model
-  <tokenizer>   - Tokenizer configuration (tokenizer.json file)
-  <context_doc> - Text document to search
-  <query>       - Question to search for answer to
-
-Options:
-
-  -n, --n-best [n]  - Number of answers to produce (default 1)
-",
-                    bin_name = parser.bin_name().unwrap_or("bert_qa")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let tokenizer = values.pop_front().ok_or("missing `tokenizer` arg")?;
-    let context_doc = values.pop_front().ok_or("missing `context_doc` arg")?;
-    let query = values.make_contiguous().join(" ");
-
-    let args = Args {
-        context_doc,
-        model,
-        n_best,
-        query,
-        tokenizer,
-    };
-
-    Ok(args)
 }
 
 struct Answer<'a> {
@@ -222,7 +184,8 @@ fn extract_nbest_answers<'a>(
 /// [^1]: <https://huggingface.co/tasks/question-answering>
 /// [^2]: <https://huggingface.co/docs/optimum/index>
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
+    let query = args.query.join(" ");
     let model = Model::load_file(args.model)?;
     let tokenizer = Tokenizer::from_file(&args.tokenizer)?;
     let context = fs::read_to_string(args.context_doc)?;
@@ -240,8 +203,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         overlap: 0,
         ..Default::default()
     };
-    let encoded =
-        tokenizer.encode_chunks((args.query.as_str(), context.as_str()).into(), enc_opts)?;
+    let encoded = tokenizer.encode_chunks((query.as_str(), context.as_str()).into(), enc_opts)?;
 
     let mut answers = Vec::new();
     for chunk in encoded {
@@ -251,7 +213,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     answers.sort_by(|ans_a, ans_b| ans_a.score.total_cmp(&ans_b.score).reverse());
 
-    println!("Question: {}", args.query);
+    println!("Question: {}", query);
     for answer in answers.into_iter().take(args.n_best) {
         println!("Answer (score {:.2}): {}", answer.score, answer.text);
     }

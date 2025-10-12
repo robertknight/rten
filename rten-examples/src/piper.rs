@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufWriter;
 
+use argh::FromArgs;
 use hound::{SampleFormat, WavSpec, WavWriter};
 use rten::Model;
 use rten_tensor::NdTensor;
@@ -35,69 +35,20 @@ struct InferenceConfig {
     noise_w: f32,
 }
 
+/// Convert text to speech.
+#[derive(FromArgs)]
 struct Args {
-    /// Path to converted Piper voice model.
+    /// path to converted Piper voice model
+    #[argh(positional)]
     model: String,
 
-    /// Path to configuration JSON for the Piper model.
+    /// path to configuration JSON for the Piper model
+    #[argh(positional)]
     model_config: String,
 
-    /// Custom string of phonemes to speak.
-    ///
-    /// The Piper project generates these using piper-phonemize
-    /// (https://pypi.org/project/piper-phonemize/). You can run this locally
-    /// with Python:
-    ///
-    /// ```text
-    /// pip install piper-phonemize
-    /// python
-    ///
-    /// >> import piper_phonemize as pp
-    /// >> ''.join(pp.phonemize_espeak('This is a text to speech system', 'en-US')[0])
-    /// ```
-    ///
-    /// The phonemes can be generated in Rust using the byt5_g2p example in
-    /// this repository, which is a translation model that emulates espeak.
-    ///
-    /// The voice name ("en-US" here) can be found in the `espeak.voice`
-    /// property of the voice model config.
+    /// custom string of phonemes to speak. The Piper project generates these using piper-phonemize (https://pypi.org/project/piper-phonemize/). The phonemes can also be generated in Rust using the byt5_g2p example in this repository, which is a translation model that emulates espeak. The voice name can be found in the `espeak.voice` property of the voice model config.
+    #[argh(positional)]
     phonemes: Option<String>,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Convert text to speech.
-
-Usage: {bin_name} <model> <model_config> [<phonemes>]
-",
-                    bin_name = parser.bin_name().unwrap_or("piper")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let model_config = values.pop_front().ok_or("missing `model_config` arg")?;
-    let phonemes = values.pop_front();
-
-    let args = Args {
-        model,
-        model_config,
-        phonemes,
-    };
-
-    Ok(args)
 }
 
 /// Convert a string of phonemes, characters representing speech sounds,
@@ -158,7 +109,7 @@ fn phonemes_to_ids(phonemes: &str, config: &ModelConfig) -> NdTensor<i32, 1> {
 ///
 /// [1] https://github.com/rhasspy/piper
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
 
     let model = Model::load_file(args.model)?;
 
