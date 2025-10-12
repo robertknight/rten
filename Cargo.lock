@@ -472,7 +472,6 @@ dependencies = [
  "fastrand",
  "hound",
  "image",
- "lexopt",
  "png",
  "rten",
  "rten-generate",

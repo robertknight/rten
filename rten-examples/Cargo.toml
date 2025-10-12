@@ -13,7 +13,6 @@ argh = "0.1"
 fastrand = "2.0.2"
 hound = "3.5.1"
 image = { workspace = true }
-lexopt = "0.3.0"
 png = "0.17.6"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
