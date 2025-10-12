@@ -1,7 +1,7 @@
-use std::collections::VecDeque;
 use std::error::Error;
 use std::io::prelude::*;
 
+use argh::FromArgs;
 use rten::{FloatOperators, Model};
 use rten_generate::{Generator, GeneratorUtils};
 use rten_imageio::read_image;
@@ -9,56 +9,24 @@ use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 use rten_text::Tokenizer;
 
+/// Generate a caption for an image.
+#[derive(FromArgs)]
 struct Args {
+    /// image encoder model
+    #[argh(positional)]
     encoder_model: String,
+
+    /// text decoder model
+    #[argh(positional)]
     decoder_model: String,
+
+    /// tokenizer.json file
+    #[argh(positional)]
     tokenizer_config: String,
+
+    /// image path
+    #[argh(positional)]
     image_path: String,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Generate a caption for an image.
-
-Usage: {bin_name} [options] <encoder_model> <decoder_model> <tokenizer> <image>
-
-Args:
-
-  <encoder_model>  - Image encoder model
-  <decoder_model>  - Text decoder model
-  <tokenizer>      - `tokenizer.json` file
-  <image>          - Image path
-",
-                    bin_name = parser.bin_name().unwrap_or("distilvit")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let encoder_model = values.pop_front().ok_or("missing `encoder_model` arg")?;
-    let decoder_model = values.pop_front().ok_or("missing `decoder_model` arg")?;
-    let tokenizer_config = values.pop_front().ok_or("missing `tokenizer` arg")?;
-    let image_path = values.pop_front().ok_or("missing `image_path` arg")?;
-
-    let args = Args {
-        encoder_model,
-        decoder_model,
-        tokenizer_config,
-        image_path,
-    };
-
-    Ok(args)
 }
 
 /// Generates captions for an image using Mozilla's DistilViT.
@@ -74,7 +42,7 @@ Args:
 /// cargo run --release --bin distilvit encoder_model.onnx decoder_model_merged.onnx tokenizer.json <image>
 /// ```
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
     let encoder_model = Model::load_file(args.encoder_model)?;
     let decoder_model = Model::load_file(args.decoder_model)?;
     let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
