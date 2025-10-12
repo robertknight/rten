@@ -1,72 +1,27 @@
-use std::collections::VecDeque;
 use std::error::Error;
 use std::io;
 use std::io::prelude::*;
 
+use argh::FromArgs;
 use rten::Model;
 use rten_generate::sampler::TopKSampler;
 use rten_generate::{Generator, GeneratorUtils};
 use rten_text::{Tokenizer, TokenizerError};
 
+/// Chat with a large language model.
+#[derive(FromArgs)]
 struct Args {
+    /// input model
+    #[argh(positional)]
     model: String,
+
+    /// tokenizer.json file
+    #[argh(positional)]
     tokenizer_config: String,
+
+    /// generation temperature (must be >= 0, default: 0.7). smaller values make output less "creative" by concentrating the probability distribution more. a value of 0.0 causes sampling to be greedy.
+    #[argh(option, short = 't', default = "0.7")]
     temperature: f32,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-
-    // Default from Qwen2's `generate_config.json`.
-    let mut temperature: f32 = 0.7;
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Short('t') | Long("temperature") => {
-                temperature = parser.value()?.parse()?;
-                temperature = temperature.max(0.);
-            }
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Chat with a large language model.
-
-Usage: {bin_name} [options] <model> <tokenizer>
-
-Args:
-
-  <model>       - Input model
-  <tokenizer>   - `tokenizer.json` file
-
-Options:
-
- -t, --temperature TEMP
-
-    Set the generation temperature. Must be >= 0. Smaller values make the
-    output less \"creative\" by concentrating the output probability distribution
-    more. A value of 0.0 causes sampling to be greedy.
-",
-                    bin_name = parser.bin_name().unwrap_or("chat")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let tokenizer_config = values.pop_front().ok_or("missing `tokenizer` arg")?;
-
-    let args = Args {
-        model,
-        tokenizer_config,
-        temperature,
-    };
-
-    Ok(args)
 }
 
 enum MessageChunk<'a> {
@@ -118,7 +73,8 @@ fn encode_message(
 /// [1] https://huggingface.co/docs/optimum/index
 /// [2] https://github.com/QwenLM/Qwen2
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let mut args: Args = argh::from_env();
+    args.temperature = args.temperature.max(0.);
 
     // `load_mmap` reduces model load/free time and process memory usage, at the
     // cost of making the first execution slower.
