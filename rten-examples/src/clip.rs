@@ -1,6 +1,6 @@
-use std::collections::VecDeque;
 use std::error::Error;
 
+use argh::FromArgs;
 use rten::{FloatOperators, Model};
 use rten_imageio::read_image;
 use rten_imageproc::normalize_image;
@@ -8,75 +8,28 @@ use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 use rten_text::Tokenizer;
 
+/// match images against text captions
+#[derive(FromArgs)]
 struct Args {
+    /// path to CLIP model
+    #[argh(positional)]
     model: String,
+
+    /// path to tokenizer.json
+    #[argh(positional)]
     tokenizer: String,
-    images: Vec<String>,
-    captions: Vec<String>,
-    debug_tokens: bool,
-}
 
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
+    /// path to an image (can be specified multiple times)
+    #[argh(option, short = 'i')]
+    image: Vec<String>,
 
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
+    /// text caption (can be specified multiple times)
+    #[argh(option, short = 'c')]
+    caption: Vec<String>,
 
-    let mut images = Vec::new();
-    let mut captions = Vec::new();
-    let mut debug_tokens = false;
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Short('i') | Long("image") => {
-                images.push(parser.value()?.string()?);
-            }
-            Short('c') | Long("caption") => {
-                captions.push(parser.value()?.string()?);
-            }
-            Short('t') | Long("tokens") => {
-                debug_tokens = true;
-            }
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Match images against text captions.
-
-Usage: {bin_name} [options] <model> <tokenizer> [-i image] [-c caption]
-
-At least one image and one caption must be provided.
-
-Args:
-
-  <model>     - CLIP model
-  <tokenizer> - tokenizer.json path 
-
-Options:
-
-  -i <image>    - Path to an image
-  -c <caption>  - Text caption
-  -t, --tokens  - Print tokenized captions
-",
-                    bin_name = parser.bin_name().unwrap_or("clip")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let tokenizer = values.pop_front().ok_or("missing `tokenizer` arg")?;
-
-    let args = Args {
-        model,
-        tokenizer,
-        images,
-        captions,
-        debug_tokens,
-    };
-
-    Ok(args)
+    /// print tokenized captions
+    #[argh(switch, short = 't')]
+    tokens: bool,
 }
 
 // Preprocess input CHW image as follows:
@@ -141,7 +94,7 @@ fn preprocess_image(
 /// [^1]: https://github.com/openai/CLIP
 /// [^2]: https://huggingface.co/openai/clip-vit-base-patch32
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
     let model = Model::load_file(args.model)?;
     let tokenizer = Tokenizer::from_file(&args.tokenizer)?;
 
@@ -149,8 +102,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let image_width = 224;
     let image_height = 224;
 
-    let mut pixel_values = NdTensor::zeros([args.images.len(), 3, image_width, image_height]);
-    for (i, img_path) in args.images.iter().enumerate() {
+    let mut pixel_values = NdTensor::zeros([args.image.len(), 3, image_width, image_height]);
+    for (i, img_path) in args.image.iter().enumerate() {
         let image = read_image(img_path)?;
         let image = preprocess_image(image, image_width as u32, image_height as u32)?;
         pixel_values.slice_mut(i).copy_from(&image);
@@ -160,12 +113,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let end_of_text = tokenizer.get_token_id("<|endoftext|>")?;
 
     let mut encoded_captions = Vec::new();
-    for caption in &args.captions {
+    for caption in &args.caption {
         let mut tokens = tokenizer.encode(caption.as_str(), None)?.into_token_ids();
         tokens.insert(0, start_of_text);
         tokens.push(end_of_text);
 
-        if args.debug_tokens {
+        if args.tokens {
             let decoded = tokenizer.decode(&tokens).unwrap();
             println!("tokens {:?} decoded \"{}\"", tokens, decoded);
         }
@@ -211,8 +164,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let logits_per_image: NdTensor<f32, 2> = logits_per_image.try_into()?;
     let probs_per_image = logits_per_image.softmax(1)?;
 
-    for (img_idx, image) in (0..probs_per_image.size(0)).zip(&args.images) {
-        for (caption_idx, caption) in (0..probs_per_image.size(1)).zip(&args.captions) {
+    for (img_idx, image) in (0..probs_per_image.size(0)).zip(&args.image) {
+        for (caption_idx, caption) in (0..probs_per_image.size(1)).zip(&args.caption) {
             println!(
                 "image \"{}\" caption \"{}\" score {:.2}",
                 image,
