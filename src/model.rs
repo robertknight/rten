@@ -298,7 +298,10 @@ impl ModelOptions {
         }
     }
 
-    /// Load the model from a memory-mapped view of a file. See [`Model::load_mmap`].
+    /// Load the model from a memory-mapped view of a file.
+    ///
+    /// This method is only efficient for `.rten` files and ONNX models with
+    /// external weights. See [`Model::load_mmap`] for more details.
     ///
     /// To limit the scope of `unsafe` when using this API, you can construct
     /// a `ModelOptions` and clone it before calling `load_mmap`:
@@ -391,8 +394,13 @@ impl Model {
     /// This method requires the `mmap` crate feature to be enabled.
     ///
     /// Loading a model via memory-mapping makes the initial load of the model
-    /// faster for large models (hundreds of MB) and also allows sharing the
-    /// memory with other processes. If a process uses `load_file`, its private
+    /// faster for large models, **if the format supports memory-mapped data**
+    /// (see section below), and also enables sharing the data with other
+    /// processes.
+    ///
+    /// # Memory usage
+    ///
+    /// If a process uses `load_file`, its private
     /// memory usage will be the size of the model plus its working space. If a
     /// process uses `load_mmap`, its private memory usage will only be that
     /// needed for working space.
@@ -401,6 +409,20 @@ impl Model {
     /// is read into memory first and then executed. Depending on the size of
     /// the model, the overall time taken for load + first run may be less or
     /// about the same.  Subsequent model executions should the same time.
+    ///
+    /// # Compatible formats
+    ///
+    /// Memory mapping is supported for:
+    ///
+    ///  - ONNX files with external data (eg. a `model.onnx` file with weights
+    ///    stored in `model.onnx.data`)
+    ///  - .rten format model files created via [rten-convert](https://pypi.org/project/rten-convert/)
+    ///
+    /// For ONNX files with embedded weights, `load_mmap` will fall back to
+    /// copying the weights into private memory, the same as if `load_file` was
+    /// used. The reason for this is that tensor data needs to be appropriately
+    /// aligned and this is not the case for `.onnx` files with embedded
+    /// weights.
     ///
     /// # External data
     ///

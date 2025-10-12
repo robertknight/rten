@@ -72,25 +72,22 @@ Args:
 /// optimum-cli export onnx --model facebook/nougat-base nougat-base
 /// ```
 ///
-/// Convert the models to `.rten` format. For the decoder you need to use the
-/// "merged" model.
-///
-/// ```
-/// rten-convert nougat-base/encoder_model.onnx
-/// rten-convert nougat-base/decoder_model_merged.onnx
-/// ```
-///
 /// Run the model, specifying the image to recognize:
 ///
 /// ```sh
-/// cargo run --release --bin nougat nougat-base/encoder_model.rten nougat-base/decoder_model_merged.rten tokenizer.json <image>
+/// cargo run --release --bin nougat nougat-base/encoder_model.onnx nougat-base/decoder_model_merged.onnx nougat-base/tokenizer.json <image>
 /// ```
 ///
 /// [^1]: https://arxiv.org/abs/2308.13418
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
-    let encoder = unsafe { Model::load_mmap(args.encoder_model)? };
-    let decoder = unsafe { Model::load_mmap(args.decoder_model)? };
+
+    // Load the models. For faster load times/reduced memory, consider
+    // converting the ONNX models either to external data or .rten format and
+    // using `load_mmap`.
+    let encoder = Model::load_file(args.encoder_model)?;
+    let decoder = Model::load_file(args.decoder_model)?;
+
     let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
     let mut image = read_image(args.image_path)?.into_dyn();
     image.insert_axis(0); // Add batch dim
