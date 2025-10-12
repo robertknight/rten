@@ -1149,6 +1149,9 @@ impl_read_op!(Resize, |attrs: &Attrs| {
             v.as_string_enum(|val| match val {
                 "nearest" => Some(ResizeMode::Nearest),
                 "linear" => Some(ResizeMode::Linear),
+                // Cubic resize mode is not currently implemented, fall back
+                // to linear. This may degrade accuracy.
+                "cubic" => Some(ResizeMode::Linear),
                 _ => None,
             })
         })

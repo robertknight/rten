@@ -60,8 +60,8 @@ Args:
 /// The ONNX models can be obtained from
 /// https://github.com/fabio-sim/Depth-Anything-ONNX. See the
 /// [releases](https://github.com/fabio-sim/Depth-Anything-ONNX/releases) page
-/// for pre-trained model links. The small ("vits") model is recommended for
-/// CPU inference.
+/// for pre-trained model links. This example was tested with the V1 release of
+/// the model. The small ("vits") model is recommended for CPU inference.
 ///
 /// After downloading the model, it can be run on an image using:
 ///
