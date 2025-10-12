@@ -99,19 +99,18 @@ fn encode_message(
 
 /// Chatbot using Qwen 2 [2].
 ///
-/// To obtain the model from Hugging Face, use Optimum [1], then convert it.
+/// To obtain the model from Hugging Face, use Optimum [1].
 /// The model is available in various sizes. The larger models are smarter
-/// but slower. To convert the smallest 0.5B model, use:
+/// but slower. To export the smallest 0.5B model, use:
 ///
 /// ```sh
 /// optimum-cli export onnx --model Qwen/Qwen2-0.5B-Instruct qwen2-0.5b
-/// rten-convert qwen2-0.5b/model.onnx
 /// ```
 ///
-/// Run the converted model with a prompt:
+/// Then run the model and enter a prompt:
 ///
 /// ```sh
-/// cargo run --release --bin qwen2_chat qwen2-0.5b/model.rten qwen2-0.5b/tokenizer.json
+/// cargo run --release --bin qwen2_chat qwen2-0.5b/model.onnx qwen2-0.5b/tokenizer.json
 /// ```
 ///
 /// For better output, but generated more slowly, use the "1.5b" model.
