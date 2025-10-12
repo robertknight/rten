@@ -1,6 +1,6 @@
 //! Utilities for building ONNX protobuf messages.
 
-use std::cell::Cell;
+use std::cell::RefCell;
 
 use rten_onnx::onnx;
 
@@ -57,7 +57,7 @@ pub fn create_tensor(
     tensor.data_type = Some(dtype);
 
     match data {
-        TensorData::Raw(raw) => tensor.raw_data = Some(Cell::new(raw)),
+        TensorData::Raw(raw) => tensor.raw_data = Some(RefCell::new(raw)),
         TensorData::Double(doubles) => tensor.double_data = doubles,
     }
 

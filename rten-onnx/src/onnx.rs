@@ -7,7 +7,7 @@
 //! These types are not complete. They only contain messages and fields which
 //! are used by RTen or its associated tools.
 
-use std::cell::Cell;
+use std::cell::RefCell;
 
 use crate::protobuf::{DecodeMessage, Fields, OwnedValues, ProtobufError, ReadValue};
 
@@ -145,7 +145,7 @@ impl DecodeMessage for NodeProto {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct TensorProto {
     pub dims: Vec<i64>,
     pub data_type: Option<DataType>,
@@ -156,10 +156,10 @@ pub struct TensorProto {
 
     /// Field containing tensor data as bytes in packed little-endian order.
     ///
-    /// This is the field most often used to store data for large tensors.
-    /// It uses a `Cell` so that the buffer can be extracted from the message
-    /// for use as backing storage of a tensor, without additional copying.
-    pub raw_data: Option<Cell<Vec<u8>>>,
+    /// This is the field most often used to store data for large tensors. It
+    /// uses a cell so that the buffer can be extracted from the message for use
+    /// as backing storage of a tensor, without additional copying.
+    pub raw_data: Option<RefCell<Vec<u8>>>,
 
     pub name: Option<String>,
     pub external_data: Vec<StringStringEntryProto>,
@@ -229,7 +229,7 @@ impl DecodeMessage for TensorProto {
                     msg.name = Some(field.read_string()?);
                 }
                 Self::RAW_DATA => {
-                    msg.raw_data = Some(Cell::new(field.read_bytes()?));
+                    msg.raw_data = Some(RefCell::new(field.read_bytes()?));
                 }
                 Self::EXTERNAL_DATA => {
                     msg.external_data
@@ -303,7 +303,7 @@ impl DecodeMessage for Dimension {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct StringStringEntryProto {
     pub key: Option<String>,
     pub value: Option<String>,
