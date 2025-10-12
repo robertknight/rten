@@ -9,6 +9,7 @@ homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
 
 [dependencies]
+argh = "0.1"
 fastrand = "2.0.2"
 hound = "3.5.1"
 image = { workspace = true }
