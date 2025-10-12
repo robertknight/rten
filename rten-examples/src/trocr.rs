@@ -71,25 +71,26 @@ Args:
 /// optimum-cli export onnx --model microsoft/trocr-base-printed trocr-base-printed
 /// ```
 ///
-/// Convert the models to `.rten` format. For the decoder you need to use the
-/// "merged" model.
-///
-/// ```
-/// rten-convert trocr-base-printed/encoder_model.onnx
-/// rten-convert trocr-base-printed/decoder_model_merged.onnx
-/// ```
-///
-/// Run the model, specifying the image to recognize:
+/// Run the model, specifying the path of an image to process. The image should
+/// contain a single line of printed text.
 ///
 /// ```sh
-/// cargo run --release --bin trocr trocr-base-printed/encoder_model.rten trocr-base-printed/decoder_model_merged.rten tokenizer.json <image>
+/// cargo run --release --bin trocr trocr-base-printed/encoder_model.onnx trocr-base-printed/decoder_model_merged.onnx tokenizer.json <image>
 /// ```
+///
+/// There are variants of the model that support handwritten text. Note that
+/// some model variants use SentencePiece tokenizers which are not supported
+/// by `rten-text` yet. You can use the `tokenizers` crate instead for these.
 ///
 /// [^1]: https://arxiv.org/abs/2109.10282
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
-    let encoder_model = unsafe { Model::load_mmap(args.encoder_model)? };
-    let decoder_model = unsafe { Model::load_mmap(args.decoder_model)? };
+
+    // `Model::load_mmap` could be used here to reduce memory usage, but see
+    // notes in documentation about compatible model formats.
+    let encoder_model = Model::load_file(args.encoder_model)?;
+    let decoder_model = Model::load_file(args.decoder_model)?;
+
     let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
     let mut image = read_image(args.image_path)?.into_dyn();
     image.insert_axis(0); // Add batch dim
