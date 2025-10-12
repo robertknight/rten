@@ -355,14 +355,6 @@ fn format_timestamp(sec: f32) -> String {
 /// optimum-cli export onnx --model openai/whisper-base whisper-base
 /// ```
 ///
-/// Convert the models to `.rten` format. For the decoder you need to use the
-/// "merged" model.
-///
-/// ```
-/// rten-convert whisper-base/encoder_model.onnx
-/// rten-convert whisper-base/decoder_model_merged.onnx
-/// ```
-///
 /// The audio input must be a 16 kHz WAV file. To convert an existing audio
 /// file to this format you can use ffmpeg:
 ///
@@ -373,7 +365,7 @@ fn format_timestamp(sec: f32) -> String {
 /// Run the model, specifying the audio file to recognize.
 ///
 /// ```sh
-/// cargo run --release --bin whisper whisper-base/encoder_model.rten whisper-base/decoder_model_merged.rten whisper-base/tokenizer.json audio.wav
+/// cargo run --release --bin whisper whisper-base/encoder_model.onnx whisper-base/decoder_model_merged.onnx whisper-base/tokenizer.json audio.wav
 /// ```
 ///
 /// [^1]: https://arxiv.org/abs/2212.04356

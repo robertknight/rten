@@ -95,7 +95,6 @@ fn read_wav_file(path: &str, expected_sample_rate: u32) -> Result<Vec<f32>, houn
 ///
 /// ```
 /// optimum-cli export onnx --model facebook/wav2vec2-base-960h wav2vec2
-/// rten-convert wav2vec2/model.onnx wav2vec2.rten
 /// ```
 ///
 /// For better accuracy at the cost of slower transcription, you can use larger
@@ -115,7 +114,7 @@ fn read_wav_file(path: &str, expected_sample_rate: u32) -> Result<Vec<f32>, houn
 /// 3. Run this program on the generated .wav file:
 ///
 ///    ```
-///    cargo run --release --bin wav2vec2 wav2vec.rten output.wav
+///    cargo run --release --bin wav2vec2 wav2vec.onnx output.wav
 ///    ```
 ///
 /// [^1]: <https://ai.meta.com/blog/wav2vec-20-learning-the-structure-of-speech-from-raw-audio/>

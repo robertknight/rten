@@ -4,36 +4,38 @@ This crate contains example projects showing how to convert and run models for
 common tasks across various modalities. See [Example
 descriptions](#example-descriptions) for a summary of what each example does.
 
+## ONNX format support
+
+The example instructions use models in `.onnx` format. This is only supported
+by rten v0.23 and later. To run examples with earlier versions of rten, you
+will need to convert the models to `.rten` format first:
+
+```sh
+$ pip install rten-convert
+$ rten-convert model.onnx
+```
+
+This will create a `model.rten` file in the same directory as the model.
+
 ## Running an example
 
 Each example has a `main` function with a comment above it describing the steps
-to fetch the ONNX model, convert it to the format used by this library and run
-the example.
+to fetch the ONNX model and run the example.
 
 The general steps to run an example are:
 
 1. Download the ONNX model. These usually come from [Hugging
    Face](https://huggingface.co/docs/optimum/exporters/onnx/overview),
-   the [ONNX Model Zoo](https://github.com/onnx/models) or pre-created ONNX
-   models by the model authors.
-2. Convert the ONNX model to this library's format using the `rten-convert`
-   package:
+   or ONNX format models pre-created by the model authors or community members.
+
+2. Run the example from the `rten-examples` directory using:
 
    ```sh
-   $ pip install rten-convert
-   $ rten-convert model.onnx
+   $ cargo run -r --bin <example_name> -- <...args>
    ```
 
-   This will create a `model.rten` file in the same directory as the ONNX
-   model.
-
-3. Run the example from the `rten-examples` directory using:
-
-   ```sh
-   $ cargo run -r --bin <example_name> <model_path> <...args>
-   ```
-
-   Where `...args` refers to the example-specific arguments, such as input data.
+   Where `...args` refers to the example-specific arguments, such as model
+   path(s), tokenizer configuration and input data.
 
    Note the `-r` flag to create a **release build**. This is required as the
    examples will run very slowly in debug builds.
