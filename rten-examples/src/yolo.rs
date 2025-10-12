@@ -90,15 +90,17 @@ fn resource_path(path: &str) -> PathBuf {
 ///
 /// ```
 /// pip install ultralytics
-/// yolo mode=export model=yolov11s.pt format=onnx
-/// rten-convert yolov11s.onnx yolov11.rten
+/// yolo mode=export model=yolo11s.pt format=onnx
 /// ```
 ///
 /// Run this program on an image:
 ///
 /// ```
-/// cargo run --release --bin yolo yolov11.rten image.jpg
+/// cargo run --release --bin yolo -- yolov11.onnx image.jpg
 /// ```
+///
+/// Add the `--annotate output.png` argument to save an annotated copy of the
+/// input image.
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
 
