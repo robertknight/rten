@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::Debug;
 use std::path::Path;
@@ -27,195 +27,64 @@ enum ProfileMode {
     Detailed,
 }
 
-impl ProfileMode {
-    fn next_level(self) -> ProfileMode {
-        match self {
-            Self::None => Self::Basic,
-            Self::Basic => Self::Detailed,
-            Self::Detailed => Self::Detailed,
-        }
-    }
-}
-
+/// Inspect and run ONNX or RTen models.
+#[derive(argh::FromArgs)]
 struct Args {
-    /// Model file to load.
-    model: String,
+    /// path to '.onnx' or '.rten' model to inspect and run
+    #[argh(positional)]
+    model: Option<String>,
 
-    /// Whether to enable graph optimizations
-    optimize: bool,
-
-    /// Whether to enable prepacking of weights
-    prepack_weights: bool,
-
-    /// Run model and don't produce other output
-    quiet: bool,
-
-    /// Print output values produced by inference.
-    print_outputs: bool,
-
-    /// Record and display operator timing stats.
-    profile_mode: ProfileMode,
-
-    /// Enable verbose logging for model execution.
-    verbose: bool,
-
-    /// Sizes for dynamic dimensions of inputs.
-    input_sizes: Vec<DimSize>,
-
-    /// Path to Safetensors file containing map of input name to value.
-    inputs: Option<String>,
-
-    /// Path to Safetensors file containing map of output name to expected value.
+    /// check outputs against the values provided in the Safetensors file specified by the given path. This must be used together with `--inputs`.
+    #[argh(option)]
     check_outputs: Option<String>,
 
-    /// Number of times to run model.
-    n_iters: u32,
+    /// read values for input tensors from Safetensors file at the given path. Tensor names in the file are used as input names.
+    #[argh(option, short = 'i')]
+    inputs: Option<String>,
 
-    /// Load model using `Model::load_mmap`.
+    /// load model via memory mapping
+    #[argh(switch)]
     mmap: bool,
 
-    /// Number of threads to use.
+    /// number of times to evaluate model. If zero, the model will be loaded and optimized, but not run.
+    #[argh(option, short = 'n', default = "1")]
+    n_iters: u32,
+
+    /// disable graph optimizations
+    #[argh(switch)]
+    no_optimize: bool,
+
+    /// enable prepacking of weights. This requires additional memory but makes inference faster.
+    #[argh(switch, short = 'k')]
+    prepack: bool,
+
+    /// print output tensor values
+    #[argh(switch)]
+    print: bool,
+
+    /// record and display operator timings. Repeat for more detailed profiling.
+    #[argh(switch, short = 'p')]
+    profile: u32,
+
+    /// run model and don't produce other output
+    #[argh(switch, short = 'q')]
+    quiet: bool,
+
+    /// specify size for a dynamic dimension in the form `dim_name=size` or `input_name.dim_name=size`. Can be specified multiple times.
+    #[argh(option, short = 's')]
+    size: Vec<String>,
+
+    /// specify number of threads to use
+    #[argh(option, short = 't')]
     num_threads: Option<u32>,
-}
 
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
+    /// enable verbose logging
+    #[argh(switch, short = 'v')]
+    verbose: bool,
 
-    let mut values = VecDeque::new();
-
-    let mut check_outputs = None;
-    let mut input_data = None;
-    let mut input_sizes = Vec::new();
-    let mut mmap = false;
-    let mut n_iters = 1;
-    let mut num_threads = None;
-    let mut optimize = true;
-    let mut prepack_weights = false;
-    let mut print_outputs = false;
-    let mut profile_mode = ProfileMode::None;
-    let mut quiet = false;
-    let mut verbose = false;
-
-    let parse_uint = |parser: &mut lexopt::Parser, opt_name| -> Result<u32, lexopt::Error> {
-        let value = parser.value()?.string()?;
-        value
-            .parse()
-            .map_err(|_| format!("Unable to parse numeric value for option '{}'", opt_name).into())
-    };
-
-    let mut parser = lexopt::Parser::from_env();
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("check-outputs") => {
-                check_outputs = Some(parser.value()?.string()?);
-            }
-            Short('i') | Long("inputs") => {
-                input_data = Some(parser.value()?.string()?);
-            }
-            Long("mmap") => mmap = true,
-            Short('n') | Long("num-iters") => {
-                n_iters = parse_uint(&mut parser, "num-iters")?;
-            }
-            Long("no-optimize") => optimize = false,
-            Short('t') | Long("num-threads") => {
-                num_threads = Some(parse_uint(&mut parser, "num-threads")?);
-            }
-            Short('k') | Long("prepack") => prepack_weights = true,
-            Short('p') | Long("profile") => profile_mode = profile_mode.next_level(),
-            Long("print") => print_outputs = true,
-            Short('q') | Long("quiet") => quiet = true,
-            Short('v') | Long("verbose") => verbose = true,
-            Short('V') | Long("version") => {
-                println!("rten {}", env!("CARGO_PKG_VERSION"));
-                std::process::exit(0);
-            }
-            Short('s') | Long("shape") => {
-                let value = parser.value()?.string()?;
-                let size =
-                    DimSize::parse(&value).map_err(|err| lexopt::Error::Custom(err.into()))?;
-                input_sizes.push(size);
-            }
-            Short('h') | Long("help") => {
-                println!(
-                    "Inspect and run RTen models.
-
-Usage: {bin_name} [OPTIONS] <model>
-
-Args:
-  <model>
-    Path to '.rten' model to inspect and run.
-
-Options:
-  -h, --help     Print help
-
-  --check-outputs <path>
-                 Check outputs against the values provided in the Safetensors
-                 file specified by <path>. This must be used together with `--inputs`.
-
-  -i, --inputs <path>
-                 Read values for input tensors from Safetensors file at the
-                 given path. Tensor names in the file are used as input names.
-
-  --mmap         Load model via memory mapping
-
-  -n, --num-iters <n>
-                 Number of times to evaluate model.
-
-                 If zero, the model will be loaded and optimized, but not run.
-
-  --no-optimize  Disable graph optimizations
-
-  -k, --prepack  Enable prepacking of weights.
-
-                 This requires additional memory but makes inference faster.
-
-  --print        Print output tensor values.
-
-  -p, --profile  Record and display operator timings.
-
-                 If this flag is repeated, more detailed profiling information
-                 is displayed.
-
-  -q, --quiet    Run model and don't produce other output
-
-  -s, --size <spec>
-                 Specify size for a dynamic dimension in the form `dim_name=size`
-                 or `input_name.dim_name=size`
-
-  -t, --num-threads
-                 Specify number of threads to use
-
-  -v, --verbose  Enable verbose logging
-  -V, --version  Display RTen version
-",
-                    bin_name = parser.bin_name().unwrap_or("rten")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `<model>` arg")?;
-
-    DimSize::sort_dedup(&mut input_sizes);
-
-    Ok(Args {
-        check_outputs,
-        inputs: input_data,
-        input_sizes,
-        mmap,
-        model,
-        n_iters,
-        num_threads,
-        optimize,
-        prepack_weights,
-        print_outputs,
-        quiet,
-        profile_mode,
-        verbose,
-    })
+    /// display RTen version
+    #[argh(switch, short = 'V')]
+    version: bool,
 }
 
 fn format_param_count(n: usize) -> String {
@@ -670,28 +539,58 @@ fn read_safetensors(path: &Path) -> Result<HashMap<String, Value>, Box<dyn Error
 /// To get detailed timing information set the `RTEN_TIMING` env var before
 /// running. See `docs/profiling.md`.
 fn main() {
-    let args = match parse_args() {
-        Ok(args) => args,
-        Err(err) => {
-            eprintln!("Invalid arguments: {}", err);
+    let args: Args = argh::from_env();
+
+    // Handle --version flag
+    if args.version {
+        println!("rten {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+
+    // Require model argument if not showing version
+    let model_path = match &args.model {
+        Some(m) => m,
+        None => {
+            eprintln!("Error: missing required argument: <model>");
+            eprintln!("Run with --help for usage information");
             std::process::exit(1);
         }
     };
 
+    // Parse dimension sizes from string arguments
+    let mut input_sizes = Vec::new();
+    for size_str in &args.size {
+        match DimSize::parse(size_str) {
+            Ok(size) => input_sizes.push(size),
+            Err(err) => {
+                eprintln!("Invalid size specification '{}': {}", size_str, err);
+                std::process::exit(1);
+            }
+        }
+    }
+    DimSize::sort_dedup(&mut input_sizes);
+
+    // Parse profile mode from switch count
+    let profile_mode = match args.profile {
+        0 => ProfileMode::None,
+        1 => ProfileMode::Basic,
+        _ => ProfileMode::Detailed,
+    };
+
     let mut model_opts = ModelOptions::with_all_ops();
-    model_opts.enable_optimization(args.optimize);
-    model_opts.prepack_weights(args.prepack_weights);
+    model_opts.enable_optimization(!args.no_optimize);
+    model_opts.prepack_weights(args.prepack);
 
     let model = if args.mmap {
-        unsafe { model_opts.load_mmap(&args.model) }
+        unsafe { model_opts.load_mmap(model_path) }
     } else {
-        model_opts.load_file(&args.model)
+        model_opts.load_file(model_path)
     };
 
     let model = match model {
-        Ok(model) => model,
+        Ok(m) => m,
         Err(err) => {
-            eprintln!("Failed to load model \"{}\": {}", args.model, err);
+            eprintln!("Failed to load model \"{}\": {}", model_path, err);
             std::process::exit(1);
         }
     };
@@ -720,8 +619,8 @@ fn main() {
     }
 
     let run_opts = RunOptions {
-        timing: args.profile_mode != ProfileMode::None,
-        timing_by_shape: args.profile_mode == ProfileMode::Detailed,
+        timing: profile_mode != ProfileMode::None,
+        timing_by_shape: profile_mode == ProfileMode::Detailed,
         verbose: args.verbose,
         thread_pool: args
             .num_threads
@@ -754,7 +653,7 @@ fn main() {
     }
 
     let inputs = InputConfig {
-        dim_sizes: args.input_sizes,
+        dim_sizes: input_sizes,
         values: input_values,
     };
 
@@ -764,7 +663,7 @@ fn main() {
         run_opts,
         args.n_iters,
         args.quiet,
-        args.print_outputs,
+        args.print,
         expected_outputs,
     ) {
         // For readability, add a blank line after any output before the final

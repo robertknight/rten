@@ -10,10 +10,10 @@ repository = "https://github.com/robertknight/rten"
 include = ["/src", "/README.md"]
 
 [dependencies]
+argh = "0.1"
 fastrand = "2.0.2"
 rten = { path = "../", version = "0.22.1", features=["all-ops", "mmap"] }
 rten-tensor = { path = "../rten-tensor", version = "0.22.1" }
-lexopt = "0.3.0"
 safetensors = "0.6.2"
 
 [dev-dependencies]
