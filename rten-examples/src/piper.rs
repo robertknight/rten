@@ -46,7 +46,7 @@ struct Args {
     #[argh(positional)]
     model_config: String,
 
-    /// custom string of phonemes to speak (optional)
+    /// custom string of phonemes to speak. The Piper project generates these using piper-phonemize (https://pypi.org/project/piper-phonemize/). The phonemes can also be generated in Rust using the byt5_g2p example in this repository, which is a translation model that emulates espeak. The voice name can be found in the `espeak.voice` property of the voice model config.
     #[argh(positional)]
     phonemes: Option<String>,
 }

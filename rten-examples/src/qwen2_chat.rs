@@ -19,7 +19,7 @@ struct Args {
     #[argh(positional)]
     tokenizer_config: String,
 
-    /// generation temperature (must be >= 0, default: 0.7). smaller values make output less "creative" by concentrating the probability distribution more. a value of 0.0 causes sampling to be greedy.
+    /// generation temperature (must be >= 0, default: 0.7). Smaller values make output less "creative" by concentrating the probability distribution more. A value of 0.0 causes sampling to be greedy.
     #[argh(option, short = 't', default = "0.7")]
     temperature: f32,
 }

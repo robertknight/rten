@@ -13,7 +13,7 @@ struct Args {
     #[argh(positional)]
     model: String,
 
-    /// wav file to process
+    /// wav file to process (16 kHz sample rate)
     #[argh(positional)]
     wav_file: String,
 }

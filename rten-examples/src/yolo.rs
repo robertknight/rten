@@ -10,7 +10,7 @@ use rten_imageproc::{Painter, Rect};
 use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 
-/// detect objects in images
+/// Detect objects in images.
 #[derive(FromArgs)]
 struct Args {
     /// path to YOLO model

@@ -10,16 +10,10 @@ use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 use serde::Deserialize;
 
-/// detect objects in images
+/// Detect objects in images.
 #[derive(FromArgs)]
 struct Args {
-    /// path to directory containing converted model and configuration.
-    ///
-    /// this should contain:
-    ///
-    /// - `model.onnx` - the DETR or RT-DETR model
-    /// - `config.json` - JSON file containing class ID to label mappings
-    /// - `preprocessor_config.json` - JSON file containing preprocessor configuration
+    /// path to directory containing converted model and configuration. This should contain the DETR or RT-DETR model (model.onnx), the JSON file containing class ID to label mappings (config.json) and the JSON file containing preprocessor configuration (preprocessor_config.json).
     #[argh(positional)]
     model_dir: String,
 
