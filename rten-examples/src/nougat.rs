@@ -1,7 +1,7 @@
-use std::collections::VecDeque;
 use std::error::Error;
 use std::io::prelude::*;
 
+use argh::FromArgs;
 use rten::{FloatOperators, Model};
 use rten_generate::metrics::Metrics;
 use rten_generate::{Generator, GeneratorUtils};
@@ -11,56 +11,24 @@ use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 use rten_text::Tokenizer;
 
+/// Extract text from academic PDFs as Markdown.
+#[derive(FromArgs)]
 struct Args {
+    /// image encoder model
+    #[argh(positional)]
     encoder_model: String,
+
+    /// text decoder model
+    #[argh(positional)]
     decoder_model: String,
+
+    /// tokenizer.json file
+    #[argh(positional)]
     tokenizer_config: String,
+
+    /// image path
+    #[argh(positional)]
     image_path: String,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Extract text from academic PDFs as Markdown.
-
-Usage: {bin_name} [options] <encoder_model> <decoder_model> <tokenizer> <image>
-
-Args:
-
-  <encoder_model>  - Image encoder model
-  <decoder_model>  - Text decoder model
-  <tokenizer>      - `tokenizer.json` file
-  <image>          - Image path
-",
-                    bin_name = parser.bin_name().unwrap_or("nougat")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let encoder_model = values.pop_front().ok_or("missing `encoder_model` arg")?;
-    let decoder_model = values.pop_front().ok_or("missing `decoder_model` arg")?;
-    let tokenizer_config = values.pop_front().ok_or("missing `tokenizer` arg")?;
-    let image_path = values.pop_front().ok_or("missing `image_path` arg")?;
-
-    let args = Args {
-        encoder_model,
-        decoder_model,
-        tokenizer_config,
-        image_path,
-    };
-
-    Ok(args)
 }
 
 /// Extract text as markdown from academic PDFs using Nougat.
@@ -80,7 +48,7 @@ Args:
 ///
 /// [^1]: https://arxiv.org/abs/2308.13418
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
 
     // Load the models. For faster load times/reduced memory, consider
     // converting the ONNX models either to external data or .rten format and
