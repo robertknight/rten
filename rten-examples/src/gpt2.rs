@@ -76,17 +76,16 @@ Options:
 
 /// Generates text using GPT-2 [1] and a prompt.
 ///
-/// To obtain the model from Hugging Face, use Optimum [2], then convert it:
+/// First, export the model using Optimum [2]:
 ///
 /// ```sh
 /// optimum-cli export onnx --model gpt2 gpt2_onnx/
-/// rten-convert gpt2_onnx/model.onnx
 /// ```
 ///
-/// Run the converted model with a prompt:
+/// Then run the model with a prompt:
 ///
 /// ```sh
-/// cargo run --release --bin gpt2 gpt2_onnx/model.rten gp2_onnx/tokenizer.json <prompt>
+/// cargo run --release --bin gpt2 gpt2_onnx/model.onnx gp2_onnx/tokenizer.json <prompt>
 /// ```
 ///
 /// Where `<prompt>` is the start of a sentence that the model should complete.

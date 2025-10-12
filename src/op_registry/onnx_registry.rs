@@ -671,6 +671,15 @@ impl_read_op!(ConstantOfShape, |attrs: &Attrs| {
                     let value: i64 = extract_scalar(raw_data.as_deref(), &tensor.int64_data)?;
                     Ok(Scalar::Int(value as i32))
                 }
+                Some(onnx::DataType::INT32) => {
+                    let value: i32 = extract_scalar(raw_data.as_deref(), &tensor.int32_data)?;
+                    Ok(Scalar::Int(value))
+                }
+                Some(onnx::DataType::BOOL) => {
+                    let value: u8 = extract_scalar(raw_data.as_deref(), &tensor.int32_data)?;
+                    let value = if value != 0 { 1 } else { 0 };
+                    Ok(Scalar::Int(value as i32))
+                }
                 _ => Err(ReadOpError::attr_error(
                     "value",
                     "unsupported data type for ConstantOfShape",
@@ -1348,8 +1357,9 @@ mod tests {
 
     use super::{ConstInput, OnnxOpRegistry, OpLoadContext, ReadOpError};
     use crate::graph::Graph;
-    use crate::model::onnx_builder::{AttrValue, create_node};
-    use crate::ops::{ArgMax, Conv, Padding};
+    use crate::model::onnx_builder::{AttrValue, TensorData, create_node, create_tensor};
+    use crate::ops::{ArgMax, ConstantOfShape, Conv, Padding};
+    use crate::value::Scalar;
 
     struct FakeOpLoadContext;
 
@@ -1409,6 +1419,65 @@ mod tests {
 
         assert_eq!(conv_op.padding, Padding::Fixed([0, 0, 0, 0].into()));
         assert_eq!(conv_op.strides, vec![1, 1]);
+    }
+
+    #[test]
+    fn test_constant_of_shape_dtypes() {
+        #[derive(Debug)]
+        struct Case {
+            dtype: onnx::DataType,
+            data: TensorData,
+            expected: ConstantOfShape,
+        }
+
+        let cases = [
+            // Conversions that don't alter the dtype.
+            Case {
+                dtype: onnx::DataType::FLOAT,
+                data: TensorData::Raw(1.0f32.to_le_bytes().into()),
+                expected: ConstantOfShape {
+                    value: Scalar::Float(1.0),
+                },
+            },
+            Case {
+                dtype: onnx::DataType::INT32,
+                data: TensorData::Raw(2i32.to_le_bytes().into()),
+                expected: ConstantOfShape {
+                    value: Scalar::Int(2),
+                },
+            },
+            // Test conversions that alter the dtype.
+            Case {
+                dtype: onnx::DataType::BOOL,
+                data: TensorData::Int([1].into()),
+                expected: ConstantOfShape {
+                    value: Scalar::Int(1),
+                },
+            },
+            Case {
+                dtype: onnx::DataType::BOOL,
+                data: TensorData::Raw([0].into()),
+                expected: ConstantOfShape {
+                    value: Scalar::Int(0),
+                },
+            },
+            Case {
+                dtype: onnx::DataType::INT64,
+                data: TensorData::Raw(42i64.to_le_bytes().into()),
+                expected: ConstantOfShape {
+                    value: Scalar::Int(42),
+                },
+            },
+        ];
+
+        cases.test_each(|case| {
+            let reg = OnnxOpRegistry::with_all_ops();
+            let tensor = create_tensor("test", &[], case.dtype, case.data.clone());
+            let node = create_node("ConstantOfShape", &[("value", AttrValue::Tensor(tensor))]);
+            let op = reg.read_op(&node, &FakeOpLoadContext).unwrap();
+            let cos_op = op.op.downcast_ref::<ConstantOfShape>().unwrap();
+            assert_eq!(cos_op, &case.expected);
+        });
     }
 
     #[test]

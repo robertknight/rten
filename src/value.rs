@@ -692,7 +692,7 @@ impl ExtractBuffer for ValueOrView<'_> {
 }
 
 /// A scalar value with runtime-determined type.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Scalar {
     Int(i32),
     Float(f32),
