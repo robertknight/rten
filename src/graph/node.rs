@@ -357,7 +357,7 @@ impl<T> From<ArcTensor<T>> for ConstantNodeData<T> {
 
 /// Extract typed data from a [`Constant`].
 pub trait TypedConstant<T> {
-    fn as_view(&self) -> Option<TensorView<'_, T>>;
+    fn as_typed_view(&self) -> Option<TensorView<'_, T>>;
     fn as_scalar(&self) -> Option<T>;
     fn as_vector(&self) -> Option<&[T]>;
 }
@@ -365,7 +365,7 @@ pub trait TypedConstant<T> {
 macro_rules! impl_typed_constant {
     ($type:ty, $variant:ident) => {
         impl TypedConstant<$type> for Constant {
-            fn as_view(&self) -> Option<TensorView<'_, $type>> {
+            fn as_typed_view(&self) -> Option<TensorView<'_, $type>> {
                 match self {
                     Constant::$variant(tensor) => Some(tensor.view()),
                     _ => None,
@@ -373,13 +373,15 @@ macro_rules! impl_typed_constant {
             }
 
             fn as_scalar(&self) -> Option<$type> {
-                TypedConstant::as_view(self).and_then(|view| view.item().copied())
+                TypedConstant::as_typed_view(self).and_then(|view| view.item().copied())
             }
 
             fn as_vector(&self) -> Option<&[$type]> {
-                TypedConstant::as_view(self).and_then(|view| match (view.ndim(), view.data()) {
-                    (1, Some(vec_data)) => Some(vec_data),
-                    _ => None,
+                TypedConstant::as_typed_view(self).and_then(|view| {
+                    match (view.ndim(), view.data()) {
+                        (1, Some(vec_data)) => Some(vec_data),
+                        _ => None,
+                    }
                 })
             }
         }

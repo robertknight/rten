@@ -89,6 +89,12 @@ def constant_node_from_onnx_initializer(
             )
             data = data.astype(np.float32)
 
+        case "float64":
+            warn_once(
+                f"Converting {dtype_name} weights to float32 because {dtype_name} is not supported natively yet."
+            )
+            data = data.astype(np.float32)
+
         # Types that need to be narrowed
         case "int64":
             # In the case where the value is an `int64` and we are converting
@@ -265,7 +271,7 @@ def convert_data_type(onnx_dtype: int) -> int:
             return sg.DataType.Int8
         case TensorProto.DataType.UINT8:  # type:ignore[attr-defined]
             return sg.DataType.UInt8
-        case TensorProto.DataType.FLOAT16:  # type:ignore[attr-defined]
+        case TensorProto.DataType.FLOAT16 | TensorProto.DataType.DOUBLE:  # type:ignore[attr-defined]
             warn_once(
                 f"Changing value or attribute data type from {dtype_name} to float32 because {dtype_name} is not supported natively yet."
             )

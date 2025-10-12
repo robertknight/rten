@@ -1,5 +1,7 @@
 //! Utilities for building ONNX protobuf messages.
 
+use std::cell::Cell;
+
 use rten_onnx::onnx;
 
 #[derive(Clone)]
@@ -22,6 +24,12 @@ pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
     attr
 }
 
+pub fn create_model(graph: onnx::GraphProto) -> onnx::ModelProto {
+    let mut model = onnx::ModelProto::default();
+    model.graph = Some(graph);
+    model
+}
+
 pub fn create_node(op_type: &str, attrs: &[(&str, AttrValue)]) -> onnx::NodeProto {
     let mut node = onnx::NodeProto::default();
     node.op_type = Some(op_type.to_string());
@@ -29,6 +37,31 @@ pub fn create_node(op_type: &str, attrs: &[(&str, AttrValue)]) -> onnx::NodeProt
         node.attribute.push(create_attr(name, val.clone()));
     }
     node
+}
+
+pub enum TensorData {
+    /// Tensor elements as little-endian bytes.
+    Raw(Vec<u8>),
+    Double(Vec<f64>),
+}
+
+pub fn create_tensor(
+    name: &str,
+    shape: &[usize],
+    dtype: onnx::DataType,
+    data: TensorData,
+) -> onnx::TensorProto {
+    let mut tensor = onnx::TensorProto::default();
+    tensor.name = Some(name.to_string());
+    tensor.dims = shape.iter().map(|size| *size as i64).collect();
+    tensor.data_type = Some(dtype);
+
+    match data {
+        TensorData::Raw(raw) => tensor.raw_data = Some(Cell::new(raw)),
+        TensorData::Double(doubles) => tensor.double_data = doubles,
+    }
+
+    tensor
 }
 
 pub fn create_value_info(name: &str) -> onnx::ValueInfoProto {
