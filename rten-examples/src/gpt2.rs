@@ -1,77 +1,35 @@
-use std::collections::VecDeque;
 use std::error::Error;
 use std::io::prelude::*;
 
+use argh::FromArgs;
 use rten::Model;
 use rten_generate::metrics::Metrics;
 use rten_generate::sampler::TopKSampler;
 use rten_generate::{Generator, GeneratorUtils};
 use rten_text::Tokenizer;
 
+/// Generate text using a prompt.
+#[derive(FromArgs)]
 struct Args {
+    /// input GPT-2 model
+    #[argh(positional)]
     model: String,
+
+    /// tokenizer.json file
+    #[argh(positional)]
     tokenizer_config: String,
+
+    /// text generation prompt
+    #[argh(positional)]
     prompt: String,
-    output_length: usize,
+
+    /// max output length (in tokens)
+    #[argh(option, short = 'l', default = "30")]
+    length: usize,
+
+    /// sample from top K tokens at each step
+    #[argh(option, short = 'k', default = "50")]
     top_k: usize,
-}
-
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-    let mut output_length = 30;
-    let mut top_k = 50;
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Short('l') | Long("length") => {
-                output_length = parser.value()?.parse()?;
-            }
-            Short('k') | Long("top-k") => {
-                top_k = parser.value()?.parse()?;
-            }
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Generate text using a prompt.
-
-Usage: {bin_name} [options] <model> <tokenizer> <prompt>
-
-Args:
-
-  <model>       - Input GPT-2 model
-  <tokenizer>   - `tokenizer.json` file
-  <prompt>      - Text generation prompt
-
-Options:
-
- -l, --length N - Set max output length (in tokens)
-
- -k, --top-k K  - Sample from top `K` tokens at each step.
-",
-                    bin_name = parser.bin_name().unwrap_or("gpt2")
-                );
-                std::process::exit(0);
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let tokenizer_config = values.pop_front().ok_or("missing `tokenizer` arg")?;
-    let prompt = values.make_contiguous().join(" ");
-
-    let args = Args {
-        model,
-        tokenizer_config,
-        prompt,
-        output_length,
-        top_k,
-    };
-
-    Ok(args)
 }
 
 /// Generates text using GPT-2 [1] and a prompt.
@@ -93,7 +51,7 @@ Options:
 /// [1] https://openai.com/research/better-language-models
 /// [2] https://huggingface.co/docs/optimum/index
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
     let model = Model::load_file(args.model)?;
     let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
 
@@ -108,7 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let generator = Generator::from_model(&model)?
         .with_prompt(encoded_prompt.token_ids())
         .with_sampler(TopKSampler::new(args.top_k, temperature))
-        .take(args.output_length)
+        .take(args.length)
         .profile(&mut metrics)
         .decode(&tokenizer);
 
