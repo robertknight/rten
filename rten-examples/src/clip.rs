@@ -8,7 +8,7 @@ use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 use rten_text::Tokenizer;
 
-/// match images against text captions
+/// Match images against text captions.
 #[derive(FromArgs)]
 struct Args {
     /// path to CLIP model

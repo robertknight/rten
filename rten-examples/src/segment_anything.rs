@@ -6,7 +6,7 @@ use rten_imageio::{read_image, write_image};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
-/// segment an image
+/// Segment an image.
 #[derive(FromArgs)]
 struct Args {
     /// path to image encoder model

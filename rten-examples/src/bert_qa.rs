@@ -8,7 +8,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::*;
 use rten_text::tokenizer::{EncodeOptions, Encoded, Tokenizer};
 
-/// find answers to questions in a text file
+/// Find answers to questions in a text file.
 #[derive(FromArgs)]
 struct Args {
     /// path to BERT or RoBERTa model
