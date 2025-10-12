@@ -93,14 +93,11 @@ Args:
 /// optimum-cli export onnx --model facebook/sam-vit-base sam-vit-base
 /// ```
 ///
-/// Then convert the models to `.rten` format and run the demo, specifying a
-/// path to the image to segment and one or more points in the image identifying
-/// the object of interest.
+/// Then run the example, specifying a path to the image to segment and one or
+/// more points in the image identifying the object of interest.
 ///
 /// ```
-/// rten-convert sam-vit-base/vision_encoder.onnx
-/// rten-convert sam-vit-base/prompt_encoder_mask_decoder.rten
-/// cargo run --release --bin segment_anything sam-vit-base/vision_encoder.rten sam-vit-base/prompt_encoder_mask_decoder.rten image.jpg points
+/// cargo run --release --bin segment_anything sam-vit-base/vision_encoder.onnx sam-vit-base/prompt_encoder_mask_decoder.onnx image.jpg points
 /// ```
 ///
 /// Where `points` is a semi-colon separated list of x,y pixel coordinates
