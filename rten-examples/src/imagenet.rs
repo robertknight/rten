@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -113,92 +113,40 @@ fn resource_path(path: &str) -> PathBuf {
     abs_path
 }
 
+/// Classify images using a model trained on ImageNet 1K or ImageNet 22K.
+#[derive(argh::FromArgs)]
 struct Args {
-    config: InputConfig,
+    /// path to model file
+    #[argh(positional)]
     model: String,
+
+    /// path to image file
+    #[argh(positional)]
     image: String,
-}
 
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
+    /// use BGR channel order for input (default: RGB)
+    #[argh(switch)]
+    bgr: bool,
 
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
+    /// specify height to resize input image to, if model has a variable input size (default: 224)
+    #[argh(option, short = 'h')]
+    height: Option<usize>,
 
-    // Default values are the most common settings. They match MobileNet,
-    // ResNet etc.
-    let mut config = InputConfig {
-        norm: PixelNorm::ImageNetNorm,
-        chan_order: ChannelOrder::Rgb,
-        dim_order: DimOrder::Nchw,
-        default_width: 224,
-        default_height: 224,
-    };
+    /// pass input image in channels-last NHWC format (default: NCHW)
+    #[argh(switch)]
+    nhwc: bool,
 
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Classify images using a model trained on ImageNet 1K or ImageNet 22K.
+    /// do not apply standard ImageNet per-channel normalization
+    #[argh(switch)]
+    no_norm: bool,
 
-Usage: {bin_name} <model> <image>
+    /// specify width and height to resize image to (equivalent to --width <size> --height <size>)
+    #[argh(option, short = 's')]
+    size: Option<usize>,
 
-Options:
-
-  --bgr                 Use BGR channel order for input. Default is RGB.
-
-  -h, --height <size>   Specify height to resize input image to, if model has a
-                        variable input size. Default is 224.
-
-  --nhwc                Pass input image in channels-last NHWC format. Default is NCHW.
-
-  --no-norm             Do not apply standard ImageNet per-channel normalization.
-
-  -s, --size <size>     Specify width and height to resize image to. This is
-                        equivalent to `--width <size> --height <size>`.
-
-  -w, --width <size>    Specify width to resize input image to, if model has a
-                        variable input size. Default is 224.
-",
-                    bin_name = parser.bin_name().unwrap_or("imagenet")
-                );
-                std::process::exit(0);
-            }
-            Long("bgr") => {
-                config.chan_order = ChannelOrder::Bgr;
-            }
-            Short('h') | Long("height") => {
-                config.default_height = parser.value()?.parse()?;
-            }
-            Long("nhwc") => {
-                config.dim_order = DimOrder::Nhwc;
-            }
-            Long("no-norm") => {
-                config.norm = PixelNorm::NoNorm;
-            }
-            Short('s') | Long("size") => {
-                let size = parser.value()?.parse()?;
-                config.default_width = size;
-                config.default_height = size;
-            }
-            Short('w') | Long("width") => {
-                config.default_width = parser.value()?.parse()?;
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let image = values.pop_front().ok_or("missing `image` arg")?;
-
-    let args = Args {
-        config,
-        image,
-        model,
-    };
-
-    Ok(args)
+    /// specify width to resize input image to, if model has a variable input size (default: 224)
+    #[argh(option, short = 'w')]
+    width: Option<usize>,
 }
 
 /// This example loads an image and uses a classification model such as
@@ -224,10 +172,43 @@ Options:
 /// arguments such as `--size <size>`. For models from Hugging Face, the expected
 /// input format is described by the `preprocess_config.json` file.
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let mut args: Args = argh::from_env();
+
+    // Handle --size convenience option: if provided, it sets both width and height
+    // (unless they were explicitly set)
+    if let Some(size) = args.size {
+        if args.width.is_none() {
+            args.width = Some(size);
+        }
+        if args.height.is_none() {
+            args.height = Some(size);
+        }
+    }
+
+    // Build the input configuration from the parsed args
+    let config = InputConfig {
+        norm: if args.no_norm {
+            PixelNorm::NoNorm
+        } else {
+            PixelNorm::ImageNetNorm
+        },
+        chan_order: if args.bgr {
+            ChannelOrder::Bgr
+        } else {
+            ChannelOrder::Rgb
+        },
+        dim_order: if args.nhwc {
+            DimOrder::Nhwc
+        } else {
+            DimOrder::Nchw
+        },
+        default_width: args.width.unwrap_or(224) as u16,
+        default_height: args.height.unwrap_or(224) as u16,
+    };
+
     let model = Model::load_file(args.model)?;
 
-    let normalize_pixel = match args.config.norm {
+    let normalize_pixel = match config.norm {
         PixelNorm::NoNorm => |_, value| value,
         PixelNorm::ImageNetNorm => |chan, value| {
             let imagenet_mean = &[0.485, 0.456, 0.406];
@@ -250,12 +231,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             let h = if let Dimension::Fixed(h) = h {
                 *h
             } else {
-                args.config.default_height as usize
+                config.default_height as usize
             };
             let w = if let Dimension::Fixed(w) = w {
                 *w
             } else {
-                args.config.default_width as usize
+                config.default_width as usize
             };
             (h, w)
         }
@@ -267,8 +248,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let img_tensor = read_image(
         &args.image,
         normalize_pixel,
-        args.config.chan_order,
-        args.config.dim_order,
+        config.chan_order,
+        config.dim_order,
         in_height as u32,
         in_width as u32,
     )?;
