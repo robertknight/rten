@@ -16,7 +16,7 @@
 //!   tag](https://huggingface.co/models?library=onnx&sort=trending).
 //!
 //! - Hugging Face provides a tool called
-//! [Optimum](https://huggingface.co/docs/optimum-onnx/onnx/usage_guides/export_a_model)
+//!   [Optimum](https://huggingface.co/docs/optimum-onnx/onnx/usage_guides/export_a_model)
 //!   which takes as input a Hugging Face model repository URL and exports an
 //!   ONNX model. This is a convenient way to export many popular pre-trained
 //!   models to ONNX format.
@@ -79,9 +79,10 @@
 //!
 //! - `f32`, `i32`, `i8`, `u8`
 //! - `i64` and `bool` tensors are supported by converting them to `i32`
-//! tensors, on the assumption that the values in `i64` tensors will be in the
-//! `i32` range. When preparing model inputs that expect these data types in
-//! ONNX, you will need to convert them to `i32`.
+//!   tensors, on the assumption that the values in `i64` tensors will be in the
+//!   `i32` range. When preparing model inputs that expect these data types in
+//!   ONNX, you will need to convert them to `i32`.
+//! - `f64` tensors are supported by converting them to `f32`.
 //!
 //! Some operators support a more limited set of data types than described in
 //! the ONNX specification. Please file an issue if you need an operator to
