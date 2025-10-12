@@ -3,8 +3,8 @@ use std::error::Error;
 
 use rten::ops::concat;
 use rten::{BufferPool, FloatOperators, Model, NodeId, Operators, ValueOrView};
+use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, Tensor};
 use rten_text::tokenizer::{EncodeOptions, Tokenizer};
 
 struct Args {
@@ -97,7 +97,7 @@ fn embed_sentence_batch(
         .max()
         .unwrap_or(0);
     let batch = sentences.len();
-    let mut input_ids = Tensor::zeros(&[batch, max_sequence_len]);
+    let mut input_ids = NdTensor::zeros([batch, max_sequence_len]);
     for (i, encoded) in encoded.iter().enumerate() {
         let token_ids = encoded.token_ids();
         for (tid, input_id) in token_ids
@@ -134,7 +134,11 @@ fn embed_sentence_batch(
     }
 
     let [last_hidden_state] = model.run_n(inputs, [model.node_id("last_hidden_state")?], None)?;
-    let last_hidden_state: Tensor = last_hidden_state.try_into()?;
+
+    // `last_hidden_state` has shape (batch, seq, dim). The Hugging Face
+    // repository also has a variant of the model that has mean pooling already
+    // applied to the output. This has output shape (batch, seq).
+    let last_hidden_state: NdTensor<f32, 3> = last_hidden_state.try_into()?;
 
     // Mean pool each item in the batch. We process each batch item separately
     // since they can have different lengths.
@@ -167,21 +171,12 @@ fn embed_sentence_batch(
 /// This example computes the semantic similarity between a query sentence and
 /// a list of sentences in a text file (one per line).
 ///
-/// It uses the Jina embeddings model from
-/// <https://huggingface.co/jinaai/jina-embeddings-v2-small-en>. You can download
-/// the in ONNX format, along with the `tokenizer.json` tokenizer configuration
-/// <https://huggingface.co/jinaai/jina-embeddings-v2-small-en/tree/main>.
-///
-/// Convert the model using:
+/// First download the `model.onnx` and `tokenizer.json` files from
+/// <https://huggingface.co/jinaai/jina-embeddings-v2-small-en/tree/main>, then
+/// run the example with:
 ///
 /// ```text
-/// rten-convert jina-embed.onnx jina-embed.rten
-/// ```
-///
-/// Then run the example with:
-///
-/// ```text
-/// cargo run -r --bin jina_similarity jina-embed.rten tokenizer.json
+/// cargo run -r --bin jina_similarity model.onnx tokenizer.json
 ///   data/rust-questions.txt "How can I make a function work with any type that supports addition?"
 /// ```
 ///
