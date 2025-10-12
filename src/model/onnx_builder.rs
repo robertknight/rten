@@ -10,6 +10,7 @@ pub enum AttrValue {
     Float(f32),
     Int(i64),
     Ints(Vec<i64>),
+    Tensor(onnx::TensorProto),
 }
 
 pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
@@ -20,6 +21,7 @@ pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
         AttrValue::Float(val) => attr.f = Some(val),
         AttrValue::Int(val) => attr.i = Some(val),
         AttrValue::Ints(val) => attr.ints = val,
+        AttrValue::Tensor(val) => attr.t = Some(val),
     }
     attr
 }
@@ -39,10 +41,12 @@ pub fn create_node(op_type: &str, attrs: &[(&str, AttrValue)]) -> onnx::NodeProt
     node
 }
 
+#[derive(Clone, Debug)]
 pub enum TensorData {
     /// Tensor elements as little-endian bytes.
     Raw(Vec<u8>),
     Double(Vec<f64>),
+    Int(Vec<i32>),
 }
 
 pub fn create_tensor(
@@ -59,6 +63,7 @@ pub fn create_tensor(
     match data {
         TensorData::Raw(raw) => tensor.raw_data = Some(RefCell::new(raw)),
         TensorData::Double(doubles) => tensor.double_data = doubles,
+        TensorData::Int(ints) => tensor.int32_data = ints,
     }
 
     tensor

@@ -21,7 +21,7 @@ pub fn constant_of_shape<T: Copy>(
     Tensor::full_in(pool, &shape, value)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ConstantOfShape {
     pub value: Scalar,
 }
