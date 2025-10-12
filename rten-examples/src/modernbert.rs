@@ -1,67 +1,29 @@
-use std::collections::VecDeque;
 use std::error::Error;
 
+use argh::FromArgs;
 use rten::{Model, Operators};
 use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 use rten_text::{TokenId, Tokenizer, TokenizerError};
 
+/// Predict masked words in a sentence.
+#[derive(FromArgs)]
 struct Args {
+    /// input BERT model
+    #[argh(positional)]
     model: String,
+
+    /// tokenizer.json file
+    #[argh(positional)]
     tokenizer: String,
-    input: String,
-    show_token_ids: bool,
-}
 
-fn parse_args() -> Result<Args, lexopt::Error> {
-    use lexopt::prelude::*;
+    /// text with "[MASK]" spans to fill in
+    #[argh(positional)]
+    input: Vec<String>,
 
-    let mut values = VecDeque::new();
-    let mut parser = lexopt::Parser::from_env();
-    let mut show_token_ids = false;
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) => values.push_back(val.string()?),
-            Long("help") => {
-                println!(
-                    "Predict masked words in a sentence.
-
-Usage: {bin_name} [options] <model> <tokenizer> <input>
-
-Args:
-
-  <model>       - Input BERT model
-  <tokenizer>   - `tokenizer.json` file
-  <input>       - Text with \"[MASK]\" spans to fill in
-
-Options:
-
- -t, --token-ids  - Show token IDs for input and output text
-",
-                    bin_name = parser.bin_name().unwrap_or("modernbert")
-                );
-                std::process::exit(0);
-            }
-            Short('t') | Long("token-ids") => {
-                show_token_ids = true;
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    let model = values.pop_front().ok_or("missing `model` arg")?;
-    let tokenizer = values.pop_front().ok_or("missing `tokenizer` arg")?;
-    let input = values.make_contiguous().join(" ");
-
-    let args = Args {
-        model,
-        tokenizer,
-        input,
-        show_token_ids,
-    };
-
-    Ok(args)
+    /// show token IDs for input and output text
+    #[argh(switch, short = 't')]
+    token_ids: bool,
 }
 
 /// Predict masked words in a sentence using [ModernBERT].
@@ -85,7 +47,7 @@ Options:
 ///
 /// [ModernBERT]: https://huggingface.co/answerdotai/ModernBERT-base
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let args: Args = argh::from_env();
     let model = Model::load_file(args.model)?;
     let tokenizer = Tokenizer::from_file(&args.tokenizer)?;
     let cls_token = tokenizer.get_token_id("[CLS]")?;
@@ -107,9 +69,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(ids)
     };
 
+    let input_text = args.input.join(" ");
     let mut input_ids = Vec::from([cls_token]);
     let mut mask_indices = Vec::new();
-    let mut remainder = args.input.as_str();
+    let mut remainder = input_text.as_str();
     while let Some(mask_pos) = remainder.find("[MASK]") {
         // `trim_end` replicates the behavior of the `lstrip` attribute for
         // the `[MASK]` special token in tokenizer.json.
@@ -124,7 +87,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     input_ids.push(sep_token);
 
-    if args.show_token_ids {
+    if args.token_ids {
         println!("Input IDs: {:?}", input_ids);
     }
 
@@ -156,7 +119,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .try_into()?;
     let mut output_ids = output_ids.slice_mut(0); // Remove batch dim
 
-    if args.show_token_ids {
+    if args.token_ids {
         println!("Output IDs: {:?}", output_ids.to_vec());
     }
 
