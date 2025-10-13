@@ -666,7 +666,15 @@ struct ConvAttrs {
 }
 
 fn get_common_conv_attrs(attrs: &Attrs) -> Result<ConvAttrs, ReadOpError> {
-    attrs.check_eq("auto_pad", "NOTSET")?;
+    let auto_pad = match attrs.get_as("auto_pad") {
+        // "VALID" means no padding. The "pads" attribute should be unset and
+        // it will default to zeros.
+        Some("NOTSET" | "VALID") | None => false,
+        Some("SAME_UPPER" | "SAME_LOWER") => true,
+        Some(_) => {
+            return Err(ReadOpError::attr_error("auto_pad", "unsupported value"));
+        }
+    };
 
     // nb. Spec says that spatial dims should be inferred from input if
     // `kernel_shape` attribute is not set. We don't have access to the input
@@ -688,7 +696,12 @@ fn get_common_conv_attrs(attrs: &Attrs) -> Result<ConvAttrs, ReadOpError> {
         .map(|v| v.cast_ints())
         .transpose()?
         .unwrap_or_else(|| vec![0; n_spatial_dims * 2]);
-    let padding = Padding::Fixed(pads.into());
+    let padding = if auto_pad {
+        Padding::Same
+    } else {
+        Padding::Fixed(pads.into())
+    };
+
     let groups = attrs.get_as_int("group")?.unwrap_or(1);
 
     let strides = attrs
@@ -1564,6 +1577,56 @@ mod tests {
 
         assert_eq!(conv_op.padding, Padding::Fixed([0, 0, 0, 0].into()));
         assert_eq!(conv_op.strides, vec![1, 1]);
+    }
+
+    #[test]
+    fn test_conv_op_padding() {
+        #[derive(Debug)]
+        struct Case {
+            kernel_shape: Vec<i64>,
+            auto_pad: Option<String>,
+            pads: Option<Vec<i64>>,
+            expected: Padding,
+        }
+
+        let cases = [
+            Case {
+                kernel_shape: [3, 3].into(),
+                auto_pad: Some("VALID".into()),
+                pads: None,
+                expected: Padding::Fixed([0, 0, 0, 0].into()),
+            },
+            Case {
+                kernel_shape: [3, 3].into(),
+                auto_pad: Some("SAME_UPPER".into()),
+                pads: None,
+                expected: Padding::Same,
+            },
+            Case {
+                kernel_shape: [3, 3].into(),
+                auto_pad: Some("NOTSET".into()),
+                pads: Some([1, 2, 3, 4].into()),
+                expected: Padding::Fixed([1, 2, 3, 4].into()),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let reg = OnnxOpRegistry::with_all_ops();
+            let mut attrs = Vec::new();
+            attrs.push(("kernel_shape", AttrValue::Ints(case.kernel_shape.clone())));
+            if let Some(auto_pad) = &case.auto_pad {
+                attrs.push(("auto_pad", AttrValue::String(auto_pad.clone())));
+            }
+            if let Some(pads) = &case.pads {
+                attrs.push(("pads", AttrValue::Ints(pads.clone())));
+            }
+            let node = create_node("Conv", &attrs);
+
+            let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+            let conv_op = op.downcast_ref::<Conv>().unwrap();
+
+            assert_eq!(conv_op.padding, case.expected);
+        });
     }
 
     #[test]
