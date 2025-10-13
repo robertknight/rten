@@ -2,9 +2,10 @@
 // should error, wrap or saturate depending on the context.
 #![deny(clippy::as_conversions)]
 
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::sync::Arc;
 
+use rten_base::bit_set::BitSet;
 use rten_base::num::LeBytes;
 use rten_onnx::onnx;
 use rustc_hash::FxHashMap;
@@ -251,14 +252,34 @@ pub struct ParsedOp<Op: Operator + Send + Sync> {
     /// This is used to handle cases where ONNX attributes have been upgraded
     /// to inputs in newer ONNX releases.
     const_inputs: Vec<(u32, ConstInput)>,
+
+    /// Indices of unused attributes in the [`onnx::NodeProto::attribute`] field.
+    unused_attrs: BitSet,
 }
 
 impl<Op: Operator + Send + Sync> From<Op> for ParsedOp<Op> {
     fn from(op: Op) -> Self {
-        ParsedOp {
+        Self::new(op)
+    }
+}
+
+impl<Op: Operator + Send + Sync> ParsedOp<Op> {
+    fn new(op: Op) -> Self {
+        Self {
             op,
             const_inputs: Vec::new(),
+            unused_attrs: BitSet::default(),
         }
+    }
+
+    fn with_inputs(mut self, inputs: Vec<(u32, ConstInput)>) -> Self {
+        self.const_inputs = inputs;
+        self
+    }
+
+    fn with_unused_attrs(mut self, attrs: BitSet) -> Self {
+        self.unused_attrs = attrs;
+        self
     }
 }
 
@@ -266,14 +287,20 @@ impl<Op: Operator + Send + Sync> From<Op> for ParsedOp<Op> {
 pub struct DynParsedOp {
     pub op: Arc<dyn Operator + Send + Sync>,
     pub const_inputs: Vec<(u32, ConstInput)>,
+    pub unused_attrs: BitSet,
 }
 
 impl<Op: Operator + Send + Sync> From<ParsedOp<Op>> for DynParsedOp {
     fn from(val: ParsedOp<Op>) -> DynParsedOp {
-        let ParsedOp { op, const_inputs } = val;
+        let ParsedOp {
+            op,
+            const_inputs,
+            unused_attrs,
+        } = val;
         DynParsedOp {
             op: Arc::new(op),
             const_inputs,
+            unused_attrs,
         }
     }
 }
@@ -305,24 +332,36 @@ pub trait ReadOp: Operator + Sized + Send + Sync {
 /// detecting unsupported attributes.
 struct Attrs<'a> {
     attrs: &'a [onnx::AttributeProto],
-    used_attrs: RefCell<SmallVec<[&'static str; 6]>>,
+    unused_attrs: Cell<BitSet>,
 }
 
 impl<'a> Attrs<'a> {
     fn new(attrs: &'a [onnx::AttributeProto]) -> Self {
+        // Assume there will be at most 32 attributes. If there are more, we'll
+        // just ignore them.
+        let n_attrs: u32 = attrs.len().min(BitSet::BITS).try_into().unwrap();
+        let unused_attrs = Cell::new(BitSet::ones(n_attrs));
+
         Self {
             attrs,
-            used_attrs: RefCell::new(Default::default()),
+            unused_attrs,
         }
     }
 
     /// Get an optional attribute.
     fn get(&self, name: &'static str) -> Option<Attr<'a>> {
-        self.used_attrs.borrow_mut().push(name);
-        let val = self
+        let (pos, val) = self
             .attrs
             .iter()
-            .find(|att| att.name.as_deref() == Some(name))?;
+            .enumerate()
+            .find(|(_pos, att)| att.name.as_deref() == Some(name))?;
+
+        let mut unused_attrs = self.unused_attrs.take();
+        if pos < BitSet::BITS {
+            unused_attrs.delete(pos.try_into().unwrap());
+            self.unused_attrs.set(unused_attrs);
+        }
+
         Some(Attr::new(name, val))
     }
 
@@ -346,6 +385,39 @@ impl<'a> Attrs<'a> {
     fn require(&self, name: &'static str) -> Result<Attr<'a>, ReadOpError> {
         self.get(name)
             .ok_or_else(|| ReadOpError::attr_error(name, "required attribute missing"))
+    }
+
+    /// Return the indices of unused attributes
+    fn unused_attrs(&self) -> BitSet {
+        self.unused_attrs.get()
+    }
+
+    /// Check that an attribute is either unset or has the value `expected`.
+    fn check_eq<T>(&self, name: &'static str, expected: T) -> Result<(), ReadOpError>
+    where
+        T: From<Attr<'a>> + PartialEq,
+    {
+        self.check_eq_fn(name, |val: T| val == expected)
+    }
+
+    /// Check that an attribute is either unset or matches `predicate`.
+    fn check_eq_fn<T>(
+        &self,
+        name: &'static str,
+        predicate: impl Fn(T) -> bool,
+    ) -> Result<(), ReadOpError>
+    where
+        T: From<Attr<'a>> + PartialEq,
+    {
+        let Some(attr) = self.get(name) else {
+            return Ok(());
+        };
+        let val = T::from(attr);
+        if predicate(val) {
+            Ok(())
+        } else {
+            Err(ReadOpError::attr_error(name, "unsupported value"))
+        }
     }
 }
 
@@ -371,6 +443,10 @@ impl<'a> Attr<'a> {
         self.attr.f.unwrap_or_default()
     }
 
+    fn as_floats(&self) -> &'a [f32] {
+        &self.attr.floats
+    }
+
     fn as_i64(&self) -> i64 {
         self.attr.i.unwrap_or_default()
     }
@@ -389,6 +465,10 @@ impl<'a> Attr<'a> {
 
     fn as_str(&self) -> &'a str {
         self.attr.s.as_deref().unwrap_or_default()
+    }
+
+    fn as_strings(&self) -> &'a [String] {
+        &self.attr.strings
     }
 
     /// Get the RTen data type which corresponds to the ONNX data type.
@@ -441,10 +521,12 @@ macro_rules! impl_from_attr {
 }
 
 impl_from_attr!(f32, as_f32);
+impl_from_attr!(&'a [f32], as_floats);
 impl_from_attr!(i64, as_i64);
 impl_from_attr!(&'a [i64], as_ints);
 impl_from_attr!(bool, as_bool);
 impl_from_attr!(&'a str, as_str);
+impl_from_attr!(&'a [String], as_strings);
 
 macro_rules! impl_read_op {
     ($op:ident) => {
@@ -454,11 +536,11 @@ macro_rules! impl_read_op {
             }
 
             fn read(
-                _op: &onnx::NodeProto,
+                op: &onnx::NodeProto,
                 _ctx: &dyn OpLoadContext,
             ) -> Result<ParsedOp<Self>, ReadOpError> {
-                // TODO - Check for unsupported attributes.
-                Ok(ops::$op {}.into())
+                let attrs = Attrs::new(&op.attribute);
+                Ok(ParsedOp::new(ops::$op {}).with_unused_attrs(attrs.unused_attrs()))
             }
         }
     };
@@ -473,9 +555,8 @@ macro_rules! impl_read_op {
                 op: &onnx::NodeProto,
                 _ctx: &dyn OpLoadContext,
             ) -> Result<ParsedOp<Self>, ReadOpError> {
-                // TODO - Check for unsupported attributes.
                 let attrs = Attrs::new(&op.attribute);
-                $read(&attrs).map(|op| op.into())
+                $read(&attrs).map(|op| ParsedOp::from(op).with_unused_attrs(attrs.unused_attrs()))
             }
         }
     };
@@ -492,6 +573,8 @@ struct ArgReduceAttrs {
 }
 
 fn get_common_arg_reduce_attrs(attrs: &Attrs) -> Result<ArgReduceAttrs, ReadOpError> {
+    attrs.check_eq("select_last_index", 0)?;
+
     let axis = attrs.get_as_int("axis")?.unwrap_or(0);
     let keep_dims = attrs.get_as("keepdims").unwrap_or(true);
     Ok(ArgReduceAttrs { axis, keep_dims })
@@ -529,11 +612,21 @@ impl_read_op!(AveragePool, |attrs: &Attrs| {
 });
 
 impl_read_op!(BatchNormalization, |attrs: &Attrs| {
+    attrs.check_eq("training_mode", 0)?;
+
+    // Ignore attributes which are valid only if training_mode=1, which is
+    // unsupported.
+    attrs.check_eq_fn("momentum", |_: f32| true)?;
+
     let epsilon = attrs.get("epsilon").map(|v| v.as_f32()).unwrap_or(1e-05);
     Ok(ops::BatchNormalization { epsilon })
 });
 
 impl_read_op!(Cast, |attrs: &Attrs| {
+    // The "saturate" attribute only applies to FP8, which is unsupported.
+    // Conversions to other types do not saturate, even if this attribute is 1.
+    attrs.check_eq("saturate", 1)?;
+
     let to = attrs.require("to")?.as_dtype()?;
     Ok(ops::Cast { to })
 });
@@ -551,10 +644,7 @@ impl_read_op!(Clip, |attrs: &Attrs| {
         const_inputs.push((2, ConstInput::Float(max.as_f32())));
     }
 
-    Ok(ParsedOp {
-        op: ops::Clip {},
-        const_inputs,
-    })
+    Ok(ParsedOp::new(ops::Clip {}).with_inputs(const_inputs))
 });
 
 impl_read_op!(Concat, |attrs: &Attrs| {
@@ -576,6 +666,8 @@ struct ConvAttrs {
 }
 
 fn get_common_conv_attrs(attrs: &Attrs) -> Result<ConvAttrs, ReadOpError> {
+    attrs.check_eq("auto_pad", "NOTSET")?;
+
     // nb. Spec says that spatial dims should be inferred from input if
     // `kernel_shape` attribute is not set. We don't have access to the input
     // here, so this would have to be handled by making various fields optional
@@ -711,11 +803,15 @@ impl_read_op!(ConstantOfShape, |attrs: &Attrs| {
 
 impl_read_op!(ConvTranspose, |attrs: &Attrs| {
     let ConvAttrs {
-        dilations: _,
+        dilations,
         padding,
         groups,
         strides,
     } = get_common_conv_attrs(attrs)?;
+
+    if !dilations.iter().all(|d| *d == 1) {
+        return Err(ReadOpError::attr_error("dilations", "unsupported value"));
+    }
 
     let output_padding = attrs
         .get("output_padding")
@@ -731,7 +827,11 @@ impl_read_op!(ConvTranspose, |attrs: &Attrs| {
 });
 
 impl_read_op!(Cos);
-impl_read_op!(CumSum);
+impl_read_op!(CumSum, |attrs: &Attrs| {
+    attrs.check_eq("exclusive", 0)?;
+    attrs.check_eq("reverse", 0)?;
+    Ok(ops::CumSum {})
+});
 
 impl_read_op!(DequantizeLinear, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?.unwrap_or(1);
@@ -841,6 +941,9 @@ impl_read_op!(GreaterOrEqual);
 
 impl_read_op!(GridSample, |attrs: &Attrs| {
     let align_corners = attrs.get_as("align_corners").unwrap_or(false);
+    attrs.check_eq("mode", "bilinear")?;
+    attrs.check_eq("padding_mode", "zeros")?;
+
     Ok(ops::GridSample { align_corners })
 });
 
@@ -889,12 +992,19 @@ impl_read_op!(InstanceNormalization, |attrs: &Attrs| {
     Ok(ops::InstanceNormalization { epsilon })
 });
 
-impl_read_op!(IsInf);
+impl_read_op!(IsInf, |attrs: &Attrs| {
+    attrs.check_eq("detect_positive", 1)?;
+    attrs.check_eq("detect_negative", 1)?;
+
+    Ok(ops::IsInf {})
+});
 impl_read_op!(IsNaN);
 
 impl_read_op!(LayerNormalization, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
     let epsilon = attrs.get_as("epsilon");
+    attrs.check_eq("stash_type", 1)?;
+
     Ok(ops::LayerNormalization { axis, epsilon })
 });
 
@@ -958,6 +1068,13 @@ impl_read_op!(LSTM, |attrs: &Attrs| {
         hidden_size,
     } = get_common_rnn_attrs(attrs)?;
 
+    attrs.check_eq_fn("activation_alpha", |val: &[f32]| val.is_empty())?;
+    attrs.check_eq_fn("activation_beta", |val: &[f32]| val.is_empty())?;
+    attrs.check_eq_fn("activations", |val: &[String]| val.is_empty())?;
+    attrs.check_eq("clip", 0.)?;
+    attrs.check_eq("input_forget", 0)?;
+    attrs.check_eq("layout", 0)?;
+
     Ok(ops::LSTM {
         direction,
         hidden_size,
@@ -976,6 +1093,12 @@ struct PoolAttrs {
 }
 
 fn get_common_pool_attrs(attrs: &Attrs) -> Result<PoolAttrs, ReadOpError> {
+    attrs.check_eq("auto_pad", "NOTSET")?;
+    attrs.check_eq("storage_order", 0)?;
+    attrs.check_eq_fn("dilations", |dilations: &[i64]| {
+        dilations.iter().all(|d| *d == 1)
+    })?;
+
     let ceil_mode = attrs.get_as("ceil_mode").unwrap_or(false);
     let kernel_size = attrs
         .get("kernel_shape")
@@ -1080,6 +1203,8 @@ impl_read_op!(QuantizeLinear, |attrs: &Attrs| {
 
 #[cfg(feature = "random")]
 impl_read_op!(RandomNormal, |attrs: &Attrs| {
+    attrs.check_eq("dtype", i64::from(onnx::DataType::FLOAT.0))?;
+
     let shape = attrs.require("shape")?.cast_ints()?;
     let mean = attrs.get_as("mean").unwrap_or(0.);
     let scale = attrs.get_as("scale").unwrap_or(1.);
@@ -1094,6 +1219,8 @@ impl_read_op!(RandomNormal, |attrs: &Attrs| {
 
 #[cfg(feature = "random")]
 impl_read_op!(RandomNormalLike, |attrs: &Attrs| {
+    attrs.check_eq("dtype", i64::from(onnx::DataType::FLOAT.0))?;
+
     let mean = attrs.get_as("mean").unwrap_or(0.);
     let scale = attrs.get_as("scale").unwrap_or(1.);
     let seed = attrs.get_as("seed");
@@ -1102,6 +1229,8 @@ impl_read_op!(RandomNormalLike, |attrs: &Attrs| {
 
 #[cfg(feature = "random")]
 impl_read_op!(RandomUniform, |attrs: &Attrs| {
+    attrs.check_eq("dtype", i64::from(onnx::DataType::FLOAT.0))?;
+
     let shape = attrs.require("shape")?.cast_ints()?;
     let low = attrs.get_as("low").unwrap_or(0.);
     let high = attrs.get_as("high").unwrap_or(1.);
@@ -1116,6 +1245,8 @@ impl_read_op!(RandomUniform, |attrs: &Attrs| {
 
 #[cfg(feature = "random")]
 impl_read_op!(RandomUniformLike, |attrs: &Attrs| {
+    attrs.check_eq("dtype", i64::from(onnx::DataType::FLOAT.0))?;
+
     let low = attrs.get_as("low").unwrap_or(0.);
     let high = attrs.get_as("high").unwrap_or(1.);
     let seed = attrs.get_as("seed");
@@ -1130,6 +1261,7 @@ macro_rules! impl_read_op_for_reduce_op {
         impl_read_op!($op, |attrs: &Attrs| {
             let axes = attrs.get("axes").map(|v| v.cast_ints()).transpose()?;
             let keep_dims = attrs.get_as("keepdims").unwrap_or(true);
+            attrs.check_eq("noop_with_empty_axes", 0)?;
             Ok(ops::$op { axes, keep_dims })
         });
     };
@@ -1150,6 +1282,16 @@ impl_read_op!(Reshape, |attrs: &Attrs| {
 });
 
 impl_read_op!(Resize, |attrs: &Attrs| {
+    attrs.check_eq("antialias", 0)?;
+
+    // rten-convert treats differences from the default as a warning rather than
+    // an error, but there is no mechanism to do that here.
+    attrs.check_eq("cubic_coeff_a", -0.75)?;
+
+    attrs.check_eq("exclude_outside", 0)?;
+    attrs.check_eq("extrapolation_value", 0.)?;
+    attrs.check_eq("keep_aspect_ratio_policy", "stretch")?;
+
     let mode = attrs
         .get("mode")
         .map(|v| {
@@ -1267,10 +1409,7 @@ impl_read_op!(Split, |attrs: &Attrs| {
         const_inputs.push((1, ConstInput::Ints(splits.as_ints().into())));
     }
 
-    Ok(ParsedOp {
-        op: ops::Split { axis, num_outputs },
-        const_inputs,
-    })
+    Ok(ParsedOp::new(ops::Split { axis, num_outputs }).with_inputs(const_inputs))
 });
 
 impl_read_op!(SplitToSequence, |attrs: &Attrs| {
@@ -1286,10 +1425,7 @@ impl_read_op!(Squeeze, |attrs: &Attrs| {
     if let Some(axes) = attrs.get("axes") {
         const_inputs.push((1, ConstInput::Ints(axes.as_ints().to_vec())));
     }
-    Ok(ParsedOp {
-        op: ops::Squeeze {},
-        const_inputs,
-    })
+    Ok(ParsedOp::new(ops::Squeeze {}).with_inputs(const_inputs))
 });
 
 #[cfg(feature = "fft")]
@@ -1330,10 +1466,7 @@ impl_read_op!(Unsqueeze, |attrs: &Attrs| {
     if let Some(axes) = attrs.get("axes") {
         const_inputs.push((1, ConstInput::Ints(axes.as_ints().to_vec())));
     }
-    Ok(ParsedOp {
-        op: ops::Unsqueeze {},
-        const_inputs,
-    })
+    Ok(ParsedOp::new(ops::Unsqueeze {}).with_inputs(const_inputs))
 });
 
 impl_read_op!(Where);
@@ -1384,6 +1517,29 @@ mod tests {
         let argmax_op = op.downcast_ref::<ArgMax>().unwrap();
         assert_eq!(argmax_op.axis, 1);
         assert_eq!(argmax_op.keep_dims, true);
+    }
+
+    #[test]
+    fn test_unused_attrs() {
+        let reg = OnnxOpRegistry::with_all_ops();
+        let node = create_node(
+            "ArgMax",
+            &[
+                ("axis", AttrValue::Int(1)),
+                ("unused_a", AttrValue::Bool(false)),
+                ("keepdims", AttrValue::Bool(true)),
+                ("unused_b", AttrValue::Bool(false)),
+            ],
+        );
+
+        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap();
+        assert_eq!(op.unused_attrs.len(), 2);
+        let unused_attrs: Vec<_> = op
+            .unused_attrs
+            .iter()
+            .map(|i| node.attribute[i].name.as_deref().unwrap_or_default())
+            .collect();
+        assert_eq!(unused_attrs, &["unused_a", "unused_b"]);
     }
 
     #[test]

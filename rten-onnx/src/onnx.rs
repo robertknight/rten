@@ -34,6 +34,7 @@ pub struct AttributeProto {
     pub t: Option<TensorProto>,
     pub floats: Vec<f32>,
     pub ints: Vec<i64>,
+    pub strings: Vec<String>,
     pub r#type: Option<AttributeType>,
 }
 
@@ -46,6 +47,7 @@ impl AttributeProto {
     const G: u64 = 6;
     const FLOATS: u64 = 7;
     const INTS: u64 = 8;
+    const STRINGS: u64 = 9;
     const TYPE: u64 = 20;
 }
 
@@ -81,6 +83,9 @@ impl DecodeMessage for AttributeProto {
                 }
                 Self::INTS => {
                     msg.ints.push(field.get_int64()?);
+                }
+                Self::STRINGS => {
+                    msg.strings.push(field.read_string()?);
                 }
                 Self::TYPE => {
                     msg.r#type = Some(AttributeType(field.get_enum()?));

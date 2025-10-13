@@ -819,10 +819,29 @@ fn add_operator(
             .collect()
     };
 
-    let DynParsedOp { op, const_inputs } = registry
+    let DynParsedOp {
+        op,
+        const_inputs,
+        unused_attrs,
+    } = registry
         .onnx_registry()
         .read_op(onnx_op, &ctx)
         .map_err(|err| load_error!(OperatorInvalid, onnx_op.name.as_deref(), err))?;
+
+    // Fail if any attributes were unused.
+    if !unused_attrs.is_empty() {
+        let names: Vec<_> = unused_attrs
+            .iter()
+            .map(|i| onnx_op.attribute[i].name.as_deref().unwrap_or_default())
+            .collect();
+
+        return Err(load_error!(
+            OperatorInvalid,
+            onnx_op.name.as_deref(),
+            "unsupported or duplicated attributes: {}",
+            names.join(", ")
+        ));
+    }
 
     // Map input and output names to graph node IDs.
     //
@@ -1008,5 +1027,22 @@ mod tests {
 
         let floats_vec = model.get_tensor_by_name::<f32>("doubles_vec").unwrap();
         assert_eq!(floats_vec, TensorView::from(&[0.1, 0.2, 0.3]));
+    }
+
+    #[test]
+    fn test_unused_attributes() {
+        let mut graph = onnx::GraphProto::default();
+
+        let mut node = create_node("Clip", &[("unused_attr", AttrValue::Float(-0.5))]);
+        node.name = Some("clip_op".into());
+        graph.node.push(node);
+
+        let model_proto = create_model(graph);
+        let err = load_model(model_proto).err().unwrap();
+
+        assert_eq!(
+            err.to_string(),
+            "operator error: in node \"clip_op\": unsupported or duplicated attributes: unused_attr"
+        );
     }
 }
