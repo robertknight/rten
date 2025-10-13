@@ -10,6 +10,7 @@ pub enum AttrValue {
     Float(f32),
     Int(i64),
     Ints(Vec<i64>),
+    String(String),
     Tensor(onnx::TensorProto),
 }
 
@@ -21,6 +22,7 @@ pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
         AttrValue::Float(val) => attr.f = Some(val),
         AttrValue::Int(val) => attr.i = Some(val),
         AttrValue::Ints(val) => attr.ints = val,
+        AttrValue::String(val) => attr.s = Some(val),
         AttrValue::Tensor(val) => attr.t = Some(val),
     }
     attr
