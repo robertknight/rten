@@ -1,3 +1,7 @@
+// Code in this module should be careful about whether narrowing conversions
+// should error, wrap or saturate depending on the context.
+#![deny(clippy::as_conversions)]
+
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -330,6 +334,14 @@ impl<'a> Attrs<'a> {
         self.get(name).map(|v| v.into())
     }
 
+    /// Get an attribute and cast it to an integer type.
+    fn get_as_int<T: TryFrom<i64, Error = std::num::TryFromIntError>>(
+        &self,
+        name: &'static str,
+    ) -> Result<Option<T>, ReadOpError> {
+        self.get(name).map(|v| v.cast_int()).transpose()
+    }
+
     /// Get a required attribute.
     fn require(&self, name: &'static str) -> Result<Attr<'a>, ReadOpError> {
         self.get(name)
@@ -363,6 +375,14 @@ impl<'a> Attr<'a> {
         self.attr.i.unwrap_or_default()
     }
 
+    fn cast_int<T: TryFrom<i64, Error = std::num::TryFromIntError>>(
+        &self,
+    ) -> Result<T, ReadOpError> {
+        self.as_i64()
+            .try_into()
+            .map_err(|_| ReadOpError::attr_error(self.name, "value is out of range"))
+    }
+
     fn as_ints(&self) -> &'a [i64] {
         &self.attr.ints
     }
@@ -375,7 +395,7 @@ impl<'a> Attr<'a> {
     ///
     /// This can fail if the ONNX data type is unsupported in RTen.
     fn as_dtype(&self) -> Result<DataType, ReadOpError> {
-        let onnx_dtype = onnx::DataType(self.as_i64() as i32);
+        let onnx_dtype = onnx::DataType(self.cast_int()?);
         match onnx_dtype {
             onnx::DataType::FLOAT => Ok(DataType::Float),
             onnx::DataType::INT32 | onnx::DataType::INT64 | onnx::DataType::BOOL => {
@@ -471,22 +491,19 @@ struct ArgReduceAttrs {
     keep_dims: bool,
 }
 
-fn get_common_arg_reduce_attrs(attrs: &Attrs) -> ArgReduceAttrs {
-    let axis = attrs
-        .get_as::<i64>("axis")
-        .map(|val| val as isize)
-        .unwrap_or(0);
+fn get_common_arg_reduce_attrs(attrs: &Attrs) -> Result<ArgReduceAttrs, ReadOpError> {
+    let axis = attrs.get_as_int("axis")?.unwrap_or(0);
     let keep_dims = attrs.get_as("keepdims").unwrap_or(true);
-    ArgReduceAttrs { axis, keep_dims }
+    Ok(ArgReduceAttrs { axis, keep_dims })
 }
 
 impl_read_op!(ArgMax, |attrs: &Attrs| {
-    let ArgReduceAttrs { axis, keep_dims } = get_common_arg_reduce_attrs(attrs);
+    let ArgReduceAttrs { axis, keep_dims } = get_common_arg_reduce_attrs(attrs)?;
     Ok(ops::ArgMax { axis, keep_dims })
 });
 
 impl_read_op!(ArgMin, |attrs: &Attrs| {
-    let ArgReduceAttrs { axis, keep_dims } = get_common_arg_reduce_attrs(attrs);
+    let ArgReduceAttrs { axis, keep_dims } = get_common_arg_reduce_attrs(attrs)?;
     Ok(ops::ArgMin { axis, keep_dims })
 });
 
@@ -541,12 +558,12 @@ impl_read_op!(Clip, |attrs: &Attrs| {
 });
 
 impl_read_op!(Concat, |attrs: &Attrs| {
-    let axis = attrs.require("axis")?.as_i64() as isize;
+    let axis = attrs.require("axis")?.cast_int()?;
     Ok(ops::Concat { axis })
 });
 
 impl_read_op!(ConcatFromSequence, |attrs: &Attrs| {
-    let axis = attrs.require("axis")?.as_i64() as i32;
+    let axis = attrs.require("axis")?.cast_int()?;
     let new_axis = attrs.get("new_axis").map(|v| v.as_bool()).unwrap_or(false);
     Ok(ops::ConcatFromSequence { axis, new_axis })
 });
@@ -580,8 +597,7 @@ fn get_common_conv_attrs(attrs: &Attrs) -> Result<ConvAttrs, ReadOpError> {
         .transpose()?
         .unwrap_or_else(|| vec![0; n_spatial_dims * 2]);
     let padding = Padding::Fixed(pads.into());
-    let groups = attrs.get("group").map(|v| v.as_i64()).unwrap_or(1);
-    let groups = groups as usize; // TODO - Handle invalid values
+    let groups = attrs.get_as_int("group")?.unwrap_or(1);
 
     let strides = attrs
         .get("strides")
@@ -669,6 +685,7 @@ impl_read_op!(ConstantOfShape, |attrs: &Attrs| {
                 }
                 Some(onnx::DataType::INT64) => {
                     let value: i64 = extract_scalar(raw_data.as_deref(), &tensor.int64_data)?;
+                    #[allow(clippy::as_conversions)]
                     Ok(Scalar::Int(value as i32))
                 }
                 Some(onnx::DataType::INT32) => {
@@ -678,7 +695,7 @@ impl_read_op!(ConstantOfShape, |attrs: &Attrs| {
                 Some(onnx::DataType::BOOL) => {
                     let value: u8 = extract_scalar(raw_data.as_deref(), &tensor.int32_data)?;
                     let value = if value != 0 { 1 } else { 0 };
-                    Ok(Scalar::Int(value as i32))
+                    Ok(Scalar::Int(value))
                 }
                 _ => Err(ReadOpError::attr_error(
                     "value",
@@ -717,10 +734,7 @@ impl_read_op!(Cos);
 impl_read_op!(CumSum);
 
 impl_read_op!(DequantizeLinear, |attrs: &Attrs| {
-    let axis = attrs
-        .get("axis")
-        .map(|val| val.as_i64() as isize)
-        .unwrap_or(1);
+    let axis = attrs.get_as_int("axis")?.unwrap_or(1);
     Ok(ops::DequantizeLinear { axis })
 });
 
@@ -736,7 +750,7 @@ impl_read_op!(DepthToSpace, |attrs: &Attrs| {
         })
         .transpose()?
         .unwrap_or(DepthToSpaceMode::DepthColumnRow);
-    let block_size = attrs.require("blocksize")?.as_i64() as u32;
+    let block_size = attrs.require("blocksize")?.cast_int()?;
     Ok(ops::DepthToSpace { mode, block_size })
 });
 
@@ -744,7 +758,7 @@ impl_read_op!(Div);
 
 #[cfg(feature = "random")]
 impl_read_op!(Dropout, |attrs: &Attrs| {
-    let seed = attrs.get_as("seed").map(|val: i64| val as i32);
+    let seed = attrs.get_as_int("seed")?;
     Ok(ops::Dropout { seed })
 });
 
@@ -767,28 +781,28 @@ impl_read_op!(Expand);
 
 impl_read_op!(EyeLike, |attrs: &Attrs| {
     let dtype = attrs.get("dtype").map(|v| v.as_dtype()).transpose()?;
-    let k = attrs.get_as("k").map(|val: i64| val as i32).unwrap_or(0);
+    let k = attrs.get_as_int("k")?.unwrap_or(0);
     Ok(ops::EyeLike { dtype, k })
 });
 
 impl_read_op!(Flatten, |attrs: &Attrs| {
-    let axis = attrs.get_as("axis").unwrap_or(1) as isize;
+    let axis = attrs.get_as_int("axis")?.unwrap_or(1);
     Ok(ops::Flatten { axis })
 });
 impl_read_op!(Floor);
 
 impl_read_op!(Gather, |attrs: &Attrs| {
-    let axis = attrs.get_as("axis").unwrap_or(0) as isize;
+    let axis = attrs.get_as_int("axis")?.unwrap_or(0);
     Ok(ops::Gather { axis })
 });
 
 impl_read_op!(GatherElements, |attrs: &Attrs| {
-    let axis = attrs.get_as("axis").unwrap_or(0) as isize;
+    let axis = attrs.get_as_int("axis")?.unwrap_or(0);
     Ok(ops::GatherElements { axis })
 });
 
 impl_read_op!(GatherND, |attrs: &Attrs| {
-    let batch_dims = attrs.get_as("batch_dims").unwrap_or(0) as usize;
+    let batch_dims = attrs.get_as_int("batch_dims")?.unwrap_or(0);
     Ok(ops::GatherND { batch_dims })
 });
 
@@ -879,10 +893,7 @@ impl_read_op!(IsInf);
 impl_read_op!(IsNaN);
 
 impl_read_op!(LayerNormalization, |attrs: &Attrs| {
-    let axis = attrs
-        .get_as("axis")
-        .map(|val: i64| val as isize)
-        .unwrap_or(-1);
+    let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
     let epsilon = attrs.get_as("epsilon");
     Ok(ops::LayerNormalization { axis, epsilon })
 });
@@ -897,10 +908,7 @@ impl_read_op!(LessOrEqual);
 impl_read_op!(Log);
 
 impl_read_op!(LogSoftmax, |attrs: &Attrs| {
-    let axis = attrs
-        .get_as("axis")
-        .map(|val: i64| val as isize)
-        .unwrap_or(-1);
+    let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
     Ok(ops::LogSoftmax { axis })
 });
 
@@ -924,7 +932,7 @@ struct RnnAttrs {
 fn get_common_rnn_attrs(attrs: &Attrs) -> Result<RnnAttrs, ReadOpError> {
     // ONNX spec does not state that hidden_size is required, but doesn't
     // provide a default. ONNX Runtime requires it to be present and non-zero.
-    let hidden_size = attrs.require("hidden_size")?.as_i64() as usize;
+    let hidden_size = attrs.require("hidden_size")?.cast_int()?;
     let direction = attrs
         .get("direction")
         .map(|v| {
@@ -1036,10 +1044,7 @@ impl_read_op!(NonZero);
 impl_read_op!(Not);
 
 impl_read_op!(OneHot, |attrs: &Attrs| {
-    let axis = attrs
-        .get_as("axis")
-        .map(|val: i64| val as isize)
-        .unwrap_or(-1);
+    let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
     Ok(ops::OneHot { axis })
 });
 impl_read_op!(Or);
@@ -1069,21 +1074,13 @@ impl_read_op!(QuantizeLinear, |attrs: &Attrs| {
         .get("output_dtype")
         .map(|v| v.as_dtype())
         .transpose()?;
-    let axis = attrs
-        .get_as("axis")
-        .map(|val: i64| val as isize)
-        .unwrap_or(-1);
+    let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
     Ok(ops::QuantizeLinear { axis, output_dtype })
 });
 
 #[cfg(feature = "random")]
 impl_read_op!(RandomNormal, |attrs: &Attrs| {
-    let shape = attrs
-        .require("shape")?
-        .as_ints()
-        .iter()
-        .map(|val| *val as usize)
-        .collect();
+    let shape = attrs.require("shape")?.cast_ints()?;
     let mean = attrs.get_as("mean").unwrap_or(0.);
     let scale = attrs.get_as("scale").unwrap_or(1.);
     let seed = attrs.get_as("seed");
@@ -1105,12 +1102,7 @@ impl_read_op!(RandomNormalLike, |attrs: &Attrs| {
 
 #[cfg(feature = "random")]
 impl_read_op!(RandomUniform, |attrs: &Attrs| {
-    let shape = attrs
-        .require("shape")?
-        .as_ints()
-        .iter()
-        .map(|val| *val as usize)
-        .collect();
+    let shape = attrs.require("shape")?.cast_ints()?;
     let low = attrs.get_as("low").unwrap_or(0.);
     let high = attrs.get_as("high").unwrap_or(1.);
     let seed = attrs.get_as("seed");
@@ -1225,10 +1217,7 @@ fn convert_scatter_reduction(
 impl_read_op!(ScatterElements, |attrs: &Attrs| {
     let reduction = attrs.get_as("reduction");
     let reduction = convert_scatter_reduction("reduction", reduction)?;
-    let axis = attrs
-        .get_as("axis")
-        .map(|val: i64| val as isize)
-        .unwrap_or(0);
+    let axis = attrs.get_as_int("axis")?.unwrap_or(0);
     Ok(ops::ScatterElements { axis, reduction })
 });
 
@@ -1251,8 +1240,8 @@ impl_read_op!(SequenceInsert);
 impl_read_op!(SequenceLength);
 
 impl_read_op!(Shape, |attrs: &Attrs| {
-    let start = attrs.get_as("start").map(|i: i64| i as i32);
-    let end = attrs.get_as("end").map(|i: i64| i as i32);
+    let start = attrs.get_as_int("start")?;
+    let end = attrs.get_as_int("end")?;
     Ok(ops::Shape { start, end })
 });
 
@@ -1263,21 +1252,15 @@ impl_read_op!(Size);
 impl_read_op!(Slice);
 
 impl_read_op!(Softmax, |attrs: &Attrs| {
-    let axis = attrs
-        .get_as("axis")
-        .map(|val: i64| val as isize)
-        .unwrap_or(-1);
+    let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
     Ok(ops::Softmax { axis })
 });
 
 impl_read_op!(Softplus);
 
 impl_read_op!(Split, |attrs: &Attrs| {
-    let axis = attrs
-        .get_as("axis")
-        .map(|val: i64| val as isize)
-        .unwrap_or(0);
-    let num_outputs = attrs.get_as("num_outputs").map(|val: i64| val as u32);
+    let axis = attrs.get_as_int("axis")?.unwrap_or(0);
+    let num_outputs = attrs.get_as_int("num_outputs")?;
 
     let mut const_inputs = Vec::new();
     if let Some(splits) = attrs.get("split") {
@@ -1291,7 +1274,7 @@ impl_read_op!(Split, |attrs: &Attrs| {
 });
 
 impl_read_op!(SplitToSequence, |attrs: &Attrs| {
-    let axis = attrs.get_as("axis").map(|val: i64| val as i32).unwrap_or(0);
+    let axis = attrs.get_as_int("axis")?.unwrap_or(0);
     let keep_dims = attrs.get_as("keepdims").unwrap_or(true);
     Ok(ops::SplitToSequence { axis, keep_dims })
 });
@@ -1322,7 +1305,7 @@ impl_read_op!(Tanh);
 impl_read_op!(Tile);
 
 impl_read_op!(TopK, |attrs: &Attrs| {
-    let axis = attrs.get_as("axis").map(|val: i64| val as isize);
+    let axis = attrs.get_as_int("axis")?;
     let largest = attrs.get_as("largest").unwrap_or(true);
     let sorted = attrs.get_as("sorted").unwrap_or(true);
     Ok(ops::TopK {
