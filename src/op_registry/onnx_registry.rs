@@ -398,18 +398,15 @@ impl<'a> Attr<'a> {
         map(str_val).ok_or_else(|| ReadOpError::attr_error(self.name, "unsupported value"))
     }
 
-    /// Get the value of an ints attribute.
-    ///
-    /// TODO: Report error if values are out of range.
-    fn as_usize_ints(&self) -> Vec<usize> {
-        self.as_ints().iter().map(|i| *i as usize).collect()
-    }
-
-    /// Get the value of an ints attribute.
-    ///
-    /// TODO: Report error if values are out of range.
-    fn as_i32_ints(&self) -> Vec<i32> {
-        self.as_ints().iter().map(|i| *i as i32).collect()
+    /// Get the value of an ints attribute, converted to type T.
+    fn cast_ints<T: TryFrom<i64, Error = std::num::TryFromIntError>>(
+        &self,
+    ) -> Result<Vec<T>, ReadOpError> {
+        self.as_ints()
+            .iter()
+            .map(|i| (*i).try_into())
+            .collect::<Result<Vec<T>, _>>()
+            .map_err(|_| ReadOpError::attr_error(self.name, "value is out of range"))
     }
 }
 
@@ -502,7 +499,7 @@ impl_read_op!(AveragePool, |attrs: &Attrs| {
         kernel_size,
         padding,
         strides,
-    } = get_common_pool_attrs(attrs);
+    } = get_common_pool_attrs(attrs)?;
     let count_include_pad = attrs.get_as("count_include_pad").unwrap_or(false);
 
     Ok(ops::AveragePool {
@@ -561,7 +558,7 @@ struct ConvAttrs {
     strides: Vec<usize>,
 }
 
-fn get_common_conv_attrs(attrs: &Attrs) -> ConvAttrs {
+fn get_common_conv_attrs(attrs: &Attrs) -> Result<ConvAttrs, ReadOpError> {
     // nb. Spec says that spatial dims should be inferred from input if
     // `kernel_shape` attribute is not set. We don't have access to the input
     // here, so this would have to be handled by making various fields optional
@@ -573,12 +570,14 @@ fn get_common_conv_attrs(attrs: &Attrs) -> ConvAttrs {
 
     let dilations = attrs
         .get("dilations")
-        .map(|v| v.as_usize_ints())
+        .map(|v| v.cast_ints())
+        .transpose()?
         .unwrap_or_default();
 
     let pads = attrs
         .get("pads")
-        .map(|v| v.as_usize_ints())
+        .map(|v| v.cast_ints())
+        .transpose()?
         .unwrap_or_else(|| vec![0; n_spatial_dims * 2]);
     let padding = Padding::Fixed(pads.into());
     let groups = attrs.get("group").map(|v| v.as_i64()).unwrap_or(1);
@@ -586,15 +585,16 @@ fn get_common_conv_attrs(attrs: &Attrs) -> ConvAttrs {
 
     let strides = attrs
         .get("strides")
-        .map(|v| v.as_usize_ints())
+        .map(|v| v.cast_ints())
+        .transpose()?
         .unwrap_or_else(|| vec![1; n_spatial_dims]);
 
-    ConvAttrs {
+    Ok(ConvAttrs {
         dilations,
         padding,
         groups,
         strides,
-    }
+    })
 }
 
 impl_read_op!(Conv, |attrs: &Attrs| {
@@ -603,7 +603,7 @@ impl_read_op!(Conv, |attrs: &Attrs| {
         padding,
         groups,
         strides,
-    } = get_common_conv_attrs(attrs);
+    } = get_common_conv_attrs(attrs)?;
 
     Ok(ops::Conv {
         dilations,
@@ -619,7 +619,7 @@ impl_read_op!(ConvInteger, |attrs: &Attrs| {
         padding,
         groups,
         strides,
-    } = get_common_conv_attrs(attrs);
+    } = get_common_conv_attrs(attrs)?;
 
     Ok(ops::ConvInteger {
         dilations,
@@ -698,9 +698,12 @@ impl_read_op!(ConvTranspose, |attrs: &Attrs| {
         padding,
         groups,
         strides,
-    } = get_common_conv_attrs(attrs);
+    } = get_common_conv_attrs(attrs)?;
 
-    let output_padding = attrs.get("output_padding").map(|v| v.as_usize_ints());
+    let output_padding = attrs
+        .get("output_padding")
+        .map(|v| v.cast_ints())
+        .transpose()?;
 
     Ok(ops::ConvTranspose {
         padding,
@@ -964,30 +967,33 @@ struct PoolAttrs {
     strides: SmallVec<[usize; 2]>,
 }
 
-fn get_common_pool_attrs(attrs: &Attrs) -> PoolAttrs {
+fn get_common_pool_attrs(attrs: &Attrs) -> Result<PoolAttrs, ReadOpError> {
     let ceil_mode = attrs.get_as("ceil_mode").unwrap_or(false);
     let kernel_size = attrs
         .get("kernel_shape")
-        .map(|v| v.as_usize_ints())
+        .map(|v| v.cast_ints())
+        .transpose()?
         .unwrap_or_default()
         .into();
     let pads = attrs
         .get("pads")
-        .map(|v| v.as_usize_ints())
+        .map(|v| v.cast_ints())
+        .transpose()?
         .unwrap_or_default()
         .into();
     let padding = Padding::Fixed(pads);
     let strides = attrs
         .get("strides")
-        .map(|v| v.as_usize_ints())
+        .map(|v| v.cast_ints())
+        .transpose()?
         .unwrap_or_default()
         .into();
-    PoolAttrs {
+    Ok(PoolAttrs {
         ceil_mode,
         kernel_size,
         padding,
         strides,
-    }
+    })
 }
 
 impl_read_op!(MaxPool, |attrs: &Attrs| {
@@ -996,7 +1002,7 @@ impl_read_op!(MaxPool, |attrs: &Attrs| {
         kernel_size,
         padding,
         strides,
-    } = get_common_pool_attrs(attrs);
+    } = get_common_pool_attrs(attrs)?;
     Ok(ops::MaxPool {
         ceil_mode,
         kernel_size,
@@ -1130,7 +1136,7 @@ impl_read_op!(Reciprocal);
 macro_rules! impl_read_op_for_reduce_op {
     ($op:ident) => {
         impl_read_op!($op, |attrs: &Attrs| {
-            let axes = attrs.get("axes").map(|v| v.as_i32_ints());
+            let axes = attrs.get("axes").map(|v| v.cast_ints()).transpose()?;
             let keep_dims = attrs.get_as("keepdims").unwrap_or(true);
             Ok(ops::$op { axes, keep_dims })
         });
@@ -1327,7 +1333,7 @@ impl_read_op!(TopK, |attrs: &Attrs| {
 });
 
 impl_read_op!(Transpose, |attrs: &Attrs| {
-    let perm = attrs.get("perm").map(|v| v.as_usize_ints());
+    let perm = attrs.get("perm").map(|v| v.cast_ints()).transpose()?;
     Ok(ops::Transpose { perm })
 });
 
