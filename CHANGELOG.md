@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+This release adds support for loading models in ONNX format directly, without
+requiring conversion to `.rten` format first. This includes ONNX models with
+external data. ONNX format models can be more convenient to use and have better
+tooling available, but can be slightly slower to load. `.rten` format models can
+always be memory-mapped. ONNX format models can only take advantage of memory
+mapping when using external data.
+
+### rten
+
+- Partially support models with f64 tensors by casting to f32 (https://github.com/robertknight/rten/pull/971)
+
+- Add support for loading ONNX models directly (https://github.com/robertknight/rten/pull/958
+  and many others)
+
+- Improve constant propagation into sub-graphs by using
+  reference counting for all graph constants (https://github.com/robertknight/rten/pull/952).
+  This enables more effective optimization of some models.
+
+### rten-cli
+
+- Ported argument parsing from lexopt to argh. This improves help output.
+  As a consequence single-letter flags can no longer be combined into a single
+  argument. To get detailed profiling for example, use `-p -p` instead of `-pp`
+  (https://github.com/robertknight/rten/pull/986)
+
+- Add support for loading ONNX models and mention ONNX support in help output
+
+### rten-examples
+
+- Ported argument parsing from lexopt to argh. This improves help output and
+  simplifies the code (https://github.com/robertknight/rten/pull/985)
+
+- Update example instructions to use ONNX format models. This simplifies
+  getting started with RTen (https://github.com/robertknight/rten/pull/968
+  and many others)
+
+### rten-tensor
+
+- Add support for reference-counted tensors and cheap conversion of owned
+  tensors into shared tensors (https://github.com/robertknight/rten/pull/949,
+  https://github.com/robertknight/rten/pull/951)
+
 ## [0.22.1] - 2025-09-18
 
 ### rten
