@@ -8,8 +8,9 @@
 //! are used by RTen or its associated tools.
 
 use std::cell::RefCell;
+use std::fs::File;
 
-use crate::protobuf::{DecodeMessage, Fields, OwnedValues, ProtobufError, ReadValue};
+use crate::protobuf::{DecodeMessage, Fields, OwnedValues, ProtobufError, ReadValue, ValueReader};
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct AttributeType(pub i32);
@@ -568,6 +569,21 @@ pub struct ModelProto {
 impl ModelProto {
     const IR_VERSION: u64 = 1;
     const GRAPH: u64 = 7;
+
+    // The non-generic `parse_file` and `parse_buf` methods allow the parsing
+    // code to be compiled as part of the rten-onnx crate.
+
+    /// Deserialize a `ModelProto` from a file.
+    pub fn parse_file(file: File) -> Result<Self, ProtobufError> {
+        let reader = ValueReader::from_file(file);
+        ModelProto::decode(reader)
+    }
+
+    /// Deserialize a `ModelProto` from a buffer.
+    pub fn parse_buf(buf: &[u8]) -> Result<Self, ProtobufError> {
+        let reader = ValueReader::from_buf(buf);
+        ModelProto::decode(reader)
+    }
 }
 
 impl DecodeMessage for ModelProto {
