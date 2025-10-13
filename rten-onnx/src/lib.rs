@@ -21,12 +21,10 @@
 //! use std::fs::File;
 //!
 //! use rten_onnx::onnx::ModelProto;
-//! use rten_onnx::protobuf::{DecodeMessage, ReadPos, ValueReader};
 //!
 //! fn main() -> Result<(), Box<dyn Error>> {
 //!     let file = File::open("model.onnx")?;
-//!     let value_reader = ValueReader::from_file(file);
-//!     let model = ModelProto::decode(value_reader)?;
+//!     let model = ModelProto::parse_file(file)?;
 //!
 //!     let op_count = model.graph.as_ref().map(|g| g.node.len()).unwrap_or(0);
 //!     let weight_count = model.graph.as_ref().map(|g| g.initializer.len()).unwrap_or(0);
@@ -40,11 +38,10 @@
 //! To read a model from an in-memory buffer, use:
 //!
 //! ```no_run
-//! # use rten_onnx::{onnx::ModelProto, protobuf::{ValueReader, DecodeMessage}};
+//! # use rten_onnx::onnx::ModelProto;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let buffer = std::fs::read("model.onnx")?;
-//! let value_reader = ValueReader::from_buf(&buffer);
-//! let model = ModelProto::decode(value_reader)?;
+//! let model = ModelProto::parse_buf(&buffer)?;
 //! # Ok(()) }
 //! ```
 //!

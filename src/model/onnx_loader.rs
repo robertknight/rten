@@ -3,7 +3,6 @@ use std::path::Path;
 
 use rten_base::byte_cast::{Pod, cast_pod_slice};
 use rten_onnx::onnx;
-use rten_onnx::protobuf::{DecodeMessage, ValueReader};
 use rten_tensor::{ArcTensor, Storage, Tensor};
 
 use super::NodeError;
@@ -40,13 +39,9 @@ pub fn load(
     let model = match source {
         Source::Path(path) => {
             let file = File::open(path).map_err(ModelLoadError::ReadFailed)?;
-            let reader = ValueReader::from_file(file);
-            onnx::ModelProto::decode(reader)
+            onnx::ModelProto::parse_file(file)
         }
-        Source::Buffer(buf) => {
-            let reader = ValueReader::from_buf(buf);
-            onnx::ModelProto::decode(reader)
-        }
+        Source::Buffer(buf) => onnx::ModelProto::parse_buf(buf),
         #[cfg(test)]
         Source::Proto(proto) => Ok(proto),
     }
