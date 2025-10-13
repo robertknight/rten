@@ -524,7 +524,9 @@ where
         tensor_from_bytes::<T>(shape, data, name)?.into()
     } else if let Some(loc) = external_data {
         if let Some(loader) = &loader {
-            let data = loader.load(&loc)?;
+            let data = loader
+                .load(&loc)
+                .map_err(|e| load_error!(ExternalDataError, name, e))?;
             tensor_from_external_data::<T>(shape, &data, name)?.into()
         } else {
             return Err(load_error!(
