@@ -39,10 +39,47 @@ pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
     attr
 }
 
-pub fn create_model(graph: onnx::GraphProto) -> onnx::ModelProto {
-    let mut model = onnx::ModelProto::default();
-    model.graph = Some(graph);
-    model
+pub trait GraphProtoExt {
+    fn into_model(self) -> onnx::ModelProto;
+    fn with_initializer(self, tensor: onnx::TensorProto) -> Self;
+    fn with_input(self, value: onnx::ValueInfoProto) -> Self;
+    fn with_node(self, node: onnx::NodeProto) -> Self;
+    fn with_output(self, value: onnx::ValueInfoProto) -> Self;
+    fn with_value(self, value: onnx::ValueInfoProto) -> Self;
+}
+
+/// Fluent methods for building an [`onnx::GraphProto`].
+impl GraphProtoExt for onnx::GraphProto {
+    fn into_model(self) -> onnx::ModelProto {
+        let mut model = onnx::ModelProto::default();
+        model.graph = Some(self);
+        model
+    }
+
+    fn with_initializer(mut self, tensor: onnx::TensorProto) -> Self {
+        self.initializer.push(tensor);
+        self
+    }
+
+    fn with_input(mut self, value: onnx::ValueInfoProto) -> Self {
+        self.input.push(value);
+        self
+    }
+
+    fn with_node(mut self, node: onnx::NodeProto) -> Self {
+        self.node.push(node);
+        self
+    }
+
+    fn with_output(mut self, value: onnx::ValueInfoProto) -> Self {
+        self.output.push(value);
+        self
+    }
+
+    fn with_value(mut self, value: onnx::ValueInfoProto) -> Self {
+        self.value_info.push(value);
+        self
+    }
 }
 
 pub fn create_node(op_type: &str) -> onnx::NodeProto {

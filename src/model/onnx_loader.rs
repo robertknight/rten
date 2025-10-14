@@ -890,8 +890,7 @@ mod tests {
     use super::{Source, load};
     use crate::graph::{Constant, Graph, TypedConstant};
     use crate::model::onnx_builder::{
-        AttrValue, NodeProtoExt, TensorData, create_model, create_node, create_tensor,
-        create_value_info,
+        GraphProtoExt, NodeProtoExt, TensorData, create_node, create_tensor, create_value_info,
     };
     use crate::model::{Model, ModelLoadError, ModelOptions};
 
@@ -933,9 +932,9 @@ mod tests {
 
     #[test]
     fn test_graph_invalid_input_name() {
-        let mut graph = onnx::GraphProto::default();
-        graph.input.push(onnx::ValueInfoProto::default());
-        let model = create_model(graph);
+        let model = onnx::GraphProto::default()
+            .with_input(onnx::ValueInfoProto::default())
+            .into_model();
 
         let err = load(Source::Proto(model), None, &ModelOptions::default())
             .err()
@@ -949,9 +948,9 @@ mod tests {
 
     #[test]
     fn test_graph_invalid_output_name() {
-        let mut graph = onnx::GraphProto::default();
-        graph.output.push(onnx::ValueInfoProto::default());
-        let model = create_model(graph);
+        let model = onnx::GraphProto::default()
+            .with_output(onnx::ValueInfoProto::default())
+            .into_model();
 
         let err = load(Source::Proto(model), None, &ModelOptions::default())
             .err()
@@ -966,21 +965,21 @@ mod tests {
     #[test]
     fn test_sub_graph_capture() {
         // Create subgraph with a capture.
-        let mut graph = onnx::GraphProto::default();
-        graph.input.push(create_value_info("x"));
-
-        let mut then_branch = onnx::GraphProto::default();
-        then_branch.value_info.push(create_value_info("x"));
         let id_op = create_node("Identity").with_input("x");
-        then_branch.node.push(id_op);
+        let then_branch = onnx::GraphProto::default()
+            .with_value(create_value_info("x"))
+            .with_node(id_op);
 
         let if_node = create_node("If")
             .with_attr("then_branch", then_branch)
             .with_attr("else_branch", onnx::GraphProto::default())
             .with_name("if_op");
-        graph.node.push(if_node);
 
-        let model_proto = create_model(graph);
+        let model_proto = onnx::GraphProto::default()
+            .with_input(create_value_info("x"))
+            .with_node(if_node)
+            .into_model();
+
         let model = load_model(model_proto).unwrap();
 
         // Verify the capture list for the subgraph was populated correctly.
@@ -998,17 +997,16 @@ mod tests {
 
     #[test]
     fn test_promote_attribute_to_input() {
-        let mut graph = onnx::GraphProto::default();
-        graph.input.push(create_value_info("x"));
-
-        let mut node = create_node("Clip")
+        let node = create_node("Clip")
             .with_attr("min", -0.5)
             .with_attr("max", 0.5)
             .with_name("clip_op");
-        node.name = Some("clip_op".into());
-        graph.node.push(node);
 
-        let model_proto = create_model(graph);
+        let model_proto = onnx::GraphProto::default()
+            .with_input(create_value_info("x"))
+            .with_node(node)
+            .into_model();
+
         let model = load_model(model_proto).unwrap();
 
         let graph = model.graph();
@@ -1038,8 +1036,6 @@ mod tests {
 
     #[test]
     fn test_load_f64_initializer() {
-        let mut graph = onnx::GraphProto::default();
-
         // TensorProto using the `raw_data` field.
         let doubles_raw = create_tensor(
             "doubles_raw",
@@ -1047,7 +1043,6 @@ mod tests {
             onnx::DataType::DOUBLE,
             TensorData::Raw((0.5f64).to_le_bytes().into()),
         );
-        graph.initializer.push(doubles_raw);
 
         // TensorProto using the `double_data` field.
         let doubles_vec = create_tensor(
@@ -1056,9 +1051,11 @@ mod tests {
             onnx::DataType::DOUBLE,
             TensorData::Double(vec![0.1, 0.2, 0.3]),
         );
-        graph.initializer.push(doubles_vec);
 
-        let model_proto = create_model(graph);
+        let model_proto = onnx::GraphProto::default()
+            .with_initializer(doubles_raw)
+            .with_initializer(doubles_vec)
+            .into_model();
 
         let model = load_model(model_proto).unwrap();
 
@@ -1071,13 +1068,11 @@ mod tests {
 
     #[test]
     fn test_unused_attributes() {
-        let mut graph = onnx::GraphProto::default();
+        let node = create_node("Clip")
+            .with_attr("unused_attr", -0.5)
+            .with_name("clip_op");
+        let model_proto = onnx::GraphProto::default().with_node(node).into_model();
 
-        let mut node = create_node("Clip").with_attr("unused_attr", -0.5);
-        node.name = Some("clip_op".into());
-        graph.node.push(node);
-
-        let model_proto = create_model(graph);
         let err = load_model(model_proto).err().unwrap();
 
         assert_eq!(
