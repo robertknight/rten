@@ -24,7 +24,7 @@ pub trait OpLoadContext {
 /// Deserialize operators from .rten model files.
 #[derive(Default)]
 pub struct RtenOpRegistry {
-    ops: HashMap<sg::OperatorType, Box<ReadOpFunction>>,
+    ops: HashMap<sg::OperatorType, &'static ReadOpFunction>,
 }
 
 impl RtenOpRegistry {
@@ -37,28 +37,7 @@ impl RtenOpRegistry {
 
     /// Register the default/built-in implementation of an operator.
     pub fn register_op<Op: ReadOp + 'static>(&mut self) {
-        self.register_op_with_factory(
-            Op::op_type(),
-            Box::new(|op: &sg::OperatorNode, ctx: &dyn OpLoadContext| Op::read_boxed(op, ctx)),
-        );
-    }
-
-    /// Register a stub implementation of an operator.
-    ///
-    /// This registers stubs for an operator that is not available because
-    /// necessary crate features were not enabled. The purpose of the stub is
-    /// to generate a more helpful error message.
-    #[allow(unused)]
-    pub(crate) fn register_stub_op(&mut self, op_type: sg::OperatorType, feature: &'static str) {
-        self.register_op_with_factory(
-            op_type,
-            Box::new(move |_op, _ctx| {
-                Err(ReadOpError::FeatureNotEnabled {
-                    name: op_type.variant_name().unwrap_or("").to_string(),
-                    feature: feature.to_string(),
-                })
-            }),
-        );
+        self.register_op_with_factory(Op::op_type(), &Op::read_boxed);
     }
 
     /// Deserialize an operator from a model file using the operators in the
@@ -77,7 +56,7 @@ impl RtenOpRegistry {
     fn register_op_with_factory(
         &mut self,
         op_type: sg::OperatorType,
-        factory: Box<ReadOpFunction>,
+        factory: &'static ReadOpFunction,
     ) {
         self.ops.insert(op_type, factory);
     }
@@ -95,7 +74,18 @@ impl RtenOpRegistry {
                 #[cfg(feature = $feature)]
                 reg.register_op::<ops::$op>();
                 #[cfg(not(feature = $feature))]
-                reg.register_stub_op(sg::OperatorType::$op, $feature);
+                {
+                    fn stub(_op: &sg::OperatorNode, _ctx: &dyn OpLoadContext) -> ReadOpResult {
+                        Err(ReadOpError::FeatureNotEnabled {
+                            name: sg::OperatorType::$op
+                                .variant_name()
+                                .unwrap_or("")
+                                .to_string(),
+                            feature: $feature.to_string(),
+                        })
+                    }
+                    reg.register_op_with_factory(sg::OperatorType::$op, &stub);
+                }
             };
         }
 
