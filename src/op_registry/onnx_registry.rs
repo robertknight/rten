@@ -1492,7 +1492,7 @@ mod tests {
 
     use super::{ConstInput, OnnxOpRegistry, OpLoadContext, ReadOpError};
     use crate::graph::Graph;
-    use crate::model::onnx_builder::{AttrValue, TensorData, create_node, create_tensor};
+    use crate::model::onnx_builder::{NodeProtoExt, TensorData, create_node, create_tensor};
     use crate::ops::{ArgMax, ConstantOfShape, Conv, Padding};
     use crate::value::Scalar;
 
@@ -1507,7 +1507,7 @@ mod tests {
     #[test]
     fn test_read_op() {
         let reg = OnnxOpRegistry::with_all_ops();
-        let node = create_node("MatMul", &[]);
+        let node = create_node("MatMul");
 
         let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
 
@@ -1517,13 +1517,9 @@ mod tests {
     #[test]
     fn test_read_op_with_attrs() {
         let reg = OnnxOpRegistry::with_all_ops();
-        let node = create_node(
-            "ArgMax",
-            &[
-                ("axis", AttrValue::Int(1)),
-                ("keepdims", AttrValue::Bool(true)),
-            ],
-        );
+        let node = create_node("ArgMax")
+            .with_attr("axis", 1)
+            .with_attr("keepdims", true);
 
         let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
 
@@ -1535,15 +1531,11 @@ mod tests {
     #[test]
     fn test_unused_attrs() {
         let reg = OnnxOpRegistry::with_all_ops();
-        let node = create_node(
-            "ArgMax",
-            &[
-                ("axis", AttrValue::Int(1)),
-                ("unused_a", AttrValue::Bool(false)),
-                ("keepdims", AttrValue::Bool(true)),
-                ("unused_b", AttrValue::Bool(false)),
-            ],
-        );
+        let node = create_node("ArgMax")
+            .with_attr("axis", 1)
+            .with_attr("unused_a", false)
+            .with_attr("keepdims", true)
+            .with_attr("unused_b", false);
 
         let op = reg.read_op(&node, &FakeOpLoadContext).unwrap();
         assert_eq!(op.unused_attrs.len(), 2);
@@ -1558,7 +1550,7 @@ mod tests {
     #[test]
     fn test_read_unsupported_op() {
         let reg = OnnxOpRegistry::with_all_ops();
-        let node = create_node("UnsupportedOp", &[]);
+        let node = create_node("UnsupportedOp");
 
         let op = reg.read_op(&node, &FakeOpLoadContext);
 
@@ -1570,7 +1562,7 @@ mod tests {
     #[test]
     fn test_conv_op_defaults() {
         let reg = OnnxOpRegistry::with_all_ops();
-        let node = create_node("Conv", &[("kernel_shape", AttrValue::Ints([3, 3].into()))]);
+        let node = create_node("Conv").with_attr("kernel_shape", vec![3, 3]);
 
         let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
         let conv_op = op.downcast_ref::<Conv>().unwrap();
@@ -1612,15 +1604,13 @@ mod tests {
 
         cases.test_each(|case| {
             let reg = OnnxOpRegistry::with_all_ops();
-            let mut attrs = Vec::new();
-            attrs.push(("kernel_shape", AttrValue::Ints(case.kernel_shape.clone())));
+            let mut node = create_node("Conv").with_attr("kernel_shape", case.kernel_shape.clone());
             if let Some(auto_pad) = &case.auto_pad {
-                attrs.push(("auto_pad", AttrValue::String(auto_pad.clone())));
+                node = node.with_attr("auto_pad", auto_pad.clone());
             }
             if let Some(pads) = &case.pads {
-                attrs.push(("pads", AttrValue::Ints(pads.clone())));
+                node = node.with_attr("pads", pads.clone());
             }
-            let node = create_node("Conv", &attrs);
 
             let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
             let conv_op = op.downcast_ref::<Conv>().unwrap();
@@ -1681,7 +1671,7 @@ mod tests {
         cases.test_each(|case| {
             let reg = OnnxOpRegistry::with_all_ops();
             let tensor = create_tensor("test", &[], case.dtype, case.data.clone());
-            let node = create_node("ConstantOfShape", &[("value", AttrValue::Tensor(tensor))]);
+            let node = create_node("ConstantOfShape").with_attr("value", tensor);
             let op = reg.read_op(&node, &FakeOpLoadContext).unwrap();
             let cos_op = op.op.downcast_ref::<ConstantOfShape>().unwrap();
             assert_eq!(cos_op, &case.expected);
@@ -1698,25 +1688,21 @@ mod tests {
 
         let cases = [
             Case {
-                op: create_node(
-                    "Clip",
-                    &[
-                        ("min", AttrValue::Float(-0.5)),
-                        ("max", AttrValue::Float(0.5)),
-                    ],
-                ),
+                op: create_node("Clip")
+                    .with_attr("min", -0.5)
+                    .with_attr("max", 0.5),
                 expected_inputs: [(1, ConstInput::Float(-0.5)), (2, ConstInput::Float(0.5))].into(),
             },
             Case {
-                op: create_node("Squeeze", &[("axes", AttrValue::Ints([-1].into()))]),
+                op: create_node("Squeeze").with_attr("axes", vec![-1]),
                 expected_inputs: [(1, ConstInput::Ints([-1].into()))].into(),
             },
             Case {
-                op: create_node("Split", &[("split", AttrValue::Ints([10].into()))]),
+                op: create_node("Split").with_attr("split", vec![10]),
                 expected_inputs: [(1, ConstInput::Ints([10].into()))].into(),
             },
             Case {
-                op: create_node("Unsqueeze", &[("axes", AttrValue::Ints([-1].into()))]),
+                op: create_node("Unsqueeze").with_attr("axes", vec![-1]),
                 expected_inputs: [(1, ConstInput::Ints([-1].into()))].into(),
             },
         ];
