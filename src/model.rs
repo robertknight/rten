@@ -10,15 +10,9 @@ use std::fs::File;
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
 
-use rten_base::byte_cast::{Pod, cast_pod_slice};
-use rten_base::num::LeBytes;
-use rten_tensor::ArcTensor;
-
-use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
+use crate::constant_storage::ConstantStorage;
 use crate::env::str_as_bool;
-use crate::graph::{
-    CaptureEnv, ConstantNodeData, Dimension, Graph, Node, NodeId, RunError, RunOptions,
-};
+use crate::graph::{CaptureEnv, Dimension, Graph, Node, NodeId, RunError, RunOptions};
 use crate::model_metadata::ModelMetadata;
 use crate::op_registry::OpRegistry;
 use crate::optimize::OptimizeOptions;
@@ -127,225 +121,6 @@ pub struct Model {
     graph: Graph,
     metadata: ModelMetadata,
     weight_cache: WeightCache,
-}
-
-/// Provides access to metadata about a graph node.
-pub struct NodeInfo<'a> {
-    node: &'a Node,
-}
-
-impl NodeInfo<'_> {
-    /// Return the unique name associated with the node, if present.
-    pub fn name(&self) -> Option<&str> {
-        self.node.name()
-    }
-
-    /// Return the tensor shape associated with a node.
-    ///
-    /// The shape can be a combination of fixed values and symbolic names.
-    pub fn shape(&self) -> Option<Vec<Dimension>> {
-        self.node.shape()
-    }
-
-    /// Return the expected data type for this node at runtime.
-    ///
-    /// For constants the data type is always known. For values the data type
-    /// may be specified. For operators this always returns `None`.
-    pub fn dtype(&self) -> Option<DataType> {
-        self.node.dtype()
-    }
-}
-
-/// Parse profiling flags from the `RTEN_TIMING` environment variable and
-/// update the graph run configuration `opts`.
-///
-/// This env var is a space-separated sequence of `key=value` pairs.
-fn parse_timing_config(config: &str, opts: &mut RunOptions) {
-    opts.timing = true;
-
-    for token in config.split_ascii_whitespace() {
-        if let Some((key, val)) = token.split_once('=') {
-            let (key, val) = (key.trim(), val.trim());
-
-            match key {
-                "by-shape" => opts.timing_by_shape = str_as_bool(val),
-                "filter-op" => {
-                    for op_name in val.split(',') {
-                        opts.timing_filter
-                            .push(TimingFilter::Operator(op_name.to_string()));
-                    }
-                }
-                "sort" => match val {
-                    "name" => opts.timing_sort = TimingSort::ByName,
-                    "time" => opts.timing_sort = TimingSort::ByTime,
-                    _ => eprintln!("Unrecognized sort order \"{}\"", val),
-                },
-                _ => {
-                    eprintln!("Unrecognized timing option \"{}\"", key);
-                }
-            }
-        }
-    }
-}
-
-/// Configuration for loading subgraphs.
-struct SubgraphOptions<'a> {
-    /// Tensor data storage
-    storage: Arc<ConstantStorage>,
-
-    /// Offset of tensor data within the storage.
-    tensor_data_offset: Option<u64>,
-
-    /// Configuration for graph optimizer.
-    optimize: OptimizeMode,
-
-    /// Provides access to info about nodes captured from parent graphs.
-    /// This is needed for some optimization passes.
-    capture_env: Option<&'a CaptureEnv<'a>>,
-}
-
-/// Options which customize how a model is loaded.
-///
-/// This enables more advanced use cases such as loading a model with only
-/// a subset of operators available, or with different sets of optimizations
-/// applied.
-#[derive(Clone)]
-pub struct ModelOptions {
-    registry: Arc<OpRegistry>,
-    optimize: bool,
-    prepack_weights: bool,
-}
-
-/// Create model options using [`ModelOptions::with_all_ops`].
-impl Default for ModelOptions {
-    fn default() -> Self {
-        ModelOptions::with_all_ops()
-    }
-}
-
-impl ModelOptions {
-    /// Create a set of options with all operators enabled.
-    pub fn with_all_ops() -> ModelOptions {
-        Self::with_ops(OpRegistry::with_all_ops())
-    }
-
-    /// Create a set of options with a custom set of operators enabled.
-    ///
-    /// This can be used to reduce binary size by excluding operators that
-    /// the model will not use, or use custom implementations of operators.
-    pub fn with_ops(ops: OpRegistry) -> ModelOptions {
-        ModelOptions {
-            registry: ops.into(),
-            optimize: true,
-            prepack_weights: false,
-        }
-    }
-
-    /// Set whether graph optimizations are enabled.
-    pub fn enable_optimization(&mut self, enable: bool) -> &mut Self {
-        self.optimize = enable;
-        self
-    }
-
-    /// Set whether weights are prepacked.
-    ///
-    /// Prepacking creates copies of the weights with an optimized data layout.
-    /// Enabling this will increase model load time and memory usage but allow
-    /// for faster inference.
-    pub fn prepack_weights(&mut self, prepack: bool) -> &mut Self {
-        self.prepack_weights = prepack;
-        self
-    }
-
-    /// Load the model from a file. See [`Model::load_file`].
-    pub fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
-        match FileType::from_path(path.as_ref()).ok_or(ModelLoadError::UnknownFileType)? {
-            FileType::Rten => {
-                let data = std::fs::read(&path).map_err(ModelLoadError::ReadFailed)?;
-                let storage = Arc::new(ConstantStorage::Buffer(data));
-                rten_loader::load(storage, self)
-            }
-            FileType::Onnx => {
-                let loader = external_data::FileLoader::new(path.as_ref())?;
-                onnx_loader::load(
-                    onnx_loader::Source::Path(path.as_ref()),
-                    Some(&loader),
-                    self,
-                )
-            }
-        }
-    }
-
-    /// Load the model from a data buffer. See [`Model::load`].
-    pub fn load(&self, data: Vec<u8>) -> Result<Model, ModelLoadError> {
-        match FileType::from_buffer(&data).ok_or(ModelLoadError::UnknownFileType)? {
-            FileType::Rten => {
-                let storage = Arc::new(ConstantStorage::Buffer(data));
-                rten_loader::load(storage, self)
-            }
-            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(&data), None, self),
-        }
-    }
-
-    /// Load the model from a static slice of bytes. See [`Model::load_static_slice`].
-    pub fn load_static_slice(&self, data: &'static [u8]) -> Result<Model, ModelLoadError> {
-        match FileType::from_buffer(data).ok_or(ModelLoadError::UnknownFileType)? {
-            FileType::Rten => {
-                let storage = Arc::new(ConstantStorage::StaticSlice(data));
-                rten_loader::load(storage, self)
-            }
-            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(data), None, self),
-        }
-    }
-
-    /// Load the model from a memory-mapped view of a file.
-    ///
-    /// This method is only efficient for `.rten` files and ONNX models with
-    /// external weights. See [`Model::load_mmap`] for more details.
-    ///
-    /// To limit the scope of `unsafe` when using this API, you can construct
-    /// a `ModelOptions` and clone it before calling `load_mmap`:
-    ///
-    /// ```no_run
-    /// use rten::ModelOptions;
-    ///
-    /// let opts = ModelOptions::default().prepack_weights(true).clone();
-    /// let model = unsafe { opts.load_mmap("model.rten") };
-    /// ```
-    ///
-    /// If the model references tensor data in external files, that data will
-    /// also be loaded via memory-mapping.
-    ///
-    /// # Safety
-    ///
-    /// See notes in [`Model::load_mmap`].
-    #[cfg(feature = "mmap")]
-    pub unsafe fn load_mmap<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
-        let file = File::open(&path).map_err(ModelLoadError::ReadFailed)?;
-        let mmap = unsafe { Mmap::map(&file) }.map_err(ModelLoadError::ReadFailed)?;
-        match FileType::from_path(path.as_ref()).ok_or(ModelLoadError::UnknownFileType)? {
-            FileType::Rten => {
-                let storage = Arc::new(ConstantStorage::Mmap(mmap));
-                rten_loader::load(storage, self)
-            }
-            FileType::Onnx => {
-                // Safety: By calling `load_mmap` the caller has accepted the
-                // associated risks, so we can also use mmap to load external
-                // data files.
-                let loader = unsafe { external_data::MmapLoader::new(path.as_ref()) }?;
-                onnx_loader::load(onnx_loader::Source::Buffer(&mmap), Some(&loader), self)
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-enum OptimizeMode {
-    // Disable graph optimizations.
-    Off,
-
-    // Enable graph optimizations.
-    On(OptimizeOptions),
 }
 
 impl Model {
@@ -592,10 +367,230 @@ impl Model {
         self.graph.partial_run(inputs, outputs, opts)
     }
 
+    // For model loader tests.
     #[cfg(test)]
-    pub(crate) fn graph(&self) -> &Graph {
+    fn graph(&self) -> &Graph {
         &self.graph
     }
+}
+
+/// Provides access to metadata about a graph node.
+pub struct NodeInfo<'a> {
+    node: &'a Node,
+}
+
+impl NodeInfo<'_> {
+    /// Return the unique name associated with the node, if present.
+    pub fn name(&self) -> Option<&str> {
+        self.node.name()
+    }
+
+    /// Return the tensor shape associated with a node.
+    ///
+    /// The shape can be a combination of fixed values and symbolic names.
+    pub fn shape(&self) -> Option<Vec<Dimension>> {
+        self.node.shape()
+    }
+
+    /// Return the expected data type for this node at runtime.
+    ///
+    /// For constants the data type is always known. For values the data type
+    /// may be specified. For operators this always returns `None`.
+    pub fn dtype(&self) -> Option<DataType> {
+        self.node.dtype()
+    }
+}
+
+/// Parse profiling flags from the `RTEN_TIMING` environment variable and
+/// update the graph run configuration `opts`.
+///
+/// This env var is a space-separated sequence of `key=value` pairs.
+fn parse_timing_config(config: &str, opts: &mut RunOptions) {
+    opts.timing = true;
+
+    for token in config.split_ascii_whitespace() {
+        if let Some((key, val)) = token.split_once('=') {
+            let (key, val) = (key.trim(), val.trim());
+
+            match key {
+                "by-shape" => opts.timing_by_shape = str_as_bool(val),
+                "filter-op" => {
+                    for op_name in val.split(',') {
+                        opts.timing_filter
+                            .push(TimingFilter::Operator(op_name.to_string()));
+                    }
+                }
+                "sort" => match val {
+                    "name" => opts.timing_sort = TimingSort::ByName,
+                    "time" => opts.timing_sort = TimingSort::ByTime,
+                    _ => eprintln!("Unrecognized sort order \"{}\"", val),
+                },
+                _ => {
+                    eprintln!("Unrecognized timing option \"{}\"", key);
+                }
+            }
+        }
+    }
+}
+
+/// Configuration for loading subgraphs.
+struct SubgraphOptions<'a> {
+    /// Tensor data storage
+    storage: Arc<ConstantStorage>,
+
+    /// Offset of tensor data within the storage.
+    tensor_data_offset: Option<u64>,
+
+    /// Configuration for graph optimizer.
+    optimize: OptimizeMode,
+
+    /// Provides access to info about nodes captured from parent graphs.
+    /// This is needed for some optimization passes.
+    capture_env: Option<&'a CaptureEnv<'a>>,
+}
+
+/// Options which customize how a model is loaded.
+///
+/// This enables more advanced use cases such as loading a model with only
+/// a subset of operators available, or with different sets of optimizations
+/// applied.
+#[derive(Clone)]
+pub struct ModelOptions {
+    registry: Arc<OpRegistry>,
+    optimize: bool,
+    prepack_weights: bool,
+}
+
+impl ModelOptions {
+    /// Create a set of options with all operators enabled.
+    pub fn with_all_ops() -> ModelOptions {
+        Self::with_ops(OpRegistry::with_all_ops())
+    }
+
+    /// Create a set of options with a custom set of operators enabled.
+    ///
+    /// This can be used to reduce binary size by excluding operators that
+    /// the model will not use, or use custom implementations of operators.
+    pub fn with_ops(ops: OpRegistry) -> ModelOptions {
+        ModelOptions {
+            registry: ops.into(),
+            optimize: true,
+            prepack_weights: false,
+        }
+    }
+
+    /// Set whether graph optimizations are enabled.
+    pub fn enable_optimization(&mut self, enable: bool) -> &mut Self {
+        self.optimize = enable;
+        self
+    }
+
+    /// Set whether weights are prepacked.
+    ///
+    /// Prepacking creates copies of the weights with an optimized data layout.
+    /// Enabling this will increase model load time and memory usage but allow
+    /// for faster inference.
+    pub fn prepack_weights(&mut self, prepack: bool) -> &mut Self {
+        self.prepack_weights = prepack;
+        self
+    }
+
+    /// Load the model from a file. See [`Model::load_file`].
+    pub fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
+        match FileType::from_path(path.as_ref()).ok_or(ModelLoadError::UnknownFileType)? {
+            FileType::Rten => {
+                let data = std::fs::read(&path).map_err(ModelLoadError::ReadFailed)?;
+                let storage = Arc::new(ConstantStorage::Buffer(data));
+                rten_loader::load(storage, self)
+            }
+            FileType::Onnx => {
+                let loader = external_data::FileLoader::new(path.as_ref())?;
+                onnx_loader::load(
+                    onnx_loader::Source::Path(path.as_ref()),
+                    Some(&loader),
+                    self,
+                )
+            }
+        }
+    }
+
+    /// Load the model from a data buffer. See [`Model::load`].
+    pub fn load(&self, data: Vec<u8>) -> Result<Model, ModelLoadError> {
+        match FileType::from_buffer(&data).ok_or(ModelLoadError::UnknownFileType)? {
+            FileType::Rten => {
+                let storage = Arc::new(ConstantStorage::Buffer(data));
+                rten_loader::load(storage, self)
+            }
+            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(&data), None, self),
+        }
+    }
+
+    /// Load the model from a static slice of bytes. See [`Model::load_static_slice`].
+    pub fn load_static_slice(&self, data: &'static [u8]) -> Result<Model, ModelLoadError> {
+        match FileType::from_buffer(data).ok_or(ModelLoadError::UnknownFileType)? {
+            FileType::Rten => {
+                let storage = Arc::new(ConstantStorage::StaticSlice(data));
+                rten_loader::load(storage, self)
+            }
+            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(data), None, self),
+        }
+    }
+
+    /// Load the model from a memory-mapped view of a file.
+    ///
+    /// This method is only efficient for `.rten` files and ONNX models with
+    /// external weights. See [`Model::load_mmap`] for more details.
+    ///
+    /// To limit the scope of `unsafe` when using this API, you can construct
+    /// a `ModelOptions` and clone it before calling `load_mmap`:
+    ///
+    /// ```no_run
+    /// use rten::ModelOptions;
+    ///
+    /// let opts = ModelOptions::default().prepack_weights(true).clone();
+    /// let model = unsafe { opts.load_mmap("model.rten") };
+    /// ```
+    ///
+    /// If the model references tensor data in external files, that data will
+    /// also be loaded via memory-mapping.
+    ///
+    /// # Safety
+    ///
+    /// See notes in [`Model::load_mmap`].
+    #[cfg(feature = "mmap")]
+    pub unsafe fn load_mmap<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
+        let file = File::open(&path).map_err(ModelLoadError::ReadFailed)?;
+        let mmap = unsafe { Mmap::map(&file) }.map_err(ModelLoadError::ReadFailed)?;
+        match FileType::from_path(path.as_ref()).ok_or(ModelLoadError::UnknownFileType)? {
+            FileType::Rten => {
+                let storage = Arc::new(ConstantStorage::Mmap(mmap));
+                rten_loader::load(storage, self)
+            }
+            FileType::Onnx => {
+                // Safety: By calling `load_mmap` the caller has accepted the
+                // associated risks, so we can also use mmap to load external
+                // data files.
+                let loader = unsafe { external_data::MmapLoader::new(path.as_ref()) }?;
+                onnx_loader::load(onnx_loader::Source::Buffer(&mmap), Some(&loader), self)
+            }
+        }
+    }
+}
+
+/// Create model options using [`ModelOptions::with_all_ops`].
+impl Default for ModelOptions {
+    fn default() -> Self {
+        ModelOptions::with_all_ops()
+    }
+}
+
+#[derive(Clone)]
+enum OptimizeMode {
+    // Disable graph optimizations.
+    Off,
+
+    // Enable graph optimizations.
+    On(OptimizeOptions),
 }
 
 /// Errors reported by [`Model::load`].
@@ -677,47 +672,6 @@ impl<E: Display> Display for NodeError<E> {
 }
 
 impl<E: std::fmt::Debug + Display> Error for NodeError<E> {}
-
-/// Transmute a `[u8]` to `[T]` provided it is correctly aligned and we're on
-/// a little-endian system.
-fn cast_le_bytes<T: Pod>(bytes: &[u8]) -> Option<&[T]> {
-    if std::mem::size_of::<T>() != 1 && !cfg!(target_endian = "little") {
-        return None;
-    }
-    cast_pod_slice(bytes)
-}
-
-/// Convert a range of bytes in storage into data for a graph constant.
-///
-/// If the data is correctly aligned and the system is little-endian, this will
-/// return a view, otherwise it will copy the data into an owned tensor.
-fn constant_data_from_storage_offset<T: LeBytes + Pod>(
-    storage: &Arc<ConstantStorage>,
-    shape: &[usize],
-    offset: usize,
-) -> Result<ConstantNodeData<T>, ModelLoadError> {
-    let n_elements: usize = shape.iter().product();
-    let byte_len = n_elements * std::mem::size_of::<T>();
-
-    let Some(bytes) = storage.data().get(offset..offset + byte_len) else {
-        return Err(ModelLoadError::GraphError(
-            "invalid tensor data offset".into(),
-        ));
-    };
-
-    if let Some(elements) = cast_le_bytes(bytes) {
-        let storage =
-            ArcSlice::new(storage.clone(), elements).expect("storage does not contain data");
-        let const_data: ConstantNodeData<T> = ArcTensorView::from_data(shape, storage).into();
-        Ok(const_data)
-    } else {
-        let data: Vec<_> = bytes
-            .chunks(std::mem::size_of::<T>())
-            .map(|chunk| T::from_le_bytes(chunk.try_into().unwrap()))
-            .collect();
-        Ok(ArcTensor::from_data(shape, Arc::new(data)).into())
-    }
-}
 
 #[cfg(test)]
 mod tests {
