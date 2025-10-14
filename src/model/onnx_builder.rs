@@ -8,6 +8,7 @@ use rten_onnx::onnx;
 pub enum AttrValue {
     Bool(bool),
     Float(f32),
+    Graph(onnx::GraphProto),
     Int(i64),
     Ints(Vec<i64>),
     String(String),
@@ -20,6 +21,7 @@ pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
     match value {
         AttrValue::Bool(val) => attr.i = Some(val as i64),
         AttrValue::Float(val) => attr.f = Some(val),
+        AttrValue::Graph(val) => attr.g = Some(val),
         AttrValue::Int(val) => attr.i = Some(val),
         AttrValue::Ints(val) => attr.ints = val,
         AttrValue::String(val) => attr.s = Some(val),
