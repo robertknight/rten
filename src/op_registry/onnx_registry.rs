@@ -25,7 +25,7 @@ use crate::value::{DataType, Scalar};
 pub struct OnnxOpRegistry {
     /// Map from operator type (the `NodeProto.op_type` protobuf field) to
     /// deserialization function.
-    ops: FxHashMap<&'static str, Box<ReadOpFunction>>,
+    ops: FxHashMap<&'static str, &'static ReadOpFunction>,
 }
 
 impl OnnxOpRegistry {
@@ -37,33 +37,16 @@ impl OnnxOpRegistry {
 
     /// Register the default/built-in implementation of an operator.
     pub fn register_op<Op: ReadOp + 'static>(&mut self) {
-        self.register_op_with_factory(
-            Op::op_type(),
-            Box::new(|op: &onnx::NodeProto, ctx: &dyn OpLoadContext| Op::read_boxed(op, ctx)),
-        );
-    }
-
-    /// Register a stub implementation of an operator.
-    ///
-    /// This registers stubs for an operator that is not available because
-    /// necessary crate features were not enabled. The purpose of the stub is
-    /// to generate a more helpful error message.
-    #[allow(unused)]
-    pub(crate) fn register_stub_op(&mut self, op_type: &'static str, feature: &'static str) {
-        self.register_op_with_factory(
-            op_type,
-            Box::new(move |_op, _ctx| {
-                Err(ReadOpError::FeatureNotEnabled {
-                    name: op_type.to_string(),
-                    feature: feature.to_string(),
-                })
-            }),
-        );
+        self.register_op_with_factory(Op::op_type(), &Op::read_boxed);
     }
 
     /// Register an operator with a custom factory to deserialize it from a
     /// model file.
-    fn register_op_with_factory(&mut self, op_type: &'static str, factory: Box<ReadOpFunction>) {
+    fn register_op_with_factory(
+        &mut self,
+        op_type: &'static str,
+        factory: &'static ReadOpFunction,
+    ) {
         self.ops.insert(op_type, factory);
     }
 
@@ -91,7 +74,15 @@ impl OnnxOpRegistry {
                 #[cfg(feature = $feature)]
                 reg.register_op::<ops::$op>();
                 #[cfg(not(feature = $feature))]
-                reg.register_stub_op(stringify!($op), $feature);
+                {
+                    fn stub(_op: &onnx::NodeProto, _ctx: &dyn OpLoadContext) -> ReadOpResult {
+                        Err(ReadOpError::FeatureNotEnabled {
+                            name: stringify!($op).to_string(),
+                            feature: $feature.to_string(),
+                        })
+                    }
+                    reg.register_op_with_factory(stringify!($op), &stub);
+                }
             };
         }
 
