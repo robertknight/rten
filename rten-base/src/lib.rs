@@ -5,6 +5,7 @@
 
 pub mod bit_set;
 pub mod byte_cast;
+pub mod from;
 pub mod hint;
 pub mod iter;
 pub mod num;
