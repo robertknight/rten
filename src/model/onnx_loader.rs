@@ -890,7 +890,8 @@ mod tests {
     use super::{Source, load};
     use crate::graph::{Constant, Graph, TypedConstant};
     use crate::model::onnx_builder::{
-        AttrValue, TensorData, create_model, create_node, create_tensor, create_value_info,
+        AttrValue, NodeProtoExt, TensorData, create_model, create_node, create_tensor,
+        create_value_info,
     };
     use crate::model::{Model, ModelLoadError, ModelOptions};
 
@@ -970,18 +971,13 @@ mod tests {
 
         let mut then_branch = onnx::GraphProto::default();
         then_branch.value_info.push(create_value_info("x"));
-        let mut id_op = create_node("Identity", &[]);
-        id_op.input.push("x".to_string());
+        let id_op = create_node("Identity").with_input("x");
         then_branch.node.push(id_op);
 
-        let mut if_node = create_node(
-            "If",
-            &[
-                ("then_branch", AttrValue::Graph(then_branch)),
-                ("else_branch", AttrValue::Graph(onnx::GraphProto::default())),
-            ],
-        );
-        if_node.name = Some("if_op".into());
+        let if_node = create_node("If")
+            .with_attr("then_branch", then_branch)
+            .with_attr("else_branch", onnx::GraphProto::default())
+            .with_name("if_op");
         graph.node.push(if_node);
 
         let model_proto = create_model(graph);
@@ -1005,13 +1001,10 @@ mod tests {
         let mut graph = onnx::GraphProto::default();
         graph.input.push(create_value_info("x"));
 
-        let mut node = create_node(
-            "Clip",
-            &[
-                ("min", AttrValue::Float(-0.5)),
-                ("max", AttrValue::Float(0.5)),
-            ],
-        );
+        let mut node = create_node("Clip")
+            .with_attr("min", -0.5)
+            .with_attr("max", 0.5)
+            .with_name("clip_op");
         node.name = Some("clip_op".into());
         graph.node.push(node);
 
@@ -1080,7 +1073,7 @@ mod tests {
     fn test_unused_attributes() {
         let mut graph = onnx::GraphProto::default();
 
-        let mut node = create_node("Clip", &[("unused_attr", AttrValue::Float(-0.5))]);
+        let mut node = create_node("Clip").with_attr("unused_attr", -0.5);
         node.name = Some("clip_op".into());
         graph.node.push(node);
 

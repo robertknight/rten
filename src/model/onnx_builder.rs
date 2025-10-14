@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 
+use rten_base::from::enum_from;
 use rten_onnx::onnx;
 
 #[derive(Clone)]
@@ -14,6 +15,14 @@ pub enum AttrValue {
     String(String),
     Tensor(onnx::TensorProto),
 }
+
+enum_from!(AttrValue, Bool, bool);
+enum_from!(AttrValue, Float, f32);
+enum_from!(AttrValue, Graph, onnx::GraphProto);
+enum_from!(AttrValue, Int, i64);
+enum_from!(AttrValue, Ints, Vec<i64>);
+enum_from!(AttrValue, String, String);
+enum_from!(AttrValue, Tensor, onnx::TensorProto);
 
 pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
     let mut attr = onnx::AttributeProto::default();
@@ -36,13 +45,34 @@ pub fn create_model(graph: onnx::GraphProto) -> onnx::ModelProto {
     model
 }
 
-pub fn create_node(op_type: &str, attrs: &[(&str, AttrValue)]) -> onnx::NodeProto {
+pub fn create_node(op_type: &str) -> onnx::NodeProto {
     let mut node = onnx::NodeProto::default();
     node.op_type = Some(op_type.to_string());
-    for (name, val) in attrs {
-        node.attribute.push(create_attr(name, val.clone()));
-    }
     node
+}
+
+/// Fluent methods for building an [`onnx::NodeProto`].
+pub trait NodeProtoExt {
+    fn with_attr(self, name: &str, value: impl Into<AttrValue>) -> Self;
+    fn with_name(self, name: &str) -> Self;
+    fn with_input(self, name: &str) -> Self;
+}
+
+impl NodeProtoExt for onnx::NodeProto {
+    fn with_attr(mut self, name: &str, value: impl Into<AttrValue>) -> Self {
+        self.attribute.push(create_attr(name, value.into()));
+        self
+    }
+
+    fn with_name(mut self, name: &str) -> Self {
+        self.name = Some(name.to_string());
+        self
+    }
+
+    fn with_input(mut self, name: &str) -> Self {
+        self.input.push(name.to_string());
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
