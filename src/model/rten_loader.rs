@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use rten_base::byte_cast::Pod;
+use rten_base::byte_cast::{Pod, cast_pod_slice};
+use rten_base::num::LeBytes;
 use rten_model_file::header::{Header, HeaderError};
 use rten_model_file::schema as sg;
 use rten_model_file::schema::root_as_model;
@@ -11,7 +12,7 @@ use rten_tensor::ArcTensor;
 
 use super::{
     ConstantStorage, Model, ModelLoadError, ModelMetadata, ModelOptions, NodeError, OptimizeMode,
-    OptimizeOptions, SubgraphOptions, cast_le_bytes, constant_data_from_storage_offset,
+    OptimizeOptions, SubgraphOptions,
 };
 use crate::constant_storage::{ArcSlice, ArcTensorView};
 use crate::graph::{CaptureEnv, ConstantNodeData, Dimension, Graph, NodeId};
@@ -357,5 +358,46 @@ fn constant_data_from_flatbuffers_vec<'a, T: Pod + flatbuffers::Follow<'a, Inner
     } else {
         let data: Vec<T> = fb_vec.iter().collect();
         ArcTensor::from_data(shape, Arc::new(data)).into()
+    }
+}
+
+/// Transmute a `[u8]` to `[T]` provided it is correctly aligned and we're on
+/// a little-endian system.
+fn cast_le_bytes<T: Pod>(bytes: &[u8]) -> Option<&[T]> {
+    if std::mem::size_of::<T>() != 1 && !cfg!(target_endian = "little") {
+        return None;
+    }
+    cast_pod_slice(bytes)
+}
+
+/// Convert a range of bytes in storage into data for a graph constant.
+///
+/// If the data is correctly aligned and the system is little-endian, this will
+/// return a view, otherwise it will copy the data into an owned tensor.
+fn constant_data_from_storage_offset<T: LeBytes + Pod>(
+    storage: &Arc<ConstantStorage>,
+    shape: &[usize],
+    offset: usize,
+) -> Result<ConstantNodeData<T>, ModelLoadError> {
+    let n_elements: usize = shape.iter().product();
+    let byte_len = n_elements * std::mem::size_of::<T>();
+
+    let Some(bytes) = storage.data().get(offset..offset + byte_len) else {
+        return Err(ModelLoadError::GraphError(
+            "invalid tensor data offset".into(),
+        ));
+    };
+
+    if let Some(elements) = cast_le_bytes(bytes) {
+        let storage =
+            ArcSlice::new(storage.clone(), elements).expect("storage does not contain data");
+        let const_data: ConstantNodeData<T> = ArcTensorView::from_data(shape, storage).into();
+        Ok(const_data)
+    } else {
+        let data: Vec<_> = bytes
+            .chunks(std::mem::size_of::<T>())
+            .map(|chunk| T::from_le_bytes(chunk.try_into().unwrap()))
+            .collect();
+        Ok(ArcTensor::from_data(shape, Arc::new(data)).into())
     }
 }
