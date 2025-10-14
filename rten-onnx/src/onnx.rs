@@ -25,7 +25,7 @@ impl AttributeType {
     pub const INTS: Self = Self(7);
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct AttributeProto {
     pub name: Option<String>,
     pub f: Option<f32>,
@@ -100,7 +100,7 @@ impl DecodeMessage for AttributeProto {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct NodeProto {
     pub name: Option<String>,
     pub input: Vec<String>,
@@ -274,7 +274,7 @@ impl DataType {
     pub const DOUBLE: Self = Self(11);
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Dimension {
     pub dim_value: Option<i64>,
     pub dim_param: Option<String>,
@@ -344,7 +344,7 @@ impl DecodeMessage for StringStringEntryProto {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TensorShapeProto {
     pub dim: Vec<Dimension>,
 }
@@ -374,7 +374,7 @@ impl DecodeMessage for TensorShapeProto {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TypeProtoTensor {
     pub elem_type: Option<DataType>,
     pub shape: Option<TensorShapeProto>,
@@ -409,7 +409,7 @@ impl DecodeMessage for TypeProtoTensor {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TypeProtoSequence {
     pub elem_type: Option<TypeProto>,
 }
@@ -439,7 +439,7 @@ impl DecodeMessage for TypeProtoSequence {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TypeProto {
     pub tensor_type: Option<TypeProtoTensor>,
     pub sequence: Option<Box<TypeProtoSequence>>,
@@ -474,7 +474,7 @@ impl DecodeMessage for TypeProto {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ValueInfoProto {
     pub name: Option<String>,
     pub r#type: Option<TypeProto>,
@@ -509,7 +509,7 @@ impl DecodeMessage for ValueInfoProto {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct GraphProto {
     pub node: Vec<NodeProto>,
     pub initializer: Vec<TensorProto>,

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 
@@ -97,10 +98,10 @@ fn load_graph(
 
     let add_value = |graph: &mut Graph, name, value| {
         let (dtype, shape) = load_value_info(value);
-        graph.add_value(Some(name), shape, dtype);
+        graph.add_value(Some(name), shape, dtype)
     };
 
-    // Create value nodes corresponding to `ValueInfoProto`s in the ONNX graph.
+    // Create value nodes corresponding to graph inputs and outputs.
     for value in &onnx_graph.input {
         let name = value.name.as_deref().unwrap_or_default();
         if name.is_empty() {
@@ -121,6 +122,11 @@ fn load_graph(
         add_value(&mut graph, name, value);
     }
 
+    // Create map of value name to dtype and shape metadata.
+    //
+    // We don't actually create value nodes until we see the value being used as
+    // an operator input or output.
+    let mut name_to_value_info = HashMap::with_capacity(onnx_graph.value_info.len());
     for value in &onnx_graph.value_info {
         let name = match value.name.as_deref() {
             Some(name) if !name.is_empty() => name,
@@ -135,7 +141,7 @@ fn load_graph(
                 continue;
             }
         };
-        add_value(&mut graph, name, value);
+        name_to_value_info.insert(name, value);
     }
 
     // Add constants from initializers.
@@ -162,13 +168,19 @@ fn load_graph(
             // than operators.
             continue;
         }
+
         for name in op.input.iter().chain(&op.output) {
             if name.is_empty() {
                 // Empty names represent unused optional inputs or outputs.
                 continue;
             }
             if graph.get_node_id(name).is_none() {
-                let value_id = graph.add_value(Some(name), None, None);
+                let value_id = if let Some(value_info) = name_to_value_info.get(name.as_str()) {
+                    add_value(&mut graph, name, value_info)
+                } else {
+                    // Add node without dtype or shape metadata.
+                    graph.add_value(Some(name), None, None)
+                };
 
                 // If no value with this name was present in this graph, but
                 // is available in a parent, mark it as a capture.
@@ -948,6 +960,44 @@ mod tests {
             err.to_string(),
             "graph error: graph output has missing or invalid name"
         );
+    }
+
+    #[test]
+    fn test_sub_graph_capture() {
+        // Create subgraph with a capture.
+        let mut graph = onnx::GraphProto::default();
+        graph.input.push(create_value_info("x"));
+
+        let mut then_branch = onnx::GraphProto::default();
+        then_branch.value_info.push(create_value_info("x"));
+        let mut id_op = create_node("Identity", &[]);
+        id_op.input.push("x".to_string());
+        then_branch.node.push(id_op);
+
+        let mut if_node = create_node(
+            "If",
+            &[
+                ("then_branch", AttrValue::Graph(then_branch)),
+                ("else_branch", AttrValue::Graph(onnx::GraphProto::default())),
+            ],
+        );
+        if_node.name = Some("if_op".into());
+        graph.node.push(if_node);
+
+        let model_proto = create_model(graph);
+        let model = load_model(model_proto).unwrap();
+
+        // Verify the capture list for the subgraph was populated correctly.
+        let graph = model.graph();
+        let if_node_id = graph.get_node_id("if_op").unwrap();
+        let if_node = graph
+            .get_node(if_node_id)
+            .and_then(|n| n.as_operator())
+            .unwrap();
+        let then_branch = if_node.operator().as_subgraph_op().unwrap().subgraphs()[0];
+        let captures = then_branch.captures();
+        assert_eq!(captures.len(), 1);
+        assert_eq!(then_branch.node_name(captures[0]), "x");
     }
 
     #[test]
