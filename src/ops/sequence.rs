@@ -8,7 +8,7 @@ use crate::ops::{
     Concat, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, map_value_view,
     resolve_axis, resolve_index,
 };
-use crate::value::{CastError, DataType, Sequence, Value, ValueView};
+use crate::value::{DataType, Sequence, Value, ValueView};
 
 #[derive(Debug)]
 pub struct SequenceEmpty {
@@ -46,17 +46,6 @@ impl Operator for SequenceAt {
     }
 }
 
-/// Cast `value` to the same tensor type as `like`.
-fn cast_like<'a, T>(
-    value: ValueView<'a>,
-    #[allow(unused_variables)] like: &TensorView<T>,
-) -> Result<TensorView<'a, T>, CastError>
-where
-    for<'b> TensorView<'b, T>: TryFrom<ValueView<'b>, Error = CastError>,
-{
-    value.try_into()
-}
-
 #[derive(Debug)]
 pub struct SequenceConstruct {}
 
@@ -74,7 +63,7 @@ impl Operator for SequenceConstruct {
             items.push(first.to_tensor_in(ctx.pool()));
 
             for value in rest {
-                let tensor = cast_like(value, &first)?;
+                let tensor: TensorView<_> = value.try_into()?;
                 items.push(tensor.to_tensor_in(ctx.pool()));
             }
 
