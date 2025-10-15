@@ -475,7 +475,7 @@ impl ModelOptions {
     /// Create a set of options with a custom set of operators enabled.
     ///
     /// This can be used to reduce binary size by excluding operators that
-    /// the model will not use, or use custom implementations of operators.
+    /// the model will not use.
     pub fn with_ops(ops: OpRegistry) -> ModelOptions {
         ModelOptions {
             registry: ops.into(),
