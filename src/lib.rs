@@ -150,7 +150,6 @@ mod constant_storage;
 mod env;
 mod graph;
 mod model;
-mod model_metadata;
 mod op_registry;
 mod optimize;
 mod shift_cast;
@@ -171,8 +170,7 @@ pub mod ops;
 
 pub use buffer_pool::{BufferPool, ExtractBuffer, PoolRef};
 pub use graph::{Dimension, NodeId, RunError, RunOptions};
-pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo};
-pub use model_metadata::ModelMetadata;
+pub use model::{Model, ModelLoadError, ModelMetadata, ModelOptions, NodeInfo};
 pub use op_registry::{OpRegistry, ReadOpError};
 pub use ops::{FloatOperators, Operators};
 pub use threading::{ThreadPool, thread_pool};

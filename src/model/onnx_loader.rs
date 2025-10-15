@@ -8,12 +8,12 @@ use rten_tensor::{ArcTensor, Storage, Tensor};
 
 use super::NodeError;
 use super::external_data::{DataLoader, DataLocation, DataSlice};
+use super::metadata::{MetadataField, ModelMetadata};
 use super::{Model, ModelLoadError, ModelOptions, OptimizeMode};
 use crate::constant_storage::{ArcSlice, ArcTensorView};
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Dimension, Graph, NodeId,
 };
-use crate::model_metadata::ModelMetadata;
 use crate::op_registry::onnx_registry::{ConstInput, DynParsedOp, OpLoadContext};
 use crate::op_registry::{OpRegistry, ReadOpError};
 use crate::optimize::{GraphOptimizer, OptimizeOptions};
@@ -54,7 +54,7 @@ pub fn load(
         OptimizeMode::Off
     };
 
-    let graph = if let Some(onnx_graph) = model.graph {
+    let graph = if let Some(onnx_graph) = &model.graph {
         load_graph(&onnx_graph, &options.registry, optimize_opts, None, loader)?
     } else {
         Graph::new()
@@ -65,12 +65,12 @@ pub fn load(
         graph.prepack_weights(&mut weight_cache);
     }
 
+    let metadata = load_metadata(&model);
+
     Ok(Model {
+        metadata,
         graph,
         weight_cache,
-
-        // Not implemented yet.
-        metadata: ModelMetadata::default(),
     })
 }
 
@@ -84,6 +84,17 @@ macro_rules! load_error {
     ($kind:ident, $node_name:expr, $err:expr) => {{
         ModelLoadError::$kind(NodeError::for_node($node_name, $err).into())
     }}
+}
+
+fn load_metadata(model: &onnx::ModelProto) -> ModelMetadata {
+    let mut fields = Vec::new();
+    if let Some(name) = &model.producer_name {
+        fields.push((MetadataField::ProducerName, name.clone()));
+    }
+    if let Some(version) = &model.producer_version {
+        fields.push((MetadataField::ProducerVersion, version.clone()));
+    }
+    ModelMetadata::from_fields(fields)
 }
 
 fn load_graph(
@@ -1079,5 +1090,17 @@ mod tests {
             err.to_string(),
             "operator error: in node \"clip_op\": unsupported or duplicated attributes: unused_attr"
         );
+    }
+
+    #[test]
+    fn test_metadata() {
+        let mut model_proto = onnx::GraphProto::default().into_model();
+        model_proto.producer_name = Some("pytorch".into());
+        model_proto.producer_version = Some("2.8.0".into());
+
+        let model = load_model(model_proto).unwrap();
+
+        assert_eq!(model.metadata().producer_name(), Some("pytorch"));
+        assert_eq!(model.metadata().producer_version(), Some("2.8.0"));
     }
 }

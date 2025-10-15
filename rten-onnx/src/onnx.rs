@@ -564,10 +564,14 @@ impl DecodeMessage for GraphProto {
 pub struct ModelProto {
     pub ir_version: Option<i64>,
     pub graph: Option<GraphProto>,
+    pub producer_name: Option<String>,
+    pub producer_version: Option<String>,
 }
 
 impl ModelProto {
     const IR_VERSION: u64 = 1;
+    const PRODUCER_NAME: u64 = 2;
+    const PRODUCER_VERSION: u64 = 3;
     const GRAPH: u64 = 7;
 
     // The non-generic `parse_file` and `parse_buf` methods allow the parsing
@@ -600,6 +604,12 @@ impl DecodeMessage for ModelProto {
                 }
                 Self::GRAPH => {
                     msg.graph = Some(GraphProto::decode_field(&mut field)?);
+                }
+                Self::PRODUCER_NAME => {
+                    msg.producer_name = Some(field.read_string()?);
+                }
+                Self::PRODUCER_VERSION => {
+                    msg.producer_version = Some(field.read_string()?);
                 }
                 _ => {
                     field.skip()?;
