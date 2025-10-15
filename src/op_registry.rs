@@ -34,6 +34,23 @@ impl OpRegistry {
     }
 
     /// Register the default/built-in implementation of an operator.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use rten::ops::{Conv, Gemm, MaxPool, ReduceMean, Relu};
+    /// use rten::{Model, ModelOptions, OpRegistry};
+    ///
+    /// // Register only the ops needed for the model.
+    /// let mut reg = OpRegistry::new();
+    /// reg.register_op::<Conv>();
+    /// reg.register_op::<Relu>();
+    /// reg.register_op::<MaxPool>();
+    /// reg.register_op::<ReduceMean>();
+    /// reg.register_op::<Gemm>();
+    ///
+    /// let model = ModelOptions::with_ops(reg).load_file("mnist.onnx")?;
+    /// # Ok(()) }
+    /// ```
     pub fn register_op<Op: rten_registry::ReadOp + onnx_registry::ReadOp + 'static>(&mut self) {
         self.rten_registry.register_op::<Op>();
         self.onnx_registry.register_op::<Op>();
