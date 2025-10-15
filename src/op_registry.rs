@@ -34,8 +34,9 @@ impl OpRegistry {
     }
 
     /// Register the default/built-in implementation of an operator.
-    pub fn register_op<Op: rten_registry::ReadOp + 'static>(&mut self) {
+    pub fn register_op<Op: rten_registry::ReadOp + onnx_registry::ReadOp + 'static>(&mut self) {
         self.rten_registry.register_op::<Op>();
+        self.onnx_registry.register_op::<Op>();
     }
 
     /// Return the inner registry for deserializing operators from .rten models.
