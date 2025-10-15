@@ -15,6 +15,8 @@ pub enum MetadataField {
     // Standard fields in ONNX models.
     ProducerName,
     ProducerVersion,
+
+    Custom(String),
 }
 
 impl MetadataField {
@@ -30,6 +32,7 @@ impl MetadataField {
             Self::RunUrl => "run_url",
             Self::ProducerName => "producer_name",
             Self::ProducerVersion => "producer_version",
+            Self::Custom(value) => &value,
         }
     }
 }
@@ -138,6 +141,14 @@ impl ModelMetadata {
     /// Return the version of the framework or tool used to produce the model.
     pub fn producer_version(&self) -> Option<&str> {
         self.field(&MetadataField::ProducerVersion)
+    }
+
+    /// Get the value of a metadata field by name.
+    pub fn get(&self, name: &str) -> Option<&str> {
+        let key = MetadataField::Custom(
+            name.to_string(), // Clone is not ideal, but it makes the types simpler.
+        );
+        self.fields.get(&key).map(|v| v.as_str())
     }
 
     fn field(&self, field: &MetadataField) -> Option<&str> {

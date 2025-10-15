@@ -94,6 +94,13 @@ fn load_metadata(model: &onnx::ModelProto) -> ModelMetadata {
     if let Some(version) = &model.producer_version {
         fields.push((MetadataField::ProducerVersion, version.clone()));
     }
+    for prop in &model.metadata_props {
+        let Some(key) = &prop.key else {
+            continue;
+        };
+        let value = prop.value.as_deref().unwrap_or_default();
+        fields.push((MetadataField::Custom(key.clone()), value.to_string()));
+    }
     ModelMetadata::from_fields(fields)
 }
 
@@ -1098,9 +1105,26 @@ mod tests {
         model_proto.producer_name = Some("pytorch".into());
         model_proto.producer_version = Some("2.8.0".into());
 
+        let mut custom_prop = onnx::StringStringEntryProto::default();
+        custom_prop.key = Some("a_key".into());
+        custom_prop.value = Some("a_value".into());
+        model_proto.metadata_props.push(custom_prop);
+
         let model = load_model(model_proto).unwrap();
 
         assert_eq!(model.metadata().producer_name(), Some("pytorch"));
         assert_eq!(model.metadata().producer_version(), Some("2.8.0"));
+        assert_eq!(model.metadata().get("a_key"), Some("a_value"));
+
+        let mut fields: Vec<_> = model.metadata().fields().collect();
+        fields.sort_by_key(|(field, _val)| *field);
+        assert_eq!(
+            fields,
+            &[
+                ("a_key", "a_value"),
+                ("producer_name", "pytorch"),
+                ("producer_version", "2.8.0"),
+            ]
+        );
     }
 }
