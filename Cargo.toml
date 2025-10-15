@@ -57,8 +57,8 @@ flatbuffers = { workspace = true }
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
 rten-base = { path = "./rten-base", version = "0.22.1" }
 rten-gemm = { path = "./rten-gemm", version = "0.22.1" }
-rten-model-file = { path = "./rten-model-file", version = "0.22.1" }
-rten-onnx = { path = "./rten-onnx", version = "0.22.1" }
+rten-model-file = { path = "./rten-model-file", version = "0.22.1", optional = true }
+rten-onnx = { path = "./rten-onnx", version = "0.22.1", optional = true }
 rten-tensor = { path = "./rten-tensor", version = "0.22.1" }
 rten-vecmath = { path = "./rten-vecmath", version = "0.22.1" }
 rten-simd = { path = "./rten-simd", version = "0.22.1" }
@@ -81,18 +81,24 @@ serde_json = { workspace = true }
 crate-type = ["lib", "cdylib"]
 
 [features]
+default = ["onnx_format", "rten_format"]
+
+# Enable all features that affect supported operators
+all-ops = ["fft", "random"]
 # Enables FFT operators (DFT, STFT etc.)
 fft = ["dep:rustfft"]
 # Enable loading models using memory mapping
 mmap = ["dep:memmap2"]
+# Enable module for building .rten models
+model_builder = []
+# Enable support for loading .onnx models
+onnx_format = ["dep:rten-onnx"]
 # Generate WebAssembly API using wasm-bindgen.
 wasm_api = []
 # Enable operators that generate random numbers.
 random = ["dep:fastrand", "dep:fastrand-contrib"]
-# Enable all features that affect supported operators
-all-ops = ["fft", "random"]
-# Enable module for building .rten models
-model_builder = []
+# Enable support for loading .rten models
+rten_format = ["dep:rten-model-file"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.100"

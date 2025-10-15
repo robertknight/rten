@@ -1,10 +1,14 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+#[cfg(feature = "rten_format")]
 pub mod rten_registry;
+#[cfg(feature = "rten_format")]
 use rten_registry::RtenOpRegistry;
 
+#[cfg(feature = "onnx_format")]
 pub mod onnx_registry;
+#[cfg(feature = "onnx_format")]
 use onnx_registry::OnnxOpRegistry;
 
 /// Registry used to deserialize operators when loading a model.
@@ -18,9 +22,11 @@ use onnx_registry::OnnxOpRegistry;
 #[derive(Default)]
 pub struct OpRegistry {
     /// Registry for deserializing operators from .rten model files.
+    #[cfg(feature = "rten_format")]
     rten_registry: RtenOpRegistry,
 
     /// Registry for deserializing operators from .onnx model files.
+    #[cfg(feature = "onnx_format")]
     onnx_registry: OnnxOpRegistry,
 }
 
@@ -28,7 +34,9 @@ impl OpRegistry {
     /// Create a new empty registry.
     pub fn new() -> OpRegistry {
         OpRegistry {
+            #[cfg(feature = "rten_format")]
             rten_registry: RtenOpRegistry::new(),
+            #[cfg(feature = "onnx_format")]
             onnx_registry: OnnxOpRegistry::new(),
         }
     }
@@ -51,17 +59,30 @@ impl OpRegistry {
     /// let model = ModelOptions::with_ops(reg).load_file("mnist.onnx")?;
     /// # Ok(()) }
     /// ```
+    #[cfg(all(feature = "onnx_format", feature = "rten_format"))]
     pub fn register_op<Op: rten_registry::ReadOp + onnx_registry::ReadOp + 'static>(&mut self) {
         self.rten_registry.register_op::<Op>();
         self.onnx_registry.register_op::<Op>();
     }
 
+    #[cfg(all(not(feature = "onnx_format"), feature = "rten_format"))]
+    pub fn register_op<Op: rten_registry::ReadOp + 'static>(&mut self) {
+        self.rten_registry.register_op::<Op>();
+    }
+
+    #[cfg(all(feature = "onnx_format", not(feature = "rten_format")))]
+    pub fn register_op<Op: onnx_registry::ReadOp + 'static>(&mut self) {
+        self.onnx_registry.register_op::<Op>();
+    }
+
     /// Return the inner registry for deserializing operators from .rten models.
+    #[cfg(feature = "rten_format")]
     pub(crate) fn rten_registry(&self) -> &rten_registry::RtenOpRegistry {
         &self.rten_registry
     }
 
     /// Return the inner registry for deserializing operators from .onnx models.
+    #[cfg(feature = "onnx_format")]
     pub(crate) fn onnx_registry(&self) -> &onnx_registry::OnnxOpRegistry {
         &self.onnx_registry
     }
@@ -69,7 +90,9 @@ impl OpRegistry {
     /// Create a new registry with all built-in operators registered.
     pub fn with_all_ops() -> OpRegistry {
         OpRegistry {
+            #[cfg(feature = "rten_format")]
             rten_registry: RtenOpRegistry::with_all_ops(),
+            #[cfg(feature = "onnx_format")]
             onnx_registry: OnnxOpRegistry::with_all_ops(),
         }
     }
