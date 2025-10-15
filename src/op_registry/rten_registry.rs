@@ -65,6 +65,8 @@ impl RtenOpRegistry {
     pub fn with_all_ops() -> RtenOpRegistry {
         let mut reg = RtenOpRegistry::new();
 
+        reg.ops.reserve(sg::OperatorType::ENUM_VALUES.len());
+
         macro_rules! register_op {
             ($op:ident) => {
                 reg.register_op::<ops::$op>()

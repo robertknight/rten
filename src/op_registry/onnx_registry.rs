@@ -65,6 +65,10 @@ impl OnnxOpRegistry {
     pub fn with_all_ops() -> Self {
         let mut reg = OnnxOpRegistry::new();
 
+        // As of 2025-10 there are 128 ops defined. Use a power of 2 with some
+        // future headroom.
+        reg.ops.reserve(256);
+
         macro_rules! register_op {
             ($op:ident) => {
                 reg.register_op::<ops::$op>()
