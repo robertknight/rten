@@ -55,7 +55,7 @@ pub fn load(
     };
 
     let graph = if let Some(onnx_graph) = &model.graph {
-        load_graph(&onnx_graph, &options.registry, optimize_opts, None, loader)?
+        load_graph(onnx_graph, &options.registry, optimize_opts, None, loader)?
     } else {
         Graph::new()
     };

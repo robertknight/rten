@@ -11,11 +11,8 @@ use rten_model_file::schema::root_as_model;
 use rten_tensor::ArcTensor;
 
 use super::metadata::{MetadataField, ModelMetadata};
-use super::{
-    ConstantStorage, Model, ModelLoadError, ModelOptions, NodeError, OptimizeMode, OptimizeOptions,
-    SubgraphOptions,
-};
-use crate::constant_storage::{ArcSlice, ArcTensorView};
+use super::{Model, ModelLoadError, ModelOptions, NodeError, OptimizeMode, OptimizeOptions};
+use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
 use crate::graph::{CaptureEnv, ConstantNodeData, Dimension, Graph, NodeId};
 use crate::op_registry::rten_registry::{OpLoadContext, convert_dtype};
 use crate::op_registry::{OpRegistry, ReadOpError};
@@ -104,6 +101,22 @@ fn load_metadata(meta: sg::Metadata) -> ModelMetadata {
     add_field!(RunUrl, run_url);
 
     ModelMetadata::from_fields(fields)
+}
+
+/// Configuration for loading subgraphs.
+struct SubgraphOptions<'a> {
+    /// Tensor data storage
+    storage: Arc<ConstantStorage>,
+
+    /// Offset of tensor data within the storage.
+    tensor_data_offset: Option<u64>,
+
+    /// Configuration for graph optimizer.
+    optimize: OptimizeMode,
+
+    /// Provides access to info about nodes captured from parent graphs.
+    /// This is needed for some optimization passes.
+    capture_env: Option<&'a CaptureEnv<'a>>,
 }
 
 fn load_graph(

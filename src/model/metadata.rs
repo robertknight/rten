@@ -32,7 +32,7 @@ impl MetadataField {
             Self::RunUrl => "run_url",
             Self::ProducerName => "producer_name",
             Self::ProducerVersion => "producer_version",
-            Self::Custom(value) => &value,
+            Self::Custom(value) => value,
         }
     }
 }

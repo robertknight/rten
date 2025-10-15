@@ -10,19 +10,24 @@ use std::fs::File;
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
 
-use crate::constant_storage::ConstantStorage;
 use crate::env::str_as_bool;
-use crate::graph::{CaptureEnv, Dimension, Graph, Node, NodeId, RunError, RunOptions};
+use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
 use crate::op_registry::OpRegistry;
 use crate::optimize::OptimizeOptions;
 use crate::timing::{TimingFilter, TimingSort};
 use crate::value::{DataType, Value, ValueOrView};
 use crate::weight_cache::WeightCache;
 
+#[cfg(feature = "onnx_format")]
 mod external_data;
+
 mod file_type;
 mod metadata;
+
+#[cfg(feature = "onnx_format")]
 mod onnx_loader;
+
+#[cfg(feature = "rten_format")]
 mod rten_loader;
 
 pub use metadata::ModelMetadata;
@@ -32,7 +37,7 @@ use file_type::FileType;
 #[cfg(any(test, feature = "model_builder"))]
 pub mod rten_builder;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "onnx_format"))]
 pub mod onnx_builder;
 
 /// The central type used to execute machine learning models.
@@ -448,22 +453,6 @@ fn parse_timing_config(config: &str, opts: &mut RunOptions) {
     }
 }
 
-/// Configuration for loading subgraphs.
-struct SubgraphOptions<'a> {
-    /// Tensor data storage
-    storage: Arc<ConstantStorage>,
-
-    /// Offset of tensor data within the storage.
-    tensor_data_offset: Option<u64>,
-
-    /// Configuration for graph optimizer.
-    optimize: OptimizeMode,
-
-    /// Provides access to info about nodes captured from parent graphs.
-    /// This is needed for some optimization passes.
-    capture_env: Option<&'a CaptureEnv<'a>>,
-}
-
 /// Options which customize how a model is loaded.
 ///
 /// This enables more advanced use cases such as loading a model with only
@@ -513,11 +502,17 @@ impl ModelOptions {
     /// Load the model from a file. See [`Model::load_file`].
     pub fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
         match FileType::from_path(path.as_ref()).ok_or(ModelLoadError::UnknownFileType)? {
+            #[cfg(feature = "rten_format")]
             FileType::Rten => {
+                use crate::constant_storage::ConstantStorage;
+
                 let data = std::fs::read(&path).map_err(ModelLoadError::ReadFailed)?;
                 let storage = Arc::new(ConstantStorage::Buffer(data));
                 rten_loader::load(storage, self)
             }
+            #[cfg(not(feature = "rten_format"))]
+            FileType::Rten => Err(ModelLoadError::FormatNotEnabled),
+            #[cfg(feature = "onnx_format")]
             FileType::Onnx => {
                 let loader = external_data::FileLoader::new(path.as_ref())?;
                 onnx_loader::load(
@@ -526,28 +521,44 @@ impl ModelOptions {
                     self,
                 )
             }
+            #[cfg(not(feature = "onnx_format"))]
+            FileType::Onnx => Err(ModelLoadError::FormatNotEnabled),
         }
     }
 
     /// Load the model from a data buffer. See [`Model::load`].
     pub fn load(&self, data: Vec<u8>) -> Result<Model, ModelLoadError> {
         match FileType::from_buffer(&data).ok_or(ModelLoadError::UnknownFileType)? {
+            #[cfg(feature = "rten_format")]
             FileType::Rten => {
+                use crate::constant_storage::ConstantStorage;
                 let storage = Arc::new(ConstantStorage::Buffer(data));
                 rten_loader::load(storage, self)
             }
+            #[cfg(not(feature = "rten_format"))]
+            FileType::Rten => Err(ModelLoadError::FormatNotEnabled),
+            #[cfg(feature = "onnx_format")]
             FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(&data), None, self),
+            #[cfg(not(feature = "onnx_format"))]
+            FileType::Onnx => Err(ModelLoadError::FormatNotEnabled),
         }
     }
 
     /// Load the model from a static slice of bytes. See [`Model::load_static_slice`].
     pub fn load_static_slice(&self, data: &'static [u8]) -> Result<Model, ModelLoadError> {
         match FileType::from_buffer(data).ok_or(ModelLoadError::UnknownFileType)? {
+            #[cfg(feature = "rten_format")]
             FileType::Rten => {
+                use crate::constant_storage::ConstantStorage;
                 let storage = Arc::new(ConstantStorage::StaticSlice(data));
                 rten_loader::load(storage, self)
             }
+            #[cfg(not(feature = "rten_format"))]
+            FileType::Rten => Err(ModelLoadError::FormatNotEnabled),
+            #[cfg(feature = "onnx_format")]
             FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(data), None, self),
+            #[cfg(not(feature = "onnx_format"))]
+            FileType::Onnx => Err(ModelLoadError::FormatNotEnabled),
         }
     }
 
@@ -577,10 +588,15 @@ impl ModelOptions {
         let file = File::open(&path).map_err(ModelLoadError::ReadFailed)?;
         let mmap = unsafe { Mmap::map(&file) }.map_err(ModelLoadError::ReadFailed)?;
         match FileType::from_path(path.as_ref()).ok_or(ModelLoadError::UnknownFileType)? {
+            #[cfg(feature = "rten_format")]
             FileType::Rten => {
+                use crate::constant_storage::ConstantStorage;
                 let storage = Arc::new(ConstantStorage::Mmap(mmap));
                 rten_loader::load(storage, self)
             }
+            #[cfg(not(feature = "rten_format"))]
+            FileType::Rten => Err(ModelLoadError::FormatNotEnabled),
+            #[cfg(feature = "onnx_format")]
             FileType::Onnx => {
                 // Safety: By calling `load_mmap` the caller has accepted the
                 // associated risks, so we can also use mmap to load external
@@ -588,6 +604,8 @@ impl ModelOptions {
                 let loader = unsafe { external_data::MmapLoader::new(path.as_ref()) }?;
                 onnx_loader::load(onnx_loader::Source::Buffer(&mmap), Some(&loader), self)
             }
+            #[cfg(not(feature = "onnx_format"))]
+            FileType::Onnx => Err(ModelLoadError::FormatNotEnabled),
         }
     }
 }
@@ -639,6 +657,11 @@ pub enum ModelLoadError {
 
     /// An error occurred reading tensor data stored externally.
     ExternalDataError(Box<dyn Error + Send + Sync>),
+
+    /// The model file type is supported by RTen, but the necessary crate
+    /// features were not enabled.
+    #[allow(unused)]
+    FormatNotEnabled,
 }
 
 impl Display for ModelLoadError {
@@ -653,6 +676,9 @@ impl Display for ModelLoadError {
             ModelLoadError::InvalidHeader(e) => write!(f, "invalid header: {e}"),
             ModelLoadError::UnknownFileType => write!(f, "unknown model file type"),
             ModelLoadError::ExternalDataError(e) => write!(f, "external data error: {e}"),
+            ModelLoadError::FormatNotEnabled => {
+                write!(f, "rten was built without support for this model format")
+            }
         }
     }
 }
@@ -1005,6 +1031,7 @@ mod tests {
         assert!(matches!(err, ModelLoadError::UnknownFileType));
     }
 
+    #[cfg(feature = "onnx_format")]
     #[test]
     fn test_load_onnx() {
         let check_model = |model: Model| {

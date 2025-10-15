@@ -1,9 +1,6 @@
 use std::ffi::OsStr;
 use std::path::Path;
 
-use rten_onnx::onnx::is_onnx_model;
-use rten_onnx::protobuf::ValueReader;
-
 /// File type of a machine learning model.
 #[derive(Debug, PartialEq)]
 pub enum FileType {
@@ -41,10 +38,16 @@ impl FileType {
             return Some(FileType::Rten);
         }
 
-        // ONNX models are serialized Protocol Buffers messages with no file
-        // type identifier, so we attempt some lightweight protobuf parsing.
-        if is_onnx_model(ValueReader::from_buf(data)) {
-            return Some(FileType::Onnx);
+        #[cfg(feature = "onnx_format")]
+        {
+            use rten_onnx::onnx::is_onnx_model;
+            use rten_onnx::protobuf::ValueReader;
+
+            // ONNX models are serialized Protocol Buffers messages with no file
+            // type identifier, so we attempt some lightweight protobuf parsing.
+            if is_onnx_model(ValueReader::from_buf(data)) {
+                return Some(FileType::Onnx);
+            }
         }
 
         // rten files using the v1 format don't have a file type identifier.

@@ -140,6 +140,18 @@
 //! guide](https://github.com/robertknight/rten/blob/main/docs/performance.md) for
 //! information on profiling and improving model execution performance.
 //!
+//! # Crate features
+//!
+//!  - **all-ops** - Enables all operators which are not enabled by default
+//!  - **fft** - Enables FFT operators
+//!  - **mmap** - Enable loading models with memory mapping via [`Model::load_mmap`]
+//!  - **onnx_format** (enabled by default) - Enables support for loading `.onnx` models.
+//!  - **random** - Enables operators that generate random numbers
+//!  - **rten_format** (enabled by default) - Enables support for loading `.rten` models.
+//!  - **wasm_api** - Generate WebAssembly API using wasm-bindgen
+//!
+//! At least one of the **onnx_format** or **rten_format** features must be enabled.
+//!
 //! [model_formats]: https://github.com/robertknight/rten/blob/main/docs/model-formats.md
 //! [onnx_operators]: https://onnx.ai/onnx/operators/
 //! [rten_examples]: https://github.com/robertknight/rten/tree/main/rten-examples
