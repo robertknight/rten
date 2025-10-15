@@ -53,7 +53,8 @@ pub mod onnx_builder;
 ///     // Load the model. If the model is large, using `load_mmap` can be faster.
 ///     let model = Model::load_file("model.onnx")?;
 ///
-///     // Prepare inputs in format expected by model.
+///     // Prepare inputs in format expected by model. See notes about i64/bool
+///     // data types below.
 ///     let input_data: NdTensor<f32, 4> = NdTensor::zeros([1, 3, 224, 224]);
 ///
 ///     // Run the model.
@@ -63,7 +64,8 @@ pub mod onnx_builder;
 ///     let outputs = [model.node_id("output")?];
 ///     let [output] = model.run_n(inputs, outputs, None)?;
 ///
-///     // Convert outputs to expected type and rank.
+///     // Convert outputs to expected type and rank. See notes about i64/bool
+///     // data types below.
 ///     let output: NdTensor<f32, 2> = output.try_into()?;
 ///
 ///     // Post-process outputs.
@@ -88,6 +90,14 @@ pub mod onnx_builder;
 /// These IDs are then used when calling [`Model::run`]. Model execution consists
 /// of generating a plan which starts with the input nodes, and executes the
 /// necessary operators to generate the requested outputs.
+///
+/// ## Input and output data types
+///
+/// Model inputs and outputs can be tensors with `i32`, `f32`, `i8` or `u8`
+/// elements. If an ONNX model expects an `i64` input (eg. for token IDs) or
+/// a `bool` input (eg. for a mask), the input should be passed as `i32` instead.
+/// If an ONNX model has an `i64` or `bool` output, these will be returned as
+/// `i32`.
 ///
 /// ## Graph optimizations
 ///
