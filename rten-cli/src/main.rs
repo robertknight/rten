@@ -96,21 +96,14 @@ fn format_param_count(n: usize) -> String {
 }
 
 fn print_metadata(metadata: &ModelMetadata) {
-    fn print_field<T: std::fmt::Display>(name: &str, value: Option<T>) {
-        if let Some(value) = value {
-            println!("  {}: {}", name, value);
-        }
-    }
-
     println!("Metadata:");
-    print_field("ONNX hash", metadata.onnx_hash());
-    print_field("Description", metadata.description());
-    print_field("License", metadata.license());
-    print_field("Commit", metadata.commit());
-    print_field("Repository", metadata.code_repository());
-    print_field("Model repository", metadata.model_repository());
-    print_field("Run ID", metadata.run_id());
-    print_field("Run URL", metadata.run_url());
+
+    let mut fields: Vec<_> = metadata.fields().collect();
+    fields.sort_by_key(|(field, _val)| *field);
+
+    for (name, value) in fields {
+        println!("  {}: {}", name, value);
+    }
 }
 
 struct InputConfig {

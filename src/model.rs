@@ -13,7 +13,6 @@ use memmap2::Mmap;
 use crate::constant_storage::ConstantStorage;
 use crate::env::str_as_bool;
 use crate::graph::{CaptureEnv, Dimension, Graph, Node, NodeId, RunError, RunOptions};
-use crate::model_metadata::ModelMetadata;
 use crate::op_registry::OpRegistry;
 use crate::optimize::OptimizeOptions;
 use crate::timing::{TimingFilter, TimingSort};
@@ -22,8 +21,11 @@ use crate::weight_cache::WeightCache;
 
 mod external_data;
 mod file_type;
+mod metadata;
 mod onnx_loader;
 mod rten_loader;
+
+pub use metadata::ModelMetadata;
 
 use file_type::FileType;
 

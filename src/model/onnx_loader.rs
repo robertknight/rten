@@ -6,14 +6,13 @@ use rten_base::byte_cast::{Pod, cast_pod_slice};
 use rten_onnx::onnx;
 use rten_tensor::{ArcTensor, Storage, Tensor};
 
-use super::NodeError;
 use super::external_data::{DataLoader, DataLocation, DataSlice};
 use super::{Model, ModelLoadError, ModelOptions, OptimizeMode};
+use super::{ModelMetadata, NodeError};
 use crate::constant_storage::{ArcSlice, ArcTensorView};
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Dimension, Graph, NodeId,
 };
-use crate::model_metadata::ModelMetadata;
 use crate::op_registry::onnx_registry::{ConstInput, DynParsedOp, OpLoadContext};
 use crate::op_registry::{OpRegistry, ReadOpError};
 use crate::optimize::{GraphOptimizer, OptimizeOptions};

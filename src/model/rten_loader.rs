@@ -10,9 +10,10 @@ use rten_model_file::schema as sg;
 use rten_model_file::schema::root_as_model;
 use rten_tensor::ArcTensor;
 
+use super::metadata::{MetadataField, ModelMetadata};
 use super::{
-    ConstantStorage, Model, ModelLoadError, ModelMetadata, ModelOptions, NodeError, OptimizeMode,
-    OptimizeOptions, SubgraphOptions,
+    ConstantStorage, Model, ModelLoadError, ModelOptions, NodeError, OptimizeMode, OptimizeOptions,
+    SubgraphOptions,
 };
 use crate::constant_storage::{ArcSlice, ArcTensorView};
 use crate::graph::{CaptureEnv, ConstantNodeData, Dimension, Graph, NodeId};
@@ -72,10 +73,7 @@ pub fn load(
         graph.prepack_weights(&mut weight_cache);
     }
 
-    let metadata = model
-        .metadata()
-        .map(ModelMetadata::deserialize)
-        .unwrap_or_default();
+    let metadata = model.metadata().map(load_metadata).unwrap_or_default();
 
     let model = Model {
         graph,
@@ -83,6 +81,29 @@ pub fn load(
         weight_cache,
     };
     Ok(model)
+}
+
+fn load_metadata(meta: sg::Metadata) -> ModelMetadata {
+    let mut fields = Vec::new();
+
+    macro_rules! add_field {
+        ($variant:ident, $method:ident) => {
+            if let Some(val) = meta.$method() {
+                fields.push((MetadataField::$variant, val.to_string()));
+            }
+        };
+    }
+
+    add_field!(OnnxHash, onnx_hash);
+    add_field!(Description, description);
+    add_field!(License, license);
+    add_field!(Commit, commit);
+    add_field!(CodeRepository, code_repository);
+    add_field!(ModelRepository, model_repository);
+    add_field!(RunId, run_id);
+    add_field!(RunUrl, run_url);
+
+    ModelMetadata::from_fields(fields)
 }
 
 fn load_graph(
