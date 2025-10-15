@@ -189,16 +189,10 @@ pip install onnx onnxruntime
 python tools/ort-quantize.py model.onnx
 ```
 
-This command will produce a `model.quant.onnx` file, which can then be converted
-to `.rten` format for use with RTen using:
-
-```
-pip install rten-convert
-rten-convert model.quant.onnx
-```
-
-This will produce `model.quant.rten`, which you can load and run in RTen
-in the same way as an fp32 model.
+This command will produce a `model.quant.onnx` file which you can load and run
+in RTen in the same way as an fp32 model. Quantized models can optionally be
+converted to the `.rten` format using
+[rten-convert](https://pypi.org/project/rten-convert/).
 
 This script uses quantization settings which prioritizes making the quantization
 process simple and producing models which work across a range of hardware.

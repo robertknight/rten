@@ -26,12 +26,15 @@
 //!   available in ONNX format via another means.
 //!
 //! RTen can load and run ONNX models directly, but it also supports a custom
-//! `.rten` file format. Models can be converted from ONNX to this format via
-//! [rten-convert](https://pypi.org/project/rten-convert/). The `.rten` format
-//! can be faster to load and supports large (> 2GB) models in a single file,
-//! whereas ONNX models of this size must use external files for weights. It
-//! is recommended to start with the ONNX format and consider `.rten` later if
-//! you need these benefits.
+//! [`.rten` file format][rten_format]. Models can be converted from ONNX to
+//! this format via [rten-convert](https://pypi.org/project/rten-convert/). The
+//! `.rten` format can be faster to load and supports large (> 2GB) models in a
+//! single file, whereas ONNX models of this size must use external files for
+//! weights. It is recommended to start with the ONNX format and consider
+//! `.rten` later if you need these benefits.
+//!
+//! See the [model formats][model_formats] documentation for more details on
+//! the format differences.
 //!
 //! # Loading and running models
 //!
@@ -137,10 +140,11 @@
 //! guide](https://github.com/robertknight/rten/blob/main/docs/performance.md) for
 //! information on profiling and improving model execution performance.
 //!
-//! [rten_examples]: https://github.com/robertknight/rten/tree/main/rten-examples
+//! [model_formats]: https://github.com/robertknight/rten/blob/main/docs/model-formats.md
 //! [onnx_operators]: https://onnx.ai/onnx/operators/
+//! [rten_examples]: https://github.com/robertknight/rten/tree/main/rten-examples
+//! [rten_format]: https://github.com/robertknight/rten/blob/main/docs/rten-file-format.md
 //! [schema_fbs]: https://github.com/robertknight/rten/blob/main/src/schema.fbs
-//! [file_format]: https://github.com/robertknight/rten/blob/main/docs/rten-file-format.md
 
 #[allow(unused)] // Docs only
 use rten_tensor::{NdTensor, Tensor};
