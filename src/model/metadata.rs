@@ -2,23 +2,19 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MetadataField {
-    /// URL where the model's code is hosted (eg. GitHub)
+    // Standard fields in rten models.
     CodeRepository,
-    /// Commit of the code used to train the model.
     Commit,
-    /// Description of the model.
     Description,
-    /// License of the model. It is recommended for this to be an SPDX license
-    /// identifier.
     License,
-    /// URL where pre-trained models are hosted (eg. Hugging Face)
     ModelRepository,
-    /// SHA-256 hash of the ONNX model used to generate a derived model format.
     OnnxHash,
-    /// ID of the training run.
     RunId,
-    /// URL where details of the training run can be inspected.
     RunUrl,
+
+    // Standard fields in ONNX models.
+    ProducerName,
+    ProducerVersion,
 }
 
 impl MetadataField {
@@ -32,6 +28,8 @@ impl MetadataField {
             Self::OnnxHash => "onnx_hash",
             Self::RunId => "run_id",
             Self::RunUrl => "run_url",
+            Self::ProducerName => "producer_name",
+            Self::ProducerVersion => "producer_version",
         }
     }
 }
@@ -130,6 +128,16 @@ impl ModelMetadata {
     /// This is used for .rten format models only.
     pub fn run_url(&self) -> Option<&str> {
         self.field(&MetadataField::RunUrl)
+    }
+
+    /// Return the name of the framework or tool used to produce the model.
+    pub fn producer_name(&self) -> Option<&str> {
+        self.field(&MetadataField::ProducerName)
+    }
+
+    /// Return the version of the framework or tool used to produce the model.
+    pub fn producer_version(&self) -> Option<&str> {
+        self.field(&MetadataField::ProducerVersion)
     }
 
     fn field(&self, field: &MetadataField) -> Option<&str> {
