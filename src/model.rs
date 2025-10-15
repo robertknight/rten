@@ -27,6 +27,9 @@ mod rten_loader;
 
 use file_type::FileType;
 
+#[cfg(any(test, feature = "model_builder"))]
+pub mod rten_builder;
+
 #[cfg(test)]
 pub mod onnx_builder;
 
@@ -680,10 +683,10 @@ mod tests {
 
     use crate::OpRegistry;
     use crate::graph::{Dimension, NodeId, RunError};
-    use crate::model::{Model, ModelLoadError, ModelOptions};
-    use crate::model_builder::{
+    use crate::model::rten_builder::{
         GraphBuilder, IfArgs, MetadataArgs, ModelBuilder, ModelFormat, OpType,
     };
+    use crate::model::{Model, ModelLoadError, ModelOptions};
     use crate::ops;
     use crate::ops::{
         BoxOrder, CoordTransformMode, DepthToSpaceMode, NearestMode, OpError, ResizeMode, Shape,

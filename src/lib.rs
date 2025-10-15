@@ -187,4 +187,4 @@ pub use ops::{Input, InputOrOutput, Output};
 // create an abstraction around model execution instead.
 #[doc(hidden)]
 #[cfg(any(test, feature = "model_builder"))]
-pub mod model_builder;
+pub use model::rten_builder as model_builder;
