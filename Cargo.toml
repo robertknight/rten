@@ -39,7 +39,7 @@ typeid = "1.0.3"
 
 [package]
 name = "rten"
-version = "0.22.1"
+version = "0.23.0"
 edition = "2024"
 authors = ["Robert Knight"]
 description = "Machine learning runtime"
@@ -55,13 +55,13 @@ rust-version = "1.89.0"
 [dependencies]
 flatbuffers = { workspace = true }
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
-rten-base = { path = "./rten-base", version = "0.22.1" }
-rten-gemm = { path = "./rten-gemm", version = "0.22.1" }
-rten-model-file = { path = "./rten-model-file", version = "0.22.1", optional = true }
-rten-onnx = { path = "./rten-onnx", version = "0.22.1", optional = true }
-rten-tensor = { path = "./rten-tensor", version = "0.22.1" }
-rten-vecmath = { path = "./rten-vecmath", version = "0.22.1" }
-rten-simd = { path = "./rten-simd", version = "0.22.1" }
+rten-base = { path = "./rten-base", version = "0.23.0" }
+rten-gemm = { path = "./rten-gemm", version = "0.23.0" }
+rten-model-file = { path = "./rten-model-file", version = "0.23.0", optional = true }
+rten-onnx = { path = "./rten-onnx", version = "0.23.0", optional = true }
+rten-tensor = { path = "./rten-tensor", version = "0.23.0" }
+rten-vecmath = { path = "./rten-vecmath", version = "0.23.0" }
+rten-simd = { path = "./rten-simd", version = "0.23.0" }
 fastrand = { version = "2.0.2", optional = true }
 fastrand-contrib = { version = "0.1.0", optional = true }
 rayon = { workspace = true }

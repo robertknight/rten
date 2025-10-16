@@ -1,6 +1,6 @@
 [package]
 name = "rten-tensor"
-version = "0.22.1"
+version = "0.23.0"
 edition = "2024"
 authors = ["Robert Knight"]
 description = "Tensor library for the RTen machine learning runtime"
@@ -11,7 +11,7 @@ include = ["/src", "/README.md"]
 
 [dependencies]
 rayon = { workspace = true }
-rten-base = { path = "../rten-base", version = "0.22.1" }
+rten-base = { path = "../rten-base", version = "0.23.0" }
 serde = { workspace = true, optional = true }
 smallvec = { version = "1.10.0", features=["union", "const_generics", "const_new"] }
 typeid = { workspace = true }

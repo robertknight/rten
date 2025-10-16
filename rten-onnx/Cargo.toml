@@ -1,6 +1,6 @@
 [package]
 name = "rten-onnx"
-version = "0.22.1"
+version = "0.23.0"
 edition = "2024"
 authors = ["Robert Knight"]
 description = "ONNX model parser"
