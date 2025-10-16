@@ -5,14 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.23.0] - 2025-10-16
 
 This release adds support for loading models in ONNX format directly, without
 requiring conversion to `.rten` format first. This includes ONNX models with
-external data. ONNX format models can be more convenient to use and have better
-tooling available, but can be slightly slower to load. `.rten` format models can
-always be memory-mapped. ONNX format models can only take advantage of memory
-mapping when using external data.
+external data. ONNX format models are more convenient to use as there is no
+conversion step and have better tooling available, but can be slower to load.
+See the [model format documentation](docs/model-formats.md) for a comparison.
+
+Support for both formats is enabled by default. This can be controlled using
+the `onnx_format` and `rten_format` crate features. Disabling formats that you
+don't need can improve build times.
 
 ### rten
 
@@ -24,6 +27,11 @@ mapping when using external data.
 - Improve constant propagation into sub-graphs by using
   reference counting for all graph constants (https://github.com/robertknight/rten/pull/952).
   This enables more effective optimization of some models.
+
+- Add `onnx_format` and `rten_format` crate features to control which model
+  formats are supported (https://github.com/robertknight/rten/pull/1004). Also
+  add a section to the crate documentation root which describes all crate
+  features.
 
 ### rten-cli
 
