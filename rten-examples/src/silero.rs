@@ -166,7 +166,7 @@ impl VadState {
 /// 3. Run this program on the generated .wav file:
 ///
 ///    ```
-///    cargo run --release --bin silero_vad silero.onnx output.wav
+///    cargo run --release --bin silero silero.onnx output.wav
 ///    ```
 ///
 /// [^1]: <https://github.com/snakers4/silero-vad>

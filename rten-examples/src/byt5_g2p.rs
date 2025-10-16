@@ -38,7 +38,7 @@ struct Args {
 /// To run the example:
 ///
 /// ```
-/// cargo run -p rten-examples --release --bin byt5_g2p -- g2p/encoder_model.onnx g2p/decoder_model_merged.onnx "This is some text to convert."
+/// cargo run --release --bin byt5_g2p -- g2p/encoder_model.onnx g2p/decoder_model_merged.onnx "This is some text to convert."
 /// ```
 ///
 /// The example assumes US English text. To use a different language, specify

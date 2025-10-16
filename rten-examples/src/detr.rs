@@ -130,6 +130,14 @@ const NO_OBJECT_LABELS: &[&str] = &["N/A"];
 /// optimum-cli export onnx --model facebook/detr-resnet-50 detr
 /// ```
 ///
+/// Once downloaded, run the model with:
+///
+/// ```
+/// cargo run --release --bin detr -- detr/ <image> --annotate out.png
+/// ```
+///
+/// This will detect objects and save an annotated copy of the input to `out.png`.
+///
 /// [^1]: <https://arxiv.org/abs/2005.12872>
 /// [^2]: <https://huggingface.co/facebook/detr-resnet-50>
 /// [^3]: <https://huggingface.co/docs/optimum/main/en/exporters/onnx/usage_guides/export_a_model>
