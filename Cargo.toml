@@ -53,7 +53,7 @@ rust-version = "1.89.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-flatbuffers = { workspace = true }
+flatbuffers = { workspace = true, optional = true }
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
 rten-base = { path = "./rten-base", version = "0.23.0" }
 rten-gemm = { path = "./rten-gemm", version = "0.23.0" }
@@ -98,7 +98,7 @@ wasm_api = []
 # Enable operators that generate random numbers.
 random = ["dep:fastrand", "dep:fastrand-contrib"]
 # Enable support for loading .rten models
-rten_format = ["dep:rten-model-file"]
+rten_format = ["dep:flatbuffers", "dep:rten-model-file"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.100"
