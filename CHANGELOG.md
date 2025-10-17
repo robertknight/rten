@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This release adds support for loading models in ONNX format directly, without
 requiring conversion to `.rten` format first. This includes ONNX models with
 external data. ONNX format models are more convenient to use as there is no
-conversion step and have better tooling available, but can be slower to load.
+conversion step and more tools support this format, but they can be slower to load.
 See the [model format documentation](docs/model-formats.md) for a comparison.
 
 Support for both formats is enabled by default. This can be controlled using
