@@ -86,11 +86,13 @@ def run_model(
     print("Inputs:")
     for node in session.get_inputs():
         type_map = {
+            "tensor(bool)": np.bool_,
             "tensor(float)": np.float32,
             "tensor(float16)": np.float16,
-            "tensor(int64)": np.int64,
             "tensor(int32)": np.int32,
-            "tensor(bool)": np.bool_,
+            "tensor(int64)": np.int64,
+            "tensor(int8)": np.int8,
+            "tensor(uint8)": np.uint8,
         }
 
         resolved_shape = []
