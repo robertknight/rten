@@ -5,9 +5,11 @@ Adding support for a new operator involves several steps:
  1. Read the ONNX operator specification to understand how the operator
     works. See https://onnx.ai/onnx/operators/.
  2. Define the implementation of the new operator in Rust code and add tests
- 3. Add the new operator to the FlatBuffers model schema
- 4. Update the Python ONNX conversion script to support the new operator
- 5. Update the Rust code to support deserializing the operator
+ 3. Add the new operator to the FlatBuffers model schema for the rten
+    file format.
+ 4. Update the rten-convert tool to support the new operator
+ 5. Update the Rust model loading code to support deserializing the operator
+    from both ONNX and rten files.
 
 In detail, the process is:
 
@@ -19,18 +21,18 @@ In detail, the process is:
 3. Export the operator from the `ops/mod.rs` module
 4. Add the new operator to the end of the `OperatorType` enum in schema.fbs.
 5. If the new operator requires attributes, add a new table in schema.fbs and
-   add the table to the end of the `OperatorAttrs` union. If the new operator
-   uses the same attributes as an existing operator, it can re-use the
-   attributes from that operator.
+   add the table to the end of the `OperatorAttrs` union. Some existing
+   operators share attributes tables. For new operators however it is
+   recommended to use a separate type per operator.
 6. Run `make schema` to generate updated Rust and Python code to read the
    updated FlatBuffers schema
 7. If the new operator has attributes, edit
    `rten-convert/rten_convert/converter.py` and modify
    `op_node_from_onnx_operator` to support converting the attributes for the new
    operator.
-8. Modify `op_registry.rs` to add deserialization of the new operator from
-   .rten model files
-9. Add support for the new operator in `model_builder.rs`
+8. Modify `op_registry/{onnx_registry.rs, rten_registry.rs}` to implement
+   deserialization of the operator for ONNX and rten model formats.
+9. Add support for the new operator in `model/rten_builder.rs`
 10. Update the `test_all_op_types` test at the bottom of model.rs to run the
     new operator with test input.
 
@@ -44,14 +46,12 @@ Fusions are defined in `src/optimize.rs`.
 
 ## Adding partial support for a new operator
 
-It is OK to add a new operator without support for all features, but ONNX model
-conversion and the operator implementation must report an error if an
-unsupported capability is used by a model, rather than silently producing
-incorrect results.
-
-The Python ONNX conversion script will check that all attributes of an operator
-in the ONNX model are read. Unsupported attributes can be ignored if they have
-a value which is equal to the default.
+It is OK to add a new operator without support for all features, but attempting
+to convert and run a model which uses an unsupported capability must produce an
+error rather than silently producing incorrect results. Depending on the
+feature, this error may be detected at model conversion or load time (eg. when
+an unsupported attribute has a non-default value) or only during inference (eg.
+when the input has an unsupported shape).
 
 ## FlatBuffers binary compatibility
 
