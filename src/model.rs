@@ -9,7 +9,7 @@ use std::fs::File;
 use memmap2::Mmap;
 
 use crate::env::str_as_bool;
-use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
+use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunErrorImpl, RunOptions};
 use crate::op_registry::OpRegistry;
 use crate::optimize::OptimizeOptions;
 use crate::timing::{TimingFilter, TimingSort};
@@ -274,7 +274,7 @@ impl Model {
     /// returns an error that includes the node's name if the node is not found.
     pub fn node_id(&self, id: &str) -> Result<NodeId, RunError> {
         self.find_node(id)
-            .ok_or_else(|| RunError::InvalidNodeName(id.to_string()))
+            .ok_or_else(|| RunErrorImpl::InvalidNodeName(id.to_string()).into())
     }
 
     /// Return metadata about a node in the model's graph.
@@ -358,8 +358,14 @@ impl Model {
     /// This is a simplified version of [`Model::run`] for the common case of
     /// executing a model with a single input and output.
     pub fn run_one(&self, input: ValueOrView, opts: Option<RunOptions>) -> Result<Value, RunError> {
-        let &input_id = self.input_ids().first().ok_or(RunError::InvalidNodeId)?;
-        let &output_id = self.output_ids().first().ok_or(RunError::InvalidNodeId)?;
+        let &input_id = self
+            .input_ids()
+            .first()
+            .ok_or(RunErrorImpl::InvalidNodeId)?;
+        let &output_id = self
+            .output_ids()
+            .first()
+            .ok_or(RunErrorImpl::InvalidNodeId)?;
         self.run_n(vec![(input_id, input)], [output_id], opts)
             .map(|[result]| result)
     }
@@ -633,14 +639,14 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor};
 
     use crate::OpRegistry;
-    use crate::graph::{Dimension, NodeId, RunError};
+    use crate::graph::{Dimension, NodeId, RunErrorKind};
     use crate::model::rten_builder::{
         GraphBuilder, IfArgs, MetadataArgs, ModelBuilder, ModelFormat, OpType,
     };
     use crate::model::{LoadErrorKind, Model, ModelOptions};
     use crate::ops;
     use crate::ops::{
-        BoxOrder, CoordTransformMode, DepthToSpaceMode, NearestMode, OpError, ResizeMode, Shape,
+        BoxOrder, CoordTransformMode, DepthToSpaceMode, NearestMode, ResizeMode, Shape,
     };
     use crate::value::{DataType, Scalar, Value};
 
@@ -714,14 +720,14 @@ mod tests {
 
         // Get the same node ID via a convenience method which returns a
         // Result.
-        assert_eq!(model.node_id("input"), Ok(input_id));
+        assert_eq!(model.node_id("input").ok(), Some(input_id));
 
         // Invalid model ID
         assert_eq!(model.find_node("does_not_exist"), None);
-        assert_eq!(
-            model.node_id("does_not_exist"),
-            Err(RunError::InvalidNodeName("does_not_exist".to_string()))
-        );
+
+        let err = model.node_id("does_not_exist").err().unwrap();
+        assert_eq!(err.node_path(), [Some("does_not_exist")]);
+        assert_eq!(err.kind(), RunErrorKind::NodeNotFound);
     }
 
     #[test]
@@ -1031,16 +1037,9 @@ mod tests {
             .load(buffer)
             .unwrap();
 
-        let result = model.run(vec![], &[output_node], None);
-
-        assert_eq!(
-            result.err(),
-            Some(RunError::OperatorError {
-                name: "shape".to_string(),
-                error: OpError::MissingInputs,
-                inputs: [None].into(),
-            })
-        );
+        let err = model.run(vec![], &[output_node], None).err().unwrap();
+        assert_eq!(err.node_path(), [Some("shape")]);
+        assert_eq!(err.kind(), RunErrorKind::OperatorError);
     }
 
     // This test exercises basic execution of all operators. It doesn't check

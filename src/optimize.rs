@@ -24,7 +24,7 @@ use fusions::{
 };
 
 /// Errors that occur while applying graph optimizations.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum OptimizeError {
     /// An error occurred while evaluating parts of the graph (eg. as part
     /// of constant propagation).

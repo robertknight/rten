@@ -281,9 +281,9 @@ mod tests {
     use rten_tensor::Tensor;
 
     use crate::graph::builder::Expr;
-    use crate::graph::{CaptureEnv, Graph};
+    use crate::graph::{CaptureEnv, Graph, RunErrorKind};
     use crate::ops::tests::new_pool;
-    use crate::ops::{InputList, OpError, OpRunContext, RunError, SubgraphOperator};
+    use crate::ops::{InputList, OpRunContext, RunError, SubgraphOperator};
     use crate::value::{Scalar, Value, ValueView};
 
     use super::Loop;
@@ -488,14 +488,14 @@ mod tests {
 
         for Case { body, expected } in cases {
             let runner = LoopRunner::new(Loop { body });
-            let error = runner.run(Some(3), None, &[]).err().unwrap();
-
-            match error {
-                RunError::OperatorError { error, .. } => {
-                    assert_eq!(error, OpError::InvalidValue(expected));
-                }
-                _ => panic!("expected OperatorError"),
-            }
+            let err = runner.run(Some(3), None, &[]).err().unwrap();
+            assert_eq!(err.kind(), RunErrorKind::OperatorError);
+            assert!(
+                err.to_string().contains(expected),
+                "expected {} to contain {}",
+                err.to_string(),
+                expected
+            );
         }
     }
 }

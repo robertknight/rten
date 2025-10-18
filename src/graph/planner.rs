@@ -1,7 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
-use super::{Graph, Node, NodeId, OperatorNode, RunError};
+use super::{Graph, Node, NodeId, OperatorNode, RunError, RunErrorImpl};
 
 /// Options for creating a graph execution plan using [`Planner`].
 #[derive(Clone)]
@@ -124,40 +124,44 @@ impl<'a> Planner<'a> {
     ) -> Result<Vec<NodeId>, RunError> {
         if let Some(dupe_id) = first_duplicate_by(outputs, |x, y| x == y) {
             let name = self.graph.node_name(*dupe_id);
-            return Err(RunError::PlanningError(format!(
+            return Err(RunErrorImpl::PlanningError(format!(
                 "Outputs are not unique. Output \"{}\" is duplicated.",
                 name
-            )));
+            ))
+            .into());
         }
         for (output_index, output_id) in outputs.iter().enumerate() {
             match self.graph.get_node(*output_id) {
                 Some(Node::Value(_) | Node::Constant(_)) => {}
                 _ => {
                     let name = self.graph.node_name(*output_id);
-                    return Err(RunError::PlanningError(format!(
+                    return Err(RunErrorImpl::PlanningError(format!(
                         "Output {} (\"{}\") is not a value node in the graph.",
                         output_index, name
-                    )));
+                    ))
+                    .into());
                 }
             }
         }
 
         if let Some(dupe_id) = first_duplicate_by(inputs, |x, y| x == y) {
             let name = self.graph.node_name(*dupe_id);
-            return Err(RunError::PlanningError(format!(
+            return Err(RunErrorImpl::PlanningError(format!(
                 "Inputs are not unique. Input \"{}\" is duplicated.",
                 name
-            )));
+            ))
+            .into());
         }
         for (input_index, input_id) in inputs.iter().enumerate() {
             match self.graph.get_node(*input_id) {
                 Some(Node::Value(_) | Node::Constant(_)) => {}
                 _ => {
                     let name = self.graph.node_name(*input_id);
-                    return Err(RunError::PlanningError(format!(
+                    return Err(RunErrorImpl::PlanningError(format!(
                         "Input {} (\"{}\") is not a value node in the graph.",
                         input_index, name
-                    )));
+                    ))
+                    .into());
                 }
             }
         }
@@ -289,7 +293,7 @@ impl<'a> PlanBuilder<'a> {
                         self.graph.node_name(input),
                         self.graph.node_name(op_node_id)
                     );
-                    return Err(RunError::PlanningError(msg));
+                    return Err(RunErrorImpl::PlanningError(msg).into());
                 }
                 self.visit(input_op_id, input_op_node, active_set)?;
             } else if self.options.allow_missing_inputs {
@@ -300,7 +304,7 @@ impl<'a> PlanBuilder<'a> {
                     self.graph.node_name(input),
                     self.graph.node_name(op_node_id)
                 );
-                return Err(RunError::PlanningError(msg));
+                return Err(RunErrorImpl::PlanningError(msg).into());
             }
         }
         for output_id in op_node.output_ids().iter().filter_map(|node| *node) {
@@ -411,7 +415,7 @@ impl<'a> PlanBuilder<'a> {
             } else {
                 let output_name = self.graph.node_name(*output_id);
                 let msg = format!("Source node not found for output \"{}\"", output_name);
-                return Err(RunError::PlanningError(msg));
+                return Err(RunErrorImpl::PlanningError(msg).into());
             }
         }
 
