@@ -14,7 +14,7 @@ use std::sync::Arc;
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
 
-use super::ModelLoadError;
+use super::load_error::{LoadError, LoadErrorImpl};
 use crate::constant_storage::ConstantStorage;
 
 /// Specifies the location of tensor data which is stored externally from the
@@ -107,9 +107,9 @@ impl From<std::io::Error> for ExternalDataError {
     }
 }
 
-impl From<ExternalDataError> for ModelLoadError {
-    fn from(err: ExternalDataError) -> ModelLoadError {
-        ModelLoadError::ExternalDataError(Box::new(err))
+impl From<ExternalDataError> for LoadError {
+    fn from(err: ExternalDataError) -> LoadError {
+        LoadErrorImpl::ExternalDataError(Box::new(err)).into()
     }
 }
 
