@@ -638,12 +638,12 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::{NdTensor, Tensor};
 
-    use crate::OpRegistry;
     use crate::graph::{Dimension, NodeId, RunErrorKind};
     use crate::model::rten_builder::{
         GraphBuilder, IfArgs, MetadataArgs, ModelBuilder, ModelFormat, OpType,
     };
     use crate::model::{LoadErrorKind, Model, ModelOptions};
+    use crate::op_registry;
     use crate::ops;
     use crate::ops::{
         BoxOrder, CoordTransformMode, DepthToSpaceMode, NearestMode, ResizeMode, Shape,
@@ -733,12 +733,20 @@ mod tests {
     #[test]
     fn test_unsupported_operator() {
         let buffer = generate_model_buffer(ModelFormat::V2);
-        let registry = OpRegistry::new();
+        let registry = op_registry!();
         let result = ModelOptions::with_ops(registry).load(buffer);
         assert_eq!(
             result.err().map(|err| err.to_string()).as_deref(),
             Some("in node \"concat\": operator error: Concat operator not enabled")
         );
+    }
+
+    #[test]
+    fn test_subset_of_ops_enabled() {
+        let buffer = generate_model_buffer(ModelFormat::V2);
+        let registry = op_registry!(Concat, Relu);
+        let result = ModelOptions::with_ops(registry).load(buffer);
+        assert!(result.is_ok());
     }
 
     #[test]
