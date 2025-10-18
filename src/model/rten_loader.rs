@@ -10,8 +10,9 @@ use rten_model_file::schema as sg;
 use rten_model_file::schema::root_as_model;
 use rten_tensor::ArcTensor;
 
+use super::load_error::{LoadError, LoadErrorImpl, load_error};
 use super::metadata::{MetadataField, ModelMetadata};
-use super::{Model, ModelLoadError, ModelOptions, NodeError, OptimizeMode, OptimizeOptions};
+use super::{Model, ModelOptions, OptimizeMode, OptimizeOptions};
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
 use crate::graph::{CaptureEnv, ConstantNodeData, Dimension, Graph, NodeId};
 use crate::op_registry::rten_registry::{OpLoadContext, convert_dtype};
@@ -20,10 +21,7 @@ use crate::optimize::GraphOptimizer;
 use crate::weight_cache::WeightCache;
 
 /// Load a model from a .rten model file.
-pub fn load(
-    storage: Arc<ConstantStorage>,
-    options: &ModelOptions,
-) -> Result<Model, ModelLoadError> {
+pub fn load(storage: Arc<ConstantStorage>, options: &ModelOptions) -> Result<Model, LoadError> {
     let registry = &options.registry;
 
     let file_data = storage.data();
@@ -31,7 +29,7 @@ pub fn load(
         Ok(header) => Some(header),
         Err(HeaderError::InvalidMagic) => None,
         Err(err) => {
-            return Err(ModelLoadError::InvalidHeader(Box::new(err)));
+            return Err(LoadErrorImpl::InvalidHeader(Box::new(err)).into());
         }
     };
 
@@ -42,11 +40,11 @@ pub fn load(
         file_data
     };
 
-    let model =
-        root_as_model(model_data).map_err(|err| ModelLoadError::ParseFailed(Box::new(err)))?;
+    let model = root_as_model(model_data)
+        .map_err(|err| LoadErrorImpl::ParseFailed(Box::new(err).into()))?;
 
     if model.schema_version() != 1 {
-        return Err(ModelLoadError::SchemaVersionUnsupported);
+        return Err(LoadErrorImpl::SchemaVersionUnsupported.into());
     }
 
     let optimize_opts = if options.optimize {
@@ -126,7 +124,7 @@ fn load_graph(
     tensor_data_offset: Option<u64>,
     optimize: OptimizeMode,
     capture_env: Option<&CaptureEnv>,
-) -> Result<Graph, ModelLoadError> {
+) -> Result<Graph, LoadError> {
     let node_count = serialized_graph.nodes().map(|ns| ns.len()).unwrap_or(0);
 
     // Map of model node index to graph node ID
@@ -178,9 +176,7 @@ fn load_graph(
                     tensor_data_offset,
                 )?
             } else {
-                return Err(ModelLoadError::GraphError(
-                    NodeError::for_node(node.name(), "unknown node type").into(),
-                ));
+                return Err(load_error!(GraphError, node.name(), "unknown node type"));
             };
             node_id_from_index.insert(node_index, graph_node);
         }
@@ -190,7 +186,7 @@ fn load_graph(
         let optimizer = GraphOptimizer::new();
         optimizer
             .optimize(graph, capture_env, opts)
-            .map_err(|err| ModelLoadError::OptimizeError(Box::new(err)))
+            .map_err(|err| LoadErrorImpl::OptimizeError(Box::new(err)).into())
     } else {
         Ok(graph)
     }
@@ -203,8 +199,8 @@ fn add_graph_operator(
     registry: &OpRegistry,
     node_id_from_index: &HashMap<usize, NodeId>,
     subgraph_opts: SubgraphOptions,
-) -> Result<NodeId, ModelLoadError> {
-    let load_subgraph = |g: sg::Graph| -> Result<Graph, ModelLoadError> {
+) -> Result<NodeId, LoadError> {
+    let load_subgraph = |g: sg::Graph| -> Result<Graph, LoadError> {
         let SubgraphOptions {
             storage,
             tensor_data_offset,
@@ -223,7 +219,7 @@ fn add_graph_operator(
     };
 
     struct LoadContext<'a> {
-        load_graph: &'a dyn Fn(sg::Graph) -> Result<Graph, ModelLoadError>,
+        load_graph: &'a dyn Fn(sg::Graph) -> Result<Graph, LoadError>,
     }
 
     impl OpLoadContext for LoadContext<'_> {
@@ -238,7 +234,7 @@ fn add_graph_operator(
     let op = registry
         .rten_registry()
         .read_op(&operator, &ctx)
-        .map_err(|err| ModelLoadError::OperatorInvalid(NodeError::for_node(name, err).into()))?;
+        .map_err(|err| load_error!(OperatorInvalid, name, err))?;
 
     let mut inputs: Vec<Option<NodeId>> = Vec::new();
     if let Some(op_input_ids) = operator.inputs() {
@@ -251,9 +247,7 @@ fn add_graph_operator(
             if let Some(node_id) = node_id_from_index.get(&index_usize) {
                 inputs.push(Some(*node_id))
             } else {
-                return Err(ModelLoadError::GraphError(
-                    NodeError::for_node(name, "operator input is invalid").into(),
-                ));
+                return Err(load_error!(GraphError, name, "operator input is invalid"));
             }
         }
     }
@@ -269,9 +263,7 @@ fn add_graph_operator(
             if let Some(node_id) = node_id_from_index.get(&index_usize) {
                 outputs.push(Some(*node_id))
             } else {
-                return Err(ModelLoadError::GraphError(
-                    NodeError::for_node(name, "operator output is invalid").into(),
-                ));
+                return Err(load_error!(GraphError, name, "operator output is invalid"));
             }
         }
     }
@@ -284,7 +276,7 @@ fn add_graph_value(
     graph: &mut Graph,
     name: Option<&str>,
     value: sg::ValueNode,
-) -> Result<NodeId, ModelLoadError> {
+) -> Result<NodeId, LoadError> {
     let shape: Option<Vec<Dimension>> = value.shape().map(|shape| {
         shape
             .iter()
@@ -301,7 +293,7 @@ fn add_graph_value(
         .dtype()
         .map(|dtype| convert_dtype("", dtype))
         .transpose()
-        .map_err(|err| ModelLoadError::OperatorInvalid(NodeError::for_node(name, err).into()))?;
+        .map_err(|err| load_error!(OperatorInvalid, name, err))?;
     let graph_node = graph.add_value(name, shape, dtype);
     Ok(graph_node)
 }
@@ -312,43 +304,43 @@ fn add_graph_constant(
     constant: sg::ConstantNode,
     storage: &Arc<ConstantStorage>,
     tensor_data_offset: Option<u64>,
-) -> Result<NodeId, ModelLoadError> {
+) -> Result<NodeId, LoadError> {
     let shape: Vec<usize> = constant.shape().iter().map(|x| x as usize).collect();
 
     if let Some(data_offset) = constant.data_offset() {
         // Constant data is stored outside the model buffer, in the same file.
 
         let Some(tensor_data_offset) = tensor_data_offset else {
-            return Err(ModelLoadError::GraphError(
-                "tensor data section missing".into(),
-            ));
+            return Err(load_error!(GraphError, name, "tensor data section missing"));
         };
         let data_offset = (tensor_data_offset + data_offset) as usize;
 
         let graph_node = match constant.dtype() {
             Some(sg::ConstantDataType::Int32) => {
                 let const_data =
-                    constant_data_from_storage_offset::<i32>(storage, &shape, data_offset)?;
+                    constant_data_from_storage_offset::<i32>(storage, &shape, data_offset, name)?;
                 graph.add_constant(name, const_data)
             }
             Some(sg::ConstantDataType::Float32) => {
                 let const_data =
-                    constant_data_from_storage_offset::<f32>(storage, &shape, data_offset)?;
+                    constant_data_from_storage_offset::<f32>(storage, &shape, data_offset, name)?;
                 graph.add_constant(name, const_data)
             }
             Some(sg::ConstantDataType::Int8) => {
                 let const_data =
-                    constant_data_from_storage_offset::<i8>(storage, &shape, data_offset)?;
+                    constant_data_from_storage_offset::<i8>(storage, &shape, data_offset, name)?;
                 graph.add_constant(name, const_data)
             }
             Some(sg::ConstantDataType::UInt8) => {
                 let const_data =
-                    constant_data_from_storage_offset::<u8>(storage, &shape, data_offset)?;
+                    constant_data_from_storage_offset::<u8>(storage, &shape, data_offset, name)?;
                 graph.add_constant(name, const_data)
             }
             _ => {
-                return Err(ModelLoadError::GraphError(
-                    NodeError::for_node(name, "unsupported data type for external constant").into(),
+                return Err(load_error!(
+                    GraphError,
+                    name,
+                    "unsupported data type for external constant"
                 ));
             }
         };
@@ -368,8 +360,10 @@ fn add_graph_constant(
             let const_data = constant_data_from_flatbuffers_vec(storage, uint8_data.data(), &shape);
             graph.add_constant(name, const_data)
         } else {
-            return Err(ModelLoadError::GraphError(
-                NodeError::for_node(name, "unsupported data type for inline constant").into(),
+            return Err(load_error!(
+                GraphError,
+                name,
+                "unsupported data type for inline constant"
             ));
         };
         Ok(graph_node)
@@ -412,14 +406,13 @@ fn constant_data_from_storage_offset<T: LeBytes + Pod>(
     storage: &Arc<ConstantStorage>,
     shape: &[usize],
     offset: usize,
-) -> Result<ConstantNodeData<T>, ModelLoadError> {
+    name: Option<&str>,
+) -> Result<ConstantNodeData<T>, LoadError> {
     let n_elements: usize = shape.iter().product();
     let byte_len = n_elements * std::mem::size_of::<T>();
 
     let Some(bytes) = storage.data().get(offset..offset + byte_len) else {
-        return Err(ModelLoadError::GraphError(
-            "invalid tensor data offset".into(),
-        ));
+        return Err(load_error!(GraphError, name, "invalid tensor data offset"));
     };
 
     if let Some(elements) = cast_le_bytes(bytes) {

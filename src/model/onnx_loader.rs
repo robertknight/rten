@@ -6,10 +6,10 @@ use rten_base::byte_cast::{Pod, cast_pod_slice};
 use rten_onnx::onnx;
 use rten_tensor::{ArcTensor, Storage, Tensor};
 
-use super::NodeError;
 use super::external_data::{DataLoader, DataLocation, DataSlice};
+use super::load_error::{LoadError, LoadErrorImpl, load_error};
 use super::metadata::{MetadataField, ModelMetadata};
-use super::{Model, ModelLoadError, ModelOptions, OptimizeMode};
+use super::{Model, ModelOptions, OptimizeMode};
 use crate::constant_storage::{ArcSlice, ArcTensorView};
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Dimension, Graph, NodeId,
@@ -36,17 +36,17 @@ pub fn load(
     source: Source,
     loader: Option<&dyn DataLoader>,
     options: &ModelOptions,
-) -> Result<Model, ModelLoadError> {
+) -> Result<Model, LoadError> {
     let model = match source {
         Source::Path(path) => {
-            let file = File::open(path).map_err(ModelLoadError::ReadFailed)?;
+            let file = File::open(path).map_err(LoadErrorImpl::ReadFailed)?;
             onnx::ModelProto::parse_file(file)
         }
         Source::Buffer(buf) => onnx::ModelProto::parse_buf(buf),
         #[cfg(test)]
         Source::Proto(proto) => Ok(proto),
     }
-    .map_err(|err| ModelLoadError::ParseFailed(Box::new(err)))?;
+    .map_err(|err| LoadErrorImpl::ParseFailed(Box::new(err)))?;
 
     let optimize_opts = if options.optimize {
         OptimizeMode::On(OptimizeOptions::default())
@@ -74,18 +74,6 @@ pub fn load(
     })
 }
 
-/// Create a [`ModelLoadError`] that relates to a specific graph node.
-macro_rules! load_error {
-    ($kind:ident, $node_name:expr, $format_str:literal, $($arg:tt)*) => {{
-        let err = format!($format_str, $($arg)*);
-        ModelLoadError::$kind(NodeError::for_node($node_name, err).into())
-    }};
-
-    ($kind:ident, $node_name:expr, $err:expr) => {{
-        ModelLoadError::$kind(NodeError::for_node($node_name, $err).into())
-    }}
-}
-
 fn load_metadata(model: &onnx::ModelProto) -> ModelMetadata {
     let mut fields = Vec::new();
     if let Some(name) = &model.producer_name {
@@ -110,7 +98,7 @@ fn load_graph(
     optimize: OptimizeMode,
     capture_env: Option<&CaptureEnv>,
     loader: Option<&dyn DataLoader>,
-) -> Result<Graph, ModelLoadError> {
+) -> Result<Graph, LoadError> {
     let approx_node_count = onnx_graph.node.len() + onnx_graph.value_info.len();
     let mut graph = Graph::with_capacity(approx_node_count);
 
@@ -123,9 +111,10 @@ fn load_graph(
     for value in &onnx_graph.input {
         let name = value.name.as_deref().unwrap_or_default();
         if name.is_empty() {
-            return Err(ModelLoadError::GraphError(
+            return Err(LoadErrorImpl::GraphError(
                 "graph input has missing or invalid name".into(),
-            ));
+            )
+            .into());
         }
         add_value(&mut graph, name, value);
     }
@@ -133,9 +122,10 @@ fn load_graph(
     for value in &onnx_graph.output {
         let name = value.name.as_deref().unwrap_or_default();
         if name.is_empty() {
-            return Err(ModelLoadError::GraphError(
+            return Err(LoadErrorImpl::GraphError(
                 "graph output has missing or invalid name".into(),
-            ));
+            )
+            .into());
         }
         add_value(&mut graph, name, value);
     }
@@ -264,7 +254,7 @@ fn load_graph(
         let optimizer = GraphOptimizer::new();
         optimizer
             .optimize(graph, capture_env, opts)
-            .map_err(|err| ModelLoadError::OptimizeError(Box::new(err)))
+            .map_err(|err| LoadErrorImpl::OptimizeError(Box::new(err)).into())
     } else {
         Ok(graph)
     }
@@ -329,7 +319,7 @@ fn load_constant(
     initializer: &onnx::TensorProto,
     loader: Option<&dyn DataLoader>,
     name: Option<&str>,
-) -> Result<Constant, ModelLoadError> {
+) -> Result<Constant, LoadError> {
     let name = name.or(initializer.name.as_deref());
 
     let shape: Result<Vec<usize>, _> = initializer.dims.iter().map(|&dim| dim.try_into()).collect();
@@ -476,7 +466,7 @@ fn load_constant(
 fn external_data_location(
     name: Option<&str>,
     metadata: &[onnx::StringStringEntryProto],
-) -> Result<DataLocation, ModelLoadError> {
+) -> Result<DataLocation, LoadError> {
     let mut location = None;
     let mut offset = None;
     let mut length = None;
@@ -541,7 +531,7 @@ fn make_constant<T: Pod, U: Pod>(
     loader: Option<&dyn DataLoader>,
     typed_data: &[U],
     convert: impl Fn(U) -> T,
-) -> Result<Constant, ModelLoadError>
+) -> Result<Constant, LoadError>
 where
     Constant: From<ConstantNode<T>>,
 {
@@ -581,7 +571,7 @@ fn saturating_cast_i64_to_i32(x: i64) -> i32 {
 fn load_constant_from_constant_op(
     op: &onnx::NodeProto,
     loader: Option<&dyn DataLoader>,
-) -> Result<Constant, ModelLoadError> {
+) -> Result<Constant, LoadError> {
     // The name of the constant node will be the name of its single output,
     // as that is the name that will be referenced by operator inputs.
     let [output] = &op.output[..] else {
@@ -683,7 +673,7 @@ fn tensor_from_elements<T>(
     shape: &[usize],
     data: Vec<T>,
     name: Option<&str>,
-) -> Result<ArcTensor<T>, ModelLoadError> {
+) -> Result<ArcTensor<T>, LoadError> {
     let data_len = data.len();
     let tensor = Tensor::try_from_data(shape, data)
         .map_err(|_| {
@@ -704,7 +694,7 @@ fn tensor_from_bytes<T: Pod>(
     shape: &[usize],
     data: Vec<u8>,
     name: Option<&str>,
-) -> Result<ArcTensorView<T>, ModelLoadError> {
+) -> Result<ArcTensorView<T>, LoadError> {
     // To support big-endian systems, this function would need to byte-swap
     // `T`-sized chunks of `data`.
     if !cfg!(target_endian = "little") {
@@ -740,7 +730,7 @@ fn tensor_from_external_data<T: Pod>(
     shape: &[usize],
     data: &DataSlice,
     name: Option<&str>,
-) -> Result<ArcTensorView<T>, ModelLoadError> {
+) -> Result<ArcTensorView<T>, LoadError> {
     let data: ArcSlice<T> = if let Some(elements) = cast_pod_slice(data.data()) {
         ArcSlice::new(data.storage.clone(), elements).unwrap()
     } else if data.data().is_empty() {
@@ -806,8 +796,8 @@ fn add_operator(
     onnx_op: &onnx::NodeProto,
     registry: &OpRegistry,
     subgraph_opts: SubgraphOptions,
-) -> Result<(), ModelLoadError> {
-    let load_subgraph = |g: &onnx::GraphProto| -> Result<Graph, ModelLoadError> {
+) -> Result<(), LoadError> {
+    let load_subgraph = |g: &onnx::GraphProto| -> Result<Graph, LoadError> {
         let SubgraphOptions {
             optimize,
             capture_env,
@@ -818,7 +808,7 @@ fn add_operator(
     };
 
     struct LoadContext<'a> {
-        load_graph: &'a dyn Fn(&onnx::GraphProto) -> Result<Graph, ModelLoadError>,
+        load_graph: &'a dyn Fn(&onnx::GraphProto) -> Result<Graph, LoadError>,
     }
 
     impl OpLoadContext for LoadContext<'_> {
@@ -910,10 +900,10 @@ mod tests {
     use crate::model::onnx_builder::{
         GraphProtoExt, NodeProtoExt, TensorData, create_node, create_tensor, create_value_info,
     };
-    use crate::model::{Model, ModelLoadError, ModelOptions};
+    use crate::model::{LoadError, Model, ModelOptions};
 
     /// Load a model from a parsed `ModelProto` message.
-    fn load_model(model: onnx::ModelProto) -> Result<Model, ModelLoadError> {
+    fn load_model(model: onnx::ModelProto) -> Result<Model, LoadError> {
         load(
             Source::Proto(model),
             None,
@@ -1095,7 +1085,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "operator error: in node \"clip_op\": unsupported or duplicated attributes: unused_attr"
+            "in node \"clip_op\": operator error: unsupported or duplicated attributes: unused_attr"
         );
     }
 

@@ -186,7 +186,7 @@ pub mod ops;
 
 pub use buffer_pool::{BufferPool, ExtractBuffer, PoolRef};
 pub use graph::{Dimension, NodeId, RunError, RunOptions};
-pub use model::{Model, ModelLoadError, ModelMetadata, ModelOptions, NodeInfo};
+pub use model::{LoadError, LoadErrorKind, Model, ModelMetadata, ModelOptions, NodeInfo};
 pub use op_registry::{OpRegistry, ReadOpError};
 pub use ops::{FloatOperators, Operators};
 pub use threading::{ThreadPool, thread_pool};
@@ -196,6 +196,9 @@ pub use value::{DataType, Sequence, Value, ValueOrView, ValueView};
 // Deprecated aliases for `ValueView`, `ValueOrView` and `Value`.
 #[allow(deprecated)]
 pub use ops::{Input, InputOrOutput, Output};
+
+#[deprecated = "renamed to `LoadError`"]
+pub type ModelLoadError = LoadError;
 
 // This is currently exposed for use in ocrs tests. That crate should probably
 // create an abstraction around model execution instead.
