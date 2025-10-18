@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::error::Error;
-use std::fmt;
 use std::hash::BuildHasherDefault;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -17,7 +15,7 @@ use smallvec::SmallVec;
 
 use crate::buffer_pool::BufferPool;
 use crate::env::env_flag;
-use crate::ops::{InputList, OpError, OpRunContext, Operator, OutputList, PrepackedInput};
+use crate::ops::{InputList, OpRunContext, Operator, OutputList, PrepackedInput};
 use crate::threading;
 use crate::timing::{Instant, ProfileFormat, Profiler, TimingFilter, TimingRecord, TimingSort};
 use crate::value::{DataType, Value, ValueMeta, ValueOrView, ValueView};
@@ -37,134 +35,14 @@ mod noop_hash;
 use noop_hash::NoopHashMap;
 mod planner;
 use planner::{CachedPlan, Planner};
+mod run_error;
+pub(crate) use run_error::RunErrorImpl;
+pub use run_error::{RunError, RunErrorKind};
 
 pub use planner::PlanOptions;
 
 mod node_id;
 pub use node_id::NodeId;
-
-/// Reasons why a graph execution failed
-#[derive(Eq, PartialEq, Debug)]
-pub enum RunError {
-    /// An input or output node ID is invalid
-    InvalidNodeId,
-
-    /// No node with a given name could be found
-    InvalidNodeName(String),
-
-    /// A plan could not be constructed that would generate the requested output
-    /// from the input.
-    PlanningError(String),
-
-    /// Execution of an operator failed
-    OperatorError {
-        /// Name of the operator node.
-        name: String,
-        error: OpError,
-
-        /// Shape and dtype of operator inputs.
-        ///
-        /// Inputs can be `None` if they are optional inputs which were not
-        /// provided.
-        inputs: Vec<Option<ValueMeta>>,
-    },
-
-    /// The output of a graph operator did not match expectations (eg. the
-    /// count, types or shapes of outputs did not match what was expected.)
-    OutputMismatch {
-        /// Name of the operator node.
-        name: String,
-
-        /// Error details.
-        error: String,
-    },
-
-    /// An error occurred while running a subgraph.
-    SubgraphError {
-        /// Name of the operator which ran the subgraph.
-        name: String,
-
-        /// Error that occurred while running the subgraph.
-        error: Box<RunError>,
-    },
-}
-
-impl RunError {
-    pub(crate) fn op_error(name: &str, error: OpError, ctx: &OpRunContext) -> Self {
-        RunError::OperatorError {
-            name: name.to_string(),
-            error,
-            inputs: ctx
-                .inputs()
-                .iter()
-                .map(|inp| inp.map(|inp| inp.to_meta()))
-                .collect(),
-        }
-    }
-
-    pub(crate) fn in_place_op_error(
-        name: &str,
-        error: OpError,
-        ctx: &OpRunContext,
-        main_input_dtype: DataType,
-        main_input_shape: &[usize],
-    ) -> Self {
-        let meta = ValueMeta {
-            dtype: main_input_dtype,
-            shape: main_input_shape.to_vec(),
-        };
-        let mut inputs: Vec<_> = [Some(meta)].into();
-        inputs.extend(ctx.inputs().iter().map(|inp| inp.map(|inp| inp.to_meta())));
-        RunError::OperatorError {
-            name: name.to_string(),
-            error,
-            inputs,
-        }
-    }
-
-    pub(crate) fn subgraph_error(name: Option<&str>, error: RunError) -> Self {
-        RunError::SubgraphError {
-            name: name.unwrap_or_default().to_string(),
-            error: Box::new(error),
-        }
-    }
-}
-
-impl fmt::Display for RunError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RunError::InvalidNodeId => write!(f, "node ID is invalid"),
-            RunError::InvalidNodeName(name) => write!(f, "no node found with name {}", name),
-            RunError::PlanningError(err) => write!(f, "planning error: {}", err),
-            RunError::OperatorError {
-                name,
-                error: err,
-                inputs,
-            } => {
-                write!(f, "operator \"{}\" failed: {}. Inputs were (", name, err,)?;
-                for (i, input) in inputs.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    if let Some(meta) = input {
-                        write!(f, "{}", meta)?;
-                    } else {
-                        write!(f, "-")?;
-                    }
-                }
-                write!(f, ")")
-            }
-            RunError::OutputMismatch { name, error } => {
-                write!(f, "operator \"{}\" output mismatch: {}", name, error)
-            }
-            RunError::SubgraphError { name, error } => {
-                write!(f, "operator \"{}\" subgraph error: {}", name, error)
-            }
-        }
-    }
-}
-
-impl Error for RunError {}
 
 /// Counter that tracks the remaining usage count of a graph node value.
 ///
@@ -911,9 +789,9 @@ impl Graph {
         let mut temp_value_refcount = NodeRefCount::with_capacity(self.next_node_id as usize);
         for &op_node_id in plan.iter() {
             let Some(Node::Operator(op_node)) = self.nodes.get(&op_node_id) else {
-                return Err(RunError::PlanningError(
-                    "operator node not found".to_string(),
-                ));
+                return Err(
+                    RunErrorImpl::PlanningError("operator node not found".to_string()).into(),
+                );
             };
             for node_id in self.operator_dependencies(op_node) {
                 if let Some(Node::Value(_)) = self.nodes.get(&node_id) {
@@ -938,9 +816,9 @@ impl Graph {
 
         for (step, &op_node_id) in plan.iter().enumerate() {
             let Some(Node::Operator(op_node)) = self.nodes.get(&op_node_id) else {
-                return Err(RunError::PlanningError(
-                    "operator node not found".to_string(),
-                ));
+                return Err(
+                    RunErrorImpl::PlanningError("operator node not found".to_string()).into(),
+                );
             };
 
             // Choose the input that we'll try to modify in-place to avoid
@@ -1145,14 +1023,15 @@ impl Graph {
             let outputs = op_result?;
             let expected_num_outputs = op_node.output_ids().len();
             if expected_num_outputs > outputs.len() {
-                return Err(RunError::OutputMismatch {
+                return Err(RunErrorImpl::OutputMismatch {
                     name: op_node.name().unwrap_or_default().to_string(),
                     error: format!(
                         "operator returned {} outputs but expected {}",
                         outputs.len(),
                         expected_num_outputs,
                     ),
-                });
+                }
+                .into());
             }
 
             // Save outputs for future steps.

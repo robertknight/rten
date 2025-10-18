@@ -9,7 +9,9 @@ use rten_tensor::{Tensor, TensorView};
 use smallvec::{SmallVec, smallvec};
 
 use super::{CachedPlan, CaptureEnv, PlanOptions};
-use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TypedConstant};
+use crate::graph::{
+    Dimension, Graph, Node, NodeId, RunError, RunErrorKind, RunOptions, TypedConstant,
+};
 use crate::ops::{
     Add, Concat, Conv, Identity, If, IntoOpResult, MatMul, Mul, OpError, OpRunContext, Operator,
     OutputList, PrepackedInput, Relu, Shape, SubgraphOperator,
@@ -488,20 +490,22 @@ fn test_duplicate_inputs() {
     let mut g = Graph::new();
     let input_id = g.add_value(Some("input"), None, None);
     let input = Tensor::from([1.]);
-    let result = g.run(
-        vec![
-            (input_id, input.view().into()),
-            (input_id, input.view().into()),
-        ],
-        &[input_id],
-        None,
-        None,
-    );
+    let err = g
+        .run(
+            vec![
+                (input_id, input.view().into()),
+                (input_id, input.view().into()),
+            ],
+            &[input_id],
+            None,
+            None,
+        )
+        .err()
+        .unwrap();
+    assert_eq!(err.kind(), RunErrorKind::PlanningError);
     assert_eq!(
-        result,
-        Err(RunError::PlanningError(
-            "Inputs are not unique. Input \"input\" is duplicated.".into()
-        ))
+        err.to_string(),
+        "planning error: Inputs are not unique. Input \"input\" is duplicated."
     );
 }
 
@@ -514,18 +518,20 @@ fn test_duplicate_outputs() {
 
     let input = Tensor::from([1.]);
 
-    let result = g.run(
-        vec![(input_id, input.into())],
-        &[op_a_out, op_a_out],
-        None,
-        None,
-    );
+    let err = g
+        .run(
+            vec![(input_id, input.into())],
+            &[op_a_out, op_a_out],
+            None,
+            None,
+        )
+        .err()
+        .unwrap();
 
+    assert_eq!(err.kind(), RunErrorKind::PlanningError);
     assert_eq!(
-        result,
-        Err(RunError::PlanningError(
-            "Outputs are not unique. Output \"op_a_out\" is duplicated.".into()
-        ))
+        err.to_string(),
+        "planning error: Outputs are not unique. Output \"op_a_out\" is duplicated."
     );
 }
 
@@ -533,12 +539,11 @@ fn test_duplicate_outputs() {
 fn test_no_source_for_output() {
     let mut g = Graph::new();
     let output_id = g.add_value(Some("output"), None, None);
-    let err = g.run(vec![], &[output_id], None, None);
+    let err = g.run(vec![], &[output_id], None, None).err().unwrap();
+    assert_eq!(err.kind(), RunErrorKind::PlanningError);
     assert_eq!(
-        err,
-        Err(RunError::PlanningError(
-            "Source node not found for output \"output\"".into()
-        ))
+        err.to_string(),
+        "planning error: Source node not found for output \"output\""
     );
 }
 
@@ -551,19 +556,23 @@ fn test_invalid_input_id() {
     let invalid_id = NodeId::from_u32(1234);
 
     for wrong_input_id in [op_id, invalid_id] {
-        let result = g.run(
-            [(wrong_input_id, input.view().into())].into(),
-            &[op_out],
-            None,
-            None,
-        );
+        let err = g
+            .run(
+                [(wrong_input_id, input.view().into())].into(),
+                &[op_out],
+                None,
+                None,
+            )
+            .err()
+            .unwrap();
         let name = g.node_name(wrong_input_id);
+        assert_eq!(err.kind(), RunErrorKind::PlanningError);
         assert_eq!(
-            result,
-            Err(RunError::PlanningError(format!(
-                "Input 0 (\"{}\") is not a value node in the graph.",
+            err.to_string(),
+            format!(
+                "planning error: Input 0 (\"{}\") is not a value node in the graph.",
                 name
-            ),))
+            )
         );
     }
 }
@@ -578,19 +587,23 @@ fn test_invalid_output_id() {
     let invalid_id = NodeId::from_u32(1234);
 
     for wrong_output_id in [op_id, invalid_id] {
-        let result = g.run(
-            [(input_id, input.view().into())].into(),
-            &[wrong_output_id],
-            None,
-            None,
-        );
+        let err = g
+            .run(
+                [(input_id, input.view().into())].into(),
+                &[wrong_output_id],
+                None,
+                None,
+            )
+            .err()
+            .unwrap();
         let name = g.node_name(wrong_output_id);
+        assert_eq!(err.kind(), RunErrorKind::PlanningError);
         assert_eq!(
-            result,
-            Err(RunError::PlanningError(format!(
-                "Output 0 (\"{}\") is not a value node in the graph.",
+            err.to_string(),
+            format!(
+                "planning error: Output 0 (\"{}\") is not a value node in the graph.",
                 name
-            )))
+            )
         );
     }
 }
@@ -611,18 +624,22 @@ fn test_cycle() {
     );
 
     let input = Tensor::from([1.]);
-    let result = g.run(
-        [(input_id, input.view().into())].into(),
-        &[output_id],
-        None,
-        None,
-    );
+    let err = g
+        .run(
+            [(input_id, input.view().into())].into(),
+            &[output_id],
+            None,
+            None,
+        )
+        .err()
+        .unwrap();
 
+    assert_eq!(err.kind(), RunErrorKind::PlanningError);
     assert_eq!(
-        result,
-        Err(RunError::PlanningError(format!(
-            "Encountered cycle visiting dependency \"output\" of operator \"identity_0\""
-        )))
+        err.to_string(),
+        format!(
+            "planning error: Encountered cycle visiting dependency \"output\" of operator \"identity_0\""
+        )
     );
 }
 
@@ -641,28 +658,21 @@ fn test_call_op_with_missing_input() {
         &[Some(output)],
     );
 
-    let results = g.run(vec![], &[output], None, None);
+    let err = g.run(vec![], &[output], None, None).err().unwrap();
 
-    assert_eq!(
-        results.err(),
-        Some(RunError::OperatorError {
-            name: "shape".to_string(),
-            error: OpError::MissingInputs,
-            inputs: [None].into(),
-        })
-    );
+    assert_eq!(err.kind(), RunErrorKind::OperatorError);
+    assert_eq!(err.node_path(), [Some("shape")]);
 }
 
 #[test]
 fn test_err_if_missing_operator_input() {
     let mut g = Graph::new();
     let (_, output) = g.add_simple_op("op", Relu {}, &[NodeId::from_u32(42)]);
-    let result = g.run(vec![], &[output], None, None);
+    let err = g.run(vec![], &[output], None, None).err().unwrap();
+    assert_eq!(err.kind(), RunErrorKind::PlanningError);
     assert_eq!(
-        result.err(),
-        Some(RunError::PlanningError(
-            "Missing input \"[ID: 42]\" for op \"op\"".to_string()
-        ))
+        err.to_string(),
+        "planning error: Missing input \"[ID: 42]\" for op \"op\""
     );
 }
 
@@ -924,19 +934,21 @@ fn test_not_enough_outputs() {
     );
 
     let input = Tensor::from([1.0, 2.0, 3.0, 4.0, 5.0]);
-    let result = g.run(
-        vec![(input_id, input.into())],
-        &[out_1, out_2, out_3],
-        None,
-        None,
-    );
+    let err = g
+        .run(
+            vec![(input_id, input.into())],
+            &[out_1, out_2, out_3],
+            None,
+            None,
+        )
+        .err()
+        .unwrap();
 
-    assert_eq!(
-        result,
-        Err(RunError::OutputMismatch {
-            name: "split".to_string(),
-            error: "operator returned 2 outputs but expected 3".to_string(),
-        })
+    assert_eq!(err.kind(), RunErrorKind::OperatorError);
+    assert_eq!(err.node_path(), [Some("split")]);
+    assert!(
+        err.to_string()
+            .contains("operator returned 2 outputs but expected 3")
     );
 }
 
@@ -1243,12 +1255,14 @@ fn test_captures_not_available_when_subgraph_is_run_directly() {
     let result = subgraph.partial_run(Vec::new(), &[sg_add], None).unwrap();
     assert_eq!(result.len(), 0);
 
-    let result = subgraph.run(Vec::new(), &[sg_add], None, None);
+    let err = subgraph
+        .run(Vec::new(), &[sg_add], None, None)
+        .err()
+        .unwrap();
+    assert_eq!(err.kind(), RunErrorKind::PlanningError);
     assert_eq!(
-        result,
-        Err(RunError::PlanningError(
-            "Missing input \"input\" for op \"Id\"".to_string()
-        ))
+        err.to_string(),
+        "planning error: Missing input \"input\" for op \"Id\""
     );
 }
 

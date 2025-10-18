@@ -185,7 +185,7 @@ pub mod ctc;
 pub mod ops;
 
 pub use buffer_pool::{BufferPool, ExtractBuffer, PoolRef};
-pub use graph::{Dimension, NodeId, RunError, RunOptions};
+pub use graph::{Dimension, NodeId, RunError, RunErrorKind, RunOptions};
 pub use model::{LoadError, LoadErrorKind, Model, ModelMetadata, ModelOptions, NodeInfo};
 pub use op_registry::{OpRegistry, ReadOpError};
 pub use ops::{FloatOperators, Operators};
