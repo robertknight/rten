@@ -5,7 +5,7 @@ use std::io::BufWriter;
 
 use argh::FromArgs;
 use hound::{SampleFormat, WavSpec, WavWriter};
-use rten::{Model, RunOptions};
+use rten::Model;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
@@ -230,9 +230,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ]
         .into(),
         [model.node_id("waveform")?],
-        Some(RunOptions {
-            ..Default::default()
-        }),
+        None,
     )?;
 
     // Either (batch, seq) or (seq) depending on the model variant.
