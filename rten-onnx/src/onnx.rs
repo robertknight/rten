@@ -8,6 +8,7 @@
 //! are used by RTen or its associated tools.
 
 use std::cell::RefCell;
+use std::fmt;
 use std::fs::File;
 
 use crate::protobuf::{DecodeMessage, Fields, OwnedValues, ProtobufError, ReadValue, ValueReader};
@@ -266,12 +267,68 @@ pub struct DataType(pub i32);
 
 impl DataType {
     pub const FLOAT: Self = Self(1);
-    pub const INT32: Self = Self(6);
-    pub const INT64: Self = Self(7);
     pub const UINT8: Self = Self(2);
     pub const INT8: Self = Self(3);
+    pub const UINT16: Self = Self(4);
+    pub const INT16: Self = Self(5);
+    pub const INT32: Self = Self(6);
+    pub const INT64: Self = Self(7);
+    pub const STRING: Self = Self(8);
     pub const BOOL: Self = Self(9);
+    pub const FLOAT16: Self = Self(10);
     pub const DOUBLE: Self = Self(11);
+    pub const UINT32: Self = Self(12);
+    pub const UINT64: Self = Self(13);
+    pub const COMPLEX64: Self = Self(14);
+    pub const COMPLEX128: Self = Self(15);
+    pub const BFLOAT16: Self = Self(16);
+    pub const FLOAT8E4M3FN: Self = Self(17);
+    pub const FLOAT8E4M3FNUZ: Self = Self(18);
+    pub const FLOAT8E5M2: Self = Self(19);
+    pub const FLOAT8E5M2FNUZ: Self = Self(20);
+    pub const UINT4: Self = Self(21);
+    pub const INT4: Self = Self(22);
+    pub const FLOAT4E2M1: Self = Self(23);
+    pub const FLOAT8E8M0: Self = Self(24);
+
+    pub fn name(&self) -> Option<&str> {
+        match *self {
+            Self::FLOAT => Some("FLOAT"),
+            Self::UINT8 => Some("UINT8"),
+            Self::INT8 => Some("INT8"),
+            Self::UINT16 => Some("UINT16"),
+            Self::INT16 => Some("INT16"),
+            Self::INT32 => Some("INT32"),
+            Self::INT64 => Some("INT64"),
+            Self::STRING => Some("STRING"),
+            Self::BOOL => Some("BOOL"),
+            Self::FLOAT16 => Some("FLOAT16"),
+            Self::DOUBLE => Some("DOUBLE"),
+            Self::UINT32 => Some("UINT32"),
+            Self::UINT64 => Some("UINT64"),
+            Self::COMPLEX64 => Some("COMPLEX64"),
+            Self::COMPLEX128 => Some("COMPLEX128"),
+            Self::BFLOAT16 => Some("BFLOAT16"),
+            Self::FLOAT8E4M3FN => Some("FLOAT8E4M3FN"),
+            Self::FLOAT8E4M3FNUZ => Some("FLOAT8E4M3FNUZ"),
+            Self::FLOAT8E5M2 => Some("FLOAT8E5M2"),
+            Self::FLOAT8E5M2FNUZ => Some("FLOAT8E5M2FNUZ"),
+            Self::UINT4 => Some("UINT4"),
+            Self::INT4 => Some("INT4"),
+            Self::FLOAT4E2M1 => Some("FLOAT4E2M1"),
+            Self::FLOAT8E8M0 => Some("FLOAT8E8M0"),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for DataType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.name() {
+            Some(name) => write!(f, "{name}"),
+            None => write!(f, "{}", self.0),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]

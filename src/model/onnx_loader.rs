@@ -447,7 +447,7 @@ fn load_constant(
                 GraphError,
                 name,
                 "initializer has unsupported data type {}",
-                dtype.0
+                dtype
             ));
         }
         None => {
@@ -1072,6 +1072,27 @@ mod tests {
 
         let floats_vec = model.get_tensor_by_name::<f32>("doubles_vec").unwrap();
         assert_eq!(floats_vec, TensorView::from(&[0.1, 0.2, 0.3]));
+    }
+
+    #[test]
+    fn test_initializer_with_unsupported_dtype() {
+        let tensor = create_tensor(
+            "init",
+            &[],
+            onnx::DataType::FLOAT16,
+            TensorData::Raw((0u16).to_le_bytes().into()),
+        );
+
+        let model_proto = onnx::GraphProto::default()
+            .with_initializer(tensor)
+            .into_model();
+
+        let err = load_model(model_proto).err().unwrap();
+
+        assert_eq!(
+            err.to_string(),
+            "in node \"init\": graph error: initializer has unsupported data type FLOAT16"
+        );
     }
 
     #[test]
