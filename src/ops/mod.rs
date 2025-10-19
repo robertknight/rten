@@ -28,7 +28,7 @@ use rten_tensor::{MutLayout, Storage, TensorBase};
 use crate::buffer_pool::BufferPool;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::timing::Profiler;
-use crate::value::{CastError, DataType, DataTypeOf, Value, ValueOrView, ValueView};
+use crate::value::{CastError, DataType, DataTypeOf, Value, ValueView};
 use crate::weight_cache::WeightCache;
 
 mod attention;
@@ -226,15 +226,6 @@ macro_rules! impl_prepacked_input_conversions {
 }
 impl_prepacked_input_conversions!(f32, FloatBMatrix);
 impl_prepacked_input_conversions!(i8, Int8BMatrix);
-
-#[deprecated = "renamed to `ValueOrView`"]
-pub type InputOrOutput<'a> = ValueOrView<'a>;
-
-#[deprecated = "renamed to `ValueView`"]
-pub type Input<'a> = ValueView<'a>;
-
-#[deprecated = "renamed to `Value`"]
-pub type Output = Value;
 
 /// Trait for values that can be converted into the result type used by
 /// [`Operator::run`].
