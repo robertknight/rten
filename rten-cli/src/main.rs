@@ -166,7 +166,7 @@ fn run_model(
                             dynamic_dims_using_default_size.insert(dim_name.to_string());
                         }
                     },
-                );
+                )?;
                 ValueOrView::Value(tensor)
             };
             inputs.push((id, value_or_view));
@@ -360,6 +360,23 @@ fn compare_tensors<T: Copy + Debug>(
     CompareMetrics { max_diff }
 }
 
+#[derive(Debug)]
+enum GenerateError {
+    UnsupportedDataType(DataType),
+}
+
+impl std::fmt::Display for GenerateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedDataType(dtype) => {
+                write!(f, "generation of {dtype} inputs is not supported")
+            }
+        }
+    }
+}
+
+impl Error for GenerateError {}
+
 struct RandomInputGenerator {
     rng: fastrand::Rng,
 }
@@ -385,7 +402,7 @@ impl RandomInputGenerator {
         shape: &[Dimension],
         dim_sizes: &[DimSize],
         mut on_resolve_size: impl FnMut(&str, Option<usize>),
-    ) -> Value {
+    ) -> Result<Value, GenerateError> {
         let resolved_shape: Vec<usize> = shape
             .iter()
             .map(|dim| match dim {
@@ -414,7 +431,7 @@ impl RandomInputGenerator {
         }
 
         // Guess suitable content for the input based on its name.
-        match name {
+        let value = match name {
             // If this is a mask, use all ones on the assumption that we
             // don't want to mask anything out.
             name if name.ends_with("_mask") && matches!(dtype, Some(DataType::Int32) | None) => {
@@ -448,8 +465,13 @@ impl RandomInputGenerator {
                 Some(DataType::Int32) => random_ints(&resolved_shape, || self.rng.i32(0..256)),
                 Some(DataType::Int8) => random_ints(&resolved_shape, || self.rng.i8(0..=127)),
                 Some(DataType::UInt8) => random_ints(&resolved_shape, || self.rng.u8(0..=255)),
+                Some(dtype) => {
+                    return Err(GenerateError::UnsupportedDataType(dtype));
+                }
             },
-        }
+        };
+
+        Ok(value)
     }
 }
 
