@@ -1570,10 +1570,7 @@ mod tests {
 
         let generator = Generator::from_model(&model)?;
 
-        let run_opts = RunOptions {
-            verbose: true,
-            ..Default::default()
-        };
+        let run_opts = RunOptions::default().with_verbose(true);
         let output_token_ids: Vec<_> = generator
             .with_prompt(&prompt)
             .with_run_options(Some(run_opts.clone()))

@@ -90,7 +90,17 @@ impl NodeRefCount {
 
 /// Options that control logging and other behaviors when executing a
 /// [`Model`](crate::Model).
+///
+/// ```
+/// use rten::RunOptions;
+///
+/// let opts = RunOptions::default()
+///     .with_timing(true)
+///     .with_verbose(false)
+///     .with_thread_pool(None);
+/// ```
 #[derive(Clone, Default)]
+#[non_exhaustive]
 pub struct RunOptions {
     /// Whether to log times spent in different operators when run completes.
     pub timing: bool,
@@ -127,6 +137,31 @@ impl RunOptions {
         self.thread_pool
             .as_deref()
             .unwrap_or(threading::thread_pool())
+    }
+
+    pub fn with_timing(mut self, timing: bool) -> Self {
+        self.timing = timing;
+        self
+    }
+
+    pub fn with_timing_filter(mut self, filter: Vec<TimingFilter>) -> Self {
+        self.timing_filter = filter;
+        self
+    }
+
+    pub fn with_timing_by_shape(mut self, timing_by_shape: bool) -> Self {
+        self.timing_by_shape = timing_by_shape;
+        self
+    }
+
+    pub fn with_verbose(mut self, verbose: bool) -> Self {
+        self.verbose = verbose;
+        self
+    }
+
+    pub fn with_thread_pool(mut self, pool: Option<Arc<threading::ThreadPool>>) -> Self {
+        self.thread_pool = pool;
+        self
     }
 }
 

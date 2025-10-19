@@ -611,15 +611,14 @@ fn main() {
         println!("Running model with random inputs...");
     }
 
-    let run_opts = RunOptions {
-        timing: profile_mode != ProfileMode::None,
-        timing_by_shape: profile_mode == ProfileMode::Detailed,
-        verbose: args.verbose,
-        thread_pool: args
-            .num_threads
-            .map(|nt| ThreadPool::with_num_threads(nt as usize).into()),
-        ..Default::default()
-    };
+    let thread_pool = args
+        .num_threads
+        .map(|nt| ThreadPool::with_num_threads(nt as usize).into());
+    let run_opts = RunOptions::default()
+        .with_timing(profile_mode != ProfileMode::None)
+        .with_timing_by_shape(profile_mode == ProfileMode::Detailed)
+        .with_verbose(args.verbose)
+        .with_thread_pool(thread_pool);
 
     // Read values for inputs, if provided.
     let mut input_values = HashMap::new();
