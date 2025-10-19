@@ -15,6 +15,7 @@ use crate::buffer_pool::{Buffer, BufferPool, ExtractBuffer};
 
 /// Enum specifying the data type of a tensor.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum DataType {
     Int32,
     Float,
@@ -233,6 +234,7 @@ macro_rules! impl_proxy_layout {
 /// Each `ValueView` variant has a counterpart [`Value`] that is the owned value
 /// of the same type.
 #[derive(Clone)]
+#[non_exhaustive]
 pub enum ValueView<'a> {
     FloatTensor(TensorView<'a, f32>),
     Int32Tensor(TensorView<'a, i32>),
@@ -384,6 +386,7 @@ impl<'a> From<&'a Value> for ValueView<'a> {
 /// Each `Value` variant has a [`ValueView`] counterpart that represents a
 /// borrowed value of the same type.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Value {
     FloatTensor(Tensor<f32>),
     Int32Tensor(Tensor<i32>),
@@ -710,6 +713,7 @@ pub enum SequenceError {
 /// The type of list is dynamic but tensors within a list all have the same
 /// type. The rank and shape of each tensor in the list can vary.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Sequence {
     Float(Vec<Tensor<f32>>),
     Int32(Vec<Tensor<i32>>),
