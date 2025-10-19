@@ -193,10 +193,6 @@ pub use threading::{ThreadPool, thread_pool};
 pub use timing::TimingSort;
 pub use value::{DataType, Sequence, Value, ValueOrView, ValueView};
 
-// Deprecated aliases for `ValueView`, `ValueOrView` and `Value`.
-#[allow(deprecated)]
-pub use ops::{Input, InputOrOutput, Output};
-
 #[deprecated = "renamed to `LoadError`"]
 pub type ModelLoadError = LoadError;
 
