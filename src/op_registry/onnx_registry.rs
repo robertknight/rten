@@ -476,7 +476,10 @@ impl<'a> Attr<'a> {
             onnx::DataType::INT32 | onnx::DataType::INT64 | onnx::DataType::BOOL => {
                 Ok(DataType::Int32)
             }
-            _ => Err(ReadOpError::attr_error(self.name, "unsupported data type")),
+            _ => Err(ReadOpError::attr_error(
+                self.name,
+                format!("unsupported data type {onnx_dtype}"),
+            )),
         }
     }
 
