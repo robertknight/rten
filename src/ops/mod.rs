@@ -128,7 +128,7 @@ pub use einsum::einsum;
 pub use gather::{gather, gather_elements, gather_nd, scatter_elements, scatter_nd};
 pub use generate::{constant_of_shape, onehot, range};
 pub use layout::{DepthToSpaceMode, depth_to_space, expand, flatten, reshape, squeeze};
-pub use matmul::{gemm_op, matmul};
+pub use matmul::{gemm, matmul};
 pub use non_max_suppression::{BoxOrder, non_max_suppression};
 pub use norm::{
     batch_norm, instance_normalization, layer_normalization, log_softmax, rms_normalization,
