@@ -7,8 +7,9 @@ use rten_tensor::{Tensor, TensorView};
 use rten_vecmath::Softmax;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::ops::binary_elementwise::broadcast_shapes;
-use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, resolve_axis};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{binary_elementwise::broadcast_shapes, resolve_axis};
+use crate::value::Value;
 
 const BROADCAST_ERROR: OpError = OpError::IncompatibleInputShapes("Cannot broadcast inputs");
 
@@ -122,7 +123,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{AddSoftmax, BROADCAST_ERROR};
-    use crate::ops::{Add, OpError, OperatorExt, Softmax};
+    use crate::operator::{OpError, OperatorExt};
+    use crate::ops::{Add, Softmax};
 
     fn reference_add_softmax(x: TensorView, y: TensorView) -> Result<Tensor, OpError> {
         let add = Add {};

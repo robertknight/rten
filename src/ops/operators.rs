@@ -5,7 +5,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Storage, Tensor, TensorBase, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::OpError;
+use crate::operator::OpError;
 use crate::ops::{
     PadMode, arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min,
     reduce_sum, resize_image, softmax, topk,

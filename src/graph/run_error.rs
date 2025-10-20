@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::ops::{OpError, OpRunContext};
+use crate::operator::{OpError, OpRunContext};
 use crate::value::{DataType, ValueMeta};
 
 /// Errors that occur when running a model.

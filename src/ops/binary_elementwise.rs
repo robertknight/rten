@@ -9,10 +9,9 @@ use rten_tensor::{AssumeInit, NdTensorView, NdTensorViewMut};
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::ops::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView, map_value,
-    map_value_view,
-};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{map_value, map_value_view};
+use crate::value::{Value, ValueView};
 
 /// Given the shapes of two inputs to a binary operation, return the shape
 /// that will result from broadcasting them following NumPy rules or `None`
@@ -1008,8 +1007,9 @@ mod tests {
         less, less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
         where_op, xor,
     };
+    use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt};
     use crate::ops::tests::new_pool;
-    use crate::ops::{InputList, OpError, OpRunContext, Operator, OperatorExt, Value};
+    use crate::value::Value;
 
     #[test]
     fn test_fast_broadcast_cycles_repeats() {

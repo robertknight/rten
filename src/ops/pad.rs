@@ -4,9 +4,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, NdTensorViewMut, SliceItem, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView, map_value_view,
-};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::map_value_view;
+use crate::value::ValueView;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum PadMode {
@@ -290,8 +290,10 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
+    use crate::operator::{OpError, OperatorExt};
     use crate::ops::tests::new_pool;
-    use crate::ops::{CastError, DataType, OpError, OperatorExt, Pad, PadMode, Value, pad};
+    use crate::ops::{Pad, PadMode, pad};
+    use crate::value::{CastError, DataType, Value};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())

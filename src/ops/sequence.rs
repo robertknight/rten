@@ -2,12 +2,10 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
+use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::split::SplitSizes;
 use crate::ops::split::split;
-use crate::ops::{
-    Concat, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, map_value_view,
-    resolve_axis, resolve_index,
-};
+use crate::ops::{Concat, map_value_view, resolve_axis, resolve_index};
 use crate::value::{DataType, Sequence, Value, ValueView};
 
 #[derive(Debug)]
@@ -306,7 +304,7 @@ mod tests {
         ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,
         SequenceInsert, SequenceLength, SplitToSequence,
     };
-    use crate::ops::{InputList, OpError, OperatorExt};
+    use crate::operator::{InputList, OpError, OperatorExt};
     use crate::value::{CastError, DataType, Sequence, Value, ValueView};
 
     #[test]

@@ -9,12 +9,11 @@ use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
+use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::layout::squeeze_in_place;
-use crate::ops::{
-    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView,
-    map_value_view, resolve_axes, resolve_axis,
-};
+use crate::ops::{map_value_view, resolve_axes, resolve_axis};
 use crate::slice_reductions::{slice_fold_assoc, slice_sum};
+use crate::value::ValueView;
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
@@ -877,11 +876,12 @@ mod tests {
     use rten_tensor::{NdTensor, SliceRange, Tensor};
     use rten_testing::TestCases;
 
+    use crate::operator::{Operator, OperatorExt};
     use crate::ops::tests::new_pool;
     use crate::ops::{
-        OpError, Operator, OperatorExt, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
-        ReduceSum, ReduceSumSquare, arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max,
-        reduce_mean, reduce_min, reduce_prod, reduce_sum, reduce_sum_square, topk,
+        OpError, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
+        ReduceSumSquare, arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean,
+        reduce_min, reduce_prod, reduce_sum, reduce_sum_square, topk,
     };
 
     #[test]

@@ -167,6 +167,7 @@ mod env;
 mod graph;
 mod model;
 mod op_registry;
+mod operator;
 mod optimize;
 mod shift_cast;
 mod slice_reductions;

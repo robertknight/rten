@@ -4,9 +4,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView, map_value_view,
-};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::map_value_view;
+use crate::value::ValueView;
 
 fn trilu_kernel<T: Copy + Default, const UPPER: bool>(
     mut out_mat: NdTensorViewMut<MaybeUninit<T>, 2>,

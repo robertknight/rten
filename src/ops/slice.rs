@@ -4,10 +4,9 @@ use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::ops::{
-    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
-    map_value, map_value_view, resolve_axis,
-};
+use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{map_value, map_value_view, resolve_axis};
+use crate::value::{Value, ValueView};
 
 macro_rules! check_input {
     ($cond:expr, $msg:literal) => {

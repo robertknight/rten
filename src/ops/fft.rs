@@ -4,7 +4,7 @@ use rustfft::FftPlanner;
 use rustfft::num_complex::Complex32;
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 
 enum FftType {
     /// FFT with real input signal.
@@ -155,8 +155,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::STFT;
+    use crate::operator::{InputList, OpError, OperatorExt};
     use crate::ops::tests::{IntoNDim, expect_eq_1e4};
-    use crate::ops::{InputList, OpError, OperatorExt};
 
     #[test]
     fn test_stft() {

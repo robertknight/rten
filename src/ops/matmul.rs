@@ -9,12 +9,12 @@ use rten_vecmath::ExtendInit;
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput, static_dims,
+};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
-use crate::ops::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput, ValueView,
-    static_dims,
-};
+use crate::value::ValueView;
 
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
 ///
@@ -634,9 +634,9 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::buffer_pool::AutoReturn;
+    use crate::operator::{InputList, Operator};
     use crate::ops::binary_elementwise::broadcast_shapes;
     use crate::ops::tests::new_pool;
-    use crate::ops::{InputList, Operator};
 
     use super::{
         FusedMatMul, MatMul, MatMulInteger, MatmulStrategy, OpError, OpRunContext, cast_scale,

@@ -2,7 +2,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 
 /// Interpolate between `x0` and `x1` according to the `factor` in range [0, 1].
 fn lerp(x0: f32, x1: f32, factor: f32) -> f32 {
@@ -143,7 +143,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::grid_sample;
-    use crate::ops::OpError;
+    use crate::operator::OpError;
     use crate::ops::tests::{IntoNDim, expect_eq_1e4, new_pool};
 
     #[test]

@@ -7,10 +7,9 @@ use rten_tensor::{AssumeInit, NdTensor, NdTensorView, Scalar, Tensor, TensorView
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{
-    DataType, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
-    map_value_view, resolve_axis,
-};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{map_value_view, resolve_axis};
+use crate::value::{DataType, Value, ValueView};
 
 /// Convert a quantized tensor element to a higher precision value.
 pub trait Dequantize<To> {
@@ -431,8 +430,9 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{dequantize_linear, dynamic_quantize_linear, quantize_linear};
+    use crate::operator::OpError;
     use crate::ops::tests::new_pool;
-    use crate::ops::{OpError, Value};
+    use crate::value::Value;
 
     // Test dequantization followed by re-quantization. In this order the
     // result should be the input. In the opposite order this would not be the

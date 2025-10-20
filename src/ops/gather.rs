@@ -10,11 +10,10 @@ use rten_tensor::{
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
-use crate::ops::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView, map_value_view,
-    resolve_axis, resolve_index,
-};
+use crate::ops::{map_value_view, resolve_axis, resolve_index};
+use crate::value::ValueView;
 
 const INVALID_INDEX_ERR: OpError = OpError::InvalidValue("Entry in `indices` is out of range");
 
@@ -623,9 +622,10 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_testing::TestCases;
 
+    use crate::operator::OpError;
     use crate::ops::tests::new_pool;
     use crate::ops::{
-        OpError, ScatterReduction, gather, gather_elements, gather_nd, scatter_elements, scatter_nd,
+        ScatterReduction, gather, gather_elements, gather_nd, scatter_elements, scatter_nd,
     };
 
     #[test]

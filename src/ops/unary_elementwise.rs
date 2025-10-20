@@ -11,11 +11,10 @@ use rten_tensor::{AssumeInit, Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::binary_elementwise::binary_op;
-use crate::ops::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView, map_value,
-    map_value_view,
-};
+use crate::ops::{map_value, map_value_view};
+use crate::value::{Value, ValueView};
 
 trait UnaryKernel<T> {
     /// Apply the unary operation to elements of `src`, writing to `dst`.
@@ -657,8 +656,9 @@ mod tests {
         Relu, Sigmoid, Sign, Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh, ceil, clip,
         clip_in_place, erf, floor, hard_sigmoid, hard_swish, leaky_relu, round,
     };
+    use crate::operator::{OpError, Operator, OperatorExt};
     use crate::ops::tests::new_pool;
-    use crate::ops::{CastError, OpError, Operator, OperatorExt, Value, ValueView};
+    use crate::value::{CastError, Value, ValueView};
     use rten_tensor::test_util::ApproxEq;
 
     // Test a unary operator's in-place and non-in-place implementations.

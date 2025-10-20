@@ -5,9 +5,8 @@ use rten_tensor::Tensor;
 use rten_tensor::prelude::*;
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{
-    DataType, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView,
-};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::value::{DataType, Value, ValueView};
 
 fn cast(pool: &BufferPool, input: ValueView, dtype: DataType) -> Result<Value, OpError> {
     macro_rules! cast_as {
@@ -160,7 +159,9 @@ mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use crate::ops::{Cast, CastLike, DataType, InputList, OperatorExt, Value};
+    use super::{Cast, CastLike};
+    use crate::operator::{InputList, OperatorExt};
+    use crate::value::{DataType, Value};
 
     #[test]
     fn test_cast() {

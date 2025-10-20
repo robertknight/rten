@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::graph::{Graph, NodeId};
-use crate::ops::Operator;
+use crate::operator::Operator;
 use crate::{DataType, Dimension, Value};
 
 enum ExprKind {

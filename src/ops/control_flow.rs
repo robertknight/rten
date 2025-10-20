@@ -3,8 +3,10 @@ use rten_tensor::{Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::graph::{CaptureEnv, Graph, NodeId, RunError, RunOptions};
-use crate::ops::{OpError, OpRunContext, Operator, OutputList, SubgraphOperator, Value, map_value};
+use crate::operator::{OpError, OpRunContext, Operator, OutputList, SubgraphOperator};
+use crate::ops::map_value;
 use crate::timing::Profiler;
+use crate::value::Value;
 use crate::value::ValueOrView;
 use crate::weight_cache::WeightCache;
 
@@ -281,9 +283,9 @@ mod tests {
     use rten_tensor::Tensor;
 
     use crate::graph::builder::Expr;
-    use crate::graph::{CaptureEnv, Graph, RunErrorKind};
+    use crate::graph::{CaptureEnv, Graph, RunError, RunErrorKind};
+    use crate::operator::{InputList, OpRunContext, SubgraphOperator};
     use crate::ops::tests::new_pool;
-    use crate::ops::{InputList, OpRunContext, RunError, SubgraphOperator};
     use crate::value::{Scalar, Value, ValueView};
 
     use super::Loop;

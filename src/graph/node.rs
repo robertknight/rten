@@ -5,7 +5,7 @@ use rten_tensor::{ArcTensor, DynLayout, TensorView};
 
 use super::NodeId;
 use crate::constant_storage::ArcTensorView;
-use crate::ops::Operator;
+use crate::operator::Operator;
 use crate::value::{DataType, ValueView};
 
 #[derive(Debug)]

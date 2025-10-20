@@ -3,7 +3,8 @@ use fastrand_contrib::RngExt;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
-use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::value::Value;
 
 #[derive(Debug)]
 pub struct RandomUniform {
@@ -227,9 +228,9 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_testing::TestCases;
 
+    use crate::operator::{InputList, OpRunContext, Operator, OperatorExt};
     use crate::ops::operators::{FloatOperators, Operators};
     use crate::ops::tests::new_pool;
-    use crate::ops::{InputList, OpRunContext, Operator, OperatorExt};
 
     use super::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
 

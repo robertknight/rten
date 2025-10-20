@@ -6,10 +6,9 @@ use rten_tensor::{DynLayout, MutLayout, OverlapPolicy, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::layout::expand_to;
-use crate::ops::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, matmul, mul, reduce_sum,
-};
+use crate::ops::{matmul, mul, reduce_sum};
 
 /// A parsed equation for an Einsum operator.
 ///
@@ -703,8 +702,9 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{EinsumExpr, EinsumInput, EinsumStep, EinsumTerm, einsum_path};
+    use crate::operator::OpError;
     use crate::ops::tests::new_pool;
-    use crate::ops::{OpError, einsum, matmul, mul, reduce_sum};
+    use crate::ops::{einsum, matmul, mul, reduce_sum};
 
     #[test]
     fn test_einsum() {

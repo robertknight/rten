@@ -9,11 +9,12 @@ use crate::graph::{
     Constant, ConstantNode, ConstantNodeData, Dimension, Graph, Node, NodeId, OperatorNode,
     TypedConstant,
 };
+use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     AddSoftmax, Cast, DynamicQuantizeLinear, FusedMatMul, Gelu, LayerNormalization,
-    MatMulIntegerToFloat, Mul, Operator, Reciprocal, ReduceMean, RmsNormalization, Silu, Softmax,
-    Swish, Transpose,
+    MatMulIntegerToFloat, Mul, Reciprocal, ReduceMean, RmsNormalization, Silu, Softmax, Swish,
+    Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 
