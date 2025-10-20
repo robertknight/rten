@@ -22,7 +22,7 @@ use crate::value::ValueView;
 /// respectively are transposed before multiplying them.
 ///
 /// nb. This is named `gemm_op` to avoid confusion with `gemm::gemm`.
-pub fn gemm_op<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
+pub fn gemm<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     pool: &BufferPool,
     a: TensorView<LhsT>,
     b: TensorView<RhsT>,
@@ -105,7 +105,7 @@ impl Operator for Gemm {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         let c = inputs.get_as(2)?;
-        gemm_op::<f32, f32, f32>(
+        gemm::<f32, f32, f32>(
             ctx.pool(),
             a,
             b,
@@ -640,7 +640,7 @@ mod tests {
 
     use super::{
         FusedMatMul, MatMul, MatMulInteger, MatmulStrategy, OpError, OpRunContext, cast_scale,
-        gemm_op, matmul, matmul_fused, matmul_impl, matmul_integer,
+        gemm, matmul, matmul_fused, matmul_impl, matmul_integer,
     };
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -789,7 +789,7 @@ mod tests {
         let mut expected = Tensor::zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
 
-        let result = gemm_op(&pool, a.view(), b.view(), None, 1.0, 1.0, false, false).unwrap();
+        let result = gemm(&pool, a.view(), b.view(), None, 1.0, 1.0, false, false).unwrap();
 
         expect_equal(&result, &expected)?;
 
@@ -811,7 +811,7 @@ mod tests {
         let mut expected = Tensor::zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a_transposed, &b_transposed, 1., 1.);
 
-        let result = gemm_op(&pool, a.view(), b.view(), None, 1.0, 1.0, true, true).unwrap();
+        let result = gemm(&pool, a.view(), b.view(), None, 1.0, 1.0, true, true).unwrap();
 
         expect_equal(&result, &expected)?;
 
@@ -830,7 +830,7 @@ mod tests {
         let mut expected = c.clone();
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
 
-        let result = gemm_op(
+        let result = gemm(
             &pool,
             a.view(),
             b.view(),
@@ -856,7 +856,7 @@ mod tests {
         let b = Tensor::rand(&[10, 8], &mut rng);
         let c = Tensor::rand(&[3, 5], &mut rng);
 
-        let result = gemm_op(
+        let result = gemm(
             &pool,
             a.view(),
             b.view(),
