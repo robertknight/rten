@@ -12,10 +12,10 @@ use super::{CachedPlan, CaptureEnv, PlanOptions};
 use crate::graph::{
     Dimension, Graph, Node, NodeId, RunError, RunErrorKind, RunOptions, TypedConstant,
 };
-use crate::ops::{
-    Add, Concat, Conv, Identity, If, IntoOpResult, MatMul, Mul, OpError, OpRunContext, Operator,
-    OutputList, PrepackedInput, Relu, Shape, SubgraphOperator,
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput, SubgraphOperator,
 };
+use crate::ops::{Add, Concat, Conv, Identity, If, MatMul, Mul, Relu, Shape};
 use crate::timing::Profiler;
 use crate::value::{DataType, Value, ValueView};
 use crate::weight_cache::WeightCache;

@@ -7,10 +7,10 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::ops::{
-    CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
-    ValueView, static_dims,
+use crate::operator::{
+    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims,
 };
+use crate::value::{CastError, Value, ValueView};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
@@ -540,12 +540,10 @@ mod tests {
     use rten_tensor::{NdTensor, NdTensorView, Tensor};
     use rten_testing::TestCases;
 
+    use crate::operator::{InputList, OpError, OpRunContext, Operator};
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
-    use crate::ops::{
-        CoordTransformMode, InputList, NearestMode, OpError, OpRunContext, Operator, Resize,
-        ResizeMode, ResizeTarget, resize,
-    };
+    use crate::ops::{CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget, resize};
 
     // Reference values for these tests can be computed with either OpenCV
     // (`cv2.resize`) or PyTorch (`torch.nn.functional.interpolate`).

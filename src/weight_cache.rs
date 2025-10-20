@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::graph::NodeId;
-use crate::ops::PrepackedInput;
+use crate::operator::PrepackedInput;
 
 /// A cache of prepacked weights for graph operators.
 ///

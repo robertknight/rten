@@ -9,12 +9,12 @@ use rten_tensor::prelude::*;
 use rten_tensor::{CowTensor, NdTensor, NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
+use crate::ops::Padding;
 use crate::ops::matmul::zero_point_to_vec;
 use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
-use crate::ops::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding, ValueView, static_dims,
-};
 use crate::shift_cast::ShiftCast;
+use crate::value::ValueView;
 
 mod depthwise;
 mod im2col;
@@ -541,10 +541,11 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::buffer_pool::AutoReturn;
+    use crate::operator::{OpError, OperatorExt};
     use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
-    use crate::ops::{Conv, OpError, OperatorExt, Padding, conv, conv_integer};
+    use crate::ops::{Conv, Padding, conv, conv_integer};
 
     trait ReferenceConvKernel<X, W> {
         /// Update a single output element (`self`) with a given input and weight value.

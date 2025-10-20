@@ -8,8 +8,10 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, resolve_axis};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::resolve_axis;
 use crate::slice_reductions::slice_max;
+use crate::value::Value;
 
 /// Specifies how to normalize the mean and variance.
 #[derive(Copy, Clone, Debug, PartialEq)]

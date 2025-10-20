@@ -13,10 +13,11 @@ use smallvec::SmallVec;
 
 use super::ReadOpError;
 use crate::graph::Graph;
+use crate::operator::Operator;
 use crate::ops;
 use crate::ops::{
-    BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, Operator, PadMode,
-    Padding, ResizeMode, ScatterReduction,
+    BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, PadMode, Padding,
+    ResizeMode, ScatterReduction,
 };
 use crate::value::{DataType, Scalar};
 

@@ -6,11 +6,10 @@ use rten_tensor::{NdTensorView, Tensor, TensorView, is_valid_permutation};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
-use crate::ops::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView, map_value,
-    map_value_view, resolve_axes, resolve_axis, static_dims,
-};
+use crate::ops::{map_value, map_value_view, resolve_axes, resolve_axis};
+use crate::value::{Value, ValueView};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DepthToSpaceMode {
@@ -642,12 +641,13 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{DepthToSpaceMode, depth_to_space};
+    use crate::operator::{OpError, OperatorExt};
     use crate::ops::layout::{
         Reshape, Shape, Size, expand, flatten, reshape, reshape_in_place, squeeze,
         squeeze_in_place, transpose, unsqueeze,
     };
     use crate::ops::tests::new_pool;
-    use crate::ops::{OpError, OperatorExt, Value};
+    use crate::value::Value;
 
     #[test]
     fn test_depth_to_space() {

@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 
 use crate::buffer_pool::BufferPool;
 use crate::env::env_flag;
-use crate::ops::{InputList, OpRunContext, Operator, OutputList, PrepackedInput};
+use crate::operator::{InputList, OpRunContext, Operator, OutputList, PrepackedInput};
 use crate::threading;
 use crate::timing::{Instant, ProfileFormat, Profiler, TimingFilter, TimingRecord, TimingSort};
 use crate::value::{DataType, Value, ValueMeta, ValueOrView, ValueView};

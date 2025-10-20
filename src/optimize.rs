@@ -11,7 +11,8 @@ use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
     PlanOptions, RunError,
 };
-use crate::ops::{Identity, Operator};
+use crate::operator::Operator;
+use crate::ops::Identity;
 
 mod fusions;
 mod pattern_matcher;

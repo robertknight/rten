@@ -7,9 +7,8 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, T
 use smallvec::SmallVec;
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding, check_value, static_dims,
-};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
+use crate::ops::{Padding, check_value};
 
 /// Rounding method to use when computing the output shape for a pooling
 /// operation.

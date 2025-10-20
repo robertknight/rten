@@ -2,9 +2,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value, ValueView, map_value_view,
-};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::map_value_view;
+use crate::value::{Value, ValueView};
 
 fn identity<T: Copy>(pool: &BufferPool, src: TensorView<T>) -> Tensor<T> {
     src.to_tensor_in(pool)
@@ -39,7 +39,8 @@ mod tests {
     use rten_tensor::Tensor;
     use rten_tensor::test_util::expect_equal;
 
-    use crate::ops::{Identity, OperatorExt};
+    use crate::operator::OperatorExt;
+    use crate::ops::Identity;
 
     #[test]
     fn test_identity() -> Result<(), Box<dyn Error>> {

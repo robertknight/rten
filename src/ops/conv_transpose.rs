@@ -8,7 +8,8 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, Padding, static_dims};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
+use crate::ops::Padding;
 
 /// Compute the range of input positions along a spatial axis that result in
 /// valid output positions for a col2im operation.

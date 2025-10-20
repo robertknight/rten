@@ -2,7 +2,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BoxOrder {

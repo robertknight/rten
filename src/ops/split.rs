@@ -3,9 +3,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::ops::{
-    OpError, OpRunContext, Operator, OutputList, ValueView, map_value_view, resolve_axis,
-};
+use crate::operator::{OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{map_value_view, resolve_axis};
+use crate::value::ValueView;
 
 #[derive(Clone, Debug)]
 pub enum SplitSizes<'a> {
@@ -132,10 +132,10 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
+    use crate::operator::{InputList, OpError, OpRunContext, Operator};
     use crate::ops::tests::new_pool;
-    use crate::ops::{InputList, OpError, OpRunContext, Operator, split};
 
-    use super::{Split, SplitSizes};
+    use super::{Split, SplitSizes, split};
 
     #[test]
     fn test_split() {

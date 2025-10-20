@@ -5,12 +5,11 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::binary_elementwise::binary_op;
+use crate::ops::map_value_view;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
-use crate::ops::{
-    CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, ValueView,
-    map_value_view,
-};
+use crate::value::{CastError, ValueView};
 
 /// Apply an elementwise reduction to a sequence of tensors.
 ///
@@ -162,10 +161,10 @@ mod tests {
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
+    use crate::operator::{InputList, OpError, OpRunContext, Operator};
     use crate::ops::tests::new_pool;
-    use crate::ops::{
-        InputList, Max, Min, OpError, OpRunContext, Operator, Sum, ValueView, max, mean, min, sum,
-    };
+    use crate::ops::{Max, Min, Sum, max, mean, min, sum};
+    use crate::value::ValueView;
 
     fn run_operator<Op: Operator>(op: &Op, inputs: &[TensorView]) -> Tensor {
         let inputs: Vec<ValueView> = inputs.iter().cloned().map(|i| i.into()).collect();

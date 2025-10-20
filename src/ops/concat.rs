@@ -6,10 +6,9 @@ use rten_tensor::{AssumeInit, NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::ops::{
-    CastError, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, Value,
-    ValueView, map_value, map_value_view, resolve_axis,
-};
+use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::ops::{map_value, map_value_view, resolve_axis};
+use crate::value::{CastError, Value, ValueView};
 
 /// Return the shape formed by concatenating all tensors along a given axis.
 fn concatenated_shape<T: Copy>(
