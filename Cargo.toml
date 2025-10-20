@@ -89,8 +89,6 @@ all-ops = ["fft", "random"]
 fft = ["dep:rustfft"]
 # Enable loading models using memory mapping
 mmap = ["dep:memmap2"]
-# Enable module for building .rten models
-model_builder = []
 # Enable support for loading .onnx models
 onnx_format = ["dep:rten-onnx"]
 # Generate WebAssembly API using wasm-bindgen.

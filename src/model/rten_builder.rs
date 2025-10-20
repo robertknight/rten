@@ -55,7 +55,9 @@ pub enum OpType<'a> {
     Div,
     #[cfg(feature = "random")]
     Dropout(Dropout),
+    #[allow(dead_code)]
     DynamicQuantizeLinear,
+    #[allow(dead_code)]
     Einsum(Einsum),
     Elu(Elu),
     Equal,
@@ -67,6 +69,7 @@ pub enum OpType<'a> {
     Floor,
     Gather(Gather),
     GatherElements(GatherElements),
+    #[allow(dead_code)]
     GatherND(GatherND),
     Gelu(Gelu),
     Gemm(Gemm),
@@ -126,8 +129,11 @@ pub enum OpType<'a> {
     Round,
     QuantizeLinear(QuantizeLinear),
     ScatterElements(ScatterElements),
+    #[allow(dead_code)]
     SequenceAt,
+    #[allow(dead_code)]
     SequenceEmpty(SequenceEmpty),
+    #[allow(dead_code)]
     SequenceInsert,
     Shape(Shape),
     Sigmoid,
