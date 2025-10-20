@@ -35,7 +35,7 @@ pub use metadata::ModelMetadata;
 use file_type::FileType;
 use load_error::LoadErrorImpl;
 
-#[cfg(any(test, feature = "model_builder"))]
+#[cfg(test)]
 pub mod rten_builder;
 
 #[cfg(all(test, feature = "onnx_format"))]

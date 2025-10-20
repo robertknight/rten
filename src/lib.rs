@@ -196,9 +196,3 @@ pub use value::{DataType, Sequence, Value, ValueOrView, ValueView};
 
 #[deprecated = "renamed to `LoadError`"]
 pub type ModelLoadError = LoadError;
-
-// This is currently exposed for use in ocrs tests. That crate should probably
-// create an abstraction around model execution instead.
-#[doc(hidden)]
-#[cfg(any(test, feature = "model_builder"))]
-pub use model::rten_builder as model_builder;
