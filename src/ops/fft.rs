@@ -116,6 +116,7 @@ pub fn stft(
     Ok(output)
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 pub struct STFT {
     pub onesided: bool,
