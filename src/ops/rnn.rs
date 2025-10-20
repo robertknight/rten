@@ -91,8 +91,11 @@ const PREPACK_MIN_SEQ_LEN: usize = 5;
 
 /// Gated Recurrent Unit operator.
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct GRU {
     pub direction: Direction,
+
+    #[allow(unused)] // Currently inferred from operator inputs.
     pub hidden_size: usize,
 
     /// When computing the output of the hidden gate, apply the linear
@@ -347,9 +350,12 @@ impl Operator for GRU {
 
 /// Long Short-Term Memory operator.
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct LSTM {
     pub direction: Direction,
-    pub hidden_size: usize,
+
+    #[allow(unused)]
+    pub hidden_size: usize, // Currently inferred from operator inputs.
 }
 
 /// Compute the output for a single LSTM layer.

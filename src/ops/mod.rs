@@ -8,9 +8,7 @@
 //! Operators are primarily invoked by RTen as part of executing a
 //! [Model](crate::Model), however they are also exposed as standalone
 //! functions and tensor methods for use in code that pre-processes model
-//! inputs and post-processes model outputs. Some standalone operator functions
-//! come into two flavors, one which operates in-place on an existing tensor,
-//! and one which takes a view as input and returns a new tensor as output.
+//! inputs and post-processes model outputs.
 
 use std::fmt::Debug;
 
@@ -58,73 +56,101 @@ mod variadic_elementwise;
 // Fused operations
 pub(crate) mod transform_inputs;
 
-pub use attention::AddSoftmax;
+// Operator structs. These are re-exported for internal use by the model loader
+// and tests.
+#[cfg(feature = "fft")]
+pub(crate) use fft::STFT;
+#[cfg(feature = "random")]
+pub(crate) use random::{
+    Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike,
+};
+pub(crate) use {
+    attention::AddSoftmax,
+    binary_elementwise::{
+        Add, And, Div, Equal, Greater, GreaterOrEqual, Less, LessOrEqual, Mod, Mul, Or, Pow, Sub,
+        Where, Xor,
+    },
+    concat::{Concat, Tile},
+    control_flow::{If, Loop},
+    conv::{Conv, ConvInteger},
+    conv_transpose::ConvTranspose,
+    convert::{Cast, CastLike},
+    einsum::Einsum,
+    gather::{Gather, GatherElements, GatherND, ScatterElements, ScatterND, ScatterReduction},
+    generate::{ConstantOfShape, EyeLike, OneHot, Range},
+    grid_sample::GridSample,
+    identity::Identity,
+    layout::{DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze},
+    matmul::{FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat},
+    non_max_suppression::NonMaxSuppression,
+    norm::{
+        BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax,
+        RmsNormalization, Softmax,
+    },
+    pad::Pad,
+    pooling::{AveragePool, GlobalAveragePool, MaxPool},
+    quantize::{DequantizeLinear, DynamicQuantizeLinear, QuantizeLinear},
+    reduce::{
+        ArgMax, ArgMin, CumSum, NonZero, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
+        ReduceSum, ReduceSumSquare, TopK,
+    },
+    resize::Resize,
+    rnn::{GRU, LSTM},
+    sequence::{
+        ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,
+        SequenceInsert, SequenceLength, SplitToSequence,
+    },
+    slice::Slice,
+    split::Split,
+    trilu::Trilu,
+    unary_elementwise::{
+        Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Elu, Erf, Exp, Floor, Gelu, HardSigmoid, HardSwish,
+        IsInf, IsNaN, LeakyRelu, Log, Neg, Not, PRelu, Reciprocal, Relu, Round, Sigmoid, Sign,
+        Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
+    },
+    variadic_elementwise::{Max, Mean, Min, Sum},
+};
+
+// Operators as functions. These are exported for use by pre/post-processing
+// code in applications. Some are also used internally in higher-level
+// operators.
+//
+// These may be removed from the public API of the crate in future.
+// See https://github.com/robertknight/rten/issues/911.
 pub use binary_elementwise::{
-    Add, And, Div, DivMode, Equal, Greater, GreaterOrEqual, Less, LessOrEqual, Mod, Mul, Or, Pow,
-    Sub, Where, Xor, add, and, div, equal, greater, greater_or_equal, less, less_or_equal, mod_op,
-    mul, or, pow, sub, where_op, xor,
+    DivMode, add, and, div, equal, greater, greater_or_equal, less, less_or_equal, mod_op, mul, or,
+    pow, sub, where_op, xor,
 };
-pub use concat::{Concat, Tile, concat, tile};
-pub use control_flow::{If, Loop};
-pub use conv::{Conv, ConvInteger, conv, conv_integer};
-pub use conv_transpose::{ConvTranspose, conv_transpose};
-pub use convert::{Cast, CastLike};
-pub use einsum::{Einsum, einsum};
-pub use gather::{
-    Gather, GatherElements, GatherND, ScatterElements, ScatterND, ScatterReduction, gather,
-    gather_elements, gather_nd, scatter_elements, scatter_nd,
-};
-pub use generate::{ConstantOfShape, EyeLike, OneHot, Range, constant_of_shape, onehot, range};
-pub use grid_sample::GridSample;
-pub use identity::Identity;
-pub use layout::{
-    DepthToSpace, DepthToSpaceMode, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose,
-    Unsqueeze, depth_to_space, expand, flatten, reshape, squeeze,
-};
-pub use matmul::{FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat, gemm_op, matmul};
-pub use non_max_suppression::{BoxOrder, NonMaxSuppression, non_max_suppression};
+pub use concat::{concat, tile};
+pub use conv::{conv, conv_integer};
+pub use conv_transpose::conv_transpose;
+pub use einsum::einsum;
+pub use gather::{gather, gather_elements, gather_nd, scatter_elements, scatter_nd};
+pub use generate::{constant_of_shape, onehot, range};
+pub use layout::{DepthToSpaceMode, depth_to_space, expand, flatten, reshape, squeeze};
+pub use matmul::{gemm_op, matmul};
+pub use non_max_suppression::{BoxOrder, non_max_suppression};
 pub use norm::{
-    BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax, RmsNormalization,
-    Softmax, batch_norm, instance_normalization, layer_normalization, log_softmax,
-    rms_normalization, softmax,
+    batch_norm, instance_normalization, layer_normalization, log_softmax, rms_normalization,
+    softmax,
 };
-pub use pad::{Pad, PadMode, pad};
-pub use pooling::{
-    AveragePool, GlobalAveragePool, MaxPool, average_pool, global_average_pool, max_pool,
-};
-pub use quantize::{
-    DequantizeLinear, DynamicQuantizeLinear, QuantizeLinear, dequantize_linear,
-    dynamic_quantize_linear, quantize_linear,
-};
+pub use pad::{PadMode, pad};
+pub use pooling::{average_pool, global_average_pool, max_pool};
+pub use quantize::{dequantize_linear, dynamic_quantize_linear, quantize_linear};
 
 #[cfg(feature = "fft")]
-pub use fft::{STFT, stft};
-
-#[cfg(feature = "random")]
-pub use random::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
+pub use fft::stft;
 
 pub use reduce::{
-    ArgMax, ArgMin, CumSum, NonZero, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
-    ReduceSum, ReduceSumSquare, TopK, arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max,
-    reduce_mean, reduce_min, reduce_prod, reduce_sum, reduce_sum_square, topk,
+    arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
+    reduce_prod, reduce_sum, reduce_sum_square, topk,
 };
-pub use resize::{
-    CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget, resize, resize_image,
-};
-pub use rnn::{Direction, GRU, LSTM, gru, lstm};
-pub use sequence::{
-    ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,
-    SequenceInsert, SequenceLength, SplitToSequence,
-};
-pub use slice::{Slice, slice};
-pub use split::{Split, split};
-pub use trilu::{Trilu, trilu};
-pub use unary_elementwise::{
-    Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Elu, Erf, Exp, Floor, Gelu, HardSigmoid, HardSwish,
-    IsInf, IsNaN, LeakyRelu, Log, Neg, Not, PRelu, Reciprocal, Relu, Round, Sigmoid, Sign, Silu,
-    Sin, Softplus, Sqrt, Swish, Tan, Tanh,
-};
-pub use variadic_elementwise::{Max, Mean, Min, Sum, max, mean, min, sum};
+pub use resize::{CoordTransformMode, NearestMode, ResizeMode, ResizeTarget, resize, resize_image};
+pub use rnn::{Direction, gru, lstm};
+pub use slice::slice;
+pub use split::split;
+pub use trilu::trilu;
+pub use variadic_elementwise::{max, mean, min, sum};
 
 mod operators;
 pub use operators::{FloatOperators, Operators};
