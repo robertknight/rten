@@ -347,10 +347,6 @@ impl<EB: ExtractBuffer> AutoReturn for EB {
 
 /// A smart pointer which wraps a tensor or other container and returns it to
 /// a pool when dropped.
-///
-/// [`PoolRef`] is not currently [`Sync`], so if you want to wrap a container and
-/// then reference it inside a parallel block, you will need to deref the
-/// [`PoolRef`] outside the parallel block.
 pub struct PoolRef<'a, T: ExtractBuffer> {
     pool: &'a BufferPool,
     container: Option<T>,
