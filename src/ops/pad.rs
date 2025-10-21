@@ -293,7 +293,7 @@ mod tests {
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, OperatorExt};
     use crate::ops::{Pad, PadMode, pad};
-    use crate::value::{CastError, DataType, Value};
+    use crate::value::{DataType, TryFromValueError, Value};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
@@ -594,7 +594,7 @@ mod tests {
                 const_val: Some(Tensor::from(1).into()),
                 expected_error: OpError::InputCastFailed {
                     index: 2,
-                    error: CastError::WrongType {
+                    error: TryFromValueError::WrongType {
                         actual: DataType::Int32,
                         expected: DataType::Float,
                     },
@@ -607,7 +607,7 @@ mod tests {
                 const_val: Some(from_slice(&[1.0, 2.0]).into()),
                 expected_error: OpError::InputCastFailed {
                     index: 2,
-                    error: CastError::WrongRank {
+                    error: TryFromValueError::WrongRank {
                         actual: 1,
                         expected: 0,
                     },

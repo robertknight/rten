@@ -658,7 +658,7 @@ mod tests {
     };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, Operator, OperatorExt};
-    use crate::value::{CastError, Value, ValueView};
+    use crate::value::{TryFromValueError, Value, ValueView};
     use rten_tensor::test_util::ApproxEq;
 
     // Test a unary operator's in-place and non-in-place implementations.
@@ -669,7 +669,7 @@ mod tests {
     ) -> Result<(), Box<dyn Error>>
     where
         for<'a> TensorView<'a, T>: Into<ValueView<'a>>,
-        Tensor<T>: Into<Value> + TryFrom<Value, Error = CastError>,
+        Tensor<T>: Into<Value> + TryFrom<Value, Error = TryFromValueError>,
     {
         let expected = input.map(reference_op);
 
@@ -692,7 +692,7 @@ mod tests {
     ) -> Result<(), Box<dyn Error>>
     where
         for<'a> TensorView<'a, T>: Into<ValueView<'a>>,
-        Tensor<U>: Into<Value> + TryFrom<Value, Error = CastError>,
+        Tensor<U>: Into<Value> + TryFrom<Value, Error = TryFromValueError>,
     {
         let result: Tensor<U> = op.run_simple(input).unwrap();
         expect_equal(&result.view(), &expected.view())?;

@@ -88,26 +88,25 @@ impl Display for ValueMeta {
     }
 }
 
-/// Errors when casting a [`Value`] or [`ValueView`] to a tensor of a specific
+/// Errors when converting a [`Value`] or [`ValueView`] to a tensor of a specific
 /// type and/or rank.
 #[derive(Debug, Eq, PartialEq)]
-pub enum CastError {
-    /// The number of dimensions does not match.
-    WrongRank {
-        actual: usize,
-        expected: usize,
-    },
+#[non_exhaustive]
+pub enum TryFromValueError {
+    /// The value does not have the expected number of dimensions.
+    WrongRank { actual: usize, expected: usize },
 
-    /// The data type of elements does not match.
+    /// The data type of the value's elements is different than expected.
     WrongType {
         actual: DataType,
         expected: DataType,
     },
 
+    /// Expected the value to be a sequence, but it isn't.
     ExpectedSequence,
 }
 
-impl Display for CastError {
+impl Display for TryFromValueError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::WrongRank { actual, expected } => {
@@ -131,12 +130,12 @@ impl Display for CastError {
     }
 }
 
-impl Error for CastError {}
+impl Error for TryFromValueError {}
 
-impl From<DimensionError> for CastError {
-    fn from(val: DimensionError) -> CastError {
+impl From<DimensionError> for TryFromValueError {
+    fn from(val: DimensionError) -> TryFromValueError {
         let DimensionError { actual, expected } = val;
-        CastError::WrongRank { actual, expected }
+        TryFromValueError::WrongRank { actual, expected }
     }
 }
 
@@ -297,14 +296,14 @@ impl Layout for ValueView<'_> {
 macro_rules! impl_value_view_conversions {
     ($variant:ident, $element_type:ty) => {
         impl<'a> TryFrom<ValueView<'a>> for TensorView<'a, $element_type> {
-            type Error = CastError;
+            type Error = TryFromValueError;
 
             fn try_from(
                 input: ValueView<'a>,
             ) -> Result<TensorView<'a, $element_type>, Self::Error> {
                 match input {
                     ValueView::$variant(t) => Ok(t),
-                    _ => Err(CastError::WrongType {
+                    _ => Err(TryFromValueError::WrongType {
                         actual: input.dtype(),
                         expected: <$element_type as DataTypeOf>::dtype_of(),
                     }),
@@ -313,18 +312,20 @@ macro_rules! impl_value_view_conversions {
         }
 
         impl<'a, const N: usize> TryFrom<ValueView<'a>> for NdTensorView<'a, $element_type, N> {
-            type Error = CastError;
+            type Error = TryFromValueError;
 
             fn try_from(
                 input: ValueView<'a>,
             ) -> Result<NdTensorView<'a, $element_type, N>, Self::Error> {
                 let ndim = input.ndim();
                 match input {
-                    ValueView::$variant(t) => t.try_into().map_err(|_| CastError::WrongRank {
-                        actual: ndim,
-                        expected: N,
-                    }),
-                    _ => Err(CastError::WrongType {
+                    ValueView::$variant(t) => {
+                        t.try_into().map_err(|_| TryFromValueError::WrongRank {
+                            actual: ndim,
+                            expected: N,
+                        })
+                    }
+                    _ => Err(TryFromValueError::WrongType {
                         actual: input.dtype(),
                         expected: <$element_type as DataTypeOf>::dtype_of(),
                     }),
@@ -333,11 +334,11 @@ macro_rules! impl_value_view_conversions {
         }
 
         impl<'a> TryFrom<ValueView<'a>> for $element_type {
-            type Error = CastError;
+            type Error = TryFromValueError;
 
             fn try_from(input: ValueView<'a>) -> Result<$element_type, Self::Error> {
                 let tensor: TensorView<'a, _> = input.try_into()?;
-                tensor.item().copied().ok_or(CastError::WrongRank {
+                tensor.item().copied().ok_or(TryFromValueError::WrongRank {
                     actual: tensor.ndim(),
                     expected: 0,
                 })
@@ -521,13 +522,13 @@ macro_rules! impl_value_conversions {
 
         // Value => Tensor<T>
         impl TryFrom<Value> for Tensor<$element_type> {
-            type Error = CastError;
+            type Error = TryFromValueError;
 
             fn try_from(o: Value) -> Result<Tensor<$element_type>, Self::Error> {
                 let dtype = o.dtype();
                 match o {
                     Value::$variant(t) => Ok(t),
-                    _ => Err(CastError::WrongType {
+                    _ => Err(TryFromValueError::WrongType {
                         actual: dtype,
                         expected: <$element_type as DataTypeOf>::dtype_of(),
                     }),
@@ -537,12 +538,12 @@ macro_rules! impl_value_conversions {
 
         // Value => NdTensor<T, N>
         impl<const N: usize> TryFrom<Value> for NdTensor<$element_type, N> {
-            type Error = CastError;
+            type Error = TryFromValueError;
 
-            fn try_from(o: Value) -> Result<NdTensor<$element_type, N>, CastError> {
+            fn try_from(o: Value) -> Result<NdTensor<$element_type, N>, TryFromValueError> {
                 let tensor: Tensor<_> = o.try_into()?;
                 let ndim = tensor.ndim();
-                tensor.try_into().map_err(|_| CastError::WrongRank {
+                tensor.try_into().map_err(|_| TryFromValueError::WrongRank {
                     actual: ndim,
                     expected: N,
                 })
@@ -551,12 +552,12 @@ macro_rules! impl_value_conversions {
 
         // Value => TensorView<T>
         impl<'a> TryFrom<&'a Value> for TensorView<'a, $element_type> {
-            type Error = CastError;
+            type Error = TryFromValueError;
 
-            fn try_from(o: &'a Value) -> Result<TensorView<'a, $element_type>, CastError> {
+            fn try_from(o: &'a Value) -> Result<TensorView<'a, $element_type>, TryFromValueError> {
                 match o {
                     Value::$variant(t) => Ok(t.view()),
-                    _ => Err(CastError::WrongType {
+                    _ => Err(TryFromValueError::WrongType {
                         actual: o.dtype(),
                         expected: <$element_type as DataTypeOf>::dtype_of(),
                     }),
@@ -566,12 +567,14 @@ macro_rules! impl_value_conversions {
 
         // Value => NdTensorView<T, N>
         impl<'a, const N: usize> TryFrom<&'a Value> for NdTensorView<'a, $element_type, N> {
-            type Error = CastError;
+            type Error = TryFromValueError;
 
-            fn try_from(o: &'a Value) -> Result<NdTensorView<'a, $element_type, N>, CastError> {
+            fn try_from(
+                o: &'a Value,
+            ) -> Result<NdTensorView<'a, $element_type, N>, TryFromValueError> {
                 let view: TensorView<'a, _> = o.try_into()?;
                 let ndim = view.ndim();
-                view.try_into().map_err(|_| CastError::WrongRank {
+                view.try_into().map_err(|_| TryFromValueError::WrongRank {
                     actual: ndim,
                     expected: N,
                 })
@@ -854,23 +857,23 @@ impl_sequence_conversions!(Int8, Tensor<i8>);
 impl_sequence_conversions!(UInt8, Tensor<u8>);
 
 impl<'a> TryFrom<ValueView<'a>> for &'a Sequence {
-    type Error = CastError;
+    type Error = TryFromValueError;
 
     fn try_from(val: ValueView<'a>) -> Result<Self, Self::Error> {
         match val {
             ValueView::Sequence(seq) => Ok(seq),
-            _ => Err(CastError::ExpectedSequence),
+            _ => Err(TryFromValueError::ExpectedSequence),
         }
     }
 }
 
 impl TryFrom<Value> for Sequence {
-    type Error = CastError;
+    type Error = TryFromValueError;
 
     fn try_from(val: Value) -> Result<Self, Self::Error> {
         match val {
             Value::Sequence(seq) => Ok(seq),
-            _ => Err(CastError::ExpectedSequence),
+            _ => Err(TryFromValueError::ExpectedSequence),
         }
     }
 }
@@ -880,7 +883,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
-    use super::{CastError, DataType, Value, ValueView};
+    use super::{DataType, TryFromValueError, Value, ValueView};
 
     #[test]
     fn test_value_view_from_tensor() {
@@ -909,7 +912,7 @@ mod tests {
         let err: Result<NdTensor<i32, 2>, _> = output.clone().try_into();
         assert_eq!(
             err,
-            Err(CastError::WrongType {
+            Err(TryFromValueError::WrongType {
                 actual: DataType::Float,
                 expected: DataType::Int32,
             })
@@ -918,7 +921,7 @@ mod tests {
         let err: Result<NdTensor<f32, 3>, _> = output.clone().try_into();
         assert_eq!(
             err,
-            Err(CastError::WrongRank {
+            Err(TryFromValueError::WrongRank {
                 actual: 2,
                 expected: 3
             })
@@ -939,7 +942,7 @@ mod tests {
         let err: Result<NdTensorView<i32, 2>, _> = (&output).try_into();
         assert_eq!(
             err,
-            Err(CastError::WrongType {
+            Err(TryFromValueError::WrongType {
                 actual: DataType::Float,
                 expected: DataType::Int32,
             })
@@ -948,7 +951,7 @@ mod tests {
         let err: Result<NdTensorView<f32, 3>, _> = (&output).try_into();
         assert_eq!(
             err,
-            Err(CastError::WrongRank {
+            Err(TryFromValueError::WrongRank {
                 actual: 2,
                 expected: 3
             })

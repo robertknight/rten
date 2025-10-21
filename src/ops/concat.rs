@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::{map_value, map_value_view, resolve_axis};
-use crate::value::{CastError, Value, ValueView};
+use crate::value::{TryFromValueError, Value, ValueView};
 
 /// Return the shape formed by concatenating all tensors along a given axis.
 fn concatenated_shape<T: Copy>(
@@ -45,7 +45,7 @@ fn typed_inputs<'a, T>(
     _: TensorView<T>,
 ) -> Result<SmallVec<[TensorView<'a, T>; 4]>, OpError>
 where
-    TensorView<'a, T>: TryFrom<ValueView<'a>, Error = CastError>,
+    TensorView<'a, T>: TryFrom<ValueView<'a>, Error = TryFromValueError>,
 {
     let mut typed_inputs: SmallVec<_> = SmallVec::with_capacity(inputs.len());
     for input in inputs.iter().flatten() {
