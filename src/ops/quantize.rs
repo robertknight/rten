@@ -430,8 +430,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{dequantize_linear, dynamic_quantize_linear, quantize_linear};
+    use crate::buffer_pool::BufferPool;
     use crate::operator::OpError;
-    use crate::ops::tests::new_pool;
     use crate::value::Value;
 
     // Test dequantization followed by re-quantization. In this order the
@@ -504,7 +504,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let Case {
                 input,
                 scale,
@@ -620,7 +620,7 @@ mod tests {
         cases.test_each(|case| {
             let Case { input, max_error } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
 
             // Quantize input.
             let output = dynamic_quantize_linear::<u8>(&pool, input.view()).unwrap();

@@ -540,9 +540,9 @@ mod tests {
     use rten_tensor::{NdTensor, NdTensorView, Tensor};
     use rten_testing::TestCases;
 
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator};
     use crate::ops::tests::expect_eq_1e4;
-    use crate::ops::tests::new_pool;
     use crate::ops::{CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget, resize};
 
     // Reference values for these tests can be computed with either OpenCV
@@ -622,7 +622,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = resize(
                 &pool,
                 case.image.view(),
@@ -688,7 +688,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = resize(
                 &pool,
                 image.view(),
@@ -819,7 +819,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = resize(
                 &pool,
                 case.image.as_dyn(),
@@ -964,7 +964,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let op = Resize {
                 mode: ResizeMode::Linear,
                 ..Resize::default()

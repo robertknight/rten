@@ -622,15 +622,15 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_testing::TestCases;
 
+    use crate::buffer_pool::BufferPool;
     use crate::operator::OpError;
-    use crate::ops::tests::new_pool;
     use crate::ops::{
         ScatterReduction, gather, gather_elements, gather_nd, scatter_elements, scatter_nd,
     };
 
     #[test]
     fn test_gather_scalar_index() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // 1D input
         let input = Tensor::from([1, 20, 30]);
@@ -650,7 +650,7 @@ mod tests {
 
     #[test]
     fn test_gather() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Test case shrunk down from a small BERT model where `gather` is used
         // to lookup embeddings.
@@ -700,7 +700,7 @@ mod tests {
 
     #[test]
     fn test_gather_invalid_axis() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::<f32>::rand(&[128, 10], &mut rng);
@@ -735,7 +735,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = gather(&pool, case.input.view(), 0, case.indices.view());
             assert_eq!(
                 result.err(),
@@ -816,7 +816,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result =
                 gather_elements(&pool, case.input.view(), case.indices.view(), case.axis).unwrap();
             assert_eq!(result, case.expected);
@@ -863,7 +863,7 @@ mod tests {
         ];
 
         cases.test_each_value(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = gather_elements(&pool, case.input.view(), case.indices.view(), case.axis);
             assert_eq!(result.err(), Some(case.expected));
         });
@@ -943,7 +943,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = gather_nd(
                 &pool,
                 if case.transpose {
@@ -1017,7 +1017,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = scatter_elements(
                 &pool,
                 case.data.view(),
@@ -1032,7 +1032,7 @@ mod tests {
 
     #[test]
     fn test_scatter_elements_reduction() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let data = Tensor::from([1, 2, 3, 4]);
         let indices = Tensor::from([1, 3]);
@@ -1114,7 +1114,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = scatter_nd(
                 &pool,
                 case.data.view(),
@@ -1170,7 +1170,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = scatter_nd(
                 &pool,
                 case.data.view(),
@@ -1227,7 +1227,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = scatter_nd(
                 &pool,
                 case.data.view(),

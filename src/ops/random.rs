@@ -228,9 +228,9 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_testing::TestCases;
 
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpRunContext, Operator, OperatorExt};
     use crate::ops::operators::{FloatOperators, Operators};
-    use crate::ops::tests::new_pool;
 
     use super::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
 
@@ -486,7 +486,7 @@ mod tests {
                 ratio_input.as_ref().map(|ri| ri.view().into()),
                 training_mode_input.as_ref().map(|tm| tm.view().into()),
             ]);
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let ctx = OpRunContext::new(&pool, &inputs);
             let mut outputs = op.run(&ctx).unwrap();
             let output: Tensor<f32> = outputs.remove(0).try_into().unwrap();
@@ -535,7 +535,7 @@ mod tests {
                 ratio_input.as_ref().map(|ri| ri.view().into()),
                 Some(training_mode_input.view().into()),
             ]);
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let ctx = OpRunContext::new(&pool, &inputs);
 
             let mut outputs = op.run(&ctx).unwrap();

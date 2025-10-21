@@ -575,8 +575,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{RoundMode, calc_output_size_and_padding};
+    use crate::buffer_pool::BufferPool;
     use crate::ops::tests::expect_eq_1e4;
-    use crate::ops::tests::new_pool;
     use crate::ops::{OpError, Padding, average_pool, global_average_pool, max_pool};
 
     #[test]
@@ -666,7 +666,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = average_pool(
                 &pool,
                 case.input.view(),
@@ -683,7 +683,7 @@ mod tests {
 
     #[test]
     fn test_average_pool_padding() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Exercise both the loop over channel groups and the tail in
         // `pool_impl`.
@@ -745,7 +745,7 @@ mod tests {
 
     #[test]
     fn test_global_average_pool() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from_data(&[1, 2, 2, 2], vec![1., 2., 3., 4., 10., 20., 30., 40.]);
         let expected = Tensor::from_data(&[1, 2, 1, 1], vec![2.5, 25.]);
         let result = global_average_pool(&pool, input.view()).unwrap();
@@ -840,7 +840,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = max_pool(
                 &pool,
                 case.input.view(),
@@ -856,7 +856,7 @@ mod tests {
 
     #[test]
     fn test_max_pool_padding() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::zeros(&[1, 1, 9, 9]);
         let rm = RoundMode::default();
 

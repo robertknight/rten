@@ -541,10 +541,10 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::buffer_pool::AutoReturn;
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, OperatorExt};
     use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
     use crate::ops::tests::expect_eq_1e4;
-    use crate::ops::tests::new_pool;
     use crate::ops::{Conv, Padding, conv, conv_integer};
 
     trait ReferenceConvKernel<X, W> {
@@ -700,7 +700,7 @@ mod tests {
         strides: &[usize],
         dilations: &[usize],
     ) -> Result<Tensor<f32>, ExpectEqualError> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let result = conv(
             &pool,
             input.view(),
@@ -1183,7 +1183,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = conv(
                 &pool,
                 case.input.view(),
@@ -1281,7 +1281,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = conv(
                 &pool,
                 case.input.view(),
@@ -1312,7 +1312,7 @@ mod tests {
                     input_zero: Option<TensorView<$input_ty>>,
                     kernel_zero: Option<TensorView<$weight_ty>>,
                 ) -> Result<Tensor<i32>, ExpectEqualError> {
-                    let pool = new_pool();
+                    let pool = BufferPool::new();
                     let result = conv_integer(
                         &pool,
                         input.view(),
@@ -1467,7 +1467,7 @@ mod tests {
         let dilations = [1, 1];
 
         let iters = 100;
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let start = std::time::Instant::now();
         for _ in 0..iters {

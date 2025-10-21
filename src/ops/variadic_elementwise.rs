@@ -161,15 +161,15 @@ mod tests {
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator};
-    use crate::ops::tests::new_pool;
     use crate::ops::{Max, Min, Sum, max, mean, min, sum};
     use crate::value::ValueView;
 
     fn run_operator<Op: Operator>(op: &Op, inputs: &[TensorView]) -> Tensor {
         let inputs: Vec<ValueView> = inputs.iter().cloned().map(|i| i.into()).collect();
         let inputs = InputList::from(inputs.as_slice());
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let ctx = OpRunContext::new(&pool, &inputs);
         let mut outputs = op.run(&ctx).unwrap();
         outputs.remove(0).try_into().unwrap()
@@ -242,7 +242,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let views: Vec<_> = case.inputs.iter().map(|t| t.view()).collect();
             let result = max(&pool, &views);
             match (&result, &case.expected) {
@@ -263,7 +263,7 @@ mod tests {
     fn test_mean() {
         let a = Tensor::from([1., 2., 3., 4.]);
         let b = Tensor::from([5., 6., 7., 8.]);
-        let pool = new_pool();
+        let pool = BufferPool::new();
         assert_eq!(
             mean(&pool, &[a.view(), b.view()]),
             Ok(Tensor::from([3., 4., 5., 6.]))
@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_min() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let (a, b) = (Tensor::from([1., 2., 3.]), Tensor::from([4., 1., 3.]));
         let expected = Tensor::from([1., 1., 3.]);
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_sum() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let a = Tensor::from([1., 2., 3., 4.]);
         let b = Tensor::from([5., 6., 7., 8.]);
         let expected = Tensor::from([6., 8., 10., 12.]);

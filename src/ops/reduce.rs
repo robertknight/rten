@@ -876,8 +876,8 @@ mod tests {
     use rten_tensor::{NdTensor, SliceRange, Tensor};
     use rten_testing::TestCases;
 
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{Operator, OperatorExt};
-    use crate::ops::tests::new_pool;
     use crate::ops::{
         OpError, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
         ReduceSumSquare, arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean,
@@ -966,7 +966,7 @@ mod tests {
                 expected,
             } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = arg_max(&pool, input.view(), *axis, *keep_dims);
 
             assert_eq!(result, *expected);
@@ -977,7 +977,7 @@ mod tests {
     // shared with ArgMax.
     #[test]
     fn test_arg_min() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let probs = Tensor::from([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_min(&pool, probs.view(), 0, false /* keep_dims */).unwrap();
         assert_eq!(class.item(), Some(&4));
@@ -989,7 +989,7 @@ mod tests {
     // indices. This is consistent with numpy's `argmin` and `argmax`.
     #[test]
     fn test_arg_min_max_nan() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let probs = Tensor::from([0.1, 0.5, f32::NAN, 0.9, 0.01, 0.6]);
         let min_idx = arg_min(&pool, probs.view(), 0, false /* keep_dims */).unwrap();
         let max_idx = arg_max(&pool, probs.view(), 0, false /* keep_dims */).unwrap();
@@ -1050,7 +1050,7 @@ mod tests {
                 expected,
             } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = cum_sum(&pool, input.view(), *axis);
 
             assert_eq!(result, *expected);
@@ -1059,7 +1059,7 @@ mod tests {
 
     #[test]
     fn test_nonzero() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from([[0., 1.], [1., 1.]]);
         let result = nonzero(&pool, input.view());
         assert_eq!(result.shape(), &[2, 3]);
@@ -1080,7 +1080,7 @@ mod tests {
 
     #[test]
     fn test_nonzero_scalar() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from(3.);
         let result = nonzero(&pool, input.view());
         assert_eq!(result.shape(), &[0, 1]);
@@ -1136,7 +1136,7 @@ mod tests {
 
     #[test]
     fn test_reduce_l2() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from_data(&[3, 2, 2], (1..=12).map(|i| i as f32).collect::<Vec<_>>());
         let expected = Tensor::from_data(
             &[3, 2],
@@ -1256,7 +1256,7 @@ mod tests {
                 expected,
             } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = reduce_mean(
                 &pool,
                 input.view(),
@@ -1273,7 +1273,7 @@ mod tests {
         });
 
         // Additional tests for complex cases that are hard to express in table form
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Reduce non-contiguous lane
         let tensor = Tensor::from([0., 1., 2., 3., 4., 5., 6.]);
@@ -1327,7 +1327,7 @@ mod tests {
 
     #[test]
     fn test_reduce_mean_invalid_inputs() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         let result = reduce_mean(&pool, input.view(), Some(&[3]), false /* keep_dims */);
@@ -1355,7 +1355,7 @@ mod tests {
 
     #[test]
     fn test_reduce_min_max() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input: Tensor<f32> = [1.5, 2.5, 3.5, 4.5, 5.5].into();
         let min = result_item(reduce_min(
             &pool,
@@ -1380,7 +1380,7 @@ mod tests {
     // See https://github.com/onnx/onnx/issues/4716.
     #[test]
     fn test_reduce_min_max_propagates_nan() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input: Tensor<f32> = [1.5, 2.5, 3.5, f32::NAN, 5.5].into();
         let min = result_item(reduce_min(
             &pool,
@@ -1400,7 +1400,7 @@ mod tests {
 
     #[test]
     fn test_reduce_prod() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Int tensor
         let input: Tensor<i32> = [1, 2, 3, 4, 5].into();
@@ -1425,7 +1425,7 @@ mod tests {
 
     #[test]
     fn test_reduce_sum() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Int tensor
         let input: Tensor<i32> = [1, 2, 3, 4, 5].into();
@@ -1450,7 +1450,7 @@ mod tests {
 
     #[test]
     fn test_reduce_sum_square() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Int tensor
         let input: Tensor<i32> = [1, 2, 3, 4, 5].into();
@@ -1595,7 +1595,7 @@ mod tests {
                 largest,
             } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             // nb. We always sort here so first result order is predictable.
             let result = topk(
                 &pool,
