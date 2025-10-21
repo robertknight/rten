@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 use crate::BufferPool;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::timing::Profiler;
-use crate::value::{CastError, DataType, DataTypeOf, Value, ValueView};
+use crate::value::{DataType, DataTypeOf, TryFromValueError, Value, ValueView};
 use crate::weight_cache::WeightCache;
 
 /// An operator input which has been pre-packed for more efficient use during
@@ -46,12 +46,12 @@ macro_rules! impl_prepacked_input_conversions {
         }
 
         impl<'a> TryFrom<&'a PrepackedInput> for &'a PackedBMatrix<$type> {
-            type Error = CastError;
+            type Error = TryFromValueError;
 
             fn try_from(ppi: &'a PrepackedInput) -> Result<Self, Self::Error> {
                 match ppi {
                     PrepackedInput::$variant(packed) => Ok(packed),
-                    _ => Err(CastError::WrongType {
+                    _ => Err(TryFromValueError::WrongType {
                         actual: ppi.dtype(),
                         expected: <$type as DataTypeOf>::dtype_of(),
                     }),
@@ -113,10 +113,13 @@ where
 #[derive(Eq, PartialEq, Debug)]
 pub enum OpError {
     /// Casting a tensor to an expected type or rank failed.
-    CastFailed(CastError),
+    CastFailed(TryFromValueError),
 
     /// Casting an input to an expected type or rank failed.
-    InputCastFailed { index: usize, error: CastError },
+    InputCastFailed {
+        index: usize,
+        error: TryFromValueError,
+    },
 
     /// A tensor has an unsupported type.
     UnsupportedType,
@@ -152,8 +155,8 @@ impl From<DimensionError> for OpError {
     }
 }
 
-impl From<CastError> for OpError {
-    fn from(val: CastError) -> OpError {
+impl From<TryFromValueError> for OpError {
+    fn from(val: TryFromValueError) -> OpError {
         OpError::CastFailed(val)
     }
 }
@@ -607,7 +610,7 @@ impl<'a> InputList<'a> {
     /// Convert an optional input into a tensor or scalar.
     pub fn get_as<T>(&self, index: usize) -> Result<Option<T>, OpError>
     where
-        T: TryFrom<ValueView<'a>, Error = CastError>,
+        T: TryFrom<ValueView<'a>, Error = TryFromValueError>,
     {
         self.get(index)
             .map(|input| {
@@ -627,7 +630,7 @@ impl<'a> InputList<'a> {
     /// Convert a required input into a tensor or scalar.
     pub fn require_as<T>(&self, index: usize) -> Result<T, OpError>
     where
-        T: TryFrom<ValueView<'a>, Error = CastError>,
+        T: TryFrom<ValueView<'a>, Error = TryFromValueError>,
     {
         self.require(index).and_then(|input| {
             input.try_into().map_err(|error| OpError::InputCastFailed {

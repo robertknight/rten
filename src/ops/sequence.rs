@@ -305,7 +305,7 @@ mod tests {
         SequenceInsert, SequenceLength, SplitToSequence,
     };
     use crate::operator::{InputList, OpError, OperatorExt};
-    use crate::value::{CastError, DataType, Sequence, Value, ValueView};
+    use crate::value::{DataType, Sequence, TryFromValueError, Value, ValueView};
 
     #[test]
     fn test_sequence_empty() {
@@ -398,7 +398,7 @@ mod tests {
                     Value::from(Tensor::from(1.0)),
                 ]
                 .into(),
-                expected: Err(OpError::CastFailed(CastError::WrongType {
+                expected: Err(OpError::CastFailed(TryFromValueError::WrongType {
                     actual: DataType::Float,
                     expected: DataType::Int32,
                 })),

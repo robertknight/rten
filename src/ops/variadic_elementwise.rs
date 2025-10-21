@@ -9,7 +9,7 @@ use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, 
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::map_value_view;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
-use crate::value::{CastError, ValueView};
+use crate::value::{TryFromValueError, ValueView};
 
 /// Apply an elementwise reduction to a sequence of tensors.
 ///
@@ -40,7 +40,7 @@ fn typed_views<'a, T>(
     _: TensorView<T>,
 ) -> Result<Vec<TensorView<'a, T>>, OpError>
 where
-    ValueView<'a>: TryInto<TensorView<'a, T>, Error = CastError>,
+    ValueView<'a>: TryInto<TensorView<'a, T>, Error = TryFromValueError>,
 {
     inputs
         .iter()

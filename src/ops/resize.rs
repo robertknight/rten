@@ -10,7 +10,7 @@ use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::operator::{
     InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims,
 };
-use crate::value::{CastError, Value, ValueView};
+use crate::value::{TryFromValueError, Value, ValueView};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
@@ -443,7 +443,7 @@ fn get_optional_input<'a, T>(
     index: usize,
 ) -> Result<Option<TensorView<'a, T>>, OpError>
 where
-    TensorView<'a, T>: TryFrom<ValueView<'a>, Error = CastError>,
+    TensorView<'a, T>: TryFrom<ValueView<'a>, Error = TryFromValueError>,
 {
     let tensor = inputs
         .get_as::<TensorView<T>>(index)?
