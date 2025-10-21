@@ -132,8 +132,8 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator};
-    use crate::ops::tests::new_pool;
 
     use super::{Split, SplitSizes, split};
 
@@ -215,7 +215,7 @@ mod tests {
                 Some(input.view().into()),
                 case.splits.as_ref().map(|s| s.view().into()),
             ]);
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let mut ctx = OpRunContext::new(&pool, &inputs);
             if let Some(n_outputs) = case.graph_outputs {
                 ctx.set_num_outputs(n_outputs);
@@ -274,7 +274,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = split(&pool, input.view(), case.axis, case.splits.clone());
             assert_eq!(result.err().as_ref(), Some(&case.expected));
         })

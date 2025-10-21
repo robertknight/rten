@@ -288,8 +288,8 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_testing::TestCases;
 
+    use crate::buffer_pool::BufferPool;
     use crate::ops::OpError;
-    use crate::ops::tests::new_pool;
 
     use super::{concat, concat_in_place, tile};
 
@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_concat() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let a = Tensor::from_data(&[2, 2, 1], vec![0.1, 0.2, 0.3, 0.4]);
         let b = Tensor::from_data(&[2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
 
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_concat_in_place() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let dest = Tensor::with_capacity_in(&pool, &[3, 3], 1);
 
@@ -372,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_concat_invalid_inputs() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Invalid `dim` attribute
         let input = from_slice(&[1, 2, 3]);
@@ -463,7 +463,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let Case {
                 input,
                 repeats,
@@ -500,7 +500,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let Case {
                 input,
                 repeats,

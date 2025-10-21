@@ -641,12 +641,12 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{DepthToSpaceMode, depth_to_space};
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, OperatorExt};
     use crate::ops::layout::{
         Reshape, Shape, Size, expand, flatten, reshape, reshape_in_place, squeeze,
         squeeze_in_place, transpose, unsqueeze,
     };
-    use crate::ops::tests::new_pool;
     use crate::value::Value;
 
     #[test]
@@ -711,7 +711,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = depth_to_space(&pool, case.input.as_dyn(), case.block_size, case.mode);
             assert_eq!(result, case.expected);
         })
@@ -719,7 +719,7 @@ mod tests {
 
     #[test]
     fn test_expand() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Broadcast scalar
         let input = Tensor::from(5.);
@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn test_expand_invalid_inputs() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Invalid broadcast shape
         let input = Tensor::from([1, 2, 3]);
@@ -840,7 +840,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let input = Tensor::<f32>::zeros(case.shape.as_slice());
             let result =
                 flatten(&pool, input.view(), case.axis).map(|tensor| tensor.shape().to_vec());
@@ -850,7 +850,7 @@ mod tests {
 
     #[test]
     fn test_reshape_with_unspecified_dim() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Reshape with an unspecified (-1) dim and nonzero-length input
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
@@ -883,7 +883,7 @@ mod tests {
 
     #[test]
     fn test_reshape_with_zero_dim() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // When the target shape has a zero dim, the corresponding input dim
         // size should be copied.
@@ -946,7 +946,7 @@ mod tests {
 
     #[test]
     fn test_reshape_with_multiple_unspecified_dims() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = NdTensor::from([1, -1, -1]);
         assert_eq!(
@@ -965,7 +965,7 @@ mod tests {
 
     #[test]
     fn test_reshape_with_unsolvable_unspecified_dim() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let expected_err = Some(OpError::InvalidValue(
             "Input length must be a multiple of specified dimensions",
         ));
@@ -994,7 +994,7 @@ mod tests {
 
     #[test]
     fn test_reshape_in_place() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let mut input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = NdTensor::from([4]);
         let expected = input.to_shape([4].as_slice());
@@ -1105,7 +1105,7 @@ mod tests {
 
     #[test]
     fn test_squeeze() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::<f32>::rand(&[1, 5, 5, 1], &mut rng);
@@ -1156,7 +1156,7 @@ mod tests {
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::<f32>::rand(&[1, 5, 5, 1], &mut rng);
 
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let result = squeeze(&pool, input.view(), Some(NdTensor::from([1]).view()));
 
         assert_eq!(
@@ -1169,7 +1169,7 @@ mod tests {
 
     #[test]
     fn test_transpose() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::<f32>::rand(&[10, 20], &mut rng);
 
@@ -1193,7 +1193,7 @@ mod tests {
 
     #[test]
     fn test_transpose_invalid_inputs() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::<f32>::rand(&[10, 20], &mut rng);
 
@@ -1228,7 +1228,7 @@ mod tests {
 
     #[test]
     fn test_unsqueeze() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::<f32>::rand(&[3, 4, 5], &mut rng);
 
@@ -1249,7 +1249,7 @@ mod tests {
 
     #[test]
     fn test_unsqueeze_invalid_inputs() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::<f32>::rand(&[10, 20], &mut rng);
 

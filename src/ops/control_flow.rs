@@ -282,10 +282,10 @@ where
 mod tests {
     use rten_tensor::Tensor;
 
+    use crate::buffer_pool::BufferPool;
     use crate::graph::builder::Expr;
     use crate::graph::{CaptureEnv, Graph, RunError, RunErrorKind};
     use crate::operator::{InputList, OpRunContext, SubgraphOperator};
-    use crate::ops::tests::new_pool;
     use crate::value::{Scalar, Value, ValueView};
 
     use super::Loop;
@@ -318,7 +318,7 @@ mod tests {
                 .chain(inputs.into_iter().cloned().map(Some)),
             );
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let ctx = OpRunContext::new(&pool, &input_list);
             let captures = CaptureEnv::empty();
             let weight_caches = None;

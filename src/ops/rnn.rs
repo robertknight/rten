@@ -608,7 +608,7 @@ mod tests {
     use rten_testing::TestCases;
     use serde_json::Value;
 
-    use crate::ops::tests::new_pool;
+    use crate::buffer_pool::BufferPool;
     use crate::ops::{Direction, concat, gru, lstm, split};
 
     /// Read a float tensor from a JSON value.
@@ -700,7 +700,7 @@ mod tests {
 
         cases.test_each_clone(|case| {
             let mut rng = XorShiftRng::new(1234);
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let num_gates = match case.op {
                 Op::Gru => 3,
                 Op::Lstm => 4,
@@ -802,7 +802,7 @@ mod tests {
     /// cell, output) as used by PyTorch to (input, output, forget, cell) as
     /// used by ONNX.
     fn reorder_ifco_to_iofc(x: &Tensor, axis: isize) -> Tensor {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let size = x.size(axis as usize) / 4;
         let splits = &[size as i32; 4];
 
@@ -826,7 +826,7 @@ mod tests {
     /// Re-order a weight or bias tensor for GRU gates from (reset, update,
     /// hidden) as used by PyTorch to (update, reset, hidden) as used by ONNX.
     fn reorder_ruh_to_urh(x: &Tensor, axis: isize) -> Tensor {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let size = x.size(axis as usize) / 3;
         let splits = &[size as i32; 3];
 
@@ -864,7 +864,7 @@ mod tests {
 
     /// Read inputs for a PyTorch reference test for RNN ops from a JSON value.
     fn read_pytorch_ref_test(op: Op, case: &Value) -> RNNRefTest {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let params = &case["params"];
 
         let is_bidirectional = params.get("weight_ih_l0_reverse").is_some();
@@ -991,7 +991,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let op = if case.name.starts_with("lstm") {
                 Op::Lstm
             } else {

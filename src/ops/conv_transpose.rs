@@ -400,7 +400,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{conv_transpose, conv_transpose_output_size_and_padding};
-    use crate::ops::tests::new_pool;
+    use crate::buffer_pool::BufferPool;
     use crate::ops::{OpError, Padding};
 
     fn reference_conv_transpose(
@@ -481,7 +481,7 @@ mod tests {
         strides: [usize; 2],
         output_padding: [usize; 2],
     ) -> Result<Tensor<f32>, ExpectEqualError> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let result = conv_transpose(
             &pool,
             input.view(),
@@ -502,7 +502,7 @@ mod tests {
 
     #[test]
     fn test_conv_transpose() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let kernel = Tensor::from_data(&[1, 1, 2, 2], vec![0.1, 0.2, 0.3, 0.4]);
 
@@ -555,7 +555,7 @@ mod tests {
 
     #[test]
     fn test_conv_transpose_padding() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let kernel = Tensor::from_data(&[1, 1, 2, 2], vec![0.1, 0.2, 0.3, 0.4]);
 
@@ -608,7 +608,7 @@ mod tests {
 
     #[test]
     fn test_conv_transpose_1d() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from_data(&[1, 1, 2], vec![1., 2.]);
         let kernel = Tensor::from_data(&[1, 1, 2], vec![0.1, 0.2]);
 

@@ -219,7 +219,7 @@ mod tests {
     use rten_tensor::NdTensor;
     use rten_tensor::prelude::*;
 
-    use crate::ops::tests::new_pool;
+    use crate::buffer_pool::BufferPool;
     use crate::ops::{BoxOrder, OpError, non_max_suppression};
 
     struct NmsBox {
@@ -292,7 +292,7 @@ mod tests {
         let iou_threshold = 0.5;
         let score_threshold = 0.;
 
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let selected = non_max_suppression(
             &pool,
             boxes.view(),
@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn test_non_max_suppression_box_order() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let (boxes_tlbr, scores) = example_boxes(BoxOrder::TopLeftBottomRight);
         let (boxes_chw, _) = example_boxes(BoxOrder::CenterWidthHeight);
@@ -347,7 +347,7 @@ mod tests {
 
     #[test]
     fn test_non_max_suppression_iou_threshold() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let (boxes, scores) = example_boxes(BoxOrder::TopLeftBottomRight);
         let iou_threshold = 0.99;
@@ -377,7 +377,7 @@ mod tests {
 
     #[test]
     fn test_non_max_suppression_max_outputs_per_class() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let (boxes, scores) = example_boxes(BoxOrder::TopLeftBottomRight);
         let iou_threshold = 1.0;
         let score_threshold = 0.;
@@ -406,7 +406,7 @@ mod tests {
 
     #[test]
     fn test_non_max_suppression_score_threshold() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let (boxes, scores) = example_boxes(BoxOrder::TopLeftBottomRight);
         let iou_threshold = 0.5;
         let score_threshold = 0.8;
@@ -431,7 +431,7 @@ mod tests {
 
     #[test]
     fn test_non_max_suppression_invalid() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let apply_nms = |boxes, scores| {
             let iou_threshold = 0.5;
             let score_threshold = 0.;

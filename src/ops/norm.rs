@@ -685,8 +685,9 @@ mod tests {
         batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
         rms_normalization, softmax,
     };
+    use crate::buffer_pool::BufferPool;
     use crate::ops::OpError;
-    use crate::ops::tests::{expect_eq_1e4, new_pool};
+    use crate::ops::tests::expect_eq_1e4;
 
     #[test]
     fn test_batch_norm() {
@@ -715,7 +716,7 @@ mod tests {
         ];
 
         cases.test_each(|Case { input }| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let scale = &[3.0, 3.0];
             let bias = &[0.1, 0.2];
             let mean = &[0.5, -0.5];
@@ -755,7 +756,7 @@ mod tests {
         let epsilon = 1e-5 as f32;
         let input = Tensor::from(5.0);
 
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let result = batch_norm(
             &pool,
             input.view(),
@@ -824,7 +825,7 @@ mod tests {
             [1.0608, -0.9152],
         ]]);
 
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let result =
             instance_normalization(&pool, input.view(), scale.nd_view(), bias.nd_view(), None)
                 .unwrap();
@@ -919,7 +920,7 @@ mod tests {
                 expected,
             } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = layer_normalization(
                 &pool,
                 input.view(),
@@ -956,7 +957,7 @@ mod tests {
         let scale = Tensor::rand(&[10], &mut rng);
         let epsilon = 1e-5;
 
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let result =
             rms_normalization(&pool, input.view(), scale.view(), 0, Some(epsilon)).unwrap();
 
@@ -968,7 +969,7 @@ mod tests {
 
     #[test]
     fn test_log_softmax() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // 1D input
         let mut input = Tensor::from([0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2345]);
@@ -1004,7 +1005,7 @@ mod tests {
 
     #[test]
     fn test_softmax() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Softmax on a 1D input
         let mut input = Tensor::from([0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2304]);
@@ -1063,7 +1064,7 @@ mod tests {
         );
 
         input.permute(&[1, 0]);
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let result = softmax(&pool, input.view(), 1).unwrap();
 
         expect_eq_1e4(&result, &expected)?;
@@ -1076,7 +1077,7 @@ mod tests {
     // do check the shape and that each lane sums to 1.
     #[test]
     fn test_softmax_sizes() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let check_result = |result: Tensor<f32>| {
             for lane in result.lanes(1) {

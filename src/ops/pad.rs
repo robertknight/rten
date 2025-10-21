@@ -290,8 +290,8 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, OperatorExt};
-    use crate::ops::tests::new_pool;
     use crate::ops::{Pad, PadMode, pad};
     use crate::value::{CastError, DataType, Value};
 
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_pad() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Same padding around each edge.
         let input = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
@@ -361,7 +361,7 @@ mod tests {
                 expected,
             } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = pad(&pool, input.view(), &pads.view(), *mode, 0.);
             match (result, expected) {
                 (Ok(result), Ok(expected)) => {

@@ -634,9 +634,9 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::buffer_pool::AutoReturn;
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, Operator};
     use crate::ops::binary_elementwise::broadcast_shapes;
-    use crate::ops::tests::new_pool;
 
     use super::{
         FusedMatMul, MatMul, MatMulInteger, MatmulStrategy, OpError, OpRunContext, cast_scale,
@@ -772,7 +772,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = cast_scale(&pool, case.input.clone(), case.scales.view());
             assert_eq!(result, case.expected);
         });
@@ -780,7 +780,7 @@ mod tests {
 
     #[test]
     fn test_gemm_op() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[3, 10], &mut rng);
@@ -798,7 +798,7 @@ mod tests {
 
     #[test]
     fn test_gemm_op_transposed() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[10, 3], &mut rng);
@@ -820,7 +820,7 @@ mod tests {
 
     #[test]
     fn test_gemm_op_adds_c() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[3, 10], &mut rng);
@@ -849,7 +849,7 @@ mod tests {
 
     #[test]
     fn test_gemm_op_invalid_inputs() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[3, 10], &mut rng);
@@ -954,7 +954,7 @@ mod tests {
                 b_shape,
             } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let mut rng = XorShiftRng::new(1234);
             let a = Tensor::<f32>::rand(a_shape, &mut rng);
             let b = Tensor::<f32>::rand(b_shape, &mut rng);
@@ -1001,7 +1001,7 @@ mod tests {
 
             let expected = reference_matmul(a.view(), packed_b_input.view(), MatMulOpts::default());
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let get_prepacked = |idx| {
                 if idx == 1 { Some(&packed_b) } else { None }
             };
@@ -1048,7 +1048,7 @@ mod tests {
         cases.test_each(|case| {
             let Case { bias, alpha } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let expected = reference_matmul(
                 a.view(),
                 b.view(),
@@ -1104,7 +1104,7 @@ mod tests {
                 error,
             } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
 
             let mut rng = XorShiftRng::new(1234);
             let a = Tensor::<f32>::rand(a_shape, &mut rng);
@@ -1131,7 +1131,7 @@ mod tests {
         ];
 
         cases.test_each_clone(|Case { m, n, k }| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let mut rng = XorShiftRng::new(1234);
             let a = Tensor::<f32>::rand(&[m, k], &mut rng);
             let b = Tensor::<f32>::rand(&[k, n], &mut rng);
@@ -1291,7 +1291,7 @@ mod tests {
                 expected_err,
             } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = matmul_integer(
                 &pool,
                 a.view(),
@@ -1337,7 +1337,7 @@ mod tests {
 
         let expected = reference_matmul(a.view(), packed_b_input.view(), MatMulOpts::default());
 
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let get_prepacked = |idx| {
             if idx == 1 { Some(&packed_b) } else { None }
         };
@@ -1393,7 +1393,7 @@ mod tests {
                 let desc = format!(
                     "matmul [{a_batch},{a_rows},{a_cols}] x [{a_cols},{b_cols}], strategy={strategy:?}",
                 );
-                let pool = new_pool();
+                let pool = BufferPool::new();
                 run_bench(trials, Some(&desc), || {
                     matmul_impl(
                         &pool,

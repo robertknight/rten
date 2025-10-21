@@ -180,8 +180,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{slice, slice_in_place};
+    use crate::buffer_pool::BufferPool;
     use crate::ops::OpError;
-    use crate::ops::tests::new_pool;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_slice_first_dim() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::<f32>::rand(&[5, 2, 5, 3], &mut rng);
 
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_slice_inner_dim() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::<f32>::rand(&[2, 2, 5, 3], &mut rng);
 
@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_slice_noop() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::<f32>::rand(&[5, 2, 5, 3], &mut rng);
 
@@ -333,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_slice_negative_axes() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let starts = &[0];
         let ends = &[2];
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn test_slice_negative_starts() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let axes = &[-1];
         let ends = &[2];
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn test_slice_negative_ends() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let axes = &[-1];
         let starts = &[0];
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn test_slice_clamps_starts_and_ends() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::<f32>::rand(&[20, 20], &mut rng);
 
@@ -505,7 +505,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let starts = &[case.start];
             let ends = &[case.end];
             let axes = &[0];
@@ -573,7 +573,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let input = Tensor::<f32>::zeros(&[1, 2, 3]);
             let err = slice(
                 &pool,

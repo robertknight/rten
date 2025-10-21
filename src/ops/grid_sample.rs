@@ -143,8 +143,9 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::grid_sample;
+    use crate::buffer_pool::BufferPool;
     use crate::operator::OpError;
-    use crate::ops::tests::{IntoNDim, expect_eq_1e4, new_pool};
+    use crate::ops::tests::{IntoNDim, expect_eq_1e4};
 
     #[test]
     fn test_grid_sample() {
@@ -267,7 +268,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = grid_sample(
                 &pool,
                 case.input.view(),
@@ -304,7 +305,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let input = NdTensor::zeros(case.input_shape);
             let grid = NdTensor::zeros(case.grid_shape);
             let align_corners = false;

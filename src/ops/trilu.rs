@@ -86,7 +86,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_testing::TestCases;
 
-    use crate::ops::tests::new_pool;
+    use crate::buffer_pool::BufferPool;
     use crate::ops::{OpError, trilu};
 
     #[test]
@@ -176,7 +176,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = trilu(&pool, case.input.view(), case.k, case.upper).unwrap();
             assert_eq!(result, case.expected);
         })
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn test_trilu_invalid() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from([1]);
         let result = trilu(&pool, input.view(), 0, true /* upper */);
         assert_eq!(

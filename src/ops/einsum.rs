@@ -702,8 +702,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{EinsumExpr, EinsumInput, EinsumStep, EinsumTerm, einsum_path};
+    use crate::buffer_pool::BufferPool;
     use crate::operator::OpError;
-    use crate::ops::tests::new_pool;
     use crate::ops::{einsum, matmul, mul, reduce_sum};
 
     #[test]
@@ -715,7 +715,7 @@ mod tests {
             expected: Result<Tensor, OpError>,
         }
 
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let vec_a = Tensor::arange(1., 10., None);
         let vec_b = Tensor::arange(1., 5., None);
 
@@ -1050,7 +1050,7 @@ mod tests {
                 expected,
             } = case;
 
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let output = einsum(&pool, inputs.as_slice(), equation);
             assert_eq!(
                 &output, expected,

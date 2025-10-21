@@ -362,16 +362,6 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{ExpectEqualError, expect_equal_with_tolerance};
 
-    use crate::buffer_pool::BufferPool;
-
-    /// Create an empty tensor pool.
-    ///
-    /// This is a wrapper that provides a place to customize the behavior of
-    /// the pool in tests.
-    pub fn new_pool() -> BufferPool {
-        BufferPool::new()
-    }
-
     /// Compare two f32 tensors with a higher absolute tolerance (1e-4) than
     /// the default (1e-5).
     ///

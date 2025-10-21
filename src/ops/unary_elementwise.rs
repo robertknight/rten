@@ -656,8 +656,8 @@ mod tests {
         Relu, Sigmoid, Sign, Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh, ceil, clip,
         clip_in_place, erf, floor, hard_sigmoid, hard_swish, leaky_relu, round,
     };
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, Operator, OperatorExt};
-    use crate::ops::tests::new_pool;
     use crate::value::{CastError, Value, ValueView};
     use rten_tensor::test_util::ApproxEq;
 
@@ -766,7 +766,7 @@ mod tests {
 
     #[test]
     fn test_ceil() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from([
             1.,
             1.2,
@@ -823,7 +823,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
             let result = clip(&pool, case.input.view(), case.min, case.max);
             expect_equal(&result, &case.expected).unwrap();
 
@@ -853,7 +853,7 @@ mod tests {
 
     #[test]
     fn test_erf() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from([-2.0, -0.5, 0.5, 2.0]);
         let expected = Tensor::from([
             -0.9953222650189527,
@@ -898,7 +898,7 @@ mod tests {
 
     #[test]
     fn test_floor() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from([
             1.,
             1.2,
@@ -945,7 +945,7 @@ mod tests {
         let input = Tensor::from([-4., -3., -1., 0., 1., 3., 4.]);
         let alpha = 0.2;
         let beta = 0.5;
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let result = hard_sigmoid(&pool, input.view(), alpha, beta);
         let expected = Tensor::from([0., 0., -1. / 5. + 0.5, 0.5, 1. / 5. + 0.5, 1., 1.]);
         expect_equal(&result, &expected)?;
@@ -954,7 +954,7 @@ mod tests {
 
     #[test]
     fn test_hard_swish() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from([-4., -3., -1., 0., 1., 3., 4.]);
         let result = hard_swish(&pool, input.view());
         let expected = Tensor::from([0., 0., -1. / 3., 0., 2. / 3., 3., 4.]);
@@ -978,7 +978,7 @@ mod tests {
 
     #[test]
     fn test_leaky_relu() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let input = Tensor::from_data(&[2, 2], vec![-5., -2., 3., 20.]);
         let alpha = 0.1;
         let expected = Tensor::from_data(&[2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
@@ -1019,7 +1019,7 @@ mod tests {
 
     #[test]
     fn test_round() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Example from ONNX spec.
         let input = Tensor::from([0.9, 2.5, 2.3, 1.5, -4.5]);

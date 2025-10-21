@@ -1007,8 +1007,8 @@ mod tests {
         less, less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
         where_op, xor,
     };
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt};
-    use crate::ops::tests::new_pool;
     use crate::value::Value;
 
     #[test]
@@ -1057,7 +1057,7 @@ mod tests {
 
     #[test]
     fn test_add() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Float tensor
         let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
@@ -1078,7 +1078,7 @@ mod tests {
 
     #[test]
     fn test_add_broadcasted() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Simple case where comparing ordering of tensor shapes tells us
         // target shape.
@@ -1120,7 +1120,7 @@ mod tests {
 
     #[test]
     fn test_add_broadcast_first_input() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let a: Tensor<i32> = Tensor::zeros(&[1, 1, 10]);
         let b = Tensor::zeros(&[1, 5, 10]);
         let result = add(&pool, a.view(), b.view()).unwrap();
@@ -1129,7 +1129,7 @@ mod tests {
 
     #[test]
     fn test_add_in_place() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // In-place addition with float inputs that have the same shape.
         let mut a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
@@ -1199,7 +1199,7 @@ mod tests {
 
     #[test]
     fn test_and() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let a = Tensor::from([0, 1, 0, 1]);
         let b = Tensor::from([0, 0, 1, 1]);
         let expected = Tensor::from([0, 0, 0, 1]);
@@ -1209,7 +1209,7 @@ mod tests {
 
     #[test]
     fn test_div() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Non-scalar a and b
         let a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
@@ -1277,7 +1277,7 @@ mod tests {
 
     #[test]
     fn test_equal() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Int tensor
         let a = Tensor::from([1, 2]);
@@ -1296,7 +1296,7 @@ mod tests {
 
     #[test]
     fn test_greater() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Int tensor
         let a = Tensor::from([1, 2, 5]);
@@ -1315,7 +1315,7 @@ mod tests {
 
     #[test]
     fn test_greater_or_equal() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Int tensor
         let a = Tensor::from([1, 2, 5]);
@@ -1334,7 +1334,7 @@ mod tests {
 
     #[test]
     fn test_less() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Int tensor
         let a = Tensor::from([1, 2]);
@@ -1353,7 +1353,7 @@ mod tests {
 
     #[test]
     fn test_less_or_equal() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Int tensor
         let a = Tensor::from([1, 2, 5]);
@@ -1372,7 +1372,7 @@ mod tests {
 
     #[test]
     fn test_mod_op() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Int tensor, floor division (like Python's `%`, `numpy.mod`).
         let a = Tensor::from([10, -10, 10, -10]);
@@ -1401,7 +1401,7 @@ mod tests {
 
     #[test]
     fn test_mul() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Float tensor
         let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
@@ -1441,7 +1441,7 @@ mod tests {
 
     #[test]
     fn test_or() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let a = Tensor::from([0, 1, 0, 1]);
         let b = Tensor::from([0, 0, 1, 1]);
         let expected = Tensor::from([0, 1, 1, 1]);
@@ -1497,7 +1497,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let pool = new_pool();
+            let pool = BufferPool::new();
 
             macro_rules! test_case {
                 ($a:expr, $b:expr, $expected:expr) => {
@@ -1526,7 +1526,7 @@ mod tests {
 
     #[test]
     fn test_sub() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Float tensor
         let a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
@@ -1549,7 +1549,7 @@ mod tests {
     // both the inner and outer dimensions of the second operand.
     #[test]
     fn test_sub_broadcast() -> Result<(), Box<dyn Error>> {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // [2, 3, 3]
         let a = Tensor::from([
@@ -1593,7 +1593,7 @@ mod tests {
 
     #[test]
     fn test_where() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         // Float tensor with exact matching shapes
         let cond = Tensor::from_data(&[2, 2], vec![1, 0, 0, 1]);
@@ -1640,7 +1640,7 @@ mod tests {
 
     #[test]
     fn test_where_invalid_inputs() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
 
         let cond = Tensor::from([1, 1]);
         let x = Tensor::from([1, 2, 3]);
@@ -1663,7 +1663,7 @@ mod tests {
 
     #[test]
     fn test_xor() {
-        let pool = new_pool();
+        let pool = BufferPool::new();
         let a = Tensor::from([0, 1, 0, 1]);
         let b = Tensor::from([0, 0, 1, 1]);
         let expected = Tensor::from([0, 1, 1, 0]);
