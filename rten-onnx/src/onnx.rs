@@ -103,6 +103,7 @@ impl DecodeMessage for AttributeProto {
 
 #[derive(Clone, Debug, Default)]
 pub struct NodeProto {
+    pub domain: Option<String>,
     pub name: Option<String>,
     pub input: Vec<String>,
     pub output: Vec<String>,
@@ -116,6 +117,7 @@ impl NodeProto {
     const NAME: u64 = 3;
     const OP_TYPE: u64 = 4;
     const ATTRIBUTE: u64 = 5;
+    const DOMAIN: u64 = 7;
 }
 
 impl DecodeMessage for NodeProto {
@@ -142,6 +144,9 @@ impl DecodeMessage for NodeProto {
                 Self::ATTRIBUTE => {
                     msg.attribute
                         .push(AttributeProto::decode_field(&mut field)?);
+                }
+                Self::DOMAIN => {
+                    msg.domain = Some(field.read_string()?);
                 }
                 _ => {
                     field.skip()?;

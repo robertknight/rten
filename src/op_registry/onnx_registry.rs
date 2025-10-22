@@ -26,7 +26,7 @@ use crate::value::{DataType, Scalar};
 pub struct OnnxOpRegistry {
     /// Map from operator type (the `NodeProto.op_type` protobuf field) to
     /// deserialization function.
-    ops: FxHashMap<&'static str, &'static ReadOpFunction>,
+    ops: FxHashMap<OpId<'static>, &'static ReadOpFunction>,
 }
 
 impl OnnxOpRegistry {
@@ -38,25 +38,26 @@ impl OnnxOpRegistry {
 
     /// Register the default/built-in implementation of an operator.
     pub fn register_op<Op: ReadOp + 'static>(&mut self) {
-        self.register_op_with_factory(Op::op_type(), &Op::read_boxed);
+        self.register_op_with_factory(Op::id(), &Op::read_boxed);
     }
 
     /// Register an operator with a custom factory to deserialize it from a
     /// model file.
-    fn register_op_with_factory(
-        &mut self,
-        op_type: &'static str,
-        factory: &'static ReadOpFunction,
-    ) {
-        self.ops.insert(op_type, factory);
+    fn register_op_with_factory(&mut self, id: OpId<'static>, factory: &'static ReadOpFunction) {
+        self.ops.insert(id, factory);
     }
 
     /// Deserialize an operator from a model file using the operators in the
     /// registry.
     pub(crate) fn read_op(&self, op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> ReadOpResult {
         let op_type = op.op_type.as_deref().unwrap_or_default();
+        let id = if let Some(domain) = op.domain.as_deref() {
+            OpId::with_domain(domain, op_type)
+        } else {
+            OpId::new(op_type)
+        };
         self.ops
-            .get(op_type)
+            .get(&id)
             .ok_or_else(|| ReadOpError::OperatorUnavailable {
                 name: op.op_type.as_ref().map(|s| s.to_string()),
             })
@@ -86,7 +87,8 @@ impl OnnxOpRegistry {
                             feature: $feature.to_string(),
                         })
                     }
-                    reg.register_op_with_factory(stringify!($op), &stub);
+                    let id = OpId::new(stringify!($op));
+                    reg.register_op_with_factory(id, &stub);
                 }
             };
         }
@@ -224,6 +226,34 @@ impl OnnxOpRegistry {
     }
 }
 
+/// Identifier for an ONNX operator.
+///
+/// See the `NodeProto` field in the ONNX Protocol Buffers schema.
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct OpId<'a> {
+    /// Reverse DNS domain.
+    ///
+    /// The default domain used by most standard operators is "ai.onnx".
+    pub domain: &'a str,
+    /// Name of the operator (eg. "MatMul").
+    pub op_type: &'a str,
+}
+
+impl<'a> OpId<'a> {
+    /// Create an operator ID using the default domain.
+    fn new(op_type: &'a str) -> Self {
+        Self {
+            domain: "ai.onnx",
+            op_type,
+        }
+    }
+
+    /// Create an operator ID using a custom domain.
+    fn with_domain(domain: &'a str, op_type: &'a str) -> Self {
+        Self { domain, op_type }
+    }
+}
+
 /// Context object passed to [`ReadOp::read`] implementations.
 pub trait OpLoadContext {
     /// Deserialize a graph definition.
@@ -306,8 +336,8 @@ type ReadOpResult = Result<DynParsedOp, ReadOpError>;
 type ReadOpFunction = dyn Fn(&onnx::NodeProto, &dyn OpLoadContext) -> ReadOpResult;
 
 pub trait ReadOp: Operator + Sized + Send + Sync {
-    /// Return the operator name from the `NodeProto.op_type` field.
-    fn op_type() -> &'static str;
+    /// Return the operator domain and op type.
+    fn id() -> OpId<'static>;
 
     /// Deserialize an operator from a `NodeProto` into an RTen operator.
     fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<ParsedOp<Self>, ReadOpError>;
@@ -530,8 +560,8 @@ impl_from_attr!(&'a [String], as_strings);
 macro_rules! impl_read_op {
     ($op:ident) => {
         impl ReadOp for ops::$op {
-            fn op_type() -> &'static str {
-                stringify!($op)
+            fn id() -> OpId<'static> {
+                OpId::new(stringify!($op))
             }
 
             fn read(
@@ -546,8 +576,8 @@ macro_rules! impl_read_op {
 
     ($op:ident, $read:expr) => {
         impl ReadOp for ops::$op {
-            fn op_type() -> &'static str {
-                stringify!($op)
+            fn id() -> OpId<'static> {
+                OpId::new(stringify!($op))
             }
 
             fn read(
@@ -983,8 +1013,8 @@ impl_read_op!(HardSwish);
 impl_read_op!(Identity);
 
 impl ReadOp for ops::If {
-    fn op_type() -> &'static str {
-        "If"
+    fn id() -> OpId<'static> {
+        OpId::new("If")
     }
 
     fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<ParsedOp<Self>, ReadOpError> {
@@ -1035,8 +1065,8 @@ impl_read_op!(LogSoftmax, |attrs: &Attrs| {
 });
 
 impl ReadOp for ops::Loop {
-    fn op_type() -> &'static str {
-        "Loop"
+    fn id() -> OpId<'static> {
+        OpId::new("Loop")
     }
 
     fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<ParsedOp<Self>, ReadOpError> {
@@ -1548,13 +1578,19 @@ mod tests {
 
     #[test]
     fn test_read_unsupported_op() {
+        // Default domain, unknown op type.
         let reg = OnnxOpRegistry::with_all_ops();
         let node = create_node("UnsupportedOp");
-
         let op = reg.read_op(&node, &FakeOpLoadContext);
-
         assert!(
             matches!(op, Err(ReadOpError::OperatorUnavailable { name }) if name == Some("UnsupportedOp".to_string()))
+        );
+
+        // Known op type, but custom domain.
+        let node = create_node("MatMul").with_domain("com.foobar");
+        let op = reg.read_op(&node, &FakeOpLoadContext);
+        assert!(
+            matches!(op, Err(ReadOpError::OperatorUnavailable { name }) if name == Some("MatMul".to_string()))
         );
     }
 
