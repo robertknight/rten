@@ -44,7 +44,11 @@ pub fn load(storage: Arc<ConstantStorage>, options: &ModelOptions) -> Result<Mod
         .map_err(|err| LoadErrorImpl::ParseFailed(Box::new(err).into()))?;
 
     if model.schema_version() != 1 {
-        return Err(LoadErrorImpl::SchemaVersionUnsupported.into());
+        let err = format!(
+            "unsupported model schema version {}",
+            model.schema_version()
+        );
+        return Err(LoadErrorImpl::ParseFailed(err.into()).into());
     }
 
     let optimize_opts = if options.optimize {

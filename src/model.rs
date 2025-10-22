@@ -901,7 +901,12 @@ mod tests {
         } in cases
         {
             let err = Model::load(buf).err().unwrap();
-            assert!(err.to_string().contains(expected_error));
+            assert!(
+                err.to_string().contains(expected_error),
+                "expected \"{}\" to contain \"{}\"",
+                err,
+                expected_error
+            );
         }
     }
 

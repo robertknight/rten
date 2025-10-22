@@ -94,12 +94,12 @@ pub enum LoadErrorKind {
 /// The internal implementation of [`LoadError`].
 #[derive(Debug)]
 pub(crate) enum LoadErrorImpl {
-    /// The FlatBuffers data describing the model is not supported by this
-    /// version of RTen.
-    SchemaVersionUnsupported,
-
     /// An error occurred reading the file from disk.
     ReadFailed(std::io::Error),
+
+    /// There was a problem with the file's header.
+    #[cfg(feature = "rten_format")]
+    InvalidHeader(Box<dyn Error + Send + Sync>),
 
     /// An error occurred parsing the data describing the model structure.
     ParseFailed(Box<dyn Error + Send + Sync>),
@@ -113,9 +113,6 @@ pub(crate) enum LoadErrorImpl {
 
     /// An error occurred while optimizing the graph.
     OptimizeError(Box<dyn Error + Send + Sync>),
-
-    /// The file's header is invalid.
-    InvalidHeader(Box<dyn Error + Send + Sync>),
 
     /// The file type of the model could not be determined.
     UnknownFileType,
@@ -134,13 +131,13 @@ impl LoadErrorImpl {
         type Kind = LoadErrorKind;
 
         match self {
-            Self::SchemaVersionUnsupported => Kind::ParseError,
             Self::ReadFailed(_) => Kind::IoError,
+            #[cfg(feature = "rten_format")]
+            Self::InvalidHeader(_) => Kind::ParseError,
             Self::ParseFailed(_) => Kind::ParseError,
             Self::OperatorInvalid(_) => Kind::OperatorInvalid,
             Self::GraphError(_) => Kind::GraphError,
             Self::OptimizeError(_) => Kind::OptimizeError,
-            Self::InvalidHeader(_) => Kind::ParseError,
             Self::UnknownFileType => Kind::UnknownFileType,
             Self::ExternalDataError(_) => Kind::ExternalDataError,
             Self::FormatNotEnabled => Kind::FormatNotEnabled,
@@ -149,13 +146,13 @@ impl LoadErrorImpl {
 
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::SchemaVersionUnsupported => None,
             Self::ReadFailed(err) => Some(err),
+            #[cfg(feature = "rten_format")]
+            Self::InvalidHeader(err) => Some(err.as_ref()),
             Self::ParseFailed(err) => Some(err.as_ref()),
             Self::OperatorInvalid(err) => Some(err.as_ref()),
             Self::GraphError(err) => Some(err.as_ref()),
             Self::OptimizeError(err) => Some(err.as_ref()),
-            Self::InvalidHeader(err) => Some(err.as_ref()),
             Self::UnknownFileType => None,
             Self::ExternalDataError(err) => Some(err.as_ref()),
             Self::FormatNotEnabled => None,
@@ -166,13 +163,13 @@ impl LoadErrorImpl {
 impl Display for LoadErrorImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SchemaVersionUnsupported => write!(f, "unsupported schema version"),
             Self::ReadFailed(e) => write!(f, "read error: {e}"),
+            #[cfg(feature = "rten_format")]
+            Self::InvalidHeader(e) => write!(f, "invalid header: {e}"),
             Self::ParseFailed(e) => write!(f, "parse error: {e}"),
             Self::OperatorInvalid(e) => write!(f, "operator error: {e}"),
             Self::GraphError(e) => write!(f, "graph error: {e}"),
             Self::OptimizeError(e) => write!(f, "graph optimization error: {e}"),
-            Self::InvalidHeader(e) => write!(f, "invalid header: {e}"),
             Self::UnknownFileType => write!(f, "unknown model file type"),
             Self::ExternalDataError(e) => write!(f, "external data error: {e}"),
             Self::FormatNotEnabled => {
