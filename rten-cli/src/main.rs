@@ -290,7 +290,7 @@ fn run_model(
         for (output, name) in outputs.iter().zip(output_names) {
             // Print basic information about the output.
             println!(
-                "  Output \"{name}\" data type {} shape: {:?}",
+                "  Output \"{name}\" type {} shape: {:?}",
                 output.dtype(),
                 output.shape()
             );

@@ -6,7 +6,7 @@ use rten_tensor::prelude::*;
 
 use crate::buffer_pool::BufferPool;
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
-use crate::value::{DataType, Value, ValueView};
+use crate::value::{DataType, Value, ValueType, ValueView};
 
 fn cast(pool: &BufferPool, input: ValueView, dtype: DataType) -> Result<Value, OpError> {
     macro_rules! cast_as {
@@ -140,7 +140,10 @@ impl Operator for CastLike {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let to = ctx.inputs().require(1)?.dtype();
+        let target_type = ctx.inputs().require(1)?;
+        let ValueType::Tensor(to) = target_type.dtype() else {
+            return Err(OpError::InvalidValue("expected target_type to be a tensor"));
+        };
         Cast { to }.run(ctx)
     }
 
@@ -149,7 +152,10 @@ impl Operator for CastLike {
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
-        let to = ctx.inputs().require(0)?.dtype();
+        let target_type = ctx.inputs().require(0)?;
+        let ValueType::Tensor(to) = target_type.dtype() else {
+            return Err(OpError::InvalidValue("expected target_type to be a tensor"));
+        };
         Cast { to }.run_in_place(input, ctx)
     }
 }
@@ -161,7 +167,7 @@ mod tests {
 
     use super::{Cast, CastLike};
     use crate::operator::{InputList, OperatorExt};
-    use crate::value::{DataType, Value};
+    use crate::value::{DataType, Value, ValueType};
 
     #[test]
     fn test_cast() {
@@ -234,8 +240,13 @@ mod tests {
             let result: Value = cast_op.run_simple(&case.input).unwrap();
             assert_eq!(result, case.expected);
 
+            let input_dtype = match case.input.dtype() {
+                ValueType::Tensor(dtype) => Some(dtype),
+                _ => None,
+            };
+
             // In-place cast.
-            if case.input.dtype().size() == case.dtype.size() {
+            if input_dtype.unwrap().size() == case.dtype.size() {
                 let result: Value = cast_op
                     .run_simple_in_place(case.input.clone(), InputList::new())
                     .unwrap();

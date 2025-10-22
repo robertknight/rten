@@ -6,7 +6,7 @@ use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, 
 use crate::ops::split::SplitSizes;
 use crate::ops::split::split;
 use crate::ops::{Concat, map_value_view, resolve_axis, resolve_index};
-use crate::value::{DataType, Sequence, Value, ValueView};
+use crate::value::{DataType, Sequence, Value, ValueType, ValueView};
 
 #[derive(Debug)]
 pub struct SequenceEmpty {
@@ -125,7 +125,11 @@ fn sequence_insert(
     pos: Option<i32>,
     val: ValueView,
 ) -> Result<Sequence, OpError> {
-    if seq.dtype() != val.dtype() {
+    let ValueType::Tensor(val_dtype) = val.dtype() else {
+        return Err(OpError::InvalidValue("expected input to be a tensor"));
+    };
+
+    if seq.dtype() != val_dtype {
         return Err(OpError::InvalidValue(
             "Tensor type does not match sequence type",
         ));
@@ -305,7 +309,7 @@ mod tests {
         SequenceInsert, SequenceLength, SplitToSequence,
     };
     use crate::operator::{InputList, OpError, OperatorExt};
-    use crate::value::{DataType, Sequence, TryFromValueError, Value, ValueView};
+    use crate::value::{DataType, Sequence, TryFromValueError, Value, ValueType, ValueView};
 
     #[test]
     fn test_sequence_empty() {
@@ -399,8 +403,8 @@ mod tests {
                 ]
                 .into(),
                 expected: Err(OpError::CastFailed(TryFromValueError::WrongType {
-                    actual: DataType::Float,
-                    expected: DataType::Int32,
+                    actual: ValueType::Tensor(DataType::Float),
+                    expected: ValueType::Tensor(DataType::Int32),
                 })),
             },
         ];
