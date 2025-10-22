@@ -8,7 +8,7 @@ use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use crate::buffer_pool::BufferPool;
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
 use crate::ops::{map_dtype, map_value_view, resolve_axis, resolve_index};
-use crate::value::{DataType, Scalar, ValueView};
+use crate::value::{DataType, Scalar, ValueType, ValueView};
 
 pub fn constant_of_shape<T: Copy>(
     pool: &BufferPool,
@@ -193,7 +193,10 @@ impl Operator for EyeLike {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
-        let dtype = self.dtype.unwrap_or(input.dtype());
+        let ValueType::Tensor(input_dtype) = input.dtype() else {
+            return Err(OpError::InvalidValue("expected input to be a tensor"));
+        };
+        let dtype = self.dtype.unwrap_or(input_dtype);
 
         map_dtype!(dtype, T, {
             let shape: [usize; 2] = input.shape().as_ref().try_into().map_err(|_| {

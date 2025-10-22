@@ -192,7 +192,7 @@ pub use op_registry::{OpRegistry, RegisterOp, op_types};
 pub use ops::{FloatOperators, Operators};
 pub use threading::{ThreadPool, thread_pool};
 pub use timing::TimingSort;
-pub use value::{DataType, Sequence, TryFromValueError, Value, ValueOrView, ValueView};
+pub use value::{DataType, Sequence, TryFromValueError, Value, ValueOrView, ValueType, ValueView};
 
 #[deprecated = "renamed to `LoadError`"]
 pub type ModelLoadError = LoadError;

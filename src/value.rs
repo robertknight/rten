@@ -13,7 +13,7 @@ use smallvec::SmallVec;
 
 use crate::buffer_pool::{Buffer, BufferPool, ExtractBuffer};
 
-/// Enum specifying the data type of a tensor.
+/// Element type of a tensor.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum DataType {
@@ -29,6 +29,25 @@ impl DataType {
         match self {
             DataType::Int32 | DataType::Float => 4,
             DataType::Int8 | DataType::UInt8 => 1,
+        }
+    }
+}
+
+/// Collection and element type of a value.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ValueType {
+    /// Tensor with elements of a given type.
+    Tensor(DataType),
+    /// Sequence where each item is a tensor with elements of the given type.
+    Sequence(DataType),
+}
+
+impl std::fmt::Display for ValueType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Tensor(dtype) => write!(f, "tensor({})", dtype),
+            Self::Sequence(dtype) => write!(f, "sequence({})", dtype),
         }
     }
 }
@@ -77,7 +96,7 @@ impl std::fmt::Display for DataType {
 /// a tensor but not the content.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValueMeta {
-    pub(crate) dtype: DataType,
+    pub(crate) dtype: ValueType,
     pub(crate) shape: Vec<usize>,
 }
 
@@ -96,10 +115,10 @@ pub enum TryFromValueError {
     /// The value does not have the expected number of dimensions.
     WrongRank { actual: usize, expected: usize },
 
-    /// The data type of the value's elements is different than expected.
+    /// The data type of the value is different than expected.
     WrongType {
-        actual: DataType,
-        expected: DataType,
+        actual: ValueType,
+        expected: ValueType,
     },
 
     /// Expected the value to be a sequence, but it isn't.
@@ -273,14 +292,15 @@ impl<'a> ValueView<'a> {
         TensorView::try_from_data(shape.as_ref(), data).map(|tensor| tensor.into())
     }
 
-    /// Return the data type of elements in this tensor.
-    pub fn dtype(&self) -> DataType {
+    /// Return the collection and element type of this value.
+    pub fn dtype(&self) -> ValueType {
+        let t = ValueType::Tensor;
         match self {
-            Self::FloatTensor(_) => DataType::Float,
-            Self::Int32Tensor(_) => DataType::Int32,
-            Self::Int8Tensor(_) => DataType::Int8,
-            Self::UInt8Tensor(_) => DataType::UInt8,
-            Self::Sequence(seq) => seq.dtype(),
+            Self::FloatTensor(_) => t(DataType::Float),
+            Self::Int32Tensor(_) => t(DataType::Int32),
+            Self::Int8Tensor(_) => t(DataType::Int8),
+            Self::UInt8Tensor(_) => t(DataType::UInt8),
+            Self::Sequence(seq) => ValueType::Sequence(seq.dtype()),
         }
     }
 
@@ -335,7 +355,7 @@ macro_rules! impl_value_view_conversions {
                     ValueView::$variant(t) => Ok(t),
                     _ => Err(TryFromValueError::WrongType {
                         actual: input.dtype(),
-                        expected: <$element_type as DataTypeOf>::dtype_of(),
+                        expected: ValueType::Tensor(<$element_type as DataTypeOf>::dtype_of()),
                     }),
                 }
             }
@@ -357,7 +377,7 @@ macro_rules! impl_value_view_conversions {
                     }
                     _ => Err(TryFromValueError::WrongType {
                         actual: input.dtype(),
-                        expected: <$element_type as DataTypeOf>::dtype_of(),
+                        expected: ValueType::Tensor(<$element_type as DataTypeOf>::dtype_of()),
                     }),
                 }
             }
@@ -474,17 +494,15 @@ impl Value {
         Ok((tensor.shape(), tensor.into_data()))
     }
 
-    /// Return the data type of elements in this tensor.
-    ///
-    /// For sequence values, this returns the data type of tensors in the
-    /// sequence.
-    pub fn dtype(&self) -> DataType {
+    /// Return the collection and element type of this value.
+    pub fn dtype(&self) -> ValueType {
+        let t = ValueType::Tensor;
         match self {
-            Self::FloatTensor(_) => DataType::Float,
-            Self::Int32Tensor(_) => DataType::Int32,
-            Self::Int8Tensor(_) => DataType::Int8,
-            Self::UInt8Tensor(_) => DataType::UInt8,
-            Self::Sequence(seq) => seq.dtype(),
+            Self::FloatTensor(_) => t(DataType::Float),
+            Self::Int32Tensor(_) => t(DataType::Int32),
+            Self::Int8Tensor(_) => t(DataType::Int8),
+            Self::UInt8Tensor(_) => t(DataType::UInt8),
+            Self::Sequence(seq) => ValueType::Sequence(seq.dtype()),
         }
     }
 
@@ -607,7 +625,7 @@ macro_rules! impl_value_conversions {
                     Value::$variant(t) => Ok(t),
                     _ => Err(TryFromValueError::WrongType {
                         actual: dtype,
-                        expected: <$element_type as DataTypeOf>::dtype_of(),
+                        expected: ValueType::Tensor(<$element_type as DataTypeOf>::dtype_of()),
                     }),
                 }
             }
@@ -636,7 +654,7 @@ macro_rules! impl_value_conversions {
                     Value::$variant(t) => Ok(t.view()),
                     _ => Err(TryFromValueError::WrongType {
                         actual: o.dtype(),
-                        expected: <$element_type as DataTypeOf>::dtype_of(),
+                        expected: ValueType::Tensor(<$element_type as DataTypeOf>::dtype_of()),
                     }),
                 }
             }
@@ -970,7 +988,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
-    use super::{DataType, TryFromValueError, Value, ValueView};
+    use super::{DataType, TryFromValueError, Value, ValueType, ValueView};
 
     #[test]
     fn test_value_view_from_shape() {
@@ -1038,8 +1056,8 @@ mod tests {
         assert_eq!(
             err,
             Err(TryFromValueError::WrongType {
-                actual: DataType::Float,
-                expected: DataType::Int32,
+                actual: ValueType::Tensor(DataType::Float),
+                expected: ValueType::Tensor(DataType::Int32),
             })
         );
 
@@ -1068,8 +1086,8 @@ mod tests {
         assert_eq!(
             err,
             Err(TryFromValueError::WrongType {
-                actual: DataType::Float,
-                expected: DataType::Int32,
+                actual: ValueType::Tensor(DataType::Float),
+                expected: ValueType::Tensor(DataType::Int32),
             })
         );
 

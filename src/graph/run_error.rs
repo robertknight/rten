@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::operator::{OpError, OpRunContext};
-use crate::value::{DataType, ValueMeta};
+use crate::value::{ValueMeta, ValueType};
 
 /// Errors that occur when running a model.
 #[derive(Debug)]
@@ -44,7 +44,7 @@ impl RunError {
         name: &str,
         error: OpError,
         ctx: &OpRunContext,
-        main_input_dtype: DataType,
+        main_input_dtype: ValueType,
         main_input_shape: &[usize],
     ) -> Self {
         let meta = ValueMeta {

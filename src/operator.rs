@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 use crate::BufferPool;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::timing::Profiler;
-use crate::value::{DataType, DataTypeOf, TryFromValueError, Value, ValueView};
+use crate::value::{DataType, DataTypeOf, TryFromValueError, Value, ValueType, ValueView};
 use crate::weight_cache::WeightCache;
 
 /// An operator input which has been pre-packed for more efficient use during
@@ -52,8 +52,8 @@ macro_rules! impl_prepacked_input_conversions {
                 match ppi {
                     PrepackedInput::$variant(packed) => Ok(packed),
                     _ => Err(TryFromValueError::WrongType {
-                        actual: ppi.dtype(),
-                        expected: <$type as DataTypeOf>::dtype_of(),
+                        actual: ValueType::Tensor(ppi.dtype()),
+                        expected: ValueType::Tensor(<$type as DataTypeOf>::dtype_of()),
                     }),
                 }
             }
