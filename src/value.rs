@@ -301,7 +301,7 @@ impl<'a> ValueView<'a> {
     }
 
     /// Extract shape and data type information from this tensor.
-    pub fn to_meta(&self) -> ValueMeta {
+    pub(crate) fn to_meta(&self) -> ValueMeta {
         ValueMeta {
             shape: self.shape().to_vec(),
             dtype: self.dtype(),
@@ -500,7 +500,7 @@ impl Value {
     }
 
     /// Extract shape and data type information from this tensor.
-    pub fn to_meta(&self) -> ValueMeta {
+    pub(crate) fn to_meta(&self) -> ValueMeta {
         ValueMeta {
             shape: self.shape().to_vec(),
             dtype: self.dtype(),
