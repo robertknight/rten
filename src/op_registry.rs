@@ -75,6 +75,7 @@ impl OpRegistry {
 #[derive(Debug)]
 pub enum ReadOpError {
     /// The `attrs` field for this operator is not set or has the wrong type.
+    #[cfg(feature = "rten_format")]
     AttrsMissingError,
     /// An attribute has an unsupported or invalid value.
     AttrError {
@@ -113,6 +114,7 @@ impl ReadOpError {
 impl Display for ReadOpError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(feature = "rten_format")]
             ReadOpError::AttrsMissingError => write!(f, "attributes are missing"),
             ReadOpError::AttrError { attr, error } => {
                 write!(f, "error in attribute \"{}\": {}", attr, error)
