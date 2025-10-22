@@ -228,10 +228,26 @@ macro_rules! impl_proxy_layout {
     };
 }
 
-/// A borrowed value that can be used as a model or operator input.
+/// Borrowed value type used for model inputs.
 ///
 /// Each `ValueView` variant has a counterpart [`Value`] that is the owned value
-/// of the same type.
+/// of the same type. Views can be created from a shape and element slice using
+/// [`from_shape`](Self::from_shape) or from a [`TensorView`] or
+/// [`NdTensorView`] using `into`.
+///
+/// # Creating views
+///
+/// Given a tensor shape and element slice, a model input can be created using:
+///
+/// ```
+/// use rten::{ValueView, ValueOrView};
+///
+/// let view = ValueView::from_shape([2, 2], &[1.0, 2.0, 3.0, 4.0]).unwrap();
+/// let model_input: ValueOrView = view.into();
+/// ```
+///
+/// Views can also be created from an [`NdTensorView`] or [`TensorView`] using
+/// [`Into`].
 #[derive(Clone)]
 #[non_exhaustive]
 pub enum ValueView<'a> {
@@ -242,7 +258,21 @@ pub enum ValueView<'a> {
     Sequence(&'a Sequence),
 }
 
-impl ValueView<'_> {
+impl<'a> ValueView<'a> {
+    /// Create a value from a shape and data.
+    ///
+    /// This will fail if the length of `data` does not match the product of
+    /// `shape`.
+    pub fn from_shape<T>(
+        shape: impl AsRef<[usize]>,
+        data: &'a [T],
+    ) -> Result<ValueView<'a>, impl Error + Send + Sync + 'static>
+    where
+        ValueView<'a>: From<TensorView<'a, T>>,
+    {
+        TensorView::try_from_data(shape.as_ref(), data).map(|tensor| tensor.into())
+    }
+
     /// Return the data type of elements in this tensor.
     pub fn dtype(&self) -> DataType {
         match self {
@@ -271,7 +301,7 @@ impl ValueView<'_> {
     }
 
     /// Extract shape and data type information from this tensor.
-    pub fn to_meta(&self) -> ValueMeta {
+    pub(crate) fn to_meta(&self) -> ValueMeta {
         ValueMeta {
             shape: self.shape().to_vec(),
             dtype: self.dtype(),
@@ -382,10 +412,29 @@ impl<'a> From<&'a Value> for ValueView<'a> {
     }
 }
 
-/// An owned value that can be used as an operator input or output.
+/// Owned value type used for model inputs and outputs.
 ///
 /// Each `Value` variant has a [`ValueView`] counterpart that represents a
 /// borrowed value of the same type.
+///
+/// # Creating values
+///
+/// Given a tensor shape and element vec, a model input can be created using:
+///
+/// ```
+/// use rten::{Value, ValueOrView};
+///
+/// let view = Value::from_shape([2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+/// let model_input: ValueOrView = view.into();
+/// ```
+///
+/// Values can also be created from an [`NdTensor`] or [`Tensor`] using [`Into`].
+///
+/// # Extracting values
+///
+/// The shape and data can be extracted from a value using
+/// [`into_shape_vec`](Self::into_shape_vec). You can also convert to an
+/// [`NdTensor`] or [`Tensor`] using [`TryInto`].
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Value {
@@ -397,6 +446,34 @@ pub enum Value {
 }
 
 impl Value {
+    /// Create a value from a shape and data.
+    ///
+    /// This will fail if the length of `data` does not match the product of
+    /// `shape`.
+    pub fn from_shape<T>(
+        shape: impl AsRef<[usize]>,
+        data: Vec<T>,
+    ) -> Result<Self, impl Error + Send + Sync + 'static>
+    where
+        Self: From<Tensor<T>>,
+    {
+        Tensor::try_from_data(shape.as_ref(), data).map(|tensor| tensor.into())
+    }
+
+    /// Extract the shape and data of a tensor value as a (shape, data) tuple.
+    ///
+    /// This can fail if the element type or rank of the tensor does not match
+    /// what is expected.
+    pub fn into_shape_vec<T: Clone, const N: usize>(
+        self,
+    ) -> Result<([usize; N], Vec<T>), TryFromValueError>
+    where
+        NdTensor<T, N>: TryFrom<Value, Error = TryFromValueError>,
+    {
+        let tensor: NdTensor<T, N> = self.try_into()?;
+        Ok((tensor.shape(), tensor.into_data()))
+    }
+
     /// Return the data type of elements in this tensor.
     ///
     /// For sequence values, this returns the data type of tensors in the
@@ -423,7 +500,7 @@ impl Value {
     }
 
     /// Extract shape and data type information from this tensor.
-    pub fn to_meta(&self) -> ValueMeta {
+    pub(crate) fn to_meta(&self) -> ValueMeta {
         ValueMeta {
             shape: self.shape().to_vec(),
             dtype: self.dtype(),
@@ -594,16 +671,26 @@ impl From<Sequence> for Value {
     }
 }
 
-/// An owned or borrowed value that can be used as a model or operator input.
+/// Value type used for model inputs that can be either owned or borrowed.
+///
+/// These can be created from a shape and data (see
+/// [`ValueView::from_shape`] and [`Value::from_shape`]) or from a
+/// tensor of a supported type ([`Tensor`], [`TensorView`] etc.) using [`Into`].
 #[derive(Clone)]
 pub enum ValueOrView<'a> {
-    /// A borrowed view (like a slice)
+    /// A borrowed view (like a slice).
+    ///
+    /// These are created from slices or tensor views of a supported element
+    /// type.
     View(ValueView<'a>),
-    /// An owned value (like a `Vec<T>`)
+    /// An owned value (like a `Vec<T>`).
+    ///
+    /// These are created from `Vec<T>`s or owned tensors of a supported element
+    /// type.
     Value(Value),
 }
 
-impl ValueOrView<'_> {
+impl<'a> ValueOrView<'a> {
     /// Convert this value to a tensor view.
     pub fn as_view(&self) -> ValueView<'_> {
         match self {
@@ -886,6 +973,16 @@ mod tests {
     use super::{DataType, TryFromValueError, Value, ValueView};
 
     #[test]
+    fn test_value_view_from_shape() {
+        let value = ValueView::from_shape([2, 2], &[1, 2, 3, 4]).unwrap();
+        assert!(matches!(value, ValueView::Int32Tensor(_)));
+        assert_eq!(value.shape().as_slice(), &[2, 2]);
+
+        let value = ValueView::from_shape([2, 3], &[1, 2, 3, 4]);
+        assert!(value.is_err());
+    }
+
+    #[test]
     fn test_value_view_from_tensor() {
         let tensor = NdTensor::<i32, 3>::zeros([1, 2, 3]);
         let input: ValueView = tensor.view().into();
@@ -896,6 +993,34 @@ mod tests {
         let input: ValueView = tensor.view().into();
         assert!(matches!(input, ValueView::FloatTensor(_)));
         assert_eq!(input.shape().as_slice(), &[5, 5]);
+    }
+
+    #[test]
+    fn test_value_from_shape() {
+        let value = Value::from_shape([2, 2], vec![1, 2, 3, 4]).unwrap();
+        assert!(matches!(value, Value::Int32Tensor(_)));
+        assert_eq!(value.shape().as_slice(), &[2, 2]);
+
+        let value = Value::from_shape([2, 3], vec![1, 2, 3, 4]);
+        assert!(value.is_err());
+    }
+
+    #[test]
+    fn test_value_into_shape_vec() {
+        let value = Value::from_shape([2, 2], vec![1, 2, 3, 4]).unwrap();
+        let (shape, data) = value.into_shape_vec::<i32, 2>().unwrap();
+        assert_eq!(shape, [2, 2]);
+        assert_eq!(data, [1, 2, 3, 4]);
+
+        // Data type mismatch
+        let value = Value::from_shape([2, 2], vec![1, 2, 3, 4]).unwrap();
+        let err = value.into_shape_vec::<f32, 2>().err().unwrap();
+        assert!(matches!(err, TryFromValueError::WrongType { .. }));
+
+        // Rank mismatch
+        let value = Value::from_shape([2, 2], vec![1, 2, 3, 4]).unwrap();
+        let err = value.into_shape_vec::<i32, 3>().err().unwrap();
+        assert!(matches!(err, TryFromValueError::WrongRank { .. }));
     }
 
     #[test]
