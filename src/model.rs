@@ -602,7 +602,7 @@ impl ModelOptions {
                 rten_loader::load(storage, self)
             }
             #[cfg(not(feature = "rten_format"))]
-            FileType::Rten => Err(LoadError::FormatNotEnabled),
+            FileType::Rten => Err(LoadErrorImpl::FormatNotEnabled.into()),
             #[cfg(feature = "onnx_format")]
             FileType::Onnx => {
                 // Safety: By calling `load_mmap` the caller has accepted the
@@ -612,7 +612,7 @@ impl ModelOptions {
                 onnx_loader::load(onnx_loader::Source::Buffer(&mmap), Some(&loader), self)
             }
             #[cfg(not(feature = "onnx_format"))]
-            FileType::Onnx => Err(LoadError::FormatNotEnabled),
+            FileType::Onnx => Err(LoadErrorImpl::FormatNotEnabled.into()),
         }
     }
 }
