@@ -91,6 +91,7 @@ pub fn create_node(op_type: &str) -> onnx::NodeProto {
 /// Fluent methods for building an [`onnx::NodeProto`].
 pub trait NodeProtoExt {
     fn with_attr(self, name: &str, value: impl Into<AttrValue>) -> Self;
+    fn with_domain(self, domain: &str) -> Self;
     fn with_name(self, name: &str) -> Self;
     fn with_input(self, name: &str) -> Self;
 }
@@ -98,6 +99,11 @@ pub trait NodeProtoExt {
 impl NodeProtoExt for onnx::NodeProto {
     fn with_attr(mut self, name: &str, value: impl Into<AttrValue>) -> Self {
         self.attribute.push(create_attr(name, value.into()));
+        self
+    }
+
+    fn with_domain(mut self, domain: &str) -> Self {
+        self.domain = Some(domain.to_string());
         self
     }
 
