@@ -21,6 +21,8 @@ pub enum GemmError {
     /// The data was packed with different cache blocking parameters than are
     /// currently being used.
     PackedDataBlockingMismatch,
+    /// Block-quantized inputs are not supported for this data type.
+    BlockQuantizedInputNotSupported,
 }
 
 impl Display for GemmError {
@@ -43,8 +45,34 @@ impl Display for GemmError {
             Self::PackedDataBlockingMismatch => {
                 write!(fmt, "matrix was packed with a different blocking size")
             }
+            Self::BlockQuantizedInputNotSupported => {
+                write!(fmt, "block-quantized inputs not supported for data type")
+            }
         }
     }
 }
 
 impl Error for GemmError {}
+
+/// Errors with block-quantized inputs.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum BlockQuantizedError {
+    /// The block size is unsupported.
+    UnsupportedBlockSize,
+    /// The number of bits per element is unsupported.
+    UnsupportedElementSize,
+    /// The input data or scales are not contiguous.
+    NonContiguousInput,
+}
+
+impl Display for BlockQuantizedError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::UnsupportedBlockSize => write!(f, "block size is unsupported"),
+            Self::UnsupportedElementSize => write!(f, "unsupported bits-per-element"),
+            Self::NonContiguousInput => write!(f, "inputs must have contiguous last dim"),
+        }
+    }
+}
+
+impl Error for BlockQuantizedError {}

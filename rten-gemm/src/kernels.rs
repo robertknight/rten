@@ -5,8 +5,11 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use super::{GemmOutT, Im2Col};
 use rten_tensor::Matrix;
+
+use super::{GemmOutT, Im2Col};
+use crate::block_quant::BlockQuantizedMatrix;
+use crate::packing::Packer;
 
 pub mod generic;
 mod simd_generic;
@@ -246,6 +249,16 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         cols: Range<usize>,
         zero_point: Option<RhsT>,
     );
+
+    /// Create a packer for a blockwise-quantized B input.
+    ///
+    /// This may return None if not supported by the kernel.
+    fn pack_block_quant<'a>(
+        &self,
+        #[allow(unused)] mat: BlockQuantizedMatrix<'a, RhsT>,
+    ) -> Option<Box<dyn Packer<'a> + 'a + Send + Sync>> {
+        None
+    }
 
     /// Compute a tile of the output matrix.
     ///

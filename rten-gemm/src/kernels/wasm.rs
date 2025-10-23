@@ -7,8 +7,11 @@ use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{GemmDispatch, simd_gemv, simd_int8_gemm, simd_int8_gemv};
 use super::{Int8DotProduct, Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
-use crate::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
-use crate::{Im2Col, packing};
+use crate::packing::{
+    BlockQuantizedMatrixPacker, Packer, pack_a_block, pack_b_block, packed_a_layout,
+    packed_b_layout,
+};
+use crate::{BlockQuantizedMatrix, Im2Col, packing};
 
 pub struct WasmKernel {
     isa: Wasm32Isa,
@@ -103,6 +106,15 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
         // Safety: WASM SIMD types are supported
         let out = cast_uninit_pod_mut_slice(out).unwrap();
         image.pack_block::<_, NR_REGS>(self.isa, out, Self::NR, rows, cols);
+    }
+
+    fn pack_block_quant<'a>(
+        &self,
+        mat: BlockQuantizedMatrix<'a, f32>,
+    ) -> Option<Box<dyn Packer<'a> + 'a + Send + Sync>> {
+        Some(Box::new(
+            BlockQuantizedMatrixPacker::<f32, { Self::NR }>::new(mat),
+        ))
     }
 
     unsafe fn kernel(

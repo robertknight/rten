@@ -3,11 +3,18 @@ use std::ops::Range;
 
 use rten_base::byte_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 use rten_base::iter::range_chunks;
-use rten_tensor::{Alloc, Matrix, MatrixLayout, Storage};
+use rten_tensor::{Alloc, AssumeInit, Matrix, MatrixLayout, Storage};
 
 use super::kernels::PackedLayout;
+use crate::block_quant::{BlockQuantizedMatrix, nbit_zero_point};
 
 pub mod int8;
+
+/// Packs tiles of a matrix for use by a kernel.
+pub trait Packer<'a> {
+    /// Pack a tile of the input into an output buffer.
+    fn pack(&self, out: &mut [MaybeUninit<u8>], rows: Range<usize>, cols: Range<usize>);
+}
 
 /// Helper for incrementally filling a slice.
 struct SliceWriter<'a, T> {
@@ -18,6 +25,12 @@ struct SliceWriter<'a, T> {
 impl<'a, T> SliceWriter<'a, T> {
     fn new(slice: &'a mut [MaybeUninit<T>]) -> Self {
         SliceWriter { slice, offset: 0 }
+    }
+
+    /// Return the initialized portion of the slice.
+    fn into_slice(self) -> &'a mut [T] {
+        let written = &mut self.slice[0..self.offset];
+        unsafe { written.assume_init() }
     }
 
     /// Return true if the slice has been fully written.
@@ -210,6 +223,113 @@ pub fn pack_b_block<T: Copy + Default, const NR: usize>(
     assert!(out.completed());
 }
 
+/// Packer which dequantizes and packs an input matrix that is quantized to N
+/// bits along the K dimension.
+pub struct BlockQuantizedMatrixPacker<'a, T, const NR: usize> {
+    mat: BlockQuantizedMatrix<'a, T>,
+}
+
+impl<'a, T: Copy, const NR: usize> BlockQuantizedMatrixPacker<'a, T, NR> {
+    pub fn new(mat: BlockQuantizedMatrix<'a, T>) -> Self {
+        Self { mat }
+    }
+}
+
+impl<'a, const NR: usize> BlockQuantizedMatrixPacker<'a, f32, NR> {
+    /// Dequantize and pack a region of an n-bit block-quantized matrix.
+    ///
+    /// The start and count of rows to pack must be a multiple of the matrix's
+    /// [block size](BlockQuantizedMatrix::elements_per_block). `cols.start`
+    /// must be a multiple of `NR`.
+    #[inline] // Allow caller to control `target_feature`s
+    fn pack(
+        &self,
+        out: &'a mut [MaybeUninit<f32>],
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) -> &'a mut [f32] {
+        let n_panels = cols.len().next_multiple_of(NR) / NR;
+
+        let block_size = self.mat.elements_per_block();
+        assert!(rows.start.is_multiple_of(block_size) && rows.len().is_multiple_of(block_size));
+        let n_blocks = rows.len() / block_size;
+        let start_block = rows.start / block_size;
+
+        // Only 4-bit elements are supported. With small changes this could
+        // support 2 or 8-bits. ONNX Runtime's implementation only supports 2, 4
+        // or 8 bits.
+        const N_BITS: u8 = 4;
+        const ZERO_POINT: i16 = nbit_zero_point(N_BITS);
+
+        // Data for padding and scales if column count is not a multiple of NR.
+        //
+        // Values are chosen so that the dequantized values are zero in the
+        // padding region.
+        let mut pad_data: Vec<u8> = Vec::new();
+        let mut pad_scales: Vec<f32> = Vec::new();
+
+        if !cols.len().is_multiple_of(NR) {
+            pad_data.resize(block_size * n_blocks, ZERO_POINT as u8);
+            pad_scales.resize(n_blocks, 0.);
+        }
+
+        let block_bytes = self.mat.bytes_per_block();
+
+        let mut out = SliceWriter::new(out);
+        for panel in 0..n_panels {
+            let start_col = cols.start + panel * NR;
+
+            // Extract data and scales for column.
+            let data: [&[u8]; NR] = std::array::from_fn(|col| {
+                self.mat
+                    .column_data(start_col + col, start_block, n_blocks)
+                    .unwrap_or(&pad_data)
+            });
+
+            let scales: [&[f32]; NR] = std::array::from_fn(|col| {
+                self.mat
+                    .column_scales(start_col + col, start_block, n_blocks)
+                    .unwrap_or(&pad_scales)
+            });
+
+            // Dequantize K blocks.
+            for block_idx in 0..n_blocks {
+                let block_scales = scales.map(|bs| *unsafe { bs.get_unchecked(block_idx) });
+
+                for k in 0..block_bytes {
+                    let bytes: [u8; NR] = std::array::from_fn(|c| unsafe {
+                        *data[c].get_unchecked(block_idx * block_bytes + k)
+                    });
+
+                    // First row from low 4 bits.
+                    for c in 0..NR {
+                        let elem = (bytes[c] & 0x0F) as i16 - ZERO_POINT;
+                        let dequant = elem as f32 * block_scales[c];
+                        unsafe { out.write_unchecked(dequant) };
+                    }
+
+                    // Second row from high 4 bits.
+                    for c in 0..NR {
+                        let elem = (bytes[c] >> 4) as i16 - ZERO_POINT;
+                        let dequant = elem as f32 * block_scales[c];
+                        unsafe { out.write_unchecked(dequant) };
+                    }
+                }
+            }
+        }
+
+        assert!(out.completed());
+        out.into_slice()
+    }
+}
+
+impl<'a, const NR: usize> Packer<'a> for BlockQuantizedMatrixPacker<'a, f32, NR> {
+    fn pack(&self, out: &mut [MaybeUninit<u8>], rows: Range<usize>, cols: Range<usize>) {
+        let out = cast_uninit_pod_mut_slice(out).unwrap();
+        self.pack(out, rows, cols);
+    }
+}
+
 // Element type used by [`PackingBuffer`]. This must have an alignment that is
 // at least as large as the alignment required by any of the kernels.
 pub type PackElem = u32;
@@ -306,10 +426,12 @@ impl Default for PackingBuffer {
 
 #[cfg(test)]
 mod tests {
+    use rten_tensor::{AsView, NdTensor, NdTensorView};
     use rten_testing::TestCases;
     use std::mem::MaybeUninit;
 
-    use super::{PackedLayout, PackingBuffer};
+    use super::{BlockQuantizedMatrixPacker, PackedLayout, PackingBuffer};
+    use crate::block_quant::{BlockQuantizedMatrix, nbit_zero_point, pack_4bit_elements};
 
     #[test]
     fn test_packing_buffer() {
@@ -348,5 +470,52 @@ mod tests {
 
             assert_eq!(buf.as_bytes().len(), layout.size());
         })
+    }
+
+    #[test]
+    fn test_block_quantized_matrix_packer() {
+        let cols = 4;
+        let k_blocks = 2;
+        let n_bits = 4;
+        let zero_point = nbit_zero_point(n_bits);
+
+        let elems: Vec<i8> = (-8..8).cycle().take(256).collect();
+        let packed_elems = pack_4bit_elements(&elems, zero_point as i8);
+        let data = NdTensor::from_data([cols, k_blocks, 16], packed_elems);
+        let scales = NdTensorView::from_data([cols, k_blocks], &[1., 2., 3., 4., 5., 6., 7., 8.]);
+        let mat = BlockQuantizedMatrix::new(data.view(), scales.view(), n_bits).unwrap();
+
+        const NR: usize = 2;
+        let packer = BlockQuantizedMatrixPacker::<f32, NR>::new(mat);
+
+        // Dequantized column panels
+        let mut dequantized = Vec::with_capacity(elems.len());
+        let dequantized = packer.pack(
+            dequantized.spare_capacity_mut(),
+            0..mat.rows(),
+            0..mat.cols(),
+        );
+
+        for panel in 0..cols / NR {
+            for row in 0..mat.rows() {
+                for panel_col in 0..NR {
+                    let col = panel * NR + panel_col;
+                    let dequant_offset = panel * mat.rows() * NR + row * NR + panel_col;
+                    let input_offset = col * mat.rows() + row;
+
+                    let block_idx = row / mat.elements_per_block();
+                    let scale = mat.column_scales(col, block_idx, 1).unwrap()[0];
+
+                    assert_eq!(
+                        dequantized[dequant_offset],
+                        elems[input_offset] as f32 * scale,
+                        "mismatch at panel {} row {} col {}",
+                        panel,
+                        row,
+                        panel_col
+                    );
+                }
+            }
+        }
     }
 }
