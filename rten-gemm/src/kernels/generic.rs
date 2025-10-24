@@ -6,9 +6,11 @@ use rten_simd::{Isa, isa::GenericIsa};
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::simd_generic::{GemmDispatch, simd_gemv};
-use super::{Kernel, Lhs, MatVecOutput, PackedLayout, QuantParams, TempTile};
-use crate::Im2Col;
-use crate::packing::{pack_a_block, pack_b_block, packed_a_layout, packed_b_layout};
+use super::{Kernel, Lhs, MatVecOutput, PackedLayout, Packer, QuantParams, TempTile};
+use crate::packing::{
+    BlockQuantizedMatrixPacker, pack_a_block, pack_b_block, packed_a_layout, packed_b_layout,
+};
+use crate::{BlockQuantizedMatrix, Im2Col};
 
 /// This is the base kernel that does not use architecture-specific intrinsics
 /// but is autovectorization-friendly. It is expected to perform the same as
@@ -106,6 +108,15 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
         // Safety: Scalar "SIMD" types are always supported
         let out = cast_uninit_pod_mut_slice(out).unwrap();
         image.pack_block::<_, NR_REGS>(self.isa, out, Self::NR, rows, cols);
+    }
+
+    fn pack_block_quant<'a>(
+        &self,
+        mat: BlockQuantizedMatrix<'a, f32>,
+    ) -> Option<Box<dyn Packer<'a> + 'a + Send + Sync>> {
+        Some(Box::new(
+            BlockQuantizedMatrixPacker::<f32, { Self::NR }>::new(mat),
+        ))
     }
 
     unsafe fn kernel(

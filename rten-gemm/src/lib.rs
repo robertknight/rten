@@ -16,6 +16,7 @@ use rten_tensor::{
     NdTensorView, OverlapPolicy, Storage,
 };
 
+mod block_quant;
 mod errors;
 mod im2col;
 mod kernels;
@@ -23,7 +24,8 @@ mod packing;
 mod prepack;
 mod tiles;
 
-pub use errors::GemmError;
+pub use block_quant::BlockQuantizedMatrix;
+pub use errors::{BlockQuantizedError, GemmError};
 pub use im2col::{ColOffsets, Im2Col, RowOffsets};
 pub use kernels::QuantParams;
 use kernels::generic::GenericKernel;
@@ -96,6 +98,12 @@ pub enum GemmInputB<'a, T> {
     /// Note: When using this type of input with quantized data, the zero point
     /// is assumed to be the same for every column.
     Im2Col(&'a Im2Col<'a, T>),
+
+    /// A matrix which is quantized and packed into blocks along the K dimension.
+    ///
+    /// This is used for weight-only quantization where the de-quantized element
+    /// type is T.
+    BlockQuantized(BlockQuantizedMatrix<'a, T>),
 }
 
 impl<T: Copy + Default> GemmInputB<'_, T> {
@@ -104,6 +112,7 @@ impl<T: Copy + Default> GemmInputB<'_, T> {
             Self::Unpacked(m) => m.rows(),
             Self::Packed(pm) => pm.rows(),
             Self::Im2Col(im) => im.rows(),
+            Self::BlockQuantized(m) => m.rows(),
         }
     }
 
@@ -112,6 +121,7 @@ impl<T: Copy + Default> GemmInputB<'_, T> {
             Self::Unpacked(m) => m.cols(),
             Self::Packed(pm) => pm.cols(),
             Self::Im2Col(im) => im.cols(),
+            Self::BlockQuantized(m) => m.cols(),
         }
     }
 }
@@ -549,9 +559,9 @@ impl Default for GemmExecutor<u8, i8, i32> {
 /// This is chosen such that a `depth_block_size * nr` panel of B fits in the L1
 /// cache, and can be reused in the loop over row tiles within each row block.
 /// On AVX2 with f32 GEMM for example, NR=16 so `256 * 16 * 4 = 16KB`.
-fn depth_block_size<RhsT>(a_cols: usize) -> usize {
+fn depth_block_size<RhsT>(a_cols: usize, min_size: Option<usize>) -> usize {
     let max = 1024 / size_of::<RhsT>();
-    max.min(a_cols)
+    max.min(a_cols).max(min_size.unwrap_or(0))
 }
 
 /// Return the block size for the N / column dimension of a GEMM operation.
@@ -814,6 +824,13 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
 
     let output_tiles = OutputTiles::new(output_mat.view_mut(), kernel.mr(), kernel.nr());
 
+    // For block-quantized inputs, row ranges must have a start and length that
+    // is a multiple of the block size.
+    let depth_min = match &b {
+        GemmInputB::BlockQuantized(mat) => Some(mat.elements_per_block()),
+        _ => None,
+    };
+
     // Sizes of blocks that the width (nc), depth (kc) and height (mc)
     // dimensions are partitioned into in the outer loops. These are chosen so
     // that blocks can fit in specific cache levels. See
@@ -821,7 +838,7 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     // values.
     let nc = col_block_size(b.cols(), kernel.nr());
     let mc = row_block_size(a.rows(), kernel.mr());
-    let kc = depth_block_size::<RhsT>(a.cols());
+    let kc = depth_block_size::<RhsT>(a.cols(), depth_min);
 
     // If using prepacked inputs, make sure they were packed with the same
     // configuration we are using now.
@@ -831,6 +848,16 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     if let GemmInputB::Packed(packed) = &b {
         packed.validate(kernel, kc)?;
     }
+
+    let rhs_packer = match b {
+        GemmInputB::BlockQuantized(mat) => {
+            let packer = kernel
+                .pack_block_quant(mat)
+                .ok_or(GemmError::BlockQuantizedInputNotSupported)?;
+            Some(packer)
+        }
+        _ => None,
+    };
 
     // Buffers for packed blocks of the matrix.
     thread_local!(static PACKED_A: RefCell<PackingBuffer> = const { RefCell::new(PackingBuffer::new()) });
@@ -861,7 +888,9 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 let mut thread_local_packed_b: Option<PackingBuffer> = None;
 
                 let rhs_block = match b {
-                    GemmInputB::Unpacked(_) | GemmInputB::Im2Col(_) => PACKED_B.with(|cell| {
+                    GemmInputB::Unpacked(_)
+                    | GemmInputB::Im2Col(_)
+                    | GemmInputB::BlockQuantized(_) => PACKED_B.with(|cell| {
                         let mut packed_b = cell.take();
 
                         let layout =
@@ -886,6 +915,10 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                 // `zero_point`.
                                 b_quant.map(|q| q.zero_point[0]),
                             ),
+                            GemmInputB::BlockQuantized(_) => rhs_packer
+                                .as_deref()
+                                .expect("should have packer")
+                                .pack(packed_uninit, depth_range.clone(), col_start..col_end),
                             GemmInputB::Packed(_) => unreachable!(),
                         }
 

@@ -9,8 +9,8 @@ use rten_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, Rando
 use rten_testing::TestCases;
 
 use super::{
-    BiasVector, ColOffsets, F32KernelType, GemmError, GemmExecutor, GemmInT, GemmInputA,
-    GemmInputB, GemmOutT, Im2Col, QuantParams, ReducedRangeRng, RowOffsets, WithKernel,
+    BiasVector, BlockQuantizedMatrix, ColOffsets, F32KernelType, GemmError, GemmExecutor, GemmInT,
+    GemmInputA, GemmInputB, GemmOutT, Im2Col, QuantParams, ReducedRangeRng, RowOffsets, WithKernel,
 };
 
 /// Scale a possibly non-float value by a float.
@@ -950,6 +950,78 @@ fn test_gemm_im2col_u8i8_i32() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn reference_gemm_block_quant_4bit(
+    lhs: NdTensorView<f32, 2>,
+    rhs: NdTensorView<u8, 3>,
+    rhs_scales: NdTensorView<f32, 2>,
+) -> NdTensor<f32, 2> {
+    let [m, k] = lhs.shape();
+    let [n, _k_blocks, block_size] = rhs.shape();
+    let elems_per_block = block_size * 2;
+    let zero_point = 8;
+
+    let mut out = NdTensor::zeros([m, n]);
+
+    for row in 0..m {
+        for col in 0..n {
+            let mut acc = 0.;
+            for ki in 0..k {
+                let k_block = ki / elems_per_block;
+                let block_idx = ki % elems_per_block;
+                let scale = rhs_scales[[col, k_block]];
+
+                let byte = rhs[[col, k_block, block_idx / 2]];
+                let elem = if ki % 2 == 0 { byte & 0x0F } else { byte >> 4 };
+                let dequantized_elem = (elem as i32 - zero_point) as f32 * scale;
+
+                acc += lhs[[row, ki]] * dequantized_elem;
+            }
+            out[[row, col]] = acc;
+        }
+    }
+
+    out
+}
+
+#[test]
+fn test_gemm_block_quantized_f32() {
+    let mut rng = XorShiftRng::new(1234);
+
+    for gemm in all_gemms() {
+        let block_size = 16;
+        let m = 4;
+        // nb. Not a multiple of NR for any architecture, so there will be
+        // padding.
+        let n = 17;
+        let k = 32;
+        let n_bits = 4 as u8;
+        let n_elem = 8 / n_bits as usize;
+
+        let lhs = NdTensor::<f32, 2>::rand([m, k], &mut rng);
+        let rhs = NdTensor::<u8, 3>::rand([n, k / (block_size * n_elem), block_size], &mut rng);
+        let rhs_scales = NdTensor::<f32, 2>::rand([n, k / block_size], &mut rng);
+        let rhs_bqm = BlockQuantizedMatrix::new(rhs.view(), rhs_scales.view(), n_bits).unwrap();
+
+        assert_eq!(lhs.cols(), rhs_bqm.rows());
+
+        let mut output = NdTensor::<f32, 2>::zeros([m, n]);
+        gemm.gemm(
+            output.view_mut().data_mut().unwrap(),
+            GemmInputA::Unpacked(lhs.view()),
+            GemmInputB::BlockQuantized(rhs_bqm),
+            1.,   // alpha
+            0.,   // beta
+            None, // bias
+            None, // a_quant
+            None, // b_quant
+        )
+        .unwrap();
+
+        let expected = reference_gemm_block_quant_4bit(lhs.view(), rhs.view(), rhs_scales.view());
+        expect_equal(&output, &expected).unwrap();
+    }
 }
 
 #[test]
