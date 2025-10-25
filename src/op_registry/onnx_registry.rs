@@ -93,6 +93,7 @@ impl OnnxOpRegistry {
             };
         }
 
+        // ai.onnx ops.
         register_op!(Abs);
         register_op!(Acos);
         register_op!(Add);
@@ -221,6 +222,9 @@ impl OnnxOpRegistry {
         register_op!(Unsqueeze);
         register_op!(Where);
         register_op!(Xor);
+
+        // com.microsoft ops.
+        register_op!(MatMulNBits);
 
         reg
     }
@@ -578,6 +582,22 @@ macro_rules! impl_read_op {
         impl ReadOp for ops::$op {
             fn id() -> OpId<'static> {
                 OpId::new(stringify!($op))
+            }
+
+            fn read(
+                op: &onnx::NodeProto,
+                _ctx: &dyn OpLoadContext,
+            ) -> Result<ParsedOp<Self>, ReadOpError> {
+                let attrs = Attrs::new(&op.attribute);
+                $read(&attrs).map(|op| ParsedOp::from(op).with_unused_attrs(attrs.unused_attrs()))
+            }
+        }
+    };
+
+    ($domain:literal, $op:ident, $read:expr) => {
+        impl ReadOp for ops::$op {
+            fn id() -> OpId<'static> {
+                OpId::with_domain($domain, stringify!($op))
             }
 
             fn read(
@@ -1125,6 +1145,26 @@ impl_read_op!(LSTM, |attrs: &Attrs| {
 
 impl_read_op!(MatMul);
 impl_read_op!(MatMulInteger);
+
+impl_read_op!("com.microsoft", MatMulNBits, |attrs: &Attrs| {
+    // Accuracy levels: 0 (unset), f32 (1), f16 (2), bf16 (3), i8 (4)
+    attrs.check_eq_fn("accuracy_level", |val: i64| val == 0 || val == 1)?;
+    // Spec allows any value between 2 and 8.
+    attrs.check_eq("bits", 4)?;
+
+    // These are inferred from the inputs.
+    attrs.check_eq_fn("block_size", |_val: i64| true)?;
+    attrs.check_eq_fn("K", |_val: i64| true)?;
+    attrs.check_eq_fn("N", |_val: i64| true)?;
+
+    let block_size = attrs.require("block_size")?.cast_int()?;
+
+    Ok(ops::MatMulNBits {
+        bits: 4,
+        block_size,
+    })
+});
+
 impl_read_op!(Max);
 
 struct PoolAttrs {

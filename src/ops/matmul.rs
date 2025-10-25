@@ -1,10 +1,11 @@
 use rayon::prelude::*;
 use rten_base::byte_cast::{Pod, cast_pod_vec};
 use rten_gemm::{
-    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, PackedBMatrix, QuantParams,
+    BiasVector, BlockQuantizedError, BlockQuantizedMatrix, GemmExecutor, GemmInT, GemmInputA,
+    GemmInputB, GemmOutT, PackedBMatrix, QuantParams,
 };
 use rten_tensor::prelude::*;
-use rten_tensor::{Matrix, NdTensorView, Tensor, TensorView};
+use rten_tensor::{CowNdTensor, Matrix, NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath::ExtendInit;
 use smallvec::SmallVec;
 
@@ -619,28 +620,130 @@ impl Operator for MatMulIntegerToFloat {
     }
 }
 
+fn matmul_nbits(
+    pool: &BufferPool,
+    lhs: NdTensorView<f32, 3>,
+    rhs: NdTensorView<u8, 3>,
+    scales: NdTensorView<f32, 2>,
+    bits: u8,
+) -> Result<NdTensor<f32, 3>, OpError> {
+    let [batch, rows, lhs_cols] = lhs.shape();
+
+    let a_mats: SmallVec<[_; 1]> = lhs.inner_iter::<2>().map(GemmInputA::Unpacked).collect();
+    let b_mat = BlockQuantizedMatrix::new(rhs, scales, bits).map_err(|err| {
+        OpError::UnsupportedValue(match err {
+            BlockQuantizedError::UnsupportedBlockSize => "Unsupported K block size",
+            BlockQuantizedError::UnsupportedElementSize => "Unsupported bits-per-element",
+            BlockQuantizedError::NonContiguousInput => "RHS input is not contiguous",
+        })
+    })?;
+    let b_mats: SmallVec<[_; 1]> = std::iter::repeat(GemmInputB::BlockQuantized(b_mat))
+        .take(batch)
+        .collect();
+
+    let out_shape = [batch, rows, b_mat.cols()];
+    let out_len = out_shape.iter().product();
+    let mut out_data = pool.alloc(out_len);
+
+    if lhs_cols != b_mat.rows() {
+        return Err(OpError::IncompatibleInputShapes(
+            "Columns of first matrix does not match rows of second matrix",
+        ));
+    }
+
+    let gemm = GemmExecutor::default();
+    out_data.extend_init(|uninit_out_data| {
+        gemm.batched_gemm_uninit(
+            &mut uninit_out_data[..out_len],
+            &a_mats,
+            &b_mats,
+            1.,   // alpha
+            None, // bias
+            None, // a_quant
+            None, // b_quant
+        )
+        .unwrap()
+    });
+
+    Ok(NdTensor::from_data(out_shape, out_data))
+}
+
+/// Matrix multiplication of un-quantized LHS by block-quantized RHS.
+///
+/// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.MatMulNBits.
+#[derive(Debug)]
+pub struct MatMulNBits {
+    pub bits: u8,
+    pub block_size: usize,
+}
+
+impl Operator for MatMulNBits {
+    fn name(&self) -> &str {
+        "MatMulNBits"
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let lhs: NdTensorView<f32, 3> = ctx.inputs().require_as(0)?;
+        let rhs: NdTensorView<u8, 3> = ctx.inputs().require_as(1)?;
+
+        // Current spec requires scales to be 2D, but earlier versions used 1D
+        // scales. See https://github.com/microsoft/onnxruntime/pull/24828.
+        let scales: TensorView<f32> = ctx.inputs().require_as(2)?;
+
+        let scales: CowNdTensor<f32, 2> = match scales.ndim() {
+            2 => scales.to_contiguous_in(ctx.pool()).try_into().unwrap(),
+            1 => {
+                let k = lhs.size(2);
+                let k_blocks = k.checked_div(self.block_size).unwrap_or(0);
+                let rhs_cols = rhs.size(0);
+
+                if scales.len() != rhs_cols * k_blocks {
+                    return Err(OpError::InvalidValue(
+                        "Expected 1D `scales` size to match columns * block_size",
+                    ));
+                }
+                scales.reshaped([rhs_cols, k_blocks])
+            }
+            _ => {
+                return Err(OpError::InvalidValue(
+                    "Expected `scales` to have one or two dims",
+                ));
+            }
+        };
+
+        if ctx.inputs().len() > 3 {
+            return Err(OpError::UnsupportedValue(
+                "zero_points, g_idx and bias inputs are unsupported",
+            ));
+        }
+
+        matmul_nbits(ctx.pool(), lhs, rhs, scales.view(), self.bits).into_op_result()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
 
     use rten_bench::run_bench;
     use rten_gemm::{
-        BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams,
+        BiasVector, BlockQuantizedMatrix, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT,
+        QuantParams,
     };
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{NdTensor, Tensor, TensorView};
+    use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
     use rten_testing::TestCases;
 
     use crate::buffer_pool::AutoReturn;
     use crate::buffer_pool::BufferPool;
-    use crate::operator::{InputList, Operator};
+    use crate::operator::{InputList, Operator, OperatorExt};
     use crate::ops::binary_elementwise::broadcast_shapes;
 
     use super::{
-        FusedMatMul, MatMul, MatMulInteger, MatmulStrategy, OpError, OpRunContext, cast_scale,
-        gemm, matmul, matmul_fused, matmul_impl, matmul_integer,
+        FusedMatMul, MatMul, MatMulInteger, MatMulNBits, MatmulStrategy, OpError, OpRunContext,
+        cast_scale, gemm, matmul, matmul_fused, matmul_impl, matmul_integer,
     };
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -1350,6 +1453,76 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         Ok(())
+    }
+
+    fn reference_matmul_nbits(
+        lhs: NdTensorView<f32, 3>,
+        rhs: NdTensorView<u8, 3>,
+        scales: NdTensorView<f32, 2>,
+        n_bits: u8,
+    ) -> NdTensor<f32, 3> {
+        let [batch, m, _k] = lhs.shape();
+        let [n, _k_blocks, _block_size] = rhs.shape();
+        let bqm = BlockQuantizedMatrix::new(rhs, scales, n_bits).unwrap();
+
+        let mut output = NdTensor::zeros([batch, m, n]);
+        let gemm = GemmExecutor::default();
+        for (mut out, a) in output.inner_iter_mut::<2>().zip(lhs.inner_iter()) {
+            gemm.gemm(
+                out.data_mut().unwrap(),
+                GemmInputA::Unpacked(a),
+                GemmInputB::BlockQuantized(bqm),
+                1.0,
+                0., /* beta */
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        }
+
+        output
+    }
+
+    #[test]
+    fn test_matmul_nbits() {
+        let mut rng = XorShiftRng::new(1234);
+
+        let batch = 2;
+        let block_size = 16;
+        let block_bytes = block_size / 2;
+        let m = 4;
+        let k = block_size * 2;
+        let n = 8;
+        let n_bits = 4;
+
+        let lhs = NdTensor::<f32, 3>::rand([batch, m, k], &mut rng);
+        let rhs = NdTensor::<u8, 3>::rand([n, k / block_size, block_bytes], &mut rng);
+        let scales = NdTensor::<f32, 2>::rand([n, k / block_size], &mut rng);
+        let expected = reference_matmul_nbits(lhs.view(), rhs.view(), scales.view(), n_bits);
+
+        let op = MatMulNBits {
+            bits: n_bits,
+            block_size,
+        };
+
+        // With 2D scales.
+        let result: NdTensor<f32, 3> = op
+            .run_simple((lhs.view(), rhs.view(), scales.view()))
+            .unwrap();
+        assert_eq!(result.shape(), [batch, m, n]);
+        expect_equal(&result, &expected).unwrap();
+
+        // With 1D scales (older models)
+        let result: NdTensor<f32, 3> = op
+            .run_simple((
+                lhs.view(),
+                rhs.view(),
+                scales.reshaped([scales.len()]).view(),
+            ))
+            .unwrap();
+        assert_eq!(result.shape(), [batch, m, n]);
+        expect_equal(&result, &expected).unwrap();
     }
 
     #[test]
