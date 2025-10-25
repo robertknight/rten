@@ -4,7 +4,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_base::iter::range_chunks;
-use rten_gemm::{BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, QuantParams};
+use rten_gemm::{
+    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, GemmUninitOptions,
+    QuantParams,
+};
 use rten_tensor::prelude::*;
 use rten_tensor::{CowTensor, NdTensor, NdTensorView, Tensor, TensorView};
 
@@ -61,10 +64,12 @@ where
                 out_item.data_mut().unwrap(),
                 GemmInputA::Unpacked(kernel_mat.view()),
                 GemmInputB::Unpacked(in_mat.view()),
-                1., // alpha
-                bias_vec,
-                kernel_quant,
-                input_quant,
+                GemmUninitOptions {
+                    bias: bias_vec,
+                    a_quant: kernel_quant,
+                    b_quant: input_quant,
+                    ..Default::default()
+                },
             )
             .unwrap();
         n_init += out_item.len();
@@ -329,10 +334,12 @@ where
                             .map(GemmInputA::Packed)
                             .unwrap_or(GemmInputA::Unpacked(kernel_mat.view())),
                         GemmInputB::Im2Col(&im2col),
-                        1., // alpha
-                        bias_vec,
-                        kernel_quant,
-                        input_quant,
+                        GemmUninitOptions {
+                            bias: bias_vec,
+                            a_quant: kernel_quant,
+                            b_quant: input_quant,
+                            ..Default::default()
+                        },
                     )
                     .unwrap();
                 n_init.fetch_add(out_mat.len(), Ordering::SeqCst);

@@ -2,7 +2,7 @@ use rayon::prelude::*;
 use rten_base::byte_cast::{Pod, cast_pod_vec};
 use rten_gemm::{
     BiasVector, BlockQuantizedError, BlockQuantizedMatrix, GemmExecutor, GemmInT, GemmInputA,
-    GemmInputB, GemmOutT, PackedBMatrix, QuantParams,
+    GemmInputB, GemmOptions, GemmOutT, GemmUninitOptions, PackedBMatrix, QuantParams,
 };
 use rten_tensor::prelude::*;
 use rten_tensor::{CowNdTensor, Matrix, NdTensor, NdTensorView, Tensor, TensorView};
@@ -57,11 +57,11 @@ where
                 output.data_mut().unwrap(),
                 GemmInputA::Unpacked(a.nd_view()),
                 GemmInputB::Unpacked(b.nd_view()),
-                alpha,
-                beta,
-                None, // bias
-                None, // a_quant
-                None, // b_quant
+                GemmOptions {
+                    alpha,
+                    beta,
+                    ..Default::default()
+                },
             )
             .unwrap();
             output
@@ -74,10 +74,10 @@ where
                     &mut uninit[..out_len],
                     GemmInputA::Unpacked(a.nd_view()),
                     GemmInputB::Unpacked(b.nd_view()),
-                    alpha,
-                    None, // bias
-                    None, // a_quant
-                    None, // b_quant
+                    GemmUninitOptions {
+                        alpha,
+                        ..Default::default()
+                    },
                 )
                 .unwrap()
             });
@@ -327,10 +327,12 @@ where
             &mut uninit_out_data[..out_len],
             &a_mats,
             &b_mats,
-            alpha.unwrap_or(1.),
-            bias,
-            a_quant,
-            b_quant,
+            GemmUninitOptions {
+                alpha: alpha.unwrap_or(1.),
+                bias,
+                a_quant,
+                b_quant,
+            },
         )
         .unwrap()
     });
@@ -657,10 +659,7 @@ fn matmul_nbits(
             &mut uninit_out_data[..out_len],
             &a_mats,
             &b_mats,
-            1.,   // alpha
-            None, // bias
-            None, // a_quant
-            None, // b_quant
+            GemmUninitOptions::default(),
         )
         .unwrap()
     });
@@ -727,8 +726,8 @@ mod tests {
 
     use rten_bench::run_bench;
     use rten_gemm::{
-        BiasVector, BlockQuantizedMatrix, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT,
-        QuantParams,
+        BiasVector, BlockQuantizedMatrix, GemmExecutor, GemmInT, GemmInputA, GemmInputB,
+        GemmOptions, GemmOutT, QuantParams,
     };
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
@@ -753,11 +752,11 @@ mod tests {
                 c.data_mut().unwrap(),
                 GemmInputA::Unpacked(a.nd_view()),
                 GemmInputB::Unpacked(b.nd_view()),
-                alpha,
-                beta,
-                None, // bias
-                None, // a_quant
-                None, // b_quant
+                GemmOptions {
+                    alpha,
+                    beta,
+                    ..Default::default()
+                },
             )
             .unwrap();
     }
@@ -828,11 +827,13 @@ mod tests {
                     c.data_mut().unwrap(),
                     GemmInputA::Unpacked(a),
                     GemmInputB::Unpacked(b),
-                    alpha.unwrap_or(1.),
-                    OutT::default(), /* beta */
-                    bias,
-                    a_quant,
-                    b_quant,
+                    GemmOptions {
+                        alpha: alpha.unwrap_or(1.),
+                        beta: OutT::default(),
+                        bias,
+                        a_quant,
+                        b_quant,
+                    },
                 )
                 .unwrap();
             });
@@ -1472,11 +1473,7 @@ mod tests {
                 out.data_mut().unwrap(),
                 GemmInputA::Unpacked(a),
                 GemmInputB::BlockQuantized(bqm),
-                1.0,
-                0., /* beta */
-                None,
-                None,
-                None,
+                GemmOptions::default(),
             )
             .unwrap();
         }

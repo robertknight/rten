@@ -10,7 +10,8 @@ use rten_testing::TestCases;
 
 use super::{
     BiasVector, BlockQuantizedMatrix, ColOffsets, F32KernelType, GemmError, GemmExecutor, GemmInT,
-    GemmInputA, GemmInputB, GemmOutT, Im2Col, QuantParams, ReducedRangeRng, RowOffsets, WithKernel,
+    GemmInputA, GemmInputB, GemmOptions, GemmOutT, Im2Col, QuantParams, ReducedRangeRng,
+    RowOffsets, WithKernel,
 };
 
 /// Scale a possibly non-float value by a float.
@@ -188,11 +189,13 @@ where
         output.data_mut().expect("expected contiguous input"),
         GemmInputA::Unpacked(a),
         GemmInputB::Unpacked(b),
-        alpha,
-        beta,
-        bias,
-        a_quant,
-        b_quant,
+        GemmOptions {
+            alpha,
+            beta,
+            bias,
+            a_quant,
+            b_quant,
+        },
     )
     .map(|_| ())
 }
@@ -301,11 +304,7 @@ fn test_gemm_input_errors() {
                 &mut output,
                 GemmInputA::Unpacked(a.view()),
                 GemmInputB::Unpacked(b.view()),
-                1.,   // alpha
-                0.,   // beta
-                None, // bias
-                None, // a_quant
-                None, // b_quant
+                GemmOptions::default(),
             );
             assert_eq!(result.as_ref(), Err(expected));
         },
@@ -764,11 +763,10 @@ fn test_gemm_prepack() {
             result.data_mut().unwrap(),
             GemmInputA::Packed(&packed_a),
             GemmInputB::Packed(&packed_b),
-            1.,   // alpha
-            1.,   // beta
-            None, // bias
-            None, // a_quant
-            None, // b_quant
+            GemmOptions {
+                beta: 1.,
+                ..Default::default()
+            },
         )
         .unwrap();
 
@@ -781,11 +779,10 @@ fn test_gemm_prepack() {
             expected.data_mut().unwrap(),
             GemmInputA::Unpacked(a.view()),
             GemmInputB::Unpacked(b.view()),
-            1.,   // alpha
-            1.,   // beta
-            None, // bias
-            None, // a_quant
-            None, // b_quant
+            GemmOptions {
+                beta: 1.,
+                ..Default::default()
+            },
         )
         .unwrap();
 
@@ -880,11 +877,7 @@ fn test_gemm_im2col_f32() -> Result<(), Box<dyn Error>> {
         output_mat.data_mut().unwrap(),
         GemmInputA::Unpacked(kernel_mat.view()),
         GemmInputB::Im2Col(&im2col),
-        1.,   // alpha
-        0.,   // beta
-        None, // bias
-        None, // a_quant
-        None, // b_quant
+        GemmOptions::default(),
     )
     .unwrap();
 
@@ -928,11 +921,7 @@ fn test_gemm_im2col_u8i8_i32() -> Result<(), Box<dyn Error>> {
             output_mat.data_mut().unwrap(),
             GemmInputA::Unpacked(kernel_mat.view()),
             GemmInputB::Im2Col(&im2col),
-            1.,   // alpha
-            0,    // beta
-            None, // bias
-            None, // a_quant
-            None, // b_quant
+            GemmOptions::default(),
         )
         .unwrap();
 
@@ -1011,11 +1000,7 @@ fn test_gemm_block_quantized_f32() {
             output.view_mut().data_mut().unwrap(),
             GemmInputA::Unpacked(lhs.view()),
             GemmInputB::BlockQuantized(rhs_bqm),
-            1.,   // alpha
-            0.,   // beta
-            None, // bias
-            None, // a_quant
-            None, // b_quant
+            GemmOptions::default(),
         )
         .unwrap();
 
