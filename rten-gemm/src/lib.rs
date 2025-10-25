@@ -262,12 +262,16 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         out_data: &mut [OutT],
         a: GemmInputA<LhsT>,
         b: GemmInputB<RhsT>,
-        alpha: f32,
-        beta: OutT,
-        bias: Option<BiasVector<OutT>>,
-        a_quant: Option<QuantParams<LhsT>>,
-        b_quant: Option<QuantParams<RhsT>>,
+        opts: GemmOptions<LhsT, RhsT, OutT>,
     ) -> GemmResult {
+        let GemmOptions {
+            alpha,
+            beta,
+            bias,
+            a_quant,
+            b_quant,
+        } = opts;
+
         gemm_impl(
             &*self.kernel,
             // Safety: `gemm_impl` only writes initialized values to `out_data`.
@@ -292,11 +296,15 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         out_data: &'a mut [MaybeUninit<OutT>],
         a: GemmInputA<LhsT>,
         b: GemmInputB<RhsT>,
-        alpha: f32,
-        bias: Option<BiasVector<OutT>>,
-        a_quant: Option<QuantParams<LhsT>>,
-        b_quant: Option<QuantParams<RhsT>>,
+        opts: GemmUninitOptions<LhsT, RhsT, OutT>,
     ) -> GemmResult<&'a mut [OutT]> {
+        let GemmUninitOptions {
+            alpha,
+            bias,
+            a_quant,
+            b_quant,
+        } = opts;
+
         gemm_impl(
             &*self.kernel,
             out_data,
@@ -320,10 +328,7 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         out_data: &'a mut [MaybeUninit<OutT>],
         a: &[GemmInputA<LhsT>],
         b: &[GemmInputB<RhsT>],
-        alpha: f32,
-        bias: Option<BiasVector<OutT>>,
-        a_quant: Option<QuantParams<LhsT>>,
-        b_quant: Option<QuantParams<RhsT>>,
+        opts: GemmUninitOptions<LhsT, RhsT, OutT>,
     ) -> GemmResult<&'a mut [OutT]> {
         if a.len() != b.len() {
             return Err(GemmError::BatchSizeMismatch);
@@ -345,14 +350,14 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
             }
             ([a], [b]) => {
                 // Skip parallel iteration for batch size of 1
-                self.gemm_uninit(out_data, *a, *b, alpha, bias, a_quant, b_quant)
+                self.gemm_uninit(out_data, *a, *b, opts)
             }
             (a, b) => {
                 a.par_iter()
                     .zip(b)
                     .zip(out_data.par_chunks_mut(out_mat_stride))
                     .try_for_each(|((a_mat, b_mat), out_mat)| {
-                        self.gemm_uninit(out_mat, *a_mat, *b_mat, alpha, bias, a_quant, b_quant)
+                        self.gemm_uninit(out_mat, *a_mat, *b_mat, opts.clone())
                             .map(|_| ())
                     })?;
 
@@ -379,6 +384,66 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
         K::new().map(|kernel| GemmExecutor {
             kernel: Box::new(kernel),
         })
+    }
+}
+
+#[derive(Clone)]
+pub struct GemmOptions<'a, LhsT, RhsT, OutT: Default> {
+    /// Alpha value for `C = alpha * AB + beta * C`. Defaults to 1.0.
+    pub alpha: f32,
+
+    /// Beta value for `C = alpha * AB + beta * C`. Defaults to zero.
+    pub beta: OutT,
+
+    /// Row or column biases to add to the output.
+    pub bias: Option<BiasVector<'a, OutT>>,
+
+    /// Quantization parameters (scale, zero point) for LHS / A input.
+    pub a_quant: Option<QuantParams<'a, LhsT>>,
+
+    /// Quantization parameters (scale, zero point) for RHS / B input.
+    pub b_quant: Option<QuantParams<'a, RhsT>>,
+}
+
+impl<'a, LhsT, RhsT, OutT: Default> Default for GemmOptions<'a, LhsT, RhsT, OutT> {
+    fn default() -> Self {
+        Self {
+            alpha: 1.0,
+            beta: OutT::default(),
+            bias: None,
+            a_quant: None,
+            b_quant: None,
+        }
+    }
+}
+
+/// Options for [`GemmExecutor::gemm_uninit`] and [`GemmExecutor::batched_gemm_uninit`].
+///
+/// This is identical to [`GemmOptions`] except that it has no `beta` field,
+/// since the output is uninitialized and beta is implicitly zero.
+#[derive(Clone)]
+pub struct GemmUninitOptions<'a, LhsT, RhsT, OutT> {
+    /// Alpha value for `C = alpha * AB`. Defaults to 1.0.
+    pub alpha: f32,
+
+    /// Row or column biases to add to the output.
+    pub bias: Option<BiasVector<'a, OutT>>,
+
+    /// Quantization parameters (scale, zero point) for LHS / A input.
+    pub a_quant: Option<QuantParams<'a, LhsT>>,
+
+    /// Quantization parameters (scale, zero point) for RHS / B input.
+    pub b_quant: Option<QuantParams<'a, RhsT>>,
+}
+
+impl<'a, LhsT, RhsT, OutT> Default for GemmUninitOptions<'a, LhsT, RhsT, OutT> {
+    fn default() -> Self {
+        Self {
+            alpha: 1.0,
+            bias: None,
+            a_quant: None,
+            b_quant: None,
+        }
     }
 }
 

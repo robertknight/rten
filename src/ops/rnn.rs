@@ -1,7 +1,7 @@
 use std::iter::Rev;
 use std::ops::Range;
 
-use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB};
+use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmOptions};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor, TensorView};
 
@@ -238,11 +238,7 @@ pub fn gru(
                 gates.data_mut().expect("expected contiguous input"),
                 GemmInputA::Unpacked(in_item),
                 input_weights,
-                1.,   // alpha
-                0.,   // beta
-                None, // bias
-                None, // a_quant
-                None, // b_quant
+                GemmOptions::default(),
             )
             .unwrap();
             if let Some(input_bias) = input_bias {
@@ -254,11 +250,7 @@ pub fn gru(
                 hidden_scratch.data_mut().unwrap(),
                 GemmInputA::Unpacked(hidden_item),
                 hidden_weights,
-                1.,   // alpha
-                0.,   // beta
-                None, // bias
-                None, // a_quant
-                None, // b_quant
+                GemmOptions::default(),
             )
             .unwrap();
             if let Some(hidden_bias) = hidden_bias {
@@ -499,11 +491,7 @@ pub fn lstm(
                 gates.data_mut().expect("expected contiguous input"),
                 GemmInputA::Unpacked(in_item),
                 input_weights,
-                1.,   // alpha
-                0.,   // beta
-                None, // bias
-                None, // a_quant
-                None, // b_quant
+                GemmOptions::default(),
             )
             .unwrap();
             if let Some(input_bias) = input_bias {
@@ -514,11 +502,10 @@ pub fn lstm(
                 gates.data_mut().expect("expected contiguous input"),
                 GemmInputA::Unpacked(hidden_item),
                 hidden_weights,
-                1.,   // alpha
-                1.,   // beta
-                None, // bias
-                None, // a_quant
-                None, // b_quant
+                GemmOptions {
+                    beta: 1.,
+                    ..Default::default()
+                },
             )
             .unwrap();
             if let Some(hidden_bias) = hidden_bias {

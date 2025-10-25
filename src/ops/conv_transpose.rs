@@ -3,7 +3,7 @@ use std::mem::MaybeUninit;
 use rayon::prelude::*;
 use rten_base::iter::range_chunks;
 use rten_base::num::div_ceil;
-use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB};
+use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
@@ -322,10 +322,7 @@ pub fn conv_transpose(
                     col2im_mat.data_mut().unwrap(),
                     GemmInputA::Unpacked(kernel_mat),
                     GemmInputB::Unpacked(input_mat.view()),
-                    1.,   // alpha
-                    None, // bias
-                    None, // a_quant
-                    None, // b_quant
+                    GemmUninitOptions::default(),
                 )
                 .unwrap();
 
