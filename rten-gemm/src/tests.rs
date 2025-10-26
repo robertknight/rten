@@ -941,7 +941,7 @@ fn test_gemm_im2col_u8i8_i32() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn reference_gemm_block_quant_4bit(
+fn reference_gemm_f32_with_block_quantized_rhs(
     lhs: NdTensorView<f32, 2>,
     rhs: NdTensorView<u8, 3>,
     rhs_scales: NdTensorView<f32, 2>,
@@ -975,38 +975,94 @@ fn reference_gemm_block_quant_4bit(
 }
 
 #[test]
-fn test_gemm_block_quantized_f32() {
-    let mut rng = XorShiftRng::new(1234);
+fn test_gemm_f32_with_block_quantized_rhs() {
+    #[derive(Clone, Debug)]
+    struct Case {
+        m: usize,
+        n: usize,
+        k: usize,
+        // Number of elements in each quantized K block. Must be >= 16.
+        block_size: usize,
+    }
 
-    for gemm in all_gemms() {
-        let block_size = 16;
-        let m = 4;
-        // nb. Not a multiple of NR for any architecture, so there will be
-        // padding.
-        let n = 17;
-        let k = 32;
+    let cases = [
+        // Vector-matrix product
+        Case {
+            m: 1,
+            n: 17,
+            k: 32,
+            block_size: 16,
+        },
+        Case {
+            m: 1,
+            n: 17,
+            k: 32,
+            block_size: 32,
+        },
+        // Matrix-matrix product
+        Case {
+            m: 4,
+            n: 17,
+            k: 32,
+            block_size: 16,
+        },
+        Case {
+            m: 4,
+            n: 16,
+            k: 32,
+            block_size: 32,
+        },
+        Case {
+            m: 4,
+            n: 16,
+            k: 64,
+            block_size: 64,
+        },
+        // Smallest supported input
+        Case {
+            m: 1,
+            n: 1,
+            k: 16,
+            block_size: 16,
+        },
+    ];
+
+    cases.test_each_clone(|case| {
+        let Case {
+            m,
+            n,
+            k,
+            block_size,
+        } = case;
+
         let n_bits = 4 as u8;
-        let n_elem = 8 / n_bits as usize;
+        let elements_per_byte = 8 / n_bits as usize;
+        let block_bytes = block_size / elements_per_byte;
 
+        let mut rng = XorShiftRng::new(1234);
         let lhs = NdTensor::<f32, 2>::rand([m, k], &mut rng);
-        let rhs = NdTensor::<u8, 3>::rand([n, k / (block_size * n_elem), block_size], &mut rng);
+        let rhs = NdTensor::<u8, 3>::rand([n, k / block_size, block_bytes], &mut rng);
         let rhs_scales = NdTensor::<f32, 2>::rand([n, k / block_size], &mut rng);
         let rhs_bqm = BlockQuantizedMatrix::new(rhs.view(), rhs_scales.view(), n_bits).unwrap();
-
+        assert_eq!(rhs_bqm.elements_per_block(), block_size);
         assert_eq!(lhs.cols(), rhs_bqm.rows());
 
-        let mut output = NdTensor::<f32, 2>::zeros([m, n]);
-        gemm.gemm(
-            output.view_mut().data_mut().unwrap(),
-            GemmInputA::Unpacked(lhs.view()),
-            GemmInputB::BlockQuantized(rhs_bqm),
-            GemmOptions::default(),
-        )
-        .unwrap();
+        let expected =
+            reference_gemm_f32_with_block_quantized_rhs(lhs.view(), rhs.view(), rhs_scales.view());
 
-        let expected = reference_gemm_block_quant_4bit(lhs.view(), rhs.view(), rhs_scales.view());
-        expect_equal(&output, &expected).unwrap();
-    }
+        for gemm in all_gemms() {
+            let mut output = NdTensor::<f32, 2>::zeros([m, n]);
+            gemm.gemm(
+                output.view_mut().data_mut().unwrap(),
+                GemmInputA::Unpacked(lhs.view()),
+                GemmInputB::BlockQuantized(rhs_bqm),
+                GemmOptions::default(),
+            )
+            .unwrap();
+
+            expect_equal(&output, &expected).unwrap();
+        }
+    });
 }
 
 #[test]
