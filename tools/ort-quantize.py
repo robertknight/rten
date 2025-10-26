@@ -1,7 +1,9 @@
 from argparse import ArgumentParser
+import os
 
 import onnx
-from onnxruntime.quantization import quantize_dynamic
+from onnxruntime.quantization import quantize_dynamic, quantize
+import onnxruntime.quantization.matmul_nbits_quantizer as nbits
 
 parser = ArgumentParser(description="Quantize ONNX models using dynamic quantization.")
 parser.add_argument("input")
@@ -14,6 +16,23 @@ Enable quantization of `Conv` operators.
 
 This is disabled by default to avoid producing models that don't work
 in ONNX Runtime. See https://github.com/microsoft/onnxruntime/issues/15888.
+""",
+)
+parser.add_argument(
+    "--mode",
+    choices=["i8col-u8-i32", "i4block-f32-f32"],
+    default="i8col-u8-i32",
+    help="""
+Quantization scheme.
+
+Choices are expressed as "<weight_dtype><weight_block>-<activation_dtype>-<compute_dtype>".
+
+"i8col-u8-i32" means int8 per-column quantization of weights, u8 dynamic
+per-tensor quantization of activations and i32 accumulation. This uses
+MatMulInteger and DynamicQuantizeLinear.
+
+i4block-f32-f32 means 4-bit blocked quantization of weights with unquantized f32
+inputs and f32 internal compute. This uses MatMulNBits.
 """,
 )
 args = parser.parse_args()
@@ -40,33 +59,55 @@ op_types_to_quantize = [
 if args.quantize_conv:
     op_types_to_quantize.append("Conv")  # Replaced by ConvInteger
 
-quantize_dynamic(
-    args.input,
-    output,
-    op_types_to_quantize=op_types_to_quantize,
-    # Avoid a saturation issue on x86-64 systems that don't support VNNI by
-    # reducing the range of quantized values from 8 to 7 bits.
-    #
-    # Specifically the VPMADDUBSW instruction used in int8 matmul operations
-    # can saturate when adding pairs of signed i16 values.
-    #
-    # See https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html#when-to-use-reduce-range-and-per-channel-quantization.
-    reduce_range=True,
-    # Use per-channel rather than per-tensor quantization.
-    #
-    # The effect of this is that separate zero points and scales are used per
-    # row or column of an input matrix in quantized matmuls (`MatMulInteger`
-    # ops).
-    #
-    # Turning this on increases compute slightly, but allows tolerating a
-    # wider range of weight values in a tensor. Since transformer models are
-    # prone to having outlier weights, this seems like a good idea. Also
-    # RTen internally broadcasts scalar zero points to vectors anyway.
-    per_channel=True,
-    extra_options={
-        # Enable quantization of models with control flow operators. This
-        # includes Hugging Face "merged" transformer decoder models, which is
-        # what various RTen examples use.
-        "EnableSubgraph": True,
-    },
-)
+match args.mode:
+    case "i8col-u8-i32":
+        quantize_dynamic(
+            args.input,
+            output,
+            op_types_to_quantize=op_types_to_quantize,
+            # Avoid a saturation issue on x86-64 systems that don't support VNNI by
+            # reducing the range of quantized values from 8 to 7 bits.
+            #
+            # Specifically the VPMADDUBSW instruction used in int8 matmul operations
+            # can saturate when adding pairs of signed i16 values.
+            #
+            # See https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html#when-to-use-reduce-range-and-per-channel-quantization.
+            reduce_range=True,
+            # Use per-channel rather than per-tensor quantization.
+            #
+            # The effect of this is that separate zero points and scales are used per
+            # row or column of an input matrix in quantized matmuls (`MatMulInteger`
+            # ops).
+            #
+            # Turning this on increases compute slightly, but allows tolerating a
+            # wider range of weight values in a tensor. Since transformer models are
+            # prone to having outlier weights, this seems like a good idea. Also
+            # RTen internally broadcasts scalar zero points to vectors anyway.
+            per_channel=True,
+            extra_options={
+                # Enable quantization of models with control flow operators. This
+                # includes Hugging Face "merged" transformer decoder models, which is
+                # what various RTen examples use.
+                "EnableSubgraph": True,
+            },
+        )
+    case "i4block-f32-f32":
+        # If an external data file already exists, the quantizer will append to
+        # it instead of overwriting. This is not the behavior we want.
+        data_file_path = f"{output}.data"
+        try:
+            os.remove(data_file_path)
+        except FileNotFoundError:
+            pass
+
+        # Always use symmetric quantization because RTen's MatMulNBits
+        # implementation doesn't support zero points yet.
+        symmetric = True
+        block_size = 128
+
+        config = nbits.DefaultWeightOnlyQuantConfig(
+            block_size=block_size, is_symmetric=symmetric
+        )
+        quantize(args.input, output, config)
+    case _:
+        raise Exception("Unsupported quantization mode {args.mode}")
