@@ -232,7 +232,8 @@ impl OnnxOpRegistry {
 
 /// Identifier for an ONNX operator.
 ///
-/// See the `NodeProto` field in the ONNX Protocol Buffers schema.
+/// See https://onnx.ai/onnx/intro/concepts.html#list-of-available-operators-and-domains
+/// and the `NodeProto` message in the ONNX Protocol Buffers schema.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct OpId<'a> {
     /// Reverse DNS domain.
