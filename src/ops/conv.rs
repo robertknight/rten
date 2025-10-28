@@ -368,6 +368,10 @@ impl Operator for Conv {
         "Conv"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
@@ -500,6 +504,10 @@ pub struct ConvInteger {
 impl Operator for ConvInteger {
     fn name(&self) -> &str {
         "ConvInteger"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(4)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

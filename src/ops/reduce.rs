@@ -93,6 +93,10 @@ impl Operator for ArgMax {
         "ArgMax"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
@@ -127,6 +131,10 @@ pub struct ArgMin {
 impl Operator for ArgMin {
     fn name(&self) -> &str {
         "ArgMin"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -174,6 +182,10 @@ impl Operator for CumSum {
         "CumSum"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
@@ -218,6 +230,10 @@ pub struct NonZero {}
 impl Operator for NonZero {
     fn name(&self) -> &str {
         "NonZero"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -425,6 +441,10 @@ impl Operator for ReduceMean {
         "ReduceMean"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
@@ -464,6 +484,10 @@ pub struct ReduceL2 {
 impl Operator for ReduceL2 {
     fn name(&self) -> &str {
         "ReduceL2"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -580,6 +604,10 @@ impl Operator for ReduceMin {
         "ReduceMin"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
@@ -625,6 +653,10 @@ impl Operator for ReduceMax {
         "ReduceMax"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
@@ -659,6 +691,10 @@ pub struct ReduceProd {
 impl Operator for ReduceProd {
     fn name(&self) -> &str {
         "ReduceProd"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -704,6 +740,10 @@ pub struct ReduceSum {
 impl Operator for ReduceSum {
     fn name(&self) -> &str {
         "ReduceSum"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -752,6 +792,10 @@ pub struct ReduceSumSquare {
 impl Operator for ReduceSumSquare {
     fn name(&self) -> &str {
         "ReduceSumSquare"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -846,6 +890,10 @@ pub struct TopK {
 impl Operator for TopK {
     fn name(&self) -> &str {
         "TopK"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

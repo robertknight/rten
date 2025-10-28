@@ -272,6 +272,18 @@ fn add_graph_operator(
         }
     }
 
+    if let Some(max) = op.max_inputs()
+        && inputs.len() > max
+    {
+        return Err(load_error!(
+            OperatorInvalid,
+            name,
+            "operator has {} inputs but maximum is {}",
+            inputs.len(),
+            max
+        ));
+    }
+
     let graph_node = graph.add_op(name, op, &inputs, &outputs);
     Ok(graph_node)
 }
@@ -430,5 +442,44 @@ fn constant_data_from_storage_offset<T: LeBytes + Pod>(
             .map(|chunk| T::from_le_bytes(chunk.try_into().unwrap()))
             .collect();
         Ok(ArcTensor::from_data(shape, Arc::new(data)).into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::load;
+    use crate::LoadError;
+    use crate::constant_storage::ConstantStorage;
+    use crate::model::rten_builder::{ModelBuilder, OpType};
+    use crate::model::{Model, ModelOptions};
+
+    fn load_from_builder(builder: ModelBuilder) -> Result<Model, LoadError> {
+        let data = builder.finish();
+        load(
+            Arc::new(ConstantStorage::Buffer(data)),
+            &ModelOptions::default(),
+        )
+    }
+
+    #[test]
+    fn test_too_many_inputs_for_operator() {
+        let mut builder = ModelBuilder::default();
+
+        let mut gb = builder.graph_builder();
+        let x = gb.add_value("x", None, None);
+        let y = gb.add_value("y", None, None);
+        let z = gb.add_value("z", None, None);
+        gb.add_operator("relu_op", OpType::Relu, &[Some(x), Some(y)], &[z]);
+        let graph = gb.finish();
+        builder.set_graph(graph);
+
+        let err = load_from_builder(builder).err().unwrap();
+
+        assert_eq!(
+            err.to_string(),
+            "in node \"relu_op\": operator error: operator has 2 inputs but maximum is 1"
+        );
     }
 }

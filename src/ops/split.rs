@@ -96,6 +96,10 @@ impl Operator for Split {
         "Split"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
 

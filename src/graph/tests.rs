@@ -62,6 +62,10 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
         self.inner.is_commutative()
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        self.inner.max_inputs()
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         {
             let mut m = self.metrics.lock().unwrap();
@@ -101,6 +105,10 @@ impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> std::fmt::Debug for Ru
 impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> Operator for RunFn<F> {
     fn name(&self) -> &str {
         "RunFn"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        None
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -264,6 +272,10 @@ struct AddOne {}
 impl Operator for AddOne {
     fn name(&self) -> &str {
         "AddOne"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -683,6 +695,10 @@ impl Operator for AddOneInPlace {
         "AddOneInPlace"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn can_run_in_place(&self) -> bool {
         true
     }
@@ -830,6 +846,10 @@ impl Split {
 impl Operator for Split {
     fn name(&self) -> &str {
         "Split"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -1016,6 +1036,10 @@ impl Operator for Counter {
         "Counter"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(0)
+    }
+
     fn is_deterministic(&self) -> bool {
         false
     }
@@ -1096,6 +1120,10 @@ impl std::fmt::Debug for Subgraph {
 impl Operator for Subgraph {
     fn name(&self) -> &str {
         "Subgraph"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        None
     }
 
     fn run(&self, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -1451,6 +1479,10 @@ impl MatMulExpectPacked {
 impl Operator for MatMulExpectPacked {
     fn name(&self) -> &str {
         "MatMulExpectPacked"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        self.inner.max_inputs()
     }
 
     fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {

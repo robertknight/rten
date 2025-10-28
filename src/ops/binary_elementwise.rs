@@ -469,6 +469,10 @@ impl Operator for Add {
         "Add"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         run_typed_op!(ctx.pool(), ctx.inputs(), add)
     }
@@ -508,6 +512,10 @@ macro_rules! logical_boolean_op {
         impl Operator for $op {
             fn name(&self) -> &str {
                 stringify!($op)
+            }
+
+            fn max_inputs(&self) -> Option<usize> {
+                Some(2)
             }
 
             fn is_commutative(&self) -> bool {
@@ -575,6 +583,10 @@ impl Operator for Div {
         "Div"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         run_typed_op!(ctx.pool(), ctx.inputs(), div)
     }
@@ -631,6 +643,10 @@ macro_rules! boolean_cmp_op {
         impl Operator for $name {
             fn name(&self) -> &str {
                 stringify!($name)
+            }
+
+            fn max_inputs(&self) -> Option<usize> {
+                Some(2)
             }
 
             fn is_commutative(&self) -> bool {
@@ -717,6 +733,10 @@ impl Operator for Mod {
         "Mod"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let a = inputs.require(0)?;
@@ -756,6 +776,10 @@ pub struct Mul {}
 impl Operator for Mul {
     fn name(&self) -> &str {
         "Mul"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -847,6 +871,10 @@ impl Operator for Pow {
         "Pow"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let base = inputs.require(0)?;
@@ -896,6 +924,10 @@ pub struct Sub {}
 impl Operator for Sub {
     fn name(&self) -> &str {
         "Sub"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -978,6 +1010,10 @@ pub struct Where {}
 impl Operator for Where {
     fn name(&self) -> &str {
         "Where"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

@@ -134,6 +134,10 @@ impl Operator for Einsum {
         "Einsum"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        None
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let mut typed_inputs: SmallVec<[TensorView; 2]> = SmallVec::with_capacity(inputs.len());

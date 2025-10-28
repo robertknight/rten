@@ -127,6 +127,10 @@ impl Operator for STFT {
         "STFT"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(4)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let signal = ctx.inputs().require_as(0)?;
         let frame_step = ctx.inputs().require_as(1)?;

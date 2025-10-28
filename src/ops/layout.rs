@@ -68,6 +68,10 @@ impl Operator for DepthToSpace {
         "DepthToSpace"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require_as(0)?;
         depth_to_space::<f32>(ctx.pool(), input, self.block_size, self.mode).into_op_result()
@@ -149,6 +153,10 @@ impl Operator for Expand {
         "Expand"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
@@ -219,6 +227,10 @@ pub struct Flatten {
 impl Operator for Flatten {
     fn name(&self) -> &str {
         "Flatten"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -346,6 +358,10 @@ impl Operator for Reshape {
         "Reshape"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
@@ -379,6 +395,10 @@ pub struct Shape {
 impl Operator for Shape {
     fn name(&self) -> &str {
         "Shape"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -427,6 +447,10 @@ pub struct Size {}
 impl Operator for Size {
     fn name(&self) -> &str {
         "Size"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -496,6 +520,10 @@ impl Operator for Squeeze {
         "Squeeze"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
@@ -551,6 +579,10 @@ impl Operator for Transpose {
         "Transpose"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
         let perm_slice = self.perm.as_deref();
@@ -604,6 +636,10 @@ pub struct Unsqueeze {}
 impl Operator for Unsqueeze {
     fn name(&self) -> &str {
         "Unsqueeze"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

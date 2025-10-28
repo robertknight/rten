@@ -97,6 +97,10 @@ impl Operator for DequantizeLinear {
         "DequantizeLinear"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
@@ -259,6 +263,10 @@ impl Operator for QuantizeLinear {
         "QuantizeLinear"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let pool = ctx.pool();
@@ -403,6 +411,10 @@ pub struct DynamicQuantizeLinear {}
 impl Operator for DynamicQuantizeLinear {
     fn name(&self) -> &str {
         "DynamicQuantizeLinear"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

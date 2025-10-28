@@ -122,6 +122,10 @@ macro_rules! impl_operator {
                 stringify!($op_name)
             }
 
+            fn max_inputs(&self) -> Option<usize> {
+                Some(1)
+            }
+
             fn can_run_in_place(&self) -> bool {
                 true
             }
@@ -280,6 +284,10 @@ impl Operator for Clip {
         "Clip"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
@@ -418,6 +426,10 @@ impl Operator for IsInf {
         "IsInf"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input: TensorView<f32> = ctx.inputs().require_as(0)?;
         let output = input.map_in(ctx.pool(), |x| i32::from(x.is_infinite()));
@@ -431,6 +443,10 @@ pub struct IsNaN {}
 impl Operator for IsNaN {
     fn name(&self) -> &str {
         "IsNaN"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -486,6 +502,10 @@ pub struct Not {}
 impl Operator for Not {
     fn name(&self) -> &str {
         "Not"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -546,6 +566,10 @@ pub struct PRelu {}
 impl Operator for PRelu {
     fn name(&self) -> &str {
         "PRelu"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

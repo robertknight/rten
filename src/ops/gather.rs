@@ -172,6 +172,10 @@ impl Operator for Gather {
         "Gather"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
@@ -281,6 +285,10 @@ pub struct GatherElements {
 impl Operator for GatherElements {
     fn name(&self) -> &str {
         "GatherElements"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -401,6 +409,10 @@ impl Operator for GatherND {
         "GatherND"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
@@ -508,6 +520,10 @@ impl Operator for ScatterElements {
         "ScatterElements"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let data = inputs.require(0)?;
@@ -598,6 +614,10 @@ pub struct ScatterND {
 impl Operator for ScatterND {
     fn name(&self) -> &str {
         "ScatterND"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

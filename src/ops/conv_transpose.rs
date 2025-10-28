@@ -366,6 +366,10 @@ impl Operator for ConvTranspose {
         "ConvTranspose"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;

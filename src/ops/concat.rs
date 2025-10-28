@@ -108,6 +108,10 @@ impl Operator for Concat {
         "Concat"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        None
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let first = inputs.require(0)?;
@@ -249,6 +253,10 @@ pub struct Tile {}
 impl Operator for Tile {
     fn name(&self) -> &str {
         "Tile"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

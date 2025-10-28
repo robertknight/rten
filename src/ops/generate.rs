@@ -29,6 +29,10 @@ impl Operator for ConstantOfShape {
         "ConstantOfShape"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let pool = ctx.pool();
         let shape = ctx.inputs().require_as(0)?;
@@ -93,6 +97,10 @@ impl Operator for OneHot {
         "OneHot"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let indices = inputs.require_as(0)?;
@@ -138,6 +146,10 @@ pub struct Range {}
 impl Operator for Range {
     fn name(&self) -> &str {
         "Range"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -189,6 +201,10 @@ pub struct EyeLike {
 impl Operator for EyeLike {
     fn name(&self) -> &str {
         "EyeLike"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

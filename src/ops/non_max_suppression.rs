@@ -191,6 +191,10 @@ impl Operator for NonMaxSuppression {
         "NonMaxSuppression"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(5)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let boxes = inputs.require_as(0)?;

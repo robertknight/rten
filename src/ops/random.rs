@@ -24,6 +24,10 @@ impl Operator for RandomUniform {
         "RandomUniform"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(0)
+    }
+
     fn is_deterministic(&self) -> bool {
         false
     }
@@ -53,6 +57,10 @@ pub struct RandomUniformLike {
 impl Operator for RandomUniformLike {
     fn name(&self) -> &str {
         "RandomUniformLike"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn is_deterministic(&self) -> bool {
@@ -87,6 +95,10 @@ pub struct RandomNormal {
 impl Operator for RandomNormal {
     fn name(&self) -> &str {
         "RandomNormal"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(0)
     }
 
     fn is_deterministic(&self) -> bool {
@@ -130,6 +142,10 @@ impl Operator for RandomNormalLike {
         "RandomNormalLike"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn is_deterministic(&self) -> bool {
         false
     }
@@ -154,6 +170,10 @@ pub struct Dropout {
 impl Operator for Dropout {
     fn name(&self) -> &str {
         "Dropout"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn is_deterministic(&self) -> bool {
