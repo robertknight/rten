@@ -885,6 +885,18 @@ fn add_operator(
         inputs[idx] = Some(const_id);
     }
 
+    if let Some(max) = op.max_inputs()
+        && inputs.len() > max
+    {
+        return Err(load_error!(
+            OperatorInvalid,
+            onnx_op.name.as_deref(),
+            "operator has {} inputs but maximum is {}",
+            inputs.len(),
+            max
+        ));
+    }
+
     graph.add_op(onnx_op.name.as_deref(), op, &inputs, &outputs);
 
     Ok(())
@@ -1136,6 +1148,27 @@ mod tests {
                 ("producer_name", "pytorch"),
                 ("producer_version", "2.8.0"),
             ]
+        );
+    }
+
+    #[test]
+    fn test_too_many_inputs_for_operator() {
+        let node = create_node("Relu")
+            .with_input("x")
+            .with_input("y")
+            .with_name("relu_op");
+
+        let model_proto = onnx::GraphProto::default()
+            .with_input(create_value_info("x"))
+            .with_input(create_value_info("y"))
+            .with_node(node)
+            .into_model();
+
+        let err = load_model(model_proto).err().unwrap();
+
+        assert_eq!(
+            err.to_string(),
+            "in node \"relu_op\": operator error: operator has 2 inputs but maximum is 1"
         );
     }
 }

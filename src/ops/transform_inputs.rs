@@ -96,6 +96,10 @@ impl Operator for TransformInputs {
         &self.name
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        self.inner.max_inputs()
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut inputs = ctx.inputs().clone();
         for TransformIndex {

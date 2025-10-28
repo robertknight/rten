@@ -18,6 +18,10 @@ impl Operator for Identity {
         "Identity"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
         map_value_view!(input, x, { identity(ctx.pool(), x).into_op_result() })

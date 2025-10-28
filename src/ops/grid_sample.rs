@@ -129,6 +129,10 @@ impl Operator for GridSample {
         "GridSample"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require_as(0)?;
         let grid = ctx.inputs().require_as(1)?;

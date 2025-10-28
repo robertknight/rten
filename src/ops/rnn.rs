@@ -317,6 +317,10 @@ impl Operator for GRU {
         "GRU"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(6)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
@@ -557,6 +561,10 @@ pub fn lstm(
 impl Operator for LSTM {
     fn name(&self) -> &str {
         "LSTM"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(7)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

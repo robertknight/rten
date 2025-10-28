@@ -101,6 +101,10 @@ impl Operator for Gemm {
         "Gemm"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let a = inputs.require_as(0)?;
@@ -356,6 +360,10 @@ impl Operator for MatMul {
         "MatMul"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let a = inputs.require_as(0)?;
@@ -414,6 +422,10 @@ pub struct FusedMatMul {
 impl Operator for FusedMatMul {
     fn name(&self) -> &str {
         "FusedMatMul"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -525,6 +537,10 @@ impl Operator for MatMulInteger {
         "MatMulInteger"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(4)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let a = inputs.require(0)?;
@@ -607,6 +623,10 @@ impl Operator for MatMulIntegerToFloat {
         "MatMulIntegerToFloat"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(5)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let output: Tensor<i32> = self.matmul.run(ctx)?.remove(0).try_into().unwrap();
         let scale = ctx.inputs().require_as(4)?;
@@ -679,6 +699,10 @@ pub struct MatMulNBits {
 impl Operator for MatMulNBits {
     fn name(&self) -> &str {
         "MatMulNBits"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

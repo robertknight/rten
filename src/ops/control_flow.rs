@@ -30,6 +30,10 @@ impl Operator for If {
         "If"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
         Err(OpError::InvalidValue(
             "operator must be run with `run_subgraph`",
@@ -108,6 +112,10 @@ impl std::fmt::Debug for Loop {
 impl Operator for Loop {
     fn name(&self) -> &str {
         "Loop"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        None
     }
 
     fn run(&self, _ctx: &OpRunContext) -> Result<OutputList, OpError> {

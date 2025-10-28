@@ -430,6 +430,10 @@ impl Operator for AveragePool {
         "AveragePool"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require_as(0)?;
         average_pool(
@@ -507,6 +511,10 @@ impl Operator for GlobalAveragePool {
         "GlobalAveragePool"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require_as(0)?;
         global_average_pool(ctx.pool(), input).into_op_result()
@@ -545,6 +553,10 @@ pub struct MaxPool {
 impl Operator for MaxPool {
     fn name(&self) -> &str {
         "MaxPool"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

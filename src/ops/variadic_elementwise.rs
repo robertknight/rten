@@ -69,6 +69,10 @@ impl Operator for Max {
         "Max"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        None
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let first = inputs.require(0)?;
@@ -91,6 +95,10 @@ pub struct Mean {}
 impl Operator for Mean {
     fn name(&self) -> &str {
         "Mean"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        None
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -119,6 +127,10 @@ impl Operator for Min {
         "Min"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        None
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let first = inputs.require(0)?;
@@ -142,6 +154,10 @@ pub struct Sum {}
 impl Operator for Sum {
     fn name(&self) -> &str {
         "Sum"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        None
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

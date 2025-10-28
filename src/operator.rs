@@ -338,6 +338,11 @@ pub trait Operator: Any + Debug {
     /// [`SubgraphOperator::run_subgraph`] method should be used instead.
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError>;
 
+    /// Return the maximum number of inputs this operator accepts.
+    ///
+    /// This can return `None` for variadic inputs with no limit.
+    fn max_inputs(&self) -> Option<usize>;
+
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
     ///

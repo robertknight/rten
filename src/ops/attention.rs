@@ -64,6 +64,10 @@ impl Operator for AddSoftmax {
         "AddSoftmax"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let x: TensorView = ctx.inputs().require_as(0)?;
         let y: TensorView = ctx.inputs().require_as(1)?;

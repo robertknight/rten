@@ -480,6 +480,10 @@ impl Operator for Resize {
         "Resize"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(4)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;

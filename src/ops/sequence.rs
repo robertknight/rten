@@ -18,6 +18,10 @@ impl Operator for SequenceEmpty {
         "SequenceEmpty"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(0)
+    }
+
     fn run(&self, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let dtype = self.dtype.unwrap_or(DataType::Float);
         Value::from(Sequence::new(dtype)).into_op_result()
@@ -30,6 +34,10 @@ pub struct SequenceAt {}
 impl Operator for SequenceAt {
     fn name(&self) -> &str {
         "SequenceAt"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -50,6 +58,10 @@ pub struct SequenceConstruct {}
 impl Operator for SequenceConstruct {
     fn name(&self) -> &str {
         "SequenceConstruct"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        None
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -98,6 +110,10 @@ pub struct SequenceErase {}
 impl Operator for SequenceErase {
     fn name(&self) -> &str {
         "SequenceErase"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -155,6 +171,10 @@ impl Operator for SequenceInsert {
         "SequenceInsert"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
     fn can_run_in_place(&self) -> bool {
         true
     }
@@ -184,6 +204,10 @@ impl Operator for SequenceLength {
         "SequenceLength"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let seq: &Sequence = ctx.inputs().require_as(0)?;
         let len = seq.len() as i32;
@@ -200,6 +224,10 @@ pub struct ConcatFromSequence {
 impl Operator for ConcatFromSequence {
     fn name(&self) -> &str {
         "ConcatFromSequence"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -248,6 +276,10 @@ pub struct SplitToSequence {
 impl Operator for SplitToSequence {
     fn name(&self) -> &str {
         "SplitToSequence"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

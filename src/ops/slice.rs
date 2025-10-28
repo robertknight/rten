@@ -116,6 +116,10 @@ impl Operator for Slice {
         "Slice"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(5)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;

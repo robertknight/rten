@@ -108,6 +108,10 @@ impl Operator for Cast {
         "Cast"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
         cast(ctx.pool(), input, self.to).into_op_result()
@@ -137,6 +141,10 @@ pub struct CastLike {}
 impl Operator for CastLike {
     fn name(&self) -> &str {
         "CastLike"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

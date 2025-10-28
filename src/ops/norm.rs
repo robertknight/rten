@@ -241,6 +241,10 @@ impl Operator for BatchNormalization {
         "BatchNormalization"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(5)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
@@ -325,6 +329,10 @@ pub struct InstanceNormalization {
 impl Operator for InstanceNormalization {
     fn name(&self) -> &str {
         "InstanceNormalization"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -478,6 +486,10 @@ impl Operator for LayerNormalization {
         "LayerNormalization"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
@@ -505,6 +517,10 @@ pub struct RmsNormalization {
 impl Operator for RmsNormalization {
     fn name(&self) -> &str {
         "RmsNormalization"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -615,6 +631,10 @@ impl Operator for LogSoftmax {
         "LogSoftmax"
     }
 
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require_as(0)?;
         log_softmax(ctx.pool(), input, self.axis).into_op_result()
@@ -652,6 +672,10 @@ pub struct Softmax {
 impl Operator for Softmax {
     fn name(&self) -> &str {
         "Softmax"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
