@@ -187,7 +187,7 @@ class PadAttrs(Protocol):
     """Common fields for RTen operator attributes which support padding."""
 
     autoPad: int  # sg.AutoPad
-    pads: list[int]
+    pads: list[int] | None
 
 
 def read_pads(attr_reader: AttributeReader, attrs: PadAttrs) -> None:

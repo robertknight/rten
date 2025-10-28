@@ -493,9 +493,13 @@ def ArgMaxAttrsEnd(builder):
 class ArgMaxAttrsT(object):
 
     # ArgMaxAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
-        self.keepDims = False  # type: bool
+    def __init__(
+        self,
+        axis = 0,
+        keepDims = False,
+    ):
+        self.axis = axis  # type: int
+        self.keepDims = keepDims  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -696,13 +700,21 @@ except:
 class AveragePoolAttrsT(object):
 
     # AveragePoolAttrsT
-    def __init__(self):
-        self.kernelSize = None  # type: List[int]
-        self.autoPad = 0  # type: int
-        self.pads = None  # type: List[int]
-        self.strides = None  # type: List[int]
-        self.countIncludePad = False  # type: bool
-        self.ceilMode = False  # type: bool
+    def __init__(
+        self,
+        kernelSize = None,
+        autoPad = 0,
+        pads = None,
+        strides = None,
+        countIncludePad = False,
+        ceilMode = False,
+    ):
+        self.kernelSize = kernelSize  # type: Optional[List[int]]
+        self.autoPad = autoPad  # type: int
+        self.pads = pads  # type: Optional[List[int]]
+        self.strides = strides  # type: Optional[List[int]]
+        self.countIncludePad = countIncludePad  # type: bool
+        self.ceilMode = ceilMode  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -833,8 +845,11 @@ def BatchNormalizationAttrsEnd(builder):
 class BatchNormalizationAttrsT(object):
 
     # BatchNormalizationAttrsT
-    def __init__(self):
-        self.epsilon = 0.0  # type: float
+    def __init__(
+        self,
+        epsilon = 0.0,
+    ):
+        self.epsilon = epsilon  # type: float
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -910,8 +925,11 @@ def CastAttrsEnd(builder):
 class CastAttrsT(object):
 
     # CastAttrsT
-    def __init__(self):
-        self.to = 0  # type: int
+    def __init__(
+        self,
+        to = 0,
+    ):
+        self.to = to  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -977,7 +995,9 @@ def CastLikeAttrsEnd(builder):
 class CastLikeAttrsT(object):
 
     # CastLikeAttrsT
-    def __init__(self):
+    def __init__(
+        self,
+    ):
         pass
 
     @classmethod
@@ -1052,8 +1072,11 @@ def ConcatAttrsEnd(builder):
 class ConcatAttrsT(object):
 
     # ConcatAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
+    def __init__(
+        self,
+        axis = 0,
+    ):
+        self.axis = axis  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1139,9 +1162,13 @@ def ConcatFromSequenceAttrsEnd(builder):
 class ConcatFromSequenceAttrsT(object):
 
     # ConcatFromSequenceAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
-        self.newAxis = False  # type: bool
+    def __init__(
+        self,
+        axis = 0,
+        newAxis = False,
+    ):
+        self.axis = axis  # type: int
+        self.newAxis = newAxis  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1229,9 +1256,13 @@ def DepthToSpaceAttrsEnd(builder):
 class DepthToSpaceAttrsT(object):
 
     # DepthToSpaceAttrsT
-    def __init__(self):
-        self.mode = 0  # type: int
-        self.blockSize = 0  # type: int
+    def __init__(
+        self,
+        mode = 0,
+        blockSize = 0,
+    ):
+        self.mode = mode  # type: int
+        self.blockSize = blockSize  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1305,12 +1336,19 @@ def DropoutAttrsEnd(builder):
     return builder.EndObject()
 
 
+try:
+    from typing import Optional
+except:
+    pass
 
 class DropoutAttrsT(object):
 
     # DropoutAttrsT
-    def __init__(self):
-        self.seed = None  # type: Optional[int]
+    def __init__(
+        self,
+        seed = None,
+    ):
+        self.seed = seed  # type: Optional[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1392,13 +1430,21 @@ def EyeLikeAttrsEnd(builder):
     return builder.EndObject()
 
 
+try:
+    from typing import Optional
+except:
+    pass
 
 class EyeLikeAttrsT(object):
 
     # EyeLikeAttrsT
-    def __init__(self):
-        self.dtype = None  # type: Optional[int]
-        self.k = 0  # type: int
+    def __init__(
+        self,
+        dtype = None,
+        k = 0,
+    ):
+        self.dtype = dtype  # type: Optional[int]
+        self.k = k  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1466,7 +1512,9 @@ def IsInfAttrsEnd(builder):
 class IsInfAttrsT(object):
 
     # IsInfAttrsT
-    def __init__(self):
+    def __init__(
+        self,
+    ):
         pass
 
     @classmethod
@@ -1541,8 +1589,11 @@ def IntScalarEnd(builder):
 class IntScalarT(object):
 
     # IntScalarT
-    def __init__(self):
-        self.value = 0  # type: int
+    def __init__(
+        self,
+        value = 0,
+    ):
+        self.value = value  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1618,8 +1669,11 @@ def FloatScalarEnd(builder):
 class FloatScalarT(object):
 
     # FloatScalarT
-    def __init__(self):
-        self.value = 0.0  # type: float
+    def __init__(
+        self,
+        value = 0.0,
+    ):
+        self.value = value  # type: float
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1712,9 +1766,13 @@ except:
 class ConstantOfShapeAttrsT(object):
 
     # ConstantOfShapeAttrsT
-    def __init__(self):
-        self.valueType = 0  # type: int
-        self.value = None  # type: Union[None, IntScalarT, FloatScalarT]
+    def __init__(
+        self,
+        valueType = 0,
+        value = None,
+    ):
+        self.valueType = valueType  # type: int
+        self.value = value  # type: Union[None, 'IntScalarT', 'FloatScalarT']
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1908,12 +1966,19 @@ except:
 class ConvAttrsT(object):
 
     # ConvAttrsT
-    def __init__(self):
-        self.autoPad = 0  # type: int
-        self.pads = None  # type: List[int]
-        self.groups = 0  # type: int
-        self.strides = None  # type: List[int]
-        self.dilations = None  # type: List[int]
+    def __init__(
+        self,
+        autoPad = 0,
+        pads = None,
+        groups = 0,
+        strides = None,
+        dilations = None,
+    ):
+        self.autoPad = autoPad  # type: int
+        self.pads = pads  # type: Optional[List[int]]
+        self.groups = groups  # type: int
+        self.strides = strides  # type: Optional[List[int]]
+        self.dilations = dilations  # type: Optional[List[int]]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2155,12 +2220,19 @@ except:
 class ConvTransposeAttrsT(object):
 
     # ConvTransposeAttrsT
-    def __init__(self):
-        self.strides = None  # type: List[int]
-        self.autoPad = 1  # type: int
-        self.pads = None  # type: List[int]
-        self.groups = 1  # type: int
-        self.outputPadding = None  # type: List[int]
+    def __init__(
+        self,
+        strides = None,
+        autoPad = 1,
+        pads = None,
+        groups = 1,
+        outputPadding = None,
+    ):
+        self.strides = strides  # type: Optional[List[int]]
+        self.autoPad = autoPad  # type: int
+        self.pads = pads  # type: Optional[List[int]]
+        self.groups = groups  # type: int
+        self.outputPadding = outputPadding  # type: Optional[List[int]]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2289,8 +2361,11 @@ def DequantizeLinearAttrsEnd(builder):
 class DequantizeLinearAttrsT(object):
 
     # DequantizeLinearAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
+    def __init__(
+        self,
+        axis = 0,
+    ):
+        self.axis = axis  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2366,8 +2441,11 @@ def EinsumAttrsEnd(builder):
 class EinsumAttrsT(object):
 
     # EinsumAttrsT
-    def __init__(self):
-        self.equation = None  # type: str
+    def __init__(
+        self,
+        equation = None,
+    ):
+        self.equation = equation  # type: Optional[str]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2446,8 +2524,11 @@ def EluAttrsEnd(builder):
 class EluAttrsT(object):
 
     # EluAttrsT
-    def __init__(self):
-        self.alpha = 0.0  # type: float
+    def __init__(
+        self,
+        alpha = 0.0,
+    ):
+        self.alpha = alpha  # type: float
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2523,8 +2604,11 @@ def FlattenAttrsEnd(builder):
 class FlattenAttrsT(object):
 
     # FlattenAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
+    def __init__(
+        self,
+        axis = 0,
+    ):
+        self.axis = axis  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2610,9 +2694,13 @@ def LayerNormalizationAttrsEnd(builder):
 class LayerNormalizationAttrsT(object):
 
     # LayerNormalizationAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
-        self.epsilon = 0.0  # type: float
+    def __init__(
+        self,
+        axis = 0,
+        epsilon = 0.0,
+    ):
+        self.axis = axis  # type: int
+        self.epsilon = epsilon  # type: float
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2697,8 +2785,11 @@ except:
 class LoopAttrsT(object):
 
     # LoopAttrsT
-    def __init__(self):
-        self.body = None  # type: Optional[GraphT]
+    def __init__(
+        self,
+        body = None,
+    ):
+        self.body = body  # type: Optional[GraphT]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2778,8 +2869,11 @@ def GatherAttrsEnd(builder):
 class GatherAttrsT(object):
 
     # GatherAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
+    def __init__(
+        self,
+        axis = 0,
+    ):
+        self.axis = axis  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2855,8 +2949,11 @@ def GatherNDAttrsEnd(builder):
 class GatherNDAttrsT(object):
 
     # GatherNDAttrsT
-    def __init__(self):
-        self.batchDims = 0  # type: int
+    def __init__(
+        self,
+        batchDims = 0,
+    ):
+        self.batchDims = batchDims  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2932,8 +3029,11 @@ def GeluAttrsEnd(builder):
 class GeluAttrsT(object):
 
     # GeluAttrsT
-    def __init__(self):
-        self.approximate = 0  # type: int
+    def __init__(
+        self,
+        approximate = 0,
+    ):
+        self.approximate = approximate  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3039,11 +3139,17 @@ def GemmAttrsEnd(builder):
 class GemmAttrsT(object):
 
     # GemmAttrsT
-    def __init__(self):
-        self.alpha = 0.0  # type: float
-        self.beta = 0.0  # type: float
-        self.transposeA = False  # type: bool
-        self.transposeB = False  # type: bool
+    def __init__(
+        self,
+        alpha = 0.0,
+        beta = 0.0,
+        transposeA = False,
+        transposeB = False,
+    ):
+        self.alpha = alpha  # type: float
+        self.beta = beta  # type: float
+        self.transposeA = transposeA  # type: bool
+        self.transposeB = transposeB  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3125,8 +3231,11 @@ def GridSampleAttrsEnd(builder):
 class GridSampleAttrsT(object):
 
     # GridSampleAttrsT
-    def __init__(self):
-        self.alignCorners = False  # type: bool
+    def __init__(
+        self,
+        alignCorners = False,
+    ):
+        self.alignCorners = alignCorners  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3222,10 +3331,15 @@ def GRUAttrsEnd(builder):
 class GRUAttrsT(object):
 
     # GRUAttrsT
-    def __init__(self):
-        self.direction = 0  # type: int
-        self.hiddenSize = 0  # type: int
-        self.linearBeforeReset = False  # type: bool
+    def __init__(
+        self,
+        direction = 0,
+        hiddenSize = 0,
+        linearBeforeReset = False,
+    ):
+        self.direction = direction  # type: int
+        self.hiddenSize = hiddenSize  # type: int
+        self.linearBeforeReset = linearBeforeReset  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3315,9 +3429,13 @@ def HardSigmoidAttrsEnd(builder):
 class HardSigmoidAttrsT(object):
 
     # HardSigmoidAttrsT
-    def __init__(self):
-        self.alpha = 0.0  # type: float
-        self.beta = 0.0  # type: float
+    def __init__(
+        self,
+        alpha = 0.0,
+        beta = 0.0,
+    ):
+        self.alpha = alpha  # type: float
+        self.beta = beta  # type: float
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3415,9 +3533,13 @@ except:
 class IfAttrsT(object):
 
     # IfAttrsT
-    def __init__(self):
-        self.thenBranch = None  # type: Optional[GraphT]
-        self.elseBranch = None  # type: Optional[GraphT]
+    def __init__(
+        self,
+        thenBranch = None,
+        elseBranch = None,
+    ):
+        self.thenBranch = thenBranch  # type: Optional[GraphT]
+        self.elseBranch = elseBranch  # type: Optional[GraphT]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3503,8 +3625,11 @@ def LeakyReluAttrsEnd(builder):
 class LeakyReluAttrsT(object):
 
     # LeakyReluAttrsT
-    def __init__(self):
-        self.alpha = 0.0  # type: float
+    def __init__(
+        self,
+        alpha = 0.0,
+    ):
+        self.alpha = alpha  # type: float
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3590,9 +3715,13 @@ def LSTMAttrsEnd(builder):
 class LSTMAttrsT(object):
 
     # LSTMAttrsT
-    def __init__(self):
-        self.direction = 0  # type: int
-        self.hiddenSize = 0  # type: int
+    def __init__(
+        self,
+        direction = 0,
+        hiddenSize = 0,
+    ):
+        self.direction = direction  # type: int
+        self.hiddenSize = hiddenSize  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3783,12 +3912,19 @@ except:
 class MaxPoolAttrsT(object):
 
     # MaxPoolAttrsT
-    def __init__(self):
-        self.kernelSize = None  # type: List[int]
-        self.autoPad = 0  # type: int
-        self.pads = None  # type: List[int]
-        self.strides = None  # type: List[int]
-        self.ceilMode = False  # type: bool
+    def __init__(
+        self,
+        kernelSize = None,
+        autoPad = 0,
+        pads = None,
+        strides = None,
+        ceilMode = False,
+    ):
+        self.kernelSize = kernelSize  # type: Optional[List[int]]
+        self.autoPad = autoPad  # type: int
+        self.pads = pads  # type: Optional[List[int]]
+        self.strides = strides  # type: Optional[List[int]]
+        self.ceilMode = ceilMode  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3917,8 +4053,11 @@ def ModAttrsEnd(builder):
 class ModAttrsT(object):
 
     # ModAttrsT
-    def __init__(self):
-        self.fmod = False  # type: bool
+    def __init__(
+        self,
+        fmod = False,
+    ):
+        self.fmod = fmod  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3994,8 +4133,11 @@ def NonMaxSuppressionAttrsEnd(builder):
 class NonMaxSuppressionAttrsT(object):
 
     # NonMaxSuppressionAttrsT
-    def __init__(self):
-        self.boxOrder = 0  # type: int
+    def __init__(
+        self,
+        boxOrder = 0,
+    ):
+        self.boxOrder = boxOrder  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4071,8 +4213,11 @@ def OneHotAttrsEnd(builder):
 class OneHotAttrsT(object):
 
     # OneHotAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
+    def __init__(
+        self,
+        axis = 0,
+    ):
+        self.axis = axis  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4148,8 +4293,11 @@ def PadAttrsEnd(builder):
 class PadAttrsT(object):
 
     # PadAttrsT
-    def __init__(self):
-        self.mode = 0  # type: int
+    def __init__(
+        self,
+        mode = 0,
+    ):
+        self.mode = mode  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4231,13 +4379,21 @@ def QuantizeLinearAttrsEnd(builder):
     return builder.EndObject()
 
 
+try:
+    from typing import Optional
+except:
+    pass
 
 class QuantizeLinearAttrsT(object):
 
     # QuantizeLinearAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
-        self.outputDtype = None  # type: Optional[int]
+    def __init__(
+        self,
+        axis = 0,
+        outputDtype = None,
+    ):
+        self.axis = axis  # type: int
+        self.outputDtype = outputDtype  # type: Optional[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4365,18 +4521,24 @@ def RandomNormalAttrsEnd(builder):
 
 
 try:
-    from typing import List
+    from typing import List, Optional
 except:
     pass
 
 class RandomNormalAttrsT(object):
 
     # RandomNormalAttrsT
-    def __init__(self):
-        self.mean = 0.0  # type: float
-        self.scale = 0.0  # type: float
-        self.seed = None  # type: Optional[float]
-        self.shape = None  # type: List[int]
+    def __init__(
+        self,
+        mean = 0.0,
+        scale = 0.0,
+        seed = None,
+        shape = None,
+    ):
+        self.mean = mean  # type: float
+        self.scale = scale  # type: float
+        self.seed = seed  # type: Optional[float]
+        self.shape = shape  # type: Optional[List[int]]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4489,14 +4651,23 @@ def RandomNormalLikeAttrsEnd(builder):
     return builder.EndObject()
 
 
+try:
+    from typing import Optional
+except:
+    pass
 
 class RandomNormalLikeAttrsT(object):
 
     # RandomNormalLikeAttrsT
-    def __init__(self):
-        self.mean = 0.0  # type: float
-        self.scale = 0.0  # type: float
-        self.seed = None  # type: Optional[float]
+    def __init__(
+        self,
+        mean = 0.0,
+        scale = 0.0,
+        seed = None,
+    ):
+        self.mean = mean  # type: float
+        self.scale = scale  # type: float
+        self.seed = seed  # type: Optional[float]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4626,18 +4797,24 @@ def RandomUniformAttrsEnd(builder):
 
 
 try:
-    from typing import List
+    from typing import List, Optional
 except:
     pass
 
 class RandomUniformAttrsT(object):
 
     # RandomUniformAttrsT
-    def __init__(self):
-        self.shape = None  # type: List[int]
-        self.high = 0.0  # type: float
-        self.low = 0.0  # type: float
-        self.seed = None  # type: Optional[float]
+    def __init__(
+        self,
+        shape = None,
+        high = 0.0,
+        low = 0.0,
+        seed = None,
+    ):
+        self.shape = shape  # type: Optional[List[int]]
+        self.high = high  # type: float
+        self.low = low  # type: float
+        self.seed = seed  # type: Optional[float]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4750,14 +4927,23 @@ def RandomUniformLikeAttrsEnd(builder):
     return builder.EndObject()
 
 
+try:
+    from typing import Optional
+except:
+    pass
 
 class RandomUniformLikeAttrsT(object):
 
     # RandomUniformLikeAttrsT
-    def __init__(self):
-        self.high = 0.0  # type: float
-        self.low = 0.0  # type: float
-        self.seed = None  # type: Optional[float]
+    def __init__(
+        self,
+        high = 0.0,
+        low = 0.0,
+        seed = None,
+    ):
+        self.high = high  # type: float
+        self.low = low  # type: float
+        self.seed = seed  # type: Optional[float]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4874,9 +5060,13 @@ except:
 class ReduceMeanAttrsT(object):
 
     # ReduceMeanAttrsT
-    def __init__(self):
-        self.axes = None  # type: List[int]
-        self.keepDims = False  # type: bool
+    def __init__(
+        self,
+        axes = None,
+        keepDims = False,
+    ):
+        self.axes = axes  # type: Optional[List[int]]
+        self.keepDims = keepDims  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4969,8 +5159,11 @@ def ReshapeAttrsEnd(builder):
 class ReshapeAttrsT(object):
 
     # ReshapeAttrsT
-    def __init__(self):
-        self.allowZero = False  # type: bool
+    def __init__(
+        self,
+        allowZero = False,
+    ):
+        self.allowZero = allowZero  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5066,10 +5259,15 @@ def ResizeAttrsEnd(builder):
 class ResizeAttrsT(object):
 
     # ResizeAttrsT
-    def __init__(self):
-        self.mode = 0  # type: int
-        self.coordMode = 0  # type: int
-        self.nearestMode = 0  # type: int
+    def __init__(
+        self,
+        mode = 0,
+        coordMode = 0,
+        nearestMode = 0,
+    ):
+        self.mode = mode  # type: int
+        self.coordMode = coordMode  # type: int
+        self.nearestMode = nearestMode  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5159,9 +5357,13 @@ def ScatterElementsAttrsEnd(builder):
 class ScatterElementsAttrsT(object):
 
     # ScatterElementsAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
-        self.reduction = 0  # type: int
+    def __init__(
+        self,
+        axis = 0,
+        reduction = 0,
+    ):
+        self.axis = axis  # type: int
+        self.reduction = reduction  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5239,8 +5441,11 @@ def ScatterNDAttrsEnd(builder):
 class ScatterNDAttrsT(object):
 
     # ScatterNDAttrsT
-    def __init__(self):
-        self.reduction = 0  # type: int
+    def __init__(
+        self,
+        reduction = 0,
+    ):
+        self.reduction = reduction  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5312,12 +5517,19 @@ def SequenceEmptyAttrsEnd(builder):
     return builder.EndObject()
 
 
+try:
+    from typing import Optional
+except:
+    pass
 
 class SequenceEmptyAttrsT(object):
 
     # SequenceEmptyAttrsT
-    def __init__(self):
-        self.dtype = None  # type: Optional[int]
+    def __init__(
+        self,
+        dtype = None,
+    ):
+        self.dtype = dtype  # type: Optional[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5399,13 +5611,21 @@ def ShapeAttrsEnd(builder):
     return builder.EndObject()
 
 
+try:
+    from typing import Optional
+except:
+    pass
 
 class ShapeAttrsT(object):
 
     # ShapeAttrsT
-    def __init__(self):
-        self.start = None  # type: Optional[int]
-        self.end = None  # type: Optional[int]
+    def __init__(
+        self,
+        start = None,
+        end = None,
+    ):
+        self.start = start  # type: Optional[int]
+        self.end = end  # type: Optional[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5483,8 +5703,11 @@ def SoftmaxAttrsEnd(builder):
 class SoftmaxAttrsT(object):
 
     # SoftmaxAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
+    def __init__(
+        self,
+        axis = 0,
+    ):
+        self.axis = axis  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5566,13 +5789,21 @@ def SplitAttrsEnd(builder):
     return builder.EndObject()
 
 
+try:
+    from typing import Optional
+except:
+    pass
 
 class SplitAttrsT(object):
 
     # SplitAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
-        self.numOutputs = None  # type: Optional[int]
+    def __init__(
+        self,
+        axis = 0,
+        numOutputs = None,
+    ):
+        self.axis = axis  # type: int
+        self.numOutputs = numOutputs  # type: Optional[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5660,9 +5891,13 @@ def SplitToSequenceAttrsEnd(builder):
 class SplitToSequenceAttrsT(object):
 
     # SplitToSequenceAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
-        self.keepDims = True  # type: bool
+    def __init__(
+        self,
+        axis = 0,
+        keepDims = True,
+    ):
+        self.axis = axis  # type: int
+        self.keepDims = keepDims  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5740,8 +5975,11 @@ def STFTAttrsEnd(builder):
 class STFTAttrsT(object):
 
     # STFTAttrsT
-    def __init__(self):
-        self.onesided = True  # type: bool
+    def __init__(
+        self,
+        onesided = True,
+    ):
+        self.onesided = onesided  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5837,10 +6075,15 @@ def TopKAttrsEnd(builder):
 class TopKAttrsT(object):
 
     # TopKAttrsT
-    def __init__(self):
-        self.axis = 0  # type: int
-        self.largest = False  # type: bool
-        self.sorted = False  # type: bool
+    def __init__(
+        self,
+        axis = 0,
+        largest = False,
+        sorted = False,
+    ):
+        self.axis = axis  # type: int
+        self.largest = largest  # type: bool
+        self.sorted = sorted  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5947,8 +6190,11 @@ except:
 class TransposeAttrsT(object):
 
     # TransposeAttrsT
-    def __init__(self):
-        self.perm = None  # type: List[int]
+    def __init__(
+        self,
+        perm = None,
+    ):
+        self.perm = perm  # type: Optional[List[int]]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -6039,8 +6285,11 @@ def TriluAttrsEnd(builder):
 class TriluAttrsT(object):
 
     # TriluAttrsT
-    def __init__(self):
-        self.upper = False  # type: bool
+    def __init__(
+        self,
+        upper = False,
+    ):
+        self.upper = upper  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -6209,12 +6458,19 @@ except:
 class OperatorNodeT(object):
 
     # OperatorNodeT
-    def __init__(self):
-        self.type = 0  # type: int
-        self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT, QuantizeLinearAttrsT, DepthToSpaceAttrsT, CastLikeAttrsT, ShapeAttrsT, DropoutAttrsT, EyeLikeAttrsT, IsInfAttrsT, LoopAttrsT, SequenceEmptyAttrsT, ConcatFromSequenceAttrsT, SplitToSequenceAttrsT, GridSampleAttrsT, STFTAttrsT]
-        self.inputs = None  # type: List[int]
-        self.outputs = None  # type: List[int]
+    def __init__(
+        self,
+        type = 0,
+        attrsType = 0,
+        attrs = None,
+        inputs = None,
+        outputs = None,
+    ):
+        self.type = type  # type: int
+        self.attrsType = attrsType  # type: int
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT']
+        self.inputs = inputs  # type: Optional[List[int]]
+        self.outputs = outputs  # type: Optional[List[int]]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -6358,8 +6614,11 @@ except:
 class FloatDataT(object):
 
     # FloatDataT
-    def __init__(self):
-        self.data = None  # type: List[float]
+    def __init__(
+        self,
+        data = None,
+    ):
+        self.data = data  # type: Optional[List[float]]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -6477,8 +6736,11 @@ except:
 class Int8DataT(object):
 
     # Int8DataT
-    def __init__(self):
-        self.data = None  # type: List[int]
+    def __init__(
+        self,
+        data = None,
+    ):
+        self.data = data  # type: Optional[List[int]]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -6596,8 +6858,11 @@ except:
 class Int32DataT(object):
 
     # Int32DataT
-    def __init__(self):
-        self.data = None  # type: List[int]
+    def __init__(
+        self,
+        data = None,
+    ):
+        self.data = data  # type: Optional[List[int]]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -6715,8 +6980,11 @@ except:
 class UInt8DataT(object):
 
     # UInt8DataT
-    def __init__(self):
-        self.data = None  # type: List[int]
+    def __init__(
+        self,
+        data = None,
+    ):
+        self.data = data  # type: Optional[List[int]]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -6870,19 +7138,26 @@ def ConstantNodeEnd(builder):
 
 
 try:
-    from typing import List, Union
+    from typing import List, Optional, Union
 except:
     pass
 
 class ConstantNodeT(object):
 
     # ConstantNodeT
-    def __init__(self):
-        self.shape = None  # type: List[int]
-        self.dataType = 0  # type: int
-        self.data = None  # type: Union[None, FloatDataT, Int32DataT, Int8DataT, UInt8DataT]
-        self.dtype = None  # type: Optional[int]
-        self.dataOffset = None  # type: Optional[int]
+    def __init__(
+        self,
+        shape = None,
+        dataType = 0,
+        data = None,
+        dtype = None,
+        dataOffset = None,
+    ):
+        self.shape = shape  # type: Optional[List[int]]
+        self.dataType = dataType  # type: int
+        self.data = data  # type: Union[None, 'FloatDataT', 'Int32DataT', 'Int8DataT', 'UInt8DataT']
+        self.dtype = dtype  # type: Optional[int]
+        self.dataOffset = dataOffset  # type: Optional[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -6994,9 +7269,13 @@ def DimEnd(builder):
 class DimT(object):
 
     # DimT
-    def __init__(self):
-        self.value = 0  # type: int
-        self.name = None  # type: str
+    def __init__(
+        self,
+        value = 0,
+        name = None,
+    ):
+        self.value = value  # type: int
+        self.name = name  # type: Optional[str]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -7104,16 +7383,20 @@ def ValueNodeEnd(builder):
 
 
 try:
-    from typing import List
+    from typing import List, Optional
 except:
     pass
 
 class ValueNodeT(object):
 
     # ValueNodeT
-    def __init__(self):
-        self.shape = None  # type: List[DimT]
-        self.dtype = None  # type: Optional[int]
+    def __init__(
+        self,
+        shape = None,
+        dtype = None,
+    ):
+        self.shape = shape  # type: Optional[List[DimT]]
+        self.dtype = dtype  # type: Optional[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -7234,10 +7517,15 @@ except:
 class NodeT(object):
 
     # NodeT
-    def __init__(self):
-        self.name = None  # type: str
-        self.dataType = 0  # type: int
-        self.data = None  # type: Union[None, OperatorNodeT, ConstantNodeT, ValueNodeT]
+    def __init__(
+        self,
+        name = None,
+        dataType = 0,
+        data = None,
+    ):
+        self.name = name  # type: Optional[str]
+        self.dataType = dataType  # type: int
+        self.data = data  # type: Union[None, 'OperatorNodeT', 'ConstantNodeT', 'ValueNodeT']
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -7446,11 +7734,17 @@ except:
 class GraphT(object):
 
     # GraphT
-    def __init__(self):
-        self.nodes = None  # type: List[NodeT]
-        self.inputs = None  # type: List[int]
-        self.outputs = None  # type: List[int]
-        self.captures = None  # type: List[int]
+    def __init__(
+        self,
+        nodes = None,
+        inputs = None,
+        outputs = None,
+        captures = None,
+    ):
+        self.nodes = nodes  # type: Optional[List[NodeT]]
+        self.inputs = inputs  # type: Optional[List[int]]
+        self.outputs = outputs  # type: Optional[List[int]]
+        self.captures = captures  # type: Optional[List[int]]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -7663,15 +7957,25 @@ def MetadataEnd(builder):
 class MetadataT(object):
 
     # MetadataT
-    def __init__(self):
-        self.onnxHash = None  # type: str
-        self.description = None  # type: str
-        self.license = None  # type: str
-        self.commit = None  # type: str
-        self.codeRepository = None  # type: str
-        self.modelRepository = None  # type: str
-        self.runId = None  # type: str
-        self.runUrl = None  # type: str
+    def __init__(
+        self,
+        onnxHash = None,
+        description = None,
+        license = None,
+        commit = None,
+        codeRepository = None,
+        modelRepository = None,
+        runId = None,
+        runUrl = None,
+    ):
+        self.onnxHash = onnxHash  # type: Optional[str]
+        self.description = description  # type: Optional[str]
+        self.license = license  # type: Optional[str]
+        self.commit = commit  # type: Optional[str]
+        self.codeRepository = codeRepository  # type: Optional[str]
+        self.modelRepository = modelRepository  # type: Optional[str]
+        self.runId = runId  # type: Optional[str]
+        self.runUrl = runUrl  # type: Optional[str]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -7815,10 +8119,15 @@ except:
 class ModelT(object):
 
     # ModelT
-    def __init__(self):
-        self.schemaVersion = 0  # type: int
-        self.graph = None  # type: Optional[GraphT]
-        self.metadata = None  # type: Optional[MetadataT]
+    def __init__(
+        self,
+        schemaVersion = 0,
+        graph = None,
+        metadata = None,
+    ):
+        self.schemaVersion = schemaVersion  # type: int
+        self.graph = graph  # type: Optional[GraphT]
+        self.metadata = metadata  # type: Optional[MetadataT]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):

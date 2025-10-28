@@ -14,11 +14,10 @@
 ///
 /// See `schema.fbs` for the FlatBuffers source.
 #[allow(
-    clippy::all,
-    dead_code,
-    unused_imports,
+    clippy::extra_unused_lifetimes,
+    clippy::missing_safety_doc,
     mismatched_lifetime_syntaxes,
-    unsafe_op_in_unsafe_fn
+    unused_imports
 )]
 pub mod schema_generated;
 
