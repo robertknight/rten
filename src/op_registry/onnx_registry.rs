@@ -428,17 +428,13 @@ impl<'a> Attrs<'a> {
     where
         T: From<Attr<'a>> + PartialEq,
     {
-        self.check_eq_fn(name, |val: T| val == expected)
+        self.check(name, |val: T| val == expected)
     }
 
     /// Check that an attribute is either unset or matches `predicate`.
-    fn check_eq_fn<T>(
-        &self,
-        name: &'static str,
-        predicate: impl Fn(T) -> bool,
-    ) -> Result<(), ReadOpError>
+    fn check<T>(&self, name: &'static str, predicate: impl Fn(T) -> bool) -> Result<(), ReadOpError>
     where
-        T: From<Attr<'a>> + PartialEq,
+        T: From<Attr<'a>>,
     {
         let Some(attr) = self.get(name) else {
             return Ok(());
@@ -449,6 +445,17 @@ impl<'a> Attrs<'a> {
         } else {
             Err(ReadOpError::attr_error(name, "unsupported value"))
         }
+    }
+
+    /// Check the type of an attribute and mark it as used, but ignore the value.
+    ///
+    /// This is useful for attributes which are redundant or only applicable
+    /// at training time.
+    fn check_unused<T>(&self, name: &'static str) -> Result<(), ReadOpError>
+    where
+        T: From<Attr<'a>>,
+    {
+        self.check(name, |_val: T| true)
     }
 }
 
@@ -666,7 +673,7 @@ impl_read_op!(BatchNormalization, |attrs: &Attrs| {
 
     // Ignore attributes which are valid only if training_mode=1, which is
     // unsupported.
-    attrs.check_eq_fn("momentum", |_: f32| true)?;
+    attrs.check_unused::<f32>("momentum")?;
 
     let epsilon = attrs.get("epsilon").map(|v| v.as_f32()).unwrap_or(1e-05);
     Ok(ops::BatchNormalization { epsilon })
@@ -1131,9 +1138,9 @@ impl_read_op!(LSTM, |attrs: &Attrs| {
         hidden_size,
     } = get_common_rnn_attrs(attrs)?;
 
-    attrs.check_eq_fn("activation_alpha", |val: &[f32]| val.is_empty())?;
-    attrs.check_eq_fn("activation_beta", |val: &[f32]| val.is_empty())?;
-    attrs.check_eq_fn("activations", |val: &[String]| val.is_empty())?;
+    attrs.check("activation_alpha", |val: &[f32]| val.is_empty())?;
+    attrs.check("activation_beta", |val: &[f32]| val.is_empty())?;
+    attrs.check("activations", |val: &[String]| val.is_empty())?;
     attrs.check_eq("clip", 0.)?;
     attrs.check_eq("input_forget", 0)?;
     attrs.check_eq("layout", 0)?;
@@ -1149,14 +1156,14 @@ impl_read_op!(MatMulInteger);
 
 impl_read_op!("com.microsoft", MatMulNBits, |attrs: &Attrs| {
     // Accuracy levels: 0 (unset), f32 (1), f16 (2), bf16 (3), i8 (4)
-    attrs.check_eq_fn("accuracy_level", |val: i64| val == 0 || val == 1)?;
+    attrs.check("accuracy_level", |val: i64| val == 0 || val == 1)?;
     // Spec allows any value between 2 and 8.
     attrs.check_eq("bits", 4)?;
 
     // These are inferred from the inputs.
-    attrs.check_eq_fn("block_size", |_val: i64| true)?;
-    attrs.check_eq_fn("K", |_val: i64| true)?;
-    attrs.check_eq_fn("N", |_val: i64| true)?;
+    attrs.check_unused::<i64>("block_size")?;
+    attrs.check_unused::<i64>("K")?;
+    attrs.check_unused::<i64>("N")?;
 
     let block_size = attrs.require("block_size")?.cast_int()?;
 
@@ -1178,7 +1185,7 @@ struct PoolAttrs {
 fn get_common_pool_attrs(attrs: &Attrs) -> Result<PoolAttrs, ReadOpError> {
     attrs.check_eq("auto_pad", "NOTSET")?;
     attrs.check_eq("storage_order", 0)?;
-    attrs.check_eq_fn("dilations", |dilations: &[i64]| {
+    attrs.check("dilations", |dilations: &[i64]| {
         dilations.iter().all(|d| *d == 1)
     })?;
 
