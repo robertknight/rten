@@ -142,6 +142,10 @@ pub mod models {
         /// This originated from CLIP's tokenizer.
         /// See https://github.com/openai/CLIP/blob/main/clip/simple_tokenizer.py.
         pub end_of_word_suffix: Option<String>,
+
+        /// When encoding a string piece, look up the piece in the vocabulary
+        /// before applying merge rules.
+        pub ignore_merges: bool,
     }
 }
 

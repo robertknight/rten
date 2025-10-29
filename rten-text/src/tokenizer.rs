@@ -415,6 +415,7 @@ impl Tokenizer {
                     vocab: Some(model.vocab),
                     added_tokens,
                     end_of_word_suffix: model.end_of_word_suffix,
+                    ignore_merges: model.ignore_merges,
                 };
                 let model = Bpe::new(bpe_opts).map_err(FromJsonError::BpeError)?;
 
