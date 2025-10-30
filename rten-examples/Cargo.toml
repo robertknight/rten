@@ -107,6 +107,11 @@ path = "src/gpt2.rs"
 test = false
 
 [[bin]]
+name = "llama"
+path = "src/llama.rs"
+test = false
+
+[[bin]]
 name = "modernbert"
 path = "src/modernbert.rs"
 test = false
