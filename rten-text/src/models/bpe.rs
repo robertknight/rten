@@ -19,6 +19,9 @@ pub enum BpeError {
     /// An entry in the vocab (token string to ID map) is not either a known
     /// special token or an entry in the merge list.
     InvalidVocabEntry(String),
+
+    /// An entry was not found in the vocabulary.
+    MissingVocabEntry(String),
 }
 
 impl Display for BpeError {
@@ -26,15 +29,18 @@ impl Display for BpeError {
         match self {
             BpeError::InvalidMergeEntry(entry) => write!(fmt, "invalid merge entry: {}", entry),
             BpeError::InvalidVocabEntry(entry) => write!(fmt, "invalid vocab entry: {}", entry),
+            BpeError::MissingVocabEntry(entry) => write!(fmt, "missing vocab entry: {}", entry),
         }
     }
 }
 
 impl Error for BpeError {}
 
-/// Rank of a token in the merge list. A token is formed either of a pair of
-/// smaller tokens, or a single byte.
-type Rank = u32;
+/// Rank of an entry in the BPE merge list.
+///
+/// A newtype is used here to avoid confusing ranks and token IDs.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Rank(u32);
 
 /// A sequence of UTF-8 bytes, encoded as a string of printable characters.
 /// [`char_to_byte`] provides the mapping between characters and bytes.
@@ -55,46 +61,40 @@ fn is_printable(c: char) -> bool {
     !c.is_control() && !c.is_whitespace() && c != '\u{ad}' /* soft hyphen */
 }
 
-/// Return a mapping from byte value to token rank / ID.
-fn byte_to_rank() -> [Rank; 256] {
-    let mut ranks = [0; 256];
-
-    let mut r = 0;
-    for b in 0..=255u8 {
-        if is_printable(char::from(b)) {
-            ranks[b as usize] = r;
-            r += 1;
-        }
-    }
-
-    for b in 0..=255u8 {
-        if !is_printable(char::from(b)) {
-            ranks[b as usize] = r;
-            r += 1;
-        }
-    }
-
-    ranks
-}
-
-/// Return a mapping between the printable characters used in the GPT 2 merge
-/// list and vocabulary, and the byte values they represent.
+/// Return a mapping from byte value to printable character used to represent
+/// the byte.
 ///
 /// Based on the `bytes_to_unicode` function in the original GPT-2 encoder -
 /// <https://github.com/openai/gpt-2/blob/master/src/encoder.py>.
+fn byte_to_char() -> [char; 256] {
+    let mut chars = ['\x00'; 256];
+
+    for b in 0..=255u8 {
+        let ch = char::from(b);
+        if is_printable(ch) {
+            chars[b as usize] = ch;
+        }
+    }
+
+    let mut non_printable_count = 0;
+    for b in 0..=255u8 {
+        if !is_printable(char::from(b)) {
+            chars[b as usize] = char::from_u32(256 + non_printable_count).unwrap();
+            non_printable_count += 1;
+        }
+    }
+
+    chars
+}
+
+/// Return a mapping from printable character used to represent bytes to the
+/// corresponding byte value.
 pub fn char_to_byte() -> HashMap<char, u8> {
-    let mut n = 0;
-    (0..=255u8)
-        .map(|b| {
-            let ch = char::from(b);
-            if is_printable(ch) {
-                (ch, b)
-            } else {
-                let pair = (char::from_u32(256 + n).unwrap(), b);
-                n += 1;
-                pair
-            }
-        })
+    byte_to_char()
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(byte, ch)| (ch, byte as u8))
         .collect()
 }
 
@@ -102,28 +102,31 @@ pub fn char_to_byte() -> HashMap<char, u8> {
 /// until no more merges are possible.
 ///
 /// Returns the number of merged tokens.
-fn bpe_merge(tokens: &mut Vec<Rank>, ranks: &HashMap<(Rank, Rank), Rank>) -> usize {
+fn bpe_merge(
+    tokens: &mut Vec<TokenId>,
+    merges: &HashMap<(TokenId, TokenId), (Rank, TokenId)>,
+) -> usize {
     loop {
         // Find the pair of tokens with the lowest rank and merge all occurences
         // of the pair.
-        let min_pair: Option<((Rank, Rank), Rank)> = tokens
+        let min_pair: Option<((TokenId, TokenId), (Rank, TokenId))> = tokens
             .windows(2)
             .filter_map(|pair| {
                 let [first, second] = pair.try_into().unwrap();
-                ranks
+                merges
                     .get(&(first, second))
-                    .map(|&rank| ((first, second), rank))
+                    .map(|&rank_id| ((first, second), rank_id))
             })
-            .min_by_key(|((_first, _second), rank)| *rank);
+            .min_by_key(|((_first, _second), (rank, _merged_id))| *rank);
 
-        let Some(((first, second), rank)) = min_pair else {
+        let Some(((first, second), (_rank, merged_id))) = min_pair else {
             break;
         };
 
         let mut i = 0;
         while i < tokens.len() - 1 {
             if tokens[i] == first && tokens[i + 1] == second {
-                tokens[i] = rank;
+                tokens[i] = merged_id;
                 tokens.remove(i + 1);
             }
             i += 1;
@@ -132,94 +135,37 @@ fn bpe_merge(tokens: &mut Vec<Rank>, ranks: &HashMap<(Rank, Rank), Rank>) -> usi
     tokens.len()
 }
 
-struct BpeBuilder {
-    /// See [`ByteLevelBpe::merges`].
-    ranks: HashMap<(Rank, Rank), Rank>,
+/// Mapping from pairs of tokens to the rank and ID of the merged pair.
+type MergeMap = HashMap<(TokenId, TokenId), (Rank, TokenId)>;
 
-    /// Mapping between encoded tokens and their rank in the BPE merge list. In
-    /// addition to entries created from the merge list, this also has
-    /// single-character entries that correspond to byte values.
-    token_ranks: HashMap<EncodedBytes, Rank>,
+/// Build the BPE merge map that associates a rank and token ID to merged pairs
+/// of tokens.
+fn build_merge_map(
+    vocab: &HashMap<EncodedBytes, TokenId>,
+    merges: &[(EncodedByteSlice, EncodedByteSlice)],
+) -> Result<MergeMap, BpeError> {
+    let mut merge_map = HashMap::with_capacity(merges.len());
 
-    /// Ranks assigned to individual bytes.
-    byte_to_rank: [Rank; 256],
-
-    /// True if different tokens are generated depending on whether a token
-    /// appears at the end of a word or not, where a "word" is a string piece
-    /// produced after initial splitting of the input (eg. using a regex).
-    end_of_word_suffix: bool,
-}
-
-struct BpeBuilderOptions<'a> {
-    end_of_word_suffix: Option<&'a str>,
-}
-
-impl BpeBuilder {
-    fn new(options: BpeBuilderOptions) -> BpeBuilder {
-        let char_to_byte = char_to_byte();
-        let byte_to_rank = byte_to_rank();
-        let mut token_ranks: HashMap<EncodedBytes, u32> = char_to_byte
-            .iter()
-            .map(|(ch, byte)| (ch.to_string(), byte_to_rank[*byte as usize]))
-            .collect();
-
-        if let Some(suffix) = options.end_of_word_suffix {
-            let end_of_word_start = token_ranks.len() as u32;
-            token_ranks.extend(char_to_byte.iter().map(|(ch, byte)| {
-                (
-                    format!("{}{}", ch, suffix),
-                    byte_to_rank[*byte as usize] + end_of_word_start,
-                )
-            }));
-        }
-
-        BpeBuilder {
-            ranks: HashMap::new(),
-            byte_to_rank,
-            token_ranks,
-            end_of_word_suffix: options.end_of_word_suffix.is_some(),
-        }
+    for (i, (a, b)) in merges.iter().copied().enumerate() {
+        let a_id = *vocab.get(a).ok_or_else(|| {
+            BpeError::InvalidMergeEntry(format!(
+                "first entry in merge pair \"{a} {b}\" not found in vocab"
+            ))
+        })?;
+        let b_id = *vocab.get(b).ok_or_else(|| {
+            BpeError::InvalidMergeEntry(format!(
+                "second entry in merge pair \"{a} {b}\" not found in vocab"
+            ))
+        })?;
+        let merged_str = [a, b].concat();
+        let merged_id = *vocab.get(&merged_str).ok_or_else(|| {
+            BpeError::InvalidMergeEntry(format!("merged pair \"{a} {b}\" not found in vocab"))
+        })?;
+        let rank = Rank(i as u32);
+        merge_map.insert((a_id, b_id), (rank, merged_id));
     }
 
-    /// Return the rank of a token in the merge list, ie. the pair whose
-    /// concatenated parts equal `token`.
-    fn get_token_rank(&self, token: EncodedByteSlice) -> Option<Rank> {
-        self.token_ranks.get(token).copied()
-    }
-
-    /// Build the BPE merge map that assigns a rank to pairs of tokens.
-    ///
-    /// `merges` contains entries of the BPE merge table. Each entry is a pair
-    /// of tokens. Each token is a sequence of byte values encoded using the
-    /// scheme described in [`char_to_byte`].
-    fn add_merges(
-        &mut self,
-        merges: &[(EncodedByteSlice, EncodedByteSlice)],
-    ) -> Result<(), BpeError> {
-        // The first 256 ranks are assigned to individual byte values.
-        let mut rank = 256 + self.ranks.len() as u32;
-
-        // If using an EOW suffix, the next 256 ranks are assigned to bytes
-        // occurring at the end of a word.
-        if self.end_of_word_suffix {
-            rank += 256;
-        }
-
-        self.ranks.reserve(merges.len());
-        self.token_ranks.reserve(merges.len());
-
-        for (a, b) in merges.iter().copied() {
-            let invalid_entry = || BpeError::InvalidMergeEntry(format!("{} {}", a, b));
-            let a_rank = self.get_token_rank(a).ok_or_else(invalid_entry)?;
-            let b_rank = self.get_token_rank(b).ok_or_else(invalid_entry)?;
-            self.ranks.insert((a_rank, b_rank), rank);
-            self.token_ranks.insert([a, b].concat(), rank);
-
-            rank += 1;
-        }
-
-        Ok(())
-    }
+    Ok(merge_map)
 }
 
 /// Parse a list of space-separated BPE merge entries into pairs of tokens.
@@ -239,6 +185,65 @@ pub fn merge_pairs_from_lines(
             }
         })
         .collect()
+}
+
+/// Build a mapping from token bytes to ID using the merge list.
+///
+/// This is used as a fallback when the tokenizer configuration doesn't have a
+/// vocabulary.
+fn build_vocab(
+    merges: &[(EncodedByteSlice, EncodedByteSlice)],
+    end_of_word_suffix: Option<EncodedByteSlice>,
+) -> HashMap<EncodedBytes, TokenId> {
+    let mut vocab = HashMap::new();
+
+    fn byte_to_rank() -> [Rank; 256] {
+        let mut ranks = [Rank(0); 256];
+
+        let mut rank = 0;
+        for byte in 0..=255u8 {
+            if is_printable(char::from(byte)) {
+                ranks[byte as usize] = Rank(rank);
+                rank += 1;
+            }
+        }
+
+        for byte in 0..=255u8 {
+            if !is_printable(char::from(byte)) {
+                ranks[byte as usize] = Rank(rank);
+                rank += 1;
+            }
+        }
+
+        ranks
+    }
+
+    // The first 256 token IDs are reserved for individual bytes.
+    for (ch, rank) in byte_to_char().into_iter().zip(byte_to_rank()) {
+        vocab.insert(ch.into(), rank.0);
+    }
+
+    // If an end-of-word suffix is used, the next 256 token IDs are bytes that
+    // occur at the end of a word.
+    if let Some(eow_suffix) = end_of_word_suffix {
+        let start_id = vocab.len() as u32;
+        for (ch, rank) in byte_to_char().into_iter().zip(byte_to_rank()) {
+            let mut bytes: EncodedBytes = ch.into();
+            bytes.push_str(eow_suffix);
+            vocab.insert(bytes, start_id + rank.0);
+        }
+    }
+
+    // Assign token IDs to concatenated pairs from the merge list.
+    let start_id = vocab.len() as u32;
+    vocab.extend(
+        merges
+            .iter()
+            .enumerate()
+            .map(|(i, (a, b))| ([*a, *b].concat(), start_id + i as u32)),
+    );
+
+    vocab
 }
 
 /// Configuration for a [`Bpe`] tokenization model.
@@ -282,30 +287,14 @@ pub struct BpeOptions<'a> {
 ///       translation of rare words with subword units." arXiv preprint
 ///       arXiv:1508.07909 (2015).
 pub struct Bpe {
-    /// Map from pairs of tokens, to the rank of the pair. Each token in the
-    /// pair is either the rank of another pair, or the rank for a single byte
-    /// according to `byte_to_rank`.
-    ///
-    /// Values in this map start at 256, as lower values are reserved for single
-    /// byte tokens.
-    merges: HashMap<(Rank, Rank), Rank>,
+    /// Mapping from pairs of tokens to the rank and ID of the merged pair.
+    merges: MergeMap,
 
-    /// Map from byte values to token rank. Ranks are in the range [0, 255].
-    byte_to_rank: [Rank; 256],
-
-    /// Map from rank in `merges` or `byte_to_rank`, to token ID.
-    ///
-    /// If `None`, the token ID is the same as the rank. This is the case with
-    /// GPT-2 and other OpenAI models for example.
-    rank_to_token_id: Option<HashMap<Rank, TokenId>>,
+    /// Map from byte values to token IDs.
+    byte_to_token_id: [TokenId; 256],
 
     /// Map from token ID to encoded bytes.
-    ///
-    /// If `None`, the token ID is the same as the rank, and the bytes are
-    /// obtained by recursively replacing the token ID with the pair of token
-    /// IDs that make it up (see `merges`) until we have a sequence of token IDs
-    /// that each represent single byte values.
-    token_id_to_encoded_bytes: Option<HashMap<TokenId, EncodedBytes>>,
+    token_id_to_encoded_bytes: HashMap<TokenId, EncodedBytes>,
 
     /// Map from token ID to content for special tokens (eg. end-of-string).
     added_tokens: HashMap<TokenId, String>,
@@ -331,68 +320,32 @@ impl Bpe {
         // Normalize empty end-of-word suffix to `None`.
         end_of_word_suffix.take_if(|suffix| suffix.is_empty());
 
-        let bb_opts = BpeBuilderOptions {
-            end_of_word_suffix: end_of_word_suffix.as_deref(),
-        };
-        let mut builder = BpeBuilder::new(bb_opts);
-        builder.add_merges(merges)?;
+        let vocab = vocab.unwrap_or_else(|| build_vocab(merges, end_of_word_suffix.as_deref()));
 
-        let (rank_to_token_id, token_id_to_encoded_bytes) = if let Some(vocab) = vocab {
-            let mut token_id_to_encoded_bytes = HashMap::with_capacity(vocab.len());
-            let mut rank_to_token_id = HashMap::with_capacity(vocab.len());
-            for (token, id) in vocab.into_iter() {
-                token_id_to_encoded_bytes.insert(id, token.clone());
+        let merges = build_merge_map(&vocab, merges)?;
 
-                if let Some(rank) = builder.get_token_rank(&token) {
-                    rank_to_token_id.insert(rank, id);
-                }
+        // Build byte -> token ID mapping for encoding.
+        let mut byte_to_token_id = [0; 256];
+        for (i, ch) in byte_to_char().into_iter().enumerate() {
+            let mut ch_buf = [0u8; 4];
+            let ch_str = ch.encode_utf8(&mut ch_buf);
+            if let Some(id) = vocab.get(ch_str).copied() {
+                byte_to_token_id[i] = id;
+            } else {
+                return Err(BpeError::MissingVocabEntry(ch_str.to_string()));
             }
-            (Some(rank_to_token_id), Some(token_id_to_encoded_bytes))
-        } else {
-            (None, None)
-        };
+        }
+
+        // Build token ID -> encoded byte mapping for decoding.
+        let token_id_to_encoded_bytes = vocab.into_iter().map(|(token, id)| (id, token)).collect();
 
         Ok(Bpe {
-            merges: builder.ranks,
-            byte_to_rank: builder.byte_to_rank,
-            rank_to_token_id,
+            merges,
+            byte_to_token_id,
             added_tokens,
             token_id_to_encoded_bytes,
             end_of_word_suffix,
         })
-    }
-
-    /// Decode a token ID to a byte sequence. Be aware that the returned bytes
-    /// may end in the middle of a UTF-8 character.
-    fn get_token_bytes(&self, id: TokenId) -> Option<Vec<u8>> {
-        if id < 256 {
-            let byte = self
-                .byte_to_rank
-                .iter()
-                .enumerate()
-                .find(|(_b, rank)| **rank == id)
-                .map(|(b, _rank)| b)
-                .unwrap();
-            return Some(vec![byte as u8]);
-        }
-
-        if let Some(eow_suffix) = self.end_of_word_suffix.as_deref()
-            && id < 512
-        {
-            let mut bytes = self.get_token_bytes(id - 256)?;
-            bytes.extend(eow_suffix.as_bytes());
-            return Some(bytes);
-        }
-
-        let (first, second) = self
-            .merges
-            .iter()
-            .find(|(_k, v)| **v == id)
-            .map(|(k, _v)| k)?;
-        let mut out = self.get_token_bytes(*first)?;
-        let second_bytes = self.get_token_bytes(*second)?;
-        out.extend(&second_bytes);
-        Some(out)
     }
 
     /// Encode a string as a sequence of tokens.
@@ -401,10 +354,10 @@ impl Bpe {
     /// to the initial tokenization of piece.
     fn encode_piece(&self, piece: &str, end_of_word: bool) -> Vec<TokenId> {
         // Start with one token per byte.
-        let mut tokens: Vec<Rank> = piece
+        let mut tokens: Vec<TokenId> = piece
             .as_bytes()
             .iter()
-            .map(|&b| self.byte_to_rank[b as usize])
+            .map(|&b| self.byte_to_token_id[b as usize])
             .collect();
 
         // If the end-of-word suffix is enabled, replace the last byte's token
@@ -419,16 +372,7 @@ impl Bpe {
         // Iteratively merge tokens together until no more are possible.
         bpe_merge(&mut tokens, &self.merges);
 
-        // Convert ranks to token IDs.
-        let unknown_token_id = 0;
-        if let Some(id_map) = self.rank_to_token_id.as_ref() {
-            tokens
-                .into_iter()
-                .map(|rank| id_map.get(&rank).copied().unwrap_or(unknown_token_id))
-                .collect()
-        } else {
-            tokens
-        }
+        tokens
     }
 }
 
@@ -437,35 +381,7 @@ impl Model for Bpe {
         if let Some(tok_str) = self.added_tokens.get(&id) {
             return Some(tok_str.to_string());
         }
-
-        if let Some(tok_str) = self
-            .token_id_to_encoded_bytes
-            .as_ref()
-            .and_then(|map| map.get(&id))
-        {
-            return Some(tok_str.clone());
-        }
-
-        // nb. The current implementation is inefficient as it does recursive
-        // calls to `get_token_bytes` and creates the byte-to-char lookup table
-        // on every call.
-
-        let bytes = self.get_token_bytes(id)?;
-
-        let byte_to_char: HashMap<u8, char> = char_to_byte()
-            .into_iter()
-            .map(|(ch, byte)| (byte, ch))
-            .collect();
-
-        let token_str: String = bytes
-            .into_iter()
-            .map(|byte| {
-                byte_to_char
-                    .get(&byte)
-                    .expect("should have char for all bytes")
-            })
-            .collect();
-        Some(token_str)
+        self.token_id_to_encoded_bytes.get(&id).cloned()
     }
 
     fn get_token_id(&self, mut text: &str) -> Option<TokenId> {
@@ -513,23 +429,17 @@ impl Model for Bpe {
         for &id in ids {
             if let Some(tok_str) = self.added_tokens.get(&id) {
                 bytes.extend(tok_str.as_bytes());
-            } else if let Some(encoded_bytes) = self
-                .token_id_to_encoded_bytes
-                .as_ref()
-                .and_then(|map| map.get(&id))
-            {
+            } else if let Some(encoded_bytes) = self.token_id_to_encoded_bytes.get(&id) {
                 bytes.extend(
                     encoded_bytes
                         .chars()
                         .map(|ch| char_to_byte.get(&ch).copied().unwrap()),
                 );
             } else {
-                let token_bytes = self
-                    .get_token_bytes(id)
-                    .ok_or(DecodeError::InvalidTokenId(id))?;
-                bytes.extend(token_bytes);
+                return Err(DecodeError::InvalidTokenId(id));
             }
         }
+
         String::from_utf8(bytes).map_err(|_| DecodeError::InvalidUtf8)
     }
 }
