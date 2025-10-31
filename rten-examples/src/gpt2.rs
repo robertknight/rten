@@ -84,8 +84,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             .warmup_duration()
             .map(|dur| dur.as_secs_f32())
             .unwrap_or(0.),
-        metrics.tokens_per_second(),
-        metrics.mean_duration()
+        metrics.tokens_per_second().unwrap_or(0.),
+        metrics.mean_duration().unwrap_or(0.)
     );
 
     Ok(())

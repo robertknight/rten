@@ -71,15 +71,25 @@ impl Metrics {
     }
 
     /// Return the mean generation time in milliseconds, excluding the warmup.
-    pub fn mean_duration(&self) -> f32 {
+    ///
+    /// Returns `None` if no tokens have been generated.
+    pub fn mean_duration(&self) -> Option<f32> {
+        if self.durations.is_empty() {
+            return None;
+        }
         let total_ms = self.total_main_duration().as_secs_f64() * 1000.0;
-        (total_ms / self.durations.len() as f64) as f32
+        Some((total_ms / self.durations.len() as f64) as f32)
     }
 
     /// Return the mean number of tokens generated for each second, excluding
     /// the warmup.
-    pub fn tokens_per_second(&self) -> f32 {
-        self.durations.len() as f32 / self.total_main_duration().as_secs_f32()
+    ///
+    /// Returns `None` if no tokens have been generated.
+    pub fn tokens_per_second(&self) -> Option<f32> {
+        if self.durations.is_empty() {
+            return None;
+        }
+        Some(self.durations.len() as f32 / self.total_main_duration().as_secs_f32())
     }
 }
 
@@ -115,6 +125,13 @@ mod tests {
 
         let mut metrics = Metrics::new();
 
+        // Initial metrics should all be zero.
+        assert_eq!(metrics.mean_duration(), None);
+        assert_eq!(metrics.token_count(), 0);
+        assert_eq!(metrics.tokens_per_second(), None);
+        assert_eq!(metrics.total_duration(), Duration::ZERO);
+        assert_eq!(metrics.total_main_duration(), Duration::ZERO);
+
         // Add slower warmup step.
         metrics.add_step_duration(ms(200));
 
@@ -126,8 +143,8 @@ mod tests {
         assert_eq!(metrics.step_durations(), &[ms(110), ms(90)]);
         assert_eq!(metrics.total_duration(), ms(400));
         assert_eq!(metrics.total_main_duration(), ms(200));
-        assert_approx_eq!(metrics.mean_duration(), 100.0, 1e-5);
+        assert_approx_eq!(metrics.mean_duration().unwrap_or(0.), 100.0, 1e-5);
         assert_eq!(metrics.token_count(), 3);
-        assert_approx_eq!(metrics.tokens_per_second(), 10.0, 1e-5);
+        assert_approx_eq!(metrics.tokens_per_second().unwrap_or(0.), 10.0, 1e-5);
     }
 }
