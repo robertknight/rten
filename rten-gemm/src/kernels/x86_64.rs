@@ -1014,7 +1014,7 @@ unsafe fn avx512_vnni_u8i8i32_dot_product(a: I8x64, b: I8x64, mut c: I32x16) -> 
         b = in(zmm_reg) b.0,
         options(nostack)
     }
-    c.into()
+    c
 }
 
 /// Detect availability of AVX-512 VNNI instructions using cpuid.
