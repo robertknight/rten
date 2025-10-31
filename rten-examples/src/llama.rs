@@ -130,12 +130,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!();
     }
 
-    println!(
-        "\n\nmetrics: tokens {}, {:.0}ms/token, {:.1} tok/s",
-        metrics.token_count(),
-        metrics.mean_duration(),
-        metrics.tokens_per_second(),
-    );
+    if let Some(mean_dur) = metrics.mean_duration()
+        && let Some(tps) = metrics.tokens_per_second()
+    {
+        println!(
+            "\n\nmetrics: tokens {}, {:.0}ms/token, {:.1} tok/s",
+            metrics.token_count(),
+            mean_dur,
+            tps,
+        );
+    }
 
     Ok(())
 }

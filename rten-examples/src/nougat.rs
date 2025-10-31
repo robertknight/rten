@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Generated {} tokens in {:.2}s ({:.2} tokens/sec).",
         metrics.token_count(),
         metrics.total_duration().as_secs_f64(),
-        metrics.tokens_per_second()
+        metrics.tokens_per_second().unwrap_or(0.),
     );
 
     Ok(())
