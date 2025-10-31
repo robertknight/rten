@@ -270,6 +270,10 @@ pub struct BpeOptions<'a> {
     /// A string which is implicitly appended to each substring that is
     /// tokenized, after initial splitting.
     pub end_of_word_suffix: Option<String>,
+
+    /// When encoding a string piece, match the entire piece against the
+    /// vocabulary before applying merge rules.
+    pub ignore_merges: bool,
 }
 
 /// Byte Pair Encoding tokenizer used by GPT-2 [^1] and subsequently used by
@@ -287,14 +291,18 @@ pub struct BpeOptions<'a> {
 ///       translation of rare words with subword units." arXiv preprint
 ///       arXiv:1508.07909 (2015).
 pub struct Bpe {
-    /// Mapping from pairs of tokens to the rank and ID of the merged pair.
     merges: MergeMap,
 
     /// Map from byte values to token IDs.
     byte_to_token_id: [TokenId; 256],
 
-    /// Map from token ID to encoded bytes.
+    /// Map from byte values to printable character representation used in
+    /// vocabulary.
+    byte_to_char: [char; 256],
+
     token_id_to_encoded_bytes: HashMap<TokenId, EncodedBytes>,
+
+    vocab: Option<HashMap<EncodedBytes, TokenId>>,
 
     /// Map from token ID to content for special tokens (eg. end-of-string).
     added_tokens: HashMap<TokenId, String>,
@@ -305,6 +313,10 @@ pub struct Bpe {
     /// This was originally introduced for CLIP's tokenizer.
     /// See <https://github.com/openai/CLIP/blob/main/clip/simple_tokenizer.py>.
     end_of_word_suffix: Option<String>,
+
+    /// When encoding a string piece, match the entire piece against the
+    /// vocabulary before applying merge rules.
+    ignore_merges: bool,
 }
 
 impl Bpe {
@@ -315,6 +327,7 @@ impl Bpe {
             vocab,
             added_tokens,
             mut end_of_word_suffix,
+            ignore_merges,
         } = config;
 
         // Normalize empty end-of-word suffix to `None`.
@@ -336,15 +349,27 @@ impl Bpe {
             }
         }
 
+        // If the `ignore_merges` flag is set for this tokenizer, we'll need
+        // to use the vocabulary during encoding. Otherwise we can save some
+        // memory by discarding it.
+        let vocab_copy = if ignore_merges {
+            Some(vocab.clone())
+        } else {
+            None
+        };
+
         // Build token ID -> encoded byte mapping for decoding.
         let token_id_to_encoded_bytes = vocab.into_iter().map(|(token, id)| (id, token)).collect();
 
         Ok(Bpe {
-            merges,
-            byte_to_token_id,
             added_tokens,
-            token_id_to_encoded_bytes,
+            byte_to_char: byte_to_char(),
+            byte_to_token_id,
             end_of_word_suffix,
+            ignore_merges,
+            merges,
+            token_id_to_encoded_bytes,
+            vocab: vocab_copy,
         })
     }
 
@@ -353,6 +378,21 @@ impl Bpe {
     /// `end_of_word` specifies whether to apply end-of-word processing rules
     /// to the initial tokenization of piece.
     fn encode_piece(&self, piece: &str, end_of_word: bool) -> Vec<TokenId> {
+        // If `ignore_merges` is set, check for the entire string in the vocab
+        // before using merges.
+        if self.ignore_merges
+            && let Some(vocab) = self.vocab.as_ref()
+        {
+            let encoded: EncodedBytes = piece
+                .as_bytes()
+                .iter()
+                .map(|&b| self.byte_to_char[b as usize])
+                .collect();
+            if let Some(&id) = vocab.get(&encoded) {
+                return [id].into();
+            }
+        }
+
         // Start with one token per byte.
         let mut tokens: Vec<TokenId> = piece
             .as_bytes()
@@ -494,13 +534,9 @@ in g";
     /// automatically generated based on the merge list, if the vocabulary was
     /// not supplied.
     fn gen_vocab() -> HashMap<EncodedBytes, TokenId> {
-        let mut vocab = HashMap::new();
         let mut next_token_id = 1000;
-
-        for ch in super::char_to_byte().keys() {
-            vocab.insert(ch.to_string(), next_token_id);
-            next_token_id += 1;
-        }
+        let mut vocab = minimal_vocab(next_token_id);
+        next_token_id += vocab.len() as u32;
 
         for line in MINI_GPT2.lines().map(|l| l.trim()) {
             if line.starts_with("#version") || line.is_empty() {
@@ -514,6 +550,17 @@ in g";
         vocab
     }
 
+    /// Generate the simplest valid vocabulary.
+    fn minimal_vocab(start_token_id: u32) -> HashMap<EncodedBytes, TokenId> {
+        let mut vocab = HashMap::new();
+        let mut next_token_id = start_token_id;
+        for ch in super::char_to_byte().keys() {
+            vocab.insert(ch.to_string(), next_token_id);
+            next_token_id += 1;
+        }
+        vocab
+    }
+
     #[test]
     fn test_encode() {
         #[derive(Debug)]
@@ -523,6 +570,20 @@ in g";
             merges: &'a str,
             vocab: Option<HashMap<EncodedBytes, TokenId>>,
             end_of_word_suffix: Option<String>,
+            ignore_merges: bool,
+        }
+
+        impl<'a> Default for Case<'a> {
+            fn default() -> Self {
+                Self {
+                    text: "",
+                    expected_tokens: &[],
+                    merges: "",
+                    vocab: None,
+                    end_of_word_suffix: None,
+                    ignore_merges: false,
+                }
+            }
         }
 
         let cases = [
@@ -533,8 +594,7 @@ in g";
                     "t", "he", "Ġc", "at", "Ġ", "is", "Ġ", "in", "Ġthe", "Ġb", "ed",
                 ],
                 merges: MINI_GPT2,
-                vocab: None,
-                end_of_word_suffix: None,
+                ..Default::default()
             },
             // Test several levels of merging.
             Case {
@@ -546,8 +606,7 @@ in g";
 ---- ----
 -------- --------
 ",
-                vocab: None,
-                end_of_word_suffix: None,
+                ..Default::default()
             },
             // End-of-word suffix
             Case {
@@ -558,8 +617,8 @@ b a
 ba r
 ba r</w>
 ",
-                vocab: None,
                 end_of_word_suffix: Some("</w>".to_string()),
+                ..Default::default()
             },
             // Empty end-of-word suffix. Treated as `None` for compatibility
             // with some tokenizer.json files which represent the EOW suffix
@@ -570,8 +629,20 @@ ba r</w>
                 merges: "
 b a
 ba r",
-                vocab: None,
                 end_of_word_suffix: Some("".to_string()),
+                ..Default::default()
+            },
+            // `ignore_merges` option enabled
+            Case {
+                text: "foobar",
+                expected_tokens: &["foobar"],
+                ignore_merges: true,
+                vocab: {
+                    let mut vocab = minimal_vocab(0);
+                    vocab.insert("foobar".to_string(), vocab.len() as u32);
+                    Some(vocab)
+                },
+                ..Default::default()
             },
         ];
 
@@ -582,6 +653,7 @@ ba r",
                 merges,
                 vocab,
                 end_of_word_suffix,
+                ignore_merges,
             } = case;
 
             let merges: Vec<&str> = merges.lines().collect();
@@ -590,7 +662,8 @@ ba r",
                 merges: &merge_pairs,
                 vocab: vocab.clone(),
                 end_of_word_suffix: end_of_word_suffix.clone(),
-                ..Default::default()
+                ignore_merges: *ignore_merges,
+                added_tokens: Default::default(),
             };
             let model = Bpe::new(bpe_opts).unwrap();
             let tokenizer = Tokenizer::new(model, Default::default())
