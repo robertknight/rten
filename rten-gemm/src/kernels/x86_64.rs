@@ -897,26 +897,45 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         let b_zero = b_quant.map(|bq| bq.zero_point);
         let out = out.as_bool_beta();
 
-        #[target_feature(enable = "avx512f")]
-        #[target_feature(enable = "avx512vl")]
-        #[target_feature(enable = "avx512bw")]
-        unsafe fn gemv_impl(
-            isa: Avx512Isa,
-            out: MatVecOutput<i32, bool>,
-            a: &[u8],
-            b: Matrix<i8>,
-            a_zero: u8,
-            b_zero: Option<&[i8]>,
-        ) {
-            simd_int8_gemv::<_, false /* CAST_B_U8 */>(
-                isa, out, a, b, a_zero, b_zero, // TODO - Use VNNI here if available
-                isa,
-            )
-        }
+        if let Some(vnni_dot) = self.vnni_dot {
+            #[target_feature(enable = "avx512f")]
+            #[target_feature(enable = "avx512vl")]
+            #[target_feature(enable = "avx512bw")]
+            unsafe fn gemv_vnni(
+                isa: Avx512Isa,
+                out: MatVecOutput<i32, bool>,
+                a: &[u8],
+                b: Matrix<i8>,
+                a_zero: u8,
+                b_zero: Option<&[i8]>,
+                vnni: Avx512VnniDotProduct,
+            ) {
+                simd_int8_gemv::<_, false /* CAST_B_U8 */>(isa, out, a, b, a_zero, b_zero, vnni)
+            }
 
-        // Safety: AVX512 is supported if this kernel was constructed.
-        unsafe {
-            gemv_impl(self.isa, out, a, b, a_zero, b_zero);
+            // Safety: AVX512 is available and supports VNNI.
+            unsafe {
+                gemv_vnni(self.isa, out, a, b, a_zero, b_zero, vnni_dot);
+            }
+        } else {
+            #[target_feature(enable = "avx512f")]
+            #[target_feature(enable = "avx512vl")]
+            #[target_feature(enable = "avx512bw")]
+            unsafe fn gemv_non_vnni(
+                isa: Avx512Isa,
+                out: MatVecOutput<i32, bool>,
+                a: &[u8],
+                b: Matrix<i8>,
+                a_zero: u8,
+                b_zero: Option<&[i8]>,
+            ) {
+                simd_int8_gemv::<_, false /* CAST_B_U8 */>(isa, out, a, b, a_zero, b_zero, isa)
+            }
+
+            // Safety: AVX512 is supported if this kernel was constructed.
+            unsafe {
+                gemv_non_vnni(self.isa, out, a, b, a_zero, b_zero);
+            }
         }
     }
 }
