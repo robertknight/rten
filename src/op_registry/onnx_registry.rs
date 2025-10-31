@@ -746,7 +746,7 @@ fn get_common_conv_attrs(attrs: &Attrs) -> Result<ConvAttrs, ReadOpError> {
         .get("dilations")
         .map(|v| v.cast_ints())
         .transpose()?
-        .unwrap_or_default();
+        .unwrap_or_else(|| vec![1; n_spatial_dims]);
 
     let pads = attrs
         .get("pads")
@@ -1652,6 +1652,7 @@ mod tests {
 
         assert_eq!(conv_op.padding, Padding::Fixed([0, 0, 0, 0].into()));
         assert_eq!(conv_op.strides, vec![1, 1]);
+        assert_eq!(conv_op.dilations, vec![1, 1]);
     }
 
     #[test]
