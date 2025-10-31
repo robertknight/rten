@@ -96,7 +96,7 @@ unsafe impl Isa for Avx512Isa {
         self
     }
 
-    fn u8(self) -> impl NumOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
+    fn u8(self) -> impl Extend<u8, Output = Self::U16, Simd = Self::U8> {
         self
     }
 
