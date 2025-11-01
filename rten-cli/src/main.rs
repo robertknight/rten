@@ -71,6 +71,7 @@ struct Args {
     quiet: bool,
 
     /// specify size for a dynamic dimension in the form `dim_name=size` or `input_name.dim_name=size`. Can be specified multiple times.
+    /// Input and dimension names may be quoted (eg. `"input.one"."dim.two"=3`).
     #[argh(option, short = 's')]
     size: Vec<String>,
 

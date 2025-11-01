@@ -34,24 +34,36 @@ impl DimSize {
     /// Parse a dimension size specifier in the form `dim_name=size` or
     /// `input_name.dim_name=size`.
     pub fn parse(spec: &str) -> Result<DimSize, ParseError> {
-        let parts: Vec<&str> = spec.split('=').collect();
-        let (name_spec, size_spec) = match parts[..] {
-            [name, size] => (name, size),
-            _ => {
-                return Err(ParseError::new(spec, ParseErrorKind::InvalidFormat));
-            }
+        let tokens = tokenize(spec);
+        let Some(eq_pos) = tokens.iter().position(|tok| matches!(tok, Token::Equals)) else {
+            return Err(ParseError::new(
+                spec,
+                ParseErrorKind::InvalidFormat {
+                    message: "expected <name>=<size> but no '=' was found".into(),
+                },
+            ));
         };
 
-        let name_parts: Vec<_> = name_spec.split('.').collect();
-        let (input_name, dim_name) = match &name_parts[..] {
-            [dim_name] => (None, dim_name),
-            [input_name, dim_name] => (Some(input_name), dim_name),
+        let (name_spec, size_spec) = tokens.split_at(eq_pos);
+
+        let [Token::Equals, Token::Text(size_str)] = size_spec else {
+            return Err(ParseError::new(
+                spec,
+                ParseErrorKind::InvalidFormat {
+                    message: "expected specifier to end with '=<size>'".into(),
+                },
+            ));
+        };
+
+        let (input_name, dim_name) = match name_spec {
+            [Token::Text(dim)] => (None, dim),
+            [Token::Text(input), Token::Dot, Token::Text(dim)] => (Some(input), dim),
             _ => {
                 return Err(ParseError::new(spec, ParseErrorKind::InvalidName));
             }
         };
 
-        let size: usize = size_spec
+        let size: usize = size_str
             .parse()
             .map_err(|_| ParseError::new(spec, ParseErrorKind::InvalidSize))?;
 
@@ -87,11 +99,45 @@ impl DimSize {
     }
 }
 
+enum Token {
+    Equals,
+    Dot,
+    Text(String),
+}
+
+fn tokenize(spec: &str) -> Vec<Token> {
+    let mut tokens = Vec::new();
+    let mut in_quote = false;
+
+    for ch in spec.chars() {
+        match ch {
+            '=' if !in_quote => {
+                tokens.push(Token::Equals);
+            }
+            '.' if !in_quote => {
+                tokens.push(Token::Dot);
+            }
+            '"' => in_quote = !in_quote,
+            ch => {
+                if let Some(tok) = tokens.last_mut()
+                    && let Token::Text(text) = tok
+                {
+                    text.push(ch);
+                } else {
+                    tokens.push(Token::Text(ch.into()));
+                }
+            }
+        }
+    }
+
+    tokens
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::enum_variant_names)] // Don't warn about all variants having "Invalid" prefix.
 enum ParseErrorKind {
     /// Dimension size spec doesn't match "name=size"
-    InvalidFormat,
+    InvalidFormat { message: String },
     /// Dimension size spec has an invalid input or dimension name
     InvalidName,
     /// Dimension size spec has an invalid size
@@ -115,11 +161,11 @@ impl ParseError {
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.kind {
-            ParseErrorKind::InvalidFormat => write!(
+        match &self.kind {
+            ParseErrorKind::InvalidFormat { message } => write!(
                 fmt,
-                "invalid format for dimension size spec \"{}\". expected \"dim_name=size\" or \"input_name.dim_name=size\"",
-                self.spec
+                "invalid format for dimension size spec \"{}\": {}",
+                self.spec, message
             ),
             ParseErrorKind::InvalidName => {
                 write!(fmt, "invalid name in dimension size spec \"{}\"", self.spec)
@@ -167,8 +213,29 @@ mod tests {
                 }),
             },
             Case {
+                spec: "x.\"dim.name\"=1",
+                expected: Ok(DimSize {
+                    input_name: Some("x".to_string()),
+                    dim_name: "dim.name".to_string(),
+                    size: 1,
+                }),
+            },
+            Case {
+                spec: "\"input.name\".dim=1",
+                expected: Ok(DimSize {
+                    input_name: Some("input.name".to_string()),
+                    dim_name: "dim".to_string(),
+                    size: 1,
+                }),
+            },
+            Case {
                 spec: "foobar",
-                expected: Err(ParseError::new("foobar", ParseErrorKind::InvalidFormat)),
+                expected: Err(ParseError::new(
+                    "foobar",
+                    ParseErrorKind::InvalidFormat {
+                        message: "expected <name>=<size> but no '=' was found".into(),
+                    },
+                )),
             },
             Case {
                 spec: "foobar=g",
