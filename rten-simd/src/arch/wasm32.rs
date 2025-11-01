@@ -87,7 +87,9 @@ unsafe impl Isa for Wasm32Isa {
         self
     }
 
-    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
+    fn u8(
+        self,
+    ) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> + Interleave<u8> {
         self
     }
 
@@ -700,6 +702,19 @@ impl IntOps<u8> for Wasm32Isa {
     #[inline]
     fn shift_right<const SHIFT: i32>(self, x: U8x16) -> U8x16 {
         U8x16(u8x16_shr(x.0, SHIFT as u32))
+    }
+}
+
+impl Interleave<u8> for Wasm32Isa {
+    #[inline]
+    fn interleave_low(self, a: U8x16, b: U8x16) -> U8x16 {
+        u8x16_shuffle::<0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23>(a.0, b.0).into()
+    }
+
+    #[inline]
+    fn interleave_high(self, a: U8x16, b: U8x16) -> U8x16 {
+        u8x16_shuffle::<8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31>(a.0, b.0)
+            .into()
     }
 }
 

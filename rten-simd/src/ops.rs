@@ -86,7 +86,9 @@ pub unsafe trait Isa: Copy {
     ) -> impl SignedIntOps<i8, Simd = Self::I8> + Extend<i8, Output = Self::I16> + Interleave<i8>;
 
     /// Operations on SIMD vectors with `u8` elements.
-    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16>;
+    fn u8(
+        self,
+    ) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> + Interleave<u8>;
 
     /// Operations on SIMD vectors with `u16` elements.
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16>;
@@ -1383,6 +1385,7 @@ mod tests {
     }
     test_interleave!(test_interleave_i16, i16);
     test_interleave!(test_interleave_i8, i8);
+    test_interleave!(test_interleave_u8, u8);
 
     #[test]
     fn test_concat_i32() {

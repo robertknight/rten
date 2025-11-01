@@ -95,7 +95,9 @@ unsafe impl Isa for Avx2Isa {
         self
     }
 
-    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
+    fn u8(
+        self,
+    ) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> + Interleave<u8> {
         self
     }
 
@@ -751,27 +753,35 @@ impl SignedIntOps<i8> for Avx2Isa {
     }
 }
 
+#[inline]
+fn interleave_low_x8(a: __m256i, b: __m256i) -> __m256i {
+    unsafe {
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm256_unpacklo_epi8(a, b); // AB0 AB2
+        let hi = _mm256_unpackhi_epi8(a, b); // AB1 AB3
+        _mm256_insertf128_si256(lo, _mm256_castsi256_si128(hi), 1) // AB0 AB1
+    }
+}
+
+#[inline]
+fn interleave_high_x8(a: __m256i, b: __m256i) -> __m256i {
+    unsafe {
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm256_unpacklo_epi8(a, b); // AB0 AB2
+        let hi = _mm256_unpackhi_epi8(a, b); // AB1 AB3
+        _mm256_permute2x128_si256(lo, hi, 0x31) // AB2 AB3
+    }
+}
+
 impl Interleave<i8> for Avx2Isa {
     #[inline]
     fn interleave_low(self, a: I8x32, b: I8x32) -> I8x32 {
-        unsafe {
-            // AB{N} = Interleaved Nth 64-bit block.
-            let lo = _mm256_unpacklo_epi8(a.0, b.0); // AB0 AB2
-            let hi = _mm256_unpackhi_epi8(a.0, b.0); // AB1 AB3
-            _mm256_insertf128_si256(lo, _mm256_castsi256_si128(hi), 1) // AB0 AB1
-        }
-        .into()
+        interleave_low_x8(a.0, b.0).into()
     }
 
     #[inline]
     fn interleave_high(self, a: I8x32, b: I8x32) -> I8x32 {
-        unsafe {
-            // AB{N} = Interleaved Nth 64-bit block.
-            let lo = _mm256_unpacklo_epi8(a.0, b.0); // AB0 AB2
-            let hi = _mm256_unpackhi_epi8(a.0, b.0); // AB1 AB3
-            _mm256_permute2x128_si256(lo, hi, 0x31) // AB2 AB3
-        }
-        .into()
+        interleave_high_x8(a.0, b.0).into()
     }
 }
 
@@ -1125,6 +1135,18 @@ impl IntOps<u8> for Avx2Isa {
         let y_hi = u16_ops.shift_right::<SHIFT>(x_hi);
 
         self.narrow_truncate(y_lo, y_hi)
+    }
+}
+
+impl Interleave<u8> for Avx2Isa {
+    #[inline]
+    fn interleave_low(self, a: U8x32, b: U8x32) -> U8x32 {
+        interleave_low_x8(a.0, b.0).into()
+    }
+
+    #[inline]
+    fn interleave_high(self, a: U8x32, b: U8x32) -> U8x32 {
+        interleave_high_x8(a.0, b.0).into()
     }
 }
 
