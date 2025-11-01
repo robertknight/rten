@@ -15,9 +15,10 @@ use std::arch::x86_64::{
     _mm256_or_si256, _mm256_packs_epi32, _mm256_packus_epi16, _mm256_permute2x128_si256,
     _mm256_permute4x64_epi64, _mm256_round_ps, _mm256_set_m128i, _mm256_set1_epi8,
     _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setr_m128i, _mm256_setzero_si256,
-    _mm256_slli_epi16, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi8,
-    _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_ps, _mm256_unpackhi_epi8, _mm256_unpackhi_epi16,
-    _mm256_unpacklo_epi8, _mm256_unpacklo_epi16, _mm256_xor_ps, _mm256_xor_si256,
+    _mm256_slli_epi16, _mm256_slli_epi32, _mm256_srai_epi16, _mm256_srai_epi32, _mm256_srli_epi16,
+    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi8, _mm256_sub_epi16, _mm256_sub_epi32,
+    _mm256_sub_ps, _mm256_unpackhi_epi8, _mm256_unpackhi_epi16, _mm256_unpacklo_epi8,
+    _mm256_unpacklo_epi16, _mm256_xor_ps, _mm256_xor_si256,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
@@ -94,7 +95,7 @@ unsafe impl Isa for Avx2Isa {
         self
     }
 
-    fn u8(self) -> impl Extend<u8, Output = Self::U16, Simd = Self::U8> {
+    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
         self
     }
 
@@ -408,6 +409,11 @@ impl IntOps<i32> for Avx2Isa {
     fn shift_left<const SHIFT: i32>(self, x: I32x8) -> I32x8 {
         unsafe { _mm256_slli_epi32(x.0, SHIFT) }.into()
     }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: I32x8) -> I32x8 {
+        unsafe { _mm256_srai_epi32(x.0, SHIFT) }.into()
+    }
 }
 
 impl SignedIntOps<i32> for Avx2Isa {
@@ -558,6 +564,11 @@ impl IntOps<i16> for Avx2Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I16x16) -> I16x16 {
         unsafe { _mm256_slli_epi16(x.0, SHIFT) }.into()
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: I16x16) -> I16x16 {
+        unsafe { _mm256_srai_epi16(x.0, SHIFT) }.into()
     }
 }
 
@@ -717,6 +728,17 @@ impl IntOps<i8> for Avx2Isa {
         let i16_ops = self.i16();
         let y_lo = i16_ops.shift_left::<SHIFT>(x_lo);
         let y_hi = i16_ops.shift_left::<SHIFT>(x_hi);
+
+        self.narrow_truncate(y_lo, y_hi)
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: I8x32) -> I8x32 {
+        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
+
+        let i16_ops = self.i16();
+        let y_lo = i16_ops.shift_right::<SHIFT>(x_lo);
+        let y_hi = i16_ops.shift_right::<SHIFT>(x_hi);
 
         self.narrow_truncate(y_lo, y_hi)
     }
@@ -967,6 +989,11 @@ impl IntOps<u16> for Avx2Isa {
     fn shift_left<const SHIFT: i32>(self, x: U16x16) -> U16x16 {
         unsafe { _mm256_slli_epi16(x.0, SHIFT) }.into()
     }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: U16x16) -> U16x16 {
+        unsafe { _mm256_srli_epi16(x.0, SHIFT) }.into()
+    }
 }
 
 macro_rules! impl_mask {
@@ -1074,6 +1101,30 @@ impl Extend<u8> for Avx2Isa {
                 _mm256_cvtepu8_epi16(high).into(),
             )
         }
+    }
+}
+
+impl IntOps<u8> for Avx2Isa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: U8x32) -> U8x32 {
+        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
+
+        let u16_ops = self.u16();
+        let y_lo = u16_ops.shift_left::<SHIFT>(x_lo);
+        let y_hi = u16_ops.shift_left::<SHIFT>(x_hi);
+
+        self.narrow_truncate(y_lo, y_hi)
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: U8x32) -> U8x32 {
+        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
+
+        let u16_ops = self.u16();
+        let y_lo = u16_ops.shift_right::<SHIFT>(x_lo);
+        let y_hi = u16_ops.shift_right::<SHIFT>(x_hi);
+
+        self.narrow_truncate(y_lo, y_hi)
     }
 }
 
