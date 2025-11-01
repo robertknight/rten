@@ -6,11 +6,11 @@ use std::arch::x86_64::{
     _mm256_and_si256, _mm256_andnot_ps, _mm256_andnot_si256, _mm256_blendv_epi8, _mm256_blendv_ps,
     _mm256_castps256_ps128, _mm256_castsi256_si128, _mm256_cmp_ps, _mm256_cmpeq_epi8,
     _mm256_cmpeq_epi16, _mm256_cmpeq_epi32, _mm256_cmpgt_epi8, _mm256_cmpgt_epi16,
-    _mm256_cmpgt_epi32, _mm256_cvtepi8_epi16, _mm256_cvtepi16_epi32, _mm256_cvtepu8_epi16,
-    _mm256_cvtps_epi32, _mm256_cvttps_epi32, _mm256_div_ps, _mm256_extractf128_ps,
-    _mm256_extracti128_si256, _mm256_fmadd_ps, _mm256_fnmadd_ps, _mm256_insertf128_si256,
-    _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32, _mm256_maskload_ps,
-    _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
+    _mm256_cmpgt_epi32, _mm256_cvtepi8_epi16, _mm256_cvtepi16_epi32, _mm256_cvtepi32_ps,
+    _mm256_cvtepu8_epi16, _mm256_cvtps_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
+    _mm256_extractf128_ps, _mm256_extracti128_si256, _mm256_fmadd_ps, _mm256_fnmadd_ps,
+    _mm256_insertf128_si256, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32,
+    _mm256_maskload_ps, _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
     _mm256_movemask_epi8, _mm256_mul_ps, _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_ps,
     _mm256_or_si256, _mm256_packs_epi32, _mm256_packus_epi16, _mm256_permute2x128_si256,
     _mm256_permute4x64_epi64, _mm256_round_ps, _mm256_set_m128i, _mm256_set1_epi8,
@@ -26,7 +26,7 @@ use std::mem::transmute;
 use super::super::{lanes, simd_type};
 use crate::ops::{
     Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps,
-    SignedIntOps,
+    SignedIntOps, ToFloat,
 };
 use crate::{Isa, Mask, Simd};
 
@@ -75,7 +75,8 @@ unsafe impl Isa for Avx2Isa {
         self,
     ) -> impl SignedIntOps<i32, Simd = Self::I32>
     + NarrowSaturate<i32, i16, Output = Self::I16>
-    + Concat<i32> {
+    + Concat<i32>
+    + ToFloat<i32, Output = Self::F32> {
         self
     }
 
@@ -466,6 +467,15 @@ impl Concat<i32> for Avx2Isa {
             _mm256_set_m128i(b_hi, a_hi)
         }
         .into()
+    }
+}
+
+impl ToFloat<i32> for Avx2Isa {
+    type Output = F32x8;
+
+    #[inline]
+    fn to_float(self, x: I32x8) -> F32x8 {
+        unsafe { _mm256_cvtepi32_ps(x.0) }.into()
     }
 }
 

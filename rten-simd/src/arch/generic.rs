@@ -3,6 +3,7 @@ use std::mem::transmute;
 
 use crate::ops::{
     Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+    ToFloat,
 };
 use crate::{Isa, Mask, Simd};
 
@@ -98,7 +99,8 @@ unsafe impl Isa for GenericIsa {
         self,
     ) -> impl SignedIntOps<i32, Simd = Self::I32>
     + NarrowSaturate<i32, i16, Output = Self::I16>
-    + Concat<i32> {
+    + Concat<i32>
+    + ToFloat<i32, Output = Self::F32> {
         self
     }
 
@@ -459,6 +461,14 @@ impl_interleave!(u8, U8x16);
 
 impl_simd_int_ops!(U8x16, u8, 16, M8);
 impl_simd_int_ops!(U16x8, u16, 8, M16);
+
+impl ToFloat<i32> for GenericIsa {
+    type Output = F32x4;
+
+    fn to_float(self, x: I32x4) -> Self::Output {
+        F32x4(x.0.map(|x| x as f32))
+    }
+}
 
 trait NarrowSaturateElem<T> {
     fn narrow_saturate(self) -> T;
