@@ -753,12 +753,12 @@ macro_rules! mask_type {
 
             #[inline]
             fn any(self, x: $mask) -> bool {
-                unsafe { v128_any_true(x.0) }
+                v128_any_true(x.0)
             }
 
             #[inline]
             fn all(self, x: $mask) -> bool {
-                unsafe { $all_true_fn(x.0) }
+                $all_true_fn(x.0)
             }
         }
     };
