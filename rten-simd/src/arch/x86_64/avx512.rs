@@ -18,9 +18,10 @@ use std::arch::x86_64::{
     _mm512_permutex2var_epi32, _mm512_permutexvar_epi64, _mm512_reduce_add_ps,
     _mm512_roundscale_ps, _mm512_set1_epi8, _mm512_set1_epi16, _mm512_set1_epi32, _mm512_set1_ps,
     _mm512_setr_epi32, _mm512_setr_epi64, _mm512_setzero_si512, _mm512_sllv_epi16,
-    _mm512_sllv_epi32, _mm512_storeu_ps, _mm512_storeu_si512, _mm512_sub_epi8, _mm512_sub_epi16,
-    _mm512_sub_epi32, _mm512_sub_ps, _mm512_unpackhi_epi8, _mm512_unpackhi_epi16,
-    _mm512_unpacklo_epi8, _mm512_unpacklo_epi16, _mm512_xor_ps, _mm512_xor_si512,
+    _mm512_sllv_epi32, _mm512_srav_epi16, _mm512_srav_epi32, _mm512_srlv_epi16, _mm512_storeu_ps,
+    _mm512_storeu_si512, _mm512_sub_epi8, _mm512_sub_epi16, _mm512_sub_epi32, _mm512_sub_ps,
+    _mm512_unpackhi_epi8, _mm512_unpackhi_epi16, _mm512_unpacklo_epi8, _mm512_unpacklo_epi16,
+    _mm512_xor_ps, _mm512_xor_si512,
 };
 use std::mem::transmute;
 
@@ -96,7 +97,7 @@ unsafe impl Isa for Avx512Isa {
         self
     }
 
-    fn u8(self) -> impl Extend<u8, Output = Self::U16, Simd = Self::U8> {
+    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
         self
     }
 
@@ -396,6 +397,12 @@ impl IntOps<i32> for Avx512Isa {
         let count: I32x16 = self.splat(SHIFT);
         unsafe { _mm512_sllv_epi32(x.0, count.0) }.into()
     }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: I32x16) -> I32x16 {
+        let count: I32x16 = self.splat(SHIFT);
+        unsafe { _mm512_srav_epi32(x.0, count.0) }.into()
+    }
 }
 
 impl SignedIntOps<i32> for Avx512Isa {
@@ -515,6 +522,12 @@ impl IntOps<i16> for Avx512Isa {
     fn shift_left<const SHIFT: i32>(self, x: I16x32) -> I16x32 {
         let count: I16x32 = self.splat(SHIFT as i16);
         unsafe { _mm512_sllv_epi16(x.0, count.0) }.into()
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: I16x32) -> I16x32 {
+        let count: I16x32 = self.splat(SHIFT as i16);
+        unsafe { _mm512_srav_epi16(x.0, count.0) }.into()
     }
 }
 
@@ -651,6 +664,19 @@ impl IntOps<i8> for Avx512Isa {
         let (y_lo, y_hi) = (
             i16_ops.shift_left::<SHIFT>(x_lo),
             i16_ops.shift_left::<SHIFT>(x_hi),
+        );
+
+        self.narrow_truncate(y_lo, y_hi)
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: I8x64) -> I8x64 {
+        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
+
+        let i16_ops = self.i16();
+        let (y_lo, y_hi) = (
+            i16_ops.shift_right::<SHIFT>(x_lo),
+            i16_ops.shift_right::<SHIFT>(x_hi),
         );
 
         self.narrow_truncate(y_lo, y_hi)
@@ -811,6 +837,34 @@ impl Extend<u8> for Avx512Isa {
     }
 }
 
+impl IntOps<u8> for Avx512Isa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: U8x64) -> U8x64 {
+        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
+
+        let u16_ops = self.u16();
+        let (y_lo, y_hi) = (
+            u16_ops.shift_left::<SHIFT>(x_lo),
+            u16_ops.shift_left::<SHIFT>(x_hi),
+        );
+
+        self.narrow_truncate(y_lo, y_hi)
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: U8x64) -> U8x64 {
+        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
+
+        let u16_ops = self.u16();
+        let (y_lo, y_hi) = (
+            u16_ops.shift_right::<SHIFT>(x_lo),
+            u16_ops.shift_right::<SHIFT>(x_hi),
+        );
+
+        self.narrow_truncate(y_lo, y_hi)
+    }
+}
+
 impl Narrow<I16x32> for Avx512Isa {
     type Output = I8x64;
 
@@ -909,6 +963,12 @@ impl IntOps<u16> for Avx512Isa {
     fn shift_left<const SHIFT: i32>(self, x: U16x32) -> U16x32 {
         let count: I16x32 = self.splat(SHIFT as i16);
         unsafe { _mm512_sllv_epi16(x.0, count.0) }.into()
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: U16x32) -> U16x32 {
+        let count: I16x32 = self.splat(SHIFT as i16);
+        unsafe { _mm512_srlv_epi16(x.0, count.0) }.into()
     }
 }
 
