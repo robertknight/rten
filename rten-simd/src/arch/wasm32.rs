@@ -1,9 +1,9 @@
 use std::arch::wasm32::{
-    f32x4_abs, f32x4_add, f32x4_div, f32x4_eq, f32x4_extract_lane, f32x4_ge, f32x4_gt, f32x4_le,
-    f32x4_lt, f32x4_max, f32x4_min, f32x4_mul, f32x4_nearest, f32x4_neg, f32x4_splat, f32x4_sub,
-    i8x16_add, i8x16_all_true, i8x16_eq, i8x16_ge, i8x16_gt, i8x16_neg, i8x16_shl, i8x16_shr,
-    i8x16_shuffle, i8x16_splat, i8x16_sub, i16x8_add, i16x8_all_true, i16x8_eq,
-    i16x8_extend_high_i8x16, i16x8_extend_low_i8x16, i16x8_extmul_high_i8x16,
+    f32x4_abs, f32x4_add, f32x4_convert_i32x4, f32x4_div, f32x4_eq, f32x4_extract_lane, f32x4_ge,
+    f32x4_gt, f32x4_le, f32x4_lt, f32x4_max, f32x4_min, f32x4_mul, f32x4_nearest, f32x4_neg,
+    f32x4_splat, f32x4_sub, i8x16_add, i8x16_all_true, i8x16_eq, i8x16_ge, i8x16_gt, i8x16_neg,
+    i8x16_shl, i8x16_shr, i8x16_shuffle, i8x16_splat, i8x16_sub, i16x8_add, i16x8_all_true,
+    i16x8_eq, i16x8_extend_high_i8x16, i16x8_extend_low_i8x16, i16x8_extmul_high_i8x16,
     i16x8_extmul_low_i8x16, i16x8_ge, i16x8_gt, i16x8_mul, i16x8_narrow_i32x4, i16x8_neg,
     i16x8_shl, i16x8_shr, i16x8_shuffle, i16x8_splat, i16x8_sub, i32x4_add, i32x4_all_true,
     i32x4_eq, i32x4_extend_high_i16x8, i32x4_extend_low_i16x8, i32x4_ge, i32x4_gt, i32x4_mul,
@@ -22,6 +22,7 @@ use std::arch::wasm32::f32x4_relaxed_madd;
 use super::{lanes, simd_type};
 use crate::ops::{
     Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+    ToFloat,
 };
 use crate::{Isa, Mask, Simd};
 
@@ -67,7 +68,8 @@ unsafe impl Isa for Wasm32Isa {
         self,
     ) -> impl SignedIntOps<i32, Simd = Self::I32>
     + NarrowSaturate<i32, i16, Output = Self::I16>
-    + Concat<i32> {
+    + Concat<i32>
+    + ToFloat<i32, Output = Self::F32> {
         self
     }
 
@@ -399,6 +401,15 @@ impl Concat<i32> for Wasm32Isa {
     #[inline]
     fn concat_high(self, a: I32x4, b: I32x4) -> I32x4 {
         I32x4(i32x4_shuffle::<2, 3, 6, 7>(a.0, b.0))
+    }
+}
+
+impl ToFloat<i32> for Wasm32Isa {
+    type Output = F32x4;
+
+    #[inline]
+    fn to_float(self, x: I32x4) -> F32x4 {
+        F32x4(f32x4_convert_i32x4(x.0))
     }
 }
 

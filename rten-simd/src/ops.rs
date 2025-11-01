@@ -70,7 +70,8 @@ pub unsafe trait Isa: Copy {
         self,
     ) -> impl SignedIntOps<i32, Simd = Self::I32>
     + NarrowSaturate<i32, i16, Output = Self::I16>
-    + Concat<i32>;
+    + Concat<i32>
+    + ToFloat<i32, Output = Self::F32>;
 
     /// Operations on SIMD vectors with `i16` elements.
     fn i16(
@@ -620,6 +621,13 @@ pub trait Concat<T: Elem>: NumOps<T> {
     fn concat_high(self, a: Self::Simd, b: Self::Simd) -> Self::Simd;
 }
 
+/// Convert each lane to a float with the same bit width.
+pub trait ToFloat<T: Elem>: NumOps<T> {
+    type Output;
+
+    fn to_float(self, x: Self::Simd) -> Self::Output;
+}
+
 /// Narrow lanes to one with half the bit-width, using truncation.
 ///
 /// For integer types, the narrowed type has the same signed-ness.
@@ -652,7 +660,8 @@ pub trait NarrowSaturate<T: Elem, U: Elem>: NumOps<T> {
 mod tests {
     use crate::elem::WrappingAdd;
     use crate::ops::{
-        Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
+        Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
+        SignedIntOps, ToFloat,
     };
     use crate::{Isa, Mask, Simd, SimdOp, assert_simd_eq, assert_simd_ne, test_simd_op};
 
@@ -1437,5 +1446,16 @@ mod tests {
             let expected = isa.i32().splat(x_i32);
             assert_simd_eq!(y_vec, expected);
         })
+    }
+
+    #[test]
+    fn test_to_float_i32() {
+        test_simd_op!(isa, {
+            let x = isa.i32().splat(42);
+            let y = isa.i32().to_float(x);
+
+            let expected = isa.f32().splat(42.0);
+            assert_simd_eq!(y, expected);
+        });
     }
 }
