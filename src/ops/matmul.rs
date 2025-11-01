@@ -1,8 +1,9 @@
 use rayon::prelude::*;
 use rten_base::byte_cast::{Pod, cast_pod_vec};
 use rten_gemm::{
-    BiasVector, BlockQuantizedError, BlockQuantizedMatrix, GemmExecutor, GemmInT, GemmInputA,
-    GemmInputB, GemmOptions, GemmOutT, GemmUninitOptions, PackedBMatrix, QuantParams,
+    BiasVector, BlockQuantizedError, BlockQuantizedGemm, BlockQuantizedMatrix, GemmExecutor,
+    GemmInT, GemmInputA, GemmInputB, GemmOptions, GemmOutT, GemmUninitOptions, PackedBMatrix,
+    QuantParams,
 };
 use rten_tensor::prelude::*;
 use rten_tensor::{CowNdTensor, Matrix, NdTensor, NdTensorView, Tensor, TensorView};
@@ -654,16 +655,12 @@ fn matmul_nbits(
     let rhs = rhs.to_contiguous_in(pool);
     let scales = scales.to_contiguous_in(pool);
 
-    let a_mats: SmallVec<[_; 1]> = lhs.inner_iter::<2>().map(GemmInputA::Unpacked).collect();
     let b_mat = BlockQuantizedMatrix::new(rhs.view(), scales.view(), bits).map_err(|err| {
         OpError::UnsupportedValue(match err {
             BlockQuantizedError::UnsupportedBlockSize => "Unsupported K block size",
             BlockQuantizedError::UnsupportedElementSize => "Unsupported bits-per-element",
         })
     })?;
-    let b_mats: SmallVec<[_; 1]> = std::iter::repeat(GemmInputB::BlockQuantized(b_mat))
-        .take(batch)
-        .collect();
 
     let out_shape = [batch, rows, b_mat.cols()];
     let out_len = out_shape.iter().product();
@@ -675,16 +672,33 @@ fn matmul_nbits(
         ));
     }
 
-    let gemm = GemmExecutor::default();
-    out_data.extend_init(|uninit_out_data| {
-        gemm.batched_gemm_uninit(
-            &mut uninit_out_data[..out_len],
-            &a_mats,
-            &b_mats,
-            GemmUninitOptions::default(),
-        )
-        .unwrap()
-    });
+    // For vector-matrix products use an optimized implementation. Otherwise use
+    // the standard GEMM implementation which handles block-quantized inputs via
+    // a custom packing function, but otherwise uses the same logic as for
+    // regular matmuls.
+    if rows == 1 {
+        let gemm = BlockQuantizedGemm::new();
+        out_data.extend_init(|uninit_out_data| {
+            gemm.batched_gemm_uninit(&mut uninit_out_data[..out_len], lhs, b_mat)
+                .unwrap()
+        });
+    } else {
+        let a_mats: SmallVec<[_; 1]> = lhs.inner_iter::<2>().map(GemmInputA::Unpacked).collect();
+        let b_mats: SmallVec<[_; 1]> = std::iter::repeat(GemmInputB::BlockQuantized(b_mat))
+            .take(batch)
+            .collect();
+
+        let gemm = GemmExecutor::default();
+        out_data.extend_init(|uninit_out_data| {
+            gemm.batched_gemm_uninit(
+                &mut uninit_out_data[..out_len],
+                &a_mats,
+                &b_mats,
+                GemmUninitOptions::default(),
+            )
+            .unwrap()
+        });
+    }
 
     Ok(NdTensor::from_data(out_shape, out_data))
 }

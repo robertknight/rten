@@ -25,7 +25,7 @@ mod packing;
 mod prepack;
 mod tiles;
 
-pub use block_quant::BlockQuantizedMatrix;
+pub use block_quant::{BlockQuantizedGemm, BlockQuantizedMatrix};
 pub use errors::{BlockQuantizedError, GemmError};
 pub use im2col::{ColOffsets, Im2Col, RowOffsets};
 pub use kernels::QuantParams;
