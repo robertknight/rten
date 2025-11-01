@@ -86,7 +86,7 @@ pub unsafe trait Isa: Copy {
     ) -> impl SignedIntOps<i8, Simd = Self::I8> + Extend<i8, Output = Self::I16> + Interleave<i8>;
 
     /// Operations on SIMD vectors with `u8` elements.
-    fn u8(self) -> impl Extend<u8, Output = Self::U16, Simd = Self::U8>;
+    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16>;
 
     /// Operations on SIMD vectors with `u16` elements.
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16>;
@@ -214,8 +214,8 @@ where
 impl_get_ops!(GetIntOps, int_ops, IntOps, i16);
 impl_get_ops!(GetIntOps, int_ops, IntOps, i32);
 impl_get_ops!(GetIntOps, int_ops, IntOps, i8);
+impl_get_ops!(GetIntOps, int_ops, IntOps, u8);
 impl_get_ops!(GetIntOps, int_ops, IntOps, u16);
-// TODO: Implement `IntOps` for u8
 
 /// Get the [`SignedIntOps`] implementation from an [`Isa`] for a given element type.
 ///
@@ -563,6 +563,12 @@ pub trait FloatOps<T: Elem>: NumOps<T> {
 pub trait IntOps<T: Elem>: NumOps<T> {
     /// Shift each lane in `x` left by `SHIFT` bits.
     fn shift_left<const SHIFT: i32>(self, x: Self::Simd) -> Self::Simd;
+
+    /// Shift each lane in `x` right by `SHIFT` bits.
+    ///
+    /// For signed integer types this is an arithmetic shift, so shifting a
+    /// negative number right will preserve the sign, like the `>>` operator.
+    fn shift_right<const SHIFT: i32>(self, x: Self::Simd) -> Self::Simd;
 }
 
 /// Operations on SIMD vectors with signed integer elements.
@@ -1100,6 +1106,18 @@ mod tests {
                         assert_simd_eq!(y, expected);
                     })
                 }
+
+                #[test]
+                fn test_shift_right() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(42);
+                        let y = ops.shift_right::<1>(x);
+                        let expected = ops.splat(42 >> 1);
+                        assert_simd_eq!(y, expected);
+                    })
+                }
             }
         };
     }
@@ -1166,6 +1184,25 @@ mod tests {
                         let x = ops.splat(42);
                         let y = ops.shift_left::<1>(x);
                         let expected = ops.splat(42 << 1);
+                        assert_simd_eq!(y, expected);
+                    })
+                }
+
+                #[test]
+                fn test_shift_right() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(42);
+                        let y = ops.shift_right::<1>(x);
+                        let expected = ops.splat(42 >> 1);
+                        assert_simd_eq!(y, expected);
+
+                        // `shift_right` is an arithmetic right shift, so it
+                        // preserves the sign.
+                        let x = ops.splat(-128);
+                        let y = ops.shift_right::<1>(x);
+                        let expected = ops.splat(-64);
                         assert_simd_eq!(y, expected);
                     })
                 }

@@ -13,9 +13,10 @@ use std::arch::aarch64::{
     vmovl_high_s8, vmovl_high_s16, vmovl_high_u8, vmovl_s8, vmovl_s16, vmovl_u8, vmulq_f32,
     vmulq_s8, vmulq_s16, vmulq_s32, vmulq_u8, vmulq_u16, vmvnq_u32, vnegq_f32, vnegq_s8, vnegq_s16,
     vnegq_s32, vorrq_u32, vqmovn_s32, vqmovun_s16, vrndnq_f32, vshlq_n_s8, vshlq_n_s16,
-    vshlq_n_s32, vshlq_n_u16, vst1q_f32, vst1q_s8, vst1q_s16, vst1q_s32, vst1q_u8, vst1q_u16,
-    vsubq_f32, vsubq_s8, vsubq_s16, vsubq_s32, vsubq_u8, vsubq_u16, vzip1q_s8, vzip1q_s16,
-    vzip2q_s8, vzip2q_s16,
+    vshlq_n_s32, vshlq_n_u8, vshlq_n_u16, vshrq_n_s8, vshrq_n_s16, vshrq_n_s32, vshrq_n_u8,
+    vshrq_n_u16, vst1q_f32, vst1q_s8, vst1q_s16, vst1q_s32, vst1q_u8, vst1q_u16, vsubq_f32,
+    vsubq_s8, vsubq_s16, vsubq_s32, vsubq_u8, vsubq_u16, vzip1q_s8, vzip1q_s16, vzip2q_s8,
+    vzip2q_s16,
 };
 use std::mem::transmute;
 
@@ -77,7 +78,7 @@ unsafe impl Isa for ArmNeonIsa {
         self
     }
 
-    fn u8(self) -> impl Extend<u8, Output = Self::U16, Simd = Self::U8> {
+    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
         self
     }
 
@@ -388,6 +389,11 @@ impl IntOps<i32> for ArmNeonIsa {
     fn shift_left<const SHIFT: i32>(self, x: int32x4_t) -> int32x4_t {
         unsafe { vshlq_n_s32::<SHIFT>(x) }
     }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: int32x4_t) -> int32x4_t {
+        unsafe { vshrq_n_s32::<SHIFT>(x) }
+    }
 }
 
 impl SignedIntOps<i32> for ArmNeonIsa {
@@ -518,6 +524,11 @@ impl IntOps<i16> for ArmNeonIsa {
     fn shift_left<const SHIFT: i32>(self, x: int16x8_t) -> int16x8_t {
         unsafe { vshlq_n_s16::<SHIFT>(x) }
     }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: int16x8_t) -> int16x8_t {
+        unsafe { vshrq_n_s16::<SHIFT>(x) }
+    }
 }
 
 impl SignedIntOps<i16> for ArmNeonIsa {
@@ -626,6 +637,11 @@ impl IntOps<i8> for ArmNeonIsa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: int8x16_t) -> int8x16_t {
         unsafe { vshlq_n_s8::<SHIFT>(x) }
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: int8x16_t) -> int8x16_t {
+        unsafe { vshrq_n_s8::<SHIFT>(x) }
     }
 }
 
@@ -744,6 +760,18 @@ impl Extend<u8> for ArmNeonIsa {
     }
 }
 
+impl IntOps<u8> for ArmNeonIsa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: uint8x16_t) -> uint8x16_t {
+        unsafe { vshlq_n_u8::<SHIFT>(x) }
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: uint8x16_t) -> uint8x16_t {
+        unsafe { vshrq_n_u8::<SHIFT>(x) }
+    }
+}
+
 unsafe impl NumOps<u16> for ArmNeonIsa {
     simd_ops_common!(uint16x8_t, uint16x8_t);
 
@@ -818,6 +846,11 @@ impl IntOps<u16> for ArmNeonIsa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: uint16x8_t) -> uint16x8_t {
         unsafe { vshlq_n_u16::<SHIFT>(x) }
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: uint16x8_t) -> uint16x8_t {
+        unsafe { vshrq_n_u16::<SHIFT>(x) }
     }
 }
 

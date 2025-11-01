@@ -118,7 +118,7 @@ unsafe impl Isa for GenericIsa {
         self
     }
 
-    fn u8(self) -> impl Extend<u8, Output = Self::U16, Simd = Self::U8> {
+    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
         self
     }
 
@@ -353,6 +353,11 @@ macro_rules! impl_simd_int_ops {
             #[inline]
             fn shift_left<const SHIFT: i32>(self, x: $simd) -> $simd {
                 x.map(|x| x << SHIFT)
+            }
+
+            #[inline]
+            fn shift_right<const SHIFT: i32>(self, x: $simd) -> $simd {
+                x.map(|x| x >> SHIFT)
             }
         }
     };

@@ -1,17 +1,18 @@
 use std::arch::wasm32::{
     f32x4_abs, f32x4_add, f32x4_div, f32x4_eq, f32x4_extract_lane, f32x4_ge, f32x4_gt, f32x4_le,
     f32x4_lt, f32x4_max, f32x4_min, f32x4_mul, f32x4_nearest, f32x4_neg, f32x4_splat, f32x4_sub,
-    i8x16_add, i8x16_all_true, i8x16_eq, i8x16_ge, i8x16_gt, i8x16_neg, i8x16_shl, i8x16_shuffle,
-    i8x16_splat, i8x16_sub, i16x8_add, i16x8_all_true, i16x8_eq, i16x8_extend_high_i8x16,
-    i16x8_extend_low_i8x16, i16x8_extmul_high_i8x16, i16x8_extmul_low_i8x16, i16x8_ge, i16x8_gt,
-    i16x8_mul, i16x8_narrow_i32x4, i16x8_neg, i16x8_shl, i16x8_shuffle, i16x8_splat, i16x8_sub,
-    i32x4_add, i32x4_all_true, i32x4_eq, i32x4_extend_high_i16x8, i32x4_extend_low_i16x8, i32x4_ge,
-    i32x4_gt, i32x4_mul, i32x4_neg, i32x4_shl, i32x4_shuffle, i32x4_splat, i32x4_sub,
-    i32x4_trunc_sat_f32x4, u8x16_add, u8x16_eq, u8x16_ge, u8x16_gt, u8x16_narrow_i16x8,
+    i8x16_add, i8x16_all_true, i8x16_eq, i8x16_ge, i8x16_gt, i8x16_neg, i8x16_shl, i8x16_shr,
+    i8x16_shuffle, i8x16_splat, i8x16_sub, i16x8_add, i16x8_all_true, i16x8_eq,
+    i16x8_extend_high_i8x16, i16x8_extend_low_i8x16, i16x8_extmul_high_i8x16,
+    i16x8_extmul_low_i8x16, i16x8_ge, i16x8_gt, i16x8_mul, i16x8_narrow_i32x4, i16x8_neg,
+    i16x8_shl, i16x8_shr, i16x8_shuffle, i16x8_splat, i16x8_sub, i32x4_add, i32x4_all_true,
+    i32x4_eq, i32x4_extend_high_i16x8, i32x4_extend_low_i16x8, i32x4_ge, i32x4_gt, i32x4_mul,
+    i32x4_neg, i32x4_shl, i32x4_shr, i32x4_shuffle, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4,
+    u8x16_add, u8x16_eq, u8x16_ge, u8x16_gt, u8x16_narrow_i16x8, u8x16_shl, u8x16_shr,
     u8x16_shuffle, u8x16_splat, u8x16_sub, u16x8_add, u16x8_eq, u16x8_extend_high_u8x16,
     u16x8_extend_low_u8x16, u16x8_extmul_high_u8x16, u16x8_extmul_low_u8x16, u16x8_ge, u16x8_gt,
-    u16x8_mul, u16x8_shl, u16x8_splat, u16x8_sub, v128, v128_and, v128_any_true, v128_bitselect,
-    v128_load, v128_not, v128_or, v128_store, v128_xor,
+    u16x8_mul, u16x8_shl, u16x8_shr, u16x8_splat, u16x8_sub, v128, v128_and, v128_any_true,
+    v128_bitselect, v128_load, v128_not, v128_or, v128_store, v128_xor,
 };
 use std::mem::transmute;
 
@@ -86,7 +87,7 @@ unsafe impl Isa for Wasm32Isa {
         self
     }
 
-    fn u8(self) -> impl NumOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
+    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
         self
     }
 
@@ -364,6 +365,11 @@ impl IntOps<i32> for Wasm32Isa {
     fn shift_left<const SHIFT: i32>(self, x: I32x4) -> I32x4 {
         I32x4(i32x4_shl(x.0, SHIFT as u32))
     }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: I32x4) -> I32x4 {
+        I32x4(i32x4_shr(x.0, SHIFT as u32))
+    }
 }
 
 impl SignedIntOps<i32> for Wasm32Isa {
@@ -437,6 +443,11 @@ impl IntOps<i16> for Wasm32Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I16x8) -> I16x8 {
         I16x8(i16x8_shl(x.0, SHIFT as u32))
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: I16x8) -> I16x8 {
+        I16x8(i16x8_shr(x.0, SHIFT as u32))
     }
 }
 
@@ -531,6 +542,11 @@ impl IntOps<i8> for Wasm32Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I8x16) -> I8x16 {
         I8x16(i8x16_shl(x.0, SHIFT as u32))
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: I8x16) -> I8x16 {
+        I8x16(i8x16_shr(x.0, SHIFT as u32))
     }
 }
 
@@ -657,6 +673,11 @@ impl IntOps<u16> for Wasm32Isa {
     fn shift_left<const SHIFT: i32>(self, x: U16x8) -> U16x8 {
         U16x8(u16x8_shl(x.0, SHIFT as u32))
     }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: U16x8) -> U16x8 {
+        U16x8(u16x8_shr(x.0, SHIFT as u32))
+    }
 }
 
 impl Extend<u8> for Wasm32Isa {
@@ -667,6 +688,18 @@ impl Extend<u8> for Wasm32Isa {
         let low = u16x8_extend_low_u8x16(x.0);
         let high = u16x8_extend_high_u8x16(x.0);
         (low.into(), high.into())
+    }
+}
+
+impl IntOps<u8> for Wasm32Isa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: U8x16) -> U8x16 {
+        U8x16(u8x16_shl(x.0, SHIFT as u32))
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: U8x16) -> U8x16 {
+        U8x16(u8x16_shr(x.0, SHIFT as u32))
     }
 }
 
