@@ -118,7 +118,9 @@ unsafe impl Isa for GenericIsa {
         self
     }
 
-    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
+    fn u8(
+        self,
+    ) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> + Interleave<u8> {
         self
     }
 
@@ -453,6 +455,7 @@ macro_rules! impl_interleave {
 }
 impl_interleave!(i8, I8x16);
 impl_interleave!(i16, I16x8);
+impl_interleave!(u8, U8x16);
 
 impl_simd_int_ops!(U8x16, u8, 16, M8);
 impl_simd_int_ops!(U16x8, u16, 8, M16);

@@ -97,7 +97,9 @@ unsafe impl Isa for Avx512Isa {
         self
     }
 
-    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
+    fn u8(
+        self,
+    ) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> + Interleave<u8> {
         self
     }
 
@@ -690,30 +692,37 @@ impl SignedIntOps<i8> for Avx512Isa {
     }
 }
 
+#[inline]
+fn interleave_low_x8(a: __m512i, b: __m512i) -> __m512i {
+    unsafe {
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm512_unpacklo_epi8(a, b); // AB0 AB2 AB4 AB6
+        let hi = _mm512_unpackhi_epi8(a, b); // AB1 AB3 AB5 AB7
+        let idx = _mm512_setr_epi32(0, 1, 2, 3, 16, 17, 18, 19, 4, 5, 6, 7, 20, 21, 22, 23);
+        _mm512_permutex2var_epi32(lo, idx, hi) // AB0 AB1 AB2 AB3
+    }
+}
+
+#[inline]
+fn interleave_high_x8(a: __m512i, b: __m512i) -> __m512i {
+    unsafe {
+        // AB{N} = Interleaved Nth 64-bit block.
+        let lo = _mm512_unpacklo_epi8(a, b); // AB0 AB2 AB4 AB6
+        let hi = _mm512_unpackhi_epi8(a, b); // AB1 AB3 AB5 AB7
+        let idx = _mm512_setr_epi32(8, 9, 10, 11, 24, 25, 26, 27, 12, 13, 14, 15, 28, 29, 30, 31);
+        _mm512_permutex2var_epi32(lo, idx, hi) // AB4 AB5 AB6 AB7
+    }
+}
+
 impl Interleave<i8> for Avx512Isa {
     #[inline]
     fn interleave_low(self, a: I8x64, b: I8x64) -> I8x64 {
-        unsafe {
-            // AB{N} = Interleaved Nth 64-bit block.
-            let lo = _mm512_unpacklo_epi8(a.0, b.0); // AB0 AB2 AB4 AB6
-            let hi = _mm512_unpackhi_epi8(a.0, b.0); // AB1 AB3 AB5 AB7
-            let idx = _mm512_setr_epi32(0, 1, 2, 3, 16, 17, 18, 19, 4, 5, 6, 7, 20, 21, 22, 23);
-            _mm512_permutex2var_epi32(lo, idx, hi) // AB0 AB1 AB2 AB3
-        }
-        .into()
+        interleave_low_x8(a.0, b.0).into()
     }
 
     #[inline]
     fn interleave_high(self, a: I8x64, b: I8x64) -> I8x64 {
-        unsafe {
-            // AB{N} = Interleaved Nth 64-bit block.
-            let lo = _mm512_unpacklo_epi8(a.0, b.0); // AB0 AB2 AB4 AB6
-            let hi = _mm512_unpackhi_epi8(a.0, b.0); // AB1 AB3 AB5 AB7
-            let idx =
-                _mm512_setr_epi32(8, 9, 10, 11, 24, 25, 26, 27, 12, 13, 14, 15, 28, 29, 30, 31);
-            _mm512_permutex2var_epi32(lo, idx, hi) // AB4 AB5 AB6 AB7
-        }
-        .into()
+        interleave_high_x8(a.0, b.0).into()
     }
 }
 
@@ -862,6 +871,33 @@ impl IntOps<u8> for Avx512Isa {
         );
 
         self.narrow_truncate(y_lo, y_hi)
+    }
+}
+
+impl Interleave<u8> for Avx512Isa {
+    #[inline]
+    fn interleave_low(self, a: U8x64, b: U8x64) -> U8x64 {
+        unsafe {
+            // AB{N} = Interleaved Nth 64-bit block.
+            let lo = _mm512_unpacklo_epi8(a.0, b.0); // AB0 AB2 AB4 AB6
+            let hi = _mm512_unpackhi_epi8(a.0, b.0); // AB1 AB3 AB5 AB7
+            let idx = _mm512_setr_epi32(0, 1, 2, 3, 16, 17, 18, 19, 4, 5, 6, 7, 20, 21, 22, 23);
+            _mm512_permutex2var_epi32(lo, idx, hi) // AB0 AB1 AB2 AB3
+        }
+        .into()
+    }
+
+    #[inline]
+    fn interleave_high(self, a: U8x64, b: U8x64) -> U8x64 {
+        unsafe {
+            // AB{N} = Interleaved Nth 64-bit block.
+            let lo = _mm512_unpacklo_epi8(a.0, b.0); // AB0 AB2 AB4 AB6
+            let hi = _mm512_unpackhi_epi8(a.0, b.0); // AB1 AB3 AB5 AB7
+            let idx =
+                _mm512_setr_epi32(8, 9, 10, 11, 24, 25, 26, 27, 12, 13, 14, 15, 28, 29, 30, 31);
+            _mm512_permutex2var_epi32(lo, idx, hi) // AB4 AB5 AB6 AB7
+        }
+        .into()
     }
 }
 

@@ -15,8 +15,8 @@ use std::arch::aarch64::{
     vnegq_s32, vorrq_u32, vqmovn_s32, vqmovun_s16, vrndnq_f32, vshlq_n_s8, vshlq_n_s16,
     vshlq_n_s32, vshlq_n_u8, vshlq_n_u16, vshrq_n_s8, vshrq_n_s16, vshrq_n_s32, vshrq_n_u8,
     vshrq_n_u16, vst1q_f32, vst1q_s8, vst1q_s16, vst1q_s32, vst1q_u8, vst1q_u16, vsubq_f32,
-    vsubq_s8, vsubq_s16, vsubq_s32, vsubq_u8, vsubq_u16, vzip1q_s8, vzip1q_s16, vzip2q_s8,
-    vzip2q_s16,
+    vsubq_s8, vsubq_s16, vsubq_s32, vsubq_u8, vsubq_u16, vzip1q_s8, vzip1q_s16, vzip1q_u8,
+    vzip2q_s8, vzip2q_s16, vzip2q_u8,
 };
 use std::mem::transmute;
 
@@ -78,7 +78,9 @@ unsafe impl Isa for ArmNeonIsa {
         self
     }
 
-    fn u8(self) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> {
+    fn u8(
+        self,
+    ) -> impl IntOps<u8, Simd = Self::U8> + Extend<u8, Output = Self::U16> + Interleave<u8> {
         self
     }
 
@@ -769,6 +771,18 @@ impl IntOps<u8> for ArmNeonIsa {
     #[inline]
     fn shift_right<const SHIFT: i32>(self, x: uint8x16_t) -> uint8x16_t {
         unsafe { vshrq_n_u8::<SHIFT>(x) }
+    }
+}
+
+impl Interleave<u8> for ArmNeonIsa {
+    #[inline]
+    fn interleave_low(self, a: uint8x16_t, b: uint8x16_t) -> uint8x16_t {
+        unsafe { vzip1q_u8(a, b) }
+    }
+
+    #[inline]
+    fn interleave_high(self, a: uint8x16_t, b: uint8x16_t) -> uint8x16_t {
+        unsafe { vzip2q_u8(a, b) }
     }
 }
 
