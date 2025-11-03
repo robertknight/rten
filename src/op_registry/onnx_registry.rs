@@ -3,6 +3,7 @@
 #![deny(clippy::as_conversions)]
 
 use std::cell::Cell;
+use std::fmt;
 use std::sync::Arc;
 
 use rten_base::bit_set::BitSet;
@@ -51,7 +52,9 @@ impl OnnxOpRegistry {
     /// registry.
     pub(crate) fn read_op(&self, op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> ReadOpResult {
         let op_type = op.op_type.as_deref().unwrap_or_default();
-        let id = if let Some(domain) = op.domain.as_deref() {
+        let id = if let Some(domain) = op.domain.as_deref()
+            && !domain.is_empty()
+        {
             OpId::with_domain(domain, op_type)
         } else {
             OpId::new(op_type)
@@ -59,7 +62,7 @@ impl OnnxOpRegistry {
         self.ops
             .get(&id)
             .ok_or_else(|| ReadOpError::OperatorUnavailable {
-                name: op.op_type.as_ref().map(|s| s.to_string()),
+                name: Some(id.to_string()),
             })
             .and_then(|read_fn| read_fn(op, ctx))
     }
@@ -244,11 +247,13 @@ pub struct OpId<'a> {
     pub op_type: &'a str,
 }
 
+const DEFAULT_DOMAIN: &'static str = "ai.onnx";
+
 impl<'a> OpId<'a> {
     /// Create an operator ID using the default domain.
     fn new(op_type: &'a str) -> Self {
         Self {
-            domain: "ai.onnx",
+            domain: DEFAULT_DOMAIN,
             op_type,
         }
     }
@@ -256,6 +261,16 @@ impl<'a> OpId<'a> {
     /// Create an operator ID using a custom domain.
     fn with_domain(domain: &'a str, op_type: &'a str) -> Self {
         Self { domain, op_type }
+    }
+}
+
+impl fmt::Display for OpId<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.domain == DEFAULT_DOMAIN {
+            write!(f, "{}", self.op_type)
+        } else {
+            write!(f, "{}/{}", self.domain, self.op_type)
+        }
     }
 }
 
@@ -1584,11 +1599,16 @@ mod tests {
     #[test]
     fn test_read_op() {
         let reg = OnnxOpRegistry::with_all_ops();
+
+        // Supported op with no domain.
         let node = create_node("MatMul");
-
         let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+        assert_eq!(op.name(), "MatMul");
 
-        assert_eq!(op.name(), "MatMul")
+        // Supported op with empty domain.
+        let node = create_node("MatMul").with_domain("");
+        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+        assert_eq!(op.name(), "MatMul");
     }
 
     #[test]
@@ -1638,7 +1658,7 @@ mod tests {
         let node = create_node("MatMul").with_domain("com.foobar");
         let op = reg.read_op(&node, &FakeOpLoadContext);
         assert!(
-            matches!(op, Err(ReadOpError::OperatorUnavailable { name }) if name == Some("MatMul".to_string()))
+            matches!(op, Err(ReadOpError::OperatorUnavailable { name }) if name == Some("com.foobar/MatMul".to_string()))
         );
     }
 
