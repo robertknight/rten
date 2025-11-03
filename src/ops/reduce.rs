@@ -434,6 +434,7 @@ pub fn reduce_mean(
 pub struct ReduceMean {
     pub axes: Option<Vec<i32>>,
     pub keep_dims: bool,
+    pub noop_with_empty_axes: bool,
 }
 
 impl Operator for ReduceMean {
@@ -447,15 +448,22 @@ impl Operator for ReduceMean {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
-        let input = inputs.require_as(0)?;
+        let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
-        reduce_mean(
-            ctx.pool(),
-            input,
-            axes.as_ref().map(|axis| &axis[..]),
-            self.keep_dims,
-        )
-        .into_op_result()
+
+        if is_none_or_empty(axes.as_deref()) && self.noop_with_empty_axes {
+            return input.to_owned_in(ctx.pool()).into_op_result();
+        }
+
+        map_value_view!(input, input, [FloatTensor], {
+            reduce_mean(
+                ctx.pool(),
+                input,
+                axes.as_ref().map(|axis| &axis[..]),
+                self.keep_dims,
+            )
+            .into_op_result()
+        })
     }
 }
 
@@ -479,6 +487,7 @@ pub fn reduce_l2(
 pub struct ReduceL2 {
     pub axes: Option<Vec<i32>>,
     pub keep_dims: bool,
+    pub noop_with_empty_axes: bool,
 }
 
 impl Operator for ReduceL2 {
@@ -492,15 +501,22 @@ impl Operator for ReduceL2 {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
-        let input = inputs.require_as(0)?;
+        let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
-        reduce_l2(
-            ctx.pool(),
-            input,
-            axes.as_ref().map(|axis| &axis[..]),
-            self.keep_dims,
-        )
-        .into_op_result()
+
+        if is_none_or_empty(axes.as_deref()) && self.noop_with_empty_axes {
+            return input.to_owned_in(ctx.pool()).into_op_result();
+        }
+
+        map_value_view!(input, input, [FloatTensor], {
+            reduce_l2(
+                ctx.pool(),
+                input,
+                axes.as_ref().map(|axis| &axis[..]),
+                self.keep_dims,
+            )
+            .into_op_result()
+        })
     }
 }
 
@@ -593,10 +609,15 @@ pub fn reduce_min<T: Copy + IsNaN + MinMax>(
     reduce(pool, input, axes, keep_dims, kernel)
 }
 
+fn is_none_or_empty<T>(x: Option<&[T]>) -> bool {
+    x.map(|x| x.is_empty()).unwrap_or(true)
+}
+
 #[derive(Debug)]
 pub struct ReduceMin {
     pub axes: Option<Vec<i32>>,
     pub keep_dims: bool,
+    pub noop_with_empty_axes: bool,
 }
 
 impl Operator for ReduceMin {
@@ -612,6 +633,11 @@ impl Operator for ReduceMin {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
+
+        if is_none_or_empty(axes.as_deref()) && self.noop_with_empty_axes {
+            return input.to_owned_in(ctx.pool()).into_op_result();
+        }
+
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             reduce_min(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
@@ -646,6 +672,7 @@ pub fn reduce_max<T: Copy + IsNaN + MinMax>(
 pub struct ReduceMax {
     pub axes: Option<Vec<i32>>,
     pub keep_dims: bool,
+    pub noop_with_empty_axes: bool,
 }
 
 impl Operator for ReduceMax {
@@ -661,6 +688,11 @@ impl Operator for ReduceMax {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
+
+        if is_none_or_empty(axes.as_deref()) && self.noop_with_empty_axes {
+            return input.to_owned_in(ctx.pool()).into_op_result();
+        }
+
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             reduce_max(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
@@ -686,6 +718,7 @@ pub fn reduce_prod<T: Copy + std::iter::Product>(
 pub struct ReduceProd {
     pub axes: Option<Vec<i32>>,
     pub keep_dims: bool,
+    pub noop_with_empty_axes: bool,
 }
 
 impl Operator for ReduceProd {
@@ -701,6 +734,11 @@ impl Operator for ReduceProd {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
+
+        if is_none_or_empty(axes.as_deref()) && self.noop_with_empty_axes {
+            return input.to_owned_in(ctx.pool()).into_op_result();
+        }
+
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             reduce_prod(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
@@ -735,6 +773,7 @@ pub fn reduce_sum<T: Copy + Default + std::ops::Add<T, Output = T>>(
 pub struct ReduceSum {
     pub axes: Option<Vec<i32>>,
     pub keep_dims: bool,
+    pub noop_with_empty_axes: bool,
 }
 
 impl Operator for ReduceSum {
@@ -750,6 +789,11 @@ impl Operator for ReduceSum {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
+
+        if is_none_or_empty(axes.as_deref()) && self.noop_with_empty_axes {
+            return input.to_owned_in(ctx.pool()).into_op_result();
+        }
+
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             reduce_sum(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
@@ -787,6 +831,7 @@ pub fn reduce_sum_square<T: Copy + std::ops::Mul<T, Output = T> + std::iter::Sum
 pub struct ReduceSumSquare {
     pub axes: Option<Vec<i32>>,
     pub keep_dims: bool,
+    pub noop_with_empty_axes: bool,
 }
 
 impl Operator for ReduceSumSquare {
@@ -802,8 +847,14 @@ impl Operator for ReduceSumSquare {
         let inputs = ctx.inputs();
         let input = inputs.require(0)?;
         let axes = get_axes(inputs, &self.axes)?;
+
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
-            reduce_sum_square(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
+            if is_none_or_empty(axes.as_deref()) && self.noop_with_empty_axes {
+                input.map_in(ctx.pool(), |x| x * x).into_op_result()
+            } else {
+                reduce_sum_square(ctx.pool(), input, axes.as_deref(), self.keep_dims)
+                    .into_op_result()
+            }
         })
     }
 }
@@ -920,6 +971,7 @@ mod tests {
     use std::error::Error;
 
     use rten_tensor::prelude::*;
+    use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{eq_with_nans, expect_equal};
     use rten_tensor::{NdTensor, SliceRange, Tensor};
     use rten_testing::TestCases;
@@ -1155,6 +1207,7 @@ mod tests {
                         // instead.
                         axes: None,
                         keep_dims: true,
+                        noop_with_empty_axes: false,
                     })),
                 }
             };
@@ -1494,6 +1547,51 @@ mod tests {
             false, /* keep_dims */
         ));
         assert_eq!(result, input.iter().sum::<f32>());
+    }
+
+    #[test]
+    fn test_noop_with_empty_axes() {
+        let mut rng = XorShiftRng::new(1234);
+
+        // For non-fused reductions, `noop_with_empty_axes` with empty axes
+        // becomes an identity op.
+        macro_rules! op {
+            ($op:ident) => {
+                Box::new($op {
+                    axes: None,
+                    keep_dims: false,
+                    noop_with_empty_axes: true,
+                })
+            };
+        }
+
+        let ops: Vec<Box<dyn Operator>> = vec![
+            op!(ReduceL2),
+            op!(ReduceMax),
+            op!(ReduceMean),
+            op!(ReduceMin),
+            op!(ReduceProd),
+            op!(ReduceSum),
+        ];
+
+        for op in ops {
+            let input = Tensor::<f32>::rand(&[5, 5], &mut rng);
+            let output: Tensor<f32> = op.run_simple(input.view()).unwrap();
+            assert_eq!(output, input);
+        }
+
+        // For reductions with fused pointwise ops, the pointwise op is still
+        // applied.
+        let input = Tensor::<f32>::rand(&[5, 5], &mut rng);
+        let expected = input.map(|x| x * x);
+        let output: Tensor<f32> = ReduceSumSquare {
+            axes: None,
+            keep_dims: false,
+            noop_with_empty_axes: true,
+        }
+        .run_simple(input.view())
+        .unwrap();
+        assert_eq!(output, expected);
     }
 
     #[test]

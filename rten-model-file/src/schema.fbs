@@ -503,6 +503,7 @@ table RandomUniformLikeAttrs {
 table ReduceMeanAttrs {
   axes:[int];
   keep_dims:bool;
+  noop_with_empty_axes:bool;
 }
 
 table ReshapeAttrs {

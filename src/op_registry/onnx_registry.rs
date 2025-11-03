@@ -1366,8 +1366,12 @@ macro_rules! impl_read_op_for_reduce_op {
         impl_read_op!($op, |attrs: &Attrs| {
             let axes = attrs.get("axes").map(|v| v.cast_ints()).transpose()?;
             let keep_dims = attrs.get_as("keepdims").unwrap_or(true);
-            attrs.check_eq("noop_with_empty_axes", 0)?;
-            Ok(ops::$op { axes, keep_dims })
+            let noop_with_empty_axes = attrs.get_as("noop_with_empty_axes").unwrap_or(false);
+            Ok(ops::$op {
+                axes,
+                keep_dims,
+                noop_with_empty_axes,
+            })
         });
     };
 }

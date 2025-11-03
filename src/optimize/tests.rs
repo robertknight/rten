@@ -78,6 +78,7 @@ impl OpExprs for Expr {
         self.unary(ReduceMean {
             axes: Some(vec![-1]),
             keep_dims: false,
+            noop_with_empty_axes: false,
         })
     }
 
@@ -86,6 +87,7 @@ impl OpExprs for Expr {
             ReduceMean {
                 axes: None,
                 keep_dims: false,
+                noop_with_empty_axes: false,
             },
             axes,
         )

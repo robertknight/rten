@@ -1392,26 +1392,32 @@ mod tests {
         add_operator!(ReduceMean, [input_node], {
             axes: None,
             keep_dims: false,
+            noop_with_empty_axes: false,
         });
         add_operator!(ReduceMax, [input_node], {
             axes: None,
             keep_dims: false,
+            noop_with_empty_axes: false,
         });
         add_operator!(ReduceMin, [input_node], {
             axes: None,
             keep_dims: false,
+            noop_with_empty_axes: false,
         });
         add_operator!(ReduceProd, [input_node], {
             axes: None,
             keep_dims: false,
+            noop_with_empty_axes: false,
         });
         add_operator!(ReduceSum, [input_node], {
             axes: None,
             keep_dims: false,
+            noop_with_empty_axes: false,
         });
         add_operator!(ReduceSumSquare, [input_node], {
             axes: None,
             keep_dims: false,
+            noop_with_empty_axes: false,
         });
         add_operator!(Relu, [input_node]);
 
