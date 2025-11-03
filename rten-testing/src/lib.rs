@@ -116,6 +116,7 @@ impl<I: IntoIterator> TestCases for I {
     {
         let mut total = 0;
         let mut failures = Vec::new();
+
         for case in self {
             total += 1;
             if std::panic::catch_unwind(|| {
@@ -126,21 +127,19 @@ impl<I: IntoIterator> TestCases for I {
                 failures.push(case);
             }
         }
-        assert!(
-            failures.is_empty(),
-            "{} of {} test cases failed: {:?}",
-            failures.len(),
-            total,
-            failures
-        );
+
+        assert_no_failures(&failures, total);
     }
 
     fn test_each_clone(self, test: impl Fn(I::Item) + RefUnwindSafe)
     where
         Self::Case: Clone + Debug + UnwindSafe,
     {
+        let mut total = 0;
         let mut failures = Vec::new();
+
         for case in self {
+            total += 1;
             let value = case.clone();
             let test = &test;
 
@@ -152,21 +151,19 @@ impl<I: IntoIterator> TestCases for I {
                 failures.push(case);
             }
         }
-        assert_eq!(
-            failures.len(),
-            0,
-            "{} test cases failed: {:?}",
-            failures.len(),
-            failures
-        );
+
+        assert_no_failures(&failures, total);
     }
 
     fn test_each_value(self, test: impl Fn(I::Item) + RefUnwindSafe)
     where
         Self::Case: Debug + UnwindSafe,
     {
+        let mut total = 0;
         let mut failures = Vec::new();
+
         for case in self {
+            total += 1;
             let test = &test;
             let case_str = format!("{:?}", case);
 
@@ -178,14 +175,19 @@ impl<I: IntoIterator> TestCases for I {
                 failures.push(case_str);
             }
         }
-        assert_eq!(
-            failures.len(),
-            0,
-            "{} test cases failed: {:?}",
-            failures.len(),
-            failures
-        );
+
+        assert_no_failures(&failures, total);
     }
+}
+
+fn assert_no_failures<T: Debug>(failures: &[T], total: usize) {
+    assert!(
+        failures.is_empty(),
+        "{} of {} test cases failed: {:?}",
+        failures.len(),
+        total,
+        failures
+    );
 }
 
 #[cfg(test)]
