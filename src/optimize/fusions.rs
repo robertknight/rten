@@ -297,6 +297,7 @@ impl PatternFusion for ReduceMeanAxesFusion {
         Some(ReduceMean {
             axes: Some(axes.to_vec()),
             keep_dims: mean_op.keep_dims,
+            noop_with_empty_axes: false,
         })
     }
 }

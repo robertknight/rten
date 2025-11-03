@@ -5036,8 +5036,15 @@ class ReduceMeanAttrs(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
+    # ReduceMeanAttrs
+    def NoopWithEmptyAxes(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
 def ReduceMeanAttrsStart(builder):
-    builder.StartObject(2)
+    builder.StartObject(3)
 
 def ReduceMeanAttrsAddAxes(builder, axes):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(axes), 0)
@@ -5047,6 +5054,9 @@ def ReduceMeanAttrsStartAxesVector(builder, numElems):
 
 def ReduceMeanAttrsAddKeepDims(builder, keepDims):
     builder.PrependBoolSlot(1, keepDims, 0)
+
+def ReduceMeanAttrsAddNoopWithEmptyAxes(builder, noopWithEmptyAxes):
+    builder.PrependBoolSlot(2, noopWithEmptyAxes, 0)
 
 def ReduceMeanAttrsEnd(builder):
     return builder.EndObject()
@@ -5064,9 +5074,11 @@ class ReduceMeanAttrsT(object):
         self,
         axes = None,
         keepDims = False,
+        noopWithEmptyAxes = False,
     ):
         self.axes = axes  # type: Optional[List[int]]
         self.keepDims = keepDims  # type: bool
+        self.noopWithEmptyAxes = noopWithEmptyAxes  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5097,6 +5109,7 @@ class ReduceMeanAttrsT(object):
             else:
                 self.axes = reduceMeanAttrs.AxesAsNumpy()
         self.keepDims = reduceMeanAttrs.KeepDims()
+        self.noopWithEmptyAxes = reduceMeanAttrs.NoopWithEmptyAxes()
 
     # ReduceMeanAttrsT
     def Pack(self, builder):
@@ -5112,6 +5125,7 @@ class ReduceMeanAttrsT(object):
         if self.axes is not None:
             ReduceMeanAttrsAddAxes(builder, axes)
         ReduceMeanAttrsAddKeepDims(builder, self.keepDims)
+        ReduceMeanAttrsAddNoopWithEmptyAxes(builder, self.noopWithEmptyAxes)
         reduceMeanAttrs = ReduceMeanAttrsEnd(builder)
         return reduceMeanAttrs
 

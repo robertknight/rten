@@ -7888,6 +7888,7 @@ impl<'a> flatbuffers::Follow<'a> for ReduceMeanAttrs<'a> {
 impl<'a> ReduceMeanAttrs<'a> {
     pub const VT_AXES: flatbuffers::VOffsetT = 4;
     pub const VT_KEEP_DIMS: flatbuffers::VOffsetT = 6;
+    pub const VT_NOOP_WITH_EMPTY_AXES: flatbuffers::VOffsetT = 8;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -7902,6 +7903,7 @@ impl<'a> ReduceMeanAttrs<'a> {
         if let Some(x) = args.axes {
             builder.add_axes(x);
         }
+        builder.add_noop_with_empty_axes(args.noop_with_empty_axes);
         builder.add_keep_dims(args.keep_dims);
         builder.finish()
     }
@@ -7930,6 +7932,17 @@ impl<'a> ReduceMeanAttrs<'a> {
                 .unwrap()
         }
     }
+    #[inline]
+    pub fn noop_with_empty_axes(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(ReduceMeanAttrs::VT_NOOP_WITH_EMPTY_AXES, Some(false))
+                .unwrap()
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for ReduceMeanAttrs<'_> {
@@ -7946,6 +7959,7 @@ impl flatbuffers::Verifiable for ReduceMeanAttrs<'_> {
                 false,
             )?
             .visit_field::<bool>("keep_dims", Self::VT_KEEP_DIMS, false)?
+            .visit_field::<bool>("noop_with_empty_axes", Self::VT_NOOP_WITH_EMPTY_AXES, false)?
             .finish();
         Ok(())
     }
@@ -7953,6 +7967,7 @@ impl flatbuffers::Verifiable for ReduceMeanAttrs<'_> {
 pub struct ReduceMeanAttrsArgs<'a> {
     pub axes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, i32>>>,
     pub keep_dims: bool,
+    pub noop_with_empty_axes: bool,
 }
 impl<'a> Default for ReduceMeanAttrsArgs<'a> {
     #[inline]
@@ -7960,6 +7975,7 @@ impl<'a> Default for ReduceMeanAttrsArgs<'a> {
         ReduceMeanAttrsArgs {
             axes: None,
             keep_dims: false,
+            noop_with_empty_axes: false,
         }
     }
 }
@@ -7978,6 +7994,14 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ReduceMeanAttrsBuilder<'a, 'b, 
     pub fn add_keep_dims(&mut self, keep_dims: bool) {
         self.fbb_
             .push_slot::<bool>(ReduceMeanAttrs::VT_KEEP_DIMS, keep_dims, false);
+    }
+    #[inline]
+    pub fn add_noop_with_empty_axes(&mut self, noop_with_empty_axes: bool) {
+        self.fbb_.push_slot::<bool>(
+            ReduceMeanAttrs::VT_NOOP_WITH_EMPTY_AXES,
+            noop_with_empty_axes,
+            false,
+        );
     }
     #[inline]
     pub fn new(
@@ -8001,6 +8025,7 @@ impl core::fmt::Debug for ReduceMeanAttrs<'_> {
         let mut ds = f.debug_struct("ReduceMeanAttrs");
         ds.field("axes", &self.axes());
         ds.field("keep_dims", &self.keep_dims());
+        ds.field("noop_with_empty_axes", &self.noop_with_empty_axes());
         ds.finish()
     }
 }

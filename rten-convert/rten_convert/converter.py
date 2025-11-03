@@ -651,8 +651,9 @@ def op_node_from_onnx_operator(
             attrs = sg.ReduceMeanAttrsT()
             attrs.axes = attr_reader.get_attr("axes", "ints", None)
             attrs.keepDims = bool(attr_reader.get_attr("keepdims", "int", 1))
-
-            attr_reader.check_attr("noop_with_empty_axes", "int", 0)
+            attrs.noopWithEmptyAxes = bool(
+                attr_reader.get_attr("noop_with_empty_axes", "int", 0)
+            )
 
         case "Reshape":
             attrs = sg.ReshapeAttrsT()

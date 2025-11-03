@@ -372,6 +372,7 @@ macro_rules! impl_read_op {
                 let op = ops::$op {
                     axes,
                     keep_dims: attrs.keep_dims(),
+                    noop_with_empty_axes: attrs.noop_with_empty_axes(),
                 };
                 Ok(op)
             }

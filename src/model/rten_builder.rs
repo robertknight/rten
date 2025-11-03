@@ -414,6 +414,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 sg::ReduceMeanAttrsArgs {
                     axes,
                     keep_dims: $args.keep_dims,
+                    noop_with_empty_axes: $args.noop_with_empty_axes,
                 }
             }};
         }
