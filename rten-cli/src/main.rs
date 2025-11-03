@@ -14,6 +14,8 @@ use safetensors::SafeTensors;
 
 mod dim_size;
 use dim_size::DimSize;
+mod input_info;
+use input_info::{print_input_output_list, print_input_shapes, print_output_shapes};
 
 #[derive(Clone, Copy, Default, PartialEq)]
 enum ProfileMode {
@@ -210,14 +212,7 @@ fn run_model(
     }
 
     if !quiet {
-        for (id, input) in inputs.iter() {
-            let info = model.node_info(*id);
-            let name = info
-                .as_ref()
-                .and_then(|ni| ni.name())
-                .unwrap_or("(unnamed)");
-            println!("  Input \"{name}\" shape {:?}", input.shape());
-        }
+        print_input_shapes(model, &inputs);
     }
 
     // Run model and summarize outputs.
@@ -288,14 +283,10 @@ fn run_model(
         .collect();
 
     if !quiet && let Some(outputs) = last_outputs {
-        for (output, name) in outputs.iter().zip(output_names) {
-            // Print basic information about the output.
-            println!(
-                "  Output \"{name}\" type {} shape: {:?}",
-                output.dtype(),
-                output.shape()
-            );
+        // Print basic information about the output.
+        print_output_shapes(model, &outputs);
 
+        for (output, name) in outputs.iter().zip(output_names) {
             // Print a debug representation of the output.
             if print_outputs {
                 println!("  Output {} value: {:?}", name, output);
@@ -473,39 +464,6 @@ impl RandomInputGenerator {
         };
 
         Ok(value)
-    }
-}
-
-/// Format an input or output shape as a `[dim0, dim1, ...]` string, where each
-/// dimension is represented by its fixed size or symbolic name.
-fn format_shape(shape: &[Dimension]) -> String {
-    let dims = shape
-        .iter()
-        .map(|dim| match dim {
-            Dimension::Fixed(value) => value.to_string(),
-            Dimension::Symbolic(name) => name.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("[{}]", dims)
-}
-
-/// Print a summary of the names and shapes of a list of input or output node IDs.
-fn print_input_output_list(model: &Model, node_ids: &[NodeId]) {
-    for &node_id in node_ids {
-        let Some(info) = model.node_info(node_id) else {
-            continue;
-        };
-        println!(
-            "  {}: {} {}",
-            info.name().unwrap_or("(unnamed)"),
-            info.dtype()
-                .map(|dt| dt.to_string())
-                .unwrap_or("(unknown dtype)".to_string()),
-            info.shape()
-                .map(|dims| format_shape(&dims))
-                .unwrap_or("(unknown shape)".to_string())
-        );
     }
 }
 
