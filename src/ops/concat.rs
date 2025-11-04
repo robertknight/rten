@@ -229,11 +229,7 @@ pub fn tile<T: Copy>(
 
     if !output.is_empty() {
         tile_inner(
-            input
-                .to_contiguous_in(pool)
-                .auto_return(pool)
-                .data()
-                .unwrap(),
+            input.to_contiguous_in(pool).auto_return(pool).data(),
             output.data_mut().unwrap(),
             input.shape(),
             &repeats,

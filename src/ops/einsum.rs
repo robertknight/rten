@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{DynLayout, MutLayout, OverlapPolicy, Tensor, TensorView};
+use rten_tensor::{Contiguous, DynLayout, MutLayout, OverlapPolicy, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
@@ -351,12 +351,12 @@ fn einsum_step(
         let x = if tmp_x_shape == xp.shape() {
             x.to_contiguous_in(pool)
         } else {
-            expand_to(pool, x.view(), &tmp_x_shape).into_cow()
+            Contiguous::new(expand_to(pool, x.view(), &tmp_x_shape).into_cow()).unwrap()
         };
         let y = if tmp_y_shape == yp.shape() {
             y.to_contiguous_in(pool)
         } else {
-            expand_to(pool, y.view(), &tmp_y_shape).into_cow()
+            Contiguous::new(expand_to(pool, y.view(), &tmp_y_shape).into_cow()).unwrap()
         };
 
         // Reshape the adjacent reduced dimensions into a single dimension.

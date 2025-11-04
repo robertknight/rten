@@ -80,7 +80,7 @@ fn unary_op<T: Clone + Send + Sync>(
     let input = input.to_contiguous_in(pool).auto_return(pool);
     let mut output = Tensor::uninit_in(pool, input.shape());
 
-    let in_chunks = input.data().unwrap().par_chunks(CHUNK_SIZE);
+    let in_chunks = input.data().par_chunks(CHUNK_SIZE);
     let out_chunks = output.data_mut().unwrap().par_chunks_mut(CHUNK_SIZE);
     in_chunks.zip(out_chunks).for_each(|(in_chunk, out_chunk)| {
         op.map(in_chunk, out_chunk);

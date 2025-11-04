@@ -46,7 +46,7 @@ where
 
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.as_ref().map(|b| b.to_contiguous());
-    let bias_vec = bias.as_ref().map(|b| BiasVector::Column(b.data().unwrap()));
+    let bias_vec = bias.as_ref().map(|b| BiasVector::Column(b.data()));
 
     let gemm = GemmExecutor::<W, X, Y>::default();
     let mut n_init = 0;

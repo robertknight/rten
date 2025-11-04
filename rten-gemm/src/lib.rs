@@ -677,7 +677,7 @@ fn gemv<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     let b_cols = b.cols();
 
     let a = a.to_contiguous();
-    let a_data = a.data().unwrap();
+    let a_data = a.data();
 
     // The matrix is partitioned into column blocks that are processed in
     // parallel.

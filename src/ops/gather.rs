@@ -577,13 +577,10 @@ pub fn scatter_nd<
     // chunks.
     let updates = updates.to_contiguous_in(pool).auto_return(pool);
     let update_slice_len: usize = updates.shape()[indices.ndim() - 1..].iter().product();
-    let update_slices = updates.data().unwrap().chunks(update_slice_len);
+    let update_slices = updates.data().chunks(update_slice_len);
 
     let indices = indices.to_contiguous_in(pool).auto_return(pool);
-    let index_slices = indices
-        .data()
-        .unwrap()
-        .chunks(indices.size(indices.ndim() - 1));
+    let index_slices = indices.data().chunks(indices.size(indices.ndim() - 1));
 
     let mut output = data.to_tensor_in(pool);
     for (index, update_slice) in index_slices.zip(update_slices) {
