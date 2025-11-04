@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use crate::{Layout, Storage, TensorBase};
+use crate::{CowData, Layout, Storage, TensorBase};
 
 /// A tensor wrapper which guarantees that the tensor has a contiguous layout.
 ///
@@ -14,6 +14,13 @@ impl<T> Deref for Contiguous<T> {
 
     fn deref(&self) -> &T {
         &self.0
+    }
+}
+
+impl<T> Contiguous<T> {
+    /// Extract the tensor from the wrapper.
+    pub fn into_inner(self) -> T {
+        self.0
     }
 }
 
@@ -38,6 +45,20 @@ impl<S: Storage, L: Layout> Contiguous<TensorBase<S, L>> {
 
         // Safety: Constructor verified that tensor is contiguous.
         unsafe { std::slice::from_raw_parts(ptr, len) }
+    }
+}
+
+impl<T, L: Clone + Layout> Contiguous<TensorBase<Vec<T>, L>> {
+    /// Extract the owned, contiguous data from this tensor.
+    pub fn into_data(self) -> Vec<T> {
+        self.0.into_non_contiguous_data()
+    }
+}
+
+impl<'a, T, L: Clone + Layout> Contiguous<TensorBase<CowData<'a, T>, L>> {
+    /// Extract the owned data from this tensor, if the data is owned.
+    pub fn into_data(self) -> Option<Vec<T>> {
+        self.0.into_non_contiguous_data()
     }
 }
 

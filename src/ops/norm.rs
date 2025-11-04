@@ -441,16 +441,15 @@ fn layer_normalization_impl(
     let chunk_size = input.shape()[resolved_axis..].iter().product();
 
     let bias = bias.map(|b| b.to_contiguous_in(pool));
-    let bias_data = bias.as_ref().map(|b| b.data().unwrap());
+    let bias_data = bias.as_ref().map(|b| b.data());
 
     let scale = scale.to_contiguous_in(pool);
-    let scale_data = scale.data().unwrap();
+    let scale_data = scale.data();
 
     let n_init = AtomicUsize::new(0);
     let out_uninit = &mut output.spare_capacity_mut()[..input.len()];
     input
         .data()
-        .unwrap()
         .par_chunks(chunk_size)
         .zip(out_uninit.par_chunks_mut(chunk_size))
         .for_each(|(in_chunk, out_chunk)| {

@@ -440,7 +440,7 @@ impl Operator for FusedMatMul {
         let bias = inputs
             .get_as::<NdTensorView<f32, 1>>(2)?
             .map(|b| b.to_contiguous_in(ctx.pool()));
-        let bias = bias.as_ref().map(|b| BiasVector::Row(b.data().unwrap()));
+        let bias = bias.as_ref().map(|b| BiasVector::Row(b.data()));
 
         matmul_fused(ctx.pool(), a, b, packed_b, bias, self.alpha).into_op_result()
     }
@@ -508,12 +508,12 @@ where
 
     let a_zero = zero_point_to_vec(a_zero_point, a_rows)?.map(|zp| zp.to_contiguous());
     let a_quant = a_zero.as_ref().map(|zp| QuantParams {
-        zero_point: zp.data().unwrap(),
+        zero_point: zp.data(),
     });
 
     let b_zero = zero_point_to_vec(b_zero_point, b_cols)?.map(|zp| zp.to_contiguous());
     let b_quant = b_zero.as_ref().map(|zp| QuantParams {
-        zero_point: zp.data().unwrap(),
+        zero_point: zp.data(),
     });
 
     matmul_impl(
@@ -596,7 +596,7 @@ fn cast_scale(
     }
 
     let scale = scale.to_contiguous_in(pool);
-    let scale_data = scale.data().unwrap();
+    let scale_data = scale.data();
 
     // Convert i32 elements to f32 in-place and multiply by column scale.
     let output_data = data.data_mut().expect("should be contiguous");
@@ -714,7 +714,11 @@ impl Operator for MatMulNBits {
         let scales: TensorView<f32> = ctx.inputs().require_as(2)?;
 
         let scales: CowNdTensor<f32, 2> = match scales.ndim() {
-            2 => scales.to_contiguous_in(ctx.pool()).try_into().unwrap(),
+            2 => scales
+                .to_contiguous_in(ctx.pool())
+                .into_inner()
+                .try_into()
+                .unwrap(),
             1 => {
                 let k = lhs.size(2);
                 let k_blocks = k.checked_div(self.block_size).unwrap_or(0);

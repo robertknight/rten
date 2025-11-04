@@ -218,7 +218,6 @@ impl Operator for Dropout {
                     input.shape(),
                     input
                         .data()
-                        .unwrap()
                         .iter()
                         .zip(mask.data().unwrap())
                         .map(|(&x, &mask)| x * scale * mask as f32)

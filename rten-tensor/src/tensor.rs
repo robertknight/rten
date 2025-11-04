@@ -20,7 +20,7 @@ use crate::layout::{
 use crate::overlap::may_have_internal_overlap;
 use crate::storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
 use crate::type_num::IndexCount;
-use crate::{Alloc, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
+use crate::{Alloc, Contiguous, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
 
 /// The base type for multi-dimensional arrays. This consists of storage for
 /// elements, plus a _layout_ which maps from a multi-dimensional array index
@@ -484,7 +484,7 @@ pub trait AsView: Layout {
     /// data into a new buffer otherwise.
     ///
     /// Certain operations require or are faster with contiguous tensors.
-    fn to_contiguous(&self) -> TensorBase<CowData<'_, Self::Elem>, Self::Layout>
+    fn to_contiguous(&self) -> Contiguous<TensorBase<CowData<'_, Self::Elem>, Self::Layout>>
     where
         Self::Elem: Clone,
         Self::Layout: MutLayout,
@@ -497,7 +497,7 @@ pub trait AsView: Layout {
     fn to_contiguous_in<A: Alloc>(
         &self,
         alloc: A,
-    ) -> TensorBase<CowData<'_, Self::Elem>, Self::Layout>
+    ) -> Contiguous<TensorBase<CowData<'_, Self::Elem>, Self::Layout>>
     where
         Self::Elem: Clone,
         Self::Layout: MutLayout,
@@ -1778,7 +1778,7 @@ impl<'a, T, L: Clone + Layout> TensorBase<ViewData<'a, T>, L> {
     ///
     /// If the data is already contiguous, no copy is made, otherwise the
     /// elements are copied into a new buffer in contiguous order.
-    pub fn to_contiguous(&self) -> TensorBase<CowData<'a, T>, L>
+    pub fn to_contiguous(&self) -> Contiguous<TensorBase<CowData<'a, T>, L>>
     where
         T: Clone,
         L: MutLayout,
@@ -1788,12 +1788,12 @@ impl<'a, T, L: Clone + Layout> TensorBase<ViewData<'a, T>, L> {
 
     /// Variant of [`to_contiguous`](TensorBase::to_contiguous) which takes
     /// an allocator.
-    pub fn to_contiguous_in<A: Alloc>(&self, alloc: A) -> TensorBase<CowData<'a, T>, L>
+    pub fn to_contiguous_in<A: Alloc>(&self, alloc: A) -> Contiguous<TensorBase<CowData<'a, T>, L>>
     where
         T: Clone,
         L: MutLayout,
     {
-        if let Some(data) = self.data() {
+        let tensor = if let Some(data) = self.data() {
             TensorBase {
                 data: CowData::Borrowed(data.into_storage()),
                 layout: self.layout.clone(),
@@ -1804,7 +1804,8 @@ impl<'a, T, L: Clone + Layout> TensorBase<ViewData<'a, T>, L> {
                 data: CowData::Owned(data),
                 layout: L::from_shape(self.layout.shape()),
             }
-        }
+        };
+        Contiguous::new(tensor).unwrap()
     }
 
     /// Return the underlying data as a flat slice if the tensor is contiguous,

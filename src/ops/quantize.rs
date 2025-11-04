@@ -368,7 +368,6 @@ where
     let chunk_size = 4096;
     let (x_min, x_max) = input
         .data()
-        .unwrap()
         .par_chunks(chunk_size)
         .map(|chunk| vecmath::MinMax::new(chunk).dispatch())
         .reduce(

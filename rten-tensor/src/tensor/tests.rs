@@ -1391,10 +1391,11 @@ fn test_to_contiguous() {
     let tensor = NdTensor::from_data([2, 2], data);
 
     // Tensor is already contiguous, so this is a no-op.
-    let mut tensor = tensor.to_contiguous();
+    let tensor = tensor.to_contiguous();
     assert_eq!(tensor.to_vec(), &[1., 2., 3., 4.]);
 
     // Swap strides to make tensor non-contiguous.
+    let mut tensor = tensor.into_inner();
     tensor.transpose();
     assert!(!tensor.is_contiguous());
     assert_eq!(tensor.to_vec(), &[1., 3., 2., 4.]);
