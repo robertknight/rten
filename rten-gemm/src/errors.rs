@@ -61,8 +61,6 @@ pub enum BlockQuantizedError {
     UnsupportedBlockSize,
     /// The number of bits per element is unsupported.
     UnsupportedElementSize,
-    /// The input data or scales are not contiguous.
-    NonContiguousInput,
 }
 
 impl Display for BlockQuantizedError {
@@ -70,7 +68,6 @@ impl Display for BlockQuantizedError {
         match self {
             Self::UnsupportedBlockSize => write!(f, "block size is unsupported"),
             Self::UnsupportedElementSize => write!(f, "unsupported bits-per-element"),
-            Self::NonContiguousInput => write!(f, "inputs must have contiguous last dim"),
         }
     }
 }

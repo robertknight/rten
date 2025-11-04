@@ -1,12 +1,12 @@
 use std::ops::Deref;
 
-use crate::{CowData, Layout, Storage, TensorBase};
+use crate::{AsView, CowData, Layout, Storage, TensorBase, ViewData};
 
 /// A tensor wrapper which guarantees that the tensor has a contiguous layout.
 ///
 /// A contiguous layout means that the order of elements in memory matches the
 /// logical row-major ordering of elements with no gaps.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Contiguous<T>(T);
 
 impl<T> Deref for Contiguous<T> {
@@ -46,6 +46,14 @@ impl<S: Storage, L: Layout> Contiguous<TensorBase<S, L>> {
         // Safety: Constructor verified that tensor is contiguous.
         unsafe { std::slice::from_raw_parts(ptr, len) }
     }
+
+    /// Return a contiguous view of this tensor.
+    pub fn view(&self) -> Contiguous<TensorBase<ViewData<'_, S::Elem>, L>>
+    where
+        TensorBase<S, L>: AsView<Elem = S::Elem, Layout = L>,
+    {
+        Contiguous(self.0.view())
+    }
 }
 
 impl<T, L: Clone + Layout> Contiguous<TensorBase<Vec<T>, L>> {
@@ -70,7 +78,7 @@ impl<S: Storage, L: Layout> From<Contiguous<TensorBase<S, L>>> for TensorBase<S,
 
 #[cfg(test)]
 mod tests {
-    use crate::{AsView, Contiguous, NdTensor};
+    use crate::{AsView, Contiguous, Layout, NdTensor};
 
     #[test]
     fn test_contiguous() {
@@ -82,5 +90,12 @@ mod tests {
         tensor.transpose();
         let wrapped = Contiguous::new(tensor);
         assert!(wrapped.is_none());
+    }
+
+    #[test]
+    fn test_contiguous_view() {
+        let tensor = NdTensor::<f32, 2>::zeros([3, 4]);
+        let wrapped = Contiguous::new(tensor).unwrap();
+        assert_eq!(wrapped.view().shape(), [3, 4]);
     }
 }

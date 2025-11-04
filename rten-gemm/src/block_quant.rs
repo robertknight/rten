@@ -1,4 +1,4 @@
-use rten_tensor::{Layout, NdTensorView};
+use rten_tensor::{Contiguous, Layout, NdTensorView};
 
 use crate::errors::BlockQuantizedError;
 
@@ -9,14 +9,10 @@ use crate::errors::BlockQuantizedError;
 #[derive(Copy, Clone)]
 pub struct BlockQuantizedMatrix<'a, T> {
     /// Quantized data of shape (N, k_blocks, block_size).
-    ///
-    /// The last dimension is guaranteed to have unit stride.
-    quant: NdTensorView<'a, u8, 3>,
+    quant: Contiguous<NdTensorView<'a, u8, 3>>,
 
     /// Scales of shape (N, k_blocks)
-    ///
-    /// The last dimension is guaranteed to have unit stride.
-    scales: NdTensorView<'a, T, 2>,
+    scales: Contiguous<NdTensorView<'a, T, 2>>,
 
     /// Bits per quantized element.
     ///
@@ -38,8 +34,8 @@ impl<'a, T: Copy> BlockQuantizedMatrix<'a, T> {
     /// The number of elements per quantized block must be a power of 2 of at
     /// least `MIN_BLOCK_SIZE`.
     pub fn new(
-        quant: NdTensorView<'a, u8, 3>,
-        scales: NdTensorView<'a, T, 2>,
+        quant: Contiguous<NdTensorView<'a, u8, 3>>,
+        scales: Contiguous<NdTensorView<'a, T, 2>>,
         bits: u8,
     ) -> Result<Self, BlockQuantizedError> {
         // ONNX Runtime currently supports 2, 4 or 8 bits per element. These
@@ -55,10 +51,6 @@ impl<'a, T: Copy> BlockQuantizedMatrix<'a, T> {
         let block_size = block_bytes * n_elem as usize;
         if !block_size.is_power_of_two() || block_size < Self::MIN_BLOCK_SIZE {
             return Err(BlockQuantizedError::UnsupportedBlockSize);
-        }
-
-        if quant.stride(2) != 1 || scales.stride(1) != 1 {
-            return Err(BlockQuantizedError::NonContiguousInput);
         }
 
         Ok(Self {
@@ -159,7 +151,7 @@ pub fn pack_4bit_elements(vals: &[i8], zero_point: i8) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::{AsView, NdTensor, NdTensorView};
+    use rten_tensor::{AsView, Contiguous, NdTensor, NdTensorView};
 
     use super::{BlockQuantizedMatrix, nbit_zero_point, pack_4bit_elements};
 
@@ -176,7 +168,12 @@ mod tests {
 
         let quants = NdTensor::from_data([cols, k_blocks, block_bytes], packed);
         let scales = NdTensorView::from_data([cols, k_blocks], &[1., 2., 3., 4., 5., 6., 7., 8.]);
-        let mat = BlockQuantizedMatrix::new(quants.view(), scales.view(), n_bits).unwrap();
+        let mat = BlockQuantizedMatrix::new(
+            Contiguous::new(quants.view()).unwrap(),
+            Contiguous::new(scales.view()).unwrap(),
+            n_bits,
+        )
+        .unwrap();
 
         assert_eq!(mat.rows(), 64);
         assert_eq!(mat.cols(), cols);
