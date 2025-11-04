@@ -1000,6 +1000,7 @@ impl Graph {
                 .with_prepacked(&get_prepacked)
                 .with_first_input_omitted(in_place_input.is_some());
             let mut ctx = OpRunContext::new(pool, &inputs);
+            ctx.set_name(op_node.name());
             ctx.set_num_outputs(op_node.output_ids().len() as u32);
 
             let op_result = if let Some((_id, value)) = in_place_input {
@@ -1020,8 +1021,6 @@ impl Graph {
                         )
                     })
             } else if let Some(subgraph_op) = subgraph_op {
-                ctx.set_name(op_node.name());
-
                 let capture_env = CaptureEnv::new(
                     captures.as_ref(),
                     self,
