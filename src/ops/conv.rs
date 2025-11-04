@@ -326,7 +326,7 @@ where
 
                 let bias_vec = bias
                     .as_ref()
-                    .map(|b| BiasVector::Column(&b.data().unwrap()[out_chans.clone()]));
+                    .map(|b| BiasVector::Column(&b.data()[out_chans.clone()]));
                 let out_mat = gemm
                     .gemm_uninit(
                         out_mat.into_slice_mut().unwrap(),

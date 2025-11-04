@@ -391,7 +391,7 @@ where
     let zero_point_tensor = Tensor::from(zero_point);
     let quantized = quantize_linear(
         pool,
-        input.view(),
+        input.view().into(),
         scale_tensor.view(),
         Some(zero_point_tensor.view()),
         1, /* axis */
