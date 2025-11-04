@@ -247,7 +247,7 @@ pub struct OpId<'a> {
     pub op_type: &'a str,
 }
 
-const DEFAULT_DOMAIN: &'static str = "ai.onnx";
+const DEFAULT_DOMAIN: &str = "ai.onnx";
 
 impl<'a> OpId<'a> {
     /// Create an operator ID using the default domain.
