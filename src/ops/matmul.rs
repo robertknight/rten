@@ -651,12 +651,14 @@ fn matmul_nbits(
 ) -> Result<NdTensor<f32, 3>, OpError> {
     let [batch, rows, lhs_cols] = lhs.shape();
 
+    let rhs = rhs.to_contiguous_in(pool);
+    let scales = scales.to_contiguous_in(pool);
+
     let a_mats: SmallVec<[_; 1]> = lhs.inner_iter::<2>().map(GemmInputA::Unpacked).collect();
-    let b_mat = BlockQuantizedMatrix::new(rhs, scales, bits).map_err(|err| {
+    let b_mat = BlockQuantizedMatrix::new(rhs.view(), scales.view(), bits).map_err(|err| {
         OpError::UnsupportedValue(match err {
             BlockQuantizedError::UnsupportedBlockSize => "Unsupported K block size",
             BlockQuantizedError::UnsupportedElementSize => "Unsupported bits-per-element",
-            BlockQuantizedError::NonContiguousInput => "RHS input is not contiguous",
         })
     })?;
     let b_mats: SmallVec<[_; 1]> = std::iter::repeat(GemmInputB::BlockQuantized(b_mat))
@@ -1492,7 +1494,10 @@ mod tests {
     ) -> NdTensor<f32, 3> {
         let [batch, m, _k] = lhs.shape();
         let [n, _k_blocks, _block_size] = rhs.shape();
-        let bqm = BlockQuantizedMatrix::new(rhs, scales, n_bits).unwrap();
+
+        let rhs = rhs.to_contiguous();
+        let scales = scales.to_contiguous();
+        let bqm = BlockQuantizedMatrix::new(rhs.view(), scales.view(), n_bits).unwrap();
 
         let mut output = NdTensor::zeros([batch, m, n]);
         let gemm = GemmExecutor::default();

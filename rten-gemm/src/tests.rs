@@ -1042,13 +1042,18 @@ fn test_gemm_f32_with_block_quantized_rhs() {
         let mut rng = XorShiftRng::new(1234);
         let lhs = NdTensor::<f32, 2>::rand([m, k], &mut rng);
         let rhs = NdTensor::<u8, 3>::rand([n, k / block_size, block_bytes], &mut rng);
+        let rhs = rhs.to_contiguous();
         let rhs_scales = NdTensor::<f32, 2>::rand([n, k / block_size], &mut rng);
+        let rhs_scales = rhs_scales.to_contiguous();
         let rhs_bqm = BlockQuantizedMatrix::new(rhs.view(), rhs_scales.view(), n_bits).unwrap();
         assert_eq!(rhs_bqm.elements_per_block(), block_size);
         assert_eq!(lhs.cols(), rhs_bqm.rows());
 
-        let expected =
-            reference_gemm_f32_with_block_quantized_rhs(lhs.view(), rhs.view(), rhs_scales.view());
+        let expected = reference_gemm_f32_with_block_quantized_rhs(
+            lhs.view(),
+            rhs.view().into(),
+            rhs_scales.view().into(),
+        );
 
         for gemm in all_gemms() {
             let mut output = NdTensor::<f32, 2>::zeros([m, n]);

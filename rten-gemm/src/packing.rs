@@ -482,7 +482,9 @@ mod tests {
         let elems: Vec<i8> = (-8..8).cycle().take(256).collect();
         let packed_elems = pack_4bit_elements(&elems, zero_point as i8);
         let data = NdTensor::from_data([cols, k_blocks, 16], packed_elems);
+        let data = data.to_contiguous();
         let scales = NdTensorView::from_data([cols, k_blocks], &[1., 2., 3., 4., 5., 6., 7., 8.]);
+        let scales = scales.to_contiguous();
         let mat = BlockQuantizedMatrix::new(data.view(), scales.view(), n_bits).unwrap();
 
         const NR: usize = 2;
