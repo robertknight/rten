@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Error, Formatter};
 
-use crate::{AsView, Layout, MatrixLayout, MutLayout, NdTensorView, Storage, TensorBase};
+use crate::{AsView, Layout, MatrixLayout, NdTensorView, Storage, TensorBase};
 
 /// Entry in the formatted representation of a tensor's data.
 enum Entry<T: Debug> {
@@ -44,12 +44,12 @@ impl Default for FormatOptions {
 
 /// A [`Debug`]-implementing wrapper around a tensor reference with custom
 /// formatting options.
-struct FormatTensor<'a, S: Storage, L: MutLayout> {
+struct FormatTensor<'a, S: Storage, L: Layout> {
     tensor: &'a TensorBase<S, L>,
     opts: FormatOptions,
 }
 
-impl<'a, S: Storage, L: MutLayout> FormatTensor<'a, S, L> {
+impl<'a, S: Storage, L: Layout> FormatTensor<'a, S, L> {
     fn new(tensor: &'a TensorBase<S, L>, opts: FormatOptions) -> Self {
         Self { tensor, opts }
     }
@@ -103,7 +103,7 @@ impl<'a, S: Storage, L: MutLayout> FormatTensor<'a, S, L> {
     }
 }
 
-impl<S: Storage, L: MutLayout> Debug for FormatTensor<'_, S, L>
+impl<S: Storage, L: Layout + Clone> Debug for FormatTensor<'_, S, L>
 where
     S::Elem: Debug,
 {
@@ -151,7 +151,7 @@ where
     }
 }
 
-impl<S: Storage, L: MutLayout> Debug for TensorBase<S, L>
+impl<S: Storage, L: Layout + Clone> Debug for TensorBase<S, L>
 where
     S::Elem: Debug,
 {

@@ -6,8 +6,8 @@ use std::fmt::Display;
 
 use rten_tensor::errors::DimensionError;
 use rten_tensor::{
-    Alloc, AsView, DynIndices, DynLayout, GlobalAlloc, Layout, MutLayout, NdTensor, NdTensorView,
-    Storage, Tensor, TensorBase, TensorView, ViewData,
+    Alloc, AsView, DynIndices, DynLayout, GlobalAlloc, Layout, NdTensor, NdTensorView, Storage,
+    Tensor, TensorBase, TensorView, ViewData,
 };
 use smallvec::SmallVec;
 
@@ -747,7 +747,7 @@ impl<'a> From<ValueView<'a>> for ValueOrView<'a> {
     }
 }
 
-impl<'a, T: 'static, S: Storage<Elem = T>, L: MutLayout> From<&'a TensorBase<S, L>>
+impl<'a, T: 'static, S: Storage<Elem = T>, L: Layout + Clone> From<&'a TensorBase<S, L>>
     for ValueOrView<'a>
 where
     ValueView<'a>: From<TensorView<'a, T>>,
@@ -757,7 +757,7 @@ where
     }
 }
 
-impl<'a, T, L: MutLayout> From<TensorBase<ViewData<'a, T>, L>> for ValueOrView<'a>
+impl<'a, T, L: Layout + Clone> From<TensorBase<ViewData<'a, T>, L>> for ValueOrView<'a>
 where
     ValueView<'a>: From<TensorView<'a, T>>,
 {
@@ -766,7 +766,7 @@ where
     }
 }
 
-impl<T, L: MutLayout> From<TensorBase<Vec<T>, L>> for ValueOrView<'static>
+impl<T, L: Layout + Clone> From<TensorBase<Vec<T>, L>> for ValueOrView<'static>
 where
     Value: From<Tensor<T>>,
     DynLayout: From<L>,
