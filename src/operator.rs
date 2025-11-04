@@ -9,7 +9,7 @@ use std::fmt::{Debug, Display};
 
 use rten_gemm::PackedBMatrix;
 use rten_tensor::errors::DimensionError;
-use rten_tensor::{MutLayout, Storage, TensorBase};
+use rten_tensor::{Layout, Storage, TensorBase};
 use smallvec::SmallVec;
 
 use crate::BufferPool;
@@ -81,7 +81,7 @@ impl IntoOpResult for Value {
     }
 }
 
-impl<S: Storage, L: MutLayout> IntoOpResult for TensorBase<S, L>
+impl<S: Storage, L: Layout> IntoOpResult for TensorBase<S, L>
 where
     Value: From<TensorBase<S, L>>,
 {
@@ -91,7 +91,7 @@ where
     }
 }
 
-impl<S: Storage, L: MutLayout> IntoOpResult for Result<TensorBase<S, L>, OpError>
+impl<S: Storage, L: Layout> IntoOpResult for Result<TensorBase<S, L>, OpError>
 where
     Value: From<TensorBase<S, L>>,
 {

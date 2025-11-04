@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rten_gemm::{PackedAMatrix, PackedBMatrix};
-use rten_tensor::{Alloc, Contiguous, CowData, MutLayout, TensorBase};
+use rten_tensor::{Alloc, Contiguous, CowData, Layout, TensorBase};
 
 /// A memory buffer that can be used to satisfy a future allocation from
 /// a [`BufferPool`].
@@ -304,25 +304,25 @@ impl<T> ExtractBuffer for Vec<T> {
     }
 }
 
-impl<T, L: MutLayout> ExtractBuffer for TensorBase<Vec<T>, L> {
+impl<T, L: Layout + Clone> ExtractBuffer for TensorBase<Vec<T>, L> {
     fn extract_buffer(self) -> Option<Buffer> {
         Some(self.into_non_contiguous_data().into())
     }
 }
 
-impl<T, L: MutLayout> ExtractBuffer for Contiguous<TensorBase<Vec<T>, L>> {
+impl<T, L: Layout + Clone> ExtractBuffer for Contiguous<TensorBase<Vec<T>, L>> {
     fn extract_buffer(self) -> Option<Buffer> {
         Some(self.into_data().into())
     }
 }
 
-impl<T, L: MutLayout> ExtractBuffer for TensorBase<CowData<'_, T>, L> {
+impl<T, L: Layout + Clone> ExtractBuffer for TensorBase<CowData<'_, T>, L> {
     fn extract_buffer(self) -> Option<Buffer> {
         self.into_non_contiguous_data().map(|data| data.into())
     }
 }
 
-impl<T, L: MutLayout> ExtractBuffer for Contiguous<TensorBase<CowData<'_, T>, L>> {
+impl<T, L: Layout + Clone> ExtractBuffer for Contiguous<TensorBase<CowData<'_, T>, L>> {
     fn extract_buffer(self) -> Option<Buffer> {
         self.into_data().map(|data| data.into())
     }

@@ -812,7 +812,7 @@ pub trait MutLayout: Layout + Clone {
 }
 
 /// Trait for broadcasting a layout from one shape to another.
-pub trait BroadcastLayout<L: MutLayout> {
+pub trait BroadcastLayout<L: Layout> {
     /// Broadcast the `self` layout to a given shape.
     fn broadcast<S: IntoLayout<Layout = L>>(&self, shape: S) -> Result<L, ExpandError>;
 }
