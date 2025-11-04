@@ -86,23 +86,25 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
 /// Operator that wraps a function.
 ///
 /// Useful for tests that want to inspect operator inputs.
-struct RunFn<F: Fn(&OpRunContext) -> Result<OutputList, OpError> + 'static> {
+struct RunFn<V: Into<Value>, F: Fn(&OpRunContext) -> Result<V, OpError> + 'static> {
     run: F,
 }
 
-impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> RunFn<F> {
+impl<V: Into<Value>, F: Fn(&OpRunContext) -> Result<V, OpError>> RunFn<V, F> {
     fn new(run: F) -> Self {
         Self { run }
     }
 }
 
-impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> std::fmt::Debug for RunFn<F> {
+impl<V: Into<Value>, F: Fn(&OpRunContext) -> Result<V, OpError>> std::fmt::Debug for RunFn<V, F> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(fmt, "RunFn")
     }
 }
 
-impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> Operator for RunFn<F> {
+impl<V: Into<Value> + 'static, F: Fn(&OpRunContext) -> Result<V, OpError>> Operator
+    for RunFn<V, F>
+{
     fn name(&self) -> &str {
         "RunFn"
     }
@@ -112,7 +114,7 @@ impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> Operator for RunFn<F> 
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        (self.run)(ctx)
+        (self.run)(ctx).map(|v| [v.into()].into())
     }
 }
 
@@ -1560,8 +1562,24 @@ fn test_run_context_num_outputs() {
         "test_op",
         RunFn::new(|ctx| {
             assert_eq!(ctx.num_outputs(), Some(1));
-            let output: Value = Tensor::from_scalar(0.).into();
-            Ok([output].into())
+            Ok(Tensor::from_scalar(0.))
+        }),
+        &[input_id],
+    );
+    let input = Tensor::from([1, 2, 3]);
+    g.run(vec![(input_id, input.into())], &[op_out], None, None)
+        .unwrap();
+}
+
+#[test]
+fn test_run_context_name() {
+    let mut g = Graph::new();
+    let input_id = g.add_value(Some("input"), None, None);
+    let (_, op_out) = g.add_simple_op(
+        "test_op",
+        RunFn::new(|ctx| {
+            assert_eq!(ctx.name(), Some("test_op"));
+            Ok(Tensor::from_scalar(0.))
         }),
         &[input_id],
     );
