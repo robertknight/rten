@@ -1,6 +1,6 @@
 //! Matrix multiplication with block-quantized inputs.
 
-use rten_tensor::{Contiguous, Layout, NdTensorView};
+use rten_tensor::{Contiguous, Layout, NdTensor, NdTensorView};
 
 use std::mem::MaybeUninit;
 use std::ops::Range;
@@ -13,20 +13,47 @@ use rten_tensor::{AsView, AssumeInit};
 
 use crate::GemmResult;
 use crate::errors::{BlockQuantizedError, GemmError};
+use crate::i8dot::{Int8DotIsa, SimdInt8DotOp};
+
+/// Specifies whether to quantize the LHS / "A" input to block-quantized matrix
+/// multiplication.
+///
+/// Quantizing the LHS input can significantly improve performance but may
+/// impact accuracy.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ComputeMode {
+    /// Quantize LHS / "A" input to 8-bits.
+    Int8,
+    /// Do not quantize the LHS.
+    Float,
+}
 
 /// Performs matrix-multiplication between an un-quantized LHS / "A" matrix
 /// and a block-quantized RHS / "B" matrix.
-pub struct BlockQuantizedGemm {}
-
-impl Default for BlockQuantizedGemm {
-    fn default() -> Self {
-        Self::new()
-    }
+pub struct BlockQuantizedGemm {
+    mode: ComputeMode,
 }
 
 impl BlockQuantizedGemm {
     pub fn new() -> Self {
-        BlockQuantizedGemm {}
+        BlockQuantizedGemm {
+            mode: ComputeMode::Float,
+        }
+    }
+
+    /// Set the compute mode controls the accuracy/performance balance.
+    pub fn with_compute(mut self, mode: ComputeMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Return true if an optimized implementation for the given compute mode
+    /// if available on the current platform.
+    pub fn is_compute_optimized(mode: ComputeMode) -> bool {
+        match mode {
+            ComputeMode::Float => true,
+            ComputeMode::Int8 => cfg!(target_arch = "aarch64"),
+        }
     }
 
     /// Multiply `lhs` by the dequantized `rhs` matrix.
@@ -46,29 +73,73 @@ impl BlockQuantizedGemm {
             return Err(GemmError::KSizeMismatch);
         }
 
+        if rhs.bits != 4 {
+            return Err(GemmError::QuantBitsNotSupported);
+        }
+
+        enum LhsRow<'a> {
+            Float(&'a [f32]),
+            Quant {
+                data: Contiguous<NdTensorView<'a, i8, 2>>,
+                scales: &'a [f32],
+            },
+        }
+
         let lhs = lhs.to_contiguous();
+
+        let lhs_quant: Option<(NdTensor<i8, 4>, NdTensor<f32, 3>)> =
+            if matches!(self.mode, ComputeMode::Int8) && m == 1 {
+                Some(quantize(lhs.view(), rhs.elements_per_block()))
+            } else {
+                None
+            };
 
         let col_block = 16;
         for (b, out_mat) in out.chunks_mut(n * m).enumerate() {
             // The handling of multiple rows here is inefficient. This is
             // because the initial focus is on efficient vector-matrix products.
             for (row, out_row) in out_mat.chunks_mut(n).enumerate() {
-                let lhs = lhs.slice((b, row)).data().unwrap();
+                let lhs_row = if let Some((lhs_data, lhs_scales)) = &lhs_quant {
+                    LhsRow::Quant {
+                        data: Contiguous::new(lhs_data.slice((b, row))).unwrap(),
+                        scales: lhs_scales.slice((b, row)).data().unwrap(),
+                    }
+                } else {
+                    LhsRow::Float(lhs.slice((b, row)).data().unwrap())
+                };
+
                 range_chunks(0..n, col_block)
                     .into_par_iter()
                     .zip(out_row.par_chunks_mut(col_block))
-                    .for_each(|(col_range, out_row_chunk)| {
-                        let op = VecDotMatrix {
-                            lhs,
-                            rhs: rhs.slice(col_range),
-                            out: out_row_chunk,
-                        };
-                        op.dispatch();
+                    .for_each(|(col_range, out_row_chunk)| match lhs_row {
+                        LhsRow::Quant { data, scales } => {
+                            let op = VecDotMatrixQuant {
+                                lhs_data: data,
+                                lhs_scales: scales,
+                                rhs: rhs.slice(col_range),
+                                out: out_row_chunk,
+                            };
+                            op.dispatch();
+                        }
+                        LhsRow::Float(lhs) => {
+                            let op = VecDotMatrix {
+                                lhs,
+                                rhs: rhs.slice(col_range),
+                                out: out_row_chunk,
+                            };
+                            op.dispatch();
+                        }
                     });
             }
         }
 
         Ok(unsafe { out.assume_init() })
+    }
+}
+
+impl Default for BlockQuantizedGemm {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -97,7 +168,7 @@ impl<'a> VecDotMatrix<'a> {
         let VecDotMatrix { lhs, rhs, out } = self;
         let vecs_per_block = rhs.elements_per_block() / elements_per_vec;
 
-        // Convert division in inner loop into a shift.
+        // Convert division into shift.
         let vecs_per_block_log2 = if vecs_per_block != 0 {
             debug_assert!(vecs_per_block.is_power_of_two());
             vecs_per_block.ilog2()
@@ -279,6 +350,187 @@ impl<'a> SimdOp for VecDotMatrix<'a> {
     }
 }
 
+/// Quantize blocks of `data` to i8 values.
+///
+/// `data` has shape (batch, row, col) and `block_size` is a power of 2 >= 16.
+///
+/// Returns a tuple of (quantized_data, scales) where `quantized_data` has shape
+/// (batch, row, block, element) and `scales` has shape (batch, row, block).
+/// Elements can be dequantized via `x as f32 * block_scale`.
+fn quantize(
+    data: Contiguous<NdTensorView<f32, 3>>,
+    block_size: usize,
+) -> (NdTensor<i8, 4>, NdTensor<f32, 3>) {
+    let [batch, rows, k] = data.shape();
+
+    assert!(block_size >= 16 && block_size.is_power_of_two());
+    assert!(k.is_multiple_of(block_size));
+
+    let n_blocks = k / block_size;
+    let mut output = Vec::with_capacity(n_blocks * block_size);
+    let mut scales = Vec::with_capacity(n_blocks);
+
+    for block in data.data().chunks_exact(block_size) {
+        let abs_max = block.iter().fold(0., |max, x| x.abs().max(max));
+        let inv_scale = i8::MAX as f32 / abs_max;
+
+        for &x in block {
+            let qx = (x * inv_scale).round() as i8;
+            output.push(qx);
+        }
+
+        scales.push(1. / inv_scale);
+    }
+
+    let quant_data = NdTensor::from_data([batch, rows, n_blocks, block_size], output);
+    let scales = NdTensor::from_data([batch, rows, n_blocks], scales);
+    (quant_data, scales)
+}
+
+/// Multiply an int8-quantized LHS by an int4-quantized RHS.
+struct VecDotMatrixQuant<'a> {
+    lhs_data: Contiguous<NdTensorView<'a, i8, 2>>,
+    lhs_scales: &'a [f32],
+    rhs: BlockQuantizedMatrix<'a, f32>,
+    out: &'a mut [MaybeUninit<f32>],
+}
+
+impl<'a> VecDotMatrixQuant<'a> {
+    #[inline(always)]
+    fn eval_impl<I: Int8DotIsa, const SCALES_PER_VBLOCK: usize>(self, isa: I) -> &'a mut [f32] {
+        let ops = isa.isa().f32();
+        let i8_ops = isa.isa().i8();
+        let u8_ops = isa.isa().u8();
+        let i32_ops = isa.isa().i32();
+
+        let VecDotMatrixQuant {
+            lhs_data,
+            lhs_scales,
+            rhs,
+            out,
+        } = self;
+
+        let rhs_data = rhs.quant.data();
+        let rhs_cols = rhs_data.chunks_exact(rhs.blocks_per_column() * rhs.bytes_per_block());
+        let scale_blocks = rhs.scales.data().chunks_exact(rhs.blocks_per_column());
+
+        // Columns are processed in "vblocks" whose size is the number of
+        // 4-bit elements that can be loaded into a SIMD vector. This can be
+        // larger or smaller than the block size of the RHS.
+        let elements_per_vec = u8_ops.len() * 2;
+        let vecs_per_block = rhs.elements_per_block() / elements_per_vec;
+
+        // Convert division into shift.
+        let vecs_per_block_log2 = if vecs_per_block != 0 {
+            debug_assert!(vecs_per_block.is_power_of_two());
+            vecs_per_block.ilog2()
+        } else {
+            0
+        };
+
+        for ((col, col_scales), out) in rhs_cols.zip(scale_blocks).zip(out.iter_mut()) {
+            let mut acc = [ops.zero(); 2];
+
+            let zero_point = i8_ops.splat(8);
+            let lo_mask = u8_ops.splat(0x0F);
+            let vlen = u8_ops.len();
+            let zero_i32 = i32_ops.zero();
+
+            let col_vblocks = col.chunks_exact(vlen);
+            let row_vblocks = lhs_data.data().chunks_exact(vlen * 2);
+
+            assert!(row_vblocks.remainder().is_empty());
+            assert!(col_vblocks.remainder().is_empty());
+
+            for (vblock_idx, vblocks) in row_vblocks.zip(col_vblocks).enumerate() {
+                let (row_vblock, col_vblock) = vblocks;
+
+                // Load packed u4 values.
+                let rhs_vblock = u8_ops.load(col_vblock);
+
+                // Unpack to u8.
+                let lo = u8_ops.and(rhs_vblock, lo_mask);
+                let hi = u8_ops.shift_right::<4>(rhs_vblock);
+                let (lo, hi) = (
+                    u8_ops.interleave_low(lo, hi),
+                    u8_ops.interleave_high(lo, hi),
+                );
+
+                // Re-interpret as i8
+                let lo = i8_ops.from_bits(lo.to_bits());
+                let hi = i8_ops.from_bits(hi.to_bits());
+
+                // Subtract zero point
+                let lo = i8_ops.sub(lo, zero_point);
+                let hi = i8_ops.sub(hi, zero_point);
+
+                // Load vblock elements from LHS
+                let [lhs_lo, lhs_hi] = i8_ops.load_many::<2>(row_vblock);
+
+                let dot_lo = isa.dot(lo, lhs_lo, zero_i32);
+                let dot_hi = isa.dot(hi, lhs_hi, zero_i32);
+
+                let float_lo = i32_ops.to_float(dot_lo);
+                let float_hi = i32_ops.to_float(dot_hi);
+
+                match SCALES_PER_VBLOCK {
+                    1 => {
+                        let col_scale = col_scales[vblock_idx >> vecs_per_block_log2];
+                        let row_scale = lhs_scales[vblock_idx >> vecs_per_block_log2];
+                        let scale = ops.splat(col_scale * row_scale);
+                        acc[0] = ops.mul_add(float_lo, scale, acc[0]);
+                        acc[1] = ops.mul_add(float_hi, scale, acc[1]);
+                    }
+                    2 => {
+                        let block_idx = vblock_idx * 2;
+                        let col_scale_lo = col_scales[block_idx];
+                        let col_scale_hi = col_scales[block_idx + 1];
+                        let row_scale_lo = lhs_scales[block_idx];
+                        let row_scale_hi = lhs_scales[block_idx + 1];
+                        let scale_lo = ops.splat(col_scale_lo * row_scale_lo);
+                        let scale_hi = ops.splat(col_scale_hi * row_scale_hi);
+
+                        acc[0] = ops.mul_add(float_lo, scale_lo, acc[0]);
+                        acc[1] = ops.mul_add(float_hi, scale_hi, acc[1]);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
+            let acc = ops.add(acc[0], acc[1]);
+            let acc = ops.sum(acc);
+            out.write(acc);
+        }
+
+        unsafe { out.assume_init() }
+    }
+}
+
+impl<'a> SimdInt8DotOp for VecDotMatrixQuant<'a> {
+    type Output = &'a mut [f32];
+
+    #[inline(always)]
+    fn eval<I: Int8DotIsa>(self, isa: I) -> Self::Output {
+        let u8_ops = isa.isa().u8();
+
+        // Columns are processed in "vblocks" whose size is the number of
+        // 4-bit elements that can be loaded into a SIMD vector. This can be
+        // larger or smaller than the block size of the RHS.
+        let elements_per_vec = u8_ops.len() * 2;
+
+        // Number of scale values and zero points we will use for each vblock.
+        // The maximum supported SIMD width is 512 bits (128 x u4) and the
+        // minimum block size is 16, so the maximum value is 128/16 = 8.
+        let scales_per_vblock = (elements_per_vec / self.rhs.elements_per_block()).max(1);
+
+        match scales_per_vblock {
+            1 => self.eval_impl::<I, 1>(isa),
+            2 => self.eval_impl::<I, 2>(isa),
+            _ => unreachable!("unsupported scales_per_vblock"),
+        }
+    }
+}
+
 /// Matrix which is quantized into blocks along the K dimension.
 ///
 /// The data layout and supported bit/block sizes follow ONNX Runtime's MatMulNBits
@@ -318,7 +570,7 @@ impl<'a, T: Copy> BlockQuantizedMatrix<'a, T> {
         // ONNX Runtime currently supports 2, 4 or 8 bits per element. These
         // values have the convenient property that a byte is a whole number
         // of elements. We only support 4 bits for the moment.
-        if bits != 4 {
+        if !matches!(bits, 4 | 8) {
             return Err(BlockQuantizedError::UnsupportedElementSize);
         }
         let n_elem = 8 / bits;
@@ -438,11 +690,14 @@ pub fn pack_4bit_elements(vals: &[i8], zero_point: i8) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use rten_tensor::rng::XorShiftRng;
-    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_tensor::{AsView, Contiguous, Layout, NdTensor, NdTensorView};
     use rten_testing::TestCases;
 
-    use super::{BlockQuantizedGemm, BlockQuantizedMatrix, nbit_zero_point, pack_4bit_elements};
+    use super::{
+        BlockQuantizedGemm, BlockQuantizedMatrix, ComputeMode, nbit_zero_point, pack_4bit_elements,
+        quantize,
+    };
 
     fn reference_gemm_f32_with_block_quantized_rhs(
         lhs: NdTensorView<f32, 2>,
@@ -519,6 +774,48 @@ mod tests {
         assert_eq!(mat.column_data(3, 2, 1), None);
     }
 
+    // The ONNX Runtime definition of MatMulNBits specifies that the block
+    // size must be a power of 2 and >= 16. The ORT implementation supports
+    // block sizes from 16 to 256. The implementation in this crate is more
+    // general and supports larger block sizes. 256 is large enough to test
+    // all code paths on all architectures.
+    const BLOCK_SIZES: [usize; 5] = [16, 32, 64, 128, 256];
+
+    #[test]
+    fn test_quantize() {
+        let mut rng = XorShiftRng::new(1234);
+        for block_size in BLOCK_SIZES {
+            let batch = 2;
+            let rows = 3;
+            let n_blocks = 2;
+            let k = block_size * n_blocks;
+
+            let mut data = NdTensor::rand([batch, rows, k], &mut rng);
+            // Shift range from [0, 1] to [-1, -1]
+            data.apply(|x| (x - 0.5) * 2.);
+
+            let (quantized, scales) = quantize(Contiguous::new(data.view()).unwrap(), block_size);
+
+            let dequantized: Vec<f32> = quantized
+                .inner_iter::<1>()
+                .zip(scales.iter())
+                .flat_map(|(block, scale)| block.iter().map(move |x| *x as f32 * scale))
+                .collect();
+
+            let max_err = data
+                .iter()
+                .zip(dequantized)
+                .map(|(x, y)| (x - y).abs())
+                .fold(f32::MIN, |max, x| x.max(max));
+            let threshold = 0.004;
+
+            assert!(
+                max_err <= threshold,
+                "max_err {max_err} exceeds {threshold}"
+            );
+        }
+    }
+
     #[test]
     fn test_block_quantized_gemm() {
         #[derive(Clone, Debug)]
@@ -526,6 +823,8 @@ mod tests {
             block_size: usize,
             n_cols: usize,
             n_blocks: usize,
+            compute: ComputeMode,
+            tolerance: Option<f32>,
         }
 
         // Max u4 elements in a SIMD vector.
@@ -533,16 +832,13 @@ mod tests {
 
         let mut cases = Vec::new();
 
-        // The ONNX Runtime definition of MatMulNBits specifies that the block
-        // size must be a power of 2 and >= 16. The ORT implementation supports
-        // block sizes from 16 to 256. The implementation in this crate is more
-        // general and supports larger block sizes. 256 is large enough to test
-        // all code paths on all architectures.
-        for block_size in [16, 32, 64, 128, 256] {
+        for block_size in BLOCK_SIZES {
             cases.push(Case {
                 n_cols: 3,
                 n_blocks: (max_vblock_size / block_size).max(1),
                 block_size,
+                compute: ComputeMode::Float,
+                tolerance: None,
             });
         }
 
@@ -553,18 +849,33 @@ mod tests {
             block_size: 16,
             // (max_vblock_size / 16) to use main loop once, plus one for a tail.
             n_blocks: (max_vblock_size / 16) + 1,
+            compute: ComputeMode::Float,
+            tolerance: None,
         });
+
+        // Add cases that use int8 quantization of the LHS.
+        for (block_size, atol) in [(16, 0.1), (32, 0.1), (64, 0.2), (128, 0.2), (256, 0.3)] {
+            cases.push(Case {
+                n_cols: 3,
+                block_size,
+                n_blocks: (max_vblock_size / block_size).max(1),
+                compute: ComputeMode::Int8,
+                tolerance: Some(atol),
+            });
+        }
 
         cases.test_each_clone(|case| {
             let Case {
                 n_cols,
                 n_blocks,
                 block_size,
+                compute,
+                tolerance,
             } = case;
 
             let mut rng = XorShiftRng::new(1234);
 
-            let gemm = BlockQuantizedGemm::new();
+            let gemm = BlockQuantizedGemm::new().with_compute(compute);
             let lhs = NdTensor::<f32, 2>::rand([1, n_blocks * block_size], &mut rng);
             let rhs_data = NdTensor::<u8, 3>::rand([n_cols, n_blocks, block_size / 2], &mut rng);
             let rhs_scales = NdTensor::<f32, 2>::rand([n_cols, n_blocks], &mut rng);
@@ -590,7 +901,13 @@ mod tests {
                 )
                 .unwrap();
             let result_matrix = NdTensorView::from_data([1, result.len()], result.as_ref());
-            expect_equal(&result_matrix, &expected.view()).unwrap();
+
+            if let Some(atol) = tolerance {
+                let rtol = 0.;
+                expect_equal_with_tolerance(&result_matrix, &expected.view(), atol, rtol).unwrap();
+            } else {
+                expect_equal(&result_matrix, &expected.view()).unwrap();
+            }
         });
     }
 }

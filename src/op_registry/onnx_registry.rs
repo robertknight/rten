@@ -17,8 +17,8 @@ use crate::graph::Graph;
 use crate::operator::Operator;
 use crate::ops;
 use crate::ops::{
-    BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, PadMode, Padding,
-    ResizeMode, ScatterReduction,
+    AccuracyLevel, BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, PadMode,
+    Padding, ResizeMode, ScatterReduction,
 };
 use crate::value::{DataType, Scalar};
 
@@ -1170,8 +1170,6 @@ impl_read_op!(MatMul);
 impl_read_op!(MatMulInteger);
 
 impl_read_op!("com.microsoft", MatMulNBits, |attrs: &Attrs| {
-    // Accuracy levels: 0 (unset), f32 (1), f16 (2), bf16 (3), i8 (4)
-    attrs.check("accuracy_level", |val: i64| val == 0 || val == 1)?;
     // Spec allows any value between 2 and 8.
     attrs.check_eq("bits", 4)?;
 
@@ -1180,9 +1178,20 @@ impl_read_op!("com.microsoft", MatMulNBits, |attrs: &Attrs| {
     attrs.check_unused::<i64>("K")?;
     attrs.check_unused::<i64>("N")?;
 
+    // accuracy_level specifies the minimum compute accuracy. An implementation
+    // may use higher. Current levels: 0 (unset), f32 (1), f16 (2), bf16 (3), i8
+    // (4).
+    let level = attrs.get_as("accuracy_level").unwrap_or(0);
+    let accuracy_level = if level <= 3 {
+        AccuracyLevel::Float
+    } else {
+        AccuracyLevel::Int8
+    };
+
     let block_size = attrs.require("block_size")?.cast_int()?;
 
     Ok(ops::MatMulNBits {
+        accuracy_level,
         bits: 4,
         block_size,
     })

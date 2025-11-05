@@ -81,7 +81,9 @@ pub(crate) use {
     grid_sample::GridSample,
     identity::Identity,
     layout::{DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze},
-    matmul::{FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat, MatMulNBits},
+    matmul::{
+        AccuracyLevel, FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat, MatMulNBits,
+    },
     non_max_suppression::NonMaxSuppression,
     norm::{
         BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax,
