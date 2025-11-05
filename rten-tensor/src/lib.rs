@@ -66,7 +66,6 @@ pub mod errors;
 mod index_iterator;
 pub mod iterators;
 pub mod layout;
-mod macros;
 mod overlap;
 pub mod slice_range;
 pub mod storage;
