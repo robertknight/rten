@@ -8,8 +8,10 @@
 use std::mem::MaybeUninit;
 
 use rten_base::byte_cast::{AsBytes, FromBytes};
+use rten_tensor::layout::AsIndex;
 use rten_tensor::prelude::*;
-use rten_tensor::{AsIndex, Layout, Matrix, NdIndices, NdLayout, TensorBase, ViewData};
+use rten_tensor::storage::ViewData;
+use rten_tensor::{Layout, Matrix, NdIndices, NdLayout, TensorBase};
 
 use super::PackedLayout;
 use super::SliceWriter;

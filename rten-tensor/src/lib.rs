@@ -64,12 +64,12 @@ mod contiguous;
 mod copy;
 pub mod errors;
 mod index_iterator;
-mod iterators;
-mod layout;
+pub mod iterators;
+pub mod layout;
 mod macros;
 mod overlap;
-mod slice_range;
-mod storage;
+pub mod slice_range;
+pub mod storage;
 pub mod type_num;
 
 mod impl_debug;
@@ -83,65 +83,18 @@ pub trait RandomSource<T> {
     fn next(&mut self) -> T;
 }
 
-/// Storage allocation trait.
-///
-/// This is used by various methods on [`TensorBase`] with an `_in` suffix,
-/// which allow the caller to control the allocation of the data buffer for
-/// the returned owned tensor.
-pub trait Alloc {
-    /// Allocate storage for an owned tensor.
-    ///
-    /// The returned `Vec` should be empty but have the given capacity.
-    fn alloc<T>(&self, capacity: usize) -> Vec<T>;
-}
-
-impl<A: Alloc> Alloc for &A {
-    fn alloc<T>(&self, capacity: usize) -> Vec<T> {
-        A::alloc(self, capacity)
-    }
-}
-
-/// Implementation of [`Alloc`] which wraps the global allocator.
-pub struct GlobalAlloc {}
-
-impl GlobalAlloc {
-    pub const fn new() -> GlobalAlloc {
-        GlobalAlloc {}
-    }
-}
-
-impl Default for GlobalAlloc {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Alloc for GlobalAlloc {
-    fn alloc<T>(&self, capacity: usize) -> Vec<T> {
-        Vec::with_capacity(capacity)
-    }
-}
-
+// Re-exports for convenience.
 pub use assume_init::AssumeInit;
 pub use contiguous::Contiguous;
 pub use index_iterator::{DynIndices, Indices, NdIndices};
-pub use iterators::{
-    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut, Iter, IterMut, Lane,
-    Lanes, LanesMut,
-};
-pub use layout::{
-    AsIndex, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout, OverlapPolicy,
-    ResizeLayout, TrustedLayout, is_valid_permutation,
-};
-pub use slice_range::{DynSliceItems, IntoSliceItems, SliceItem, SliceRange, to_slice_items};
-
+pub use layout::{DynLayout, Layout, MatrixLayout, NdLayout};
+pub use slice_range::{SliceItem, SliceRange};
+pub use storage::Storage;
 pub use tensor::{
     ArcNdTensor, ArcTensor, AsView, CowNdTensor, CowTensor, Matrix, MatrixMut, NdTensor,
     NdTensorView, NdTensorViewMut, Scalar, Tensor, TensorBase, TensorView, TensorViewMut,
     WeaklyCheckedView,
 };
-
-pub use storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
 
 /// This module provides a convenient way to import the most common traits
 /// from this library via a glob import.

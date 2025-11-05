@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{MatrixLayout, MatrixMut, StorageMut};
+use rten_tensor::storage::StorageMut;
+use rten_tensor::{MatrixLayout, MatrixMut};
 
 /// Wrapper around the GEMM output matrix which divides it into a grid of tiles.
 /// This can be shared across threads, but each individual tile must only be

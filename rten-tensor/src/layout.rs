@@ -1,3 +1,5 @@
+//! Layouts which describe the shape and strides of a tensor.
+
 use std::iter::repeat;
 use std::ops::Range;
 
@@ -22,7 +24,7 @@ pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
 /// single dimension with size N1 * N2 and stride S2 if S1 = N1 * S2;
 ///
 /// Returns a vector of `(size, stride)` tuples for the merged dimensions.
-pub fn merge_axes(shape: &[usize], strides: &[usize]) -> SmallVec<[(usize, usize); 4]> {
+pub(crate) fn merge_axes(shape: &[usize], strides: &[usize]) -> SmallVec<[(usize, usize); 4]> {
     let (Some(prev_size), Some(prev_stride)) = (shape.last(), strides.last()) else {
         return SmallVec::new();
     };
@@ -236,7 +238,7 @@ pub unsafe trait TrustedLayout: Layout {}
 ///
 /// These are separate from the [`Layout`] trait to prevent them from being
 /// overridden.
-pub trait LayoutExt: Layout {
+pub(crate) trait LayoutExt: Layout {
     /// Return the offset for an index or panic if invalid.
     #[inline]
     fn must_offset(&self, index: Self::Index<'_>) -> usize {

@@ -1,8 +1,9 @@
 //! Operators which query or change the shape of a tensor, or copy/move/reorder
 //! elements.
 
+use rten_tensor::layout::is_valid_permutation;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, Tensor, TensorView, is_valid_permutation};
+use rten_tensor::{NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};

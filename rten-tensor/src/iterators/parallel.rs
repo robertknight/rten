@@ -5,8 +5,8 @@ use super::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterBase, InnerIterMut, Iter,
     IterMut, LaneRanges, Lanes, LanesMut, Offsets, OffsetsKind,
 };
-use crate::layout::RemoveDim;
-use crate::{Layout, MutLayout, Storage};
+use crate::Storage;
+use crate::layout::{Layout, MutLayout, RemoveDim};
 
 /// Generate the body of an [`IntoParallelIterator`] impl which uses [`ParIter`]
 /// as the iterator type.

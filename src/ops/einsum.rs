@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
+use rten_tensor::layout::{MutLayout, OverlapPolicy};
 use rten_tensor::prelude::*;
-use rten_tensor::{Contiguous, DynLayout, MutLayout, OverlapPolicy, Tensor, TensorView};
+use rten_tensor::{Contiguous, DynLayout, Tensor, TensorView};
 
 use smallvec::SmallVec;
 

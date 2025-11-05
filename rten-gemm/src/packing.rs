@@ -3,7 +3,8 @@ use std::ops::Range;
 
 use rten_base::byte_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
 use rten_base::iter::range_chunks;
-use rten_tensor::{Alloc, AssumeInit, Matrix, MatrixLayout, Storage};
+use rten_tensor::storage::Alloc;
+use rten_tensor::{AssumeInit, Matrix, MatrixLayout, Storage};
 
 use super::kernels::PackedLayout;
 use crate::block_quant::{BlockQuantizedMatrix, nbit_zero_point};

@@ -1,6 +1,7 @@
 use std::ops::Deref;
 
-use crate::{AsView, CowData, Layout, Storage, TensorBase, ViewData};
+use crate::storage::{CowData, ViewData};
+use crate::{AsView, Layout, Storage, TensorBase};
 
 /// A tensor wrapper which guarantees that the tensor has a contiguous layout.
 ///

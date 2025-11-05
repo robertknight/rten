@@ -4,12 +4,11 @@ use rten_base::iter::{range_chunks, range_chunks_exact};
 use smallvec::SmallVec;
 
 use crate::assume_init::AssumeInit;
+use crate::layout::MatrixLayout;
 use crate::slice_range::{IndexRange, SliceItem};
 use crate::storage::{Storage, StorageMut};
 use crate::{AsView, Layout};
-use crate::{
-    Matrix, MatrixLayout, MatrixMut, NdTensorView, NdTensorViewMut, TensorView, TensorViewMut,
-};
+use crate::{Matrix, MatrixMut, NdTensorView, NdTensorViewMut, TensorView, TensorViewMut};
 
 /// Tile size for blocked copy. A tile should fit in registers for 32-bit
 /// values.

@@ -1,5 +1,6 @@
 use rten_tensor::prelude::*;
-use rten_tensor::{Alloc, CowTensor, TensorView};
+use rten_tensor::storage::Alloc;
+use rten_tensor::{CowTensor, TensorView};
 
 /// Conversion from one numeric type to another that preserves the value's
 /// offset from the minimum value.
