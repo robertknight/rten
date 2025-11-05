@@ -68,7 +68,7 @@ pub mod iterators;
 pub mod layout;
 mod macros;
 mod overlap;
-mod slice_range;
+pub mod slice_range;
 pub mod storage;
 pub mod type_num;
 
@@ -83,19 +83,18 @@ pub trait RandomSource<T> {
     fn next(&mut self) -> T;
 }
 
+// Re-exports for convenience.
 pub use assume_init::AssumeInit;
 pub use contiguous::Contiguous;
 pub use index_iterator::{DynIndices, Indices, NdIndices};
 pub use layout::{DynLayout, Layout, MatrixLayout, NdLayout};
-pub use slice_range::{DynSliceItems, IntoSliceItems, SliceItem, SliceRange, to_slice_items};
-
+pub use slice_range::{SliceItem, SliceRange};
+pub use storage::Storage;
 pub use tensor::{
     ArcNdTensor, ArcTensor, AsView, CowNdTensor, CowTensor, Matrix, MatrixMut, NdTensor,
     NdTensorView, NdTensorViewMut, Scalar, Tensor, TensorBase, TensorView, TensorViewMut,
     WeaklyCheckedView,
 };
-
-pub use storage::Storage;
 
 /// This module provides a convenient way to import the most common traits
 /// from this library via a glob import.

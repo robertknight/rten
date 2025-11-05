@@ -1,3 +1,5 @@
+//! Range types used when slicing tensors.
+
 use smallvec::SmallVec;
 
 use std::fmt::Debug;
@@ -395,7 +397,7 @@ impl From<RangeFull> for SliceRange {
 
 /// A range of indices with a step, which may be positive or negative.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct IndexRange {
+pub(crate) struct IndexRange {
     /// Start index in [0, (dim_size - 1).max(0)]
     start: usize,
 
@@ -470,7 +472,7 @@ impl IntoIterator for IndexRange {
 
 /// An iterator over the indices in an [`IndexRange`].
 #[derive(Clone, Debug, PartialEq)]
-pub struct IndexRangeIter {
+pub(crate) struct IndexRangeIter {
     /// Next index. This is in the range [-1, N] where `N` is the size of
     /// the dimension. The values yielded by `next` are always in [0, N).
     index: isize,
