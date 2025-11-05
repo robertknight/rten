@@ -4,9 +4,8 @@ use std::mem::MaybeUninit;
 use rten_base::num::IsNaN;
 use rten_tensor::layout::ResizeLayout;
 use rten_tensor::prelude::*;
-use rten_tensor::{
-    NdTensorView, SliceItem, StorageMut, Tensor, TensorView, TensorViewMut, to_slice_items,
-};
+use rten_tensor::storage::StorageMut;
+use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut, to_slice_items};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};

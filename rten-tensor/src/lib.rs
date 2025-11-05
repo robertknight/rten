@@ -69,7 +69,7 @@ pub mod layout;
 mod macros;
 mod overlap;
 mod slice_range;
-mod storage;
+pub mod storage;
 pub mod type_num;
 
 mod impl_debug;
@@ -134,7 +134,7 @@ pub use tensor::{
     WeaklyCheckedView,
 };
 
-pub use storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
+pub use storage::Storage;
 
 /// This module provides a convenient way to import the most common traits
 /// from this library via a glob import.
