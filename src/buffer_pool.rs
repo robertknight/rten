@@ -3,8 +3,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rten_gemm::{PackedAMatrix, PackedBMatrix};
-use rten_tensor::storage::CowData;
-use rten_tensor::{Alloc, Contiguous, Layout, TensorBase};
+use rten_tensor::storage::{Alloc, CowData};
+use rten_tensor::{Contiguous, Layout, TensorBase};
 
 /// A memory buffer that can be used to satisfy a future allocation from
 /// a [`BufferPool`].

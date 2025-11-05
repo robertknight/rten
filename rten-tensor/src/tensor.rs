@@ -18,9 +18,11 @@ use crate::layout::{
     NdLayout, OverlapPolicy, RemoveDim, ResizeLayout, SliceWith, TrustedLayout,
 };
 use crate::overlap::may_have_internal_overlap;
-use crate::storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
+use crate::storage::{
+    Alloc, CowData, GlobalAlloc, IntoStorage, Storage, StorageMut, ViewData, ViewMutData,
+};
 use crate::type_num::IndexCount;
-use crate::{Alloc, Contiguous, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
+use crate::{Contiguous, IntoSliceItems, RandomSource, SliceItem};
 
 /// The base type for multi-dimensional arrays. This consists of storage for
 /// elements, plus a _layout_ which maps from a multi-dimensional array index

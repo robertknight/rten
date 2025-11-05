@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 use std::ops::Range;
 
 use rten_base::iter::range_chunks;
-use rten_tensor::{Alloc, Matrix, MatrixLayout};
+use rten_tensor::storage::Alloc;
+use rten_tensor::{Matrix, MatrixLayout};
 
 use super::packing::PackingBuffer;
 use super::{GemmError, Kernel, LhsBlock, RhsBlock, depth_block_size};

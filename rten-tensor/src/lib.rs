@@ -83,45 +83,6 @@ pub trait RandomSource<T> {
     fn next(&mut self) -> T;
 }
 
-/// Storage allocation trait.
-///
-/// This is used by various methods on [`TensorBase`] with an `_in` suffix,
-/// which allow the caller to control the allocation of the data buffer for
-/// the returned owned tensor.
-pub trait Alloc {
-    /// Allocate storage for an owned tensor.
-    ///
-    /// The returned `Vec` should be empty but have the given capacity.
-    fn alloc<T>(&self, capacity: usize) -> Vec<T>;
-}
-
-impl<A: Alloc> Alloc for &A {
-    fn alloc<T>(&self, capacity: usize) -> Vec<T> {
-        A::alloc(self, capacity)
-    }
-}
-
-/// Implementation of [`Alloc`] which wraps the global allocator.
-pub struct GlobalAlloc {}
-
-impl GlobalAlloc {
-    pub const fn new() -> GlobalAlloc {
-        GlobalAlloc {}
-    }
-}
-
-impl Default for GlobalAlloc {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Alloc for GlobalAlloc {
-    fn alloc<T>(&self, capacity: usize) -> Vec<T> {
-        Vec::with_capacity(capacity)
-    }
-}
-
 pub use assume_init::AssumeInit;
 pub use contiguous::Contiguous;
 pub use index_iterator::{DynIndices, Indices, NdIndices};

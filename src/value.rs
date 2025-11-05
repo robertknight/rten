@@ -5,10 +5,10 @@ use std::fmt;
 use std::fmt::Display;
 
 use rten_tensor::errors::DimensionError;
-use rten_tensor::storage::ViewData;
+use rten_tensor::storage::{Alloc, GlobalAlloc, ViewData};
 use rten_tensor::{
-    Alloc, AsView, DynIndices, DynLayout, GlobalAlloc, Layout, NdTensor, NdTensorView, Storage,
-    Tensor, TensorBase, TensorView,
+    AsView, DynIndices, DynLayout, Layout, NdTensor, NdTensorView, Storage, Tensor, TensorBase,
+    TensorView,
 };
 use smallvec::SmallVec;
 

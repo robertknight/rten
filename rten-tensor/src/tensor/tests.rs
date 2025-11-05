@@ -7,8 +7,8 @@ use crate::errors::{ExpandError, FromDataError};
 use crate::layout::{DynLayout, MatrixLayout, MutLayout};
 use crate::prelude::*;
 use crate::rng::XorShiftRng;
-use crate::storage::IntoStorage;
-use crate::{Alloc, ArcTensor, NdLayout, SliceItem, SliceRange, Storage};
+use crate::storage::{Alloc, IntoStorage};
+use crate::{ArcTensor, NdLayout, SliceItem, SliceRange, Storage};
 
 struct FakeAlloc {
     count: RefCell<usize>,

@@ -12,9 +12,9 @@ use rten_base::iter::{MaybeParIter, range_chunks};
 use rten_base::num::Identities;
 use rten_tensor::layout::{MutLayout, OverlapPolicy};
 use rten_tensor::prelude::*;
+use rten_tensor::storage::{Alloc, GlobalAlloc};
 use rten_tensor::{
-    Alloc, AssumeInit, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdLayout, NdTensor,
-    NdTensorView, Storage,
+    AssumeInit, Matrix, MatrixLayout, MatrixMut, NdLayout, NdTensor, NdTensorView, Storage,
 };
 
 mod block_quant;
