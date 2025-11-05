@@ -2443,10 +2443,10 @@ where
     }
 }
 
-// Trait for scalar (ie. non-array) values.
-//
-// This is used as a bound in contexts where we don't want a generic type
-// `T` to be inferred as an array type.
+/// Trait for scalar (ie. non-array) values.
+///
+/// This is used to prevent generic types from being inferred as array types
+/// in [`TensorBase::from`].
 pub trait Scalar {}
 
 macro_rules! impl_scalar {
