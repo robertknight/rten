@@ -80,13 +80,9 @@ struct VecDotMatrix<'a> {
     out: &'a mut [MaybeUninit<f32>],
 }
 
-impl<'a> SimdOp for VecDotMatrix<'a> {
-    type Output = &'a mut [f32];
-
+impl<'a> VecDotMatrix<'a> {
     #[inline(always)]
-    fn eval<I: Isa>(self, isa: I) -> Self::Output {
-        let VecDotMatrix { lhs, rhs, out } = self;
-
+    fn eval_impl<I: Isa, const SCALES_PER_VBLOCK: usize>(self, isa: I) -> &'a mut [f32] {
         let ops = isa.f32();
         let i16_ops = isa.i16();
         let i32_ops = isa.i32();
@@ -97,6 +93,8 @@ impl<'a> SimdOp for VecDotMatrix<'a> {
         // 4-bit elements that can be loaded into a SIMD vector. This can be
         // larger or smaller than the block size of the RHS.
         let elements_per_vec = u8_ops.len() * 2;
+
+        let VecDotMatrix { lhs, rhs, out } = self;
         let vecs_per_block = rhs.elements_per_block() / elements_per_vec;
 
         // Max supported vector width is 512 bits. This is because the smallest
@@ -104,10 +102,7 @@ impl<'a> SimdOp for VecDotMatrix<'a> {
         // size.
         assert!(ops.len() <= 16);
 
-        // Number of scale values and zero points we will use for each vblock.
-        let scales_per_vblock = (elements_per_vec / rhs.elements_per_block()).max(1);
-        let n_tail_scales = rhs.blocks_per_column() % scales_per_vblock;
-        assert!(matches!(scales_per_vblock, 1 | 2 | 4 | 8));
+        let n_tail_scales = rhs.blocks_per_column() % SCALES_PER_VBLOCK;
 
         let rhs_data = rhs.quant.data();
         let rhs_cols = rhs_data.chunks_exact(rhs.blocks_per_column() * rhs.bytes_per_block());
@@ -156,7 +151,7 @@ impl<'a> SimdOp for VecDotMatrix<'a> {
 
                 // Convert to f32, apply scale and multiply with LHS.
                 let vlen = ops.len();
-                match scales_per_vblock {
+                match SCALES_PER_VBLOCK {
                     1 => {
                         let scale = ops.splat(col_scales[vblock_idx / vecs_per_block]);
                         for i in 0..8 {
@@ -246,6 +241,33 @@ impl<'a> SimdOp for VecDotMatrix<'a> {
         }
 
         unsafe { out.assume_init() }
+    }
+}
+
+impl<'a> SimdOp for VecDotMatrix<'a> {
+    type Output = &'a mut [f32];
+
+    #[inline(always)]
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let u8_ops = isa.u8();
+
+        // Columns are processed in "vblocks" whose size is the number of
+        // 4-bit elements that can be loaded into a SIMD vector. This can be
+        // larger or smaller than the block size of the RHS.
+        let elements_per_vec = u8_ops.len() * 2;
+
+        // Number of scale values and zero points we will use for each vblock.
+        // The maximum supported SIMD width is 512 bits (128 x u4) and the
+        // minimum block size is 16, so the maximum value is 128/16 = 8.
+        let scales_per_vblock = (elements_per_vec / self.rhs.elements_per_block()).max(1);
+
+        match scales_per_vblock {
+            1 => self.eval_impl::<I, 1>(isa),
+            2 => self.eval_impl::<I, 2>(isa),
+            4 => self.eval_impl::<I, 4>(isa),
+            8 => self.eval_impl::<I, 8>(isa),
+            _ => unreachable!("unsupported scales_per_vblock"),
+        }
     }
 }
 
