@@ -4,7 +4,8 @@ use serde::de::{Deserialize, Deserializer, Error, MapAccess, Visitor};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 
 use crate::iterators::Iter;
-use crate::{AsView, Layout, MutLayout, Storage, TensorBase};
+use crate::layout::MutLayout;
+use crate::{AsView, Layout, Storage, TensorBase};
 
 struct TensorData<'a, T> {
     iter: Iter<'a, T>,

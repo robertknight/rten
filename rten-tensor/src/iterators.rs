@@ -4,10 +4,8 @@ use std::ops::Range;
 
 use rten_base::iter::SplitIterator;
 
-use super::{
-    AsView, DynLayout, MutLayout, NdTensorView, NdTensorViewMut, TensorBase, TensorViewMut,
-};
-use crate::layout::{Layout, NdLayout, OverlapPolicy, RemoveDim, merge_axes};
+use super::{AsView, DynLayout, NdTensorView, NdTensorViewMut, TensorBase, TensorViewMut};
+use crate::layout::{Layout, MutLayout, NdLayout, OverlapPolicy, RemoveDim, merge_axes};
 use crate::storage::{StorageMut, ViewData, ViewMutData};
 
 mod parallel;

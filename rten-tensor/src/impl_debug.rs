@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Error, Formatter};
 
-use crate::{AsView, Layout, MatrixLayout, NdTensorView, Storage, TensorBase};
+use crate::layout::{Layout, MatrixLayout};
+use crate::{AsView, NdTensorView, Storage, TensorBase};
 
 /// Entry in the formatted representation of a tensor's data.
 enum Entry<T: Debug> {

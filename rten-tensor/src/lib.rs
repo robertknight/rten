@@ -65,7 +65,7 @@ mod copy;
 pub mod errors;
 mod index_iterator;
 mod iterators;
-mod layout;
+pub mod layout;
 mod macros;
 mod overlap;
 mod slice_range;
@@ -129,10 +129,7 @@ pub use iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut, Iter, IterMut, Lane,
     Lanes, LanesMut,
 };
-pub use layout::{
-    AsIndex, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout, OverlapPolicy,
-    ResizeLayout, TrustedLayout, is_valid_permutation,
-};
+pub use layout::{DynLayout, Layout, MatrixLayout, NdLayout};
 pub use slice_range::{DynSliceItems, IntoSliceItems, SliceItem, SliceRange, to_slice_items};
 
 pub use tensor::{
