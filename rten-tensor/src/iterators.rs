@@ -1,3 +1,5 @@
+//! Iterators over tensor elements and sub-views.
+
 use std::iter::FusedIterator;
 use std::mem::transmute;
 use std::ops::Range;
@@ -489,7 +491,7 @@ struct Offsets {
 }
 
 impl Offsets {
-    pub fn new<L: Layout>(layout: &L) -> Offsets {
+    fn new<L: Layout>(layout: &L) -> Offsets {
         Offsets {
             base: if layout.is_contiguous() {
                 OffsetsKind::Range(0..layout.min_data_len())
@@ -989,7 +991,7 @@ impl<L: Layout + Clone> InnerIterBase<L> {
 }
 
 impl<const N: usize> InnerIterBase<NdLayout<N>> {
-    pub fn new<L: Layout>(parent_layout: &L) -> Self {
+    pub(crate) fn new<L: Layout>(parent_layout: &L) -> Self {
         Self::new_impl(parent_layout, N, |inner_shape, inner_strides| {
             let inner_shape: [usize; N] = inner_shape.try_into().unwrap();
             let inner_strides: [usize; N] = inner_strides.try_into().unwrap();
@@ -1006,7 +1008,7 @@ impl<const N: usize> InnerIterBase<NdLayout<N>> {
 }
 
 impl InnerIterBase<DynLayout> {
-    pub fn new_dyn<L: Layout>(parent_layout: &L, inner_dims: usize) -> Self {
+    pub(crate) fn new_dyn<L: Layout>(parent_layout: &L, inner_dims: usize) -> Self {
         Self::new_impl(parent_layout, inner_dims, |inner_shape, inner_strides| {
             DynLayout::from_shape_and_strides(
                 inner_shape,
@@ -1063,7 +1065,7 @@ pub struct InnerIter<'a, T, L: Layout> {
 }
 
 impl<'a, T, const N: usize> InnerIter<'a, T, NdLayout<N>> {
-    pub fn new<L: Layout + Clone>(view: TensorBase<ViewData<'a, T>, L>) -> Self {
+    pub(crate) fn new<L: Layout + Clone>(view: TensorBase<ViewData<'a, T>, L>) -> Self {
         let base = InnerIterBase::new(&view);
         InnerIter {
             base,
@@ -1073,7 +1075,7 @@ impl<'a, T, const N: usize> InnerIter<'a, T, NdLayout<N>> {
 }
 
 impl<'a, T> InnerIter<'a, T, DynLayout> {
-    pub fn new_dyn<L: Layout + Clone>(
+    pub(crate) fn new_dyn<L: Layout + Clone>(
         view: TensorBase<ViewData<'a, T>, L>,
         inner_dims: usize,
     ) -> Self {
@@ -1138,7 +1140,7 @@ pub struct InnerIterMut<'a, T, L: Layout> {
 }
 
 impl<'a, T, const N: usize> InnerIterMut<'a, T, NdLayout<N>> {
-    pub fn new<L: Layout>(view: TensorBase<ViewMutData<'a, T>, L>) -> Self {
+    pub(crate) fn new<L: Layout>(view: TensorBase<ViewMutData<'a, T>, L>) -> Self {
         let base = InnerIterBase::new(&view);
         InnerIterMut {
             base,
@@ -1148,7 +1150,10 @@ impl<'a, T, const N: usize> InnerIterMut<'a, T, NdLayout<N>> {
 }
 
 impl<'a, T> InnerIterMut<'a, T, DynLayout> {
-    pub fn new_dyn<L: Layout>(view: TensorBase<ViewMutData<'a, T>, L>, inner_dims: usize) -> Self {
+    pub(crate) fn new_dyn<L: Layout>(
+        view: TensorBase<ViewMutData<'a, T>, L>,
+        inner_dims: usize,
+    ) -> Self {
         let base = InnerIterBase::new_dyn(&view, inner_dims);
         InnerIterMut {
             base,
@@ -1225,7 +1230,7 @@ pub struct AxisIter<'a, T, L: Layout + RemoveDim> {
 }
 
 impl<'a, T, L: MutLayout + RemoveDim> AxisIter<'a, T, L> {
-    pub fn new(view: &TensorBase<ViewData<'a, T>, L>, axis: usize) -> AxisIter<'a, T, L> {
+    pub(crate) fn new(view: &TensorBase<ViewData<'a, T>, L>, axis: usize) -> AxisIter<'a, T, L> {
         assert!(axis < view.ndim());
         AxisIter {
             view: view.clone(),
@@ -1278,7 +1283,10 @@ pub struct AxisIterMut<'a, T, L: Layout + RemoveDim> {
 }
 
 impl<'a, T, L: Layout + RemoveDim + Clone> AxisIterMut<'a, T, L> {
-    pub fn new(view: TensorBase<ViewMutData<'a, T>, L>, axis: usize) -> AxisIterMut<'a, T, L> {
+    pub(crate) fn new(
+        view: TensorBase<ViewMutData<'a, T>, L>,
+        axis: usize,
+    ) -> AxisIterMut<'a, T, L> {
         // See notes in `Layout` about internal overlap.
         assert!(
             !view.layout().is_broadcast(),
@@ -1357,7 +1365,7 @@ pub struct AxisChunks<'a, T, L: MutLayout> {
 }
 
 impl<'a, T, L: MutLayout> AxisChunks<'a, T, L> {
-    pub fn new(
+    pub(crate) fn new(
         view: &TensorBase<ViewData<'a, T>, L>,
         axis: usize,
         chunk_size: usize,
@@ -1426,7 +1434,7 @@ pub struct AxisChunksMut<'a, T, L: MutLayout> {
 }
 
 impl<'a, T, L: MutLayout> AxisChunksMut<'a, T, L> {
-    pub fn new(
+    pub(crate) fn new(
         view: TensorBase<ViewMutData<'a, T>, L>,
         axis: usize,
         chunk_size: usize,
@@ -1494,7 +1502,7 @@ impl<'a, T, L: MutLayout> DoubleEndedIterator for AxisChunksMut<'a, T, L> {
 }
 
 /// Call `f` on each element of `view`.
-pub fn for_each_mut<T, F: Fn(&mut T)>(mut view: TensorViewMut<T>, f: F) {
+pub(crate) fn for_each_mut<T, F: Fn(&mut T)>(mut view: TensorViewMut<T>, f: F) {
     while view.ndim() < 4 {
         view.insert_axis(0);
     }
@@ -1523,9 +1531,8 @@ pub fn for_each_mut<T, F: Fn(&mut T)>(mut view: TensorViewMut<T>, f: F) {
 // tests on tensor methods.
 #[cfg(test)]
 mod tests {
-    use crate::{
-        AsView, AxisChunks, AxisChunksMut, Lanes, LanesMut, Layout, NdLayout, NdTensor, Tensor,
-    };
+    use super::{AxisChunks, AxisChunksMut, Lanes, LanesMut};
+    use crate::{AsView, Layout, NdLayout, NdTensor, Tensor};
 
     fn compare_reversed<T: PartialEq + std::fmt::Debug>(fwd: &[T], rev: &[T]) {
         assert_eq!(fwd.len(), rev.len());

@@ -64,7 +64,7 @@ mod contiguous;
 mod copy;
 pub mod errors;
 mod index_iterator;
-mod iterators;
+pub mod iterators;
 pub mod layout;
 mod macros;
 mod overlap;
@@ -125,10 +125,6 @@ impl Alloc for GlobalAlloc {
 pub use assume_init::AssumeInit;
 pub use contiguous::Contiguous;
 pub use index_iterator::{DynIndices, Indices, NdIndices};
-pub use iterators::{
-    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut, Iter, IterMut, Lane,
-    Lanes, LanesMut,
-};
 pub use layout::{DynLayout, Layout, MatrixLayout, NdLayout};
 pub use slice_range::{DynSliceItems, IntoSliceItems, SliceItem, SliceRange, to_slice_items};
 
