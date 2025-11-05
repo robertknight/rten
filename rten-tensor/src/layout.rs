@@ -57,13 +57,16 @@ macro_rules! debug_assert_dim_valid {
     };
 }
 
-/// Layouts describe the shape of a tensor, ie. the number of dimensions and
-/// size of each, and the mapping between indices and offsets in the data
-/// storage.
+/// Describes the shape and strides of a tensor.
 ///
-/// The main implementations are [`NdLayout`], where the dimension count is known
-/// statically, and [`DynLayout`], where the dimension count is only known at
-/// runtime.
+/// The `Layout` trait provides methods to query the shape of a tensor, i.e. the
+/// number of dimensions and size of each, and the strides which determine the
+/// mapping between logical indices in the tensor and offsets in the data storage.
+///
+/// This trait is implemented for tensor types
+/// ([`TensorBase`](crate::TensorBase)), as well as the underlying layout types
+/// such as [`NdLayout`] (for tensors with a static number of dimensions) and
+/// [`DynLayout`] (for tensors with a dynamic number of dimensions).
 pub trait Layout {
     /// Type used to represent indices.
     ///
