@@ -97,6 +97,14 @@ impl<'a> VecDotMatrix<'a> {
         let VecDotMatrix { lhs, rhs, out } = self;
         let vecs_per_block = rhs.elements_per_block() / elements_per_vec;
 
+        // Convert division in inner loop into a shift.
+        let vecs_per_block_log2 = if vecs_per_block != 0 {
+            debug_assert!(vecs_per_block.is_power_of_two());
+            vecs_per_block.ilog2()
+        } else {
+            0
+        };
+
         // Max supported vector width is 512 bits. This is because the smallest
         // supported block size is 16 and we require f32 vector width >= block
         // size.
@@ -153,7 +161,7 @@ impl<'a> VecDotMatrix<'a> {
                 let vlen = ops.len();
                 match SCALES_PER_VBLOCK {
                     1 => {
-                        let scale = ops.splat(col_scales[vblock_idx / vecs_per_block]);
+                        let scale = ops.splat(col_scales[vblock_idx >> vecs_per_block_log2]);
                         for i in 0..8 {
                             let rhs_f32 = i32_ops.to_float(rhs_i32[i]);
                             let rhs_scaled = ops.mul(rhs_f32, scale);
