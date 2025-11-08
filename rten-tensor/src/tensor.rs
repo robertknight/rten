@@ -556,14 +556,22 @@ impl<S: Storage, L: Layout> TensorBase<S, L> {
     /// Construct a new tensor from a given shape and storage.
     ///
     /// Panics if the data length does not match the product of `shape`.
+    #[track_caller]
     pub fn from_data<D: IntoStorage<Output = S>>(shape: L::Index<'_>, data: D) -> TensorBase<S, L>
     where
         for<'a> L::Index<'a>: Clone,
         L: MutLayout,
     {
-        Self::try_from_data(shape.clone(), data).unwrap_or_else(|_| {
-            panic!("data length does not match shape {:?}", shape.as_ref(),);
-        })
+        let data = data.into_storage();
+        let len = data.len();
+        match Self::try_from_data(shape.clone(), data) {
+            Ok(data) => data,
+            Err(_) => panic!(
+                "data length {} does not match shape {:?}",
+                len,
+                shape.as_ref()
+            ),
+        }
     }
 
     /// Construct a new tensor from a given shape and storage.
