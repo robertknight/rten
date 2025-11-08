@@ -396,8 +396,14 @@ pub unsafe trait NumOps<T: Elem>: Copy {
     ///
     /// Panics if `xs.len() < self.len()`.
     #[inline]
+    #[track_caller]
     fn load(self, xs: &[T]) -> Self::Simd {
-        assert!(xs.len() >= self.len());
+        assert!(
+            xs.len() >= self.len(),
+            "slice length {} too short for SIMD vector width {}",
+            xs.len(),
+            self.len()
+        );
         unsafe { self.load_ptr(xs.as_ptr()) }
     }
 
@@ -405,10 +411,16 @@ pub unsafe trait NumOps<T: Elem>: Copy {
     ///
     /// Panics if `xs.len() < self.len() * N`.
     #[inline]
+    #[track_caller]
     fn load_many<const N: usize>(self, xs: &[T]) -> [Self::Simd; N] {
         let v_len = self.len();
-        assert!(xs.len() >= v_len * N);
-
+        assert!(
+            xs.len() >= v_len * N,
+            "slice length {} too short for {} * SIMD vector width {}",
+            xs.len(),
+            N,
+            v_len
+        );
         // Safety: `xs.add(i * v_len)` points to at least `v_len` elements.
         std::array::from_fn(|i| unsafe { self.load_ptr(xs.as_ptr().add(i * v_len)) })
     }
