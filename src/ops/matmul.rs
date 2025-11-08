@@ -1,9 +1,9 @@
 use rayon::prelude::*;
 use rten_base::byte_cast::{Pod, cast_pod_vec};
 use rten_gemm::{
-    BiasVector, BlockQuantizedError, BlockQuantizedGemm, BlockQuantizedMatrix, GemmExecutor,
-    GemmInT, GemmInputA, GemmInputB, GemmOptions, GemmOutT, GemmUninitOptions, PackedBMatrix,
-    QuantParams,
+    BiasVector, BlockQuantizedError, BlockQuantizedGemm, BlockQuantizedMatrix, ComputeMode,
+    GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOptions, GemmOutT, GemmUninitOptions,
+    PackedBMatrix, QuantParams,
 };
 use rten_tensor::prelude::*;
 use rten_tensor::{CowNdTensor, Matrix, NdTensor, NdTensorView, Tensor, TensorView};
@@ -649,6 +649,7 @@ fn matmul_nbits(
     rhs: NdTensorView<u8, 3>,
     scales: NdTensorView<f32, 2>,
     bits: u8,
+    accuracy: AccuracyLevel,
 ) -> Result<NdTensor<f32, 3>, OpError> {
     let [batch, rows, lhs_cols] = lhs.shape();
 
@@ -677,7 +678,15 @@ fn matmul_nbits(
     // a custom packing function, but otherwise uses the same logic as for
     // regular matmuls.
     if rows == 1 {
-        let gemm = BlockQuantizedGemm::new();
+        let compute = match accuracy {
+            AccuracyLevel::Int8 => ComputeMode::Int8,
+            AccuracyLevel::Float => ComputeMode::Float,
+        };
+        let gemm = if BlockQuantizedGemm::is_compute_optimized(compute) {
+            BlockQuantizedGemm::new().with_compute(compute)
+        } else {
+            BlockQuantizedGemm::new()
+        };
         out_data.extend_init(|uninit_out_data| {
             gemm.batched_gemm_uninit(&mut uninit_out_data[..out_len], lhs, b_mat)
                 .unwrap()
@@ -703,6 +712,21 @@ fn matmul_nbits(
     Ok(NdTensor::from_data(out_shape, out_data))
 }
 
+/// Specifies whether the LHS input may be quantized.
+///
+/// Using [`Int8`](Self::Int8) quantization can significantly improve
+/// performance but may reduce accuracy. The accuracy level that is used may
+/// be higher than requested if an optimized implementation of the requested
+/// level is not available on the current platform.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum AccuracyLevel {
+    /// Do not quantize the LHS input.
+    Float,
+    /// Quantize the LHS to 8-bit integers using blockwise quantization with
+    /// the same quantization as the RHS.
+    Int8,
+}
+
 /// Matrix multiplication of un-quantized LHS by block-quantized RHS.
 ///
 /// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.MatMulNBits.
@@ -710,6 +734,7 @@ fn matmul_nbits(
 pub struct MatMulNBits {
     pub bits: u8,
     pub block_size: usize,
+    pub accuracy_level: AccuracyLevel,
 }
 
 impl Operator for MatMulNBits {
@@ -760,7 +785,15 @@ impl Operator for MatMulNBits {
             ));
         }
 
-        matmul_nbits(ctx.pool(), lhs, rhs, scales.view(), self.bits).into_op_result()
+        matmul_nbits(
+            ctx.pool(),
+            lhs,
+            rhs,
+            scales.view(),
+            self.bits,
+            self.accuracy_level,
+        )
+        .into_op_result()
     }
 }
 
@@ -775,7 +808,7 @@ mod tests {
     };
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
-    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
     use rten_testing::TestCases;
 
@@ -785,8 +818,8 @@ mod tests {
     use crate::ops::binary_elementwise::broadcast_shapes;
 
     use super::{
-        FusedMatMul, MatMul, MatMulInteger, MatMulNBits, MatmulStrategy, OpError, OpRunContext,
-        cast_scale, gemm, matmul, matmul_fused, matmul_impl, matmul_integer,
+        AccuracyLevel, FusedMatMul, MatMul, MatMulInteger, MatMulNBits, MatmulStrategy, OpError,
+        OpRunContext, cast_scale, gemm, matmul, matmul_fused, matmul_impl, matmul_integer,
     };
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -1530,43 +1563,97 @@ mod tests {
 
     #[test]
     fn test_matmul_nbits() {
-        let mut rng = XorShiftRng::new(1234);
+        #[derive(Clone, Debug)]
+        struct Case {
+            m: usize,
+            accuracy_level: AccuracyLevel,
+            tolerance: Option<f32>,
+        }
 
-        let batch = 2;
-        let block_size = 16;
-        let block_bytes = block_size / 2;
-        let m = 4;
-        let k = block_size * 2;
-        let n = 8;
-        let n_bits = 4;
+        let cases = [
+            // Vector-matrix product
+            Case {
+                m: 1,
+                accuracy_level: AccuracyLevel::Float,
+                tolerance: None,
+            },
+            Case {
+                m: 1,
+                accuracy_level: AccuracyLevel::Int8,
+                tolerance: Some(0.1),
+            },
+            // Matrix-matrix product
+            Case {
+                m: 4,
+                accuracy_level: AccuracyLevel::Float,
+                tolerance: None,
+            },
+            Case {
+                m: 4,
+                accuracy_level: AccuracyLevel::Int8,
+                // MatMulNBits currently falls back to float compute for
+                // matrix-matrix products, so no tolerance is required.
+                tolerance: None,
+            },
+        ];
 
-        let lhs = NdTensor::<f32, 3>::rand([batch, m, k], &mut rng);
-        let rhs = NdTensor::<u8, 3>::rand([n, k / block_size, block_bytes], &mut rng);
-        let scales = NdTensor::<f32, 2>::rand([n, k / block_size], &mut rng);
-        let expected = reference_matmul_nbits(lhs.view(), rhs.view(), scales.view(), n_bits);
+        cases.test_each_clone(|case| {
+            let Case {
+                m,
+                accuracy_level,
+                tolerance,
+            } = case;
 
-        let op = MatMulNBits {
-            bits: n_bits,
-            block_size,
-        };
+            let mut rng = XorShiftRng::new(1234);
 
-        // With 2D scales.
-        let result: NdTensor<f32, 3> = op
-            .run_simple((lhs.view(), rhs.view(), scales.view()))
-            .unwrap();
-        assert_eq!(result.shape(), [batch, m, n]);
-        expect_equal(&result, &expected).unwrap();
+            let batch = 2;
+            let block_size = 16;
+            let block_bytes = block_size / 2;
+            let k = block_size * 2;
+            let n = 8;
+            let n_bits = 4;
 
-        // With 1D scales (older models)
-        let result: NdTensor<f32, 3> = op
-            .run_simple((
-                lhs.view(),
-                rhs.view(),
-                scales.reshaped([scales.len()]).view(),
-            ))
-            .unwrap();
-        assert_eq!(result.shape(), [batch, m, n]);
-        expect_equal(&result, &expected).unwrap();
+            let lhs = NdTensor::<f32, 3>::rand([batch, m, k], &mut rng);
+            let rhs = NdTensor::<u8, 3>::rand([n, k / block_size, block_bytes], &mut rng);
+            let scales = NdTensor::<f32, 2>::rand([n, k / block_size], &mut rng);
+
+            // nb. Reference result is always computed in full precision.
+            let expected = reference_matmul_nbits(lhs.view(), rhs.view(), scales.view(), n_bits);
+
+            let op = MatMulNBits {
+                bits: n_bits,
+                block_size,
+                accuracy_level,
+            };
+
+            // With 2D scales.
+            let result: NdTensor<f32, 3> = op
+                .run_simple((lhs.view(), rhs.view(), scales.view()))
+                .unwrap();
+            assert_eq!(result.shape(), [batch, m, n]);
+            if let Some(atol) = tolerance {
+                let rtol = 0.;
+                expect_equal_with_tolerance(&result, &expected, atol, rtol).unwrap();
+            } else {
+                expect_equal(&result, &expected).unwrap();
+            }
+
+            // With 1D scales (older models)
+            let result: NdTensor<f32, 3> = op
+                .run_simple((
+                    lhs.view(),
+                    rhs.view(),
+                    scales.reshaped([scales.len()]).view(),
+                ))
+                .unwrap();
+            assert_eq!(result.shape(), [batch, m, n]);
+            if let Some(atol) = tolerance {
+                let rtol = 0.;
+                expect_equal_with_tolerance(&result, &expected, atol, rtol).unwrap();
+            } else {
+                expect_equal(&result, &expected).unwrap();
+            }
+        });
     }
 
     #[test]

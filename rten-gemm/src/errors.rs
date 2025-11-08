@@ -23,6 +23,8 @@ pub enum GemmError {
     PackedDataBlockingMismatch,
     /// Block-quantized inputs are not supported for this data type.
     BlockQuantizedInputNotSupported,
+    /// Quantization element size is not supported.
+    QuantBitsNotSupported,
 }
 
 impl Display for GemmError {
@@ -47,6 +49,12 @@ impl Display for GemmError {
             }
             Self::BlockQuantizedInputNotSupported => {
                 write!(fmt, "block-quantized inputs not supported for data type")
+            }
+            Self::QuantBitsNotSupported => {
+                write!(
+                    fmt,
+                    "quantized input has an unsupported number of bits per element"
+                )
             }
         }
     }

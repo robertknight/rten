@@ -19,13 +19,14 @@ use rten_tensor::{
 
 mod block_quant;
 mod errors;
+mod i8dot;
 mod im2col;
 mod kernels;
 mod packing;
 mod prepack;
 mod tiles;
 
-pub use block_quant::{BlockQuantizedGemm, BlockQuantizedMatrix};
+pub use block_quant::{BlockQuantizedGemm, BlockQuantizedMatrix, ComputeMode};
 pub use errors::{BlockQuantizedError, GemmError};
 pub use im2col::{ColOffsets, Im2Col, RowOffsets};
 pub use kernels::QuantParams;
