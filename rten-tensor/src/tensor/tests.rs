@@ -455,7 +455,7 @@ fn test_from_data() {
 }
 
 #[test]
-#[should_panic(expected = "data length does not match shape [2, 2, 2]")]
+#[should_panic(expected = "data length 4 does not match shape [2, 2, 2]")]
 fn test_from_data_shape_mismatch() {
     NdTensor::from_data([2, 2, 2], vec![1, 2, 3, 4]);
 }
