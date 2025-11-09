@@ -52,7 +52,7 @@ impl BlockQuantizedGemm {
     pub fn is_compute_optimized(mode: ComputeMode) -> bool {
         match mode {
             ComputeMode::Float => true,
-            ComputeMode::Int8 => cfg!(target_arch = "aarch64"),
+            ComputeMode::Int8 => is_int8_compute_optimized(),
         }
     }
 
@@ -141,6 +141,20 @@ impl Default for BlockQuantizedGemm {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Return true if a SIMD-optimized int8 dot product implementation is
+/// available.
+fn is_int8_compute_optimized() -> bool {
+    struct HasInt8Simd;
+    impl SimdInt8DotOp for HasInt8Simd {
+        type Output = bool;
+
+        fn eval<I: Int8DotIsa>(self, _isa: I) -> Self::Output {
+            I::SIMD
+        }
+    }
+    HasInt8Simd.dispatch()
 }
 
 /// SIMD operation which computes the product between an f32 vector and a 4-bit
@@ -418,7 +432,10 @@ impl<'a> VecDotMatrixQuant<'a> {
         // 4-bit elements that can be loaded into a SIMD vector. This can be
         // larger or smaller than the block size of the RHS.
         let elements_per_vec = u8_ops.len() * 2;
-        let vecs_per_block = rhs.elements_per_block() / elements_per_vec;
+        let elements_per_block = rhs.elements_per_block();
+        let vecs_per_block = elements_per_block / elements_per_vec;
+        let blocks_per_vec = elements_per_vec.div_ceil(elements_per_block);
+        let n_tail_blocks = rhs.blocks_per_column() % blocks_per_vec;
 
         // Convert division into shift.
         let vecs_per_block_log2 = if vecs_per_block != 0 {
@@ -428,6 +445,11 @@ impl<'a> VecDotMatrixQuant<'a> {
             0
         };
 
+        // Masks used to select scales if we're using 4 or 8 scales per vblock.
+        let lo_half_mask = ops.first_n_mask(ops.len() / 2);
+        let lo_quad_mask = ops.first_n_mask(ops.len() / 4);
+        let lo_three_quads_mask = ops.first_n_mask(3 * ops.len() / 4);
+
         for ((col, col_scales), out) in rhs_cols.zip(scale_blocks).zip(out.iter_mut()) {
             let mut acc = [ops.zero(); 2];
 
@@ -436,13 +458,11 @@ impl<'a> VecDotMatrixQuant<'a> {
             let vlen = u8_ops.len();
             let zero_i32 = i32_ops.zero();
 
-            let col_vblocks = col.chunks_exact(vlen);
-            let row_vblocks = lhs_data.data().chunks_exact(vlen * 2);
+            let mut col_vblocks = col.chunks_exact(vlen);
+            let mut row_vblocks = lhs_data.data().chunks_exact(vlen * 2);
 
-            assert!(row_vblocks.remainder().is_empty());
-            assert!(col_vblocks.remainder().is_empty());
-
-            for (vblock_idx, vblocks) in row_vblocks.zip(col_vblocks).enumerate() {
+            for (vblock_idx, vblocks) in row_vblocks.by_ref().zip(col_vblocks.by_ref()).enumerate()
+            {
                 let (row_vblock, col_vblock) = vblocks;
 
                 // Load packed u4 values.
@@ -457,18 +477,31 @@ impl<'a> VecDotMatrixQuant<'a> {
                 );
 
                 // Re-interpret as i8
-                let lo = i8_ops.from_bits(lo.to_bits());
-                let hi = i8_ops.from_bits(hi.to_bits());
+                let mut lo = i8_ops.from_bits(lo.to_bits());
+                let mut hi = i8_ops.from_bits(hi.to_bits());
 
-                // Subtract zero point
-                let lo = i8_ops.sub(lo, zero_point);
-                let hi = i8_ops.sub(hi, zero_point);
+                // Subtract zero point if using i8 x i8 dot product.
+                if !I::LHS_UNSIGNED {
+                    lo = i8_ops.sub(lo, zero_point);
+                    hi = i8_ops.sub(hi, zero_point);
+                }
 
                 // Load vblock elements from LHS
                 let [lhs_lo, lhs_hi] = i8_ops.load_many::<2>(row_vblock);
 
-                let dot_lo = isa.dot(lo, lhs_lo, zero_i32);
-                let dot_hi = isa.dot(hi, lhs_hi, zero_i32);
+                // Compute i8 x i8 -> i32 or u8 x i8 -> i32 dot product.
+                let mut dot_lo = isa.dot(lo, lhs_lo, zero_i32);
+                let mut dot_hi = isa.dot(hi, lhs_hi, zero_i32);
+
+                // If using u8 x i8 dot product, compensate for not subtracting
+                // the zero point before the dot product.
+                if I::LHS_UNSIGNED {
+                    let zero_point_i32 = i32_ops.splat(8);
+                    let lhs_lo_sum = isa.dot(i8_ops.splat(1), lhs_lo, zero_i32);
+                    let lhs_hi_sum = isa.dot(i8_ops.splat(1), lhs_hi, zero_i32);
+                    dot_lo = i32_ops.sub(dot_lo, i32_ops.mul(zero_point_i32, lhs_lo_sum));
+                    dot_hi = i32_ops.sub(dot_hi, i32_ops.mul(zero_point_i32, lhs_hi_sum));
+                }
 
                 let float_lo = i32_ops.to_float(dot_lo);
                 let float_hi = i32_ops.to_float(dot_hi);
@@ -477,28 +510,103 @@ impl<'a> VecDotMatrixQuant<'a> {
                     1 => {
                         let col_scale = col_scales[vblock_idx >> vecs_per_block_log2];
                         let row_scale = lhs_scales[vblock_idx >> vecs_per_block_log2];
+
                         let scale = ops.splat(col_scale * row_scale);
+
                         acc[0] = ops.mul_add(float_lo, scale, acc[0]);
                         acc[1] = ops.mul_add(float_hi, scale, acc[1]);
                     }
                     2 => {
                         let block_idx = vblock_idx * 2;
+
                         let col_scale_lo = col_scales[block_idx];
                         let col_scale_hi = col_scales[block_idx + 1];
+
                         let row_scale_lo = lhs_scales[block_idx];
                         let row_scale_hi = lhs_scales[block_idx + 1];
+
                         let scale_lo = ops.splat(col_scale_lo * row_scale_lo);
                         let scale_hi = ops.splat(col_scale_hi * row_scale_hi);
 
                         acc[0] = ops.mul_add(float_lo, scale_lo, acc[0]);
                         acc[1] = ops.mul_add(float_hi, scale_hi, acc[1]);
                     }
+                    4 => {
+                        let block_idx = vblock_idx * 4;
+
+                        let col_scale_a = col_scales[block_idx];
+                        let col_scale_b = col_scales[block_idx + 1];
+                        let col_scale_c = col_scales[block_idx + 2];
+                        let col_scale_d = col_scales[block_idx + 3];
+
+                        let row_scale_a = lhs_scales[block_idx];
+                        let row_scale_b = lhs_scales[block_idx + 1];
+                        let row_scale_c = lhs_scales[block_idx + 2];
+                        let row_scale_d = lhs_scales[block_idx + 3];
+
+                        let scale_a = ops.splat(col_scale_a * row_scale_a);
+                        let scale_b = ops.splat(col_scale_b * row_scale_b);
+                        let scale_c = ops.splat(col_scale_c * row_scale_c);
+                        let scale_d = ops.splat(col_scale_d * row_scale_d);
+
+                        let scale_ab = ops.select(scale_a, scale_b, lo_half_mask);
+                        let scale_cd = ops.select(scale_c, scale_d, lo_half_mask);
+
+                        acc[0] = ops.mul_add(float_lo, scale_ab, acc[0]);
+                        acc[1] = ops.mul_add(float_hi, scale_cd, acc[1]);
+                    }
+                    8 => {
+                        let block_idx = vblock_idx * 8;
+
+                        let scales: [<I::Isa as Isa>::F32; 8] = std::array::from_fn(|i| {
+                            ops.splat(col_scales[block_idx + i] * lhs_scales[block_idx + i])
+                        });
+
+                        // Replicate eight f32 scales to fill two SIMD vectors.
+                        // For a 512-bit vector we have:
+                        // [0000 1111 2222 3333] [4444 5555 6666 7777].
+                        let scales_01 = ops.select(scales[0], scales[1], lo_quad_mask);
+                        let scales_23 = ops.select(scales[2], scales[3], lo_three_quads_mask);
+                        let scales_0123 = ops.select(scales_01, scales_23, lo_half_mask);
+                        let scales_45 = ops.select(scales[4], scales[5], lo_quad_mask);
+                        let scales_67 = ops.select(scales[6], scales[7], lo_three_quads_mask);
+                        let scales_4567 = ops.select(scales_45, scales_67, lo_half_mask);
+
+                        acc[0] = ops.mul_add(float_lo, scales_0123, acc[0]);
+                        acc[1] = ops.mul_add(float_hi, scales_4567, acc[1]);
+                    }
                     _ => unreachable!(),
                 }
             }
 
             let acc = ops.add(acc[0], acc[1]);
-            let acc = ops.sum(acc);
+            let mut acc = ops.sum(acc);
+
+            // Handle tail blocks in column. This contains < 128 elements
+            // (512 / 4).
+            if n_tail_blocks > 0 {
+                let row_tail_blocks = row_vblocks.remainder().chunks_exact(elements_per_block);
+                let col_tail_blocks = col_vblocks.remainder().chunks_exact(elements_per_block / 2);
+                debug_assert_eq!(row_tail_blocks.len(), n_tail_blocks);
+
+                let mut tail_acc = 0.;
+                for (i, (lhs_block, rhs_block)) in row_tail_blocks.zip(col_tail_blocks).enumerate()
+                {
+                    let col_scale = col_scales[col_scales.len() - n_tail_blocks + i];
+                    let row_scale = lhs_scales[lhs_scales.len() - n_tail_blocks + i];
+                    let scale = col_scale * row_scale;
+
+                    let mut acc = 0.;
+                    for ([x_lo, x_hi], y) in lhs_block.as_chunks::<2>().0.iter().zip(rhs_block) {
+                        let y_lo = (y & 0x0F) as i32 - 8;
+                        let y_hi = (y >> 4) as i32 - 8;
+                        acc += (*x_lo as i32 * y_lo + *x_hi as i32 * y_hi) as f32 * scale;
+                    }
+                    tail_acc += acc;
+                }
+                acc += tail_acc;
+            }
+
             out.write(acc);
         }
 
@@ -526,6 +634,8 @@ impl<'a> SimdInt8DotOp for VecDotMatrixQuant<'a> {
         match scales_per_vblock {
             1 => self.eval_impl::<I, 1>(isa),
             2 => self.eval_impl::<I, 2>(isa),
+            4 => self.eval_impl::<I, 4>(isa),
+            8 => self.eval_impl::<I, 8>(isa),
             _ => unreachable!("unsupported scales_per_vblock"),
         }
     }
@@ -863,6 +973,17 @@ mod tests {
                 tolerance: Some(atol),
             });
         }
+
+        // Add a case that will exercise both the main and tail loops using int8.
+        cases.push(Case {
+            n_cols: 1,
+            // 16 x u4 = 64 bits, smaller than vector length.
+            block_size: 16,
+            // (max_vblock_size / 16) to use main loop once, plus one for a tail.
+            n_blocks: (max_vblock_size / 16) + 1,
+            compute: ComputeMode::Int8,
+            tolerance: Some(0.1),
+        });
 
         cases.test_each_clone(|case| {
             let Case {
