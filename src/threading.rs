@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 ///
 /// On platforms where threads are not supported (eg. WebAssembly) this runs
 /// operations directly on the main thread.
+#[derive(Debug)]
 pub struct ThreadPool {
     /// The wrapped thread pool, or None if we failed to construct one.
     pool: Option<rayon::ThreadPool>,

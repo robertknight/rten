@@ -51,7 +51,7 @@ impl std::fmt::Display for MetadataField {
 ///
 /// There are methods for standard fields. The [`fields`](Self::fields) method
 /// returns an iterator over all fields.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct ModelMetadata {
     fields: HashMap<MetadataField, String>,
 }
