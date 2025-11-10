@@ -5,6 +5,183 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+**Highlights:**
+
+This release adds support for the non-standard `MatMulNBits` operator which is
+used in LLM models for 4-bit block quantization. This is demonstrated via a new
+Llama 3 chat example.
+
+New APIs for operator input and output types (`Value`, `ValueView` etc.) make it
+possible to use rten in applications without a direct dependency on
+`rten-tensor`. Instead inputs can be constructed directly from shape and data
+vectors and outputs can be directly converted into shape and data vectors.
+
+**Breaking changes:**
+
+There have been several breaking changes to parts of the public API to make it
+easier to evolve APIs in future without further breaking changes. The main such
+change is that various structs and enums (eg. `LoadError`, `RunOptions`) are now
+marked as non-exhaustive.
+
+### rten
+
+- Added `Debug` impls for `Model` and other types, making it easier to impl
+  `Debug` for structs containing fields of these types in downstream
+  applications (https://github.com/robertknight/rten/pull/1073,
+  https://github.com/robertknight/rten/pull/1075)
+
+- Added `GlobalMaxPool` operator and improved performance of `GlobalAveragePool`
+  (https://github.com/robertknight/rten/pull/1072)
+
+- Support `noop_with_empty_axes` attribute for reduction operators
+  (https://github.com/robertknight/rten/pull/1057)
+
+- Fixed loading of ONNX operators when the `domain` field is present but
+  empty. This was encountered with models trained using JAX
+  (https://github.com/robertknight/rten/pull/1056)
+
+- Fixed handling of missing `dilations` attribute for `Conv` operator in ONNX
+  loader (https://github.com/robertknight/rten/pull/1047)
+
+- Improved performance of int8 vector-matrix products under AVX512 by using VNNI
+  if available (https://github.com/robertknight/rten/pull/1046)
+
+- Check operator input count against maximum supported when loading ONNX
+  operators. This helps to avoid silently producing incorrect outputs if
+  an operators has more inputs than expected
+  (https://github.com/robertknight/rten/pull/1039)
+
+- Added support for quantizing models using the newer "nbits" quantizer in
+  the `ort-quantize.py` script. This quantizes models to 4-bit weights using
+  `MatMulNBits` (https://github.com/robertknight/rten/pull/1035,
+  https://github.com/robertknight/rten/pull/1037). It enables quantizing LLM
+  models with sufficient quantization granularity to retain good accuracy.
+
+- Added support for the non-standard `MatMulNBits` operator which is used in
+  many published LLM models for matrix multiplication with 4-bit block-quantized
+  weights (https://github.com/robertknight/rten/pull/1031)
+
+- Check both the domain and op_type when deserializing ONNX operators.
+  This avoids incorrect handling of `com.microsoft` operators which have the
+  same name as a built-in operator
+  (https://github.com/robertknight/rten/pull/1029)
+
+- Changed `Value::dtype` to return both the element data type (f32, i32 etc.)
+  and the collection type (tensor, sequence)
+  (https://github.com/robertknight/rten/pull/1028).
+
+- Fixed warnings about unused variants when `rten_format` feature is disabled
+  (https://github.com/robertknight/rten/pull/1027)
+
+- Added new APIs to simplify creating and extracting data from `Value`s and
+  `ValueView`s: `Value::from_shape`, `ValueView::from_shape`,
+  `Value::into_shape_vec`. These changes make it possible for downstream
+  projects to use rten without a dependency on the `rten-tensor` crate.
+  https://github.com/robertknight/rten/pull/1025
+
+- Fixed build when `mmap` feature is enabled and either the `rten_format` or
+  `onnx_format` features are disabled
+  (https://github.com/robertknight/rten/pull/1024)
+
+- Renamed the error type used when converting values to tensors from `CastError`
+  to `TryFromValueError` and added it to the public API
+  (https://github.com/robertknight/rten/pull/1023)
+
+- Removed the `model_builder` crate feature and associated API
+  (https://github.com/robertknight/rten/pull/1020). This was previously used
+  to help with writing tests in the Ocrs project. That project has now been
+  changed to use a mock implementation of `Model` for unit tests.
+
+- Improve error when attempting to load an ONNX model where an initializer
+  has an unsupported data type (https://github.com/robertknight/rten/pull/1016)
+
+- Made `DataType`, `Value` and `ValueView` non-exhaustive enums
+  (https://github.com/robertknight/rten/pull/1015)
+
+- Made `RunOptions` a non-exhaustive struct so that adding new fields is no
+  longer a breaking change. Instead it can be configured with a builder-like
+  API (https://github.com/robertknight/rten/pull/1013)
+
+- Changed API for loading models with a subset of operators enabled to make
+  it easier to use (https://github.com/robertknight/rten/pull/1011). A related
+  change is that the internal structs for each operator are no longer exposed
+  in the public API (https://github.com/robertknight/rten/pull/1018).
+
+- Revised error types for model load and inference errors to be more like
+  `std::io::Error`, helping to avoid breaking changes in future
+  (https://github.com/robertknight/rten/pull/1007,
+  https://github.com/robertknight/rten/pull/1008).
+
+- Made `flatbuffers` an optional dependency, used when `rten_format` feature
+  ise enabled (https://github.com/robertknight/rten/pull/1006)
+
+### rten-cli
+
+- Group inputs and outputs whose names are the same except for a single number.
+  This is common in transformer models which have many KV-cache inputs and
+  outputs, with the same name except for a layer number
+  (https://github.com/robertknight/rten/pull/1055)
+
+- Support input and dimension names with periods in the `--size` flag. Such
+  names can be specified by quoting them. See
+  https://github.com/robertknight/rten/pull/1048.
+
+### rten-examples
+
+- Added Llama 3 chat example (https://github.com/robertknight/rten/pull/1042).
+  This is a demonstration of the newly-added support for 4-bit quantized
+  weights.
+
+### rten-generate
+
+- Changed profiler to return options for duration metrics, which may be `None`
+  if called before any tokens have been generated
+  (https://github.com/robertknight/rten/pull/1045). Previously these would
+  return `NaN`s.
+
+- Added support for Top-P sampling (https://github.com/robertknight/rten/pull/1044)
+
+### rten-simd
+
+- Improved error in `load` and `load_many` methods if slice length is shorter
+  than SIMD vector lane count (https://github.com/robertknight/rten/pull/1070)
+
+- Fixed warnings about obsolete `unsafe` blocks when building for wasm32
+  (https://github.com/robertknight/rten/pull/1053)
+
+- Added `ToFloat` trait for int-to-float conversion for i32 vectors
+  (https://github.com/robertknight/rten/pull/1052)
+
+- Implemented `Interleave` trait for u8 vectors (https://github.com/robertknight/rten/pull/1051)
+
+- Added `shift_right` for integer types. This is an arithmetic rather than
+  logical shift (https://github.com/robertknight/rten/pull/1049)
+
+### rten-tensor
+
+- Improved panic message in `TensorBase::from_data` if length is incorrect for
+  shape (https://github.com/robertknight/rten/pull/1071)
+
+- Removed deprecated `tensor` and `ndtensor` macros
+  (https://github.com/robertknight/rten/pull/1064)
+
+- Streamlined API of rten-tensor root module by moving some lesser-used types
+  and functions to submodules (https://github.com/robertknight/rten/pull/1063)
+
+- Added experimental `Contiguous` API which is a tensor wrapper that guarantees
+  the wrapped tensor has a contiguous layout (https://github.com/robertknight/rten/pull/1058).
+
+### rten-text
+
+- Added support for `ignore_merges` configuration setting for BPE tokenizers
+  (https://github.com/robertknight/rten/pull/1043)
+
+- Changed the BPE tokenizer implementation's representation of the merge list
+  to fix an issue encountered with the Llama 3 tokenizer
+  (https://github.com/robertknight/rten/pull/1041)
+
 ## [0.23.0] - 2025-10-16
 
 This release adds support for loading models in ONNX format directly, without
