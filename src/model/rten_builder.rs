@@ -74,6 +74,7 @@ pub enum OpType<'a> {
     Gelu(Gelu),
     Gemm(Gemm),
     GlobalAveragePool,
+    GlobalMaxPool,
     Greater,
     GreaterOrEqual,
     HardSigmoid(HardSigmoid),
@@ -652,6 +653,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 }
             ),
             OpType::GlobalAveragePool => op!(GlobalAveragePool),
+            OpType::GlobalMaxPool => op!(GlobalMaxPool),
             OpType::Greater => op!(Greater),
             OpType::GreaterOrEqual => op!(GreaterOrEqual),
             OpType::HardSigmoid(args) => op_with_attrs!(

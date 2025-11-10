@@ -141,6 +141,7 @@ enum OperatorType: ubyte {
   GridSample,
   PRelu,
   STFT,
+  GlobalMaxPool,
 }
 
 enum RNNDirection: ubyte {

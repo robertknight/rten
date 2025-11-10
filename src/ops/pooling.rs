@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
+use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
@@ -453,54 +454,50 @@ impl Operator for AveragePool {
     }
 }
 
-pub fn global_average_pool(pool: &BufferPool, input: TensorView) -> Result<Tensor, OpError> {
-    let input = static_dims!(input, 4, "NCHW")?;
-    let [batch, chans, in_h, in_w] = input.shape();
-
-    let mut output = NdTensor::uninit_in(pool, [batch, chans, 1, 1]);
-    let mut n_init = 0;
-
-    for n in 0..batch {
-        const N: usize = 4;
-
-        for (chan_group, mut out_group) in input
-            .slice(n)
-            .axis_chunks(0, N)
-            .zip(output.slice_mut((n, .., 0, 0)).axis_chunks_mut(0, N))
-        {
-            if chan_group.size(0) == N {
-                // Compute average over batch of N channels in parallel.
-                let chan_group = chan_group.nd_view();
-
-                let mut sums = [0.; N];
-                for y in 0..chan_group.size(1) {
-                    for x in 0..chan_group.size(2) {
-                        let vals: [f32; N] = chan_group.get_array([0, y, x], 0);
-                        for i in 0..N {
-                            sums[i] += vals[i];
-                        }
-                    }
-                }
-
-                for i in 0..N {
-                    out_group[i].write(sums[i] / (in_h * in_w) as f32);
-                }
-                n_init += N;
-            } else {
-                // Compute average over remaining channels.
-                for i in 0..chan_group.size(0) {
-                    let sum: f32 = chan_group.slice([i]).iter().sum();
-                    out_group[i].write(sum / (in_h * in_w) as f32);
-                    n_init += 1;
-                }
-            }
-        }
+fn global_pool<T: Clone + Send + Sync>(
+    pool: &BufferPool,
+    input: TensorView<T>,
+    kernel: &(dyn Fn(&[T]) -> T + Send + Sync),
+) -> Result<Tensor<T>, OpError> {
+    if input.ndim() < 2 {
+        return Err(OpError::InvalidValue("Input must have at least 2 dims"));
     }
 
-    assert!(n_init == output.len());
-    let output = unsafe { output.assume_init() };
+    let batch = input.size(0);
+    let chan = input.size(1);
+    let mut out_shape: SmallVec<[usize; 4]> = [batch, chan].into_iter().collect();
+    out_shape.resize(input.ndim(), 1);
 
-    Ok(output.into_dyn())
+    let n_elem = input.shape().iter().skip(2).product();
+    let input = input.reshaped_in(pool, [batch, chan, n_elem]);
+
+    let n_out = batch * chan;
+    let mut out_data = pool.alloc::<T>(n_out);
+    let out_uninit = &mut out_data.spare_capacity_mut()[..n_out];
+
+    input
+        .lanes(2)
+        .into_par_iter()
+        .zip(out_uninit.par_iter_mut())
+        .for_each(|(chan_data, out)| {
+            let chan_slice = chan_data.as_slice().unwrap();
+            let reduced = kernel(chan_slice);
+            out.write(reduced);
+        });
+
+    // Safety: All elements of `out_uninit` have been initialized.
+    unsafe {
+        out_data.set_len(n_out);
+    }
+
+    Ok(Tensor::from_data(&out_shape, out_data))
+}
+
+pub fn global_average_pool(pool: &BufferPool, input: TensorView) -> Result<Tensor, OpError> {
+    global_pool(pool, input, &|chan_data| {
+        let sum = rten_vecmath::Sum::new(chan_data).dispatch();
+        sum / chan_data.len() as f32
+    })
 }
 
 #[derive(Debug)]
@@ -518,6 +515,30 @@ impl Operator for GlobalAveragePool {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require_as(0)?;
         global_average_pool(ctx.pool(), input).into_op_result()
+    }
+}
+
+pub fn global_max_pool(pool: &BufferPool, input: TensorView) -> Result<Tensor, OpError> {
+    global_pool(pool, input, &|chan_data| {
+        rten_vecmath::MaxNum::new(chan_data).dispatch()
+    })
+}
+
+#[derive(Debug)]
+pub struct GlobalMaxPool {}
+
+impl Operator for GlobalMaxPool {
+    fn name(&self) -> &str {
+        "GlobalMaxPool"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        global_max_pool(ctx.pool(), input).into_op_result()
     }
 }
 
@@ -586,10 +607,13 @@ mod tests {
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use super::{RoundMode, calc_output_size_and_padding};
+    use super::{
+        RoundMode, average_pool, calc_output_size_and_padding, global_average_pool,
+        global_max_pool, max_pool,
+    };
     use crate::buffer_pool::BufferPool;
     use crate::ops::tests::expect_eq_1e4;
-    use crate::ops::{OpError, Padding, average_pool, global_average_pool, max_pool};
+    use crate::ops::{OpError, Padding};
 
     #[test]
     fn test_average_pool() {
@@ -763,6 +787,27 @@ mod tests {
         let result = global_average_pool(&pool, input.view()).unwrap();
         expect_equal(&result, &expected)?;
         Ok(())
+    }
+
+    #[test]
+    fn test_global_max_pool() -> Result<(), Box<dyn Error>> {
+        let pool = BufferPool::new();
+        let input = Tensor::from_data(&[1, 2, 2, 2], vec![1., 2., 3., 4., 10., 20., 30., 40.]);
+        let expected = Tensor::from_data(&[1, 2, 1, 1], vec![4.0, 40.]);
+        let result = global_max_pool(&pool, input.view()).unwrap();
+        expect_equal(&result, &expected)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_global_pool_invalid_input() {
+        let pool = BufferPool::new();
+        let input = Tensor::from([1., 2., 3., 4.]);
+        let err = global_max_pool(&pool, input.view()).err().unwrap();
+        assert_eq!(
+            err,
+            OpError::InvalidValue("Input must have at least 2 dims")
+        );
     }
 
     #[test]

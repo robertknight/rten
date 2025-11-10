@@ -17,13 +17,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 127;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 128;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 128] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 129] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -152,6 +152,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 128] = [
     OperatorType::GridSample,
     OperatorType::PRelu,
     OperatorType::STFT,
+    OperatorType::GlobalMaxPool,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -287,9 +288,10 @@ impl OperatorType {
     pub const GridSample: Self = Self(125);
     pub const PRelu: Self = Self(126);
     pub const STFT: Self = Self(127);
+    pub const GlobalMaxPool: Self = Self(128);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 127;
+    pub const ENUM_MAX: u8 = 128;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -419,6 +421,7 @@ impl OperatorType {
         Self::GridSample,
         Self::PRelu,
         Self::STFT,
+        Self::GlobalMaxPool,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -551,6 +554,7 @@ impl OperatorType {
             Self::GridSample => Some("GridSample"),
             Self::PRelu => Some("PRelu"),
             Self::STFT => Some("STFT"),
+            Self::GlobalMaxPool => Some("GlobalMaxPool"),
             _ => None,
         }
     }

@@ -134,6 +134,7 @@ impl RtenOpRegistry {
         register_op!(Gelu);
         register_op!(Gemm);
         register_op!(GlobalAveragePool);
+        register_op!(GlobalMaxPool);
         register_op!(Greater);
         register_op!(GreaterOrEqual);
         register_op!(GridSample);
@@ -597,6 +598,7 @@ impl_read_op!(Gemm, attrs_as_gemm_attrs, |attrs: sg::GemmAttrs| {
     })
 });
 impl_read_op!(GlobalAveragePool);
+impl_read_op!(GlobalMaxPool);
 impl_read_op!(Greater);
 impl_read_op!(GreaterOrEqual);
 impl_read_op!(

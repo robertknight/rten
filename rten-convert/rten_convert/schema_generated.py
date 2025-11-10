@@ -135,6 +135,7 @@ class OperatorType(object):
     GridSample = 125
     PRelu = 126
     STFT = 127
+    GlobalMaxPool = 128
 
 
 class RNNDirection(object):

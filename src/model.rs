@@ -1242,6 +1242,7 @@ mod tests {
             transpose_b: false,
         });
         add_operator!(GlobalAveragePool, [input_node]);
+        add_operator!(GlobalMaxPool, [input_node]);
         add_operator!(Greater, [input_node, input_node]);
         add_operator!(GreaterOrEqual, [input_node, input_node]);
         add_operator!(HardSigmoid, [input_node], {
