@@ -93,6 +93,7 @@ impl<'a, T: Elem, O: NumOps<T>> Iter<'a, T, O> {
     ///
     /// When the `fold` operation is simple, this can improve performance over
     /// `self.fold` by achieving better instruction level parallelism.
+    #[inline]
     pub fn fold_unroll<const UNROLL: usize>(
         mut self,
         accum: O::Simd,
@@ -142,6 +143,7 @@ impl<'a, T: Elem, O: NumOps<T>> Iter<'a, T, O> {
 
     /// Variant of [`fold_n`](Self::fold_n) which unrolls computation `UNROLL`
     /// times, like [`fold_unroll`](Self::fold_unroll).
+    #[inline]
     pub fn fold_n_unroll<const N: usize, const UNROLL: usize>(
         mut self,
         accum: [O::Simd; N],
