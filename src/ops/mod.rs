@@ -90,7 +90,7 @@ pub(crate) use {
         RmsNormalization, Softmax,
     },
     pad::Pad,
-    pooling::{AveragePool, GlobalAveragePool, MaxPool},
+    pooling::{AveragePool, GlobalAveragePool, GlobalMaxPool, MaxPool},
     quantize::{DequantizeLinear, DynamicQuantizeLinear, QuantizeLinear},
     reduce::{
         ArgMax, ArgMin, CumSum, NonZero, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
