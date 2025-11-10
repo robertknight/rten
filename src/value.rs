@@ -268,7 +268,7 @@ macro_rules! impl_proxy_layout {
 ///
 /// Views can also be created from an [`NdTensorView`] or [`TensorView`] using
 /// [`Into`].
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum ValueView<'a> {
     FloatTensor(TensorView<'a, f32>),
@@ -695,7 +695,7 @@ impl From<Sequence> for Value {
 /// These can be created from a shape and data (see
 /// [`ValueView::from_shape`] and [`Value::from_shape`]) or from a
 /// tensor of a supported type ([`Tensor`], [`TensorView`] etc.) using [`Into`].
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ValueOrView<'a> {
     /// A borrowed view (like a slice).
     ///

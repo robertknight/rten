@@ -447,6 +447,16 @@ impl<'a> NodeInfo<'a> {
     }
 }
 
+impl<'a> std::fmt::Debug for NodeInfo<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NodeInfo")
+            .field("name", &self.name())
+            .field("shape", &self.shape())
+            .field("dtype", &self.dtype())
+            .finish()
+    }
+}
+
 /// Parse profiling flags from the `RTEN_TIMING` environment variable and
 /// update the graph run configuration `opts`.
 ///
@@ -633,6 +643,15 @@ impl ModelOptions {
             #[cfg(not(feature = "onnx_format"))]
             FileType::Onnx => Err(LoadErrorImpl::FormatNotEnabled.into()),
         }
+    }
+}
+
+impl std::fmt::Debug for ModelOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModelOptions")
+            .field("optimize", &self.optimize)
+            .field("prepack_weights", &self.prepack_weights)
+            .finish()
     }
 }
 
