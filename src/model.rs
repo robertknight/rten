@@ -401,14 +401,33 @@ impl Model {
     }
 }
 
+impl std::fmt::Debug for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let node_names = |ids: &[NodeId]| -> Vec<&str> {
+            ids.iter()
+                .filter_map(|id| self.node_info(*id))
+                .map(|info| info.name().unwrap_or(""))
+                .collect()
+        };
+
+        let input_names = node_names(self.input_ids());
+        let output_names = node_names(self.output_ids());
+
+        f.debug_struct("Model")
+            .field("inputs", &input_names)
+            .field("outputs", &output_names)
+            .finish()
+    }
+}
+
 /// Provides access to metadata about a graph node.
 pub struct NodeInfo<'a> {
     node: &'a Node,
 }
 
-impl NodeInfo<'_> {
+impl<'a> NodeInfo<'a> {
     /// Return the unique name associated with the node, if present.
-    pub fn name(&self) -> Option<&str> {
+    pub fn name(&self) -> Option<&'a str> {
         self.node.name()
     }
 
@@ -862,6 +881,17 @@ mod tests {
                 vec![(output_id, Value::FloatTensor(result_tensor))]
             );
         }
+    }
+
+    #[test]
+    fn test_model_debug() {
+        let buffer = generate_model_buffer(ModelFormat::V2);
+        let model = Model::load(buffer).unwrap();
+        let debug_str = format!("{model:?}");
+        assert_eq!(
+            debug_str,
+            "Model { inputs: [\"input\"], outputs: [\"output\"] }"
+        );
     }
 
     #[test]
