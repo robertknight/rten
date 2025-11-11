@@ -1125,7 +1125,7 @@ impl Extend<u8> for Avx2Isa {
 }
 
 impl IntOps<u8> for Avx2Isa {
-    #[inline]
+    #[inline(always)]
     fn shift_left<const SHIFT: i32>(self, x: U8x32) -> U8x32 {
         let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
 
@@ -1136,7 +1136,7 @@ impl IntOps<u8> for Avx2Isa {
         self.narrow_truncate(y_lo, y_hi)
     }
 
-    #[inline]
+    #[inline(always)]
     fn shift_right<const SHIFT: i32>(self, x: U8x32) -> U8x32 {
         let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
 
