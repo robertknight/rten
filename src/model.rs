@@ -50,29 +50,28 @@ pub mod onnx_builder;
 /// ## Example
 ///
 /// ```no_run
-/// use rten_tensor::prelude::*;
-/// use rten_tensor::NdTensor;
-///
-/// use rten::Model;
+/// use rten::{Model, ValueView};
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     // Load the model. If the model is large, using `load_mmap` can be faster.
 ///     let model = Model::load_file("model.onnx")?;
 ///
-///     // Prepare inputs in format expected by model. See notes about i64/bool
-///     // data types below.
-///     let input_data: NdTensor<f32, 4> = NdTensor::zeros([1, 3, 224, 224]);
+///     // Prepare inputs in format expected by model.
+///     let input = ValueView::from_shape([4, 4], &[0.1, 0.2, 0.3, 0.4])?;
 ///
 ///     // Run the model.
+///     //
+///     // The inputs are a Vec of `(node_id, value)` tuples. The outputs are an
+///     // array of node IDs.
 ///     let inputs = vec![
-///         (model.node_id("input")?, input_data.into()),
+///         (model.node_id("input")?, input.into()),
 ///     ];
 ///     let outputs = [model.node_id("output")?];
 ///     let [output] = model.run_n(inputs, outputs, None)?;
 ///
-///     // Convert outputs to expected type and rank. See notes about i64/bool
-///     // data types below.
-///     let output: NdTensor<f32, 2> = output.try_into()?;
+///     // Extract outputs.
+///     let (shape, data) = output.into_shape_vec::<f32, 2>()?;
+///     let [height, width] = shape;
 ///
 ///     // Post-process outputs.
 ///
@@ -91,41 +90,170 @@ pub mod onnx_builder;
 ///  - _Operators_ which combine the values and constants using operations such
 ///    as matrix multiplication, convolution etc.
 ///
-/// Some of these nodes are designated as inputs and outputs. The IDs of these
-/// nodes can be obtained using [`Model::input_ids`] and [`Model::output_ids`].
-/// These IDs are then used when calling [`Model::run`]. Model execution consists
-/// of generating a plan which starts with the input nodes, and executes the
-/// necessary operators to generate the requested outputs.
+/// Some of the value nodes are designated as inputs and outputs. The IDs of
+/// these nodes can be obtained using [`Model::input_ids`] and
+/// [`Model::output_ids`]. When a model is run, a plan is generated and executed
+/// which starts with the provided inputs and runs the necessary operators to
+/// generate the requested outputs.
 ///
-/// ## Input and output data types
+/// ## Loading models
 ///
-/// Model inputs and outputs can be tensors with `i32`, `f32`, `i8` or `u8`
-/// elements. If an ONNX model expects an `i64` input (eg. for token IDs) or
-/// a `bool` input (eg. for a mask), the input should be passed as `i32` instead.
+/// Models can be loaded from files using [`load_file`](Self::load_file) or
+/// [`load_mmap`](Self::load_mmap), byte arrays using [`load`](Self::load) or
+/// from static data embedded in the binary using
+/// [`load_static_slice`](Self::load_static_slice). Additional configuration
+/// options can be set by using [`ModelOptions`].
+///
+/// ## Inputs and outputs
+///
+/// ### Supported data types
+///
+/// Model inputs and outputs are tensors with `i32`, `f32`, `i8` or `u8`
+/// elements. If an ONNX model expects an `i64` input (eg. for token IDs) or a
+/// `bool` input (eg. for a mask), the input should be passed as `i32` instead.
 /// If an ONNX model has an `i64` or `bool` output, these will be returned as
 /// `i32`.
 ///
-/// ## Graph optimizations
+/// ### Querying input and output metadata
+///
+/// Node IDs for inputs and outputs can be looked up using
+/// [`node_id`](Self::node_id). The shape and data type of an input or output
+/// can be queried using [`node_info`](Self::node_info).
+///
+/// ### Creating inputs
+///
+/// Model inputs can be created from slices, `Vec`s or tensor types from
+/// rten-tensor:
+///
+/// ```no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use rten_tensor::NdTensor;
+/// use rten::{Model, Value, ValueView};
+///
+/// let input_a = ValueView::from_shape([2, 2], &[1.0, 2.0, 3.0, 4.0])?;
+/// let input_b = Value::from_shape([2, 2], vec![1.0, 2.0, 3.0, 4.0])?;
+/// let input_c = NdTensor::from_data([2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+///
+/// let model = Model::load_file("model.onnx")?;
+/// let inputs = vec![
+///   (model.node_id("input_a")?, input_a.into()),
+///   (model.node_id("input_b")?, input_b.into()),
+///   (model.node_id("input_c")?, input_c.into()),
+/// ];
+/// let outputs = [model.node_id("output")?];
+/// let [output] = model.run_n(inputs, outputs, None)?;
+/// # Ok(()) }
+/// ```
+///
+/// ### Extracting outputs
+///
+/// The outputs returned by a model can be extracted into a `(shape, data)`
+/// tuple using [`into_shape_vec`](Value::into_shape_vec) or a tensor using
+/// `try_into`:
+///
+/// ```no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use rten::Model;
+/// use rten_tensor::NdTensor;
+///
+/// let model = Model::load_file("model.onnx?")?;
+///
+/// let inputs = vec![];
+/// let outputs = [model.node_id("output_a")?, model.node_id("output_b")?];
+/// let [output_a, output_b] = model.run_n(inputs, outputs, None)?;
+///
+/// let (shape, data) = output_a.into_shape_vec::<f32, 2>()?;
+/// let tensor: NdTensor<f32, 2> = output_b.try_into()?;
+/// # Ok(()) }
+/// ```
+///
+/// ## Running models
+///
+/// Models are evaluated by calling one of the `run` methods. The most common is
+/// [`run_n`](Self::run_n) which runs models with a fixed number of outputs. To
+/// run a model with a variable number of outputs, use [`run`](Self::run). The
+/// `run*` methods accept a [`RunOptions`] argument which configures the
+/// thread pool to use and settings for execution and logging.
+///
+/// ### Generative models
+///
+/// Auto-regressive models (eg. LLMs) need to be run in a loop until some
+/// termination condition is met. The companion
+/// [rten-generate](https://docs.rs/rten-generate/) crate provides APIs to
+/// simplify this process.
+///
+/// ## Performance
+///
+/// This section describes configuration that affects performance. Some options
+/// are set when the model is loaded via [`ModelOptions`], while others are set
+/// when the model is run via [`RunOptions`].
+///
+/// ### Parallelism
+///
+/// By default RTen will use multiple threads for inference, running models on
+/// a global thread pool. The number of threads will be chosen to match the
+/// number of physical cores. On platforms which have a mixture of performance
+/// and efficiency cores, RTen may set the thread count to match the number of
+/// performances cores.
+///
+/// You can configure the number of threads by creating a custom thread pool
+/// and configuring inference to use it via [`RunOptions`]. This can also be
+/// used to run a model with different inputs in parallel, by creating separate
+/// thread pools.
+///
+/// ```
+/// use std::sync::Arc;
+/// use rten::{ThreadPool, RunOptions};
+///
+/// let pool = ThreadPool::with_num_threads(1);
+/// let options = RunOptions::default()
+///   .with_thread_pool(Some(Arc::new(pool)));
+///
+/// // Pass options to `Model::run`.
+/// ```
+///
+/// The number of threads in the default thread pool can be customized by
+/// setting the `RTEN_NUM_THREADS` environment variable.
+///
+/// ### Graph optimizations
 ///
 /// By default RTen applies various optimizations to the model when it is loaded
 /// to improve inference performance. These optimizations guarantee to preserve
 /// the model's inputs and outputs, but other nodes may be replaced or
 /// eliminated. To configure or disable optimizations, use [`ModelOptions`].
 ///
-/// ## Weight prepacking
+/// ```
+/// use rten::ModelOptions;
+///
+/// let model = ModelOptions::with_all_ops()
+///   .enable_optimization(false)
+///   .load_file("model.onnx");
+/// ```
+///
+/// Optimizations applied include:
+///
+/// - **Fusion**: Fusions combine operators to reduce the amount of data
+///   movement required during inference.
+/// - **Constant propagation**: Subgraphs which don't depend on
+///   dynamic inputs are evaluated once at model load and replaced with the
+///   result.
+/// - **Identity elimination**: Operators which return their inputs unchanged
+///   are removed.
+///
+/// ### Weight prepacking
 ///
 /// In addition to optimizing the structure of the graph, RTen can create copies
 /// of the weights with an optimized ("packed") data layout at model load time.
-/// Enabling this will increase model load time and memory usage but reduce the
-/// time taken per inference. When this option is disabled, weights are packed
-/// temporarily on-demand just before they are used for computation.
+/// Enabling this will increase model load time and memory usage but may reduce
+/// the time taken per inference. When this option is disabled, weights are
+/// packed temporarily on-demand just before they are used for computation.
 ///
 /// For generative transformer models (aka. "transformer decoders") prepacking
 /// is generally only useful when processing multiple input tokens at a time.
 ///
 /// Prepacking is disabled by default but can be enabled using [`ModelOptions`].
 ///
-/// ## Partial evaluation
+/// ### Partial evaluation
 ///
 /// Some models, such as transformer decoders, are evaluated repeatedly in a
 /// loop. If such models have inputs which are constant in each iteration of the
@@ -133,11 +261,31 @@ pub mod onnx_builder;
 /// evaluating the part of the graph that depends only on the constant inputs
 /// once, outside the loop. To do this use [`Model::partial_run`].
 ///
-/// ## Custom operator registries
+/// ### Profiling
 ///
-/// By default all supported ONNX operators are available for use by the model.
-/// You can reduce binary size and compilation time by loading a model with
-/// only a subset of operators enabled. See [`ModelOptions::with_ops`].
+/// There is built-in support for reporting on the time taken for each operator,
+/// which can optionally be broken down by input shape. These can be enabled via
+/// fields of the [`RunOptions`] struct.
+///
+/// As a development convenience, setting the `RTEN_TIMING` environment variable
+/// to "1" will cause timings for each operator to be reported after each
+/// inference.
+///
+/// ## Compile time and binary size
+///
+/// This section describes model configuration that affects compile time and
+/// binary size of projects using RTen.
+///
+/// ### Custom operator registries
+///
+/// By default all ONNX operators are available for use by models, except for
+/// those which require enabling additional crate features.
+///
+/// You can reduce binary size and compilation time by loading a model with only
+/// a subset of operators enabled. Operators that are not enabled will be
+/// excluded from the binary during linking. To do this, create a custom
+/// operator registry using the [`op_registry`](crate::op_registry) macro and
+/// configure the model to use it using [`ModelOptions::with_ops`].
 pub struct Model {
     graph: Graph,
     metadata: ModelMetadata,
