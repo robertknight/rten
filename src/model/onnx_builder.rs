@@ -5,6 +5,8 @@ use std::cell::RefCell;
 use rten_base::from::enum_from;
 use rten_onnx::onnx;
 
+use crate::model::external_data::DataLocation;
+
 #[derive(Clone)]
 pub enum AttrValue {
     Bool(bool),
@@ -124,6 +126,7 @@ pub enum TensorData {
     Raw(Vec<u8>),
     Double(Vec<f64>),
     Int(Vec<i32>),
+    External(DataLocation),
 }
 
 pub fn create_tensor(
@@ -141,6 +144,24 @@ pub fn create_tensor(
         TensorData::Raw(raw) => tensor.raw_data = Some(RefCell::new(raw)),
         TensorData::Double(doubles) => tensor.double_data = doubles,
         TensorData::Int(ints) => tensor.int32_data = ints,
+        TensorData::External(location) => {
+            tensor.data_location = Some(onnx::DataLocation::EXTERNAL);
+            tensor.external_data = [
+                onnx::StringStringEntryProto {
+                    key: Some("location".to_string()),
+                    value: Some(location.path.clone()),
+                },
+                onnx::StringStringEntryProto {
+                    key: Some("offset".to_string()),
+                    value: Some(location.offset.to_string()),
+                },
+                onnx::StringStringEntryProto {
+                    key: Some("length".to_string()),
+                    value: Some(location.length.to_string()),
+                },
+            ]
+            .to_vec();
+        }
     }
 
     tensor

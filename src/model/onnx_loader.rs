@@ -341,6 +341,23 @@ fn load_constant(
         }
     };
 
+    let external_data = if let Some(loc) = external_location {
+        if let Some(loader) = &loader {
+            let slice = loader
+                .load(&loc)
+                .map_err(|e| load_error!(ExternalDataError, name, e))?;
+            Some(slice)
+        } else {
+            return Err(load_error!(
+                ExternalDataError,
+                name,
+                "tensor has external data but model was loaded without external data source"
+            ));
+        }
+    } else {
+        None
+    };
+
     // Tensor data can be stored in the `raw_data` field, one of several typed
     // fields, or externally.
     //
@@ -358,8 +375,7 @@ fn load_constant(
             name,
             &shape,
             raw_data,
-            external_location,
-            loader,
+            external_data,
             &initializer.float_data,
             |x| x,
         )?,
@@ -367,8 +383,7 @@ fn load_constant(
             name,
             &shape,
             raw_data,
-            external_location,
-            loader,
+            external_data,
             &initializer.int32_data,
             |x| x,
         )?,
@@ -376,8 +391,7 @@ fn load_constant(
             name,
             &shape,
             raw_data,
-            external_location,
-            loader,
+            external_data,
             &initializer.int32_data,
             |x| x as u8,
         )?,
@@ -385,8 +399,7 @@ fn load_constant(
             name,
             &shape,
             raw_data,
-            external_location,
-            loader,
+            external_data,
             &initializer.int32_data,
             |x| x as i8,
         )?,
@@ -394,10 +407,11 @@ fn load_constant(
         // RTen internally does not support i64 or bool tensors. Instead both
         // are converted to i32 at load time.
         Some(onnx::DataType::INT64) => {
+            let i64_to_i32 = |bytes: [u8; 8]| saturating_cast_i64_to_i32(i64::from_le_bytes(bytes));
             let data = if let Some(data) = raw_data {
-                let i64_to_i32 =
-                    |bytes: [u8; 8]| saturating_cast_i64_to_i32(i64::from_le_bytes(bytes));
                 elements_from_le_bytes(&data, i64_to_i32)
+            } else if let Some(external_data) = external_data {
+                elements_from_le_bytes(external_data.data(), i64_to_i32)
             } else {
                 initializer
                     .int64_data
@@ -413,6 +427,8 @@ fn load_constant(
             let u8_to_i32 = |bytes: [u8; 1]| if bytes[0] != 0 { 1 } else { 0 };
             let data = if let Some(data) = raw_data {
                 elements_from_le_bytes(&data, u8_to_i32)
+            } else if let Some(external_data) = external_data {
+                elements_from_le_bytes(external_data.data(), u8_to_i32)
             } else {
                 initializer
                     .int32_data
@@ -527,8 +543,7 @@ fn make_constant<T: Pod, U: Pod>(
     name: Option<&str>,
     shape: &[usize],
     raw_data: Option<Vec<u8>>,
-    external_data: Option<DataLocation>,
-    loader: Option<&dyn DataLoader>,
+    external_data: Option<DataSlice>,
     typed_data: &[U],
     convert: impl Fn(U) -> T,
 ) -> Result<Constant, LoadError>
@@ -537,19 +552,8 @@ where
 {
     let tensor: ConstantNodeData<T> = if let Some(data) = raw_data {
         tensor_from_bytes::<T>(shape, data, name)?.into()
-    } else if let Some(loc) = external_data {
-        if let Some(loader) = &loader {
-            let data = loader
-                .load(&loc)
-                .map_err(|e| load_error!(ExternalDataError, name, e))?;
-            tensor_from_external_data::<T>(shape, &data, name)?.into()
-        } else {
-            return Err(load_error!(
-                ExternalDataError,
-                name,
-                "tensor has external data but model was loaded without external data source"
-            ));
-        }
+    } else if let Some(external_data) = external_data {
+        tensor_from_external_data::<T>(shape, &external_data, name)?.into()
     } else {
         let data = typed_data.iter().copied().map(convert).collect();
         tensor_from_elements(shape, data, name)?.into()
@@ -904,21 +908,29 @@ fn add_operator(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
     use rten_onnx::onnx;
     use rten_tensor::{Tensor, TensorView};
 
     use super::{Source, load};
+    use crate::constant_storage::ConstantStorage;
     use crate::graph::{Constant, Graph, TypedConstant};
+    use crate::model::external_data::{DataLoader, DataLocation, DataSlice, ExternalDataError};
     use crate::model::onnx_builder::{
         GraphProtoExt, NodeProtoExt, TensorData, create_node, create_tensor, create_value_info,
     };
     use crate::model::{LoadError, Model, ModelOptions};
 
     /// Load a model from a parsed `ModelProto` message.
-    fn load_model(model: onnx::ModelProto) -> Result<Model, LoadError> {
+    fn load_model(
+        model: onnx::ModelProto,
+        data_loader: Option<&dyn DataLoader>,
+    ) -> Result<Model, LoadError> {
         load(
             Source::Proto(model),
-            None,
+            data_loader,
             // Disable optimization by default to test just the basic graph
             // creation.
             &ModelOptions::with_all_ops().enable_optimization(false),
@@ -947,6 +959,45 @@ mod tests {
             Constant: TypedConstant<T>,
         {
             self.graph.get_tensor_by_name(name)
+        }
+    }
+
+    /// DataLoader that uses a map of path to in-memory buffer.
+    struct MemDataLoader(HashMap<String, Arc<ConstantStorage>>);
+
+    impl MemDataLoader {
+        fn from_entries(entries: impl IntoIterator<Item = (String, Vec<u8>)>) -> Self {
+            let map = entries
+                .into_iter()
+                .map(|(path, buf)| {
+                    let storage = Arc::new(ConstantStorage::Buffer(buf));
+                    (path, storage)
+                })
+                .collect();
+            Self(map)
+        }
+    }
+
+    impl DataLoader for MemDataLoader {
+        fn load(&self, location: &DataLocation) -> Result<DataSlice, ExternalDataError> {
+            let Some(storage) = self.0.get(&location.path) else {
+                return Err(ExternalDataError::InvalidPath(
+                    location.path.as_str().into(),
+                ));
+            };
+            let end_offset = location.offset + location.length;
+            if end_offset > storage.data().len() as u64 {
+                return Err(ExternalDataError::TooShort {
+                    required_len: end_offset as usize,
+                    actual_len: storage.data().len(),
+                });
+            }
+
+            let bytes = (location.offset as usize)..end_offset as usize;
+            Ok(DataSlice {
+                storage: storage.clone(),
+                bytes,
+            })
         }
     }
 
@@ -1000,7 +1051,7 @@ mod tests {
             .with_node(if_node)
             .into_model();
 
-        let model = load_model(model_proto).unwrap();
+        let model = load_model(model_proto, None).unwrap();
 
         // Verify the capture list for the subgraph was populated correctly.
         let graph = model.graph();
@@ -1027,7 +1078,7 @@ mod tests {
             .with_node(node)
             .into_model();
 
-        let model = load_model(model_proto).unwrap();
+        let model = load_model(model_proto, None).unwrap();
 
         let graph = model.graph();
         let clip_op_id = graph.get_node_id("clip_op").unwrap();
@@ -1077,7 +1128,7 @@ mod tests {
             .with_initializer(doubles_vec)
             .into_model();
 
-        let model = load_model(model_proto).unwrap();
+        let model = load_model(model_proto, None).unwrap();
 
         let floats_raw = model.get_tensor_by_name::<f32>("doubles_raw").unwrap();
         assert_eq!(floats_raw, Tensor::from(0.5));
@@ -1099,12 +1150,56 @@ mod tests {
             .with_initializer(tensor)
             .into_model();
 
-        let err = load_model(model_proto).err().unwrap();
+        let err = load_model(model_proto, None).err().unwrap();
 
         assert_eq!(
             err.to_string(),
             "in node \"init\": graph error: initializer has unsupported data type FLOAT16"
         );
+    }
+
+    #[test]
+    fn test_initializer_with_external_data() {
+        let external_tensor = |name, dtype, offset, length| {
+            create_tensor(
+                name,
+                &[],
+                dtype,
+                TensorData::External(DataLocation {
+                    path: "test.onnx.data".to_string(),
+                    offset,
+                    length,
+                }),
+            )
+        };
+
+        let i64_tensor = external_tensor("i64_tensor", onnx::DataType::INT64, 8, 8);
+        let f32_tensor = external_tensor("f32_tensor", onnx::DataType::FLOAT, 16, 4);
+        let bool_tensor = external_tensor("bool_tensor", onnx::DataType::BOOL, 20, 1);
+
+        let model_proto = onnx::GraphProto::default()
+            .with_initializer(i64_tensor)
+            .with_initializer(f32_tensor)
+            .with_initializer(bool_tensor)
+            .into_model();
+
+        let mut buf = Vec::new();
+        buf.extend(0i64.to_le_bytes());
+        buf.extend(1i64.to_le_bytes());
+        buf.extend((3.14f32).to_le_bytes());
+        buf.push(1u8);
+        let loader = MemDataLoader::from_entries([("test.onnx.data".to_string(), buf)]);
+
+        let model = load_model(model_proto, Some(&loader)).unwrap();
+
+        let tensor = model.get_tensor_by_name::<i32>("i64_tensor").unwrap();
+        assert_eq!(tensor, Tensor::from(1i32));
+
+        let tensor = model.get_tensor_by_name::<f32>("f32_tensor").unwrap();
+        assert_eq!(tensor, Tensor::from(3.14));
+
+        let tensor = model.get_tensor_by_name::<i32>("bool_tensor").unwrap();
+        assert_eq!(tensor, Tensor::from(1i32));
     }
 
     #[test]
@@ -1114,7 +1209,7 @@ mod tests {
             .with_name("clip_op");
         let model_proto = onnx::GraphProto::default().with_node(node).into_model();
 
-        let err = load_model(model_proto).err().unwrap();
+        let err = load_model(model_proto, None).err().unwrap();
 
         assert_eq!(
             err.to_string(),
@@ -1133,7 +1228,7 @@ mod tests {
         custom_prop.value = Some("a_value".into());
         model_proto.metadata_props.push(custom_prop);
 
-        let model = load_model(model_proto).unwrap();
+        let model = load_model(model_proto, None).unwrap();
 
         assert_eq!(model.metadata().producer_name(), Some("pytorch"));
         assert_eq!(model.metadata().producer_version(), Some("2.8.0"));
@@ -1164,7 +1259,7 @@ mod tests {
             .with_node(node)
             .into_model();
 
-        let err = load_model(model_proto).err().unwrap();
+        let err = load_model(model_proto, None).err().unwrap();
 
         assert_eq!(
             err.to_string(),
