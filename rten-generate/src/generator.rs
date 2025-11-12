@@ -12,9 +12,10 @@ use rten_tensor::{NdTensor, Tensor};
 use rten_text::{Tokenizer, TokenizerError};
 
 use crate::filter::LogitsFilter;
+use crate::logits::Logits;
 use crate::metrics::Metrics;
 use crate::model::Model;
-use crate::sampler::{ArgMaxSampler, Sampler};
+use crate::sampler::{ArgMax, Sampler};
 
 #[cfg(feature = "text-decoder")]
 use crate::text_decoder::TextDecoder;
@@ -347,10 +348,37 @@ impl Default for ModelInputsConfig<'_> {
 /// The raw model outputs can be modified before sampling by configuring a
 /// [`LogitsFilter`] using [`with_logits_filter`](Generator::with_logits_filter).
 ///
+/// A chain of filters can be created using [`Chain`](crate::filter::Chain).
+/// When setting up the chain, a best practice is to put the most selective
+/// filters first (ie. those which eliminate the most tokens).
+///
+///
+/// ```no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use rten::Model;
+/// use rten_generate::Generator;
+/// use rten_generate::filter::Chain;
+/// use rten_generate::sampler::Multinomial;
+///
+/// let model = Model::load_file("model.onnx")?;
+/// let mut generator = Generator::from_model(&model)?
+///   .with_logits_filter(
+///     Chain::new()
+///       .top_k(30) // Remove all tokens except the 30 with the highest score
+///       .temperature(0.7) // Scale scores using `score / 0.7`.
+///       .top_p(0.9) // Take the top N tokens whose cumulative probability exceeds 0.9.
+///   )
+///   // Select a random token from the filtered set according to the probability
+///   // of each.
+///   .with_sampler(Multinomial::new());
+///
+/// # Ok(()) }
+/// ```
+///
 /// ## Sampling
 ///
 /// The token ID is sampled from the outputs of the model (the "logits") using
-/// a [`Sampler`]. By default this is an [`ArgMaxSampler`] which simply chooses
+/// a [`Sampler`]. By default this is [`ArgMax`] which simply chooses
 /// the token with the highest probability. The sampler can be configured using
 /// [`with_sampler`](Self::with_sampler).
 ///
@@ -577,7 +605,7 @@ impl<'a> Generator<'a> {
             kv_cache,
             encoder_kv_cache,
             prev_tokens: Vec::new(),
-            sampler: Box::new(ArgMaxSampler {}),
+            sampler: Box::new(ArgMax::new()),
         };
 
         let attention_mask_input = model.find_node(model_inputs.attention_mask);
@@ -664,12 +692,19 @@ impl<'a> Generator<'a> {
 
     /// Set the filter used to process model output logits before passing them
     /// to the sampler to select a token ID.
+    ///
+    /// To combine multiple filters, use a [`Chain`](crate::filter::Chain).
     pub fn with_logits_filter<F: LogitsFilter + 'a>(mut self, filter: F) -> Self {
         self.logits_filter = Some(Box::new(filter));
         self
     }
 
     /// Set the sampler used to sample the next token ID from the output logits.
+    ///
+    /// The default sampler picks the token with the highest probability
+    /// (aka. greedy sampling). The most common alternative is
+    /// [`Multinomial`](crate::sampler::Multinomial) which samples tokens
+    /// according to their respective probabilities.
     pub fn with_sampler<S: Sampler + 'a>(mut self, sampler: S) -> Self {
         self.sampler = Box::new(sampler);
         self
@@ -788,16 +823,15 @@ impl<'a> Generator<'a> {
             .remove(0)
             .try_into()
             .map_err(|e| wrap_error(e, "failed to extract logits from model outputs"))?;
-        let last_logits = logits.slice((0, -1));
-        let filtered_logits = self
-            .logits_filter
-            .as_ref()
-            .and_then(|f| f.filter(last_logits, &self.prev_tokens))
-            .map(|l| l.into_cow())
-            .unwrap_or(last_logits.as_cow());
+        let last_logits = Logits::dense(logits.slice((0, -1)).to_contiguous().to_vec());
+        let filtered_logits = if let Some(filter) = self.logits_filter.as_ref() {
+            filter.filter(last_logits, &self.prev_tokens)
+        } else {
+            last_logits
+        };
 
         // Sample output token.
-        let next_id = self.sampler.sample(filtered_logits.view());
+        let next_id = self.sampler.sample(&filtered_logits);
 
         // Update the self-attention key-value cache.
         //
@@ -950,10 +984,10 @@ mod tests {
     use std::rc::Rc;
 
     use rten::{Dimension, NodeId, RunOptions, Value, ValueOrView};
+    use rten_tensor::NdTensor;
     use rten_tensor::prelude::*;
-    use rten_tensor::{NdTensor, NdTensorView};
 
-    use super::{Generator, GeneratorUtils};
+    use super::{Generator, GeneratorUtils, Logits};
     use crate::filter::LogitsFilter;
     use crate::metrics::Metrics;
     use crate::model::{Model, NodeInfo};
@@ -1522,21 +1556,18 @@ mod tests {
             prev_tokens: Rc<RefCell<Vec<u32>>>,
         }
         impl LogitsFilter for DoubleIndexFilter {
-            fn filter(
-                &self,
-                logits: NdTensorView<f32, 1>,
-                prev_tokens: &[u32],
-            ) -> Option<NdTensor<f32, 1>> {
+            fn filter(&self, logits: Logits, prev_tokens: &[u32]) -> Logits {
                 self.prev_tokens.replace(prev_tokens.to_vec());
 
                 let max_idx = logits
+                    .logits()
                     .iter()
-                    .enumerate()
-                    .max_by(|(_i, x), (_j, y)| x.total_cmp(y))
-                    .map(|(i, _x)| i)?;
-                Some(NdTensor::from_fn(logits.shape(), |[i]| {
-                    if i == max_idx * 2 { 1. } else { 0. }
-                }))
+                    .zip(logits.indices())
+                    .max_by(|(x, _i), (y, _j)| x.total_cmp(y))
+                    .map(|(_x, i)| i)
+                    .unwrap();
+
+                Logits::sparse(vec![1.0], vec![max_idx * 2])
             }
         }
 
