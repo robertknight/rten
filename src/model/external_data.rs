@@ -389,12 +389,72 @@ impl DataLoader for MmapLoader {
     }
 }
 
+/// A [`DataLoader`] which loads data from in-memory buffers.
+///
+/// This supports loading models with external data in contexts where a file
+/// system is not available (eg. a browser) or inconvenient to use (eg. in
+/// tests).
+pub struct MemLoader(HashMap<String, Arc<ConstantStorage>>);
+
+impl MemLoader {
+    pub fn new(map: HashMap<String, Arc<ConstantStorage>>) -> Self {
+        Self(map)
+    }
+
+    #[cfg(test)]
+    pub fn from_entries(entries: impl IntoIterator<Item = (String, Vec<u8>)>) -> Self {
+        let map = entries
+            .into_iter()
+            .map(|(path, buf)| {
+                let storage = Arc::new(ConstantStorage::Buffer(buf));
+                (path, storage)
+            })
+            .collect();
+        Self(map)
+    }
+}
+
+impl DataLoader for MemLoader {
+    fn load(&self, location: &DataLocation) -> Result<DataSlice, ExternalDataError> {
+        // The restrictions on allowed data paths don't matter for the in-memory
+        // data loader, but we apply them for consistency with other loaders.
+        if !is_allowed_external_data_path(Path::new(&location.path)) {
+            return Err(ExternalDataError::DisallowedPath(
+                location.path.clone().into(),
+            ));
+        }
+        let Some(storage) = self.0.get(&location.path) else {
+            // Error message chosen to match the file loader.
+            return Err(ExternalDataError::IoError(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "No such file or directory".to_string(),
+            )));
+        };
+        let end_offset = location.offset + location.length;
+        if end_offset > storage.data().len() as u64 {
+            return Err(ExternalDataError::TooShort {
+                required_len: end_offset as usize,
+                actual_len: storage.data().len(),
+            });
+        }
+
+        let bytes = (location.offset as usize)..end_offset as usize;
+        Ok(DataSlice {
+            storage: storage.clone(),
+            bytes,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::panic::RefUnwindSafe;
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
 
-    use super::{DataLoader, DataLocation, ExternalDataError, FileLoader};
+    use super::{DataLoader, DataLocation, ExternalDataError, FileLoader, MemLoader};
+    use crate::constant_storage::ConstantStorage;
     use rten_testing::TestCases;
 
     fn temp_dir() -> PathBuf {
@@ -546,6 +606,17 @@ mod tests {
         use super::MmapLoader;
         test_loader("test_mmap_loader", |model_path| unsafe {
             MmapLoader::new(model_path)
+        })
+    }
+
+    #[test]
+    fn test_mem_loader() {
+        test_loader("test_mem_loader", |_model_path| {
+            let mut map = HashMap::new();
+            let buf = (0..32).collect();
+            let storage = Arc::new(ConstantStorage::Buffer(buf));
+            map.insert("test_mem_loader.onnx.data".to_string(), storage);
+            Ok(MemLoader::new(map))
         })
     }
 }
