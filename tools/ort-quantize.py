@@ -57,6 +57,35 @@ This enables representing quantization with only standard operators, but may
 affect model load time and accuracy. See https://github.com/robertknight/rten/issues/578.
 """,
 )
+
+# The combination of i8 compute and block size of 32 was chosen to match the
+# settings used for pre-created ONNX models uploaded to Hugging Face such as
+# https://huggingface.co/onnx-community/Llama-3.2-3B-Instruct-ONNX.
+nbits_parser.add_argument(
+    "--accuracy",
+    choices=["f32", "i8"],
+    default="i8",
+    help="""
+Minimum accuracy for internal compute of matrix multiplications.
+
+This affects whether the activations are dynamically quantized in MatMulNBits
+operators. Quantization can significantly improve performance, but may impact accuracy.
+
+See MatMulNBits in https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md.
+""",
+)
+nbits_parser.add_argument(
+    "--block-size",
+    type=int,
+    default=32,
+    help="""
+Block size for quantization along the K dimension.
+
+Values must be a power of 2 that is >= 16. Using smaller values can improve
+accuracy at the cost of increasing model size and slightly reducing inference
+speed.
+""",
+)
 args = parser.parse_args()
 
 output = args.output or args.input.replace(".onnx", ".quant.onnx")
@@ -129,14 +158,23 @@ def do_nbits_quantize(args):
     # Always use symmetric quantization because RTen's MatMulNBits
     # implementation doesn't support zero points yet.
     symmetric = True
-    block_size = 128
+    block_size = args.block_size
+
+    levels = {
+        "f32": 0,
+        "i8": 4,
+    }
+    accuracy_level = levels[args.accuracy]
 
     config_kwargs = {}
     if args.qdq:
         config_kwargs["quant_format"] = QuantFormat.QDQ
 
     config = nbits.DefaultWeightOnlyQuantConfig(
-        block_size=block_size, is_symmetric=symmetric, **config_kwargs
+        block_size=block_size,
+        is_symmetric=symmetric,
+        accuracy_level=accuracy_level,
+        **config_kwargs,
     )
     quantize(args.input, output, config)
 
