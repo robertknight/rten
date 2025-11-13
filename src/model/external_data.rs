@@ -19,7 +19,7 @@ use crate::constant_storage::ConstantStorage;
 
 /// Specifies the location of tensor data which is stored externally from the
 /// main model file.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DataLocation {
     /// Name of the external data file.
     pub path: String,
