@@ -908,16 +908,12 @@ fn add_operator(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::sync::Arc;
-
     use rten_onnx::onnx;
     use rten_tensor::{Tensor, TensorView};
 
     use super::{Source, load};
-    use crate::constant_storage::ConstantStorage;
     use crate::graph::{Constant, Graph, TypedConstant};
-    use crate::model::external_data::{DataLoader, DataLocation, DataSlice, ExternalDataError};
+    use crate::model::external_data::{DataLoader, DataLocation, MemLoader};
     use crate::model::onnx_builder::{
         GraphProtoExt, NodeProtoExt, TensorData, create_node, create_tensor, create_value_info,
     };
@@ -959,45 +955,6 @@ mod tests {
             Constant: TypedConstant<T>,
         {
             self.graph.get_tensor_by_name(name)
-        }
-    }
-
-    /// DataLoader that uses a map of path to in-memory buffer.
-    struct MemDataLoader(HashMap<String, Arc<ConstantStorage>>);
-
-    impl MemDataLoader {
-        fn from_entries(entries: impl IntoIterator<Item = (String, Vec<u8>)>) -> Self {
-            let map = entries
-                .into_iter()
-                .map(|(path, buf)| {
-                    let storage = Arc::new(ConstantStorage::Buffer(buf));
-                    (path, storage)
-                })
-                .collect();
-            Self(map)
-        }
-    }
-
-    impl DataLoader for MemDataLoader {
-        fn load(&self, location: &DataLocation) -> Result<DataSlice, ExternalDataError> {
-            let Some(storage) = self.0.get(&location.path) else {
-                return Err(ExternalDataError::InvalidPath(
-                    location.path.as_str().into(),
-                ));
-            };
-            let end_offset = location.offset + location.length;
-            if end_offset > storage.data().len() as u64 {
-                return Err(ExternalDataError::TooShort {
-                    required_len: end_offset as usize,
-                    actual_len: storage.data().len(),
-                });
-            }
-
-            let bytes = (location.offset as usize)..end_offset as usize;
-            Ok(DataSlice {
-                storage: storage.clone(),
-                bytes,
-            })
         }
     }
 
@@ -1188,7 +1145,7 @@ mod tests {
         buf.extend(1i64.to_le_bytes());
         buf.extend((3.14f32).to_le_bytes());
         buf.push(1u8);
-        let loader = MemDataLoader::from_entries([("test.onnx.data".to_string(), buf)]);
+        let loader = MemLoader::from_entries([("test.onnx.data".to_string(), buf)]);
 
         let model = load_model(model_proto, Some(&loader)).unwrap();
 

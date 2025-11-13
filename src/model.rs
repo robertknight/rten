@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::path::Path;
 use std::sync::Arc;
@@ -8,6 +9,7 @@ use std::fs::File;
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
 
+use crate::constant_storage::ConstantStorage;
 use crate::env::str_as_bool;
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunErrorImpl, RunOptions};
 use crate::op_registry::OpRegistry;
@@ -313,7 +315,8 @@ impl Model {
     ///
     /// # External data
     ///
-    /// This method does not currently support ONNX models with external data.
+    /// To load ONNX models from a byte buffer that reference external data, use
+    /// [`ModelOptions::external_data`] and [`ModelOptions::load`].
     pub fn load(data: Vec<u8>) -> Result<Model, LoadError> {
         ModelOptions::with_all_ops().load(data)
     }
@@ -647,6 +650,7 @@ pub struct ModelOptions {
     registry: Arc<OpRegistry>,
     optimize: bool,
     prepack_weights: bool,
+    external_data: HashMap<String, Arc<ConstantStorage>>,
 }
 
 impl ModelOptions {
@@ -664,6 +668,7 @@ impl ModelOptions {
             registry: ops.into(),
             optimize: true,
             prepack_weights: false,
+            external_data: HashMap::new(),
         }
     }
 
@@ -680,6 +685,16 @@ impl ModelOptions {
     /// for faster inference.
     pub fn prepack_weights(&mut self, prepack: bool) -> &mut Self {
         self.prepack_weights = prepack;
+        self
+    }
+
+    /// Provide the content of an external data file as a buffer.
+    ///
+    /// This is used when an ONNX model loaded via [`load`](Self::load)
+    /// references data in an external file.
+    pub fn external_data(&mut self, path: &str, buf: Vec<u8>) -> &mut Self {
+        let storage = Arc::new(ConstantStorage::Buffer(buf));
+        self.external_data.insert(path.to_string(), storage);
         self
     }
 
@@ -710,6 +725,14 @@ impl ModelOptions {
         }
     }
 
+    #[cfg(feature = "onnx_format")]
+    fn mem_data_loader(&self) -> external_data::MemLoader {
+        // This clones the map from path to reference-counted storage, but not
+        // the storage itself.
+        let external_data = self.external_data.clone();
+        external_data::MemLoader::new(external_data)
+    }
+
     /// Load the model from a data buffer. See [`Model::load`].
     pub fn load(&self, data: Vec<u8>) -> Result<Model, LoadError> {
         match FileType::from_buffer(&data).ok_or(LoadErrorImpl::UnknownFileType)? {
@@ -722,7 +745,10 @@ impl ModelOptions {
             #[cfg(not(feature = "rten_format"))]
             FileType::Rten => Err(LoadErrorImpl::FormatNotEnabled.into()),
             #[cfg(feature = "onnx_format")]
-            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(&data), None, self),
+            FileType::Onnx => {
+                let loader = self.mem_data_loader();
+                onnx_loader::load(onnx_loader::Source::Buffer(&data), Some(&loader), self)
+            }
             #[cfg(not(feature = "onnx_format"))]
             FileType::Onnx => Err(LoadErrorImpl::FormatNotEnabled.into()),
         }
@@ -740,7 +766,10 @@ impl ModelOptions {
             #[cfg(not(feature = "rten_format"))]
             FileType::Rten => Err(LoadErrorImpl::FormatNotEnabled.into()),
             #[cfg(feature = "onnx_format")]
-            FileType::Onnx => onnx_loader::load(onnx_loader::Source::Buffer(data), None, self),
+            FileType::Onnx => {
+                let loader = self.mem_data_loader();
+                onnx_loader::load(onnx_loader::Source::Buffer(data), Some(&loader), self)
+            }
             #[cfg(not(feature = "onnx_format"))]
             FileType::Onnx => Err(LoadErrorImpl::FormatNotEnabled.into()),
         }
@@ -1183,25 +1212,35 @@ mod tests {
             assert_eq!(result.shape().as_slice(), &[1, 10]);
         };
 
-        // Load from file path.
-        let model = Model::load_file("rten-onnx/test-data/mnist.onnx").unwrap();
-        check_model(model);
+        let model_path = "rten-onnx/test-data/mnist.onnx";
+        let external_model_path = "rten-onnx/test-data/mnist-external/mnist.onnx";
 
-        // Load from buffer.
-        let onnx_buf = std::fs::read("rten-onnx/test-data/mnist.onnx").unwrap();
-        let model = Model::load(onnx_buf).unwrap();
+        // Load from file path.
+        let model = Model::load_file(model_path).unwrap();
         check_model(model);
 
         // Load file with external data.
-        let model = Model::load_file("rten-onnx/test-data/mnist-external/mnist.onnx").unwrap();
+        let model = Model::load_file(external_model_path).unwrap();
+        check_model(model);
+
+        // Load from buffer.
+        let onnx_buf = std::fs::read(model_path).unwrap();
+        let model = Model::load(onnx_buf).unwrap();
+        check_model(model);
+
+        // Load from buffer with external data.
+        let onnx_buf = std::fs::read(external_model_path).unwrap();
+        let data_buf = std::fs::read(format!("{}.data", external_model_path)).unwrap();
+        let model = ModelOptions::with_all_ops()
+            .external_data("mnist.onnx.data", data_buf)
+            .load(onnx_buf)
+            .unwrap();
         check_model(model);
 
         // Load model file and external data using mmap.
         #[cfg(feature = "mmap")]
         {
-            let model =
-                unsafe { Model::load_mmap("rten-onnx/test-data/mnist-external/mnist.onnx") }
-                    .unwrap();
+            let model = unsafe { Model::load_mmap(external_model_path) }.unwrap();
             check_model(model);
         }
     }
