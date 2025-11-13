@@ -109,12 +109,14 @@ impl GroupName {
 
 impl Display for GroupName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if !self.numbers.is_empty() {
-            let ranges = format_ranges(&self.numbers);
-            // "<prefix>{<range>}<suffix>"
-            write!(f, "{}{{{}}}{}", self.prefix, ranges, self.suffix)
-        } else {
-            write!(f, "{}", self.prefix)
+        match self.numbers.as_slice() {
+            [] => write!(f, "{}{}", self.prefix, self.suffix),
+            [num] => write!(f, "{}{}{}", self.prefix, num, self.suffix),
+            numbers => {
+                let ranges = format_ranges(numbers);
+                // "<prefix>{<range>}<suffix>"
+                write!(f, "{}{{{}}}{}", self.prefix, ranges, self.suffix)
+            }
         }
     }
 }
@@ -274,6 +276,23 @@ mod tests {
 
     #[test]
     fn test_group_name_to_string() {
+        // No numbers
+        let g = GroupName {
+            prefix: "present".to_string(),
+            suffix: ".key".to_string(),
+            numbers: [].into(),
+        };
+        assert_eq!(g.to_string(), "present.key");
+
+        // Single number
+        let g = GroupName {
+            prefix: "present.".to_string(),
+            suffix: ".key".to_string(),
+            numbers: [1].into(),
+        };
+        assert_eq!(g.to_string(), "present.1.key");
+
+        // Multiple numbers
         let g = GroupName {
             prefix: "present.".to_string(),
             suffix: ".key".to_string(),
