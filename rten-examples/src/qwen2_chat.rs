@@ -55,6 +55,9 @@ fn encode_message(
 
 /// Chatbot using Qwen 2 [2].
 ///
+/// This example also works with some other models which use the same prompt
+/// format as Qwen 2, such as SmolLM v3 [3].
+///
 /// To obtain the model from Hugging Face, use Optimum [1].
 /// The model is available in various sizes. The larger models are smarter
 /// but slower. To export the smallest 0.5B model, use:
@@ -63,16 +66,24 @@ fn encode_message(
 /// optimum-cli export onnx --model Qwen/Qwen2-0.5B-Instruct qwen2-0.5b
 /// ```
 ///
+/// The model can optionally be quantized using:
+///
+/// ```
+/// python tools/ort-quantize.py nbits qwen2-0.5/model.onnx
+/// ```
+///
+/// When using quantization, this will generate `model.quant.onnx` in the same
+/// directory, which should be used in subsequent steps.
+///
 /// Then run the model and enter a prompt:
 ///
 /// ```sh
 /// cargo run --release --bin qwen2_chat qwen2-0.5b/model.onnx qwen2-0.5b/tokenizer.json
 /// ```
 ///
-/// For better output, but generated more slowly, use the "1.5b" model.
-///
 /// [1] https://huggingface.co/docs/optimum/index
 /// [2] https://github.com/QwenLM/Qwen2
+/// [3] https://huggingface.co/HuggingFaceTB/SmolLM3-3B
 fn main() -> Result<(), Box<dyn Error>> {
     let mut args: Args = argh::from_env();
     args.temperature = args.temperature.max(0.);
@@ -84,7 +95,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let im_start_token = tokenizer.get_token_id("<|im_start|>")?;
     let im_end_token = tokenizer.get_token_id("<|im_end|>")?;
-    let end_of_text_token = tokenizer.get_token_id("<|endoftext|>")?;
+
+    let mut end_of_turn_tokens = Vec::new();
+    end_of_turn_tokens.push(im_end_token);
+
+    // End of turn token used by some models that are supported by this example.
+    // See the `eos_token_id` field in the model's `generation_config.json`.
+    if let Ok(end_of_text_token) = tokenizer.get_token_id("<|endoftext|>") {
+        end_of_turn_tokens.push(end_of_text_token);
+    }
 
     // From `chat_template` in tokenizer_config.json.
     let prompt_tokens = encode_message(
@@ -133,8 +152,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let decoder = generator
             .by_ref()
-            // See `eos_token_id` in `generation_config.json`
-            .stop_on_tokens([im_end_token, end_of_text_token])
+            .stop_on_tokens(&end_of_turn_tokens)
             .decode(&tokenizer);
         for token in decoder {
             let token = token?;
