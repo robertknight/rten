@@ -95,7 +95,8 @@ The examples have been chosen to cover common tasks and popular models.
 - **jina_similarity** - Sentence similarity using vector embeddings of sentences
 - **llama** - Chatbot using [Llama 3](https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct)
 - **modernbert** - Masked word prediction using [ModernBERT](https://huggingface.co/blog/modernbert). Also works with the base version of the original BERT model.
-- **qwen2_chat** - Chatbot using [Qwen2](https://github.com/QwenLM/Qwen2)
+- **qwen2_chat** - Chatbot using [Qwen2](https://github.com/QwenLM/Qwen2). Also works with some other
+  chat models that use the same prompt format such as [SmolLM](https://huggingface.co/HuggingFaceTB/SmolLM3-3B).
 
 ### Audio
 
