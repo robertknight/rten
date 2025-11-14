@@ -68,11 +68,11 @@ impl<'dst, T: Copy> SrcDest<'_, 'dst, T> {
 }
 
 impl<'src, 'dst, T: Copy> From<(&'src [T], &'dst mut [MaybeUninit<T>])> for SrcDest<'src, 'dst, T> {
+    #[track_caller]
     fn from(val: (&'src [T], &'dst mut [MaybeUninit<T>])) -> Self {
         let (src, dest) = val;
-        assert_eq!(
-            src.len(),
-            dest.len(),
+        assert!(
+            src.len() == dest.len(),
             "src len {} != dest len {}",
             src.len(),
             dest.len(),

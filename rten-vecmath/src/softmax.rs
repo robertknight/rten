@@ -21,6 +21,7 @@ pub struct Softmax<'src, 'dst> {
 impl<'src, 'dst> Softmax<'src, 'dst> {
     /// Construct a softmax operation which reads `input` and writes to to
     /// `output`.
+    #[track_caller]
     pub fn new(input: &'src [f32], output: &'dst mut [MaybeUninit<f32>]) -> Self {
         Softmax {
             src_dest: (input, output).into(),
