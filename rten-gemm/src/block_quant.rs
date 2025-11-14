@@ -748,10 +748,7 @@ impl<'a, T: Copy> BlockQuantizedMatrix<'a, T> {
         }
         let offset = self.quant.offset([col, start_block, 0])?;
         let len = self.quant.size(2);
-
-        Some(unsafe {
-            std::slice::from_raw_parts(self.quant.data_ptr().add(offset), len * n_blocks)
-        })
+        Some(&self.quant.data()[offset..offset + len * n_blocks])
     }
 
     /// Return the scale factors for a range of blocks in a column.
@@ -765,8 +762,7 @@ impl<'a, T: Copy> BlockQuantizedMatrix<'a, T> {
             return None;
         }
         let offset = self.scales.offset([col, start_block])?;
-
-        Some(unsafe { std::slice::from_raw_parts(self.scales.data_ptr().add(offset), n_blocks) })
+        Some(&self.scales.data()[offset..offset + n_blocks])
     }
 }
 
