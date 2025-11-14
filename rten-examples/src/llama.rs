@@ -4,8 +4,9 @@ use std::io::prelude::*;
 
 use argh::FromArgs;
 use rten::Model;
+use rten_generate::filter::Chain;
 use rten_generate::metrics::Metrics;
-use rten_generate::sampler::TopPSampler;
+use rten_generate::sampler::Multinomial;
 use rten_generate::{Generator, GeneratorUtils};
 use rten_text::{TokenId, Tokenizer, TokenizerError};
 
@@ -82,10 +83,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // From `generation_config.json`.
     let top_p = 0.9;
+    let top_k = 40;
 
     let mut generator = Generator::from_model(&model)?
         .with_prompt(&system_prompt)
-        .with_sampler(TopPSampler::new(top_p, args.temperature));
+        .with_logits_filter(
+            Chain::new()
+                .top_k(top_k)
+                .temperature(args.temperature)
+                .top_p(top_p),
+        )
+        .with_sampler(Multinomial::new());
     let mut metrics = Metrics::new();
 
     loop {

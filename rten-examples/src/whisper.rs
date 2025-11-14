@@ -6,7 +6,7 @@ use std::time::Duration;
 use argh::FromArgs;
 use rten::{Dimension, FloatOperators, Model};
 use rten_generate::filter::{LogitsFilter, token_id_filter};
-use rten_generate::{Generator, GeneratorConfig, GeneratorUtils};
+use rten_generate::{Generator, GeneratorConfig, GeneratorUtils, Logits};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 use rten_text::Tokenizer;
@@ -234,20 +234,18 @@ impl TimestampFilter {
 }
 
 impl LogitsFilter for TimestampFilter {
-    fn filter(
-        &self,
-        logits: NdTensorView<f32, 1>,
-        prev_tokens: &[u32],
-    ) -> Option<NdTensor<f32, 1>> {
+    fn filter(&self, logits: Logits, prev_tokens: &[u32]) -> Logits {
         // TODO - Implement remaining parts of `ApplyTimestampRules` filter:
         // - Enforce that timestamp tokens appear in pairs, except before EOT.
 
-        let probs = logits.softmax(-1).unwrap();
+        let (mut logits, indices) = logits.into_logits_indices();
+
+        let probs = NdTensorView::from(logits.as_slice()).softmax(-1).unwrap();
         let mut sum_timestamp_probs = 0.;
         let mut max_non_timestamp_prob = 0.0f32;
 
-        for (i, prob) in probs.iter().enumerate() {
-            if self.is_timestamp_token(i as u32) {
+        for (token_id, prob) in indices.iter().zip(probs.iter()) {
+            if self.is_timestamp_token(*token_id) {
                 sum_timestamp_probs += prob;
             } else {
                 max_non_timestamp_prob = max_non_timestamp_prob.max(*prob);
@@ -265,31 +263,30 @@ impl LogitsFilter for TimestampFilter {
             .copied()
             .unwrap_or(self.timestamp_min);
 
-        let filtered_logits: Vec<_> = logits
-            .to_slice()
-            .iter()
-            .enumerate()
-            .map(|(i, &logit)| {
-                // If the total probability of a timestamp is greater than a
-                // non-timestamp, pick the timestamp.
-                let mut suppress = if suppress_non_timestamp_tokens {
-                    !self.is_timestamp_token(i as u32)
-                } else {
-                    false
-                };
+        // Apply suppression rules to logits
+        for (&token_id, logit) in indices.iter().zip(logits.iter_mut()) {
+            // If the total probability of a timestamp is greater than a
+            // non-timestamp, pick the timestamp.
+            let mut suppress = if suppress_non_timestamp_tokens {
+                !self.is_timestamp_token(token_id)
+            } else {
+                false
+            };
 
-                // The `<|notimestamps|>` token must never occur in output.
-                suppress = suppress || i as u32 == self.no_timestamps;
+            // The `<|notimestamps|>` token must never occur in output.
+            suppress = suppress || token_id == self.no_timestamps;
 
-                // Timestamps must increase within a segment.
-                if self.is_timestamp_token(i as u32) && (i as u32) < prev_timestamp {
-                    suppress = true;
-                }
+            // Timestamps must increase within a segment.
+            if self.is_timestamp_token(token_id) && token_id < prev_timestamp {
+                suppress = true;
+            }
 
-                if !suppress { logit } else { f32::NEG_INFINITY }
-            })
-            .collect();
-        Some(NdTensor::from_data([logits.len()], filtered_logits))
+            if suppress {
+                *logit = f32::NEG_INFINITY;
+            }
+        }
+
+        Logits::sparse(logits, indices)
     }
 }
 

@@ -9,6 +9,7 @@
 
 pub mod filter;
 pub mod generator;
+mod logits;
 pub mod metrics;
 pub mod model;
 pub mod sampler;
@@ -19,3 +20,4 @@ pub mod text_decoder;
 pub use generator::{
     Generator, GeneratorConfig, GeneratorError, GeneratorUtils, ModelInputsConfig,
 };
+pub use logits::Logits;

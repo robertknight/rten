@@ -3,8 +3,9 @@ use std::io::prelude::*;
 
 use argh::FromArgs;
 use rten::Model;
+use rten_generate::filter::Chain;
 use rten_generate::metrics::Metrics;
-use rten_generate::sampler::TopKSampler;
+use rten_generate::sampler::Multinomial;
 use rten_generate::{Generator, GeneratorUtils};
 use rten_text::Tokenizer;
 
@@ -65,7 +66,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let temperature = 1.0;
     let generator = Generator::from_model(&model)?
         .with_prompt(encoded_prompt.token_ids())
-        .with_sampler(TopKSampler::new(args.top_k, temperature))
+        .with_logits_filter(Chain::new().top_k(args.top_k).temperature(temperature))
+        .with_sampler(Multinomial::new())
         .take(args.length)
         .profile(&mut metrics)
         .decode(&tokenizer);

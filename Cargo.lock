@@ -497,9 +497,11 @@ version = "0.23.0"
 dependencies = [
  "fastrand",
  "rten",
+ "rten-simd",
  "rten-tensor",
  "rten-testing",
  "rten-text",
+ "rten-vecmath",
 ]
 
 [[package]]
