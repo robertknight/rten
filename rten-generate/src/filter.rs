@@ -214,7 +214,7 @@ impl LogitsFilter for TopP {
         // The threshold is set to be > 0 so the sampled set is non-empty.
         let mut cum_prob = 0.;
         let mut k = 0;
-        let threshold = self.cumulative_prob.max(f32::EPSILON);
+        let threshold = self.cumulative_prob.max(f32::MIN_POSITIVE);
         while cum_prob < threshold && k < pairs.len() {
             cum_prob += pairs[k].0;
             k += 1;
@@ -321,5 +321,11 @@ mod tests {
         let top_p_logits = TopP::new(0.75).normalize(false).filter(logits.clone(), &[]);
         assert_eq!(top_p_logits.logits(), &[0.5, 0.25]);
         assert_eq!(top_p_logits.indices(), &[3, 1]);
+
+        // As a special case, the probability is clamped to be > 0 so that at
+        // least one token will be sampled, if the input is non-empty.
+        let top_p_logits = TopP::new(0.).normalize(false).filter(logits.clone(), &[]);
+        assert_eq!(top_p_logits.logits(), &[0.5]);
+        assert_eq!(top_p_logits.indices(), &[3]);
     }
 }
