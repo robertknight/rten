@@ -830,6 +830,13 @@ impl<'a> Generator<'a> {
             last_logits
         };
 
+        // If filtering removed all the tokens, we have nothing to sample from.
+        if filtered_logits.is_empty() {
+            return Err(GeneratorError::GenerateError(
+                "filtered logits are empty".into(),
+            ));
+        }
+
         // Sample output token.
         let next_id = self.sampler.sample(&filtered_logits);
 
@@ -1585,6 +1592,31 @@ mod tests {
         assert_eq!(prev_tokens.borrow().as_slice(), [5, 6, 7, 0, 2, 4]);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_empty_filter_output() {
+        let params = TransformerParams::default();
+        let prompt = [1];
+        let model = fake_transformer_model(
+            params,
+            Some(KvCacheType::Decoder),
+            prompt.len(),
+            &[0, 1, 2, 3],
+        );
+
+        struct RemoveAllFilter;
+        impl LogitsFilter for RemoveAllFilter {
+            fn filter(&self, _logits: Logits, _prev_tokens: &[u32]) -> Logits {
+                Logits::dense(vec![])
+            }
+        }
+
+        let mut generator = Generator::from_model(&model)
+            .unwrap()
+            .with_logits_filter(RemoveAllFilter);
+        let err = generator.next().unwrap().err().unwrap();
+        assert!(err.to_string().contains("filtered logits are empty"));
     }
 
     #[test]
