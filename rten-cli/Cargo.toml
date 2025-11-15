@@ -13,8 +13,15 @@ include = ["/src", "/README.md"]
 argh = "0.1"
 fastrand = "2.0.2"
 rten = { path = "../", version = "0.23.0", features=["all-ops", "mmap"] }
-rten-tensor = { path = "../rten-tensor", version = "0.23.0" }
 safetensors = "0.6.2"
+
+[dependencies.rten-tensor]
+path = "../rten-tensor"
+version = "0.23.0"
+# rten-cli doesn't need the "serde" feature, but aligning the features with
+# rten-examples avoids a rebuild of the rten crate when switching between
+# building examples and building the CLI.
+features = ["serde"]
 
 [dev-dependencies]
 rten-testing = { path = "../rten-testing" }
