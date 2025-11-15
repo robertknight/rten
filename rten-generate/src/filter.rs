@@ -140,14 +140,20 @@ impl TopK {
 
 impl LogitsFilter for TopK {
     fn filter(&self, logits: Logits, _prev_tokens: &[TokenId]) -> Logits {
+        if logits.is_empty() {
+            return logits;
+        }
+
         let (logits, indices) = logits.into_logits_indices();
 
         // Simple Top-K. We could do better here by taking advantage of the
         // knowledge that `k` is likely very small (typically < 100) compared
         // to `logits` (typically 10K-250K).
+        let k = self.k.min(logits.len());
+        let k_index = k.saturating_sub(1);
         let mut pairs: Vec<(f32, TokenId)> = logits.into_iter().zip(indices).collect();
-        pairs.select_nth_unstable_by(self.k, |(a, _a_idx), (b, _b_idx)| a.total_cmp(b).reverse());
-        pairs.truncate(self.k);
+        pairs.select_nth_unstable_by(k_index, |(a, _a_idx), (b, _b_idx)| a.total_cmp(b).reverse());
+        pairs.truncate(k);
 
         let (logits, indices) = pairs.into_iter().unzip();
         Logits::sparse(logits, indices)
@@ -280,15 +286,23 @@ mod tests {
 
     #[test]
     fn test_top_k() {
+        let sort = |logits| Sort::new().filter(logits, &[]);
+
         let logits = Logits::dense(vec![-1., 1., 0., 2., -2., 10.]);
 
-        for k in 0..logits.len() {
+        // Test cases where K <= logits length.
+        for k in 0..=logits.len() {
             let topk = TopK::new(k).filter(logits.clone(), &[]);
-            let sorted_topk = Sort::new().filter(topk, &[]);
+            let sorted_topk = sort(topk);
 
             assert_eq!(sorted_topk.logits(), &[10., 2., 1., 0., -1., -2.][..k]);
             assert_eq!(sorted_topk.indices(), &[5, 3, 1, 2, 0, 4][..k]);
         }
+
+        // Test empty logits
+        let logits = Logits::dense(vec![]);
+        let topk = TopK::new(1).filter(logits, &[]);
+        assert!(topk.is_empty());
     }
 
     #[test]
