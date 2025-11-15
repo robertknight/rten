@@ -86,15 +86,23 @@ impl Multinomial {
 
 impl Sampler for Multinomial {
     fn sample(&self, logits: &Logits) -> TokenId {
+        assert!(!logits.is_empty());
+
+        // Normalize logits to probabilities.
         let mut scratch = self.scratch.borrow_mut();
         scratch.clear();
         scratch.reserve(logits.len());
         let scratch = &mut scratch.spare_capacity_mut()[..logits.len()];
-
         let probs = Softmax::new(logits.logits(), scratch).dispatch();
 
         let mut rng = self.rng.borrow_mut();
-        let idx = multinomial(&mut rng, probs).expect("logits should be non-empty");
+
+        // Sample ID according to probabilities.
+        //
+        // `multinomial` may return None if the input contains a NaN or
+        // infinity. In that case we fall back to the ID zero.
+        let idx = multinomial(&mut rng, probs).unwrap_or(0);
+
         logits.indices()[idx]
     }
 }
@@ -120,10 +128,12 @@ fn multinomial(rng: &mut fastrand::Rng, probs: &[f32]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use rten_simd::SimdOp;
+    use rten_testing::TestCases;
     use rten_vecmath::Softmax;
 
     use super::{ArgMax, Multinomial, Sampler};
     use crate::Logits;
+    use crate::generator::TokenId;
 
     #[test]
     fn test_argmax() {
@@ -167,5 +177,41 @@ mod tests {
                 threshold * 100.0
             );
         }
+    }
+
+    #[test]
+    fn test_multinomial_nan_infinity() {
+        #[derive(Debug)]
+        struct Case {
+            logits: Vec<f32>,
+            expected: TokenId,
+        }
+
+        let cases = [
+            // Softmax normalization spreads NaNs and positive infinities.
+            Case {
+                logits: vec![0.1, f32::NAN, 0.5],
+                expected: 0,
+            },
+            Case {
+                logits: vec![0.1, f32::INFINITY, 0.5],
+                expected: 0,
+            },
+            // Negative infinity shrinks to zero after softmax.
+            Case {
+                logits: vec![0., f32::NEG_INFINITY, 100.0],
+                expected: 2,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let logits = Logits::dense(case.logits.clone());
+            let sampler = Multinomial::with_seed(1234);
+            let n_iters = 10;
+            for _ in 0..n_iters {
+                let token_id = sampler.sample(&logits);
+                assert_eq!(token_id, case.expected);
+            }
+        });
     }
 }
