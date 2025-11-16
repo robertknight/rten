@@ -445,166 +445,183 @@ impl<'a> VecDotMatrixQuant<'a> {
             0
         };
 
+        let col_bytes = rhs.blocks_per_column() * rhs.bytes_per_block();
+        let n_vblocks = col_bytes / u8_ops.len();
+        const K_TILE: usize = 4;
+        let k_tiles = n_vblocks / K_TILE;
+
         // Masks used to select scales if we're using 4 or 8 scales per vblock.
         let lo_half_mask = ops.first_n_mask(ops.len() / 2);
         let lo_quad_mask = ops.first_n_mask(ops.len() / 4);
         let lo_three_quads_mask = ops.first_n_mask(3 * ops.len() / 4);
 
         for ((col, col_scales), out) in rhs_cols.zip(scale_blocks).zip(out.iter_mut()) {
-            let mut acc = [ops.zero(); 2];
+            let mut acc = [[ops.zero(); 2]; K_TILE];
 
             let zero_point = i8_ops.splat(8);
             let lo_mask = u8_ops.splat(0x0F);
             let vlen = u8_ops.len();
             let zero_i32 = i32_ops.zero();
 
-            let mut col_vblocks = col.chunks_exact(vlen);
-            let mut row_vblocks = lhs_data.data().chunks_exact(vlen * 2);
+            let row = lhs_data.data();
 
-            for (vblock_idx, vblocks) in row_vblocks.by_ref().zip(col_vblocks.by_ref()).enumerate()
-            {
-                let (row_vblock, col_vblock) = vblocks;
+            for kt in 0..k_tiles {
+                for k in 0..K_TILE {
+                    let vblock_idx = kt * K_TILE + k;
 
-                // Load packed u4 values.
-                let rhs_vblock = u8_ops.load(col_vblock);
+                    let col_vblock = unsafe { col.get_unchecked(vblock_idx * vlen..) };
+                    let row_vblock = unsafe { row.get_unchecked(vblock_idx * vlen * 2..) };
 
-                // Unpack to u8.
-                let lo = u8_ops.and(rhs_vblock, lo_mask);
-                let hi = u8_ops.shift_right::<4>(rhs_vblock);
-                let (lo, hi) = (
-                    u8_ops.interleave_low(lo, hi),
-                    u8_ops.interleave_high(lo, hi),
-                );
+                    // Load packed u4 values.
+                    let rhs_vblock = unsafe { u8_ops.load_ptr(col_vblock.as_ptr()) };
 
-                // Re-interpret as i8
-                let mut lo = i8_ops.from_bits(lo.to_bits());
-                let mut hi = i8_ops.from_bits(hi.to_bits());
+                    // Unpack to u8.
+                    let lo = u8_ops.and(rhs_vblock, lo_mask);
+                    let hi = u8_ops.shift_right::<4>(rhs_vblock);
+                    let (lo, hi) = (
+                        u8_ops.interleave_low(lo, hi),
+                        u8_ops.interleave_high(lo, hi),
+                    );
 
-                // Subtract zero point if using i8 x i8 dot product.
-                if !I::LHS_UNSIGNED {
-                    lo = i8_ops.sub(lo, zero_point);
-                    hi = i8_ops.sub(hi, zero_point);
-                }
+                    // Re-interpret as i8
+                    let mut lo = i8_ops.from_bits(lo.to_bits());
+                    let mut hi = i8_ops.from_bits(hi.to_bits());
 
-                // Load vblock elements from LHS
-                let [lhs_lo, lhs_hi] = i8_ops.load_many::<2>(row_vblock);
-
-                // Compute i8 x i8 -> i32 or u8 x i8 -> i32 dot product.
-                let mut dot_lo = isa.dot(lo, lhs_lo, zero_i32);
-                let mut dot_hi = isa.dot(hi, lhs_hi, zero_i32);
-
-                // If using u8 x i8 dot product, compensate for not subtracting
-                // the zero point before the dot product.
-                if I::LHS_UNSIGNED {
-                    let zero_point_i32 = i32_ops.splat(8);
-                    let lhs_lo_sum = isa.dot(i8_ops.splat(1), lhs_lo, zero_i32);
-                    let lhs_hi_sum = isa.dot(i8_ops.splat(1), lhs_hi, zero_i32);
-                    dot_lo = i32_ops.sub(dot_lo, i32_ops.mul(zero_point_i32, lhs_lo_sum));
-                    dot_hi = i32_ops.sub(dot_hi, i32_ops.mul(zero_point_i32, lhs_hi_sum));
-                }
-
-                let float_lo = i32_ops.to_float(dot_lo);
-                let float_hi = i32_ops.to_float(dot_hi);
-
-                match SCALES_PER_VBLOCK {
-                    1 => {
-                        let col_scale = col_scales[vblock_idx >> vecs_per_block_log2];
-                        let row_scale = lhs_scales[vblock_idx >> vecs_per_block_log2];
-
-                        let scale = ops.splat(col_scale * row_scale);
-
-                        acc[0] = ops.mul_add(float_lo, scale, acc[0]);
-                        acc[1] = ops.mul_add(float_hi, scale, acc[1]);
+                    // Subtract zero point if using i8 x i8 dot product.
+                    if !I::LHS_UNSIGNED {
+                        lo = i8_ops.sub(lo, zero_point);
+                        hi = i8_ops.sub(hi, zero_point);
                     }
-                    2 => {
-                        let block_idx = vblock_idx * 2;
 
-                        let col_scale_lo = col_scales[block_idx];
-                        let col_scale_hi = col_scales[block_idx + 1];
+                    // Load vblock elements from LHS
+                    let lhs_lo = unsafe { i8_ops.load_ptr(row_vblock.as_ptr()) };
+                    let lhs_hi = unsafe { i8_ops.load_ptr(row_vblock.as_ptr().add(vlen)) };
 
-                        let row_scale_lo = lhs_scales[block_idx];
-                        let row_scale_hi = lhs_scales[block_idx + 1];
+                    // Compute i8 x i8 -> i32 or u8 x i8 -> i32 dot product.
+                    let mut dot_lo = isa.dot(lo, lhs_lo, zero_i32);
+                    let mut dot_hi = isa.dot(hi, lhs_hi, zero_i32);
 
-                        let scale_lo = ops.splat(col_scale_lo * row_scale_lo);
-                        let scale_hi = ops.splat(col_scale_hi * row_scale_hi);
-
-                        acc[0] = ops.mul_add(float_lo, scale_lo, acc[0]);
-                        acc[1] = ops.mul_add(float_hi, scale_hi, acc[1]);
+                    // If using u8 x i8 dot product, compensate for not subtracting
+                    // the zero point before the dot product.
+                    if I::LHS_UNSIGNED {
+                        let zero_point_i32 = i32_ops.splat(8);
+                        let lhs_lo_sum = isa.dot(i8_ops.splat(1), lhs_lo, zero_i32);
+                        let lhs_hi_sum = isa.dot(i8_ops.splat(1), lhs_hi, zero_i32);
+                        dot_lo = i32_ops.sub(dot_lo, i32_ops.mul(zero_point_i32, lhs_lo_sum));
+                        dot_hi = i32_ops.sub(dot_hi, i32_ops.mul(zero_point_i32, lhs_hi_sum));
                     }
-                    4 => {
-                        let block_idx = vblock_idx * 4;
 
-                        let col_scale_a = col_scales[block_idx];
-                        let col_scale_b = col_scales[block_idx + 1];
-                        let col_scale_c = col_scales[block_idx + 2];
-                        let col_scale_d = col_scales[block_idx + 3];
+                    let float_lo = i32_ops.to_float(dot_lo);
+                    let float_hi = i32_ops.to_float(dot_hi);
 
-                        let row_scale_a = lhs_scales[block_idx];
-                        let row_scale_b = lhs_scales[block_idx + 1];
-                        let row_scale_c = lhs_scales[block_idx + 2];
-                        let row_scale_d = lhs_scales[block_idx + 3];
+                    match SCALES_PER_VBLOCK {
+                        1 => {
+                            let col_scale = unsafe {
+                                *col_scales.get_unchecked(vblock_idx >> vecs_per_block_log2)
+                            };
+                            let row_scale = unsafe {
+                                *lhs_scales.get_unchecked(vblock_idx >> vecs_per_block_log2)
+                            };
+                            let scale = ops.splat(col_scale * row_scale);
 
-                        let scale_a = ops.splat(col_scale_a * row_scale_a);
-                        let scale_b = ops.splat(col_scale_b * row_scale_b);
-                        let scale_c = ops.splat(col_scale_c * row_scale_c);
-                        let scale_d = ops.splat(col_scale_d * row_scale_d);
+                            acc[k][0] = ops.mul_add(float_lo, scale, acc[k][0]);
+                            acc[k][1] = ops.mul_add(float_hi, scale, acc[k][1]);
+                        }
+                        2 => {
+                            let block_idx = vblock_idx * 2;
 
-                        let scale_ab = ops.select(scale_a, scale_b, lo_half_mask);
-                        let scale_cd = ops.select(scale_c, scale_d, lo_half_mask);
+                            let col_scale_lo = col_scales[block_idx];
+                            let col_scale_hi = col_scales[block_idx + 1];
 
-                        acc[0] = ops.mul_add(float_lo, scale_ab, acc[0]);
-                        acc[1] = ops.mul_add(float_hi, scale_cd, acc[1]);
+                            let row_scale_lo = lhs_scales[block_idx];
+                            let row_scale_hi = lhs_scales[block_idx + 1];
+
+                            let scale_lo = ops.splat(col_scale_lo * row_scale_lo);
+                            let scale_hi = ops.splat(col_scale_hi * row_scale_hi);
+
+                            acc[k][0] = ops.mul_add(float_lo, scale_lo, acc[k][0]);
+                            acc[k][1] = ops.mul_add(float_hi, scale_hi, acc[k][1]);
+                        }
+                        4 => {
+                            let block_idx = vblock_idx * 4;
+
+                            let col_scale_a = col_scales[block_idx];
+                            let col_scale_b = col_scales[block_idx + 1];
+                            let col_scale_c = col_scales[block_idx + 2];
+                            let col_scale_d = col_scales[block_idx + 3];
+
+                            let row_scale_a = lhs_scales[block_idx];
+                            let row_scale_b = lhs_scales[block_idx + 1];
+                            let row_scale_c = lhs_scales[block_idx + 2];
+                            let row_scale_d = lhs_scales[block_idx + 3];
+
+                            let scale_a = ops.splat(col_scale_a * row_scale_a);
+                            let scale_b = ops.splat(col_scale_b * row_scale_b);
+                            let scale_c = ops.splat(col_scale_c * row_scale_c);
+                            let scale_d = ops.splat(col_scale_d * row_scale_d);
+
+                            let scale_ab = ops.select(scale_a, scale_b, lo_half_mask);
+                            let scale_cd = ops.select(scale_c, scale_d, lo_half_mask);
+
+                            acc[k][0] = ops.mul_add(float_lo, scale_ab, acc[k][0]);
+                            acc[k][1] = ops.mul_add(float_hi, scale_cd, acc[k][1]);
+                        }
+                        8 => {
+                            let block_idx = vblock_idx * 8;
+
+                            let scales: [<I::Isa as Isa>::F32; 8] = std::array::from_fn(|i| {
+                                ops.splat(col_scales[block_idx + i] * lhs_scales[block_idx + i])
+                            });
+
+                            // Replicate eight f32 scales to fill two SIMD vectors.
+                            // For a 512-bit vector we have:
+                            // [0000 1111 2222 3333] [4444 5555 6666 7777].
+                            let scales_01 = ops.select(scales[0], scales[1], lo_quad_mask);
+                            let scales_23 = ops.select(scales[2], scales[3], lo_three_quads_mask);
+                            let scales_0123 = ops.select(scales_01, scales_23, lo_half_mask);
+                            let scales_45 = ops.select(scales[4], scales[5], lo_quad_mask);
+                            let scales_67 = ops.select(scales[6], scales[7], lo_three_quads_mask);
+                            let scales_4567 = ops.select(scales_45, scales_67, lo_half_mask);
+
+                            acc[k][0] = ops.mul_add(float_lo, scales_0123, acc[k][0]);
+                            acc[k][1] = ops.mul_add(float_hi, scales_4567, acc[k][1]);
+                        }
+                        _ => unreachable!(),
                     }
-                    8 => {
-                        let block_idx = vblock_idx * 8;
-
-                        let scales: [<I::Isa as Isa>::F32; 8] = std::array::from_fn(|i| {
-                            ops.splat(col_scales[block_idx + i] * lhs_scales[block_idx + i])
-                        });
-
-                        // Replicate eight f32 scales to fill two SIMD vectors.
-                        // For a 512-bit vector we have:
-                        // [0000 1111 2222 3333] [4444 5555 6666 7777].
-                        let scales_01 = ops.select(scales[0], scales[1], lo_quad_mask);
-                        let scales_23 = ops.select(scales[2], scales[3], lo_three_quads_mask);
-                        let scales_0123 = ops.select(scales_01, scales_23, lo_half_mask);
-                        let scales_45 = ops.select(scales[4], scales[5], lo_quad_mask);
-                        let scales_67 = ops.select(scales[6], scales[7], lo_three_quads_mask);
-                        let scales_4567 = ops.select(scales_45, scales_67, lo_half_mask);
-
-                        acc[0] = ops.mul_add(float_lo, scales_0123, acc[0]);
-                        acc[1] = ops.mul_add(float_hi, scales_4567, acc[1]);
-                    }
-                    _ => unreachable!(),
                 }
             }
 
-            let acc = ops.add(acc[0], acc[1]);
-            let mut acc = ops.sum(acc);
+            let mut acc_sum = ops.zero();
+            for k in 0..K_TILE {
+                let k_sum = ops.add(acc[k][0], acc[k][1]);
+                acc_sum = ops.add(acc_sum, k_sum);
+            }
+
+            let acc = ops.sum(acc_sum);
 
             // Handle tail blocks in column. This contains < 128 elements
             // (512 / 4).
             if n_tail_blocks > 0 {
-                let row_tail_blocks = row_vblocks.remainder().chunks_exact(elements_per_block);
-                let col_tail_blocks = col_vblocks.remainder().chunks_exact(elements_per_block / 2);
-                debug_assert_eq!(row_tail_blocks.len(), n_tail_blocks);
+                // let row_tail_blocks = row_vblocks.remainder().chunks_exact(elements_per_block);
+                // let col_tail_blocks = col_vblocks.remainder().chunks_exact(elements_per_block / 2);
+                // debug_assert_eq!(row_tail_blocks.len(), n_tail_blocks);
 
-                let mut tail_acc = 0.;
-                for (i, (lhs_block, rhs_block)) in row_tail_blocks.zip(col_tail_blocks).enumerate()
-                {
-                    let col_scale = col_scales[col_scales.len() - n_tail_blocks + i];
-                    let row_scale = lhs_scales[lhs_scales.len() - n_tail_blocks + i];
-                    let scale = col_scale * row_scale;
+                // let mut tail_acc = 0.;
+                // for (i, (lhs_block, rhs_block)) in row_tail_blocks.zip(col_tail_blocks).enumerate()
+                // {
+                //     let col_scale = col_scales[col_scales.len() - n_tail_blocks + i];
+                //     let row_scale = lhs_scales[lhs_scales.len() - n_tail_blocks + i];
+                //     let scale = col_scale * row_scale;
 
-                    let mut acc = 0.;
-                    for ([x_lo, x_hi], y) in lhs_block.as_chunks::<2>().0.iter().zip(rhs_block) {
-                        let y_lo = (y & 0x0F) as i32 - 8;
-                        let y_hi = (y >> 4) as i32 - 8;
-                        acc += (*x_lo as i32 * y_lo + *x_hi as i32 * y_hi) as f32 * scale;
-                    }
-                    tail_acc += acc;
-                }
-                acc += tail_acc;
+                //     let mut acc = 0.;
+                //     for ([x_lo, x_hi], y) in lhs_block.as_chunks::<2>().0.iter().zip(rhs_block) {
+                //         let y_lo = (y & 0x0F) as i32 - 8;
+                //         let y_hi = (y >> 4) as i32 - 8;
+                //         acc += (*x_lo as i32 * y_lo + *x_hi as i32 * y_hi) as f32 * scale;
+                //     }
+                //     tail_acc += acc;
+                // }
+                // acc += tail_acc;
             }
 
             out.write(acc);
