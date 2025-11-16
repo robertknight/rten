@@ -433,17 +433,17 @@ impl<'a> VecDotMatrixQuant<'a> {
         // larger or smaller than the block size of the RHS.
         let elements_per_vec = u8_ops.len() * 2;
         let elements_per_block = rhs.elements_per_block();
-        let vecs_per_block = elements_per_block / elements_per_vec;
+        // let vecs_per_block = elements_per_block / elements_per_vec;
         let blocks_per_vec = elements_per_vec.div_ceil(elements_per_block);
         let n_tail_blocks = rhs.blocks_per_column() % blocks_per_vec;
 
         // Convert division into shift.
-        let vecs_per_block_log2 = if vecs_per_block != 0 {
-            debug_assert!(vecs_per_block.is_power_of_two());
-            vecs_per_block.ilog2()
-        } else {
-            0
-        };
+        // let vecs_per_block_log2 = if vecs_per_block != 0 {
+        //     debug_assert!(vecs_per_block.is_power_of_two());
+        //     vecs_per_block.ilog2()
+        // } else {
+        //     0
+        // };
 
         // TESTING
         assert_eq!(rhs.bytes_per_block(), u8_ops.len());
@@ -496,28 +496,16 @@ impl<'a> VecDotMatrixQuant<'a> {
                         let mut hi = i8_ops.from_bits(hi.to_bits());
 
                         // Subtract zero point if using i8 x i8 dot product.
-                        if !I::LHS_UNSIGNED {
-                            lo = i8_ops.sub(lo, zero_point);
-                            hi = i8_ops.sub(hi, zero_point);
-                        }
+                        lo = i8_ops.sub(lo, zero_point);
+                        hi = i8_ops.sub(hi, zero_point);
 
                         // Load vblock elements from LHS
                         let lhs_lo = unsafe { i8_ops.load_ptr(row_vblock.as_ptr()) };
                         let lhs_hi = unsafe { i8_ops.load_ptr(row_vblock.as_ptr().add(vlen)) };
 
                         // Compute i8 x i8 -> i32 or u8 x i8 -> i32 dot product.
-                        let mut dot_lo = isa.dot(lo, lhs_lo, zero_i32);
-                        let mut dot_hi = isa.dot(hi, lhs_hi, zero_i32);
-
-                        // If using u8 x i8 dot product, compensate for not subtracting
-                        // the zero point before the dot product.
-                        if I::LHS_UNSIGNED {
-                            let zero_point_i32 = i32_ops.splat(8);
-                            let lhs_lo_sum = isa.dot(i8_ops.splat(1), lhs_lo, zero_i32);
-                            let lhs_hi_sum = isa.dot(i8_ops.splat(1), lhs_hi, zero_i32);
-                            dot_lo = i32_ops.sub(dot_lo, i32_ops.mul(zero_point_i32, lhs_lo_sum));
-                            dot_hi = i32_ops.sub(dot_hi, i32_ops.mul(zero_point_i32, lhs_hi_sum));
-                        }
+                        let dot_lo = isa.dot(lo, lhs_lo, zero_i32);
+                        let dot_hi = isa.dot(hi, lhs_hi, zero_i32);
 
                         let float_lo = i32_ops.to_float(dot_lo);
                         let float_hi = i32_ops.to_float(dot_hi);
