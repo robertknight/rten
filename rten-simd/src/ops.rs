@@ -407,6 +407,17 @@ pub unsafe trait NumOps<T: Elem>: Copy {
         unsafe { self.load_ptr(xs.as_ptr()) }
     }
 
+    unsafe fn load_unchecked(self, xs: &[T], offset: usize) -> Self::Simd {
+        debug_assert!(
+            xs.len() - offset >= self.len(),
+            "slice length {} too short for SIMD vector width {} and offset {}",
+            xs.len(),
+            self.len(),
+            offset
+        );
+        unsafe { self.load_ptr(xs.as_ptr().add(offset)) }
+    }
+
     /// Load `N` vectors from consecutive sub-slices of `xs`.
     ///
     /// Panics if `xs.len() < self.len() * N`.
