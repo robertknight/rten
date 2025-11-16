@@ -469,19 +469,23 @@ impl<'a> VecDotMatrixQuant<'a> {
             let row = lhs_data.data();
 
             for kt in 0..k_tiles {
-                let col_scale = unsafe { ops.load_ptr(col_scales.as_ptr().add(kt * K_TILE)) };
-                let row_scale = unsafe { ops.load_ptr(lhs_scales.as_ptr().add(kt * K_TILE)) };
+                let col_scale = unsafe { ops.load_unchecked(col_scales, kt * K_TILE) };
+                let row_scale = unsafe { ops.load_unchecked(lhs_scales, kt * K_TILE) };
                 let scale = ops.mul(col_scale, row_scale);
 
                 macro_rules! k_step {
                     ($k:literal) => {
                         let vblock_idx = kt * K_TILE + $k;
-
-                        let col_vblock = unsafe { col.get_unchecked(vblock_idx * vlen..) };
-                        let row_vblock = unsafe { row.get_unchecked(vblock_idx * vlen * 2..) };
+                        let col_vblock_offset = vblock_idx * vlen;
+                        let row_vblock_offset = vblock_idx * vlen * 2;
 
                         // Load packed u4 values.
-                        let rhs_vblock = unsafe { u8_ops.load_ptr(col_vblock.as_ptr()) };
+                        let rhs_vblock = unsafe { u8_ops.load_unchecked(col, col_vblock_offset) };
+
+                        // Load vblock elements from LHS
+                        let lhs_lo = unsafe { i8_ops.load_unchecked(row, row_vblock_offset) };
+                        let lhs_hi =
+                            unsafe { i8_ops.load_unchecked(row, row_vblock_offset + vlen) };
 
                         // Unpack to u8.
                         let lo = u8_ops.and(rhs_vblock, lo_mask);
@@ -498,10 +502,6 @@ impl<'a> VecDotMatrixQuant<'a> {
                         // Subtract zero point if using i8 x i8 dot product.
                         lo = i8_ops.sub(lo, zero_point);
                         hi = i8_ops.sub(hi, zero_point);
-
-                        // Load vblock elements from LHS
-                        let lhs_lo = unsafe { i8_ops.load_ptr(row_vblock.as_ptr()) };
-                        let lhs_hi = unsafe { i8_ops.load_ptr(row_vblock.as_ptr().add(vlen)) };
 
                         // Compute i8 x i8 -> i32 or u8 x i8 -> i32 dot product.
                         let dot_lo = isa.dot(lo, lhs_lo, zero_i32);
