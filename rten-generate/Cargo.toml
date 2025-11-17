@@ -10,7 +10,7 @@ repository = "https://github.com/robertknight/rten"
 include = ["/src", "/README.md"]
 
 [dependencies]
-fastrand = { version = "2.0.2" }
+fastrand = { workspace = true }
 rten = { path = "../", version = "0.23.0" }
 rten-simd = { path = "../rten-simd", version = "0.23.0" }
 rten-text = { path = "../rten-text", version = "0.23.0", optional = true }

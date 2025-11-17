@@ -14,8 +14,8 @@ rten-base = { path = "../rten-base", version = "0.23.0" }
 rten-simd = { path = "../rten-simd", version = "0.23.0" }
 
 [dev-dependencies]
-fastrand = "2.0.2"
-libm = "0.2.6"
+fastrand = { workspace = true }
+libm = { workspace = true }
 
 [lib]
 crate-type = ["lib"]

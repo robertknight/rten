@@ -29,12 +29,17 @@ default-members = [
 ]
 
 [workspace.dependencies]
+argh = "0.1"
+fastrand = "2.0.2"
+fastrand-contrib = "0.1.0"
 flatbuffers = "24.3.25"
 image = { version = "0.25.1", default-features = false, features = ["png", "jpeg", "webp"] }
+libm = "0.2.6"
 rayon = "1.7.0"
 rustfft = { version = "6.4.0" }
 serde = { version = "1.0.202" }
 serde_json = { version = "1.0.117" }
+smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
 typeid = "1.0.3"
 
 [package]
@@ -54,7 +59,6 @@ rust-version = "1.89.0"
 
 [dependencies]
 flatbuffers = { workspace = true, optional = true }
-smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
 rten-base = { path = "./rten-base", version = "0.23.0" }
 rten-gemm = { path = "./rten-gemm", version = "0.23.0" }
 rten-model-file = { path = "./rten-model-file", version = "0.23.0", optional = true }
@@ -62,17 +66,18 @@ rten-onnx = { path = "./rten-onnx", version = "0.23.0", optional = true }
 rten-tensor = { path = "./rten-tensor", version = "0.23.0" }
 rten-vecmath = { path = "./rten-vecmath", version = "0.23.0" }
 rten-simd = { path = "./rten-simd", version = "0.23.0" }
-fastrand = { version = "2.0.2", optional = true }
-fastrand-contrib = { version = "0.1.0", optional = true }
+fastrand = { workspace = true, optional = true }
+fastrand-contrib = { workspace = true, optional = true }
 rayon = { workspace = true }
 rustc-hash = "2.0.0"
 rustfft = { workspace = true, optional = true }
+smallvec = { workspace = true }
 memmap2 = { version = "0.9.4", optional = true }
 num_cpus = "1.16.0"
 typeid = { workspace = true}
 
 [dev-dependencies]
-libm = "0.2.6"
+libm = { workspace = true }
 rten-bench = { path = "./rten-bench" }
 rten-testing = { path = "./rten-testing" }
 serde_json = { workspace = true }
