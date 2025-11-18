@@ -13,8 +13,8 @@ use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     AddSoftmax, Cast, DynamicQuantizeLinear, FusedMatMul, Gelu, LayerNormalization,
-    MatMulIntegerToFloat, Mul, Reciprocal, ReduceMean, RmsNormalization, Silu, Softmax, Swish,
-    Transpose,
+    MatMulIntegerToFloat, Mul, Reciprocal, ReduceMean, RepeatInterleave, RmsNormalization, Silu,
+    Softmax, Swish, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 
@@ -29,6 +29,10 @@ pub struct FusedOp {
 
     /// IDs of output value nodes.
     pub output_ids: Vec<Option<NodeId>>,
+
+    /// IDs of additional value nodes which are used by the unfused graph but
+    /// not required by the fused operator.
+    pub unused_input_ids: Vec<Option<NodeId>>,
 }
 
 pub enum Fusion {
@@ -60,12 +64,14 @@ impl Fusion {
         fused_op: Arc<dyn Operator + Send + Sync>,
         input_ids: &[Option<NodeId>],
         output_ids: &[Option<NodeId>],
+        unused_input_ids: &[Option<NodeId>],
     ) -> Fusion {
         Fusion::Op(FusedOp {
             name: name.map(|s| s.to_string()),
             fused_op,
             input_ids: input_ids.to_vec(),
             output_ids: output_ids.to_vec(),
+            unused_input_ids: unused_input_ids.to_vec(),
         })
     }
 
@@ -78,6 +84,16 @@ impl Fusion {
                 output_id: _,
             } => [*input_id].into(),
             Fusion::Constant { input_ids, .. } => input_ids.clone(),
+        }
+    }
+
+    /// Return all inputs to the unfused subgraph which are unused in the
+    /// fused version.
+    pub fn unused_input_ids(&self) -> Vec<NodeId> {
+        match self {
+            Fusion::Op(op) => op.unused_input_ids.iter().copied().flatten().collect(),
+            Fusion::Identity { .. } => Vec::new(),
+            Fusion::Constant { .. } => Vec::new(),
         }
     }
 
@@ -128,6 +144,15 @@ pub trait PatternFusion {
     /// Return the names of symbols in the pattern which will become inputs
     /// to the fused operator.
     fn inputs(&self) -> &[&str];
+
+    /// Return the names of symbols in the pattern which are inputs to the
+    /// unfused operator that become unused in the fused operator.
+    ///
+    /// The default implementation returns an empty slice, meaning that the
+    /// fused operator must use all non-constant inputs specified by the pattern.
+    fn unused_inputs(&self) -> &[&str] {
+        &[]
+    }
 
     /// Create a fused operator given a successful match for the pattern.
     ///
@@ -190,12 +215,19 @@ impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
             .iter()
             .map(|name| pat_match.node_id(name))
             .collect();
+        let unused_input_ids: Vec<_> = self
+            .fusion
+            .unused_inputs()
+            .iter()
+            .map(|name| pat_match.node_id(name))
+            .collect();
         let fused_op = self.fusion.maybe_fuse(&pat_match, graph)?;
         let fusion = Fusion::from_op(
             op_node.name(),
             Arc::new(fused_op),
             &input_ids,
             op_node.output_ids(),
+            &unused_input_ids,
         );
         Some(fusion)
     }
@@ -796,6 +828,7 @@ impl FusionVisitor for MatMulScaleFusion {
             Arc::new(FusedMatMul { alpha: Some(alpha) }),
             &[Some(lhs_input), Some(rhs_input)],
             op_node.output_ids(),
+            &[],
         ))
     }
 }
@@ -944,6 +977,7 @@ impl FusionVisitor for TransposeFusion {
             Arc::new(fused_op.build(op_node.clone_operator())),
             &fused_inputs,
             op_node.output_ids(),
+            &[],
         ))
     }
 }
@@ -1056,6 +1090,109 @@ impl FusionVisitor for ShapeSliceToConstant {
             )
             .into(),
         })
+    }
+}
+
+/// Fuses patterns for RepeatInterleave.
+///
+/// The basic pattern for RepeatInterleave looks like:
+///
+/// ```text
+/// T1 = Unsqueeze(X, axes) // Insert new axis
+/// T2 = Expand(T1, tmp_shape) // Repeat along new axis
+/// Y = Reshape(T2, out_shape) // Combine new axis and previous axis
+/// ```
+///
+/// Under the constraint that the input and output shapes are the same except
+/// for a single axis, where the input and output sizes are both fixed and the
+/// output size is a multiple of the input size. eg. (batch, 8, seq, dim) =>
+/// (batch, 24, seq, dim).
+///
+/// This pattern on its own has some value by enabling fusion of `Unsqueeze` and
+/// `Expand`, which is useful if the Unsqueeze can't run in-place. The more
+/// significant value comes as a building block of fusions for Grouped-query
+/// Attention (GQA) and other operations.
+pub struct RepeatInterleaveFusion {}
+
+impl PatternFusion for RepeatInterleaveFusion {
+    type Operator = RepeatInterleave;
+
+    fn pattern(&self) -> Pattern {
+        let x = Pattern::symbol("x");
+        let axes = Pattern::const_symbol("axes");
+        let t1 = Pattern::binary_op("Unsqueeze", x, axes);
+        let expand_shape = Pattern::symbol("expand_shape");
+        let expanded = Pattern::binary_op("Expand", t1, expand_shape);
+        let reshape_shape = Pattern::symbol("reshape_shape");
+        Pattern::binary_op("Reshape", expanded, reshape_shape).with_name("reshape")
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["x"]
+    }
+
+    fn unused_inputs(&self) -> &[&str] {
+        &["expand_shape", "reshape_shape"]
+    }
+
+    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<RepeatInterleave> {
+        let x_id = pat_match.node_id("x")?;
+
+        let reshape_id = pat_match.node_id("reshape")?;
+        let reshape_op = graph.get_node(reshape_id).and_then(|n| n.as_operator())?;
+        let &[Some(reshape_out)] = reshape_op.output_ids() else {
+            return None;
+        };
+
+        // Get shape metadata. This requires that shape inference has been run
+        // on the model.
+        let in_shape = graph.get_node(x_id)?.shape()?;
+        let out_shape = graph.get_node(reshape_out)?.shape()?;
+
+        // Find repeated axis and number of repeats.
+        //
+        // This operator requires that exactly one axis is repeated. All other
+        // axes must have the same size (either a static value or symbolic
+        // name).
+        if in_shape.len() != out_shape.len() {
+            return None;
+        }
+
+        let mut axis_repeats = None;
+        for (i, (size_in, size_out)) in in_shape.iter().zip(&out_shape).enumerate() {
+            if size_in == size_out {
+                continue;
+            }
+
+            if axis_repeats.is_some() {
+                // Another axis is already repeated.
+                return None;
+            }
+
+            match (size_in, size_out) {
+                (Dimension::Fixed(fixed_in), Dimension::Fixed(fixed_out)) => {
+                    if fixed_out.is_multiple_of(*fixed_in) {
+                        axis_repeats = Some((i, fixed_out / fixed_in));
+                    } else {
+                        // Repeat count must be an integer.
+                        return None;
+                    }
+                }
+                _ => {
+                    // At least one of the non-equal axes has a symbolic size.
+                    return None;
+                }
+            }
+        }
+
+        let Some((axis, repeats)) = axis_repeats else {
+            // All axes have the same size. We _could_ create this fusion by
+            // picking any axis and setting the repeat count to one,
+            // but haven't found a use for this.
+            return None;
+        };
+
+        Some(RepeatInterleave { axis, repeats })
     }
 }
 

@@ -8,7 +8,7 @@ use rten_vecmath::Softmax;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
-use crate::ops::{binary_elementwise::broadcast_shapes, resolve_axis};
+use crate::ops::{binary_elementwise::broadcast_shapes, layout::expand_to, resolve_axis};
 use crate::value::Value;
 
 const BROADCAST_ERROR: OpError = OpError::IncompatibleInputShapes("Cannot broadcast inputs");
@@ -118,6 +118,50 @@ impl Operator for AddSoftmax {
     }
 }
 
+/// Repeat elements of a tensor.
+///
+/// This differs from the `Tile` ONNX operator in that it repeats individual
+/// elements rather than a whole axis, eg. `[1, 2]` -> `[1, 1, 2, 2]` rather
+/// than `[1, 2]` -> `[1, 2, 1, 2]`.
+///
+/// See https://docs.pytorch.org/docs/stable/generated/torch.repeat_interleave.html.
+#[derive(Debug)]
+pub struct RepeatInterleave {
+    pub axis: usize,
+    pub repeats: usize,
+}
+
+impl Operator for RepeatInterleave {
+    fn name(&self) -> &str {
+        "RepeatInterleave"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let mut input: TensorView<f32> = ctx.inputs().require_as(0)?;
+        if input.ndim() <= self.axis {
+            return Err(OpError::InvalidValue("Input has too few dims"));
+        }
+
+        // Insert temporary 1-sized axis and use broadcasting to repeat along
+        // that axis.
+        //
+        // This is effectively a combination of Unsqueeze + Expand + Reshape.
+        input.insert_axis(self.axis + 1);
+        let mut target_shape = input.shape().to_vec();
+        target_shape[self.axis + 1] *= self.repeats;
+        let mut expanded = expand_to(ctx.pool(), input, &target_shape);
+        target_shape.remove(self.axis + 1);
+        target_shape[self.axis] *= self.repeats;
+        expanded.reshape(&target_shape);
+
+        expanded.into_op_result()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
@@ -126,7 +170,7 @@ mod tests {
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use super::{AddSoftmax, BROADCAST_ERROR};
+    use super::{AddSoftmax, BROADCAST_ERROR, RepeatInterleave};
     use crate::operator::{OpError, OperatorExt};
     use crate::ops::{Add, Softmax};
 
@@ -205,5 +249,18 @@ mod tests {
                 expect_equal(&result.unwrap(), &expected).unwrap();
             }
         });
+    }
+
+    #[test]
+    fn test_repeat_interleave() {
+        let input = Tensor::from([[1.0, 2.0], [3.0, 4.0]]);
+
+        let op = RepeatInterleave {
+            axis: 1,
+            repeats: 2,
+        };
+        let repeated: Tensor = op.run_simple(input.view()).unwrap();
+
+        assert_eq!(repeated, Tensor::from([[1., 1., 2., 2.], [3., 3., 4., 4.]]));
     }
 }

@@ -21,7 +21,8 @@ use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, CastElimination, Fusion, FusionVisitor, GeluFusion,
     IdentityFusion, LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion,
     MatMulScaleFusion, PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion,
-    RmsNormalizationFusion, ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
+    RepeatInterleaveFusion, RmsNormalizationFusion, ShapeSliceToConstant, SiluFusion, SwishFusion,
+    TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -154,6 +155,7 @@ impl GraphMutator {
                 // we can't fuse the subgraph as the intermediate value would no
                 // longer be available.
                 let mut input_ids = fusion.input_ids();
+                input_ids.extend(fusion.unused_input_ids());
 
                 // Execution planning disallows duplicate input IDs. An operator
                 // however is allowed to use the same value for multiple inputs.
@@ -164,7 +166,7 @@ impl GraphMutator {
                 let unfused_ops = self
                     .graph
                     .execution_plan(&input_ids, &output_ids, PlanOptions::default())
-                    .unwrap();
+                    .expect("fusion did not declare all inputs in unfused subgraph");
 
                 for unfused_op in &unfused_ops {
                     // Skip this fusion if it includes an operator which was
@@ -405,6 +407,7 @@ impl GraphOptimizer {
 
         // Attention fusions
         fusions.push(AddSoftmaxFusion {}.into_visitor());
+        fusions.push(RepeatInterleaveFusion {}.into_visitor());
 
         // Layout fusions
         fusions.push(TransposeFusion {});
