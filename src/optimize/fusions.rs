@@ -14,8 +14,8 @@ use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     AddSoftmax, Cast, ComputeShape, DimSpec, DynamicQuantizeLinear, FusedMatMul, Gelu,
-    LayerNormalization, MatMulIntegerToFloat, Mul, Reciprocal, ReduceMean, RepeatInterleave,
-    RmsNormalization, Shape, Silu, Softmax, Swish, Transpose,
+    GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, Mul, Reciprocal,
+    ReduceMean, RepeatInterleave, RmsNormalization, Shape, Silu, Softmax, Swish, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 
@@ -1351,6 +1351,104 @@ impl FusionVisitor for ComputeShapeFusion {
     }
 }
 
+/// Fuse `MatMul(Q, RepeatInterleave(K_or_V))`.
+///
+/// This is a fusion for both the Q@K^T and QK@V matmuls in Grouped-query
+/// Attention.
+pub struct GroupedQueryAttentionMatMulFusion {}
+
+impl PatternFusion for GroupedQueryAttentionMatMulFusion {
+    type Operator = GroupedQueryAttentionMatMul;
+
+    fn pattern(&self) -> Pattern {
+        let a = Pattern::symbol("a");
+        let b = Pattern::symbol("b");
+        let t1 = Pattern::unary_op("RepeatInterleave", b).with_name("repeat");
+        Pattern::any_of(vec![
+            // Vanilla matmul used for QK @ V.
+            Pattern::binary_op("MatMul", a.clone(), t1.clone()),
+            // Matmul with transposed RHS and scaling applied to the input, used
+            // for Q @ K.
+            Pattern::binary_op(
+                "FusedMatMul",
+                a.clone(),
+                Pattern::unary_op("Transpose", t1.clone()).with_name("transpose"),
+            )
+            .with_name("scaled_matmul"),
+        ])
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["a", "b"]
+    }
+
+    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<GroupedQueryAttentionMatMul> {
+        let repeat_id = pat_match.node_id("repeat")?;
+        let &RepeatInterleave { axis, repeats } =
+            graph.get_operator::<RepeatInterleave>(repeat_id)?;
+
+        // Only the second (head) dimension can be repeated.
+        if axis != 1 {
+            return None;
+        }
+
+        // Only 4D inputs are supported. We expect the LHS input to have shape
+        // (batch, query_heads, seq, d_model) and the RHS input to have shape
+        // (batch, kv_heads, seq, d_model) where `query_heads = kv_heads *
+        // repeats`.
+        let b_id = pat_match.node_id("a").unwrap();
+        let a_shape = graph.get_node(b_id).and_then(|n| n.shape())?;
+        if a_shape.len() != 4 {
+            return None;
+        }
+
+        let b_id = pat_match.node_id("b").unwrap();
+        let b_shape = graph.get_node(b_id).and_then(|n| n.shape())?;
+        if b_shape.len() != 4 {
+            return None;
+        }
+
+        // Check that query_heads is a multiple of kv_heads.
+        let Dimension::Fixed(query_heads) = a_shape[1] else {
+            return None;
+        };
+        let Dimension::Fixed(kv_heads) = b_shape[1] else {
+            return None;
+        };
+        if query_heads != kv_heads * repeats {
+            return None;
+        }
+
+        // Set the scale and transpose flag if this is the Q @ K^T matmul.
+        //
+        // We rely on the Mul + MatMul being first fused into FusedMatMul by
+        // MatMulScaleFusion.
+        let mut alpha = None;
+        let mut transpose_rhs = false;
+
+        if let Some(transpose_op) = pat_match
+            .node_id("transpose")
+            .and_then(|id| graph.get_operator::<Transpose>(id))
+            // Permute must transpose only last two dims
+            && transpose_op.perm.as_deref() == Some(&[0, 1, 3, 2])
+        {
+            transpose_rhs = true;
+
+            if let Some(matmul) = pat_match
+                .node_id("scaled_matmul")
+                .and_then(|id| graph.get_operator::<FusedMatMul>(id))
+            {
+                alpha = matmul.alpha;
+            }
+        }
+
+        Some(GroupedQueryAttentionMatMul {
+            repeats,
+            alpha,
+            transpose_rhs,
+        })
+    }
+}
 #[cfg(test)]
 mod tests {
     // Tests for fusions are currently defined in the main `optimize.rs` module.

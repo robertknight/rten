@@ -19,10 +19,10 @@ mod pattern_matcher;
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, Fusion, FusionVisitor,
-    GeluFusion, IdentityFusion, LayerNormalizationFusion, MatMulAddFusion,
-    MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion, ReciprocalFusion,
-    ReduceMeanAxesFusion, RepeatInterleaveFusion, RmsNormalizationFusion, SafeSoftmaxFusion,
-    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
+    GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion, LayerNormalizationFusion,
+    MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion,
+    ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, RmsNormalizationFusion,
+    SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -418,6 +418,7 @@ impl GraphOptimizer {
         fusions.push(SafeSoftmaxFusion {}.into_visitor());
         fusions.push(AddSoftmaxFusion {}.into_visitor());
         fusions.push(RepeatInterleaveFusion {}.into_visitor());
+        fusions.push(GroupedQueryAttentionMatMulFusion {}.into_visitor());
 
         // Layout fusions
         fusions.push(TransposeFusion {});
