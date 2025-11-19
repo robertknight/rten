@@ -47,7 +47,7 @@ jobs:
         key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Install wasm-bindgen
       # nb. wasm-bindgen-cli version must match `wasm-bindgen` version in Cargo.lock
-      run: cargo install wasm-bindgen-cli --version 0.2.100
+      run: cargo install wasm-bindgen-cli --version 0.2.105
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build (no default features)
       run: cargo check --no-default-features
