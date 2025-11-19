@@ -475,6 +475,7 @@ dependencies = [
  "rten-text",
  "rustfft",
  "serde",
+ "serde_derive",
  "serde_json",
  "smallvec",
 ]
@@ -521,6 +522,7 @@ dependencies = [
  "rten-tensor",
  "rten-testing",
  "serde",
+ "serde_derive",
 ]
 
 [[package]]
@@ -565,6 +567,7 @@ dependencies = [
  "fancy-regex",
  "rten-testing",
  "serde",
+ "serde_derive",
  "serde_json",
  "unicode-normalization",
  "unicode_categories",

@@ -8,7 +8,7 @@ use hound::{SampleFormat, WavSpec, WavWriter};
 use rten::Model;
 use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
-use serde::Deserialize;
+use serde_derive::Deserialize;
 
 /// Deserialized JSON config for a voice model.
 ///

@@ -2,7 +2,7 @@
 //! format.
 
 use super::TokenId;
-use serde::Deserialize;
+use serde_derive::Deserialize;
 
 #[derive(Deserialize)]
 pub(crate) struct AddedToken {
@@ -17,7 +17,7 @@ pub(crate) enum Pattern {
 }
 
 pub mod normalizers {
-    use serde::Deserialize;
+    use serde_derive::Deserialize;
 
     use super::{Normalizer, Pattern};
 
@@ -58,7 +58,7 @@ pub(crate) enum Normalizer {
 }
 
 pub mod pre_tokenizers {
-    use serde::Deserialize;
+    use serde_derive::Deserialize;
 
     use super::{Pattern, PreTokenizer};
 
@@ -109,7 +109,7 @@ pub(crate) enum PreTokenizer {
 pub mod models {
     use std::collections::HashMap;
 
-    use serde::Deserialize;
+    use serde_derive::Deserialize;
 
     use crate::TokenId;
 

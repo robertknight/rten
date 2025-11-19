@@ -37,8 +37,9 @@ image = { version = "0.25.1", default-features = false, features = ["png", "jpeg
 libm = "0.2.6"
 rayon = "1.7.0"
 rustfft = { version = "6.4.0" }
-serde = { version = "1.0.202" }
-serde_json = { version = "1.0.117" }
+serde = { version = "1" }
+serde_derive = { version = "1" }
+serde_json = { version = "1" }
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
 typeid = "1.0.3"
 

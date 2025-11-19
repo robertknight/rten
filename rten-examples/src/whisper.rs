@@ -11,7 +11,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 use rten_text::Tokenizer;
 use rustfft::{FftPlanner, num_complex::Complex32};
-use serde::Deserialize;
+use serde_derive::Deserialize;
 
 /// Recognize speech in an audio file using OpenAI's Whisper.
 #[derive(FromArgs)]
