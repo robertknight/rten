@@ -6,7 +6,7 @@ use crate::generator::TokenId;
 /// each token. These are filtered and processed using
 /// [`LogitsFilter`](crate::filter::LogitsFilter)s before a single token is
 /// sampled using a [`Sampler`](crate::sampler::Sampler).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Logits {
     logits: Vec<f32>,
     indices: Vec<TokenId>,
