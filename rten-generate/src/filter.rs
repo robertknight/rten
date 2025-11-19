@@ -3,7 +3,8 @@
 //! This module defines the [`LogitsFilter`] trait implemented by all filters,
 //! plus convenience functions to simplify implementing filters.
 
-use rten_simd::SimdOp;
+use rten_simd::ops::{MaskOps, NumOps};
+use rten_simd::{Isa, Simd, SimdIterable, SimdOp};
 use rten_vecmath::Softmax;
 
 use crate::Logits;
@@ -146,17 +147,87 @@ impl LogitsFilter for TopK {
 
         let (logits, indices) = logits.into_logits_indices();
 
-        // Simple Top-K. We could do better here by taking advantage of the
-        // knowledge that `k` is likely very small (typically < 100) compared
-        // to `logits` (typically 10K-250K).
-        let k = self.k.min(logits.len());
-        let k_index = k.saturating_sub(1);
-        let mut pairs: Vec<(f32, TokenId)> = logits.into_iter().zip(indices).collect();
-        pairs.select_nth_unstable_by(k_index, |(a, _a_idx), (b, _b_idx)| a.total_cmp(b).reverse());
-        pairs.truncate(k);
+        let topk = SimdTopK {
+            k: self.k,
+            indices: &indices,
+            logits: &logits,
+        }
+        .dispatch();
 
-        let (logits, indices) = pairs.into_iter().unzip();
+        let (indices, logits) = topk.into_iter().unzip();
         Logits::sparse(logits, indices)
+    }
+}
+
+/// Vectorized top-K implementation which assumes that K is small relative to
+/// the input length, and that values are distributed such that updates to the
+/// running top-K are infrequent.
+struct SimdTopK<'a> {
+    k: usize,
+    logits: &'a [f32],
+    indices: &'a [u32],
+}
+
+impl<'a> SimdOp for SimdTopK<'a> {
+    type Output = Vec<(u32, f32)>;
+
+    #[inline(always)]
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let SimdTopK { logits, indices, k } = self;
+
+        let ops = isa.f32();
+        let mask_ops = isa.m32();
+        let compare_gt = |a: f32, b: f32| a.total_cmp(&b).reverse();
+
+        // Create an initial sorted top-K list from the first K entries.
+        let mut topk: Vec<(u32, f32)> = indices
+            .iter()
+            .zip(logits)
+            .take(k)
+            .map(|(i, logit)| (*i, logit.clone()))
+            .collect();
+        topk.sort_by(|a, b| compare_gt(a.1, b.1));
+
+        if k == 0 || logits.len() == k {
+            return topk;
+        }
+
+        let mut kth_logit = topk.last().unwrap().1;
+        let mut kth_logit_vec = ops.splat(kth_logit);
+
+        let mut update_topk = |kth_logit: &mut f32, index: u32, logit: f32| {
+            if logit > *kth_logit {
+                *topk.last_mut().unwrap() = (index, logit);
+                topk.sort_by(|a, b| compare_gt(a.1, b.1));
+                *kth_logit = topk.last().unwrap().1;
+            }
+        };
+
+        let indices = &indices[k..];
+        let logits = &logits[k..];
+
+        // Iterate over SIMD-sized chunks of remaining logits and update running
+        // top-K.
+        let mut indices_iter = indices.chunks_exact(ops.len());
+        let mut logits_iter = logits.simd_iter(ops);
+        for (index_chunk, logits_vec) in indices_iter.by_ref().zip(logits_iter.by_ref()) {
+            if mask_ops.any(ops.gt(logits_vec, kth_logit_vec)) {
+                for (&index, logit) in index_chunk.iter().zip(logits_vec.to_array()) {
+                    update_topk(&mut kth_logit, index, logit);
+                }
+                kth_logit_vec = ops.splat(kth_logit);
+            }
+        }
+
+        // Handle tail.
+        if let Some((logits_tail, _mask)) = logits_iter.tail() {
+            let indices_tail = indices_iter.remainder();
+            for (&index, logit) in indices_tail.iter().zip(logits_tail.to_array()) {
+                update_topk(&mut kth_logit, index, logit);
+            }
+        }
+
+        topk
     }
 }
 
@@ -284,19 +355,37 @@ mod tests {
         assert_eq!(output.indices(), &[2, 4]);
     }
 
+    fn reference_topk(logits: &Logits, k: usize) -> Logits {
+        let mut pairs: Vec<(u32, f32)> = logits
+            .indices()
+            .iter()
+            .zip(logits.logits())
+            .map(|(idx, val)| (*idx, *val))
+            .collect();
+        pairs.sort_by(|a, b| a.1.total_cmp(&b.1).reverse());
+        pairs.truncate(k);
+        let (indices, logits) = pairs.into_iter().unzip();
+        Logits::sparse(logits, indices)
+    }
+
     #[test]
     fn test_top_k() {
         let sort = |logits| Sort::new().filter(logits, &[]);
 
-        let logits = Logits::dense(vec![-1., 1., 0., 2., -2., 10.]);
+        let logits = Logits::dense(vec![
+            -1., 1., 0., 2., -2., 10., -3., 2., 1., 0., 20., -5., 5., 0.1, -0.2, 0.2, 0.1,
+        ]);
+        // Exceeds max common SIMD vector width (16 x f32 = 512 bits) and has
+        // a tail.
+        assert_eq!(logits.len(), 17);
 
         // Test cases where K <= logits length.
         for k in 0..=logits.len() {
             let topk = TopK::new(k).filter(logits.clone(), &[]);
             let sorted_topk = sort(topk);
-
-            assert_eq!(sorted_topk.logits(), &[10., 2., 1., 0., -1., -2.][..k]);
-            assert_eq!(sorted_topk.indices(), &[5, 3, 1, 2, 0, 4][..k]);
+            let expected_topk = reference_topk(&logits, k);
+            assert_eq!(sorted_topk.logits(), expected_topk.logits());
+            assert_eq!(sorted_topk.indices(), expected_topk.indices());
         }
 
         // Test empty logits
