@@ -6,7 +6,7 @@ use rten_gemm::{
     PackedBMatrix, QuantParams,
 };
 use rten_tensor::prelude::*;
-use rten_tensor::{CowNdTensor, Matrix, NdTensor, NdTensorView, Tensor, TensorView};
+use rten_tensor::{CowNdTensor, Matrix, NdTensorView, Tensor, TensorView};
 use rten_vecmath::ExtendInit;
 use smallvec::SmallVec;
 
@@ -645,13 +645,19 @@ impl Operator for MatMulIntegerToFloat {
 
 fn matmul_nbits(
     pool: &BufferPool,
-    lhs: NdTensorView<f32, 3>,
+    lhs: TensorView<f32>,
     rhs: NdTensorView<u8, 3>,
     scales: NdTensorView<f32, 2>,
     bits: u8,
     accuracy: AccuracyLevel,
-) -> Result<NdTensor<f32, 3>, OpError> {
-    let [batch, rows, lhs_cols] = lhs.shape();
+) -> Result<Tensor<f32>, OpError> {
+    if lhs.ndim() < 2 {
+        return Err(OpError::InvalidValue("A input must have at least 2 dims"));
+    }
+
+    let batch_dims = &lhs.shape()[..lhs.ndim() - 2];
+    let rows = lhs.size(lhs.ndim() - 2);
+    let lhs_cols = lhs.size(lhs.ndim() - 1);
 
     let rhs = rhs.to_contiguous_in(pool);
     let scales = scales.to_contiguous_in(pool);
@@ -663,7 +669,12 @@ fn matmul_nbits(
         })
     })?;
 
-    let out_shape = [batch, rows, b_mat.cols()];
+    let batch_len = batch_dims.iter().product();
+    let out_shape: SmallVec<[usize; 4]> = batch_dims
+        .iter()
+        .copied()
+        .chain([rows, b_mat.cols()])
+        .collect();
     let out_len = out_shape.iter().product();
     let mut out_data = pool.alloc(out_len);
 
@@ -687,29 +698,32 @@ fn matmul_nbits(
         } else {
             BlockQuantizedGemm::new()
         };
+
+        let lhs = lhs
+            .reshaped_in(pool, [batch_len, rows, lhs_cols])
+            .auto_return(pool);
         out_data.extend_init(|uninit_out_data| {
-            gemm.batched_gemm_uninit(&mut uninit_out_data[..out_len], lhs, b_mat)
+            gemm.batched_gemm_uninit(&mut uninit_out_data[..out_len], lhs.view(), b_mat)
                 .unwrap()
         });
     } else {
-        let a_mats: SmallVec<[_; 1]> = lhs.inner_iter::<2>().map(GemmInputA::Unpacked).collect();
-        let b_mats: SmallVec<[_; 1]> = std::iter::repeat(GemmInputB::BlockQuantized(b_mat))
-            .take(batch)
-            .collect();
+        let lhs = lhs
+            .reshaped_in(pool, [batch_len * rows, lhs_cols])
+            .auto_return(pool);
 
         let gemm = GemmExecutor::default();
         out_data.extend_init(|uninit_out_data| {
-            gemm.batched_gemm_uninit(
+            gemm.gemm_uninit(
                 &mut uninit_out_data[..out_len],
-                &a_mats,
-                &b_mats,
+                GemmInputA::Unpacked(lhs.view()),
+                GemmInputB::BlockQuantized(b_mat),
                 GemmUninitOptions::default(),
             )
             .unwrap()
         });
     }
 
-    Ok(NdTensor::from_data(out_shape, out_data))
+    Ok(Tensor::from_data(out_shape.as_slice(), out_data))
 }
 
 /// Specifies whether the LHS input may be quantized.
@@ -747,7 +761,7 @@ impl Operator for MatMulNBits {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let lhs: NdTensorView<f32, 3> = ctx.inputs().require_as(0)?;
+        let lhs: TensorView<f32> = ctx.inputs().require_as(0)?;
         let rhs: NdTensorView<u8, 3> = ctx.inputs().require_as(1)?;
 
         // Current spec requires scales to be 2D, but earlier versions used 1D
@@ -761,7 +775,7 @@ impl Operator for MatMulNBits {
                 .try_into()
                 .unwrap(),
             1 => {
-                let k = lhs.size(2);
+                let k = lhs.ndim().checked_sub(1).map(|d| lhs.size(d)).unwrap_or(1);
                 let k_blocks = k.checked_div(self.block_size).unwrap_or(0);
                 let rhs_cols = rhs.size(0);
 
@@ -1534,37 +1548,42 @@ mod tests {
     }
 
     fn reference_matmul_nbits(
-        lhs: NdTensorView<f32, 3>,
+        lhs: TensorView<f32>,
         rhs: NdTensorView<u8, 3>,
         scales: NdTensorView<f32, 2>,
         n_bits: u8,
-    ) -> NdTensor<f32, 3> {
-        let [batch, m, _k] = lhs.shape();
+    ) -> Tensor<f32> {
+        let batch_dims = &lhs.shape()[..lhs.ndim() - 2];
+        let batch_len: usize = batch_dims.iter().product();
+
+        let m = lhs.size(lhs.ndim() - 2);
+        let k = lhs.size(lhs.ndim() - 1);
         let [n, _k_blocks, _block_size] = rhs.shape();
 
         let rhs = rhs.to_contiguous();
         let scales = scales.to_contiguous();
         let bqm = BlockQuantizedMatrix::new(rhs.view(), scales.view(), n_bits).unwrap();
 
-        let mut output = NdTensor::zeros([batch, m, n]);
+        let out_shape: Vec<usize> = batch_dims.iter().copied().chain([m, n]).collect();
+        let mut out = Tensor::zeros(&out_shape);
         let gemm = GemmExecutor::default();
-        for (mut out, a) in output.inner_iter_mut::<2>().zip(lhs.inner_iter()) {
-            gemm.gemm(
-                out.data_mut().unwrap(),
-                GemmInputA::Unpacked(a),
-                GemmInputB::BlockQuantized(bqm),
-                GemmOptions::default(),
-            )
-            .unwrap();
-        }
 
-        output
+        gemm.gemm(
+            out.data_mut().unwrap(),
+            GemmInputA::Unpacked(lhs.reshaped([batch_len * m, k]).view()),
+            GemmInputB::BlockQuantized(bqm),
+            GemmOptions::default(),
+        )
+        .unwrap();
+
+        out
     }
 
     #[test]
     fn test_matmul_nbits() {
         #[derive(Clone, Debug)]
         struct Case {
+            batch_dims: Vec<usize>,
             m: usize,
             accuracy_level: AccuracyLevel,
             tolerance: Option<f32>,
@@ -1573,32 +1592,51 @@ mod tests {
         let cases = [
             // Vector-matrix product
             Case {
+                batch_dims: [2].into(),
                 m: 1,
                 accuracy_level: AccuracyLevel::Float,
                 tolerance: None,
             },
             Case {
+                batch_dims: [2].into(),
                 m: 1,
                 accuracy_level: AccuracyLevel::Int8,
                 tolerance: Some(0.1),
             },
             // Matrix-matrix product
             Case {
+                batch_dims: [2].into(),
                 m: 4,
                 accuracy_level: AccuracyLevel::Float,
                 tolerance: None,
             },
             Case {
+                batch_dims: [2].into(),
                 m: 4,
                 accuracy_level: AccuracyLevel::Int8,
                 // MatMulNBits currently falls back to float compute for
                 // matrix-matrix products, so no tolerance is required.
                 tolerance: None,
             },
+            // Matrix-matrix product with 2 batch dims.
+            Case {
+                batch_dims: [2, 2].into(),
+                m: 4,
+                accuracy_level: AccuracyLevel::Float,
+                tolerance: None,
+            },
+            // Matrix-matrix product with 0 batch dims.
+            Case {
+                batch_dims: [].into(),
+                m: 4,
+                accuracy_level: AccuracyLevel::Float,
+                tolerance: None,
+            },
         ];
 
         cases.test_each_clone(|case| {
             let Case {
+                batch_dims,
                 m,
                 accuracy_level,
                 tolerance,
@@ -1606,19 +1644,19 @@ mod tests {
 
             let mut rng = XorShiftRng::new(1234);
 
-            let batch = 2;
             let block_size = 16;
             let block_bytes = block_size / 2;
             let k = block_size * 2;
             let n = 8;
             let n_bits = 4;
 
-            let lhs = NdTensor::<f32, 3>::rand([batch, m, k], &mut rng);
+            let lhs_shape: Vec<usize> = batch_dims.iter().copied().chain([m, k]).collect();
+            let lhs = Tensor::rand(&lhs_shape, &mut rng);
             let rhs = NdTensor::<u8, 3>::rand([n, k / block_size, block_bytes], &mut rng);
             let scales = NdTensor::<f32, 2>::rand([n, k / block_size], &mut rng);
 
             // nb. Reference result is always computed in full precision.
-            let expected = reference_matmul_nbits(lhs.view(), rhs.view(), scales.view(), n_bits);
+            let expected = reference_matmul_nbits(lhs.as_dyn(), rhs.view(), scales.view(), n_bits);
 
             let op = MatMulNBits {
                 bits: n_bits,
@@ -1627,10 +1665,9 @@ mod tests {
             };
 
             // With 2D scales.
-            let result: NdTensor<f32, 3> = op
+            let result: Tensor<f32> = op
                 .run_simple((lhs.view(), rhs.view(), scales.view()))
                 .unwrap();
-            assert_eq!(result.shape(), [batch, m, n]);
             if let Some(atol) = tolerance {
                 let rtol = 0.;
                 expect_equal_with_tolerance(&result, &expected, atol, rtol).unwrap();
@@ -1639,20 +1676,51 @@ mod tests {
             }
 
             // With 1D scales (older models)
-            let result: NdTensor<f32, 3> = op
+            let result: Tensor<f32> = op
                 .run_simple((
                     lhs.view(),
                     rhs.view(),
                     scales.reshaped([scales.len()]).view(),
                 ))
                 .unwrap();
-            assert_eq!(result.shape(), [batch, m, n]);
             if let Some(atol) = tolerance {
                 let rtol = 0.;
                 expect_equal_with_tolerance(&result, &expected, atol, rtol).unwrap();
             } else {
                 expect_equal(&result, &expected).unwrap();
             }
+        });
+    }
+
+    #[test]
+    fn test_matmul_nbits_invalid() {
+        #[derive(Debug)]
+        struct Case {
+            lhs_shape: Vec<usize>,
+            rhs_shape: [usize; 3],
+            scales_shape: Vec<usize>,
+            expected: OpError,
+        }
+
+        let cases = [Case {
+            lhs_shape: [1].into(),
+            rhs_shape: [1, 1, 16],
+            scales_shape: [1, 1].into(),
+            expected: OpError::InvalidValue("A input must have at least 2 dims"),
+        }];
+
+        cases.test_each(|case| {
+            let op = MatMulNBits {
+                bits: 4,
+                block_size: 32,
+                accuracy_level: AccuracyLevel::Float,
+            };
+            let lhs = Tensor::<f32>::zeros(&case.lhs_shape);
+            let rhs = Tensor::<u8>::zeros(&case.rhs_shape);
+            let scales = Tensor::<f32>::zeros(&case.scales_shape);
+            let result: Result<Tensor<f32>, _> =
+                op.run_simple((lhs.view(), rhs.view(), scales.view()));
+            assert_eq!(result.err().unwrap(), case.expected);
         });
     }
 
