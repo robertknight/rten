@@ -14,9 +14,13 @@ pub fn constant_of_shape<T: Copy>(
     pool: &BufferPool,
     value: T,
     shape: &NdTensorView<i32, 1>,
-) -> Tensor<T> {
-    let shape: Vec<_> = shape.iter().map(|el| *el as usize).collect();
-    Tensor::full_in(pool, &shape, value)
+) -> Result<Tensor<T>, OpError> {
+    let shape = shape
+        .iter()
+        .map(|el| (*el).try_into())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| OpError::InvalidValue("Invalid shape"))?;
+    Ok(Tensor::full_in(pool, &shape, value))
 }
 
 #[derive(Debug, PartialEq)]
@@ -247,6 +251,13 @@ mod tests {
 
         assert_eq!(result.shape(), &[1, 5, 10]);
         assert_eq!(result.to_vec(), vec![42; result.shape().iter().product()]);
+
+        let shape = Tensor::from([1, -1]);
+        let result: Result<Tensor<i32>, OpError> = op.run_simple(&shape);
+        assert_eq!(
+            result.err().unwrap(),
+            OpError::InvalidValue("Invalid shape")
+        );
     }
 
     #[test]
