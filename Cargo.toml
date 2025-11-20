@@ -36,6 +36,7 @@ flatbuffers = "24.3.25"
 image = { version = "0.25.1", default-features = false, features = ["png", "jpeg", "webp"] }
 libm = "0.2.6"
 rayon = "1.7.0"
+rustc-hash = "2.0.0"
 rustfft = { version = "6.4.0" }
 serde = { version = "1" }
 serde_derive = { version = "1" }
@@ -70,7 +71,7 @@ rten-simd = { path = "./rten-simd", version = "0.23.0" }
 fastrand = { workspace = true, optional = true }
 fastrand-contrib = { workspace = true, optional = true }
 rayon = { workspace = true }
-rustc-hash = "2.0.0"
+rustc-hash = { workspace = true }
 rustfft = { workspace = true, optional = true }
 smallvec = { workspace = true }
 memmap2 = { version = "0.9.4", optional = true }

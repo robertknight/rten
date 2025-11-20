@@ -107,6 +107,7 @@ pub(crate) enum PreTokenizer {
 }
 
 pub mod models {
+    use rustc_hash::FxHashMap;
     use std::collections::HashMap;
 
     use serde_derive::Deserialize;
@@ -131,7 +132,7 @@ pub mod models {
     #[derive(Deserialize)]
     pub(crate) struct Bpe {
         /// Mapping from token text to token ID.
-        pub vocab: HashMap<String, TokenId>,
+        pub vocab: FxHashMap<String, TokenId>,
 
         /// List of pairs of tokens to merge.
         pub merges: MergeList,

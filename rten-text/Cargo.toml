@@ -14,11 +14,12 @@ crate-type = ["lib"]
 
 [dependencies]
 fancy-regex = { version = "0.14.0", default-features = false, features = ["std", "unicode"] }
-unicode_categories = "0.1.1"
-unicode-normalization = "0.1.22"
+rustc-hash = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
+unicode_categories = "0.1.1"
+unicode-normalization = "0.1.22"
 
 [dev-dependencies]
 rten-testing = { path = "../rten-testing" }

@@ -11,12 +11,13 @@
 //!    [`Tokenizer::new`].
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::iter::repeat;
 use std::ops::Range;
 use std::path::Path;
+
+use rustc_hash::FxHashMap;
 
 use crate::models::{
     Bpe, BpeError, BpeOptions, DecodeError, EncodeError, Model, WordPiece, merge_pairs_from_lines,
@@ -393,7 +394,7 @@ impl Tokenizer {
 
         let mut tokenizer = match json.model {
             json::Model::Bpe(model) => {
-                let added_tokens: HashMap<TokenId, String> = json
+                let added_tokens: FxHashMap<TokenId, String> = json
                     .added_tokens
                     .as_ref()
                     .map(|tokens| {

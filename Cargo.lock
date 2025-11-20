@@ -586,6 +586,7 @@ version = "0.23.0"
 dependencies = [
  "fancy-regex",
  "rten-testing",
+ "rustc-hash",
  "serde",
  "serde_derive",
  "serde_json",

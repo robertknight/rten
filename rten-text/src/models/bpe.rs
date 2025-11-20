@@ -5,6 +5,7 @@ use std::fmt::{Debug, Display};
 
 use super::{DecodeError, EncodeError, Model};
 use crate::tokenizer::TokenId;
+use rustc_hash::FxHashMap;
 
 /// Errors that can occur when building a [`Bpe`] tokenizer or encoding or
 /// decoding text using it.
@@ -141,7 +142,7 @@ type MergeMap = HashMap<(TokenId, TokenId), (Rank, TokenId)>;
 /// Build the BPE merge map that associates a rank and token ID to merged pairs
 /// of tokens.
 fn build_merge_map(
-    vocab: &HashMap<EncodedBytes, TokenId>,
+    vocab: &FxHashMap<EncodedBytes, TokenId>,
     merges: &[(EncodedByteSlice, EncodedByteSlice)],
 ) -> Result<MergeMap, BpeError> {
     let mut merge_map = HashMap::with_capacity(merges.len());
@@ -194,8 +195,8 @@ pub fn merge_pairs_from_lines(
 fn build_vocab(
     merges: &[(EncodedByteSlice, EncodedByteSlice)],
     end_of_word_suffix: Option<EncodedByteSlice>,
-) -> HashMap<EncodedBytes, TokenId> {
-    let mut vocab = HashMap::new();
+) -> FxHashMap<EncodedBytes, TokenId> {
+    let mut vocab = FxHashMap::default();
 
     fn byte_to_rank() -> [Rank; 256] {
         let mut ranks = [Rank(0); 256];
@@ -260,12 +261,12 @@ pub struct BpeOptions<'a> {
     /// form the token string when concatenated. For example, if index 10 in the
     /// merge list is "foo bar", then the token ID of "foobar" would be 266.
     /// Token IDs below 256 are reserved for individual bytes.
-    pub vocab: Option<HashMap<EncodedBytes, TokenId>>,
+    pub vocab: Option<FxHashMap<EncodedBytes, TokenId>>,
 
     /// Set of tokens which don't appear in `merges` but do have a mapping in
     /// `vocab`. These are used for special purposes such as representing the
     /// end of output.
-    pub added_tokens: HashMap<TokenId, String>,
+    pub added_tokens: FxHashMap<TokenId, String>,
 
     /// A string which is implicitly appended to each substring that is
     /// tokenized, after initial splitting.
@@ -300,12 +301,12 @@ pub struct Bpe {
     /// vocabulary.
     byte_to_char: [char; 256],
 
-    token_id_to_encoded_bytes: HashMap<TokenId, EncodedBytes>,
+    token_id_to_encoded_bytes: FxHashMap<TokenId, EncodedBytes>,
 
-    vocab: Option<HashMap<EncodedBytes, TokenId>>,
+    vocab: Option<FxHashMap<EncodedBytes, TokenId>>,
 
     /// Map from token ID to content for special tokens (eg. end-of-string).
-    added_tokens: HashMap<TokenId, String>,
+    added_tokens: FxHashMap<TokenId, String>,
 
     /// A suffix which is implicitly appended to each string piece to be
     /// tokenized.
@@ -486,9 +487,8 @@ impl Model for Bpe {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use rten_testing::TestCases;
+    use rustc_hash::FxHashMap;
 
     use super::{Bpe, BpeOptions, EncodedBytes, merge_pairs_from_lines};
     use crate::pre_tokenizers::Split;
@@ -521,7 +521,7 @@ e d
 Ġ f
 in g";
 
-    fn added_tokens() -> HashMap<TokenId, String> {
+    fn added_tokens() -> FxHashMap<TokenId, String> {
         [(50256, "<|endoftext|>")]
             .into_iter()
             .map(|(id, str)| (id, str.to_string()))
@@ -533,7 +533,7 @@ in g";
     /// The token IDs are chosen to be different than the ones that would be
     /// automatically generated based on the merge list, if the vocabulary was
     /// not supplied.
-    fn gen_vocab() -> HashMap<EncodedBytes, TokenId> {
+    fn gen_vocab() -> FxHashMap<EncodedBytes, TokenId> {
         let mut next_token_id = 1000;
         let mut vocab = minimal_vocab(next_token_id);
         next_token_id += vocab.len() as u32;
@@ -551,8 +551,8 @@ in g";
     }
 
     /// Generate the simplest valid vocabulary.
-    fn minimal_vocab(start_token_id: u32) -> HashMap<EncodedBytes, TokenId> {
-        let mut vocab = HashMap::new();
+    fn minimal_vocab(start_token_id: u32) -> FxHashMap<EncodedBytes, TokenId> {
+        let mut vocab = FxHashMap::default();
         let mut next_token_id = start_token_id;
         for ch in super::char_to_byte().keys() {
             vocab.insert(ch.to_string(), next_token_id);
@@ -568,7 +568,7 @@ in g";
             text: &'a str,
             expected_tokens: &'a [&'a str],
             merges: &'a str,
-            vocab: Option<HashMap<EncodedBytes, TokenId>>,
+            vocab: Option<FxHashMap<EncodedBytes, TokenId>>,
             end_of_word_suffix: Option<String>,
             ignore_merges: bool,
         }
@@ -729,7 +729,7 @@ ba r",
             text: &'a str,
             add_eos: bool,
             expected: &'a str,
-            vocab: Option<HashMap<EncodedBytes, TokenId>>,
+            vocab: Option<FxHashMap<EncodedBytes, TokenId>>,
         }
 
         let vocab = gen_vocab();
