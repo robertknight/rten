@@ -361,16 +361,21 @@ impl Bpe {
         }
 
         // If the `ignore_merges` flag is set for this tokenizer, we'll need
-        // to use the vocabulary during encoding. Otherwise we can save some
-        // memory by discarding it.
-        let vocab_copy = if ignore_merges {
-            Some(vocab.clone())
+        // to use the vocabulary during encoding.
+        //
+        // Otherwise we can re-use the hash/string allocations for
+        // `token_id_to_encoded_bytes`.
+        let (vocab, token_id_to_encoded_bytes) = if ignore_merges {
+            let token_id_to_encoded_bytes = vocab
+                .iter()
+                .map(|(token, id)| (*id, token.clone()))
+                .collect();
+            (Some(vocab), token_id_to_encoded_bytes)
         } else {
-            None
+            let token_id_to_encoded_bytes =
+                vocab.into_iter().map(|(token, id)| (id, token)).collect();
+            (None, token_id_to_encoded_bytes)
         };
-
-        // Build token ID -> encoded byte mapping for decoding.
-        let token_id_to_encoded_bytes = vocab.into_iter().map(|(token, id)| (id, token)).collect();
 
         Ok(Bpe {
             added_tokens,
@@ -380,7 +385,7 @@ impl Bpe {
             ignore_merges,
             merges,
             token_id_to_encoded_bytes,
-            vocab: vocab_copy,
+            vocab,
         })
     }
 
