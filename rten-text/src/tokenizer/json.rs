@@ -107,8 +107,10 @@ pub(crate) enum PreTokenizer {
 }
 
 pub mod models {
+    use std::borrow::Cow;
     use std::collections::HashMap;
 
+    use rustc_hash::FxHashMap;
     use serde_derive::Deserialize;
 
     use crate::TokenId;
@@ -121,20 +123,22 @@ pub mod models {
 
     #[derive(Debug, Deserialize)]
     #[serde(untagged)]
-    pub(crate) enum MergeList {
+    pub(crate) enum MergeList<'a> {
         /// Pairs represented as a JSON array.
-        Tuple(Vec<(String, String)>),
+        #[serde(borrow)]
+        Tuple(Vec<(Cow<'a, str>, Cow<'a, str>)>),
         /// Pairs represented as `<token_a> [SPACE] <token_b>`.
-        Legacy(Vec<String>),
+        Legacy(Vec<Cow<'a, str>>),
     }
 
     #[derive(Deserialize)]
-    pub(crate) struct Bpe {
+    pub(crate) struct Bpe<'a> {
         /// Mapping from token text to token ID.
-        pub vocab: HashMap<String, TokenId>,
+        pub vocab: FxHashMap<String, TokenId>,
 
         /// List of pairs of tokens to merge.
-        pub merges: MergeList,
+        #[serde(borrow)]
+        pub merges: MergeList<'a>,
 
         /// A string which is implicitly appended to each substring after
         /// pre-tokenization before it is tokenized using BPE.
@@ -151,9 +155,10 @@ pub mod models {
 
 #[derive(Deserialize)]
 #[serde(tag = "type")]
-pub(crate) enum Model {
+pub(crate) enum Model<'a> {
+    #[serde(borrow)]
     #[serde(rename = "BPE")]
-    Bpe(models::Bpe),
+    Bpe(models::Bpe<'a>),
     WordPiece(models::WordPiece),
 }
 
@@ -162,14 +167,15 @@ pub(crate) enum Model {
 ///
 /// [^1]: https://github.com/huggingface/tokenizers
 #[derive(Deserialize)]
-pub(crate) struct Tokenizer {
+pub(crate) struct Tokenizer<'a> {
     pub added_tokens: Option<Vec<AddedToken>>,
     pub normalizer: Option<Normalizer>,
     pub pre_tokenizer: Option<PreTokenizer>,
-    pub model: Model,
+    #[serde(borrow)]
+    pub model: Model<'a>,
 }
 
 /// Deserialize a `tokenizer.json` file.
-pub fn from_json(json: &str) -> Result<Tokenizer, serde_json::Error> {
+pub fn from_json(json: &str) -> Result<Tokenizer<'_>, serde_json::Error> {
     serde_json::from_str(json)
 }

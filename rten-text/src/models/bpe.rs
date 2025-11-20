@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
@@ -5,6 +6,7 @@ use std::fmt::{Debug, Display};
 
 use super::{DecodeError, EncodeError, Model};
 use crate::tokenizer::TokenId;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 
 /// Errors that can occur when building a [`Bpe`] tokenizer or encoding or
 /// decoding text using it.
@@ -52,6 +54,9 @@ pub type EncodedByteSlice<'a> = &'a str;
 
 /// Like [`EncodedByteSlice`], but owned.
 pub type EncodedBytes = String;
+
+/// Like [`EncodedByteSlice`], but owned.
+pub type EncodedBytesCow<'a> = Cow<'a, str>;
 
 /// Return true if `c` is considered a printable character.
 ///
@@ -104,7 +109,7 @@ pub fn char_to_byte() -> HashMap<char, u8> {
 /// Returns the number of merged tokens.
 fn bpe_merge(
     tokens: &mut Vec<TokenId>,
-    merges: &HashMap<(TokenId, TokenId), (Rank, TokenId)>,
+    merges: &FxHashMap<(TokenId, TokenId), (Rank, TokenId)>,
 ) -> usize {
     loop {
         // Find the pair of tokens with the lowest rank and merge all occurences
@@ -136,28 +141,33 @@ fn bpe_merge(
 }
 
 /// Mapping from pairs of tokens to the rank and ID of the merged pair.
-type MergeMap = HashMap<(TokenId, TokenId), (Rank, TokenId)>;
+type MergeMap = FxHashMap<(TokenId, TokenId), (Rank, TokenId)>;
 
 /// Build the BPE merge map that associates a rank and token ID to merged pairs
 /// of tokens.
 fn build_merge_map(
-    vocab: &HashMap<EncodedBytes, TokenId>,
-    merges: &[(EncodedByteSlice, EncodedByteSlice)],
+    vocab: &FxHashMap<EncodedBytes, TokenId>,
+    merges: &[(EncodedBytesCow, EncodedBytesCow)],
 ) -> Result<MergeMap, BpeError> {
-    let mut merge_map = HashMap::with_capacity(merges.len());
+    let mut merged_str = String::new();
+    let mut merge_map = HashMap::with_capacity_and_hasher(merges.len(), FxBuildHasher);
 
-    for (i, (a, b)) in merges.iter().copied().enumerate() {
-        let a_id = *vocab.get(a).ok_or_else(|| {
+    for (i, (a, b)) in merges.iter().enumerate() {
+        let a_id = *vocab.get(a.as_ref()).ok_or_else(|| {
             BpeError::InvalidMergeEntry(format!(
                 "first entry in merge pair \"{a} {b}\" not found in vocab"
             ))
         })?;
-        let b_id = *vocab.get(b).ok_or_else(|| {
+        let b_id = *vocab.get(b.as_ref()).ok_or_else(|| {
             BpeError::InvalidMergeEntry(format!(
                 "second entry in merge pair \"{a} {b}\" not found in vocab"
             ))
         })?;
-        let merged_str = [a, b].concat();
+
+        merged_str.clear();
+        merged_str.push_str(a);
+        merged_str.push_str(b);
+
         let merged_id = *vocab.get(&merged_str).ok_or_else(|| {
             BpeError::InvalidMergeEntry(format!("merged pair \"{a} {b}\" not found in vocab"))
         })?;
@@ -173,7 +183,7 @@ fn build_merge_map(
 /// Lines that are empty or contain only a `#version` marker are ignored.
 pub fn merge_pairs_from_lines(
     lines: &[impl AsRef<str>],
-) -> Vec<(EncodedByteSlice<'_>, EncodedByteSlice<'_>)> {
+) -> Vec<(EncodedBytesCow<'static>, EncodedBytesCow<'static>)> {
     lines
         .iter()
         .filter_map(|line| {
@@ -182,6 +192,7 @@ pub fn merge_pairs_from_lines(
                 None
             } else {
                 line.split_once(' ')
+                    .map(|(a, b)| (a.to_string().into(), b.to_string().into()))
             }
         })
         .collect()
@@ -192,10 +203,10 @@ pub fn merge_pairs_from_lines(
 /// This is used as a fallback when the tokenizer configuration doesn't have a
 /// vocabulary.
 fn build_vocab(
-    merges: &[(EncodedByteSlice, EncodedByteSlice)],
+    merges: &[(EncodedBytesCow, EncodedBytesCow)],
     end_of_word_suffix: Option<EncodedByteSlice>,
-) -> HashMap<EncodedBytes, TokenId> {
-    let mut vocab = HashMap::new();
+) -> FxHashMap<EncodedBytes, TokenId> {
+    let mut vocab = FxHashMap::default();
 
     fn byte_to_rank() -> [Rank; 256] {
         let mut ranks = [Rank(0); 256];
@@ -240,7 +251,7 @@ fn build_vocab(
         merges
             .iter()
             .enumerate()
-            .map(|(i, (a, b))| ([*a, *b].concat(), start_id + i as u32)),
+            .map(|(i, (a, b))| ([a.as_ref(), b.as_ref()].concat(), start_id + i as u32)),
     );
 
     vocab
@@ -253,19 +264,19 @@ pub struct BpeOptions<'a> {
     /// representing byte sequences. See also [`merge_pairs_from_lines`] which
     /// can be used to extract pairs from the space-separated format used in eg.
     /// `merges.txt` files.
-    pub merges: &'a [(EncodedByteSlice<'a>, EncodedByteSlice<'a>)],
+    pub merges: &'a [(EncodedBytesCow<'a>, EncodedBytesCow<'a>)],
 
     /// Mapping between token strings and IDs. If not provided, the
     /// ID of a token is 256 + the index of the pair in the merge list which
     /// form the token string when concatenated. For example, if index 10 in the
     /// merge list is "foo bar", then the token ID of "foobar" would be 266.
     /// Token IDs below 256 are reserved for individual bytes.
-    pub vocab: Option<HashMap<EncodedBytes, TokenId>>,
+    pub vocab: Option<FxHashMap<EncodedBytes, TokenId>>,
 
     /// Set of tokens which don't appear in `merges` but do have a mapping in
     /// `vocab`. These are used for special purposes such as representing the
     /// end of output.
-    pub added_tokens: HashMap<TokenId, String>,
+    pub added_tokens: FxHashMap<TokenId, String>,
 
     /// A string which is implicitly appended to each substring that is
     /// tokenized, after initial splitting.
@@ -300,12 +311,12 @@ pub struct Bpe {
     /// vocabulary.
     byte_to_char: [char; 256],
 
-    token_id_to_encoded_bytes: HashMap<TokenId, EncodedBytes>,
+    token_id_to_encoded_bytes: FxHashMap<TokenId, EncodedBytes>,
 
-    vocab: Option<HashMap<EncodedBytes, TokenId>>,
+    vocab: Option<FxHashMap<EncodedBytes, TokenId>>,
 
     /// Map from token ID to content for special tokens (eg. end-of-string).
-    added_tokens: HashMap<TokenId, String>,
+    added_tokens: FxHashMap<TokenId, String>,
 
     /// A suffix which is implicitly appended to each string piece to be
     /// tokenized.
@@ -350,16 +361,21 @@ impl Bpe {
         }
 
         // If the `ignore_merges` flag is set for this tokenizer, we'll need
-        // to use the vocabulary during encoding. Otherwise we can save some
-        // memory by discarding it.
-        let vocab_copy = if ignore_merges {
-            Some(vocab.clone())
+        // to use the vocabulary during encoding.
+        //
+        // Otherwise we can re-use the hash/string allocations for
+        // `token_id_to_encoded_bytes`.
+        let (vocab, token_id_to_encoded_bytes) = if ignore_merges {
+            let token_id_to_encoded_bytes = vocab
+                .iter()
+                .map(|(token, id)| (*id, token.clone()))
+                .collect();
+            (Some(vocab), token_id_to_encoded_bytes)
         } else {
-            None
+            let token_id_to_encoded_bytes =
+                vocab.into_iter().map(|(token, id)| (id, token)).collect();
+            (None, token_id_to_encoded_bytes)
         };
-
-        // Build token ID -> encoded byte mapping for decoding.
-        let token_id_to_encoded_bytes = vocab.into_iter().map(|(token, id)| (id, token)).collect();
 
         Ok(Bpe {
             added_tokens,
@@ -369,7 +385,7 @@ impl Bpe {
             ignore_merges,
             merges,
             token_id_to_encoded_bytes,
-            vocab: vocab_copy,
+            vocab,
         })
     }
 
@@ -486,9 +502,8 @@ impl Model for Bpe {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use rten_testing::TestCases;
+    use rustc_hash::FxHashMap;
 
     use super::{Bpe, BpeOptions, EncodedBytes, merge_pairs_from_lines};
     use crate::pre_tokenizers::Split;
@@ -521,7 +536,7 @@ e d
 Ġ f
 in g";
 
-    fn added_tokens() -> HashMap<TokenId, String> {
+    fn added_tokens() -> FxHashMap<TokenId, String> {
         [(50256, "<|endoftext|>")]
             .into_iter()
             .map(|(id, str)| (id, str.to_string()))
@@ -533,7 +548,7 @@ in g";
     /// The token IDs are chosen to be different than the ones that would be
     /// automatically generated based on the merge list, if the vocabulary was
     /// not supplied.
-    fn gen_vocab() -> HashMap<EncodedBytes, TokenId> {
+    fn gen_vocab() -> FxHashMap<EncodedBytes, TokenId> {
         let mut next_token_id = 1000;
         let mut vocab = minimal_vocab(next_token_id);
         next_token_id += vocab.len() as u32;
@@ -551,8 +566,8 @@ in g";
     }
 
     /// Generate the simplest valid vocabulary.
-    fn minimal_vocab(start_token_id: u32) -> HashMap<EncodedBytes, TokenId> {
-        let mut vocab = HashMap::new();
+    fn minimal_vocab(start_token_id: u32) -> FxHashMap<EncodedBytes, TokenId> {
+        let mut vocab = FxHashMap::default();
         let mut next_token_id = start_token_id;
         for ch in super::char_to_byte().keys() {
             vocab.insert(ch.to_string(), next_token_id);
@@ -568,7 +583,7 @@ in g";
             text: &'a str,
             expected_tokens: &'a [&'a str],
             merges: &'a str,
-            vocab: Option<HashMap<EncodedBytes, TokenId>>,
+            vocab: Option<FxHashMap<EncodedBytes, TokenId>>,
             end_of_word_suffix: Option<String>,
             ignore_merges: bool,
         }
@@ -729,7 +744,7 @@ ba r",
             text: &'a str,
             add_eos: bool,
             expected: &'a str,
-            vocab: Option<HashMap<EncodedBytes, TokenId>>,
+            vocab: Option<FxHashMap<EncodedBytes, TokenId>>,
         }
 
         let vocab = gen_vocab();

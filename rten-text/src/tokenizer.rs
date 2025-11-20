@@ -11,12 +11,13 @@
 //!    [`Tokenizer::new`].
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::iter::repeat;
 use std::ops::Range;
 use std::path::Path;
+
+use rustc_hash::FxHashMap;
 
 use crate::models::{
     Bpe, BpeError, BpeOptions, DecodeError, EncodeError, Model, WordPiece, merge_pairs_from_lines,
@@ -393,7 +394,7 @@ impl Tokenizer {
 
         let mut tokenizer = match json.model {
             json::Model::Bpe(model) => {
-                let added_tokens: HashMap<TokenId, String> = json
+                let added_tokens: FxHashMap<TokenId, String> = json
                     .added_tokens
                     .as_ref()
                     .map(|tokens| {
@@ -403,12 +404,9 @@ impl Tokenizer {
                             .collect()
                     })
                     .unwrap_or_default();
-                let merges: Vec<(&str, &str)> = match &model.merges {
-                    json::models::MergeList::Legacy(lines) => merge_pairs_from_lines(lines),
-                    json::models::MergeList::Tuple(pairs) => pairs
-                        .iter()
-                        .map(|(a, b)| (a.as_str(), b.as_str()))
-                        .collect(),
+                let merges: Vec<(Cow<str>, Cow<str>)> = match model.merges {
+                    json::models::MergeList::Legacy(lines) => merge_pairs_from_lines(&lines),
+                    json::models::MergeList::Tuple(pairs) => pairs,
                 };
                 let bpe_opts = BpeOptions {
                     merges: &merges,
@@ -1346,18 +1344,18 @@ mod tests {
     }
 
     #[derive(Deserialize)]
-    struct TokenizerJsonTest {
-        tokenizer: super::json::Tokenizer,
+    struct TokenizerJsonTest<'a> {
+        #[serde(borrow)]
+        tokenizer: super::json::Tokenizer<'a>,
         cases: Vec<TokenizerJsonCase>,
     }
 
-    fn read_test_json(path: &str) -> Result<TokenizerJsonTest, Box<dyn Error>> {
+    fn read_test_json(path: &str) -> Result<String, Box<dyn Error>> {
         let mut abs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         abs_path.push("test-data/tokenizer-json/");
         abs_path.push(path);
         let content = read_to_string(abs_path)?;
-        let json = serde_json::from_str(&content)?;
-        Ok(json)
+        Ok(content)
     }
 
     #[test]
@@ -1365,7 +1363,8 @@ mod tests {
         let paths = ["wordpiece.json", "wordpiece-lower.json"];
 
         for path in paths.iter() {
-            let config = read_test_json(path).unwrap();
+            let json = read_test_json(path).unwrap();
+            let config: TokenizerJsonTest = serde_json::from_str(&json).unwrap();
 
             let tokenizer = Tokenizer::from_parsed_json(config.tokenizer).unwrap();
             for case in config.cases {
