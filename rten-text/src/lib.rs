@@ -74,6 +74,7 @@ pub mod normalizers;
 pub mod pre_tokenizers;
 pub mod tokenizer;
 
+mod serde;
 mod split;
 
 pub use tokenizer::{TokenId, Tokenizer, TokenizerError};

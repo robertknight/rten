@@ -191,6 +191,8 @@ pub fn merge_pairs_from_lines(
             if line.starts_with("#version") || line.trim().is_empty() {
                 None
             } else {
+                // Cloning the string here is OK since this is a legacy code
+                // path that is rarely used.
                 line.split_once(' ')
                     .map(|(a, b)| (a.to_string().into(), b.to_string().into()))
             }
