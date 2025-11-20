@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
@@ -5,7 +6,7 @@ use std::fmt::{Debug, Display};
 
 use super::{DecodeError, EncodeError, Model};
 use crate::tokenizer::TokenId;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 
 /// Errors that can occur when building a [`Bpe`] tokenizer or encoding or
 /// decoding text using it.
@@ -53,6 +54,9 @@ pub type EncodedByteSlice<'a> = &'a str;
 
 /// Like [`EncodedByteSlice`], but owned.
 pub type EncodedBytes = String;
+
+/// Like [`EncodedByteSlice`], but owned.
+pub type EncodedBytesCow<'a> = Cow<'a, str>;
 
 /// Return true if `c` is considered a printable character.
 ///
@@ -105,7 +109,7 @@ pub fn char_to_byte() -> HashMap<char, u8> {
 /// Returns the number of merged tokens.
 fn bpe_merge(
     tokens: &mut Vec<TokenId>,
-    merges: &HashMap<(TokenId, TokenId), (Rank, TokenId)>,
+    merges: &FxHashMap<(TokenId, TokenId), (Rank, TokenId)>,
 ) -> usize {
     loop {
         // Find the pair of tokens with the lowest rank and merge all occurences
@@ -137,28 +141,33 @@ fn bpe_merge(
 }
 
 /// Mapping from pairs of tokens to the rank and ID of the merged pair.
-type MergeMap = HashMap<(TokenId, TokenId), (Rank, TokenId)>;
+type MergeMap = FxHashMap<(TokenId, TokenId), (Rank, TokenId)>;
 
 /// Build the BPE merge map that associates a rank and token ID to merged pairs
 /// of tokens.
 fn build_merge_map(
     vocab: &FxHashMap<EncodedBytes, TokenId>,
-    merges: &[(EncodedByteSlice, EncodedByteSlice)],
+    merges: &[(EncodedBytesCow, EncodedBytesCow)],
 ) -> Result<MergeMap, BpeError> {
-    let mut merge_map = HashMap::with_capacity(merges.len());
+    let mut merged_str = String::new();
+    let mut merge_map = HashMap::with_capacity_and_hasher(merges.len(), FxBuildHasher);
 
-    for (i, (a, b)) in merges.iter().copied().enumerate() {
-        let a_id = *vocab.get(a).ok_or_else(|| {
+    for (i, (a, b)) in merges.iter().enumerate() {
+        let a_id = *vocab.get(a.as_ref()).ok_or_else(|| {
             BpeError::InvalidMergeEntry(format!(
                 "first entry in merge pair \"{a} {b}\" not found in vocab"
             ))
         })?;
-        let b_id = *vocab.get(b).ok_or_else(|| {
+        let b_id = *vocab.get(b.as_ref()).ok_or_else(|| {
             BpeError::InvalidMergeEntry(format!(
                 "second entry in merge pair \"{a} {b}\" not found in vocab"
             ))
         })?;
-        let merged_str = [a, b].concat();
+
+        merged_str.clear();
+        merged_str.push_str(a);
+        merged_str.push_str(b);
+
         let merged_id = *vocab.get(&merged_str).ok_or_else(|| {
             BpeError::InvalidMergeEntry(format!("merged pair \"{a} {b}\" not found in vocab"))
         })?;
@@ -174,7 +183,7 @@ fn build_merge_map(
 /// Lines that are empty or contain only a `#version` marker are ignored.
 pub fn merge_pairs_from_lines(
     lines: &[impl AsRef<str>],
-) -> Vec<(EncodedByteSlice<'_>, EncodedByteSlice<'_>)> {
+) -> Vec<(EncodedBytesCow<'static>, EncodedBytesCow<'static>)> {
     lines
         .iter()
         .filter_map(|line| {
@@ -183,6 +192,7 @@ pub fn merge_pairs_from_lines(
                 None
             } else {
                 line.split_once(' ')
+                    .map(|(a, b)| (a.to_string().into(), b.to_string().into()))
             }
         })
         .collect()
@@ -193,7 +203,7 @@ pub fn merge_pairs_from_lines(
 /// This is used as a fallback when the tokenizer configuration doesn't have a
 /// vocabulary.
 fn build_vocab(
-    merges: &[(EncodedByteSlice, EncodedByteSlice)],
+    merges: &[(EncodedBytesCow, EncodedBytesCow)],
     end_of_word_suffix: Option<EncodedByteSlice>,
 ) -> FxHashMap<EncodedBytes, TokenId> {
     let mut vocab = FxHashMap::default();
@@ -241,7 +251,7 @@ fn build_vocab(
         merges
             .iter()
             .enumerate()
-            .map(|(i, (a, b))| ([*a, *b].concat(), start_id + i as u32)),
+            .map(|(i, (a, b))| ([a.as_ref(), b.as_ref()].concat(), start_id + i as u32)),
     );
 
     vocab
@@ -254,7 +264,7 @@ pub struct BpeOptions<'a> {
     /// representing byte sequences. See also [`merge_pairs_from_lines`] which
     /// can be used to extract pairs from the space-separated format used in eg.
     /// `merges.txt` files.
-    pub merges: &'a [(EncodedByteSlice<'a>, EncodedByteSlice<'a>)],
+    pub merges: &'a [(EncodedBytesCow<'a>, EncodedBytesCow<'a>)],
 
     /// Mapping between token strings and IDs. If not provided, the
     /// ID of a token is 256 + the index of the pair in the merge list which
