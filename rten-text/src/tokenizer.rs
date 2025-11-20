@@ -838,7 +838,7 @@ mod tests {
     use super::{EncodeOptions, EncoderInput, TokenId, Tokenizer, TokenizerOptions, WordPiece};
     use crate::normalizers::Normalizer;
     use crate::{normalizers, pre_tokenizers};
-    use serde::Deserialize;
+    use serde_derive::Deserialize;
 
     fn make_wordpiece(vocab: &[&str]) -> WordPiece {
         let vocab: HashMap<_, _> = vocab

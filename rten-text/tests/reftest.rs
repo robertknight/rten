@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use rten_text::models::{Bpe, BpeOptions, WordPiece, merge_pairs_from_lines};
 use rten_text::tokenizer::{TokenId, Tokenizer, TokenizerOptions};
 use rten_text::{normalizers, pre_tokenizers};
-use serde::Deserialize;
+use serde_derive::Deserialize;
 
 /// Load a vocabulary from a text file with one token per line (ie. the
 /// vocab.txt files that come with Hugging Face models).
