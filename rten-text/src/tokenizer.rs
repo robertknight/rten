@@ -406,7 +406,9 @@ impl Tokenizer {
                     .unwrap_or_default();
                 let merges: Vec<(Cow<str>, Cow<str>)> = match model.merges {
                     json::models::MergeList::Legacy(lines) => merge_pairs_from_lines(&lines),
-                    json::models::MergeList::Tuple(pairs) => pairs,
+                    json::models::MergeList::Tuple(pairs) => {
+                        pairs.into_iter().map(|(a, b)| (a.0, b.0)).collect()
+                    }
                 };
                 let bpe_opts = BpeOptions {
                     merges: &merges,

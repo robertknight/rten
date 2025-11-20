@@ -107,13 +107,13 @@ pub(crate) enum PreTokenizer {
 }
 
 pub mod models {
-    use std::borrow::Cow;
     use std::collections::HashMap;
 
     use rustc_hash::FxHashMap;
     use serde_derive::Deserialize;
 
     use crate::TokenId;
+    use crate::serde::CowStr;
 
     #[derive(Deserialize)]
     pub(crate) struct WordPiece {
@@ -126,9 +126,9 @@ pub mod models {
     pub(crate) enum MergeList<'a> {
         /// Pairs represented as a JSON array.
         #[serde(borrow)]
-        Tuple(Vec<(Cow<'a, str>, Cow<'a, str>)>),
+        Tuple(Vec<(CowStr<'a>, CowStr<'a>)>),
         /// Pairs represented as `<token_a> [SPACE] <token_b>`.
-        Legacy(Vec<Cow<'a, str>>),
+        Legacy(Vec<CowStr<'a>>),
     }
 
     #[derive(Deserialize)]
