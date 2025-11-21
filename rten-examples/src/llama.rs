@@ -110,6 +110,26 @@ fn main() -> Result<(), Box<dyn Error>> {
                 // EOF
                 break;
             }
+
+            // If the user presses Enter without typing a message, enter
+            // multi-line mode.
+            if user_input.trim() == "" {
+                println!(
+                    ">> Entering multi-line mode. Press Ctrl-D on an empty line to end message."
+                );
+                user_input.clear();
+                loop {
+                    let n_read = io::stdin().read_line(&mut user_input)?;
+                    if n_read == 0 {
+                        // EOF
+                        break;
+                    }
+                }
+                if user_input.trim().is_empty() {
+                    // Empty message returns to single-line mode.
+                    continue;
+                }
+            }
         }
 
         // Turn prompt from chat_template.jinja.
