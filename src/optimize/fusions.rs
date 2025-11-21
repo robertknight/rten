@@ -125,13 +125,9 @@ pub trait PatternFusion {
     /// Return the graph pattern to match.
     fn pattern(&self) -> Pattern;
 
-    /// Return the names of input symbols in the pattern.
-    ///
-    /// The default implementation assumes the pattern has a single dynamic
-    /// input variable named "x".
-    fn inputs(&self) -> &[&str] {
-        &["x"]
-    }
+    /// Return the names of symbols in the pattern which will become inputs
+    /// to the fused operator.
+    fn inputs(&self) -> &[&str];
 
     /// Create a fused operator given a successful match for the pattern.
     ///
@@ -273,6 +269,10 @@ impl PatternFusion for ReciprocalFusion {
         1. / Pattern::symbol("x")
     }
 
+    fn inputs(&self) -> &[&str] {
+        &["x"]
+    }
+
     fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Reciprocal> {
         Some(Reciprocal {})
     }
@@ -288,6 +288,10 @@ impl PatternFusion for ReduceMeanAxesFusion {
         let axes = Pattern::const_symbol("axes");
         let x = Pattern::symbol("x");
         Pattern::binary_op("ReduceMean", x, axes).with_name("mean")
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["x"]
     }
 
     fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Option<ReduceMean> {
@@ -315,6 +319,10 @@ impl PatternFusion for GeluFusion {
         // `nn.GELU`.
         let x = Pattern::symbol("x");
         x.clone() * (Pattern::unary_op("Erf", x.clone() / (2.0f32).sqrt()) + 1.0) * 0.5
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["x"]
     }
 
     fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Gelu> {
@@ -427,6 +435,10 @@ impl PatternFusion for ApproxGeluFusion {
                 ))
     }
 
+    fn inputs(&self) -> &[&str] {
+        &["x"]
+    }
+
     fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Gelu> {
         Some(Gelu { approximate: true })
     }
@@ -440,6 +452,10 @@ impl PatternFusion for SiluFusion {
     fn pattern(&self) -> Pattern {
         let x = Pattern::symbol("x");
         x.clone() * Pattern::unary_op("Sigmoid", x.clone())
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["x"]
     }
 
     fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Silu> {
@@ -456,6 +472,10 @@ impl PatternFusion for SwishFusion {
         let x = Pattern::symbol("x");
         let beta = Pattern::const_symbol("beta");
         x.clone() * Pattern::unary_op("Sigmoid", beta * x.clone())
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["x"]
     }
 
     fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Option<Swish> {
