@@ -2,7 +2,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use rten_base::byte_cast::cast_pod_slice;
-use rten_tensor::Tensor;
+use rten_tensor::{NdTensor, Tensor};
 use rten_testing::TestCases;
 
 use super::{GraphOptimizer, OptimizeError, OptimizeOptions};
@@ -12,10 +12,11 @@ use crate::graph::{
     CaptureEnv, Constant, Graph, Node, NodeId, OperatorNode, PlanOptions, TypedConstant,
 };
 use crate::ops::{
-    Add, Cast, DynamicQuantizeLinear, Erf, FusedMatMul, Gelu, Identity, LayerNormalization, MatMul,
-    MatMulInteger, Neg, Pow, ReduceMean, RmsNormalization, Shape, Sigmoid, Slice, Softmax, Sqrt,
-    Swish, Tanh, Transpose,
+    Add, Cast, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gelu, Identity, LayerNormalization,
+    MatMul, MatMulInteger, Neg, Pow, ReduceMean, RepeatInterleave, Reshape, RmsNormalization,
+    Shape, Sigmoid, Slice, Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze,
 };
+use crate::value::Value;
 use crate::{DataType, Dimension};
 
 fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
@@ -911,4 +912,64 @@ fn test_optimize_does_not_fuse_if_intermediate_output_is_graph_output() {
         .and_then(|n| n.as_operator())
         .unwrap();
     assert_eq!(fused_op.operator().name(), "Mul");
+}
+
+#[test]
+fn test_fuse_repeat_interleave() {
+    let batch_dim = Dimension::Symbolic("batch".to_string());
+    let kv_heads = 8;
+    let embed_dim = Dimension::Fixed(16);
+    let n_repeats = 3;
+    let repeat_axis = 1;
+
+    let input_shape = [
+        batch_dim.clone(),
+        Dimension::Fixed(kv_heads),
+        embed_dim.clone(),
+    ];
+    let x = Expr::value_with_info("x", DataType::Float, &input_shape);
+    let unsqueeze_axes = Expr::constant(Value::from(NdTensor::from([repeat_axis as i32 + 1])));
+    let expand_shape = Expr::value_with_info(
+        "expand_shape",
+        DataType::Float,
+        &[
+            batch_dim.clone(),
+            Dimension::Fixed(kv_heads),
+            Dimension::Fixed(n_repeats),
+            embed_dim.clone(),
+        ],
+    );
+    let out_shape = [
+        batch_dim.clone(),
+        Dimension::Fixed(kv_heads * n_repeats),
+        embed_dim.clone(),
+    ];
+    let reshape_shape = Expr::value_with_info("reshape_shape", DataType::Float, &out_shape);
+
+    let t1 = x.binary(Unsqueeze {}, unsqueeze_axes);
+    let t2 = t1.binary(Expand {}, expand_shape);
+    let output_meta = OutputMeta::Meta((DataType::Float, out_shape.to_vec()));
+    let y = t2.apply(
+        Reshape { allow_zero: false },
+        &[reshape_shape],
+        &[output_meta],
+    );
+
+    let graph = y.build_graph([
+        "x",
+        // In a real model, the shape inputs to the Expand and Reshape ops
+        // would be computed from `Shape(X)` somehow. To simplify the graph here
+        // we provide them as separate inputs.
+        "expand_shape",
+        "reshape_shape",
+    ]);
+    let optimized = optimize_graph(graph).unwrap();
+    let op = optimized
+        .get_node_id("Reshape")
+        .and_then(|id| optimized.get_node(id))
+        .and_then(|n| n.as_operator())
+        .unwrap();
+    let repeat_interleave_op = op.operator().downcast_ref::<RepeatInterleave>().unwrap();
+    assert_eq!(repeat_interleave_op.axis, repeat_axis);
+    assert_eq!(repeat_interleave_op.repeats, n_repeats);
 }

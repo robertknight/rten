@@ -1198,8 +1198,13 @@ pub trait ResizeLayout: MutLayout {
     /// in the layout or the order in which they are visited.
     ///
     /// Panics if the axis does not have a size of 1.
+    #[track_caller]
     fn remove_axis(&mut self, index: usize) {
-        assert!(self.size(index) == 1);
+        assert!(
+            self.size(index) == 1,
+            "cannot remove axis of size {}",
+            self.size(index)
+        );
         self.remove_axis_of_any_size(index)
     }
 

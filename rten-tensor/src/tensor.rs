@@ -1971,6 +1971,7 @@ impl<T, S: Storage<Elem = T>, L: Layout + Clone> AsView for TensorBase<S, L> {
         self.layout.insert_axis(index)
     }
 
+    #[track_caller]
     fn remove_axis(&mut self, index: usize)
     where
         L: ResizeLayout,

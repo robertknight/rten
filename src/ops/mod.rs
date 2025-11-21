@@ -65,7 +65,7 @@ pub(crate) use random::{
     Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike,
 };
 pub(crate) use {
-    attention::AddSoftmax,
+    attention::{AddSoftmax, RepeatInterleave},
     binary_elementwise::{
         Add, And, Div, Equal, Greater, GreaterOrEqual, Less, LessOrEqual, Mod, Mul, Or, Pow, Sub,
         Where, Xor,
