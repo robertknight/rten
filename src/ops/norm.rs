@@ -650,15 +650,39 @@ impl Operator for LogSoftmax {
     }
 }
 
-pub fn softmax(pool: &BufferPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
+/// Specifies how to handle NaN values in the output.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum NanHandling {
+    /// Leave NaN values unchanged.
+    KeepNans,
+    /// Flush the NaN values to zero.
+    FlushToZero,
+}
+
+pub fn softmax(
+    pool: &BufferPool,
+    input: TensorView,
+    axis: isize,
+    nan_handling: NanHandling,
+) -> Result<Tensor, OpError> {
     let mut output = input.to_tensor_in(pool);
-    softmax_in_place(&mut output, axis)?;
+    softmax_in_place(&mut output, axis, nan_handling)?;
     Ok(output)
 }
 
-pub fn softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError> {
+pub fn softmax_in_place(
+    output: &mut Tensor,
+    axis: isize,
+    nan_handling: NanHandling,
+) -> Result<(), OpError> {
+    let flush_nans = match nan_handling {
+        NanHandling::KeepNans => false,
+        NanHandling::FlushToZero => true,
+    };
     softmax_lanes(output, axis, |lane| {
-        vecmath::Softmax::new_mut(lane).dispatch();
+        vecmath::Softmax::new_mut(lane)
+            .flush_nans_to_zero(flush_nans)
+            .dispatch();
     })?;
     Ok(())
 }
@@ -666,6 +690,23 @@ pub fn softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError>
 #[derive(Debug)]
 pub struct Softmax {
     pub axis: isize,
+
+    /// Non-standard option that controls whether NaNs in the output should
+    /// be replaced with zeros.
+    ///
+    /// This option exists to emulate the "safe softmax" behavior of PyTorch.
+    /// See https://github.com/pytorch/pytorch/issues/41508.
+    pub flush_nans_to_zero: bool,
+}
+
+impl Softmax {
+    fn nan_handling(&self) -> NanHandling {
+        if self.flush_nans_to_zero {
+            NanHandling::FlushToZero
+        } else {
+            NanHandling::KeepNans
+        }
+    }
 }
 
 impl Operator for Softmax {
@@ -679,7 +720,7 @@ impl Operator for Softmax {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require_as(0)?;
-        softmax(ctx.pool(), input, self.axis).into_op_result()
+        softmax(ctx.pool(), input, self.axis, self.nan_handling()).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -688,7 +729,7 @@ impl Operator for Softmax {
 
     fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
         let mut output = input.try_into()?;
-        softmax_in_place(&mut output, self.axis)?;
+        softmax_in_place(&mut output, self.axis, self.nan_handling())?;
         Ok(output.into())
     }
 }
@@ -705,8 +746,8 @@ mod tests {
 
     use super::SOFTMAX_GRAIN_SIZE;
     use super::{
-        batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
-        rms_normalization, softmax,
+        NanHandling, batch_norm, batch_norm_in_place, instance_normalization, layer_normalization,
+        log_softmax, rms_normalization, softmax,
     };
     use crate::buffer_pool::BufferPool;
     use crate::ops::OpError;
@@ -1033,23 +1074,23 @@ mod tests {
         // Softmax on a 1D input
         let mut input = Tensor::from([0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2304]);
         let expected = Tensor::from([0.1172, 0.2362, 0.1887, 0.2274, 0.1052, 0.1253]);
-        let result = softmax(&pool, input.view(), 0).unwrap();
+        let result = softmax(&pool, input.view(), 0, NanHandling::KeepNans).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Softmax over empty axis
         let empty_vec = Tensor::zeros(&[0]);
-        let result = softmax(&pool, empty_vec.view(), 0).unwrap();
+        let result = softmax(&pool, empty_vec.view(), 0, NanHandling::KeepNans).unwrap();
         expect_eq_1e4(&result, &empty_vec)?;
 
         // Softmax on final dimension of 2D input
         input.reshape(&[2, 3]);
         let expected = Tensor::from([[0.2161, 0.4358, 0.3481], [0.4966, 0.2298, 0.2736]]);
-        let result = softmax(&pool, input.view(), 1).unwrap();
+        let result = softmax(&pool, input.view(), 1, NanHandling::KeepNans).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Softmax on first dimension of 2D input
         let expected = Tensor::from([[0.3400, 0.6918, 0.6010], [0.6600, 0.3082, 0.3990]]);
-        let result = softmax(&pool, input.view(), 0).unwrap();
+        let result = softmax(&pool, input.view(), 0, NanHandling::KeepNans).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Softmax on second dimension of 2D input with multiple entries in
@@ -1062,7 +1103,7 @@ mod tests {
             [0.1339, 0.2701, 0.2157, 0.2599, 0.1203],
             [0.1339, 0.2701, 0.2157, 0.2599, 0.1203],
         ]);
-        let result = softmax(&pool, matrix_input.view(), 1).unwrap();
+        let result = softmax(&pool, matrix_input.view(), 1, NanHandling::KeepNans).unwrap();
         expect_eq_1e4(&result, &matrix_expected)?;
 
         Ok(())
@@ -1088,7 +1129,7 @@ mod tests {
 
         input.permute(&[1, 0]);
         let pool = BufferPool::new();
-        let result = softmax(&pool, input.view(), 1).unwrap();
+        let result = softmax(&pool, input.view(), 1, NanHandling::KeepNans).unwrap();
 
         expect_eq_1e4(&result, &expected)?;
 
@@ -1110,13 +1151,30 @@ mod tests {
 
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::rand(&[1, 1, 3, 3], &mut rng);
-        let result = softmax(&pool, input.view(), 1).unwrap();
+        let result = softmax(&pool, input.view(), 1, NanHandling::KeepNans).unwrap();
         check_result(result);
 
         // "Large" output, where output size exceeds the parallelism grain size.
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::rand(&[4, SOFTMAX_GRAIN_SIZE / 2], &mut rng);
-        let result = softmax(&pool, input.view(), 1).unwrap();
+        let result = softmax(&pool, input.view(), 1, NanHandling::KeepNans).unwrap();
         check_result(result);
+    }
+
+    // Test that flush_nans_to_zero behavior works correctly when all inputs are
+    // negative infinity.
+    #[test]
+    fn test_softmax_flush_nans_to_zero() {
+        let pool = BufferPool::new();
+
+        // When all inputs are -inf, normal softmax produces NaN.
+        let input = Tensor::from([f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY]);
+        let result = softmax(&pool, input.view(), 0, NanHandling::KeepNans).unwrap();
+        assert!(result.iter().all(|x| x.is_nan()));
+
+        // With flush_nans_to_zero, output should be all zeros.
+        let input = Tensor::from([f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY]);
+        let result = softmax(&pool, input.view(), 0, NanHandling::FlushToZero).unwrap();
+        assert_eq!(result.to_vec(), vec![0., 0., 0.]);
     }
 }

@@ -7,8 +7,8 @@ use rten_tensor::{NdTensorView, Storage, Tensor, TensorBase, TensorView};
 use crate::buffer_pool::BufferPool;
 use crate::operator::OpError;
 use crate::ops::{
-    PadMode, arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min,
-    reduce_sum, resize_image, softmax, topk,
+    PadMode, arg_max, div, matmul, mul, norm::NanHandling, pad, reduce_l2, reduce_max, reduce_mean,
+    reduce_min, reduce_sum, resize_image, softmax, topk,
 };
 use crate::threading::thread_pool;
 
@@ -225,7 +225,7 @@ impl<S: Storage<Elem = f32> + Sync, L: Layout + Clone + Sync> FloatOperators for
     }
 
     fn softmax(&self, axis: isize) -> Result<Tensor, OpError> {
-        run_operator(|pool| softmax(pool, self.as_dyn(), axis))
+        run_operator(|pool| softmax(pool, self.as_dyn(), axis, NanHandling::KeepNans))
     }
 
     #[cfg(feature = "fft")]

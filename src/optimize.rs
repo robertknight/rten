@@ -21,8 +21,8 @@ use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, CastElimination, Fusion, FusionVisitor, GeluFusion,
     IdentityFusion, LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion,
     MatMulScaleFusion, PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion,
-    RepeatInterleaveFusion, RmsNormalizationFusion, ShapeSliceToConstant, SiluFusion, SwishFusion,
-    TransposeFusion,
+    RepeatInterleaveFusion, RmsNormalizationFusion, SafeSoftmaxFusion, ShapeSliceToConstant,
+    SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -405,7 +405,10 @@ impl GraphOptimizer {
         fusions.push(MatMulScaleFusion {});
         fusions.push(MatMulIntegerToFloatFusion {}.into_visitor());
 
-        // Attention fusions
+        // Attention fusions.
+        //
+        // Note SafeSoftmaxFusion must come before other softmax fusions.
+        fusions.push(SafeSoftmaxFusion {}.into_visitor());
         fusions.push(AddSoftmaxFusion {}.into_visitor());
         fusions.push(RepeatInterleaveFusion {}.into_visitor());
 

@@ -12,9 +12,10 @@ use crate::graph::{
     CaptureEnv, Constant, Graph, Node, NodeId, OperatorNode, PlanOptions, TypedConstant,
 };
 use crate::ops::{
-    Add, Cast, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gelu, Identity, LayerNormalization,
-    MatMul, MatMulInteger, Neg, Pow, ReduceMean, RepeatInterleave, Reshape, RmsNormalization,
-    Shape, Sigmoid, Slice, Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze,
+    Add, Cast, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gelu, Identity, IsNaN,
+    LayerNormalization, MatMul, MatMulInteger, Neg, Pow, ReduceMean, RepeatInterleave, Reshape,
+    RmsNormalization, Shape, Sigmoid, Slice, Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze,
+    Where,
 };
 use crate::value::Value;
 use crate::{DataType, Dimension};
@@ -44,6 +45,7 @@ trait OpExprs {
     fn cast(&self, to: DataType) -> Expr;
     fn erf(&self) -> Expr;
     fn identity(&self) -> Expr;
+    fn is_nan(&self) -> Expr;
     fn pow(&self, rhs: Expr) -> Expr;
     fn matmul(&self, rhs: Expr) -> Expr;
     fn mean(&self) -> Expr;
@@ -56,6 +58,7 @@ trait OpExprs {
     fn softmax(&self, axis: isize) -> Expr;
     fn tanh(&self) -> Expr;
     fn transpose(&self) -> Expr;
+    fn where_(&self, if_true: Expr, if_false: Expr) -> Expr;
 }
 
 impl OpExprs for Expr {
@@ -69,6 +72,10 @@ impl OpExprs for Expr {
 
     fn identity(&self) -> Expr {
         self.unary(Identity {})
+    }
+
+    fn is_nan(&self) -> Expr {
+        self.unary(IsNaN {})
     }
 
     fn matmul(&self, rhs: Expr) -> Expr {
@@ -122,7 +129,10 @@ impl OpExprs for Expr {
     }
 
     fn softmax(&self, axis: isize) -> Expr {
-        self.unary(Softmax { axis })
+        self.unary(Softmax {
+            axis,
+            flush_nans_to_zero: false,
+        })
     }
 
     fn tanh(&self) -> Expr {
@@ -131,6 +141,10 @@ impl OpExprs for Expr {
 
     fn transpose(&self) -> Expr {
         self.unary(Transpose { perm: None })
+    }
+
+    fn where_(&self, if_true: Expr, if_false: Expr) -> Expr {
+        self.apply(Where {}, &[if_true, if_false], &[OutputMeta::NoMeta])
     }
 }
 
@@ -575,6 +589,23 @@ fn test_fuse_add_softmax_positive_axes() {
 
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
     assert_eq!(op.operator().name(), "AddSoftmax");
+}
+
+#[test]
+fn test_fuse_safe_softmax() {
+    let graph = {
+        let x = Expr::value("x");
+        let y = x.softmax(-1);
+        let expr = y.is_nan().where_(Expr::constant(0.), y);
+        expr.build_graph(["x"])
+    };
+
+    let graph = optimize_graph(graph).unwrap();
+
+    let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+    let softmax = op.operator().downcast_ref::<Softmax>().unwrap();
+    assert_eq!(softmax.axis, -1);
+    assert_eq!(softmax.flush_nans_to_zero, true);
 }
 
 #[test]

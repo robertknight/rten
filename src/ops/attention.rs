@@ -8,7 +8,9 @@ use rten_vecmath::Softmax;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
-use crate::ops::{binary_elementwise::broadcast_shapes, layout::expand_to, resolve_axis};
+use crate::ops::{
+    binary_elementwise::broadcast_shapes, layout::expand_to, norm::NanHandling, resolve_axis,
+};
 use crate::value::Value;
 
 const BROADCAST_ERROR: OpError = OpError::IncompatibleInputShapes("Cannot broadcast inputs");
@@ -20,6 +22,7 @@ fn add_softmax_in_place(
     pool: &BufferPool,
     qk: Tensor<f32>,
     m: TensorView<f32>,
+    nan_handling: NanHandling,
 ) -> Result<Tensor, OpError> {
     let axis = resolve_axis(qk.ndim(), -1)?;
     let m = m.try_broadcast(qk.shape()).map_err(|_| BROADCAST_ERROR)?;
@@ -33,6 +36,11 @@ fn add_softmax_in_place(
         qk.auto_return(pool).to_tensor_in(pool)
     };
 
+    let flush_nans = match nan_handling {
+        NanHandling::KeepNans => false,
+        NanHandling::FlushToZero => true,
+    };
+
     qk.lanes_mut(axis)
         .into_par_iter()
         .zip(m.lanes(axis).into_par_iter())
@@ -42,7 +50,9 @@ fn add_softmax_in_place(
             for (qk, m) in qk_inner.iter_mut().zip(m_inner) {
                 *qk += m;
             }
-            Softmax::new_mut(qk_inner).dispatch();
+            Softmax::new_mut(qk_inner)
+                .flush_nans_to_zero(flush_nans)
+                .dispatch();
         });
 
     Ok(qk)
@@ -57,7 +67,20 @@ fn add_softmax_in_place(
 /// on each lane separately, and get better cache efficiency by having
 /// the lane already be in a higher cache level when the Softmax step runs.
 #[derive(Debug)]
-pub struct AddSoftmax {}
+pub struct AddSoftmax {
+    /// See `flush_nans_to_zero` on Softmax operator.
+    pub flush_nans_to_zero: bool,
+}
+
+impl AddSoftmax {
+    fn nan_handling(&self) -> NanHandling {
+        if self.flush_nans_to_zero {
+            NanHandling::FlushToZero
+        } else {
+            NanHandling::KeepNans
+        }
+    }
+}
 
 impl Operator for AddSoftmax {
     fn name(&self) -> &str {
@@ -84,7 +107,7 @@ impl Operator for AddSoftmax {
             }
         };
 
-        add_softmax_in_place(ctx.pool(), qk, m).into_op_result()
+        add_softmax_in_place(ctx.pool(), qk, m, self.nan_handling()).into_op_result()
     }
 
     fn is_commutative(&self) -> bool {
@@ -114,7 +137,7 @@ impl Operator for AddSoftmax {
             }
         };
 
-        add_softmax_in_place(ctx.pool(), qk, m).map(|qk| qk.into())
+        add_softmax_in_place(ctx.pool(), qk, m, self.nan_handling()).map(|qk| qk.into())
     }
 }
 
@@ -176,7 +199,10 @@ mod tests {
 
     fn reference_add_softmax(x: TensorView, y: TensorView) -> Result<Tensor, OpError> {
         let add = Add {};
-        let softmax = Softmax { axis: -1 };
+        let softmax = Softmax {
+            axis: -1,
+            flush_nans_to_zero: false,
+        };
         let sum: Tensor = add.run_simple((x, y))?;
         softmax.run_simple(sum.view())
     }
@@ -233,7 +259,9 @@ mod tests {
 
         cases.test_each(|case| {
             let mut rng = XorShiftRng::new(1234);
-            let op = AddSoftmax {};
+            let op = AddSoftmax {
+                flush_nans_to_zero: false,
+            };
             let qk = Tensor::rand(&case.qk_shape, &mut rng);
             let m = Tensor::rand(&case.m_shape, &mut rng);
 
@@ -249,6 +277,29 @@ mod tests {
                 expect_equal(&result.unwrap(), &expected).unwrap();
             }
         });
+    }
+
+    // Test that flush_nans_to_zero behavior works correctly when all inputs are
+    // negative infinity after the add operation.
+    #[test]
+    fn test_add_softmax_flush_nans_to_zero() {
+        // When all inputs are -inf after addition, normal softmax produces NaN.
+        let qk = Tensor::from([f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY]);
+        let m = Tensor::from([0., 0., 0.]);
+        let op = AddSoftmax {
+            flush_nans_to_zero: false,
+        };
+        let result: Tensor = op.run_simple((qk.view(), m.view())).unwrap();
+        assert!(result.iter().all(|x| x.is_nan()));
+
+        // With flush_nans_to_zero, output should be all zeros.
+        let qk = Tensor::from([f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY]);
+        let m = Tensor::from([0., 0., 0.]);
+        let op = AddSoftmax {
+            flush_nans_to_zero: true,
+        };
+        let result: Tensor = op.run_simple((qk.view(), m.view())).unwrap();
+        assert_eq!(result.to_vec(), vec![0., 0., 0.]);
     }
 
     #[test]

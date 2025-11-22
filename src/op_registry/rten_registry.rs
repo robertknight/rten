@@ -984,7 +984,16 @@ impl_read_op!(Sign);
 impl_read_op!(Sin);
 impl_read_op!(Size);
 impl_read_op!(Slice);
-impl_read_op!(Softmax, attrs_as_softmax_attrs, axis);
+impl_read_op!(
+    Softmax,
+    attrs_as_softmax_attrs,
+    |attrs: sg::SoftmaxAttrs| {
+        Ok(ops::Softmax {
+            axis: attrs.axis() as isize,
+            flush_nans_to_zero: false,
+        })
+    }
+);
 impl_read_op!(Softplus);
 impl_read_op!(Split, attrs_as_split_attrs, |attrs: sg::SplitAttrs| {
     let axis = attrs.axis() as isize;
