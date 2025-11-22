@@ -1699,7 +1699,7 @@ mod tests {
         add_operator!(Slice, [input_node, const_0, const_1, const_0]);
 
         add_operator!(Softplus, [input_node]);
-        add_operator!(Softmax, [input_node], { axis: 1 });
+        add_operator!(Softmax, [input_node], { axis: 1, flush_nans_to_zero: false });
         add_operator!(Sqrt, [input_node]);
         add_operator!(Squeeze, [input_node]);
 

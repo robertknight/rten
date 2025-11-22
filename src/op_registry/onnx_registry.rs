@@ -1515,7 +1515,10 @@ impl_read_op!(Slice);
 
 impl_read_op!(Softmax, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
-    Ok(ops::Softmax { axis })
+    Ok(ops::Softmax {
+        axis,
+        flush_nans_to_zero: false,
+    })
 });
 
 impl_read_op!(Softplus);

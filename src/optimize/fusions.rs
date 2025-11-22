@@ -1007,6 +1007,7 @@ impl PatternFusion for AddSoftmaxFusion {
 
     fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<AddSoftmax> {
         let softmax_id = pat_match.node_id("softmax").unwrap();
+        let softmax_op = graph.get_operator::<Softmax>(softmax_id)?;
 
         // This fusion is currently restricted to the case where it is known
         // to be applied over the last, likely-contiguous lane. This is the case
@@ -1018,7 +1019,9 @@ impl PatternFusion for AddSoftmaxFusion {
             return None;
         }
 
-        Some(AddSoftmax {})
+        Some(AddSoftmax {
+            flush_nans_to_zero: softmax_op.flush_nans_to_zero,
+        })
     }
 }
 
@@ -1193,6 +1196,42 @@ impl PatternFusion for RepeatInterleaveFusion {
         };
 
         Some(RepeatInterleave { axis, repeats })
+    }
+}
+
+/// Fuses Softmax + Where + IsNaN operations.
+///
+/// This fuses graphs which represent "safe softmax" operations.
+/// See https://github.com/pytorch/pytorch/pull/159973.
+///
+/// ```text
+/// Y = Softmax(X)
+/// Where(IsNaN(Y), 0., Y)
+/// ```
+pub struct SafeSoftmaxFusion {}
+
+impl PatternFusion for SafeSoftmaxFusion {
+    type Operator = Softmax;
+
+    fn pattern(&self) -> Pattern {
+        let x = Pattern::symbol("x");
+        let y = Pattern::unary_op("Softmax", x).with_name("softmax");
+
+        let cond = Pattern::unary_op("IsNaN", y.clone());
+        Pattern::operator("Where", [cond, Pattern::constant(0.), y])
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["x"]
+    }
+
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Option<Softmax> {
+        let softmax_id = pat_match.node_id("softmax").unwrap();
+        let softmax_op = g.get_operator::<Softmax>(softmax_id)?;
+        Some(Softmax {
+            flush_nans_to_zero: true,
+            ..*softmax_op
+        })
     }
 }
 
