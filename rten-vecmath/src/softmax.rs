@@ -16,6 +16,7 @@ use crate::exp::ReducedRangeExp;
 /// [softmax]: <https://en.wikipedia.org/wiki/Softmax_function>
 pub struct Softmax<'src, 'dst> {
     src_dest: SrcDest<'src, 'dst, f32>,
+    flush_nans_to_zero: bool,
 }
 
 impl<'src, 'dst> Softmax<'src, 'dst> {
@@ -25,6 +26,7 @@ impl<'src, 'dst> Softmax<'src, 'dst> {
     pub fn new(input: &'src [f32], output: &'dst mut [MaybeUninit<f32>]) -> Self {
         Softmax {
             src_dest: (input, output).into(),
+            flush_nans_to_zero: false,
         }
     }
 
@@ -35,7 +37,23 @@ impl<'src, 'dst> Softmax<'src, 'dst> {
     {
         Softmax {
             src_dest: input.into(),
+            flush_nans_to_zero: false,
         }
+    }
+
+    /// Replace NaN values in the output with zeros.
+    ///
+    /// This option exists to changing handling of the case where the input
+    /// values are all negative infinity. In that case the normal output would
+    /// be NaN.
+    ///
+    /// In the context of attention operations which use negative infinity to
+    /// represent masked token positions, it is preferable to produce zeros as
+    /// the output if _all_ input positions are masked. See
+    /// <https://github.com/pytorch/pytorch/issues/41508>.
+    pub fn flush_nans_to_zero(mut self, flush: bool) -> Self {
+        self.flush_nans_to_zero = flush;
+        self
     }
 }
 
@@ -66,12 +84,27 @@ impl<'dst> SimdOp for Softmax<'_, 'dst> {
         let exp_sum = ops.splat(exp_sum);
         let inv_exp_sum = ops.reciprocal(exp_sum);
         const UNROLL: usize = 2;
-        simd_apply::<_, _, _, UNROLL>(
-            ops,
-            dest,
-            #[inline(always)]
-            |x| ops.mul(x, inv_exp_sum),
-        );
+        let zero = ops.zero();
+
+        if self.flush_nans_to_zero {
+            simd_apply::<_, _, _, UNROLL>(
+                ops,
+                dest,
+                #[inline(always)]
+                |x| {
+                    let y = ops.mul(x, inv_exp_sum);
+                    let not_nan = ops.eq(y, y);
+                    ops.select(y, zero, not_nan)
+                },
+            );
+        } else {
+            simd_apply::<_, _, _, UNROLL>(
+                ops,
+                dest,
+                #[inline(always)]
+                |x| ops.mul(x, inv_exp_sum),
+            );
+        }
 
         dest
     }
@@ -159,6 +192,19 @@ mod tests {
 
             check_f32s_are_equal_ulps(triples(&input, &actual, &expected), 3. /* max ULPs */);
         }
+    }
+
+    #[test]
+    fn test_softmax_flush_nans_to_zero() {
+        let mut input = [f32::NEG_INFINITY; 3];
+        Softmax::new_mut(&mut input).dispatch();
+        assert!(input.iter().all(|x| x.is_nan()));
+
+        let mut input = [f32::NEG_INFINITY; 3];
+        Softmax::new_mut(&mut input)
+            .flush_nans_to_zero(true)
+            .dispatch();
+        assert_eq!(input, [0.; 3]);
     }
 
     #[test]
