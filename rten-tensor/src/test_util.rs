@@ -22,6 +22,8 @@ pub trait ApproxEq: Sized {
     /// ```text
     /// (self - other).abs() <= atol + rtol * other.abs()
     /// ```
+    ///
+    /// For integer types, `rtol` is always treated as zero.
     fn approx_eq_with_atol_rtol(&self, other: &Self, atol: Self, rtol: Self) -> bool;
 
     /// Test if `other` is approximately equal to `self` with a maximum
@@ -65,22 +67,28 @@ impl ApproxEq for f32 {
     }
 }
 
-impl ApproxEq for i32 {
-    #[inline]
-    fn default_abs_tolerance() -> i32 {
-        0
-    }
+macro_rules! impl_approx_eq_for_ints {
+    ($($type:ty),*) => {
+        $(impl ApproxEq for $type {
+            #[inline]
+            fn default_abs_tolerance() -> $type {
+                0
+            }
 
-    #[inline]
-    fn default_rel_tolerance() -> i32 {
-        0
-    }
+            #[inline]
+            fn default_rel_tolerance() -> $type {
+                0
+            }
 
-    #[inline]
-    fn approx_eq_with_atol_rtol(&self, other: &i32, atol: i32, rtol: i32) -> bool {
-        (self - other).abs() <= atol + rtol * other.abs()
-    }
+            #[inline]
+            fn approx_eq_with_atol_rtol(&self, other: &$type, atol: $type, _rtol: $type) -> bool {
+                (self.max(other) - self.min(other)) <= atol
+            }
+        })+
+    };
 }
+
+impl_approx_eq_for_ints!(i8, i16, i32, i64, u8, u16, u32, u64);
 
 /// Return the N-dimensional index in a tensor with a given `shape` that
 /// corresponds to a linear index (ie. the index if the tensor was flattened to
@@ -205,10 +213,25 @@ mod tests {
 
     #[test]
     fn test_approx_eq_i32() {
-        let vals = [-5, -1, 0, 1, 5];
+        let vals = [
+            -5,
+            -1,
+            0,
+            1,
+            5,
+            i32::MIN,
+            i32::MIN + 1,
+            i32::MAX,
+            i32::MAX - 1,
+        ];
         for val in vals {
             assert!(val.approx_eq(&val));
-            assert!(!val.approx_eq(&(val + 1)));
+            if val > i32::MIN {
+                assert!(!val.approx_eq(&(val - 1)));
+            }
+            if val < i32::MAX {
+                assert!(!val.approx_eq(&(val + 1)));
+            }
         }
     }
 

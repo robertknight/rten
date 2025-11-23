@@ -781,7 +781,7 @@ mod tests {
     #[test]
     fn test_abs() {
         test_unary_op_both(Abs {}, |x| x.abs(), [1., -1., 0.].into()).unwrap();
-        test_unary_op_both(Abs {}, |x| x.abs(), [1, -1, 0].into()).unwrap();
+        test_unary_op_both(Abs {}, |x| x.abs(), [1i32, -1, 0].into()).unwrap();
     }
 
     test_unary_op!(test_acos, Acos {}, |x: &f32| x.acos());
