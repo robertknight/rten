@@ -184,7 +184,7 @@ impl<'a> SimdOp for SimdTopK<'a> {
             .iter()
             .zip(logits)
             .take(k)
-            .map(|(i, logit)| (*i, logit.clone()))
+            .map(|(i, logit)| (*i, *logit))
             .collect();
         topk.sort_by(|a, b| compare_gt(a.1, b.1));
 
