@@ -801,15 +801,16 @@ impl Operator for Mul {
 
 /// Raise a value to a power, with fast paths for common values.
 ///
-/// The ONNX spec (https://onnx.ai/onnx/operators/onnx__Pow.html) allows for
-/// the base and exponent having different types, but does not state the semantics.
-/// The ONNX Runtime implementation uses `static_cast<T>(std::pow(base, exp))`
-/// which means:
+/// The ONNX spec (https://onnx.ai/onnx/operators/onnx__Pow.html) allows for the
+/// base and exponent having different types, but does not state the semantics.
 ///
-///  - Convert `base` and `exp` to a common floating point type.
-///  - Compute `base^exp` in the common type
-///  - Convert the result back to the type of `base`. If this is an integer
-///    type, use truncation with rounding towards zero.
+/// ORT's behavior is to using wrapping multiplication if the exponent is 2 or
+/// 3 or `std::pow(base, exp)` (ie. using float math) otherwise. NumPy and
+/// PyTorch compute the result using float math if either base or exponent is
+/// a float type, otherwise the result is computed using integer math. RTen
+/// follows the NumPy / PyTorch behavior, except in the case where the base
+/// and exponent are both integers and the exponent is negative. In this case
+/// NumPy will throw an exception. RTen will promote it to a float instead.
 ///
 /// See also https://github.com/onnx/onnx/issues/5852.
 pub trait FastPow<Exp>: Copy {
@@ -832,6 +833,25 @@ impl FastPow<f32> for f32 {
 impl FastPow<f32> for i32 {
     fn fast_pow(self, exponent: f32) -> Self {
         (self as f32).fast_pow(exponent) as i32
+    }
+}
+
+impl FastPow<i32> for i32 {
+    fn fast_pow(self, exponent: i32) -> Self {
+        if exponent == 2 {
+            self.wrapping_mul(self)
+        } else if exponent == 3 {
+            self.wrapping_mul(self).wrapping_mul(self)
+        } else if exponent >= 0 {
+            self.wrapping_pow(exponent as u32)
+        } else {
+            // Exponentiation will fail in PyTorch and NumPy for integral
+            // types if the exponent is negative.
+            //
+            // We fall back to treating the exponent as a float, since negative
+            // exponents are supported in that case.
+            self.fast_pow(exponent as f32)
+        }
     }
 }
 
@@ -866,6 +886,30 @@ pub fn pow_in_place<E: Copy + Debug, T: Copy + Debug + FastPow<E>>(
 #[derive(Debug)]
 pub struct Pow {}
 
+impl Pow {
+    fn eval(
+        &self,
+        ctx: &OpRunContext,
+        base: ValueView,
+        exponent: ValueView,
+    ) -> Result<Value, OpError> {
+        match (base, exponent) {
+            (ValueView::FloatTensor(base), ValueView::FloatTensor(exponent)) => {
+                pow(ctx.pool(), base, exponent).map(|t| t.into())
+            }
+            (ValueView::Int32Tensor(base), ValueView::FloatTensor(exponent)) => {
+                pow(ctx.pool(), base, exponent).map(|t| t.into())
+            }
+            (ValueView::Int32Tensor(base), ValueView::Int32Tensor(exponent)) => {
+                pow(ctx.pool(), base, exponent).map(|t| t.into())
+            }
+            _ => Err(OpError::UnsupportedValue(
+                "Unsupported base and exponent type combination",
+            )),
+        }
+    }
+}
+
 impl Operator for Pow {
     fn name(&self) -> &str {
         "Pow"
@@ -878,26 +922,37 @@ impl Operator for Pow {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let base = inputs.require(0)?;
-        map_value_view!(base, base, [FloatTensor, Int32Tensor], {
-            let exponent = inputs.require_as(1)?;
-            pow(ctx.pool(), base, exponent).into_op_result()
-        })
+        let exponent = inputs.require(1)?;
+        self.eval(ctx, base, exponent).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
-        map_value!(input, base, [FloatTensor, Int32Tensor], {
-            let exponent = ctx.inputs().require_as(0)?;
-            if can_run_binary_op_in_place(&base, &exponent) {
-                pow_in_place(base.view_mut(), exponent);
-                Ok(base.into())
-            } else {
-                pow(ctx.pool(), base.view(), exponent).map(|t| t.into())
+    fn run_in_place(&self, base: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+        let exponent = ctx.inputs().require(0)?;
+        if can_run_binary_op_in_place(&base, &exponent) {
+            match (base, exponent) {
+                (Value::FloatTensor(mut base), ValueView::FloatTensor(exponent)) => {
+                    pow_in_place(base.view_mut(), exponent);
+                    Ok(base.into())
+                }
+                (Value::Int32Tensor(mut base), ValueView::FloatTensor(exponent)) => {
+                    pow_in_place(base.view_mut(), exponent);
+                    Ok(base.into())
+                }
+                (Value::Int32Tensor(mut base), ValueView::Int32Tensor(exponent)) => {
+                    pow_in_place(base.view_mut(), exponent);
+                    Ok(base.into())
+                }
+                _ => Err(OpError::UnsupportedValue(
+                    "Unsupported base and exponent type combination",
+                )),
             }
-        })
+        } else {
+            self.eval(ctx, base.as_view(), exponent)
+        }
     }
 }
 
@@ -1032,9 +1087,9 @@ impl Operator for Where {
 mod tests {
     use std::error::Error;
 
-    use rten_tensor::Tensor;
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
+    use rten_tensor::{Scalar, Tensor};
     use rten_testing::TestCases;
 
     use super::fast_broadcast_cycles_repeats;
@@ -1494,7 +1549,20 @@ mod tests {
             expected: Value,
         }
 
-        let cases = [
+        fn scalar_case<B, E>(base: B, exp: E, expected: B) -> Case
+        where
+            B: Clone + Scalar + Into<Tensor<B>>,
+            E: Clone + Scalar + Into<Tensor<E>>,
+            Value: From<Tensor<B>> + From<Tensor<E>>,
+        {
+            Case {
+                a: Tensor::from(base).into(),
+                b: Tensor::from(exp).into(),
+                expected: Tensor::from(expected).into(),
+            }
+        }
+
+        let cases = vec![
             // Square input
             Case {
                 a: Tensor::from([2., 3., 4.]).into(),
@@ -1525,11 +1593,33 @@ mod tests {
                 expected: Tensor::from([2., 9., 64.]).into(),
             },
             // i32 input with f32 exponent
-            Case {
-                a: Tensor::from(16i32).into(),
-                b: Tensor::from(0.5).into(),
-                expected: Tensor::from(4i32).into(),
+            scalar_case(16i32, 0.5f32, 4i32),
+            // i32 input with i32 exponent of 2 or 3.
+            //
+            // - Small values
+            scalar_case(4i32, 2i32, 16i32),
+            scalar_case(2i32, 3i32, 8i32),
+            // - Large value. 4097 is the smallest value whose square cannot be
+            //   represented exactly in f32.
+            scalar_case(4097i32, 2i32, 4097 * 4097),
+            // - Max value that can be squared via multiplication without wrapping.
+            scalar_case(i32::MAX.isqrt(), 2i32, i32::MAX.isqrt() * i32::MAX.isqrt()),
+            // - Value that will wrap.
+            {
+                let x = i32::MAX.isqrt() + 1;
+                scalar_case(x, 2i32, x.wrapping_mul(x))
             },
+            // i32 input with i32 exponent other than 2 or 3.
+            //
+            // - Case where result exceeds i32::MAX. In this case ONNX Runtime
+            //   and PyTorch have different behavior. ORT will saturate to
+            //   i32::MAX, whereas PyTorch and NumPy will wrap.
+            scalar_case(216i32, 4i32, -2118184960),
+            // i32 input with negative i32 exponent.
+            //
+            // PyTorch / NumPy will throw in this case. RTen handles negative
+            // exponents as if they were floats. This aligns with ORT's behavior.
+            scalar_case(2i32, -1i32, 0),
         ];
 
         cases.test_each(|case| {
@@ -1553,6 +1643,9 @@ mod tests {
                     test_case!(a, b, expected);
                 }
                 (Value::Int32Tensor(a), Value::FloatTensor(b), Value::Int32Tensor(expected)) => {
+                    test_case!(a, b, expected);
+                }
+                (Value::Int32Tensor(a), Value::Int32Tensor(b), Value::Int32Tensor(expected)) => {
                     test_case!(a, b, expected);
                 }
                 _ => unimplemented!("unsupported types"),
