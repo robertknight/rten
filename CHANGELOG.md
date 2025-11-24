@@ -27,6 +27,23 @@ marked as non-exhaustive.
 
 ### rten
 
+- Support `Pow` operator with i32/i64 base and exponent
+  (https://github.com/robertknight/rten/pull/1105)
+
+- Added fusions for common subgraphs patterns in attention implementations such
+  as `torch.repeat_interleave` and "safe" softmax
+  (https://github.com/robertknight/rten/pull/1103,
+  https://github.com/robertknight/rten/pull/1104).
+
+- Fixed panic in ConstantOfShape op if input shape is invalid
+  (https://github.com/robertknight/rten/pull/1093)
+
+- Support providing external data when loading ONNX models from in-memory
+  buffers (https://github.com/robertknight/rten/pull/1081)
+
+- Support loading i64 and bool tensors from external data in ONNX loader
+  (https://github.com/robertknight/rten/pull/1080)
+
 - Added `Debug` impls for `Model` and other types, making it easier to impl
   `Debug` for structs containing fields of these types in downstream
   applications (https://github.com/robertknight/rten/pull/1073,
@@ -130,11 +147,19 @@ marked as non-exhaustive.
 
 ### rten-examples
 
+- Support SmolLM v3 in the Qwen chat example (https://github.com/robertknight/rten/pull/1086)
+
 - Added Llama 3 chat example (https://github.com/robertknight/rten/pull/1042).
   This is a demonstration of the newly-added support for 4-bit quantized
   weights.
 
 ### rten-generate
+
+- Improved efficiency of top-K sampling, assuming K is small relative to
+  vocabulary size (https://github.com/robertknight/rten/pull/1094)
+
+- Redesigned the logit filtering and sampling APIs to enable composing filters
+  (eg. top-K followed by top-P) (https://github.com/robertknight/rten/pull/1084)
 
 - Changed profiler to return options for duration metrics, which may be `None`
   if called before any tokens have been generated
@@ -174,6 +199,13 @@ marked as non-exhaustive.
   the wrapped tensor has a contiguous layout (https://github.com/robertknight/rten/pull/1058).
 
 ### rten-text
+
+- Optimized loading of BPE tokenizers from tokenizer.json files
+  (https://github.com/robertknight/rten/pull/1099,
+  https://github.com/robertknight/rten/pull/1100)
+
+- Depend on `serde_derive` directly instead of via Serde crate feature. This
+  can enable better build parallelism (https://github.com/robertknight/rten/pull/1095)
 
 - Added support for `ignore_merges` configuration setting for BPE tokenizers
   (https://github.com/robertknight/rten/pull/1043)
