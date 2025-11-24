@@ -18,11 +18,11 @@ mod fusions;
 mod pattern_matcher;
 
 use fusions::{
-    AddSoftmaxFusion, ApproxGeluFusion, CastElimination, Fusion, FusionVisitor, GeluFusion,
-    IdentityFusion, LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion,
-    MatMulScaleFusion, PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion,
-    RepeatInterleaveFusion, RmsNormalizationFusion, SafeSoftmaxFusion, ShapeSliceToConstant,
-    SiluFusion, SwishFusion, TransposeFusion,
+    AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, Fusion, FusionVisitor,
+    GeluFusion, IdentityFusion, LayerNormalizationFusion, MatMulAddFusion,
+    MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion, ReciprocalFusion,
+    ReduceMeanAxesFusion, RepeatInterleaveFusion, RmsNormalizationFusion, SafeSoftmaxFusion,
+    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -363,6 +363,13 @@ impl GraphOptimizer {
         // and inference.
         early_fusions.push(CastElimination {});
         early_fusions.push(IdentityFusion {});
+
+        // Fusion which replaces Shape nodes using shape inference metadata.
+        //
+        // This can free up the source of the Shape's input to be included in
+        // other fusions. If all dimensions have static sizes, constant prop
+        // will remove the ComputeShape node and downstream nodes.
+        early_fusions.push(ComputeShapeFusion {});
 
         self.apply_fusions(&mut graph_mut, early_fusions.visitors())?;
 

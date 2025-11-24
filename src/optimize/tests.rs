@@ -12,10 +12,10 @@ use crate::graph::{
     CaptureEnv, Constant, Graph, Node, NodeId, OperatorNode, PlanOptions, TypedConstant,
 };
 use crate::ops::{
-    Add, Cast, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gelu, Identity, IsNaN,
-    LayerNormalization, MatMul, MatMulInteger, Neg, Pow, ReduceMean, RepeatInterleave, Reshape,
-    RmsNormalization, Shape, Sigmoid, Slice, Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze,
-    Where,
+    Add, Cast, ComputeShape, DimSpec, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gelu,
+    Identity, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg, Pow, ReduceMean,
+    RepeatInterleave, Reshape, RmsNormalization, Shape, Sigmoid, Slice, Softmax, Sqrt, Swish, Tanh,
+    Transpose, Unsqueeze, Where,
 };
 use crate::value::Value;
 use crate::{DataType, Dimension};
@@ -1003,4 +1003,49 @@ fn test_fuse_repeat_interleave() {
     let repeat_interleave_op = op.operator().downcast_ref::<RepeatInterleave>().unwrap();
     assert_eq!(repeat_interleave_op.axis, repeat_axis);
     assert_eq!(repeat_interleave_op.repeats, n_repeats);
+}
+
+#[test]
+fn test_fuse_compute_shape() {
+    let in_shape = vec![
+        Dimension::Symbolic("batch".to_string()),
+        Dimension::Fixed(3),
+        Dimension::Fixed(224),
+        Dimension::Fixed(224),
+    ];
+
+    let x = Expr::value_with_info("pixels", DataType::Float, &in_shape);
+    let eps = Expr::constant(Value::from(NdTensor::from(0.)));
+    let y = x.apply(
+        Add {},
+        &[eps],
+        &[OutputMeta::Meta((DataType::Float, in_shape))],
+    );
+
+    // Create Shape op whose input has shape inference metadata with a mix
+    // of static and symbolic dims.
+    let shape = y.unary(Shape {
+        start: None,
+        end: None,
+    });
+
+    let graph = Expr::make_graph([x], [y, shape]);
+    let optimized = optimize_graph(graph).unwrap();
+
+    let op = optimized
+        .get_node_id("Shape")
+        .and_then(|id| optimized.get_node(id))
+        .and_then(|n| n.as_operator())
+        .unwrap();
+    let op = op.operator().downcast_ref::<ComputeShape>().unwrap();
+
+    assert_eq!(
+        op.shape,
+        [
+            DimSpec::Dynamic { input: 0, dim: 0 },
+            DimSpec::Static(3),
+            DimSpec::Static(224),
+            DimSpec::Static(224),
+        ]
+    );
 }
