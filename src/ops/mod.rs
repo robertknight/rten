@@ -80,7 +80,10 @@ pub(crate) use {
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
     grid_sample::GridSample,
     identity::Identity,
-    layout::{DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze},
+    layout::{
+        ComputeShape, DepthToSpace, DimSpec, Expand, Flatten, Reshape, Shape, Size, Squeeze,
+        Transpose, Unsqueeze,
+    },
     matmul::{
         AccuracyLevel, FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat, MatMulNBits,
     },
