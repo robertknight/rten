@@ -13,9 +13,9 @@ use crate::graph::{
 };
 use crate::ops::{
     Add, Cast, ComputeShape, DimSpec, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gelu,
-    Identity, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg, Pow, ReduceMean,
-    RepeatInterleave, Reshape, RmsNormalization, Shape, Sigmoid, Slice, Softmax, Sqrt, Swish, Tanh,
-    Transpose, Unsqueeze, Where,
+    GroupedQueryAttentionMatMul, Identity, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg,
+    Pow, ReduceMean, RepeatInterleave, Reshape, RmsNormalization, Shape, Sigmoid, Slice, Softmax,
+    Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::Value;
 use crate::{DataType, Dimension};
@@ -46,6 +46,7 @@ trait OpExprs {
     fn erf(&self) -> Expr;
     fn identity(&self) -> Expr;
     fn is_nan(&self) -> Expr;
+    fn permute(&self, perm: &[usize]) -> Expr;
     fn pow(&self, rhs: Expr) -> Expr;
     fn matmul(&self, rhs: Expr) -> Expr;
     fn mean(&self) -> Expr;
@@ -99,6 +100,12 @@ impl OpExprs for Expr {
             },
             axes,
         )
+    }
+
+    fn permute(&self, perm: &[usize]) -> Expr {
+        self.unary(Transpose {
+            perm: Some(perm.to_vec()),
+        })
     }
 
     fn pow(&self, rhs: Expr) -> Expr {
@@ -1048,4 +1055,166 @@ fn test_fuse_compute_shape() {
             DimSpec::Static(224),
         ]
     );
+}
+
+#[test]
+fn test_fuse_grouped_query_attention_matmul() {
+    // Test fusion of MatMul(Q, RepeatInterleave(K_or_V)) for Grouped-query Attention.
+    let batch_dim = Dimension::Symbolic("batch".to_string());
+    let seq_dim = Dimension::Symbolic("seq".to_string());
+    let kv_heads = 8;
+    let n_repeats = 3;
+    let query_heads = kv_heads * n_repeats;
+    let d_model = 64;
+
+    // Query tensor: (batch, query_heads, seq, d_model)
+    let q_shape = [
+        batch_dim.clone(),
+        Dimension::Fixed(query_heads),
+        seq_dim.clone(),
+        Dimension::Fixed(d_model),
+    ];
+    let q = Expr::value_with_info("q", DataType::Float, &q_shape);
+
+    // K/V tensor: (batch, kv_heads, seq, d_model)
+    let kv_shape = [
+        batch_dim.clone(),
+        Dimension::Fixed(kv_heads),
+        seq_dim.clone(),
+        Dimension::Fixed(d_model),
+    ];
+    let kv = Expr::value_with_info("kv", DataType::Float, &kv_shape);
+
+    // Create RepeatInterleave pattern: Unsqueeze + Expand + Reshape
+    let repeat_axis = 1;
+    let unsqueeze_axes = Expr::constant(Value::from(NdTensor::from([repeat_axis as i32 + 1])));
+    let expand_shape = Expr::value_with_info(
+        "expand_shape",
+        DataType::Float,
+        &[
+            batch_dim.clone(),
+            Dimension::Fixed(kv_heads),
+            Dimension::Fixed(n_repeats),
+            seq_dim.clone(),
+            Dimension::Fixed(d_model),
+        ],
+    );
+    let out_shape = [
+        batch_dim.clone(),
+        Dimension::Fixed(query_heads),
+        seq_dim.clone(),
+        Dimension::Fixed(d_model),
+    ];
+    let reshape_shape = Expr::value_with_info("reshape_shape", DataType::Float, &out_shape);
+
+    let t1 = kv.binary(Unsqueeze {}, unsqueeze_axes);
+    let t2 = t1.binary(Expand {}, expand_shape);
+    let output_meta = OutputMeta::Meta((DataType::Float, out_shape.to_vec()));
+    let kv_repeated = t2.apply(
+        Reshape { allow_zero: false },
+        &[reshape_shape],
+        &[output_meta],
+    );
+
+    // MatMul(Q, RepeatInterleave(K_or_V))
+    let expr = q.matmul(kv_repeated);
+    let graph = expr.build_graph(["q", "kv", "expand_shape", "reshape_shape"]);
+
+    let optimized = optimize_graph(graph).unwrap();
+
+    // Verify the fusion occurred
+    let (_, op) = optimized
+        .get_source_node(optimized.output_ids()[0])
+        .unwrap();
+    let qkv_matmul = op
+        .operator()
+        .downcast_ref::<GroupedQueryAttentionMatMul>()
+        .unwrap();
+    assert_eq!(qkv_matmul.repeats, n_repeats);
+    assert_eq!(qkv_matmul.alpha, None);
+    assert_eq!(qkv_matmul.transpose_rhs, false);
+}
+
+#[test]
+fn test_fuse_grouped_query_attention_matmul_with_transpose_and_scale() {
+    // Test fusion of MatMul(Q, Transpose(RepeatInterleave(K))) / scale
+    // This is the typical pattern for Q @ K^T in Grouped-query Attention.
+    let batch_dim = Dimension::Symbolic("batch".to_string());
+    let seq_dim = Dimension::Symbolic("seq".to_string());
+    let kv_heads = 8;
+    let n_repeats = 3;
+    let query_heads = kv_heads * n_repeats;
+    let d_model = 64;
+    let scale = (d_model as f32).sqrt();
+
+    // Query tensor: (batch, query_heads, seq, d_model)
+    let q_shape = [
+        batch_dim.clone(),
+        Dimension::Fixed(query_heads),
+        seq_dim.clone(),
+        Dimension::Fixed(d_model),
+    ];
+    let q = Expr::value_with_info("q", DataType::Float, &q_shape);
+
+    // K tensor: (batch, kv_heads, seq, d_model)
+    let k_shape = [
+        batch_dim.clone(),
+        Dimension::Fixed(kv_heads),
+        seq_dim.clone(),
+        Dimension::Fixed(d_model),
+    ];
+    let k = Expr::value_with_info("k", DataType::Float, &k_shape);
+
+    // Create RepeatInterleave pattern: Unsqueeze + Expand + Reshape
+    let repeat_axis = 1;
+    let unsqueeze_axes = Expr::constant(Value::from(NdTensor::from([repeat_axis as i32 + 1])));
+    let expand_shape = Expr::value_with_info(
+        "expand_shape",
+        DataType::Float,
+        &[
+            batch_dim.clone(),
+            Dimension::Fixed(kv_heads),
+            Dimension::Fixed(n_repeats),
+            seq_dim.clone(),
+            Dimension::Fixed(d_model),
+        ],
+    );
+    let repeated_shape = [
+        batch_dim.clone(),
+        Dimension::Fixed(query_heads),
+        seq_dim.clone(),
+        Dimension::Fixed(d_model),
+    ];
+    let reshape_shape = Expr::value_with_info("reshape_shape", DataType::Float, &repeated_shape);
+
+    let t1 = k.binary(Unsqueeze {}, unsqueeze_axes);
+    let t2 = t1.binary(Expand {}, expand_shape);
+    let output_meta = OutputMeta::Meta((DataType::Float, repeated_shape.to_vec()));
+    let k_repeated = t2.apply(
+        Reshape { allow_zero: false },
+        &[reshape_shape],
+        &[output_meta],
+    );
+
+    // Transpose(RepeatInterleave(K))
+    // After transpose, shape becomes (batch, query_heads, d_model, seq)
+    let k_repeated_transposed = k_repeated.permute(&[0, 1, 3, 2]);
+
+    // MatMul(Q, Transpose(RepeatInterleave(K))) / scale
+    let expr = q.matmul(k_repeated_transposed) / scale;
+    let graph = expr.build_graph(["q", "k", "expand_shape", "reshape_shape"]);
+
+    let optimized = optimize_graph(graph).unwrap();
+
+    // Verify the fusion occurred
+    let (_, op) = optimized
+        .get_source_node(optimized.output_ids()[0])
+        .unwrap();
+    let qkv_matmul = op
+        .operator()
+        .downcast_ref::<GroupedQueryAttentionMatMul>()
+        .unwrap();
+    assert_eq!(qkv_matmul.repeats, n_repeats);
+    assert_eq!(qkv_matmul.alpha, Some(1.0 / scale));
+    assert_eq!(qkv_matmul.transpose_rhs, true);
 }

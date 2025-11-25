@@ -1,9 +1,10 @@
 //! Attention-related operations.
 
 use rayon::prelude::*;
+use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
-use rten_tensor::{Tensor, TensorView};
+use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath::Softmax;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
@@ -141,11 +142,40 @@ impl Operator for AddSoftmax {
     }
 }
 
+fn repeat_interleave<T: Copy>(
+    pool: &BufferPool,
+    mut input: TensorView<T>,
+    axis: usize,
+    repeats: usize,
+) -> Result<Tensor<T>, OpError> {
+    if input.ndim() <= axis {
+        return Err(OpError::InvalidValue("Input has too few dims"));
+    }
+
+    // Insert temporary 1-sized axis and use broadcasting to repeat along
+    // that axis.
+    //
+    // This is effectively a combination of Unsqueeze + Expand + Reshape.
+    input.insert_axis(axis + 1);
+    let mut target_shape = input.shape().to_vec();
+    target_shape[axis + 1] *= repeats;
+    let mut expanded = expand_to(pool, input, &target_shape);
+    target_shape.remove(axis + 1);
+    target_shape[axis] *= repeats;
+    expanded.reshape(&target_shape);
+
+    Ok(expanded)
+}
+
 /// Repeat elements of a tensor.
 ///
 /// This differs from the `Tile` ONNX operator in that it repeats individual
 /// elements rather than a whole axis, eg. `[1, 2]` -> `[1, 1, 2, 2]` rather
 /// than `[1, 2]` -> `[1, 2, 1, 2]`.
+///
+/// This operation has limited value as a fusion by itself, since it doesn't
+/// eliminate the expensive step of materializing the expanded tensor, but
+/// it acts as a building block for higher-level fusions.
 ///
 /// See https://docs.pytorch.org/docs/stable/generated/torch.repeat_interleave.html.
 #[derive(Debug)]
@@ -164,24 +194,91 @@ impl Operator for RepeatInterleave {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let mut input: TensorView<f32> = ctx.inputs().require_as(0)?;
-        if input.ndim() <= self.axis {
-            return Err(OpError::InvalidValue("Input has too few dims"));
+        let input: TensorView<f32> = ctx.inputs().require_as(0)?;
+        repeat_interleave(ctx.pool(), input, self.axis, self.repeats).into_op_result()
+    }
+}
+
+/// A fusion of `MatMul(Q, RepeatInterleave(K))` where Q and K are 4D tensors
+/// and the second dimension of K is repeated.
+///
+/// This fusion is used in Grouped-query Attention operators, where K represents
+/// either the key or value tensor.
+#[derive(Debug)]
+pub struct GroupedQueryAttentionMatMul {
+    /// Number of times to repeat the second dimension of the RHS input.
+    pub repeats: usize,
+    /// Alpha value for the matmul.
+    pub alpha: Option<f32>,
+    /// True if the last two dimensions of the RHS input should be transposed.
+    pub transpose_rhs: bool,
+}
+
+impl Operator for GroupedQueryAttentionMatMul {
+    fn name(&self) -> &str {
+        "QueryKeyValueMatMul"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let lhs: NdTensorView<f32, 4> = ctx.inputs().require_as(0)?;
+        let mut rhs: NdTensorView<f32, 4> = ctx.inputs().require_as(1)?;
+        if self.transpose_rhs {
+            rhs.permute([0, 1, 3, 2]);
         }
 
-        // Insert temporary 1-sized axis and use broadcasting to repeat along
-        // that axis.
-        //
-        // This is effectively a combination of Unsqueeze + Expand + Reshape.
-        input.insert_axis(self.axis + 1);
-        let mut target_shape = input.shape().to_vec();
-        target_shape[self.axis + 1] *= self.repeats;
-        let mut expanded = expand_to(ctx.pool(), input, &target_shape);
-        target_shape.remove(self.axis + 1);
-        target_shape[self.axis] *= self.repeats;
-        expanded.reshape(&target_shape);
+        let [batch, heads, seq, k] = lhs.shape();
+        let [rhs_batch, rhs_heads, rhs_k, rhs_n] = rhs.shape();
 
-        expanded.into_op_result()
+        if batch != rhs_batch {
+            return Err(OpError::IncompatibleInputShapes("Batch size mismatch"));
+        }
+        if k != rhs_k {
+            return Err(OpError::IncompatibleInputShapes("K size mismatch"));
+        }
+        if rhs_heads * self.repeats != heads {
+            return Err(OpError::IncompatibleInputShapes(
+                "Repeated axis size mismatch",
+            ));
+        }
+
+        let chunk_size = self.repeats * seq * rhs_n;
+        let out_size = batch * (heads / self.repeats) * chunk_size;
+        let mut out_data = ctx.pool().alloc(out_size);
+        let out_uninit = &mut out_data.spare_capacity_mut()[..out_size];
+
+        let gemm = GemmExecutor::default();
+        let lhs_mats = lhs.reshaped_in(
+            ctx.pool(),
+            [batch, heads / self.repeats, self.repeats * seq, k],
+        );
+        let opts = GemmUninitOptions {
+            alpha: self.alpha.unwrap_or(1.0),
+            ..Default::default()
+        };
+
+        lhs_mats
+            .inner_iter::<2>()
+            .into_par_iter()
+            .zip(rhs.inner_iter::<2>())
+            .zip(out_uninit.par_chunks_mut(chunk_size))
+            .for_each(|((lhs, rhs), out)| {
+                gemm.gemm_uninit(
+                    out,
+                    GemmInputA::Unpacked(lhs),
+                    GemmInputB::Unpacked(rhs),
+                    opts.clone(),
+                )
+                .unwrap();
+            });
+
+        // Safety: gemm_uninit initialized the full output data.
+        unsafe { out_data.set_len(out_size) };
+
+        Tensor::from_data(&[batch, heads, seq, rhs_n], out_data).into_op_result()
     }
 }
 
@@ -190,10 +287,10 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{Tensor, TensorView};
+    use rten_tensor::{NdTensor, Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use super::{AddSoftmax, BROADCAST_ERROR, RepeatInterleave};
+    use super::{AddSoftmax, BROADCAST_ERROR, GroupedQueryAttentionMatMul, RepeatInterleave};
     use crate::operator::{OpError, OperatorExt};
     use crate::ops::{Add, Softmax};
 
@@ -313,5 +410,41 @@ mod tests {
         let repeated: Tensor = op.run_simple(input.view()).unwrap();
 
         assert_eq!(repeated, Tensor::from([[1., 1., 2., 2.], [3., 3., 4., 4.]]));
+    }
+
+    #[test]
+    fn test_grouped_query_attention_matmul() {
+        let batch = 1;
+        let query_heads = 8;
+        let kv_heads = 2;
+        let seq = 3;
+        let d_model = 8;
+
+        let query = NdTensor::<f32, 4>::zeros([batch, query_heads, seq, d_model]);
+        let key = NdTensor::<f32, 4>::zeros([batch, kv_heads, seq, d_model]);
+        let value = NdTensor::<f32, 4>::zeros([batch, kv_heads, seq, d_model]);
+
+        // Query-key matmul.
+        let op = GroupedQueryAttentionMatMul {
+            repeats: query_heads / kv_heads,
+            // In the QK matmul, we have a scale and transposed RHS.
+            alpha: Some(0.5),
+            transpose_rhs: true,
+        };
+
+        let query_key: NdTensor<f32, 4> = op.run_simple((query.view(), key.view())).unwrap();
+        assert_eq!(query_key.shape(), [batch, query_heads, seq, seq]);
+
+        // Query-value matmul
+        let op = GroupedQueryAttentionMatMul {
+            repeats: query_heads / kv_heads,
+            // In the QK @ V matmul, we typically have no scale and the RHS is
+            // not transposed.
+            alpha: None,
+            transpose_rhs: false,
+        };
+
+        let qkv: NdTensor<f32, 4> = op.run_simple((query_key.view(), value.view())).unwrap();
+        assert_eq!(qkv.shape(), [batch, query_heads, seq, d_model]);
     }
 }
