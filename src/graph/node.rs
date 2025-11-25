@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use rten_tensor::prelude::*;
@@ -29,14 +30,14 @@ impl Node {
     ///
     /// For constants this is the shape of the tensor. Operator nodes have no
     /// shape. For values (eg. inputs/outputs) this is the expected shape.
-    pub fn shape(&self) -> Option<Vec<Dimension>> {
+    pub fn shape(&self) -> Option<Cow<'_, [Dimension]>> {
         let dims_from_fixed_shape =
             |shape: &[usize]| shape.iter().copied().map(Dimension::Fixed).collect();
 
         match self {
             Node::Operator(_) => None,
-            Node::Constant(node) => Some(dims_from_fixed_shape(node.layout().shape())),
-            Node::Value(node) => node.shape.clone(),
+            Node::Constant(node) => Some(Cow::Owned(dims_from_fixed_shape(node.layout().shape()))),
+            Node::Value(node) => node.shape.as_deref().map(Cow::Borrowed),
         }
     }
 

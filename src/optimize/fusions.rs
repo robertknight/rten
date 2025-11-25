@@ -1056,7 +1056,7 @@ impl FusionVisitor for ShapeSliceToConstant {
 
         let x_shape = graph.get_node(x_id)?.shape()?;
         let ndim = x_shape.len();
-        let x_shape = NdTensorView::from_data([ndim], x_shape.as_slice());
+        let x_shape = NdTensorView::from_data([ndim], &*x_shape);
 
         // Check for constant starts/ends.
         let Some(&[start]) = graph.get_vector::<i32>(starts_id) else {
@@ -1163,7 +1163,7 @@ impl PatternFusion for RepeatInterleaveFusion {
         }
 
         let mut axis_repeats = None;
-        for (i, (size_in, size_out)) in in_shape.iter().zip(&out_shape).enumerate() {
+        for (i, (size_in, size_out)) in in_shape.iter().zip(out_shape.iter()).enumerate() {
             if size_in == size_out {
                 continue;
             }
@@ -1314,12 +1314,12 @@ impl FusionVisitor for ComputeShapeFusion {
 
         let mut input_ids = Vec::new();
         let shape: Vec<DimSpec> = dims
-            .into_iter()
+            .iter()
             .map(|dim| match dim {
-                Dimension::Fixed(size) => DimSpec::Static(size as u32),
+                Dimension::Fixed(size) => DimSpec::Static(*size as u32),
                 Dimension::Symbolic(name) => {
                     let (input_id, dim) = state
-                        .get(&name)
+                        .get(name.as_str())
                         .copied()
                         .expect("should have symbolic name");
                     let idx =
