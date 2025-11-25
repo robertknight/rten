@@ -237,7 +237,7 @@ fn test_graph_node_shapes() {
 
     assert_eq!(
         g.get_node(weights_id).and_then(|n| n.shape()),
-        Some([1, 1, 2].map(Dimension::Fixed).to_vec())
+        Some([1, 1, 2].map(Dimension::Fixed).as_slice().into())
     );
     assert_eq!(
         g.get_node(input_id).and_then(|n| n.shape()),
@@ -248,7 +248,8 @@ fn test_graph_node_shapes() {
                 Dimension::Fixed(5),
                 Dimension::Fixed(5),
             ]
-            .to_vec()
+            .as_slice()
+            .into()
         )
     );
     assert_eq!(g.get_node(relu_op_id).and_then(|n| n.shape()), None);

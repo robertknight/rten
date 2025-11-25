@@ -586,7 +586,7 @@ impl<'a> NodeInfo<'a> {
     ///
     /// The shape can be a combination of fixed values and symbolic names.
     pub fn shape(&self) -> Option<Vec<Dimension>> {
-        self.node.shape()
+        self.node.shape().map(|n| n.into_owned())
     }
 
     /// Return the expected data type for this node at runtime.
