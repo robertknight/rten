@@ -79,6 +79,7 @@ impl PartialEq<Dimension> for InferredDimension {
 ///
 /// When invoking shape inference, the most concrete value that is available
 /// should be provided (ie. `Constant`, then `SymValue`, then `Value`).
+#[derive(Clone, Debug)]
 pub enum Input<'a> {
     /// An input with a known shape and value.
     Constant(ValueView<'a>),
@@ -269,6 +270,7 @@ impl InferShapes for BinaryOpInfer {
 }
 
 /// Shape inference for ONNX `Reduce*` operators.
+#[derive(Clone, Debug, PartialEq)]
 pub struct ReductionOpInfer<'a> {
     /// Axes over which the reduction is applied.
     ///
@@ -329,14 +331,6 @@ impl InferShapes for ReductionOpInfer<'_> {
     }
 }
 
-// TODO - Reduction op shape inference impl
-
-// Reduction:
-//
-//  - ReduceMean: Output either has same shape but one input has dimension
-//    reduced to 1, or a shape with one fewer dimensions. Output depends on
-//    `data` and optional `axes` input.
-//
 // Other:
 //
 //  - Concat
@@ -379,7 +373,10 @@ impl InferShapes for ReductionOpInfer<'_> {
 mod tests {
     use rten_testing::TestCases;
 
-    use super::{BINARY_OP, InferShapes, InferredDimension, Input, ShapeInferenceError, UNARY_OP};
+    use super::{
+        BINARY_OP, InferShapes, InferredDimension, Input, ReductionOpInfer, ShapeInferenceError,
+        UNARY_OP,
+    };
     use crate::Dimension;
 
     macro_rules! dims {
@@ -486,6 +483,40 @@ mod tests {
             let inputs = case.inputs.into_iter().map(Input::Value).collect();
             let err = BINARY_OP.infer_shapes(inputs).err().unwrap();
             assert_eq!(err, case.expected);
+        });
+    }
+
+    #[test]
+    fn test_reduction_op_infer() {
+        #[derive(Clone, Debug)]
+        struct Case<'a> {
+            inputs: Vec<Input<'a>>,
+            op: ReductionOpInfer<'a>,
+            expected: Vec<Dimension>,
+        }
+
+        use rten_tensor::TensorView;
+
+        let axes = TensorView::from(&[1i32]);
+
+        let cases = [Case {
+            inputs: [
+                Input::Value(dims!(3, 4, 5)),
+                Input::Constant(axes.clone().into()),
+            ]
+            .into(),
+            op: ReductionOpInfer {
+                axes: None,
+                keep_dims: false,
+                noop_with_empty_axes: false,
+            },
+            expected: dims!(3, 5),
+        }];
+
+        cases.test_each(|case| {
+            let shapes = case.op.infer_shapes(case.inputs.clone()).unwrap();
+            assert_eq!(shapes.len(), 1);
+            assert_eq!(shapes[0], case.expected);
         });
     }
 }
