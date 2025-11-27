@@ -14,6 +14,7 @@ use smallvec::SmallVec;
 
 use crate::BufferPool;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
+use crate::infer_shapes::InferShapes;
 use crate::timing::Profiler;
 use crate::value::{DataType, DataTypeOf, TryFromValueError, Value, ValueType, ValueView};
 use crate::weight_cache::WeightCache;
@@ -415,6 +416,11 @@ pub trait Operator: Any + Debug {
     /// Return the [`SubgraphOperator`] implementation for this operator, if
     /// this operator has subgraphs.
     fn as_subgraph_op(&self) -> Option<&dyn SubgraphOperator> {
+        None
+    }
+
+    /// Return the shape inference implementation for this operator.
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
         None
     }
 }

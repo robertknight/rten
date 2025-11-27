@@ -85,6 +85,24 @@ pub enum Dimension {
     Symbolic(String),
 }
 
+impl From<usize> for Dimension {
+    fn from(val: usize) -> Dimension {
+        Dimension::Fixed(val)
+    }
+}
+
+impl From<String> for Dimension {
+    fn from(val: String) -> Dimension {
+        Dimension::Symbolic(val)
+    }
+}
+
+impl From<&str> for Dimension {
+    fn from(val: &str) -> Dimension {
+        Dimension::Symbolic(val.into())
+    }
+}
+
 #[derive(Debug)]
 pub struct OperatorNode {
     name: Option<String>,
