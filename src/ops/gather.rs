@@ -188,25 +188,37 @@ impl Operator for Gather {
         })
     }
 
-    // fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-    //     Some(self)
-    // }
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
 
-// impl InferShapes for Gather {
-//     fn infer_shapes(
-//         &self,
-//         inputs: Vec<infer_shapes::Input>,
-//     ) -> Result<Vec<Vec<InferredDimension>>, ShapeInferenceError> {
-//         let [input, indices] = &inputs[..] else {
-//             return Err(ShapeInferenceError::IncorrectInputCount);
-//         };
-//         let axis = resolve_axis(input.ndim(), self.axis)
-//             .map_err(|_| ShapeInferenceError::IncorrectRank)?;
+impl InferShapes for Gather {
+    fn infer_shapes(
+        &self,
+        inputs: Vec<infer_shapes::Input>,
+    ) -> Result<Vec<Vec<InferredDimension>>, ShapeInferenceError> {
+        let [input, indices] = &inputs[..] else {
+            return Err(ShapeInferenceError::IncorrectInputCount);
+        };
+        let axis = resolve_axis(input.ndim(), self.axis)
+            .map_err(|_| ShapeInferenceError::IncorrectRank)?;
 
-//         todo!()
-//     }
-// }
+        let mut out_shape = Vec::with_capacity(input.ndim() - 1 + indices.ndim());
+
+        for d in 0..axis {
+            out_shape.push(input.dim(d).into());
+        }
+        for i in 0..indices.ndim() {
+            out_shape.push(indices.dim(i).into());
+        }
+        for d in axis + 1..input.ndim() {
+            out_shape.push(input.dim(d).into());
+        }
+
+        Ok([out_shape].into())
+    }
+}
 
 pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
     pool: &BufferPool,
@@ -661,9 +673,11 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::buffer_pool::BufferPool;
+    use crate::infer_shapes;
+    use crate::infer_shapes::InferShapes;
     use crate::operator::OpError;
     use crate::ops::{
-        ScatterReduction, gather, gather_elements, gather_nd, scatter_elements, scatter_nd,
+        Gather, ScatterReduction, gather, gather_elements, gather_nd, scatter_elements, scatter_nd,
     };
 
     #[test]
@@ -780,6 +794,22 @@ mod tests {
                 Some(OpError::InvalidValue("Entry in `indices` is out of range"))
             );
         })
+    }
+
+    #[test]
+    fn test_gather_infer_shapes() {
+        // Typical embedding lookup for an LLM. Example taken from Qwen 3.
+        let data = infer_shapes::dims!(151936, 1024);
+        let indices = infer_shapes::dims!("batch_size", "seq_len");
+        let op = Gather { axis: 0 };
+        let shapes = op
+            .infer_shapes(infer_shapes::inputs([data, indices]))
+            .unwrap();
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(
+            shapes[0],
+            infer_shapes::inferred_dims!("batch_size", "seq_len", 1024)
+        );
     }
 
     #[test]

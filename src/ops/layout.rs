@@ -7,6 +7,8 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes;
+use crate::infer_shapes::{InferShapes, InferredDimension, ShapeInferenceError};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{map_value, map_value_view, resolve_axes, resolve_axis};
@@ -592,6 +594,36 @@ impl Operator for Transpose {
             transpose(ctx.pool(), x, perm_slice).into_op_result()
         })
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for Transpose {
+    fn infer_shapes(
+        &self,
+        inputs: Vec<infer_shapes::Input>,
+    ) -> Result<Vec<Vec<InferredDimension>>, ShapeInferenceError> {
+        let [input] = &inputs[..] else {
+            return Err(ShapeInferenceError::IncorrectInputCount);
+        };
+        let mut dims = Vec::with_capacity(input.ndim());
+
+        if let Some(perm) = self.perm.as_deref() {
+            for source_idx in perm.iter() {
+                let Some(dim) = input.get_dim(*source_idx) else {
+                    return Err(ShapeInferenceError::IncorrectRank);
+                };
+                dims.push(dim.clone().into());
+            }
+        } else {
+            dims.extend(input.dims().map(|d| d.clone().into()));
+            dims.reverse();
+        }
+
+        Ok([dims].into())
+    }
 }
 
 pub fn unsqueeze_in_place<T: Clone>(
@@ -736,9 +768,11 @@ mod tests {
 
     use super::{ComputeShape, DepthToSpaceMode, DimSpec, depth_to_space};
     use crate::buffer_pool::BufferPool;
+    use crate::infer_shapes;
+    use crate::infer_shapes::InferShapes;
     use crate::operator::{OpError, OperatorExt};
     use crate::ops::layout::{
-        Reshape, Shape, Size, expand, flatten, reshape, reshape_in_place, squeeze,
+        Reshape, Shape, Size, Transpose, expand, flatten, reshape, reshape_in_place, squeeze,
         squeeze_in_place, transpose, unsqueeze,
     };
     use crate::value::Value;
@@ -1355,6 +1389,29 @@ mod tests {
             result.err(),
             Some(OpError::InvalidValue("Permutation is invalid"))
         );
+    }
+
+    #[test]
+    fn test_transpose_infer_shapes() {
+        // Example from the `MatMul(Queries, Transpose(Keys))` op in a
+        // transformer.
+        let data = infer_shapes::dims!("batch", "heads", "seq", "dim");
+        let op = Transpose {
+            perm: Some([0, 1, 3, 2].into()),
+        };
+        let shapes = op.infer_shapes(infer_shapes::inputs([data])).unwrap();
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(
+            shapes[0],
+            infer_shapes::inferred_dims!("batch", "heads", "dim", "seq")
+        );
+
+        // Example with no `perm` attribute.
+        let data = infer_shapes::dims!("rows", "cols");
+        let op = Transpose { perm: None };
+        let shapes = op.infer_shapes(infer_shapes::inputs([data])).unwrap();
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(shapes[0], infer_shapes::inferred_dims!("cols", "rows"));
     }
 
     #[test]
