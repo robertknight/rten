@@ -8,7 +8,6 @@ use rten_tensor::Layout;
 use smallvec::SmallVec;
 
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError};
-use crate::operator::Operator;
 use crate::ops::resolve_axes;
 use crate::value::ValueView;
 
