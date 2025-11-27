@@ -537,6 +537,10 @@ macro_rules! logical_boolean_op {
                 let b: TensorView<i32> = inputs.require_as(1)?;
                 $op_fn(ctx.pool(), a, b).into_op_result()
             }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                Some(&infer_shapes::BINARY_OP)
+            }
         }
     };
 }
@@ -604,6 +608,10 @@ impl Operator for Div {
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), div_in_place, div)
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&infer_shapes::BINARY_OP)
+    }
 }
 
 enum BooleanOp {
@@ -664,6 +672,10 @@ macro_rules! boolean_cmp_op {
 
             fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
                 run_typed_op!(ctx.pool(), ctx.inputs(), $func)
+            }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                Some(&infer_shapes::BINARY_OP)
             }
         }
     };
@@ -802,6 +814,10 @@ impl Operator for Mul {
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), mul_in_place, mul)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&infer_shapes::BINARY_OP)
     }
 }
 
@@ -959,6 +975,10 @@ impl Operator for Pow {
         } else {
             self.eval(ctx, base.as_view(), exponent)
         }
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&infer_shapes::BINARY_OP)
     }
 }
 

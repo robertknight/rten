@@ -10,6 +10,8 @@ use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes;
+use crate::infer_shapes::{InferShapes, InferredDimension, ShapeInferenceError};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{map_value_view, resolve_axis, resolve_index};
@@ -185,7 +187,26 @@ impl Operator for Gather {
             gather(ctx.pool(), x, self.axis, indices).into_op_result()
         })
     }
+
+    // fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+    //     Some(self)
+    // }
 }
+
+// impl InferShapes for Gather {
+//     fn infer_shapes(
+//         &self,
+//         inputs: Vec<infer_shapes::Input>,
+//     ) -> Result<Vec<Vec<InferredDimension>>, ShapeInferenceError> {
+//         let [input, indices] = &inputs[..] else {
+//             return Err(ShapeInferenceError::IncorrectInputCount);
+//         };
+//         let axis = resolve_axis(input.ndim(), self.axis)
+//             .map_err(|_| ShapeInferenceError::IncorrectRank)?;
+
+//         todo!()
+//     }
+// }
 
 pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
     pool: &BufferPool,

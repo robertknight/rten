@@ -441,6 +441,10 @@ impl Operator for IsInf {
         let output = input.map_in(ctx.pool(), |x| i32::from(x.is_infinite()));
         output.into_op_result()
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&infer_shapes::UNARY_OP)
+    }
 }
 
 #[derive(Debug)]
@@ -459,6 +463,10 @@ impl Operator for IsNaN {
         let input: TensorView<f32> = ctx.inputs().require_as(0)?;
         let output = input.map_in(ctx.pool(), |x| i32::from(x.is_nan()));
         output.into_op_result()
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&infer_shapes::UNARY_OP)
     }
 }
 
