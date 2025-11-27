@@ -2,14 +2,14 @@
 //!
 //! This module also provides implementations of shape inference that are
 //! reused by many operators, such as unary and binary ops.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rten_tensor::Layout;
 use smallvec::SmallVec;
 
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError};
 use crate::ops::resolve_axes;
-use crate::value::ValueView;
+use crate::value::{Value, ValueView};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShapeInferenceError {
@@ -95,7 +95,7 @@ pub enum Input<'a> {
 }
 
 impl Input<'_> {
-    fn ndim(&self) -> usize {
+    pub fn ndim(&self) -> usize {
         match self {
             Self::Constant(val) => val.ndim(),
             Self::SymValue(_) => 1,
@@ -103,7 +103,7 @@ impl Input<'_> {
         }
     }
 
-    fn dim(&self, index: usize) -> Dimension {
+    pub fn dim(&self, index: usize) -> Dimension {
         match self {
             Self::Constant(val) => Dimension::Fixed(val.shape()[index]),
             Self::SymValue(val) => {
@@ -114,9 +114,30 @@ impl Input<'_> {
         }
     }
 
-    fn dims(&self) -> impl Iterator<Item = Dimension> {
+    pub fn get_dim(&self, index: usize) -> Option<Dimension> {
+        if index < self.ndim() {
+            Some(self.dim(index))
+        } else {
+            None
+        }
+    }
+
+    pub fn dims(&self) -> impl Iterator<Item = Dimension> {
         (0..self.ndim()).map(|d| self.dim(d))
     }
+}
+
+/// An output value from shape inference.
+///
+/// For each output of an operator, the value can have:
+///
+///  1. Known shape and value
+///  2. Known shape and symbolic value
+///  3. Symbolic shape and unknown value
+pub enum Output {
+    Constant(Value),
+    SymValue(Vec<Dimension>),
+    Value(Vec<Dimension>),
 }
 
 // trait GetNodeValue {
@@ -342,6 +363,7 @@ impl InferShapes for ReductionOpInfer<'_> {
 /// In that case errors for individual operators are returned in the
 /// [`InferShapesResult`] value.
 pub enum InferShapesError {
+    #[allow(unused)] // Currently ignored downstream
     PlanError(RunError),
 }
 
@@ -350,6 +372,7 @@ pub struct InferShapesResult {
     pub shapes: HashMap<NodeId, Vec<Dimension>>,
 
     /// Map of operator node ID to shape inference error.
+    #[allow(unused)] // Currently ignored downstream.
     pub errors: HashMap<NodeId, ShapeInferenceError>,
 }
 
@@ -365,12 +388,21 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferShapesResult, InferShapesError
     let mut values: HashMap<NodeId, Vec<Dimension>> = HashMap::new();
     let mut errors: HashMap<NodeId, ShapeInferenceError> = HashMap::new();
 
+    let mut unsupported_ops = HashSet::new();
+
     'op_loop: for op_id in ops {
         let Some(Node::Operator(op)) = graph.get_node(op_id) else {
             // TODO - Return an error if the plan includes non-op nodes.
             continue;
         };
+
         let Some(infer) = op.operator().as_infer_shapes() else {
+            let name = op.operator().name();
+            if !unsupported_ops.contains(name) {
+                println!("unsupported op for shape inference {}", name);
+                unsupported_ops.insert(name);
+            }
+
             // Skip operators if we don't have a shape inference implementation.
             continue;
         };
@@ -399,6 +431,28 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferShapesResult, InferShapesError
                 Some(Node::Operator(_)) | None => unreachable!("invalid input ID"),
             }
         }
+
+        // Run inference.
+        //
+        // At this point we have several possibilities:
+        //
+        // - If we have concrete values for all inputs, we could just run the
+        //   operator directly.
+        // - If we have symbolic values for all inputs and a symbolic value
+        //   implementation, we can run compute the symbolic value output.
+        //
+        //   Symbolic value inference needed for Shape downstream ops:
+        //
+        //   - Gather
+        //   - Unsqueeze
+        //   - Concat
+        //   - Reshape (for `shape` input)
+        //   - Expand (for `shape` input)
+        //   - Mul?
+        //   - ConstantOfShape (as input)
+        //
+        // - Otherwise we run shape inference.
+
         let out_shapes = infer.infer_shapes(inputs);
 
         match out_shapes {
@@ -436,6 +490,9 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferShapesResult, InferShapesError
 }
 
 #[cfg(test)]
+pub(crate) use tests::{dims, inferred_dims, inputs};
+
+#[cfg(test)]
 mod tests {
     use rten_testing::TestCases;
 
@@ -450,14 +507,16 @@ mod tests {
             vec![$(crate::Dimension::from($x)),*]
         };
     }
+    pub(crate) use dims;
 
     macro_rules! inferred_dims {
         ($($x:expr),* $(,)?) => {
             vec![$(super::InferredDimension::from($x)),*]
         };
     }
+    pub(crate) use inferred_dims;
 
-    fn inputs(dims: impl IntoIterator<Item = Vec<Dimension>>) -> Vec<Input<'static>> {
+    pub(crate) fn inputs(dims: impl IntoIterator<Item = Vec<Dimension>>) -> Vec<Input<'static>> {
         dims.into_iter().map(Input::Value).collect()
     }
 
