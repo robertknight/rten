@@ -2,11 +2,13 @@
 //!
 //! This module also provides implementations of shape inference that are
 //! reused by many operators, such as unary and binary ops.
+use std::collections::HashMap;
 
 use rten_tensor::Layout;
 use smallvec::SmallVec;
 
-use crate::graph::Dimension;
+use crate::graph::{Dimension, Graph, Node, NodeId, RunError};
+use crate::operator::Operator;
 use crate::ops::resolve_axes;
 use crate::value::ValueView;
 
@@ -22,6 +24,10 @@ pub enum ShapeInferenceError {
 
     /// An input's rank does not match that expected by the operator.
     IncorrectRank,
+
+    /// Operator has a missing optional input, which is not currently supported
+    /// by shape inference.
+    MissingOptionalInput,
 }
 
 /// Inferred size of a single output dimension.
@@ -299,7 +305,7 @@ impl InferShapes for ReductionOpInfer<'_> {
 
         let data = &inputs[0];
         let mut axes: SmallVec<[usize; 4]> =
-            if let Some(Input::Constant(ValueView::Int32Tensor(axes))) = inputs.get(2) {
+            if let Some(Input::Constant(ValueView::Int32Tensor(axes))) = inputs.get(1) {
                 resolve_axes(data.ndim(), axes.iter())
                     .map_err(|_| ShapeInferenceError::IncorrectRank)?
             } else if let Some(axes) = self.axes {
@@ -331,43 +337,104 @@ impl InferShapes for ReductionOpInfer<'_> {
     }
 }
 
-// Other:
-//
-//  - Concat
-//  - Expand
-//  - Flatten
-//      - Output is 2D, where each dim is a product of dims 0..axis or
-//        axis..ndim of the input
-//  - Gather
-//  - MatMul
-//  - MatMulNBits
-//      - Output
-//  - Range: Output depends upon input values
-//  - Reshape:
-//      - Output always depends upon `shape` input
-//      - Output may depend upon `data` input
-//  - Shape
-//      - Output is a vector of length equal to input shape rank
-//      - Output of inference includes both the shape and the values. If the
-//        values are all fixed, we could just replace the Shape operator with
-//        a constant.
-//  - Slice: Output shape depends upon inputs
-//  - Transpose: Re-orders input according to `perm` attr
-//  - Unsqueeze: Inserts a single size-1 axis
-//  - Where: Broadcasts three input shapes together
+/// Errors that prevent shape inference from finishing.
+///
+/// Shape inference can still complete if errors only happen for certain nodes.
+/// In that case errors for individual operators are returned in the
+/// [`InferShapesResult`] value.
+pub enum InferShapesError {
+    PlanError(RunError),
+}
 
-// TODO: Need to design what the API to drive shape inference will be like.
-// Something like:
+pub struct InferShapesResult {
+    /// Map of value node ID to inferred shape.
+    pub shapes: HashMap<NodeId, Vec<Dimension>>,
 
-// use crate::graph::NodeId;
-// use crate::value::ValueMeta;
-// use std::collections::HashMap;
+    /// Map of operator node ID to shape inference error.
+    pub errors: HashMap<NodeId, ShapeInferenceError>,
+}
 
-// pub fn infer_shapes(graph: &Graph) -> HashMap<NodeId, Result<ValueMeta, ShapeInferenceError>> {
-//     // Start with an initial set of nodes that have known shapes and types
-//     // (inputs, constants) and iteratively expand the set.
-//     todo!()
-// }
+/// Infer the shapes of operator outputs in a graph.
+///
+/// Returns a map of value node ID to shape.
+pub fn infer_shapes(graph: &Graph) -> Result<InferShapesResult, InferShapesError> {
+    let ops = graph
+        .execution_plan(graph.input_ids(), graph.output_ids(), Default::default())
+        .map_err(InferShapesError::PlanError)?;
+
+    let mut next_unknown_index = 0;
+    let mut values: HashMap<NodeId, Vec<Dimension>> = HashMap::new();
+    let mut errors: HashMap<NodeId, ShapeInferenceError> = HashMap::new();
+
+    'op_loop: for op_id in ops {
+        let Some(Node::Operator(op)) = graph.get_node(op_id) else {
+            // TODO - Return an error if the plan includes non-op nodes.
+            continue;
+        };
+        let Some(infer) = op.operator().as_infer_shapes() else {
+            // Skip operators if we don't have a shape inference implementation.
+            continue;
+        };
+
+        let mut inputs = Vec::new();
+        for input_id in op.input_ids() {
+            let Some(input_id) = input_id else {
+                errors.insert(op_id, ShapeInferenceError::MissingOptionalInput);
+                continue 'op_loop;
+            };
+
+            match graph.get_node(*input_id) {
+                Some(Node::Constant(constant)) => {
+                    inputs.push(Input::Constant(constant.as_view()));
+                }
+                Some(Node::Value(val)) => {
+                    if let Some(dims) = values.get(input_id) {
+                        inputs.push(Input::Value(dims.to_vec()));
+                    } else if let Some(shape) = val.shape() {
+                        inputs.push(Input::Value(shape.to_vec()));
+                    } else {
+                        // Stop inference once we reach a value with unknown shape.
+                        break;
+                    }
+                }
+                Some(Node::Operator(_)) | None => unreachable!("invalid input ID"),
+            }
+        }
+        let out_shapes = infer.infer_shapes(inputs);
+
+        match out_shapes {
+            Ok(out_shapes) => {
+                for (out_id, out_shape) in op.output_ids().iter().zip(out_shapes) {
+                    let Some(out_id) = out_id else {
+                        continue;
+                    };
+
+                    let dims = out_shape
+                        .iter()
+                        .map(|dim| match dim {
+                            InferredDimension::Fixed(size) => Dimension::Fixed(*size),
+                            InferredDimension::Symbolic(name) => Dimension::Symbolic(name.clone()),
+                            InferredDimension::Unknown => {
+                                let name = format!("unknown_{}", next_unknown_index);
+                                next_unknown_index += 1;
+                                Dimension::Symbolic(name)
+                            }
+                        })
+                        .collect();
+                    values.insert(*out_id, dims);
+                }
+            }
+            Err(err) => {
+                errors.insert(op_id, err);
+            }
+        }
+    }
+
+    Ok(InferShapesResult {
+        shapes: values,
+        errors,
+    })
+}
 
 #[cfg(test)]
 mod tests {
@@ -499,19 +566,52 @@ mod tests {
 
         let axes = TensorView::from(&[1i32]);
 
-        let cases = [Case {
-            inputs: [
-                Input::Value(dims!(3, 4, 5)),
-                Input::Constant(axes.clone().into()),
-            ]
-            .into(),
-            op: ReductionOpInfer {
-                axes: None,
-                keep_dims: false,
-                noop_with_empty_axes: false,
+        let default_op = ReductionOpInfer {
+            axes: None,
+            keep_dims: false,
+            noop_with_empty_axes: false,
+        };
+
+        let cases = [
+            // Reduce single axis
+            Case {
+                inputs: [
+                    Input::Value(dims!("batch", 4, 5)),
+                    Input::Constant(axes.clone().into()),
+                ]
+                .into(),
+                op: default_op.clone(),
+                expected: dims!("batch", 5),
             },
-            expected: dims!(3, 5),
-        }];
+            // Reduce single axis specified as an attribute
+            Case {
+                inputs: [Input::Value(dims!("batch", 4, 5))].into(),
+                op: ReductionOpInfer {
+                    axes: Some(axes.data().unwrap()),
+                    ..default_op
+                },
+                expected: dims!("batch", 5),
+            },
+            // Reduce single axis with `keep_dims=true`
+            Case {
+                inputs: [
+                    Input::Value(dims!("batch", 4, 5)),
+                    Input::Constant(axes.clone().into()),
+                ]
+                .into(),
+                op: ReductionOpInfer {
+                    keep_dims: true,
+                    ..default_op
+                },
+                expected: dims!("batch", 1, 5),
+            },
+            // Reduce all axes
+            Case {
+                inputs: [Input::Value(dims!(3, 4, 5))].into(),
+                op: default_op.clone(),
+                expected: dims!(),
+            },
+        ];
 
         cases.test_each(|case| {
             let shapes = case.op.infer_shapes(case.inputs.clone()).unwrap();

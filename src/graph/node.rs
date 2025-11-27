@@ -37,7 +37,7 @@ impl Node {
         match self {
             Node::Operator(_) => None,
             Node::Constant(node) => Some(Cow::Owned(dims_from_fixed_shape(node.layout().shape()))),
-            Node::Value(node) => node.shape.as_deref().map(Cow::Borrowed),
+            Node::Value(node) => node.shape(),
         }
     }
 
@@ -201,6 +201,14 @@ impl ValueNode {
     /// Return the number of dimensions in this value, if it has shape information.
     pub fn ndim(&self) -> Option<usize> {
         self.shape.as_ref().map(|s| s.len())
+    }
+
+    pub fn shape(&self) -> Option<Cow<'_, [Dimension]>> {
+        self.shape.as_deref().map(Cow::Borrowed)
+    }
+
+    pub fn update_shape(&mut self, shape: Vec<Dimension>) {
+        self.shape = Some(shape);
     }
 
     fn name(&self) -> Option<&str> {

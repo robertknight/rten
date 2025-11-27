@@ -628,6 +628,14 @@ impl Graph {
             .or_insert([op_id].into());
     }
 
+    /// Update the shape metadata for a value node.
+    pub fn update_value_shape(&mut self, value_id: NodeId, shape: Vec<Dimension>) {
+        let Some(Node::Value(value_node)) = self.get_node_mut(value_id) else {
+            panic!("value node no found");
+        };
+        value_node.update_shape(shape);
+    }
+
     /// Return the total number of parameters in all constant nodes in this
     /// graph and subgraphs.
     pub fn total_params(&self) -> usize {
