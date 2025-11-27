@@ -9,6 +9,8 @@ use rten_tensor::{AssumeInit, NdTensorView, NdTensorViewMut};
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes;
+use crate::infer_shapes::InferShapes;
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::{map_value, map_value_view};
 use crate::value::{Value, ValueView};
@@ -487,6 +489,10 @@ impl Operator for Add {
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), add_in_place, add)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&infer_shapes::BINARY_OP)
     }
 }
 
