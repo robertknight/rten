@@ -7,6 +7,9 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes::{
+    InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymValue, SymbolGen,
+};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{map_value, map_value_view, resolve_axes, resolve_axis};
@@ -591,6 +594,52 @@ impl Operator for Transpose {
         map_value_view!(input, x, {
             transpose(ctx.pool(), x, perm_slice).into_op_result()
         })
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for Transpose {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymValue],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymValue>, InferShapesError> {
+        let [input] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        if let Some(dims) = input.dims() {
+            let permuted_dims = if let Some(perm) = &self.perm {
+                let dims: Vec<_> = dims.collect();
+                let mut permuted = Vec::with_capacity(perm.len());
+                for &idx in perm {
+                    if idx >= dims.len() {
+                        return Err(InferShapesError::IncorrectRank);
+                    }
+                    permuted.push(dims[idx].clone());
+                }
+                permuted
+            } else {
+                let mut dims: Vec<_> = dims.collect();
+                dims.reverse();
+                dims
+            };
+            Ok([SymValue::Shape(permuted_dims)].into())
+        } else if let Some(perm) = &self.perm {
+            // If the input shape is unknown, but we have a permutation then
+            // we can assume the output rank will match the permutation.
+            let dims = (0..perm.len()).map(|_| sym_gen.gen_symbol()).collect();
+            Ok([SymValue::Shape(dims)].into())
+        } else {
+            Ok([SymValue::Unknown].into())
+        }
     }
 }
 
