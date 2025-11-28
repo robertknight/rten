@@ -30,6 +30,7 @@ pub enum InferShapesError {
     MissingOptionalInput,
 }
 
+/// Shape inference value where the dimension count and values are all known.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Constant {
     Scalar(i32),
@@ -74,10 +75,18 @@ impl SymTensor {
 ///
 /// A symbolic value can have:
 ///
-///  1. A concrete shape and values
-///  2. A concrete shape and symbolic values
-///  3. A symbolic shape and unknown values
+///  1. A concrete shape and values, such as for graph constants.
+///  2. A concrete shape and symbolic values. For example a `Shape` operator
+///     with an input of shape ("batch", "seq", 64) will output a vector with
+///     values `["batch", "seq", 64]` where the quoted values are symbols.
+///  3. A symbolic shape and unknown values, such as for model inputs.
 ///  4. An unknown shape and value
+///
+/// For cases (1) and (2), supported values are currently limited to scalars and
+/// vectors of integers. Other values are represented as case (3). This is
+/// because working with concrete and symbolic values is mainly needed for
+/// evaluating subgraphs that manipulate tensor shapes, where the values are
+/// integers.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SymValue {
     /// Tensor with known shape and value.
@@ -99,6 +108,7 @@ impl SymValue {
         SymValue::Shape(shape.iter().copied().map(Dimension::Fixed).collect())
     }
 
+    /// Return the number of dimensions, if known.
     pub fn ndim(&self) -> Option<usize> {
         match self {
             Self::Constant(val) => Some(val.ndim()),
@@ -108,6 +118,8 @@ impl SymValue {
         }
     }
 
+    /// Return the index'th dimension, if the dimensions are known and the index
+    /// is valid.
     pub fn dim(&self, index: usize) -> Option<Dimension> {
         match self {
             Self::Constant(val) => match val {
@@ -135,6 +147,7 @@ impl SymValue {
         }
     }
 
+    /// Return an iterator over the dimensions or `None` if unknown.
     pub fn dims(&self) -> Option<impl ExactSizeIterator<Item = Dimension>> {
         let ndim = self.ndim()?;
         let dims = (0..ndim).map(|d| self.dim(d).unwrap());
