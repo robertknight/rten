@@ -77,6 +77,7 @@ impl SymTensor {
 ///  1. A concrete shape and values
 ///  2. A concrete shape and symbolic values
 ///  3. A symbolic shape and unknown values
+///  4. An unknown shape and value
 #[derive(Clone, Debug, PartialEq)]
 pub enum SymValue {
     /// Tensor with known shape and value.
@@ -85,6 +86,8 @@ pub enum SymValue {
     Value(SymTensor),
     /// Tensor with known shape but unknown values.
     Shape(Vec<Dimension>),
+    /// Tensor with unknown shape.
+    Unknown,
 }
 
 impl SymValue {
@@ -96,44 +99,46 @@ impl SymValue {
         SymValue::Shape(shape.iter().copied().map(Dimension::Fixed).collect())
     }
 
-    pub fn ndim(&self) -> usize {
+    pub fn ndim(&self) -> Option<usize> {
         match self {
-            Self::Constant(val) => val.ndim(),
-            Self::Value(val) => val.ndim(),
-            Self::Shape(val) => val.len(),
+            Self::Constant(val) => Some(val.ndim()),
+            Self::Value(val) => Some(val.ndim()),
+            Self::Shape(val) => Some(val.len()),
+            Self::Unknown => None,
         }
     }
 
-    pub fn dim(&self, index: usize) -> Dimension {
+    pub fn dim(&self, index: usize) -> Option<Dimension> {
         match self {
             Self::Constant(val) => match val {
-                Constant::Scalar(_) => panic!("value is a scalar"),
+                Constant::Scalar(_) => None,
                 Constant::Vector(val) => {
-                    assert_eq!(index, 0);
-                    Dimension::Fixed(val.len())
+                    if index == 0 {
+                        Some(Dimension::Fixed(val.len()))
+                    } else {
+                        None
+                    }
                 }
             },
             Self::Value(sym) => match sym {
-                SymTensor::Scalar(_) => panic!("value is a scalar"),
+                SymTensor::Scalar(_) => None,
                 SymTensor::Vector(val) => {
-                    assert_eq!(index, 0);
-                    Dimension::Fixed(val.len())
+                    if index == 0 {
+                        Some(Dimension::Fixed(val.len()))
+                    } else {
+                        None
+                    }
                 }
             },
-            Self::Shape(val) => val[index].clone(),
+            Self::Shape(val) => Some(val[index].clone()),
+            Self::Unknown => None,
         }
     }
 
-    pub fn get_dim(&self, index: usize) -> Option<Dimension> {
-        if index < self.ndim() {
-            Some(self.dim(index))
-        } else {
-            None
-        }
-    }
-
-    pub fn dims(&self) -> impl Iterator<Item = Dimension> {
-        (0..self.ndim()).map(|d| self.dim(d))
+    pub fn dims(&self) -> Option<impl ExactSizeIterator<Item = Dimension>> {
+        let ndim = self.ndim()?;
+        let dims = (0..ndim).map(|d| self.dim(d).unwrap());
+        Some(dims)
     }
 }
 
@@ -226,17 +231,21 @@ impl InferShapes for BinaryOpInfer {
             return Err(InferShapesError::IncorrectInputCount);
         };
 
-        let a_pad = b.ndim().saturating_sub(a.ndim());
-        let b_pad = a.ndim().saturating_sub(b.ndim());
+        let (Some(a_dims), Some(b_dims)) = (a.dims(), b.dims()) else {
+            return Ok([SymValue::Unknown].into());
+        };
+
+        let a_pad = b_dims.len().saturating_sub(a_dims.len());
+        let b_pad = a_dims.len().saturating_sub(b_dims.len());
+        let mut out_shape: Vec<Dimension> = Vec::with_capacity(a_pad + a_dims.len());
 
         let a_iter = std::iter::repeat(Dimension::Fixed(1))
             .take(a_pad)
-            .chain(a.dims());
+            .chain(a_dims);
         let b_iter = std::iter::repeat(Dimension::Fixed(1))
             .take(b_pad)
-            .chain(b.dims());
+            .chain(b_dims);
 
-        let mut out_shape: Vec<Dimension> = Vec::with_capacity(a.ndim().max(b.ndim()));
         for (a, b) in a_iter.zip(b_iter) {
             let dim: Dimension = match (a, b) {
                 (a, b) if a == b => a.clone(),
@@ -305,27 +314,31 @@ impl InferShapes for ReductionOpInfer<'_> {
         }
 
         let data = &inputs[0];
+
+        let Some(data_dims) = data.dims() else {
+            return Ok([SymValue::Unknown].into());
+        };
+
+        let ndim = data_dims.len();
         let mut axes: SmallVec<[usize; 4]> =
             if let Some(SymValue::Constant(Constant::Vector(axes))) = inputs.get(1) {
-                resolve_axes(data.ndim(), axes.iter())
-                    .map_err(|_| InferShapesError::IncorrectRank)?
+                resolve_axes(ndim, axes.iter()).map_err(|_| InferShapesError::IncorrectRank)?
             } else if let Some(axes) = self.axes {
-                resolve_axes(data.ndim(), axes.iter())
-                    .map_err(|_| InferShapesError::IncorrectRank)?
+                resolve_axes(ndim, axes.iter()).map_err(|_| InferShapesError::IncorrectRank)?
             } else {
-                (0..data.ndim()).collect()
+                (0..ndim).collect()
             };
         axes.sort();
         axes.dedup();
 
         let out_ndim = if self.keep_dims {
-            data.ndim()
+            ndim
         } else {
-            data.ndim() - axes.len()
+            ndim - axes.len()
         };
         let mut out_shape = Vec::with_capacity(out_ndim);
 
-        for (i, dim) in data.dims().enumerate() {
+        for (i, dim) in data_dims.enumerate() {
             if !axes.contains(&i) {
                 out_shape.push(dim.clone());
                 continue;
@@ -488,8 +501,9 @@ pub fn infer_graph(graph: &Graph) -> Result<InferResult, InferError> {
     // Extract shapes from symbolic values.
     let mut shapes = HashMap::with_capacity(symbolic_values.len());
     for (value_id, sym_value) in symbolic_values {
-        let dims = sym_value.dims().collect();
-        shapes.insert(value_id, dims);
+        if let Some(dims) = sym_value.dims() {
+            shapes.insert(value_id, dims.collect());
+        }
     }
 
     Ok(InferResult { shapes, types })
