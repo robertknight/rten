@@ -472,8 +472,7 @@ pub fn infer_graph(graph: &Graph) -> Result<InferResult, InferError> {
                         } else if let Some(shape) = val.shape() {
                             inputs.push(SymValue::from_shape(shape));
                         } else {
-                            // Skip inference if any input shapes are unknown.
-                            continue 'op_loop;
+                            inputs.push(SymValue::Unknown);
                         }
                     }
                     Some(Node::Operator(_)) | None => unreachable!("invalid input ID"),
