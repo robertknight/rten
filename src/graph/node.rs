@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::fmt;
 use std::sync::Arc;
 
 use rten_tensor::prelude::*;
@@ -37,7 +38,7 @@ impl Node {
         match self {
             Node::Operator(_) => None,
             Node::Constant(node) => Some(Cow::Owned(dims_from_fixed_shape(node.layout().shape()))),
-            Node::Value(node) => node.shape.as_deref().map(Cow::Borrowed),
+            Node::Value(node) => node.shape(),
         }
     }
 
@@ -74,7 +75,7 @@ impl Node {
 
 /// Represents the size of a dimension of a runtime-provided value, such as
 /// an operator input, output or intermediate value.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Dimension {
     /// A dimension whose expected size is fixed and specified as part of the
     /// model.
@@ -83,6 +84,33 @@ pub enum Dimension {
     /// A dimension whose size is determined at runtime. The symbol provides
     /// a name to identify when different values share a size.
     Symbolic(String),
+}
+
+impl From<usize> for Dimension {
+    fn from(val: usize) -> Dimension {
+        Dimension::Fixed(val)
+    }
+}
+
+impl From<String> for Dimension {
+    fn from(name: String) -> Dimension {
+        Dimension::Symbolic(name)
+    }
+}
+
+impl<'a> From<&'a str> for Dimension {
+    fn from(name: &'a str) -> Dimension {
+        Dimension::Symbolic(name.into())
+    }
+}
+
+impl fmt::Debug for Dimension {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Fixed(size) => write!(f, "{}", size),
+            Self::Symbolic(name) => write!(f, "\"{}\"", name),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -183,6 +211,18 @@ impl ValueNode {
     /// Return the number of dimensions in this value, if it has shape information.
     pub fn ndim(&self) -> Option<usize> {
         self.shape.as_ref().map(|s| s.len())
+    }
+
+    pub fn shape(&self) -> Option<Cow<'_, [Dimension]>> {
+        self.shape.as_deref().map(Cow::Borrowed)
+    }
+
+    pub fn update_shape(&mut self, shape: Vec<Dimension>) {
+        self.shape = Some(shape);
+    }
+
+    pub fn update_type(&mut self, dtype: DataType) {
+        self.dtype = Some(dtype);
     }
 
     fn name(&self) -> Option<&str> {

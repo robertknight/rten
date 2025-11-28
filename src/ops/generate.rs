@@ -1,12 +1,17 @@
 use std::ops;
 
 use rten_base::num::Identities;
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::errors::DimensionError;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    static_dims,
+};
 use crate::ops::{map_dtype, map_value_view, resolve_axis, resolve_index};
 use crate::value::{DataType, Scalar, ValueType, ValueView};
 
@@ -46,7 +51,26 @@ impl Operator for ConstantOfShape {
             Scalar::Float(value) => constant_of_shape(pool, value, &shape).into_op_result(),
         }
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(self.value.dtype())].into())
+    }
 }
+
+impl_infer_shapes!(
+    ConstantOfShape,
+    op,
+    shape_ops::ConstantOfShape {
+        value: match op.value {
+            Scalar::Int(val) => Some(val),
+            Scalar::Float(_) => None,
+        },
+    }
+);
 
 pub fn onehot<T: Copy + Default + PartialEq>(
     pool: &BufferPool,
@@ -171,6 +195,14 @@ impl Operator for Range {
             let delta = delta.try_into()?;
             range(start, limit, delta).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::Range)
     }
 }
 

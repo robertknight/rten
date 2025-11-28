@@ -1,10 +1,15 @@
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::infer_shapes::InferShapes;
+use crate::operator::{
+    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList,
+};
 use crate::ops::{map_value, map_value_view, resolve_axis};
 use crate::value::{Value, ValueView};
 
@@ -170,6 +175,14 @@ impl Operator for Slice {
             slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
             Ok(output.into())
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::Slice)
     }
 }
 

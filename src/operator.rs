@@ -14,6 +14,7 @@ use smallvec::SmallVec;
 
 use crate::BufferPool;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
+use crate::infer_shapes::InferShapes;
 use crate::timing::Profiler;
 use crate::value::{DataType, DataTypeOf, TryFromValueError, Value, ValueType, ValueView};
 use crate::weight_cache::WeightCache;
@@ -311,6 +312,17 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     }
 }
 
+/// Rule for determining the type of an operator output.
+pub enum OutputType {
+    /// This output has a fixed type, given the operator's attributes.
+    Fixed(DataType),
+    /// This output has the same type as the input at a given index.
+    CopyFromInput(u32),
+}
+
+/// List of type rules for each operator output.
+pub type OutputTypeList = SmallVec<[OutputType; 1]>;
+
 /// Outputs from an operator.
 ///
 /// This avoids allocations in the common case where an operator produces
@@ -415,6 +427,16 @@ pub trait Operator: Any + Debug {
     /// Return the [`SubgraphOperator`] implementation for this operator, if
     /// this operator has subgraphs.
     fn as_subgraph_op(&self) -> Option<&dyn SubgraphOperator> {
+        None
+    }
+
+    /// Return the shape inference implementation for this operator.
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
+    }
+
+    /// Return the rules for determining the types of this operator's outputs.
+    fn output_types(&self) -> Option<OutputTypeList> {
         None
     }
 }

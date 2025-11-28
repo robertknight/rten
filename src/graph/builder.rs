@@ -367,6 +367,14 @@ impl_binary_op!(Mul, mul, Mul);
 impl_binary_op!(Div, div, Div);
 impl_binary_op!(Sub, sub, Sub);
 
+/// Create a [`Dimension`] array from a list of symbolic names and fixed sizes.
+macro_rules! dims {
+    ($($x:expr),* $(,)?) => {
+        [$(Dimension::from($x)),*]
+    };
+}
+pub(crate) use dims;
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::Tensor;

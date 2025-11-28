@@ -4,14 +4,18 @@ use std::iter::repeat;
 use std::mem::MaybeUninit;
 
 use rten_base::num::{AsBool, Identities, IsInt};
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{AssumeInit, NdTensorView, NdTensorViewMut};
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::infer_shapes::{BinaryOp, InferShapes};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
 use crate::ops::{map_value, map_value_view};
-use crate::value::{Value, ValueView};
+use crate::value::{DataType, Value, ValueView};
 
 /// Given the shapes of two inputs to a binary operation, return the shape
 /// that will result from broadcasting them following NumPy rules or `None`
@@ -488,6 +492,14 @@ impl Operator for Add {
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), add_in_place, add)
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::Add)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 /// Define a logical boolean operator.
@@ -530,6 +542,14 @@ macro_rules! logical_boolean_op {
                 let a: TensorView<i32> = inputs.require_as(0)?;
                 let b: TensorView<i32> = inputs.require_as(1)?;
                 $op_fn(ctx.pool(), a, b).into_op_result()
+            }
+
+            fn output_types(&self) -> Option<OutputTypeList> {
+                Some([OutputType::Fixed(DataType::Int32)].into())
+            }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                Some(&BinaryOp)
             }
         }
     };
@@ -598,6 +618,14 @@ impl Operator for Div {
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), div_in_place, div)
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::Div)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 enum BooleanOp {
@@ -628,7 +656,7 @@ fn boolean_op<T: Copy + Debug + PartialEq + PartialOrd>(
 /// Define a boolean comparison operator which supports all numeric tensor
 /// types.
 macro_rules! boolean_cmp_op {
-    ($name:ident, $func:ident) => {
+    ($name:ident, $func:ident, $infer_shapes:expr) => {
         pub fn $func<T: Copy + Debug + PartialEq + PartialOrd>(
             pool: &BufferPool,
             a: TensorView<T>,
@@ -659,15 +687,29 @@ macro_rules! boolean_cmp_op {
             fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
                 run_typed_op!(ctx.pool(), ctx.inputs(), $func)
             }
+
+            fn output_types(&self) -> Option<OutputTypeList> {
+                Some([OutputType::Fixed(DataType::Int32)].into())
+            }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                $infer_shapes(self)
+            }
         }
     };
 }
 
-boolean_cmp_op!(Equal, equal);
-boolean_cmp_op!(Greater, greater);
-boolean_cmp_op!(GreaterOrEqual, greater_or_equal);
-boolean_cmp_op!(Less, less);
-boolean_cmp_op!(LessOrEqual, less_or_equal);
+boolean_cmp_op!(Equal, equal, |_| Some(
+    &shape_ops::Equal as &dyn InferShapes
+));
+boolean_cmp_op!(Greater, greater, |_| Some(&BinaryOp as &dyn InferShapes));
+boolean_cmp_op!(GreaterOrEqual, greater_or_equal, |_| Some(
+    &BinaryOp as &dyn InferShapes
+));
+boolean_cmp_op!(Less, less, |_| Some(&BinaryOp as &dyn InferShapes));
+boolean_cmp_op!(LessOrEqual, less_or_equal, |_| Some(
+    &BinaryOp as &dyn InferShapes
+));
 
 /// Calculate the remainder of `x / y` using floored division. See
 /// [`DivMode`] for an explanation.
@@ -796,6 +838,14 @@ impl Operator for Mul {
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), mul_in_place, mul)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::Mul)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
@@ -954,6 +1004,14 @@ impl Operator for Pow {
             self.eval(ctx, base.as_view(), exponent)
         }
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&BinaryOp)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 /// Perform elementwise subtraction of two tensors.
@@ -995,6 +1053,14 @@ impl Operator for Sub {
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), sub_in_place, sub)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&BinaryOp)
     }
 }
 
@@ -1080,6 +1146,14 @@ impl Operator for Where {
             let y = inputs.require_as(2)?;
             where_op(ctx.pool(), condition, x, y).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(1)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::Where)
     }
 }
 

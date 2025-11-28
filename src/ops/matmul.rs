@@ -5,18 +5,21 @@ use rten_gemm::{
     GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOptions, GemmOutT, GemmUninitOptions,
     PackedBMatrix, QuantParams,
 };
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{CowNdTensor, Matrix, NdTensorView, Tensor, TensorView};
 use rten_vecmath::ExtendInit;
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes::InferShapes;
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput, static_dims,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    PrepackedInput, static_dims,
 };
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
-use crate::value::ValueView;
+use crate::value::{DataType, ValueView};
 
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
 ///
@@ -386,6 +389,14 @@ impl Operator for MatMul {
         } else {
             None
         }
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Float)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::MatMul)
     }
 }
 
@@ -808,6 +819,14 @@ impl Operator for MatMulNBits {
             self.accuracy_level,
         )
         .into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Float)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::MatMulNBits)
     }
 }
 

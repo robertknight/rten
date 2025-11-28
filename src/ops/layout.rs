@@ -8,10 +8,14 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    static_dims,
+};
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{map_value, map_value_view, resolve_axes, resolve_axis};
-use crate::value::{Value, ValueView};
+use crate::value::{DataType, Value, ValueView};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DepthToSpaceMode {
@@ -187,6 +191,14 @@ impl Operator for Expand {
             Ok(output.into())
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::Expand)
+    }
 }
 
 fn flattened_shape(shape: &[usize], axis: isize) -> Result<[usize; 2], OpError> {
@@ -252,7 +264,23 @@ impl Operator for Flatten {
             Ok(x.into())
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    Flatten,
+    op,
+    shape_ops::Flatten {
+        axis: op.axis as i32
+    }
+);
 
 /// Compute the target shape for a reshape operation, given the shape of the
 /// input tensor and a target `shape` which may contain a "-1" entry to indicate
@@ -386,7 +414,23 @@ impl Operator for Reshape {
             Ok(output.into())
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    Reshape,
+    op,
+    shape_ops::Reshape {
+        allow_zero: op.allow_zero
+    }
+);
 
 #[derive(Debug, Default)]
 pub struct Shape {
@@ -411,7 +455,6 @@ impl Operator for Shape {
             end: self.end,
         };
         let dim_range = shape_op.resolve_start_end(input.ndim());
-
         let shape_slice = &input.shape()[dim_range];
 
         // Allocate output from pool for consistency with other operators,
@@ -421,7 +464,24 @@ impl Operator for Shape {
 
         Tensor::from_data(&[shape_slice.len()], data).into_op_result()
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
+    }
 }
+
+impl_infer_shapes!(
+    Shape,
+    op,
+    shape_ops::Shape {
+        start: op.start,
+        end: op.end
+    }
+);
 
 #[derive(Debug)]
 pub struct Size {}
@@ -573,7 +633,23 @@ impl Operator for Transpose {
             transpose(ctx.pool(), x, perm_slice).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    Transpose,
+    op,
+    shape_ops::Transpose {
+        perm: op.perm.as_deref(),
+    }
+);
 
 pub fn unsqueeze_in_place<T: Clone>(
     mut input: Tensor<T>,
@@ -644,6 +720,14 @@ impl Operator for Unsqueeze {
         map_value!(input, output, {
             Ok(unsqueeze_in_place(output, &axes)?.into())
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&rten_shape_inference::ops::Unsqueeze)
     }
 }
 

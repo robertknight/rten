@@ -49,7 +49,9 @@ pub fn load(
     .map_err(|err| LoadErrorImpl::ParseFailed(Box::new(err)))?;
 
     let optimize_opts = if options.optimize {
-        OptimizeMode::On(OptimizeOptions::default())
+        OptimizeMode::On(OptimizeOptions {
+            infer_shapes: options.infer_shapes,
+        })
     } else {
         OptimizeMode::Off
     };

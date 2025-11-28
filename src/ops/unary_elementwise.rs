@@ -11,10 +11,13 @@ use rten_tensor::{AssumeInit, Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::infer_shapes::{InferShapes, UnaryOp};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::{map_value, map_value_view};
-use crate::value::{Value, ValueView};
+use crate::value::{DataType, Value, ValueView};
 
 trait UnaryKernel<T> {
     /// Apply the unary operation to elements of `src`, writing to `dst`.
@@ -144,6 +147,14 @@ macro_rules! impl_operator {
                     let result = unary_op_in_place(ctx.pool(), input, &kernel);
                     Ok(result.into())
                 })
+            }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                Some(&UnaryOp)
+            }
+
+            fn output_types(&self) -> Option<OutputTypeList> {
+                Some([OutputType::CopyFromInput(0)].into())
             }
         }
     };
@@ -310,6 +321,14 @@ impl Operator for Clip {
             Ok(input.into())
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
 }
 
 declare_operator!(Cos);
@@ -453,6 +472,14 @@ impl Operator for IsNaN {
         let input: TensorView<f32> = ctx.inputs().require_as(0)?;
         let output = input.map_in(ctx.pool(), |x| i32::from(x.is_nan()));
         output.into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 }
 

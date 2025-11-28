@@ -7,7 +7,7 @@ use rten_testing::TestCases;
 
 use super::{GraphOptimizer, OptimizeError, OptimizeOptions};
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
-use crate::graph::builder::{Expr, OutputMeta};
+use crate::graph::builder::{Expr, OutputMeta, dims};
 use crate::graph::{
     CaptureEnv, Constant, Graph, Node, NodeId, OperatorNode, PlanOptions, TypedConstant,
 };
@@ -1217,4 +1217,30 @@ fn test_fuse_grouped_query_attention_matmul_with_transpose_and_scale() {
     assert_eq!(qkv_matmul.repeats, n_repeats);
     assert_eq!(qkv_matmul.alpha, Some(1.0 / scale));
     assert_eq!(qkv_matmul.transpose_rhs, true);
+}
+
+#[test]
+fn test_infer_shapes() {
+    // Build a graph that has input shape and type metadata, but no output
+    // metadata.
+    let graph = {
+        let x = Expr::value_with_info("data", DataType::Float, &dims!("batch", 64));
+        let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
+        let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
+        out.build_graph(&["data"])
+    };
+
+    // Run optimization with shape inference enabled.
+    let optimizer = GraphOptimizer::new();
+    let graph = optimizer
+        .optimize(graph, None, OptimizeOptions { infer_shapes: true })
+        .unwrap();
+
+    // Verify that values were updated with inferred shapes and types.
+    let output = graph.get_node(graph.output_ids()[0]).unwrap();
+    assert_eq!(
+        output.shape().as_deref(),
+        Some(dims!("batch", 12).as_slice())
+    );
+    assert_eq!(output.dtype(), Some(DataType::Float));
 }
