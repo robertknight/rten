@@ -9,11 +9,34 @@ use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
+use crate::infer_shapes::{
+    InferShapes, InferShapesError, InferTypes, ReductionOpInfer, SAME_AS_FIRST_INPUT, SymValue,
+    SymbolGen,
+};
 use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{map_value_view, resolve_axes, resolve_axis};
 use crate::slice_reductions::{slice_fold_assoc, slice_sum};
 use crate::value::ValueView;
+
+macro_rules! impl_infer_shapes {
+    ($op:ident) => {
+        impl InferShapes for $op {
+            fn infer_shapes(
+                &self,
+                inputs: &[SymValue],
+                sym_gen: &mut SymbolGen,
+            ) -> Result<Vec<SymValue>, InferShapesError> {
+                ReductionOpInfer {
+                    axes: self.axes.as_deref(),
+                    keep_dims: self.keep_dims,
+                    noop_with_empty_axes: self.noop_with_empty_axes,
+                }
+                .infer_shapes(inputs, sym_gen)
+            }
+        }
+    };
+}
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
@@ -465,7 +488,17 @@ impl Operator for ReduceMean {
             .into_op_result()
         })
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
 }
+
+impl_infer_shapes!(ReduceMean);
 
 pub fn reduce_l2(
     pool: &BufferPool,

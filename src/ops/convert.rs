@@ -5,6 +5,7 @@ use rten_tensor::Tensor;
 use rten_tensor::prelude::*;
 
 use crate::buffer_pool::BufferPool;
+use crate::infer_shapes::{InferShapes, InferShapesError, InferTypes, UNARY_OP};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::value::{DataType, Value, ValueType, ValueView};
 
@@ -132,6 +133,23 @@ impl Operator for Cast {
                 Ok(converted)
             }
         }
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UNARY_OP)
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(self)
+    }
+}
+
+impl InferTypes for Cast {
+    fn infer_types(
+        &self,
+        _inputs: &[Option<DataType>],
+    ) -> Result<Vec<Option<DataType>>, InferShapesError> {
+        Ok(vec![Some(self.to)])
     }
 }
 

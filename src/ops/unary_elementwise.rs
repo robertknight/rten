@@ -11,6 +11,7 @@ use rten_tensor::{AssumeInit, Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes::{InferShapes, InferTypes, SAME_AS_FIRST_INPUT, UNARY_OP};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::{map_value, map_value_view};
@@ -144,6 +145,14 @@ macro_rules! impl_operator {
                     let result = unary_op_in_place(ctx.pool(), input, &kernel);
                     Ok(result.into())
                 })
+            }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                Some(&UNARY_OP)
+            }
+
+            fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+                Some(&SAME_AS_FIRST_INPUT)
             }
         }
     };
