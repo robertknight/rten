@@ -11,6 +11,7 @@ use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
     PlanOptions, RunError,
 };
+use crate::infer_shapes::infer_graph;
 use crate::operator::Operator;
 use crate::ops::Identity;
 
@@ -349,6 +350,19 @@ impl GraphOptimizer {
         _options: OptimizeOptions,
     ) -> Result<Graph, OptimizeError> {
         let mut graph_mut = GraphMutator::from_graph(graph);
+
+        // Perform shape inference to update type and shape metadata for nodes.
+        //
+        // This can unlock fusions which have restrictions on the shapes and
+        // types of inputs.
+        if let Ok(infer_result) = infer_graph(&graph_mut.graph) {
+            for (value_id, shape) in infer_result.shapes {
+                graph_mut.graph.update_value_shape(value_id, shape);
+            }
+            for (value_id, dtype) in infer_result.types {
+                graph_mut.graph.update_value_type(value_id, dtype);
+            }
+        }
 
         // "Early" fusions. These are fusions which can benefit constant
         // propagation by enabling it to eliminate more nodes, or by avoiding

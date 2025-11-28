@@ -165,6 +165,7 @@ mod buffer_pool;
 mod constant_storage;
 mod env;
 mod graph;
+mod infer_shapes;
 mod model;
 mod op_registry;
 mod operator;

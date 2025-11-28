@@ -11,6 +11,7 @@ use rten_tensor::{AssumeInit, Tensor, TensorView, TensorViewMut};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes::{ALWAYS_INT, InferShapes, InferTypes, SAME_AS_FIRST_INPUT, UnaryOp};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::{map_value, map_value_view};
@@ -144,6 +145,14 @@ macro_rules! impl_operator {
                     let result = unary_op_in_place(ctx.pool(), input, &kernel);
                     Ok(result.into())
                 })
+            }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                Some(&UnaryOp)
+            }
+
+            fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+                Some(&SAME_AS_FIRST_INPUT)
             }
         }
     };
@@ -310,6 +319,14 @@ impl Operator for Clip {
             Ok(input.into())
         })
     }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
 }
 
 declare_operator!(Cos);
@@ -453,6 +470,14 @@ impl Operator for IsNaN {
         let input: TensorView<f32> = ctx.inputs().require_as(0)?;
         let output = input.map_in(ctx.pool(), |x| i32::from(x.is_nan()));
         output.into_op_result()
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&ALWAYS_INT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 }
 

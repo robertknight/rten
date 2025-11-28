@@ -810,6 +810,15 @@ pub enum Scalar {
     Float(f32),
 }
 
+impl Scalar {
+    pub fn dtype(&self) -> DataType {
+        match self {
+            Self::Int(_) => DataType::Int32,
+            Self::Float(_) => DataType::Float,
+        }
+    }
+}
+
 /// Errors from operations on [`Sequence`] values.
 #[derive(Debug)]
 pub enum SequenceError {

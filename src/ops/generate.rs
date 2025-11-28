@@ -6,6 +6,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
+use crate::infer_shapes::{
+    InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymElem, SymTensor, SymbolGen,
+};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
 use crate::ops::{map_dtype, map_value_view, resolve_axis, resolve_index};
 use crate::value::{DataType, Scalar, ValueType, ValueView};
@@ -45,6 +48,67 @@ impl Operator for ConstantOfShape {
             Scalar::Int(value) => constant_of_shape(pool, value, &shape).into_op_result(),
             Scalar::Float(value) => constant_of_shape(pool, value, &shape).into_op_result(),
         }
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for ConstantOfShape {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [shape] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let out_shape = if let Some(values) = shape.values() {
+            if let Scalar::Int(val) = self.value
+                && values.len() <= 1
+            {
+                if let Some(vec_len) = values.get(0) {
+                    match vec_len {
+                        &SymElem::Value(vec_len) => {
+                            if let Ok(vec_len) = vec_len.try_into() {
+                                SymTensor::from_vec(vec![SymElem::Value(val); vec_len])
+                            } else {
+                                return Err(InferShapesError::InvalidValue);
+                            }
+                        }
+                        SymElem::Var(_) | SymElem::Add(_) | SymElem::Mul(_) | SymElem::Max(_) => {
+                            SymTensor::from_shape(vec![vec_len.clone()])
+                        }
+                    }
+                } else {
+                    SymTensor::from_scalar(SymElem::Value(val))
+                }
+            } else {
+                SymTensor::from_shape(values.to_vec())
+            }
+        } else if let Some(dims) = shape.shape() {
+            let out_shape = (0..dims.len()).map(|_| sym_gen.gen_positive()).collect();
+            SymTensor::from_shape(out_shape)
+        } else {
+            SymTensor::unknown("unknown shape")
+        };
+
+        Ok(vec![out_shape.into()])
+    }
+}
+
+impl InferTypes for ConstantOfShape {
+    fn infer_types(
+        &self,
+        _inputs: &[Option<DataType>],
+    ) -> Result<Vec<Option<DataType>>, InferShapesError> {
+        Ok(vec![Some(self.value.dtype())])
     }
 }
 
@@ -171,6 +235,59 @@ impl Operator for Range {
             let delta = delta.try_into()?;
             range(start, limit, delta).into_op_result()
         })
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for Range {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [start, limit, delta] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let start = start.values().map(|v| v[0].clone());
+        let limit = limit.values().map(|v| v[0].clone());
+        let delta = delta.values().map(|v| v[0].clone());
+
+        let out_value = match (start, limit, delta) {
+            (
+                Some(SymElem::Value(start)),
+                Some(SymElem::Value(limit)),
+                Some(SymElem::Value(delta)),
+            ) => {
+                let mut values = Vec::new();
+                let mut val = start;
+                while val < limit {
+                    values.push(SymElem::Value(val));
+                    val += delta;
+                }
+                SymTensor::from_vec(values)
+            }
+            // Range(0, limit, 1) has shape [limit]
+            (Some(SymElem::Value(0)), Some(limit), Some(SymElem::Value(1))) => {
+                SymTensor::from_shape(vec![limit])
+            }
+            // Range(start, start + limit, 1) has shape [limit]
+            (Some(start), Some(SymElem::Add((limit_lhs, limit_rhs))), Some(SymElem::Value(1)))
+                if start == *limit_lhs =>
+            {
+                SymTensor::from_shape(vec![(*limit_rhs).clone()])
+            }
+            _ => SymTensor::from_shape(vec![sym_gen.gen_positive()]),
+        };
+
+        Ok(vec![out_value].into())
     }
 }
 

@@ -4,6 +4,10 @@ use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes;
+use crate::infer_shapes::{
+    InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymElem, SymTensor, SymbolGen,
+};
 use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::{map_value, map_value_view, resolve_axis};
 use crate::value::{Value, ValueView};
@@ -170,6 +174,91 @@ impl Operator for Slice {
             slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
             Ok(output.into())
         })
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for Slice {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        use infer_shapes::Constant;
+
+        let [data, starts, ends, rest @ ..] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let Some(data_dims) = data.shape() else {
+            return Ok([SymTensor::unknown("unknown input shape")].into());
+        };
+
+        let axes = rest
+            .get(0)
+            .map(|axes| axes.to_constant())
+            .unwrap_or_else(|| {
+                let axes = (0..data_dims.len()).map(|i| i as i32).collect();
+                Some(Constant::Vector(axes))
+            });
+
+        let steps = rest.get(1);
+
+        let sliced_shape = if let Some(axes) = axes {
+            let mut dims: Vec<_> = data_dims.collect();
+
+            let starts = starts.as_vector();
+            let ends = ends.as_vector();
+            let steps = steps.and_then(|s| s.as_vector());
+
+            for (i, axis) in axes.values().iter().copied().enumerate() {
+                let axis = resolve_axis(dims.len(), axis as isize)
+                    .map_err(|_| InferShapesError::IncorrectRank)?;
+
+                let start = starts.and_then(|s| s.get(i));
+                let end = ends.and_then(|e| e.get(i));
+                let step = steps.and_then(|s| s.get(i)).unwrap_or(&SymElem::Value(1));
+
+                if let Some(SymElem::Value(start)) = start
+                    && let Some(SymElem::Value(end)) = end
+                    && let SymElem::Value(step) = step
+                    && let SymElem::Value(size) = dims[axis]
+                {
+                    let end = match *end {
+                        i32::MAX => None,
+                        end => Some(end as isize),
+                    };
+                    dims[axis] = SymElem::Value(
+                        SliceRange::new(*start as isize, end, *step as isize).steps(size as usize)
+                            as i32,
+                    );
+                } else if start == Some(&SymElem::Value(0))
+                    && let Some(end) = end
+                    && end.is_positive()
+                    && step == &SymElem::Value(1)
+                {
+                    dims[axis] = end.clone();
+                } else {
+                    dims[axis] = sym_gen.gen_positive();
+                }
+            }
+
+            SymTensor::from_shape(dims)
+        } else {
+            let shape = (0..data_dims.len())
+                .map(|_| sym_gen.gen_positive())
+                .collect();
+            SymTensor::from_shape(shape)
+        };
+
+        Ok([sliced_shape].into())
     }
 }
 

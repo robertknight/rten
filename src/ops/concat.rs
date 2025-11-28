@@ -1,11 +1,13 @@
 use std::mem::MaybeUninit;
 
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{AssumeInit, NdTensorView, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes::{InferShapes, InferTypes, SAME_AS_FIRST_INPUT, impl_infer_shapes};
 use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::{map_value, map_value_view, resolve_axis};
 use crate::value::{TryFromValueError, Value, ValueView};
@@ -140,7 +142,19 @@ impl Operator for Concat {
             concat_in_place(ctx.pool(), input, &typed_inputs, self.axis).map(|t| t.into())
         })
     }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(Concat, |op: &Concat| shape_ops::Concat {
+    axis: op.axis as i32
+});
 
 /// Copied from `std::MaybeUninit::write_slice` in nightly std.
 fn write_slice<'a, T>(dest: &'a mut [MaybeUninit<T>], src: &[T]) -> &'a mut [T]

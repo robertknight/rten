@@ -9,9 +9,13 @@ use rten_tensor::{AssumeInit, NdTensorView, NdTensorViewMut};
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes::{
+    ALWAYS_INT, BinaryOp, InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT,
+    SameAsInput, SymElem, SymTensor, SymbolGen,
+};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::{map_value, map_value_view};
-use crate::value::{Value, ValueView};
+use crate::value::{DataType, Value, ValueView};
 
 /// Given the shapes of two inputs to a binary operation, return the shape
 /// that will result from broadcasting them following NumPy rules or `None`
@@ -444,6 +448,56 @@ macro_rules! run_typed_op_in_place {
     }};
 }
 
+fn symbolic_binary_op(
+    lhs: &SymTensor,
+    rhs: &SymTensor,
+    mut op: impl FnMut(&SymElem, &SymElem) -> Option<SymElem>,
+) -> Option<SymTensor> {
+    if let Some(x) = lhs.as_scalar()
+        && let Some(y) = rhs.as_scalar()
+    {
+        let result = op(x, y)?;
+        Some(SymTensor::from_scalar(result))
+    } else if let Some(lhs_values) = lhs.values()
+        && let Some(rhs_values) = rhs.values()
+    {
+        let bin_op = |(x, y)| op(x, y);
+        let elems: Option<Vec<SymElem>> = match (lhs_values.len(), rhs_values.len()) {
+            (1, _) => lhs_values
+                .iter()
+                .cycle()
+                .zip(rhs_values)
+                .map(bin_op)
+                .collect(),
+            (_, 1) => lhs_values
+                .iter()
+                .zip(rhs_values.iter().cycle())
+                .map(bin_op)
+                .collect(),
+            _ => lhs_values.iter().zip(rhs_values).map(bin_op).collect(),
+        };
+        Some(SymTensor::from_vec(elems?))
+    } else {
+        None
+    }
+}
+
+fn binary_op_infer_shapes(
+    inputs: &[SymTensor],
+    sym_gen: &mut SymbolGen,
+    op: impl FnMut(&SymElem, &SymElem) -> Option<SymElem>,
+) -> Result<Vec<SymTensor>, InferShapesError> {
+    let [lhs, rhs] = inputs else {
+        return Err(InferShapesError::IncorrectInputCount);
+    };
+
+    if let Some(result) = symbolic_binary_op(lhs, rhs, op) {
+        return Ok([result].into());
+    }
+
+    BinaryOp.infer_shapes(inputs, sym_gen)
+}
+
 /// Perform elementwise addition of two tensors.
 pub fn add<T: Copy + Debug + Default + std::ops::Add<Output = T>>(
     pool: &BufferPool,
@@ -488,6 +542,30 @@ impl Operator for Add {
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), add_in_place, add)
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+}
+
+impl InferShapes for Add {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let add = |x: &SymElem, y: &SymElem| {
+            Some(match (x, y) {
+                (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x + y),
+                _ => x.clone() + y.clone(),
+            })
+        };
+        binary_op_infer_shapes(inputs, sym_gen, add)
+    }
 }
 
 /// Define a logical boolean operator.
@@ -530,6 +608,14 @@ macro_rules! logical_boolean_op {
                 let a: TensorView<i32> = inputs.require_as(0)?;
                 let b: TensorView<i32> = inputs.require_as(1)?;
                 $op_fn(ctx.pool(), a, b).into_op_result()
+            }
+
+            fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+                Some(&ALWAYS_INT)
+            }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                Some(&BinaryOp)
             }
         }
     };
@@ -598,6 +684,28 @@ impl Operator for Div {
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), div_in_place, div)
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+}
+
+impl InferShapes for Div {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let div = |x: &SymElem, y: &SymElem| match (x, y) {
+            (SymElem::Value(x), SymElem::Value(y)) if *y != 0 => Some(SymElem::Value(x / y)),
+            _ => None,
+        };
+        binary_op_infer_shapes(inputs, sym_gen, div)
+    }
 }
 
 enum BooleanOp {
@@ -628,7 +736,7 @@ fn boolean_op<T: Copy + Debug + PartialEq + PartialOrd>(
 /// Define a boolean comparison operator which supports all numeric tensor
 /// types.
 macro_rules! boolean_cmp_op {
-    ($name:ident, $func:ident) => {
+    ($name:ident, $func:ident, $infer_shapes:expr) => {
         pub fn $func<T: Copy + Debug + PartialEq + PartialOrd>(
             pool: &BufferPool,
             a: TensorView<T>,
@@ -659,15 +767,54 @@ macro_rules! boolean_cmp_op {
             fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
                 run_typed_op!(ctx.pool(), ctx.inputs(), $func)
             }
+
+            fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+                Some(&ALWAYS_INT)
+            }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                $infer_shapes(self)
+            }
         }
     };
 }
 
-boolean_cmp_op!(Equal, equal);
-boolean_cmp_op!(Greater, greater);
-boolean_cmp_op!(GreaterOrEqual, greater_or_equal);
-boolean_cmp_op!(Less, less);
-boolean_cmp_op!(LessOrEqual, less_or_equal);
+boolean_cmp_op!(Equal, equal, |this| Some(this as &dyn InferShapes));
+boolean_cmp_op!(Greater, greater, |_| Some(&BinaryOp as &dyn InferShapes));
+boolean_cmp_op!(GreaterOrEqual, greater_or_equal, |_| Some(
+    &BinaryOp as &dyn InferShapes
+));
+boolean_cmp_op!(Less, less, |_| Some(&BinaryOp as &dyn InferShapes));
+boolean_cmp_op!(LessOrEqual, less_or_equal, |_| Some(
+    &BinaryOp as &dyn InferShapes
+));
+
+impl InferShapes for Equal {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let eq = |x: &SymElem, y: &SymElem| {
+            let (x_min, x_max) = x.range();
+            let (y_min, y_max) = y.range();
+
+            if x == y {
+                // Same symbol or value.
+                Some(SymElem::Value(1))
+            } else if x_max < y_min || y_max < x_min {
+                // Value ranges do not overlap, so the symbols must be
+                // non-equal.
+                Some(SymElem::Value(0))
+            } else {
+                // Possible ranges overlap, so we don't know if the symbols
+                // are equal.
+                None
+            }
+        };
+        binary_op_infer_shapes(inputs, sym_gen, eq)
+    }
+}
 
 /// Calculate the remainder of `x / y` using floored division. See
 /// [`DivMode`] for an explanation.
@@ -796,6 +943,30 @@ impl Operator for Mul {
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), mul_in_place, mul)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+}
+
+impl InferShapes for Mul {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let mul = |x: &SymElem, y: &SymElem| {
+            Some(match (x, y) {
+                (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x * y),
+                _ => x.clone() * y.clone(),
+            })
+        };
+        binary_op_infer_shapes(inputs, sym_gen, mul)
     }
 }
 
@@ -954,6 +1125,14 @@ impl Operator for Pow {
             self.eval(ctx, base.as_view(), exponent)
         }
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&BinaryOp)
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
 }
 
 /// Perform elementwise subtraction of two tensors.
@@ -995,6 +1174,14 @@ impl Operator for Sub {
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), sub_in_place, sub)
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&BinaryOp)
     }
 }
 
@@ -1080,6 +1267,73 @@ impl Operator for Where {
             let y = inputs.require_as(2)?;
             where_op(ctx.pool(), condition, x, y).into_op_result()
         })
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(self)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferTypes for Where {
+    fn infer_types(
+        &self,
+        inputs: &[Option<DataType>],
+    ) -> Result<Vec<Option<DataType>>, InferShapesError> {
+        SameAsInput { index: 1 }.infer_types(inputs)
+    }
+}
+
+impl InferShapes for Where {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [cond, x, y] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        if let Some(cond_vals) = cond.values()
+            && let Some(x_vals) = x.values()
+            && let Some(y_vals) = y.values()
+        {
+            let len = cond_vals.len().max(x_vals.len()).max(y_vals.len());
+
+            let cs = cond_vals.iter().cycle().take(len);
+            let xs = x_vals.iter().cycle().take(len);
+            let ys = y_vals.iter().cycle().take(len);
+
+            let vals: Option<Vec<SymElem>> = cs
+                .zip(xs.zip(ys))
+                .map(|(cond, (x, y))| {
+                    let cond_bool = match cond {
+                        SymElem::Value(v) => Some(*v == 1),
+                        SymElem::Var(_) | SymElem::Add(_) | SymElem::Mul(_) | SymElem::Max(_) => {
+                            None
+                        }
+                    }?;
+                    if cond_bool {
+                        Some(x.clone())
+                    } else {
+                        Some(y.clone())
+                    }
+                })
+                .collect();
+            if let Some(vals) = vals {
+                return Ok([SymTensor::from_vec(vals)].into());
+            }
+        }
+
+        // Broadcast the first two inputs together, then broadcast the result
+        // against the last input.
+        let cond_x = BinaryOp
+            .infer_shapes(&[cond.clone(), x.clone()], sym_gen)?
+            .remove(0);
+        BinaryOp.infer_shapes(&[cond_x, y.clone()], sym_gen)
     }
 }
 
