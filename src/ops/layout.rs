@@ -449,6 +449,9 @@ impl InferShapes for Reshape {
                     {
                         dims.push(dim);
                     } else if let Some(product) = dim_product(i) {
+                        // FIXME - If the reshape input contains a -1 size, the
+                        // output size is the product of the other reshape sizes
+                        // minus the product of the input size.
                         dims.push(product);
                         break;
                     } else {
