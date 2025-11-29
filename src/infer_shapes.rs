@@ -4,7 +4,7 @@
 //! are commonly used by many operators.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use smallvec::SmallVec;
 
@@ -461,6 +461,7 @@ pub fn infer_graph(graph: &Graph) -> Result<InferResult, InferError> {
 
     let mut symbolic_values: HashMap<NodeId, SymValue> = HashMap::new();
     let mut types: HashMap<NodeId, DataType> = HashMap::new();
+    let mut all_values: HashSet<NodeId> = HashSet::new();
     let mut symbol_gen = SymbolGen::new();
 
     'op_loop: for op_id in ops {
@@ -468,6 +469,9 @@ pub fn infer_graph(graph: &Graph) -> Result<InferResult, InferError> {
             // TODO - Return an error if the plan includes non-op nodes.
             continue;
         };
+
+        all_values.extend(op.input_ids().iter().flatten());
+        all_values.extend(op.output_ids().iter().flatten());
 
         // Perform type inference
         if let Some(type_infer) = op.operator().as_infer_types() {
@@ -552,13 +556,26 @@ pub fn infer_graph(graph: &Graph) -> Result<InferResult, InferError> {
         }
     }
 
+    let mut n_values = 0;
+
     // Extract shapes from symbolic values.
     let mut shapes = HashMap::with_capacity(symbolic_values.len());
     for (value_id, sym_value) in symbolic_values {
         if let Some(dims) = sym_value.dims() {
+            if matches!(sym_value, SymValue::Constant(_)) {
+                n_values += 1;
+            }
             shapes.insert(value_id, dims.collect());
         }
     }
+
+    println!(
+        "inferred shapes {} types {} values {} total values {}",
+        shapes.len(),
+        types.len(),
+        n_values,
+        all_values.len()
+    );
 
     Ok(InferResult { shapes, types })
 }
