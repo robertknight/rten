@@ -5,9 +5,12 @@ use rten_tensor::{AssumeInit, NdTensorView, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
+use crate::Dimension;
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes;
 use crate::infer_shapes::{
-    InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymValue, SymbolGen,
+    InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymElem, SymTensor, SymValue,
+    SymbolGen,
 };
 use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::{map_value, map_value_view, resolve_axis};
@@ -159,16 +162,94 @@ impl InferShapes for Concat {
         inputs: &[SymValue],
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymValue>, InferShapesError> {
-        // - If all inputs are constant vectors, the output is a constant vector.
-        // - If all inputs are either constant or symbolic vectors, the output
-        //   is a symbolic vector.
-        // - If first input has known rank, that is the rank of the output.
-        //   Otherwise return unknown.
-        //
-        //   The shape of each output dim is the same as the first input for
-        //   each dimension other than `self.axis`. For the axis dim, the
-        //   size is the concatenation of the input sizes.
-        todo!()
+        use infer_shapes::Constant;
+
+        let [first, rest @ ..] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let Some(first_dims) = first.dims() else {
+            return Ok([SymValue::Unknown].into());
+        };
+
+        let axis = resolve_axis(first_dims.len(), self.axis)
+            .map_err(|_| InferShapesError::IncorrectRank)?;
+
+        // If input is a constant or symbolic vector, return a constant or
+        // symbolic vector by concatenating each input.
+        if axis == 0
+            && inputs
+                .iter()
+                .all(|inp| matches!(inp, SymValue::Constant(_) | SymValue::Value(_)))
+        {
+            let value = if inputs
+                .iter()
+                .all(|inp| matches!(inp, SymValue::Constant(_)))
+            {
+                let mut values = Vec::new();
+                for inp in inputs {
+                    match inp {
+                        SymValue::Constant(Constant::Vector(vals)) => {
+                            values.extend(vals);
+                        }
+                        SymValue::Constant(Constant::Scalar(elem)) => {
+                            values.push(*elem);
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                SymValue::Constant(Constant::Vector(values))
+            } else {
+                let mut values = Vec::new();
+                for inp in inputs {
+                    match inp {
+                        SymValue::Constant(constant) => match constant {
+                            Constant::Vector(vec) => {
+                                values.extend(vec.iter().copied().map(SymElem::Value))
+                            }
+                            Constant::Scalar(elem) => values.push(SymElem::Value(*elem)),
+                        },
+                        SymValue::Value(value) => match value {
+                            SymTensor::Vector(vec) => {
+                                values.extend(vec.iter().cloned());
+                            }
+                            SymTensor::Scalar(elem) => {
+                                values.push(elem.clone());
+                            }
+                        },
+                        _ => unreachable!(),
+                    }
+                }
+                SymValue::Value(SymTensor::Vector(values))
+            };
+            return Ok([value].into());
+        }
+
+        let mut out_shape: Vec<_> = first_dims.collect();
+        let mut concat_axis_size_unknown = false;
+
+        for input in rest {
+            if let Some(dim) = input.dims().and_then(|mut dims| dims.nth(axis)) {
+                match (&out_shape[axis], dim) {
+                    (Dimension::Fixed(sum), Dimension::Fixed(delta)) => {
+                        out_shape[axis] = Dimension::Fixed(sum + delta);
+                    }
+                    _ => {
+                        concat_axis_size_unknown = true;
+                        break;
+                    }
+                }
+            } else {
+                concat_axis_size_unknown = true;
+                break;
+            }
+        }
+
+        if concat_axis_size_unknown {
+            out_shape[axis] = sym_gen.gen_symbol();
+        }
+
+        Ok([SymValue::Shape(out_shape)].into())
     }
 }
 
