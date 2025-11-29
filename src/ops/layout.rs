@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{
-    InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymValue, SymbolGen,
+    InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymTensor, SymValue, SymbolGen,
 };
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
@@ -443,6 +443,33 @@ impl Operator for Shape {
 
         Tensor::from_data(&[shape_slice.len()], data).into_op_result()
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for Shape {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymValue],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymValue>, InferShapesError> {
+        let [input] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let shape = match input {
+            SymValue::Constant(_) | SymValue::Value(_) => {
+                let dims: Vec<_> = input.dims().expect("should have dims").collect();
+                SymValue::Value(SymTensor::from_dimensions(&dims))
+            }
+            SymValue::Shape(shape) => SymValue::Value(SymTensor::from_dimensions(shape)),
+            SymValue::Unknown => SymValue::Unknown,
+        };
+
+        Ok([shape].into())
+    }
 }
 
 #[derive(Debug)]
@@ -784,7 +811,9 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{ComputeShape, DepthToSpaceMode, DimSpec, depth_to_space};
+    use crate::Dimension;
     use crate::buffer_pool::BufferPool;
+    use crate::infer_shapes::{InferShapes, SymElem, SymTensor, SymValue, SymbolGen};
     use crate::operator::{OpError, OperatorExt};
     use crate::ops::layout::{
         Reshape, Shape, Size, expand, flatten, reshape, reshape_in_place, squeeze,
@@ -1272,6 +1301,37 @@ mod tests {
             assert_eq!(result.shape(), &[case.expected.len()]);
             assert_eq!(result.to_vec(), case.expected);
         });
+    }
+
+    #[test]
+    fn test_shape_infer_shape() {
+        // Shape(rank N tensor) => Size N vector of symbolic values
+        let input = SymValue::Shape(vec![
+            Dimension::Symbolic("batch".into()),
+            Dimension::Symbolic("seq".into()),
+            Dimension::Fixed(64),
+        ]);
+        let expected = SymValue::Value(SymTensor::Vector(vec![
+            SymElem::Var("batch".into()),
+            SymElem::Var("seq".into()),
+            SymElem::Value(64),
+        ]));
+        let op = Shape {
+            start: None,
+            end: None,
+        };
+        let mut sym_gen = SymbolGen::new();
+        let shapes = op.infer_shapes(&[input], &mut sym_gen).unwrap();
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(shapes[0], expected);
+
+        // Shape(symbolic values) => Size 1 vector
+        let shape_of_shape = op.infer_shapes(&shapes, &mut sym_gen).unwrap();
+        assert_eq!(shape_of_shape.len(), 1);
+        assert_eq!(
+            shape_of_shape[0],
+            SymValue::Value(SymTensor::Vector(vec![SymElem::Value(3)]))
+        );
     }
 
     #[test]

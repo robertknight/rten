@@ -52,6 +52,15 @@ pub enum SymElem {
     Var(Box<str>),
 }
 
+impl SymElem {
+    pub fn from_dimension(dim: &Dimension) -> Self {
+        match dim {
+            Dimension::Fixed(size) => SymElem::Value((*size).min(i32::MAX as usize) as i32),
+            Dimension::Symbolic(name) => SymElem::Var(name.clone().into()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum SymTensor {
     Scalar(SymElem),
@@ -59,11 +68,15 @@ pub enum SymTensor {
 }
 
 impl SymTensor {
-    fn ndim(&self) -> usize {
+    pub fn ndim(&self) -> usize {
         match self {
             Self::Scalar(_) => 0,
             Self::Vector(_) => 1,
         }
+    }
+
+    pub fn from_dimensions(dims: &[Dimension]) -> Self {
+        Self::Vector(dims.iter().map(SymElem::from_dimension).collect())
     }
 }
 
