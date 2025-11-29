@@ -391,6 +391,86 @@ impl Operator for Reshape {
             Ok(output.into())
         })
     }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for Reshape {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymValue],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymValue>, InferShapesError> {
+        let [data, shape] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let nth_dim = |idx| data.dims().and_then(|mut d| d.nth(idx));
+
+        // Get the product of dimensions idx... from the input.
+        let dim_product = |idx| -> Option<Dimension> {
+            let mut dims = data.dims()?.skip(idx);
+
+            match dims.len() {
+                1 => dims.next(),
+                _ => {
+                    let mut product = 1;
+                    for dim in dims {
+                        match dim {
+                            Dimension::Fixed(d) => {
+                                product *= d;
+                            }
+                            Dimension::Symbolic(_) => {
+                                return None;
+                            }
+                        }
+                    }
+                    Some(Dimension::Fixed(product))
+                }
+            }
+        };
+
+        let out_shape = match shape {
+            SymValue::Constant(constant) => {
+                let sizes = constant.values();
+                let mut dims = Vec::with_capacity(sizes.len());
+
+                for (i, &size) in sizes.iter().enumerate() {
+                    if size > 0 || (size >= 0 && self.allow_zero) {
+                        dims.push(Dimension::Fixed(size as usize));
+                    } else if size == 0
+                        && let Some(dim) = nth_dim(i)
+                    {
+                        dims.push(dim);
+                    } else if let Some(product) = dim_product(i) {
+                        dims.push(product);
+                        break;
+                    } else {
+                        dims.push(sym_gen.gen_symbol());
+                    }
+                }
+                SymValue::Shape(dims)
+            }
+            SymValue::Value(value) => {
+                // TODO - If all dimensions are fixed, that will be the out shape.
+                // If any values are symbolic they _could_ be zero or -1.
+                let dims = value.values();
+                todo!()
+            }
+            SymValue::Shape(shape) => {
+                SymValue::Shape((0..shape.len()).map(|_| sym_gen.gen_symbol()).collect())
+            }
+            SymValue::Unknown => SymValue::Unknown,
+        };
+
+        Ok([out_shape].into())
+    }
 }
 
 #[derive(Debug, Default)]
