@@ -8,7 +8,8 @@ use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{
-    InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymTensor, SymValue, SymbolGen,
+    ALWAYS_INT, InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymTensor,
+    SymValue, SymbolGen,
 };
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
@@ -446,6 +447,10 @@ impl Operator for Shape {
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
         Some(self)
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&ALWAYS_INT)
     }
 }
 

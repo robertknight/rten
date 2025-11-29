@@ -407,6 +407,25 @@ impl InferTypes for SameAsInput {
 /// the first input.
 pub const SAME_AS_FIRST_INPUT: SameAsInput = SameAsInput { index: 0 };
 
+pub struct FixedTypes<const N: usize> {
+    pub types: [DataType; N],
+}
+
+impl<const N: usize> InferTypes for FixedTypes<N> {
+    fn infer_types(
+        &self,
+        _inputs: &[Option<DataType>],
+    ) -> Result<Vec<Option<DataType>>, InferShapesError> {
+        Ok(self.types.iter().copied().map(Some).collect())
+    }
+}
+
+/// Type inference for operators that always return a single output with type
+/// i32.
+pub const ALWAYS_INT: FixedTypes<1> = FixedTypes {
+    types: [DataType::Int32],
+};
+
 /// Errors that prevent shape inference from finishing.
 ///
 /// Shape inference can still complete if errors only happen for certain nodes.
