@@ -11,6 +11,9 @@ use rten_vecmath::ExtendInit;
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes::{
+    ALWAYS_FLOAT, InferShapes, InferShapesError, InferTypes, SymValue, SymbolGen,
+};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput, static_dims,
 };
@@ -808,6 +811,46 @@ impl Operator for MatMulNBits {
             self.accuracy_level,
         )
         .into_op_result()
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&ALWAYS_FLOAT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for MatMulNBits {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymValue],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymValue>, InferShapesError> {
+        let [lhs, rhs, ..] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+        let Some(lhs_dims) = lhs.dims() else {
+            return Ok([SymValue::Unknown].into());
+        };
+        let Some(rhs_dims) = rhs.dims() else {
+            return Ok([SymValue::Unknown].into());
+        };
+
+        if lhs_dims.len() < 2 || rhs_dims.len() < 2 {
+            return Err(InferShapesError::IncorrectRank);
+        };
+
+        // LHS shape is (batch_dims.., M, K). RHS shape is (N, K_blocks, block_size /
+        // elements_per_block). Output shape is (batch_dims.., M, N).
+        let lhs_ndim = lhs_dims.len();
+        let mut out_shape = Vec::with_capacity(lhs_ndim);
+
+        out_shape.extend(lhs_dims.take(lhs_ndim - 1));
+        out_shape.extend(rhs_dims.take(1));
+
+        Ok(vec![SymValue::Shape(out_shape)])
     }
 }
 

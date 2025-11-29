@@ -426,6 +426,12 @@ pub const ALWAYS_INT: FixedTypes<1> = FixedTypes {
     types: [DataType::Int32],
 };
 
+/// Type inference for operators that always return a single output with type
+/// f32.
+pub const ALWAYS_FLOAT: FixedTypes<1> = FixedTypes {
+    types: [DataType::Float],
+};
+
 /// Errors that prevent shape inference from finishing.
 ///
 /// Shape inference can still complete if errors only happen for certain nodes.
