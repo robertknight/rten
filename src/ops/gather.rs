@@ -10,6 +10,10 @@ use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes;
+use crate::infer_shapes::{
+    InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymValue, SymbolGen,
+};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{map_value_view, resolve_axis, resolve_index};
@@ -184,6 +188,91 @@ impl Operator for Gather {
         map_value_view!(input, x, {
             gather(ctx.pool(), x, self.axis, indices).into_op_result()
         })
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for Gather {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymValue],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymValue>, InferShapesError> {
+        use infer_shapes::{Constant, SymTensor};
+
+        let [data, indices] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let Some(mut data_dims) = data.dims() else {
+            return Ok([SymValue::Unknown].into());
+        };
+
+        let data_ndim = data_dims.len();
+        let Ok(axis) = resolve_axis(data_ndim, self.axis) else {
+            return Err(InferShapesError::IncorrectRank);
+        };
+
+        fn get<T: Clone>(vec: &[T], index: i32) -> Result<T, InferShapesError> {
+            let index: usize = index
+                .try_into()
+                .map_err(|_| InferShapesError::IncorrectRank)?;
+            vec.get(index)
+                .cloned()
+                .ok_or(InferShapesError::IncorrectRank)
+        }
+
+        // If the input is a concrete or symbolic value and indices are concrete
+        // the output is a symbolic value. For example `Gather<axis=0>(Shape(X),
+        // 1)` returns a symbolic scalar that is the first dimension of X.
+        //
+        // Otherwise we do standard shape inference and return a symbolic shape.
+        let value = if let SymValue::Constant(Constant::Vector(const_vec)) = data
+            && let SymValue::Constant(indices) = indices
+        {
+            let gathered = match indices {
+                Constant::Vector(idxs) => {
+                    let mut values = Vec::with_capacity(idxs.len());
+                    for idx in idxs {
+                        values.push(get(&const_vec, *idx)?);
+                    }
+                    Constant::Vector(values)
+                }
+                Constant::Scalar(idx) => Constant::Scalar(get(&const_vec, *idx)?),
+            };
+            SymValue::Constant(gathered)
+        } else if let SymValue::Value(SymTensor::Vector(sym_vec)) = data
+            && let SymValue::Constant(indices) = indices
+        {
+            let gathered = match indices {
+                Constant::Vector(idxs) => {
+                    let mut values = Vec::with_capacity(idxs.len());
+                    for idx in idxs {
+                        values.push(get(&sym_vec, *idx)?);
+                    }
+                    SymTensor::Vector(values)
+                }
+                Constant::Scalar(idx) => SymTensor::Scalar(get(&sym_vec, *idx)?),
+            };
+            SymValue::Value(gathered)
+        } else if let Some(index_dims) = indices.dims() {
+            let mut out_shape = Vec::with_capacity(data_dims.len() + index_dims.len() - 1);
+            out_shape.extend(data_dims.by_ref().take(axis));
+            out_shape.extend(index_dims);
+            out_shape.extend(data_dims.skip(1));
+            SymValue::Shape(out_shape)
+        } else {
+            SymValue::Unknown
+        };
+
+        Ok([value].into())
     }
 }
 
