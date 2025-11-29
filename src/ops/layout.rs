@@ -6,7 +6,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
+use crate::Dimension;
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes;
 use crate::infer_shapes::{
     ALWAYS_INT, InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymTensor,
     SymValue, SymbolGen,
@@ -744,6 +746,71 @@ impl Operator for Unsqueeze {
         map_value!(input, output, {
             Ok(unsqueeze_in_place(output, &axes)?.into())
         })
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for Unsqueeze {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymValue],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymValue>, InferShapesError> {
+        use infer_shapes::Constant;
+
+        let [data, axes] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        // If data is a constant or symbolic scalar and axes is 0, the output
+        // will be a length-1 vector. We can't handle higher-rank symbolic
+        // values yet.
+        //
+        // Otherwise if the input shape is known and `axes` is a constant, the
+        // output is a symbolic shape.
+        //
+        // Otherwise the output is unknown.
+
+        let axes_vec = match axes {
+            SymValue::Constant(Constant::Vector(axes)) => axes.as_slice(),
+            SymValue::Constant(Constant::Scalar(axis)) => &[*axis],
+            _ => {
+                return Ok([SymValue::Unknown].into());
+            }
+        };
+
+        let value = if let SymValue::Constant(Constant::Scalar(val)) = data
+            && axes_vec == [0]
+        {
+            SymValue::Constant(Constant::Vector([*val].into()))
+        } else if let SymValue::Value(SymTensor::Scalar(var)) = data
+            && axes_vec == [0]
+        {
+            SymValue::Value(SymTensor::Vector([var.clone()].into()))
+        } else if let Some(dims) = data.dims() {
+            let mut dims: Vec<_> = dims.collect();
+            let mut axes: Vec<_> = axes_vec.to_vec();
+            axes.sort();
+
+            for (i, axis) in axes.into_iter().enumerate() {
+                let axis = resolve_axis(dims.len() + 1, axis as isize)
+                    .map_err(|_| InferShapesError::IncorrectRank)?;
+                dims.insert(axis + i, Dimension::Fixed(1));
+            }
+
+            SymValue::Shape(dims)
+        } else {
+            SymValue::Unknown
+        };
+
+        Ok([value].into())
     }
 }
 
