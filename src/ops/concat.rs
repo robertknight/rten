@@ -6,6 +6,9 @@ use rten_tensor::{AssumeInit, NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes::{
+    InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymValue, SymbolGen,
+};
 use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::{map_value, map_value_view, resolve_axis};
 use crate::value::{TryFromValueError, Value, ValueView};
@@ -139,6 +142,33 @@ impl Operator for Concat {
             let typed_inputs = typed_inputs(ctx.inputs(), input.view())?;
             concat_in_place(ctx.pool(), input, &typed_inputs, self.axis).map(|t| t.into())
         })
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for Concat {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymValue],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymValue>, InferShapesError> {
+        // - If all inputs are constant vectors, the output is a constant vector.
+        // - If all inputs are either constant or symbolic vectors, the output
+        //   is a symbolic vector.
+        // - If first input has known rank, that is the rank of the output.
+        //   Otherwise return unknown.
+        //
+        //   The shape of each output dim is the same as the first input for
+        //   each dimension other than `self.axis`. For the axis dim, the
+        //   size is the concatenation of the input sizes.
+        todo!()
     }
 }
 
