@@ -475,6 +475,8 @@ impl InferShapes for Shape {
             SymValue::Unknown => SymValue::Unknown,
         };
 
+        // TODO - Handle the `start` and `end` attributes here.
+
         Ok([shape].into())
     }
 }
