@@ -526,6 +526,10 @@ pub fn infer_graph(graph: &Graph) -> Result<InferResult, InferError> {
 
             let out_shapes = infer.infer_shapes(&inputs, &mut symbol_gen);
 
+            // TODO - If the output of shape inference is a symbolic value,
+            // but all the elements are constant, we could normalize the whole
+            // value into a constant.
+
             match out_shapes {
                 Ok(out_shapes) => {
                     for (out_id, out_shape) in op.output_ids().iter().zip(out_shapes) {
