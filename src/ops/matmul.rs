@@ -12,7 +12,7 @@ use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{
-    ALWAYS_FLOAT, InferShapes, InferShapesError, InferTypes, SymValue, SymbolGen,
+    ALWAYS_FLOAT, BINARY_OP, InferShapes, InferShapesError, InferTypes, SymValue, SymbolGen,
 };
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput, static_dims,
@@ -389,6 +389,60 @@ impl Operator for MatMul {
         } else {
             None
         }
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&ALWAYS_FLOAT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for MatMul {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymValue],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymValue>, InferShapesError> {
+        let [lhs, rhs, ..] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+        let Some(mut lhs_dims) = lhs.dims() else {
+            return Ok([SymValue::Unknown].into());
+        };
+        let Some(mut rhs_dims) = rhs.dims() else {
+            return Ok([SymValue::Unknown].into());
+        };
+
+        let lhs_ndim = lhs_dims.len();
+        let rhs_ndim = rhs_dims.len();
+
+        if lhs_ndim < 2 || rhs_ndim < 2 {
+            // TODO - Handle the case where the LHS or RHS is a vector.
+            return Ok([SymValue::Unknown].into());
+        };
+
+        // Output shape is (broadcast(lhs_batch_dims, rhs_batch_dims), M, N)
+        let lhs_batch_dims = SymValue::Shape(lhs_dims.by_ref().take(lhs_ndim - 2).collect());
+        let rhs_batch_dims = SymValue::Shape(rhs_dims.by_ref().take(rhs_ndim - 2).collect());
+
+        let [batch_dims] = BINARY_OP
+            .infer_shapes(&[lhs_batch_dims, rhs_batch_dims], sym_gen)?
+            .try_into()
+            .expect("should have one output");
+
+        let SymValue::Shape(mut batch_dims) = batch_dims else {
+            return Ok(vec![SymValue::Unknown]);
+        };
+
+        let m = lhs_dims.next().unwrap();
+        let n = rhs_dims.skip(1).next().unwrap();
+        batch_dims.push(m);
+        batch_dims.push(n);
+
+        Ok(vec![SymValue::Shape(batch_dims)])
     }
 }
 
