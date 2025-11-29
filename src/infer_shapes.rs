@@ -38,10 +38,17 @@ pub enum Constant {
 }
 
 impl Constant {
-    fn ndim(&self) -> usize {
+    pub fn ndim(&self) -> usize {
         match self {
             Self::Scalar(_) => 0,
             Self::Vector(_) => 1,
+        }
+    }
+
+    pub fn values(&self) -> &[i32] {
+        match self {
+            Self::Scalar(elem) => std::slice::from_ref(elem),
+            Self::Vector(vec) => vec.as_slice(),
         }
     }
 }
@@ -77,6 +84,13 @@ impl SymTensor {
 
     pub fn from_dimensions(dims: &[Dimension]) -> Self {
         Self::Vector(dims.iter().map(SymElem::from_dimension).collect())
+    }
+
+    pub fn values(&self) -> &[SymElem] {
+        match self {
+            Self::Scalar(elem) => std::slice::from_ref(elem),
+            Self::Vector(vec) => vec.as_slice(),
+        }
     }
 }
 
