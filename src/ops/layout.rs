@@ -413,29 +413,6 @@ impl InferShapes for Reshape {
 
         let nth_dim = |idx| data.dims().and_then(|mut d| d.nth(idx));
 
-        // Get the product of dimensions idx... from the input.
-        let dim_product = |idx| -> Option<Dimension> {
-            let mut dims = data.dims()?.skip(idx);
-
-            match dims.len() {
-                1 => dims.next(),
-                _ => {
-                    let mut product = 1;
-                    for dim in dims {
-                        match dim {
-                            Dimension::Fixed(d) => {
-                                product *= d;
-                            }
-                            Dimension::Symbolic(_) => {
-                                return None;
-                            }
-                        }
-                    }
-                    Some(Dimension::Fixed(product))
-                }
-            }
-        };
-
         let out_shape = match shape {
             SymValue::Constant(constant) => {
                 let sizes = constant.values();
@@ -448,29 +425,38 @@ impl InferShapes for Reshape {
                         && let Some(dim) = nth_dim(i)
                     {
                         dims.push(dim);
-                    } else if let Some(product) = dim_product(i) {
-                        // FIXME - If the reshape input contains a -1 size, the
-                        // output size is the product of the other reshape sizes
-                        // minus the product of the input size.
-                        dims.push(product);
-                        break;
                     } else {
+                        // Size is -1, meaning that the dimension size should
+                        // be computed by subtracting the product of other shape
+                        // dimensions from the product of input dimensions.
                         dims.push(sym_gen.gen_symbol());
                     }
                 }
                 SymValue::Shape(dims)
             }
             SymValue::Value(value) => {
-                // TODO - If all dimensions are fixed, that will be the out shape.
-                // If any values are symbolic they _could_ be zero or -1.
-                let dims = value.values();
-                todo!()
+                // TODO - If all input values are fixed, the output will be
+                // as well. For symbolic dimensions we want to subtract those
+                // reused in the input and output.
+                //
+                // For example given `Reshape((A, B, 1024), (A, B, -1, 128))`
+                // we can infer the output shape is `(A, B, 8, 128)`.
+                SymValue::Shape(
+                    (0..value.values().len())
+                        .map(|_| sym_gen.gen_symbol())
+                        .collect(),
+                )
             }
             SymValue::Shape(shape) => {
                 SymValue::Shape((0..shape.len()).map(|_| sym_gen.gen_symbol()).collect())
             }
             SymValue::Unknown => SymValue::Unknown,
         };
+
+        println!(
+            "Reshape {:?} with shape {:?} to shape {:?}",
+            data, shape, out_shape
+        );
 
         Ok([out_shape].into())
     }
