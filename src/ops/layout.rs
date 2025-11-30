@@ -213,18 +213,31 @@ impl InferShapes for Expand {
         };
 
         let Some(sizes) = shape.values() else {
-            // TODO - If we know the rank of `shape` we can do better here.
-            //
-            // - For excess dims in shape, the size is unknown
-            // - For fixed dims in the shape != 1, that will be the size
-            // - For symbolic dims in the input where shape = 1, the size will
-            //   be the symbolic dim
-            // - For dims where the same symbolic dim appears in input and
-            //   shape, the size will be the symbolic dim.
-            // - For symbolic dims that are different in the input and output,
-            //   the result will be one of the two, but we don't know which,
-            //   since either may broadcast.
-            return Ok([SymValue::Unknown].into());
+            if let Some(data_dims) = data.dims()
+                && let Some(shape_len) = shape.dim(0).and_then(|d| match d {
+                    Dimension::Fixed(size) => Some(size),
+                    Dimension::Symbolic(_) => None,
+                })
+            {
+                let data_dims: Vec<_> = data_dims.collect();
+                let pad_dims = shape_len.saturating_sub(data_dims.len());
+                let expanded_dims = data_dims.len().max(shape_len);
+                let out_dims = (0..expanded_dims)
+                    .map(|i| {
+                        if i < pad_dims {
+                            sym_gen.gen_symbol()
+                        } else {
+                            match data_dims[i - pad_dims] {
+                                Dimension::Fixed(size) if size > 1 => Dimension::Fixed(size),
+                                _ => sym_gen.gen_symbol(),
+                            }
+                        }
+                    })
+                    .collect();
+                return Ok([SymValue::Shape(out_dims)].into());
+            } else {
+                return Ok([SymValue::Unknown].into());
+            }
         };
 
         let rhs_shape: Vec<Dimension> = sizes
