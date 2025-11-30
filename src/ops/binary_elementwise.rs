@@ -9,7 +9,7 @@ use rten_tensor::{AssumeInit, NdTensorView, NdTensorViewMut};
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::infer_shapes::{BINARY_OP, InferShapes, InferTypes, SAME_AS_FIRST_INPUT};
+use crate::infer_shapes::{ALWAYS_INT, BINARY_OP, InferShapes, InferTypes, SAME_AS_FIRST_INPUT};
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
 use crate::ops::{map_value, map_value_view};
 use crate::value::{Value, ValueView};
@@ -540,6 +540,14 @@ macro_rules! logical_boolean_op {
                 let b: TensorView<i32> = inputs.require_as(1)?;
                 $op_fn(ctx.pool(), a, b).into_op_result()
             }
+
+            fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+                Some(&ALWAYS_INT)
+            }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                Some(&BINARY_OP)
+            }
         }
     };
 }
@@ -675,6 +683,14 @@ macro_rules! boolean_cmp_op {
 
             fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
                 run_typed_op!(ctx.pool(), ctx.inputs(), $func)
+            }
+
+            fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+                Some(&ALWAYS_INT)
+            }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                Some(&BINARY_OP)
             }
         }
     };
