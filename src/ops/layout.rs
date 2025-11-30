@@ -10,8 +10,8 @@ use crate::Dimension;
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes;
 use crate::infer_shapes::{
-    ALWAYS_INT, InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymElem, SymTensor,
-    SymValue, SymbolGen,
+    ALWAYS_INT, BINARY_OP, InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymElem,
+    SymTensor, SymValue, SymbolGen,
 };
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
@@ -191,6 +191,52 @@ impl Operator for Expand {
             let output = expand_to(ctx.pool(), input.view(), &out_shape);
             Ok(output.into())
         })
+    }
+
+    fn as_infer_types(&self) -> Option<&dyn InferTypes> {
+        Some(&SAME_AS_FIRST_INPUT)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl InferShapes for Expand {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymValue],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymValue>, InferShapesError> {
+        let [data, shape] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let Some(sizes) = shape.values() else {
+            // TODO - If we know the rank of `shape` we can do better here.
+            //
+            // - For excess dims in shape, the size is unknown
+            // - For fixed dims in the shape != 1, that will be the size
+            // - For symbolic dims in the input where shape = 1, the size will
+            //   be the symbolic dim
+            // - For dims where the same symbolic dim appears in input and
+            //   shape, the size will be the symbolic dim.
+            // - For symbolic dims that are different in the input and output,
+            //   the result will be one of the two, but we don't know which,
+            //   since either may broadcast.
+            return Ok([SymValue::Unknown].into());
+        };
+
+        let rhs_shape: Vec<Dimension> = sizes
+            .into_iter()
+            .map(|s| match s {
+                // TODO - Handle negative values here.
+                SymElem::Value(v) => Dimension::Fixed(v as usize),
+                SymElem::Var(name) => Dimension::Symbolic(name.into()),
+            })
+            .collect();
+
+        BINARY_OP.infer_shapes(&[data.clone(), SymValue::Shape(rhs_shape)], sym_gen)
     }
 }
 
