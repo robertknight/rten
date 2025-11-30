@@ -28,6 +28,9 @@ pub enum InferShapesError {
     /// Operator has a missing optional input, which is not currently supported
     /// by shape inference.
     MissingOptionalInput,
+
+    /// An operator input or attribute has an invalid value.
+    InvalidValue,
 }
 
 /// Shape inference value where the dimension count and values are all known.
@@ -175,12 +178,41 @@ impl SymValue {
     }
 
     /// Return an iterator over the dimensions or `None` if unknown.
-    pub fn dims(&self) -> Option<impl ExactSizeIterator<Item = Dimension>> {
+    pub fn dims(&self) -> Option<impl ExactSizeIterator<Item = Dimension> + Clone> {
         let ndim = self.ndim()?;
         let dims = (0..ndim).map(|d| self.dim(d).unwrap());
         Some(dims)
     }
+
+    /// Return an iterator over the symbolic values in this tensor, or `None`
+    /// if unknown.
+    pub fn values(&self) -> Option<impl ExactSizeIterator<Item = SymElem>> {
+        match self {
+            SymValue::Constant(constant) => Some(SymValues::Constant(constant.values().iter())),
+            SymValue::Value(val) => Some(SymValues::Value(val.values().iter())),
+            SymValue::Shape(_) | SymValue::Unknown => None,
+        }
+    }
 }
+
+/// Iterator over symbolic values in a tensor.
+enum SymValues<'a> {
+    Constant(std::slice::Iter<'a, i32>),
+    Value(std::slice::Iter<'a, SymElem>),
+}
+
+impl<'a> Iterator for SymValues<'a> {
+    type Item = SymElem;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Constant(iter) => iter.next().copied().map(SymElem::Value),
+            Self::Value(iter) => iter.next().cloned(),
+        }
+    }
+}
+
+impl<'a> ExactSizeIterator for SymValues<'a> {}
 
 /// Generates names for symbolic dimensions.
 pub struct SymbolGen {
@@ -549,6 +581,12 @@ pub fn infer_graph(graph: &Graph) -> Result<InferResult, InferError> {
             }
 
             let out_shapes = infer.infer_shapes(&inputs, &mut symbol_gen);
+            println!(
+                "op {} input {:?} output {:?}",
+                op.name().unwrap_or(""),
+                inputs,
+                out_shapes
+            );
 
             // TODO - If the output of shape inference is a symbolic value,
             // but all the elements are constant, we could normalize the whole
@@ -567,6 +605,8 @@ pub fn infer_graph(graph: &Graph) -> Result<InferResult, InferError> {
                     // TODO - Track error for diagnostics.
                 }
             }
+        } else {
+            println!("missing shape inference for {}", op.operator().name());
         }
     }
 
