@@ -10,7 +10,7 @@ use crate::Dimension;
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes;
 use crate::infer_shapes::{
-    ALWAYS_INT, InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymTensor,
+    ALWAYS_INT, InferShapes, InferShapesError, InferTypes, SAME_AS_FIRST_INPUT, SymElem, SymTensor,
     SymValue, SymbolGen,
 };
 use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
@@ -411,54 +411,135 @@ impl InferShapes for Reshape {
             return Err(InferShapesError::IncorrectInputCount);
         };
 
-        let nth_dim = |idx| data.dims().and_then(|mut d| d.nth(idx));
+        // Minimum fixed value in the `shape` argument which doesn't require
+        // special handling.
+        let min_fixed = if self.allow_zero { 0 } else { 1 };
 
-        let out_shape = match shape {
-            SymValue::Constant(constant) => {
-                let sizes = constant.values();
-                let mut dims = Vec::with_capacity(sizes.len());
-
-                for (i, &size) in sizes.iter().enumerate() {
-                    if size > 0 || (size >= 0 && self.allow_zero) {
-                        dims.push(Dimension::Fixed(size as usize));
-                    } else if size == 0
-                        && let Some(dim) = nth_dim(i)
-                    {
-                        dims.push(dim);
-                    } else {
-                        // Size is -1, meaning that the dimension size should
-                        // be computed by subtracting the product of other shape
-                        // dimensions from the product of input dimensions.
-                        dims.push(sym_gen.gen_symbol());
-                    }
+        let out_value = if let Some(dim_sizes) = shape.values() {
+            let dim_sizes: Vec<_> = dim_sizes.collect();
+            let all_fixed = dim_sizes.iter().all(|v| {
+                if let SymElem::Value(v) = v
+                    && *v >= min_fixed
+                {
+                    true
+                } else {
+                    false
                 }
+            });
+
+            if all_fixed {
+                // If all output sizes are fixed, we can generate the output shape
+                // whether we know the input shape or not.
+                let values = dim_sizes
+                    .iter()
+                    .map(|v| match v {
+                        SymElem::Value(v) => Dimension::Fixed(*v as usize),
+                        _ => unreachable!(),
+                    })
+                    .collect();
+                SymValue::Shape(values)
+            } else if let Some(data_dims) = data.dims() {
+                let mut remaining_fixed: usize = data_dims
+                    .clone()
+                    .map(|d| match d {
+                        Dimension::Fixed(size) => size,
+                        Dimension::Symbolic(_) => 1,
+                    })
+                    .product();
+                let mut remaining_symbolic: Vec<String> = data_dims
+                    .filter_map(|d| match d {
+                        Dimension::Fixed(_) => None,
+                        Dimension::Symbolic(name) => Some(name),
+                    })
+                    .collect();
+                let mut remainder_index = None;
+
+                let mut out_shape = Vec::new();
+                for (i, size) in dim_sizes.iter().enumerate() {
+                    let out_dim: Dimension = match size {
+                        SymElem::Value(v) => {
+                            if *v >= min_fixed {
+                                let out_size = *v as usize;
+                                if out_size > 0 {
+                                    remaining_fixed /= out_size;
+                                }
+                                Dimension::Fixed(out_size)
+                            } else if *v == 0 {
+                                // Copy dimension from input.
+                                if let Some(dim) = data.dim(i) {
+                                    dim
+                                } else {
+                                    return Err(InferShapesError::InvalidValue);
+                                }
+                            } else if *v == -1 {
+                                remainder_index = Some(i);
+                                // Insert a placeholder in the output shape.
+                                // We'll fill it in at the end.
+                                Dimension::Fixed(0)
+                            } else {
+                                return Err(InferShapesError::InvalidValue);
+                            }
+                        }
+                        SymElem::Var(var) => {
+                            let var_str: &str = &var;
+                            if let Some(sym_idx) =
+                                remaining_symbolic.iter().position(|sym| sym == var_str)
+                            {
+                                Dimension::Symbolic(remaining_symbolic.remove(sym_idx))
+                            } else {
+                                sym_gen.gen_symbol()
+                            }
+                        }
+                    };
+                    out_shape.push(out_dim);
+                }
+
+                if let Some(rem_index) = remainder_index {
+                    let remainder = if remaining_symbolic.is_empty() {
+                        Dimension::Fixed(remaining_fixed)
+                    } else if let [sym] = &remaining_symbolic[..]
+                        && remaining_fixed == 1
+                    {
+                        Dimension::Symbolic(sym.clone())
+                    } else {
+                        // Remainder is a product of a symbolic and fixed sizes
+                        // that we can't represent in a `Dimension`. Generate a
+                        // new value.
+                        sym_gen.gen_symbol()
+                    };
+                    out_shape[rem_index] = remainder;
+                }
+
+                SymValue::Shape(out_shape)
+            } else {
+                let out_shape = dim_sizes
+                    .into_iter()
+                    .map(|value| match value {
+                        SymElem::Value(v) if v >= min_fixed => Dimension::Fixed(v as usize),
+                        // We don't know the input shape, so we can't determine
+                        // the size of dimensions which are symbolic or require
+                        // special handling.
+                        _ => sym_gen.gen_symbol(),
+                    })
+                    .collect();
+                SymValue::Shape(out_shape)
+            }
+        } else if let Some(mut shape_dims) = shape.dims() {
+            // If the shape is a vector with fixed length we can determine the
+            // output rank, but not the sizes of any individual dimensions.
+            if let Some(Dimension::Fixed(size)) = shape_dims.next()
+                && shape.ndim() == Some(1)
+            {
+                let dims = (0..size).map(|_| sym_gen.gen_symbol()).collect();
                 SymValue::Shape(dims)
+            } else {
+                SymValue::Unknown
             }
-            SymValue::Value(value) => {
-                // TODO - If all input values are fixed, the output will be
-                // as well. For symbolic dimensions we want to subtract those
-                // reused in the input and output.
-                //
-                // For example given `Reshape((A, B, 1024), (A, B, -1, 128))`
-                // we can infer the output shape is `(A, B, 8, 128)`.
-                SymValue::Shape(
-                    (0..value.values().len())
-                        .map(|_| sym_gen.gen_symbol())
-                        .collect(),
-                )
-            }
-            SymValue::Shape(shape) => {
-                SymValue::Shape((0..shape.len()).map(|_| sym_gen.gen_symbol()).collect())
-            }
-            SymValue::Unknown => SymValue::Unknown,
+        } else {
+            SymValue::Unknown
         };
 
-        println!(
-            "Reshape {:?} with shape {:?} to shape {:?}",
-            data, shape, out_shape
-        );
-
-        Ok([out_shape].into())
+        Ok([out_value].into())
     }
 }
 
