@@ -216,7 +216,7 @@ pub struct GroupedQueryAttentionMatMul {
 
 impl Operator for GroupedQueryAttentionMatMul {
     fn name(&self) -> &str {
-        "QueryKeyValueMatMul"
+        "GroupedQueryAttentionMatMul"
     }
 
     fn max_inputs(&self) -> Option<usize> {
