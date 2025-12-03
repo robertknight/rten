@@ -19,6 +19,7 @@ use crate::ops::{
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 
+#[derive(Debug)]
 pub struct FusedOp {
     /// The name of the graph node.
     pub name: Option<String>,
@@ -36,6 +37,7 @@ pub struct FusedOp {
     pub unused_input_ids: Vec<Option<NodeId>>,
 }
 
+#[derive(Debug)]
 pub enum Fusion {
     /// Replace a subgraph with a single operation.
     Op(FusedOp),
