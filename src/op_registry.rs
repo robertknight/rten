@@ -84,9 +84,19 @@ pub enum ReadOpError {
         /// Description of the attribute error.
         error: String,
     },
-    /// The operator is either unrecognized or not available.
+    /// The operator is not available.
+    ///
+    /// An operator can be unavailable because the registry is using a custom
+    /// operator set which doesn't include the operator, or because the
+    /// operator is not supported by RTen.
     OperatorUnavailable {
-        /// Name of the operator, if recognized but not enabled.
+        /// Name of the operator, if known.
+        ///
+        /// For ONNX models, the operator name is always known because it
+        /// is recorded as a string in the model file. For .rten models the
+        /// operator identifier is an integer and the associated name may be
+        /// unknown if the model requires a newer version of the rten crate
+        /// than is being used to load the model.
         name: Option<String>,
     },
     /// The operator requires a crate feature that was not enabled.
@@ -122,7 +132,7 @@ impl Display for ReadOpError {
             ReadOpError::SubgraphError(err) => write!(f, "subgraph error: {}", err),
             ReadOpError::OperatorUnavailable { name } => {
                 if let Some(name) = name {
-                    write!(f, "{name} operator not enabled")
+                    write!(f, "{name} operator not supported or not enabled")
                 } else {
                     write!(f, "operator not supported")
                 }
