@@ -220,7 +220,7 @@ fn resolve_index(len: usize, index: i32) -> Option<usize> {
 /// dimension of a tensor with `ndim` dimensions.
 ///
 /// Negative axis values count backwards from the last dimension.
-fn resolve_axis(ndim: usize, axis: i32) -> Result<usize, InferShapesError> {
+pub(crate) fn resolve_axis(ndim: usize, axis: i32) -> Result<usize, InferShapesError> {
     resolve_index(ndim, axis).ok_or(InferShapesError::IncorrectRank)
 }
 
@@ -248,26 +248,17 @@ mod tests {
         BinaryOp, InferShapes, InferShapesError, ReductionOp, SymElem, SymTensor, SymbolGen,
         UnaryOp,
     };
-
-    macro_rules! dims {
-        ($($x:expr),* $(,)?) => {
-            vec![$(SymElem::from($x)),*]
-        };
-    }
-
-    fn inputs(dims: impl IntoIterator<Item = Vec<SymElem>>) -> Vec<SymTensor> {
-        dims.into_iter().map(SymTensor::from_shape).collect()
-    }
+    use crate::sym_tensor::{sym_elems, sym_shape};
 
     #[test]
     fn test_unary_op_infer() {
-        let input = dims!("batch", 16, "seq", 24);
+        let input = sym_shape!("batch", 16, "seq", 24);
         let mut sym_gen = SymbolGen::new();
         let shape = UnaryOp
-            .infer_shapes(&inputs([input.clone()]), &mut sym_gen)
+            .infer_shapes(&[input.clone()], &mut sym_gen)
             .unwrap();
         assert_eq!(shape.len(), 1);
-        assert_eq!(shape[0], SymTensor::from_shape(input.clone()));
+        assert_eq!(shape[0], input);
 
         let err = UnaryOp.infer_shapes(&[], &mut sym_gen).err().unwrap();
         assert_eq!(err, InferShapesError::IncorrectInputCount);
@@ -277,41 +268,41 @@ mod tests {
     fn test_binary_op() {
         #[derive(Debug)]
         struct Case {
-            lhs: Vec<SymElem>,
-            rhs: Vec<SymElem>,
-            expected: Vec<SymElem>,
+            lhs: SymTensor,
+            rhs: SymTensor,
+            expected: SymTensor,
         }
 
         let cases = [
             Case {
-                lhs: dims!("batch"),
-                rhs: dims!("batch"),
-                expected: dims!("batch"),
+                lhs: sym_shape!("batch"),
+                rhs: sym_shape!("batch"),
+                expected: sym_shape!("batch"),
             },
             Case {
-                lhs: dims!(2, 3),
-                rhs: dims!(2, 3),
-                expected: dims!(2, 3),
+                lhs: sym_shape!(2, 3),
+                rhs: sym_shape!(2, 3),
+                expected: sym_shape!(2, 3),
             },
             Case {
-                lhs: dims!(1, 5),
-                rhs: dims!(4, 1),
-                expected: dims!(4, 5),
+                lhs: sym_shape!(1, 5),
+                rhs: sym_shape!(4, 1),
+                expected: sym_shape!(4, 5),
             },
             Case {
-                lhs: dims!(1, 1),
-                rhs: dims!(1, 1),
-                expected: dims!(1, 1),
+                lhs: sym_shape!(1, 1),
+                rhs: sym_shape!(1, 1),
+                expected: sym_shape!(1, 1),
             },
             Case {
-                lhs: dims!(1, "bar"),
-                rhs: dims!("foo", 1),
-                expected: dims!("foo", "bar"),
+                lhs: sym_shape!(1, "bar"),
+                rhs: sym_shape!("foo", 1),
+                expected: sym_shape!("foo", "bar"),
             },
             Case {
-                lhs: dims!("foo"),
-                rhs: dims!("bar"),
-                expected: dims!(SymElem::Max((
+                lhs: sym_shape!("foo"),
+                rhs: sym_shape!("bar"),
+                expected: sym_shape!(SymElem::Max((
                     SymElem::from("foo").into(),
                     SymElem::from("bar").into()
                 ))),
@@ -321,10 +312,10 @@ mod tests {
         cases.test_each(|case| {
             let mut sym_gen = SymbolGen::new();
             let shape = BinaryOp
-                .infer_shapes(&inputs([case.lhs.clone(), case.rhs.clone()]), &mut sym_gen)
+                .infer_shapes(&[case.lhs.clone(), case.rhs.clone()], &mut sym_gen)
                 .unwrap();
             assert_eq!(shape.len(), 1);
-            assert_eq!(shape[0], SymTensor::from_shape(case.expected.clone()));
+            assert_eq!(shape[0], case.expected.clone());
         });
     }
 
@@ -338,11 +329,11 @@ mod tests {
 
         let cases = [
             Case {
-                inputs: [dims!(5)].into(),
+                inputs: [sym_elems!(5)].into(),
                 expected: InferShapesError::IncorrectInputCount,
             },
             Case {
-                inputs: [dims!(5), dims!(3)].into(),
+                inputs: [sym_elems!(5), sym_elems!(3)].into(),
                 expected: InferShapesError::IncompatibleShapes,
             },
         ];
@@ -375,26 +366,26 @@ mod tests {
             // Reduce single axis
             Case {
                 inputs: [
-                    SymTensor::from_shape(dims!("batch", 4, 5)),
+                    SymTensor::from_shape(sym_elems!("batch", 4, 5)),
                     SymTensor::from_vec(axes.clone()),
                 ]
                 .into(),
                 op: default_op.clone(),
-                expected: dims!("batch", 5),
+                expected: sym_elems!("batch", 5),
             },
             // Reduce single axis specified as an attribute
             Case {
-                inputs: [SymTensor::from_shape(dims!("batch", 4, 5))].into(),
+                inputs: [SymTensor::from_shape(sym_elems!("batch", 4, 5))].into(),
                 op: ReductionOp {
                     axes: Some(&[1i32]),
                     ..default_op
                 },
-                expected: dims!("batch", 5),
+                expected: sym_elems!("batch", 5),
             },
             // Reduce single axis with `keep_dims=true`
             Case {
                 inputs: [
-                    SymTensor::from_shape(dims!("batch", 4, 5)),
+                    SymTensor::from_shape(sym_elems!("batch", 4, 5)),
                     SymTensor::from_vec(axes.clone()),
                 ]
                 .into(),
@@ -402,13 +393,13 @@ mod tests {
                     keep_dims: true,
                     ..default_op
                 },
-                expected: dims!("batch", 1, 5),
+                expected: sym_elems!("batch", 1, 5),
             },
             // Reduce all axes
             Case {
-                inputs: [SymTensor::from_shape(dims!(3, 4, 5))].into(),
+                inputs: [SymTensor::from_shape(sym_elems!(3, 4, 5))].into(),
                 op: default_op.clone(),
-                expected: dims!(),
+                expected: sym_elems!(),
             },
         ];
 

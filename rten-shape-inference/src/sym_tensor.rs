@@ -495,8 +495,34 @@ impl SymTensor {
 }
 
 #[cfg(test)]
+pub(crate) use tests::{sym_elems, sym_shape, sym_vec};
+
+#[cfg(test)]
 mod tests {
     use super::{SymElem, SymTensor};
+
+    /// Create a `Vec<SymElem>` from a list of symbol names and values.
+    macro_rules! sym_elems {
+        ($($x:expr),* $(,)?) => {
+            vec![$(SymElem::from($x)),*]
+        };
+    }
+
+    /// Create a symbolic vector from a list of symbol names and values.
+    macro_rules! sym_vec {
+        ($($x:expr),* $(,)?) => {
+            SymTensor::from_vec(vec![$(SymElem::from($x)),*])
+        };
+    }
+
+    /// Create a symbolic shape from a list of symbol names and values.
+    macro_rules! sym_shape {
+        ($($x:expr),* $(,)?) => {
+            SymTensor::from_shape(vec![$(SymElem::from($x)),*])
+        };
+    }
+
+    pub(crate) use {sym_elems, sym_shape, sym_vec};
 
     mod elem {
         use super::SymElem;
