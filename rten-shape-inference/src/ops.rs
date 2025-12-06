@@ -58,6 +58,59 @@ impl InferShapes for Concat {
     }
 }
 
+/// ConstantOfShape operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__ConstantOfShape.html>.
+pub struct ConstantOfShape {
+    /// The integer value. This should be set to `None` if the operator has
+    /// a value attribute of a different type.
+    pub value: Option<i32>,
+}
+
+impl InferShapes for ConstantOfShape {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [shape] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let out_shape = if let Some(values) = shape.values() {
+            if let Some(val) = self.value
+                && values.len() <= 1
+            {
+                if let Some(vec_len) = values.first() {
+                    match vec_len {
+                        &SymElem::Value(vec_len) => {
+                            if let Ok(vec_len) = vec_len.try_into() {
+                                SymTensor::from_vec(vec![SymElem::Value(val); vec_len])
+                            } else {
+                                return Err(InferShapesError::InvalidValue);
+                            }
+                        }
+                        SymElem::Var(_) | SymElem::Add(_) | SymElem::Mul(_) | SymElem::Max(_) => {
+                            SymTensor::from_shape(vec![vec_len.clone()])
+                        }
+                    }
+                } else {
+                    SymTensor::from_scalar(SymElem::Value(val))
+                }
+            } else {
+                SymTensor::from_shape(values.to_vec())
+            }
+        } else if let Some(dims) = shape.shape() {
+            let out_shape = (0..dims.len()).map(|_| sym_gen.gen_positive()).collect();
+            SymTensor::from_shape(out_shape)
+        } else {
+            SymTensor::unknown("unknown shape")
+        };
+
+        Ok(vec![out_shape])
+    }
+}
+
 /// Unsqueeze operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Unsqueeze.html>.
@@ -115,7 +168,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_elems, sym_shape, sym_vec};
 
-    use super::{Concat, Unsqueeze};
+    use super::{Concat, ConstantOfShape, Unsqueeze};
 
     fn extract_shape(mut result: Vec<SymTensor>) -> Vec<SymElem> {
         result.remove(0).shape().unwrap().collect()
@@ -157,6 +210,35 @@ mod tests {
             result.remove(0).as_vector().unwrap(),
             sym_elems!("batch", "chans", "height", "width")
         );
+    }
+
+    #[test]
+    fn test_constant_of_shape() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Scalar shape, int value.
+        let shape = sym_vec!();
+        let op = ConstantOfShape { value: Some(1) };
+        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::from_scalar(1.into()));
+
+        // Vector shape, int value.
+        let shape = sym_vec!(3);
+        let op = ConstantOfShape { value: Some(1) };
+        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_vec!(1, 1, 1));
+
+        // Vector shape, non-int value.
+        let shape = sym_vec!(3);
+        let op = ConstantOfShape { value: None };
+        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(3));
+
+        // 2D+ shape
+        let shape = sym_vec!(2, 2);
+        let op = ConstantOfShape { value: Some(1) };
+        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(2, 2));
     }
 
     #[test]
