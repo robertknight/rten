@@ -952,7 +952,9 @@ mod tests {
         let result = ModelOptions::with_ops(registry).load(buffer);
         assert_eq!(
             result.err().map(|err| err.to_string()).as_deref(),
-            Some("in node \"concat\": operator error: Concat operator not enabled")
+            Some(
+                "in node \"concat\": operator error: Concat operator not supported or not enabled"
+            )
         );
     }
 
