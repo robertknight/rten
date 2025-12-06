@@ -5,7 +5,7 @@
 
 use crate::infer_shapes::{InferShapes, InferShapesError, resolve_axis};
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{SymElem, SymTensor};
+use crate::sym_tensor::{Constant, SymElem, SymTensor};
 
 /// Concat operator.
 ///
@@ -108,6 +108,71 @@ impl InferShapes for ConstantOfShape {
         };
 
         Ok(vec![out_shape])
+    }
+}
+
+/// Gather operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Gather.html>.
+pub struct Gather {
+    pub axis: i32,
+}
+
+impl InferShapes for Gather {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [data, indices] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let Some(mut data_dims) = data.shape() else {
+            return Ok([SymTensor::unknown("unknown data shape")].into());
+        };
+
+        let data_ndim = data_dims.len();
+        let axis = resolve_axis(data_ndim, self.axis)?;
+
+        fn get<T: Clone>(vec: &[T], index: i32) -> Result<T, InferShapesError> {
+            let index: usize = index
+                .try_into()
+                .map_err(|_| InferShapesError::IncorrectRank)?;
+            vec.get(index)
+                .cloned()
+                .ok_or(InferShapesError::IncorrectRank)
+        }
+
+        // If the input is a symbolic value and indices are concrete the output
+        // is a symbolic value. For example `Gather<axis=0>(Shape(X), 0)` returns
+        // a symbolic scalar that is the size of the first dimension of X.
+        //
+        // Otherwise we do standard shape inference and return a symbolic shape.
+        let value = if let Some(sym_vec) = data.values()
+            && let Some(indices) = indices.to_constant()
+        {
+            match indices {
+                Constant::Vector(idxs) => {
+                    let values = idxs
+                        .iter()
+                        .map(|idx| get(sym_vec, *idx))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    SymTensor::from_vec(values)
+                }
+                Constant::Scalar(idx) => SymTensor::from_scalar(get(sym_vec, idx)?),
+            }
+        } else if let Some(index_dims) = indices.shape() {
+            let mut out_shape = Vec::with_capacity(data_dims.len() + index_dims.len() - 1);
+            out_shape.extend(data_dims.by_ref().take(axis));
+            out_shape.extend(index_dims);
+            out_shape.extend(data_dims.skip(1));
+            SymTensor::from_shape(out_shape)
+        } else {
+            SymTensor::unknown("unknown indices shape")
+        };
+
+        Ok([value].into())
     }
 }
 
@@ -218,7 +283,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_elems, sym_shape, sym_vec};
 
-    use super::{Concat, ConstantOfShape, Range, Unsqueeze};
+    use super::{Concat, ConstantOfShape, Gather, Range, Unsqueeze};
 
     fn extract_shape(mut result: Vec<SymTensor>) -> Vec<SymElem> {
         result.remove(0).shape().unwrap().collect()
@@ -289,6 +354,39 @@ mod tests {
         let op = ConstantOfShape { value: Some(1) };
         let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!(2, 2));
+    }
+
+    #[test]
+    fn test_gather() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Gather scalar from symbolic vec.
+        let shape = sym_vec!("batch", 16, "seq");
+        let indices = SymTensor::from_scalar(2.into());
+        let op = Gather { axis: 0 };
+        let result = op.infer_shapes(&[shape, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::from_scalar("seq".into()));
+
+        // Gather vector from symbolic vec.
+        let shape = sym_vec!("batch", 16, "seq");
+        let indices = sym_vec!(0, 2);
+        let op = Gather { axis: 0 };
+        let result = op.infer_shapes(&[shape, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_vec!("batch", "seq"));
+
+        // Gather with 2D data and symbolic vec indices
+        let data = sym_shape!("vocab", "embed");
+        let indices = sym_vec!(1, 2, 3);
+        let op = Gather { axis: 0 };
+        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(3, "embed"));
+
+        // Gather with 2D data and symbolic shape indices
+        let data = sym_shape!("vocab", "embed");
+        let indices = sym_shape!("n_tokens");
+        let op = Gather { axis: 0 };
+        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("n_tokens", "embed"));
     }
 
     #[test]
