@@ -34,6 +34,8 @@
 //! one, which depended on knowing that the output shape was the same as the
 //! input minus the second dimension, the results of shape inference could be
 //! used to verify this.
+
 pub mod infer_shapes;
+pub mod ops;
 pub mod sym_gen;
 pub mod sym_tensor;
