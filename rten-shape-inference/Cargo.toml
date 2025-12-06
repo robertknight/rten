@@ -1,0 +1,12 @@
+[package]
+name = "rten-shape-inference"
+version = "0.23.0"
+edition = "2024"
+authors = ["Robert Knight"]
+description = "Shape inference for ONNX models"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/robertknight/rten"
+repository = "https://github.com/robertknight/rten"
+
+[lib]
+crate-type = ["lib"]
