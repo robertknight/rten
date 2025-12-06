@@ -562,6 +562,10 @@ version = "0.23.0"
 [[package]]
 name = "rten-shape-inference"
 version = "0.23.0"
+dependencies = [
+ "rten-testing",
+ "smallvec",
+]
 
 [[package]]
 name = "rten-simd"

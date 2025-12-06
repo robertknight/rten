@@ -10,3 +10,9 @@ repository = "https://github.com/robertknight/rten"
 
 [lib]
 crate-type = ["lib"]
+
+[dependencies]
+smallvec = { workspace = true }
+
+[dev-dependencies]
+rten-testing = { path = "../rten-testing" }
