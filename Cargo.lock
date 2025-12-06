@@ -443,6 +443,7 @@ dependencies = [
  "rten-gemm",
  "rten-model-file",
  "rten-onnx",
+ "rten-shape-inference",
  "rten-simd",
  "rten-tensor",
  "rten-testing",
@@ -556,6 +557,10 @@ dependencies = [
 
 [[package]]
 name = "rten-onnx"
+version = "0.23.0"
+
+[[package]]
+name = "rten-shape-inference"
 version = "0.23.0"
 
 [[package]]

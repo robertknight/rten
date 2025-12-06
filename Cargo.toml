@@ -9,6 +9,7 @@ members = [
   "rten-imageproc",
   "rten-model-file",
   "rten-onnx",
+  "rten-shape-inference",
   "rten-simd",
   "rten-tensor",
   "rten-text",
@@ -60,22 +61,23 @@ rust-version = "1.89.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+fastrand = { workspace = true, optional = true }
+fastrand-contrib = { workspace = true, optional = true }
 flatbuffers = { workspace = true, optional = true }
+memmap2 = { version = "0.9.4", optional = true }
+num_cpus = "1.16.0"
+rayon = { workspace = true }
 rten-base = { path = "./rten-base", version = "0.23.0" }
 rten-gemm = { path = "./rten-gemm", version = "0.23.0" }
 rten-model-file = { path = "./rten-model-file", version = "0.23.0", optional = true }
 rten-onnx = { path = "./rten-onnx", version = "0.23.0", optional = true }
+rten-shape-inference = { path = "./rten-shape-inference", version = "0.23.0" }
+rten-simd = { path = "./rten-simd", version = "0.23.0" }
 rten-tensor = { path = "./rten-tensor", version = "0.23.0" }
 rten-vecmath = { path = "./rten-vecmath", version = "0.23.0" }
-rten-simd = { path = "./rten-simd", version = "0.23.0" }
-fastrand = { workspace = true, optional = true }
-fastrand-contrib = { workspace = true, optional = true }
-rayon = { workspace = true }
 rustc-hash = { workspace = true }
 rustfft = { workspace = true, optional = true }
 smallvec = { workspace = true }
-memmap2 = { version = "0.9.4", optional = true }
-num_cpus = "1.16.0"
 typeid = { workspace = true}
 
 [dev-dependencies]
