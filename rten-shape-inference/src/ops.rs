@@ -5,7 +5,7 @@
 
 use crate::infer_shapes::{InferShapes, InferShapesError, resolve_axis};
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{SymElem, SymTensor};
+use crate::sym_tensor::{Constant, SymElem, SymTensor};
 
 /// Concat operator.
 ///
@@ -55,6 +55,174 @@ impl InferShapes for Concat {
         }
 
         Ok([SymTensor::from_shape(out_shape)].into())
+    }
+}
+
+/// ConstantOfShape operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__ConstantOfShape.html>.
+pub struct ConstantOfShape {
+    /// The integer value. This should be set to `None` if the operator has
+    /// a value attribute of a different type.
+    pub value: Option<i32>,
+}
+
+impl InferShapes for ConstantOfShape {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [shape] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let out_shape = if let Some(values) = shape.values() {
+            if let Some(val) = self.value
+                && values.len() <= 1
+            {
+                if let Some(vec_len) = values.first() {
+                    match vec_len {
+                        &SymElem::Value(vec_len) => {
+                            if let Ok(vec_len) = vec_len.try_into() {
+                                SymTensor::from_vec(vec![SymElem::Value(val); vec_len])
+                            } else {
+                                return Err(InferShapesError::InvalidValue);
+                            }
+                        }
+                        SymElem::Var(_) | SymElem::Add(_) | SymElem::Mul(_) | SymElem::Max(_) => {
+                            SymTensor::from_shape(vec![vec_len.clone()])
+                        }
+                    }
+                } else {
+                    SymTensor::from_scalar(SymElem::Value(val))
+                }
+            } else {
+                SymTensor::from_shape(values.to_vec())
+            }
+        } else if let Some(dims) = shape.shape() {
+            let out_shape = (0..dims.len()).map(|_| sym_gen.gen_positive()).collect();
+            SymTensor::from_shape(out_shape)
+        } else {
+            SymTensor::unknown("unknown shape")
+        };
+
+        Ok(vec![out_shape])
+    }
+}
+
+/// Gather operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Gather.html>.
+pub struct Gather {
+    pub axis: i32,
+}
+
+impl InferShapes for Gather {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [data, indices] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let Some(mut data_dims) = data.shape() else {
+            return Ok([SymTensor::unknown("unknown data shape")].into());
+        };
+
+        let data_ndim = data_dims.len();
+        let axis = resolve_axis(data_ndim, self.axis)?;
+
+        fn get<T: Clone>(vec: &[T], index: i32) -> Result<T, InferShapesError> {
+            let index: usize = index
+                .try_into()
+                .map_err(|_| InferShapesError::IncorrectRank)?;
+            vec.get(index)
+                .cloned()
+                .ok_or(InferShapesError::IncorrectRank)
+        }
+
+        // If the input is a symbolic value and indices are concrete the output
+        // is a symbolic value. For example `Gather<axis=0>(Shape(X), 0)` returns
+        // a symbolic scalar that is the size of the first dimension of X.
+        //
+        // Otherwise we do standard shape inference and return a symbolic shape.
+        let value = if let Some(sym_vec) = data.values()
+            && let Some(indices) = indices.to_constant()
+        {
+            match indices {
+                Constant::Vector(idxs) => {
+                    let values = idxs
+                        .iter()
+                        .map(|idx| get(sym_vec, *idx))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    SymTensor::from_vec(values)
+                }
+                Constant::Scalar(idx) => SymTensor::from_scalar(get(sym_vec, idx)?),
+            }
+        } else if let Some(index_dims) = indices.shape() {
+            let mut out_shape = Vec::with_capacity(data_dims.len() + index_dims.len() - 1);
+            out_shape.extend(data_dims.by_ref().take(axis));
+            out_shape.extend(index_dims);
+            out_shape.extend(data_dims.skip(1));
+            SymTensor::from_shape(out_shape)
+        } else {
+            SymTensor::unknown("unknown indices shape")
+        };
+
+        Ok([value].into())
+    }
+}
+
+/// Range operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Range.html>.
+pub struct Range;
+
+impl InferShapes for Range {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [start, limit, delta] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let start = start.values().map(|v| v[0].clone());
+        let limit = limit.values().map(|v| v[0].clone());
+        let delta = delta.values().map(|v| v[0].clone());
+
+        let out_value = match (start, limit, delta) {
+            (
+                Some(SymElem::Value(start)),
+                Some(SymElem::Value(limit)),
+                Some(SymElem::Value(delta)),
+            ) => {
+                let mut values = Vec::new();
+                let mut val = start;
+                while val < limit {
+                    values.push(SymElem::Value(val));
+                    val += delta;
+                }
+                SymTensor::from_vec(values)
+            }
+            // Range(0, limit, 1) has shape [limit]
+            (Some(SymElem::Value(0)), Some(limit), Some(SymElem::Value(1))) => {
+                SymTensor::from_shape(vec![limit])
+            }
+            // Range(start, start + limit, 1) has shape [limit]
+            (Some(start), Some(SymElem::Add((limit_lhs, limit_rhs))), Some(SymElem::Value(1)))
+                if start == *limit_lhs =>
+            {
+                SymTensor::from_shape(vec![(*limit_rhs).clone()])
+            }
+            _ => SymTensor::from_shape(vec![sym_gen.gen_positive()]),
+        };
+
+        Ok(vec![out_value])
     }
 }
 
@@ -115,7 +283,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_elems, sym_shape, sym_vec};
 
-    use super::{Concat, Unsqueeze};
+    use super::{Concat, ConstantOfShape, Gather, Range, Unsqueeze};
 
     fn extract_shape(mut result: Vec<SymTensor>) -> Vec<SymElem> {
         result.remove(0).shape().unwrap().collect()
@@ -157,6 +325,109 @@ mod tests {
             result.remove(0).as_vector().unwrap(),
             sym_elems!("batch", "chans", "height", "width")
         );
+    }
+
+    #[test]
+    fn test_constant_of_shape() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Scalar shape, int value.
+        let shape = sym_vec!();
+        let op = ConstantOfShape { value: Some(1) };
+        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::from_scalar(1.into()));
+
+        // Vector shape, int value.
+        let shape = sym_vec!(3);
+        let op = ConstantOfShape { value: Some(1) };
+        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_vec!(1, 1, 1));
+
+        // Vector shape, non-int value.
+        let shape = sym_vec!(3);
+        let op = ConstantOfShape { value: None };
+        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(3));
+
+        // 2D+ shape
+        let shape = sym_vec!(2, 2);
+        let op = ConstantOfShape { value: Some(1) };
+        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(2, 2));
+    }
+
+    #[test]
+    fn test_gather() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Gather scalar from symbolic vec.
+        let shape = sym_vec!("batch", 16, "seq");
+        let indices = SymTensor::from_scalar(2.into());
+        let op = Gather { axis: 0 };
+        let result = op.infer_shapes(&[shape, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::from_scalar("seq".into()));
+
+        // Gather vector from symbolic vec.
+        let shape = sym_vec!("batch", 16, "seq");
+        let indices = sym_vec!(0, 2);
+        let op = Gather { axis: 0 };
+        let result = op.infer_shapes(&[shape, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_vec!("batch", "seq"));
+
+        // Gather with 2D data and symbolic vec indices
+        let data = sym_shape!("vocab", "embed");
+        let indices = sym_vec!(1, 2, 3);
+        let op = Gather { axis: 0 };
+        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(3, "embed"));
+
+        // Gather with 2D data and symbolic shape indices
+        let data = sym_shape!("vocab", "embed");
+        let indices = sym_shape!("n_tokens");
+        let op = Gather { axis: 0 };
+        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("n_tokens", "embed"));
+    }
+
+    #[test]
+    fn test_range() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Range with fixed values
+        let start = sym_vec!(0);
+        let limit = sym_vec!(5);
+        let delta = sym_vec!(1);
+        let result = Range
+            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_vec!(0, 1, 2, 3, 4));
+
+        // Range from 0..limit
+        let start = sym_vec!(0);
+        let limit = sym_vec!("limit");
+        let delta = sym_vec!(1);
+        let result = Range
+            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("limit"));
+
+        // Range from start..(start + limit)
+        let start = sym_vec!("start");
+        let limit = sym_vec!(SymElem::from("start") + SymElem::from("limit"));
+        let delta = sym_vec!(1);
+        let result = Range
+            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("limit"));
+
+        // Range of unknown size
+        let start = sym_vec!("start");
+        let limit = sym_vec!("end");
+        let delta = sym_vec!("delta");
+        let result = Range
+            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("unknown_1"));
     }
 
     #[test]
