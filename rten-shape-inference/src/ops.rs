@@ -111,6 +111,56 @@ impl InferShapes for ConstantOfShape {
     }
 }
 
+/// Range operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Range.html>.
+pub struct Range;
+
+impl InferShapes for Range {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [start, limit, delta] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let start = start.values().map(|v| v[0].clone());
+        let limit = limit.values().map(|v| v[0].clone());
+        let delta = delta.values().map(|v| v[0].clone());
+
+        let out_value = match (start, limit, delta) {
+            (
+                Some(SymElem::Value(start)),
+                Some(SymElem::Value(limit)),
+                Some(SymElem::Value(delta)),
+            ) => {
+                let mut values = Vec::new();
+                let mut val = start;
+                while val < limit {
+                    values.push(SymElem::Value(val));
+                    val += delta;
+                }
+                SymTensor::from_vec(values)
+            }
+            // Range(0, limit, 1) has shape [limit]
+            (Some(SymElem::Value(0)), Some(limit), Some(SymElem::Value(1))) => {
+                SymTensor::from_shape(vec![limit])
+            }
+            // Range(start, start + limit, 1) has shape [limit]
+            (Some(start), Some(SymElem::Add((limit_lhs, limit_rhs))), Some(SymElem::Value(1)))
+                if start == *limit_lhs =>
+            {
+                SymTensor::from_shape(vec![(*limit_rhs).clone()])
+            }
+            _ => SymTensor::from_shape(vec![sym_gen.gen_positive()]),
+        };
+
+        Ok(vec![out_value])
+    }
+}
+
 /// Unsqueeze operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Unsqueeze.html>.
@@ -168,7 +218,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_elems, sym_shape, sym_vec};
 
-    use super::{Concat, ConstantOfShape, Unsqueeze};
+    use super::{Concat, ConstantOfShape, Range, Unsqueeze};
 
     fn extract_shape(mut result: Vec<SymTensor>) -> Vec<SymElem> {
         result.remove(0).shape().unwrap().collect()
@@ -239,6 +289,47 @@ mod tests {
         let op = ConstantOfShape { value: Some(1) };
         let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!(2, 2));
+    }
+
+    #[test]
+    fn test_range() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Range with fixed values
+        let start = sym_vec!(0);
+        let limit = sym_vec!(5);
+        let delta = sym_vec!(1);
+        let result = Range
+            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_vec!(0, 1, 2, 3, 4));
+
+        // Range from 0..limit
+        let start = sym_vec!(0);
+        let limit = sym_vec!("limit");
+        let delta = sym_vec!(1);
+        let result = Range
+            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("limit"));
+
+        // Range from start..(start + limit)
+        let start = sym_vec!("start");
+        let limit = sym_vec!(SymElem::from("start") + SymElem::from("limit"));
+        let delta = sym_vec!(1);
+        let result = Range
+            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("limit"));
+
+        // Range of unknown size
+        let start = sym_vec!("start");
+        let limit = sym_vec!("end");
+        let delta = sym_vec!("delta");
+        let result = Range
+            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("unknown_1"));
     }
 
     #[test]
