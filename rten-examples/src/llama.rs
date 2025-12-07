@@ -3,7 +3,7 @@ use std::io;
 use std::io::prelude::*;
 
 use argh::FromArgs;
-use rten::Model;
+use rten::ModelOptions;
 use rten_generate::filter::Chain;
 use rten_generate::metrics::Metrics;
 use rten_generate::sampler::Multinomial;
@@ -66,9 +66,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut args: Args = argh::from_env();
     args.temperature = args.temperature.max(0.);
 
+    let mut model_opts = ModelOptions::with_all_ops();
+
+    // Enable shape inference. This enables additional optimizations that are
+    // useful for this model. See https://github.com/robertknight/rten/issues/1091.
+    model_opts.enable_shape_inference(true);
+
     // `load_mmap` reduces model load/free time and process memory usage, at the
     // cost of making the first execution slower.
-    let model = unsafe { Model::load_mmap(args.model) }?;
+    let model = unsafe { model_opts.load_mmap(args.model) }?;
     let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
     let special = SpecialTokens::new(&tokenizer)?;
 
