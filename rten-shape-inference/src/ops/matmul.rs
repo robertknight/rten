@@ -54,13 +54,50 @@ impl InferShapes for MatMul {
     }
 }
 
+/// Non-standard MatMulNBits operator.
+///
+/// See <https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.MatMulNBits>.
+pub struct MatMulNBits;
+
+impl InferShapes for MatMulNBits {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [lhs, rhs, ..] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+        let Some(lhs_dims) = lhs.shape() else {
+            return Ok([SymTensor::unknown("unknown lhs shape")].into());
+        };
+        let Some(rhs_dims) = rhs.shape() else {
+            return Ok([SymTensor::unknown("unknown rhs shape")].into());
+        };
+
+        if lhs_dims.len() < 2 || rhs_dims.len() < 2 {
+            return Err(InferShapesError::IncorrectRank);
+        };
+
+        // LHS shape is (batch_dims.., M, K). RHS shape is (N, K_blocks, block_size /
+        // elements_per_block). Output shape is (batch_dims.., M, N).
+        let lhs_ndim = lhs_dims.len();
+        let mut out_shape = Vec::with_capacity(lhs_ndim);
+
+        out_shape.extend(lhs_dims.take(lhs_ndim - 1));
+        out_shape.extend(rhs_dims.take(1));
+
+        Ok(vec![SymTensor::from_shape(out_shape)])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::infer_shapes::InferShapes;
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_shape};
 
-    use super::MatMul;
+    use super::{MatMul, MatMulNBits};
 
     #[test]
     fn test_matmul() {
@@ -89,5 +126,14 @@ mod tests {
         let rhs = sym_shape!("k", "n");
         let result = MatMul.infer_shapes(&[lhs, rhs], &mut sym_gen).unwrap();
         assert_eq!(result[0], SymTensor::unknown("rank < 2"));
+    }
+
+    #[test]
+    fn test_matmul_n_bits() {
+        let mut sym_gen = SymbolGen::new();
+        let lhs = sym_shape!("batch", "m", "k");
+        let rhs = sym_shape!("n", "k_blocks", "block");
+        let result = MatMulNBits.infer_shapes(&[lhs, rhs], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("batch", "m", "n"));
     }
 }
