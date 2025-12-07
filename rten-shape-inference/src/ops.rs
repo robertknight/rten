@@ -13,6 +13,9 @@ pub use binary::{Add, Div, Equal, Mul};
 mod layout;
 pub use layout::{Expand, Flatten, Reshape, Transpose, Unsqueeze};
 
+mod slice;
+pub use slice::Slice;
+
 /// Concat operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Concat.html>.
