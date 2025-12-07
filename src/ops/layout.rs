@@ -1,6 +1,7 @@
 //! Operators which query or change the shape of a tensor, or copy/move/reorder
 //! elements.
 
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::layout::is_valid_permutation;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
@@ -404,34 +405,14 @@ impl Operator for Shape {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
-        let ndim = input.ndim() as i32;
 
-        // Convert `start` and `end` to positive values in `[0, ndim]`, clamping
-        // if out of range.
-        //
-        // The spec says to clamp to `[0, r-1]` but this is incorrect as the end
-        // bound is exclusive and so needs to be `r` to include the entire range.
-        // See https://github.com/onnx/onnx/issues/6862.
-        let start = self
-            .start
-            .map(|start| {
-                let start = if start < 0 { start + ndim } else { start };
-                start.clamp(0, ndim) as usize
-            })
-            .unwrap_or(0);
+        let shape_op = shape_ops::Shape {
+            start: self.start,
+            end: self.end,
+        };
+        let dim_range = shape_op.resolve_start_end(input.ndim());
 
-        let end = self
-            .end
-            .map(|end| {
-                let end = if end < 0 { end + ndim } else { end };
-                end.clamp(0, ndim) as usize
-            })
-            .unwrap_or(input.ndim())
-            // Spec doesn't say how to handle the case where `start > end`,
-            // we clamp `end` to prevent this.
-            .max(start);
-
-        let shape_slice = &input.shape()[start..end];
+        let shape_slice = &input.shape()[dim_range];
 
         // Allocate output from pool for consistency with other operators,
         // even though the buffer is tiny, so there is no performance benefit.
