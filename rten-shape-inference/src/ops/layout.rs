@@ -266,6 +266,66 @@ fn fixed_dim_product(sym: &SymElem) -> i32 {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct Shape {
+    pub start: Option<i32>,
+    pub end: Option<i32>,
+}
+
+impl Shape {
+    /// Convert `start` and `end` to positive values in `[0, ndim]`, clamping
+    /// if out of range.
+    pub fn resolve_start_end(&self, ndim: usize) -> std::ops::Range<usize> {
+        // The spec says to clamp to `[0, r-1]` but this is incorrect as the end
+        // bound is exclusive and so needs to be `r` to include the entire range.
+        // See https://github.com/onnx/onnx/issues/6862.
+        let ndim = ndim.try_into().unwrap();
+        let start = self
+            .start
+            .map(|start| {
+                let start = if start < 0 { start + ndim } else { start };
+                start.clamp(0, ndim) as usize
+            })
+            .unwrap_or(0);
+
+        let end = self
+            .end
+            .map(|end| {
+                let end = if end < 0 { end + ndim } else { end };
+                end.clamp(0, ndim) as usize
+            })
+            .unwrap_or(ndim as usize)
+            // Spec doesn't say how to handle the case where `start > end`,
+            // we clamp `end` to prevent this.
+            .max(start);
+
+        start..end
+    }
+}
+
+impl InferShapes for Shape {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [input] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let shape = input
+            .shape()
+            .map(|dims| {
+                let std::ops::Range { start, end } = self.resolve_start_end(dims.len());
+                let dims: Vec<_> = dims.skip(start).take(end - start).collect();
+                SymTensor::from_vec(dims)
+            })
+            .unwrap_or(SymTensor::unknown("unknown input shape"));
+
+        Ok([shape].into())
+    }
+}
+
 /// Transpose operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Transpose.html>.
@@ -368,7 +428,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_shape, sym_vec};
 
-    use super::{Expand, Flatten, Reshape, Transpose, Unsqueeze};
+    use super::{Expand, Flatten, Reshape, Shape, Transpose, Unsqueeze};
 
     #[test]
     fn test_expand() {
@@ -527,6 +587,29 @@ mod tests {
             .infer_shapes(&[data, shape.clone()], &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2", "unknown_3"));
+    }
+
+    #[test]
+    fn test_shape() {
+        // Shape with no start or end attribute.
+        let mut sym_gen = SymbolGen::new();
+        let data = sym_shape!("batch", "seq", 64);
+        let op = Shape {
+            start: None,
+            end: None,
+        };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_vec!("batch", "seq", 64));
+
+        // Shape with start and end attribute
+        let mut sym_gen = SymbolGen::new();
+        let data = sym_shape!("batch", "seq", 64);
+        let op = Shape {
+            start: Some(1),
+            end: Some(2),
+        };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_vec!("seq"));
     }
 
     #[test]
