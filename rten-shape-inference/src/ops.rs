@@ -10,6 +10,9 @@ use crate::sym_tensor::{Constant, SymElem, SymTensor};
 mod binary;
 pub use binary::{Add, Div, Equal, Mul};
 
+mod layout;
+pub use layout::{Expand, Unsqueeze};
+
 /// Concat operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Concat.html>.
@@ -229,57 +232,6 @@ impl InferShapes for Range {
     }
 }
 
-/// Unsqueeze operator.
-///
-/// See <https://onnx.ai/onnx/operators/onnx__Unsqueeze.html>.
-pub struct Unsqueeze;
-
-impl InferShapes for Unsqueeze {
-    fn infer_shapes(
-        &self,
-        inputs: &[SymTensor],
-        _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, axes] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
-
-        // If data is a constant or symbolic scalar and axes is 0, the output
-        // will be a length-1 vector. We can't handle higher-rank symbolic
-        // values yet.
-        //
-        // Otherwise if the input shape is known and `axes` is a constant, the
-        // output is a symbolic shape.
-        //
-        // Otherwise the output is unknown.
-
-        let axes_vec = axes.to_constant().map(|c| c.into_vec());
-
-        let value = if let Some(var) = data.as_scalar()
-            && axes_vec.as_deref().map(|v| v == [0]).unwrap_or(false)
-        {
-            SymTensor::from_vec([var.clone()].into())
-        } else if let Some(dims) = data.shape()
-            && let Some(mut axes) = axes_vec
-        {
-            let mut dims: Vec<_> = dims.collect();
-            axes.sort();
-
-            for (i, axis) in axes.into_iter().enumerate() {
-                let axis = resolve_axis(dims.len() + 1, axis)
-                    .map_err(|_| InferShapesError::IncorrectRank)?;
-                dims.insert(axis + i, SymElem::Value(1));
-            }
-
-            SymTensor::from_shape(dims)
-        } else {
-            SymTensor::unknown("unknown data shape or axes value")
-        };
-
-        Ok([value].into())
-    }
-}
-
 /// Where operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Where.html>.
@@ -341,7 +293,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_elems, sym_shape, sym_vec};
 
-    use super::{Concat, ConstantOfShape, Gather, Range, Unsqueeze, Where};
+    use super::{Concat, ConstantOfShape, Gather, Range, Where};
 
     fn extract_shape(mut result: Vec<SymTensor>) -> Vec<SymElem> {
         result.remove(0).shape().unwrap().collect()
@@ -486,30 +438,6 @@ mod tests {
             .infer_shapes(&[start, limit, delta], &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("unknown_1"));
-    }
-
-    #[test]
-    fn test_unsqueeze() {
-        let mut sym_gen = SymbolGen::new();
-
-        // Unsqueeze into an ND-tensor.
-        let shape = sym_shape!("batch", 16, 64);
-        let axes = sym_vec!(1);
-        let expected = sym_shape!("batch", 1, 16, 64);
-
-        let result = Unsqueeze
-            .infer_shapes(&[shape, axes], &mut sym_gen)
-            .unwrap();
-        assert_eq!(result[0], expected);
-
-        // Unsqueeze a symbolic scalar into a symbolic vec.
-        let scalar = SymTensor::from_scalar(1.into());
-        let axes = sym_vec!(0);
-        let expected = sym_vec!(1);
-        let result = Unsqueeze
-            .infer_shapes(&[scalar, axes], &mut sym_gen)
-            .unwrap();
-        assert_eq!(result[0], expected);
     }
 
     #[test]
