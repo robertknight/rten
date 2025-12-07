@@ -7,6 +7,9 @@ use crate::infer_shapes::{InferShapes, InferShapesError, resolve_axis};
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::{Constant, SymElem, SymTensor};
 
+mod binary;
+pub use binary::{Add, Div, Equal, Mul};
+
 /// Concat operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Concat.html>.
