@@ -52,6 +52,51 @@ impl InferShapes for Expand {
     }
 }
 
+/// Transpose operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Transpose.html>.
+pub struct Transpose<'a> {
+    pub perm: Option<&'a [usize]>,
+}
+
+impl InferShapes for Transpose<'_> {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [input] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        if let Some(dims) = input.shape() {
+            let permuted_dims = if let Some(perm) = self.perm {
+                let dims: Vec<_> = dims.collect();
+                let mut permuted = Vec::with_capacity(perm.len());
+                for &idx in perm {
+                    if idx >= dims.len() {
+                        return Err(InferShapesError::IncorrectRank);
+                    }
+                    permuted.push(dims[idx].clone());
+                }
+                permuted
+            } else {
+                let mut dims: Vec<_> = dims.collect();
+                dims.reverse();
+                dims
+            };
+            Ok([SymTensor::from_shape(permuted_dims)].into())
+        } else if let Some(perm) = &self.perm {
+            // If the input shape is unknown, but we have a permutation then
+            // we can assume the output rank will match the permutation.
+            let dims = (0..perm.len()).map(|_| sym_gen.gen_positive()).collect();
+            Ok([SymTensor::from_shape(dims)].into())
+        } else {
+            Ok([SymTensor::unknown("unknown input shape")].into())
+        }
+    }
+}
+
 /// Unsqueeze operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Unsqueeze.html>.
@@ -109,7 +154,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_shape, sym_vec};
 
-    use super::{Expand, Unsqueeze};
+    use super::{Expand, Transpose, Unsqueeze};
 
     #[test]
     fn test_expand() {
@@ -138,6 +183,39 @@ mod tests {
         let shape = sym_shape!(3);
         let result = Expand.infer_shapes(&[data, shape], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2", 16));
+    }
+
+    #[test]
+    fn test_transpose() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Transpose with explicit permutation.
+        let data = sym_shape!("batch", "rows", "cols");
+        let op = Transpose {
+            perm: Some(&[0, 2, 1]),
+        };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("batch", "cols", "rows"));
+
+        // Transpose with implicit permutation.
+        let data = sym_shape!("rows", "cols");
+        let op = Transpose { perm: None };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("cols", "rows"));
+
+        // Transpose with explicit permutation but unknown input shape.
+        let data = SymTensor::unknown("unknown input shape");
+        let op = Transpose {
+            perm: Some(&[0, 2, 1]),
+        };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2", "unknown_3"));
+
+        // Transpose with implicit permutation and unknown input shape.
+        let data = SymTensor::unknown("unknown input shape");
+        let op = Transpose { perm: None };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::unknown("unknown input shape"));
     }
 
     #[test]

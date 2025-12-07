@@ -11,7 +11,7 @@ mod binary;
 pub use binary::{Add, Div, Equal, Mul};
 
 mod layout;
-pub use layout::{Expand, Unsqueeze};
+pub use layout::{Expand, Transpose, Unsqueeze};
 
 /// Concat operator.
 ///
