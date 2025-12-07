@@ -52,6 +52,54 @@ impl InferShapes for Expand {
     }
 }
 
+/// Flatten operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Flatten.html>.
+pub struct Flatten {
+    pub axis: i32,
+}
+
+impl InferShapes for Flatten {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [input] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+        let Some(mut dims) = input.shape() else {
+            return Ok([SymTensor::unknown("unknown input shape")].into());
+        };
+
+        // nb. Partition dims into outer and inner. Note the `axis` attribute
+        // is an exclusive count rather than an inclusive index.
+        let ndim = dims.len();
+        let n_outer_dims = if self.axis == ndim as i32 {
+            ndim
+        } else if let Ok(nd) = resolve_axis(ndim, self.axis) {
+            nd
+        } else {
+            return Err(InferShapesError::IncorrectRank);
+        };
+
+        let outer_dims: Vec<_> = dims.by_ref().take(n_outer_dims).collect();
+        let inner_dims: Vec<_> = dims.collect();
+
+        let dim_product = |dims: &[SymElem]| -> SymElem {
+            if let [dim] = dims {
+                return dim.clone();
+            }
+            dims.iter()
+                .fold(SymElem::Value(1), |prod, dim| prod * dim.clone())
+                .simplify()
+        };
+
+        let out_shape = vec![dim_product(&outer_dims), dim_product(&inner_dims)];
+        Ok([SymTensor::from_shape(out_shape)].into())
+    }
+}
+
 /// Transpose operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Transpose.html>.
@@ -154,7 +202,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_shape, sym_vec};
 
-    use super::{Expand, Transpose, Unsqueeze};
+    use super::{Expand, Flatten, Transpose, Unsqueeze};
 
     #[test]
     fn test_expand() {
@@ -183,6 +231,47 @@ mod tests {
         let shape = sym_shape!(3);
         let result = Expand.infer_shapes(&[data, shape], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2", 16));
+    }
+
+    #[test]
+    fn test_flatten() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Combine last two dims.
+        let data = sym_shape!("batch", "rows", "cols");
+        let op = Flatten { axis: 1 };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0],
+            sym_shape!("batch", SymElem::from("rows") * SymElem::from("cols"))
+        );
+
+        // Combine first two dims.
+        let data = sym_shape!("batch", "rows", "cols");
+        let op = Flatten { axis: 2 };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0],
+            sym_shape!(SymElem::from("batch") * SymElem::from("rows"), "cols")
+        );
+
+        // Combine all dims
+        let data = sym_shape!("batch", "rows", "cols");
+        let op = Flatten { axis: 3 };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0],
+            sym_shape!(
+                SymElem::from("batch") * SymElem::from("rows") * SymElem::from("cols"),
+                1
+            )
+        );
+
+        // Empty shape
+        let data = sym_shape!();
+        let op = Flatten { axis: 0 };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(1, 1));
     }
 
     #[test]
