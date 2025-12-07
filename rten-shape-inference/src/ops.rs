@@ -8,12 +8,13 @@ use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::{Constant, SymElem, SymTensor};
 
 mod binary;
-pub use binary::{Add, Div, Equal, Mul};
-
 mod layout;
-pub use layout::{Expand, Flatten, Reshape, Transpose, Unsqueeze};
-
+mod matmul;
 mod slice;
+
+pub use binary::{Add, Div, Equal, Mul};
+pub use layout::{Expand, Flatten, Reshape, Transpose, Unsqueeze};
+pub use matmul::MatMul;
 pub use slice::Slice;
 
 /// Concat operator.

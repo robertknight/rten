@@ -23,7 +23,7 @@ impl InferShapes for Slice {
         };
 
         let axes = rest
-            .get(0)
+            .first()
             .map(|axes| axes.to_constant())
             .unwrap_or_else(|| {
                 let axes = (0..data_dims.len()).map(|i| i as i32).collect();
@@ -40,8 +40,8 @@ impl InferShapes for Slice {
             let steps = steps.and_then(|s| s.as_vector());
 
             for (i, axis) in axes.values().iter().copied().enumerate() {
-                let axis = resolve_axis(dims.len(), axis as i32)
-                    .map_err(|_| InferShapesError::IncorrectRank)?;
+                let axis =
+                    resolve_axis(dims.len(), axis).map_err(|_| InferShapesError::IncorrectRank)?;
 
                 let start = starts.and_then(|s| s.get(i));
                 let end = ends.and_then(|e| e.get(i));
