@@ -52,6 +52,220 @@ impl InferShapes for Expand {
     }
 }
 
+/// Flatten operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Flatten.html>.
+pub struct Flatten {
+    pub axis: i32,
+}
+
+impl InferShapes for Flatten {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [input] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+        let Some(mut dims) = input.shape() else {
+            return Ok([SymTensor::unknown("unknown input shape")].into());
+        };
+
+        // nb. Partition dims into outer and inner. Note the `axis` attribute
+        // is an exclusive count rather than an inclusive index.
+        let ndim = dims.len();
+        let n_outer_dims = if self.axis == ndim as i32 {
+            ndim
+        } else if let Ok(nd) = resolve_axis(ndim, self.axis) {
+            nd
+        } else {
+            return Err(InferShapesError::IncorrectRank);
+        };
+
+        let outer_dims: Vec<_> = dims.by_ref().take(n_outer_dims).collect();
+        let inner_dims: Vec<_> = dims.collect();
+
+        let dim_product = |dims: &[SymElem]| -> SymElem {
+            if let [dim] = dims {
+                return dim.clone();
+            }
+            dims.iter()
+                .fold(SymElem::Value(1), |prod, dim| prod * dim.clone())
+                .simplify()
+        };
+
+        let out_shape = vec![dim_product(&outer_dims), dim_product(&inner_dims)];
+        Ok([SymTensor::from_shape(out_shape)].into())
+    }
+}
+
+/// Reshape operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Reshape.html>.
+pub struct Reshape {
+    pub allow_zero: bool,
+}
+
+impl InferShapes for Reshape {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [data, shape] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        // Minimum fixed value in the `shape` argument which doesn't require
+        // special handling.
+        let min_fixed = if self.allow_zero { 0 } else { 1 };
+
+        let out_value = if let Some(dim_sizes) = shape.values() {
+            let all_fixed = dim_sizes.iter().all(|v| {
+                if let SymElem::Value(v) = v
+                    && *v >= min_fixed
+                {
+                    true
+                } else {
+                    false
+                }
+            });
+
+            // If the input is a scalar or vector and the shape has the same
+            // rank, this reshape must be a no-op. In that case we can
+            // preserve the values in a symbolic value.
+            if data.values().is_some()
+                && dim_sizes.len() <= 1
+                && data.ndim() == Some(dim_sizes.len())
+            {
+                data.clone()
+            } else if all_fixed {
+                // If all output sizes are fixed, we can generate the output shape
+                // whether we know the input shape or not.
+                SymTensor::from_shape(dim_sizes.to_vec())
+            } else if let Some(data_dims) = data.shape() {
+                // Fixed and symbolic dimensions which have not yet been
+                // "consumed". These are used to fill in the "-1" dimension
+                // later, if present.
+                let mut remaining_fixed: i32 = data_dims
+                    .clone()
+                    .map(|sym| fixed_dim_product(&sym))
+                    .product();
+                let mut remaining_symbolic: Vec<SymElem> = Vec::with_capacity(data_dims.len());
+                for dim in data_dims {
+                    match dim {
+                        SymElem::Value(_) => {}
+                        SymElem::Var(_) | SymElem::Add(_) | SymElem::Max(_) => {
+                            remaining_symbolic.push(dim);
+                        }
+                        SymElem::Mul((lhs, rhs)) => {
+                            // TODO - Recursively decompose
+                            remaining_symbolic.push((*lhs).clone());
+                            remaining_symbolic.push((*rhs).clone());
+                        }
+                    }
+                }
+
+                // Index of the "-1" value in the shape, if any.
+                let mut remainder_index = None;
+
+                let mut out_shape = Vec::new();
+                for (i, size) in dim_sizes.iter().enumerate() {
+                    // Zero values in the shape have special handling and mean
+                    // that the dimension should be copied from the input.
+                    let size = if size == &SymElem::Value(0) && !self.allow_zero {
+                        if let Some(dim) = data.size(i) {
+                            dim
+                        } else {
+                            return Err(InferShapesError::InvalidValue);
+                        }
+                    } else {
+                        size.clone()
+                    };
+
+                    let out_dim: SymElem = match size {
+                        SymElem::Value(v) => {
+                            if v >= min_fixed {
+                                let out_size = v;
+                                if out_size > 0 {
+                                    remaining_fixed /= out_size;
+                                }
+                                SymElem::Value(out_size)
+                            } else if v == -1 {
+                                remainder_index = Some(i);
+                                // Insert a placeholder in the output shape.
+                                // We'll fill it in at the end.
+                                SymElem::Value(0)
+                            } else {
+                                return Err(InferShapesError::InvalidValue);
+                            }
+                        }
+                        SymElem::Var(_) | SymElem::Add(_) | SymElem::Mul(_) | SymElem::Max(_) => {
+                            if let Some(sym_idx) =
+                                remaining_symbolic.iter().position(|sym| sym == &size)
+                            {
+                                remaining_symbolic.remove(sym_idx)
+                            } else {
+                                sym_gen.gen_positive()
+                            }
+                        }
+                    };
+                    out_shape.push(out_dim);
+                }
+
+                if let Some(rem_index) = remainder_index {
+                    let product = remaining_symbolic
+                        .into_iter()
+                        .fold(SymElem::Value(remaining_fixed), |prod, x| prod * x)
+                        .simplify();
+                    out_shape[rem_index] = product;
+                }
+
+                SymTensor::from_shape(out_shape)
+            } else {
+                let out_shape = dim_sizes
+                    .iter()
+                    .map(|value| match value {
+                        SymElem::Value(v) if *v >= min_fixed => SymElem::Value(*v),
+                        // We don't know the input shape, so we can't determine
+                        // the size of dimensions which are symbolic or require
+                        // special handling.
+                        _ => sym_gen.gen_positive(),
+                    })
+                    .collect();
+                SymTensor::from_shape(out_shape)
+            }
+        } else if let Some(mut shape_dims) = shape.shape() {
+            // If the shape is a vector with fixed length we can determine the
+            // output rank, but not the sizes of any individual dimensions.
+            if let Some(SymElem::Value(size)) = shape_dims.next()
+                && shape.ndim() == Some(1)
+            {
+                let dims = (0..size).map(|_| sym_gen.gen_positive()).collect();
+                SymTensor::from_shape(dims)
+            } else {
+                SymTensor::unknown("unknown shape length")
+            }
+        } else {
+            SymTensor::unknown("unknown shape")
+        };
+
+        Ok([out_value].into())
+    }
+}
+
+fn fixed_dim_product(sym: &SymElem) -> i32 {
+    match sym {
+        SymElem::Value(x) => *x,
+        SymElem::Var(_) => 1,
+        SymElem::Add((lhs, rhs)) | SymElem::Mul((lhs, rhs)) => {
+            fixed_dim_product(lhs) * fixed_dim_product(rhs)
+        }
+        SymElem::Max((lhs, rhs)) => fixed_dim_product(lhs).max(fixed_dim_product(rhs)),
+    }
+}
+
 /// Transpose operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Transpose.html>.
@@ -154,7 +368,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_shape, sym_vec};
 
-    use super::{Expand, Transpose, Unsqueeze};
+    use super::{Expand, Flatten, Reshape, Transpose, Unsqueeze};
 
     #[test]
     fn test_expand() {
@@ -183,6 +397,136 @@ mod tests {
         let shape = sym_shape!(3);
         let result = Expand.infer_shapes(&[data, shape], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2", 16));
+    }
+
+    #[test]
+    fn test_flatten() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Combine last two dims.
+        let data = sym_shape!("batch", "rows", "cols");
+        let op = Flatten { axis: 1 };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0],
+            sym_shape!("batch", SymElem::from("rows") * SymElem::from("cols"))
+        );
+
+        // Combine first two dims.
+        let data = sym_shape!("batch", "rows", "cols");
+        let op = Flatten { axis: 2 };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0],
+            sym_shape!(SymElem::from("batch") * SymElem::from("rows"), "cols")
+        );
+
+        // Combine all dims
+        let data = sym_shape!("batch", "rows", "cols");
+        let op = Flatten { axis: 3 };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0],
+            sym_shape!(
+                SymElem::from("batch") * SymElem::from("rows") * SymElem::from("cols"),
+                1
+            )
+        );
+
+        // Empty shape
+        let data = sym_shape!();
+        let op = Flatten { axis: 0 };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(1, 1));
+    }
+
+    #[test]
+    fn test_reshape() {
+        let mut sym_gen = SymbolGen::new();
+        let op = Reshape { allow_zero: false };
+        let allow_zero_op = Reshape { allow_zero: true };
+
+        // Simple reshape of fixed dims.
+        let data = sym_shape!("batch", 8, 8);
+        let shape = sym_vec!("batch", 64);
+        let result = op.infer_shapes(&[data, shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("batch", 64));
+
+        // Reshape of fixed dims with -1 in shape.
+        let data = sym_shape!("batch", 8, 8);
+        let shape = sym_vec!("batch", -1);
+        let result = op.infer_shapes(&[data, shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("batch", 64));
+
+        // Reshape where shape contains a zero and the corresponding input dim
+        // is fixed.
+        let data = sym_shape!(32, 8, 8);
+        let shape = sym_vec!(0, -1);
+        let result = op.infer_shapes(&[data, shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(32, 64));
+
+        // Reshape where shape contains a zero and the corresponding input dim
+        // is symbolic.
+        let data = sym_shape!("batch", 8, 8);
+        let shape = sym_vec!(0, -1);
+        let result = op.infer_shapes(&[data, shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("batch", 64));
+
+        // Reshape where shape contains a zero and `allow_zero` is true.
+        let data = sym_shape!("batch", 8, 0);
+        let shape = sym_vec!("batch", 0, 8);
+        let result = allow_zero_op
+            .infer_shapes(&[data, shape], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("batch", 0, 8));
+
+        // Reshape of symbolic scalar to scalar. This is a no-op and the symbolic
+        // value should be preserved.
+        let data = SymTensor::from_scalar(5.into());
+        let shape = sym_vec!();
+        let result = op
+            .infer_shapes(&[data.clone(), shape], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], data);
+
+        // Reshape of symbolic vector to vector. This is a no-op and the symbolic
+        // values should be preserved.
+        let data = sym_vec!("batch", 3, 8);
+        let shape = sym_vec!(3);
+        let result = op
+            .infer_shapes(&[data.clone(), shape], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], data);
+
+        // Unknown input shape, but known output shape.
+        let data = SymTensor::unknown("unknown");
+        let shape = sym_vec!(2, 4, 8);
+        let result = allow_zero_op
+            .infer_shapes(&[data, shape.clone()], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!(2, 4, 8));
+
+        // Unknown input shape, symbolic output shape.
+        //
+        // When `allow_zero=false` we have to assume that the symbolic values
+        // could be zero, in which case we'd need to copy the dimensions from
+        // the input. Since we don't know the input dimensions, we have to
+        // represent the dim sizes as new symbols in the output.
+        let data = SymTensor::unknown("unknown");
+        let shape = sym_vec!("batch", "seq");
+        let result = op
+            .infer_shapes(&[data, shape.clone()], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2"));
+
+        // Output shape with known length but unknown values.
+        let mut sym_gen = SymbolGen::new();
+        let data = sym_shape!("batch", "seq");
+        let shape = sym_shape!(3);
+        let result = allow_zero_op
+            .infer_shapes(&[data, shape.clone()], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2", "unknown_3"));
     }
 
     #[test]
