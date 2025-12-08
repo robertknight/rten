@@ -320,6 +320,10 @@ impl Operator for GatherElements {
             gather_elements(ctx.pool(), x, indices, self.axis).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 pub fn gather_nd<T: Clone + Default>(
@@ -442,6 +446,10 @@ impl Operator for GatherND {
             gather_nd(ctx.pool(), x, indices, self.batch_dims).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 // Specifies how to combine an existing element value with an update in a
@@ -555,6 +563,10 @@ impl Operator for ScatterElements {
                 .into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 pub fn scatter_nd<
@@ -646,6 +658,10 @@ impl Operator for ScatterND {
             let updates = inputs.require_as(2)?;
             scatter_nd(ctx.pool(), x, indices, updates, self.reduction).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

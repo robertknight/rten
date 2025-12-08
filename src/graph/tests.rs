@@ -13,7 +13,8 @@ use crate::graph::{
     Dimension, Graph, Node, NodeId, RunError, RunErrorKind, RunOptions, TypedConstant,
 };
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, PrepackedInput, SubgraphOperator,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputTypeList, PrepackedInput,
+    SubgraphOperator,
 };
 use crate::ops::{Add, Concat, Conv, Identity, If, MatMul, Mul, Relu, Shape};
 use crate::timing::Profiler;
@@ -66,6 +67,10 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
         self.inner.max_inputs()
     }
 
+    fn output_types(&self) -> Option<OutputTypeList> {
+        self.inner.output_types()
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         {
             let mut m = self.metrics.lock().unwrap();
@@ -110,6 +115,10 @@ impl<V: Into<Value> + 'static, F: Fn(&OpRunContext) -> Result<V, OpError>> Opera
     }
 
     fn max_inputs(&self) -> Option<usize> {
+        None
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
         None
     }
 
@@ -279,6 +288,10 @@ impl Operator for AddOne {
 
     fn max_inputs(&self) -> Option<usize> {
         Some(1)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        None
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -702,6 +715,10 @@ impl Operator for AddOneInPlace {
         Some(1)
     }
 
+    fn output_types(&self) -> Option<OutputTypeList> {
+        None
+    }
+
     fn can_run_in_place(&self) -> bool {
         true
     }
@@ -853,6 +870,10 @@ impl Operator for Split {
 
     fn max_inputs(&self) -> Option<usize> {
         Some(1)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        None
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -1043,6 +1064,10 @@ impl Operator for Counter {
         Some(0)
     }
 
+    fn output_types(&self) -> Option<OutputTypeList> {
+        None
+    }
+
     fn is_deterministic(&self) -> bool {
         false
     }
@@ -1126,6 +1151,10 @@ impl Operator for Subgraph {
     }
 
     fn max_inputs(&self) -> Option<usize> {
+        None
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
         None
     }
 
@@ -1486,6 +1515,10 @@ impl Operator for MatMulExpectPacked {
 
     fn max_inputs(&self) -> Option<usize> {
         self.inner.max_inputs()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        None
     }
 
     fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {

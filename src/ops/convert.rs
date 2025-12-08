@@ -201,6 +201,10 @@ impl Operator for CastLike {
         };
         Cast { to }.run_in_place(input, ctx)
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(1)].into())
+    }
 }
 
 #[cfg(test)]

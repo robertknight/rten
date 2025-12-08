@@ -3,7 +3,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{OpError, OpRunContext, Operator, OutputList, OutputTypeList};
 use crate::ops::{map_value_view, resolve_axis};
 use crate::value::ValueView;
 
@@ -127,6 +127,13 @@ impl Operator for Split {
             split(ctx.pool(), x, self.axis, split_sizes)
                 .map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        // The number of outputs here is variable, though always of the same
+        // type as the first input. `OutputTypeList` doesn't have a way to
+        // represent this yet.
+        None
     }
 }
 

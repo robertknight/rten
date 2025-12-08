@@ -356,6 +356,9 @@ pub trait Operator: Any + Debug {
     /// This can return `None` for variadic inputs with no limit.
     fn max_inputs(&self) -> Option<usize>;
 
+    /// Return the rules for determining the types of this operator's outputs.
+    fn output_types(&self) -> Option<OutputTypeList>;
+
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
     ///
@@ -433,11 +436,6 @@ pub trait Operator: Any + Debug {
 
     /// Return the shape inference implementation for this operator.
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        None
-    }
-
-    /// Return the rules for determining the types of this operator's outputs.
-    fn output_types(&self) -> Option<OutputTypeList> {
         None
     }
 }
