@@ -7,7 +7,6 @@ use crate::buffer_pool::BufferPool;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
 };
-use crate::value::DataType;
 
 enum FftType {
     /// FFT with real input signal.
