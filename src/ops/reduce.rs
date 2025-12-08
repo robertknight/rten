@@ -9,11 +9,33 @@ use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::infer_shapes::{InferShapes, InferShapesError, ReductionOp, SymTensor, SymbolGen};
+use crate::operator::{
+    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList,
+};
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{map_value_view, resolve_axes, resolve_axis};
 use crate::slice_reductions::{slice_fold_assoc, slice_sum};
 use crate::value::ValueView;
+
+macro_rules! impl_infer_shapes {
+    ($op:ident) => {
+        impl InferShapes for $op {
+            fn infer_shapes(
+                &self,
+                inputs: &[SymTensor],
+                sym_gen: &mut SymbolGen,
+            ) -> Result<Vec<SymTensor>, InferShapesError> {
+                ReductionOp {
+                    axes: self.axes.as_deref(),
+                    keep_dims: self.keep_dims,
+                }
+                .infer_shapes(inputs, sym_gen)
+            }
+        }
+    };
+}
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
@@ -465,7 +487,17 @@ impl Operator for ReduceMean {
             .into_op_result()
         })
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
+
+impl_infer_shapes!(ReduceMean);
 
 pub fn reduce_l2(
     pool: &BufferPool,
@@ -518,7 +550,17 @@ impl Operator for ReduceL2 {
             .into_op_result()
         })
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
+
+impl_infer_shapes!(ReduceL2);
 
 /// Compare `a` and `b`, treating all NaN values as greater than non-NaN values.
 pub fn cmp_nan_greater<T: PartialOrd + IsNaN>(a: T, b: T) -> std::cmp::Ordering {
@@ -798,7 +840,17 @@ impl Operator for ReduceSum {
             reduce_sum(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
+
+impl_infer_shapes!(ReduceSum);
 
 struct OptimizedSumSquareKernel;
 impl ReduceKernel<f32> for OptimizedSumSquareKernel {

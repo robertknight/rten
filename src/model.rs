@@ -651,6 +651,7 @@ pub struct ModelOptions {
     optimize: bool,
     prepack_weights: bool,
     external_data: HashMap<String, Arc<ConstantStorage>>,
+    infer_shapes: bool,
 }
 
 impl ModelOptions {
@@ -669,12 +670,23 @@ impl ModelOptions {
             optimize: true,
             prepack_weights: false,
             external_data: HashMap::new(),
+            infer_shapes: false,
         }
     }
 
     /// Set whether graph optimizations are enabled.
     pub fn enable_optimization(&mut self, enable: bool) -> &mut Self {
         self.optimize = enable;
+        self
+    }
+
+    /// Set whether shape inference is run as part of optimization.
+    ///
+    /// This is an experimental option that is needed to enable certain more
+    /// complex fusions to work. It will eventually be enabled by default. See
+    /// <https://github.com/robertknight/rten/pull/1124>.
+    pub fn enable_shape_inference(&mut self, enable: bool) -> &mut Self {
+        self.infer_shapes = enable;
         self
     }
 

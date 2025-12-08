@@ -5,7 +5,10 @@ use rten_tensor::Tensor;
 use rten_tensor::prelude::*;
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::infer_shapes::{InferShapes, InferShapesError, SymTensor, SymbolGen};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
 use crate::value::{DataType, Value, ValueType, ValueView};
 
 fn cast(pool: &BufferPool, input: ValueView, dtype: DataType) -> Result<Value, OpError> {
@@ -132,6 +135,38 @@ impl Operator for Cast {
                 Ok(converted)
             }
         }
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(self.to)].into())
+    }
+}
+
+impl InferShapes for Cast {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let Some(data) = inputs.first() else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        // If this is a no-op cast from int to int, preserve symbolic values.
+        // Otherwise preserve just the shape like a generic unary operator.
+        let value = if data.values().is_some() && self.to == DataType::Int32 {
+            data.clone()
+        } else if let Some(shape) = data.shape() {
+            SymTensor::from_shape(shape.collect())
+        } else {
+            SymTensor::unknown("unknown input shape")
+        };
+
+        Ok([value].into())
     }
 }
 

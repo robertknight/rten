@@ -2,6 +2,7 @@ use rayon::prelude::*;
 use std::mem::MaybeUninit;
 
 use rten_base::num::IsNaN;
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::layout::ResizeLayout;
 use rten_tensor::prelude::*;
 use rten_tensor::slice_range::to_slice_items;
@@ -10,7 +11,10 @@ use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{map_value_view, resolve_axis, resolve_index};
 use crate::value::ValueView;
@@ -185,7 +189,23 @@ impl Operator for Gather {
             gather(ctx.pool(), x, self.axis, indices).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    Gather,
+    op,
+    shape_ops::Gather {
+        axis: op.axis as i32
+    }
+);
 
 pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
     pool: &BufferPool,

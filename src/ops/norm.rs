@@ -8,7 +8,10 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::infer_shapes::{InferShapes, UnaryOp};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
 use crate::ops::resolve_axis;
 use crate::slice_reductions::slice_max;
 use crate::value::Value;
@@ -731,6 +734,14 @@ impl Operator for Softmax {
         let mut output = input.try_into()?;
         softmax_in_place(&mut output, self.axis, self.nan_handling())?;
         Ok(output.into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
