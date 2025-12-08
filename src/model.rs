@@ -684,7 +684,7 @@ impl ModelOptions {
     ///
     /// This is an experimental option that is needed to enable certain more
     /// complex fusions to work. It will eventually be enabled by default. See
-    /// <https://github.com/robertknight/rten/issues/1091>.
+    /// <https://github.com/robertknight/rten/pull/1124>.
     pub fn enable_shape_inference(&mut self, enable: bool) -> &mut Self {
         self.infer_shapes = enable;
         self

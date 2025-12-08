@@ -40,6 +40,13 @@ struct Args {
     #[argh(option)]
     check_outputs: Option<String>,
 
+    /// run shape and type inference prior to optimization.
+    ///
+    /// This is an experimental option that can enable more effective model
+    /// optimization. See https://github.com/robertknight/rten/pull/1124.
+    #[argh(switch)]
+    infer_shapes: bool,
+
     /// read values for input tensors from Safetensors file at the given path. Tensor names in the file are used as input names.
     #[argh(option, short = 'i')]
     inputs: Option<String>,
@@ -553,6 +560,7 @@ fn main() {
 
     let mut model_opts = ModelOptions::with_all_ops();
     model_opts.enable_optimization(!args.no_optimize);
+    model_opts.enable_shape_inference(args.infer_shapes);
     model_opts.prepack_weights(args.prepack);
 
     let model = if args.mmap {
