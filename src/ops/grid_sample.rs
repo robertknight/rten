@@ -2,7 +2,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
 
 /// Interpolate between `x0` and `x1` according to the `factor` in range [0, 1].
 fn lerp(x0: f32, x1: f32, factor: f32) -> f32 {
@@ -137,6 +139,10 @@ impl Operator for GridSample {
         let input = ctx.inputs().require_as(0)?;
         let grid = ctx.inputs().require_as(1)?;
         grid_sample(ctx.pool(), input, grid, self.align_corners).into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

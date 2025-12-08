@@ -8,7 +8,10 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    static_dims,
+};
 use crate::ops::Padding;
 
 /// Compute the range of input positions along a spatial axis that result in
@@ -387,6 +390,10 @@ impl Operator for ConvTranspose {
             self.output_padding.as_deref(),
         )
         .into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

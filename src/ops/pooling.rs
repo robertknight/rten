@@ -8,7 +8,10 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, T
 use smallvec::SmallVec;
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    static_dims,
+};
 use crate::ops::{Padding, check_value};
 
 /// Rounding method to use when computing the output shape for a pooling
@@ -452,6 +455,10 @@ impl Operator for AveragePool {
         )
         .into_op_result()
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 fn global_pool<T: Clone + Send + Sync>(
@@ -516,6 +523,10 @@ impl Operator for GlobalAveragePool {
         let input = ctx.inputs().require_as(0)?;
         global_average_pool(ctx.pool(), input).into_op_result()
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 pub fn global_max_pool(pool: &BufferPool, input: TensorView) -> Result<Tensor, OpError> {
@@ -539,6 +550,10 @@ impl Operator for GlobalMaxPool {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require_as(0)?;
         global_max_pool(ctx.pool(), input).into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
@@ -595,6 +610,10 @@ impl Operator for MaxPool {
             },
         )
         .into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

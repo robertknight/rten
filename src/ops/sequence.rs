@@ -2,7 +2,10 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{
+    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList,
+};
 use crate::ops::split::SplitSizes;
 use crate::ops::split::split;
 use crate::ops::{Concat, map_value_view, resolve_axis, resolve_index};
@@ -212,6 +215,10 @@ impl Operator for SequenceLength {
         let seq: &Sequence = ctx.inputs().require_as(0)?;
         let len = seq.len() as i32;
         Tensor::from(len).into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
     }
 }
 

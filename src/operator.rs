@@ -313,6 +313,7 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
 }
 
 /// Rule for determining the type of an operator output.
+#[derive(Copy, Clone)]
 pub enum OutputType {
     /// This output has a fixed type, given the operator's attributes.
     Fixed(DataType),
