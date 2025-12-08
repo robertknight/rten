@@ -145,6 +145,10 @@ impl Operator for OneHot {
             onehot(ctx.pool(), indices, self.axis, depth, on_value, off_value).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(2)].into())
+    }
 }
 
 pub fn range<T: Copy + Default + ops::Add<Output = T> + PartialOrd>(
@@ -260,6 +264,17 @@ impl Operator for EyeLike {
             })?;
             eye_like::<T>(ctx.pool(), shape, self.k).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some(
+            [if let Some(dtype) = self.dtype {
+                OutputType::Fixed(dtype)
+            } else {
+                OutputType::CopyFromInput(0)
+            }]
+            .into(),
+        )
     }
 }
 

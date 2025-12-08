@@ -7,7 +7,9 @@ use rten_tensor::{Contiguous, DynLayout, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
 use crate::ops::layout::expand_to;
 use crate::ops::{matmul, mul, reduce_sum};
 
@@ -146,6 +148,10 @@ impl Operator for Einsum {
             typed_inputs.push(inputs.require_as(i)?);
         }
         einsum(ctx.pool(), &typed_inputs, &self.equation).into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

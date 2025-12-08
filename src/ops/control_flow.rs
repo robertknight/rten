@@ -3,7 +3,9 @@ use rten_tensor::{Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::graph::{CaptureEnv, Graph, NodeId, RunError, RunOptions};
-use crate::operator::{OpError, OpRunContext, Operator, OutputList, SubgraphOperator};
+use crate::operator::{
+    OpError, OpRunContext, Operator, OutputList, OutputTypeList, SubgraphOperator,
+};
 use crate::ops::map_value;
 use crate::timing::Profiler;
 use crate::value::Value;
@@ -42,6 +44,11 @@ impl Operator for If {
 
     fn as_subgraph_op(&self) -> Option<&dyn SubgraphOperator> {
         Some(self as &dyn SubgraphOperator)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        // Type inference is not implemented for ops with subgraphs yet.
+        None
     }
 }
 
@@ -126,6 +133,11 @@ impl Operator for Loop {
 
     fn as_subgraph_op(&self) -> Option<&dyn SubgraphOperator> {
         Some(self as &dyn SubgraphOperator)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        // Type inference is not implemented for ops with subgraphs yet.
+        None
     }
 }
 

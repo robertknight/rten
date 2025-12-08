@@ -17,7 +17,7 @@ use crate::operator::{
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{map_value_view, resolve_axes, resolve_axis};
 use crate::slice_reductions::{slice_fold_assoc, slice_sum};
-use crate::value::ValueView;
+use crate::value::{DataType, ValueView};
 
 macro_rules! impl_infer_shapes {
     ($op:ident) => {
@@ -125,6 +125,10 @@ impl Operator for ArgMax {
             arg_max(ctx.pool(), input, self.axis, self.keep_dims).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
+    }
 }
 
 /// Return the index of the minimum value along a given axis.
@@ -164,6 +168,10 @@ impl Operator for ArgMin {
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             arg_min(ctx.pool(), input, self.axis, self.keep_dims).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
     }
 }
 
@@ -216,6 +224,10 @@ impl Operator for CumSum {
             cum_sum(ctx.pool(), input, axis as isize).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 /// Return the indices of nonzero elements in `input` as a `(dim, index)` tensor.
@@ -263,6 +275,10 @@ impl Operator for NonZero {
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             nonzero(ctx.pool(), input).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
     }
 }
 
@@ -684,6 +700,10 @@ impl Operator for ReduceMin {
             reduce_min(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 struct GenericMaxKernel;
@@ -739,6 +759,10 @@ impl Operator for ReduceMax {
             reduce_max(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 pub fn reduce_prod<T: Copy + std::iter::Product>(
@@ -784,6 +808,10 @@ impl Operator for ReduceProd {
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             reduce_prod(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
@@ -909,6 +937,10 @@ impl Operator for ReduceSumSquare {
             }
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 pub fn topk<T: Copy + Default + PartialOrd + IsNaN>(
@@ -1015,6 +1047,13 @@ impl Operator for TopK {
                 topk(ctx.pool(), values, k, self.axis, self.largest, self.sorted)?;
             Ok([values.into(), indices.into()].into_iter().collect())
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some(OutputTypeList::from_slice(&[
+            OutputType::CopyFromInput(0),
+            OutputType::Fixed(DataType::Int32),
+        ]))
     }
 }
 

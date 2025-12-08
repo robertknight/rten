@@ -454,6 +454,10 @@ impl Operator for IsInf {
         let output = input.map_in(ctx.pool(), |x| i32::from(x.is_infinite()));
         output.into_op_result()
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
+    }
 }
 
 #[derive(Debug)]
@@ -549,6 +553,10 @@ impl Operator for Not {
         not_in_place(output.view_mut());
         Ok(output.into())
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
+    }
 }
 
 declare_operator!(Reciprocal);
@@ -606,6 +614,10 @@ impl Operator for PRelu {
             let slope = ctx.inputs().require_as(1)?;
             prelu(ctx.pool(), input, slope).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

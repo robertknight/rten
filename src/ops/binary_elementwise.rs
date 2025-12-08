@@ -793,6 +793,10 @@ impl Operator for Mod {
             mod_op(ctx.pool(), a, b, mode).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 /// Multiply two tensors elementwise.

@@ -82,6 +82,10 @@ impl Operator for DepthToSpace {
         let input = ctx.inputs().require_as(0)?;
         depth_to_space::<f32>(ctx.pool(), input, self.block_size, self.mode).into_op_result()
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 /// Return the tensor shape resulting from broadcasting `input_shape` with `shape`.
@@ -506,6 +510,10 @@ impl Operator for Size {
 
         output.into_op_result()
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
+    }
 }
 
 pub fn squeeze_in_place<T: Clone>(
@@ -585,6 +593,10 @@ impl Operator for Squeeze {
             squeeze_in_place(&mut output, axes)?;
             Ok(output.into())
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
@@ -785,6 +797,10 @@ impl Operator for ComputeShape {
             .collect::<Result<Vec<i32>, _>>()?;
 
         Tensor::from(output).into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
     }
 }
 

@@ -275,6 +275,10 @@ impl Operator for BatchNormalization {
 
         Ok(output.into())
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 pub fn instance_normalization(
@@ -361,6 +365,10 @@ impl Operator for InstanceNormalization {
         instance_normalization_in_place(&mut output, scale, bias, self.epsilon)?;
 
         Ok(output.into())
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
@@ -501,6 +509,10 @@ impl Operator for LayerNormalization {
         layer_normalization(ctx.pool(), input, scale, bias, self.axis, self.epsilon)
             .into_op_result()
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 /// Root Mean Square normalization.
@@ -531,6 +543,10 @@ impl Operator for RmsNormalization {
         let scale = inputs.require_as(1)?;
 
         rms_normalization(ctx.pool(), input, scale, self.axis, self.epsilon).into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
@@ -650,6 +666,10 @@ impl Operator for LogSoftmax {
         let mut output: Tensor = input.try_into()?;
         log_softmax_in_place(&mut output, self.axis)?;
         Ok(output.into())
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

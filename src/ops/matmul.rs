@@ -126,6 +126,10 @@ impl Operator for Gemm {
         )
         .into_op_result()
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 /// Hints for how a batched MatMul should be performed. This exists to enable
@@ -468,6 +472,10 @@ impl Operator for FusedMatMul {
             None
         }
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 /// Normalize a zero point input by converting it to a vector.
@@ -593,6 +601,10 @@ impl Operator for MatMulInteger {
             None
         }
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
+    }
 }
 
 /// Cast elements in `data` to f32 and scale by the per-column scales in `scale`.
@@ -651,6 +663,10 @@ impl Operator for MatMulIntegerToFloat {
 
     fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
         self.matmul.prepack(index, input)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Float)].into())
     }
 }
 

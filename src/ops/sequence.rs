@@ -29,6 +29,11 @@ impl Operator for SequenceEmpty {
         let dtype = self.dtype.unwrap_or(DataType::Float);
         Value::from(Sequence::new(dtype)).into_op_result()
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        // Type inference does not support sequence types yet.
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -52,6 +57,11 @@ impl Operator for SequenceAt {
             .unwrap()
             .to_owned_in(ctx.pool())
             .into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        // Type inference does not support sequence types yet.
+        None
     }
 }
 
@@ -84,6 +94,11 @@ impl Operator for SequenceConstruct {
         })?;
 
         Value::from(sequence).into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        // Type inference does not support sequence types yet.
+        None
     }
 }
 
@@ -135,6 +150,11 @@ impl Operator for SequenceErase {
         let seq: Sequence = input.try_into()?;
         let pos: Option<i32> = ctx.inputs().get_as(0)?;
         sequence_erase(seq, pos).map(Value::from)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        // Type inference does not support sequence types yet.
+        None
     }
 }
 
@@ -196,6 +216,11 @@ impl Operator for SequenceInsert {
         let value = ctx.inputs().require(0)?;
         let pos: Option<i32> = ctx.inputs().get_as(1)?;
         sequence_insert(ctx.pool(), seq, pos, value).map(Value::from)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        // Type inference does not support sequence types yet.
+        None
     }
 }
 
@@ -272,6 +297,11 @@ impl Operator for ConcatFromSequence {
         let concat_ctx = ctx.with_new_inputs(&concat_inputs);
         concat_op.run(&concat_ctx)
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        // Type inference does not support sequence types yet.
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -334,6 +364,11 @@ impl Operator for SplitToSequence {
         })?;
 
         Value::from(sequence).into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        // Type inference does not support sequence types yet.
+        None
     }
 }
 

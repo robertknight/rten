@@ -302,6 +302,10 @@ impl Operator for Tile {
             tile(ctx.pool(), input.view(), repeats).map(|t| t.into())
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 #[cfg(test)]
