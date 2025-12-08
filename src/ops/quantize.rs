@@ -7,7 +7,9 @@ use rten_tensor::{AssumeInit, NdTensor, NdTensorView, Scalar, Tensor, TensorView
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
 use crate::ops::{map_value_view, resolve_axis};
 use crate::value::{DataType, Value, ValueView};
 
@@ -110,6 +112,10 @@ impl Operator for DequantizeLinear {
             let zero_point = inputs.get_as(2)?;
             dequantize_linear(ctx.pool(), x, scale, zero_point, self.axis).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Float)].into())
     }
 }
 
@@ -300,6 +306,11 @@ impl Operator for QuantizeLinear {
             _ => Err(OpError::UnsupportedType),
         }
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        let dtype = self.output_dtype.unwrap_or(DataType::Int8);
+        Some([OutputType::Fixed(dtype)].into())
+    }
 }
 
 pub trait SaturatingCast<To> {
@@ -430,6 +441,14 @@ impl Operator for DynamicQuantizeLinear {
         let zero_point: Value = zero_point.into();
 
         Ok([quantized, scale, zero_point].into_iter().collect())
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some(OutputTypeList::from_slice(&[
+            OutputType::Fixed(DataType::UInt8),
+            OutputType::Fixed(DataType::Float),
+            OutputType::Fixed(DataType::UInt8),
+        ]))
     }
 }
 

@@ -2,7 +2,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
 use crate::ops::map_value_view;
 use crate::value::{Value, ValueView};
 
@@ -33,6 +35,10 @@ impl Operator for Identity {
 
     fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
         Ok(input)
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

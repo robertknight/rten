@@ -2,7 +2,10 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
+use crate::value::DataType;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BoxOrder {
@@ -215,6 +218,10 @@ impl Operator for NonMaxSuppression {
         )?;
 
         selected_box_indices.into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(DataType::Int32)].into())
     }
 }
 

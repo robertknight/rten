@@ -4,7 +4,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, NdTensorViewMut, SliceItem, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
 use crate::ops::map_value_view;
 use crate::value::ValueView;
 
@@ -282,6 +284,10 @@ impl Operator for Pad {
             let const_val = inputs.get_as(2)?.unwrap_or_default();
             pad(ctx.pool(), x, &pads, self.mode, const_val).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

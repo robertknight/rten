@@ -8,7 +8,8 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::operator::{
-    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims,
+    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList, static_dims,
 };
 use crate::value::{TryFromValueError, Value, ValueView};
 
@@ -502,6 +503,10 @@ impl Operator for Resize {
             self.nearest_mode,
         )
         .into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 
     fn can_run_in_place(&self) -> bool {

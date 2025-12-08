@@ -6,9 +6,13 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList, static_dims};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    static_dims,
+};
 use crate::ops::binary_elementwise::{add_in_place, mul_in_place};
 use crate::ops::unary_elementwise::{sigmoid, tanh};
+use crate::value::DataType;
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -342,6 +346,13 @@ impl Operator for GRU {
         )
         .into_op_result()
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some(OutputTypeList::from_slice(&[
+            OutputType::Fixed(DataType::Float),
+            OutputType::Fixed(DataType::Float),
+        ]))
+    }
 }
 
 /// Long Short-Term Memory operator.
@@ -588,6 +599,14 @@ impl Operator for LSTM {
             initial_cell,
         )
         .into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some(OutputTypeList::from_slice(&[
+            OutputType::Fixed(DataType::Float),
+            OutputType::Fixed(DataType::Float),
+            OutputType::Fixed(DataType::Float),
+        ]))
     }
 }
 

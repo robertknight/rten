@@ -4,7 +4,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
 use crate::ops::map_value_view;
 use crate::value::ValueView;
 
@@ -81,6 +83,10 @@ impl Operator for Trilu {
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
             trilu(ctx.pool(), input, k, self.upper).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

@@ -5,7 +5,10 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::operator::{InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{
+    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList,
+};
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::map_value_view;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
@@ -81,6 +84,10 @@ impl Operator for Max {
             max(ctx.pool(), &inputs).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 pub fn mean(pool: &BufferPool, inputs: &[TensorView]) -> Result<Tensor, OpError> {
@@ -106,6 +113,10 @@ impl Operator for Mean {
         let first = inputs.require_as(0)?;
         let inputs = typed_views(inputs, first)?;
         mean(ctx.pool(), &inputs).into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
@@ -139,6 +150,10 @@ impl Operator for Min {
             min(ctx.pool(), &inputs).into_op_result()
         })
     }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
 }
 
 pub fn sum<T: Copy + std::ops::Add<Output = T>>(
@@ -167,6 +182,10 @@ impl Operator for Sum {
             let inputs = typed_views(inputs, first)?;
             sum(ctx.pool(), &inputs).into_op_result()
         })
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

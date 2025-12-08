@@ -4,7 +4,10 @@ use rustfft::FftPlanner;
 use rustfft::num_complex::Complex32;
 
 use crate::buffer_pool::BufferPool;
-use crate::operator::{IntoOpResult, OpError, OpRunContext, Operator, OutputList};
+use crate::operator::{
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+};
+use crate::value::DataType;
 
 enum FftType {
     /// FFT with real input signal.
@@ -150,6 +153,10 @@ impl Operator for STFT {
             self.onesided,
         )
         .into_op_result()
+    }
+
+    fn output_types(&self) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
