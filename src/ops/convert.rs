@@ -5,7 +5,7 @@ use rten_tensor::Tensor;
 use rten_tensor::prelude::*;
 
 use crate::buffer_pool::BufferPool;
-use crate::infer_shapes::{InferShapes, InferShapesError, SymTensor, SymbolGen};
+use crate::infer_shapes::{InferShapes, InferShapesError, SymTensor, SymbolGen, UnaryOp};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
 };
@@ -204,6 +204,10 @@ impl Operator for CastLike {
 
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(1)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 }
 

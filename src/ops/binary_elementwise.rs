@@ -797,6 +797,10 @@ impl Operator for Mod {
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&BinaryOp)
+    }
 }
 
 /// Multiply two tensors elementwise.
