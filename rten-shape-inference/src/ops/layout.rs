@@ -150,7 +150,17 @@ impl InferShapes for Reshape {
                     .position(|size| size == &SymElem::Value(-1));
 
                 let mut remainder = if remainder_index.is_some() {
-                    Some(data_dims.fold(SymElem::Value(1), |prod, d| prod * d))
+                    Some(
+                        data_dims
+                            .fold(SymElem::Value(1), |prod, d| prod * d)
+                            // Combine constants into a single term where possible.
+                            // eg. X * 3 * 4 => X * 12.
+                            //
+                            // This is important if the new shape contains a
+                            // fixed term that is a product of terms in the
+                            // original.
+                            .simplify(),
+                    )
                 } else {
                     None
                 };
@@ -540,6 +550,14 @@ mod tests {
             .infer_shapes(&[data, shape.clone()], &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2", "unknown_3"));
+
+        // Test case taken from ModernBERT model.
+        let data = sym_shape!("batch", "seq", 12, 64);
+        let shape = sym_vec!("batch", -1, 768);
+        let result = allow_zero_op
+            .infer_shapes(&[data, shape.clone()], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("batch", "seq", 768));
     }
 
     #[test]
