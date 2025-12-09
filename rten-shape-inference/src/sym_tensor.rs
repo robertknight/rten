@@ -187,6 +187,36 @@ impl SymElem {
             .into(),
         )
     }
+
+    /// Compute `self / rhs` as an expression, or return `None` if an exact
+    /// division is not possible.
+    pub fn exact_div(&self, rhs: &SymElem) -> Option<SymElem> {
+        let lhs = self;
+        match (lhs, rhs) {
+            // Fixed values
+            (SymElem::Value(lhs), SymElem::Value(rhs)) => {
+                if *rhs != 0 && lhs % rhs == 0 {
+                    Some(SymElem::Value(lhs / rhs))
+                } else {
+                    None
+                }
+            }
+            // Identities
+            (lhs, rhs) if lhs == rhs => Some(SymElem::Value(1)),
+            (lhs, SymElem::Value(1)) => Some(lhs.clone()),
+            // If LHS is a product, recurse
+            (SymElem::Mul((lhs_a, lhs_b)), rhs) => {
+                if let Some(new_lhs_a) = lhs_a.exact_div(rhs) {
+                    Some(SymElem::Mul((new_lhs_a.into(), lhs_b.clone())))
+                } else {
+                    lhs_b
+                        .exact_div(rhs)
+                        .map(|new_lhs_b| SymElem::Mul((lhs_a.clone(), new_lhs_b.into())))
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 impl PartialEq<SymElem> for SymElem {
@@ -592,6 +622,44 @@ mod tests {
             let expr = (SymElem::from(1) + SymElem::pos_var("foo")) * SymElem::from(3)
                 + SymElem::var("bar");
             assert_eq!(format!("{:?}", expr), "(1 + \"foo\"u) * 3 + \"bar\"i");
+        }
+
+        #[test]
+        fn test_exact_div() {
+            // Fixed values
+            assert_eq!(
+                SymElem::from(15).exact_div(&SymElem::from(3)),
+                Some(SymElem::from(5))
+            );
+            assert_eq!(SymElem::from(15).exact_div(&SymElem::from(4)), None);
+            assert_eq!(SymElem::from(15).exact_div(&SymElem::from(0)), None);
+
+            // Identities
+            assert_eq!(
+                SymElem::from("x").exact_div(&SymElem::from("x")),
+                Some(SymElem::from(1))
+            );
+            assert_eq!(
+                SymElem::from("x").exact_div(&SymElem::from(1)),
+                Some(SymElem::from("x"))
+            );
+
+            // Products with common term in LHS and RHS
+            assert_eq!(
+                (SymElem::from("x") * SymElem::from("y"))
+                    .exact_div(&SymElem::from("y"))
+                    .map(|s| s.simplify()),
+                Some(SymElem::from("x"))
+            );
+            assert_eq!(
+                (SymElem::from("y") * SymElem::from("x"))
+                    .exact_div(&SymElem::from("y"))
+                    .map(|s| s.simplify()),
+                Some(SymElem::from("x"))
+            );
+
+            // Cases where result is unknown
+            assert_eq!(SymElem::from("x").exact_div(&SymElem::from("y")), None);
         }
     }
 
