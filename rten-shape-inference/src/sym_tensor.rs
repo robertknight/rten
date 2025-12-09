@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 use std::fmt;
-use std::ops::{Add, AddAssign, Mul};
+use std::ops::{Add, AddAssign, Mul, Sub};
 use std::rc::Rc;
 
 /// Vector or scalar with integer values.
@@ -68,6 +68,8 @@ pub enum SymElem {
     Var(Rc<Symbol>),
     /// Addition of two symbolic values
     Add((Rc<SymElem>, Rc<SymElem>)),
+    /// Subtraction of two symbolic values
+    Sub((Rc<SymElem>, Rc<SymElem>)),
     /// Multiplication of two symbolic values
     Mul((Rc<SymElem>, Rc<SymElem>)),
     /// Maximum of two symbolic values
@@ -91,6 +93,11 @@ impl SymElem {
                 let (rhs_min, rhs_max) = rhs.range();
                 (lhs_min.min(rhs_min), lhs_max.max(rhs_max))
             }
+            Self::Sub((_lhs, _rhs)) => {
+                // Note: Unlike for addition, subtraction involving two
+                // positive symbols may produce a negative result.
+                (i32::MIN, i32::MAX)
+            }
         }
     }
 
@@ -100,6 +107,7 @@ impl SymElem {
             Self::Value(x) => *x >= 0,
             Self::Var(sym) => sym.positive,
             Self::Add((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
+            Self::Sub((_lhs, _rhs)) => false,
             Self::Mul((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
             Self::Max((lhs, rhs)) => lhs.is_positive() || rhs.is_positive(),
         }
@@ -167,6 +175,11 @@ impl SymElem {
                 let rhs = rhs.canonicalize();
                 Self::Max((lhs.into(), rhs.into()))
             }
+            Self::Sub((lhs, rhs)) => {
+                let lhs = lhs.canonicalize();
+                let rhs = rhs.canonicalize();
+                Self::Sub((lhs.into(), rhs.into()))
+            }
         }
     }
 
@@ -191,6 +204,17 @@ impl SymElem {
                     (lhs, SymElem::Value(0)) => lhs,
                     (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x + y),
                     (lhs, rhs) => lhs + rhs,
+                }
+            }
+            Self::Sub((lhs, rhs)) => {
+                let lhs = lhs.simplify_canonical();
+                let rhs = rhs.simplify_canonical();
+
+                match (lhs, rhs) {
+                    (lhs, SymElem::Value(0)) => lhs,
+                    (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x - y),
+                    (lhs, rhs) if lhs == rhs => SymElem::Value(0),
+                    (lhs, rhs) => lhs - rhs,
                 }
             }
             Self::Mul((lhs, rhs)) => {
@@ -229,7 +253,7 @@ impl SymElem {
             // never need to be wrapped in parens when formatting an expression.
             Self::Value(_) | Self::Var(_) | Self::Max(_) => 2,
             Self::Mul(_) => 1,
-            Self::Add(_) => 0,
+            Self::Add(_) | Self::Sub(_) => 0,
         }
     }
 
@@ -308,6 +332,7 @@ impl PartialEq<SymElem> for SymElem {
             (Self::Add((a, b)), Self::Add((c, d))) => commutative_eq(a, b, c, d),
             (Self::Mul((a, b)), Self::Mul((c, d))) => commutative_eq(a, b, c, d),
             (Self::Max((a, b)), Self::Max((c, d))) => commutative_eq(a, b, c, d),
+            (Self::Sub((a, b)), Self::Sub((c, d))) => a == c && b == d,
             (_, _) => false,
         }
     }
@@ -318,6 +343,14 @@ impl Add<SymElem> for SymElem {
 
     fn add(self, rhs: SymElem) -> Self {
         Self::Add((self.into(), rhs.into()))
+    }
+}
+
+impl Sub<SymElem> for SymElem {
+    type Output = SymElem;
+
+    fn sub(self, rhs: SymElem) -> Self {
+        Self::Sub((self.into(), rhs.into()))
     }
 }
 
@@ -387,6 +420,7 @@ impl fmt::Debug for SymElem {
                 if sym.positive { 'u' } else { 'i' }
             ),
             Self::Add((lhs, rhs)) => write_binop(f, '+', lhs, rhs),
+            Self::Sub((lhs, rhs)) => write_binop(f, '-', lhs, rhs),
             Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
             Self::Max((lhs, rhs)) => write!(f, "max({:?}, {:?})", lhs, rhs),
         }
@@ -411,6 +445,7 @@ impl fmt::Display for SymElem {
             Self::Value(val) => write!(f, "{}", val),
             Self::Var(sym) => write!(f, "{}", sym.name),
             Self::Add((lhs, rhs)) => write_binop(f, '+', lhs, rhs),
+            Self::Sub((lhs, rhs)) => write_binop(f, '-', lhs, rhs),
             Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
             Self::Max((lhs, rhs)) => write!(f, "max({}, {})", lhs, rhs),
         }
@@ -678,6 +713,29 @@ mod tests {
         }
 
         #[test]
+        fn test_simplify_sub() {
+            let x = SymElem::pos_var("x");
+            let zero = SymElem::from(0);
+            let one = SymElem::from(1);
+
+            // x - 0 => x
+            let expr = x.clone() - zero.clone();
+            assert_eq!(expr, SymElem::Sub((x.clone().into(), zero.clone().into())));
+            assert_eq!(expr.simplify(), x);
+
+            // x - x => 0
+            let expr = x.clone() - x.clone();
+            assert_eq!(expr.simplify(), SymElem::Value(0));
+
+            // x - 1 => x - 1
+            let expr_2 = x.clone() - one.clone();
+            assert_eq!(
+                expr_2.simplify(),
+                SymElem::Sub((x.clone().into(), one.clone().into()))
+            );
+        }
+
+        #[test]
         fn test_simplify_mul() {
             let x = SymElem::pos_var("x");
             let one = SymElem::from(1);
@@ -730,16 +788,18 @@ mod tests {
 
         #[test]
         fn test_display() {
-            let expr =
-                (SymElem::from(1) + SymElem::pos_var("foo")) * SymElem::from(3) + SymElem::from(4);
-            assert_eq!(expr.to_string(), "(1 + foo) * 3 + 4");
+            let expr = (SymElem::from(1) + SymElem::pos_var("foo")) * SymElem::from(3)
+                + SymElem::from(4)
+                - SymElem::from(5);
+            assert_eq!(expr.to_string(), "(1 + foo) * 3 + 4 - 5");
         }
 
         #[test]
         fn test_debug() {
             let expr = (SymElem::from(1) + SymElem::pos_var("foo")) * SymElem::from(3)
-                + SymElem::var("bar");
-            assert_eq!(format!("{:?}", expr), "(1 + \"foo\"u) * 3 + \"bar\"i");
+                + SymElem::var("bar")
+                - SymElem::from(5);
+            assert_eq!(format!("{:?}", expr), "(1 + \"foo\"u) * 3 + \"bar\"i - 5");
         }
 
         #[test]

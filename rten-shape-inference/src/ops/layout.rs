@@ -23,7 +23,11 @@ impl InferShapes for Expand {
         } else if let Some(data_dims) = data.shape()
             && let Some(shape_len) = shape.size(0).and_then(|d| match d {
                 SymElem::Value(size) => Some(size),
-                SymElem::Var(_) | SymElem::Add(_) | SymElem::Mul(_) | SymElem::Max(_) => None,
+                SymElem::Add(_)
+                | SymElem::Mul(_)
+                | SymElem::Max(_)
+                | SymElem::Sub(_)
+                | SymElem::Var(_) => None,
             })
         {
             // If we know the length of the shape but not the values, then we

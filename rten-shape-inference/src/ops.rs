@@ -100,9 +100,11 @@ impl InferShapes for ConstantOfShape {
                                 return Err(InferShapesError::InvalidValue);
                             }
                         }
-                        SymElem::Var(_) | SymElem::Add(_) | SymElem::Mul(_) | SymElem::Max(_) => {
-                            SymTensor::from_shape(vec![vec_len.clone()])
-                        }
+                        SymElem::Var(_)
+                        | SymElem::Add(_)
+                        | SymElem::Sub(_)
+                        | SymElem::Mul(_)
+                        | SymElem::Max(_) => SymTensor::from_shape(vec![vec_len.clone()]),
                     }
                 } else {
                     SymTensor::from_scalar(SymElem::Value(val))
@@ -256,6 +258,10 @@ impl InferShapes for Range {
             {
                 SymTensor::from_shape(vec![(*limit_rhs).clone()])
             }
+            // Range(start, limit, 1) has shape [limit - start]
+            (Some(start), Some(limit), Some(SymElem::Value(1))) => {
+                SymTensor::from_shape(vec![limit - start])
+            }
             _ => SymTensor::from_shape(vec![sym_gen.gen_positive()]),
         };
 
@@ -293,9 +299,11 @@ impl InferShapes for Where {
                 .map(|(cond, (x, y))| {
                     let cond_bool = match cond {
                         SymElem::Value(v) => Some(*v == 1),
-                        SymElem::Var(_) | SymElem::Add(_) | SymElem::Mul(_) | SymElem::Max(_) => {
-                            None
-                        }
+                        SymElem::Var(_)
+                        | SymElem::Add(_)
+                        | SymElem::Sub(_)
+                        | SymElem::Mul(_)
+                        | SymElem::Max(_) => None,
                     }?;
                     if cond_bool {
                         Some(x.clone())
@@ -470,6 +478,18 @@ mod tests {
             .infer_shapes(&[start, limit, delta], &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("limit"));
+
+        // Range from start..limit
+        let start = sym_vec!("start");
+        let limit = sym_vec!("limit");
+        let delta = sym_vec!(1);
+        let result = Range
+            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .unwrap();
+        assert_eq!(
+            result[0],
+            sym_shape!(SymElem::from("limit") - SymElem::from("start"))
+        );
 
         // Range of unknown size
         let start = sym_vec!("start");
