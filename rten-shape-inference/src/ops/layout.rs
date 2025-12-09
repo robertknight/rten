@@ -145,30 +145,15 @@ impl InferShapes for Reshape {
                 // whether we know the input shape or not.
                 SymTensor::from_shape(dim_sizes.to_vec())
             } else if let Some(data_dims) = data.shape() {
-                // Fixed and symbolic dimensions which have not yet been
-                // "consumed". These are used to fill in the "-1" dimension
-                // later, if present.
-                let mut remaining_fixed: i32 = data_dims
-                    .clone()
-                    .map(|sym| fixed_dim_product(&sym))
-                    .product();
-                let mut remaining_symbolic: Vec<SymElem> = Vec::with_capacity(data_dims.len());
-                for dim in data_dims {
-                    match dim {
-                        SymElem::Value(_) => {}
-                        SymElem::Var(_) | SymElem::Add(_) | SymElem::Max(_) => {
-                            remaining_symbolic.push(dim);
-                        }
-                        SymElem::Mul((lhs, rhs)) => {
-                            // TODO - Recursively decompose
-                            remaining_symbolic.push((*lhs).clone());
-                            remaining_symbolic.push((*rhs).clone());
-                        }
-                    }
-                }
+                let remainder_index = dim_sizes
+                    .iter()
+                    .position(|size| size == &SymElem::Value(-1));
 
-                // Index of the "-1" value in the shape, if any.
-                let mut remainder_index = None;
+                let mut remainder = if remainder_index.is_some() {
+                    Some(data_dims.fold(SymElem::Value(1), |prod, d| prod * d))
+                } else {
+                    None
+                };
 
                 let mut out_shape = Vec::new();
                 for (i, size) in dim_sizes.iter().enumerate() {
@@ -184,42 +169,21 @@ impl InferShapes for Reshape {
                         size.clone()
                     };
 
-                    let out_dim: SymElem = match size {
-                        SymElem::Value(v) => {
-                            if v >= min_fixed {
-                                let out_size = v;
-                                if out_size > 0 {
-                                    remaining_fixed /= out_size;
-                                }
-                                SymElem::Value(out_size)
-                            } else if v == -1 {
-                                remainder_index = Some(i);
-                                // Insert a placeholder in the output shape.
-                                // We'll fill it in at the end.
-                                SymElem::Value(0)
-                            } else {
-                                return Err(InferShapesError::InvalidValue);
-                            }
-                        }
-                        SymElem::Var(_) | SymElem::Add(_) | SymElem::Mul(_) | SymElem::Max(_) => {
-                            if let Some(sym_idx) =
-                                remaining_symbolic.iter().position(|sym| sym == &size)
-                            {
-                                remaining_symbolic.remove(sym_idx)
-                            } else {
-                                sym_gen.gen_positive()
-                            }
-                        }
-                    };
-                    out_shape.push(out_dim);
+                    if size == SymElem::Value(-1) {
+                        // Add placeholder that we'll replace later.
+                        out_shape.push(SymElem::Value(0));
+                    } else {
+                        remainder = remainder.and_then(|r| r.exact_div(&size));
+                        out_shape.push(size);
+                    }
                 }
 
                 if let Some(rem_index) = remainder_index {
-                    let product = remaining_symbolic
-                        .into_iter()
-                        .fold(SymElem::Value(remaining_fixed), |prod, x| prod * x)
-                        .simplify();
-                    out_shape[rem_index] = product;
+                    out_shape[rem_index] = if let Some(remainder) = remainder {
+                        remainder.simplify()
+                    } else {
+                        sym_gen.gen_positive()
+                    }
                 }
 
                 SymTensor::from_shape(out_shape)
@@ -252,17 +216,6 @@ impl InferShapes for Reshape {
         };
 
         Ok([out_value].into())
-    }
-}
-
-fn fixed_dim_product(sym: &SymElem) -> i32 {
-    match sym {
-        SymElem::Value(x) => *x,
-        SymElem::Var(_) => 1,
-        SymElem::Add((lhs, rhs)) | SymElem::Mul((lhs, rhs)) => {
-            fixed_dim_product(lhs) * fixed_dim_product(rhs)
-        }
-        SymElem::Max((lhs, rhs)) => fixed_dim_product(lhs).max(fixed_dim_product(rhs)),
     }
 }
 
