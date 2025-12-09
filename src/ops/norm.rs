@@ -276,6 +276,10 @@ impl Operator for BatchNormalization {
         Ok(output.into())
     }
 
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
@@ -365,6 +369,10 @@ impl Operator for InstanceNormalization {
         instance_normalization_in_place(&mut output, scale, bias, self.epsilon)?;
 
         Ok(output.into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
@@ -510,6 +518,10 @@ impl Operator for LayerNormalization {
             .into_op_result()
     }
 
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
@@ -547,6 +559,10 @@ impl Operator for RmsNormalization {
 
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 }
 
@@ -666,6 +682,10 @@ impl Operator for LogSoftmax {
         let mut output: Tensor = input.try_into()?;
         log_softmax_in_place(&mut output, self.axis)?;
         Ok(output.into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {

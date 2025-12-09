@@ -458,6 +458,10 @@ impl Operator for IsInf {
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(DataType::Int32)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
 }
 
 #[derive(Debug)]
@@ -557,6 +561,10 @@ impl Operator for Not {
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(DataType::Int32)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
 }
 
 declare_operator!(Reciprocal);
@@ -618,6 +626,10 @@ impl Operator for PRelu {
 
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 }
 

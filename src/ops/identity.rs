@@ -2,6 +2,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
+use crate::infer_shapes::{InferShapes, UnaryOp};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
 };
@@ -35,6 +36,10 @@ impl Operator for Identity {
 
     fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
         Ok(input)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {

@@ -7,6 +7,7 @@ use rten_tensor::{AssumeInit, NdTensor, NdTensorView, Scalar, Tensor, TensorView
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
+use crate::infer_shapes::{InferShapes, UnaryOp};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
 };
@@ -116,6 +117,10 @@ impl Operator for DequantizeLinear {
 
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(DataType::Float)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 }
 
@@ -310,6 +315,10 @@ impl Operator for QuantizeLinear {
     fn output_types(&self) -> Option<OutputTypeList> {
         let dtype = self.output_dtype.unwrap_or(DataType::Int8);
         Some([OutputType::Fixed(dtype)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 }
 

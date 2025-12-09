@@ -701,10 +701,16 @@ impl Operator for ReduceMin {
         })
     }
 
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
+
+impl_infer_shapes!(ReduceMin);
 
 struct GenericMaxKernel;
 impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for GenericMaxKernel {
@@ -760,10 +766,16 @@ impl Operator for ReduceMax {
         })
     }
 
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
+
+impl_infer_shapes!(ReduceMax);
 
 pub fn reduce_prod<T: Copy + std::iter::Product>(
     pool: &BufferPool,
@@ -810,10 +822,16 @@ impl Operator for ReduceProd {
         })
     }
 
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
+
+impl_infer_shapes!(ReduceProd);
 
 struct OptimizedSumKernel;
 impl ReduceKernel<f32> for OptimizedSumKernel {
@@ -938,10 +956,16 @@ impl Operator for ReduceSumSquare {
         })
     }
 
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
+
+impl_infer_shapes!(ReduceSumSquare);
 
 pub fn topk<T: Copy + Default + PartialOrd + IsNaN>(
     pool: &BufferPool,
