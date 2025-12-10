@@ -1,6 +1,7 @@
 use std::mem::MaybeUninit;
 
 use rayon::prelude::*;
+use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{AssumeInit, NdTensor, NdTensorView, Scalar, Tensor, TensorView};
@@ -458,6 +459,10 @@ impl Operator for DynamicQuantizeLinear {
             OutputType::Fixed(DataType::Float),
             OutputType::Fixed(DataType::UInt8),
         ]))
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::DynamicQuantizeLinear)
     }
 }
 

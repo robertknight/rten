@@ -605,6 +605,10 @@ impl Operator for MatMulInteger {
     fn output_types(&self) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(DataType::Int32)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::MatMul)
+    }
 }
 
 /// Cast elements in `data` to f32 and scale by the per-column scales in `scale`.
