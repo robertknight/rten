@@ -319,6 +319,10 @@ pub enum OutputType {
     Fixed(ValueType),
     /// This output has the same type as the input at a given index.
     CopyFromInput(u32),
+    /// The output is the element type of an input sequence.
+    ElementTypeOfInputSequence(u32),
+    /// The output is a sequence whose element type matches an input.
+    SequenceWithElementTypeOfInput(u32),
 }
 
 /// List of type rules for each operator output.

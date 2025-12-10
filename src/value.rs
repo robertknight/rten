@@ -44,6 +44,24 @@ pub enum ValueType {
     Sequence(DataType),
 }
 
+impl ValueType {
+    /// Convert to a tensor type.
+    pub(crate) fn to_tensor_type(&self) -> Self {
+        match self {
+            ttype @ Self::Tensor(_) => *ttype,
+            Self::Sequence(dtype) => Self::Tensor(*dtype),
+        }
+    }
+
+    /// Convert to a sequence type.
+    pub(crate) fn to_sequence_type(&self) -> Self {
+        match self {
+            Self::Tensor(dtype) => Self::Sequence(*dtype),
+            stype @ Self::Sequence(_) => *stype,
+        }
+    }
+}
+
 impl std::fmt::Display for ValueType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
