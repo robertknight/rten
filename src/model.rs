@@ -15,7 +15,7 @@ use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunErrorImpl, RunOp
 use crate::op_registry::OpRegistry;
 use crate::optimize::OptimizeOptions;
 use crate::timing::{TimingFilter, TimingSort};
-use crate::value::{DataType, Value, ValueOrView};
+use crate::value::{Value, ValueOrView, ValueType};
 use crate::weight_cache::WeightCache;
 
 #[cfg(feature = "onnx_format")]
@@ -593,7 +593,7 @@ impl<'a> NodeInfo<'a> {
     ///
     /// For constants the data type is always known. For values the data type
     /// may be specified. For operators this always returns `None`.
-    pub fn dtype(&self) -> Option<DataType> {
+    pub fn dtype(&self) -> Option<ValueType> {
         self.node.dtype()
     }
 }
@@ -875,7 +875,7 @@ mod tests {
     use crate::ops::{
         BoxOrder, CoordTransformMode, DepthToSpaceMode, NearestMode, ResizeMode, Shape,
     };
-    use crate::value::{DataType, Scalar, Value};
+    use crate::value::{DataType, Scalar, Value, ValueType};
 
     fn generate_model_buffer(format: ModelFormat) -> Vec<u8> {
         let mut builder = ModelBuilder::new(format);
@@ -1001,7 +1001,7 @@ mod tests {
             .node_info(input_id)
             .and_then(|ni| ni.dtype())
             .expect("input dtype missing");
-        assert_eq!(dtype, DataType::Float);
+        assert_eq!(dtype, ValueType::Tensor(DataType::Float));
     }
 
     #[test]

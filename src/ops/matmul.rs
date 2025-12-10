@@ -19,7 +19,7 @@ use crate::operator::{
 };
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
-use crate::value::{DataType, ValueView};
+use crate::value::{DataType, ValueType, ValueView};
 
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
 ///
@@ -396,7 +396,7 @@ impl Operator for MatMul {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Float)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -603,7 +603,7 @@ impl Operator for MatMulInteger {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -670,7 +670,7 @@ impl Operator for MatMulIntegerToFloat {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Float)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 }
 
@@ -842,7 +842,7 @@ impl Operator for MatMulNBits {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Float)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {

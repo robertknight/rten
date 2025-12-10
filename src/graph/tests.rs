@@ -18,7 +18,7 @@ use crate::operator::{
 };
 use crate::ops::{Add, Concat, Conv, Identity, If, MatMul, Mul, Relu, Shape};
 use crate::timing::Profiler;
-use crate::value::{DataType, Value, ValueView};
+use crate::value::{DataType, Value, ValueType, ValueView};
 use crate::weight_cache::WeightCache;
 
 #[derive(Clone, Debug, Default)]
@@ -273,9 +273,9 @@ fn test_graph_value_dtype() {
         DataType::UInt8,
         DataType::Int8,
     ] {
-        let input_id = g.add_value(None, None, Some(dtype));
+        let input_id = g.add_value(None, None, Some(ValueType::Tensor(dtype)));
         let input_dtype = g.get_node(input_id).and_then(|n| n.dtype());
-        assert_eq!(input_dtype, Some(dtype));
+        assert_eq!(input_dtype, Some(ValueType::Tensor(dtype)));
     }
 }
 

@@ -243,7 +243,7 @@ impl Operator for SequenceLength {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
 

@@ -364,8 +364,8 @@ impl GraphOptimizer {
             for (value_id, shape) in infer_result.shapes {
                 graph_mut.graph.update_value_shape(value_id, shape);
             }
-            for (value_id, dtype) in infer_result.types {
-                graph_mut.graph.update_value_type(value_id, dtype);
+            for (value_id, value_type) in infer_result.types {
+                graph_mut.graph.update_value_type(value_id, value_type);
             }
         }
 

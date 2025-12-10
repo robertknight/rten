@@ -18,6 +18,7 @@ use crate::ops::{
     ReduceMean, RepeatInterleave, RmsNormalization, Shape, Silu, Softmax, Swish, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
+use crate::value::ValueType;
 
 #[derive(Debug)]
 pub struct FusedOp {
@@ -435,7 +436,7 @@ impl FusionVisitor for CastElimination {
         };
 
         let input_dtype = graph.get_node(input_id).and_then(|n| n.dtype())?;
-        if input_dtype != to_dtype {
+        if input_dtype != ValueType::Tensor(to_dtype) {
             // This Cast op is not a no-op.
             return None;
         }

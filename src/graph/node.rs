@@ -8,7 +8,7 @@ use rten_tensor::{ArcTensor, DynLayout, TensorView};
 use super::NodeId;
 use crate::constant_storage::ArcTensorView;
 use crate::operator::Operator;
-use crate::value::{DataType, ValueView};
+use crate::value::{DataType, ValueType, ValueView};
 
 #[derive(Debug)]
 pub enum Node {
@@ -48,10 +48,10 @@ impl Node {
     /// - For values this returns the expected element type of the tensor at
     ///   runtime, if known
     /// - For operators this always returns `None`.
-    pub fn dtype(&self) -> Option<DataType> {
+    pub fn dtype(&self) -> Option<ValueType> {
         match self {
             Node::Value(node) => node.dtype,
-            Node::Constant(constant) => Some(constant.dtype()),
+            Node::Constant(constant) => Some(ValueType::Tensor(constant.dtype())),
             Node::Operator(_) => None,
         }
     }
@@ -196,11 +196,15 @@ impl OperatorNode {
 pub struct ValueNode {
     name: Option<String>,
     shape: Option<Vec<Dimension>>,
-    dtype: Option<DataType>,
+    dtype: Option<ValueType>,
 }
 
 impl ValueNode {
-    pub fn new(name: Option<&str>, shape: Option<Vec<Dimension>>, dtype: Option<DataType>) -> Self {
+    pub fn new(
+        name: Option<&str>,
+        shape: Option<Vec<Dimension>>,
+        dtype: Option<ValueType>,
+    ) -> Self {
         ValueNode {
             name: name.map(|s| s.to_owned()),
             shape,
@@ -217,11 +221,15 @@ impl ValueNode {
         self.shape.as_deref().map(Cow::Borrowed)
     }
 
+    pub fn dtype(&self) -> Option<ValueType> {
+        self.dtype
+    }
+
     pub fn update_shape(&mut self, shape: Vec<Dimension>) {
         self.shape = Some(shape);
     }
 
-    pub fn update_type(&mut self, dtype: DataType) {
+    pub fn update_type(&mut self, dtype: ValueType) {
         self.dtype = Some(dtype);
     }
 

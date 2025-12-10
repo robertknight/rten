@@ -15,7 +15,7 @@ use crate::operator::{
 };
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{map_value, map_value_view, resolve_axes, resolve_axis};
-use crate::value::{DataType, Value, ValueView};
+use crate::value::{DataType, Value, ValueType, ValueView};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DepthToSpaceMode {
@@ -474,7 +474,7 @@ impl Operator for Shape {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
 
@@ -512,7 +512,7 @@ impl Operator for Size {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
 
@@ -800,7 +800,7 @@ impl Operator for ComputeShape {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
 

@@ -6,6 +6,7 @@ use rten_tensor::{NdTensor, Tensor};
 use rten_testing::TestCases;
 
 use super::{GraphOptimizer, OptimizeError, OptimizeOptions};
+use crate::Dimension;
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
 use crate::graph::builder::{Expr, OutputMeta, dims};
 use crate::graph::{
@@ -17,8 +18,7 @@ use crate::ops::{
     Pow, ReduceMean, RepeatInterleave, Reshape, RmsNormalization, Shape, Sigmoid, Slice, Softmax,
     Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
-use crate::value::Value;
-use crate::{DataType, Dimension};
+use crate::value::{DataType, Value, ValueType};
 
 fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
     let optimizer = GraphOptimizer::new();
@@ -1242,5 +1242,5 @@ fn test_infer_shapes() {
         output.shape().as_deref(),
         Some(dims!("batch", 12).as_slice())
     );
-    assert_eq!(output.dtype(), Some(DataType::Float));
+    assert_eq!(output.dtype(), Some(ValueType::Tensor(DataType::Float)));
 }

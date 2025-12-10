@@ -17,7 +17,7 @@ use crate::operator::{
 };
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::{map_value, map_value_view};
-use crate::value::{DataType, Value, ValueView};
+use crate::value::{DataType, Value, ValueType, ValueView};
 
 trait UnaryKernel<T> {
     /// Apply the unary operation to elements of `src`, writing to `dst`.
@@ -456,7 +456,7 @@ impl Operator for IsInf {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -483,7 +483,7 @@ impl Operator for IsNaN {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -559,7 +559,7 @@ impl Operator for Not {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {

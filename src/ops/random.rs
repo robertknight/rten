@@ -6,7 +6,7 @@ use rten_tensor::{Tensor, TensorView};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
 };
-use crate::value::{DataType, Value};
+use crate::value::{DataType, Value, ValueType};
 
 #[derive(Debug)]
 pub struct RandomUniform {
@@ -47,7 +47,7 @@ impl Operator for RandomUniform {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Float)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 }
 
@@ -85,7 +85,7 @@ impl Operator for RandomUniformLike {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Float)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 }
 
@@ -138,7 +138,7 @@ impl Operator for RandomNormal {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Float)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 }
 
@@ -176,7 +176,7 @@ impl Operator for RandomNormalLike {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Float)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 }
 
@@ -261,7 +261,7 @@ impl Operator for Dropout {
     fn output_types(&self) -> Option<OutputTypeList> {
         Some(OutputTypeList::from_slice(&[
             OutputType::CopyFromInput(0),
-            OutputType::Fixed(DataType::Int32),
+            OutputType::Fixed(ValueType::Tensor(DataType::Int32)),
         ]))
     }
 }

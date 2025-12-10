@@ -316,7 +316,7 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
 #[derive(Copy, Clone)]
 pub enum OutputType {
     /// This output has a fixed type, given the operator's attributes.
-    Fixed(DataType),
+    Fixed(ValueType),
     /// This output has the same type as the input at a given index.
     CopyFromInput(u32),
 }

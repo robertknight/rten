@@ -12,7 +12,7 @@ use crate::operator::{
 };
 use crate::ops::binary_elementwise::{add_in_place, mul_in_place};
 use crate::ops::unary_elementwise::{sigmoid, tanh};
-use crate::value::DataType;
+use crate::value::{DataType, ValueType};
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -349,8 +349,8 @@ impl Operator for GRU {
 
     fn output_types(&self) -> Option<OutputTypeList> {
         Some(OutputTypeList::from_slice(&[
-            OutputType::Fixed(DataType::Float),
-            OutputType::Fixed(DataType::Float),
+            OutputType::Fixed(ValueType::Tensor(DataType::Float)),
+            OutputType::Fixed(ValueType::Tensor(DataType::Float)),
         ]))
     }
 }
@@ -603,9 +603,9 @@ impl Operator for LSTM {
 
     fn output_types(&self) -> Option<OutputTypeList> {
         Some(OutputTypeList::from_slice(&[
-            OutputType::Fixed(DataType::Float),
-            OutputType::Fixed(DataType::Float),
-            OutputType::Fixed(DataType::Float),
+            OutputType::Fixed(ValueType::Tensor(DataType::Float)),
+            OutputType::Fixed(ValueType::Tensor(DataType::Float)),
+            OutputType::Fixed(ValueType::Tensor(DataType::Float)),
         ]))
     }
 }

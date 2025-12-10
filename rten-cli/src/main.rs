@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use rten::{
     DataType, Dimension, Model, ModelMetadata, ModelOptions, NodeId, RunOptions, ThreadPool, Value,
-    ValueOrView,
+    ValueOrView, ValueType,
 };
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
@@ -361,7 +361,7 @@ fn compare_tensors<T: Copy + Debug>(
 
 #[derive(Debug)]
 enum GenerateError {
-    UnsupportedDataType(DataType),
+    UnsupportedDataType(ValueType),
 }
 
 impl std::fmt::Display for GenerateError {
@@ -397,11 +397,19 @@ impl RandomInputGenerator {
     fn generate(
         &mut self,
         name: &str,
-        dtype: Option<DataType>,
+        value_type: Option<ValueType>,
         shape: &[Dimension],
         dim_sizes: &[DimSize],
         mut on_resolve_size: impl FnMut(&str, Option<usize>),
     ) -> Result<Value, GenerateError> {
+        let dtype = match value_type {
+            Some(ValueType::Tensor(dtype)) => Some(dtype),
+            Some(vtype) => {
+                return Err(GenerateError::UnsupportedDataType(vtype));
+            }
+            None => None,
+        };
+
         let resolved_shape: Vec<usize> = shape
             .iter()
             .map(|dim| match dim {
@@ -465,7 +473,7 @@ impl RandomInputGenerator {
                 Some(DataType::Int8) => random_ints(&resolved_shape, || self.rng.i8(0..=127)),
                 Some(DataType::UInt8) => random_ints(&resolved_shape, || self.rng.u8(0..=255)),
                 Some(dtype) => {
-                    return Err(GenerateError::UnsupportedDataType(dtype));
+                    return Err(GenerateError::UnsupportedDataType(ValueType::Tensor(dtype)));
                 }
             },
         };
