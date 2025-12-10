@@ -12,7 +12,7 @@ use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::{InferShapes, InferShapesError, ReductionOp, SymTensor, SymbolGen};
 use crate::operator::{
     InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
-    OutputTypeList,
+    OutputTypeList, OutputTypesContext,
 };
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{map_value_view, resolve_axes, resolve_axis};
@@ -126,7 +126,7 @@ impl Operator for ArgMax {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
@@ -170,7 +170,7 @@ impl Operator for ArgMin {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
@@ -225,7 +225,7 @@ impl Operator for CumSum {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -277,7 +277,7 @@ impl Operator for NonZero {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
@@ -508,7 +508,7 @@ impl Operator for ReduceMean {
         Some(self)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -571,7 +571,7 @@ impl Operator for ReduceL2 {
         Some(self)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -705,7 +705,7 @@ impl Operator for ReduceMin {
         Some(self)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -770,7 +770,7 @@ impl Operator for ReduceMax {
         Some(self)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -826,7 +826,7 @@ impl Operator for ReduceProd {
         Some(self)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -891,7 +891,7 @@ impl Operator for ReduceSum {
         Some(self)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -960,7 +960,7 @@ impl Operator for ReduceSumSquare {
         Some(self)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -1073,7 +1073,7 @@ impl Operator for TopK {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some(OutputTypeList::from_slice(&[
             OutputType::CopyFromInput(0),
             OutputType::Fixed(ValueType::Tensor(DataType::Int32)),

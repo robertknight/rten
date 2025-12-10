@@ -6,6 +6,7 @@ use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use crate::buffer_pool::BufferPool;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    OutputTypesContext,
 };
 use crate::ops::map_value_view;
 use crate::value::ValueView;
@@ -85,7 +86,7 @@ impl Operator for Trilu {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }

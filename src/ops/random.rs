@@ -5,6 +5,7 @@ use rten_tensor::{Tensor, TensorView};
 
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    OutputTypesContext,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -46,7 +47,7 @@ impl Operator for RandomUniform {
         Tensor::from_simple_fn_in(ctx.pool(), shape, || scale_value(rng.f32())).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 }
@@ -84,7 +85,7 @@ impl Operator for RandomUniformLike {
         op.run(ctx)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 }
@@ -137,7 +138,7 @@ impl Operator for RandomNormal {
         .into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 }
@@ -175,7 +176,7 @@ impl Operator for RandomNormalLike {
         op.run(ctx)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 }
@@ -258,7 +259,7 @@ impl Operator for Dropout {
     // Operators currently do not have a way to check if an output is unused, so
     // we can't check condition (1).
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some(OutputTypeList::from_slice(&[
             OutputType::CopyFromInput(0),
             OutputType::Fixed(ValueType::Tensor(DataType::Int32)),

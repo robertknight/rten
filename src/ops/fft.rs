@@ -6,6 +6,7 @@ use rustfft::num_complex::Complex32;
 use crate::buffer_pool::BufferPool;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    OutputTypesContext,
 };
 
 enum FftType {
@@ -154,7 +155,7 @@ impl Operator for STFT {
         .into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }

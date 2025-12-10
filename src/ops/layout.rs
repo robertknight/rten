@@ -11,7 +11,7 @@ use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    static_dims,
+    OutputTypesContext, static_dims,
 };
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{map_value, map_value_view, resolve_axes, resolve_axis};
@@ -83,7 +83,7 @@ impl Operator for DepthToSpace {
         depth_to_space::<f32>(ctx.pool(), input, self.block_size, self.mode).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -196,7 +196,7 @@ impl Operator for Expand {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 
@@ -269,7 +269,7 @@ impl Operator for Flatten {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 
@@ -419,7 +419,7 @@ impl Operator for Reshape {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 
@@ -473,7 +473,7 @@ impl Operator for Shape {
         Some(self)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
@@ -511,7 +511,7 @@ impl Operator for Size {
         output.into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
@@ -595,7 +595,7 @@ impl Operator for Squeeze {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -646,7 +646,7 @@ impl Operator for Transpose {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 
@@ -734,7 +734,7 @@ impl Operator for Unsqueeze {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 
@@ -799,7 +799,7 @@ impl Operator for ComputeShape {
         Tensor::from(output).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }

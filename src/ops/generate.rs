@@ -10,7 +10,7 @@ use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    static_dims,
+    OutputTypesContext, static_dims,
 };
 use crate::ops::{map_dtype, map_value_view, resolve_axis, resolve_index};
 use crate::value::{DataType, Scalar, ValueType, ValueView};
@@ -56,7 +56,7 @@ impl Operator for ConstantOfShape {
         Some(self)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(self.value.dtype()))].into())
     }
 }
@@ -146,7 +146,7 @@ impl Operator for OneHot {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(2)].into())
     }
 }
@@ -201,7 +201,7 @@ impl Operator for Range {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 
@@ -266,7 +266,7 @@ impl Operator for EyeLike {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some(
             [if let Some(dtype) = self.dtype {
                 OutputType::Fixed(ValueType::Tensor(dtype))

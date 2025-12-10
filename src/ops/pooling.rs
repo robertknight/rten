@@ -10,7 +10,7 @@ use smallvec::SmallVec;
 use crate::buffer_pool::BufferPool;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    static_dims,
+    OutputTypesContext, static_dims,
 };
 use crate::ops::{Padding, check_value};
 
@@ -456,7 +456,7 @@ impl Operator for AveragePool {
         .into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -524,7 +524,7 @@ impl Operator for GlobalAveragePool {
         global_average_pool(ctx.pool(), input).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -552,7 +552,7 @@ impl Operator for GlobalMaxPool {
         global_max_pool(ctx.pool(), input).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -612,7 +612,7 @@ impl Operator for MaxPool {
         .into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }

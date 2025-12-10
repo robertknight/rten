@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::env::env_flag;
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, TypedConstant};
-use crate::operator::OutputType;
+use crate::operator::{OutputType, OutputTypesContext};
 use crate::value::ValueType;
 
 pub use rten_shape_inference::{
@@ -94,7 +94,10 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
         };
 
         // Perform type inference
-        if let Some(output_type_list) = op.operator().output_types() {
+        let types_ctx = OutputTypesContext {
+            num_outputs: op.output_ids().len(),
+        };
+        if let Some(output_type_list) = op.operator().output_types(&types_ctx) {
             for (id, output_type) in op.output_ids().iter().zip(output_type_list) {
                 let Some(id) = id else {
                     // Unused optional output.
@@ -250,13 +253,13 @@ mod tests {
 
     use crate::Dimension;
     use crate::graph::builder::{Expr, OutputMeta, dims};
-    use crate::ops::MatMul;
+    use crate::ops::{MatMul, Split};
     use crate::value::{DataType, ValueType};
 
     use super::infer_shapes;
 
     #[test]
-    fn test_infer_graph() {
+    fn test_infer_shapes() {
         let graph = {
             let x = Expr::value_with_info("data", DataType::Float, &dims!("batch", 64));
             let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
@@ -275,5 +278,33 @@ mod tests {
             shapes.types.get(&output_id).copied(),
             Some(ValueType::Tensor(DataType::Float))
         );
+    }
+
+    #[test]
+    fn test_infer_split_op_types() {
+        let graph = {
+            let x = Expr::value_with_info("data", DataType::Float, &dims!("batch", 64));
+            let split = x.apply(
+                Split {
+                    axis: -1,
+                    num_outputs: None,
+                },
+                &[],
+                &[OutputMeta::NoMeta, OutputMeta::NoMeta],
+            );
+            let split_0 = split.output(0);
+            let split_1 = split.output(1);
+            Expr::make_graph(&[x], &[split_0, split_1])
+        };
+        assert_eq!(graph.output_ids().len(), 2);
+
+        let result = infer_shapes(&graph).unwrap();
+
+        for output_id in graph.output_ids() {
+            assert_eq!(
+                result.types.get(&output_id).copied(),
+                Some(ValueType::Tensor(DataType::Float))
+            );
+        }
     }
 }

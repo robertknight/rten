@@ -10,7 +10,7 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    static_dims,
+    OutputTypesContext, static_dims,
 };
 use crate::ops::Padding;
 
@@ -392,7 +392,7 @@ impl Operator for ConvTranspose {
         .into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }

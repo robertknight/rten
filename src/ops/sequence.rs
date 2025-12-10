@@ -4,7 +4,7 @@ use rten_tensor::{Tensor, TensorView};
 use crate::buffer_pool::BufferPool;
 use crate::operator::{
     InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
-    OutputTypeList,
+    OutputTypeList, OutputTypesContext,
 };
 use crate::ops::split::SplitSizes;
 use crate::ops::split::split;
@@ -30,7 +30,7 @@ impl Operator for SequenceEmpty {
         Value::from(Sequence::new(dtype)).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         let dtype = self.dtype.unwrap_or(DataType::Float);
         Some([OutputType::Fixed(ValueType::Sequence(dtype))].into())
     }
@@ -59,7 +59,7 @@ impl Operator for SequenceAt {
             .into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::ElementTypeOfInputSequence(0)].into())
     }
 }
@@ -95,7 +95,7 @@ impl Operator for SequenceConstruct {
         Value::from(sequence).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::SequenceWithElementTypeOfInput(0)].into())
     }
 }
@@ -150,7 +150,7 @@ impl Operator for SequenceErase {
         sequence_erase(seq, pos).map(Value::from)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -215,7 +215,7 @@ impl Operator for SequenceInsert {
         sequence_insert(ctx.pool(), seq, pos, value).map(Value::from)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -238,7 +238,7 @@ impl Operator for SequenceLength {
         Tensor::from(len).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
@@ -294,7 +294,7 @@ impl Operator for ConcatFromSequence {
         concat_op.run(&concat_ctx)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::ElementTypeOfInputSequence(0)].into())
     }
 }
@@ -361,7 +361,7 @@ impl Operator for SplitToSequence {
         Value::from(sequence).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::SequenceWithElementTypeOfInput(0)].into())
     }
 }

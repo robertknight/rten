@@ -10,6 +10,7 @@ use rten_vecmath::Softmax;
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    OutputTypesContext,
 };
 use crate::ops::{
     binary_elementwise::broadcast_shapes, layout::expand_to, norm::NanHandling, resolve_axis,
@@ -143,7 +144,7 @@ impl Operator for AddSoftmax {
         add_softmax_in_place(ctx.pool(), qk, m, self.nan_handling()).map(|qk| qk.into())
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -204,7 +205,7 @@ impl Operator for RepeatInterleave {
         repeat_interleave(ctx.pool(), input, self.axis, self.repeats).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -291,7 +292,7 @@ impl Operator for GroupedQueryAttentionMatMul {
         Tensor::from_data(&[batch, heads, seq, rhs_n], out_data).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }

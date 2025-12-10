@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use rten_tensor::prelude::*;
 
-use crate::operator::{OpError, OpRunContext, Operator, OutputList, OutputTypeList};
+use crate::operator::{
+    OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext,
+};
 use crate::ops::map_value_view;
 use crate::value::{Value, ValueView};
 
@@ -140,8 +142,8 @@ impl Operator for TransformInputs {
         self.inner.run_in_place(input, &inner_ctx)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
-        self.inner.output_types()
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        self.inner.output_types(_ctx)
     }
 }
 
