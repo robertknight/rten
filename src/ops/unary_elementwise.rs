@@ -14,6 +14,7 @@ use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, UnaryOp};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    OutputTypesContext,
 };
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::{map_value, map_value_view};
@@ -153,7 +154,7 @@ macro_rules! impl_operator {
                 Some(&UnaryOp)
             }
 
-            fn output_types(&self) -> Option<OutputTypeList> {
+            fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
                 Some([OutputType::CopyFromInput(0)].into())
             }
         }
@@ -322,7 +323,7 @@ impl Operator for Clip {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 
@@ -455,7 +456,7 @@ impl Operator for IsInf {
         output.into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 
@@ -482,7 +483,7 @@ impl Operator for IsNaN {
         output.into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 
@@ -558,7 +559,7 @@ impl Operator for Not {
         Ok(output.into())
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 
@@ -624,7 +625,7 @@ impl Operator for PRelu {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 

@@ -4,7 +4,8 @@ use smallvec::SmallVec;
 
 use crate::graph::{CaptureEnv, Graph, NodeId, RunError, RunOptions};
 use crate::operator::{
-    OpError, OpRunContext, Operator, OutputList, OutputTypeList, SubgraphOperator,
+    OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext,
+    SubgraphOperator,
 };
 use crate::ops::map_value;
 use crate::timing::Profiler;
@@ -46,7 +47,7 @@ impl Operator for If {
         Some(self as &dyn SubgraphOperator)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         // Type inference is not implemented for ops with subgraphs yet.
         None
     }
@@ -135,7 +136,7 @@ impl Operator for Loop {
         Some(self as &dyn SubgraphOperator)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         // Type inference is not implemented for ops with subgraphs yet.
         None
     }

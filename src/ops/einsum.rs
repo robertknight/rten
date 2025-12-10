@@ -9,6 +9,7 @@ use smallvec::SmallVec;
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    OutputTypesContext,
 };
 use crate::ops::layout::expand_to;
 use crate::ops::{matmul, mul, reduce_sum};
@@ -150,7 +151,7 @@ impl Operator for Einsum {
         einsum(ctx.pool(), &typed_inputs, &self.equation).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }

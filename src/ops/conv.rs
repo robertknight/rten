@@ -14,7 +14,7 @@ use rten_tensor::{CowTensor, NdTensor, NdTensorView, Tensor, TensorView};
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    static_dims,
+    OutputTypesContext, static_dims,
 };
 use crate::ops::Padding;
 use crate::ops::matmul::zero_point_to_vec;
@@ -393,7 +393,7 @@ impl Operator for Conv {
         .into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -550,7 +550,7 @@ impl Operator for ConvInteger {
         }
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }

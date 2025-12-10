@@ -13,6 +13,7 @@ use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{BinaryOp, InferShapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    OutputTypesContext,
 };
 use crate::ops::{map_value, map_value_view};
 use crate::value::{DataType, Value, ValueType, ValueView};
@@ -497,7 +498,7 @@ impl Operator for Add {
         Some(&shape_ops::Add)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -544,7 +545,7 @@ macro_rules! logical_boolean_op {
                 $op_fn(ctx.pool(), a, b).into_op_result()
             }
 
-            fn output_types(&self) -> Option<OutputTypeList> {
+            fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
                 Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
             }
 
@@ -623,7 +624,7 @@ impl Operator for Div {
         Some(&shape_ops::Div)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -688,7 +689,7 @@ macro_rules! boolean_cmp_op {
                 run_typed_op!(ctx.pool(), ctx.inputs(), $func)
             }
 
-            fn output_types(&self) -> Option<OutputTypeList> {
+            fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
                 Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
             }
 
@@ -794,7 +795,7 @@ impl Operator for Mod {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 
@@ -852,7 +853,7 @@ impl Operator for Mul {
         Some(&shape_ops::Mul)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -1017,7 +1018,7 @@ impl Operator for Pow {
         Some(&BinaryOp)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -1063,7 +1064,7 @@ impl Operator for Sub {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), sub_in_place, sub)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 
@@ -1156,7 +1157,7 @@ impl Operator for Where {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(1)].into())
     }
 

@@ -328,6 +328,12 @@ pub enum OutputType {
 /// List of type rules for each operator output.
 pub type OutputTypeList = SmallVec<[OutputType; 1]>;
 
+/// Context passed to [`Operator::output_types`].
+pub struct OutputTypesContext {
+    /// Number of output value nodes connected to this operator.
+    pub num_outputs: usize,
+}
+
 /// Outputs from an operator.
 ///
 /// This avoids allocations in the common case where an operator produces
@@ -361,7 +367,7 @@ pub trait Operator: Any + Debug {
     fn max_inputs(&self) -> Option<usize>;
 
     /// Return the rules for determining the types of this operator's outputs.
-    fn output_types(&self) -> Option<OutputTypeList>;
+    fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList>;
 
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.

@@ -8,6 +8,7 @@ use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::{InferShapes, InferShapesError, SymTensor, SymbolGen, UnaryOp};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    OutputTypesContext,
 };
 use crate::value::{DataType, Value, ValueType, ValueView};
 
@@ -141,7 +142,7 @@ impl Operator for Cast {
         Some(self)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(self.to))].into())
     }
 }
@@ -202,7 +203,7 @@ impl Operator for CastLike {
         Cast { to }.run_in_place(input, ctx)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(1)].into())
     }
 

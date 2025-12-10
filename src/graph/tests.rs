@@ -13,8 +13,8 @@ use crate::graph::{
     Dimension, Graph, Node, NodeId, RunError, RunErrorKind, RunOptions, TypedConstant,
 };
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputTypeList, PrepackedInput,
-    SubgraphOperator,
+    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext,
+    PrepackedInput, SubgraphOperator,
 };
 use crate::ops::{Add, Concat, Conv, Identity, If, MatMul, Mul, Relu, Shape};
 use crate::timing::Profiler;
@@ -67,8 +67,8 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
         self.inner.max_inputs()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
-        self.inner.output_types()
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        self.inner.output_types(_ctx)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -118,7 +118,7 @@ impl<V: Into<Value> + 'static, F: Fn(&OpRunContext) -> Result<V, OpError>> Opera
         None
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         None
     }
 
@@ -290,7 +290,7 @@ impl Operator for AddOne {
         Some(1)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         None
     }
 
@@ -715,7 +715,7 @@ impl Operator for AddOneInPlace {
         Some(1)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         None
     }
 
@@ -872,7 +872,7 @@ impl Operator for Split {
         Some(1)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         None
     }
 
@@ -1064,7 +1064,7 @@ impl Operator for Counter {
         Some(0)
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         None
     }
 
@@ -1154,7 +1154,7 @@ impl Operator for Subgraph {
         None
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         None
     }
 
@@ -1517,7 +1517,7 @@ impl Operator for MatMulExpectPacked {
         self.inner.max_inputs()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         None
     }
 

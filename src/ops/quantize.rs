@@ -11,6 +11,7 @@ use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::{InferShapes, UnaryOp};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    OutputTypesContext,
 };
 use crate::ops::{map_value_view, resolve_axis};
 use crate::value::{DataType, Value, ValueType, ValueView};
@@ -116,7 +117,7 @@ impl Operator for DequantizeLinear {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 
@@ -313,7 +314,7 @@ impl Operator for QuantizeLinear {
         }
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         let dtype = self.output_dtype.unwrap_or(DataType::Int8);
         Some([OutputType::Fixed(ValueType::Tensor(dtype))].into())
     }
@@ -453,7 +454,7 @@ impl Operator for DynamicQuantizeLinear {
         Ok([quantized, scale, zero_point].into_iter().collect())
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some(OutputTypeList::from_slice(&[
             OutputType::Fixed(ValueType::Tensor(DataType::UInt8)),
             OutputType::Fixed(ValueType::Tensor(DataType::Float)),

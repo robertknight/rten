@@ -4,6 +4,7 @@ use rten_tensor::{NdTensor, NdTensorView};
 use crate::buffer_pool::BufferPool;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    OutputTypesContext,
 };
 use crate::value::{DataType, ValueType};
 
@@ -220,7 +221,7 @@ impl Operator for NonMaxSuppression {
         selected_box_indices.into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }

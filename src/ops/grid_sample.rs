@@ -4,6 +4,7 @@ use rten_tensor::{NdTensor, NdTensorView};
 use crate::buffer_pool::BufferPool;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+    OutputTypesContext,
 };
 
 /// Interpolate between `x0` and `x1` according to the `factor` in range [0, 1].
@@ -141,7 +142,7 @@ impl Operator for GridSample {
         grid_sample(ctx.pool(), input, grid, self.align_corners).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }

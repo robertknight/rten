@@ -7,7 +7,7 @@ use rten_tensor::{Tensor, TensorView};
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::operator::{
     InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
-    OutputTypeList,
+    OutputTypeList, OutputTypesContext,
 };
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::map_value_view;
@@ -85,7 +85,7 @@ impl Operator for Max {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -115,7 +115,7 @@ impl Operator for Mean {
         mean(ctx.pool(), &inputs).into_op_result()
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -151,7 +151,7 @@ impl Operator for Min {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
@@ -184,7 +184,7 @@ impl Operator for Sum {
         })
     }
 
-    fn output_types(&self) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
