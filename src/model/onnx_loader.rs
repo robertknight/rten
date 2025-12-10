@@ -17,7 +17,7 @@ use crate::graph::{
 use crate::op_registry::onnx_registry::{ConstInput, DynParsedOp, OpLoadContext};
 use crate::op_registry::{OpRegistry, ReadOpError};
 use crate::optimize::{GraphOptimizer, OptimizeOptions};
-use crate::value::DataType;
+use crate::value::{DataType, ValueType};
 use crate::weight_cache::WeightCache;
 
 /// Specifies where to load an ONNX model from.
@@ -106,7 +106,7 @@ fn load_graph(
 
     let add_value = |graph: &mut Graph, name, value| {
         let (dtype, shape) = load_value_info(value);
-        graph.add_value(Some(name), shape, dtype)
+        graph.add_value(Some(name), shape, dtype.map(ValueType::Tensor))
     };
 
     // Create value nodes corresponding to graph inputs and outputs.

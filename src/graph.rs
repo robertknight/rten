@@ -18,7 +18,7 @@ use crate::env::env_flag;
 use crate::operator::{InputList, OpRunContext, Operator, OutputList, PrepackedInput};
 use crate::threading;
 use crate::timing::{Instant, ProfileFormat, Profiler, TimingFilter, TimingRecord, TimingSort};
-use crate::value::{DataType, Value, ValueMeta, ValueOrView, ValueView};
+use crate::value::{Value, ValueMeta, ValueOrView, ValueType, ValueView};
 use crate::weight_cache::WeightCache;
 
 #[cfg(test)]
@@ -560,7 +560,7 @@ impl Graph {
         &mut self,
         name: Option<&str>,
         shape: Option<Vec<Dimension>>,
-        dtype: Option<DataType>,
+        dtype: Option<ValueType>,
     ) -> NodeId {
         let value_node = Node::Value(ValueNode::new(name, shape, dtype));
         self.add_node(value_node)
@@ -637,7 +637,7 @@ impl Graph {
     }
 
     /// Update the type metadata for a value node.
-    pub fn update_value_type(&mut self, value_id: NodeId, dtype: DataType) {
+    pub fn update_value_type(&mut self, value_id: NodeId, dtype: ValueType) {
         let Some(Node::Value(value_node)) = self.get_node_mut(value_id) else {
             panic!("value node not found");
         };

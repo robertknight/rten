@@ -20,7 +20,7 @@ use crate::ops::Padding;
 use crate::ops::matmul::zero_point_to_vec;
 use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
 use crate::shift_cast::ShiftCast;
-use crate::value::{DataType, ValueView};
+use crate::value::{DataType, ValueType, ValueView};
 
 mod depthwise;
 mod im2col;
@@ -551,7 +551,7 @@ impl Operator for ConvInteger {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
 

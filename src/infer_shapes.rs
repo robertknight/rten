@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::env::env_flag;
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, TypedConstant};
 use crate::operator::OutputType;
-use crate::value::DataType;
+use crate::value::ValueType;
 
 pub use rten_shape_inference::{
     infer_shapes::{BinaryOp, InferShapes, InferShapesError, ReductionOp, UnaryOp},
@@ -54,7 +54,7 @@ pub struct InferResult {
     pub shapes: HashMap<NodeId, Vec<Dimension>>,
 
     /// Map of value node ID to inferred type.
-    pub types: HashMap<NodeId, DataType>,
+    pub types: HashMap<NodeId, ValueType>,
 }
 
 /// Infer the shapes and types of operator outputs in a graph.
@@ -81,7 +81,7 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
     // Reserve initial capacity assuming each operator produces one output,
     // which is the case for most operators.
     let mut values: HashMap<NodeId, SymTensor> = HashMap::with_capacity(ops.len());
-    let mut types: HashMap<NodeId, DataType> = HashMap::with_capacity(ops.len());
+    let mut types: HashMap<NodeId, ValueType> = HashMap::with_capacity(ops.len());
 
     let debug = env_flag("RTEN_INFER_SHAPES_DEBUG", false);
 
@@ -241,7 +241,7 @@ mod tests {
     use crate::Dimension;
     use crate::graph::builder::{Expr, OutputMeta, dims};
     use crate::ops::MatMul;
-    use crate::value::DataType;
+    use crate::value::{DataType, ValueType};
 
     use super::infer_shapes;
 
@@ -261,6 +261,9 @@ mod tests {
             shapes.shapes.get(&output_id).map(|s| s.as_slice()),
             Some(dims!("batch", 12).as_slice())
         );
-        assert_eq!(shapes.types.get(&output_id).copied(), Some(DataType::Float));
+        assert_eq!(
+            shapes.types.get(&output_id).copied(),
+            Some(ValueType::Tensor(DataType::Float))
+        );
     }
 }

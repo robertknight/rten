@@ -13,7 +13,7 @@ use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
 };
 use crate::ops::{map_value_view, resolve_axis};
-use crate::value::{DataType, Value, ValueView};
+use crate::value::{DataType, Value, ValueType, ValueView};
 
 /// Convert a quantized tensor element to a higher precision value.
 pub trait Dequantize<To> {
@@ -117,7 +117,7 @@ impl Operator for DequantizeLinear {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Float)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -315,7 +315,7 @@ impl Operator for QuantizeLinear {
 
     fn output_types(&self) -> Option<OutputTypeList> {
         let dtype = self.output_dtype.unwrap_or(DataType::Int8);
-        Some([OutputType::Fixed(dtype)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(dtype))].into())
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -455,9 +455,9 @@ impl Operator for DynamicQuantizeLinear {
 
     fn output_types(&self) -> Option<OutputTypeList> {
         Some(OutputTypeList::from_slice(&[
-            OutputType::Fixed(DataType::UInt8),
-            OutputType::Fixed(DataType::Float),
-            OutputType::Fixed(DataType::UInt8),
+            OutputType::Fixed(ValueType::Tensor(DataType::UInt8)),
+            OutputType::Fixed(ValueType::Tensor(DataType::Float)),
+            OutputType::Fixed(ValueType::Tensor(DataType::UInt8)),
         ]))
     }
 

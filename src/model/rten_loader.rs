@@ -18,6 +18,7 @@ use crate::graph::{CaptureEnv, ConstantNodeData, Dimension, Graph, NodeId};
 use crate::op_registry::rten_registry::{OpLoadContext, convert_dtype};
 use crate::op_registry::{OpRegistry, ReadOpError};
 use crate::optimize::GraphOptimizer;
+use crate::value::ValueType;
 use crate::weight_cache::WeightCache;
 
 /// Load a model from a .rten model file.
@@ -310,7 +311,7 @@ fn add_graph_value(
         .map(|dtype| convert_dtype("", dtype))
         .transpose()
         .map_err(|err| load_error!(OperatorInvalid, name, err))?;
-    let graph_node = graph.add_value(name, shape, dtype);
+    let graph_node = graph.add_value(name, shape, dtype.map(ValueType::Tensor));
     Ok(graph_node)
 }
 

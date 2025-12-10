@@ -142,7 +142,7 @@ impl Operator for Cast {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(self.to)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(self.to))].into())
     }
 }
 

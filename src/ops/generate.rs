@@ -57,7 +57,7 @@ impl Operator for ConstantOfShape {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(self.value.dtype())].into())
+        Some([OutputType::Fixed(ValueType::Tensor(self.value.dtype()))].into())
     }
 }
 
@@ -269,7 +269,7 @@ impl Operator for EyeLike {
     fn output_types(&self) -> Option<OutputTypeList> {
         Some(
             [if let Some(dtype) = self.dtype {
-                OutputType::Fixed(dtype)
+                OutputType::Fixed(ValueType::Tensor(dtype))
             } else {
                 OutputType::CopyFromInput(0)
             }]

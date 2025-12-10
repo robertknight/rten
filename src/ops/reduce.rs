@@ -17,7 +17,7 @@ use crate::operator::{
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{map_value_view, resolve_axes, resolve_axis};
 use crate::slice_reductions::{slice_fold_assoc, slice_sum};
-use crate::value::{DataType, ValueView};
+use crate::value::{DataType, ValueType, ValueView};
 
 macro_rules! impl_infer_shapes {
     ($op:ident) => {
@@ -127,7 +127,7 @@ impl Operator for ArgMax {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
 
@@ -171,7 +171,7 @@ impl Operator for ArgMin {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
 
@@ -278,7 +278,7 @@ impl Operator for NonZero {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
 
@@ -1076,7 +1076,7 @@ impl Operator for TopK {
     fn output_types(&self) -> Option<OutputTypeList> {
         Some(OutputTypeList::from_slice(&[
             OutputType::CopyFromInput(0),
-            OutputType::Fixed(DataType::Int32),
+            OutputType::Fixed(ValueType::Tensor(DataType::Int32)),
         ]))
     }
 }

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::graph::{Graph, NodeId};
 use crate::operator::Operator;
-use crate::{DataType, Dimension, Value};
+use crate::{DataType, Dimension, Value, ValueType};
 
 enum ExprKind {
     /// Expression representing a value node.
@@ -206,7 +206,7 @@ impl Expr {
             ExprKind::Value(value_info) => [graph.add_value(
                 Some(value_info.name.as_str()),
                 value_info.shape.clone(),
-                value_info.dtype,
+                value_info.dtype.map(ValueType::Tensor),
             )]
             .into(),
             ExprKind::Constant(value) => {
@@ -244,7 +244,11 @@ impl Expr {
                             OutputMeta::NoMeta => (None, None),
                             OutputMeta::Meta((dtype, shape)) => (Some(*dtype), Some(shape.clone())),
                         };
-                        graph.add_value(Some(output_name.as_str()), output_shape, output_dtype)
+                        graph.add_value(
+                            Some(output_name.as_str()),
+                            output_shape,
+                            output_dtype.map(ValueType::Tensor),
+                        )
                     })
                     .collect();
 

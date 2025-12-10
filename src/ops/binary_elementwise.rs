@@ -15,7 +15,7 @@ use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
 };
 use crate::ops::{map_value, map_value_view};
-use crate::value::{DataType, Value, ValueView};
+use crate::value::{DataType, Value, ValueType, ValueView};
 
 /// Given the shapes of two inputs to a binary operation, return the shape
 /// that will result from broadcasting them following NumPy rules or `None`
@@ -545,7 +545,7 @@ macro_rules! logical_boolean_op {
             }
 
             fn output_types(&self) -> Option<OutputTypeList> {
-                Some([OutputType::Fixed(DataType::Int32)].into())
+                Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
             }
 
             fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -689,7 +689,7 @@ macro_rules! boolean_cmp_op {
             }
 
             fn output_types(&self) -> Option<OutputTypeList> {
-                Some([OutputType::Fixed(DataType::Int32)].into())
+                Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
             }
 
             fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {

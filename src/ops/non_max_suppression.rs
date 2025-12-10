@@ -5,7 +5,7 @@ use crate::buffer_pool::BufferPool;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
 };
-use crate::value::DataType;
+use crate::value::{DataType, ValueType};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BoxOrder {
@@ -221,7 +221,7 @@ impl Operator for NonMaxSuppression {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(DataType::Int32)].into())
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
 }
 

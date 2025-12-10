@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::Range;
 use std::str::FromStr;
 
-use rten::{DataType, Dimension, Model, NodeId, Value, ValueOrView};
+use rten::{Dimension, Model, NodeId, Value, ValueOrView, ValueType};
 use rten_tensor::Layout;
 
 /// Format an input or output shape as a `[dim0, dim1, ...]` string, where each
@@ -125,7 +125,7 @@ impl Display for GroupName {
 pub fn print_input_output_list(model: &Model, node_ids: &[NodeId]) {
     struct Group {
         name: GroupName,
-        dtype: Option<DataType>,
+        dtype: Option<ValueType>,
         shape: Option<Vec<Dimension>>,
     }
 
