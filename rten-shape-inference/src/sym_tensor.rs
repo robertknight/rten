@@ -1,5 +1,6 @@
 //! Tensors with symbolic shapes and values.
 
+use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, AddAssign, Mul};
 use std::rc::Rc;
@@ -109,15 +110,81 @@ impl SymElem {
         Self::Max((self.clone().into(), other.clone().into()))
     }
 
+    fn is_value(&self) -> bool {
+        matches!(self, Self::Value(_))
+    }
+
+    // Re-order and re-associate operands of commutative and associative
+    // operations so that constants are on the left or "canonical order".
+    //
+    // For example `Mul(Mul(a, 2), Mul(b, 3))` becomes
+    // `Mul(Mul(2, 3), Mul(a, b))`.
+    fn canonicalize(&self) -> SymElem {
+        fn collect_terms(
+            terms: &mut Vec<SymElem>,
+            term: &SymElem,
+            extract_lhs_rhs: &impl Fn(&SymElem) -> Option<&(Rc<SymElem>, Rc<SymElem>)>,
+        ) {
+            if let Some((lhs, rhs)) = extract_lhs_rhs(term) {
+                collect_terms(terms, lhs, extract_lhs_rhs);
+                collect_terms(terms, rhs, extract_lhs_rhs);
+            } else {
+                terms.push(term.canonicalize())
+            }
+        }
+
+        match self {
+            Self::Value(_) | Self::Var(_) => self.clone(),
+            Self::Mul(_) => {
+                let mut terms = Vec::new();
+                collect_terms(&mut terms, self, &|term| {
+                    if let Self::Mul(inner) = term {
+                        Some(inner)
+                    } else {
+                        None
+                    }
+                });
+                terms.sort_by(cmp_values_first);
+                terms
+                    .into_iter()
+                    .fold(SymElem::Value(1), |prod, x| prod * x)
+            }
+            Self::Add(_) => {
+                let mut terms = Vec::new();
+                collect_terms(&mut terms, self, &|term| {
+                    if let Self::Add(inner) = term {
+                        Some(inner)
+                    } else {
+                        None
+                    }
+                });
+                terms.sort_by(cmp_values_first);
+                terms.into_iter().fold(SymElem::Value(0), |sum, x| sum + x)
+            }
+            Self::Max((lhs, rhs)) => {
+                // max(x, y) is not currently re-ordered, but it could be.
+                let lhs = lhs.canonicalize();
+                let rhs = rhs.canonicalize();
+                Self::Max((lhs.into(), rhs.into()))
+            }
+        }
+    }
+
     /// Simplify an expression.
     ///
     /// This simplifies expressions such as identities (eg. `x + 0` becomes `x`).
     pub fn simplify(&self) -> SymElem {
+        self.canonicalize().simplify_canonical()
+    }
+
+    /// Simplify an expression which is assumed to have been put in canonical
+    /// form by [`canonicalize`](Self::canonicalize).
+    fn simplify_canonical(&self) -> SymElem {
         match self {
             Self::Value(_) | Self::Var(_) => self.clone(),
             Self::Add((lhs, rhs)) => {
-                let lhs = lhs.simplify();
-                let rhs = rhs.simplify();
+                let lhs = lhs.simplify_canonical();
+                let rhs = rhs.simplify_canonical();
 
                 match (lhs, rhs) {
                     (SymElem::Value(0), rhs) => rhs,
@@ -127,8 +194,8 @@ impl SymElem {
                 }
             }
             Self::Mul((lhs, rhs)) => {
-                let lhs = lhs.simplify();
-                let rhs = rhs.simplify();
+                let lhs = lhs.simplify_canonical();
+                let rhs = rhs.simplify_canonical();
 
                 match (lhs, rhs) {
                     (SymElem::Value(1), rhs) => rhs,
@@ -138,11 +205,11 @@ impl SymElem {
                 }
             }
             Self::Max((lhs, rhs)) => {
-                let lhs = lhs.simplify();
-                let rhs = rhs.simplify();
+                let lhs = lhs.simplify_canonical();
+                let rhs = rhs.simplify_canonical();
 
                 if lhs == rhs {
-                    lhs.clone()
+                    lhs
                 } else {
                     match (lhs, rhs) {
                         (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x.max(y)),
@@ -216,6 +283,14 @@ impl SymElem {
             }
             _ => None,
         }
+    }
+}
+
+fn cmp_values_first(a: &SymElem, b: &SymElem) -> Ordering {
+    match (a.is_value(), b.is_value()) {
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        (true, true) | (false, false) => Ordering::Equal,
     }
 }
 
@@ -583,6 +658,25 @@ mod tests {
             );
         }
 
+        // Check `C + X + D` is simplified to `S + X` where C and D are
+        // constants and `S = C+D`.
+        #[test]
+        fn test_simplify_add_reassociate() {
+            let x = SymElem::from("x");
+            let c1 = SymElem::from(3);
+            let c2 = SymElem::from(4);
+
+            // C + X + D => S + X
+            let expr = (x.clone() + c1.clone()) + c2.clone();
+            let simplified = expr.simplify();
+            assert_eq!(simplified, SymElem::from(7) + x.clone());
+
+            // C + X + D + X => S + X + X
+            let expr = (x.clone() + c1) + (x.clone() + c2);
+            let simplified = expr.simplify();
+            assert_eq!(simplified, SymElem::from(7) + x.clone() + x);
+        }
+
         #[test]
         fn test_simplify_mul() {
             let x = SymElem::pos_var("x");
@@ -598,6 +692,30 @@ mod tests {
                 expr_2.simplify(),
                 SymElem::Mul((x.clone().into(), two.clone().into()))
             );
+        }
+
+        // Check `C * X * D` is simplified to `CD * X` where C and D are
+        // constants.
+        #[test]
+        fn test_simplify_mul_reassociate() {
+            let x = SymElem::from("x");
+            let c1 = SymElem::from(3);
+            let c2 = SymElem::from(4);
+
+            // C * X * D => CD * X
+            let expr = (x.clone() * c1.clone()) * c2.clone();
+            let simplified = expr.simplify();
+            assert_eq!(simplified, SymElem::from(12) * x.clone());
+
+            // Same as above, but contained inside an addition expression.
+            let expr = SymElem::from(5) + expr;
+            let simplified = expr.simplify();
+            assert_eq!(simplified, SymElem::from(5) + SymElem::from(12) * x.clone());
+
+            // C * X * D * X => CD * X * X
+            let expr = (x.clone() * c1) * (x.clone() * c2);
+            let simplified = expr.simplify();
+            assert_eq!(simplified, SymElem::from(12) * x.clone() * x);
         }
 
         #[test]
