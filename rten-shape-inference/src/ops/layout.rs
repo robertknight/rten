@@ -25,6 +25,7 @@ impl InferShapes for Expand {
                 SymElem::Value(size) => Some(size),
                 SymElem::Add(_)
                 | SymElem::Mul(_)
+                | SymElem::Div(_)
                 | SymElem::Max(_)
                 | SymElem::Sub(_)
                 | SymElem::Var(_) => None,

@@ -104,6 +104,7 @@ impl InferShapes for ConstantOfShape {
                         | SymElem::Add(_)
                         | SymElem::Sub(_)
                         | SymElem::Mul(_)
+                        | SymElem::Div(_)
                         | SymElem::Max(_) => SymTensor::from_shape(vec![vec_len.clone()]),
                     }
                 } else {
@@ -303,6 +304,7 @@ impl InferShapes for Where {
                         | SymElem::Add(_)
                         | SymElem::Sub(_)
                         | SymElem::Mul(_)
+                        | SymElem::Div(_)
                         | SymElem::Max(_) => None,
                     }?;
                     if cond_bool {

@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 use std::fmt;
-use std::ops::{Add, AddAssign, Mul, Sub};
+use std::ops::{Add, AddAssign, Div, Mul, Sub};
 use std::rc::Rc;
 
 /// Vector or scalar with integer values.
@@ -72,6 +72,8 @@ pub enum SymElem {
     Sub((Rc<SymElem>, Rc<SymElem>)),
     /// Multiplication of two symbolic values
     Mul((Rc<SymElem>, Rc<SymElem>)),
+    /// Flooring division of first expression by second.
+    Div((Rc<SymElem>, Rc<SymElem>)),
     /// Maximum of two symbolic values
     Max((Rc<SymElem>, Rc<SymElem>)),
 }
@@ -88,7 +90,10 @@ impl SymElem {
                     (i32::MIN, i32::MAX)
                 }
             }
-            Self::Add((lhs, rhs)) | Self::Mul((lhs, rhs)) | Self::Max((lhs, rhs)) => {
+            Self::Add((lhs, rhs))
+            | Self::Mul((lhs, rhs))
+            | Self::Max((lhs, rhs))
+            | Self::Div((lhs, rhs)) => {
                 let (lhs_min, lhs_max) = lhs.range();
                 let (rhs_min, rhs_max) = rhs.range();
                 (lhs_min.min(rhs_min), lhs_max.max(rhs_max))
@@ -109,6 +114,7 @@ impl SymElem {
             Self::Add((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
             Self::Sub((_lhs, _rhs)) => false,
             Self::Mul((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
+            Self::Div((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
             Self::Max((lhs, rhs)) => lhs.is_positive() || rhs.is_positive(),
         }
     }
@@ -180,6 +186,11 @@ impl SymElem {
                 let rhs = rhs.canonicalize();
                 Self::Sub((lhs.into(), rhs.into()))
             }
+            Self::Div((lhs, rhs)) => {
+                let lhs = lhs.canonicalize();
+                let rhs = rhs.canonicalize();
+                Self::Div((lhs.into(), rhs.into()))
+            }
         }
     }
 
@@ -228,6 +239,24 @@ impl SymElem {
                     (lhs, rhs) => lhs * rhs,
                 }
             }
+            Self::Div((lhs, rhs)) => {
+                let lhs = lhs.simplify_canonical();
+                let rhs = rhs.simplify_canonical();
+
+                match (lhs, rhs) {
+                    (lhs, SymElem::Value(1)) => lhs,
+                    (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x / y),
+                    // x/x => 1
+                    //
+                    // Where we assume the RHS is non-zero.
+                    //
+                    // This is a special case of canceling common terms. The
+                    // more general case (eg. XY / XZ => Y/Z) still needs to
+                    // be implemented.
+                    (lhs, rhs) if lhs == rhs => SymElem::Value(1),
+                    (lhs, rhs) => lhs / rhs,
+                }
+            }
             Self::Max((lhs, rhs)) => {
                 let lhs = lhs.simplify_canonical();
                 let rhs = rhs.simplify_canonical();
@@ -251,7 +280,8 @@ impl SymElem {
         match self {
             // Functions and atomic values have the maximum precedence, so they
             // never need to be wrapped in parens when formatting an expression.
-            Self::Value(_) | Self::Var(_) | Self::Max(_) => 2,
+            Self::Value(_) | Self::Var(_) | Self::Max(_) => 3,
+            Self::Div(_) => 2,
             Self::Mul(_) => 1,
             Self::Add(_) | Self::Sub(_) => 0,
         }
@@ -326,14 +356,35 @@ impl PartialEq<SymElem> for SymElem {
         };
 
         // Symbols are equal if they have the same value or the same name.
-        match (self, other) {
-            (Self::Value(x), Self::Value(y)) => x == y,
-            (Self::Var(x), Self::Var(y)) => x.name == y.name,
-            (Self::Add((a, b)), Self::Add((c, d))) => commutative_eq(a, b, c, d),
-            (Self::Mul((a, b)), Self::Mul((c, d))) => commutative_eq(a, b, c, d),
-            (Self::Max((a, b)), Self::Max((c, d))) => commutative_eq(a, b, c, d),
-            (Self::Sub((a, b)), Self::Sub((c, d))) => a == c && b == d,
-            (_, _) => false,
+        match self {
+            Self::Value(x) => match other {
+                Self::Value(y) => x == y,
+                _ => false,
+            },
+            Self::Var(x) => match other {
+                Self::Var(y) => x.name == y.name,
+                _ => false,
+            },
+            Self::Add((a, b)) => match other {
+                Self::Add((c, d)) => commutative_eq(a, b, c, d),
+                _ => false,
+            },
+            Self::Mul((a, b)) => match other {
+                Self::Mul((c, d)) => commutative_eq(a, b, c, d),
+                _ => false,
+            },
+            Self::Max((a, b)) => match other {
+                Self::Max((c, d)) => commutative_eq(a, b, c, d),
+                _ => false,
+            },
+            Self::Sub((a, b)) => match other {
+                Self::Sub((c, d)) => a == c && b == d,
+                _ => false,
+            },
+            Self::Div((a, b)) => match other {
+                Self::Div((c, d)) => a == c && b == d,
+                _ => false,
+            },
         }
     }
 }
@@ -365,6 +416,14 @@ impl Mul<SymElem> for SymElem {
 
     fn mul(self, rhs: SymElem) -> Self {
         Self::Mul((self.into(), rhs.into()))
+    }
+}
+
+impl Div<SymElem> for SymElem {
+    type Output = SymElem;
+
+    fn div(self, rhs: SymElem) -> Self {
+        Self::Div((self.into(), rhs.into()))
     }
 }
 
@@ -422,6 +481,7 @@ impl fmt::Debug for SymElem {
             Self::Add((lhs, rhs)) => write_binop(f, '+', lhs, rhs),
             Self::Sub((lhs, rhs)) => write_binop(f, '-', lhs, rhs),
             Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
+            Self::Div((lhs, rhs)) => write_binop(f, '/', lhs, rhs),
             Self::Max((lhs, rhs)) => write!(f, "max({:?}, {:?})", lhs, rhs),
         }
     }
@@ -447,6 +507,7 @@ impl fmt::Display for SymElem {
             Self::Add((lhs, rhs)) => write_binop(f, '+', lhs, rhs),
             Self::Sub((lhs, rhs)) => write_binop(f, '-', lhs, rhs),
             Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
+            Self::Div((lhs, rhs)) => write_binop(f, '/', lhs, rhs),
             Self::Max((lhs, rhs)) => write!(f, "max({}, {})", lhs, rhs),
         }
     }
@@ -749,6 +810,29 @@ mod tests {
             assert_eq!(
                 expr_2.simplify(),
                 SymElem::Mul((x.clone().into(), two.clone().into()))
+            );
+        }
+
+        #[test]
+        fn test_simplify_div() {
+            let x = SymElem::pos_var("x");
+            let one = SymElem::from(1);
+            let two = SymElem::from(2);
+
+            // x / 1 => x
+            let expr = x.clone() / one.clone();
+            assert_eq!(expr, SymElem::Div((x.clone().into(), one.clone().into())));
+            assert_eq!(expr.simplify(), x);
+
+            // x / x => 1
+            let expr = x.clone() / x.clone();
+            assert_eq!(expr.simplify(), one);
+
+            // x / 2 => x / 2
+            let expr_2 = x.clone() / two.clone();
+            assert_eq!(
+                expr_2.simplify(),
+                SymElem::Div((x.clone().into(), two.clone().into()))
             );
         }
 
