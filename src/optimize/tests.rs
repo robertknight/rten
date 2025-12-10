@@ -529,7 +529,7 @@ fn test_fuse_rms_norm_with_positive_axes() {
             Dimension::Symbolic("seq".to_string()),
             Dimension::Fixed(16),
         ];
-        let x = Expr::value_with_info("x", DataType::Float, dims);
+        let x = Expr::value_with_info("x", ValueType::Tensor(DataType::Float), dims);
 
         // axes is specifies as a positive value, so must be resolved
         // against the input's shape information.
@@ -578,7 +578,7 @@ fn test_fuse_add_softmax_positive_axes() {
             Dimension::Symbolic("batch".to_string()),
             Dimension::Fixed(768),
         ];
-        let qk = Expr::value_with_info("qk", DataType::Float, &dims);
+        let qk = Expr::value_with_info("qk", ValueType::Tensor(DataType::Float), &dims);
         let m = Expr::value("m");
         let expr = qk
             // Add shape info so optimizer can determine softmax is applied
@@ -730,7 +730,7 @@ fn test_eliminate_noop_cast() {
     let graph = {
         let x = Expr::value_with_info(
             "x",
-            DataType::Float,
+            ValueType::Tensor(DataType::Float),
             &[Dimension::Symbolic("x".to_string())],
         );
         x.cast(DataType::Float).erf().build_graph(["x"])
@@ -788,7 +788,7 @@ fn test_slice_shape_to_constant() {
     let graph = {
         let x = Expr::value_with_info(
             "x",
-            DataType::Float,
+            ValueType::Tensor(DataType::Float),
             &[Dimension::Symbolic("batch".into()), Dimension::Fixed(64)],
         );
         let starts = Expr::constant(Tensor::from([-1i32]));
@@ -965,11 +965,11 @@ fn test_fuse_repeat_interleave() {
         Dimension::Fixed(kv_heads),
         embed_dim.clone(),
     ];
-    let x = Expr::value_with_info("x", DataType::Float, &input_shape);
+    let x = Expr::value_with_info("x", ValueType::Tensor(DataType::Float), &input_shape);
     let unsqueeze_axes = Expr::constant(Value::from(NdTensor::from([repeat_axis as i32 + 1])));
     let expand_shape = Expr::value_with_info(
         "expand_shape",
-        DataType::Float,
+        ValueType::Tensor(DataType::Float),
         &[
             batch_dim.clone(),
             Dimension::Fixed(kv_heads),
@@ -982,7 +982,11 @@ fn test_fuse_repeat_interleave() {
         Dimension::Fixed(kv_heads * n_repeats),
         embed_dim.clone(),
     ];
-    let reshape_shape = Expr::value_with_info("reshape_shape", DataType::Float, &out_shape);
+    let reshape_shape = Expr::value_with_info(
+        "reshape_shape",
+        ValueType::Tensor(DataType::Float),
+        &out_shape,
+    );
 
     let t1 = x.binary(Unsqueeze {}, unsqueeze_axes);
     let t2 = t1.binary(Expand {}, expand_shape);
@@ -1021,7 +1025,7 @@ fn test_fuse_compute_shape() {
         Dimension::Fixed(224),
     ];
 
-    let x = Expr::value_with_info("pixels", DataType::Float, &in_shape);
+    let x = Expr::value_with_info("pixels", ValueType::Tensor(DataType::Float), &in_shape);
     let eps = Expr::constant(Value::from(NdTensor::from(0.)));
     let y = x.apply(
         Add {},
@@ -1074,7 +1078,7 @@ fn test_fuse_grouped_query_attention_matmul() {
         seq_dim.clone(),
         Dimension::Fixed(d_model),
     ];
-    let q = Expr::value_with_info("q", DataType::Float, &q_shape);
+    let q = Expr::value_with_info("q", ValueType::Tensor(DataType::Float), &q_shape);
 
     // K/V tensor: (batch, kv_heads, seq, d_model)
     let kv_shape = [
@@ -1083,14 +1087,14 @@ fn test_fuse_grouped_query_attention_matmul() {
         seq_dim.clone(),
         Dimension::Fixed(d_model),
     ];
-    let kv = Expr::value_with_info("kv", DataType::Float, &kv_shape);
+    let kv = Expr::value_with_info("kv", ValueType::Tensor(DataType::Float), &kv_shape);
 
     // Create RepeatInterleave pattern: Unsqueeze + Expand + Reshape
     let repeat_axis = 1;
     let unsqueeze_axes = Expr::constant(Value::from(NdTensor::from([repeat_axis as i32 + 1])));
     let expand_shape = Expr::value_with_info(
         "expand_shape",
-        DataType::Float,
+        ValueType::Tensor(DataType::Float),
         &[
             batch_dim.clone(),
             Dimension::Fixed(kv_heads),
@@ -1105,7 +1109,11 @@ fn test_fuse_grouped_query_attention_matmul() {
         seq_dim.clone(),
         Dimension::Fixed(d_model),
     ];
-    let reshape_shape = Expr::value_with_info("reshape_shape", DataType::Float, &out_shape);
+    let reshape_shape = Expr::value_with_info(
+        "reshape_shape",
+        ValueType::Tensor(DataType::Float),
+        &out_shape,
+    );
 
     let t1 = kv.binary(Unsqueeze {}, unsqueeze_axes);
     let t2 = t1.binary(Expand {}, expand_shape);
@@ -1154,7 +1162,7 @@ fn test_fuse_grouped_query_attention_matmul_with_transpose_and_scale() {
         seq_dim.clone(),
         Dimension::Fixed(d_model),
     ];
-    let q = Expr::value_with_info("q", DataType::Float, &q_shape);
+    let q = Expr::value_with_info("q", ValueType::Tensor(DataType::Float), &q_shape);
 
     // K tensor: (batch, kv_heads, seq, d_model)
     let k_shape = [
@@ -1163,14 +1171,14 @@ fn test_fuse_grouped_query_attention_matmul_with_transpose_and_scale() {
         seq_dim.clone(),
         Dimension::Fixed(d_model),
     ];
-    let k = Expr::value_with_info("k", DataType::Float, &k_shape);
+    let k = Expr::value_with_info("k", ValueType::Tensor(DataType::Float), &k_shape);
 
     // Create RepeatInterleave pattern: Unsqueeze + Expand + Reshape
     let repeat_axis = 1;
     let unsqueeze_axes = Expr::constant(Value::from(NdTensor::from([repeat_axis as i32 + 1])));
     let expand_shape = Expr::value_with_info(
         "expand_shape",
-        DataType::Float,
+        ValueType::Tensor(DataType::Float),
         &[
             batch_dim.clone(),
             Dimension::Fixed(kv_heads),
@@ -1185,7 +1193,11 @@ fn test_fuse_grouped_query_attention_matmul_with_transpose_and_scale() {
         seq_dim.clone(),
         Dimension::Fixed(d_model),
     ];
-    let reshape_shape = Expr::value_with_info("reshape_shape", DataType::Float, &repeated_shape);
+    let reshape_shape = Expr::value_with_info(
+        "reshape_shape",
+        ValueType::Tensor(DataType::Float),
+        &repeated_shape,
+    );
 
     let t1 = k.binary(Unsqueeze {}, unsqueeze_axes);
     let t2 = t1.binary(Expand {}, expand_shape);
@@ -1224,7 +1236,11 @@ fn test_infer_shapes() {
     // Build a graph that has input shape and type metadata, but no output
     // metadata.
     let graph = {
-        let x = Expr::value_with_info("data", DataType::Float, &dims!("batch", 64));
+        let x = Expr::value_with_info(
+            "data",
+            ValueType::Tensor(DataType::Float),
+            &dims!("batch", 64),
+        );
         let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
         let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
         out.build_graph(&["data"])

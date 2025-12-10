@@ -66,7 +66,7 @@ impl Expr {
 
     /// Create an expression representing a runtime-computed value (eg. model
     /// inputs), with shape and dtype information.
-    pub fn value_with_info(name: &str, dtype: DataType, shape: &[Dimension]) -> Expr {
+    pub fn value_with_info(name: &str, dtype: ValueType, shape: &[Dimension]) -> Expr {
         Expr::from(ExprKind::Value(ValueExpr {
             name: name.to_string(),
             dtype: Some(dtype),
@@ -206,7 +206,7 @@ impl Expr {
             ExprKind::Value(value_info) => [graph.add_value(
                 Some(value_info.name.as_str()),
                 value_info.shape.clone(),
-                value_info.dtype.map(ValueType::Tensor),
+                value_info.dtype,
             )]
             .into(),
             ExprKind::Constant(value) => {
@@ -311,7 +311,7 @@ struct OperatorExpr {
 
 struct ValueExpr {
     name: String,
-    dtype: Option<DataType>,
+    dtype: Option<ValueType>,
     shape: Option<Vec<Dimension>>,
 }
 

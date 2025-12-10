@@ -261,7 +261,11 @@ mod tests {
     #[test]
     fn test_infer_shapes() {
         let graph = {
-            let x = Expr::value_with_info("data", DataType::Float, &dims!("batch", 64));
+            let x = Expr::value_with_info(
+                "data",
+                ValueType::Tensor(DataType::Float),
+                &dims!("batch", 64),
+            );
             let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
             let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
             out.build_graph(&["data"])
@@ -283,7 +287,11 @@ mod tests {
     #[test]
     fn test_infer_split_op_types() {
         let graph = {
-            let x = Expr::value_with_info("data", DataType::Float, &dims!("batch", 64));
+            let x = Expr::value_with_info(
+                "data",
+                ValueType::Tensor(DataType::Float),
+                &dims!("batch", 64),
+            );
             let split = x.apply(
                 Split {
                     axis: -1,
