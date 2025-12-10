@@ -31,8 +31,8 @@ impl Operator for SequenceEmpty {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        // Type inference does not support sequence types yet.
-        None
+        let dtype = self.dtype.unwrap_or(DataType::Float);
+        Some([OutputType::Fixed(ValueType::Sequence(dtype))].into())
     }
 }
 
@@ -60,8 +60,7 @@ impl Operator for SequenceAt {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        // Type inference does not support sequence types yet.
-        None
+        Some([OutputType::ElementTypeOfInputSequence(0)].into())
     }
 }
 
@@ -97,8 +96,7 @@ impl Operator for SequenceConstruct {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        // Type inference does not support sequence types yet.
-        None
+        Some([OutputType::SequenceWithElementTypeOfInput(0)].into())
     }
 }
 
@@ -153,8 +151,7 @@ impl Operator for SequenceErase {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        // Type inference does not support sequence types yet.
-        None
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
@@ -219,8 +216,7 @@ impl Operator for SequenceInsert {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        // Type inference does not support sequence types yet.
-        None
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
@@ -299,8 +295,7 @@ impl Operator for ConcatFromSequence {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        // Type inference does not support sequence types yet.
-        None
+        Some([OutputType::ElementTypeOfInputSequence(0)].into())
     }
 }
 
@@ -367,8 +362,7 @@ impl Operator for SplitToSequence {
     }
 
     fn output_types(&self) -> Option<OutputTypeList> {
-        // Type inference does not support sequence types yet.
-        None
+        Some([OutputType::SequenceWithElementTypeOfInput(0)].into())
     }
 }
 

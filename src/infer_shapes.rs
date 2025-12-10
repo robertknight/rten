@@ -100,10 +100,9 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
                     // Unused optional output.
                     continue;
                 };
-                let dtype = match output_type {
-                    OutputType::Fixed(dtype) => Some(dtype),
-                    OutputType::CopyFromInput(index) => op
-                        .input_ids()
+
+                let get_input_type = |index: u32| {
+                    op.input_ids()
                         .get(index as usize)
                         .copied()
                         .flatten()
@@ -113,7 +112,18 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
                             } else {
                                 graph.get_node(id)?.dtype()
                             }
-                        }),
+                        })
+                };
+
+                let dtype = match output_type {
+                    OutputType::Fixed(dtype) => Some(dtype),
+                    OutputType::CopyFromInput(index) => get_input_type(index),
+                    OutputType::ElementTypeOfInputSequence(index) => {
+                        get_input_type(index).map(|t| t.to_tensor_type())
+                    }
+                    OutputType::SequenceWithElementTypeOfInput(index) => {
+                        get_input_type(index).map(|t| t.to_sequence_type())
+                    }
                 };
                 if let Some(dtype) = dtype {
                     types.insert(*id, dtype);
