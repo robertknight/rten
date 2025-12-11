@@ -338,6 +338,44 @@ impl SymElem {
             _ => None,
         }
     }
+
+    /// Evaluate a symbolic expression by subtituting values for symbols.
+    ///
+    /// Returns `None` if not all symbols have a value in `symbols`.
+    pub fn eval(&self, symbols: &[(&str, i32)]) -> Option<i32> {
+        match self {
+            Self::Value(x) => Some(*x),
+            Self::Var(sym) => symbols
+                .iter()
+                .find(|(name, _)| *name == sym.name)
+                .map(|(_name, val)| *val),
+            Self::Add((lhs, rhs)) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                Some(x + y)
+            }
+            Self::Sub((lhs, rhs)) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                Some(x - y)
+            }
+            Self::Mul((lhs, rhs)) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                Some(x * y)
+            }
+            Self::Div((lhs, rhs)) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                Some(x / y)
+            }
+            Self::Max((lhs, rhs)) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                Some(x.max(y))
+            }
+        }
+    }
 }
 
 fn cmp_values_first(a: &SymElem, b: &SymElem) -> Ordering {
@@ -693,6 +731,26 @@ impl SymTensor {
             _ => self,
         }
     }
+
+    /// Evaluate symbolic expressions in this tensor by subtituing symbols with
+    /// concrete values.
+    ///
+    /// See also [`SymElem::eval`].
+    ///
+    /// Returns `None` if evaluation of any elements is not possible.
+    pub fn eval(&self, symbols: &[(&str, i32)]) -> Option<Constant> {
+        match &self.0 {
+            SymTensorKind::Scalar(item) => item.eval(symbols).map(Constant::Scalar),
+            SymTensorKind::Vector(vec) => {
+                let values = vec
+                    .iter()
+                    .map(|item| item.eval(symbols))
+                    .collect::<Option<Vec<_>>>();
+                values.map(Constant::Vector)
+            }
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -700,7 +758,7 @@ pub(crate) use tests::{sym_elems, sym_shape, sym_vec};
 
 #[cfg(test)]
 mod tests {
-    use super::{SymElem, SymTensor};
+    use super::{Constant, SymElem, SymTensor};
 
     /// Create a `Vec<SymElem>` from a list of symbol names and values.
     macro_rules! sym_elems {
@@ -887,6 +945,37 @@ mod tests {
         }
 
         #[test]
+        fn test_eval() {
+            let x = SymElem::from("x");
+            let y = SymElem::from("y");
+            let constant = SymElem::from(64);
+            let values = [("x", 4), ("y", 2)].as_slice();
+
+            // Evaluation of different kinds of expression
+            assert_eq!(x.eval(&values), Some(4));
+            assert_eq!(y.eval(&values), Some(2));
+            assert_eq!(constant.eval(&values), Some(64));
+
+            let sum = x.clone() + y.clone();
+            assert_eq!(sum.eval(&values), Some(6));
+
+            let product = x.clone() * y.clone();
+            assert_eq!(product.eval(&values), Some(8));
+
+            let diff = x.clone() - y.clone();
+            assert_eq!(diff.eval(&values), Some(2));
+
+            let max = x.max(&y);
+            assert_eq!(max.eval(&values), Some(4));
+
+            let ratio = x.clone() / y.clone();
+            assert_eq!(ratio.eval(&values), Some(2));
+
+            // Evaluation with missing symbols
+            assert_eq!(x.eval(&[]), None);
+        }
+
+        #[test]
         fn test_exact_div() {
             // Fixed values
             assert_eq!(
@@ -926,7 +1015,25 @@ mod tests {
     }
 
     mod tensor {
-        use super::{SymElem, SymTensor};
+        use super::{Constant, SymElem, SymTensor};
+
+        #[test]
+        fn test_eval() {
+            let values = [("batch", 2), ("past_seq", 10), ("seq", 5)];
+
+            let sym_scalar = SymTensor::from_scalar("batch".into());
+            assert_eq!(sym_scalar.eval(&values), Some(Constant::Scalar(2)));
+
+            let sym_vec = SymTensor::from_vec(vec![
+                SymElem::from("batch"),
+                SymElem::from("past_seq") + SymElem::from("seq"),
+                64.into(),
+            ]);
+            assert_eq!(
+                sym_vec.eval(&values),
+                Some(Constant::Vector(vec![2, 15, 64]))
+            );
+        }
 
         #[test]
         fn test_scalar() {
