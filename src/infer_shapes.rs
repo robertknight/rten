@@ -10,7 +10,7 @@ use crate::value::ValueType;
 pub use rten_shape_inference::{
     infer_shapes::{BinaryOp, InferShapes, InferShapesError, ReductionOp, UnaryOp},
     sym_gen::SymbolGen,
-    sym_tensor::{SymElem, SymTensor, Symbol},
+    sym_tensor::{Constant, SymElem, SymTensor, Symbol},
 };
 
 /// Impl [`InferShapes`] for a type by delegating to another type which
@@ -48,16 +48,31 @@ pub enum InferError {
     PlanError(RunError),
 }
 
+/// Info about a value node determined by shape inference.
+#[derive(Debug, PartialEq)]
+pub enum Shape {
+    Constant { index: usize },
+    Shape(Vec<Dimension>),
+}
+
 /// Results of shape and type inference.
 pub struct InferResult {
-    /// Map of value node ID to inferred shape.
-    pub shapes: HashMap<NodeId, Vec<Dimension>>,
+    /// Unique constants.
+    pub constants: Vec<Constant>,
+
+    /// Map of value node ID to inferred shape or constant index.
+    pub shapes: HashMap<NodeId, Shape>,
 
     /// Map of value node ID to inferred type.
     pub types: HashMap<NodeId, ValueType>,
 }
 
 /// Infer the shapes and types of operator outputs in a graph.
+///
+/// For each operator output, this can infer:
+///
+///  - Data type
+///  - Tensor shape or constant value
 ///
 /// Inference works on a best-effort basis and is not guaranteed to be able
 /// to determine the shape and type of every output. Reasons why inference for
@@ -173,10 +188,26 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
         }
     }
 
-    // Extract shapes from symbolic values.
+    // Unique constant values.
+    let mut constants = Vec::new();
+    let mut constant_to_index = HashMap::new();
+    let mut total_const_values = 0;
+
+    // Map of value ID to shape.
     let mut shapes = HashMap::with_capacity(values.len());
+
     for (value_id, sym_value) in values {
-        if let Some(dims) = sym_value.shape() {
+        let shape = if let Some(val) = sym_value.to_constant() {
+            total_const_values += 1;
+            if let Some(&index) = constant_to_index.get(&val) {
+                Some(Shape::Constant { index })
+            } else {
+                let index = constants.len();
+                constant_to_index.insert(val.clone(), index);
+                constants.push(val);
+                Some(Shape::Constant { index })
+            }
+        } else if let Some(dims) = sym_value.shape() {
             let dims = dims
                 .map(|dim| match dim {
                     // If a dimension size is unexpectedly inferred as a negative
@@ -185,13 +216,29 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
                     dim => Some(Dimension::Symbolic(dim.to_string())),
                 })
                 .collect::<Option<Vec<_>>>();
-            if let Some(dims) = dims {
-                shapes.insert(value_id, dims);
-            }
+            dims.map(Shape::Shape)
+        } else {
+            None
+        };
+
+        if let Some(shape) = shape {
+            shapes.insert(value_id, shape);
         }
     }
 
-    Ok(InferResult { shapes, types })
+    if debug {
+        println!(
+            "Shape inference: {} constant values, {} unique",
+            total_const_values,
+            constants.len()
+        );
+    }
+
+    Ok(InferResult {
+        constants,
+        shapes,
+        types,
+    })
 }
 
 /// Convert an operator input into a symbolic tensor.
@@ -253,10 +300,10 @@ mod tests {
 
     use crate::Dimension;
     use crate::graph::builder::{Expr, OutputMeta, dims};
-    use crate::ops::{MatMul, Split};
+    use crate::ops::{Concat, Gather, MatMul, Shape as ShapeOp, Split, Unsqueeze};
     use crate::value::{DataType, ValueType};
 
-    use super::infer_shapes;
+    use super::{Constant, Shape, infer_shapes};
 
     #[test]
     fn test_infer_shapes() {
@@ -274,10 +321,10 @@ mod tests {
         let shapes = infer_shapes(&graph).unwrap();
 
         let output_id = graph.output_ids()[0];
-        assert_eq!(
-            shapes.shapes.get(&output_id).map(|s| s.as_slice()),
-            Some(dims!("batch", 12).as_slice())
-        );
+        let Some(Shape::Shape(shape)) = shapes.shapes.get(&output_id) else {
+            panic!("output is not a shape");
+        };
+        assert_eq!(shape.as_slice(), dims!("batch", 12).as_slice());
         assert_eq!(
             shapes.types.get(&output_id).copied(),
             Some(ValueType::Tensor(DataType::Float))
@@ -314,5 +361,50 @@ mod tests {
                 Some(ValueType::Tensor(DataType::Float))
             );
         }
+    }
+
+    #[test]
+    fn test_infer_constants() {
+        // Create graph that extracts and concatenates the last two dims of
+        // an input shape. Since these are fixed, the final output is a constant.
+        let graph = {
+            let x = Expr::value_with_info(
+                "data",
+                ValueType::Tensor(DataType::Float),
+                &dims!("batch", 64, 32),
+            );
+            let shape = x.apply(
+                ShapeOp {
+                    start: None,
+                    end: None,
+                },
+                &[],
+                &[OutputMeta::NoMeta],
+            );
+            let dim1 = shape.apply(
+                Gather { axis: 0 },
+                &[Expr::constant(1)],
+                &[OutputMeta::NoMeta],
+            );
+            let dim2 = shape.apply(
+                Gather { axis: 0 },
+                &[Expr::constant(2)],
+                &[OutputMeta::NoMeta],
+            );
+            let axes = Expr::constant(NdTensor::from([0i32]));
+            let dim1_vec = dim1.apply(Unsqueeze {}, &[axes.clone()], &[OutputMeta::NoMeta]);
+            let dim2_vec = dim2.apply(Unsqueeze {}, &[axes], &[OutputMeta::NoMeta]);
+            let dims_vec = dim1_vec.apply(Concat { axis: 0 }, &[dim2_vec], &[OutputMeta::NoMeta]);
+            dims_vec.build_graph(&["data"])
+        };
+
+        let output_id = graph.output_ids()[0];
+        let result = infer_shapes(&graph).unwrap();
+
+        let shape = result.shapes.get(&output_id).unwrap();
+        let Shape::Constant { index } = shape else {
+            panic!("{:?} is not a constant", shape);
+        };
+        assert_eq!(result.constants[*index], Constant::Vector(vec![64, 32]));
     }
 }

@@ -3,6 +3,8 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+use rten_shape_inference::sym_tensor;
+use rten_tensor::Tensor;
 use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
@@ -11,7 +13,7 @@ use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
     PlanOptions, RunError,
 };
-use crate::infer_shapes::infer_shapes;
+use crate::infer_shapes::{Shape, infer_shapes};
 use crate::operator::Operator;
 use crate::ops::Identity;
 
@@ -361,8 +363,28 @@ impl GraphOptimizer {
         if opts.infer_shapes
             && let Ok(infer_result) = infer_shapes(&graph_mut.graph)
         {
+            let const_ids: Vec<NodeId> = infer_result
+                .constants
+                .into_iter()
+                .map(|constant| {
+                    let tensor = match constant {
+                        sym_tensor::Constant::Scalar(x) => Tensor::from(x),
+                        sym_tensor::Constant::Vector(vec) => Tensor::from(vec),
+                    };
+                    graph_mut.add_constant(None, tensor.into_arc())
+                })
+                .collect();
+
             for (value_id, shape) in infer_result.shapes {
-                graph_mut.graph.update_value_shape(value_id, shape);
+                match shape {
+                    Shape::Constant { index } => {
+                        let const_id = const_ids[index];
+                        graph_mut.replace_value(value_id, const_id);
+                    }
+                    Shape::Shape(shape) => {
+                        graph_mut.graph.update_value_shape(value_id, shape);
+                    }
+                }
             }
             for (value_id, value_type) in infer_result.types {
                 graph_mut.graph.update_value_type(value_id, value_type);

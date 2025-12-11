@@ -13,10 +13,10 @@ use crate::graph::{
     CaptureEnv, Constant, Graph, Node, NodeId, OperatorNode, PlanOptions, TypedConstant,
 };
 use crate::ops::{
-    Add, Cast, ComputeShape, DimSpec, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gelu,
-    GroupedQueryAttentionMatMul, Identity, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg,
-    Pow, ReduceMean, RepeatInterleave, Reshape, RmsNormalization, Shape, Sigmoid, Slice, Softmax,
-    Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
+    Add, Cast, ComputeShape, DimSpec, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather,
+    Gelu, GroupedQueryAttentionMatMul, Identity, IsNaN, LayerNormalization, MatMul, MatMulInteger,
+    Neg, Pow, ReduceMean, RepeatInterleave, Reshape, RmsNormalization, Shape, Sigmoid, Slice,
+    Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -1259,4 +1259,32 @@ fn test_infer_shapes() {
         Some(dims!("batch", 12).as_slice())
     );
     assert_eq!(output.dtype(), Some(ValueType::Tensor(DataType::Float)));
+}
+
+#[test]
+fn test_shape_inference_replaces_values_with_constants() {
+    let graph = {
+        let x = Expr::value_with_info(
+            "data",
+            ValueType::Tensor(DataType::Float),
+            &dims!("batch", 64),
+        );
+
+        // Extract second dimension of input via `Gather<axis=0>(Shape(X), indices=[1])`.
+        let indices = Expr::constant(1);
+        let out = x
+            .shape()
+            .apply(Gather { axis: 0 }, &[indices], &[OutputMeta::NoMeta]);
+        out.build_graph(&["data"])
+    };
+
+    let optimizer = GraphOptimizer::new();
+    let graph = optimizer
+        .optimize(graph, None, OptimizeOptions { infer_shapes: true })
+        .unwrap();
+
+    // The output should be replaced with a constant as it doesn't depend on
+    // model inputs.
+    let output = graph.get_node(graph.output_ids()[0]).unwrap();
+    assert_eq!(output.as_constant().and_then(|c| c.as_scalar()), Some(64));
 }

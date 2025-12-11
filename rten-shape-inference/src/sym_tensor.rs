@@ -6,7 +6,7 @@ use std::ops::{Add, AddAssign, Div, Mul, Sub};
 use std::rc::Rc;
 
 /// Vector or scalar with integer values.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub enum Constant {
     Scalar(i32),
     Vector(Vec<i32>),
