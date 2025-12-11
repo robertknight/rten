@@ -8,7 +8,6 @@ use rten_tensor::Tensor;
 use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
-use crate::Value;
 use crate::env::str_as_bool;
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
@@ -17,6 +16,7 @@ use crate::graph::{
 use crate::infer_shapes::{Shape, infer_shapes};
 use crate::operator::Operator;
 use crate::ops::Identity;
+use crate::{Dimension, Value};
 
 mod diagnostics;
 mod fusions;
@@ -438,6 +438,17 @@ impl GraphOptimizer {
                     Shape::Constant { index } => {
                         let const_id = const_ids[index];
                         graph_mut.replace_value(value_id, const_id);
+                    }
+                    Shape::Value { index, len } => {
+                        let source_value_id = infer_result.values[index];
+                        if value_id == source_value_id {
+                            let shape = len
+                                .map(|len| vec![Dimension::Fixed(len)])
+                                .unwrap_or(Vec::new());
+                            graph_mut.graph.update_value_shape(value_id, shape);
+                        } else {
+                            graph_mut.replace_value(value_id, source_value_id);
+                        }
                     }
                     Shape::Shape(shape) => {
                         graph_mut.graph.update_value_shape(value_id, shape);

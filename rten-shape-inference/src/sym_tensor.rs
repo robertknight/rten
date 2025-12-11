@@ -49,7 +49,7 @@ impl fmt::Debug for Constant {
 /// The variable may carry assumptions about its value, such as being >= 0.
 ///
 /// Two symbols are equal if they have the same name.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct Symbol {
     pub name: String,
 
@@ -60,7 +60,7 @@ pub struct Symbol {
 /// Element in a symbolic tensor.
 ///
 /// Elements can be integer values, named symbols or composite expressions.
-#[derive(Clone)]
+#[derive(Clone, Eq, Hash)]
 pub enum SymElem {
     /// Element with a known integer value.
     Value(i32),
@@ -551,7 +551,7 @@ impl fmt::Display for SymElem {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum SymTensorKind {
     Scalar(SymElem),
     Vector(Vec<SymElem>),
@@ -595,7 +595,7 @@ enum SymTensorKind {
 /// ).simplify());
 /// assert_eq!(len, Some(SymElem::Mul((nr.into(), nc.into()))));
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SymTensor(SymTensorKind);
 
 impl SymTensor {

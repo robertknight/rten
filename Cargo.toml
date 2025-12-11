@@ -64,6 +64,7 @@ rust-version = "1.89.0"
 fastrand = { workspace = true, optional = true }
 fastrand-contrib = { workspace = true, optional = true }
 flatbuffers = { workspace = true, optional = true }
+indexmap = "2.12.1"
 memmap2 = { version = "0.9.4", optional = true }
 num_cpus = "1.16.0"
 rayon = { workspace = true }

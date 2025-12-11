@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use indexmap::IndexMap;
+
 use crate::env::env_flag;
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, TypedConstant};
 use crate::operator::{OutputType, OutputTypesContext};
@@ -51,7 +53,16 @@ pub enum InferError {
 /// Info about a value node determined by shape inference.
 #[derive(Debug, PartialEq)]
 pub enum Shape {
-    Constant { index: usize },
+    Constant {
+        /// Index in the [`InferResult::constants`] array.
+        index: usize,
+    },
+    Value {
+        /// Index in the [`InferResult::values`] array.
+        index: usize,
+        /// Length of the vector, or `None` if a scalar.
+        len: Option<usize>,
+    },
     Shape(Vec<Dimension>),
 }
 
@@ -59,6 +70,9 @@ pub enum Shape {
 pub struct InferResult {
     /// Unique constants.
     pub constants: Vec<Constant>,
+
+    /// Unique values.
+    pub values: Vec<NodeId>,
 
     /// Map of value node ID to inferred shape or constant index.
     pub shapes: HashMap<NodeId, Shape>,
@@ -95,7 +109,7 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
     //
     // Reserve initial capacity assuming each operator produces one output,
     // which is the case for most operators.
-    let mut values: HashMap<NodeId, SymTensor> = HashMap::with_capacity(ops.len());
+    let mut values: IndexMap<NodeId, SymTensor> = IndexMap::with_capacity(ops.len());
     let mut types: HashMap<NodeId, ValueType> = HashMap::with_capacity(ops.len());
 
     let debug = env_flag("RTEN_INFER_SHAPES_DEBUG", false);
@@ -188,17 +202,22 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
         }
     }
 
-    // Unique constant values.
+    // Unique constants.
     let mut constants = Vec::new();
     let mut constant_to_index = HashMap::new();
-    let mut total_const_values = 0;
+    let mut total_constants = 0;
+
+    // Unique symbolic values.
+    let mut unique_values = Vec::new();
+    let mut value_to_index = HashMap::new();
+    let mut total_values = 0;
 
     // Map of value ID to shape.
     let mut shapes = HashMap::with_capacity(values.len());
 
     for (value_id, sym_value) in values {
         let shape = if let Some(val) = sym_value.to_constant() {
-            total_const_values += 1;
+            total_constants += 1;
             if let Some(&index) = constant_to_index.get(&val) {
                 Some(Shape::Constant { index })
             } else {
@@ -206,6 +225,22 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
                 constant_to_index.insert(val.clone(), index);
                 constants.push(val);
                 Some(Shape::Constant { index })
+            }
+        } else if let Some(values) = sym_value.values() {
+            total_values += 1;
+            let len = if sym_value.as_vector().is_some() {
+                Some(values.len())
+            } else {
+                None
+            };
+
+            if let Some(&index) = value_to_index.get(&sym_value) {
+                Some(Shape::Value { index, len })
+            } else {
+                let index = unique_values.len();
+                value_to_index.insert(sym_value.clone(), index);
+                unique_values.push(value_id);
+                Some(Shape::Value { index, len })
             }
         } else if let Some(dims) = sym_value.shape() {
             let dims = dims
@@ -228,14 +263,17 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
 
     if debug {
         println!(
-            "Shape inference: {} constant values, {} unique",
-            total_const_values,
-            constants.len()
+            "Shape inference: {} constants ({} unique), {} values ({} unique)",
+            total_constants,
+            constants.len(),
+            total_values,
+            unique_values.len(),
         );
     }
 
     Ok(InferResult {
         constants,
+        values: unique_values,
         shapes,
         types,
     })
@@ -250,7 +288,7 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
 fn sym_tensor_from_input(
     input_id: NodeId,
     node: &Node,
-    values: &HashMap<NodeId, SymTensor>,
+    values: &IndexMap<NodeId, SymTensor>,
 ) -> SymTensor {
     match node {
         Node::Constant(constant) => {
