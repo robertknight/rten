@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::sym_expr::SymExpr;
+use crate::sym_expr::{EvalError, SymExpr, SymbolMap};
 
 /// Vector or scalar with integer values.
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -223,6 +223,26 @@ impl SymTensor {
             _ => self,
         }
     }
+
+    /// Evaluate symbolic expressions in this tensor by subtituing symbols with
+    /// concrete values.
+    ///
+    /// See also [`SymExpr::eval`].
+    ///
+    /// Returns `None` if evaluation of any elements is not possible.
+    pub fn eval(&self, symbols: &SymbolMap) -> Result<Constant, EvalError> {
+        match &self.0 {
+            SymTensorKind::Scalar(item) => item.eval(symbols).map(Constant::Scalar),
+            SymTensorKind::Vector(vec) => {
+                let values = vec
+                    .iter()
+                    .map(|item| item.eval(symbols))
+                    .collect::<Result<Vec<_>, _>>();
+                values.map(Constant::Vector)
+            }
+            _ => Err(EvalError::UnknownValues),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -230,7 +250,7 @@ pub(crate) use tests::{sym_elems, sym_shape, sym_vec};
 
 #[cfg(test)]
 mod tests {
-    use super::{SymExpr, SymTensor};
+    use super::{Constant, SymExpr, SymTensor, SymbolMap};
 
     /// Create a `Vec<SymExpr>` from a list of symbol names and values.
     macro_rules! sym_elems {
@@ -270,6 +290,21 @@ mod tests {
         assert_eq!(x.size(0), Some(2.into()));
         assert_eq!(x.size(1), None);
         assert_eq!(x.values(), Some(["x".into(), 2.into()].as_slice()));
+    }
+
+    #[test]
+    fn test_eval() {
+        let values = SymbolMap::new(&[("batch", 2), ("past_seq", 10), ("seq", 5)]);
+
+        let sym_scalar = SymTensor::from_scalar("batch".into());
+        assert_eq!(sym_scalar.eval(&values), Ok(Constant::Scalar(2)));
+
+        let sym_vec = SymTensor::from_vec(vec![
+            SymExpr::from("batch"),
+            SymExpr::from("past_seq") + SymExpr::from("seq"),
+            64.into(),
+        ]);
+        assert_eq!(sym_vec.eval(&values), Ok(Constant::Vector(vec![2, 15, 64])));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Symbolic expressions representing integer values.
 
 use std::cmp::Ordering;
+use std::error::Error;
 use std::fmt;
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub};
 use std::sync::Arc;
@@ -414,8 +415,8 @@ impl SymExpr {
                     (SymExpr::Value(x), SymExpr::Value(y)) if x == y => SymExpr::Value(x),
                     (SymExpr::Value(1), y) => y,
                     (x, SymExpr::Value(1)) => x,
-                    (SymExpr::Value(x), y) if x != 1 => SymExpr::Value(x),
-                    (x, SymExpr::Value(y)) if y != 1 => SymExpr::Value(y),
+                    (SymExpr::Value(x), _y) if x != 1 => SymExpr::Value(x),
+                    (_x, SymExpr::Value(y)) if y != 1 => SymExpr::Value(y),
                     (lhs, rhs) if lhs == rhs => lhs,
                     (lhs, rhs) => SymExpr::Broadcast(lhs.into(), rhs.into()),
                 }
@@ -460,6 +461,64 @@ impl SymExpr {
             }
             .into(),
         )
+    }
+
+    /// Evaluate a symbolic expression.
+    ///
+    /// `symbols` provides the concrete values to substitute for named symbols
+    /// in the expression.
+    pub fn eval(&self, symbols: &SymbolMap) -> Result<i32, EvalError> {
+        match self {
+            Self::Value(x) => Ok(*x),
+            Self::Var(sym) => symbols.get(&sym.name).ok_or(EvalError::MissingSymbol),
+            Self::Neg(expr) => expr.eval(symbols).map(|x| -x),
+            Self::Add(lhs, rhs) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                Ok(x + y)
+            }
+            Self::Sub(lhs, rhs) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                Ok(x - y)
+            }
+            Self::Mul(lhs, rhs) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                Ok(x * y)
+            }
+            Self::Div(lhs, rhs) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                if y == 0 {
+                    return Err(EvalError::DivisionByZero);
+                }
+                Ok(x / y)
+            }
+            Self::DivCeil(lhs, rhs) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                if y == 0 {
+                    return Err(EvalError::DivisionByZero);
+                }
+                Ok(div_ceil(x, y))
+            }
+            Self::Max(lhs, rhs) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                Ok(x.max(y))
+            }
+            Self::Min(lhs, rhs) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                Ok(x.min(y))
+            }
+            Self::Broadcast(lhs, rhs) => {
+                let x = lhs.eval(symbols)?;
+                let y = rhs.eval(symbols)?;
+                Ok(x.max(y))
+            }
+        }
     }
 
     /// Return the name of the symbol in a unary expression.
@@ -762,9 +821,52 @@ pub const fn div_ceil(lhs: i32, rhs: i32) -> i32 {
     if r != 0 { d + correction } else { d }
 }
 
+/// Mapping from symbol names to values, for use with [`SymExpr::eval`].
+pub struct SymbolMap<'a> {
+    syms: &'a [(&'a str, i32)],
+}
+
+impl<'a> SymbolMap<'a> {
+    pub fn new(syms: &'a [(&'a str, i32)]) -> Self {
+        Self { syms }
+    }
+
+    /// Look up the value of a symbol by name.
+    pub fn get(&self, name: &str) -> Option<i32> {
+        self.syms
+            .iter()
+            .find(|(n, _val)| *n == name)
+            .map(|(_name, val)| val)
+            .copied()
+    }
+}
+
+/// Errors evaluating a symbolic expression.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EvalError {
+    /// An expression references a symbol that was not supplied in the [`SymbolMap`].
+    MissingSymbol,
+    /// A division by zero was encountered evaluating the expression.
+    DivisionByZero,
+    /// The values of a `SymTensor` are unknown.
+    UnknownValues,
+}
+
+impl fmt::Display for EvalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingSymbol => write!(f, "expression contains unknown symbol"),
+            Self::DivisionByZero => write!(f, "division by zero"),
+            Self::UnknownValues => write!(f, "tensor values are unknown"),
+        }
+    }
+}
+
+impl Error for EvalError {}
+
 #[cfg(test)]
 mod tests {
-    use super::SymExpr;
+    use super::{EvalError, SymExpr, SymbolMap};
 
     #[test]
     fn test_range() {
@@ -1097,5 +1199,64 @@ mod tests {
             + SymExpr::var("bar")
             - SymExpr::from(5);
         assert_eq!(format!("{:?}", expr), "(1 + \"foo\"u) * 3 + \"bar\"i - 5");
+    }
+
+    #[test]
+    fn test_eval() {
+        let x = SymExpr::from("x");
+        let y = SymExpr::from("y");
+        let constant = SymExpr::from(64);
+        let values = SymbolMap::new(&[("x", 4), ("y", 2)]);
+
+        // Constant expr
+        assert_eq!(constant.eval(&values), Ok(64));
+
+        // Symbol expr
+        assert_eq!(x.eval(&values), Ok(4));
+        assert_eq!(y.eval(&values), Ok(2));
+
+        // Add
+        let sum = x.clone() + y.clone();
+        assert_eq!(sum.eval(&values), Ok(6));
+
+        // Mul
+        let product = x.clone() * y.clone();
+        assert_eq!(product.eval(&values), Ok(8));
+
+        // Sub
+        let diff = x.clone() - y.clone();
+        assert_eq!(diff.eval(&values), Ok(2));
+
+        // Max
+        let max = x.max(&y);
+        assert_eq!(max.eval(&values), Ok(4));
+
+        // Min
+        let min = x.min(&y);
+        assert_eq!(min.eval(&values), Ok(2));
+
+        // Div (floor)
+        let div_values = SymbolMap::new(&[("x", 5), ("y", 3)]);
+        let div_zero_values = SymbolMap::new(&[("x", 5), ("y", 0)]);
+        let ratio = x.clone() / y.clone();
+        assert_eq!(ratio.eval(&div_values), Ok(1));
+        assert_eq!(ratio.eval(&div_zero_values), Err(EvalError::DivisionByZero));
+
+        // Div (ceil)
+        let ratio = x.div_ceil(&y);
+        assert_eq!(ratio.eval(&div_values), Ok(2));
+        assert_eq!(ratio.eval(&div_zero_values), Err(EvalError::DivisionByZero));
+
+        // Neg
+        let neg = -x.clone();
+        assert_eq!(neg.eval(&values), Ok(-4));
+
+        // Broadcast
+        let max = x.broadcast(&y);
+        assert_eq!(max.eval(&values), Ok(4));
+
+        // Evaluation with missing symbols
+        let empty = SymbolMap::new(&[]);
+        assert_eq!(x.eval(&empty), Err(EvalError::MissingSymbol));
     }
 }
