@@ -9,6 +9,7 @@ use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
 use crate::Value;
+use crate::env::env_flag;
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
     PlanOptions, RunError,
@@ -17,8 +18,11 @@ use crate::infer_shapes::{Shape, infer_shapes};
 use crate::operator::Operator;
 use crate::ops::Identity;
 
+mod diagnostics;
 mod fusions;
 mod pattern_matcher;
+
+use diagnostics::{DiagnosticLevel, Diagnostics};
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, Fusion, FusionVisitor,
@@ -109,6 +113,7 @@ impl GraphMutator {
     /// Returns the number of applied fusions.
     fn apply_fusion<F: Fn(&Self, NodeId, &OperatorNode) -> Option<Fusion>>(
         &mut self,
+        diag: &Diagnostics,
         create_fusion: F,
     ) -> usize {
         struct Replacement {
@@ -185,7 +190,25 @@ impl GraphMutator {
                     &unfused_ops,
                     &output_ids,
                 );
-                if reused_output.is_some() {
+                if let Some(reused_output) = reused_output {
+                    if diag.enabled(DiagnosticLevel::Warn) {
+                        let consumer_name = match reused_output.consumer {
+                            ConsumerKind::GraphOutput => "graph output",
+                            ConsumerKind::Operator(op) => self
+                                .graph
+                                .get_node(op)
+                                .and_then(|n| n.name())
+                                .unwrap_or_default(),
+                        };
+                        diag.warn(
+                            op_node_id,
+                            std::format_args!(
+                                "Skipping {} fusion because output is reused by {}",
+                                fusion.name(),
+                                consumer_name
+                            ),
+                        );
+                    }
                     return None;
                 }
 
@@ -286,6 +309,17 @@ impl GraphMutator {
     }
 }
 
+enum ConsumerKind {
+    GraphOutput,
+    Operator(NodeId),
+}
+
+struct ConsumerInfo {
+    #[expect(unused)]
+    output: NodeId,
+    consumer: ConsumerKind,
+}
+
 /// Find an operator output in a subgraph which is used outside the subgraph,
 /// excluding outputs listed in `output_ids`, which are the final outputs of the
 /// subgraph.
@@ -293,31 +327,37 @@ fn find_operator_output_used_outside_subgraph(
     graph: &Graph,
     subgraph_ops: &[NodeId],
     output_ids: &[NodeId],
-) -> Option<NodeId> {
+) -> Option<ConsumerInfo> {
     for op_id in subgraph_ops {
         let op = graph
             .get_node(*op_id)
             .and_then(|n| n.as_operator())
             .expect("node ID should be a valid operator ID");
 
-        for output in op.output_ids().iter().flatten() {
-            if output_ids.contains(output) {
+        for &output in op.output_ids().iter().flatten() {
+            if output_ids.contains(&output) {
                 continue;
             }
 
             // Check for intermediate output used as graph output.
-            if graph.output_ids().contains(output) {
-                return Some(*output);
+            if graph.output_ids().contains(&output) {
+                return Some(ConsumerInfo {
+                    output,
+                    consumer: ConsumerKind::GraphOutput,
+                });
             }
 
             // Check for intermediate output used as input to operator node
             // outside subgraph.
-            let Some(consumers) = graph.get_consumers(*output) else {
+            let Some(consumers) = graph.get_consumers(output) else {
                 continue;
             };
-            for consumer in consumers {
-                if !subgraph_ops.contains(consumer) {
-                    return Some(*output);
+            for &consumer in consumers {
+                if !subgraph_ops.contains(&consumer) {
+                    return Some(ConsumerInfo {
+                        output,
+                        consumer: ConsumerKind::Operator(consumer),
+                    });
                 }
             }
         }
@@ -355,6 +395,11 @@ impl GraphOptimizer {
         opts: OptimizeOptions,
     ) -> Result<Graph, OptimizeError> {
         let mut graph_mut = GraphMutator::from_graph(graph);
+
+        let mut diag = Diagnostics::new();
+        if env_flag("RTEN_OPTIMIZER_DEBUG", false) {
+            diag.set_level(DiagnosticLevel::Warn);
+        }
 
         // Perform shape inference to update type and shape metadata for nodes.
         //
@@ -412,7 +457,7 @@ impl GraphOptimizer {
         // will remove the ComputeShape node and downstream nodes.
         early_fusions.push(ComputeShapeFusion {});
 
-        self.apply_fusions(&mut graph_mut, early_fusions.visitors())?;
+        self.apply_fusions(&mut graph_mut, early_fusions.visitors(), &mut diag)?;
 
         // Constant propagation.
         //
@@ -466,7 +511,7 @@ impl GraphOptimizer {
 
         let max_iters = 3;
         for _ in 0..max_iters {
-            let n_fused_ops = self.apply_fusions(&mut graph_mut, fusions.visitors())?;
+            let n_fused_ops = self.apply_fusions(&mut graph_mut, fusions.visitors(), &diag)?;
             if n_fused_ops == 0 {
                 // We reached a fixed point.
                 break;
@@ -576,12 +621,13 @@ impl GraphOptimizer {
         &self,
         graph: &mut GraphMutator,
         visitors: &[Box<dyn DynFusionVisitor>],
+        diagnostics: &Diagnostics,
     ) -> Result<usize, OptimizeError> {
         // Create the prepared state once and then re-use it for each operator
         // visited.
         let prepared_state: Vec<_> = visitors.iter().map(|f| f.prepare(graph.graph())).collect();
 
-        let n_fusions = graph.apply_fusion(|graph, op_node_id, op_node| {
+        let n_fusions = graph.apply_fusion(diagnostics, |graph, op_node_id, op_node| {
             for (visitor, state) in visitors.iter().zip(&prepared_state) {
                 if let Some(fusion) =
                     visitor.maybe_fuse(state.as_ref(), graph.graph(), op_node_id, op_node)
