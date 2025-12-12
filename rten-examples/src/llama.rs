@@ -78,6 +78,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
     let special = SpecialTokens::new(&tokenizer)?;
 
+    // Show intro message after the model has loaded.
+    println!(
+        r#"This is the RTen Llama chat example.
+
+- To start a multi-line message, end the line with a "/" character.
+- To add a file to the context, use "/read <filename>". Use only small text files.
+- Press Ctrl+D to exit
+"#
+    );
+
     // System prompt based on the `chat_template.jinja` file.
     let mut prompt = PromptBuilder::new(&tokenizer, special)
         .append_id(special.begin_of_text)
@@ -124,11 +134,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             // If the user presses Enter without typing a message, enter
             // multi-line mode.
-            if user_input.trim() == "" {
+            if user_input.trim().ends_with('/') {
                 println!(
                     ">> Entering multi-line mode. Press Ctrl-D on an empty line to end message."
                 );
-                user_input.clear();
+
+                // Remove "/" and start a new line.
+                user_input.truncate(user_input.trim().len());
+                user_input.pop();
+                user_input.push('\n');
+
                 loop {
                     let n_read = io::stdin().read_line(&mut user_input)?;
                     if n_read == 0 {
