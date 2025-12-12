@@ -112,6 +112,15 @@ impl Fusion {
             Fusion::Constant { output_id, .. } => [*output_id].into(),
         }
     }
+
+    /// Return a short identifier for the kind of fusion this is.
+    pub fn name(&self) -> &str {
+        match self {
+            Fusion::Op(op) => op.fused_op.name(),
+            Fusion::Identity { .. } => "identity",
+            Fusion::Constant { .. } => "constant",
+        }
+    }
 }
 
 /// Interface for graph visitors which match graph patterns and return fused
