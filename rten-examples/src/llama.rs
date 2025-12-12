@@ -79,14 +79,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let special = SpecialTokens::new(&tokenizer)?;
 
     // Show intro message after the model has loaded.
-    println!(
-        r#"This is the RTen Llama chat example.
+    if args.prompt.is_none() {
+        println!(
+            r#"This is the RTen Llama chat example.
 
 - To start a multi-line message, end the line with a "/" character.
 - To add a file to the context, use "/read <filename>". Use only small text files.
 - Press Ctrl+D to exit
 "#
-    );
+        );
+    }
 
     // System prompt based on the `chat_template.jinja` file.
     let mut prompt = PromptBuilder::new(&tokenizer, special)
