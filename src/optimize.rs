@@ -9,7 +9,7 @@ use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
 use crate::Value;
-use crate::env::env_flag;
+use crate::env::str_as_bool;
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
     PlanOptions, RunError,
@@ -201,9 +201,10 @@ impl GraphMutator {
                                 .unwrap_or_default(),
                         };
                         diag.warn(
+                            &self.graph,
                             op_node_id,
                             std::format_args!(
-                                "Skipping {} fusion because output is reused by {}",
+                                "skipping {} fusion because output is reused by {}",
                                 fusion.name(),
                                 consumer_name
                             ),
@@ -211,6 +212,12 @@ impl GraphMutator {
                     }
                     return None;
                 }
+
+                diag.info(
+                    &self.graph,
+                    op_node_id,
+                    std::format_args!("applying {} fusion", fusion.name()),
+                );
 
                 Some(Replacement {
                     fusion,
@@ -397,8 +404,14 @@ impl GraphOptimizer {
         let mut graph_mut = GraphMutator::from_graph(graph);
 
         let mut diag = Diagnostics::new();
-        if env_flag("RTEN_OPTIMIZER_DEBUG", false) {
-            diag.set_level(DiagnosticLevel::Warn);
+        let level = match std::env::var("RTEN_OPTIMIZER_DEBUG").as_deref() {
+            Ok("info") => Some(DiagnosticLevel::Info),
+            Ok("warn") => Some(DiagnosticLevel::Warn),
+            Ok(s) if str_as_bool(s) => Some(DiagnosticLevel::Warn),
+            _ => None,
+        };
+        if let Some(level) = level {
+            diag.set_level(level);
         }
 
         // Perform shape inference to update type and shape metadata for nodes.
@@ -457,7 +470,7 @@ impl GraphOptimizer {
         // will remove the ComputeShape node and downstream nodes.
         early_fusions.push(ComputeShapeFusion {});
 
-        self.apply_fusions(&mut graph_mut, early_fusions.visitors(), &mut diag)?;
+        self.apply_fusions(&mut graph_mut, early_fusions.visitors(), &diag)?;
 
         // Constant propagation.
         //
