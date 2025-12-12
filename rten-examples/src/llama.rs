@@ -101,16 +101,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         )
         .with_sampler(Multinomial::new());
     let mut metrics = Metrics::new();
+    let mut prompt_tokens = 0;
+
+    // Additional context to prepend to the next message, such as files read
+    // via "/read {filename}".
+    let mut pending_context = String::new();
 
     loop {
         let mut user_input = String::new();
-
         if let Some(prompt) = &args.prompt {
             user_input = prompt.to_string();
         } else {
             print!("> ");
             let _ = std::io::stdout().flush();
 
+            user_input.push_str(&pending_context);
             let n_read = io::stdin().read_line(&mut user_input)?;
             if n_read == 0 {
                 // EOF
@@ -138,11 +143,38 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
+        // Handle "/read {filename}" command to read a file into the context.
+        let command = user_input.split_once(['\n', ' ']);
+        if let Some(("/read", filename)) = command {
+            let filename = filename.trim();
+            if filename.is_empty() {
+                println!("No filename specified");
+                continue;
+            };
+
+            let Ok(content) = std::fs::read_to_string(filename) else {
+                println!("Unable to read \"{filename}\"");
+                continue;
+            };
+
+            pending_context.push_str(&format!(
+                "This is the content of the file {filename}:
+```
+{content}
+```"
+            ));
+            continue;
+        }
+
+        // Clear extra context so it isn't added to the next message.
+        pending_context.clear();
+
         // Turn prompt from chat_template.jinja.
         let turn_prompt = PromptBuilder::new(&tokenizer, special)
             .append("user", Some(&user_input))
             .append("assistant", None)
             .encode()?;
+        prompt_tokens += turn_prompt.len();
         generator.append_prompt(&turn_prompt);
 
         let decoder = generator
@@ -168,7 +200,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         && let Some(tps) = metrics.tokens_per_second()
     {
         println!(
-            "\n\nmetrics: tokens {}, {:.0}ms/token, {:.1} tok/s",
+            "\n\nmetrics: prompt tokens {}, generated tokens {}, {:.0}ms/token, {:.1} tok/s",
+            prompt_tokens,
             metrics.token_count(),
             mean_dur,
             tps,
