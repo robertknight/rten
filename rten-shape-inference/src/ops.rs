@@ -103,6 +103,7 @@ impl InferShapes for ConstantOfShape {
                             }
                         }
                         SymElem::Var(_)
+                        | SymElem::Neg(_)
                         | SymElem::Add(_)
                         | SymElem::Sub(_)
                         | SymElem::Mul(_)
@@ -303,6 +304,7 @@ impl InferShapes for Where {
                     let cond_bool = match cond {
                         SymElem::Value(v) => Some(*v == 1),
                         SymElem::Var(_)
+                        | SymElem::Neg(_)
                         | SymElem::Add(_)
                         | SymElem::Sub(_)
                         | SymElem::Mul(_)

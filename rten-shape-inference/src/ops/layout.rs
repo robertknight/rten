@@ -23,7 +23,8 @@ impl InferShapes for Expand {
         } else if let Some(data_dims) = data.shape()
             && let Some(shape_len) = shape.size(0).and_then(|d| match d {
                 SymElem::Value(size) => Some(size),
-                SymElem::Add(_)
+                SymElem::Neg(_)
+                | SymElem::Add(_)
                 | SymElem::Mul(_)
                 | SymElem::Div(_)
                 | SymElem::Max(_)
@@ -497,7 +498,7 @@ mod tests {
         assert_eq!(
             result[0],
             sym_shape!(
-                SymElem::from("batch") * SymElem::from("rows") * SymElem::from("cols"),
+                SymElem::from("batch") * SymElem::from("cols") * SymElem::from("rows"),
                 1
             )
         );
