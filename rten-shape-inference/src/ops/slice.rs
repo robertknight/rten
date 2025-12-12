@@ -1,3 +1,5 @@
+use rten_tensor::SliceRange;
+
 use crate::infer_shapes::{InferShapes, InferShapesError};
 use crate::ops::resolve_axis;
 use crate::sym_gen::SymbolGen;
@@ -57,8 +59,18 @@ impl InferShapes for Slice {
                         end => Some(end as isize),
                     };
 
-                    let slice_size =
-                        calculate_slice_size(*start as isize, end, *step as isize, size as usize);
+                    let range = SliceRange::new(*start as isize, end, *step as isize);
+
+                    // When slicing a symbolic vec along axis 0, the result can
+                    // also be a symbolic vec.
+                    if let Some(vals) = data.values()
+                        && *step == 1
+                    {
+                        let clamped_range = range.resolve_clamped(size as usize);
+                        return Ok([SymTensor::from_vec(vals[clamped_range].to_vec())].into());
+                    }
+
+                    let slice_size = range.steps(size as usize) as i32;
                     dims[axis] = SymElem::Value(slice_size);
                 } else if start == Some(&SymElem::Value(0))
                     && let Some(end) = end
@@ -82,86 +94,6 @@ impl InferShapes for Slice {
 
         Ok([sliced_shape].into())
     }
-}
-
-/// Calculate the size of a dimension of size `dim_size` after slicing it with
-/// a range that has the given start, end and step values.
-///
-/// This code is copied from the `SliceRange` type in the rten-tensor crate to
-/// avoid a dependency. If a dependency on rten-tensor is added at some point,
-/// this can be simplified.
-fn calculate_slice_size(start: isize, end: Option<isize>, step: isize, dim_size: usize) -> i32 {
-    struct SliceRange {
-        pub start: isize,
-        pub end: Option<isize>,
-        step: isize,
-    }
-
-    impl SliceRange {
-        fn new(start: isize, end: Option<isize>, step: isize) -> SliceRange {
-            assert!(step != 0, "Slice step cannot be 0");
-            SliceRange { start, end, step }
-        }
-
-        fn steps(&self, dim_size: usize) -> usize {
-            let clamped = self.clamp(dim_size);
-
-            let start_idx = Self::offset_from_start(clamped.start, dim_size);
-            let end_idx = clamped
-                .end
-                .map(|index| Self::offset_from_start(index, dim_size))
-                .unwrap_or(if self.step > 0 { dim_size as isize } else { -1 });
-
-            if (clamped.step > 0 && end_idx <= start_idx)
-                || (clamped.step < 0 && end_idx >= start_idx)
-            {
-                return 0;
-            }
-
-            let steps = if clamped.step > 0 {
-                1 + (end_idx - start_idx - 1) / clamped.step
-            } else {
-                1 + (start_idx - end_idx - 1) / -clamped.step
-            };
-
-            steps.max(0) as usize
-        }
-
-        fn clamp(&self, dim_size: usize) -> SliceRange {
-            let len = dim_size as isize;
-
-            let min_idx;
-            let max_idx;
-
-            if self.step > 0 {
-                // When traversing forwards, the range of valid +ve indexes is `[0,
-                // len]` and for -ve indexes `[-len, -1]`.
-                min_idx = -len;
-                max_idx = len;
-            } else {
-                // When traversing backwards, the range of valid +ve indexes are
-                // `[0, len-1]` and for -ve indexes `[-len-1, -1]`.
-                min_idx = -len - 1;
-                max_idx = len - 1;
-            }
-
-            SliceRange::new(
-                self.start.clamp(min_idx, max_idx),
-                self.end.map(|e| e.clamp(min_idx, max_idx)),
-                self.step,
-            )
-        }
-
-        fn offset_from_start(index: isize, dim_size: usize) -> isize {
-            if index >= 0 {
-                index
-            } else {
-                dim_size as isize + index
-            }
-        }
-    }
-
-    SliceRange::new(start, end, step).steps(dim_size) as i32
 }
 
 #[cfg(test)]
@@ -235,5 +167,24 @@ mod tests {
             .infer_shapes(&[data, starts, ends], &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], SymTensor::unknown("unknown input shape"));
+
+        // Slice of a symbolic vector along axis 0.
+        let mut sym_gen = SymbolGen::new();
+        let data = sym_vec!("batch", 3, "height", "width");
+        let starts = sym_vec!(1);
+        let ends = sym_vec!(i32::MAX);
+        let result = Slice
+            .infer_shapes(&[data, starts, ends], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_vec!(3, "height", "width"));
+
+        // Slice of a symbolic vector with negative starts and ends.
+        let data = sym_vec!("s6", 6, 400, 64);
+        let starts = sym_vec!(i32::MIN);
+        let ends = sym_vec!(-2);
+        let result = Slice
+            .infer_shapes(&[data, starts, ends], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_vec!("s6", 6));
     }
 }
