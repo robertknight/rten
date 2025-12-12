@@ -598,6 +598,10 @@ impl Operator for Squeeze {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::Squeeze)
+    }
 }
 
 pub fn transpose<T: Copy>(
