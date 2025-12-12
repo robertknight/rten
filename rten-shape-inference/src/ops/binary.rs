@@ -79,6 +79,27 @@ impl InferShapes for Add {
     }
 }
 
+/// Sub operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Sub.html>.
+pub struct Sub;
+
+impl InferShapes for Sub {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let sub = |x: &SymElem, y: &SymElem| {
+            Some(match (x, y) {
+                (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x - y),
+                _ => x.clone() - y.clone(),
+            })
+        };
+        binary_op_infer_shapes(inputs, sym_gen, sub)
+    }
+}
+
 /// Div operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Div.html>.
@@ -159,7 +180,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_shape, sym_vec};
 
-    use super::{Add, Div, Equal, Mul};
+    use super::{Add, Div, Equal, Mul, Sub};
 
     #[test]
     fn test_add() {
@@ -184,6 +205,32 @@ mod tests {
         let a = sym_shape!(5, "foo");
         let b = sym_shape!(1, "foo");
         let result = Add.infer_shapes(&[a, b], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(5, "foo"));
+    }
+
+    #[test]
+    fn test_sub() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Symbolic scalar
+        let a = SymTensor::from_scalar(6.into());
+        let b = SymTensor::from_scalar(5.into());
+        let result = Sub.infer_shapes(&[a, b], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::from_scalar(1.into()));
+
+        // Symbolic vector
+        let a = sym_vec!(5, "foo");
+        let b = sym_vec!(6, "bar");
+        let result = Sub.infer_shapes(&[a, b], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0],
+            sym_vec!(-1, SymElem::from("foo") - SymElem::from("bar"))
+        );
+
+        // Other shape
+        let a = sym_shape!(5, "foo");
+        let b = sym_shape!(1, "foo");
+        let result = Sub.infer_shapes(&[a, b], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!(5, "foo"));
     }
 

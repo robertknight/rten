@@ -12,7 +12,7 @@ mod layout;
 mod matmul;
 mod slice;
 
-pub use binary::{Add, Div, Equal, Mul};
+pub use binary::{Add, Div, Equal, Mul, Sub};
 pub use layout::{Expand, Flatten, Reshape, Shape, Transpose, Unsqueeze};
 pub use matmul::{MatMul, MatMulNBits};
 pub use slice::Slice;

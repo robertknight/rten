@@ -1069,7 +1069,7 @@ impl Operator for Sub {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        Some(&BinaryOp)
+        Some(&shape_ops::Sub)
     }
 }
 
