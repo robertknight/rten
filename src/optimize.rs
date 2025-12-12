@@ -25,11 +25,12 @@ mod pattern_matcher;
 use diagnostics::{DiagnosticLevel, Diagnostics};
 
 use fusions::{
-    AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, Fusion, FusionVisitor,
-    GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion, LayerNormalizationFusion,
-    MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion,
-    ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, RmsNormalizationFusion,
-    SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
+    AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, Fusion, FusionError,
+    FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
+    LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
+    PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion,
+    RmsNormalizationFusion, SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion,
+    TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -642,10 +643,18 @@ impl GraphOptimizer {
 
         let n_fusions = graph.apply_fusion(diagnostics, |graph, op_node_id, op_node| {
             for (visitor, state) in visitors.iter().zip(&prepared_state) {
-                if let Some(fusion) =
-                    visitor.maybe_fuse(state.as_ref(), graph.graph(), op_node_id, op_node)
-                {
-                    return Some(fusion);
+                match visitor.maybe_fuse(state.as_ref(), graph.graph(), op_node_id, op_node) {
+                    Ok(fusion) => return Some(fusion),
+                    Err(err) => match err {
+                        FusionError::NoMatch | FusionError::NoEffect => {}
+                        FusionError::CheckFailed(msg) => {
+                            diagnostics.info(
+                                &graph.graph,
+                                op_node_id,
+                                std::format_args!("{} check failed: {}", visitor.name(), msg),
+                            );
+                        }
+                    },
                 }
             }
             None
@@ -665,6 +674,7 @@ impl Default for GraphOptimizer {
 ///
 /// This replaces the associated `State` associated type with `dyn Any`.
 trait DynFusionVisitor {
+    fn name(&self) -> &str;
     fn prepare(&self, graph: &Graph) -> Box<dyn Any>;
     fn maybe_fuse(
         &self,
@@ -672,7 +682,7 @@ trait DynFusionVisitor {
         graph: &Graph,
         op_node_id: NodeId,
         op_node: &OperatorNode,
-    ) -> Option<Fusion>;
+    ) -> Result<Fusion, FusionError>;
 }
 
 /// Wraps a fusion visitor to implement [`DynFusionVisitor`].
@@ -682,6 +692,10 @@ impl<F: FusionVisitor> DynFusionVisitor for DynFusion<F>
 where
     F::State: Any,
 {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+
     fn prepare(&self, graph: &Graph) -> Box<dyn Any> {
         Box::new(self.0.prepare(graph))
     }
@@ -692,7 +706,7 @@ where
         graph: &Graph,
         op_node_id: NodeId,
         op_node: &OperatorNode,
-    ) -> Option<Fusion> {
+    ) -> Result<Fusion, FusionError> {
         let state = state.downcast_ref().unwrap();
         self.0.maybe_fuse(state, graph, op_node_id, op_node)
     }

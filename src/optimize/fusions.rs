@@ -123,10 +123,31 @@ impl Fusion {
     }
 }
 
+/// Reasons why a fusion was not created.
+#[derive(Debug)]
+pub enum FusionError {
+    /// No match for the fusion's basic pattern was found at the graph node
+    /// being tested.
+    NoMatch,
+    /// The fusion was not applied because it would have no effect.
+    ///
+    /// For example, a fusion that combines MatMul + Mul will have no effect
+    /// if the scale is 1.
+    NoEffect,
+    /// The fusion's pattern matched, but a precondition failed.
+    ///
+    /// For example, the fusion might require a certain input to be constant
+    /// or have a specific rank, and it does not.
+    CheckFailed(&'static str),
+}
+
 /// Interface for graph visitors which match graph patterns and return fused
 /// operations.
 pub trait FusionVisitor {
     type State;
+
+    /// Identifier for this fusion.
+    fn name(&self) -> &str;
 
     /// Prepare for a graph traversal by creating pattern matchers or other
     /// required state.
@@ -139,7 +160,7 @@ pub trait FusionVisitor {
         graph: &Graph,
         op_node_id: NodeId,
         op_node: &OperatorNode,
-    ) -> Option<Fusion>;
+    ) -> Result<Fusion, FusionError>;
 }
 
 /// Define a fusion for an operator using a graph pattern.
@@ -150,6 +171,9 @@ pub trait FusionVisitor {
 pub trait PatternFusion {
     /// The operator produced by this fusion.
     type Operator: Operator + Send + Sync;
+
+    /// Return an identifier for this fusion.
+    fn name(&self) -> &str;
 
     /// Return the graph pattern to match.
     fn pattern(&self) -> Pattern;
@@ -171,7 +195,7 @@ pub trait PatternFusion {
     ///
     /// This can fail if there are additional requirements which cannot be
     /// expressed in the pattern.
-    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Option<Self::Operator>;
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Self::Operator, FusionError>;
 
     /// Wrap this fusion into a [`FusionVisitor`].
     fn into_visitor(self) -> impl FusionVisitor<State = Pattern>
@@ -208,6 +232,10 @@ impl<PF: PatternFusion + 'static> PatternFusionVisitor<PF> {
 impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
     type State = Pattern;
 
+    fn name(&self) -> &str {
+        self.fusion.name()
+    }
+
     fn prepare(&self, _: &Graph) -> Pattern {
         // Patterns are ref-counted and don't depend on the pattern, so we can
         // create them once and do a cheap clone before each graph traversal.
@@ -220,8 +248,10 @@ impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
         graph: &Graph,
         op_node_id: NodeId,
         op_node: &OperatorNode,
-    ) -> Option<Fusion> {
-        let pat_match = pattern.test(op_node_id, graph)?;
+    ) -> Result<Fusion, FusionError> {
+        let pat_match = pattern
+            .test(op_node_id, graph)
+            .ok_or(FusionError::NoMatch)?;
         let input_ids: Vec<_> = self
             .fusion
             .inputs()
@@ -242,7 +272,7 @@ impl<PF: PatternFusion + 'static> FusionVisitor for PatternFusionVisitor<PF> {
             op_node.output_ids(),
             &unused_input_ids,
         );
-        Some(fusion)
+        Ok(fusion)
     }
 }
 
@@ -310,6 +340,10 @@ pub struct ReciprocalFusion {}
 impl PatternFusion for ReciprocalFusion {
     type Operator = Reciprocal;
 
+    fn name(&self) -> &str {
+        "ReciprocalFusion"
+    }
+
     fn pattern(&self) -> Pattern {
         1. / Pattern::symbol("x")
     }
@@ -318,8 +352,8 @@ impl PatternFusion for ReciprocalFusion {
         &["x"]
     }
 
-    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Reciprocal> {
-        Some(Reciprocal {})
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Reciprocal, FusionError> {
+        Ok(Reciprocal {})
     }
 }
 
@@ -328,6 +362,10 @@ pub struct ReduceMeanAxesFusion {}
 
 impl PatternFusion for ReduceMeanAxesFusion {
     type Operator = ReduceMean;
+
+    fn name(&self) -> &str {
+        "ReduceMeanAxesFusion"
+    }
 
     fn pattern(&self) -> Pattern {
         let axes = Pattern::const_symbol("axes");
@@ -339,11 +377,15 @@ impl PatternFusion for ReduceMeanAxesFusion {
         &["x"]
     }
 
-    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Option<ReduceMean> {
-        let mean_op = g.get_operator::<ReduceMean>(pat_match.node_id("mean").unwrap())?;
-        let axes = g.get_vector::<i32>(pat_match.node_id("axes").unwrap())?;
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<ReduceMean, FusionError> {
+        let mean_op = g
+            .get_operator::<ReduceMean>(pat_match.node_id("mean").unwrap())
+            .ok_or(FusionError::CheckFailed("wrong op"))?;
+        let axes = g
+            .get_vector::<i32>(pat_match.node_id("axes").unwrap())
+            .ok_or(FusionError::CheckFailed("axes not a vector"))?;
 
-        Some(ReduceMean {
+        Ok(ReduceMean {
             axes: Some(axes.to_vec()),
             keep_dims: mean_op.keep_dims,
             noop_with_empty_axes: false,
@@ -355,6 +397,10 @@ pub struct GeluFusion {}
 
 impl PatternFusion for GeluFusion {
     type Operator = Gelu;
+
+    fn name(&self) -> &str {
+        "GeluFusion"
+    }
 
     fn pattern(&self) -> Pattern {
         // The expression for GELU is usually written as `x * 0.5 * (...)`
@@ -370,8 +416,8 @@ impl PatternFusion for GeluFusion {
         &["x"]
     }
 
-    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Gelu> {
-        Some(Gelu { approximate: false })
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Gelu, FusionError> {
+        Ok(Gelu { approximate: false })
     }
 }
 
@@ -380,6 +426,10 @@ pub struct IdentityFusion {}
 
 impl FusionVisitor for IdentityFusion {
     type State = Pattern;
+
+    fn name(&self) -> &str {
+        "IdentityFusion"
+    }
 
     fn prepare(&self, _: &Graph) -> Pattern {
         let x = Pattern::symbol("x");
@@ -409,13 +459,15 @@ impl FusionVisitor for IdentityFusion {
         graph: &Graph,
         op_node_id: NodeId,
         op_node: &OperatorNode,
-    ) -> Option<Fusion> {
-        let pat_match = pattern.test(op_node_id, graph)?;
-        let input_id = pat_match.node_id("x")?;
+    ) -> Result<Fusion, FusionError> {
+        let pat_match = pattern
+            .test(op_node_id, graph)
+            .ok_or(FusionError::NoMatch)?;
+        let input_id = pat_match.node_id("x").unwrap();
         let &[Some(output_id)] = op_node.output_ids() else {
-            return None;
+            return Err(FusionError::CheckFailed("wrong output count"));
         };
-        Some(Fusion::Identity {
+        Ok(Fusion::Identity {
             input_id,
             output_id,
         })
@@ -429,6 +481,10 @@ pub struct CastElimination {}
 impl FusionVisitor for CastElimination {
     type State = ();
 
+    fn name(&self) -> &str {
+        "CastElimination"
+    }
+
     fn prepare(&self, _: &Graph) {}
 
     fn maybe_fuse(
@@ -437,24 +493,31 @@ impl FusionVisitor for CastElimination {
         graph: &Graph,
         _op_node_id: NodeId,
         op_node: &OperatorNode,
-    ) -> Option<Fusion> {
-        let to_dtype = op_node.operator().downcast_ref::<Cast>().map(|op| op.to)?;
+    ) -> Result<Fusion, FusionError> {
+        let to_dtype = op_node
+            .operator()
+            .downcast_ref::<Cast>()
+            .map(|op| op.to)
+            .ok_or(FusionError::NoMatch)?;
 
         let &[Some(input_id)] = op_node.input_ids() else {
-            return None;
+            return Err(FusionError::CheckFailed("wrong input count"));
         };
 
-        let input_dtype = graph.get_node(input_id).and_then(|n| n.dtype())?;
+        let input_dtype = graph
+            .get_node(input_id)
+            .and_then(|n| n.dtype())
+            .ok_or(FusionError::CheckFailed("missing input dtype"))?;
         if input_dtype != ValueType::Tensor(to_dtype) {
             // This Cast op is not a no-op.
-            return None;
+            return Err(FusionError::CheckFailed("input dtype != output type"));
         }
 
         let &[Some(output_id)] = op_node.output_ids() else {
-            return None;
+            return Err(FusionError::CheckFailed("wrong output count"));
         };
 
-        Some(Fusion::Identity {
+        Ok(Fusion::Identity {
             input_id,
             output_id,
         })
@@ -465,6 +528,10 @@ pub struct ApproxGeluFusion {}
 
 impl PatternFusion for ApproxGeluFusion {
     type Operator = Gelu;
+
+    fn name(&self) -> &str {
+        "ApproxGeluFusion"
+    }
 
     fn pattern(&self) -> Pattern {
         // Pattern for tanh approximate of gelu. See
@@ -484,8 +551,8 @@ impl PatternFusion for ApproxGeluFusion {
         &["x"]
     }
 
-    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Gelu> {
-        Some(Gelu { approximate: true })
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Gelu, FusionError> {
+        Ok(Gelu { approximate: true })
     }
 }
 
@@ -493,6 +560,10 @@ pub struct SiluFusion {}
 
 impl PatternFusion for SiluFusion {
     type Operator = Silu;
+
+    fn name(&self) -> &str {
+        "SiluFusion"
+    }
 
     fn pattern(&self) -> Pattern {
         let x = Pattern::symbol("x");
@@ -503,8 +574,8 @@ impl PatternFusion for SiluFusion {
         &["x"]
     }
 
-    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Option<Silu> {
-        Some(Silu {})
+    fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Silu, FusionError> {
+        Ok(Silu {})
     }
 }
 
@@ -512,6 +583,10 @@ pub struct SwishFusion {}
 
 impl PatternFusion for SwishFusion {
     type Operator = Swish;
+
+    fn name(&self) -> &str {
+        "SwishFusion"
+    }
 
     fn pattern(&self) -> Pattern {
         let x = Pattern::symbol("x");
@@ -523,10 +598,12 @@ impl PatternFusion for SwishFusion {
         &["x"]
     }
 
-    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Option<Swish> {
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Swish, FusionError> {
         let beta_input = pat_match.node_id("beta").expect("missing symbol");
-        let beta = g.get_scalar(beta_input)?;
-        Some(Swish { beta })
+        let beta = g
+            .get_scalar(beta_input)
+            .ok_or(FusionError::CheckFailed("beta not a scalar"))?;
+        Ok(Swish { beta })
     }
 }
 
@@ -591,6 +668,10 @@ pub struct LayerNormalizationFusion {}
 impl PatternFusion for LayerNormalizationFusion {
     type Operator = LayerNormalization;
 
+    fn name(&self) -> &str {
+        "LayerNormalizationFusion"
+    }
+
     fn pattern(&self) -> Pattern {
         let x = Pattern::symbol("x");
 
@@ -624,24 +705,30 @@ impl PatternFusion for LayerNormalizationFusion {
         &["x", "scale", "bias"]
     }
 
-    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<LayerNormalization> {
+    fn maybe_fuse(
+        &self,
+        pat_match: &Match,
+        graph: &Graph,
+    ) -> Result<LayerNormalization, FusionError> {
         let norm_mean = pat_match.node_id("norm_mean").unwrap();
         if !op_applied_to_last_axis::<ReduceMean>(graph, norm_mean) {
             // The LayerNormalization operator supports taking the mean over
             // multiple trailing axes. However this fusion only supports the
             // common case of taking the mean over one axis.
-            return None;
+            return Err(FusionError::CheckFailed("not applied to last axis"));
         }
 
         let center_mean = pat_match.node_id("center_mean").unwrap();
         if !op_applied_to_last_axis::<ReduceMean>(graph, center_mean) {
-            return None;
+            return Err(FusionError::CheckFailed("not applied to last axis"));
         }
 
         let epsilon_input = pat_match.node_id("epsilon").unwrap();
-        let epsilon = graph.get_scalar(epsilon_input)?;
+        let epsilon = graph
+            .get_scalar(epsilon_input)
+            .ok_or(FusionError::CheckFailed("epsilon not a scalar"))?;
 
-        Some(LayerNormalization {
+        Ok(LayerNormalization {
             axis: -1,
             epsilon: Some(epsilon),
         })
@@ -655,6 +742,10 @@ pub struct RmsNormalizationFusion {}
 
 impl PatternFusion for RmsNormalizationFusion {
     type Operator = RmsNormalization;
+
+    fn name(&self) -> &str {
+        "RmsNormalizationFusion"
+    }
 
     fn pattern(&self) -> Pattern {
         let x = Pattern::symbol("x");
@@ -685,16 +776,18 @@ impl PatternFusion for RmsNormalizationFusion {
         &["x", "scale"]
     }
 
-    fn maybe_fuse(&self, rms_match: &Match, graph: &Graph) -> Option<Self::Operator> {
+    fn maybe_fuse(&self, rms_match: &Match, graph: &Graph) -> Result<Self::Operator, FusionError> {
         let epsilon_input = rms_match.node_id("epsilon").unwrap();
-        let epsilon = graph.get_scalar(epsilon_input)?;
+        let epsilon = graph
+            .get_scalar(epsilon_input)
+            .ok_or(FusionError::CheckFailed("epsilon not a scalar"))?;
         let norm_mean = rms_match.node_id("norm_mean").unwrap();
 
         if !op_applied_to_last_axis::<ReduceMean>(graph, norm_mean) {
-            return None;
+            return Err(FusionError::CheckFailed("not applied to last axis"));
         }
 
-        Some(RmsNormalization {
+        Ok(RmsNormalization {
             axis: -1,
             epsilon: Some(epsilon),
         })
@@ -706,6 +799,10 @@ pub struct MatMulAddFusion {}
 
 impl PatternFusion for MatMulAddFusion {
     type Operator = FusedMatMul;
+
+    fn name(&self) -> &str {
+        "MatMulAddFusion"
+    }
 
     fn pattern(&self) -> Pattern {
         let a = Pattern::symbol("a");
@@ -722,7 +819,11 @@ impl PatternFusion for MatMulAddFusion {
         &["a", "b", "bias"]
     }
 
-    fn maybe_fuse(&self, matmul_add_match: &Match, graph: &Graph) -> Option<FusedMatMul> {
+    fn maybe_fuse(
+        &self,
+        matmul_add_match: &Match,
+        graph: &Graph,
+    ) -> Result<FusedMatMul, FusionError> {
         let bias_input = matmul_add_match.node_id("bias").unwrap();
         let is_bias_a_vector = match graph.get_node(bias_input) {
             Some(Node::Constant(const_node)) => const_node.shape().len() == 1,
@@ -730,10 +831,10 @@ impl PatternFusion for MatMulAddFusion {
         };
 
         if !is_bias_a_vector {
-            return None;
+            return Err(FusionError::CheckFailed("bias not a vector"));
         }
 
-        Some(FusedMatMul { alpha: None })
+        Ok(FusedMatMul { alpha: None })
     }
 }
 
@@ -748,6 +849,10 @@ pub struct MatMulScaleFusion {}
 impl FusionVisitor for MatMulScaleFusion {
     type State = ();
 
+    fn name(&self) -> &str {
+        "MatMulScaleFusion"
+    }
+
     fn prepare(&self, _: &Graph) {}
 
     fn maybe_fuse(
@@ -756,7 +861,7 @@ impl FusionVisitor for MatMulScaleFusion {
         graph: &Graph,
         _op_node_id: NodeId,
         op_node: &OperatorNode,
-    ) -> Option<Fusion> {
+    ) -> Result<Fusion, FusionError> {
         let binary_op_input_ids = |op: &OperatorNode| -> Option<[NodeId; 2]> {
             match op.input_ids() {
                 [Some(lhs_id), Some(rhs_id)] => Some([*lhs_id, *rhs_id]),
@@ -798,19 +903,23 @@ impl FusionVisitor for MatMulScaleFusion {
 
         // Check if this is a Mul/Div node scaling the output of a MatMul.
         let matmul_node = if ["Mul", "Div"].contains(&op_node.operator().name()) {
-            let (output_scale, scale_input) = get_scale_factor(graph, op_node)?;
+            let (output_scale, scale_input) =
+                get_scale_factor(graph, op_node).ok_or(FusionError::NoMatch)?;
             alpha *= output_scale;
-            let (_, scale_input_op) = graph.get_source_node(scale_input)?;
+            let (_, scale_input_op) = graph
+                .get_source_node(scale_input)
+                .ok_or(FusionError::NoMatch)?;
             scale_input_op
         } else {
             op_node
         };
 
         if matmul_node.operator().name() != "MatMul" {
-            return None;
+            return Err(FusionError::NoMatch);
         }
 
-        let [matmul_lhs, matmul_rhs] = binary_op_input_ids(matmul_node)?;
+        let [matmul_lhs, matmul_rhs] =
+            binary_op_input_ids(matmul_node).ok_or(FusionError::NoMatch)?;
         let lhs_input = if let Some((_, lhs_source_op)) = graph.get_source_node(matmul_lhs) {
             let (lhs_scale, lhs_input) =
                 get_scale_factor(graph, lhs_source_op).unwrap_or((1.0, matmul_lhs));
@@ -833,10 +942,10 @@ impl FusionVisitor for MatMulScaleFusion {
 
         if alpha == 1.0 {
             // Scale factor of 1 has no effect.
-            return None;
+            return Err(FusionError::NoEffect);
         }
 
-        Some(Fusion::from_op(
+        Ok(Fusion::from_op(
             matmul_node.name(),
             Arc::new(FusedMatMul { alpha: Some(alpha) }),
             &[Some(lhs_input), Some(rhs_input)],
@@ -850,6 +959,10 @@ pub struct MatMulIntegerToFloatFusion {}
 
 impl PatternFusion for MatMulIntegerToFloatFusion {
     type Operator = MatMulIntegerToFloat;
+
+    fn name(&self) -> &str {
+        "MatMulIntegerToFloatFusion"
+    }
 
     fn pattern(&self) -> Pattern {
         let scale = Pattern::symbol("scale");
@@ -870,15 +983,15 @@ impl PatternFusion for MatMulIntegerToFloatFusion {
         &["a", "b", "a_zero", "b_zero", "scale"]
     }
 
-    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<Self::Operator> {
+    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Result<Self::Operator, FusionError> {
         let a = pat_match.node_id("a").unwrap();
         let a_zero = pat_match.node_id("a_zero").unwrap();
 
         // Check that the candidate inputs are all outputs from a
         // DynamicQuantizeLinear node. This allows us to be sure that the
         // inputs will have the expected shape.
-        let (a_src_id, quantize_op) = graph.get_source_node(a)?;
-        let (a_zero_src_id, _) = graph.get_source_node(a_zero)?;
+        let (a_src_id, quantize_op) = graph.get_source_node(a).ok_or(FusionError::NoMatch)?;
+        let (a_zero_src_id, _) = graph.get_source_node(a_zero).ok_or(FusionError::NoMatch)?;
 
         let [
             Some(quant_out_data),
@@ -886,7 +999,7 @@ impl PatternFusion for MatMulIntegerToFloatFusion {
             Some(quant_out_zero),
         ] = quantize_op.output_ids()
         else {
-            return None;
+            return Err(FusionError::NoMatch);
         };
 
         // The data and zero point should come from the same DynamicQuantizeLinear op.
@@ -898,25 +1011,25 @@ impl PatternFusion for MatMulIntegerToFloatFusion {
             || a != *quant_out_data
             || a_zero != *quant_out_zero
         {
-            return None;
+            return Err(FusionError::NoMatch);
         }
 
         // The scale should come from `Mul(dyn_scale, const_scale)` where
         // `dyn_scale` is the scale output of the DynamicQuantizeLinear op and
         // `const_scale` is a vector.
         let scale = pat_match.node_id("scale").unwrap();
-        let (_, scale_src) = graph.get_source_node(scale)?;
+        let (_, scale_src) = graph.get_source_node(scale).ok_or(FusionError::NoMatch)?;
         let [Some(dyn_scale), Some(const_scale)] = scale_src.input_ids() else {
-            return None;
+            return Err(FusionError::NoMatch);
         };
         if scale_src.operator().downcast_ref::<Mul>().is_none()
             || graph.get_rank(*const_scale) != Some(1)
             || quant_out_scale != dyn_scale
         {
-            return None;
+            return Err(FusionError::NoMatch);
         }
 
-        Some(MatMulIntegerToFloat::default())
+        Ok(MatMulIntegerToFloat::default())
     }
 }
 
@@ -931,6 +1044,10 @@ pub struct TransposeFusion {}
 impl FusionVisitor for TransposeFusion {
     type State = ();
 
+    fn name(&self) -> &str {
+        "TransposeFusion"
+    }
+
     fn prepare(&self, _: &Graph) {}
 
     fn maybe_fuse(
@@ -939,7 +1056,7 @@ impl FusionVisitor for TransposeFusion {
         graph: &Graph,
         _op_node_id: NodeId,
         op_node: &OperatorNode,
-    ) -> Option<Fusion> {
+    ) -> Result<Fusion, FusionError> {
         // Filter against a set of operators which are known to efficiently
         // handle transposed inputs.
         if ![
@@ -956,7 +1073,7 @@ impl FusionVisitor for TransposeFusion {
         ]
         .contains(&op_node.operator().name())
         {
-            return None;
+            return Err(FusionError::NoMatch);
         }
 
         // Check the operator's inputs to see if any come from the output of
@@ -982,10 +1099,10 @@ impl FusionVisitor for TransposeFusion {
         }
 
         if !fused_op.has_transforms() {
-            return None;
+            return Err(FusionError::NoEffect);
         }
 
-        Some(Fusion::from_op(
+        Ok(Fusion::from_op(
             op_node.name(),
             Arc::new(fused_op.build(op_node.clone_operator())),
             &fused_inputs,
@@ -1004,6 +1121,10 @@ pub struct AddSoftmaxFusion {}
 impl PatternFusion for AddSoftmaxFusion {
     type Operator = AddSoftmax;
 
+    fn name(&self) -> &str {
+        "AddSoftmaxFusion"
+    }
+
     fn pattern(&self) -> Pattern {
         let query_dot_keys = Pattern::symbol("qk");
         let mask = Pattern::symbol("mask");
@@ -1018,9 +1139,11 @@ impl PatternFusion for AddSoftmaxFusion {
         &["qk", "mask"]
     }
 
-    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<AddSoftmax> {
+    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Result<AddSoftmax, FusionError> {
         let softmax_id = pat_match.node_id("softmax").unwrap();
-        let softmax_op = graph.get_operator::<Softmax>(softmax_id)?;
+        let softmax_op = graph
+            .get_operator::<Softmax>(softmax_id)
+            .ok_or(FusionError::NoMatch)?;
 
         // This fusion is currently restricted to the case where it is known
         // to be applied over the last, likely-contiguous lane. This is the case
@@ -1029,10 +1152,10 @@ impl PatternFusion for AddSoftmaxFusion {
         // It would be possible to extend this to support non-last axes, but the
         // operator would need to be modified to handle that efficiently.
         if !op_applied_to_last_axis::<Softmax>(graph, softmax_id) {
-            return None;
+            return Err(FusionError::CheckFailed("op not applied to last axis"));
         }
 
-        Some(AddSoftmax {
+        Ok(AddSoftmax {
             flush_nans_to_zero: softmax_op.flush_nans_to_zero,
         })
     }
@@ -1047,6 +1170,10 @@ pub struct ShapeSliceToConstant {}
 impl FusionVisitor for ShapeSliceToConstant {
     type State = Pattern;
 
+    fn name(&self) -> &str {
+        "ShapeSliceToConstant"
+    }
+
     fn prepare(&self, _: &Graph) -> Self::State {
         let x = Pattern::symbol("x");
         let starts = Pattern::const_symbol("starts");
@@ -1060,22 +1187,28 @@ impl FusionVisitor for ShapeSliceToConstant {
         graph: &Graph,
         op_node_id: NodeId,
         op_node: &OperatorNode,
-    ) -> Option<Fusion> {
-        let pat_match = pattern.test(op_node_id, graph)?;
-        let x_id = pat_match.node_id("x")?;
-        let starts_id = pat_match.node_id("starts")?;
-        let ends_id = pat_match.node_id("ends")?;
+    ) -> Result<Fusion, FusionError> {
+        let pat_match = pattern
+            .test(op_node_id, graph)
+            .ok_or(FusionError::NoMatch)?;
+        let x_id = pat_match.node_id("x").ok_or(FusionError::NoMatch)?;
+        let starts_id = pat_match.node_id("starts").ok_or(FusionError::NoMatch)?;
+        let ends_id = pat_match.node_id("ends").ok_or(FusionError::NoMatch)?;
 
-        let x_shape = graph.get_node(x_id)?.shape()?;
+        let x_shape = graph
+            .get_node(x_id)
+            .ok_or(FusionError::NoMatch)?
+            .shape()
+            .ok_or(FusionError::CheckFailed("unknown input shape"))?;
         let ndim = x_shape.len();
         let x_shape = NdTensorView::from_data([ndim], &*x_shape);
 
         // Check for constant starts/ends.
         let Some(&[start]) = graph.get_vector::<i32>(starts_id) else {
-            return None;
+            return Err(FusionError::CheckFailed("start is not constant"));
         };
         let Some(&[end]) = graph.get_vector::<i32>(ends_id) else {
-            return None;
+            return Err(FusionError::CheckFailed("end is not constant"));
         };
 
         // Clamp dimensions here the same as the `Slice` op does.
@@ -1090,14 +1223,14 @@ impl FusionVisitor for ShapeSliceToConstant {
                 Dimension::Symbolic(_) => None,
             })
             .collect();
-        let dims = dims?;
+        let dims = dims.ok_or(FusionError::CheckFailed("sliced dims have dynamic size"))?;
 
         // Slice ops should always have one output, but exit early if not.
         let &[Some(output_id)] = op_node.output_ids() else {
-            return None;
+            return Err(FusionError::CheckFailed("wrong output count"));
         };
 
-        Some(Fusion::Constant {
+        Ok(Fusion::Constant {
             input_ids: [x_id].into(),
             output_id,
             value: ConstantNode::new(
@@ -1133,6 +1266,10 @@ pub struct RepeatInterleaveFusion {}
 impl PatternFusion for RepeatInterleaveFusion {
     type Operator = RepeatInterleave;
 
+    fn name(&self) -> &str {
+        "RepeatInterleaveFusion"
+    }
+
     fn pattern(&self) -> Pattern {
         let x = Pattern::symbol("x");
         let axes = Pattern::const_symbol("axes");
@@ -1151,19 +1288,34 @@ impl PatternFusion for RepeatInterleaveFusion {
         &["expand_shape", "reshape_shape"]
     }
 
-    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<RepeatInterleave> {
-        let x_id = pat_match.node_id("x")?;
+    fn maybe_fuse(
+        &self,
+        pat_match: &Match,
+        graph: &Graph,
+    ) -> Result<RepeatInterleave, FusionError> {
+        let x_id = pat_match.node_id("x").ok_or(FusionError::NoMatch)?;
 
-        let reshape_id = pat_match.node_id("reshape")?;
-        let reshape_op = graph.get_node(reshape_id).and_then(|n| n.as_operator())?;
+        let reshape_id = pat_match.node_id("reshape").ok_or(FusionError::NoMatch)?;
+        let reshape_op = graph
+            .get_node(reshape_id)
+            .and_then(|n| n.as_operator())
+            .ok_or(FusionError::NoMatch)?;
         let &[Some(reshape_out)] = reshape_op.output_ids() else {
-            return None;
+            return Err(FusionError::CheckFailed("wrong output count"));
         };
 
         // Get shape metadata. This requires that shape inference has been run
         // on the model.
-        let in_shape = graph.get_node(x_id)?.shape()?;
-        let out_shape = graph.get_node(reshape_out)?.shape()?;
+        let in_shape = graph
+            .get_node(x_id)
+            .ok_or(FusionError::NoMatch)?
+            .shape()
+            .ok_or(FusionError::CheckFailed("unknown input shape"))?;
+        let out_shape = graph
+            .get_node(reshape_out)
+            .ok_or(FusionError::NoMatch)?
+            .shape()
+            .ok_or(FusionError::CheckFailed("unknown output shape"))?;
 
         // Find repeated axis and number of repeats.
         //
@@ -1171,7 +1323,7 @@ impl PatternFusion for RepeatInterleaveFusion {
         // axes must have the same size (either a static value or symbolic
         // name).
         if in_shape.len() != out_shape.len() {
-            return None;
+            return Err(FusionError::CheckFailed("in rank != out rank"));
         }
 
         let mut axis_repeats = None;
@@ -1182,7 +1334,7 @@ impl PatternFusion for RepeatInterleaveFusion {
 
             if axis_repeats.is_some() {
                 // Another axis is already repeated.
-                return None;
+                return Err(FusionError::CheckFailed("multiple axes repeated"));
             }
 
             match (size_in, size_out) {
@@ -1191,12 +1343,12 @@ impl PatternFusion for RepeatInterleaveFusion {
                         axis_repeats = Some((i, fixed_out / fixed_in));
                     } else {
                         // Repeat count must be an integer.
-                        return None;
+                        return Err(FusionError::CheckFailed("repeat count not an integer"));
                     }
                 }
                 _ => {
                     // At least one of the non-equal axes has a symbolic size.
-                    return None;
+                    return Err(FusionError::CheckFailed("repeat count unknown"));
                 }
             }
         }
@@ -1205,10 +1357,10 @@ impl PatternFusion for RepeatInterleaveFusion {
             // All axes have the same size. We _could_ create this fusion by
             // picking any axis and setting the repeat count to one,
             // but haven't found a use for this.
-            return None;
+            return Err(FusionError::NoEffect);
         };
 
-        Some(RepeatInterleave { axis, repeats })
+        Ok(RepeatInterleave { axis, repeats })
     }
 }
 
@@ -1226,6 +1378,10 @@ pub struct SafeSoftmaxFusion {}
 impl PatternFusion for SafeSoftmaxFusion {
     type Operator = Softmax;
 
+    fn name(&self) -> &str {
+        "SafeSoftmaxFusion"
+    }
+
     fn pattern(&self) -> Pattern {
         let x = Pattern::symbol("x");
         let y = Pattern::unary_op("Softmax", x).with_name("softmax");
@@ -1238,10 +1394,12 @@ impl PatternFusion for SafeSoftmaxFusion {
         &["x"]
     }
 
-    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Option<Softmax> {
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Softmax, FusionError> {
         let softmax_id = pat_match.node_id("softmax").unwrap();
-        let softmax_op = g.get_operator::<Softmax>(softmax_id)?;
-        Some(Softmax {
+        let softmax_op = g
+            .get_operator::<Softmax>(softmax_id)
+            .ok_or(FusionError::NoMatch)?;
+        Ok(Softmax {
             flush_nans_to_zero: true,
             ..*softmax_op
         })
@@ -1271,6 +1429,10 @@ pub struct ComputeShapeFusion {}
 impl FusionVisitor for ComputeShapeFusion {
     // Map of symbolic_dimension => (input_id, dimension_index)
     type State = HashMap<String, (NodeId, u32)>;
+
+    fn name(&self) -> &str {
+        "ComputeShapeFusion"
+    }
 
     fn prepare(&self, graph: &Graph) -> Self::State {
         let mut map = HashMap::new();
@@ -1304,24 +1466,33 @@ impl FusionVisitor for ComputeShapeFusion {
         graph: &Graph,
         _op_node_id: NodeId,
         op_node: &OperatorNode,
-    ) -> Option<Fusion> {
-        let shape_op = op_node.operator().downcast_ref::<Shape>()?;
+    ) -> Result<Fusion, FusionError> {
+        let shape_op = op_node
+            .operator()
+            .downcast_ref::<Shape>()
+            .ok_or(FusionError::NoMatch)?;
 
         // Shape operators which slice their inputs are not supported yet.
         if shape_op.start.is_some() || shape_op.end.is_some() {
-            return None;
+            return Err(FusionError::CheckFailed(
+                "slice has start or end attributes",
+            ));
         }
 
         let &[Some(shape_source)] = op_node.input_ids() else {
-            return None;
+            return Err(FusionError::CheckFailed("wrong input count"));
         };
-        let dims = graph.get_node(shape_source)?.shape()?;
+        let dims = graph
+            .get_node(shape_source)
+            .ok_or(FusionError::NoMatch)?
+            .shape()
+            .ok_or(FusionError::CheckFailed("unknown input shape"))?;
 
         if dims.iter().any(|dim| match dim {
             Dimension::Symbolic(name) => !state.contains_key(name),
             Dimension::Fixed(_) => false,
         }) {
-            return None;
+            return Err(FusionError::CheckFailed("unknown symbolic dim"));
         }
 
         let mut input_ids = Vec::new();
@@ -1353,7 +1524,7 @@ impl FusionVisitor for ComputeShapeFusion {
 
         let compute_shape = ComputeShape { shape };
 
-        Some(Fusion::from_op(
+        Ok(Fusion::from_op(
             op_node.name(),
             Arc::new(compute_shape),
             &input_ids,
@@ -1371,6 +1542,10 @@ pub struct GroupedQueryAttentionMatMulFusion {}
 
 impl PatternFusion for GroupedQueryAttentionMatMulFusion {
     type Operator = GroupedQueryAttentionMatMul;
+
+    fn name(&self) -> &str {
+        "GroupedQueryAttentionMatMulFusion"
+    }
 
     fn pattern(&self) -> Pattern {
         let a = Pattern::symbol("a");
@@ -1394,14 +1569,19 @@ impl PatternFusion for GroupedQueryAttentionMatMulFusion {
         &["a", "b"]
     }
 
-    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Option<GroupedQueryAttentionMatMul> {
-        let repeat_id = pat_match.node_id("repeat")?;
-        let &RepeatInterleave { axis, repeats } =
-            graph.get_operator::<RepeatInterleave>(repeat_id)?;
+    fn maybe_fuse(
+        &self,
+        pat_match: &Match,
+        graph: &Graph,
+    ) -> Result<GroupedQueryAttentionMatMul, FusionError> {
+        let repeat_id = pat_match.node_id("repeat").ok_or(FusionError::NoMatch)?;
+        let &RepeatInterleave { axis, repeats } = graph
+            .get_operator::<RepeatInterleave>(repeat_id)
+            .ok_or(FusionError::NoMatch)?;
 
         // Only the second (head) dimension can be repeated.
         if axis != 1 {
-            return None;
+            return Err(FusionError::CheckFailed("repeated axis is not 1"));
         }
 
         // Only 4D inputs are supported. We expect the LHS input to have shape
@@ -1409,26 +1589,34 @@ impl PatternFusion for GroupedQueryAttentionMatMulFusion {
         // (batch, kv_heads, seq, d_model) where `query_heads = kv_heads *
         // repeats`.
         let b_id = pat_match.node_id("a").unwrap();
-        let a_shape = graph.get_node(b_id).and_then(|n| n.shape())?;
+        let a_shape = graph
+            .get_node(b_id)
+            .and_then(|n| n.shape())
+            .ok_or(FusionError::CheckFailed("unknown LHS rank"))?;
         if a_shape.len() != 4 {
-            return None;
+            return Err(FusionError::CheckFailed("unsupported LHS rank"));
         }
 
         let b_id = pat_match.node_id("b").unwrap();
-        let b_shape = graph.get_node(b_id).and_then(|n| n.shape())?;
+        let b_shape = graph
+            .get_node(b_id)
+            .and_then(|n| n.shape())
+            .ok_or(FusionError::CheckFailed("unknown RHS rank"))?;
         if b_shape.len() != 4 {
-            return None;
+            return Err(FusionError::CheckFailed("unsupported RHS rank"));
         }
 
         // Check that query_heads is a multiple of kv_heads.
         let Dimension::Fixed(query_heads) = a_shape[1] else {
-            return None;
+            return Err(FusionError::CheckFailed("unknown query heads"));
         };
         let Dimension::Fixed(kv_heads) = b_shape[1] else {
-            return None;
+            return Err(FusionError::CheckFailed("unknown KV heads"));
         };
         if query_heads != kv_heads * repeats {
-            return None;
+            return Err(FusionError::CheckFailed(
+                "query_heads != kv_heads * repeats",
+            ));
         }
 
         // Set the scale and transpose flag if this is the Q @ K^T matmul.
@@ -1454,7 +1642,7 @@ impl PatternFusion for GroupedQueryAttentionMatMulFusion {
             }
         }
 
-        Some(GroupedQueryAttentionMatMul {
+        Ok(GroupedQueryAttentionMatMul {
             repeats,
             alpha,
             transpose_rhs,
