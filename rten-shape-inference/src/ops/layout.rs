@@ -1,6 +1,6 @@
 use crate::infer_shapes::{BinaryOp, InferShapes, InferShapesError, resolve_axis};
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{SymElem, SymTensor};
+use crate::sym_tensor::{Constant, SymElem, SymTensor};
 
 /// Expand operator.
 ///
@@ -294,6 +294,47 @@ impl InferShapes for Shape {
     }
 }
 
+/// Squeeze operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Squeeze.html>.
+pub struct Squeeze;
+
+impl InferShapes for Squeeze {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [data, rest @ ..] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let Some(Constant::Vector(axes)) = rest.first().and_then(|ax| ax.to_constant()) else {
+            return Ok([SymTensor::unknown("Unknown axes")].into());
+        };
+
+        let Some(shape) = data.shape() else {
+            return Ok([SymTensor::unknown("Unknown input shape")].into());
+        };
+
+        // Symbolic vector to scalar
+        if let Some(values) = data.as_vector()
+            && values.len() == 1
+            && axes == [0]
+        {
+            return Ok([SymTensor::from_scalar(values[0].clone())].into());
+        }
+
+        let out_shape = shape
+            .enumerate()
+            .filter(|(i, _dim)| !axes.contains(&(*i as i32)))
+            .map(|(_i, dim)| dim)
+            .collect();
+
+        Ok([SymTensor::from_shape(out_shape)].into())
+    }
+}
+
 /// Transpose operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Transpose.html>.
@@ -396,7 +437,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_shape, sym_vec};
 
-    use super::{Expand, Flatten, Reshape, Shape, Transpose, Unsqueeze};
+    use super::{Expand, Flatten, Reshape, Shape, Squeeze, Transpose, Unsqueeze};
 
     #[test]
     fn test_expand() {
@@ -586,6 +627,36 @@ mod tests {
         };
         let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_vec!("seq"));
+    }
+
+    #[test]
+    fn test_squeeze() {
+        // Shape
+        let mut sym_gen = SymbolGen::new();
+        let shape = sym_shape!("foo", 1, 64);
+        let axes = sym_vec!(1);
+        let result = Squeeze.infer_shapes(&[shape, axes], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("foo", 64));
+
+        // Symbolic vec to scalar
+        let mut sym_gen = SymbolGen::new();
+        let shape = sym_vec!("foo");
+        let axes = sym_vec!(0);
+        let result = Squeeze.infer_shapes(&[shape, axes], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::from_scalar("foo".into()));
+
+        // Non-const axes
+        let mut sym_gen = SymbolGen::new();
+        let shape = sym_vec!("foo");
+        let axes = sym_vec!("what");
+        let result = Squeeze.infer_shapes(&[shape, axes], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::unknown("Unknown axes"));
+
+        // Unknown input shape
+        let shape = SymTensor::unknown("?");
+        let axes = sym_vec!(0);
+        let result = Squeeze.infer_shapes(&[shape, axes], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::unknown("Unknown input shape"));
     }
 
     #[test]
