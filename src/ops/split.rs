@@ -1,8 +1,10 @@
 use rten_base::iter::range_chunks;
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList, OutputTypesContext,
 };
@@ -137,7 +139,20 @@ impl Operator for Split {
             ctx.num_outputs,
         ))
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    Split,
+    op,
+    shape_ops::Split {
+        axis: op.axis as i32,
+        num_outputs: op.num_outputs
+    }
+);
 
 #[cfg(test)]
 mod tests {

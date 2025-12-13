@@ -22,6 +22,9 @@ pub enum InferShapesError {
 
     /// An operator input or attribute has an invalid value.
     InvalidValue,
+
+    /// The number of outputs could not be determined.
+    UnknownOutputCount,
 }
 
 /// Infer the shapes of an operator's outputs given its inputs.
