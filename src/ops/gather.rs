@@ -2,6 +2,7 @@ use rayon::prelude::*;
 use std::mem::MaybeUninit;
 
 use rten_base::num::IsNaN;
+use rten_shape_inference::infer_shapes::UnaryOp;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::layout::ResizeLayout;
 use rten_tensor::prelude::*;
@@ -663,6 +664,10 @@ impl Operator for ScatterND {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 }
 
