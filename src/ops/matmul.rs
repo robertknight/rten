@@ -12,7 +12,7 @@ use rten_vecmath::ExtendInit;
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::infer_shapes::InferShapes;
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext, PrepackedInput, static_dims,
@@ -130,7 +130,20 @@ impl Operator for Gemm {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    Gemm,
+    op,
+    shape_ops::Gemm {
+        transpose_a: op.transpose_a,
+        transpose_b: op.transpose_b,
+    }
+);
 
 /// Hints for how a batched MatMul should be performed. This exists to enable
 /// comparisons in tests and benchmarks.

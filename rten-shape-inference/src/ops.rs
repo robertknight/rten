@@ -14,7 +14,7 @@ mod slice;
 
 pub use binary::{Add, Div, Equal, Mul, Sub};
 pub use layout::{Expand, Flatten, Reshape, Shape, Squeeze, Transpose, Unsqueeze};
-pub use matmul::{MatMul, MatMulNBits};
+pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use slice::Slice;
 
 /// Concat operator.
