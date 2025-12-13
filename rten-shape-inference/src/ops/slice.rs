@@ -74,7 +74,7 @@ impl InferShapes for Slice {
                     dims[axis] = SymElem::Value(slice_size);
                 } else if start == Some(&SymElem::Value(0))
                     && let Some(end) = end
-                    && end == &SymElem::Value(i32::MAX)
+                    && (end == &SymElem::Value(i32::MAX) || *end == dims[axis])
                     && step == &SymElem::Value(1)
                 {
                     // This is a no-op slice that doesn't alter the dimension
@@ -186,5 +186,16 @@ mod tests {
             .infer_shapes(&[data, starts, ends], &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_vec!("s6", 6));
+
+        // Slice from 0..size, where "size" is the dimension size.
+        let data = sym_shape!("batch", 1, "seq");
+        let starts = sym_vec!(0);
+        let ends = sym_vec!("seq");
+        let axes = sym_vec!(2);
+        let steps = sym_vec!(1);
+        let result = Slice
+            .infer_shapes(&[data, starts, ends, axes, steps], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("batch", 1, "seq"));
     }
 }
