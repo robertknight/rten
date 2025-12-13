@@ -1,6 +1,52 @@
+use smallvec::SmallVec;
+
 use crate::infer_shapes::{BinaryOp, InferShapes, InferShapesError};
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
+
+/// Gemm operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Gemm.html>.
+pub struct Gemm {
+    pub transpose_a: bool,
+    pub transpose_b: bool,
+}
+
+impl InferShapes for Gemm {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [a, b, ..] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let (Some(a_shape), Some(b_shape)) = (a.shape(), b.shape()) else {
+            let out_shape = vec![sym_gen.gen_positive(), sym_gen.gen_positive()];
+            return Ok([SymTensor::from_shape(out_shape)].into());
+        };
+
+        if a_shape.len() != 2 || b_shape.len() != 2 {
+            return Err(InferShapesError::IncorrectRank);
+        }
+
+        let mut a_shape: SmallVec<[_; 2]> = a_shape.collect();
+        if self.transpose_a {
+            a_shape.reverse();
+        }
+
+        let mut b_shape: SmallVec<[_; 2]> = b_shape.collect();
+        if self.transpose_b {
+            b_shape.reverse();
+        }
+
+        let m = a_shape[0].clone();
+        let n = b_shape[1].clone();
+        let out_shape = SymTensor::from_shape(vec![m, n]);
+        Ok([out_shape].into())
+    }
+}
 
 /// MatMul operator.
 ///
@@ -97,7 +143,56 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_shape};
 
-    use super::{MatMul, MatMulNBits};
+    use super::{Gemm, MatMul, MatMulNBits};
+
+    #[test]
+    fn test_gemm() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Non-transposed LHS and RHS
+        let lhs = sym_shape!("m", "k");
+        let rhs = sym_shape!("k", "n");
+        let result = Gemm {
+            transpose_a: false,
+            transpose_b: false,
+        }
+        .infer_shapes(&[lhs, rhs], &mut sym_gen)
+        .unwrap();
+        assert_eq!(result[0], sym_shape!("m", "n"));
+
+        // Transposed LHS
+        let lhs = sym_shape!("k", "m");
+        let rhs = sym_shape!("k", "n");
+        let result = Gemm {
+            transpose_a: true,
+            transpose_b: false,
+        }
+        .infer_shapes(&[lhs, rhs], &mut sym_gen)
+        .unwrap();
+        assert_eq!(result[0], sym_shape!("m", "n"));
+
+        // Transposed RHS
+        let lhs = sym_shape!("m", "k");
+        let rhs = sym_shape!("n", "k");
+        let result = Gemm {
+            transpose_a: false,
+            transpose_b: true,
+        }
+        .infer_shapes(&[lhs, rhs], &mut sym_gen)
+        .unwrap();
+        assert_eq!(result[0], sym_shape!("m", "n"));
+
+        // Unknown input shapes
+        let lhs = SymTensor::unknown("?");
+        let rhs = SymTensor::unknown("?");
+        let result = Gemm {
+            transpose_a: false,
+            transpose_b: false,
+        }
+        .infer_shapes(&[lhs, rhs], &mut sym_gen)
+        .unwrap();
+        assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2"));
+    }
 
     #[test]
     fn test_matmul() {
