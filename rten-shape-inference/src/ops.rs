@@ -11,11 +11,13 @@ mod binary;
 mod layout;
 mod matmul;
 mod slice;
+mod split;
 
 pub use binary::{Add, Div, Equal, Mul, Sub};
 pub use layout::{Expand, Flatten, Reshape, Shape, Squeeze, Transpose, Unsqueeze};
 pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use slice::Slice;
+pub use split::Split;
 
 /// Concat operator.
 ///
