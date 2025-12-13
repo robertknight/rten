@@ -12,12 +12,14 @@ mod layout;
 mod matmul;
 mod slice;
 mod split;
+mod unary;
 
 pub use binary::{Add, Div, Equal, Mul, Sub};
 pub use layout::{Expand, Flatten, Reshape, Shape, Squeeze, Transpose, Unsqueeze};
 pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use slice::Slice;
 pub use split::Split;
+pub use unary::Neg;
 
 /// Concat operator.
 ///

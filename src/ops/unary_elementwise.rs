@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use std::mem::MaybeUninit;
 
 use rten_base::num::AsBool;
+use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdUnaryOp;
 use rten_simd::ops::{GetNumOps, GetSimd};
 use rten_tensor::prelude::*;
@@ -120,7 +121,7 @@ macro_rules! declare_operator {
 
 /// Impl [`Operator`] for a unary operator type.
 macro_rules! impl_operator {
-    ($op_name:ident, $types:tt) => {
+    ($op_name:ident, $types:tt, $infer_shapes:expr) => {
         impl Operator for $op_name {
             fn name(&self) -> &str {
                 stringify!($op_name)
@@ -151,13 +152,17 @@ macro_rules! impl_operator {
             }
 
             fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-                Some(&UnaryOp)
+                $infer_shapes
             }
 
             fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
                 Some([OutputType::CopyFromInput(0)].into())
             }
         }
+    };
+
+    ($op_name:ident, $types:tt) => {
+        impl_operator!($op_name, $types, Some(&UnaryOp));
     };
 }
 
@@ -516,7 +521,7 @@ impl_operator!(Log, [FloatTensor]);
 impl_get_kernel!(Log, f32, |val: f32| val.ln());
 
 declare_operator!(Neg);
-impl_operator!(Neg, [FloatTensor, Int32Tensor]);
+impl_operator!(Neg, [FloatTensor, Int32Tensor], Some(&shape_ops::Neg));
 
 impl<T: Copy + std::ops::Neg<Output = T>> GetKernel<T> for Neg {
     fn get_kernel(&self) -> impl UnaryKernel<T> + Send + Sync {
