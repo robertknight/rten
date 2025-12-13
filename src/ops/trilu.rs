@@ -1,5 +1,6 @@
 use std::mem::MaybeUninit;
 
+use rten_shape_inference::infer_shapes::{InferShapes, UnaryOp};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
@@ -88,6 +89,10 @@ impl Operator for Trilu {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 }
 
