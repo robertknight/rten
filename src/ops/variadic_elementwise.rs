@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
 use rten_base::num::IsNaN;
+use rten_shape_inference::infer_shapes::{InferShapes, VariadicOp};
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
@@ -88,6 +89,10 @@ impl Operator for Max {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&VariadicOp)
+    }
 }
 
 pub fn mean(pool: &BufferPool, inputs: &[TensorView]) -> Result<Tensor, OpError> {
@@ -117,6 +122,10 @@ impl Operator for Mean {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&VariadicOp)
     }
 }
 
@@ -154,6 +163,10 @@ impl Operator for Min {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&VariadicOp)
+    }
 }
 
 pub fn sum<T: Copy + std::ops::Add<Output = T>>(
@@ -186,6 +199,10 @@ impl Operator for Sum {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&VariadicOp)
     }
 }
 

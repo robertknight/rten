@@ -139,6 +139,42 @@ impl InferShapes for BinaryOp {
     }
 }
 
+/// Shape inference for variadic operators.
+///
+/// This is a generalization of [`BinaryOp`] to operators which take a variable
+/// number of inputs whose shapes are broadcast against each other, using the
+/// same rules.
+pub struct VariadicOp;
+
+impl InferShapes for VariadicOp {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        if inputs.is_empty() {
+            return Err(InferShapesError::IncorrectInputCount);
+        }
+
+        let first_shape = inputs[0]
+            .shape()
+            .map(|shape| SymTensor::from_shape(shape.collect()))
+            .unwrap_or_else(|| SymTensor::unknown("unknown input shape"));
+
+        let out_shape: Result<SymTensor, InferShapesError> =
+            inputs
+                .iter()
+                .skip(1)
+                .try_fold(first_shape, |out_shape, in_shape| {
+                    let mut shapes =
+                        BinaryOp.infer_shapes(&[out_shape, in_shape.clone()], sym_gen)?;
+                    Ok(shapes.remove(0))
+                });
+
+        Ok([out_shape?].into())
+    }
+}
+
 /// Shape inference for reduction operators.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReductionOp<'a> {
@@ -249,7 +285,7 @@ mod tests {
 
     use super::{
         BinaryOp, InferShapes, InferShapesError, ReductionOp, SymElem, SymTensor, SymbolGen,
-        UnaryOp,
+        UnaryOp, VariadicOp,
     };
     use crate::sym_tensor::{sym_elems, sym_shape};
 
@@ -347,6 +383,24 @@ mod tests {
             let err = BinaryOp.infer_shapes(&inputs, &mut sym_gen).err().unwrap();
             assert_eq!(err, case.expected);
         });
+    }
+
+    #[test]
+    fn test_variadic_op() {
+        let mut sym_gen = SymbolGen::new();
+        let a = sym_shape!("batch", 4, 1, 1);
+        let b = sym_shape!("batch", 1, 8, 1);
+        let c = sym_shape!("batch", 1, 8, 16);
+
+        // Single input
+        let result = VariadicOp.infer_shapes(&[a.clone()], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("batch", 4, 1, 1));
+
+        // N inputs
+        let result = VariadicOp
+            .infer_shapes(&[a.clone(), b, c], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("batch", 4, 8, 16));
     }
 
     #[test]
