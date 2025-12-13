@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 use std::fmt;
-use std::ops::{Add, AddAssign, Div, Mul, Sub};
+use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub};
 use std::rc::Rc;
 
 /// Vector or scalar with integer values.
@@ -76,6 +76,8 @@ pub enum SymElem {
     Div((Rc<SymElem>, Rc<SymElem>)),
     /// Maximum of two symbolic values
     Max((Rc<SymElem>, Rc<SymElem>)),
+    /// Negation of a value
+    Neg(Rc<SymElem>),
 }
 
 impl SymElem {
@@ -86,6 +88,13 @@ impl SymElem {
             Self::Var(sym) => {
                 if sym.positive {
                     (0, i32::MAX)
+                } else {
+                    (i32::MIN, i32::MAX)
+                }
+            }
+            Self::Neg(x) => {
+                if x.is_positive() {
+                    (i32::MIN, -1)
                 } else {
                     (i32::MIN, i32::MAX)
                 }
@@ -111,6 +120,7 @@ impl SymElem {
         match self {
             Self::Value(x) => *x >= 0,
             Self::Var(sym) => sym.positive,
+            Self::Neg(_expr) => false,
             Self::Add((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
             Self::Sub((_lhs, _rhs)) => false,
             Self::Mul((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
@@ -149,6 +159,7 @@ impl SymElem {
 
         match self {
             Self::Value(_) | Self::Var(_) => self.clone(),
+            Self::Neg(expr) => Self::Neg(expr.canonicalize().into()),
             Self::Mul(_) => {
                 let mut terms = Vec::new();
                 collect_terms(&mut terms, self, &|term| {
@@ -173,6 +184,19 @@ impl SymElem {
                     }
                 });
                 terms.sort_by(cmp_values_first);
+
+                // Remove adjacent terms which cancel. For example this
+                // simplifies `x + x + (-x)` to `x`.
+                let mut idx = 0;
+                while idx < terms.len().saturating_sub(1) {
+                    if terms[idx].is_negation_of(&terms[idx + 1]) {
+                        terms.remove(idx);
+                        terms.remove(idx);
+                    } else {
+                        idx += 1;
+                    }
+                }
+
                 terms.into_iter().fold(SymElem::Value(0), |sum, x| sum + x)
             }
             Self::Max((lhs, rhs)) => {
@@ -182,9 +206,11 @@ impl SymElem {
                 Self::Max((lhs.into(), rhs.into()))
             }
             Self::Sub((lhs, rhs)) => {
+                // Rewrite `x - y` as `x + (-y)`. This makes it easier to
+                // simplify expressions by canceling opposite terms.
                 let lhs = lhs.canonicalize();
                 let rhs = rhs.canonicalize();
-                Self::Sub((lhs.into(), rhs.into()))
+                Self::Add((lhs.into(), (-rhs).into())).canonicalize()
             }
             Self::Div((lhs, rhs)) => {
                 let lhs = lhs.canonicalize();
@@ -206,6 +232,10 @@ impl SymElem {
     fn simplify_canonical(&self) -> SymElem {
         match self {
             Self::Value(_) | Self::Var(_) => self.clone(),
+            Self::Neg(expr) => match expr.simplify_canonical() {
+                SymElem::Value(x) => SymElem::Value(-x),
+                expr => Self::Neg(expr.into()),
+            },
             Self::Add((lhs, rhs)) => {
                 let lhs = lhs.simplify_canonical();
                 let rhs = rhs.simplify_canonical();
@@ -214,6 +244,7 @@ impl SymElem {
                     (SymElem::Value(0), rhs) => rhs,
                     (lhs, SymElem::Value(0)) => lhs,
                     (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x + y),
+                    (lhs, SymElem::Neg(rhs)) if lhs == *rhs => SymElem::Value(0),
                     (lhs, rhs) => lhs + rhs,
                 }
             }
@@ -280,10 +311,11 @@ impl SymElem {
         match self {
             // Functions and atomic values have the maximum precedence, so they
             // never need to be wrapped in parens when formatting an expression.
-            Self::Value(_) | Self::Var(_) | Self::Max(_) => 3,
-            Self::Div(_) => 2,
-            Self::Mul(_) => 1,
-            Self::Add(_) | Self::Sub(_) => 0,
+            Self::Value(_) | Self::Var(_) | Self::Max(_) => 4,
+            Self::Div(_) => 3,
+            Self::Mul(_) => 2,
+            Self::Add(_) => 1,
+            Self::Sub(_) | Self::Neg(_) => 0,
         }
     }
 
@@ -338,13 +370,42 @@ impl SymElem {
             _ => None,
         }
     }
+
+    /// Return the name of the symbol in a unary expression.
+    ///
+    /// Returns `None` if the expression is not unary or has a fixed value.
+    fn name(&self) -> Option<&str> {
+        match self {
+            SymElem::Value(_) => None,
+            SymElem::Var(sym) => Some(&sym.name),
+            SymElem::Neg(x) => x.name(),
+            SymElem::Add(_)
+            | SymElem::Sub(_)
+            | SymElem::Mul(_)
+            | SymElem::Div(_)
+            | SymElem::Max(_) => None,
+        }
+    }
+
+    /// Return true if `self` and `other` are negations of each other, meaning
+    /// that adding the two terms together will produce zero.
+    fn is_negation_of(&self, other: &SymElem) -> bool {
+        match (self, other) {
+            (x, SymElem::Neg(y)) if *x == **y => true,
+            (SymElem::Neg(x), y) if **x == *y => true,
+            _ => false,
+        }
+    }
 }
 
 fn cmp_values_first(a: &SymElem, b: &SymElem) -> Ordering {
     match (a.is_value(), b.is_value()) {
         (true, false) => Ordering::Less,
         (false, true) => Ordering::Greater,
-        (true, true) | (false, false) => Ordering::Equal,
+        _ => match (a.name(), b.name()) {
+            (Some(a_name), Some(b_name)) => a_name.cmp(b_name),
+            _ => Ordering::Equal,
+        },
     }
 }
 
@@ -363,6 +424,10 @@ impl PartialEq<SymElem> for SymElem {
             },
             Self::Var(x) => match other {
                 Self::Var(y) => x.name == y.name,
+                _ => false,
+            },
+            Self::Neg(x) => match other {
+                Self::Neg(y) => x == y,
                 _ => false,
             },
             Self::Add((a, b)) => match other {
@@ -427,6 +492,14 @@ impl Div<SymElem> for SymElem {
     }
 }
 
+impl Neg for SymElem {
+    type Output = SymElem;
+
+    fn neg(self) -> Self {
+        Self::Neg(self.into())
+    }
+}
+
 impl From<Symbol> for SymElem {
     fn from(val: Symbol) -> Self {
         Self::Var(val.into())
@@ -478,6 +551,9 @@ impl fmt::Debug for SymElem {
                 sym.name,
                 if sym.positive { 'u' } else { 'i' }
             ),
+            // nb. No space between "-" and expression to make formatting
+            // distinct from subtraction.
+            Self::Neg(expr) => write!(f, "-{:?}", expr),
             Self::Add((lhs, rhs)) => write_binop(f, '+', lhs, rhs),
             Self::Sub((lhs, rhs)) => write_binop(f, '-', lhs, rhs),
             Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
@@ -504,6 +580,9 @@ impl fmt::Display for SymElem {
         match self {
             Self::Value(val) => write!(f, "{}", val),
             Self::Var(sym) => write!(f, "{}", sym.name),
+            // nb. No space between "-" and expression to make formatting
+            // distinct from subtraction.
+            Self::Neg(expr) => write!(f, "-{}", expr),
             Self::Add((lhs, rhs)) => write_binop(f, '+', lhs, rhs),
             Self::Sub((lhs, rhs)) => write_binop(f, '-', lhs, rhs),
             Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
@@ -788,12 +867,37 @@ mod tests {
             let expr = x.clone() - x.clone();
             assert_eq!(expr.simplify(), SymElem::Value(0));
 
-            // x - 1 => x - 1
+            // x - 1 => x + (-1)
             let expr_2 = x.clone() - one.clone();
             assert_eq!(
                 expr_2.simplify(),
-                SymElem::Sub((x.clone().into(), one.clone().into()))
+                SymElem::Add((x.clone().into(), SymElem::from(-1).into()))
             );
+
+            // x + y - x => y
+            let y = SymElem::pos_var("y");
+            let expr = x.clone() + y.clone() - x.clone();
+            assert_eq!(expr.simplify(), y.clone());
+
+            // x + x + y - x => x + y.
+            let expr = x.clone() + x.clone() + y.clone() - x.clone();
+            assert_eq!(expr.simplify(), x.clone() + y.clone());
+
+            // x + y - x - y => 0
+            let expr = x.clone() + y.clone() - x.clone() - y.clone();
+            assert_eq!(expr.simplify(), 0.into());
+
+            // -x + x => 0
+            let expr = -x.clone() + x.clone();
+            assert_eq!(expr.simplify(), 0.into());
+
+            // x + (-x) => 0
+            let expr = x.clone() + (-x.clone());
+            assert_eq!(expr.simplify(), 0.into());
+
+            // (x + y) - (x + y) => 0
+            let expr = (x.clone() + y.clone()) - (x.clone() + y.clone());
+            assert_eq!(expr.simplify(), 0.into());
         }
 
         #[test]
@@ -868,6 +972,12 @@ mod tests {
 
             assert_eq!(expr, SymElem::Max((one.clone().into(), two.clone().into())));
             assert_eq!(expr.simplify(), two.clone());
+        }
+
+        #[test]
+        fn test_simplify_neg() {
+            let minus_one = -SymElem::from(1);
+            assert_eq!(minus_one.simplify(), SymElem::from(-1));
         }
 
         #[test]
