@@ -182,60 +182,106 @@ impl SymElem {
             }
         }
 
+        // Re-associate and simplify terms in a nested associative expression.
+        //
+        // This operates in 4 steps:
+        //
+        // 1. Collect all the terms in nested expressions of the same type
+        // 2. Sort the terms in canonical order
+        // 3. Simplify the result by removing any redundant terms
+        // 4. Fold the terms back into a new expression
+        fn reassociate_terms(
+            term: &SymElem,
+            extract_terms: &impl Fn(&SymElem) -> Option<&(Rc<SymElem>, Rc<SymElem>)>,
+            simplify: impl Fn(Vec<SymElem>) -> Vec<SymElem>,
+            init: SymElem,
+            fold: impl Fn(SymElem, SymElem) -> SymElem,
+        ) -> SymElem {
+            let mut terms = Vec::new();
+            collect_terms(&mut terms, term, extract_terms);
+            terms.sort_by(cmp_values_first);
+            let terms = simplify(terms);
+            terms.into_iter().fold(init, fold)
+        }
+
+        // Remove adjacent equal terms.
+        //
+        // This is a simplification for idempotent operations
+        // (eg. max(x, max(x, y)) => max(x, y)).
+        let remove_adjacent_equal_terms = |mut terms: Vec<SymElem>| {
+            let mut idx = 0;
+            while idx < terms.len().saturating_sub(1) {
+                if terms[idx] == terms[idx + 1].clone() {
+                    terms.remove(idx);
+                } else {
+                    idx += 1;
+                }
+            }
+            terms
+        };
+
         match self {
             Self::Value(_) | Self::Var(_) => self.clone(),
             Self::Neg(expr) => Self::Neg(expr.canonicalize().into()),
-            Self::Mul(_) => {
-                let mut terms = Vec::new();
-                collect_terms(&mut terms, self, &|term| {
+            Self::Mul(_) => reassociate_terms(
+                self,
+                &|term| {
                     if let Self::Mul(inner) = term {
                         Some(inner)
                     } else {
                         None
                     }
-                });
-                terms.sort_by(cmp_values_first);
-                terms
-                    .into_iter()
-                    .fold(SymElem::Value(1), |prod, x| prod * x)
-            }
+                },
+                |terms| terms,
+                SymElem::Value(1),
+                |prod, x| prod * x,
+            ),
             Self::Add(_) => {
-                let mut terms = Vec::new();
-                collect_terms(&mut terms, self, &|term| {
-                    if let Self::Add(inner) = term {
-                        Some(inner)
-                    } else {
-                        None
+                // Remove adjacent terms which cancel.
+                let remove_adjacent_opposite_terms = |mut terms: Vec<SymElem>| {
+                    let mut idx = 0;
+                    while idx < terms.len().saturating_sub(1) {
+                        if terms[idx].is_negation_of(&terms[idx + 1]) {
+                            terms.remove(idx);
+                            terms.remove(idx);
+                        } else {
+                            idx += 1;
+                        }
                     }
-                });
-                terms.sort_by(cmp_values_first);
+                    terms
+                };
 
-                // Remove adjacent terms which cancel. For example this
-                // simplifies `x + x + (-x)` to `x`.
-                let mut idx = 0;
-                while idx < terms.len().saturating_sub(1) {
-                    if terms[idx].is_negation_of(&terms[idx + 1]) {
-                        terms.remove(idx);
-                        terms.remove(idx);
-                    } else {
-                        idx += 1;
-                    }
-                }
-
-                terms.into_iter().fold(SymElem::Value(0), |sum, x| sum + x)
+                reassociate_terms(
+                    self,
+                    &|term| match term {
+                        Self::Add(inner) => Some(inner),
+                        _ => None,
+                    },
+                    remove_adjacent_opposite_terms,
+                    SymElem::Value(0),
+                    |sum, x| sum + x,
+                )
             }
-            Self::Max((lhs, rhs)) => {
-                // max(x, y) is not currently re-ordered, but it could be.
-                let lhs = lhs.canonicalize();
-                let rhs = rhs.canonicalize();
-                Self::Max((lhs.into(), rhs.into()))
-            }
-            Self::Min((lhs, rhs)) => {
-                // min(x, y) is not currently re-ordered, but it could be.
-                let lhs = lhs.canonicalize();
-                let rhs = rhs.canonicalize();
-                Self::Min((lhs.into(), rhs.into()))
-            }
+            Self::Max(_) => reassociate_terms(
+                self,
+                &|term| match term {
+                    Self::Max(inner) => Some(inner),
+                    _ => None,
+                },
+                remove_adjacent_equal_terms,
+                SymElem::Value(i32::MIN),
+                |max, x| max.max(&x),
+            ),
+            Self::Min(_) => reassociate_terms(
+                self,
+                &|term| match term {
+                    Self::Min(inner) => Some(inner),
+                    _ => None,
+                },
+                remove_adjacent_equal_terms,
+                SymElem::Value(i32::MAX),
+                |min, x| min.min(&x),
+            ),
             Self::Sub((lhs, rhs)) => {
                 // Rewrite `x - y` as `x + (-y)`. This makes it easier to
                 // simplify expressions by canceling opposite terms.
@@ -248,12 +294,16 @@ impl SymElem {
                 let rhs = rhs.canonicalize();
                 Self::Div((lhs.into(), rhs.into()))
             }
-            Self::Broadcast((lhs, rhs)) => {
-                // broadcast(x, y) is not currently re-ordered, but it could be.
-                let lhs = lhs.canonicalize();
-                let rhs = rhs.canonicalize();
-                Self::Broadcast((lhs.into(), rhs.into()))
-            }
+            Self::Broadcast(_) => reassociate_terms(
+                self,
+                &|term| match term {
+                    Self::Broadcast(inner) => Some(inner),
+                    _ => None,
+                },
+                remove_adjacent_equal_terms,
+                SymElem::Value(1),
+                |result, x| result.broadcast(&x),
+            ),
         }
     }
 
@@ -464,12 +514,16 @@ impl SymElem {
     }
 }
 
+/// Sort terms in an order that makes simplification easier, by making terms
+/// which can be combined or eliminated adjacent.
 fn cmp_values_first(a: &SymElem, b: &SymElem) -> Ordering {
     match (a.is_value(), b.is_value()) {
         (true, false) => Ordering::Less,
         (false, true) => Ordering::Greater,
         _ => match (a.name(), b.name()) {
             (Some(a_name), Some(b_name)) => a_name.cmp(b_name),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
             _ => Ordering::Equal,
         },
     }
@@ -1053,6 +1107,14 @@ mod tests {
         }
 
         #[test]
+        fn test_simplify_nested_max() {
+            let expr = SymElem::from(10)
+                .max(&SymElem::from(5).max(&SymElem::from(11)))
+                .simplify();
+            assert_eq!(expr, SymElem::from(11));
+        }
+
+        #[test]
         fn test_simplify_min() {
             let one = SymElem::from(1);
             let two = SymElem::from(2);
@@ -1060,6 +1122,14 @@ mod tests {
 
             assert_eq!(expr, SymElem::Min((one.clone().into(), two.clone().into())));
             assert_eq!(expr.simplify(), one.clone());
+        }
+
+        #[test]
+        fn test_simplify_nested_min() {
+            let expr = SymElem::from(10)
+                .min(&SymElem::from(5).min(&SymElem::from(3)))
+                .simplify();
+            assert_eq!(expr, SymElem::from(3));
         }
 
         #[test]
@@ -1080,6 +1150,14 @@ mod tests {
 
             // (x, x) => x
             assert_eq!(foo.broadcast(&foo).simplify(), foo.clone());
+        }
+
+        #[test]
+        fn test_simplify_nested_broadcast() {
+            let foo = SymElem::from("foo");
+            let ten = SymElem::from(10);
+            let expr = foo.broadcast(&foo.broadcast(&ten)).simplify();
+            assert_eq!(expr, SymElem::from(10));
         }
 
         #[test]
