@@ -411,7 +411,7 @@ impl_infer_shapes!(
         strides: &op.strides,
         dilations: &op.dilations,
         padding: match &op.padding {
-            Padding::Fixed(pads) => Some(&pads),
+            Padding::Fixed(pads) => Some(pads),
             Padding::Same => None,
         }
     }

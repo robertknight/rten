@@ -475,7 +475,7 @@ impl_infer_shapes!(
         dilations: &[1, 1],
         kernel_size: &op.kernel_size,
         padding: match &op.padding {
-            Padding::Fixed(pads) => Some(&pads),
+            Padding::Fixed(pads) => Some(pads),
             Padding::Same => None,
         }
     }
@@ -657,7 +657,7 @@ impl_infer_shapes!(
         dilations: &[1, 1],
         kernel_size: &op.kernel_size,
         padding: match &op.padding {
-            Padding::Fixed(pads) => Some(&pads),
+            Padding::Fixed(pads) => Some(pads),
             Padding::Same => None,
         }
     }

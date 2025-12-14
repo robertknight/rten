@@ -731,14 +731,8 @@ impl_read_op!(ConcatFromSequence, |attrs: &Attrs| {
     Ok(ops::ConcatFromSequence { axis, new_axis })
 });
 
-struct ConvAttrs {
-    dilations: Vec<usize>,
-    padding: Padding,
-    groups: usize,
-    strides: Vec<usize>,
-}
-
-fn get_common_conv_attrs(attrs: &Attrs) -> Result<ConvAttrs, ReadOpError> {
+/// Read padding attributes from a convolution or pooling operator.
+fn get_padding(attrs: &Attrs, n_spatial_dims: usize) -> Result<Padding, ReadOpError> {
     let auto_pad = match attrs.get_as("auto_pad") {
         // "VALID" means no padding. The "pads" attribute should be unset and
         // it will default to zeros.
@@ -748,7 +742,27 @@ fn get_common_conv_attrs(attrs: &Attrs) -> Result<ConvAttrs, ReadOpError> {
             return Err(ReadOpError::attr_error("auto_pad", "unsupported value"));
         }
     };
+    let pads = attrs
+        .get("pads")
+        .map(|v| v.cast_ints())
+        .transpose()?
+        .unwrap_or_else(|| vec![0; n_spatial_dims * 2])
+        .into();
+    if auto_pad {
+        Ok(Padding::Same)
+    } else {
+        Ok(Padding::Fixed(pads))
+    }
+}
 
+struct ConvAttrs {
+    dilations: Vec<usize>,
+    padding: Padding,
+    groups: usize,
+    strides: Vec<usize>,
+}
+
+fn get_common_conv_attrs(attrs: &Attrs) -> Result<ConvAttrs, ReadOpError> {
     // nb. Spec says that spatial dims should be inferred from input if
     // `kernel_shape` attribute is not set. We don't have access to the input
     // here, so this would have to be handled by making various fields optional
@@ -763,18 +777,7 @@ fn get_common_conv_attrs(attrs: &Attrs) -> Result<ConvAttrs, ReadOpError> {
         .map(|v| v.cast_ints())
         .transpose()?
         .unwrap_or_else(|| vec![1; n_spatial_dims]);
-
-    let pads = attrs
-        .get("pads")
-        .map(|v| v.cast_ints())
-        .transpose()?
-        .unwrap_or_else(|| vec![0; n_spatial_dims * 2]);
-    let padding = if auto_pad {
-        Padding::Same
-    } else {
-        Padding::Fixed(pads.into())
-    };
-
+    let padding = get_padding(attrs, n_spatial_dims)?;
     let groups = attrs.get_as_int("group")?.unwrap_or(1);
 
     let strides = attrs
@@ -1209,26 +1212,19 @@ struct PoolAttrs {
 }
 
 fn get_common_pool_attrs(attrs: &Attrs) -> Result<PoolAttrs, ReadOpError> {
-    attrs.check_eq("auto_pad", "NOTSET")?;
     attrs.check_eq("storage_order", 0)?;
     attrs.check("dilations", |dilations: &[i64]| {
         dilations.iter().all(|d| *d == 1)
     })?;
 
     let ceil_mode = attrs.get_as("ceil_mode").unwrap_or(false);
-    let kernel_size = attrs
+    let kernel_size: SmallVec<[_; 2]> = attrs
         .get("kernel_shape")
         .map(|v| v.cast_ints())
         .transpose()?
         .unwrap_or_default()
         .into();
-    let pads = attrs
-        .get("pads")
-        .map(|v| v.cast_ints())
-        .transpose()?
-        .unwrap_or_default()
-        .into();
-    let padding = Padding::Fixed(pads);
+    let padding = get_padding(attrs, kernel_size.len())?;
     let strides = attrs
         .get("strides")
         .map(|v| v.cast_ints())
