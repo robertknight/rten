@@ -130,7 +130,7 @@ impl InferShapes for BinaryOp {
                 //
                 // Where the op succeeds, the result is the maximum of the LHS
                 // and RHS sizes.
-                (a, b) => SymElem::Max((a.into(), b.into())),
+                (a, b) => a.broadcast(&b),
             };
             out_shape.push(dim);
         }
@@ -341,10 +341,7 @@ mod tests {
             Case {
                 lhs: sym_shape!("foo"),
                 rhs: sym_shape!("bar"),
-                expected: sym_shape!(SymElem::Max((
-                    SymElem::from("foo").into(),
-                    SymElem::from("bar").into()
-                ))),
+                expected: sym_shape!(SymElem::from("foo").broadcast(&SymElem::from("bar"))),
             },
         ];
 

@@ -28,8 +28,10 @@ impl InferShapes for Expand {
                 | SymElem::Mul(_)
                 | SymElem::Div(_)
                 | SymElem::Max(_)
+                | SymElem::Min(_)
                 | SymElem::Sub(_)
-                | SymElem::Var(_) => None,
+                | SymElem::Var(_)
+                | SymElem::Broadcast(_) => None,
             })
         {
             // If we know the length of the shape but not the values, then we
