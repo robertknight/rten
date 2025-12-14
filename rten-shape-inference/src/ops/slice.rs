@@ -80,6 +80,15 @@ impl InferShapes for Slice {
                 {
                     // This is a no-op slice that doesn't alter the dimension
                     // size.
+                } else if let Some(start) = start
+                    && start.is_positive()
+                    && let Some(end) = end
+                    && end.is_positive()
+                    && step == &SymElem::Value(1)
+                {
+                    // nb. This assumes start <= end.
+                    let size = dims[axis].clone();
+                    dims[axis] = end.min(&size) - start.min(&size);
                 } else {
                     dims[axis] = sym_gen.gen_positive();
                 }
@@ -124,14 +133,19 @@ mod tests {
         // In this case an expression for the output size would be something
         // like `min(batch, end) - min(batch, start)`. We can't express that
         // yet, so a new unknown dimension is created.
-        let data = sym_shape!("batch", 64, 8);
-        let starts = sym_vec!("start");
-        let ends = sym_vec!("end");
+        let batch = SymElem::from("batch");
+        let start = SymElem::from("start");
+        let end = SymElem::from("end");
+
+        let data = sym_shape!(batch.clone(), 64, 8);
+        let starts = sym_vec!(start.clone());
+        let ends = sym_vec!(end.clone());
         let axes = sym_vec!(0);
         let result = Slice
             .infer_shapes(&[data, starts, ends, axes], &mut sym_gen)
             .unwrap();
-        assert_eq!(result[0], sym_shape!("unknown_1", 64, 8));
+        let batch_expr = end.min(&batch) - start.min(&batch);
+        assert_eq!(result[0], sym_shape!(batch_expr, 64, 8));
 
         // Slice of a symbolic dimension with a 0..i32::MAX range.
         //

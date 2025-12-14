@@ -76,6 +76,13 @@ pub enum SymElem {
     Div((Rc<SymElem>, Rc<SymElem>)),
     /// Maximum of two symbolic values
     Max((Rc<SymElem>, Rc<SymElem>)),
+    /// Minimum of two symbolic values
+    Min((Rc<SymElem>, Rc<SymElem>)),
+    /// Broadcast two symbolic values.
+    ///
+    /// This behaves like `Max`, except it implies that both expressions are
+    /// positive and either equal or 1.
+    Broadcast((Rc<SymElem>, Rc<SymElem>)),
     /// Negation of a value
     Neg(Rc<SymElem>),
 }
@@ -102,6 +109,7 @@ impl SymElem {
             Self::Add((lhs, rhs))
             | Self::Mul((lhs, rhs))
             | Self::Max((lhs, rhs))
+            | Self::Min((lhs, rhs))
             | Self::Div((lhs, rhs)) => {
                 let (lhs_min, lhs_max) = lhs.range();
                 let (rhs_min, rhs_max) = rhs.range();
@@ -111,6 +119,11 @@ impl SymElem {
                 // Note: Unlike for addition, subtraction involving two
                 // positive symbols may produce a negative result.
                 (i32::MIN, i32::MAX)
+            }
+            Self::Broadcast((lhs, rhs)) => {
+                let (lhs_min, lhs_max) = lhs.range();
+                let (rhs_min, rhs_max) = rhs.range();
+                (lhs_min.min(rhs_min).max(0), lhs_max.max(rhs_max).max(0))
             }
         }
     }
@@ -126,12 +139,24 @@ impl SymElem {
             Self::Mul((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
             Self::Div((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
             Self::Max((lhs, rhs)) => lhs.is_positive() || rhs.is_positive(),
+            Self::Min((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
+            Self::Broadcast(_) => true,
         }
     }
 
     /// Return the maximum of `self` and `other`.
     pub fn max(&self, other: &SymElem) -> SymElem {
         Self::Max((self.clone().into(), other.clone().into()))
+    }
+
+    /// Return the minimum of `self` and `other`.
+    pub fn min(&self, other: &SymElem) -> SymElem {
+        Self::Min((self.clone().into(), other.clone().into()))
+    }
+
+    /// Return the result of broadcasting `self` and `other`.
+    pub fn broadcast(&self, other: &SymElem) -> SymElem {
+        Self::Broadcast((self.clone().into(), other.clone().into()))
     }
 
     fn is_value(&self) -> bool {
@@ -205,6 +230,12 @@ impl SymElem {
                 let rhs = rhs.canonicalize();
                 Self::Max((lhs.into(), rhs.into()))
             }
+            Self::Min((lhs, rhs)) => {
+                // min(x, y) is not currently re-ordered, but it could be.
+                let lhs = lhs.canonicalize();
+                let rhs = rhs.canonicalize();
+                Self::Min((lhs.into(), rhs.into()))
+            }
             Self::Sub((lhs, rhs)) => {
                 // Rewrite `x - y` as `x + (-y)`. This makes it easier to
                 // simplify expressions by canceling opposite terms.
@@ -216,6 +247,12 @@ impl SymElem {
                 let lhs = lhs.canonicalize();
                 let rhs = rhs.canonicalize();
                 Self::Div((lhs.into(), rhs.into()))
+            }
+            Self::Broadcast((lhs, rhs)) => {
+                // broadcast(x, y) is not currently re-ordered, but it could be.
+                let lhs = lhs.canonicalize();
+                let rhs = rhs.canonicalize();
+                Self::Broadcast((lhs.into(), rhs.into()))
             }
         }
     }
@@ -301,6 +338,33 @@ impl SymElem {
                     }
                 }
             }
+            Self::Min((lhs, rhs)) => {
+                let lhs = lhs.simplify_canonical();
+                let rhs = rhs.simplify_canonical();
+
+                if lhs == rhs {
+                    lhs
+                } else {
+                    match (lhs, rhs) {
+                        (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x.min(y)),
+                        (lhs, rhs) => Self::Min((lhs.into(), rhs.into())),
+                    }
+                }
+            }
+            Self::Broadcast((lhs, rhs)) => {
+                let lhs = lhs.simplify_canonical();
+                let rhs = rhs.simplify_canonical();
+
+                match (lhs, rhs) {
+                    (SymElem::Value(x), SymElem::Value(y)) if x == y => SymElem::Value(x),
+                    (SymElem::Value(1), y) => y,
+                    (x, SymElem::Value(1)) => x,
+                    (SymElem::Value(x), y) if x != 1 => SymElem::Value(x),
+                    (x, SymElem::Value(y)) if y != 1 => SymElem::Value(y),
+                    (lhs, rhs) if lhs == rhs => lhs,
+                    (lhs, rhs) => SymElem::Broadcast((lhs.into(), rhs.into())),
+                }
+            }
         }
     }
 
@@ -311,7 +375,7 @@ impl SymElem {
         match self {
             // Functions and atomic values have the maximum precedence, so they
             // never need to be wrapped in parens when formatting an expression.
-            Self::Value(_) | Self::Var(_) | Self::Max(_) => 4,
+            Self::Value(_) | Self::Var(_) | Self::Max(_) | Self::Min(_) | Self::Broadcast(_) => 4,
             Self::Div(_) => 3,
             Self::Mul(_) => 2,
             Self::Add(_) => 1,
@@ -383,7 +447,9 @@ impl SymElem {
             | SymElem::Sub(_)
             | SymElem::Mul(_)
             | SymElem::Div(_)
-            | SymElem::Max(_) => None,
+            | SymElem::Max(_)
+            | SymElem::Min(_)
+            | SymElem::Broadcast(_) => None,
         }
     }
 
@@ -442,12 +508,20 @@ impl PartialEq<SymElem> for SymElem {
                 Self::Max((c, d)) => commutative_eq(a, b, c, d),
                 _ => false,
             },
+            Self::Min((a, b)) => match other {
+                Self::Min((c, d)) => commutative_eq(a, b, c, d),
+                _ => false,
+            },
             Self::Sub((a, b)) => match other {
                 Self::Sub((c, d)) => a == c && b == d,
                 _ => false,
             },
             Self::Div((a, b)) => match other {
                 Self::Div((c, d)) => a == c && b == d,
+                _ => false,
+            },
+            Self::Broadcast((a, b)) => match other {
+                Self::Broadcast((c, d)) => commutative_eq(a, b, c, d),
                 _ => false,
             },
         }
@@ -559,6 +633,8 @@ impl fmt::Debug for SymElem {
             Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
             Self::Div((lhs, rhs)) => write_binop(f, '/', lhs, rhs),
             Self::Max((lhs, rhs)) => write!(f, "max({:?}, {:?})", lhs, rhs),
+            Self::Min((lhs, rhs)) => write!(f, "min({:?}, {:?})", lhs, rhs),
+            Self::Broadcast((lhs, rhs)) => write!(f, "broadcast({:?}, {:?})", lhs, rhs),
         }
     }
 }
@@ -588,6 +664,8 @@ impl fmt::Display for SymElem {
             Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
             Self::Div((lhs, rhs)) => write_binop(f, '/', lhs, rhs),
             Self::Max((lhs, rhs)) => write!(f, "max({}, {})", lhs, rhs),
+            Self::Min((lhs, rhs)) => write!(f, "min({}, {})", lhs, rhs),
+            Self::Broadcast((lhs, rhs)) => write!(f, "broadcast({}, {})", lhs, rhs),
         }
     }
 }
@@ -972,6 +1050,36 @@ mod tests {
 
             assert_eq!(expr, SymElem::Max((one.clone().into(), two.clone().into())));
             assert_eq!(expr.simplify(), two.clone());
+        }
+
+        #[test]
+        fn test_simplify_min() {
+            let one = SymElem::from(1);
+            let two = SymElem::from(2);
+            let expr = one.min(&two);
+
+            assert_eq!(expr, SymElem::Min((one.clone().into(), two.clone().into())));
+            assert_eq!(expr.simplify(), one.clone());
+        }
+
+        #[test]
+        fn test_simplify_broadcast() {
+            let one = SymElem::from(1);
+            let ten = SymElem::from(10);
+            let foo = SymElem::from("foo");
+
+            // (x, N) where N != 1 => N
+            assert_eq!(ten.broadcast(&ten).simplify(), ten.clone());
+            assert_eq!(ten.broadcast(&foo).simplify(), ten.clone());
+            assert_eq!(one.broadcast(&ten).simplify(), ten.clone());
+            assert_eq!(ten.broadcast(&one).simplify(), ten.clone());
+
+            // (x, N) where N == 1 => x
+            assert_eq!(foo.broadcast(&one).simplify(), foo.clone());
+            assert_eq!(one.broadcast(&foo).simplify(), foo.clone());
+
+            // (x, x) => x
+            assert_eq!(foo.broadcast(&foo).simplify(), foo.clone());
         }
 
         #[test]
