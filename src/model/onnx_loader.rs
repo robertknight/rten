@@ -103,9 +103,10 @@ fn load_graph(
 ) -> Result<Graph, LoadError> {
     let approx_node_count = onnx_graph.node.len() + onnx_graph.value_info.len();
     let mut graph = Graph::with_capacity(approx_node_count);
+    let mut unnamed_count = 0;
 
-    let add_value = |graph: &mut Graph, name, value| {
-        let (dtype, shape) = load_value_info(value);
+    let mut add_value = |graph: &mut Graph, name, value| {
+        let (dtype, shape) = load_value_info(value, &mut unnamed_count);
         graph.add_value(Some(name), shape, dtype.map(ValueType::Tensor))
     };
 
@@ -264,7 +265,13 @@ fn load_graph(
 
 /// Convert data type and shape information from an ONNX value to RTen's
 /// types.
-fn load_value_info(value: &onnx::ValueInfoProto) -> (Option<DataType>, Option<Vec<Dimension>>) {
+///
+/// If a value has a dimension with a missing name, `unnamed_count` is used
+/// to generate a name for it.
+fn load_value_info(
+    value: &onnx::ValueInfoProto,
+    unnamed_count: &mut u32,
+) -> (Option<DataType>, Option<Vec<Dimension>>) {
     let Some(type_info) = &value.r#type else {
         return (None, None);
     };
@@ -298,17 +305,24 @@ fn load_value_info(value: &onnx::ValueInfoProto) -> (Option<DataType>, Option<Ve
         };
     }
     if let Some(onnx_shape) = &tensor_type.shape {
-        let mut dims = Vec::with_capacity(onnx_shape.dim.len());
-        for dim in &onnx_shape.dim {
-            if let Some(value) = dim.dim_value
-                && let Ok(size) = value.try_into()
-            {
-                dims.push(Dimension::Fixed(size));
-            } else if let Some(name) = &dim.dim_param {
-                dims.push(Dimension::Symbolic(name.to_string()))
-            }
-        }
-        shape = Some(dims)
+        shape = Some(
+            onnx_shape
+                .dim
+                .iter()
+                .map(|dim| {
+                    if let Some(value) = dim.dim_value
+                        && let Ok(size) = value.try_into()
+                    {
+                        Dimension::Fixed(size)
+                    } else if let Some(name) = &dim.dim_param {
+                        Dimension::Symbolic(name.to_string())
+                    } else {
+                        *unnamed_count += 1;
+                        Dimension::Symbolic(format!("unnamed_{}", unnamed_count))
+                    }
+                })
+                .collect(),
+        );
     }
 
     (dtype, shape)
@@ -914,7 +928,7 @@ mod tests {
     use rten_tensor::{Tensor, TensorView};
 
     use super::{Source, load};
-    use crate::graph::{Constant, Graph, TypedConstant};
+    use crate::graph::{Constant, Dimension, Graph, TypedConstant};
     use crate::model::external_data::{DataLoader, DataLocation, MemLoader};
     use crate::model::onnx_builder::{
         GraphProtoExt, NodeProtoExt, TensorData, create_node, create_tensor, create_value_info,
@@ -1223,6 +1237,51 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "in node \"relu_op\": operator error: operator has 2 inputs but maximum is 1"
+        );
+    }
+
+    #[test]
+    fn test_unnamed_input_dimensions() {
+        let mut value_info = create_value_info("x");
+        let mut type_proto = onnx::TypeProto::default();
+        let mut tensor_type = onnx::TypeProtoTensor::default();
+        let mut shape = onnx::TensorShapeProto::default();
+
+        // Add fixed dimension
+        let mut dim1 = onnx::Dimension::default();
+        dim1.dim_value = Some(3);
+        shape.dim.push(dim1);
+
+        // Add named dynamic dimension
+        let mut dim2 = onnx::Dimension::default();
+        dim2.dim_param = Some("batch".to_string());
+        shape.dim.push(dim2);
+
+        // Add unnamed dimension
+        shape.dim.push(onnx::Dimension::default());
+
+        tensor_type.shape = Some(shape);
+        type_proto.tensor_type = Some(tensor_type);
+        value_info.r#type = Some(type_proto);
+
+        let model_proto = onnx::GraphProto::default()
+            .with_input(value_info)
+            .into_model();
+
+        let model = load_model(model_proto, None).unwrap();
+
+        let graph = model.graph();
+        let input_id = graph.input_ids()[0];
+        let input_node = graph.get_node(input_id).unwrap();
+        let shape = input_node.shape().unwrap();
+
+        assert_eq!(
+            shape.as_ref(),
+            &[
+                Dimension::Fixed(3),
+                Dimension::Symbolic("batch".to_string()),
+                Dimension::Symbolic("unnamed_1".to_string()),
+            ]
         );
     }
 }
