@@ -8,6 +8,7 @@ use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::{Constant, SymElem, SymTensor};
 
 mod binary;
+mod conv_pool;
 mod layout;
 mod matmul;
 mod slice;
@@ -15,6 +16,7 @@ mod split;
 mod unary;
 
 pub use binary::{Add, Div, Equal, Mul, Sub};
+pub use conv_pool::{Conv, GlobalPool, Pool};
 pub use layout::{Expand, Flatten, Reshape, Shape, Squeeze, Transpose, Unsqueeze};
 pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use slice::Slice;

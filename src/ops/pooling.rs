@@ -2,12 +2,14 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
+use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::BufferPool;
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext, static_dims,
@@ -459,7 +461,25 @@ impl Operator for AveragePool {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    AveragePool,
+    op,
+    shape_ops::Pool {
+        strides: &op.strides,
+        dilations: &[1, 1],
+        kernel_size: &op.kernel_size,
+        padding: match &op.padding {
+            Padding::Fixed(pads) => Some(&pads),
+            Padding::Same => None,
+        }
+    }
+);
 
 fn global_pool<T: Clone + Send + Sync>(
     pool: &BufferPool,
@@ -527,6 +547,10 @@ impl Operator for GlobalAveragePool {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::GlobalPool)
+    }
 }
 
 pub fn global_max_pool(pool: &BufferPool, input: TensorView) -> Result<Tensor, OpError> {
@@ -554,6 +578,10 @@ impl Operator for GlobalMaxPool {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::GlobalPool)
     }
 }
 
@@ -615,7 +643,25 @@ impl Operator for MaxPool {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    MaxPool,
+    op,
+    shape_ops::Pool {
+        strides: &op.strides,
+        dilations: &[1, 1],
+        kernel_size: &op.kernel_size,
+        padding: match &op.padding {
+            Padding::Fixed(pads) => Some(&pads),
+            Padding::Same => None,
+        }
+    }
+);
 
 #[cfg(test)]
 mod tests {

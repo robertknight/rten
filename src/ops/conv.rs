@@ -8,10 +8,12 @@ use rten_gemm::{
     BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT, GemmUninitOptions,
     QuantParams,
 };
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{CowTensor, NdTensor, NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext, static_dims,
@@ -396,7 +398,24 @@ impl Operator for Conv {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    Conv,
+    op,
+    shape_ops::Conv {
+        strides: &op.strides,
+        dilations: &op.dilations,
+        padding: match &op.padding {
+            Padding::Fixed(pads) => Some(&pads),
+            Padding::Same => None,
+        }
+    }
+);
 
 pub fn conv_integer<X, W>(
     pool: &BufferPool,
