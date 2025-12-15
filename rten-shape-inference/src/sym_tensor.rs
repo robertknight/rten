@@ -74,6 +74,8 @@ pub enum SymElem {
     Mul((Rc<SymElem>, Rc<SymElem>)),
     /// Flooring division of first expression by second.
     Div((Rc<SymElem>, Rc<SymElem>)),
+    /// Ceiling division of first expression by second.
+    DivCeil((Rc<SymElem>, Rc<SymElem>)),
     /// Maximum of two symbolic values
     Max((Rc<SymElem>, Rc<SymElem>)),
     /// Minimum of two symbolic values
@@ -110,7 +112,8 @@ impl SymElem {
             | Self::Mul((lhs, rhs))
             | Self::Max((lhs, rhs))
             | Self::Min((lhs, rhs))
-            | Self::Div((lhs, rhs)) => {
+            | Self::Div((lhs, rhs))
+            | Self::DivCeil((lhs, rhs)) => {
                 let (lhs_min, lhs_max) = lhs.range();
                 let (rhs_min, rhs_max) = rhs.range();
                 (lhs_min.min(rhs_min), lhs_max.max(rhs_max))
@@ -137,7 +140,9 @@ impl SymElem {
             Self::Add((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
             Self::Sub((_lhs, _rhs)) => false,
             Self::Mul((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
-            Self::Div((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
+            Self::Div((lhs, rhs)) | Self::DivCeil((lhs, rhs)) => {
+                lhs.is_positive() && rhs.is_positive()
+            }
             Self::Max((lhs, rhs)) => lhs.is_positive() || rhs.is_positive(),
             Self::Min((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
             Self::Broadcast(_) => true,
@@ -157,6 +162,11 @@ impl SymElem {
     /// Return the result of broadcasting `self` and `other`.
     pub fn broadcast(&self, other: &SymElem) -> SymElem {
         Self::Broadcast((self.clone().into(), other.clone().into()))
+    }
+
+    /// Return the result of dividing `self` by `other`, rounded up.
+    pub fn div_ceil(&self, other: &SymElem) -> SymElem {
+        Self::DivCeil((self.clone().into(), other.clone().into()))
     }
 
     fn is_value(&self) -> bool {
@@ -294,6 +304,11 @@ impl SymElem {
                 let rhs = rhs.canonicalize();
                 Self::Div((lhs.into(), rhs.into()))
             }
+            Self::DivCeil((lhs, rhs)) => {
+                let lhs = lhs.canonicalize();
+                let rhs = rhs.canonicalize();
+                Self::DivCeil((lhs.into(), rhs.into()))
+            }
             Self::Broadcast(_) => reassociate_terms(
                 self,
                 &|term| match term {
@@ -363,7 +378,7 @@ impl SymElem {
 
                 match (lhs, rhs) {
                     (lhs, SymElem::Value(1)) => lhs,
-                    (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x / y),
+                    (SymElem::Value(x), SymElem::Value(y)) if y != 0 => SymElem::Value(x / y),
                     // x/x => 1
                     //
                     // Where we assume the RHS is non-zero.
@@ -373,6 +388,26 @@ impl SymElem {
                     // be implemented.
                     (lhs, rhs) if lhs == rhs => SymElem::Value(1),
                     (lhs, rhs) => lhs / rhs,
+                }
+            }
+            Self::DivCeil((lhs, rhs)) => {
+                let lhs = lhs.simplify_canonical();
+                let rhs = rhs.simplify_canonical();
+
+                match (lhs, rhs) {
+                    (lhs, SymElem::Value(1)) => lhs,
+                    (SymElem::Value(x), SymElem::Value(y)) if y != 0 => {
+                        SymElem::Value(div_ceil(x, y))
+                    }
+                    // x/x => 1
+                    //
+                    // Where we assume the RHS is non-zero.
+                    //
+                    // This is a special case of canceling common terms. The
+                    // more general case (eg. XY / XZ => Y/Z) still needs to
+                    // be implemented.
+                    (lhs, rhs) if lhs == rhs => SymElem::Value(1),
+                    (lhs, rhs) => lhs.div_ceil(&rhs),
                 }
             }
             Self::Max((lhs, rhs)) => {
@@ -426,7 +461,7 @@ impl SymElem {
             // Functions and atomic values have the maximum precedence, so they
             // never need to be wrapped in parens when formatting an expression.
             Self::Value(_) | Self::Var(_) | Self::Max(_) | Self::Min(_) | Self::Broadcast(_) => 4,
-            Self::Div(_) => 3,
+            Self::Div(_) | Self::DivCeil(_) => 3,
             Self::Mul(_) => 2,
             Self::Add(_) => 1,
             Self::Sub(_) | Self::Neg(_) => 0,
@@ -497,6 +532,7 @@ impl SymElem {
             | SymElem::Sub(_)
             | SymElem::Mul(_)
             | SymElem::Div(_)
+            | SymElem::DivCeil(_)
             | SymElem::Max(_)
             | SymElem::Min(_)
             | SymElem::Broadcast(_) => None,
@@ -572,6 +608,10 @@ impl PartialEq<SymElem> for SymElem {
             },
             Self::Div((a, b)) => match other {
                 Self::Div((c, d)) => a == c && b == d,
+                _ => false,
+            },
+            Self::DivCeil((a, b)) => match other {
+                Self::DivCeil((c, d)) => a == c && b == d,
                 _ => false,
             },
             Self::Broadcast((a, b)) => match other {
@@ -686,6 +726,7 @@ impl fmt::Debug for SymElem {
             Self::Sub((lhs, rhs)) => write_binop(f, '-', lhs, rhs),
             Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
             Self::Div((lhs, rhs)) => write_binop(f, '/', lhs, rhs),
+            Self::DivCeil((lhs, rhs)) => write!(f, "ceil_div({:?}, {:?})", lhs, rhs),
             Self::Max((lhs, rhs)) => write!(f, "max({:?}, {:?})", lhs, rhs),
             Self::Min((lhs, rhs)) => write!(f, "min({:?}, {:?})", lhs, rhs),
             Self::Broadcast((lhs, rhs)) => write!(f, "broadcast({:?}, {:?})", lhs, rhs),
@@ -717,11 +758,23 @@ impl fmt::Display for SymElem {
             Self::Sub((lhs, rhs)) => write_binop(f, '-', lhs, rhs),
             Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
             Self::Div((lhs, rhs)) => write_binop(f, '/', lhs, rhs),
+            Self::DivCeil((lhs, rhs)) => write!(f, "ceil_div({}, {})", lhs, rhs),
             Self::Max((lhs, rhs)) => write!(f, "max({}, {})", lhs, rhs),
             Self::Min((lhs, rhs)) => write!(f, "min({}, {})", lhs, rhs),
             Self::Broadcast((lhs, rhs)) => write!(f, "broadcast({}, {})", lhs, rhs),
         }
     }
+}
+
+/// Copied from unstable [`i32::div_ceil`] in the standard library.
+pub const fn div_ceil(lhs: i32, rhs: i32) -> i32 {
+    let d = lhs / rhs;
+    let r = lhs % rhs;
+
+    // When remainder is non-zero we have a.div_ceil(b) == 1 + a.div_floor(b),
+    // so we can re-use the algorithm from div_floor, just adding 1.
+    let correction = 1 + ((lhs ^ rhs) >> (i32::BITS - 1));
+    if r != 0 { d + correction } else { d }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1055,6 +1108,14 @@ mod tests {
             let one = SymElem::from(1);
             let two = SymElem::from(2);
 
+            // Constant eval
+            let expr = SymElem::from(5) / SymElem::from(2);
+            assert_eq!(expr.simplify(), SymElem::from(2));
+
+            // Constant with zero divisor
+            let expr = SymElem::from(5) / SymElem::from(0);
+            assert_eq!(expr.simplify(), SymElem::from(5) / SymElem::from(0));
+
             // x / 1 => x
             let expr = x.clone() / one.clone();
             assert_eq!(expr, SymElem::Div((x.clone().into(), one.clone().into())));
@@ -1069,6 +1130,43 @@ mod tests {
             assert_eq!(
                 expr_2.simplify(),
                 SymElem::Div((x.clone().into(), two.clone().into()))
+            );
+        }
+
+        #[test]
+        fn test_simplify_div_ceil() {
+            let x = SymElem::pos_var("x");
+            let one = SymElem::from(1);
+            let two = SymElem::from(2);
+
+            // Constant eval
+            let expr = SymElem::from(5).div_ceil(&SymElem::from(2));
+            assert_eq!(expr.simplify(), SymElem::from(3));
+
+            // Constant with zero divisor
+            let expr = SymElem::from(5).div_ceil(&SymElem::from(0));
+            assert_eq!(
+                expr.simplify(),
+                SymElem::from(5).div_ceil(&SymElem::from(0))
+            );
+
+            // x / 1 => x
+            let expr = x.clone().div_ceil(&one);
+            assert_eq!(
+                expr,
+                SymElem::DivCeil((x.clone().into(), one.clone().into()))
+            );
+            assert_eq!(expr.simplify(), x);
+
+            // x / x => 1
+            let expr = x.clone().div_ceil(&x);
+            assert_eq!(expr.simplify(), one);
+
+            // x / 2 => x / 2
+            let expr_2 = x.clone().div_ceil(&two);
+            assert_eq!(
+                expr_2.simplify(),
+                SymElem::DivCeil((x.clone().into(), two.clone().into()))
             );
         }
 

@@ -15,15 +15,60 @@ fn output_size(
     kernel_size: SymElem,
     stride: usize,
     dilation: usize,
-    [pad_start, pad_end]: [usize; 2],
+    padding: DimPadding,
 ) -> SymElem {
-    let dilation_h = SymElem::from(dilation as i32);
-    let stride_h = SymElem::from(stride as i32);
-    let one = SymElem::from(1);
-    let padded_in_height =
-        in_size + SymElem::from(pad_start as i32) + SymElem::from(pad_end as i32);
-    (padded_in_height - dilation_h * (kernel_size - one.clone()) - one.clone()) / stride_h
-        + one.clone()
+    let stride = SymElem::from(stride as i32);
+
+    match padding {
+        DimPadding::Fixed {
+            start: pad_start,
+            end: pad_end,
+        } => {
+            let dilation = SymElem::from(dilation as i32);
+            let one = SymElem::from(1);
+            let padded_in_size =
+                in_size + SymElem::from(pad_start as i32) + SymElem::from(pad_end as i32);
+            (padded_in_size - dilation * (kernel_size - one.clone()) - one.clone()) / stride
+                + one.clone()
+        }
+        DimPadding::Same => in_size.div_ceil(&stride),
+    }
+}
+
+/// Specifies the padding mode used by a convolution or pooling operator.
+///
+/// This is derived from the `pads` and `auto_pad` operator attributes.
+pub enum Padding<'a> {
+    /// Pad the input so that the size of each output spatial dimension is
+    /// `ceil(input_size / stride)`.
+    ///
+    /// ONNX supports two "same" padding modes, SAME_UPPER and SAME_LOWER.
+    /// Both produce the same result for shape inference.
+    Same,
+
+    /// Fixed padding specified as `[starts..., ends...]` where `starts`
+    /// and `ends` are the start/end padding along each spatial dim.
+    Fixed(&'a [usize]),
+}
+
+impl Padding<'_> {
+    /// Get the padding for a single spatial dimension.
+    fn dim(&self, dim: usize, spatial_dim_count: usize) -> Option<DimPadding> {
+        match self {
+            Padding::Same => Some(DimPadding::Same),
+            Padding::Fixed(padding) => {
+                let start = *padding.get(dim)?;
+                let end = *padding.get(spatial_dim_count + dim)?;
+                Some(DimPadding::Fixed { start, end })
+            }
+        }
+    }
+}
+
+/// Padding for a single spatial dimension.
+enum DimPadding {
+    Same,
+    Fixed { start: usize, end: usize },
 }
 
 /// Conv operator.
@@ -31,7 +76,7 @@ fn output_size(
 /// See <https://onnx.ai/onnx/operators/onnx__Conv.html>.
 pub struct Conv<'a> {
     pub dilations: &'a [usize],
-    pub padding: Option<&'a [usize]>,
+    pub padding: Padding<'a>,
     pub strides: &'a [usize],
 }
 
@@ -52,10 +97,6 @@ impl InferShapes for Conv<'_> {
             return Ok([SymTensor::unknown("unknown weights shape")].into());
         };
 
-        let Some(padding) = self.padding else {
-            return Ok([SymTensor::unknown("same padding not supported")].into());
-        };
-
         if data_dims.len() < 3 {
             return Err(InferShapesError::IncorrectRank);
         }
@@ -71,9 +112,9 @@ impl InferShapes for Conv<'_> {
         let weight_shape: SmallVec<[_; 4]> = weight_dims.collect();
         let spatial_dims = data_shape.len() - 2;
 
-        let pad_top = *padding.first().ok_or(InferShapesError::InvalidValue)?;
-        let pad_bottom = *padding
-            .get(spatial_dims)
+        let pad_h = self
+            .padding
+            .dim(0, spatial_dims)
             .ok_or(InferShapesError::InvalidValue)?;
         let out_h = output_size(
             data_shape[2].clone(),
@@ -83,7 +124,7 @@ impl InferShapes for Conv<'_> {
                 .dilations
                 .first()
                 .ok_or(InferShapesError::InvalidValue)?,
-            [pad_top, pad_bottom],
+            pad_h,
         );
 
         let mut out_shape = Vec::with_capacity(data_shape.len());
@@ -94,9 +135,9 @@ impl InferShapes for Conv<'_> {
         if let Some(in_w) = data_shape.get(3).cloned()
             && let Some(k_w) = weight_shape.get(3).cloned()
         {
-            let pad_left = *padding.get(1).ok_or(InferShapesError::InvalidValue)?;
-            let pad_right = *padding
-                .get(spatial_dims + 1)
+            let pad_w = self
+                .padding
+                .dim(1, spatial_dims)
                 .ok_or(InferShapesError::InvalidValue)?;
             let out_w = output_size(
                 in_w,
@@ -106,7 +147,7 @@ impl InferShapes for Conv<'_> {
                     .dilations
                     .get(1)
                     .ok_or(InferShapesError::InvalidValue)?,
-                [pad_left, pad_right],
+                pad_w,
             );
             out_shape.push(out_w);
         }
@@ -121,7 +162,7 @@ impl InferShapes for Conv<'_> {
 pub struct Pool<'a> {
     pub dilations: &'a [usize],
     pub kernel_size: &'a [usize],
-    pub padding: Option<&'a [usize]>,
+    pub padding: Padding<'a>,
     pub strides: &'a [usize],
 }
 
@@ -139,10 +180,6 @@ impl InferShapes for Pool<'_> {
             return Ok([SymTensor::unknown("unknown input shape")].into());
         };
 
-        let Some(padding) = self.padding else {
-            return Ok([SymTensor::unknown("same padding not supported")].into());
-        };
-
         if data_dims.len() < 3 {
             return Err(InferShapesError::IncorrectRank);
         }
@@ -151,9 +188,9 @@ impl InferShapes for Pool<'_> {
 
         let data_shape: SmallVec<[_; 4]> = data_dims.collect();
 
-        let pad_top = *padding.first().ok_or(InferShapesError::InvalidValue)?;
-        let pad_bottom = *padding
-            .get(spatial_dims)
+        let pad_h = self
+            .padding
+            .dim(0, spatial_dims)
             .ok_or(InferShapesError::InvalidValue)?;
         let kernel_h = *self
             .kernel_size
@@ -167,7 +204,7 @@ impl InferShapes for Pool<'_> {
                 .dilations
                 .first()
                 .ok_or(InferShapesError::InvalidValue)?,
-            [pad_top, pad_bottom],
+            pad_h,
         );
 
         let mut out_shape = Vec::with_capacity(data_shape.len());
@@ -176,9 +213,9 @@ impl InferShapes for Pool<'_> {
         out_shape.push(out_h);
 
         if let Some(in_w) = data_shape.get(3).cloned() {
-            let pad_left = *padding.get(1).ok_or(InferShapesError::InvalidValue)?;
-            let pad_right = *padding
-                .get(spatial_dims + 1)
+            let pad_w = self
+                .padding
+                .dim(1, spatial_dims)
                 .ok_or(InferShapesError::InvalidValue)?;
             let kernel_w = *self
                 .kernel_size
@@ -193,7 +230,7 @@ impl InferShapes for Pool<'_> {
                     .dilations
                     .get(1)
                     .ok_or(InferShapesError::InvalidValue)?,
-                [pad_left, pad_right],
+                pad_w,
             );
             out_shape.push(out_w);
         }
@@ -236,7 +273,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymElem, SymTensor, sym_shape};
 
-    use super::{Conv, GlobalPool, Pool};
+    use super::{Conv, GlobalPool, Padding, Pool};
 
     #[test]
     fn test_conv() {
@@ -246,11 +283,13 @@ mod tests {
         let data = sym_shape!("batch", "in_c", "len");
         let weights = sym_shape!(768, 3, 32);
         let op = Conv {
-            padding: Some(&[0, 2]),
+            padding: Padding::Fixed(&[0, 2]),
             dilations: &[4],
             strides: &[16],
         };
-        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes(&[data.clone(), weights.clone()], &mut sym_gen)
+            .unwrap();
         assert_eq!(
             result[0],
             sym_shape!(
@@ -264,11 +303,27 @@ mod tests {
             )
         );
 
+        // 1D conv with "same" padding.
+        let op = Conv {
+            padding: Padding::Same,
+            dilations: &[4],
+            strides: &[16],
+        };
+        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0],
+            sym_shape!(
+                "batch",
+                768,
+                SymElem::from("len").div_ceil(&SymElem::from(16))
+            )
+        );
+
         // 2D conv
         let data = sym_shape!("batch", "in_c", "height", "width");
         let weights = sym_shape!(768, 3, 32, 32);
         let op = Conv {
-            padding: Some(&[0, 1, 2, 3]),
+            padding: Padding::Fixed(&[0, 1, 2, 3]),
             dilations: &[4, 5],
             strides: &[16, 32],
         };
@@ -300,11 +355,11 @@ mod tests {
         let data = sym_shape!("batch", "in_c", "seq");
         let op = Pool {
             kernel_size: &[32],
-            padding: Some(&[0, 2]),
+            padding: Padding::Fixed(&[0, 2]),
             dilations: &[4],
             strides: &[16],
         };
-        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        let result = op.infer_shapes(&[data.clone()], &mut sym_gen).unwrap();
         assert_eq!(
             result[0],
             sym_shape!(
@@ -318,11 +373,28 @@ mod tests {
             )
         );
 
+        // 1D pool with "same" padding
+        let op = Pool {
+            kernel_size: &[32],
+            padding: Padding::Same,
+            dilations: &[4],
+            strides: &[16],
+        };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0],
+            sym_shape!(
+                "batch",
+                "in_c",
+                SymElem::from("seq").div_ceil(&SymElem::from(16)),
+            )
+        );
+
         // 2D pool
         let data = sym_shape!("batch", "in_c", "height", "width");
         let op = Pool {
             kernel_size: &[32, 32],
-            padding: Some(&[0, 1, 2, 3]),
+            padding: Padding::Fixed(&[0, 1, 2, 3]),
             dilations: &[4, 5],
             strides: &[16, 32],
         };

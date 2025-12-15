@@ -16,7 +16,7 @@ mod split;
 mod unary;
 
 pub use binary::{Add, Div, Equal, Mul, Sub};
-pub use conv_pool::{Conv, GlobalPool, Pool};
+pub use conv_pool::{Conv, GlobalPool, Padding, Pool};
 pub use layout::{Expand, Flatten, Reshape, Shape, Squeeze, Transpose, Unsqueeze};
 pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use slice::Slice;
@@ -112,6 +112,7 @@ impl InferShapes for ConstantOfShape {
                         | SymElem::Sub(_)
                         | SymElem::Mul(_)
                         | SymElem::Div(_)
+                        | SymElem::DivCeil(_)
                         | SymElem::Max(_)
                         | SymElem::Min(_)
                         | SymElem::Broadcast(_) => SymTensor::from_shape(vec![vec_len.clone()]),
@@ -315,6 +316,7 @@ impl InferShapes for Where {
                         | SymElem::Sub(_)
                         | SymElem::Mul(_)
                         | SymElem::Div(_)
+                        | SymElem::DivCeil(_)
                         | SymElem::Max(_)
                         | SymElem::Min(_)
                         | SymElem::Broadcast(_) => None,
