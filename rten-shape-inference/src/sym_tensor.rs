@@ -378,7 +378,7 @@ impl SymElem {
 
                 match (lhs, rhs) {
                     (lhs, SymElem::Value(1)) => lhs,
-                    (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x / y),
+                    (SymElem::Value(x), SymElem::Value(y)) if y != 0 => SymElem::Value(x / y),
                     // x/x => 1
                     //
                     // Where we assume the RHS is non-zero.
@@ -396,7 +396,9 @@ impl SymElem {
 
                 match (lhs, rhs) {
                     (lhs, SymElem::Value(1)) => lhs,
-                    (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(div_ceil(x, y)),
+                    (SymElem::Value(x), SymElem::Value(y)) if y != 0 => {
+                        SymElem::Value(div_ceil(x, y))
+                    }
                     // x/x => 1
                     //
                     // Where we assume the RHS is non-zero.
@@ -1110,6 +1112,10 @@ mod tests {
             let expr = SymElem::from(5) / SymElem::from(2);
             assert_eq!(expr.simplify(), SymElem::from(2));
 
+            // Constant with zero divisor
+            let expr = SymElem::from(5) / SymElem::from(0);
+            assert_eq!(expr.simplify(), SymElem::from(5) / SymElem::from(0));
+
             // x / 1 => x
             let expr = x.clone() / one.clone();
             assert_eq!(expr, SymElem::Div((x.clone().into(), one.clone().into())));
@@ -1136,6 +1142,13 @@ mod tests {
             // Constant eval
             let expr = SymElem::from(5).div_ceil(&SymElem::from(2));
             assert_eq!(expr.simplify(), SymElem::from(3));
+
+            // Constant with zero divisor
+            let expr = SymElem::from(5).div_ceil(&SymElem::from(0));
+            assert_eq!(
+                expr.simplify(),
+                SymElem::from(5).div_ceil(&SymElem::from(0))
+            );
 
             // x / 1 => x
             let expr = x.clone().div_ceil(&one);
