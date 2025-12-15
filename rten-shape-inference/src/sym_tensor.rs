@@ -387,6 +387,14 @@ impl SymElem {
                     // more general case (eg. XY / XZ => Y/Z) still needs to
                     // be implemented.
                     (lhs, rhs) if lhs == rhs => SymElem::Value(1),
+
+                    // x / b / c => x / (b * c)
+                    (SymElem::Div((lhs, c1)), c2) => match (&*c1, c2) {
+                        (SymElem::Value(c1), SymElem::Value(c2)) if *c1 != 0 && c2 != 0 => {
+                            (*lhs).clone() / SymElem::Value(c1 * c2)
+                        }
+                        (c1, c2) => (*lhs).clone() / (c1.clone() * c2),
+                    },
                     (lhs, rhs) => lhs / rhs,
                 }
             }
@@ -407,6 +415,15 @@ impl SymElem {
                     // more general case (eg. XY / XZ => Y/Z) still needs to
                     // be implemented.
                     (lhs, rhs) if lhs == rhs => SymElem::Value(1),
+
+                    // x.div_ceil(b).div_ceil(c) => x.div_ceil(b * c) if b > 0
+                    // and c > 0.
+                    (SymElem::DivCeil((lhs, c1)), c2) => match (&*c1, c2) {
+                        (SymElem::Value(c1), SymElem::Value(c2)) if *c1 > 0 && c2 > 0 => {
+                            lhs.div_ceil(&SymElem::Value(c1 * c2))
+                        }
+                        (c1, c2) => lhs.div_ceil(&(c1.clone() * c2)),
+                    },
                     (lhs, rhs) => lhs.div_ceil(&rhs),
                 }
             }
@@ -1131,6 +1148,19 @@ mod tests {
                 expr_2.simplify(),
                 SymElem::Div((x.clone().into(), two.clone().into()))
             );
+
+            // x / 2 / 2 => x / 4
+            let expr = x.clone() / two.clone() / two.clone();
+            assert_eq!(expr.simplify(), x.clone() / SymElem::from(4));
+
+            // x / 0 / 2 => not simplified (divisor is zero)
+            let zero = SymElem::from(0);
+            let expr = x.clone() / zero.clone() / two.clone();
+            assert_eq!(expr.simplify(), x.clone() / (zero.clone() * two.clone()));
+
+            // x / 2 / 0 => not simplified (divisor is zero)
+            let expr = x.clone() / two.clone() / zero.clone();
+            assert_eq!(expr.simplify(), x.clone() / (two.clone() * zero));
         }
 
         #[test]
@@ -1168,6 +1198,23 @@ mod tests {
                 expr_2.simplify(),
                 SymElem::DivCeil((x.clone().into(), two.clone().into()))
             );
+
+            // x / 2 / 2 => x / 4
+            let expr = x.clone().div_ceil(&two).div_ceil(&two);
+            assert_eq!(expr.simplify(), x.clone().div_ceil(&SymElem::from(4)));
+
+            // x.div_ceil(0).div_ceil(2) => not simplified (divisor is zero)
+            let zero = SymElem::from(0);
+            let expr = x.clone().div_ceil(&zero).div_ceil(&two);
+            assert_eq!(
+                expr.simplify(),
+                x.clone().div_ceil(&(zero.clone() * two.clone()))
+            );
+
+            // x.div_ceil(-1).div_ceil(2) => not simplified (divisor is negative)
+            let neg_one = SymElem::from(-1);
+            let expr = x.clone().div_ceil(&neg_one).div_ceil(&two);
+            assert_eq!(expr.simplify(), x.div_ceil(&(neg_one.clone() * two)));
         }
 
         // Check `C * X * D` is simplified to `CD * X` where C and D are
