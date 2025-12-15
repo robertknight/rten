@@ -12,6 +12,7 @@
 
 use std::fmt::Debug;
 
+use rten_shape_inference::ops as shape_ops;
 use smallvec::SmallVec;
 
 use crate::operator::OpError;
@@ -190,6 +191,14 @@ impl Padding {
                 &[pad_start, pad_end] => Ok([0, pad_start, 0, pad_end].into()),
                 _ => Err(OpError::InvalidValue("expected 2 pad values")),
             },
+        }
+    }
+
+    /// Convert `self` to the padding type used by shape inference.
+    pub fn as_shape_inference_padding(&self) -> shape_ops::Padding<'_> {
+        match self {
+            Padding::Same => shape_ops::Padding::Same,
+            Padding::Fixed(pads) => shape_ops::Padding::Fixed(pads),
         }
     }
 }

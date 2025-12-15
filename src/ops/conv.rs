@@ -410,10 +410,7 @@ impl_infer_shapes!(
     shape_ops::Conv {
         strides: &op.strides,
         dilations: &op.dilations,
-        padding: match &op.padding {
-            Padding::Fixed(pads) => Some(pads),
-            Padding::Same => None,
-        }
+        padding: op.padding.as_shape_inference_padding(),
     }
 );
 
