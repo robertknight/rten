@@ -9,14 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Highlights:**
 
-This release adds support for the non-standard `MatMulNBits` operator which is
-used in LLM models for 4-bit block quantization. This is demonstrated via a new
-Llama 3 chat example.
+- Add support for the non-standard `MatMulNBits` operator which is
+  used in LLM models for 4-bit block quantization. This is demonstrated via a new
+  Llama 3 chat example.
 
-New APIs for operator input and output types (`Value`, `ValueView` etc.) make it
-possible to use rten in applications without a direct dependency on
-`rten-tensor`. Instead inputs can be constructed directly from shape and data
-vectors and outputs can be directly converted into shape and data vectors.
+- New APIs for operator input and output types (`Value`, `ValueView` etc.) make it
+  possible to use rten in applications without a direct dependency on
+  `rten-tensor`. Instead inputs can be constructed directly from shape and data
+  vectors and outputs can be directly converted into shape and data vectors.
+
+- Added a new experimental shape and type inference system which enables more
+  complex graph optimizations. This is used in the Llama 3 chat example to
+  enable new attention-related optimizations, improving performance as the
+  context size grows. In this release, shape inference is opt-in via
+  `ModelOptions`. This will be enabled by default when it is more mature.
+
+- Added graph optimization diagnostics, initially enabled via an
+  `RTEN_OPTIMIZER_DEBUG` environment variable which can be set to `warn` or
+  `info` (more verbose)
 
 **Breaking changes:**
 
@@ -27,13 +37,36 @@ marked as non-exhaustive.
 
 ### rten
 
+- Fixed reading of value metadata for input and output dimensions without a size
+  or name (https://github.com/robertknight/rten/pull/1154)
+
+- Support `auto_pad` attribute for convolution and pooling operators in ONNX
+  loader (https://github.com/robertknight/rten/pull/1153)
+
+- Added graph optimizer diagnostics system to enable inspecting which
+  optimizations were applied and why certain optimizations may have been
+  skipped (https://github.com/robertknight/rten/pull/1139,
+  https://github.com/robertknight/rten/pull/1141,
+  https://github.com/robertknight/rten/pull/1142)
+
+- Changed model input/output metadata type to be able to
+  represent non-tensor types (eg. sequences) (https://github.com/robertknight/rten/pull/1134)
+
+- Added built-in shape and type inference system that enables more complex
+  graph optimizations (https://github.com/robertknight/rten/pull/1124 and many
+  others)
+
+- Fixed confusing error message when an ONNX model uses an unsupported operator
+  (https://github.com/robertknight/rten/pull/1115)
+
 - Support `Pow` operator with i32/i64 base and exponent
   (https://github.com/robertknight/rten/pull/1105)
 
 - Added fusions for common subgraphs patterns in attention implementations such
-  as `torch.repeat_interleave` and "safe" softmax
+  as `torch.repeat_interleave`, "safe" softmax and Grouped-Query Attention (GQA)
   (https://github.com/robertknight/rten/pull/1103,
-  https://github.com/robertknight/rten/pull/1104).
+  https://github.com/robertknight/rten/pull/1104,
+  https://github.com/robertknight/rten/pull/1107)
 
 - Fixed panic in ConstantOfShape op if input shape is invalid
   (https://github.com/robertknight/rten/pull/1093)
