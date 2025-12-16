@@ -579,6 +579,17 @@ impl Value {
         self.try_into().ok()
     }
 
+    /// Return the size of this value's storage in bytes.
+    pub(crate) fn bytes(&self) -> usize {
+        match self {
+            Value::Int32Tensor(t) => tensor_bytes(t),
+            Value::Int8Tensor(t) => tensor_bytes(t),
+            Value::UInt8Tensor(t) => tensor_bytes(t),
+            Value::FloatTensor(t) => tensor_bytes(t),
+            Value::Sequence(seq) => seq.bytes(),
+        }
+    }
+
     fn layout(&self) -> ValueLayout<'_> {
         match self {
             Value::Int32Tensor(t) => t.layout().into(),
@@ -588,6 +599,10 @@ impl Value {
             Value::Sequence(seq) => ValueLayout::Vector(seq.len()),
         }
     }
+}
+
+fn tensor_bytes<S: Storage, L: Layout>(tensor: &TensorBase<S, L>) -> usize {
+    tensor.len() * size_of::<S::Elem>()
 }
 
 impl Layout for Value {
@@ -947,6 +962,16 @@ impl Sequence {
     /// Return an iterator over values in the sequence.
     pub fn iter(&self) -> impl Iterator<Item = ValueView<'_>> {
         (0..self.len()).map(|i| self.at(i).unwrap())
+    }
+
+    /// Return the combined size of all tensors in this sequence in bytes.
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Float(tensors) => tensors.iter().map(tensor_bytes).sum(),
+            Self::Int32(tensors) => tensors.iter().map(tensor_bytes).sum(),
+            Self::Int8(tensors) => tensors.iter().map(tensor_bytes).sum(),
+            Self::UInt8(tensors) => tensors.iter().map(tensor_bytes).sum(),
+        }
     }
 
     /// Extract the underlying buffers from tensors in this sequence and add
