@@ -444,6 +444,9 @@ pub struct Profiler<'a> {
     /// Number of allocations from the shared pool that were fulfilled from
     /// the pool rather than the OS.
     pool_hits: usize,
+
+    /// Maximum combined size of temporary values stored during the run.
+    max_value_bytes: usize,
 }
 
 impl<'a> Profiler<'a> {
@@ -454,6 +457,7 @@ impl<'a> Profiler<'a> {
             records: Vec::with_capacity(num_records),
             pool_allocs: 0,
             pool_hits: 0,
+            max_value_bytes: 0,
         }
     }
 
@@ -466,6 +470,12 @@ impl<'a> Profiler<'a> {
     pub fn add_pool_metrics(&mut self, allocs: usize, hits: usize) {
         self.pool_allocs += allocs;
         self.pool_hits += hits;
+    }
+
+    /// Record the maximum memory usage of temporary values (operator outputs)
+    /// during the graph run.
+    pub fn set_max_value_bytes(&mut self, bytes: usize) {
+        self.max_value_bytes = bytes;
     }
 
     /// Print a summary of the profile to stdout.
@@ -488,7 +498,8 @@ impl<'a> Profiler<'a> {
         );
 
         // Print memory-related stats.
-        println!("Pool allocs {} hits {}", self.pool_allocs, self.pool_hits,);
+        println!("Pool allocs {} hits {}", self.pool_allocs, self.pool_hits);
+        println!("Max activation bytes {}", Bytes(self.max_value_bytes));
 
         // Print detailed breakdown by operator.
         let timing = RunTiming {
@@ -500,5 +511,17 @@ impl<'a> Profiler<'a> {
             "\n{}",
             timing.display(opts.sort.clone(), opts.timing_by_shape)
         );
+    }
+}
+
+struct Bytes(usize);
+
+impl fmt::Display for Bytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            bytes if bytes < 1024 => write!(f, "{} B", bytes),
+            bytes if bytes < (1024 * 1024) => write!(f, "{} KB", bytes / 1024),
+            bytes => write!(f, "{} MB", bytes / (1024 * 1024)),
+        }
     }
 }

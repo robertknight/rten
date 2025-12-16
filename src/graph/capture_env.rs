@@ -1,5 +1,6 @@
 use rustc_hash::FxHashMap;
 
+use crate::graph::ValueMap;
 use crate::value::{Value, ValueOrView, ValueView};
 
 use super::{Graph, Node, NodeId};
@@ -33,7 +34,7 @@ pub struct CaptureEnv<'a> {
     inputs: Option<&'a FxHashMap<NodeId, ValueOrView<'a>>>,
 
     // Values computed during the graph run, captured by reference.
-    temp_values_by_ref: Option<&'a FxHashMap<NodeId, Value>>,
+    temp_values_by_ref: Option<&'a ValueMap>,
 
     // Values computed during the graph run, captured by value.
     temp_values: Option<FxHashMap<NodeId, Value>>,
@@ -51,7 +52,7 @@ impl<'a> CaptureEnv<'a> {
         parent: Option<&'a CaptureEnv<'a>>,
         graph: &'a Graph,
         inputs: Option<&'a FxHashMap<NodeId, ValueOrView<'a>>>,
-        temp_values_by_ref: Option<&'a FxHashMap<NodeId, Value>>,
+        temp_values_by_ref: Option<&'a ValueMap>,
         temp_values: Option<FxHashMap<NodeId, Value>>,
     ) -> CaptureEnv<'a> {
         CaptureEnv {
@@ -137,7 +138,7 @@ impl<'a> CaptureEnv<'a> {
                 Some(Node::Constant(c)) => Some(c.as_view()),
                 Some(Node::Value(_)) => self
                     .temp_values_by_ref
-                    .and_then(|tv| tv.get(&node_id))
+                    .and_then(|tv| tv.get(node_id))
                     .map(|i| i.as_view())
                     .or_else(|| {
                         self.temp_values

@@ -44,6 +44,9 @@ pub use planner::PlanOptions;
 mod node_id;
 pub use node_id::NodeId;
 
+mod value_map;
+use value_map::ValueMap;
+
 /// Counter that tracks the remaining usage count of a graph node value.
 ///
 /// This is used to keep intermediate graph outputs alive until they are no
@@ -797,7 +800,8 @@ impl Graph {
         mut profiler: Option<&mut Profiler<'a>>,
         opts: &RunOptions,
     ) -> Result<Vec<Value>, RunError> {
-        let mut temp_values: FxHashMap<NodeId, Value> = FxHashMap::default();
+        let mut temp_values = ValueMap::new();
+        temp_values.enable_mem_profiling(profiler.is_some());
 
         // Extract all owned tensor inputs into the owned value map.
         //
@@ -890,7 +894,7 @@ impl Graph {
                         .iter()
                         .max_by_key(|input_id| {
                             input_id
-                                .and_then(|id| temp_values.get(&id))
+                                .and_then(|id| temp_values.get(id))
                                 .map(|val| val.len())
                                 .unwrap_or(0)
                         })
@@ -907,7 +911,7 @@ impl Graph {
             // it won't be needed by other operators in future.
             let mut take_value = |node_id| {
                 if temp_value_refcount.count(node_id) == 1 {
-                    if let Some(value) = temp_values.remove(&node_id) {
+                    if let Some(value) = temp_values.remove(node_id) {
                         Some(value)
                     } else if self.captures.contains(&node_id) {
                         let name = self.nodes.get(&node_id).and_then(|n| n.name())?;
@@ -962,7 +966,7 @@ impl Graph {
 
                     if let Some(value) = get_value_from_constant_or_input(*node_id) {
                         op_inputs.push(Some(value));
-                    } else if let Some(value) = temp_values.get(node_id) {
+                    } else if let Some(value) = temp_values.get(*node_id) {
                         op_inputs.push(Some(value.as_view()));
                     } else if let Some(value) =
                         get_value_from_capture(&self.nodes, captures.as_ref(), *node_id)
@@ -1098,7 +1102,7 @@ impl Graph {
                 let rc = temp_value_refcount.dec(node_id);
                 if rc == Some(0)
                     && use_pool
-                    && let Some(tensor) = temp_values.remove(&node_id)
+                    && let Some(tensor) = temp_values.remove(node_id)
                 {
                     tensor.add_to_pool(pool)
                 }
@@ -1124,6 +1128,7 @@ impl Graph {
 
         // Record memory allocation metrics
         if let Some(profiler) = &mut profiler {
+            profiler.set_max_value_bytes(temp_values.max_bytes());
             profiler.add_pool_metrics(pool.alloc_count(), pool.hit_count());
         }
 
@@ -1140,7 +1145,9 @@ impl Graph {
                 } else {
                     // During execution planning we verified that each output
                     // ID is valid and unique, so this should always succeed.
-                    temp_values.remove(output_id).expect("missing output value")
+                    temp_values
+                        .remove(*output_id)
+                        .expect("missing output value")
                 }
             })
             .collect();
