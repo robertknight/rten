@@ -2,8 +2,9 @@ use rten_tensor::SliceRange;
 
 use crate::infer_shapes::{InferShapes, InferShapesError};
 use crate::ops::resolve_axis;
+use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{Constant, SymElem, SymTensor};
+use crate::sym_tensor::{Constant, SymTensor};
 
 /// Slice operator.
 ///
@@ -47,12 +48,12 @@ impl InferShapes for Slice {
 
                 let start = starts.and_then(|s| s.get(i));
                 let end = ends.and_then(|e| e.get(i));
-                let step = steps.and_then(|s| s.get(i)).unwrap_or(&SymElem::Value(1));
+                let step = steps.and_then(|s| s.get(i)).unwrap_or(&SymExpr::Value(1));
 
-                if let Some(SymElem::Value(start)) = start
-                    && let Some(SymElem::Value(end)) = end
-                    && let SymElem::Value(step) = step
-                    && let SymElem::Value(size) = dims[axis]
+                if let Some(SymExpr::Value(start)) = start
+                    && let Some(SymExpr::Value(end)) = end
+                    && let SymExpr::Value(step) = step
+                    && let SymExpr::Value(size) = dims[axis]
                 {
                     let end = match *end {
                         i32::MAX => None,
@@ -71,12 +72,12 @@ impl InferShapes for Slice {
                     }
 
                     let slice_size = range.steps(size as usize) as i32;
-                    dims[axis] = SymElem::Value(slice_size);
+                    dims[axis] = SymExpr::Value(slice_size);
                 } else if let Some(start) = start
-                    && (start == &SymElem::Value(0) || *start == -dims[axis].clone())
+                    && (start == &SymExpr::Value(0) || *start == -dims[axis].clone())
                     && let Some(end) = end
-                    && (end == &SymElem::Value(i32::MAX) || *end == dims[axis])
-                    && step == &SymElem::Value(1)
+                    && (end == &SymExpr::Value(i32::MAX) || *end == dims[axis])
+                    && step == &SymExpr::Value(1)
                 {
                     // This is a no-op slice that doesn't alter the dimension
                     // size.
@@ -84,7 +85,7 @@ impl InferShapes for Slice {
                     && start.is_positive()
                     && let Some(end) = end
                     && end.is_positive()
-                    && step == &SymElem::Value(1)
+                    && step == &SymExpr::Value(1)
                 {
                     // nb. This assumes start <= end.
                     let size = dims[axis].clone();
@@ -109,8 +110,9 @@ impl InferShapes for Slice {
 #[cfg(test)]
 mod tests {
     use crate::infer_shapes::InferShapes;
+    use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymElem, SymTensor, sym_shape, sym_vec};
+    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
     use super::Slice;
 
@@ -133,9 +135,9 @@ mod tests {
         // In this case an expression for the output size would be something
         // like `min(batch, end) - min(batch, start)`. We can't express that
         // yet, so a new unknown dimension is created.
-        let batch = SymElem::from("batch");
-        let start = SymElem::from("start");
-        let end = SymElem::from("end");
+        let batch = SymExpr::from("batch");
+        let start = SymExpr::from("start");
+        let end = SymExpr::from("end");
 
         let data = sym_shape!(batch.clone(), 64, 8);
         let starts = sym_vec!(start.clone());
@@ -215,7 +217,7 @@ mod tests {
 
         // Slice from -size..size, where "size" is the dimension size.
         let data = sym_shape!("batch", 1, "seq");
-        let starts = sym_vec!(-SymElem::from("seq"));
+        let starts = sym_vec!(-SymExpr::from("seq"));
         let ends = sym_vec!("seq");
         let axes = sym_vec!(2);
         let steps = sym_vec!(1);

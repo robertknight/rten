@@ -3,8 +3,9 @@
 use smallvec::SmallVec;
 
 pub use crate::{
+    sym_expr::SymExpr,
     sym_gen::SymbolGen,
-    sym_tensor::{Constant, SymElem, SymTensor, Symbol},
+    sym_tensor::{Constant, SymTensor},
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -93,31 +94,31 @@ impl InferShapes for BinaryOp {
 
         let a_pad = b_dims.len().saturating_sub(a_dims.len());
         let b_pad = a_dims.len().saturating_sub(b_dims.len());
-        let mut out_shape: Vec<SymElem> = Vec::with_capacity(a_pad + a_dims.len());
+        let mut out_shape: Vec<SymExpr> = Vec::with_capacity(a_pad + a_dims.len());
 
-        let a_iter = std::iter::repeat_n(SymElem::Value(1), a_pad).chain(a_dims);
-        let b_iter = std::iter::repeat_n(SymElem::Value(1), b_pad).chain(b_dims);
+        let a_iter = std::iter::repeat_n(SymExpr::Value(1), a_pad).chain(a_dims);
+        let b_iter = std::iter::repeat_n(SymExpr::Value(1), b_pad).chain(b_dims);
 
         for (a, b) in a_iter.zip(b_iter) {
-            let dim: SymElem = match (a, b) {
+            let dim: SymExpr = match (a, b) {
                 (a, b) if a == b => a.clone(),
 
                 // If either size is 1, it will be broadcast against the other
                 // size.
-                (SymElem::Value(1), b) => b.clone(),
-                (a, SymElem::Value(1)) => a.clone(),
+                (SymExpr::Value(1), b) => b.clone(),
+                (a, SymExpr::Value(1)) => a.clone(),
 
                 // If both sizes are fixed and different, we know execution
                 // will fail.
-                (SymElem::Value(_), SymElem::Value(_)) => {
+                (SymExpr::Value(_), SymExpr::Value(_)) => {
                     return Err(InferShapesError::IncompatibleShapes);
                 }
 
                 // If one dim is a fixed value other than 1 and the other
                 // dim is symbolic, execution can only succeed if the symbolic
                 // dim has the same size as the fixed dim.
-                (SymElem::Var(_a), SymElem::Value(b)) => SymElem::Value(b),
-                (SymElem::Value(a), SymElem::Var(_b)) => SymElem::Value(a),
+                (SymExpr::Var(_a), SymExpr::Value(b)) => SymExpr::Value(b),
+                (SymExpr::Value(a), SymExpr::Var(_b)) => SymExpr::Value(a),
 
                 // In cases where both values are unknown, the result can be
                 // either of the dimensions.
@@ -232,7 +233,7 @@ impl InferShapes for ReductionOp<'_> {
                 out_shape.push(dim.clone());
                 continue;
             } else if self.keep_dims {
-                out_shape.push(SymElem::Value(1));
+                out_shape.push(SymExpr::Value(1));
             }
         }
 
@@ -284,7 +285,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        BinaryOp, InferShapes, InferShapesError, ReductionOp, SymElem, SymTensor, SymbolGen,
+        BinaryOp, InferShapes, InferShapesError, ReductionOp, SymExpr, SymTensor, SymbolGen,
         UnaryOp, VariadicOp,
     };
     use crate::sym_tensor::{sym_elems, sym_shape};
@@ -341,7 +342,7 @@ mod tests {
             Case {
                 lhs: sym_shape!("foo"),
                 rhs: sym_shape!("bar"),
-                expected: sym_shape!(SymElem::from("foo").broadcast(&SymElem::from("bar"))),
+                expected: sym_shape!(SymExpr::from("foo").broadcast(&SymExpr::from("bar"))),
             },
         ];
 
@@ -359,7 +360,7 @@ mod tests {
     fn test_binary_op_invalid() {
         #[derive(Clone, Debug)]
         struct Case {
-            inputs: Vec<Vec<SymElem>>,
+            inputs: Vec<Vec<SymExpr>>,
             expected: InferShapesError,
         }
 
@@ -406,10 +407,10 @@ mod tests {
         struct Case<'a> {
             inputs: Vec<SymTensor>,
             op: ReductionOp<'a>,
-            expected: Vec<SymElem>,
+            expected: Vec<SymExpr>,
         }
 
-        let axes = vec![SymElem::Value(1i32)];
+        let axes = vec![SymExpr::Value(1i32)];
 
         let default_op = ReductionOp {
             axes: None,

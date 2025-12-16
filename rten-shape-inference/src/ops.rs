@@ -4,8 +4,9 @@
 //! for operator details.
 
 use crate::infer_shapes::{BinaryOp, InferShapes, InferShapesError, resolve_axis};
+use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{Constant, SymElem, SymTensor};
+use crate::sym_tensor::{Constant, SymTensor};
 
 mod binary;
 mod conv_pool;
@@ -99,26 +100,26 @@ impl InferShapes for ConstantOfShape {
             {
                 if let Some(vec_len) = values.first() {
                     match vec_len {
-                        &SymElem::Value(vec_len) => {
+                        &SymExpr::Value(vec_len) => {
                             if let Ok(vec_len) = vec_len.try_into() {
-                                SymTensor::from_vec(vec![SymElem::Value(val); vec_len])
+                                SymTensor::from_vec(vec![SymExpr::Value(val); vec_len])
                             } else {
                                 return Err(InferShapesError::InvalidValue);
                             }
                         }
-                        SymElem::Var(_)
-                        | SymElem::Neg(_)
-                        | SymElem::Add(_)
-                        | SymElem::Sub(_)
-                        | SymElem::Mul(_)
-                        | SymElem::Div(_)
-                        | SymElem::DivCeil(_)
-                        | SymElem::Max(_)
-                        | SymElem::Min(_)
-                        | SymElem::Broadcast(_) => SymTensor::from_shape(vec![vec_len.clone()]),
+                        SymExpr::Var(_)
+                        | SymExpr::Neg(_)
+                        | SymExpr::Add(_)
+                        | SymExpr::Sub(_)
+                        | SymExpr::Mul(_)
+                        | SymExpr::Div(_)
+                        | SymExpr::DivCeil(_)
+                        | SymExpr::Max(_)
+                        | SymExpr::Min(_)
+                        | SymExpr::Broadcast(_) => SymTensor::from_shape(vec![vec_len.clone()]),
                     }
                 } else {
-                    SymTensor::from_scalar(SymElem::Value(val))
+                    SymTensor::from_scalar(SymExpr::Value(val))
                 }
             } else {
                 SymTensor::from_shape(values.to_vec())
@@ -247,30 +248,30 @@ impl InferShapes for Range {
 
         let out_value = match (start, limit, delta) {
             (
-                Some(SymElem::Value(start)),
-                Some(SymElem::Value(limit)),
-                Some(SymElem::Value(delta)),
+                Some(SymExpr::Value(start)),
+                Some(SymExpr::Value(limit)),
+                Some(SymExpr::Value(delta)),
             ) => {
                 let mut values = Vec::new();
                 let mut val = start;
                 while val < limit {
-                    values.push(SymElem::Value(val));
+                    values.push(SymExpr::Value(val));
                     val += delta;
                 }
                 SymTensor::from_vec(values)
             }
             // Range(0, limit, 1) has shape [limit]
-            (Some(SymElem::Value(0)), Some(limit), Some(SymElem::Value(1))) => {
+            (Some(SymExpr::Value(0)), Some(limit), Some(SymExpr::Value(1))) => {
                 SymTensor::from_shape(vec![limit])
             }
             // Range(start, start + limit, 1) has shape [limit]
-            (Some(start), Some(SymElem::Add((limit_lhs, limit_rhs))), Some(SymElem::Value(1)))
+            (Some(start), Some(SymExpr::Add((limit_lhs, limit_rhs))), Some(SymExpr::Value(1)))
                 if start == *limit_lhs =>
             {
                 SymTensor::from_shape(vec![(*limit_rhs).clone()])
             }
             // Range(start, limit, 1) has shape [limit - start]
-            (Some(start), Some(limit), Some(SymElem::Value(1))) => {
+            (Some(start), Some(limit), Some(SymExpr::Value(1))) => {
                 SymTensor::from_shape(vec![limit - start])
             }
             _ => SymTensor::from_shape(vec![sym_gen.gen_positive()]),
@@ -305,21 +306,21 @@ impl InferShapes for Where {
             let xs = x_vals.iter().cycle().take(len);
             let ys = y_vals.iter().cycle().take(len);
 
-            let vals: Option<Vec<SymElem>> = cs
+            let vals: Option<Vec<SymExpr>> = cs
                 .zip(xs.zip(ys))
                 .map(|(cond, (x, y))| {
                     let cond_bool = match cond {
-                        SymElem::Value(v) => Some(*v == 1),
-                        SymElem::Var(_)
-                        | SymElem::Neg(_)
-                        | SymElem::Add(_)
-                        | SymElem::Sub(_)
-                        | SymElem::Mul(_)
-                        | SymElem::Div(_)
-                        | SymElem::DivCeil(_)
-                        | SymElem::Max(_)
-                        | SymElem::Min(_)
-                        | SymElem::Broadcast(_) => None,
+                        SymExpr::Value(v) => Some(*v == 1),
+                        SymExpr::Var(_)
+                        | SymExpr::Neg(_)
+                        | SymExpr::Add(_)
+                        | SymExpr::Sub(_)
+                        | SymExpr::Mul(_)
+                        | SymExpr::Div(_)
+                        | SymExpr::DivCeil(_)
+                        | SymExpr::Max(_)
+                        | SymExpr::Min(_)
+                        | SymExpr::Broadcast(_) => None,
                     }?;
                     if cond_bool {
                         Some(x.clone())
@@ -345,12 +346,13 @@ impl InferShapes for Where {
 #[cfg(test)]
 mod tests {
     use crate::infer_shapes::InferShapes;
+    use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymElem, SymTensor, sym_elems, sym_shape, sym_vec};
+    use crate::sym_tensor::{SymTensor, sym_elems, sym_shape, sym_vec};
 
     use super::{Concat, ConstantOfShape, DynamicQuantizeLinear, Gather, Range, Where};
 
-    fn extract_shape(mut result: Vec<SymTensor>) -> Vec<SymElem> {
+    fn extract_shape(mut result: Vec<SymTensor>) -> Vec<SymExpr> {
         result.remove(0).shape().unwrap().collect()
     }
 
@@ -366,7 +368,7 @@ mod tests {
         let shape = extract_shape(result);
         assert_eq!(
             shape,
-            sym_elems!("batch", SymElem::from(16) + SymElem::from(16), 64)
+            sym_elems!("batch", SymExpr::from(16) + SymExpr::from(16), 64)
         );
 
         // Concatenation of symbolic dims.
@@ -378,7 +380,7 @@ mod tests {
         let shape = extract_shape(result);
         assert_eq!(
             shape,
-            sym_elems!("batch", SymElem::from("foo") + SymElem::from("bar"), 64)
+            sym_elems!("batch", SymExpr::from("foo") + SymExpr::from("bar"), 64)
         );
 
         // Concatenation of symbolic vectors.
@@ -488,7 +490,7 @@ mod tests {
 
         // Range from start..(start + limit)
         let start = sym_vec!("start");
-        let limit = sym_vec!(SymElem::from("start") + SymElem::from("limit"));
+        let limit = sym_vec!(SymExpr::from("start") + SymExpr::from("limit"));
         let delta = sym_vec!(1);
         let result = Range
             .infer_shapes(&[start, limit, delta], &mut sym_gen)
@@ -504,7 +506,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             result[0],
-            sym_shape!(SymElem::from("limit") - SymElem::from("start"))
+            sym_shape!(SymExpr::from("limit") - SymExpr::from("start"))
         );
 
         // Range of unknown size

@@ -3,7 +3,6 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
-use rten_shape_inference::sym_tensor;
 use rten_tensor::Tensor;
 use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
@@ -427,8 +426,8 @@ impl GraphOptimizer {
                 .into_iter()
                 .map(|constant| {
                     let tensor = match constant {
-                        sym_tensor::Constant::Scalar(x) => Tensor::from(x),
-                        sym_tensor::Constant::Vector(vec) => Tensor::from(vec),
+                        rten_shape_inference::Constant::Scalar(x) => Tensor::from(x),
+                        rten_shape_inference::Constant::Vector(vec) => Tensor::from(vec),
                     };
                     graph_mut.add_constant(None, tensor.into_arc())
                 })

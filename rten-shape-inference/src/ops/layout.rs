@@ -1,6 +1,7 @@
 use crate::infer_shapes::{BinaryOp, InferShapes, InferShapesError, resolve_axis};
+use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{Constant, SymElem, SymTensor};
+use crate::sym_tensor::{Constant, SymTensor};
 
 /// Expand operator.
 ///
@@ -18,21 +19,21 @@ impl InferShapes for Expand {
         };
 
         if let Some(sizes) = shape.values() {
-            let rhs_shape: Vec<SymElem> = sizes.to_vec();
+            let rhs_shape: Vec<SymExpr> = sizes.to_vec();
             BinaryOp.infer_shapes(&[data.clone(), SymTensor::from_shape(rhs_shape)], sym_gen)
         } else if let Some(data_dims) = data.shape()
             && let Some(shape_len) = shape.size(0).and_then(|d| match d {
-                SymElem::Value(size) => Some(size),
-                SymElem::Neg(_)
-                | SymElem::Add(_)
-                | SymElem::Mul(_)
-                | SymElem::Div(_)
-                | SymElem::DivCeil(_)
-                | SymElem::Max(_)
-                | SymElem::Min(_)
-                | SymElem::Sub(_)
-                | SymElem::Var(_)
-                | SymElem::Broadcast(_) => None,
+                SymExpr::Value(size) => Some(size),
+                SymExpr::Neg(_)
+                | SymExpr::Add(_)
+                | SymExpr::Mul(_)
+                | SymExpr::Div(_)
+                | SymExpr::DivCeil(_)
+                | SymExpr::Max(_)
+                | SymExpr::Min(_)
+                | SymExpr::Sub(_)
+                | SymExpr::Var(_)
+                | SymExpr::Broadcast(_) => None,
             })
         {
             // If we know the length of the shape but not the values, then we
@@ -48,7 +49,7 @@ impl InferShapes for Expand {
                         sym_gen.gen_positive()
                     } else {
                         match data_dims[(i - pad_dims) as usize] {
-                            SymElem::Value(size) if size > 1 => SymElem::Value(size),
+                            SymExpr::Value(size) if size > 1 => SymExpr::Value(size),
                             _ => sym_gen.gen_positive(),
                         }
                     }
@@ -95,12 +96,12 @@ impl InferShapes for Flatten {
         let outer_dims: Vec<_> = dims.by_ref().take(n_outer_dims).collect();
         let inner_dims: Vec<_> = dims.collect();
 
-        let dim_product = |dims: &[SymElem]| -> SymElem {
+        let dim_product = |dims: &[SymExpr]| -> SymExpr {
             if let [dim] = dims {
                 return dim.clone();
             }
             dims.iter()
-                .fold(SymElem::Value(1), |prod, dim| prod * dim.clone())
+                .fold(SymExpr::Value(1), |prod, dim| prod * dim.clone())
                 .simplify()
         };
 
@@ -132,7 +133,7 @@ impl InferShapes for Reshape {
 
         let out_value = if let Some(dim_sizes) = shape.values() {
             let all_fixed = dim_sizes.iter().all(|v| {
-                if let SymElem::Value(v) = v
+                if let SymExpr::Value(v) = v
                     && *v >= min_fixed
                 {
                     true
@@ -156,12 +157,12 @@ impl InferShapes for Reshape {
             } else if let Some(data_dims) = data.shape() {
                 let remainder_index = dim_sizes
                     .iter()
-                    .position(|size| size == &SymElem::Value(-1));
+                    .position(|size| size == &SymExpr::Value(-1));
 
                 let mut remainder = if remainder_index.is_some() {
                     Some(
                         data_dims
-                            .fold(SymElem::Value(1), |prod, d| prod * d)
+                            .fold(SymExpr::Value(1), |prod, d| prod * d)
                             // Combine constants into a single term where possible.
                             // eg. X * 3 * 4 => X * 12.
                             //
@@ -178,7 +179,7 @@ impl InferShapes for Reshape {
                 for (i, size) in dim_sizes.iter().enumerate() {
                     // Zero values in the shape have special handling and mean
                     // that the dimension should be copied from the input.
-                    let size = if size == &SymElem::Value(0) && !self.allow_zero {
+                    let size = if size == &SymExpr::Value(0) && !self.allow_zero {
                         if let Some(dim) = data.size(i) {
                             dim
                         } else {
@@ -188,9 +189,9 @@ impl InferShapes for Reshape {
                         size.clone()
                     };
 
-                    if size == SymElem::Value(-1) {
+                    if size == SymExpr::Value(-1) {
                         // Add placeholder that we'll replace later.
-                        out_shape.push(SymElem::Value(0));
+                        out_shape.push(SymExpr::Value(0));
                     } else {
                         remainder = remainder.and_then(|r| r.exact_div(&size));
                         out_shape.push(size);
@@ -210,7 +211,7 @@ impl InferShapes for Reshape {
                 let out_shape = dim_sizes
                     .iter()
                     .map(|value| match value {
-                        SymElem::Value(v) if *v >= min_fixed => SymElem::Value(*v),
+                        SymExpr::Value(v) if *v >= min_fixed => SymExpr::Value(*v),
                         // We don't know the input shape, so we can't determine
                         // the size of dimensions which are symbolic or require
                         // special handling.
@@ -222,7 +223,7 @@ impl InferShapes for Reshape {
         } else if let Some(mut shape_dims) = shape.shape() {
             // If the shape is a vector with fixed length we can determine the
             // output rank, but not the sizes of any individual dimensions.
-            if let Some(SymElem::Value(size)) = shape_dims.next()
+            if let Some(SymExpr::Value(size)) = shape_dims.next()
                 && shape.ndim() == Some(1)
             {
                 let dims = (0..size).map(|_| sym_gen.gen_positive()).collect();
@@ -423,7 +424,7 @@ impl InferShapes for Unsqueeze {
             for (i, axis) in axes.into_iter().enumerate() {
                 let axis = resolve_axis(dims.len() + 1, axis)
                     .map_err(|_| InferShapesError::IncorrectRank)?;
-                dims.insert(axis + i, SymElem::Value(1));
+                dims.insert(axis + i, SymExpr::Value(1));
             }
 
             SymTensor::from_shape(dims)
@@ -438,8 +439,9 @@ impl InferShapes for Unsqueeze {
 #[cfg(test)]
 mod tests {
     use crate::infer_shapes::InferShapes;
+    use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymElem, SymTensor, sym_shape, sym_vec};
+    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
     use super::{Expand, Flatten, Reshape, Shape, Squeeze, Transpose, Unsqueeze};
 
@@ -482,7 +484,7 @@ mod tests {
         let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
         assert_eq!(
             result[0],
-            sym_shape!("batch", SymElem::from("rows") * SymElem::from("cols"))
+            sym_shape!("batch", SymExpr::from("rows") * SymExpr::from("cols"))
         );
 
         // Combine first two dims.
@@ -491,7 +493,7 @@ mod tests {
         let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
         assert_eq!(
             result[0],
-            sym_shape!(SymElem::from("batch") * SymElem::from("rows"), "cols")
+            sym_shape!(SymExpr::from("batch") * SymExpr::from("rows"), "cols")
         );
 
         // Combine all dims
@@ -501,7 +503,7 @@ mod tests {
         assert_eq!(
             result[0],
             sym_shape!(
-                SymElem::from("batch") * SymElem::from("cols") * SymElem::from("rows"),
+                SymExpr::from("batch") * SymExpr::from("cols") * SymExpr::from("rows"),
                 1
             )
         );

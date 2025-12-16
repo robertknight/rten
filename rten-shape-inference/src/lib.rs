@@ -35,7 +35,13 @@
 //! input minus the second dimension, the results of shape inference could be
 //! used to verify this.
 
-pub mod infer_shapes;
+mod infer_shapes;
 pub mod ops;
-pub mod sym_gen;
-pub mod sym_tensor;
+mod sym_expr;
+mod sym_gen;
+mod sym_tensor;
+
+pub use infer_shapes::{BinaryOp, InferShapes, InferShapesError, ReductionOp, UnaryOp, VariadicOp};
+pub use sym_expr::{SymExpr, Symbol};
+pub use sym_gen::SymbolGen;
+pub use sym_tensor::{Constant, SymTensor};

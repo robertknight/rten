@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use crate::sym_tensor::{SymElem, Symbol};
+use crate::sym_expr::{SymExpr, Symbol};
 
 /// Generates named symbols.
 ///
@@ -41,8 +41,8 @@ impl SymbolGen {
     }
 
     /// Generate a new symbolic value which is assumed to be positive.
-    pub fn gen_positive(&mut self) -> SymElem {
-        SymElem::Var(
+    pub fn gen_positive(&mut self) -> SymExpr {
+        SymExpr::Var(
             Symbol {
                 name: self.gen_name(),
                 positive: true,
@@ -54,16 +54,16 @@ impl SymbolGen {
 
 #[cfg(test)]
 mod tests {
-    use super::{SymElem, SymbolGen};
+    use super::{SymExpr, SymbolGen};
 
     #[test]
     fn test_symbol_gen() {
         let mut sym_gen = SymbolGen::new();
-        assert_eq!(sym_gen.gen_positive(), SymElem::pos_var("unknown_1"));
-        assert_eq!(sym_gen.gen_positive(), SymElem::pos_var("unknown_2"));
+        assert_eq!(sym_gen.gen_positive(), SymExpr::pos_var("unknown_1"));
+        assert_eq!(sym_gen.gen_positive(), SymExpr::pos_var("unknown_2"));
 
         let mut sym_gen = SymbolGen::with_prefix("foo".into());
-        assert_eq!(sym_gen.gen_positive(), SymElem::pos_var("foo_1"));
-        assert_eq!(sym_gen.gen_positive(), SymElem::pos_var("foo_2"));
+        assert_eq!(sym_gen.gen_positive(), SymExpr::pos_var("foo_1"));
+        assert_eq!(sym_gen.gen_positive(), SymExpr::pos_var("foo_2"));
     }
 }
