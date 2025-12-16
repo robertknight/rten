@@ -8,6 +8,7 @@ pub use crate::{
     sym_tensor::{Constant, SymTensor},
 };
 
+/// Errors when performing shape inference.
 #[derive(Clone, Debug, PartialEq)]
 pub enum InferShapesError {
     /// Too many or too few inputs were provided for this operator.
