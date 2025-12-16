@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use rten_shape_inference::infer_shapes::{InferShapes, UnaryOp};
+use rten_shape_inference::{InferShapes, UnaryOp};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 

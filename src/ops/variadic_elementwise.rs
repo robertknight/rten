@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use rten_base::num::IsNaN;
-use rten_shape_inference::infer_shapes::{InferShapes, VariadicOp};
+use rten_shape_inference::{InferShapes, VariadicOp};
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 

@@ -8,9 +8,8 @@ use crate::operator::{OutputType, OutputTypesContext};
 use crate::value::ValueType;
 
 pub use rten_shape_inference::{
-    infer_shapes::{BinaryOp, InferShapes, InferShapesError, ReductionOp, UnaryOp},
-    sym_gen::SymbolGen,
-    sym_tensor::{Constant, SymElem, SymTensor, Symbol},
+    BinaryOp, Constant, InferShapes, InferShapesError, ReductionOp, SymExpr, SymTensor, Symbol,
+    SymbolGen, UnaryOp,
 };
 
 /// Impl [`InferShapes`] for a type by delegating to another type which
@@ -20,14 +19,14 @@ pub use rten_shape_inference::{
 /// defined in the rten_shape_inference crate.
 macro_rules! impl_infer_shapes {
     ($op:ident, $self:ident, $make_impl:expr) => {
-        impl rten_shape_inference::infer_shapes::InferShapes for $op {
+        impl rten_shape_inference::InferShapes for $op {
             fn infer_shapes(
                 &self,
-                inputs: &[rten_shape_inference::sym_tensor::SymTensor],
-                sym_gen: &mut rten_shape_inference::sym_gen::SymbolGen,
+                inputs: &[rten_shape_inference::SymTensor],
+                sym_gen: &mut rten_shape_inference::SymbolGen,
             ) -> Result<
-                Vec<rten_shape_inference::sym_tensor::SymTensor>,
-                rten_shape_inference::infer_shapes::InferShapesError,
+                Vec<rten_shape_inference::SymTensor>,
+                rten_shape_inference::InferShapesError,
             > {
                 let $self = self;
                 let shape_op = $make_impl;
@@ -212,7 +211,7 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
                 .map(|dim| match dim {
                     // If a dimension size is unexpectedly inferred as a negative
                     // value, just ignore it.
-                    SymElem::Value(size) if size >= 0 => Some(Dimension::Fixed(size as usize)),
+                    SymExpr::Value(size) if size >= 0 => Some(Dimension::Fixed(size as usize)),
                     dim => Some(Dimension::Symbolic(dim.to_string())),
                 })
                 .collect::<Option<Vec<_>>>();
@@ -259,9 +258,9 @@ fn sym_tensor_from_input(
             if let Some(scalar) = constant.as_scalar()
                 && constant.ndim() == 0
             {
-                SymTensor::from_scalar(SymElem::Value(scalar))
+                SymTensor::from_scalar(SymExpr::Value(scalar))
             } else if let Some(vec) = constant.as_vector() {
-                let vec = vec.iter().copied().map(SymElem::Value).collect();
+                let vec = vec.iter().copied().map(SymExpr::Value).collect();
                 SymTensor::from_vec(vec)
             } else {
                 SymTensor::from_fixed_shape(constant.shape())
@@ -274,14 +273,14 @@ fn sym_tensor_from_input(
                 let sym_shape = shape
                     .iter()
                     .map(|dim| match dim {
-                        Dimension::Symbolic(name) => SymElem::Var(
+                        Dimension::Symbolic(name) => SymExpr::Var(
                             Symbol {
                                 name: name.clone(),
                                 positive: true,
                             }
                             .into(),
                         ),
-                        Dimension::Fixed(size) => SymElem::Value(*size as i32),
+                        Dimension::Fixed(size) => SymExpr::Value(*size as i32),
                     })
                     .collect();
                 SymTensor::from_shape(sym_shape)

@@ -140,8 +140,9 @@ impl InferShapes for MatMulNBits {
 #[cfg(test)]
 mod tests {
     use crate::infer_shapes::InferShapes;
+    use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymElem, SymTensor, sym_shape};
+    use crate::sym_tensor::{SymTensor, sym_shape};
 
     use super::{Gemm, MatMul, MatMulNBits};
 

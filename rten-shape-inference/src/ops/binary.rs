@@ -1,13 +1,14 @@
 use crate::infer_shapes::{BinaryOp, InferShapes, InferShapesError};
+use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{SymElem, SymTensor};
+use crate::sym_tensor::SymTensor;
 
 /// Perform a binary operation on the symbolic _values_ of two tensors or return
 /// None if a comparison is not possible.
 fn symbolic_binary_op(
     lhs: &SymTensor,
     rhs: &SymTensor,
-    mut op: impl FnMut(&SymElem, &SymElem) -> Option<SymElem>,
+    mut op: impl FnMut(&SymExpr, &SymExpr) -> Option<SymExpr>,
 ) -> Option<SymTensor> {
     if let Some(x) = lhs.as_scalar()
         && let Some(y) = rhs.as_scalar()
@@ -18,7 +19,7 @@ fn symbolic_binary_op(
         && let Some(rhs_values) = rhs.values()
     {
         let bin_op = |(x, y)| op(x, y);
-        let elems: Option<Vec<SymElem>> = match (lhs_values.len(), rhs_values.len()) {
+        let elems: Option<Vec<SymExpr>> = match (lhs_values.len(), rhs_values.len()) {
             (1, _) => lhs_values
                 .iter()
                 .cycle()
@@ -45,7 +46,7 @@ fn symbolic_binary_op(
 fn binary_op_infer_shapes(
     inputs: &[SymTensor],
     sym_gen: &mut SymbolGen,
-    op: impl FnMut(&SymElem, &SymElem) -> Option<SymElem>,
+    op: impl FnMut(&SymExpr, &SymExpr) -> Option<SymExpr>,
 ) -> Result<Vec<SymTensor>, InferShapesError> {
     let [lhs, rhs] = inputs else {
         return Err(InferShapesError::IncorrectInputCount);
@@ -69,9 +70,9 @@ impl InferShapes for Add {
         inputs: &[SymTensor],
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let add = |x: &SymElem, y: &SymElem| {
+        let add = |x: &SymExpr, y: &SymExpr| {
             Some(match (x, y) {
-                (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x + y),
+                (SymExpr::Value(x), SymExpr::Value(y)) => SymExpr::Value(x + y),
                 _ => x.clone() + y.clone(),
             })
         };
@@ -90,9 +91,9 @@ impl InferShapes for Sub {
         inputs: &[SymTensor],
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let sub = |x: &SymElem, y: &SymElem| {
+        let sub = |x: &SymExpr, y: &SymExpr| {
             Some(match (x, y) {
-                (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x - y),
+                (SymExpr::Value(x), SymExpr::Value(y)) => SymExpr::Value(x - y),
                 _ => x.clone() - y.clone(),
             })
         };
@@ -113,8 +114,8 @@ impl InferShapes for Div {
     ) -> Result<Vec<SymTensor>, InferShapesError> {
         // Only division of fixed values is currently supported. For other
         // cases this falls back to generic binary op shape inference.
-        let div = |x: &SymElem, y: &SymElem| match (x, y) {
-            (SymElem::Value(x), SymElem::Value(y)) if *y != 0 => Some(SymElem::Value(x / y)),
+        let div = |x: &SymExpr, y: &SymExpr| match (x, y) {
+            (SymExpr::Value(x), SymExpr::Value(y)) if *y != 0 => Some(SymExpr::Value(x / y)),
             _ => None,
         };
         binary_op_infer_shapes(inputs, sym_gen, div)
@@ -132,17 +133,17 @@ impl InferShapes for Equal {
         inputs: &[SymTensor],
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let eq = |x: &SymElem, y: &SymElem| {
+        let eq = |x: &SymExpr, y: &SymExpr| {
             let (x_min, x_max) = x.range();
             let (y_min, y_max) = y.range();
 
             if x == y {
                 // Same symbol or value.
-                Some(SymElem::Value(1))
+                Some(SymExpr::Value(1))
             } else if x_max < y_min || y_max < x_min {
                 // Value ranges do not overlap, so the symbols must be
                 // non-equal.
-                Some(SymElem::Value(0))
+                Some(SymExpr::Value(0))
             } else {
                 // Possible ranges overlap, so we don't know if the symbols
                 // are equal.
@@ -164,9 +165,9 @@ impl InferShapes for Mul {
         inputs: &[SymTensor],
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let mul = |x: &SymElem, y: &SymElem| {
+        let mul = |x: &SymExpr, y: &SymExpr| {
             Some(match (x, y) {
-                (SymElem::Value(x), SymElem::Value(y)) => SymElem::Value(x * y),
+                (SymExpr::Value(x), SymExpr::Value(y)) => SymExpr::Value(x * y),
                 _ => x.clone() * y.clone(),
             })
         };
@@ -177,8 +178,9 @@ impl InferShapes for Mul {
 #[cfg(test)]
 mod tests {
     use crate::infer_shapes::InferShapes;
+    use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymElem, SymTensor, sym_shape, sym_vec};
+    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
     use super::{Add, Div, Equal, Mul, Sub};
 
@@ -198,7 +200,7 @@ mod tests {
         let result = Add.infer_shapes(&[a, b], &mut sym_gen).unwrap();
         assert_eq!(
             result[0],
-            sym_vec!(11, SymElem::from("foo") + SymElem::from("bar"))
+            sym_vec!(11, SymExpr::from("foo") + SymExpr::from("bar"))
         );
 
         // Other shape
@@ -224,7 +226,7 @@ mod tests {
         let result = Sub.infer_shapes(&[a, b], &mut sym_gen).unwrap();
         assert_eq!(
             result[0],
-            sym_vec!(-1, SymElem::from("foo") - SymElem::from("bar"))
+            sym_vec!(-1, SymExpr::from("foo") - SymExpr::from("bar"))
         );
 
         // Other shape
@@ -300,7 +302,7 @@ mod tests {
         let result = Mul.infer_shapes(&[a, b], &mut sym_gen).unwrap();
         assert_eq!(
             result[0],
-            sym_vec!(30, SymElem::from("foo") * SymElem::from("bar"))
+            sym_vec!(30, SymExpr::from("foo") * SymExpr::from("bar"))
         );
 
         // Other shape

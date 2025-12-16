@@ -1,8 +1,9 @@
 use smallvec::SmallVec;
 
 use crate::infer_shapes::{InferShapes, InferShapesError};
+use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{SymElem, SymTensor};
+use crate::sym_tensor::SymTensor;
 
 /// Return the output size for a spatial dimension in a convolution or pooling
 /// operation.
@@ -11,23 +12,23 @@ use crate::sym_tensor::{SymElem, SymTensor};
 /// operators, but expressed more clearly in the [PyTorch
 /// docs](https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxPool1d.html).
 fn output_size(
-    in_size: SymElem,
-    kernel_size: SymElem,
+    in_size: SymExpr,
+    kernel_size: SymExpr,
     stride: usize,
     dilation: usize,
     padding: DimPadding,
-) -> SymElem {
-    let stride = SymElem::from(stride as i32);
+) -> SymExpr {
+    let stride = SymExpr::from(stride as i32);
 
     match padding {
         DimPadding::Fixed {
             start: pad_start,
             end: pad_end,
         } => {
-            let dilation = SymElem::from(dilation as i32);
-            let one = SymElem::from(1);
+            let dilation = SymExpr::from(dilation as i32);
+            let one = SymExpr::from(1);
             let padded_in_size =
-                in_size + SymElem::from(pad_start as i32) + SymElem::from(pad_end as i32);
+                in_size + SymExpr::from(pad_start as i32) + SymExpr::from(pad_end as i32);
             (padded_in_size - dilation * (kernel_size - one.clone()) - one.clone()) / stride
                 + one.clone()
         }
@@ -198,7 +199,7 @@ impl InferShapes for Pool<'_> {
             .ok_or(InferShapesError::InvalidValue)?;
         let out_h = output_size(
             data_shape[2].clone(),
-            SymElem::from(kernel_h as i32),
+            SymExpr::from(kernel_h as i32),
             *self.strides.first().ok_or(InferShapesError::InvalidValue)?,
             *self
                 .dilations
@@ -224,7 +225,7 @@ impl InferShapes for Pool<'_> {
 
             let out_w = output_size(
                 in_w,
-                SymElem::from(kernel_w as i32),
+                SymExpr::from(kernel_w as i32),
                 *self.strides.get(1).ok_or(InferShapesError::InvalidValue)?,
                 *self
                     .dilations
@@ -261,7 +262,7 @@ impl InferShapes for GlobalPool {
         // Given input (N, C, D1, D2 ...) the output is (N, C, 1, 1 ...)
         let shape: Vec<_> = dims
             .take(2)
-            .chain(std::iter::repeat_n(SymElem::from(1), spatial_dims))
+            .chain(std::iter::repeat_n(SymExpr::from(1), spatial_dims))
             .collect();
         Ok([SymTensor::from_shape(shape)].into())
     }
@@ -270,8 +271,9 @@ impl InferShapes for GlobalPool {
 #[cfg(test)]
 mod tests {
     use crate::infer_shapes::InferShapes;
+    use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymElem, SymTensor, sym_shape};
+    use crate::sym_tensor::{SymTensor, sym_shape};
 
     use super::{Conv, GlobalPool, Padding, Pool};
 
@@ -295,11 +297,11 @@ mod tests {
             sym_shape!(
                 "batch",
                 768,
-                (SymElem::from("len") + SymElem::from(0) + SymElem::from(2)
-                    - SymElem::from(4) * (SymElem::from(32) - SymElem::from(1))
-                    - SymElem::from(1))
-                    / SymElem::from(16)
-                    + SymElem::from(1),
+                (SymExpr::from("len") + SymExpr::from(0) + SymExpr::from(2)
+                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1))
+                    - SymExpr::from(1))
+                    / SymExpr::from(16)
+                    + SymExpr::from(1),
             )
         );
 
@@ -315,7 +317,7 @@ mod tests {
             sym_shape!(
                 "batch",
                 768,
-                SymElem::from("len").div_ceil(&SymElem::from(16))
+                SymExpr::from("len").div_ceil(&SymExpr::from(16))
             )
         );
 
@@ -333,16 +335,16 @@ mod tests {
             sym_shape!(
                 "batch",
                 768,
-                (SymElem::from("height") + SymElem::from(0) + SymElem::from(2)
-                    - SymElem::from(4) * (SymElem::from(32) - SymElem::from(1))
-                    - SymElem::from(1))
-                    / SymElem::from(16)
-                    + SymElem::from(1),
-                (SymElem::from("width") + SymElem::from(1) + SymElem::from(3)
-                    - SymElem::from(5) * (SymElem::from(32) - SymElem::from(1))
-                    - SymElem::from(1))
-                    / SymElem::from(32)
-                    + SymElem::from(1),
+                (SymExpr::from("height") + SymExpr::from(0) + SymExpr::from(2)
+                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1))
+                    - SymExpr::from(1))
+                    / SymExpr::from(16)
+                    + SymExpr::from(1),
+                (SymExpr::from("width") + SymExpr::from(1) + SymExpr::from(3)
+                    - SymExpr::from(5) * (SymExpr::from(32) - SymExpr::from(1))
+                    - SymExpr::from(1))
+                    / SymExpr::from(32)
+                    + SymExpr::from(1),
             )
         );
     }
@@ -365,11 +367,11 @@ mod tests {
             sym_shape!(
                 "batch",
                 "in_c",
-                (SymElem::from("seq") + SymElem::from(0) + SymElem::from(2)
-                    - SymElem::from(4) * (SymElem::from(32) - SymElem::from(1))
-                    - SymElem::from(1))
-                    / SymElem::from(16)
-                    + SymElem::from(1),
+                (SymExpr::from("seq") + SymExpr::from(0) + SymExpr::from(2)
+                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1))
+                    - SymExpr::from(1))
+                    / SymExpr::from(16)
+                    + SymExpr::from(1),
             )
         );
 
@@ -386,7 +388,7 @@ mod tests {
             sym_shape!(
                 "batch",
                 "in_c",
-                SymElem::from("seq").div_ceil(&SymElem::from(16)),
+                SymExpr::from("seq").div_ceil(&SymExpr::from(16)),
             )
         );
 
@@ -404,16 +406,16 @@ mod tests {
             sym_shape!(
                 "batch",
                 "in_c",
-                (SymElem::from("height") + SymElem::from(0) + SymElem::from(2)
-                    - SymElem::from(4) * (SymElem::from(32) - SymElem::from(1))
-                    - SymElem::from(1))
-                    / SymElem::from(16)
-                    + SymElem::from(1),
-                (SymElem::from("width") + SymElem::from(1) + SymElem::from(3)
-                    - SymElem::from(5) * (SymElem::from(32) - SymElem::from(1))
-                    - SymElem::from(1))
-                    / SymElem::from(32)
-                    + SymElem::from(1),
+                (SymExpr::from("height") + SymExpr::from(0) + SymExpr::from(2)
+                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1))
+                    - SymExpr::from(1))
+                    / SymExpr::from(16)
+                    + SymExpr::from(1),
+                (SymExpr::from("width") + SymExpr::from(1) + SymExpr::from(3)
+                    - SymExpr::from(5) * (SymExpr::from(32) - SymExpr::from(1))
+                    - SymExpr::from(1))
+                    / SymExpr::from(32)
+                    + SymExpr::from(1),
             )
         );
     }

@@ -29,8 +29,9 @@ impl InferShapes for Neg {
 #[cfg(test)]
 mod tests {
     use crate::infer_shapes::InferShapes;
+    use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymElem, SymTensor, sym_shape, sym_vec};
+    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
     use super::Neg;
 
@@ -44,14 +45,14 @@ mod tests {
         // Symbolic scalar
         let x = SymTensor::from_scalar("batch".into());
         let result = Neg.infer_shapes(&[x], &mut sym_gen).unwrap();
-        assert_eq!(result[0], SymTensor::from_scalar(-SymElem::from("batch")));
+        assert_eq!(result[0], SymTensor::from_scalar(-SymExpr::from("batch")));
 
         // Symbolic vec
         let x = sym_vec!("batch", 64);
         let result = Neg.infer_shapes(&[x], &mut sym_gen).unwrap();
         assert_eq!(
             result[0],
-            SymTensor::from_vec(vec![-SymElem::from("batch"), -SymElem::from(64),])
+            SymTensor::from_vec(vec![-SymExpr::from("batch"), -SymExpr::from(64),])
         );
     }
 }
