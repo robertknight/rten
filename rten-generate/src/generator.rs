@@ -664,6 +664,18 @@ impl<'a> Generator<'a> {
         self.input_ids.extend(prompt);
     }
 
+    /// Clear the pending prompt for the next generation.
+    ///
+    /// This includes tokens added using [`with_prompt`](Self::with_prompt) and
+    /// [`append_prompt`](Self::append_prompt) as well as the single token
+    /// sampled by the most recent call to [`Iterator::next`](Self::next).
+    ///
+    /// This does not affect the state resulting from tokens that have already
+    /// been generated. In other words, it does not "rewind" the conversation.
+    pub fn clear_prompt(&mut self) {
+        self.input_ids.clear();
+    }
+
     /// Add a constant input which is provided to the model at each iteration.
     ///
     /// A common use case is to pass the outputs of an encoder model to
@@ -924,6 +936,11 @@ impl Iterator for Generator<'_> {
     type Item = Result<TokenId, GeneratorError>;
 
     /// Run the model and generate the next output token.
+    ///
+    /// The generated token is added to the prompt. This enables calling `next`
+    /// repeatedly to generate a sequence of tokens. The prompt can be extended
+    /// or cleared using [`append_prompt`](Self::append_prompt) or
+    /// [`clear_prompt`](Self::clear_prompt) respectively.
     fn next(&mut self) -> Option<Self::Item> {
         Some(self.generate_next_token())
     }
