@@ -187,13 +187,45 @@ fn main() -> Result<(), Box<dyn Error>> {
         pending_context.clear();
 
         // Turn prompt from chat_template.jinja.
-        let turn_prompt = PromptBuilder::new(&tokenizer, special)
+        let mut turn_prompt = PromptBuilder::new(&tokenizer, special)
             .append("user", Some(&user_input))
             .append("assistant", None)
             .encode()?;
+
+        // If we have a large prompt, feed it into the model in chunks to
+        // reduce memory usage and enable progress reporting.
+        let chunk_size = 64;
+        let turn_tokens = turn_prompt.len();
+        let mut chunk_idx = 0;
+        let n_chunks = turn_tokens.div_ceil(chunk_size);
+        while turn_prompt.len() > chunk_size {
+            let percent = (chunk_idx as f32 / n_chunks as f32) * 100.0;
+            print!(
+                "\rProcessing... ({} of {} tokens, {:.1}%)",
+                chunk_idx * chunk_size,
+                turn_tokens,
+                percent
+            );
+            let _ = std::io::stdout().flush();
+            let next_chunk = turn_prompt.split_off(chunk_size);
+            prompt_tokens += turn_prompt.len();
+            generator.append_prompt(&turn_prompt);
+            if let Some(token) = generator.next() {
+                token?;
+            }
+            // Remove sampled token from prompt. We only want to keep it for
+            // the final chunk which precedes the model's response.
+            generator.clear_prompt();
+            turn_prompt = next_chunk;
+            chunk_idx += 1;
+        }
+        if n_chunks > 1 {
+            println!();
+        }
+
+        // Add the final prompt chunk and generate the model's response.
         prompt_tokens += turn_prompt.len();
         generator.append_prompt(&turn_prompt);
-
         let decoder = generator
             .by_ref()
             // See `eos_token_id` in `generation_config.json`
