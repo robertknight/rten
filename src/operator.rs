@@ -467,9 +467,7 @@ impl dyn Operator + Send + Sync {
 /// Trait for operators which contain subgraphs, such as `If`, `Loop` etc.
 pub trait SubgraphOperator: Operator {
     /// Return a list of subgraphs used by this operator.
-    fn subgraphs(&self) -> SmallVec<[&Graph; 2]> {
-        SmallVec::new()
-    }
+    fn subgraphs(&self) -> SmallVec<[&Graph; 2]>;
 
     /// Execute the operator with the given inputs and captured values.
     ///
