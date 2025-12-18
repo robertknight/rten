@@ -345,7 +345,7 @@ fn resolve_shape(
 
     if remainder != 0 {
         return Err(OpError::InvalidValue(
-            "Input length must be a multiple of specified dimensions",
+            "Input length does not match target shape",
         ));
     }
 
@@ -1065,147 +1065,95 @@ mod tests {
     }
 
     #[test]
-    fn test_reshape_with_unspecified_dim() -> Result<(), Box<dyn Error>> {
-        let pool = BufferPool::new();
+    fn test_reshape() {
+        #[derive(Debug)]
+        struct Case<'a> {
+            input: &'a [usize],
+            shape: &'a [i32],
+            allow_zero: bool,
+            expected: Result<&'a [usize], OpError>,
+        }
 
-        // Reshape with an unspecified (-1) dim and nonzero-length input
-        let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = NdTensor::from([1, -1, 2]);
-        let expected = input.to_shape([1, 2, 2].as_slice());
-        let result = reshape(
-            &pool,
-            input.view(),
-            &shape.view(),
-            false, /* allow_zero */
-        )
-        .unwrap();
-        expect_equal(&result, &expected)?;
+        let cases = [
+            // Valid shape with no zeros or -1s
+            Case {
+                input: &[2, 8],
+                shape: &[16],
+                allow_zero: false,
+                expected: Ok(&[16]),
+            },
+            // Valid shape with zeros
+            Case {
+                input: &[2, 8],
+                shape: &[0, 0],
+                allow_zero: false,
+                expected: Ok(&[2, 8]),
+            },
+            // Valid shape with zeros and zeros in corresponding input shape
+            Case {
+                input: &[0, 0],
+                shape: &[0, 0],
+                allow_zero: false,
+                expected: Ok(&[0, 0]),
+            },
+            // Valid shape with -1
+            Case {
+                input: &[2, 8],
+                shape: &[4, -1],
+                allow_zero: false,
+                expected: Ok(&[4, 4]),
+            },
+            // Valid shape with -1 and zero-length input
+            Case {
+                input: &[2, 0],
+                shape: &[4, -1],
+                allow_zero: false,
+                expected: Ok(&[4, 0]),
+            },
+            // Shape product does not match input length
+            Case {
+                input: &[8],
+                shape: &[9],
+                allow_zero: false,
+                expected: Err(OpError::InvalidValue(
+                    "Input length does not match target shape",
+                )),
+            },
+            // Shape with zero in dim that does not exist in input
+            Case {
+                input: &[2],
+                shape: &[2, 0],
+                allow_zero: false,
+                expected: Err(OpError::InvalidValue(
+                    "Zero dim has no corresponding input dim",
+                )),
+            },
+            // allow_zero=true
+            Case {
+                input: &[0, 0, 10],
+                shape: &[10, 0, 0],
+                allow_zero: true,
+                expected: Ok(&[10, 0, 0]),
+            },
+            // Multiple dims set to -1
+            Case {
+                input: &[2, 2],
+                shape: &[-1, -1],
+                allow_zero: false,
+                expected: Err(OpError::InvalidValue(
+                    "Multiple dimensions in new shape set to -1",
+                )),
+            },
+        ];
 
-        // Reshape with an unspecified (-1) dim and zero-length input
-        let zero_sized_input = Tensor::<f32>::from_data(&[4, 0, 1], vec![]);
-        let shape = NdTensor::from([100, -1]);
-        let result = reshape(
-            &pool,
-            zero_sized_input.view(),
-            &shape.view(),
-            false, /* allow_zero */
-        )
-        .unwrap();
-        let expected = zero_sized_input.to_shape([100, 0].as_slice());
-        expect_equal(&result, &expected)?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_reshape_with_zero_dim() -> Result<(), Box<dyn Error>> {
-        let pool = BufferPool::new();
-
-        // When the target shape has a zero dim, the corresponding input dim
-        // size should be copied.
-        let input = Tensor::from_data(&[1, 1, 4], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = NdTensor::from([-1, 0]);
-        let expected = input.to_shape([4, 1].as_slice());
-        let result = reshape(
-            &pool,
-            input.view(),
-            &shape.view(),
-            false, /* allow_zero */
-        )
-        .unwrap();
-        expect_equal(&result, &expected)?;
-
-        // Case where copied input dim is also zero.
-        let input = Tensor::from([0.; 0]);
-        let shape = NdTensor::from([0]);
-        let expected = input.to_shape([0].as_slice());
-        let result = reshape(
-            &pool,
-            input.view(),
-            &shape.view(),
-            false, /* allow_zero */
-        )
-        .unwrap();
-        expect_equal(&result, &expected)?;
-
-        // Case where there is no corresponding input dim.
-        let input = Tensor::from([5.]);
-        let shape = NdTensor::from([1, 0]);
-        let result = reshape(
-            &pool,
-            input.view(),
-            &shape.view(),
-            false, /* allow_zero */
-        );
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue(
-                "Zero dim has no corresponding input dim"
-            ))
-        );
-
-        // Case when allow_zero is true
-        let input = Tensor::<f32>::from_data(&[0, 0, 10], vec![]);
-        let shape = NdTensor::from([10, 0, 0]);
-        let result = reshape(
-            &pool,
-            input.view(),
-            &shape.view(),
-            true, /* allow_zero */
-        )
-        .unwrap();
-        let expected = input.to_shape([10, 0, 0].as_slice());
-        expect_equal(&result, &expected)?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_reshape_with_multiple_unspecified_dims() {
-        let pool = BufferPool::new();
-        let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = NdTensor::from([1, -1, -1]);
-        assert_eq!(
-            reshape(
-                &pool,
-                input.view(),
-                &shape.view(),
-                false /* allow_zero */
-            )
-            .err(),
-            Some(OpError::InvalidValue(
-                "Multiple dimensions in new shape set to -1"
-            ))
-        );
-    }
-
-    #[test]
-    fn test_reshape_with_unsolvable_unspecified_dim() {
-        let pool = BufferPool::new();
-        let expected_err = Some(OpError::InvalidValue(
-            "Input length must be a multiple of specified dimensions",
-        ));
-
-        let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = NdTensor::from([5, -1]);
-        let result = reshape(
-            &pool,
-            input.view(),
-            &shape.view(),
-            false, /* allow_zero */
-        );
-        assert_eq!(result.err(), expected_err);
-
-        // Case when allow_zero is true
-        let input = Tensor::from([1]);
-        let shape = NdTensor::from([0, -1]);
-        let result = reshape(
-            &pool,
-            input.view(),
-            &shape.view(),
-            true, /* allow_zero */
-        );
-        assert_eq!(result.err(), expected_err);
+        for case in cases {
+            let pool = BufferPool::new();
+            let input = Tensor::<f32>::zeros(case.input);
+            let shape = NdTensorView::from(case.shape);
+            let result = reshape(&pool, input.view(), &shape.view(), case.allow_zero);
+            let shape = result.as_ref().map(|t| t.shape());
+            assert_eq!(shape, case.expected.as_deref());
+        }
     }
 
     #[test]
