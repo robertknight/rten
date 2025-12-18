@@ -1165,16 +1165,21 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
     /// Consume self and return a new contiguous tensor with the given shape.
     ///
     /// This avoids copying the data if it is already contiguous.
-    pub fn into_shape<S: IntoLayout>(self, shape: S) -> TensorBase<Vec<T>, S::Layout>
+    #[track_caller]
+    pub fn into_shape<S: Copy + IntoLayout>(self, shape: S) -> TensorBase<Vec<T>, S::Layout>
     where
         T: Clone,
         L: MutLayout,
     {
+        let Ok(layout) = self.layout.reshaped_for_copy(shape) else {
+            panic!(
+                "element count mismatch reshaping {:?} to {:?}",
+                self.shape(),
+                shape
+            );
+        };
         TensorBase {
-            layout: self
-                .layout
-                .reshaped_for_copy(shape)
-                .expect("reshape failed"),
+            layout,
             data: self.into_data(),
         }
     }
