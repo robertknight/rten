@@ -343,7 +343,7 @@ fn resolve_shape(
         }
     };
 
-    if remainder != 0 {
+    if remainder != 0 || (unspecified_dim.is_none() && unspecified_dim_size > 1) {
         return Err(OpError::InvalidValue(
             "Input length does not match target shape",
         ));
@@ -1089,7 +1089,8 @@ mod tests {
                 allow_zero: false,
                 expected: Ok(&[2, 8]),
             },
-            // Valid shape with zeros and zeros in corresponding input shape
+            // Valid shape with zeros and input shape with zeros in
+            // corresponding dims.
             Case {
                 input: &[0, 0],
                 shape: &[0, 0],
@@ -1110,7 +1111,7 @@ mod tests {
                 allow_zero: false,
                 expected: Ok(&[4, 0]),
             },
-            // Shape product does not match input length
+            // Shape product that does not match input length
             Case {
                 input: &[8],
                 shape: &[9],
@@ -1135,6 +1136,15 @@ mod tests {
                 allow_zero: true,
                 expected: Ok(&[10, 0, 0]),
             },
+            // allow_zero=true and non-zero input length
+            Case {
+                input: &[10, 1],
+                shape: &[10, 0],
+                allow_zero: true,
+                expected: Err(OpError::InvalidValue(
+                    "Input length does not match target shape",
+                )),
+            },
             // Multiple dims set to -1
             Case {
                 input: &[2, 2],
@@ -1142,6 +1152,15 @@ mod tests {
                 allow_zero: false,
                 expected: Err(OpError::InvalidValue(
                     "Multiple dimensions in new shape set to -1",
+                )),
+            },
+            // Input length that is an exact multiple of the shape product
+            Case {
+                input: &[2, 8],
+                shape: &[1, 8],
+                allow_zero: false,
+                expected: Err(OpError::InvalidValue(
+                    "Input length does not match target shape",
                 )),
             },
         ];
