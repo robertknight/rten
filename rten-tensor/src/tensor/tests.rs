@@ -779,7 +779,7 @@ fn test_into_shape() {
 }
 
 #[test]
-#[should_panic(expected = "reshape failed")]
+#[should_panic(expected = "element count mismatch reshaping [16] to [2, 2]")]
 fn test_into_shape_invalid() {
     NdTensor::arange(0, 16, None).into_shape([2, 2]);
 }
