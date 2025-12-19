@@ -935,63 +935,81 @@ mod tests {
 
     #[test]
     fn test_expand() {
-        let pool = BufferPool::new();
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<i32>,
+            shape: Vec<i32>,
+            expected: Result<(Vec<usize>, Option<Vec<i32>>), OpError>,
+        }
 
-        // Broadcast scalar
-        let input = Tensor::from(5.);
-        let shape = NdTensor::from([2, 2]);
-        let expected = Tensor::from_data(&[2, 2], vec![5., 5., 5., 5.]);
-        let result = expand(&pool, input.view(), &shape.view()).unwrap();
-        assert_eq!(&result, &expected);
+        fn make_tensor(shape: impl AsRef<[usize]>) -> Tensor<i32> {
+            let len = shape.as_ref().iter().product::<usize>() as i32;
+            Tensor::arange(1, len + 1, None).into_shape(shape.as_ref())
+        }
 
-        // Broadcast that changes dim count
-        let input = Tensor::from_data(&[3, 1], (0..3).collect::<Vec<_>>());
-        let shape = NdTensor::from([2, 3, 1]);
-        let result = expand(&pool, input.view(), &shape.view()).unwrap();
-        assert_eq!(result.shape(), &[2, 3, 1]);
+        let cases = [
+            // Broadcast scalar
+            Case {
+                input: Tensor::from(5),
+                shape: vec![2, 2],
+                expected: Ok((vec![2, 2], Some(vec![5, 5, 5, 5]))),
+            },
+            // Broadcast that changes dim count
+            Case {
+                input: make_tensor([3, 1]),
+                shape: vec![2, 3, 1],
+                expected: Ok((vec![2, 3, 1], None)),
+            },
+            // Broadcast that uses dimensions from both the input shape and target
+            // shape in the output shape.
+            Case {
+                input: make_tensor([3, 1]),
+                shape: vec![2, 1, 6],
+                expected: Ok((vec![2, 3, 6], None)),
+            },
+            // Broadcast that does not change dim count
+            Case {
+                input: make_tensor([3, 1]),
+                shape: vec![3, 4],
+                expected: Ok((vec![3, 4], None)),
+            },
+            // Broadcast of leading and trailing dims
+            Case {
+                input: make_tensor([1, 2, 1]),
+                shape: vec![2, 2, 2],
+                expected: Ok((vec![2, 2, 2], Some(vec![1, 1, 2, 2, 1, 1, 2, 2]))),
+            },
+            // Broadcast of inner dim
+            Case {
+                input: make_tensor([2, 1, 2]),
+                shape: vec![2, 2, 2],
+                expected: Ok((vec![2, 2, 2], Some(vec![1, 2, 1, 2, 3, 4, 3, 4]))),
+            },
+            // Invalid broadcast shape
+            Case {
+                input: Tensor::from([1, 2, 3]),
+                shape: vec![2, 2],
+                expected: Err(OpError::IncompatibleInputShapes(
+                    "Cannot broadcast input with target shape",
+                )),
+            },
+        ];
 
-        // Broadcast that uses dimensions from both the input shape and target
-        // shape in the output shape.
-        let input = Tensor::from_data(&[3, 1], (0..3).collect::<Vec<_>>());
-        let shape = NdTensor::from([2, 1, 6]);
-        let result = expand(&pool, input.view(), &shape.view()).unwrap();
-        assert_eq!(result.shape(), &[2, 3, 6]);
+        cases.test_each(|case| {
+            let pool = BufferPool::new();
+            let shape = NdTensorView::from(case.shape.as_slice());
+            let result = expand(&pool, case.input.view(), &shape);
 
-        // Broadcast that does not change dim count
-        let input = Tensor::from_data(&[3, 1], (0..3).collect::<Vec<_>>());
-        let shape = NdTensor::from([3, 4]);
-        let result = expand(&pool, input.view(), &shape.view()).unwrap();
-        assert_eq!(result.shape(), &[3, 4]);
-
-        // Broadcast of leading and trailing dims
-        let input = Tensor::from([1, 2]).into_shape([1, 2, 1].as_slice());
-        let shape = NdTensor::from([2, 2, 2]);
-        let result = expand(&pool, input.view(), &shape.view()).unwrap();
-        assert_eq!(result.shape(), &[2, 2, 2]);
-        assert_eq!(result.to_vec(), &[1, 1, 2, 2, 1, 1, 2, 2]);
-
-        // Broadcast of inner dim
-        let input = Tensor::from([1, 2, 3, 4]).into_shape([2, 1, 2].as_slice());
-        let shape = NdTensor::from([2, 2, 2]);
-        let result = expand(&pool, input.view(), &shape.view()).unwrap();
-        assert_eq!(result.shape(), &[2, 2, 2]);
-        assert_eq!(result.to_vec(), &[1, 2, 1, 2, 3, 4, 3, 4]);
-    }
-
-    #[test]
-    fn test_expand_invalid_inputs() {
-        let pool = BufferPool::new();
-
-        // Invalid broadcast shape
-        let input = Tensor::from([1, 2, 3]);
-        let shape = NdTensor::from([2, 2]);
-        let result = expand(&pool, input.view(), &shape.view());
-        assert_eq!(
-            result.err(),
-            Some(OpError::IncompatibleInputShapes(
-                "Cannot broadcast input with target shape"
-            ))
-        );
+            match (&result, &case.expected) {
+                (Ok(output), Ok((expected_shape, expected_data))) => {
+                    assert_eq!(output.shape(), expected_shape.as_slice());
+                    if let Some(data) = expected_data {
+                        assert_eq!(output.data().unwrap(), data);
+                    }
+                }
+                (output, expected) => assert_eq!(output.as_ref().err(), expected.as_ref().err()),
+            }
+        })
     }
 
     #[test]
