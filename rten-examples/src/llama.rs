@@ -210,12 +210,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let next_chunk = turn_prompt.split_off(chunk_size);
             prompt_tokens += turn_prompt.len();
             generator.append_prompt(&turn_prompt);
-            if let Some(token) = generator.next() {
-                token?;
-            }
-            // Remove sampled token from prompt. We only want to keep it for
-            // the final chunk which precedes the model's response.
-            generator.clear_prompt();
+            generator.process_prompt()?;
             turn_prompt = next_chunk;
             chunk_idx += 1;
         }
