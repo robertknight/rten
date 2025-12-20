@@ -170,6 +170,12 @@ struct KvCache {
     cache: Option<KvCacheData>,
 }
 
+impl KvCache {
+    fn size(&self) -> Option<usize> {
+        self.cache.as_ref().map(|c| c.sequence_len())
+    }
+}
+
 /// Specifies a pattern for the name of a key-value cache input or output.
 ///
 /// These inputs are expected to have the form `{prefix}{layer_number}{suffix}`,
@@ -676,6 +682,23 @@ impl<'a> Generator<'a> {
         self.input_ids.clear();
     }
 
+    /// Return the prompt that will be used for the next generation.
+    pub fn prompt(&self) -> &[TokenId] {
+        &self.input_ids
+    }
+
+    /// Return the tokens that have been generated so far, including the prompt.
+    pub fn prev_tokens(&self) -> &[TokenId] {
+        &self.prev_tokens
+    }
+
+    /// Return the current decoder KV-cache length.
+    ///
+    /// Returns `None` if the model does not use a KV cache.
+    pub fn kv_cache_len(&self) -> Option<usize> {
+        self.kv_cache.first()?.size()
+    }
+
     /// Add a constant input which is provided to the model at each iteration.
     ///
     /// A common use case is to pass the outputs of an encoder model to
@@ -728,19 +751,14 @@ impl<'a> Generator<'a> {
         self
     }
 
-    /// Run the model and generate the next token.
-    fn generate_next_token(&mut self) -> Result<TokenId, GeneratorError> {
-        fn wrap_error<E>(error: E, context: &str) -> GeneratorError
-        where
-            E: Into<Box<dyn Error>>,
-        {
-            let error_ctx = ErrorContext {
-                error: error.into(),
-                context: context.to_string(),
-            };
-            GeneratorError::GenerateError(error_ctx.into())
-        }
-
+    /// Feed the current prompt into the model and update the KV cache.
+    ///
+    /// If `generate_logits` is true, the model's logits output is computed and
+    /// returned as a `(batch, sequence, vocab)` tensor.
+    fn generate_impl(
+        &mut self,
+        generate_logits: bool,
+    ) -> Result<Option<NdTensor<f32, 3>>, GeneratorError> {
         let batch_size = 1;
         let input_ids: NdTensor<i32, 2> = self
             .input_ids
@@ -815,42 +833,22 @@ impl<'a> Generator<'a> {
             }
         }
 
-        // Run the model and collect outputs and updated KV cache.
-        let model_outputs: Vec<NodeId> = [self.logits_output]
-            .into_iter()
-            .chain(self.kv_cache.iter().map(|entry| entry.output_id))
+        // Run the model and collect updated KV cache and logits.
+        let mut model_outputs: Vec<NodeId> = self
+            .kv_cache
+            .iter()
+            .map(|entry| entry.output_id)
             .chain(self.encoder_kv_cache.iter().map(|entry| entry.output_id))
             .collect();
+
+        if generate_logits {
+            model_outputs.push(self.logits_output);
+        }
 
         let mut outputs = self
             .model
             .run(model_inputs, &model_outputs, self.run_options.clone())
             .map_err(|e| wrap_error(e, "failed to run model"))?;
-
-        // Apply filtering to model outputs.
-        if self.prev_tokens.is_empty() {
-            self.prev_tokens.extend(self.input_ids.iter());
-        }
-        let logits: NdTensor<f32, 3> = outputs
-            .remove(0)
-            .try_into()
-            .map_err(|e| wrap_error(e, "failed to extract logits from model outputs"))?;
-        let last_logits = Logits::dense(logits.slice((0, -1)).to_contiguous().to_vec());
-        let filtered_logits = if let Some(filter) = self.logits_filter.as_ref() {
-            filter.filter(last_logits, &self.prev_tokens)
-        } else {
-            last_logits
-        };
-
-        // If filtering removed all the tokens, we have nothing to sample from.
-        if filtered_logits.is_empty() {
-            return Err(GeneratorError::GenerateError(
-                "filtered logits are empty".into(),
-            ));
-        }
-
-        // Sample output token.
-        let next_id = self.sampler.sample(&filtered_logits);
 
         // Update the self-attention key-value cache.
         //
@@ -916,17 +914,77 @@ impl<'a> Generator<'a> {
             cache_entry.cache = Some(kv_cache);
         }
 
-        // Update the token IDs and sequence offset for the next iteration.
-        self.prev_tokens.push(next_id);
+        // Save prompt for use in logit filters.
+        if self.prev_tokens.is_empty() {
+            self.prev_tokens.extend(self.input_ids.iter());
+        }
+
+        // Clear the prompt for the next generation.
         if !self.kv_cache.is_empty() {
             self.input_offset += self.input_ids.len();
-            self.input_ids = vec![next_id];
-        } else {
-            self.input_ids.push(next_id);
+            self.input_ids.clear();
         }
+
+        if generate_logits {
+            // Apply filtering to model outputs.
+            let logits: NdTensor<f32, 3> = outputs
+                .remove(0)
+                .try_into()
+                .map_err(|e| wrap_error(e, "failed to extract logits from model outputs"))?;
+            Ok(Some(logits))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Run the model and update the KV cache.
+    ///
+    /// Unlike calling [`next`](Self::next) this does not generate the logits
+    /// output and sample a token.
+    pub fn process_prompt(&mut self) -> Result<(), GeneratorError> {
+        self.generate_impl(false).map(|_| ())
+    }
+
+    /// Run the model and generate the next token.
+    ///
+    /// The generated token is automatically added to the prompt for the next
+    /// generation.
+    fn generate_next_token(&mut self) -> Result<TokenId, GeneratorError> {
+        let logits = self.generate_impl(true)?.expect("should have logits");
+        let last_logits = Logits::dense(logits.slice((0, -1)).to_contiguous().to_vec());
+        let filtered_logits = if let Some(filter) = self.logits_filter.as_ref() {
+            filter.filter(last_logits, &self.prev_tokens)
+        } else {
+            last_logits
+        };
+
+        // If filtering removed all the tokens, we have nothing to sample from.
+        if filtered_logits.is_empty() {
+            return Err(GeneratorError::GenerateError(
+                "filtered logits are empty".into(),
+            ));
+        }
+
+        // Sample output token.
+        let next_id = self.sampler.sample(&filtered_logits);
+
+        // Append token to prompt for next generation.
+        self.prev_tokens.push(next_id);
+        self.input_ids.push(next_id);
 
         Ok(next_id)
     }
+}
+
+fn wrap_error<E>(error: E, context: &str) -> GeneratorError
+where
+    E: Into<Box<dyn Error>>,
+{
+    let error_ctx = ErrorContext {
+        error: error.into(),
+        context: context.to_string(),
+    };
+    GeneratorError::GenerateError(error_ctx.into())
 }
 
 /// Output items from a [`Generator`].
@@ -1526,6 +1584,32 @@ mod tests {
             .collect();
 
         assert_eq!(output_token_ids, &[0, 1, 2, 3]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_prompt() -> Result<(), Box<dyn Error>> {
+        let params = TransformerParams::default();
+        let expected_token_ids = [0];
+        let prompt = [1, 2, 3, 1, 2, 3];
+        let model = fake_transformer_model(
+            params,
+            Some(KvCacheType::Decoder),
+            prompt.len(),
+            &expected_token_ids,
+        );
+
+        let mut generator = Generator::from_model(&model)?.with_prompt(&prompt);
+        assert_eq!(generator.prompt(), prompt);
+        assert!(generator.prev_tokens().is_empty());
+        assert_eq!(generator.kv_cache_len(), Some(0));
+
+        generator.process_prompt().unwrap();
+
+        assert!(generator.prompt().is_empty());
+        assert_eq!(generator.prev_tokens(), prompt);
+        assert_eq!(generator.kv_cache_len(), Some(prompt.len()));
 
         Ok(())
     }
