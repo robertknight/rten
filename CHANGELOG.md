@@ -11,7 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for the non-standard `MatMulNBits` operator which is
   used in LLM models for 4-bit block quantization. This is demonstrated via a new
-  Llama 3 chat example.
+  Llama 3 chat example. This supports using int8 or fp32 compute internally.
+  The int8 mode is much faster, but is currently only optimized for vector-matrix
+  products. See [this issue](https://github.com/robertknight/rten/issues/1164).
 
 - New APIs for operator input and output types (`Value`, `ValueView` etc.) make it
   possible to use rten in applications without a direct dependency on
@@ -30,12 +32,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Breaking changes:**
 
-There have been several breaking changes to parts of the public API to make it
-easier to evolve APIs in future without further breaking changes. The main such
-change is that various structs and enums (eg. `LoadError`, `RunOptions`) are now
-marked as non-exhaustive.
+- Several enums and structs have been marked as non-exhaustive to enable evolving
+  the API without breaking changes in future. This includes `LoadError` and
+  `RunOptions`.
+
+- The `TensorBase::to_contiguous` method now returns a wrapper type which
+  guarantees its input is contiguous. Calling `data` on this type now returns
+  a `[T]` instead of `Option<[T]>`, so no `unwrap` is required.
 
 ### rten
+
+- Fixed panic in `Reshape` operator when target shape is invalid for input shape
+  and the target shape product is an exact multiple of the input length
+  (https://github.com/robertknight/rten/pull/1161).
+
+- Added a peak activation memory usage statistic to profiler output
+  (https://github.com/robertknight/rten/pull/1158)
 
 - Fixed reading of value metadata for input and output dimensions without a size
   or name (https://github.com/robertknight/rten/pull/1154)
@@ -187,6 +199,14 @@ marked as non-exhaustive.
   weights.
 
 ### rten-generate
+
+- Added `Generator::process_prompt` API to enable processing the current prompt
+  without generating the logits output or sampling a token
+  (https://github.com/robertknight/rten/pull/1165). This can speed up processing
+  of long prompts.
+
+- Added `Generator::clear_prompt` API to enable resetting the prompt used for
+  the next generation (https://github.com/robertknight/rten/pull/1159)
 
 - Improved efficiency of top-K sampling, assuming K is small relative to
   vocabulary size (https://github.com/robertknight/rten/pull/1094)
