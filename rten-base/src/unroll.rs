@@ -69,8 +69,6 @@ pub use {unroll_loop, unroll_loop_x4};
 
 #[cfg(test)]
 mod tests {
-    use super::unroll_loop;
-
     #[test]
     fn test_unroll_loop() {
         let mut items: Vec<i32> = Vec::new();
