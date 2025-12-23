@@ -1,6 +1,6 @@
 [package]
 name = "rten-base"
-version = "0.23.0"
+version = "0.24.0"
 edition = "2024"
 authors = ["Robert Knight"]
 description = "Shared utilities for the rten family of crates"

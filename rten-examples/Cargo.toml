@@ -17,7 +17,7 @@ png = "0.18"
 serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
-rten = { path = "../", version = "0.23.0", features = ["all-ops", "mmap"] }
+rten = { path = "../", version = "0.24.0", features = ["all-ops", "mmap"] }
 rten-generate = { path = "../rten-generate", features=["text-decoder"] }
 rten-imageio = { path = "../rten-imageio" }
 rten-imageproc = { path = "../rten-imageproc" }

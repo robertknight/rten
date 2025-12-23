@@ -1,6 +1,6 @@
 [package]
 name = "rten-model-file"
-version = "0.23.0"
+version = "0.24.0"
 edition = "2024"
 authors = ["Robert Knight"]
 description = "Machine-learning oriented matrix multiplication"
@@ -10,7 +10,7 @@ repository = "https://github.com/robertknight/rten"
 
 [dependencies]
 flatbuffers = { workspace = true }
-rten-base = { path = "../rten-base", version = "0.23.0" }
+rten-base = { path = "../rten-base", version = "0.24.0" }
 
 [dev-dependencies]
 rten-testing = { path = "../rten-testing" }

@@ -1,6 +1,6 @@
 [package]
 name = "rten-shape-inference"
-version = "0.23.0"
+version = "0.24.0"
 edition = "2024"
 authors = ["Robert Knight"]
 description = "Shape inference for ONNX models"
@@ -12,7 +12,7 @@ repository = "https://github.com/robertknight/rten"
 crate-type = ["lib"]
 
 [dependencies]
-rten-tensor = { version = "0.23.0", path = "../rten-tensor" }
+rten-tensor = { version = "0.24.0", path = "../rten-tensor" }
 smallvec = { workspace = true }
 
 [dev-dependencies]

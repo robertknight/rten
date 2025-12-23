@@ -47,7 +47,7 @@ typeid = "1.0.3"
 
 [package]
 name = "rten"
-version = "0.23.0"
+version = "0.24.0"
 edition = "2024"
 authors = ["Robert Knight"]
 description = "Machine learning runtime"
@@ -67,14 +67,14 @@ flatbuffers = { workspace = true, optional = true }
 memmap2 = { version = "0.9.4", optional = true }
 num_cpus = "1.16.0"
 rayon = { workspace = true }
-rten-base = { path = "./rten-base", version = "0.23.0" }
-rten-gemm = { path = "./rten-gemm", version = "0.23.0" }
-rten-model-file = { path = "./rten-model-file", version = "0.23.0", optional = true }
-rten-onnx = { path = "./rten-onnx", version = "0.23.0", optional = true }
-rten-shape-inference = { path = "./rten-shape-inference", version = "0.23.0" }
-rten-simd = { path = "./rten-simd", version = "0.23.0" }
-rten-tensor = { path = "./rten-tensor", version = "0.23.0" }
-rten-vecmath = { path = "./rten-vecmath", version = "0.23.0" }
+rten-base = { path = "./rten-base", version = "0.24.0" }
+rten-gemm = { path = "./rten-gemm", version = "0.24.0" }
+rten-model-file = { path = "./rten-model-file", version = "0.24.0", optional = true }
+rten-onnx = { path = "./rten-onnx", version = "0.24.0", optional = true }
+rten-shape-inference = { path = "./rten-shape-inference", version = "0.24.0" }
+rten-simd = { path = "./rten-simd", version = "0.24.0" }
+rten-tensor = { path = "./rten-tensor", version = "0.24.0" }
+rten-vecmath = { path = "./rten-vecmath", version = "0.24.0" }
 rustc-hash = { workspace = true }
 rustfft = { workspace = true, optional = true }
 smallvec = { workspace = true }
