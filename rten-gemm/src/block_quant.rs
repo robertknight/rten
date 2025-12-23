@@ -77,6 +77,12 @@ impl BlockQuantizedGemm {
             return Err(GemmError::QuantBitsNotSupported);
         }
 
+        // Handle K=0 case here so we can rely on K > 0 in the kernels.
+        if lhs_k == 0 {
+            out.fill(MaybeUninit::new(0.));
+            return Ok(unsafe { out.assume_init() });
+        }
+
         enum LhsRow<'a> {
             Float(&'a [f32]),
             Quant {
@@ -795,6 +801,8 @@ pub fn pack_4bit_elements(vals: &[i8], zero_point: i8) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use std::mem::MaybeUninit;
+
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_tensor::{AsView, Contiguous, Layout, NdTensor, NdTensorView};
@@ -927,6 +935,7 @@ mod tests {
         #[derive(Clone, Debug)]
         struct Case {
             block_size: usize,
+            n_rows: usize,
             n_cols: usize,
             n_blocks: usize,
             compute: ComputeMode,
@@ -940,6 +949,7 @@ mod tests {
 
         for block_size in BLOCK_SIZES {
             cases.push(Case {
+                n_rows: 1,
                 n_cols: 3,
                 n_blocks: (max_vblock_size / block_size).max(1),
                 block_size,
@@ -950,6 +960,7 @@ mod tests {
 
         // Add a case that will exercise both the main and tail loops.
         cases.push(Case {
+            n_rows: 1,
             n_cols: 1,
             // 16 x u4 = 64 bits, smaller than vector length.
             block_size: 16,
@@ -962,6 +973,7 @@ mod tests {
         // Add cases that use int8 quantization of the LHS.
         for (block_size, atol) in [(16, 0.1), (32, 0.1), (64, 0.2), (128, 0.2), (256, 0.3)] {
             cases.push(Case {
+                n_rows: 1,
                 n_cols: 3,
                 block_size,
                 n_blocks: (max_vblock_size / block_size).max(1),
@@ -972,6 +984,7 @@ mod tests {
 
         // Add a case that will exercise both the main and tail loops using int8.
         cases.push(Case {
+            n_rows: 1,
             n_cols: 1,
             // 16 x u4 = 64 bits, smaller than vector length.
             block_size: 16,
@@ -981,8 +994,28 @@ mod tests {
             tolerance: Some(0.1),
         });
 
+        // Test K=0. The output must still be initialized even though there
+        // are no computations to do.
+        cases.push(Case {
+            n_rows: 1,
+            n_cols: 1,
+            block_size: 32,
+            n_blocks: 0,
+            compute: ComputeMode::Int8,
+            tolerance: None,
+        });
+        cases.push(Case {
+            n_rows: 1,
+            n_cols: 1,
+            block_size: 32,
+            n_blocks: 0,
+            compute: ComputeMode::Float,
+            tolerance: None,
+        });
+
         cases.test_each_clone(|case| {
             let Case {
+                n_rows,
                 n_cols,
                 n_blocks,
                 block_size,
@@ -993,7 +1026,7 @@ mod tests {
             let mut rng = XorShiftRng::new(1234);
 
             let gemm = BlockQuantizedGemm::new().with_compute(compute);
-            let lhs = NdTensor::<f32, 2>::rand([1, n_blocks * block_size], &mut rng);
+            let lhs = NdTensor::<f32, 2>::rand([n_rows, n_blocks * block_size], &mut rng);
             let rhs_data = NdTensor::<u8, 3>::rand([n_cols, n_blocks, block_size / 2], &mut rng);
             let rhs_scales = NdTensor::<f32, 2>::rand([n_cols, n_blocks], &mut rng);
             let bqm = BlockQuantizedMatrix::new(
@@ -1010,6 +1043,11 @@ mod tests {
             );
 
             let mut out = Vec::with_capacity(n_cols);
+
+            // Some platforms will zero-initialize new allocations. Manually
+            // fill with invalid data to make sure we don't rely on this.
+            out.spare_capacity_mut().fill(MaybeUninit::new(f32::NAN));
+
             let result = gemm
                 .batched_gemm_uninit(
                     out.spare_capacity_mut(),
