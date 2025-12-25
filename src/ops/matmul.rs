@@ -46,6 +46,15 @@ where
     let a = if transpose_a { a.transposed() } else { a };
     let b = if transpose_b { b.transposed() } else { b };
 
+    let [_a_rows, a_cols] = a.shape();
+    let [b_rows, _b_cols] = b.shape();
+
+    if a_cols != b_rows {
+        return Err(OpError::IncompatibleInputShapes(
+            "Columns of first matrix does not match rows of second matrix",
+        ));
+    }
+
     let out_shape = &[a.size(0), b.size(1)][..];
     let gemm = GemmExecutor::<LhsT, RhsT, OutT>::default();
 
@@ -1118,6 +1127,18 @@ mod tests {
             result.err(),
             Some(OpError::IncompatibleInputShapes(
                 "Cannot broadcast c to output shape"
+            ))
+        );
+
+        let a = Tensor::rand(&[1, 2], &mut rng);
+        let b = Tensor::rand(&[3, 1], &mut rng);
+
+        let result = gemm(&pool, a.view(), b.view(), None, 1.0, 1.0, false, false);
+
+        assert_eq!(
+            result.err(),
+            Some(OpError::IncompatibleInputShapes(
+                "Columns of first matrix does not match rows of second matrix",
             ))
         );
     }
