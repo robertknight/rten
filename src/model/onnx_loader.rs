@@ -3,6 +3,7 @@ use std::fs::File;
 use std::path::Path;
 
 use rten_base::byte_cast::{Pod, cast_pod_slice};
+use rten_base::half::f16_to_f32;
 use rten_onnx::onnx;
 use rten_tensor::{ArcTensor, Storage, Tensor};
 
@@ -301,6 +302,10 @@ fn load_value_info(
             // expects for that input.
             onnx::DataType::INT64 | onnx::DataType::BOOL => Some(DataType::Int32),
 
+            // RTen doesn't internally support f16 or f64 but converts to f32
+            // tensors instead. Adjust the value type here to match.
+            onnx::DataType::DOUBLE | onnx::DataType::FLOAT16 => Some(DataType::Float),
+
             _ => None,
         };
     }
@@ -468,6 +473,22 @@ fn load_constant(
                     .iter()
                     .copied()
                     .map(|x| x as f32)
+                    .collect()
+            };
+            let tensor = tensor_from_elements(&shape, data, name)?;
+            Constant::new(name, tensor)
+        }
+
+        Some(onnx::DataType::FLOAT16) => {
+            let data = if let Some(data) = raw_data {
+                let f16_to_f32_bytes = |bytes: [u8; 2]| f16_to_f32(u16::from_le_bytes(bytes));
+                elements_from_le_bytes(&data, f16_to_f32_bytes)
+            } else {
+                initializer
+                    .int32_data
+                    .iter()
+                    .copied()
+                    .map(|x| f16_to_f32(x as u16))
                     .collect()
             };
             let tensor = tensor_from_elements(&shape, data, name)?;
@@ -924,6 +945,7 @@ fn add_operator(
 
 #[cfg(test)]
 mod tests {
+    use rten_base::half::{f16_to_f32, f32_to_f16};
     use rten_onnx::onnx;
     use rten_tensor::{Tensor, TensorView};
 
@@ -1111,11 +1133,49 @@ mod tests {
     }
 
     #[test]
+    fn test_load_f16_initializer() {
+        // "Round" an f32 by converting to f16 and back
+        let round_f16 = |x: f32| f16_to_f32(f32_to_f16(x));
+
+        // TensorProto using the `raw_data` field.
+        let f16_raw = create_tensor(
+            "f16_raw",
+            &[],
+            onnx::DataType::FLOAT16,
+            TensorData::Raw(f32_to_f16(0.5).to_le_bytes().into()),
+        );
+
+        // TensorProto using the `int32_data` field.
+        let f16_vec = create_tensor(
+            "f16_vec",
+            &[3],
+            onnx::DataType::FLOAT16,
+            TensorData::Int([0.1, 0.2, 0.3].map(|x| f32_to_f16(x) as i32).to_vec()),
+        );
+
+        let model_proto = onnx::GraphProto::default()
+            .with_initializer(f16_raw)
+            .with_initializer(f16_vec)
+            .into_model();
+
+        let model = load_model(model_proto, None).unwrap();
+
+        let f16_raw = model.get_tensor_by_name::<f32>("f16_raw").unwrap();
+        assert_eq!(f16_raw, Tensor::from(0.5));
+
+        let f16_vec = model.get_tensor_by_name::<f32>("f16_vec").unwrap();
+        assert_eq!(
+            f16_vec,
+            TensorView::from(&[round_f16(0.1), round_f16(0.2), round_f16(0.3)])
+        );
+    }
+
+    #[test]
     fn test_initializer_with_unsupported_dtype() {
         let tensor = create_tensor(
             "init",
             &[],
-            onnx::DataType::FLOAT16,
+            onnx::DataType::BFLOAT16,
             TensorData::Raw((0u16).to_le_bytes().into()),
         );
 
@@ -1127,7 +1187,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "in node \"init\": graph error: initializer has unsupported data type FLOAT16"
+            "in node \"init\": graph error: initializer has unsupported data type BFLOAT16"
         );
     }
 
