@@ -1,5 +1,6 @@
 use rayon::prelude::*;
-use rten_base::iter::{ParIter, SplitIterator};
+use rten_base::iter::SplitIterator;
+use rten_parallel::par_iter::ParIter;
 
 use super::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterBase, InnerIterMut, Iter,

@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_base::iter::range_chunks;
+use rten_parallel::par_iter::ParIter;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
@@ -183,7 +184,7 @@ fn bilinear_resize(
     output
         .axis_chunks_mut(1, row_chunk)
         .into_par_iter()
-        .zip(range_chunks(0..rows, row_chunk))
+        .zip(ParIter::from(range_chunks(0..rows, row_chunk)))
         .for_each(|(mut out_row_chunk, out_row_range)| {
             for y in out_row_range.clone() {
                 let in_y = input_coord(y, inv_scale_y, coord_mode, in_rows, rows)

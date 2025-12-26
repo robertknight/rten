@@ -9,6 +9,7 @@ members = [
   "rten-imageproc",
   "rten-model-file",
   "rten-onnx",
+  "rten-parallel",
   "rten-shape-inference",
   "rten-simd",
   "rten-tensor",
@@ -71,6 +72,7 @@ rten-base = { path = "./rten-base", version = "0.24.0" }
 rten-gemm = { path = "./rten-gemm", version = "0.24.0" }
 rten-model-file = { path = "./rten-model-file", version = "0.24.0", optional = true }
 rten-onnx = { path = "./rten-onnx", version = "0.24.0", optional = true }
+rten-parallel = { path = "./rten-parallel", version = "0.24.0" }
 rten-shape-inference = { path = "./rten-shape-inference", version = "0.24.0" }
 rten-simd = { path = "./rten-simd", version = "0.24.0" }
 rten-tensor = { path = "./rten-tensor", version = "0.24.0" }

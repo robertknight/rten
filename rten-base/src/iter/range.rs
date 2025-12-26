@@ -1,8 +1,6 @@
 use std::ops::Range;
 
-use rayon::prelude::*;
-
-use super::{ParIter, SplitIterator};
+use super::SplitIterator;
 
 /// Iterator returned by [`range_chunks`].
 pub struct RangeChunks {
@@ -74,15 +72,6 @@ impl SplitIterator for RangeChunks {
     }
 }
 
-impl IntoParallelIterator for RangeChunks {
-    type Iter = ParIter<Self>;
-    type Item = <Self as Iterator>::Item;
-
-    fn into_par_iter(self) -> Self::Iter {
-        self.into()
-    }
-}
-
 impl std::iter::FusedIterator for RangeChunks {}
 
 /// Return an iterator over sub-ranges of `range`. If `range.len()` is not a
@@ -148,9 +137,8 @@ pub fn range_chunks_exact(range: Range<usize>, chunk_size: usize) -> RangeChunks
 
 #[cfg(test)]
 mod tests {
-    use rayon::prelude::*;
-
     use super::{range_chunks, range_chunks_exact};
+    use crate::iter::SplitIterator;
 
     #[test]
     fn test_range_chunks() {
@@ -180,10 +168,15 @@ mod tests {
         assert_eq!(chunks.next(), None);
         assert_eq!(chunks.next(), None);
 
-        // Parallel
-        let chunks = range_chunks(0..100, 5);
-        let sum = chunks.into_par_iter().map(|r| r.len()).sum::<usize>();
-        assert_eq!(sum, 100);
+        // Split
+        let chunks = range_chunks(0..20, 5);
+        let (mut left, mut right) = chunks.split_at(2);
+        assert_eq!(left.next(), Some(0..5));
+        assert_eq!(left.next(), Some(5..10));
+        assert_eq!(left.next(), None);
+        assert_eq!(right.next(), Some(10..15));
+        assert_eq!(right.next(), Some(15..20));
+        assert_eq!(right.next(), None);
     }
 
     #[test]

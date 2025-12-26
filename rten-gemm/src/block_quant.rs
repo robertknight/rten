@@ -1,15 +1,14 @@
 //! Matrix multiplication with block-quantized inputs.
 
-use rten_tensor::{Contiguous, Layout, NdTensor, NdTensorView};
-
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rayon::prelude::*;
 use rten_base::iter::range_chunks;
+use rten_parallel::par_iter::ParIter;
 use rten_simd::ops::{Extend, IntOps, Interleave, NumOps, ToFloat};
 use rten_simd::{Isa, Simd, SimdOp};
-use rten_tensor::{AsView, AssumeInit};
+use rten_tensor::{AsView, AssumeInit, Contiguous, Layout, NdTensor, NdTensorView};
 
 use crate::GemmResult;
 use crate::errors::{BlockQuantizedError, GemmError};
@@ -114,8 +113,7 @@ impl BlockQuantizedGemm {
                     LhsRow::Float(lhs.slice((b, row)).data().unwrap())
                 };
 
-                range_chunks(0..n, col_block)
-                    .into_par_iter()
+                ParIter::from(range_chunks(0..n, col_block))
                     .zip(out_row.par_chunks_mut(col_block))
                     .for_each(|(col_range, out_row_chunk)| match lhs_row {
                         LhsRow::Quant { data, scales } => {
