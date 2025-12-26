@@ -443,6 +443,7 @@ dependencies = [
  "rten-gemm",
  "rten-model-file",
  "rten-onnx",
+ "rten-parallel",
  "rten-shape-inference",
  "rten-simd",
  "rten-tensor",
@@ -459,9 +460,6 @@ dependencies = [
 [[package]]
 name = "rten-base"
 version = "0.24.0"
-dependencies = [
- "rayon",
-]
 
 [[package]]
 name = "rten-bench"
@@ -508,6 +506,7 @@ dependencies = [
  "rayon",
  "rten-base",
  "rten-bench",
+ "rten-parallel",
  "rten-simd",
  "rten-tensor",
  "rten-testing",
@@ -560,6 +559,14 @@ name = "rten-onnx"
 version = "0.24.0"
 
 [[package]]
+name = "rten-parallel"
+version = "0.24.0"
+dependencies = [
+ "rayon",
+ "rten-base",
+]
+
+[[package]]
 name = "rten-shape-inference"
 version = "0.24.0"
 dependencies = [
@@ -579,6 +586,7 @@ dependencies = [
  "rayon",
  "rten-base",
  "rten-bench",
+ "rten-parallel",
  "rten-testing",
  "serde",
  "serde_json",

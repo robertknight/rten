@@ -8,8 +8,9 @@ use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
 use rten_base::byte_cast::Pod;
-use rten_base::iter::{MaybeParIter, range_chunks};
+use rten_base::iter::range_chunks;
 use rten_base::num::Identities;
+use rten_parallel::par_iter::MaybeParIter;
 use rten_tensor::layout::{MutLayout, OverlapPolicy};
 use rten_tensor::prelude::*;
 use rten_tensor::storage::{Alloc, GlobalAlloc};

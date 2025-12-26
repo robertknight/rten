@@ -1,12 +1,16 @@
 [package]
-name = "rten-base"
+name = "rten-parallel"
 version = "0.24.0"
 edition = "2024"
 authors = ["Robert Knight"]
-description = "Shared utilities for the rten family of crates"
+description = "Parallel processing utilities for RTen crates"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
+
+[dependencies]
+rayon = { workspace = true }
+rten-base = { version = "0.24.0", path = "../rten-base" }
 
 [lib]
 crate-type = ["lib"]
