@@ -531,7 +531,7 @@ impl<'a> Attr<'a> {
     fn as_dtype(&self) -> Result<DataType, ReadOpError> {
         let onnx_dtype = onnx::DataType(self.cast_int()?);
         match onnx_dtype {
-            onnx::DataType::FLOAT => Ok(DataType::Float),
+            onnx::DataType::FLOAT | onnx::DataType::FLOAT16 => Ok(DataType::Float),
             onnx::DataType::INT32 | onnx::DataType::INT64 | onnx::DataType::BOOL => {
                 Ok(DataType::Int32)
             }

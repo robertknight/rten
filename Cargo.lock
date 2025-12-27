@@ -460,6 +460,9 @@ dependencies = [
 [[package]]
 name = "rten-base"
 version = "0.24.0"
+dependencies = [
+ "rten-testing",
+]
 
 [[package]]
 name = "rten-bench"

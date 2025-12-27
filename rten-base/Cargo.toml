@@ -13,3 +13,6 @@ crate-type = ["lib"]
 
 [lints.clippy]
 uninlined_format_args = "allow"
+
+[dev-dependencies]
+rten-testing = { path = "../rten-testing" }
