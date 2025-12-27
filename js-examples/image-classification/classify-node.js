@@ -22,7 +22,7 @@ async function loadImage(path, width, height) {
 }
 
 const path = process.argv[2];
-const modelPath = process.argv[3] ?? "./mobilenet.rten";
+const modelPath = process.argv[3] ?? "./mobilenet.onnx";
 
 // Initialize RTen.
 const rtenBinary = readFileSync("node_modules/rten/dist/" + binaryName());

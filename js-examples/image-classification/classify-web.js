@@ -50,7 +50,7 @@ async function createClassifier() {
   // Fetch the RTen engine and MobileNet model in parallel.
   const [, modelData] = await Promise.all([
     fetch("./node_modules/rten/dist/" + binaryName()).then(initRTen),
-    fetchBinary("./mobilenet.rten"),
+    fetchBinary("./mobilenet.onnx"),
   ]);
 
   // Initialize the classifier. This must be done after RTen is initialized.
