@@ -109,18 +109,11 @@ the WebAssembly library"](#building-the-webassembly-library) below.
 The general steps for using RTen's built-in WebAssembly API to run models in
 a JavaScript project are:
 
-1.  Develop a model or find a pre-trained one that you want to run. Pre-trained
-    models in ONNX format can be obtained from the [ONNX Model Zoo](https://github.com/onnx/models)
-    or [Hugging Face](https://huggingface.co/docs/transformers/serialization).
-2.  If the model is not already in ONNX format, convert it to ONNX. PyTorch
-    users can use [torch.onnx](https://pytorch.org/docs/stable/onnx.html) for this.
-3.  Use the `rten-convert` package in this repository to convert the model
-    to the optimized format RTen uses. See the section above on converting models.
-4.  In your JavaScript code, fetch the WebAssembly binary and initialize RTen
+1.  In your JavaScript code, fetch the WebAssembly binary and initialize RTen
     using the `init` function.
-5.  Fetch the prepared `.rten` model and use it to an instantiate the `Model`
+2.  Fetch the prepared `.onnx` model and use it to an instantiate the `Model`
     class from this library.
-6.  Each time you want to run the model, prepare one or more `Float32Array`s
+3.  Each time you want to run the model, prepare one or more `Float32Array`s
     containing input data in the format expected by the model, and call
     `Model.run`. This will return a `TensorList` that provides access to the
     shapes and data of the outputs.

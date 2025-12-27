@@ -10,13 +10,10 @@ kind of object.
 1. Build the main RTen project for WebAssembly. See the README.md file at the
    root of the repository.
 2. In this directory, run `npm install`
-3. Download the ONNX MobileNet model from the ONNX Model Zoo and convert it
-   to `.rten` format:
+3. Download the ONNX MobileNet model from the ONNX Model Zoo:
 
    ```sh
    curl -L https://github.com/onnx/models/raw/main/Computer_Vision/mobilenetv2_110d_Opset18_timm/mobilenetv2_110d_Opset18.onnx -o mobilenet.onnx
-
-   rten-convert mobilenet.onnx mobilenet.rten
    ```
 4. Follow either of the subsections below to run the example in Node or the
    browser
@@ -24,15 +21,16 @@ kind of object.
 ## Running in Node
 
 ```sh
-$ node classify-node.js espresso.png
+$ node classify-node.js ../../tools/test-images/sofa-cats.jpg
 
 # Example output
+
 Most likely categories:
-  - espresso
-  - chocolate sauce, chocolate syrup
-  - cup
-  - ice cream, icecream
-  - plate
+  - Egyptian cat
+  - tabby, tabby cat
+  - tiger cat
+  - lynx, catamount
+  - marmoset
 ```
 
 ## Running in a browser
