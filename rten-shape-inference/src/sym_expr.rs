@@ -150,7 +150,7 @@ impl SymExpr {
                 collect_terms(terms, lhs, extract_lhs_rhs);
                 collect_terms(terms, rhs, extract_lhs_rhs);
             } else {
-                terms.push(term.canonicalize())
+                terms.push(term.canonicalize());
             }
         }
 
@@ -161,19 +161,20 @@ impl SymExpr {
         // 1. Collect all the terms in nested expressions of the same type
         // 2. Sort the terms in canonical order
         // 3. Simplify the result by removing any redundant terms
-        // 4. Fold the terms back into a new expression
+        // 4. Reduce the terms into a new expression, or return `default` if
+        //    step (3) removed all the terms
         fn reassociate_terms(
             term: &SymExpr,
             extract_terms: &impl Fn(&SymExpr) -> Option<&(Rc<SymExpr>, Rc<SymExpr>)>,
             simplify: impl Fn(Vec<SymExpr>) -> Vec<SymExpr>,
-            init: SymExpr,
-            fold: impl Fn(SymExpr, SymExpr) -> SymExpr,
+            default: SymExpr,
+            reduce: impl Fn(SymExpr, SymExpr) -> SymExpr,
         ) -> SymExpr {
             let mut terms = Vec::new();
             collect_terms(&mut terms, term, extract_terms);
             terms.sort_by(cmp_values_first);
             let terms = simplify(terms);
-            terms.into_iter().fold(init, fold)
+            terms.into_iter().reduce(reduce).unwrap_or(default)
         }
 
         // Remove adjacent equal terms.
@@ -337,19 +338,11 @@ impl SymExpr {
             Self::Div((lhs, rhs)) => {
                 let lhs = lhs.simplify_canonical();
                 let rhs = rhs.simplify_canonical();
+                let (lhs, rhs) = remove_common_factors(lhs, rhs);
 
                 match (lhs, rhs) {
                     (lhs, SymExpr::Value(1)) => lhs,
                     (SymExpr::Value(x), SymExpr::Value(y)) if y != 0 => SymExpr::Value(x / y),
-                    // x/x => 1
-                    //
-                    // Where we assume the RHS is non-zero.
-                    //
-                    // This is a special case of canceling common terms. The
-                    // more general case (eg. XY / XZ => Y/Z) still needs to
-                    // be implemented.
-                    (lhs, rhs) if lhs == rhs => SymExpr::Value(1),
-
                     // x / b / c => x / (b * c)
                     (SymExpr::Div((lhs, c1)), c2) => match (&*c1, c2) {
                         (SymExpr::Value(c1), SymExpr::Value(c2)) if *c1 != 0 && c2 != 0 => {
@@ -469,36 +462,6 @@ impl SymExpr {
         )
     }
 
-    /// Compute `self / rhs` as an expression, or return `None` if an exact
-    /// division is not possible.
-    pub fn exact_div(&self, rhs: &SymExpr) -> Option<SymExpr> {
-        let lhs = self;
-        match (lhs, rhs) {
-            // Fixed values
-            (SymExpr::Value(lhs), SymExpr::Value(rhs)) => {
-                if *rhs != 0 && lhs % rhs == 0 {
-                    Some(SymExpr::Value(lhs / rhs))
-                } else {
-                    None
-                }
-            }
-            // Identities
-            (lhs, rhs) if lhs == rhs => Some(SymExpr::Value(1)),
-            (lhs, SymExpr::Value(1)) => Some(lhs.clone()),
-            // If LHS is a product, recurse
-            (SymExpr::Mul((lhs_a, lhs_b)), rhs) => {
-                if let Some(new_lhs_a) = lhs_a.exact_div(rhs) {
-                    Some(SymExpr::Mul((new_lhs_a.into(), lhs_b.clone())))
-                } else {
-                    lhs_b
-                        .exact_div(rhs)
-                        .map(|new_lhs_b| SymExpr::Mul((lhs_a.clone(), new_lhs_b.into())))
-                }
-            }
-            _ => None,
-        }
-    }
-
     /// Return the name of the symbol in a unary expression.
     ///
     /// Returns `None` if the expression is not unary or has a fixed value.
@@ -542,6 +505,49 @@ fn cmp_values_first(a: &SymExpr, b: &SymExpr) -> Ordering {
             _ => Ordering::Equal,
         },
     }
+}
+
+/// Remove common factors from `lhs` and `rhs`.
+fn remove_common_factors(lhs: SymExpr, rhs: SymExpr) -> (SymExpr, SymExpr) {
+    fn collect_terms(terms: &mut Vec<SymExpr>, term: &SymExpr) {
+        if let SymExpr::Mul((lhs, rhs)) = term {
+            collect_terms(terms, lhs);
+            collect_terms(terms, rhs);
+        } else {
+            terms.push(term.clone());
+        }
+    }
+
+    // Collect multiplication terms from LHS and RHS
+    let mut lhs_terms = Vec::new();
+    collect_terms(&mut lhs_terms, &lhs);
+
+    let mut rhs_terms = Vec::new();
+    collect_terms(&mut rhs_terms, &rhs);
+
+    // Remove common factors from `lhs_terms` and `rhs_terms`
+    let mut i = 0;
+    while i < lhs_terms.len() {
+        let lhs_term = &lhs_terms[i];
+        let k = rhs_terms.iter().position(|t| lhs_term == t);
+        if let Some(k) = k {
+            lhs_terms.remove(i);
+            rhs_terms.remove(k);
+        } else {
+            i += 1;
+        }
+    }
+
+    // Construct simplified LHS and RHS
+    let lhs = lhs_terms
+        .into_iter()
+        .reduce(|prod, x| prod * x)
+        .unwrap_or(SymExpr::Value(1));
+    let rhs = rhs_terms
+        .into_iter()
+        .reduce(|prod, x| prod * x)
+        .unwrap_or(SymExpr::Value(1));
+    (lhs, rhs)
 }
 
 impl PartialEq<SymExpr> for SymExpr {
@@ -912,6 +918,24 @@ mod tests {
         // x / 2 / 0 => not simplified (divisor is zero)
         let expr = x.clone() / two.clone() / zero.clone();
         assert_eq!(expr.simplify(), x.clone() / (two.clone() * zero));
+
+        // (x * y) / (x * z) => y / z
+        let y = SymExpr::from("y");
+        let z = SymExpr::from("z");
+        let expr = (x.clone() * y.clone()) / (x.clone() * z.clone());
+        assert_eq!(expr.simplify(), y.clone() / z.clone());
+
+        // (x * y * z) / (x * y * 2) => z / 2
+        let expr = (x.clone() * y.clone() * z.clone()) / (x.clone() * y.clone() * two.clone());
+        assert_eq!(expr.simplify(), z.clone() / two.clone());
+
+        // (x * y) / x => y
+        let expr = (x.clone() * y.clone()) / x.clone();
+        assert_eq!(expr.simplify(), y.clone());
+
+        // (x * (y + z)) / x => y + z
+        let expr = (x.clone() * (y.clone() + z.clone())) / x.clone();
+        assert_eq!(expr.simplify(), y.clone() + z.clone());
     }
 
     #[test]
@@ -1076,43 +1100,5 @@ mod tests {
             + SymExpr::var("bar")
             - SymExpr::from(5);
         assert_eq!(format!("{:?}", expr), "(1 + \"foo\"u) * 3 + \"bar\"i - 5");
-    }
-
-    #[test]
-    fn test_exact_div() {
-        // Fixed values
-        assert_eq!(
-            SymExpr::from(15).exact_div(&SymExpr::from(3)),
-            Some(SymExpr::from(5))
-        );
-        assert_eq!(SymExpr::from(15).exact_div(&SymExpr::from(4)), None);
-        assert_eq!(SymExpr::from(15).exact_div(&SymExpr::from(0)), None);
-
-        // Identities
-        assert_eq!(
-            SymExpr::from("x").exact_div(&SymExpr::from("x")),
-            Some(SymExpr::from(1))
-        );
-        assert_eq!(
-            SymExpr::from("x").exact_div(&SymExpr::from(1)),
-            Some(SymExpr::from("x"))
-        );
-
-        // Products with common term in LHS and RHS
-        assert_eq!(
-            (SymExpr::from("x") * SymExpr::from("y"))
-                .exact_div(&SymExpr::from("y"))
-                .map(|s| s.simplify()),
-            Some(SymExpr::from("x"))
-        );
-        assert_eq!(
-            (SymExpr::from("y") * SymExpr::from("x"))
-                .exact_div(&SymExpr::from("y"))
-                .map(|s| s.simplify()),
-            Some(SymExpr::from("x"))
-        );
-
-        // Cases where result is unknown
-        assert_eq!(SymExpr::from("x").exact_div(&SymExpr::from("y")), None);
     }
 }
