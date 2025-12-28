@@ -112,11 +112,11 @@ impl InferShapes for Div {
         inputs: &[SymTensor],
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        // Only division of fixed values is currently supported. For other
-        // cases this falls back to generic binary op shape inference.
-        let div = |x: &SymExpr, y: &SymExpr| match (x, y) {
-            (SymExpr::Value(x), SymExpr::Value(y)) if *y != 0 => Some(SymExpr::Value(x / y)),
-            _ => None,
+        let div = |x: &SymExpr, y: &SymExpr| {
+            Some(match (x, y) {
+                (SymExpr::Value(x), SymExpr::Value(y)) if *y != 0 => SymExpr::Value(x / y),
+                _ => x.clone() / y.clone(),
+            })
         };
         binary_op_infer_shapes(inputs, sym_gen, div)
     }
@@ -240,17 +240,20 @@ mod tests {
     fn test_div() {
         let mut sym_gen = SymbolGen::new();
 
-        // Symbolic scalar with fixed values.
+        // Symbolic vector with fixed values.
         let a = sym_vec!(16);
         let b = sym_vec!(2);
         let result = Div.infer_shapes(&[a, b], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_vec!(8));
 
-        // Symbolic scalar with symbolic values.
+        // Symbolic vector with symbolic values.
         let a = sym_vec!(16);
         let b = sym_vec!("foo");
         let result = Div.infer_shapes(&[a, b], &mut sym_gen).unwrap();
-        assert_eq!(result[0], sym_shape!(1));
+        assert_eq!(
+            result[0],
+            sym_vec!(SymExpr::from(16) / SymExpr::from("foo"))
+        );
 
         // Other shape
         let a = sym_shape!(5, "foo");
