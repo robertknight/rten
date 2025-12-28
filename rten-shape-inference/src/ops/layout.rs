@@ -318,30 +318,53 @@ impl InferShapes for Squeeze {
             return Ok([SymTensor::unknown("Unknown input shape")].into());
         };
 
-        let Some(Constant::Vector(axes)) = rest.first().and_then(|ax| ax.to_constant()) else {
-            return Ok([SymTensor::unknown("Unknown axes")].into());
-        };
+        let axes = rest.first();
 
-        let axes = axes
-            .into_iter()
-            .map(|axis| resolve_axis(shape.len(), axis))
-            .collect::<Result<Vec<_>, _>>()?;
+        // Check if the `axes` input is constant and if so, resolve negative
+        // values.
+        let const_axes = axes.as_ref().and_then(|ax| match ax.to_constant() {
+            Some(Constant::Vector(axes)) => Some(axes),
+            // Perhaps this case should error?
+            Some(Constant::Scalar(_)) => None,
+            None => None,
+        });
+
+        let const_axes = const_axes
+            .map(|axes| {
+                axes.into_iter()
+                    .map(|axis| resolve_axis(shape.len(), axis))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
 
         // Symbolic vector to scalar
         if let Some(values) = data.as_vector()
             && values.len() == 1
-            && axes == [0]
+            && matches!(const_axes.as_deref(), Some([0]) | None)
         {
             return Ok([SymTensor::from_scalar(values[0].clone())].into());
         }
 
-        let out_shape = shape
-            .enumerate()
-            .filter(|(i, _dim)| !axes.contains(&i))
-            .map(|(_i, dim)| dim)
-            .collect();
+        let out_shape = if let Some(const_axes) = const_axes {
+            // If axes are known, remove corresponding axes from input shape.
+            let out_shape = shape
+                .enumerate()
+                .filter(|(i, _dim)| !const_axes.contains(&i))
+                .map(|(_i, dim)| dim)
+                .collect();
+            SymTensor::from_shape(out_shape)
+        } else if axes.is_none() && shape.clone().all(|size| matches!(size, SymExpr::Value(_))) {
+            // If axes are not specified, but we know the exact size of all
+            // dimensions, then remove all the size-1 dims.
+            let out_shape = shape
+                .filter(|dim| !matches!(dim, SymExpr::Value(1)))
+                .collect();
+            SymTensor::from_shape(out_shape)
+        } else {
+            SymTensor::unknown("Unknown axes")
+        };
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([out_shape].into())
     }
 }
 
@@ -656,9 +679,20 @@ mod tests {
         let result = Squeeze.infer_shapes(&[shape, axes], &mut sym_gen).unwrap();
         assert_eq!(result[0], SymTensor::from_scalar("foo".into()));
 
+        // Symbolic vec to scalar, negative axis
+        let shape = sym_vec!("bar");
+        let axes = sym_vec!(-1);
+        let result = Squeeze.infer_shapes(&[shape, axes], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::from_scalar("bar".into()));
+
+        // Symbolic vec to scalar, no axes
+        let shape = sym_vec!("bar");
+        let result = Squeeze.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::from_scalar("bar".into()));
+
         // Non-const axes
         let mut sym_gen = SymbolGen::new();
-        let shape = sym_vec!("foo");
+        let shape = sym_shape!("foo");
         let axes = sym_vec!("what");
         let result = Squeeze.infer_shapes(&[shape, axes], &mut sym_gen).unwrap();
         assert_eq!(result[0], SymTensor::unknown("Unknown axes"));
@@ -674,6 +708,11 @@ mod tests {
         let axes = sym_vec!(-1);
         let result = Squeeze.infer_shapes(&[shape, axes], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!("foo", 32));
+
+        // Fixed shape, no axes
+        let shape = sym_shape!(32, 1, 12);
+        let result = Squeeze.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(32, 12));
     }
 
     #[test]
