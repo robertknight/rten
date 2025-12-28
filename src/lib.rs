@@ -188,7 +188,9 @@ pub mod ops;
 
 pub use buffer_pool::{BufferPool, ExtractBuffer, PoolRef};
 pub use graph::{Dimension, NodeId, RunError, RunErrorKind, RunOptions};
-pub use model::{LoadError, LoadErrorKind, Model, ModelMetadata, ModelOptions, NodeInfo};
+pub use model::{
+    LoadError, LoadErrorKind, Model, ModelMetadata, ModelOptions, NodeInfo, ShapeInferenceMode,
+};
 pub use op_registry::{OpRegistry, RegisterOp, op_types};
 pub use ops::{FloatOperators, Operators};
 pub use threading::{ThreadPool, thread_pool};

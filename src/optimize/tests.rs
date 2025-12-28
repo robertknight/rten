@@ -12,6 +12,7 @@ use crate::graph::builder::{Expr, OutputMeta, dims};
 use crate::graph::{
     CaptureEnv, Constant, Graph, Node, NodeId, OperatorNode, PlanOptions, TypedConstant,
 };
+use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
     Add, Cast, ComputeShape, DimSpec, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather,
     Gelu, GroupedQueryAttentionMatMul, Identity, IsNaN, LayerNormalization, MatMul, MatMulInteger,
@@ -1249,7 +1250,13 @@ fn test_infer_shapes() {
     // Run optimization with shape inference enabled.
     let optimizer = GraphOptimizer::new();
     let graph = optimizer
-        .optimize(graph, None, OptimizeOptions { infer_shapes: true })
+        .optimize(
+            graph,
+            None,
+            OptimizeOptions {
+                infer_shapes: Some(InferShapeOptions::default()),
+            },
+        )
         .unwrap();
 
     // Verify that values were updated with inferred shapes and types.
@@ -1280,7 +1287,13 @@ fn test_shape_inference_replaces_values_with_constants() {
 
     let optimizer = GraphOptimizer::new();
     let graph = optimizer
-        .optimize(graph, None, OptimizeOptions { infer_shapes: true })
+        .optimize(
+            graph,
+            None,
+            OptimizeOptions {
+                infer_shapes: Some(InferShapeOptions::default()),
+            },
+        )
         .unwrap();
 
     // The output should be replaced with a constant as it doesn't depend on

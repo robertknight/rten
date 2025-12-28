@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::Debug;
 use std::path::Path;
+use std::str::FromStr;
 use std::time::Instant;
 
 use rten::{
@@ -40,12 +41,13 @@ struct Args {
     #[argh(option)]
     check_outputs: Option<String>,
 
-    /// run shape and type inference prior to optimization.
+    /// run shape and type inference (experimental). This can enable more
+    /// optimizations (see https://github.com/robertknight/rten/pull/1124).
     ///
-    /// This is an experimental option that can enable more effective model
-    /// optimization. See https://github.com/robertknight/rten/pull/1124.
-    #[argh(switch)]
-    infer_shapes: bool,
+    /// Can be "off", "on" (best-effort) or "strict". If "strict", model will
+    /// fail to load if shape inference is not complete.
+    #[argh(option)]
+    infer_shapes: Option<InferShapesMode>,
 
     /// read values for input tensors from Safetensors file at the given path. Tensor names in the file are used as input names.
     #[argh(option, short = 'i')]
@@ -95,6 +97,29 @@ struct Args {
     /// display RTen version
     #[argh(switch, short = 'V')]
     version: bool,
+}
+
+#[derive(Clone, Copy, Default, PartialEq)]
+enum InferShapesMode {
+    #[default]
+    Off,
+    On,
+    Strict,
+}
+
+impl FromStr for InferShapesMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "off" => Ok(Self::Off),
+            "on" => Ok(Self::On),
+            "strict" => Ok(Self::Strict),
+            text => Err(format!(
+                "Unsupported shape inference mode \"{text}\". Valid options are 'on', 'off' or 'strict'."
+            )),
+        }
+    }
 }
 
 fn format_param_count(n: usize) -> String {
@@ -568,7 +593,11 @@ fn main() {
 
     let mut model_opts = ModelOptions::with_all_ops();
     model_opts.enable_optimization(!args.no_optimize);
-    model_opts.enable_shape_inference(args.infer_shapes);
+    model_opts.shape_inference(match args.infer_shapes.unwrap_or_default() {
+        InferShapesMode::Off => rten::ShapeInferenceMode::Off,
+        InferShapesMode::On => rten::ShapeInferenceMode::On,
+        InferShapesMode::Strict => rten::ShapeInferenceMode::Strict,
+    });
     model_opts.prepack_weights(args.prepack);
 
     let model = if args.mmap {
