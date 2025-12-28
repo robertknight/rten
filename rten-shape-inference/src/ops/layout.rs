@@ -162,7 +162,8 @@ impl InferShapes for Reshape {
                 let mut remainder = if remainder_index.is_some() {
                     Some(
                         data_dims
-                            .fold(SymExpr::Value(1), |prod, d| prod * d)
+                            .reduce(|prod, d| prod * d)
+                            .unwrap_or(SymExpr::Value(1))
                             // Combine constants into a single term where possible.
                             // eg. X * 3 * 4 => X * 12.
                             //
@@ -193,17 +194,15 @@ impl InferShapes for Reshape {
                         // Add placeholder that we'll replace later.
                         out_shape.push(SymExpr::Value(0));
                     } else {
-                        remainder = remainder.and_then(|r| r.exact_div(&size));
+                        remainder = remainder.map(|r| r / size.clone());
                         out_shape.push(size);
                     }
                 }
 
-                if let Some(rem_index) = remainder_index {
-                    out_shape[rem_index] = if let Some(remainder) = remainder {
-                        remainder.simplify()
-                    } else {
-                        sym_gen.gen_positive()
-                    }
+                if let Some(rem_index) = remainder_index
+                    && let Some(remainder) = remainder
+                {
+                    out_shape[rem_index] = remainder.simplify();
                 }
 
                 SymTensor::from_shape(out_shape)
@@ -349,7 +348,7 @@ impl InferShapes for Squeeze {
             // If axes are known, remove corresponding axes from input shape.
             let out_shape = shape
                 .enumerate()
-                .filter(|(i, _dim)| !const_axes.contains(&i))
+                .filter(|(i, _dim)| !const_axes.contains(i))
                 .map(|(_i, dim)| dim)
                 .collect();
             SymTensor::from_shape(out_shape)
@@ -638,6 +637,17 @@ mod tests {
             .infer_shapes(&[data, shape.clone()], &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", "seq", 768));
+
+        // Case where remainder has to be represented as a division expression.
+        let data = sym_shape!("batch", "seq");
+        let shape = sym_vec!("batch", 2, -1);
+        let result = allow_zero_op
+            .infer_shapes(&[data, shape.clone()], &mut sym_gen)
+            .unwrap();
+        assert_eq!(
+            result[0],
+            sym_shape!("batch", 2, SymExpr::from("seq") / SymExpr::from(2))
+        );
     }
 
     #[test]
