@@ -314,13 +314,18 @@ impl InferShapes for Squeeze {
             return Err(InferShapesError::IncorrectInputCount);
         };
 
+        let Some(shape) = data.shape() else {
+            return Ok([SymTensor::unknown("Unknown input shape")].into());
+        };
+
         let Some(Constant::Vector(axes)) = rest.first().and_then(|ax| ax.to_constant()) else {
             return Ok([SymTensor::unknown("Unknown axes")].into());
         };
 
-        let Some(shape) = data.shape() else {
-            return Ok([SymTensor::unknown("Unknown input shape")].into());
-        };
+        let axes = axes
+            .into_iter()
+            .map(|axis| resolve_axis(shape.len(), axis))
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Symbolic vector to scalar
         if let Some(values) = data.as_vector()
@@ -332,7 +337,7 @@ impl InferShapes for Squeeze {
 
         let out_shape = shape
             .enumerate()
-            .filter(|(i, _dim)| !axes.contains(&(*i as i32)))
+            .filter(|(i, _dim)| !axes.contains(&i))
             .map(|(_i, dim)| dim)
             .collect();
 
@@ -663,6 +668,12 @@ mod tests {
         let axes = sym_vec!(0);
         let result = Squeeze.infer_shapes(&[shape, axes], &mut sym_gen).unwrap();
         assert_eq!(result[0], SymTensor::unknown("Unknown input shape"));
+
+        // Negative axis
+        let shape = sym_shape!("foo", 32, 1);
+        let axes = sym_vec!(-1);
+        let result = Squeeze.infer_shapes(&[shape, axes], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("foo", 32));
     }
 
     #[test]
