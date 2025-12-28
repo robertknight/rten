@@ -19,7 +19,7 @@ use crate::ops::{map_value_view, resolve_axes, resolve_axis};
 use crate::slice_reductions::{slice_fold_assoc, slice_sum};
 use crate::value::{DataType, ValueType, ValueView};
 
-macro_rules! impl_infer_shapes {
+macro_rules! impl_infer_shapes_for_reduce_op {
     ($op:ident) => {
         impl InferShapes for $op {
             fn infer_shapes(
@@ -29,6 +29,24 @@ macro_rules! impl_infer_shapes {
             ) -> Result<Vec<SymTensor>, InferShapesError> {
                 ReductionOp {
                     axes: self.axes.as_deref(),
+                    keep_dims: self.keep_dims,
+                }
+                .infer_shapes(inputs, sym_gen)
+            }
+        }
+    };
+}
+
+macro_rules! impl_infer_shapes_for_arg_op {
+    ($op:ident) => {
+        impl InferShapes for $op {
+            fn infer_shapes(
+                &self,
+                inputs: &[SymTensor],
+                sym_gen: &mut SymbolGen,
+            ) -> Result<Vec<SymTensor>, InferShapesError> {
+                ReductionOp {
+                    axes: Some(&[self.axis as i32]),
                     keep_dims: self.keep_dims,
                 }
                 .infer_shapes(inputs, sym_gen)
@@ -129,7 +147,13 @@ impl Operator for ArgMax {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes_for_arg_op!(ArgMax);
 
 /// Return the index of the minimum value along a given axis.
 ///
@@ -173,7 +197,13 @@ impl Operator for ArgMin {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes_for_arg_op!(ArgMin);
 
 pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
     pool: &BufferPool,
@@ -513,7 +543,7 @@ impl Operator for ReduceMean {
     }
 }
 
-impl_infer_shapes!(ReduceMean);
+impl_infer_shapes_for_reduce_op!(ReduceMean);
 
 pub fn reduce_l2(
     pool: &BufferPool,
@@ -576,7 +606,7 @@ impl Operator for ReduceL2 {
     }
 }
 
-impl_infer_shapes!(ReduceL2);
+impl_infer_shapes_for_reduce_op!(ReduceL2);
 
 /// Compare `a` and `b`, treating all NaN values as greater than non-NaN values.
 pub fn cmp_nan_greater<T: PartialOrd + IsNaN>(a: T, b: T) -> std::cmp::Ordering {
@@ -710,7 +740,7 @@ impl Operator for ReduceMin {
     }
 }
 
-impl_infer_shapes!(ReduceMin);
+impl_infer_shapes_for_reduce_op!(ReduceMin);
 
 struct GenericMaxKernel;
 impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for GenericMaxKernel {
@@ -775,7 +805,7 @@ impl Operator for ReduceMax {
     }
 }
 
-impl_infer_shapes!(ReduceMax);
+impl_infer_shapes_for_reduce_op!(ReduceMax);
 
 pub fn reduce_prod<T: Copy + std::iter::Product>(
     pool: &BufferPool,
@@ -831,7 +861,7 @@ impl Operator for ReduceProd {
     }
 }
 
-impl_infer_shapes!(ReduceProd);
+impl_infer_shapes_for_reduce_op!(ReduceProd);
 
 struct OptimizedSumKernel;
 impl ReduceKernel<f32> for OptimizedSumKernel {
@@ -896,7 +926,7 @@ impl Operator for ReduceSum {
     }
 }
 
-impl_infer_shapes!(ReduceSum);
+impl_infer_shapes_for_reduce_op!(ReduceSum);
 
 struct OptimizedSumSquareKernel;
 impl ReduceKernel<f32> for OptimizedSumSquareKernel {
@@ -965,7 +995,7 @@ impl Operator for ReduceSumSquare {
     }
 }
 
-impl_infer_shapes!(ReduceSumSquare);
+impl_infer_shapes_for_reduce_op!(ReduceSumSquare);
 
 pub fn topk<T: Copy + Default + PartialOrd + IsNaN>(
     pool: &BufferPool,
