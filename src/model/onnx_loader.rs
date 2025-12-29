@@ -17,7 +17,7 @@ use crate::graph::{
 };
 use crate::op_registry::onnx_registry::{ConstInput, DynParsedOp, OpLoadContext};
 use crate::op_registry::{OpRegistry, ReadOpError};
-use crate::optimize::{GraphOptimizer, OptimizeOptions};
+use crate::optimize::GraphOptimizer;
 use crate::value::{DataType, ValueType};
 use crate::weight_cache::WeightCache;
 
@@ -49,16 +49,14 @@ pub fn load(
     }
     .map_err(|err| LoadErrorImpl::ParseFailed(Box::new(err)))?;
 
-    let optimize_opts = if options.optimize {
-        OptimizeMode::On(OptimizeOptions {
-            infer_shapes: options.infer_shapes,
-        })
-    } else {
-        OptimizeMode::Off
-    };
-
     let graph = if let Some(onnx_graph) = &model.graph {
-        load_graph(onnx_graph, &options.registry, optimize_opts, None, loader)?
+        load_graph(
+            onnx_graph,
+            &options.registry,
+            options.optimize_mode(),
+            None,
+            loader,
+        )?
     } else {
         Graph::new()
     };

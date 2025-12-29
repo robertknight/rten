@@ -833,6 +833,18 @@ impl ModelOptions {
             FileType::Onnx => Err(LoadErrorImpl::FormatNotEnabled.into()),
         }
     }
+
+    /// Convert optimization settings into the internal representation passed
+    /// to the graph optimizer.
+    fn optimize_mode(&self) -> OptimizeMode {
+        if self.optimize {
+            OptimizeMode::On(OptimizeOptions {
+                infer_shapes: self.infer_shapes,
+            })
+        } else {
+            OptimizeMode::Off
+        }
+    }
 }
 
 impl std::fmt::Debug for ModelOptions {
