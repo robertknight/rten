@@ -12,7 +12,7 @@ use rten_tensor::ArcTensor;
 
 use super::load_error::{LoadError, LoadErrorImpl, load_error};
 use super::metadata::{MetadataField, ModelMetadata};
-use super::{Model, ModelOptions, OptimizeMode, OptimizeOptions};
+use super::{Model, ModelOptions, OptimizeMode};
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
 use crate::graph::{CaptureEnv, ConstantNodeData, Dimension, Graph, NodeId};
 use crate::op_registry::rten_registry::{OpLoadContext, convert_dtype};
@@ -52,19 +52,13 @@ pub fn load(storage: Arc<ConstantStorage>, options: &ModelOptions) -> Result<Mod
         return Err(LoadErrorImpl::ParseFailed(err.into()).into());
     }
 
-    let optimize_opts = if options.optimize {
-        OptimizeMode::On(OptimizeOptions::default())
-    } else {
-        OptimizeMode::Off
-    };
-
     let tensor_data_offset = header.as_ref().map(|h| h.tensor_data_offset);
     let graph = load_graph(
         model.graph(),
         registry,
         storage.clone(),
         tensor_data_offset,
-        optimize_opts,
+        options.optimize_mode(),
         None, /* capture_env */
     )?;
 
