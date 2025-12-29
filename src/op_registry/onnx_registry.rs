@@ -530,11 +530,18 @@ impl<'a> Attr<'a> {
     /// This can fail if the ONNX data type is unsupported in RTen.
     fn as_dtype(&self) -> Result<DataType, ReadOpError> {
         let onnx_dtype = onnx::DataType(self.cast_int()?);
+
+        // The conversions here should match those used when converting
+        // initializers and value types in the ONNX model loader.
         match onnx_dtype {
-            onnx::DataType::FLOAT | onnx::DataType::FLOAT16 => Ok(DataType::Float),
+            onnx::DataType::FLOAT | onnx::DataType::FLOAT16 | onnx::DataType::DOUBLE => {
+                Ok(DataType::Float)
+            }
             onnx::DataType::INT32 | onnx::DataType::INT64 | onnx::DataType::BOOL => {
                 Ok(DataType::Int32)
             }
+            onnx::DataType::INT8 => Ok(DataType::Int8),
+            onnx::DataType::UINT8 => Ok(DataType::UInt8),
             _ => Err(ReadOpError::attr_error(
                 self.name,
                 format!("unsupported data type {onnx_dtype}"),
