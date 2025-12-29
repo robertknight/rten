@@ -1,6 +1,8 @@
 //! Shape and type inference for values in a graph.
 
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt;
 
 use crate::env::env_flag;
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, TypedConstant};
@@ -37,15 +39,55 @@ macro_rules! impl_infer_shapes {
 }
 pub(crate) use impl_infer_shapes;
 
+/// Details of an operator which encountered a shape or type inference error.
+#[derive(Debug)]
+pub struct OpInfo {
+    pub name: String,
+    pub op_type: String,
+}
+
 /// Errors that prevent shape inference from finishing.
 ///
 /// Shape inference can still complete if errors only happen for certain nodes.
 /// In that case the shapes or types will be treated as unknown.
 #[derive(Debug)]
 pub enum InferError {
-    #[allow(unused)] // Currently ignored downstream
+    /// Failed to generate the sequence of operators to run shape inference on.
     PlanError(RunError),
+    /// Type inference failed for an operator.
+    TypeInferenceFailed(OpInfo),
+    /// Shape inference is not implemented for an operator.
+    UnsupportedOperator(OpInfo),
+    /// Shape inference failed for an operator.
+    ShapeInferenceFailed(OpInfo),
 }
+
+impl fmt::Display for InferError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PlanError(e) => write!(f, "execution planning failed: {e}"),
+            Self::TypeInferenceFailed(op_info) => write!(
+                f,
+                "type inference failed for {} op \"{}\"",
+                op_info.op_type, op_info.name
+            ),
+            Self::UnsupportedOperator(op_info) => {
+                write!(
+                    f,
+                    "shape inference unsupported for {} op \"{}\"",
+                    op_info.op_type, op_info.name
+                )
+            }
+            Self::ShapeInferenceFailed(op_info) => write!(
+                f,
+                "shape inference failed for {} op \"{}\"",
+                op_info.op_type, op_info.name
+            ),
+        }
+    }
+}
+
+impl Error for InferError {}
 
 /// Info about a value node determined by shape inference.
 #[derive(Debug, PartialEq)]
@@ -55,6 +97,7 @@ pub enum Shape {
 }
 
 /// Results of shape and type inference.
+#[derive(Debug)]
 pub struct InferResult {
     /// Unique constants.
     pub constants: Vec<Constant>,
@@ -64,6 +107,17 @@ pub struct InferResult {
 
     /// Map of value node ID to inferred type.
     pub types: HashMap<NodeId, ValueType>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InferShapeOptions {
+    /// Enable strict shape inference mode.
+    ///
+    /// When true, [`infer_shapes`] will return an error if shape or type
+    /// inference is incomplete for any operator. When false, shape inference
+    /// is best-effort and will continue with remaining operators in the event
+    /// of an error.
+    pub strict: bool,
 }
 
 /// Infer the shapes and types of operator outputs in a graph.
@@ -83,7 +137,7 @@ pub struct InferResult {
 /// - The shape of an operator output is a function of inputs with symbolic
 ///   sizes and the inference infrastructure is unable to represent the
 ///   function.
-pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
+pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResult, InferError> {
     let mut symbol_gen = SymbolGen::new();
 
     let ops = graph
@@ -105,6 +159,11 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
     for op_id in ops {
         let Some(Node::Operator(op)) = graph.get_node(op_id) else {
             unreachable!("invalid execution plan");
+        };
+
+        let op_info = || OpInfo {
+            name: op.name().unwrap_or_default().to_string(),
+            op_type: op.operator().name().to_string(),
         };
 
         // Perform type inference
@@ -144,8 +203,12 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
                 };
                 if let Some(dtype) = dtype {
                     types.insert(*id, dtype);
+                } else if opts.strict {
+                    return Err(InferError::TypeInferenceFailed(op_info()));
                 }
             }
+        } else if opts.strict {
+            return Err(InferError::TypeInferenceFailed(op_info()));
         }
 
         // Perform shape inference
@@ -175,15 +238,26 @@ pub fn infer_shapes(graph: &Graph) -> Result<InferResult, InferError> {
                 Ok(out_shapes) => {
                     for (out_id, out_shape) in op.output_ids().iter().zip(out_shapes) {
                         let Some(out_id) = out_id else {
+                            // Ignore outputs that the model doesn't use.
                             continue;
                         };
+
+                        // Fail inference if any output has unknown shape.
+                        if opts.strict && out_shape.ndim().is_none() {
+                            return Err(InferError::ShapeInferenceFailed(op_info()));
+                        }
+
                         values.insert(*out_id, out_shape.simplify());
                     }
                 }
                 Err(_) => {
-                    // TODO - Track error for diagnostics.
+                    if opts.strict {
+                        return Err(InferError::ShapeInferenceFailed(op_info()));
+                    }
                 }
             }
+        } else if opts.strict {
+            return Err(InferError::UnsupportedOperator(op_info()));
         }
     }
 
@@ -302,7 +376,7 @@ mod tests {
     use crate::ops::{Concat, Gather, MatMul, Shape as ShapeOp, Split, Unsqueeze};
     use crate::value::{DataType, ValueType};
 
-    use super::{Constant, Shape, infer_shapes};
+    use super::{Constant, InferError, InferShapeOptions, Shape, infer_shapes};
 
     #[test]
     fn test_infer_shapes() {
@@ -317,7 +391,7 @@ mod tests {
             out.build_graph(&["data"])
         };
 
-        let shapes = infer_shapes(&graph).unwrap();
+        let shapes = infer_shapes(&graph, Default::default()).unwrap();
 
         let output_id = graph.output_ids()[0];
         let Some(Shape::Shape(shape)) = shapes.shapes.get(&output_id) else {
@@ -327,6 +401,52 @@ mod tests {
         assert_eq!(
             shapes.types.get(&output_id).copied(),
             Some(ValueType::Tensor(DataType::Float))
+        );
+    }
+
+    #[test]
+    fn test_infer_shapes_strict() {
+        let opts = InferShapeOptions { strict: true };
+
+        // Successful strict shape inference
+        let graph = {
+            let x = Expr::value_with_info(
+                "data",
+                ValueType::Tensor(DataType::Float),
+                &dims!("batch", 64),
+            );
+            let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
+            let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
+            out.build_graph(&["data"])
+        };
+        let result = infer_shapes(&graph, opts.clone());
+        assert!(result.is_ok());
+
+        // Unsuccessful shape inference
+        let graph = {
+            let x = Expr::value("data");
+            let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
+            let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
+            out.build_graph(&["data"])
+        };
+        let result = infer_shapes(&graph, opts.clone());
+        assert!(
+            matches!(&result, Err(InferError::ShapeInferenceFailed(op_info)) if op_info.name == "MatMul"),
+            "{:?} is not expected error",
+            result
+        );
+
+        // Unsuccessful type inference
+        let graph = {
+            let x = Expr::value("data");
+            let out = x.clone() + x;
+            out.build_graph(&["data"])
+        };
+        let result = infer_shapes(&graph, opts.clone());
+        assert!(
+            matches!(&result, Err(InferError::TypeInferenceFailed(op_info)) if op_info.name == "Add"),
+            "{:?} is not expected error",
+            result
         );
     }
 
@@ -352,7 +472,7 @@ mod tests {
         };
         assert_eq!(graph.output_ids().len(), 2);
 
-        let result = infer_shapes(&graph).unwrap();
+        let result = infer_shapes(&graph, Default::default()).unwrap();
 
         for output_id in graph.output_ids() {
             assert_eq!(
@@ -398,7 +518,7 @@ mod tests {
         };
 
         let output_id = graph.output_ids()[0];
-        let result = infer_shapes(&graph).unwrap();
+        let result = infer_shapes(&graph, Default::default()).unwrap();
 
         let shape = result.shapes.get(&output_id).unwrap();
         let Shape::Constant { index } = shape else {

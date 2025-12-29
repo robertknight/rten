@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::optimize::OptimizeError;
+
 /// Errors that occur when loading a model.
 #[derive(Debug)]
 pub struct LoadError {
@@ -80,6 +82,9 @@ pub enum LoadErrorKind {
     /// A problem occurred while optimizing the model.
     OptimizeError,
 
+    /// Strict shape inference is enabled and shape inference failed.
+    ShapeInferenceFailed,
+
     /// The model file type was unrecognized.
     UnknownFileType,
 
@@ -112,7 +117,7 @@ pub(crate) enum LoadErrorImpl {
     GraphError(Box<dyn Error + Send + Sync>),
 
     /// An error occurred while optimizing the graph.
-    OptimizeError(Box<dyn Error + Send + Sync>),
+    OptimizeError(Box<OptimizeError>),
 
     /// The file type of the model could not be determined.
     UnknownFileType,
@@ -137,7 +142,10 @@ impl LoadErrorImpl {
             Self::ParseFailed(_) => Kind::ParseError,
             Self::OperatorInvalid(_) => Kind::OperatorInvalid,
             Self::GraphError(_) => Kind::GraphError,
-            Self::OptimizeError(_) => Kind::OptimizeError,
+            Self::OptimizeError(err) => match **err {
+                OptimizeError::RunError(_) => Kind::OptimizeError,
+                OptimizeError::InferShapesError(_) => Kind::ShapeInferenceFailed,
+            },
             Self::UnknownFileType => Kind::UnknownFileType,
             Self::ExternalDataError(_) => Kind::ExternalDataError,
             Self::FormatNotEnabled => Kind::FormatNotEnabled,
@@ -152,7 +160,7 @@ impl LoadErrorImpl {
             Self::ParseFailed(err) => Some(err.as_ref()),
             Self::OperatorInvalid(err) => Some(err.as_ref()),
             Self::GraphError(err) => Some(err.as_ref()),
-            Self::OptimizeError(err) => Some(err.as_ref()),
+            Self::OptimizeError(err) => Some(err),
             Self::UnknownFileType => None,
             Self::ExternalDataError(err) => Some(err.as_ref()),
             Self::FormatNotEnabled => None,
@@ -169,7 +177,10 @@ impl Display for LoadErrorImpl {
             Self::ParseFailed(e) => write!(f, "parse error: {e}"),
             Self::OperatorInvalid(e) => write!(f, "operator error: {e}"),
             Self::GraphError(e) => write!(f, "graph error: {e}"),
-            Self::OptimizeError(e) => write!(f, "graph optimization error: {e}"),
+            Self::OptimizeError(err) => match &**err {
+                OptimizeError::InferShapesError(e) => write!(f, "shape inference failed: {e}"),
+                e => write!(f, "graph optimization error: {e}"),
+            },
             Self::UnknownFileType => write!(f, "unknown model file type"),
             Self::ExternalDataError(e) => write!(f, "external data error: {e}"),
             Self::FormatNotEnabled => {

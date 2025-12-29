@@ -12,6 +12,7 @@ use memmap2::Mmap;
 use crate::constant_storage::ConstantStorage;
 use crate::env::str_as_bool;
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunErrorImpl, RunOptions};
+use crate::infer_shapes::InferShapeOptions;
 use crate::op_registry::OpRegistry;
 use crate::optimize::OptimizeOptions;
 use crate::timing::{TimingFilter, TimingSort};
@@ -640,6 +641,25 @@ fn parse_timing_config(config: &str, opts: &mut RunOptions) {
     }
 }
 
+/// Set whether shape and type inference is run when loading a model.
+///
+/// See [`ModelOptions::shape_inference`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum ShapeInferenceMode {
+    /// Do not run shape inference
+    Off,
+    /// Run shape inference in best-effort mode.
+    ///
+    /// If shape inference is unsupported or fails for any operators, the
+    /// model will still load but some optimizations might be missed.
+    On,
+    /// Run shape inference in strict mode.
+    ///
+    /// The model will fail to load if shape inference cannot infer the shapes
+    /// or types of any values.
+    Strict,
+}
+
 /// Options which customize how a model is loaded.
 ///
 /// This enables more advanced use cases such as loading a model with only
@@ -651,7 +671,7 @@ pub struct ModelOptions {
     optimize: bool,
     prepack_weights: bool,
     external_data: HashMap<String, Arc<ConstantStorage>>,
-    infer_shapes: bool,
+    infer_shapes: ShapeInferenceMode,
 }
 
 impl ModelOptions {
@@ -670,7 +690,7 @@ impl ModelOptions {
             optimize: true,
             prepack_weights: false,
             external_data: HashMap::new(),
-            infer_shapes: false,
+            infer_shapes: ShapeInferenceMode::Off,
         }
     }
 
@@ -680,13 +700,26 @@ impl ModelOptions {
         self
     }
 
-    /// Set whether shape inference is run as part of optimization.
+    /// Enable shape and type inference for values.
+    ///
+    /// This is equivalent to `self.shape_inference(ShapeInferenceMode::On)`.
+    #[deprecated]
+    pub fn enable_shape_inference(&mut self, enable: bool) -> &mut Self {
+        self.infer_shapes = if enable {
+            ShapeInferenceMode::On
+        } else {
+            ShapeInferenceMode::Off
+        };
+        self
+    }
+
+    /// Set whether shape and type inference is run as part of optimization.
     ///
     /// This is an experimental option that is needed to enable certain more
     /// complex fusions to work. It will eventually be enabled by default. See
     /// <https://github.com/robertknight/rten/pull/1124>.
-    pub fn enable_shape_inference(&mut self, enable: bool) -> &mut Self {
-        self.infer_shapes = enable;
+    pub fn shape_inference(&mut self, mode: ShapeInferenceMode) -> &mut Self {
+        self.infer_shapes = mode;
         self
     }
 
@@ -839,7 +872,11 @@ impl ModelOptions {
     fn optimize_mode(&self) -> OptimizeMode {
         if self.optimize {
             OptimizeMode::On(OptimizeOptions {
-                infer_shapes: self.infer_shapes,
+                infer_shapes: match self.infer_shapes {
+                    ShapeInferenceMode::Off => None,
+                    ShapeInferenceMode::On => Some(InferShapeOptions { strict: false }),
+                    ShapeInferenceMode::Strict => Some(InferShapeOptions { strict: true }),
+                },
             })
         } else {
             OptimizeMode::Off

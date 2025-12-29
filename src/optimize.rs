@@ -13,7 +13,7 @@ use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
     PlanOptions, RunError,
 };
-use crate::infer_shapes::{Shape, infer_shapes};
+use crate::infer_shapes::{InferError, InferShapeOptions, Shape, infer_shapes};
 use crate::operator::Operator;
 use crate::ops::Identity;
 
@@ -38,12 +38,15 @@ pub enum OptimizeError {
     /// An error occurred while evaluating parts of the graph (eg. as part
     /// of constant propagation).
     RunError(RunError),
+    /// Shape inference failed.
+    InferShapesError(InferError),
 }
 
 impl Display for OptimizeError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::RunError(err) => write!(f, "partial evaluation failed: {}", err),
+            Self::InferShapesError(err) => write!(f, "shape inference failed: {}", err),
         }
     }
 }
@@ -375,8 +378,8 @@ fn find_operator_output_used_outside_subgraph(
 /// Configuration for [`GraphOptimizer::optimize`].
 #[derive(Clone, Default)]
 pub struct OptimizeOptions {
-    /// Run shape and type inference prior to optimization passes.
-    pub infer_shapes: bool,
+    /// If set, run shape and type inference prior to optimization passes.
+    pub infer_shapes: Option<InferShapeOptions>,
 }
 
 /// Applies optimizations to a [`Graph`] to enable faster inference.
@@ -418,9 +421,9 @@ impl GraphOptimizer {
         //
         // This can unlock fusions which have restrictions on the shapes and
         // types of inputs.
-        if opts.infer_shapes
-            && let Ok(infer_result) = infer_shapes(&graph_mut.graph)
-        {
+        if let Some(infer_opts) = opts.infer_shapes {
+            let infer_result = infer_shapes(&graph_mut.graph, infer_opts)
+                .map_err(OptimizeError::InferShapesError)?;
             let const_ids: Vec<NodeId> = infer_result
                 .constants
                 .into_iter()

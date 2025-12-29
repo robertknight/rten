@@ -1,5 +1,8 @@
 //! Traits for shape inference and common implementations.
 
+use std::error::Error;
+use std::fmt;
+
 use smallvec::SmallVec;
 
 pub use crate::{
@@ -28,6 +31,20 @@ pub enum InferShapesError {
     /// The number of outputs could not be determined.
     UnknownOutputCount,
 }
+
+impl fmt::Display for InferShapesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::IncorrectInputCount => write!(f, "operator has incorrect input count"),
+            Self::IncompatibleShapes => write!(f, "input shapes are incompatible"),
+            Self::IncorrectRank => write!(f, "incorrect input rank"),
+            Self::InvalidValue => write!(f, "input or attribute has invalid value"),
+            Self::UnknownOutputCount => write!(f, "unknown output count"),
+        }
+    }
+}
+
+impl Error for InferShapesError {}
 
 /// Infer the shapes of an operator's outputs given its inputs.
 pub trait InferShapes {
