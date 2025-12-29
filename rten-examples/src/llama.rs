@@ -3,7 +3,7 @@ use std::io;
 use std::io::prelude::*;
 
 use argh::FromArgs;
-use rten::ModelOptions;
+use rten::{ModelOptions, ShapeInferenceMode};
 use rten_generate::filter::Chain;
 use rten_generate::metrics::Metrics;
 use rten_generate::sampler::Multinomial;
@@ -68,9 +68,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut model_opts = ModelOptions::with_all_ops();
 
-    // Enable shape inference. This enables additional optimizations that are
-    // useful for this model. See https://github.com/robertknight/rten/issues/1091.
-    model_opts.enable_shape_inference(true);
+    // Enable strict shape inference. This enables important attention-related
+    // optimizations for this model. See https://github.com/robertknight/rten/issues/1091.
+    model_opts.shape_inference(ShapeInferenceMode::Strict);
 
     // `load_mmap` reduces model load/free time and process memory usage, at the
     // cost of making the first execution slower.
