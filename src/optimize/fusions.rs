@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use rten_shape_inference::{SymExpr, Symbol};
 use rten_tensor::{ArcTensor, NdTensorView, SliceRange};
 
 use crate::graph::{
@@ -13,9 +14,10 @@ use crate::graph::{
 use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, Cast, ComputeShape, DimSpec, DynamicQuantizeLinear, FusedMatMul, Gelu,
+    AddSoftmax, Cast, ComputeShape, DynamicQuantizeLinear, FusedMatMul, Gelu,
     GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, Mul, Reciprocal,
-    ReduceMean, RepeatInterleave, RmsNormalization, Shape, Silu, Softmax, Swish, Transpose,
+    ReduceMean, RepeatInterleave, RmsNormalization, Shape, Silu, Softmax, Swish, SymbolInfo,
+    Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::ValueType;
@@ -1496,10 +1498,10 @@ impl FusionVisitor for ComputeShapeFusion {
         }
 
         let mut input_ids = Vec::new();
-        let shape: Vec<DimSpec> = dims
+        let symbols: Vec<SymbolInfo> = dims
             .iter()
-            .map(|dim| match dim {
-                Dimension::Fixed(size) => DimSpec::Static(*size as u32),
+            .filter_map(|dim| match dim {
+                Dimension::Fixed(_) => None,
                 Dimension::Symbolic(name) => {
                     let (input_id, dim) = state
                         .get(name.as_str())
@@ -1512,17 +1514,32 @@ impl FusionVisitor for ComputeShapeFusion {
                             input_ids.push(input_id);
                             input_ids.len() - 1
                         };
-                    DimSpec::Dynamic {
+                    Some(SymbolInfo {
+                        name: name.clone(),
                         input: idx as u32,
-                        dim,
-                    }
+                        axis: dim,
+                    })
                 }
+            })
+            .collect();
+
+        let shape: Vec<SymExpr> = dims
+            .iter()
+            .map(|dim| match dim {
+                Dimension::Fixed(size) => SymExpr::Value(*size as i32),
+                Dimension::Symbolic(name) => SymExpr::Var(
+                    Symbol {
+                        name: name.to_string(),
+                        positive: true,
+                    }
+                    .into(),
+                ),
             })
             .collect();
 
         let input_ids: Vec<_> = input_ids.into_iter().map(Some).collect();
 
-        let compute_shape = ComputeShape { shape };
+        let compute_shape = ComputeShape { shape, symbols };
 
         Ok(Fusion::from_op(
             op_node.name(),
