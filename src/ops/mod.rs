@@ -20,6 +20,7 @@ use crate::value::DataType;
 
 mod attention;
 mod binary_elementwise;
+mod compute_shape;
 mod concat;
 mod control_flow;
 mod conv;
@@ -71,6 +72,7 @@ pub(crate) use {
         Add, And, Div, Equal, Greater, GreaterOrEqual, Less, LessOrEqual, Mod, Mul, Or, Pow, Sub,
         Where, Xor,
     },
+    compute_shape::{ComputeShape, SymbolInfo},
     concat::{Concat, Tile},
     control_flow::{If, Loop},
     conv::{Conv, ConvInteger},
@@ -81,10 +83,7 @@ pub(crate) use {
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
     grid_sample::GridSample,
     identity::Identity,
-    layout::{
-        ComputeShape, DepthToSpace, DimSpec, Expand, Flatten, Reshape, Shape, Size, Squeeze,
-        Transpose, Unsqueeze,
-    },
+    layout::{DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze},
     matmul::{
         AccuracyLevel, FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat, MatMulNBits,
     },

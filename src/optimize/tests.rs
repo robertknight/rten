@@ -2,6 +2,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use rten_base::byte_cast::cast_pod_slice;
+use rten_shape_inference::{SymExpr, Symbol};
 use rten_tensor::{NdTensor, Tensor};
 use rten_testing::TestCases;
 
@@ -14,10 +15,10 @@ use crate::graph::{
 };
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
-    Add, Cast, ComputeShape, DimSpec, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather,
-    Gelu, GroupedQueryAttentionMatMul, Identity, IsNaN, LayerNormalization, MatMul, MatMulInteger,
-    Neg, Pow, ReduceMean, RepeatInterleave, Reshape, RmsNormalization, Shape, Sigmoid, Slice,
-    Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
+    Add, Cast, ComputeShape, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
+    GroupedQueryAttentionMatMul, Identity, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg,
+    Pow, ReduceMean, RepeatInterleave, Reshape, RmsNormalization, Shape, Sigmoid, Slice, Softmax,
+    Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -1054,10 +1055,16 @@ fn test_fuse_compute_shape() {
     assert_eq!(
         op.shape,
         [
-            DimSpec::Dynamic { input: 0, dim: 0 },
-            DimSpec::Static(3),
-            DimSpec::Static(224),
-            DimSpec::Static(224),
+            SymExpr::Var(
+                Symbol {
+                    name: "batch".into(),
+                    positive: true
+                }
+                .into()
+            ),
+            SymExpr::Value(3),
+            SymExpr::Value(224),
+            SymExpr::Value(224),
         ]
     );
 }
