@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub};
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// A named variable.
 ///
@@ -27,28 +27,28 @@ pub enum SymExpr {
     /// Element with a known integer value.
     Value(i32),
     /// Symbolic value
-    Var(Rc<Symbol>),
+    Var(Arc<Symbol>),
     /// Addition of two symbolic values
-    Add((Rc<SymExpr>, Rc<SymExpr>)),
+    Add(Arc<SymExpr>, Arc<SymExpr>),
     /// Subtraction of two symbolic values
-    Sub((Rc<SymExpr>, Rc<SymExpr>)),
+    Sub(Arc<SymExpr>, Arc<SymExpr>),
     /// Multiplication of two symbolic values
-    Mul((Rc<SymExpr>, Rc<SymExpr>)),
+    Mul(Arc<SymExpr>, Arc<SymExpr>),
     /// Flooring division of first expression by second.
-    Div((Rc<SymExpr>, Rc<SymExpr>)),
+    Div(Arc<SymExpr>, Arc<SymExpr>),
     /// Ceiling division of first expression by second.
-    DivCeil((Rc<SymExpr>, Rc<SymExpr>)),
+    DivCeil(Arc<SymExpr>, Arc<SymExpr>),
     /// Maximum of two symbolic values
-    Max((Rc<SymExpr>, Rc<SymExpr>)),
+    Max(Arc<SymExpr>, Arc<SymExpr>),
     /// Minimum of two symbolic values
-    Min((Rc<SymExpr>, Rc<SymExpr>)),
+    Min(Arc<SymExpr>, Arc<SymExpr>),
     /// Broadcast two symbolic values.
     ///
     /// This behaves like `Max`, except it implies that both expressions are
     /// positive and either equal or 1.
-    Broadcast((Rc<SymExpr>, Rc<SymExpr>)),
+    Broadcast(Arc<SymExpr>, Arc<SymExpr>),
     /// Negation of a value
-    Neg(Rc<SymExpr>),
+    Neg(Arc<SymExpr>),
 }
 
 impl SymExpr {
@@ -70,22 +70,22 @@ impl SymExpr {
                     (i32::MIN, i32::MAX)
                 }
             }
-            Self::Add((lhs, rhs))
-            | Self::Mul((lhs, rhs))
-            | Self::Max((lhs, rhs))
-            | Self::Min((lhs, rhs))
-            | Self::Div((lhs, rhs))
-            | Self::DivCeil((lhs, rhs)) => {
+            Self::Add(lhs, rhs)
+            | Self::Mul(lhs, rhs)
+            | Self::Max(lhs, rhs)
+            | Self::Min(lhs, rhs)
+            | Self::Div(lhs, rhs)
+            | Self::DivCeil(lhs, rhs) => {
                 let (lhs_min, lhs_max) = lhs.range();
                 let (rhs_min, rhs_max) = rhs.range();
                 (lhs_min.min(rhs_min), lhs_max.max(rhs_max))
             }
-            Self::Sub((_lhs, _rhs)) => {
+            Self::Sub(_lhs, _rhs) => {
                 // Note: Unlike for addition, subtraction involving two
                 // positive symbols may produce a negative result.
                 (i32::MIN, i32::MAX)
             }
-            Self::Broadcast((lhs, rhs)) => {
+            Self::Broadcast(lhs, rhs) => {
                 let (lhs_min, lhs_max) = lhs.range();
                 let (rhs_min, rhs_max) = rhs.range();
                 (lhs_min.min(rhs_min).max(0), lhs_max.max(rhs_max).max(0))
@@ -99,36 +99,34 @@ impl SymExpr {
             Self::Value(x) => *x >= 0,
             Self::Var(sym) => sym.positive,
             Self::Neg(_expr) => false,
-            Self::Add((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
-            Self::Sub((_lhs, _rhs)) => false,
-            Self::Mul((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
-            Self::Div((lhs, rhs)) | Self::DivCeil((lhs, rhs)) => {
-                lhs.is_positive() && rhs.is_positive()
-            }
-            Self::Max((lhs, rhs)) => lhs.is_positive() || rhs.is_positive(),
-            Self::Min((lhs, rhs)) => lhs.is_positive() && rhs.is_positive(),
-            Self::Broadcast(_) => true,
+            Self::Add(lhs, rhs) => lhs.is_positive() && rhs.is_positive(),
+            Self::Sub(_lhs, _rhs) => false,
+            Self::Mul(lhs, rhs) => lhs.is_positive() && rhs.is_positive(),
+            Self::Div(lhs, rhs) | Self::DivCeil(lhs, rhs) => lhs.is_positive() && rhs.is_positive(),
+            Self::Max(lhs, rhs) => lhs.is_positive() || rhs.is_positive(),
+            Self::Min(lhs, rhs) => lhs.is_positive() && rhs.is_positive(),
+            Self::Broadcast(..) => true,
         }
     }
 
     /// Return the maximum of `self` and `other`.
     pub fn max(&self, other: &SymExpr) -> SymExpr {
-        Self::Max((self.clone().into(), other.clone().into()))
+        Self::Max(self.clone().into(), other.clone().into())
     }
 
     /// Return the minimum of `self` and `other`.
     pub fn min(&self, other: &SymExpr) -> SymExpr {
-        Self::Min((self.clone().into(), other.clone().into()))
+        Self::Min(self.clone().into(), other.clone().into())
     }
 
     /// Return the result of broadcasting `self` and `other`.
     pub fn broadcast(&self, other: &SymExpr) -> SymExpr {
-        Self::Broadcast((self.clone().into(), other.clone().into()))
+        Self::Broadcast(self.clone().into(), other.clone().into())
     }
 
     /// Return the result of dividing `self` by `other`, rounded up.
     pub fn div_ceil(&self, other: &SymExpr) -> SymExpr {
-        Self::DivCeil((self.clone().into(), other.clone().into()))
+        Self::DivCeil(self.clone().into(), other.clone().into())
     }
 
     fn is_value(&self) -> bool {
@@ -144,7 +142,7 @@ impl SymExpr {
         fn collect_terms(
             terms: &mut Vec<SymExpr>,
             term: &SymExpr,
-            extract_lhs_rhs: &impl Fn(&SymExpr) -> Option<&(Rc<SymExpr>, Rc<SymExpr>)>,
+            extract_lhs_rhs: &impl Fn(&SymExpr) -> Option<(&Arc<SymExpr>, &Arc<SymExpr>)>,
         ) {
             if let Some((lhs, rhs)) = extract_lhs_rhs(term) {
                 collect_terms(terms, lhs, extract_lhs_rhs);
@@ -165,7 +163,7 @@ impl SymExpr {
         //    step (3) removed all the terms
         fn reassociate_terms(
             term: &SymExpr,
-            extract_terms: &impl Fn(&SymExpr) -> Option<&(Rc<SymExpr>, Rc<SymExpr>)>,
+            extract_terms: &impl Fn(&SymExpr) -> Option<(&Arc<SymExpr>, &Arc<SymExpr>)>,
             simplify: impl Fn(Vec<SymExpr>) -> Vec<SymExpr>,
             default: SymExpr,
             reduce: impl Fn(SymExpr, SymExpr) -> SymExpr,
@@ -196,11 +194,11 @@ impl SymExpr {
         match self {
             Self::Value(_) | Self::Var(_) => self.clone(),
             Self::Neg(expr) => Self::Neg(expr.canonicalize().into()),
-            Self::Mul(_) => reassociate_terms(
+            Self::Mul(..) => reassociate_terms(
                 self,
                 &|term| {
-                    if let Self::Mul(inner) = term {
-                        Some(inner)
+                    if let Self::Mul(lhs, rhs) = term {
+                        Some((lhs, rhs))
                     } else {
                         None
                     }
@@ -209,7 +207,7 @@ impl SymExpr {
                 SymExpr::Value(1),
                 |prod, x| prod * x,
             ),
-            Self::Add(_) => {
+            Self::Add(..) => {
                 // Remove adjacent terms which cancel.
                 let remove_adjacent_opposite_terms = |mut terms: Vec<SymExpr>| {
                     let mut idx = 0;
@@ -227,7 +225,7 @@ impl SymExpr {
                 reassociate_terms(
                     self,
                     &|term| match term {
-                        Self::Add(inner) => Some(inner),
+                        Self::Add(lhs, rhs) => Some((lhs, rhs)),
                         _ => None,
                     },
                     remove_adjacent_opposite_terms,
@@ -235,47 +233,47 @@ impl SymExpr {
                     |sum, x| sum + x,
                 )
             }
-            Self::Max(_) => reassociate_terms(
+            Self::Max(..) => reassociate_terms(
                 self,
                 &|term| match term {
-                    Self::Max(inner) => Some(inner),
+                    Self::Max(lhs, rhs) => Some((lhs, rhs)),
                     _ => None,
                 },
                 remove_adjacent_equal_terms,
                 SymExpr::Value(i32::MIN),
                 |max, x| max.max(&x),
             ),
-            Self::Min(_) => reassociate_terms(
+            Self::Min(..) => reassociate_terms(
                 self,
                 &|term| match term {
-                    Self::Min(inner) => Some(inner),
+                    Self::Min(lhs, rhs) => Some((lhs, rhs)),
                     _ => None,
                 },
                 remove_adjacent_equal_terms,
                 SymExpr::Value(i32::MAX),
                 |min, x| min.min(&x),
             ),
-            Self::Sub((lhs, rhs)) => {
+            Self::Sub(lhs, rhs) => {
                 // Rewrite `x - y` as `x + (-y)`. This makes it easier to
                 // simplify expressions by canceling opposite terms.
                 let lhs = lhs.canonicalize();
                 let rhs = rhs.canonicalize();
-                Self::Add((lhs.into(), (-rhs).into())).canonicalize()
+                Self::Add(lhs.into(), (-rhs).into()).canonicalize()
             }
-            Self::Div((lhs, rhs)) => {
+            Self::Div(lhs, rhs) => {
                 let lhs = lhs.canonicalize();
                 let rhs = rhs.canonicalize();
-                Self::Div((lhs.into(), rhs.into()))
+                Self::Div(lhs.into(), rhs.into())
             }
-            Self::DivCeil((lhs, rhs)) => {
+            Self::DivCeil(lhs, rhs) => {
                 let lhs = lhs.canonicalize();
                 let rhs = rhs.canonicalize();
-                Self::DivCeil((lhs.into(), rhs.into()))
+                Self::DivCeil(lhs.into(), rhs.into())
             }
-            Self::Broadcast(_) => reassociate_terms(
+            Self::Broadcast(..) => reassociate_terms(
                 self,
                 &|term| match term {
-                    Self::Broadcast(inner) => Some(inner),
+                    Self::Broadcast(lhs, rhs) => Some((lhs, rhs)),
                     _ => None,
                 },
                 remove_adjacent_equal_terms,
@@ -294,16 +292,16 @@ impl SymExpr {
 
     /// Simplify an expression which is assumed to have been put in canonical
     /// form by [`canonicalize`](Self::canonicalize).
-    fn simplify_canonical(&self) -> SymExpr {
+    fn simplify_canonical(self) -> SymExpr {
         match self {
             Self::Value(_) | Self::Var(_) => self.clone(),
-            Self::Neg(expr) => match expr.simplify_canonical() {
+            Self::Neg(expr) => match Arc::unwrap_or_clone(expr).simplify_canonical() {
                 SymExpr::Value(x) => SymExpr::Value(-x),
                 expr => Self::Neg(expr.into()),
             },
-            Self::Add((lhs, rhs)) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+            Self::Add(lhs, rhs) => {
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 match (lhs, rhs) {
                     (SymExpr::Value(0), rhs) => rhs,
@@ -313,9 +311,9 @@ impl SymExpr {
                     (lhs, rhs) => lhs + rhs,
                 }
             }
-            Self::Sub((lhs, rhs)) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+            Self::Sub(lhs, rhs) => {
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 match (lhs, rhs) {
                     (lhs, SymExpr::Value(0)) => lhs,
@@ -324,9 +322,9 @@ impl SymExpr {
                     (lhs, rhs) => lhs - rhs,
                 }
             }
-            Self::Mul((lhs, rhs)) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+            Self::Mul(lhs, rhs) => {
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 match (lhs, rhs) {
                     (SymExpr::Value(1), rhs) => rhs,
@@ -335,16 +333,16 @@ impl SymExpr {
                     (lhs, rhs) => lhs * rhs,
                 }
             }
-            Self::Div((lhs, rhs)) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+            Self::Div(lhs, rhs) => {
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
                 let (lhs, rhs) = remove_common_factors(lhs, rhs);
 
                 match (lhs, rhs) {
                     (lhs, SymExpr::Value(1)) => lhs,
                     (SymExpr::Value(x), SymExpr::Value(y)) if y != 0 => SymExpr::Value(x / y),
                     // x / b / c => x / (b * c)
-                    (SymExpr::Div((lhs, c1)), c2) => match (&*c1, c2) {
+                    (SymExpr::Div(lhs, c1), c2) => match (&*c1, c2) {
                         (SymExpr::Value(c1), SymExpr::Value(c2)) if *c1 != 0 && c2 != 0 => {
                             (*lhs).clone() / SymExpr::Value(c1 * c2)
                         }
@@ -353,9 +351,9 @@ impl SymExpr {
                     (lhs, rhs) => lhs / rhs,
                 }
             }
-            Self::DivCeil((lhs, rhs)) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+            Self::DivCeil(lhs, rhs) => {
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 match (lhs, rhs) {
                     (lhs, SymExpr::Value(1)) => lhs,
@@ -373,7 +371,7 @@ impl SymExpr {
 
                     // x.div_ceil(b).div_ceil(c) => x.div_ceil(b * c) if b > 0
                     // and c > 0.
-                    (SymExpr::DivCeil((lhs, c1)), c2) => match (&*c1, c2) {
+                    (SymExpr::DivCeil(lhs, c1), c2) => match (&*c1, c2) {
                         (SymExpr::Value(c1), SymExpr::Value(c2)) if *c1 > 0 && c2 > 0 => {
                             lhs.div_ceil(&SymExpr::Value(c1 * c2))
                         }
@@ -382,35 +380,35 @@ impl SymExpr {
                     (lhs, rhs) => lhs.div_ceil(&rhs),
                 }
             }
-            Self::Max((lhs, rhs)) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+            Self::Max(lhs, rhs) => {
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 if lhs == rhs {
                     lhs
                 } else {
                     match (lhs, rhs) {
                         (SymExpr::Value(x), SymExpr::Value(y)) => SymExpr::Value(x.max(y)),
-                        (lhs, rhs) => Self::Max((lhs.into(), rhs.into())),
+                        (lhs, rhs) => Self::Max(lhs.into(), rhs.into()),
                     }
                 }
             }
-            Self::Min((lhs, rhs)) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+            Self::Min(lhs, rhs) => {
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 if lhs == rhs {
                     lhs
                 } else {
                     match (lhs, rhs) {
                         (SymExpr::Value(x), SymExpr::Value(y)) => SymExpr::Value(x.min(y)),
-                        (lhs, rhs) => Self::Min((lhs.into(), rhs.into())),
+                        (lhs, rhs) => Self::Min(lhs.into(), rhs.into()),
                     }
                 }
             }
-            Self::Broadcast((lhs, rhs)) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+            Self::Broadcast(lhs, rhs) => {
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 match (lhs, rhs) {
                     (SymExpr::Value(x), SymExpr::Value(y)) if x == y => SymExpr::Value(x),
@@ -419,7 +417,7 @@ impl SymExpr {
                     (SymExpr::Value(x), y) if x != 1 => SymExpr::Value(x),
                     (x, SymExpr::Value(y)) if y != 1 => SymExpr::Value(y),
                     (lhs, rhs) if lhs == rhs => lhs,
-                    (lhs, rhs) => SymExpr::Broadcast((lhs.into(), rhs.into())),
+                    (lhs, rhs) => SymExpr::Broadcast(lhs.into(), rhs.into()),
                 }
             }
         }
@@ -432,11 +430,13 @@ impl SymExpr {
         match self {
             // Functions and atomic values have the maximum precedence, so they
             // never need to be wrapped in parens when formatting an expression.
-            Self::Value(_) | Self::Var(_) | Self::Max(_) | Self::Min(_) | Self::Broadcast(_) => 4,
-            Self::Div(_) | Self::DivCeil(_) => 3,
-            Self::Mul(_) => 2,
-            Self::Add(_) => 1,
-            Self::Sub(_) | Self::Neg(_) => 0,
+            Self::Value(_) | Self::Var(_) | Self::Max(..) | Self::Min(..) | Self::Broadcast(..) => {
+                4
+            }
+            Self::Div(..) | Self::DivCeil(..) => 3,
+            Self::Mul(..) => 2,
+            Self::Add(..) => 1,
+            Self::Sub(..) | Self::Neg(_) => 0,
         }
     }
 
@@ -470,14 +470,14 @@ impl SymExpr {
             SymExpr::Value(_) => None,
             SymExpr::Var(sym) => Some(&sym.name),
             SymExpr::Neg(x) => x.name(),
-            SymExpr::Add(_)
-            | SymExpr::Sub(_)
-            | SymExpr::Mul(_)
-            | SymExpr::Div(_)
-            | SymExpr::DivCeil(_)
-            | SymExpr::Max(_)
-            | SymExpr::Min(_)
-            | SymExpr::Broadcast(_) => None,
+            SymExpr::Add(..)
+            | SymExpr::Sub(..)
+            | SymExpr::Mul(..)
+            | SymExpr::Div(..)
+            | SymExpr::DivCeil(..)
+            | SymExpr::Max(..)
+            | SymExpr::Min(..)
+            | SymExpr::Broadcast(..) => None,
         }
     }
 
@@ -510,7 +510,7 @@ fn cmp_values_first(a: &SymExpr, b: &SymExpr) -> Ordering {
 /// Remove common factors from `lhs` and `rhs`.
 fn remove_common_factors(lhs: SymExpr, rhs: SymExpr) -> (SymExpr, SymExpr) {
     fn collect_terms(terms: &mut Vec<SymExpr>, term: &SymExpr) {
-        if let SymExpr::Mul((lhs, rhs)) = term {
+        if let SymExpr::Mul(lhs, rhs) = term {
             collect_terms(terms, lhs);
             collect_terms(terms, rhs);
         } else {
@@ -571,36 +571,36 @@ impl PartialEq<SymExpr> for SymExpr {
                 Self::Neg(y) => x == y,
                 _ => false,
             },
-            Self::Add((a, b)) => match other {
-                Self::Add((c, d)) => commutative_eq(a, b, c, d),
+            Self::Add(a, b) => match other {
+                Self::Add(c, d) => commutative_eq(a, b, c, d),
                 _ => false,
             },
-            Self::Mul((a, b)) => match other {
-                Self::Mul((c, d)) => commutative_eq(a, b, c, d),
+            Self::Mul(a, b) => match other {
+                Self::Mul(c, d) => commutative_eq(a, b, c, d),
                 _ => false,
             },
-            Self::Max((a, b)) => match other {
-                Self::Max((c, d)) => commutative_eq(a, b, c, d),
+            Self::Max(a, b) => match other {
+                Self::Max(c, d) => commutative_eq(a, b, c, d),
                 _ => false,
             },
-            Self::Min((a, b)) => match other {
-                Self::Min((c, d)) => commutative_eq(a, b, c, d),
+            Self::Min(a, b) => match other {
+                Self::Min(c, d) => commutative_eq(a, b, c, d),
                 _ => false,
             },
-            Self::Sub((a, b)) => match other {
-                Self::Sub((c, d)) => a == c && b == d,
+            Self::Sub(a, b) => match other {
+                Self::Sub(c, d) => a == c && b == d,
                 _ => false,
             },
-            Self::Div((a, b)) => match other {
-                Self::Div((c, d)) => a == c && b == d,
+            Self::Div(a, b) => match other {
+                Self::Div(c, d) => a == c && b == d,
                 _ => false,
             },
-            Self::DivCeil((a, b)) => match other {
-                Self::DivCeil((c, d)) => a == c && b == d,
+            Self::DivCeil(a, b) => match other {
+                Self::DivCeil(c, d) => a == c && b == d,
                 _ => false,
             },
-            Self::Broadcast((a, b)) => match other {
-                Self::Broadcast((c, d)) => commutative_eq(a, b, c, d),
+            Self::Broadcast(a, b) => match other {
+                Self::Broadcast(c, d) => commutative_eq(a, b, c, d),
                 _ => false,
             },
         }
@@ -611,7 +611,7 @@ impl Add<SymExpr> for SymExpr {
     type Output = SymExpr;
 
     fn add(self, rhs: SymExpr) -> Self {
-        Self::Add((self.into(), rhs.into()))
+        Self::Add(self.into(), rhs.into())
     }
 }
 
@@ -619,13 +619,13 @@ impl Sub<SymExpr> for SymExpr {
     type Output = SymExpr;
 
     fn sub(self, rhs: SymExpr) -> Self {
-        Self::Sub((self.into(), rhs.into()))
+        Self::Sub(self.into(), rhs.into())
     }
 }
 
 impl AddAssign<SymExpr> for SymExpr {
     fn add_assign(&mut self, rhs: SymExpr) {
-        *self = Self::Add((self.clone().into(), rhs.into()));
+        *self = Self::Add(self.clone().into(), rhs.into());
     }
 }
 
@@ -633,7 +633,7 @@ impl Mul<SymExpr> for SymExpr {
     type Output = SymExpr;
 
     fn mul(self, rhs: SymExpr) -> Self {
-        Self::Mul((self.into(), rhs.into()))
+        Self::Mul(self.into(), rhs.into())
     }
 }
 
@@ -641,7 +641,7 @@ impl Div<SymExpr> for SymExpr {
     type Output = SymExpr;
 
     fn div(self, rhs: SymExpr) -> Self {
-        Self::Div((self.into(), rhs.into()))
+        Self::Div(self.into(), rhs.into())
     }
 }
 
@@ -707,14 +707,14 @@ impl fmt::Debug for SymExpr {
             // nb. No space between "-" and expression to make formatting
             // distinct from subtraction.
             Self::Neg(expr) => write!(f, "-{:?}", expr),
-            Self::Add((lhs, rhs)) => write_binop(f, '+', lhs, rhs),
-            Self::Sub((lhs, rhs)) => write_binop(f, '-', lhs, rhs),
-            Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
-            Self::Div((lhs, rhs)) => write_binop(f, '/', lhs, rhs),
-            Self::DivCeil((lhs, rhs)) => write!(f, "ceil_div({:?}, {:?})", lhs, rhs),
-            Self::Max((lhs, rhs)) => write!(f, "max({:?}, {:?})", lhs, rhs),
-            Self::Min((lhs, rhs)) => write!(f, "min({:?}, {:?})", lhs, rhs),
-            Self::Broadcast((lhs, rhs)) => write!(f, "broadcast({:?}, {:?})", lhs, rhs),
+            Self::Add(lhs, rhs) => write_binop(f, '+', lhs, rhs),
+            Self::Sub(lhs, rhs) => write_binop(f, '-', lhs, rhs),
+            Self::Mul(lhs, rhs) => write_binop(f, '*', lhs, rhs),
+            Self::Div(lhs, rhs) => write_binop(f, '/', lhs, rhs),
+            Self::DivCeil(lhs, rhs) => write!(f, "ceil_div({:?}, {:?})", lhs, rhs),
+            Self::Max(lhs, rhs) => write!(f, "max({:?}, {:?})", lhs, rhs),
+            Self::Min(lhs, rhs) => write!(f, "min({:?}, {:?})", lhs, rhs),
+            Self::Broadcast(lhs, rhs) => write!(f, "broadcast({:?}, {:?})", lhs, rhs),
         }
     }
 }
@@ -739,14 +739,14 @@ impl fmt::Display for SymExpr {
             // nb. No space between "-" and expression to make formatting
             // distinct from subtraction.
             Self::Neg(expr) => write!(f, "-{}", expr),
-            Self::Add((lhs, rhs)) => write_binop(f, '+', lhs, rhs),
-            Self::Sub((lhs, rhs)) => write_binop(f, '-', lhs, rhs),
-            Self::Mul((lhs, rhs)) => write_binop(f, '*', lhs, rhs),
-            Self::Div((lhs, rhs)) => write_binop(f, '/', lhs, rhs),
-            Self::DivCeil((lhs, rhs)) => write!(f, "ceil_div({}, {})", lhs, rhs),
-            Self::Max((lhs, rhs)) => write!(f, "max({}, {})", lhs, rhs),
-            Self::Min((lhs, rhs)) => write!(f, "min({}, {})", lhs, rhs),
-            Self::Broadcast((lhs, rhs)) => write!(f, "broadcast({}, {})", lhs, rhs),
+            Self::Add(lhs, rhs) => write_binop(f, '+', lhs, rhs),
+            Self::Sub(lhs, rhs) => write_binop(f, '-', lhs, rhs),
+            Self::Mul(lhs, rhs) => write_binop(f, '*', lhs, rhs),
+            Self::Div(lhs, rhs) => write_binop(f, '/', lhs, rhs),
+            Self::DivCeil(lhs, rhs) => write!(f, "ceil_div({}, {})", lhs, rhs),
+            Self::Max(lhs, rhs) => write!(f, "max({}, {})", lhs, rhs),
+            Self::Min(lhs, rhs) => write!(f, "min({}, {})", lhs, rhs),
+            Self::Broadcast(lhs, rhs) => write!(f, "broadcast({}, {})", lhs, rhs),
         }
     }
 }
@@ -782,13 +782,13 @@ mod tests {
         let one = SymExpr::from(1);
 
         let expr = x.clone() + zero.clone();
-        assert_eq!(expr, SymExpr::Add((x.clone().into(), zero.clone().into())));
+        assert_eq!(expr, SymExpr::Add(x.clone().into(), zero.clone().into()));
         assert_eq!(expr.simplify(), x);
 
         let expr_2 = x.clone() + one.clone();
         assert_eq!(
             expr_2.simplify(),
-            SymExpr::Add((x.clone().into(), one.clone().into()))
+            SymExpr::Add(x.clone().into(), one.clone().into())
         );
     }
 
@@ -819,7 +819,7 @@ mod tests {
 
         // x - 0 => x
         let expr = x.clone() - zero.clone();
-        assert_eq!(expr, SymExpr::Sub((x.clone().into(), zero.clone().into())));
+        assert_eq!(expr, SymExpr::Sub(x.clone().into(), zero.clone().into()));
         assert_eq!(expr.simplify(), x);
 
         // x - x => 0
@@ -830,7 +830,7 @@ mod tests {
         let expr_2 = x.clone() - one.clone();
         assert_eq!(
             expr_2.simplify(),
-            SymExpr::Add((x.clone().into(), SymExpr::from(-1).into()))
+            SymExpr::Add(x.clone().into(), SymExpr::from(-1).into())
         );
 
         // x + y - x => y
@@ -866,13 +866,13 @@ mod tests {
         let two = SymExpr::from(2);
 
         let expr = x.clone() * one.clone();
-        assert_eq!(expr, SymExpr::Mul((x.clone().into(), one.clone().into())));
+        assert_eq!(expr, SymExpr::Mul(x.clone().into(), one.clone().into()));
         assert_eq!(expr.simplify(), x);
 
         let expr_2 = x.clone() * two.clone();
         assert_eq!(
             expr_2.simplify(),
-            SymExpr::Mul((x.clone().into(), two.clone().into()))
+            SymExpr::Mul(x.clone().into(), two.clone().into())
         );
     }
 
@@ -892,7 +892,7 @@ mod tests {
 
         // x / 1 => x
         let expr = x.clone() / one.clone();
-        assert_eq!(expr, SymExpr::Div((x.clone().into(), one.clone().into())));
+        assert_eq!(expr, SymExpr::Div(x.clone().into(), one.clone().into()));
         assert_eq!(expr.simplify(), x);
 
         // x / x => 1
@@ -903,7 +903,7 @@ mod tests {
         let expr_2 = x.clone() / two.clone();
         assert_eq!(
             expr_2.simplify(),
-            SymExpr::Div((x.clone().into(), two.clone().into()))
+            SymExpr::Div(x.clone().into(), two.clone().into())
         );
 
         // x / 2 / 2 => x / 4
@@ -957,10 +957,7 @@ mod tests {
 
         // x / 1 => x
         let expr = x.clone().div_ceil(&one);
-        assert_eq!(
-            expr,
-            SymExpr::DivCeil((x.clone().into(), one.clone().into()))
-        );
+        assert_eq!(expr, SymExpr::DivCeil(x.clone().into(), one.clone().into()));
         assert_eq!(expr.simplify(), x);
 
         // x / x => 1
@@ -971,7 +968,7 @@ mod tests {
         let expr_2 = x.clone().div_ceil(&two);
         assert_eq!(
             expr_2.simplify(),
-            SymExpr::DivCeil((x.clone().into(), two.clone().into()))
+            SymExpr::DivCeil(x.clone().into(), two.clone().into())
         );
 
         // x / 2 / 2 => x / 4
@@ -1022,7 +1019,7 @@ mod tests {
         let two = SymExpr::from(2);
         let expr = one.max(&two);
 
-        assert_eq!(expr, SymExpr::Max((one.clone().into(), two.clone().into())));
+        assert_eq!(expr, SymExpr::Max(one.clone().into(), two.clone().into()));
         assert_eq!(expr.simplify(), two.clone());
     }
 
@@ -1040,7 +1037,7 @@ mod tests {
         let two = SymExpr::from(2);
         let expr = one.min(&two);
 
-        assert_eq!(expr, SymExpr::Min((one.clone().into(), two.clone().into())));
+        assert_eq!(expr, SymExpr::Min(one.clone().into(), two.clone().into()));
         assert_eq!(expr.simplify(), one.clone());
     }
 

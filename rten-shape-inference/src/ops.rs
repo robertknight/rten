@@ -109,14 +109,14 @@ impl InferShapes for ConstantOfShape {
                         }
                         SymExpr::Var(_)
                         | SymExpr::Neg(_)
-                        | SymExpr::Add(_)
-                        | SymExpr::Sub(_)
-                        | SymExpr::Mul(_)
-                        | SymExpr::Div(_)
-                        | SymExpr::DivCeil(_)
-                        | SymExpr::Max(_)
-                        | SymExpr::Min(_)
-                        | SymExpr::Broadcast(_) => SymTensor::from_shape(vec![vec_len.clone()]),
+                        | SymExpr::Add(..)
+                        | SymExpr::Sub(..)
+                        | SymExpr::Mul(..)
+                        | SymExpr::Div(..)
+                        | SymExpr::DivCeil(..)
+                        | SymExpr::Max(..)
+                        | SymExpr::Min(..)
+                        | SymExpr::Broadcast(..) => SymTensor::from_shape(vec![vec_len.clone()]),
                     }
                 } else {
                     SymTensor::from_scalar(SymExpr::Value(val))
@@ -265,7 +265,7 @@ impl InferShapes for Range {
                 SymTensor::from_shape(vec![limit])
             }
             // Range(start, start + limit, 1) has shape [limit]
-            (Some(start), Some(SymExpr::Add((limit_lhs, limit_rhs))), Some(SymExpr::Value(1)))
+            (Some(start), Some(SymExpr::Add(limit_lhs, limit_rhs)), Some(SymExpr::Value(1)))
                 if start == *limit_lhs =>
             {
                 SymTensor::from_shape(vec![(*limit_rhs).clone()])
@@ -313,14 +313,14 @@ impl InferShapes for Where {
                         SymExpr::Value(v) => Some(*v == 1),
                         SymExpr::Var(_)
                         | SymExpr::Neg(_)
-                        | SymExpr::Add(_)
-                        | SymExpr::Sub(_)
-                        | SymExpr::Mul(_)
-                        | SymExpr::Div(_)
-                        | SymExpr::DivCeil(_)
-                        | SymExpr::Max(_)
-                        | SymExpr::Min(_)
-                        | SymExpr::Broadcast(_) => None,
+                        | SymExpr::Add(..)
+                        | SymExpr::Sub(..)
+                        | SymExpr::Mul(..)
+                        | SymExpr::Div(..)
+                        | SymExpr::DivCeil(..)
+                        | SymExpr::Max(..)
+                        | SymExpr::Min(..)
+                        | SymExpr::Broadcast(..) => None,
                     }?;
                     if cond_bool {
                         Some(x.clone())

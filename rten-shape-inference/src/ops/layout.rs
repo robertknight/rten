@@ -25,15 +25,15 @@ impl InferShapes for Expand {
             && let Some(shape_len) = shape.size(0).and_then(|d| match d {
                 SymExpr::Value(size) => Some(size),
                 SymExpr::Neg(_)
-                | SymExpr::Add(_)
-                | SymExpr::Mul(_)
-                | SymExpr::Div(_)
-                | SymExpr::DivCeil(_)
-                | SymExpr::Max(_)
-                | SymExpr::Min(_)
-                | SymExpr::Sub(_)
+                | SymExpr::Add(..)
+                | SymExpr::Mul(..)
+                | SymExpr::Div(..)
+                | SymExpr::DivCeil(..)
+                | SymExpr::Max(..)
+                | SymExpr::Min(..)
+                | SymExpr::Sub(..)
                 | SymExpr::Var(_)
-                | SymExpr::Broadcast(_) => None,
+                | SymExpr::Broadcast(..) => None,
             })
         {
             // If we know the length of the shape but not the values, then we
