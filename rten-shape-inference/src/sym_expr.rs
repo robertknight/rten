@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub};
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// A named variable.
 ///
@@ -27,28 +27,28 @@ pub enum SymExpr {
     /// Element with a known integer value.
     Value(i32),
     /// Symbolic value
-    Var(Rc<Symbol>),
+    Var(Arc<Symbol>),
     /// Addition of two symbolic values
-    Add(Rc<SymExpr>, Rc<SymExpr>),
+    Add(Arc<SymExpr>, Arc<SymExpr>),
     /// Subtraction of two symbolic values
-    Sub(Rc<SymExpr>, Rc<SymExpr>),
+    Sub(Arc<SymExpr>, Arc<SymExpr>),
     /// Multiplication of two symbolic values
-    Mul(Rc<SymExpr>, Rc<SymExpr>),
+    Mul(Arc<SymExpr>, Arc<SymExpr>),
     /// Flooring division of first expression by second.
-    Div(Rc<SymExpr>, Rc<SymExpr>),
+    Div(Arc<SymExpr>, Arc<SymExpr>),
     /// Ceiling division of first expression by second.
-    DivCeil(Rc<SymExpr>, Rc<SymExpr>),
+    DivCeil(Arc<SymExpr>, Arc<SymExpr>),
     /// Maximum of two symbolic values
-    Max(Rc<SymExpr>, Rc<SymExpr>),
+    Max(Arc<SymExpr>, Arc<SymExpr>),
     /// Minimum of two symbolic values
-    Min(Rc<SymExpr>, Rc<SymExpr>),
+    Min(Arc<SymExpr>, Arc<SymExpr>),
     /// Broadcast two symbolic values.
     ///
     /// This behaves like `Max`, except it implies that both expressions are
     /// positive and either equal or 1.
-    Broadcast(Rc<SymExpr>, Rc<SymExpr>),
+    Broadcast(Arc<SymExpr>, Arc<SymExpr>),
     /// Negation of a value
-    Neg(Rc<SymExpr>),
+    Neg(Arc<SymExpr>),
 }
 
 impl SymExpr {
@@ -142,7 +142,7 @@ impl SymExpr {
         fn collect_terms(
             terms: &mut Vec<SymExpr>,
             term: &SymExpr,
-            extract_lhs_rhs: &impl Fn(&SymExpr) -> Option<(&Rc<SymExpr>, &Rc<SymExpr>)>,
+            extract_lhs_rhs: &impl Fn(&SymExpr) -> Option<(&Arc<SymExpr>, &Arc<SymExpr>)>,
         ) {
             if let Some((lhs, rhs)) = extract_lhs_rhs(term) {
                 collect_terms(terms, lhs, extract_lhs_rhs);
@@ -163,7 +163,7 @@ impl SymExpr {
         //    step (3) removed all the terms
         fn reassociate_terms(
             term: &SymExpr,
-            extract_terms: &impl Fn(&SymExpr) -> Option<(&Rc<SymExpr>, &Rc<SymExpr>)>,
+            extract_terms: &impl Fn(&SymExpr) -> Option<(&Arc<SymExpr>, &Arc<SymExpr>)>,
             simplify: impl Fn(Vec<SymExpr>) -> Vec<SymExpr>,
             default: SymExpr,
             reduce: impl Fn(SymExpr, SymExpr) -> SymExpr,
@@ -292,16 +292,16 @@ impl SymExpr {
 
     /// Simplify an expression which is assumed to have been put in canonical
     /// form by [`canonicalize`](Self::canonicalize).
-    fn simplify_canonical(&self) -> SymExpr {
+    fn simplify_canonical(self) -> SymExpr {
         match self {
             Self::Value(_) | Self::Var(_) => self.clone(),
-            Self::Neg(expr) => match expr.simplify_canonical() {
+            Self::Neg(expr) => match Arc::unwrap_or_clone(expr).simplify_canonical() {
                 SymExpr::Value(x) => SymExpr::Value(-x),
                 expr => Self::Neg(expr.into()),
             },
             Self::Add(lhs, rhs) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 match (lhs, rhs) {
                     (SymExpr::Value(0), rhs) => rhs,
@@ -312,8 +312,8 @@ impl SymExpr {
                 }
             }
             Self::Sub(lhs, rhs) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 match (lhs, rhs) {
                     (lhs, SymExpr::Value(0)) => lhs,
@@ -323,8 +323,8 @@ impl SymExpr {
                 }
             }
             Self::Mul(lhs, rhs) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 match (lhs, rhs) {
                     (SymExpr::Value(1), rhs) => rhs,
@@ -334,8 +334,8 @@ impl SymExpr {
                 }
             }
             Self::Div(lhs, rhs) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
                 let (lhs, rhs) = remove_common_factors(lhs, rhs);
 
                 match (lhs, rhs) {
@@ -352,8 +352,8 @@ impl SymExpr {
                 }
             }
             Self::DivCeil(lhs, rhs) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 match (lhs, rhs) {
                     (lhs, SymExpr::Value(1)) => lhs,
@@ -381,8 +381,8 @@ impl SymExpr {
                 }
             }
             Self::Max(lhs, rhs) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 if lhs == rhs {
                     lhs
@@ -394,8 +394,8 @@ impl SymExpr {
                 }
             }
             Self::Min(lhs, rhs) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 if lhs == rhs {
                     lhs
@@ -407,8 +407,8 @@ impl SymExpr {
                 }
             }
             Self::Broadcast(lhs, rhs) => {
-                let lhs = lhs.simplify_canonical();
-                let rhs = rhs.simplify_canonical();
+                let lhs = Arc::unwrap_or_clone(lhs).simplify_canonical();
+                let rhs = Arc::unwrap_or_clone(rhs).simplify_canonical();
 
                 match (lhs, rhs) {
                     (SymExpr::Value(x), SymExpr::Value(y)) if x == y => SymExpr::Value(x),
