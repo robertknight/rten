@@ -85,7 +85,7 @@ enum SymTensorKind {
 ///     SymExpr::Value(1),
 ///     |prod, dim| prod * dim.clone()
 /// ).simplify());
-/// assert_eq!(len, Some(SymExpr::Mul((nr.into(), nc.into()))));
+/// assert_eq!(len, Some(SymExpr::Mul(nr.into(), nc.into())));
 /// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct SymTensor(SymTensorKind);
