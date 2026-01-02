@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt;
-use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub};
+use std::ops::{Add, AddAssign, ControlFlow, Div, Mul, Neg, Sub};
 use std::sync::Arc;
 
 /// A named variable.
@@ -521,6 +521,55 @@ impl SymExpr {
         }
     }
 
+    /// Perform a pre-order traversal of the symbolic expression tree, calling
+    /// `visit` on each node.
+    ///
+    /// Traversal stops if the visitor returns `ControlFlow::Break`, in which
+    /// case the break argument is returned.
+    #[must_use]
+    pub fn visit<'a, B, F: FnMut(&'a SymExpr) -> ControlFlow<B>>(
+        &'a self,
+        mut visit: F,
+    ) -> Option<B> {
+        self.visit_impl(&mut visit)
+    }
+
+    fn visit_impl<'a, B, F: FnMut(&'a SymExpr) -> ControlFlow<B>>(
+        &'a self,
+        visit: &mut F,
+    ) -> Option<B> {
+        match visit(self) {
+            ControlFlow::Break(arg) => return Some(arg),
+            ControlFlow::Continue(_) => {}
+        }
+
+        match self {
+            Self::Value(_) | Self::Var(_) => {}
+            Self::Neg(expr) => {
+                if let Some(break_arg) = expr.visit_impl(visit) {
+                    return Some(break_arg);
+                }
+            }
+            Self::Add(lhs, rhs)
+            | Self::Sub(lhs, rhs)
+            | Self::Mul(lhs, rhs)
+            | Self::Div(lhs, rhs)
+            | Self::DivCeil(lhs, rhs)
+            | Self::Max(lhs, rhs)
+            | Self::Min(lhs, rhs)
+            | Self::Broadcast(lhs, rhs) => {
+                if let Some(break_arg) = lhs.visit_impl(visit) {
+                    return Some(break_arg);
+                }
+                if let Some(break_arg) = rhs.visit_impl(visit) {
+                    return Some(break_arg);
+                }
+            }
+        }
+
+        None
+    }
+
     /// Return the name of the symbol in a unary expression.
     ///
     /// Returns `None` if the expression is not unary or has a fixed value.
@@ -866,6 +915,8 @@ impl Error for EvalError {}
 
 #[cfg(test)]
 mod tests {
+    use std::ops::ControlFlow;
+
     use super::{EvalError, SymExpr, SymbolMap};
 
     #[test]
@@ -1258,5 +1309,87 @@ mod tests {
         // Evaluation with missing symbols
         let empty = SymbolMap::new(&[]);
         assert_eq!(x.eval(&empty), Err(EvalError::MissingSymbol));
+    }
+
+    #[test]
+    fn test_visit() {
+        // Build a deeply nested expression
+        let a = SymExpr::var("a");
+        let b = SymExpr::var("b");
+        let c = SymExpr::var("c");
+        let d = SymExpr::var("d");
+        let e = SymExpr::var("e");
+        let expr = ((a + b) * (c + d)) / e;
+
+        let mut visited = Vec::new();
+        let break_arg = expr.visit(|e| {
+            visited.push(format!("{}", e));
+            ControlFlow::<()>::Continue(())
+        });
+
+        // Check for pre-order traversal
+        assert_eq!(break_arg, None);
+        assert_eq!(
+            visited,
+            vec![
+                "((a + b) * (c + d)) / e",
+                "(a + b) * (c + d)",
+                "a + b",
+                "a",
+                "b",
+                "c + d",
+                "c",
+                "d",
+                "e"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_visit_early_termination() {
+        let x = SymExpr::var("x");
+        let y = SymExpr::var("y");
+        let z = SymExpr::var("z");
+        let expr = x + y + z;
+
+        let break_arg = expr.visit(|e| {
+            if matches!(e, SymExpr::Var(sym) if sym.name == "y") {
+                ControlFlow::Break("found y")
+            } else {
+                ControlFlow::Continue(())
+            }
+        });
+
+        assert_eq!(break_arg, Some("found y"));
+    }
+
+    #[test]
+    fn test_visit_all_expr_types() {
+        let x = SymExpr::var("x");
+        let y = SymExpr::var("y");
+
+        for (expr, expected_children) in [
+            // Ops with no children
+            (x.clone(), vec!["x"]),
+            (SymExpr::Value(42), vec!["42"]),
+            // Unary ops
+            (-x.clone(), vec!["-x", "x"]),
+            // Binary ops
+            (x.clone() + y.clone(), vec!["x + y", "x", "y"]),
+            (x.clone() - y.clone(), vec!["x - y", "x", "y"]),
+            (x.clone() * y.clone(), vec!["x * y", "x", "y"]),
+            (x.clone() / y.clone(), vec!["x / y", "x", "y"]),
+            (x.clone().div_ceil(&y), vec!["ceil_div(x, y)", "x", "y"]),
+            (x.clone().max(&y), vec!["max(x, y)", "x", "y"]),
+            (x.clone().min(&y), vec!["min(x, y)", "x", "y"]),
+            (x.clone().broadcast(&y), vec!["broadcast(x, y)", "x", "y"]),
+        ] {
+            let mut visited = Vec::new();
+            let _ = expr.visit(|e| {
+                visited.push(format!("{}", e));
+                ControlFlow::<()>::Continue(())
+            });
+            assert_eq!(visited, expected_children, "Failed for {:?}", expr);
+        }
     }
 }
