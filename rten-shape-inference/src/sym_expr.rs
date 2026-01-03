@@ -3,8 +3,10 @@
 use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt;
-use std::ops::{Add, AddAssign, ControlFlow, Div, Mul, Neg, Sub};
+use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub};
 use std::sync::Arc;
+
+use smallvec::SmallVec;
 
 /// A named variable.
 ///
@@ -50,6 +52,50 @@ pub enum SymExpr {
     Broadcast(Arc<SymExpr>, Arc<SymExpr>),
     /// Negation of a value
     Neg(Arc<SymExpr>),
+}
+
+/// Iterator over nodes in a [`SymExpr`] tree.
+///
+/// Yields nodes in pre-order (parent before children, left before right).
+struct SymExprIter<'a> {
+    stack: SmallVec<[&'a SymExpr; 4]>,
+}
+
+impl<'a> SymExprIter<'a> {
+    fn new(root: &'a SymExpr) -> Self {
+        Self {
+            stack: SmallVec::from_slice(&[root]),
+        }
+    }
+}
+
+impl<'a> Iterator for SymExprIter<'a> {
+    type Item = &'a SymExpr;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let node = self.stack.pop()?;
+
+        match node {
+            SymExpr::Value(_) | SymExpr::Var(_) => {}
+            SymExpr::Neg(expr) => {
+                self.stack.push(expr);
+            }
+            SymExpr::Add(lhs, rhs)
+            | SymExpr::Sub(lhs, rhs)
+            | SymExpr::Mul(lhs, rhs)
+            | SymExpr::Div(lhs, rhs)
+            | SymExpr::DivCeil(lhs, rhs)
+            | SymExpr::Max(lhs, rhs)
+            | SymExpr::Min(lhs, rhs)
+            | SymExpr::Broadcast(lhs, rhs) => {
+                // Push children in reverse order so left is visited first.
+                self.stack.push(rhs);
+                self.stack.push(lhs);
+            }
+        }
+
+        Some(node)
+    }
 }
 
 impl SymExpr {
@@ -521,53 +567,12 @@ impl SymExpr {
         }
     }
 
-    /// Perform a pre-order traversal of the symbolic expression tree, calling
-    /// `visit` on each node.
+    /// Return an iterator over nodes in this expression tree.
     ///
-    /// Traversal stops if the visitor returns `ControlFlow::Break`, in which
-    /// case the break argument is returned.
-    #[must_use]
-    pub fn visit<'a, B, F: FnMut(&'a SymExpr) -> ControlFlow<B>>(
-        &'a self,
-        mut visit: F,
-    ) -> Option<B> {
-        self.visit_impl(&mut visit)
-    }
-
-    fn visit_impl<'a, B, F: FnMut(&'a SymExpr) -> ControlFlow<B>>(
-        &'a self,
-        visit: &mut F,
-    ) -> Option<B> {
-        match visit(self) {
-            ControlFlow::Break(arg) => return Some(arg),
-            ControlFlow::Continue(_) => {}
-        }
-
-        match self {
-            Self::Value(_) | Self::Var(_) => {}
-            Self::Neg(expr) => {
-                if let Some(break_arg) = expr.visit_impl(visit) {
-                    return Some(break_arg);
-                }
-            }
-            Self::Add(lhs, rhs)
-            | Self::Sub(lhs, rhs)
-            | Self::Mul(lhs, rhs)
-            | Self::Div(lhs, rhs)
-            | Self::DivCeil(lhs, rhs)
-            | Self::Max(lhs, rhs)
-            | Self::Min(lhs, rhs)
-            | Self::Broadcast(lhs, rhs) => {
-                if let Some(break_arg) = lhs.visit_impl(visit) {
-                    return Some(break_arg);
-                }
-                if let Some(break_arg) = rhs.visit_impl(visit) {
-                    return Some(break_arg);
-                }
-            }
-        }
-
-        None
+    /// Nodes are yielded in pre-order (parent before children, left before
+    /// right).
+    pub fn iter(&self) -> impl Iterator<Item = &SymExpr> {
+        SymExprIter::new(self)
     }
 
     /// Return the name of the symbol in a unary expression.
@@ -915,8 +920,6 @@ impl Error for EvalError {}
 
 #[cfg(test)]
 mod tests {
-    use std::ops::ControlFlow;
-
     use super::{EvalError, SymExpr, SymbolMap};
 
     #[test]
@@ -1312,7 +1315,7 @@ mod tests {
     }
 
     #[test]
-    fn test_visit() {
+    fn test_iter() {
         // Build a deeply nested expression
         let a = SymExpr::var("a");
         let b = SymExpr::var("b");
@@ -1321,14 +1324,9 @@ mod tests {
         let e = SymExpr::var("e");
         let expr = ((a + b) * (c + d)) / e;
 
-        let mut visited = Vec::new();
-        let break_arg = expr.visit(|e| {
-            visited.push(format!("{}", e));
-            ControlFlow::<()>::Continue(())
-        });
+        let visited: Vec<_> = expr.iter().map(|e| format!("{}", e)).collect();
 
         // Check for pre-order traversal
-        assert_eq!(break_arg, None);
         assert_eq!(
             visited,
             vec![
@@ -1346,25 +1344,7 @@ mod tests {
     }
 
     #[test]
-    fn test_visit_early_termination() {
-        let x = SymExpr::var("x");
-        let y = SymExpr::var("y");
-        let z = SymExpr::var("z");
-        let expr = x + y + z;
-
-        let break_arg = expr.visit(|e| {
-            if matches!(e, SymExpr::Var(sym) if sym.name == "y") {
-                ControlFlow::Break("found y")
-            } else {
-                ControlFlow::Continue(())
-            }
-        });
-
-        assert_eq!(break_arg, Some("found y"));
-    }
-
-    #[test]
-    fn test_visit_all_expr_types() {
+    fn test_iter_all_expr_types() {
         let x = SymExpr::var("x");
         let y = SymExpr::var("y");
 
@@ -1384,11 +1364,7 @@ mod tests {
             (x.clone().min(&y), vec!["min(x, y)", "x", "y"]),
             (x.clone().broadcast(&y), vec!["broadcast(x, y)", "x", "y"]),
         ] {
-            let mut visited = Vec::new();
-            let _ = expr.visit(|e| {
-                visited.push(format!("{}", e));
-                ControlFlow::<()>::Continue(())
-            });
+            let visited: Vec<_> = expr.iter().map(|e| format!("{}", e)).collect();
             assert_eq!(visited, expected_children, "Failed for {:?}", expr);
         }
     }
