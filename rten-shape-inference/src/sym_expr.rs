@@ -1,8 +1,10 @@
 //! Symbolic expressions representing integer values.
 
 use std::cmp::Ordering;
+use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub};
 use std::sync::Arc;
 
@@ -720,6 +722,46 @@ impl PartialEq<SymExpr> for SymExpr {
     }
 }
 
+impl Eq for SymExpr {}
+
+impl Hash for SymExpr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Add expression type to hash.
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            Self::Value(x) => x.hash(state),
+            // For symbols, only the name is hashed, to match PartialEq.
+            Self::Var(sym) => sym.name.hash(state),
+            Self::Neg(expr) => expr.hash(state),
+            // Commutative operations: combine hashes order-independently.
+            Self::Add(lhs, rhs)
+            | Self::Mul(lhs, rhs)
+            | Self::Max(lhs, rhs)
+            | Self::Min(lhs, rhs)
+            | Self::Broadcast(lhs, rhs) => {
+                let lhs_hash = {
+                    let mut h = DefaultHasher::new();
+                    lhs.hash(&mut h);
+                    h.finish()
+                };
+                let rhs_hash = {
+                    let mut h = DefaultHasher::new();
+                    rhs.hash(&mut h);
+                    h.finish()
+                };
+                // Combine LHS and RHS hashes with order-independent hash.
+                lhs_hash.wrapping_add(rhs_hash).hash(state);
+            }
+            // Non-commutative operations: hash operands in order.
+            Self::Sub(lhs, rhs) | Self::Div(lhs, rhs) | Self::DivCeil(lhs, rhs) => {
+                lhs.hash(state);
+                rhs.hash(state);
+            }
+        }
+    }
+}
+
 impl Add<SymExpr> for SymExpr {
     type Output = SymExpr;
 
@@ -920,6 +962,11 @@ impl Error for EvalError {}
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    use rten_testing::TestCases;
+
     use super::{EvalError, SymExpr, SymbolMap};
 
     #[test]
@@ -1367,5 +1414,115 @@ mod tests {
             let visited: Vec<_> = expr.iter().map(|e| format!("{}", e)).collect();
             assert_eq!(visited, expected_children, "Failed for {:?}", expr);
         }
+    }
+
+    fn hash_of(expr: &SymExpr) -> u64 {
+        let mut h = DefaultHasher::new();
+        expr.hash(&mut h);
+        h.finish()
+    }
+
+    #[test]
+    fn test_hash_value() {
+        assert_eq!(hash_of(&SymExpr::Value(42)), hash_of(&SymExpr::Value(42)));
+        assert_ne!(hash_of(&SymExpr::Value(42)), hash_of(&SymExpr::Value(43)));
+    }
+
+    #[test]
+    fn test_hash_var() {
+        let x1 = SymExpr::var("x");
+        let x2 = SymExpr::var("x");
+        let y = SymExpr::var("y");
+
+        assert_eq!(hash_of(&x1), hash_of(&x2));
+        assert_ne!(hash_of(&x1), hash_of(&y));
+
+        // Var with same name but different `positive` flag should hash the same
+        // (to match PartialEq behavior).
+        let x_pos = SymExpr::pos_var("x");
+        let x_neg = SymExpr::var("x");
+        assert_eq!(x_pos, x_neg);
+        assert_eq!(hash_of(&x_pos), hash_of(&x_neg));
+    }
+
+    #[test]
+    fn test_hash_unary_op() {
+        let x = SymExpr::var("x");
+        let y = SymExpr::var("y");
+
+        let neg_x1 = -x.clone();
+        let neg_x2 = -x.clone();
+        let neg_y = -y.clone();
+
+        assert_eq!(hash_of(&neg_x1), hash_of(&neg_x2));
+        assert_ne!(hash_of(&neg_x1), hash_of(&neg_y));
+    }
+
+    #[test]
+    fn test_hash_binary_op() {
+        let x = SymExpr::var("x");
+        let y = SymExpr::var("y");
+
+        #[derive(Debug)]
+        struct Case {
+            lhs_rhs: SymExpr,
+            rhs_lhs: SymExpr,
+            commutative: bool,
+        }
+
+        let cases = [
+            Case {
+                lhs_rhs: x.clone() + y.clone(),
+                rhs_lhs: y.clone() + x.clone(),
+                commutative: true,
+            },
+            Case {
+                lhs_rhs: x.clone() * y.clone(),
+                rhs_lhs: y.clone() * x.clone(),
+                commutative: true,
+            },
+            Case {
+                lhs_rhs: x.max(&y),
+                rhs_lhs: y.max(&x),
+                commutative: true,
+            },
+            Case {
+                lhs_rhs: x.min(&y),
+                rhs_lhs: y.min(&x),
+                commutative: true,
+            },
+            Case {
+                lhs_rhs: x.broadcast(&y),
+                rhs_lhs: y.broadcast(&x),
+                commutative: true,
+            },
+            Case {
+                lhs_rhs: x.clone() - y.clone(),
+                rhs_lhs: y.clone() - x.clone(),
+                commutative: false,
+            },
+            Case {
+                lhs_rhs: x.clone() / y.clone(),
+                rhs_lhs: y.clone() / x.clone(),
+                commutative: false,
+            },
+            Case {
+                lhs_rhs: x.div_ceil(&y),
+                rhs_lhs: y.div_ceil(&x),
+                commutative: false,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let lhs_rhs_hash = hash_of(&case.lhs_rhs);
+            let rhs_lhs_hash = hash_of(&case.rhs_lhs);
+            if case.commutative {
+                assert_eq!(case.lhs_rhs, case.rhs_lhs);
+                assert_eq!(lhs_rhs_hash, rhs_lhs_hash);
+            } else {
+                assert_ne!(case.lhs_rhs, case.rhs_lhs);
+                assert_ne!(lhs_rhs_hash, rhs_lhs_hash);
+            }
+        });
     }
 }
