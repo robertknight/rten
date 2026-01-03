@@ -43,7 +43,7 @@ impl fmt::Debug for Constant {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum SymTensorKind {
     Scalar(SymExpr),
     Vector(Vec<SymExpr>),
@@ -87,7 +87,7 @@ enum SymTensorKind {
 /// ).simplify());
 /// assert_eq!(len, Some(SymExpr::Mul(nr.into(), nc.into())));
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SymTensor(SymTensorKind);
 
 impl SymTensor {
