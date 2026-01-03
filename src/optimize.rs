@@ -13,7 +13,7 @@ use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
     PlanOptions, RunError,
 };
-use crate::infer_shapes::{InferError, InferShapeOptions, Shape, infer_shapes};
+use crate::infer_shapes::{InferError, InferShapeOptions, infer_shapes};
 use crate::operator::Operator;
 use crate::ops::Identity;
 
@@ -424,27 +424,25 @@ impl GraphOptimizer {
         if let Some(infer_opts) = opts.infer_shapes {
             let infer_result = infer_shapes(&graph_mut.graph, infer_opts)
                 .map_err(OptimizeError::InferShapesError)?;
-            let const_ids: Vec<NodeId> = infer_result
-                .constants
-                .into_iter()
-                .map(|constant| {
+            let const_ids: Vec<Option<NodeId>> = infer_result
+                .values
+                .iter()
+                .map(|expr| {
+                    let constant = expr.to_constant()?;
                     let tensor = match constant {
                         rten_shape_inference::Constant::Scalar(x) => Tensor::from(x),
                         rten_shape_inference::Constant::Vector(vec) => Tensor::from(vec),
                     };
-                    graph_mut.add_constant(None, tensor.into_arc())
+                    let const_id = graph_mut.add_constant(None, tensor.into_arc());
+                    Some(const_id)
                 })
                 .collect();
 
-            for (value_id, shape) in infer_result.shapes {
-                match shape {
-                    Shape::Constant { index } => {
-                        let const_id = const_ids[index];
-                        graph_mut.replace_value(value_id, const_id);
-                    }
-                    Shape::Shape(shape) => {
-                        graph_mut.graph.update_value_shape(value_id, shape);
-                    }
+            for (value_id, shape_index) in &infer_result.shapes {
+                if let Some(const_id) = const_ids[*shape_index] {
+                    graph_mut.replace_value(*value_id, const_id);
+                } else if let Some(dims) = infer_result.dims(*value_id) {
+                    graph_mut.graph.update_value_shape(*value_id, dims);
                 }
             }
             for (value_id, value_type) in infer_result.types {
