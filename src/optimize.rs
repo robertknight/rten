@@ -1,13 +1,14 @@
 use std::any::Any;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+use rten_shape_inference::SymExpr;
 use rten_tensor::Tensor;
 use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
-use crate::Value;
 use crate::env::str_as_bool;
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
@@ -15,7 +16,8 @@ use crate::graph::{
 };
 use crate::infer_shapes::{InferError, InferShapeOptions, infer_shapes};
 use crate::operator::Operator;
-use crate::ops::Identity;
+use crate::ops::{ComputeShape, Identity, SymExprKind, SymbolInfo};
+use crate::{Dimension, Value};
 
 mod diagnostics;
 mod fusions;
@@ -24,12 +26,11 @@ mod pattern_matcher;
 use diagnostics::{DiagnosticLevel, Diagnostics};
 
 use fusions::{
-    AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, Fusion, FusionError,
-    FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
-    LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
-    PatternFusion, RMSNormalizationFusion, ReciprocalFusion, ReduceMeanAxesFusion,
-    RepeatInterleaveFusion, SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion,
-    TransposeFusion,
+    AddSoftmaxFusion, ApproxGeluFusion, CastElimination, Fusion, FusionError, FusionVisitor,
+    GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion, LayerNormalizationFusion,
+    MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion,
+    RMSNormalizationFusion, ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion,
+    SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -424,23 +425,55 @@ impl GraphOptimizer {
         if let Some(infer_opts) = opts.infer_shapes {
             let infer_result = infer_shapes(&graph_mut.graph, infer_opts)
                 .map_err(OptimizeError::InferShapesError)?;
-            let const_ids: Vec<Option<NodeId>> = infer_result
+
+            let sym_map = symbol_map(&graph_mut.graph);
+
+            // IDs of constants and value nodes that replace value IDs in the
+            // input.
+            //
+            // Where shape inference infers that a value node has a fixed value,
+            // it can be replaced with a constant. Where it infers the value
+            // can be produced by evaluating a symbolic expression, replace the
+            // value with the output of a `ComputeShape` node.
+            let replacement_ids: Vec<Option<NodeId>> = infer_result
                 .values
                 .iter()
                 .map(|expr| {
-                    let constant = expr.to_constant()?;
-                    let tensor = match constant {
-                        rten_shape_inference::Constant::Scalar(x) => Tensor::from(x),
-                        rten_shape_inference::Constant::Vector(vec) => Tensor::from(vec),
-                    };
-                    let const_id = graph_mut.add_constant(None, tensor.into_arc());
-                    Some(const_id)
+                    if let Some(constant) = expr.to_constant() {
+                        let tensor = match constant {
+                            rten_shape_inference::Constant::Scalar(x) => Tensor::from(x),
+                            rten_shape_inference::Constant::Vector(vec) => Tensor::from(vec),
+                        };
+                        let const_id = graph_mut.add_constant(None, tensor.into_arc());
+                        Some(const_id)
+                    } else if let Some(values) = expr.values() {
+                        let (symbols, input_ids) = compute_shape_inputs(values, &sym_map);
+                        let op = ComputeShape {
+                            symbols,
+                            elements: if let Some(expr) = expr.as_vector() {
+                                SymExprKind::Vector(expr.to_vec())
+                            } else {
+                                SymExprKind::Scalar(values[0].clone())
+                            },
+                        };
+                        let input_ids: Vec<_> = input_ids.into_iter().map(Some).collect();
+                        let output_id = graph_mut.graph.add_value(None, None, None);
+                        graph_mut.add_operator(None, Arc::new(op), &input_ids, &[Some(output_id)]);
+                        Some(output_id)
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
+            let mut removed_nodes = Vec::new();
             for (value_id, shape_index) in &infer_result.shapes {
-                if let Some(const_id) = const_ids[*shape_index] {
-                    graph_mut.replace_value(*value_id, const_id);
+                if let Some(new_value_id) = replacement_ids[*shape_index] {
+                    graph_mut.replace_value(*value_id, new_value_id);
+                    removed_nodes.push(*value_id);
+                    if let Some((src_op_id, _src_op)) = graph_mut.graph.get_source_node(*value_id) {
+                        removed_nodes.push(src_op_id);
+                    }
                 } else if let Some(dims) = infer_result.dims(*value_id) {
                     graph_mut.graph.update_value_shape(*value_id, dims);
                 }
@@ -448,6 +481,8 @@ impl GraphOptimizer {
             for (value_id, value_type) in infer_result.types {
                 graph_mut.graph.update_value_type(value_id, value_type);
             }
+
+            graph_mut.graph.remove_nodes(&removed_nodes);
         }
 
         // "Early" fusions. These are fusions which can benefit constant
@@ -463,13 +498,6 @@ impl GraphOptimizer {
         // and inference.
         early_fusions.push(CastElimination {});
         early_fusions.push(IdentityFusion {});
-
-        // Fusion which replaces Shape nodes using shape inference metadata.
-        //
-        // This can free up the source of the Shape's input to be included in
-        // other fusions. If all dimensions have static sizes, constant prop
-        // will remove the ComputeShape node and downstream nodes.
-        early_fusions.push(ComputeShapeFusion {});
 
         self.apply_fusions(&mut graph_mut, early_fusions.visitors(), &diag)?;
 
@@ -734,6 +762,74 @@ impl FusionList {
     fn visitors(&self) -> &[Box<dyn DynFusionVisitor>] {
         &self.fusions
     }
+}
+
+/// Create a map of dimension name to (value_id, dim), for use with
+/// [`compute_shape_inputs`].
+fn symbol_map(graph: &Graph) -> HashMap<String, (NodeId, u32)> {
+    let mut map = HashMap::new();
+
+    for id in graph.input_ids() {
+        let Some(node) = graph.get_node(*id) else {
+            continue;
+        };
+        let Some(shape) = node.shape() else {
+            continue;
+        };
+
+        for (dim_idx, dim) in shape.iter().enumerate() {
+            match dim {
+                Dimension::Symbolic(name) => {
+                    if !map.contains_key(name) {
+                        map.insert(name.to_string(), (*id, dim_idx as u32));
+                    }
+                }
+                Dimension::Fixed(_) => {}
+            }
+        }
+    }
+
+    map
+}
+
+/// Generate the input ID list and symbol_name => (input_id, axis) mappings for
+/// a [`ComputeShape`] operator.
+fn compute_shape_inputs(
+    elements: &[SymExpr],
+    syms: &HashMap<String, (NodeId, u32)>,
+) -> (Vec<SymbolInfo>, Vec<NodeId>) {
+    let vars = elements
+        .iter()
+        .flat_map(|expr| expr.iter())
+        .filter_map(|node| match node {
+            SymExpr::Var(sym) => Some(sym.name.as_ref()),
+            _ => None,
+        });
+
+    let mut input_ids = Vec::new();
+    let mut symbols = Vec::<SymbolInfo>::new();
+    for var in vars {
+        if symbols.iter().any(|s| s.name == var) {
+            continue;
+        }
+        let Some((input_id, axis)) = syms.get(var) else {
+            continue;
+        };
+        let input_id = if let Some(idx) = input_ids.iter().position(|id| id == input_id) {
+            idx
+        } else {
+            let idx = input_ids.len();
+            input_ids.push(*input_id);
+            idx
+        };
+        symbols.push(SymbolInfo {
+            name: var.to_string(),
+            input: input_id as u32,
+            axis: *axis,
+        });
+    }
+
+    (symbols, input_ids)
 }
 
 #[cfg(test)]
