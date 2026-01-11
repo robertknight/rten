@@ -15,9 +15,8 @@ use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     AddSoftmax, Cast, ComputeShape, DynamicQuantizeLinear, FusedMatMul, Gelu,
-    GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, Mul, Reciprocal,
-    ReduceMean, RepeatInterleave, RmsNormalization, Shape, Silu, Softmax, Swish, SymbolInfo,
-    Transpose,
+    GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, Mul, RMSNormalization,
+    Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Softmax, Swish, SymbolInfo, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::ValueType;
@@ -740,13 +739,13 @@ impl PatternFusion for LayerNormalizationFusion {
 /// Fuse `RMSNormalization(x)`.
 ///
 /// See https://pytorch.org/docs/stable/generated/torch.nn.modules.normalization.RMSNorm.html.
-pub struct RmsNormalizationFusion {}
+pub struct RMSNormalizationFusion {}
 
-impl PatternFusion for RmsNormalizationFusion {
-    type Operator = RmsNormalization;
+impl PatternFusion for RMSNormalizationFusion {
+    type Operator = RMSNormalization;
 
     fn name(&self) -> &str {
-        "RmsNormalizationFusion"
+        "RMSNormalizationFusion"
     }
 
     fn pattern(&self) -> Pattern {
@@ -789,7 +788,7 @@ impl PatternFusion for RmsNormalizationFusion {
             return Err(FusionError::CheckFailed("not applied to last axis"));
         }
 
-        Ok(RmsNormalization {
+        Ok(RMSNormalization {
             axis: -1,
             epsilon: Some(epsilon),
         })

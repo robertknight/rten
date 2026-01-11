@@ -27,8 +27,8 @@ use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, Fusion, FusionError,
     FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
     LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
-    PatternFusion, ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion,
-    RmsNormalizationFusion, SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion,
+    PatternFusion, RMSNormalizationFusion, ReciprocalFusion, ReduceMeanAxesFusion,
+    RepeatInterleaveFusion, SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion,
     TransposeFusion,
 };
 
@@ -507,7 +507,7 @@ impl GraphOptimizer {
 
         // Normalization fusions
         fusions.push(LayerNormalizationFusion {}.into_visitor());
-        fusions.push(RmsNormalizationFusion {}.into_visitor());
+        fusions.push(RMSNormalizationFusion {}.into_visitor());
 
         // Matmul fusions
         fusions.push(MatMulAddFusion {}.into_visitor());

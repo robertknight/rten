@@ -90,7 +90,7 @@ pub(crate) use {
     non_max_suppression::NonMaxSuppression,
     norm::{
         BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax,
-        RmsNormalization, Softmax,
+        RMSNormalization, Softmax,
     },
     pad::Pad,
     pooling::{AveragePool, GlobalAveragePool, GlobalMaxPool, MaxPool},

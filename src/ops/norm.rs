@@ -536,14 +536,14 @@ impl Operator for LayerNormalization {
 ///
 /// See <https://pytorch.org/docs/stable/generated/torch.nn.modules.normalization.RMSNorm.html>.
 #[derive(Debug)]
-pub struct RmsNormalization {
+pub struct RMSNormalization {
     pub axis: isize,
     pub epsilon: Option<f32>,
 }
 
-impl Operator for RmsNormalization {
+impl Operator for RMSNormalization {
     fn name(&self) -> &str {
-        "RmsNormalization"
+        "RMSNormalization"
     }
 
     fn max_inputs(&self) -> Option<usize> {
