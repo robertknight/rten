@@ -177,6 +177,7 @@ impl OnnxOpRegistry {
         register_op!(Pow);
         register_op!(PRelu);
         register_op!(QuantizeLinear);
+        register_op!(RMSNormalization);
         register_op!(RandomNormal, feature = "random");
         register_op!(RandomNormalLike, feature = "random");
         register_op!(RandomUniform, feature = "random");
@@ -1318,6 +1319,14 @@ impl_read_op!(QuantizeLinear, |attrs: &Attrs| {
         .transpose()?;
     let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
     Ok(ops::QuantizeLinear { axis, output_dtype })
+});
+
+impl_read_op!(RMSNormalization, |attrs: &Attrs| {
+    let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
+    let epsilon = attrs.get_as("epsilon");
+    attrs.check_eq("stash_type", 1)?;
+
+    Ok(ops::RMSNormalization { axis, epsilon })
 });
 
 #[cfg(feature = "random")]

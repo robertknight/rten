@@ -17,7 +17,7 @@ use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
     Add, Cast, ComputeShape, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
     GroupedQueryAttentionMatMul, Identity, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg,
-    Pow, ReduceMean, RepeatInterleave, Reshape, RmsNormalization, Shape, Sigmoid, Slice, Softmax,
+    Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid, Slice, Softmax,
     Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
@@ -519,7 +519,7 @@ fn test_fuse_rms_norm() {
     let graph = optimize_graph(graph).unwrap();
 
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
-    let rms_norm = op.operator().downcast_ref::<RmsNormalization>().unwrap();
+    let rms_norm = op.operator().downcast_ref::<RMSNormalization>().unwrap();
     assert_eq!(rms_norm.epsilon, Some(1e-6));
 }
 
@@ -554,7 +554,7 @@ fn test_fuse_rms_norm_with_positive_axes() {
     let graph = optimize_graph(graph).unwrap();
 
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
-    let rms_norm = op.operator().downcast_ref::<RmsNormalization>().unwrap();
+    let rms_norm = op.operator().downcast_ref::<RMSNormalization>().unwrap();
     assert_eq!(rms_norm.epsilon, Some(1e-6));
 }
 
