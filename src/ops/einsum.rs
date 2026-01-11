@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use rten_base::num::AsUsize;
 use rten_tensor::layout::{MutLayout, OverlapPolicy};
 use rten_tensor::prelude::*;
 use rten_tensor::{Contiguous, DynLayout, Tensor, TensorView};
@@ -62,7 +63,7 @@ impl EinsumExpr {
                     .flat_map(|term| term.chars().filter(|c| c.is_ascii_lowercase()))
                 {
                     let ascii_idx = ch as u8 - b'a';
-                    char_count[ascii_idx as usize] += 1;
+                    char_count[ascii_idx.as_usize()] += 1;
                 }
 
                 // Generate output as sequence of alphabetically ordered
@@ -74,7 +75,7 @@ impl EinsumExpr {
                 }
 
                 for i in 0..N_LETTERS as u8 {
-                    if char_count[i as usize] == 1 {
+                    if char_count[i.as_usize()] == 1 {
                         let ascii_ch = b'a' + i;
                         output.push(ascii_ch as char);
                     }
@@ -214,11 +215,11 @@ pub fn einsum(
     for step in &path {
         let output_view = output.as_ref().map(|o| o.view());
         let x = match step.lhs.input {
-            EinsumInput::Index(idx) => &inputs[idx as usize],
+            EinsumInput::Index(idx) => &inputs[idx.as_usize()],
             EinsumInput::PrevOutput => output_view.as_ref().expect("invalid einsum path"),
         };
         let y = step.rhs.as_ref().map(|rhs| match rhs.input {
-            EinsumInput::Index(idx) => &inputs[idx as usize],
+            EinsumInput::Index(idx) => &inputs[idx.as_usize()],
             EinsumInput::PrevOutput => output_view.as_ref().expect("invalid einsum path"),
         });
         let new_output = einsum_step(pool, step, x, y)?.auto_return(pool);

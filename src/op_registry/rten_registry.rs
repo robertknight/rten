@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use rten_base::num::AsUsize;
 use rten_model_file::schema as sg;
 use smallvec::{SmallVec, smallvec};
 
@@ -260,19 +261,19 @@ fn padding_from_attrs(
     match (auto_pad, pads) {
         (sg::AutoPad::Same, _) => Padding::Same,
         (sg::AutoPad::NotSet, Some(pads)) => {
-            Padding::Fixed(pads.iter().map(|p| p as usize).collect())
+            Padding::Fixed(pads.iter().map(|p| p.as_usize()).collect())
         }
         _ => Padding::Fixed(smallvec!(0; 4)),
     }
 }
 
 fn vec_from_attr(attr: Option<flatbuffers::Vector<u32>>, default: &[usize]) -> Vec<usize> {
-    attr.map(|val| val.iter().map(|x| x as usize).collect())
+    attr.map(|val| val.iter().map(|x| x.as_usize()).collect())
         .unwrap_or_else(|| default.to_vec())
 }
 
 fn opt_vec_from_attr(attr: Option<flatbuffers::Vector<u32>>) -> Option<Vec<usize>> {
-    attr.map(|val| val.iter().map(|x| x as usize).collect())
+    attr.map(|val| val.iter().map(|x| x.as_usize()).collect())
 }
 
 /// Result of deserializing an operator node from a model file.
@@ -408,11 +409,11 @@ impl_read_op!(
     AveragePool,
     attrs_as_average_pool_attrs,
     |attrs: sg::AveragePoolAttrs| {
-        let kernel_size: SmallVec<_> = attrs.kernel_size().iter().map(|x| x as usize).collect();
+        let kernel_size: SmallVec<_> = attrs.kernel_size().iter().map(|x| x.as_usize()).collect();
         let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
         let strides = attrs
             .strides()
-            .map(|stride| stride.iter().map(|x| x as usize).collect())
+            .map(|stride| stride.iter().map(|x| x.as_usize()).collect())
             .unwrap_or(std::iter::repeat(1).take(kernel_size.len()).collect());
 
         Ok(ops::AveragePool {
@@ -455,7 +456,7 @@ impl_read_op!(
     }
 );
 impl_read_op!(Conv, attrs_as_conv_attrs, |attrs: sg::ConvAttrs| {
-    let groups = attrs.groups() as usize;
+    let groups = attrs.groups().as_usize();
     let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
     let strides = vec_from_attr(attrs.strides(), &[1, 1]);
     let dilations = vec_from_attr(attrs.dilations(), &[1, 1]);
@@ -467,7 +468,7 @@ impl_read_op!(Conv, attrs_as_conv_attrs, |attrs: sg::ConvAttrs| {
     })
 });
 impl_read_op!(ConvInteger, attrs_as_conv_attrs, |attrs: sg::ConvAttrs| {
-    let groups = attrs.groups() as usize;
+    let groups = attrs.groups().as_usize();
     let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
     let strides = vec_from_attr(attrs.strides(), &[1, 1]);
     let dilations = vec_from_attr(attrs.dilations(), &[1, 1]);
@@ -499,7 +500,7 @@ impl_read_op!(
         let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
         let strides = vec_from_attr(attrs.strides(), &[1, 1]);
         let output_padding = opt_vec_from_attr(attrs.output_padding());
-        let groups = attrs.groups() as usize;
+        let groups = attrs.groups().as_usize();
         Ok(ops::ConvTranspose {
             padding,
             strides,
@@ -611,7 +612,7 @@ impl_read_op!(
     }
 );
 impl_read_op!(GRU, attrs_as_gruattrs, |attrs: sg::GRUAttrs| {
-    let hidden_size = attrs.hidden_size() as usize;
+    let hidden_size = attrs.hidden_size().as_usize();
     let direction = match attrs.direction() {
         sg::RNNDirection::Forward => Direction::Forward,
         sg::RNNDirection::Reverse => Direction::Reverse,
@@ -722,7 +723,7 @@ impl ReadOp for ops::Loop {
 }
 
 impl_read_op!(LSTM, attrs_as_lstmattrs, |attrs: sg::LSTMAttrs| {
-    let hidden_size = attrs.hidden_size() as usize;
+    let hidden_size = attrs.hidden_size().as_usize();
     let direction = match attrs.direction() {
         sg::RNNDirection::Forward => Direction::Forward,
         sg::RNNDirection::Reverse => Direction::Reverse,
@@ -741,11 +742,11 @@ impl_read_op!(
     MaxPool,
     attrs_as_max_pool_attrs,
     |attrs: sg::MaxPoolAttrs| {
-        let kernel_size: SmallVec<_> = attrs.kernel_size().iter().map(|x| x as usize).collect();
+        let kernel_size: SmallVec<_> = attrs.kernel_size().iter().map(|x| x.as_usize()).collect();
         let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
         let strides = attrs
             .strides()
-            .map(|stride| stride.iter().map(|x| x as usize).collect())
+            .map(|stride| stride.iter().map(|x| x.as_usize()).collect())
             .unwrap_or(std::iter::repeat(1).take(kernel_size.len()).collect());
 
         Ok(ops::MaxPool {
@@ -826,7 +827,7 @@ impl_read_op!(
     |attrs: sg::RandomNormalAttrs| {
         let shape = attrs
             .shape()
-            .map(|shape| shape.iter().map(|size| size as usize).collect())
+            .map(|shape| shape.iter().map(|size| size.as_usize()).collect())
             .unwrap_or_default();
 
         Ok(ops::RandomNormal {
@@ -856,7 +857,7 @@ impl_read_op!(
     |attrs: sg::RandomUniformAttrs| {
         let shape = attrs
             .shape()
-            .map(|shape| shape.iter().map(|size| size as usize).collect())
+            .map(|shape| shape.iter().map(|size| size.as_usize()).collect())
             .unwrap_or_default();
 
         Ok(ops::RandomUniform {
@@ -1041,7 +1042,7 @@ impl_read_op!(
     |attrs: sg::TransposeAttrs| {
         let perm = attrs
             .perm()
-            .map(|perm| perm.iter().map(|dim| dim as usize).collect());
+            .map(|perm| perm.iter().map(|dim| dim.as_usize()).collect());
         Ok(ops::Transpose { perm })
     }
 );

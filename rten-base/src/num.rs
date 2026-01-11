@@ -20,6 +20,36 @@ impl AsBool for i32 {
     }
 }
 
+/// Trait for value-preserving, non-fallible conversion to usize.
+///
+/// This is like `x as usize` but only implemented for types where conversion
+/// will preserve the value, under the assumption that the pointer width is
+/// 32 or 64 bits. This differs from Rust's `Into<usize>` impls which do not
+/// support u32 -> usize conversion because pointers are 16-bits on some
+/// platforms. We assume that such platforms are not relevant for consumers
+/// of this crate.
+///
+/// This trait should be used instead of `as usize` where possible, as it
+/// ensures the conversion is value-preserving.
+pub trait AsUsize {
+    fn as_usize(self) -> usize;
+}
+
+macro_rules! impl_as_usize {
+    ($type:ty) => {
+        impl AsUsize for $type {
+            fn as_usize(self) -> usize {
+                self as usize
+            }
+        }
+    };
+}
+
+impl_as_usize!(u8);
+impl_as_usize!(u16);
+impl_as_usize!(u32);
+impl_as_usize!(usize);
+
 /// Trait indicating whether type is an integer or float.
 pub trait IsInt {
     fn is_int() -> bool;

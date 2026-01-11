@@ -11,6 +11,7 @@ include = ["/src", "/README.md"]
 
 [dependencies]
 png = "0.18"
+rten-base = { path = "../rten-base", version = "0.24.0" }
 rten-tensor = { path = "../rten-tensor", version = "0.24.0" }
 image = { workspace = true }
 

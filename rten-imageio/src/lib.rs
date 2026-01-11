@@ -8,6 +8,7 @@
 use std::error::Error;
 use std::path::Path;
 
+use rten_base::num::AsUsize;
 use rten_tensor::errors::FromDataError;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
@@ -40,7 +41,7 @@ pub fn image_to_tensor(image: image::DynamicImage) -> Result<NdTensor<f32, 3>, R
     let layout = image.sample_layout();
 
     let chw_tensor = NdTensorView::from_data_with_strides(
-        [height as usize, width as usize, 3],
+        [height.as_usize(), width.as_usize(), 3],
         image.as_raw().as_slice(),
         [
             layout.height_stride,

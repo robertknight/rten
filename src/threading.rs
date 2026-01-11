@@ -1,6 +1,8 @@
 use std::env;
 use std::sync::OnceLock;
 
+use rten_base::num::AsUsize;
+
 /// A wrapper around the Rayon thread pool used to run models.
 ///
 /// On platforms where threads are not supported (eg. WebAssembly) this runs
@@ -86,7 +88,7 @@ pub fn thread_pool() -> &'static ThreadPool {
             physical_cpus
         };
 
-        ThreadPool::with_num_threads(num_threads as usize)
+        ThreadPool::with_num_threads(num_threads.as_usize())
     })
 }
 

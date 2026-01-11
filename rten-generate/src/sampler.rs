@@ -127,6 +127,7 @@ fn multinomial(rng: &mut fastrand::Rng, probs: &[f32]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    use rten_base::num::AsUsize;
     use rten_simd::SimdOp;
     use rten_testing::TestCases;
     use rten_vecmath::Softmax;
@@ -155,7 +156,7 @@ mod tests {
         let mut counts = vec![0u32; logits.len()];
         for _ in 0..n_iters {
             let tok_id = sampler.sample(&logits);
-            counts[tok_id as usize] += 1;
+            counts[tok_id.as_usize()] += 1;
         }
 
         let mut normalized_logits = logits.logits().to_vec();

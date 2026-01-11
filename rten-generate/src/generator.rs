@@ -1066,6 +1066,7 @@ mod tests {
     use std::rc::Rc;
 
     use rten::{Dimension, NodeId, RunOptions, Value, ValueOrView};
+    use rten_base::num::AsUsize;
     use rten_tensor::NdTensor;
     use rten_tensor::prelude::*;
 
@@ -1208,7 +1209,7 @@ mod tests {
     fn generate_logits(n_vocab: usize, token_ids: &[u32]) -> NdTensor<f32, 3> {
         let mut logits = NdTensor::zeros([1, token_ids.len(), n_vocab]);
         for (idx, id) in token_ids.iter().copied().enumerate() {
-            logits[[0, idx, id as usize]] = 1.0;
+            logits[[0, idx, id.as_usize()]] = 1.0;
         }
         logits
     }

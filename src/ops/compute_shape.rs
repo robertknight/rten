@@ -1,5 +1,6 @@
 //! Operator which computes a tensor shape by evaluating symbolic expressions.
 
+use rten_base::num::AsUsize;
 use rten_shape_inference::{SymExpr, SymbolMap};
 use rten_tensor::Tensor;
 use rten_tensor::prelude::*;
@@ -52,11 +53,11 @@ impl Operator for ComputeShape {
             .symbols
             .iter()
             .map(|sym| {
-                let input = inputs.require(sym.input as usize)?;
-                if input.ndim() <= sym.axis as usize {
+                let input = inputs.require(sym.input.as_usize())?;
+                if input.ndim() <= sym.axis.as_usize() {
                     return Err(OpError::InvalidValue("Axis invalid for input shape"));
                 }
-                let size = input.size(sym.axis as usize) as i32;
+                let size = input.size(sym.axis.as_usize()) as i32;
                 Ok((sym.name.as_str(), size))
             })
             .collect::<Result<Vec<_>, _>>()?;
