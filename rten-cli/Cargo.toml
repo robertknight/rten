@@ -13,6 +13,7 @@ include = ["/src", "/README.md"]
 argh = { workspace = true }
 fastrand = { workspace = true }
 rten = { path = "../", version = "0.24.0", features=["all-ops", "mmap"] }
+rten-base = { path = "../rten-base", version = "0.24.0" }
 safetensors = "0.6.2"
 
 [dependencies.rten-tensor]

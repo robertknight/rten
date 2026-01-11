@@ -12,6 +12,7 @@ include = ["/src", "/README.md"]
 [dependencies]
 fastrand = { workspace = true }
 rten = { path = "../", version = "0.24.0" }
+rten-base = { path = "../rten-base", version = "0.24.0" }
 rten-simd = { path = "../rten-simd", version = "0.24.0" }
 rten-text = { path = "../rten-text", version = "0.24.0", optional = true }
 rten-tensor = { path = "../rten-tensor", version = "0.24.0" }

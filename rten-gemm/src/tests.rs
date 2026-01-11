@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::time::Instant;
 
+use rten_base::num::AsUsize;
 use rten_bench::run_bench;
 use rten_tensor::prelude::*;
 use rten_tensor::rng::XorShiftRng;
@@ -1036,7 +1037,7 @@ fn test_gemm_f32_with_block_quantized_rhs() {
         } = case;
 
         let n_bits = 4 as u8;
-        let elements_per_byte = 8 / n_bits as usize;
+        let elements_per_byte = 8 / n_bits.as_usize();
         let block_bytes = block_size / elements_per_byte;
 
         let mut rng = XorShiftRng::new(1234);

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 
+use rten_base::num::AsUsize;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
@@ -110,7 +111,7 @@ impl CtcHypothesis {
             .map(|step| {
                 alphabet
                     .chars()
-                    .nth((step.label - 1) as usize)
+                    .nth((step.label - 1).as_usize())
                     .unwrap_or('?')
             })
             .collect()
@@ -188,7 +189,7 @@ impl CtcDecoder {
     ) -> Vec<CtcHypothesis> {
         self.decode_beam_impl(prob_seq, beam_size)
             .into_iter()
-            .take(n_best as usize)
+            .take(n_best.as_usize())
             .map(CtcHypothesis::from_beam_state)
             .collect()
     }
@@ -227,8 +228,8 @@ impl CtcDecoder {
 
         // Probabilities for extensions to beam. The label 0 is used to mean
         // keeping the beam's prefix unchanged.
-        let mut next_prob_blank = NdTensor::zeros([beam_size as usize, n_labels]);
-        let mut next_prob_no_blank = NdTensor::zeros([beam_size as usize, n_labels]);
+        let mut next_prob_blank = NdTensor::zeros([beam_size.as_usize(), n_labels]);
+        let mut next_prob_no_blank = NdTensor::zeros([beam_size.as_usize(), n_labels]);
 
         // Map of `(beam_index, label) => other_beam_index` for
         // extensions to current prefixes which will produce a prefix that
@@ -330,7 +331,7 @@ impl CtcDecoder {
                         next_prob_blank[[bi, label]],
                         next_prob_no_blank[[bi, label]],
                     ]);
-                    if topk_extensions.len() < beam_size as usize
+                    if topk_extensions.len() < beam_size.as_usize()
                         || prob_sum
                             > topk_extensions
                                 .last()
@@ -347,7 +348,7 @@ impl CtcDecoder {
                         topk_extensions.sort_by(|a, b| (-a.prob).total_cmp(&-b.prob));
 
                         // Keep only the best new beams.
-                        topk_extensions.truncate(beam_size as usize);
+                        topk_extensions.truncate(beam_size.as_usize());
                     }
                 }
             }
@@ -355,7 +356,7 @@ impl CtcDecoder {
             beam = topk_extensions
                 .iter()
                 .map(|ext| {
-                    let i = ext.index as usize;
+                    let i = ext.index.as_usize();
                     let mut prefix = beam[i].prefix.clone();
                     if let Some(label) = ext.label {
                         prefix.push(DecodeStep {
@@ -366,9 +367,9 @@ impl CtcDecoder {
                     BeamState {
                         prefix,
                         prob_blank: next_prob_blank
-                            [[i, ext.label.map(|l| l.get() as usize).unwrap_or(0)]],
+                            [[i, ext.label.map(|l| l.get().as_usize()).unwrap_or(0)]],
                         prob_no_blank: next_prob_no_blank
-                            [[i, ext.label.map(|l| l.get() as usize).unwrap_or(0)]],
+                            [[i, ext.label.map(|l| l.get().as_usize()).unwrap_or(0)]],
                     }
                 })
                 .collect();
@@ -386,6 +387,7 @@ impl Default for CtcDecoder {
 
 #[cfg(test)]
 mod tests {
+    use rten_base::num::AsUsize;
     use rten_tensor::NdTensor;
     use rten_tensor::prelude::*;
 
@@ -421,7 +423,7 @@ mod tests {
         let mut x = NdTensor::zeros([seq.len(), ALPHABET.len()]);
         x.iter_mut().for_each(|el| *el = f32::NEG_INFINITY);
         for (t, class) in seq.iter().copied().enumerate() {
-            x[[t, class as usize]] = 0.
+            x[[t, class.as_usize()]] = 0.
         }
         x
     }

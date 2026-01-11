@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rayon::prelude::*;
+use rten_base::num::AsUsize;
 use rten_tensor::prelude::*;
 
 // The std HashMap/HashSet provide DOS resistance. In this module hash keys are
@@ -77,17 +78,17 @@ impl NodeRefCount {
 
         // If the refcount reaches the max value, it becomes sticky.
         if *rc == u8::MAX {
-            return Some(*rc as usize);
+            return Some((*rc).as_usize());
         } else if *rc == 0 {
             return None;
         }
 
         *rc = rc.saturating_sub(1);
-        Some(*rc as usize)
+        Some((*rc).as_usize())
     }
 
     fn count(&self, id: NodeId) -> usize {
-        self.rc[id.as_usize()] as usize
+        self.rc[id.as_usize()].as_usize()
     }
 }
 
@@ -841,7 +842,7 @@ impl Graph {
 
         // Count how often each temporary output is used, so we can free them
         // when no longer needed.
-        let mut temp_value_refcount = NodeRefCount::with_capacity(self.next_node_id as usize);
+        let mut temp_value_refcount = NodeRefCount::with_capacity(self.next_node_id.as_usize());
         for &op_node_id in plan.iter() {
             let Some(Node::Operator(op_node)) = self.nodes.get(&op_node_id) else {
                 return Err(

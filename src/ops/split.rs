@@ -1,4 +1,5 @@
 use rten_base::iter::range_chunks;
+use rten_base::num::AsUsize;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
@@ -75,7 +76,7 @@ pub fn split<T: Copy>(
                 .collect()
         }
         SplitSizes::NumSplits(n_splits) => {
-            let n_splits = n_splits as usize;
+            let n_splits = n_splits.as_usize();
             if n_splits == 0 {
                 return Err(OpError::InvalidValue("num_outputs must be > 0"));
             }

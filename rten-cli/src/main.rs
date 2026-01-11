@@ -9,6 +9,7 @@ use rten::{
     DataType, Dimension, Model, ModelMetadata, ModelOptions, NodeId, RunOptions, ThreadPool, Value,
     ValueOrView, ValueType,
 };
+use rten_base::num::AsUsize;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 use safetensors::SafeTensors;
@@ -639,7 +640,7 @@ fn main() {
 
     let thread_pool = args
         .num_threads
-        .map(|nt| ThreadPool::with_num_threads(nt as usize).into());
+        .map(|nt| ThreadPool::with_num_threads(nt.as_usize()).into());
     let run_opts = RunOptions::default()
         .with_timing(profile_mode != ProfileMode::None)
         .with_timing_by_shape(profile_mode == ProfileMode::Detailed)

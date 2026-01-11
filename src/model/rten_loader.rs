@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use rten_base::byte_cast::{Pod, cast_pod_slice};
-use rten_base::num::LeBytes;
+use rten_base::num::{AsUsize, LeBytes};
 use rten_model_file::header::{Header, HeaderError};
 use rten_model_file::schema as sg;
 use rten_model_file::schema::root_as_model;
@@ -316,7 +316,7 @@ fn add_graph_constant(
     storage: &Arc<ConstantStorage>,
     tensor_data_offset: Option<u64>,
 ) -> Result<NodeId, LoadError> {
-    let shape: Vec<usize> = constant.shape().iter().map(|x| x as usize).collect();
+    let shape: Vec<usize> = constant.shape().iter().map(|x| x.as_usize()).collect();
 
     if let Some(data_offset) = constant.data_offset() {
         // Constant data is stored outside the model buffer, in the same file.

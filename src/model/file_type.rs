@@ -1,6 +1,8 @@
 use std::ffi::OsStr;
 use std::path::Path;
 
+use rten_base::num::AsUsize;
+
 /// File type of a machine learning model.
 #[derive(Debug, PartialEq)]
 pub enum FileType {
@@ -55,7 +57,7 @@ impl FileType {
         // to the root table, as described at
         // https://flatbuffers.dev/internals/#encoding-example.
         if let Some(root_offset) = magic.map(u32::from_le_bytes)
-            && data.len() >= root_offset as usize
+            && data.len() >= root_offset.as_usize()
         {
             return Some(FileType::Rten);
         }

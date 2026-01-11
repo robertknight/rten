@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
+use rten_base::num::AsUsize;
+
 use crate::env::env_flag;
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, TypedConstant};
 use crate::operator::{OutputType, OutputTypesContext};
@@ -179,7 +181,7 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
 
                 let get_input_type = |index: u32| {
                     op.input_ids()
-                        .get(index as usize)
+                        .get(index.as_usize())
                         .copied()
                         .flatten()
                         .and_then(|id| {

@@ -5,6 +5,7 @@ use std::ops::Range;
 
 use rayon::prelude::*;
 use rten_base::iter::range_chunks;
+use rten_base::num::AsUsize;
 use rten_parallel::par_iter::ParIter;
 use rten_simd::ops::{Extend, IntOps, Interleave, NumOps, ToFloat};
 use rten_simd::{Isa, Simd, SimdOp};
@@ -691,7 +692,7 @@ impl<'a, T: Copy> BlockQuantizedMatrix<'a, T> {
 
         let [_batch, _k_blocks, block_bytes] = quant.shape();
 
-        let block_size = block_bytes * n_elem as usize;
+        let block_size = block_bytes * n_elem.as_usize();
         if !block_size.is_power_of_two() || block_size < Self::MIN_BLOCK_SIZE {
             return Err(BlockQuantizedError::UnsupportedBlockSize);
         }
@@ -733,7 +734,7 @@ impl<'a, T: Copy> BlockQuantizedMatrix<'a, T> {
     }
 
     pub(crate) fn elements_per_block(&self) -> usize {
-        (self.bytes_per_block() * 8) / self.bits as usize
+        (self.bytes_per_block() * 8) / self.bits.as_usize()
     }
 
     pub(crate) fn bytes_per_block(&self) -> usize {

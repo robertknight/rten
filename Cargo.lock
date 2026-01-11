@@ -475,6 +475,7 @@ dependencies = [
  "argh",
  "fastrand",
  "rten",
+ "rten-base",
  "rten-tensor",
  "rten-testing",
  "safetensors",
@@ -521,6 +522,7 @@ version = "0.24.0"
 dependencies = [
  "fastrand",
  "rten",
+ "rten-base",
  "rten-simd",
  "rten-tensor",
  "rten-testing",
@@ -534,6 +536,7 @@ version = "0.24.0"
 dependencies = [
  "image",
  "png",
+ "rten-base",
  "rten-tensor",
 ]
 
@@ -606,6 +609,7 @@ name = "rten-text"
 version = "0.24.0"
 dependencies = [
  "fancy-regex",
+ "rten-base",
  "rten-testing",
  "rustc-hash",
  "serde",

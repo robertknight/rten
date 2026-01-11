@@ -1,6 +1,7 @@
 //! Operators which query or change the shape of a tensor, or copy/move/reorder
 //! elements.
 
+use rten_base::num::AsUsize;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::layout::is_valid_permutation;
 use rten_tensor::prelude::*;
@@ -35,7 +36,7 @@ pub fn depth_to_space<T: Clone>(
 
     let input = static_dims!(input, 4, "NCHW")?;
     let [n, c, h, w] = input.shape();
-    let block_size = block_size as usize;
+    let block_size = block_size.as_usize();
 
     if c % (block_size * block_size) != 0 {
         return Err(OpError::InvalidValue(

@@ -4,6 +4,8 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
+use rten_base::num::AsUsize;
+
 use super::{DecodeError, EncodeError, Model};
 use crate::tokenizer::TokenId;
 use rustc_hash::{FxBuildHasher, FxHashMap};
@@ -77,14 +79,14 @@ fn byte_to_char() -> [char; 256] {
     for b in 0..=255u8 {
         let ch = char::from(b);
         if is_printable(ch) {
-            chars[b as usize] = ch;
+            chars[b.as_usize()] = ch;
         }
     }
 
     let mut non_printable_count = 0;
     for b in 0..=255u8 {
         if !is_printable(char::from(b)) {
-            chars[b as usize] = char::from_u32(256 + non_printable_count).unwrap();
+            chars[b.as_usize()] = char::from_u32(256 + non_printable_count).unwrap();
             non_printable_count += 1;
         }
     }
@@ -216,14 +218,14 @@ fn build_vocab(
         let mut rank = 0;
         for byte in 0..=255u8 {
             if is_printable(char::from(byte)) {
-                ranks[byte as usize] = Rank(rank);
+                ranks[byte.as_usize()] = Rank(rank);
                 rank += 1;
             }
         }
 
         for byte in 0..=255u8 {
             if !is_printable(char::from(byte)) {
-                ranks[byte as usize] = Rank(rank);
+                ranks[byte.as_usize()] = Rank(rank);
                 rank += 1;
             }
         }
@@ -404,7 +406,7 @@ impl Bpe {
             let encoded: EncodedBytes = piece
                 .as_bytes()
                 .iter()
-                .map(|&b| self.byte_to_char[b as usize])
+                .map(|&b| self.byte_to_char[b.as_usize()])
                 .collect();
             if let Some(&id) = vocab.get(&encoded) {
                 return [id].into();
@@ -415,7 +417,7 @@ impl Bpe {
         let mut tokens: Vec<TokenId> = piece
             .as_bytes()
             .iter()
-            .map(|&b| self.byte_to_token_id[b as usize])
+            .map(|&b| self.byte_to_token_id[b.as_usize()])
             .collect();
 
         // If the end-of-word suffix is enabled, replace the last byte's token
