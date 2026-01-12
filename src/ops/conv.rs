@@ -38,7 +38,7 @@ fn conv_2d_pointwise<X: GemmInT, W: GemmInT, Y: GemmOutT>(
     kernel: &NdTensorView<W, 4>,
     bias: Option<NdTensorView<Y, 1>>,
     input_quant: Option<QuantParams<X>>,
-    kernel_quant: Option<QuantParams<W>>,
+    kernel_zero: Option<&[W]>,
 ) -> Tensor<Y>
 where
     GemmExecutor<W, X, Y>: Default,
@@ -48,6 +48,7 @@ where
     let mut output = NdTensor::uninit_in(pool, [batch, out_c, in_h * in_w]);
 
     let kernel_mat = kernel.reshaped_in(pool, [out_c, in_c]).auto_return(pool);
+    let kernel_quant = kernel_zero.map(|zero_point| QuantParams { zero_point });
 
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.as_ref().map(|b| b.to_contiguous());
@@ -216,7 +217,6 @@ where
     let has_padding = pad_top > 0 || pad_left > 0 || pad_bottom > 0 || pad_right > 0;
     let im2col_cols = out_h * out_w;
 
-    let kernel_quant = kernel_zero.map(|zero_point| QuantParams { zero_point });
     let input_zero_vec = input_zero.map(|zero_point| vec![zero_point; im2col_cols]);
     let input_quant = input_zero_vec
         .as_ref()
@@ -237,7 +237,7 @@ where
             &kernel.nd_view(),
             bias.as_ref().map(|b| b.nd_view()),
             input_quant,
-            kernel_quant,
+            kernel_zero,
         ));
     }
 
@@ -301,6 +301,9 @@ where
         let kernel_mat = kernel
             .slice([out_chans.clone()])
             .reshaped_in(pool, [out_chans.len(), in_chans.len() * k_h * k_w]);
+        let kernel_quant = kernel_zero.map(|zero_point| QuantParams {
+            zero_point: &zero_point[out_chans.clone()],
+        });
 
         // Prepack kernel if we'll be able to reuse packed weights.
         let prepacked_kernel = if in_group.size(0) > 1 {
@@ -1415,6 +1418,14 @@ mod tests {
                         input_zero: Some(12),
                         kernel_zero: Some([1, 2, 3].into()),
                         groups: 1,
+                    },
+                    // General convolution with multiple groups.
+                    Case {
+                        input: Tensor::rand(&[1, 4, 5, 5], &mut rng),
+                        kernel: Tensor::rand(&[4, 2, 3, 3], &mut kernel_rng),
+                        input_zero: Some(12),
+                        kernel_zero: Some([1, 2, 3, 4].into()),
+                        groups: 2,
                     },
                     // General convolution with no zero point.
                     Case {
