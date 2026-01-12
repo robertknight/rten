@@ -32,14 +32,14 @@ impl AsBool for i32 {
 /// This trait should be used instead of `as usize` where possible, as it
 /// ensures the conversion is value-preserving.
 pub trait AsUsize {
-    fn as_usize(self) -> usize;
+    fn as_usize(&self) -> usize;
 }
 
 macro_rules! impl_as_usize {
     ($type:ty) => {
         impl AsUsize for $type {
-            fn as_usize(self) -> usize {
-                self as usize
+            fn as_usize(&self) -> usize {
+                *self as usize
             }
         }
     };
