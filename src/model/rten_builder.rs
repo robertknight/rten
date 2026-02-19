@@ -12,9 +12,9 @@ use crate::ops::{
     DepthToSpaceMode, DequantizeLinear, Einsum, Elu, EyeLike, Flatten, Gather, GatherElements,
     GatherND, Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu,
     LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, QuantizeLinear,
-    ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize,
-    ResizeMode, ScatterElements, ScatterReduction, SequenceEmpty, Shape, Softmax, Split, TopK,
-    Transpose, Trilu,
+    ReduceL1, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare,
+    Reshape, Resize, ResizeMode, ScatterElements, ScatterReduction, SequenceEmpty, Shape, Softmax,
+    Split, TopK, Transpose, Trilu,
 };
 use crate::value::{DataType, Scalar};
 
@@ -118,6 +118,8 @@ pub enum OpType<'a> {
 
     Range,
     Reciprocal,
+    ReduceL1(ReduceL1),
+    ReduceL2(ReduceL2),
     ReduceMax(ReduceMax),
     ReduceMean(ReduceMean),
     ReduceMin(ReduceMin),
@@ -815,6 +817,12 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
 
             OpType::Range => op!(Range),
             OpType::Reciprocal => op!(Reciprocal),
+            OpType::ReduceL1(args) => {
+                op_with_attrs!(ReduceL1, ReduceMeanAttrs, reduce_attrs!(args))
+            }
+            OpType::ReduceL2(args) => {
+                op_with_attrs!(ReduceL2, ReduceMeanAttrs, reduce_attrs!(args))
+            }
             OpType::ReduceMax(args) => {
                 op_with_attrs!(ReduceMax, ReduceMeanAttrs, reduce_attrs!(args))
             }

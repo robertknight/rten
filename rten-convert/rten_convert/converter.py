@@ -640,7 +640,8 @@ def op_node_from_onnx_operator(
             attrs.high = attr_reader.get_attr("high", "float", 1.0)
 
         case (
-            "ReduceL2"
+            "ReduceL1"
+            | "ReduceL2"
             | "ReduceMax"
             | "ReduceMean"
             | "ReduceMin"

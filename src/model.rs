@@ -1719,6 +1719,16 @@ mod tests {
             keep_dims: false,
             noop_with_empty_axes: false,
         });
+        add_operator!(ReduceL1, [input_node], {
+            axes: None,
+            keep_dims: false,
+            noop_with_empty_axes: false,
+        });
+        add_operator!(ReduceL2, [input_node], {
+            axes: None,
+            keep_dims: false,
+            noop_with_empty_axes: false,
+        });
         add_operator!(Relu, [input_node]);
 
         let new_shape = graph_builder.add_constant(Tensor::from([9]).view());

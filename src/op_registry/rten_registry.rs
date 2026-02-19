@@ -179,6 +179,7 @@ impl RtenOpRegistry {
         register_op!(RandomUniformLike, feature = "random");
         register_op!(Range);
         register_op!(Reciprocal);
+        register_op!(ReduceL1);
         register_op!(ReduceL2);
         register_op!(ReduceMax);
         register_op!(ReduceMean);
@@ -883,6 +884,7 @@ impl_read_op!(
 
 impl_read_op!(Range);
 impl_read_op!(Reciprocal);
+impl_read_op!(ReduceL1, attrs_as_reduce_mean_attrs, reduce_axes);
 impl_read_op!(ReduceL2, attrs_as_reduce_mean_attrs, reduce_axes);
 impl_read_op!(ReduceMax, attrs_as_reduce_mean_attrs, reduce_axes);
 impl_read_op!(ReduceMean, attrs_as_reduce_mean_attrs, reduce_axes);

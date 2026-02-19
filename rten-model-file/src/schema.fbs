@@ -142,6 +142,7 @@ enum OperatorType: ubyte {
   PRelu,
   STFT,
   GlobalMaxPool,
+  ReduceL1,
 }
 
 enum RNNDirection: ubyte {

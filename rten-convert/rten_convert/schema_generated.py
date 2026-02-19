@@ -136,6 +136,7 @@ class OperatorType(object):
     PRelu = 126
     STFT = 127
     GlobalMaxPool = 128
+    ReduceL1 = 129
 
 
 class RNNDirection(object):

@@ -1,4 +1,4 @@
-use rten_simd::ops::NumOps;
+use rten_simd::ops::{FloatOps, NumOps};
 use rten_simd::{Isa, Simd, SimdIterable, SimdOp};
 
 /// Computes the sum of a sequence of numbers.
@@ -64,6 +64,32 @@ impl SimdOp for SumSquare<'_> {
     }
 }
 
+/// Computes the sum of absolute values of a sequence of numbers.
+pub struct SumAbs<'a> {
+    input: &'a [f32],
+}
+
+impl<'a> SumAbs<'a> {
+    pub fn new(input: &'a [f32]) -> Self {
+        SumAbs { input }
+    }
+}
+
+impl SimdOp for SumAbs<'_> {
+    type Output = f32;
+
+    #[inline(always)]
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let ops = isa.f32();
+        let vec_sum = self.input.simd_iter(ops).fold_unroll::<4>(
+            ops.zero(),
+            |sum, x| ops.add(sum, ops.abs(x)),
+            |sum, x| ops.add(sum, x),
+        );
+        vec_sum.to_array().into_iter().sum()
+    }
+}
+
 /// Compute the sum of squares of input with a bias subtracted.
 ///
 /// This is a variant of [`SumSquare`] which subtracts a constant value from each
@@ -105,7 +131,7 @@ impl SimdOp for SumSquareSub<'_> {
 mod tests {
     use crate::ulp::assert_ulp_diff_le;
 
-    use super::{Sum, SumSquare, SumSquareSub};
+    use super::{Sum, SumAbs, SumSquare, SumSquareSub};
     use rten_simd::SimdOp;
 
     // Chosen to not be a multiple of vector size, so that tail handling is
@@ -126,6 +152,14 @@ mod tests {
         let expected_sum: f64 = xs.iter().copied().map(|x| x as f64 * x as f64).sum();
         let sum = SumSquare::new(&xs).dispatch();
         assert_ulp_diff_le!(sum, expected_sum as f32, 2.0);
+    }
+
+    #[test]
+    fn test_sum_abs() {
+        let xs: Vec<f32> = (0..LEN).map(|i| (i as f32 * 0.1) - 5.0).collect();
+        let expected_sum: f64 = xs.iter().map(|x| (*x as f64).abs()).sum();
+        let sum = SumAbs::new(&xs).dispatch();
+        assert_ulp_diff_le!(sum, expected_sum as f32, 1.0);
     }
 
     #[test]
