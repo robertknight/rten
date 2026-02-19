@@ -567,6 +567,159 @@ impl Operator for RMSNormalization {
     }
 }
 
+/// Perform group normalization on an `NC*` tensor.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__GroupNormalization.html>.
+pub fn group_normalization(
+    pool: &BufferPool,
+    input: TensorView,
+    scale: NdTensorView<f32, 1>,
+    bias: NdTensorView<f32, 1>,
+    num_groups: usize,
+    epsilon: Option<f32>,
+) -> Result<Tensor, OpError> {
+    let mut output = input.to_tensor_in(pool);
+    group_normalization_in_place(&mut output, scale, bias, num_groups, epsilon)?;
+    Ok(output)
+}
+
+pub fn group_normalization_in_place(
+    input: &mut Tensor,
+    scale: NdTensorView<f32, 1>,
+    bias: NdTensorView<f32, 1>,
+    num_groups: usize,
+    epsilon: Option<f32>,
+) -> Result<(), OpError> {
+    let &[_batch, chans, ref spatial @ ..] = input.shape() else {
+        return Err(OpError::InvalidValue("expected input with >= 2 dims"));
+    };
+
+    if num_groups == 0 || chans % num_groups != 0 {
+        return Err(OpError::InvalidValue(
+            "num_groups must evenly divide channel count",
+        ));
+    }
+
+    let epsilon = epsilon.unwrap_or(1e-5);
+    let channels_per_group = chans / num_groups;
+    let spatial_size: usize = spatial.iter().product();
+
+    // Determine whether scale/bias use v21 semantics (size == C) or v18
+    // semantics (size == num_groups).
+    let scale_len = scale.size(0);
+    let bias_len = bias.size(0);
+
+    if scale_len != chans && scale_len != num_groups {
+        return Err(OpError::InvalidValue(
+            "scale length must match channel count or num_groups",
+        ));
+    }
+    if bias_len != chans && bias_len != num_groups {
+        return Err(OpError::InvalidValue(
+            "bias length must match channel count or num_groups",
+        ));
+    }
+
+    input.make_contiguous();
+
+    let group_spatial_size = channels_per_group * spatial_size;
+    let batch_stride = chans * spatial_size;
+
+    // Parallelize over batches.
+    let data = input.data_mut().unwrap();
+    data.par_chunks_mut(batch_stride).for_each(|batch_data| {
+        for g in 0..num_groups {
+            let group_start = g * group_spatial_size;
+            let group_slice = &batch_data[group_start..group_start + group_spatial_size];
+
+            // Compute mean and variance over the entire group.
+            let mean = vecmath::Sum::new(group_slice).dispatch() / group_spatial_size as f32;
+            let variance = vecmath::SumSquareSub::new(group_slice, mean).dispatch()
+                / group_spatial_size as f32;
+
+            // Normalize each channel within the group.
+            for c in 0..channels_per_group {
+                let chan_idx = g * channels_per_group + c;
+                let chan_start = group_start + c * spatial_size;
+                let chan_slice = &mut batch_data[chan_start..chan_start + spatial_size];
+
+                let s = if scale_len == num_groups {
+                    scale[g]
+                } else {
+                    scale[chan_idx]
+                };
+                let b = if bias_len == num_groups {
+                    bias[g]
+                } else {
+                    bias[chan_idx]
+                };
+
+                normalize_slice(
+                    chan_slice.into(),
+                    NormalizeOptions {
+                        mean_normalize: MeanNormalize::Static { mean, variance },
+                        epsilon,
+                        scale: s,
+                        bias: b,
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[derive(Debug)]
+pub struct GroupNormalization {
+    pub num_groups: usize,
+    pub epsilon: Option<f32>,
+}
+
+impl Operator for GroupNormalization {
+    fn name(&self) -> &str {
+        "GroupNormalization"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let input = inputs.require_as(0)?;
+        let scale = inputs.require_as(1)?;
+        let bias = inputs.require_as(2)?;
+
+        group_normalization(ctx.pool(), input, scale, bias, self.num_groups, self.epsilon)
+            .into_op_result()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+        let mut output: Tensor = input.try_into()?;
+        let inputs = ctx.inputs();
+        let scale = inputs.require_as(0)?;
+        let bias = inputs.require_as(1)?;
+
+        group_normalization_in_place(&mut output, scale, bias, self.num_groups, self.epsilon)?;
+
+        Ok(output.into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+}
+
 pub fn log_softmax(pool: &BufferPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
     let mut output = input.to_tensor_in(pool);
     log_softmax_in_place(&mut output, axis)?;
@@ -798,8 +951,8 @@ mod tests {
 
     use super::SOFTMAX_GRAIN_SIZE;
     use super::{
-        NanHandling, batch_norm, batch_norm_in_place, instance_normalization, layer_normalization,
-        log_softmax, rms_normalization, softmax,
+        NanHandling, batch_norm, batch_norm_in_place, group_normalization,
+        instance_normalization, layer_normalization, log_softmax, rms_normalization, softmax,
     };
     use crate::buffer_pool::BufferPool;
     use crate::ops::OpError;
@@ -1211,6 +1364,111 @@ mod tests {
         let input = Tensor::rand(&[4, SOFTMAX_GRAIN_SIZE / 2], &mut rng);
         let result = softmax(&pool, input.view(), 1, NanHandling::KeepNans).unwrap();
         check_result(result);
+    }
+
+    #[test]
+    fn test_group_normalization() -> Result<(), Box<dyn Error>> {
+        // Input: (1, 4, 2) with 2 groups => 2 channels per group.
+        let input = Tensor::from_data(
+            &[1, 4, 2],
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+        );
+        // v21 scale/bias: size == C (4)
+        let scale = NdTensorView::from([1.0, 1.0, 1.0, 1.0].as_slice());
+        let bias = NdTensorView::from([0.0, 0.0, 0.0, 0.0].as_slice());
+
+        let pool = BufferPool::new();
+        let result =
+            group_normalization(&pool, input.view(), scale, bias, 2, None).unwrap();
+
+        // Group 0: channels 0,1 => values [1,2,3,4], mean=2.5, var=1.25
+        // Group 1: channels 2,3 => values [5,6,7,8], mean=6.5, var=1.25
+        let eps = 1e-5_f32;
+        let var_g = 1.25_f32;
+        let inv = 1.0 / (var_g + eps).sqrt();
+        let expected = Tensor::from_data(
+            &[1, 4, 2],
+            vec![
+                (1.0 - 2.5) * inv,
+                (2.0 - 2.5) * inv,
+                (3.0 - 2.5) * inv,
+                (4.0 - 2.5) * inv,
+                (5.0 - 6.5) * inv,
+                (6.0 - 6.5) * inv,
+                (7.0 - 6.5) * inv,
+                (8.0 - 6.5) * inv,
+            ],
+        );
+
+        expect_eq_1e4(&result, &expected)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_group_normalization_v18_scale() -> Result<(), Box<dyn Error>> {
+        // v18 semantics: scale/bias size == num_groups
+        let input = Tensor::from_data(
+            &[1, 4, 2],
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+        );
+        // 2 groups, scale/bias per group
+        let scale = NdTensorView::from([2.0, 3.0].as_slice());
+        let bias = NdTensorView::from([0.1, 0.2].as_slice());
+
+        let pool = BufferPool::new();
+        let result =
+            group_normalization(&pool, input.view(), scale, bias, 2, None).unwrap();
+
+        let eps = 1e-5_f32;
+        let var_g = 1.25_f32;
+        let inv = 1.0 / (var_g + eps).sqrt();
+        let expected = Tensor::from_data(
+            &[1, 4, 2],
+            vec![
+                (1.0 - 2.5) * inv * 2.0 + 0.1,
+                (2.0 - 2.5) * inv * 2.0 + 0.1,
+                (3.0 - 2.5) * inv * 2.0 + 0.1,
+                (4.0 - 2.5) * inv * 2.0 + 0.1,
+                (5.0 - 6.5) * inv * 3.0 + 0.2,
+                (6.0 - 6.5) * inv * 3.0 + 0.2,
+                (7.0 - 6.5) * inv * 3.0 + 0.2,
+                (8.0 - 6.5) * inv * 3.0 + 0.2,
+            ],
+        );
+
+        expect_eq_1e4(&result, &expected)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_group_normalization_groups_eq_channels() -> Result<(), Box<dyn Error>> {
+        // When num_groups == C, GroupNorm should behave like InstanceNorm.
+        let input = Tensor::from([[
+            [0.9562, 0.0572],
+            [0.4366, 0.5655],
+            [0.2017, 0.0230],
+            [0.7941, 0.1554],
+            [0.3226, 0.120],
+        ]]);
+        let scale = Tensor::from([0.0751, 0.6952, 0.5800, 0.6791, 0.9884]);
+        let bias = Tensor::from([0.9993, 0.7632, 0.7679, 0.2427, 0.0728]);
+
+        let pool = BufferPool::new();
+        let instance_result =
+            instance_normalization(&pool, input.view(), scale.nd_view(), bias.nd_view(), None)
+                .unwrap();
+        let group_result = group_normalization(
+            &pool,
+            input.view(),
+            scale.nd_view(),
+            bias.nd_view(),
+            5, // num_groups == C
+            None,
+        )
+        .unwrap();
+
+        expect_eq_1e4(&group_result, &instance_result)?;
+        Ok(())
     }
 
     // Test that flush_nans_to_zero behavior works correctly when all inputs are

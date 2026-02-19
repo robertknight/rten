@@ -141,6 +141,7 @@ impl OnnxOpRegistry {
         register_op!(GlobalAveragePool);
         register_op!(GlobalMaxPool);
         register_op!(Greater);
+        register_op!(GroupNormalization);
         register_op!(GreaterOrEqual);
         register_op!(GridSample);
         register_op!(GRU);
@@ -1044,6 +1045,14 @@ impl_read_op!(GridSample, |attrs: &Attrs| {
     attrs.check_eq("padding_mode", "zeros")?;
 
     Ok(ops::GridSample { align_corners })
+});
+
+impl_read_op!(GroupNormalization, |attrs: &Attrs| {
+    let num_groups = attrs.require("num_groups")?.cast_int()?;
+    let epsilon = attrs.get_as("epsilon");
+    attrs.check_eq("stash_type", 1)?;
+
+    Ok(ops::GroupNormalization { num_groups, epsilon })
 });
 
 impl_read_op!(GRU, |attrs: &Attrs| {

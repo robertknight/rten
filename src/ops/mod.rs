@@ -89,8 +89,8 @@ pub(crate) use {
     },
     non_max_suppression::NonMaxSuppression,
     norm::{
-        BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax,
-        RMSNormalization, Softmax,
+        BatchNormalization, GroupNormalization, InstanceNormalization, LayerNormalization,
+        LogSoftmax, RMSNormalization, Softmax,
     },
     pad::Pad,
     pooling::{AveragePool, GlobalAveragePool, GlobalMaxPool, MaxPool},
@@ -136,8 +136,8 @@ pub use layout::{DepthToSpaceMode, depth_to_space, expand, flatten, reshape, squ
 pub use matmul::{gemm, matmul};
 pub use non_max_suppression::{BoxOrder, non_max_suppression};
 pub use norm::{
-    batch_norm, instance_normalization, layer_normalization, log_softmax, rms_normalization,
-    softmax,
+    batch_norm, group_normalization, instance_normalization, layer_normalization, log_softmax,
+    rms_normalization, softmax,
 };
 pub use pad::{PadMode, pad};
 pub use pooling::{average_pool, global_average_pool, max_pool};
