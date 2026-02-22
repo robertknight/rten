@@ -1338,6 +1338,32 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
         TensorBase::from_data(shape, data)
     }
 
+    /// Concatenate a slice of tensors along a given dimension.
+    ///
+    /// All tensors must have the same shape, except along `dim` where the
+    /// sizes may differ. Returns an error if `tensors` is empty or if shapes
+    /// are incompatible.
+    pub fn concat<S2: Storage<Elem = T>>(
+        dim: usize,
+        tensors: &[TensorBase<S2, L>],
+    ) -> Result<TensorBase<Vec<T>, L>, ExpandError>
+    where
+        T: Copy,
+        L: MutLayout,
+    {
+        let first = tensors.first().ok_or(ExpandError::ShapeMismatch)?;
+        let total_dim_size: usize = tensors.iter().map(|t| t.size(dim)).sum();
+
+        let mut target_layout = first.layout().clone();
+        target_layout.resize_dim(dim, total_dim_size);
+
+        let mut result = Self::with_capacity(target_layout.shape(), dim);
+        for tensor in tensors {
+            result.append(dim, tensor)?;
+        }
+        Ok(result)
+    }
+
     /// Create a tensor which initially has zero elements, but can be expanded
     /// along a given dimension without reallocating.
     ///
