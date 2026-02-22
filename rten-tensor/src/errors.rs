@@ -193,3 +193,5 @@ impl std::fmt::Display for ExpandError {
         }
     }
 }
+
+impl Error for ExpandError {}

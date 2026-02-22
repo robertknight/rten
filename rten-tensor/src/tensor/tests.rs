@@ -65,6 +65,50 @@ fn test_append() {
 }
 
 #[test]
+fn test_concat() {
+    // Concat along dim 0 (rows)
+    let a = NdTensor::from([[1, 2], [3, 4]]);
+    let b = NdTensor::from([[5, 6]]);
+    let result = NdTensor::concat(0, &[a, b]).unwrap();
+    assert_eq!(result, NdTensor::from([[1, 2], [3, 4], [5, 6]]));
+
+    // Concat along dim 1 (columns)
+    let a = NdTensor::from([[1, 2], [3, 4]]);
+    let b = NdTensor::from([[5], [6]]);
+    let result = NdTensor::concat(1, &[a, b]).unwrap();
+    assert_eq!(result, NdTensor::from([[1, 2, 5], [3, 4, 6]]));
+
+    // Concat three tensors
+    let a = NdTensor::from([[1]]);
+    let b = NdTensor::from([[2]]);
+    let c = NdTensor::from([[3]]);
+    let result = NdTensor::concat(1, &[a, b, c]).unwrap();
+    assert_eq!(result, NdTensor::from([[1, 2, 3]]));
+
+    // Single tensor
+    let a = NdTensor::from([[1, 2], [3, 4]]);
+    let result = NdTensor::concat(0, &[a]).unwrap();
+    assert_eq!(result, NdTensor::from([[1, 2], [3, 4]]));
+
+    // Empty slice
+    let result = NdTensor::<i32, 2>::concat(0, &[] as &[NdTensor<i32, 2>]);
+    assert_eq!(result, Err(ExpandError::ShapeMismatch));
+
+    // Shape mismatch on non-concat dimension
+    let a = NdTensor::from([[1, 2]]);
+    let b = NdTensor::from([[3, 4, 5]]);
+    let result = NdTensor::concat(0, &[a, b]);
+    assert_eq!(result, Err(ExpandError::ShapeMismatch));
+
+    // Dynamic-rank concat
+    let a = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+    let b = Tensor::from_data(&[1, 2], vec![5, 6]);
+    let result = Tensor::concat(0, &[a, b]).unwrap();
+    assert_eq!(result.shape(), &[3, 2]);
+    assert_eq!(result.to_vec(), vec![1, 2, 3, 4, 5, 6]);
+}
+
+#[test]
 fn test_apply() {
     let data = vec![1., 2., 3., 4.];
 
