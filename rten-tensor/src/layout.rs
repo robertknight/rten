@@ -1360,6 +1360,68 @@ impl_remove_dim!(3, 2);
 impl_remove_dim!(4, 3);
 impl_remove_dim!(5, 4);
 
+/// Trait that inserts one dimension into a layout.
+pub trait InsertDim {
+    type Output: MutLayout;
+
+    /// Return a copy of this layout with a size-1 dimension inserted at `dim`.
+    fn insert_dim(&self, dim: usize) -> Self::Output;
+}
+
+impl InsertDim for DynLayout {
+    type Output = DynLayout;
+
+    fn insert_dim(&self, dim: usize) -> DynLayout {
+        let mut clone = self.clone();
+        clone.insert_axis(dim);
+        clone
+    }
+}
+
+macro_rules! impl_insert_dim {
+    ($in_dims:expr, $out_dims:expr) => {
+        impl InsertDim for NdLayout<$in_dims> {
+            type Output = NdLayout<$out_dims>;
+
+            fn insert_dim(&self, dim: usize) -> Self::Output {
+                let new_stride = self
+                    .shape
+                    .iter()
+                    .zip(self.strides.iter())
+                    .map(|(s, st)| s * st)
+                    .max()
+                    .unwrap_or(1);
+
+                let shape = std::array::from_fn(|i| {
+                    if i < dim {
+                        self.shape[i]
+                    } else if i == dim {
+                        1
+                    } else {
+                        self.shape[i - 1]
+                    }
+                });
+                let strides = std::array::from_fn(|i| {
+                    if i < dim {
+                        self.strides[i]
+                    } else if i == dim {
+                        new_stride
+                    } else {
+                        self.strides[i - 1]
+                    }
+                });
+                NdLayout { shape, strides }
+            }
+        }
+    };
+}
+
+impl_insert_dim!(0, 1);
+impl_insert_dim!(1, 2);
+impl_insert_dim!(2, 3);
+impl_insert_dim!(3, 4);
+impl_insert_dim!(4, 5);
+
 /// Trait for slicing a layout with a range.
 ///
 /// `R` is the type of the slice range. `IdxCount` is a marker type indicating
