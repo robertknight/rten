@@ -53,7 +53,7 @@ fn extract_nbest_answers<'a>(
         .iter()
         .map(|tid| *tid as i32)
         .collect::<Tensor<_>>()
-        .into_shape([1, query_context.token_ids().len()].as_slice());
+        .with_new_axis(0);
     let attention_mask = Tensor::full(&[batch, input_ids.len()], 1i32);
 
     let mut inputs: Vec<(NodeId, ValueOrView)> = vec![
@@ -72,7 +72,7 @@ fn extract_nbest_answers<'a>(
             .token_type_ids()
             .map(|tid| tid as i32)
             .collect::<Tensor<_>>()
-            .into_shape([1, query_context.token_ids().len()].as_slice());
+            .with_new_axis(0);
         inputs.push((type_ids_id, type_ids.view().into()));
     }
 

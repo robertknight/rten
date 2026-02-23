@@ -127,9 +127,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Encode phonemes to IDs and prepare other model inputs.
     let phonemes = args.phonemes.as_deref().unwrap_or(default_phonemes);
     let phoneme_ids = phonemes_to_ids(phonemes, &config);
-    let phoneme_ids_len = phoneme_ids.size(0);
-    let phoneme_ids = phoneme_ids.into_shape([1, phoneme_ids_len]); // Add batch dim
-    let input_lengths = NdTensor::from([phoneme_ids_len as i32]);
+    let input_lengths = NdTensor::from([phoneme_ids.size(0) as i32]);
+    let phoneme_ids = phoneme_ids.with_new_axis(0); // Add batch dim
     let scales = NdTensor::from([
         config.inference.noise_scale,
         config.inference.length_scale,

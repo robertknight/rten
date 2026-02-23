@@ -392,7 +392,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             break;
         }
 
-        let mut mel_spec = log_mel_spectrogram(
+        let mel_spec = log_mel_spectrogram(
             audio_chunk,
             samples_per_chunk,
             n_mels,
@@ -400,8 +400,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             &mel_filters,
             &hann_window,
         )?
-        .into_dyn();
-        mel_spec.insert_axis(0); // Add batch dim
+        .with_new_axis(0); // Add batch dim
 
         let encode_start = start.elapsed();
         let [encoded_audio] = encoder.run_n(

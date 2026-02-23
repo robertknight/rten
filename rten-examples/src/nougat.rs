@@ -57,8 +57,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let decoder = Model::load_file(args.decoder_model)?;
 
     let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
-    let mut image = read_image(args.image_path)?.into_dyn();
-    image.insert_axis(0); // Add batch dim
+    let image = read_image(args.image_path)?.with_new_axis(0); // Add batch dim
 
     // Values taken from `preprocessor_config.json`.
     let img_size = [896, 672];

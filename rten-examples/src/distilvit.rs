@@ -46,8 +46,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let encoder_model = Model::load_file(args.encoder_model)?;
     let decoder_model = Model::load_file(args.decoder_model)?;
     let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
-    let mut image = read_image(args.image_path)?.into_dyn();
-    image.insert_axis(0); // Add batch dim
+    let image = read_image(args.image_path)?.with_new_axis(0); // Add batch dim
     let image = image.resize_image([224, 224])?;
 
     let encoded_image: NdTensor<f32, 3> = encoder_model

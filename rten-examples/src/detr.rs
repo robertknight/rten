@@ -169,8 +169,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let [_, image_height, image_width] = image.shape();
 
-    let mut image = image.as_dyn().to_tensor();
-    image.insert_axis(0); // Add batch dim
+    let mut image = image.into_dyn().with_new_axis(0); // Add batch dim
 
     // Resize image according to preprocessing configuration.
     let (rescaled_width, rescaled_height) = if let (Some(min_size), Some(max_size)) = (
