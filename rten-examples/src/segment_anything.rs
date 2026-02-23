@@ -3,8 +3,8 @@ use std::error::Error;
 use argh::FromArgs;
 use rten::{Dimension, FloatOperators, Model};
 use rten_imageio::{read_image, write_image};
+use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, Tensor};
 
 /// Segment an image.
 #[derive(FromArgs)]
@@ -81,10 +81,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let decoder = Model::load_file(args.decoder_model)?;
 
     println!("Reading image...");
-    let mut image: Tensor = read_image(&args.image)?.into();
-    let image_h = image.size(1);
-    let image_w = image.size(2);
-    image.insert_axis(0);
+    let image = read_image(&args.image)?.with_new_axis(0); // Add batch dim
+    let [_, _, image_h, image_w] = image.shape();
 
     // Prepare the input image.
     //

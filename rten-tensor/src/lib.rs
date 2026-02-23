@@ -86,7 +86,7 @@ pub trait RandomSource<T> {
 pub use assume_init::AssumeInit;
 pub use contiguous::Contiguous;
 pub use index_iterator::{DynIndices, Indices, NdIndices};
-pub use layout::{DynLayout, Layout, MatrixLayout, NdLayout};
+pub use layout::{DynLayout, InsertDim, Layout, MatrixLayout, NdLayout};
 pub use slice_range::{SliceItem, SliceRange};
 pub use storage::Storage;
 pub use tensor::{

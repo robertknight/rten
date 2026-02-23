@@ -3,8 +3,8 @@ use std::error::Error;
 use argh::FromArgs;
 use rten::Model;
 use rten::ctc::CtcDecoder;
+use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, Tensor};
 
 /// Recognize speech in .wav files.
 #[derive(FromArgs)]
@@ -110,8 +110,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // longer audio clips. This approach to chunking is very simple, but there
     // are better approaches. See https://huggingface.co/blog/asr-chunking.
     for sample_chunk in samples.chunks(sample_rate as usize * chunk_length) {
-        let mut sample_batch = Tensor::from(sample_chunk.to_vec());
-        sample_batch.insert_axis(0);
+        let sample_batch = NdTensor::from(sample_chunk.to_vec()).with_new_axis(0);
 
         let result: NdTensor<f32, 3> = model
             .run_one(sample_batch.view().into(), None)?

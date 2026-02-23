@@ -14,8 +14,8 @@ use crate::iterators::{
     Lanes, LanesMut, for_each_mut,
 };
 use crate::layout::{
-    AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, LayoutExt, MatrixLayout, MutLayout,
-    NdLayout, OverlapPolicy, RemoveDim, ResizeLayout, SliceWith, TrustedLayout,
+    AsIndex, BroadcastLayout, DynLayout, InsertDim, IntoLayout, Layout, LayoutExt, MatrixLayout,
+    MutLayout, NdLayout, OverlapPolicy, RemoveDim, ResizeLayout, SliceWith, TrustedLayout,
 };
 use crate::overlap::may_have_internal_overlap;
 use crate::slice_range::{IntoSliceItems, SliceItem};
@@ -653,6 +653,30 @@ impl<S: Storage, L: Layout> TensorBase<S, L> {
         TensorBase {
             data: self.data,
             layout: self.layout.into(),
+        }
+    }
+
+    /// Return a tensor with a size-1 dimension inserted at `axis`.
+    ///
+    /// `axis` must be in the range `0..=self.ndim()`. Panics if `axis` is out
+    /// of bounds.
+    ///
+    /// This is a zero-copy operation that only changes the layout metadata.
+    #[track_caller]
+    pub fn with_new_axis(self, axis: usize) -> TensorBase<S, <L as InsertDim>::Output>
+    where
+        L: InsertDim,
+    {
+        assert!(
+            axis <= self.ndim(),
+            "axis {} is out of bounds for tensor with {} dims",
+            axis,
+            self.ndim()
+        );
+        let layout = self.layout.insert_dim(axis);
+        TensorBase {
+            data: self.data,
+            layout,
         }
     }
 

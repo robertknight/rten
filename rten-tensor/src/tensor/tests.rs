@@ -904,6 +904,47 @@ fn test_insert_axis() {
 }
 
 #[test]
+fn test_with_new_axis() {
+    // NdTensor: insert at start
+    let tensor = NdTensor::from([1, 2, 3]);
+    let expanded = tensor.with_new_axis(0);
+    assert_eq!(expanded.shape(), [1, 3]);
+    assert_eq!(expanded.to_vec(), &[1, 2, 3]);
+
+    // NdTensor: insert at end
+    let tensor = NdTensor::from([1, 2, 3]);
+    let expanded = tensor.with_new_axis(1);
+    assert_eq!(expanded.shape(), [3, 1]);
+    assert_eq!(expanded.to_vec(), &[1, 2, 3]);
+
+    // NdTensor: insert in middle
+    let tensor = NdTensor::from([[1, 2], [3, 4]]);
+    let expanded = tensor.with_new_axis(1);
+    assert_eq!(expanded.shape(), [2, 1, 2]);
+    assert_eq!(expanded.to_vec(), &[1, 2, 3, 4]);
+
+    // Tensor (dynamic): insert axis
+    let tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+    let expanded = tensor.with_new_axis(0);
+    assert_eq!(expanded.shape(), &[1, 2, 2]);
+    assert_eq!(expanded.to_vec(), &[1, 2, 3, 4]);
+
+    // NdTensorView: insert axis on a view
+    let tensor = NdTensor::from([[1, 2], [3, 4]]);
+    let view = tensor.view();
+    let expanded = view.with_new_axis(2);
+    assert_eq!(expanded.shape(), [2, 2, 1]);
+    assert_eq!(expanded.to_vec(), &[1, 2, 3, 4]);
+
+    // Non-contiguous tensor (transposed)
+    let tensor = NdTensor::from([[1, 2], [3, 4]]);
+    let transposed = tensor.transposed();
+    let expanded = transposed.with_new_axis(0);
+    assert_eq!(expanded.shape(), [1, 2, 2]);
+    assert_eq!(expanded.to_vec(), &[1, 3, 2, 4]);
+}
+
+#[test]
 fn test_item() {
     let tensor = NdTensor::from(5.);
     assert_eq!(tensor.item(), Some(&5.));

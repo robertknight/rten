@@ -44,10 +44,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Args = argh::from_env();
     let model = Model::load_file(args.model)?;
 
-    let mut image: Tensor = read_image(&args.image)?.into();
-    let [_, orig_height, orig_width] = image.shape().try_into()?;
-    normalize_image(image.nd_view_mut(), IMAGENET_MEAN, IMAGENET_STD_DEV);
-    image.insert_axis(0); // Add batch dim
+    let mut image = read_image(&args.image)?;
+    let [_, orig_height, orig_width] = image.shape();
+    normalize_image(image.view_mut(), IMAGENET_MEAN, IMAGENET_STD_DEV);
+    let image = image.with_new_axis(0); // Add batch dim
 
     // Input size taken from README in https://github.com/fabio-sim/Depth-Anything-ONNX.
     let [input_h, input_w] = [518, 518];

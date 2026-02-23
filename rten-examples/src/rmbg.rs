@@ -64,8 +64,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let [_, orig_height, orig_width] = image.shape();
 
-    let mut normalized_image = normalized_image.into_dyn();
-    normalized_image.insert_axis(0); // Add batch dim
+    let normalized_image = normalized_image.with_new_axis(0); // Add batch dim
 
     let [input_h, input_w] = [1024, 1024];
     let resized_image = normalized_image.resize_image([input_h, input_w])?;

@@ -60,8 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let decoder_model = Model::load_file(args.decoder_model)?;
 
     let tokenizer = Tokenizer::from_file(&args.tokenizer_config)?;
-    let mut image = read_image(args.image_path)?.into_dyn();
-    image.insert_axis(0); // Add batch dim
+    let image = read_image(args.image_path)?.with_new_axis(0); // Add batch dim
 
     // From `image_size` in config.json.
     let mut image: NdTensor<_, 4> = image.resize_image([384, 384])?.try_into()?;

@@ -114,12 +114,7 @@ fn embed_sentence_batch(
         .collect();
     let mean_pooled_views: Vec<_> = mean_pooled
         .iter()
-        .map(|mp| {
-            // Re-add batch dim.
-            let mut view = mp.view();
-            view.insert_axis(0);
-            view
-        })
+        .map(|mp| mp.view().with_new_axis(0))
         .collect();
     let pool = BufferPool::new();
     let mean_pooled: NdTensor<f32, 2> = concat(&pool, &mean_pooled_views, 0)?.try_into()?;
