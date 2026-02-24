@@ -24,17 +24,28 @@ pub struct SymbolInfo {
     pub axis: u32,
 }
 
-/// Compute a tensor shape from a combination of static values and the dynamic
-/// shapes of inputs.
+#[derive(Debug)]
+pub enum SymExprKind {
+    Scalar(SymExpr),
+    Vector(Vec<SymExpr>),
+}
+
+/// Produce a tensor by evaluating symbolic expressions.
+///
+/// The symbolic expressions can include named symbols whose values are obtained
+/// from the dimension sizes of input tensors.
+///
+/// This operator can replace subgraphs in ONNX models which extract and
+/// manipulate tensor shapes.
 #[derive(Debug)]
 pub struct ComputeShape {
     /// Specifies how to map dimension sizes of inputs to symbols used by the
     /// `shape` field.
     pub symbols: Vec<SymbolInfo>,
 
-    /// Specifies the symbolic expression to evaluate for each position in the
-    /// output vector.
-    pub shape: Vec<SymExpr>,
+    /// Specifies the rank of the output tensor and the symbolic expression to
+    /// evaluate for each element.
+    pub elements: SymExprKind,
 }
 
 impl Operator for ComputeShape {
@@ -63,16 +74,26 @@ impl Operator for ComputeShape {
             .collect::<Result<Vec<_>, _>>()?;
         let symbols = SymbolMap::new(&symbols);
 
-        let output = self
-            .shape
-            .iter()
-            .map(|expr| {
-                expr.eval(&symbols)
-                    .map_err(|_| OpError::InvalidValue("Failed to evaluate symbolic shape"))
-            })
-            .collect::<Result<Vec<i32>, _>>()?;
+        let output = match &self.elements {
+            SymExprKind::Scalar(expr) => {
+                let item = expr
+                    .eval(&symbols)
+                    .map_err(|_| OpError::InvalidValue("Failed to evaluate symbolic shape"))?;
+                Tensor::from(item)
+            }
+            SymExprKind::Vector(shape) => {
+                let output = shape
+                    .iter()
+                    .map(|expr| {
+                        expr.eval(&symbols)
+                            .map_err(|_| OpError::InvalidValue("Failed to evaluate symbolic shape"))
+                    })
+                    .collect::<Result<Vec<i32>, _>>()?;
+                Tensor::from(output)
+            }
+        };
 
-        Tensor::from(output).into_op_result()
+        output.into_op_result()
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -109,7 +130,7 @@ mod tests {
                 },
             ]
             .to_vec(),
-            shape: [
+            elements: super::SymExprKind::Vector(vec![
                 SymExpr::Value(3),
                 SymExpr::Var(
                     Symbol {
@@ -126,8 +147,7 @@ mod tests {
                     }
                     .into(),
                 ),
-            ]
-            .into(),
+            ]),
         };
         let result: NdTensor<i32, 1> = op.run_simple((input_a.view(), input_b.view())).unwrap();
 
@@ -141,7 +161,7 @@ mod tests {
                 axis: 0,
             }]
             .into(),
-            shape: Vec::new(),
+            elements: super::SymExprKind::Vector(Vec::new()),
         };
         let result: Result<NdTensor<i32, 1>, _> = op.run_simple(input_a.view());
         assert_eq!(result.err().unwrap(), OpError::MissingInputs);
@@ -154,7 +174,7 @@ mod tests {
                 axis: 3,
             }]
             .into(),
-            shape: Vec::new(),
+            elements: super::SymExprKind::Vector(Vec::new()),
         };
         let result: Result<NdTensor<i32, 1>, _> = op.run_simple(input_a.view());
         assert_eq!(
