@@ -55,10 +55,10 @@ fn preprocess_image(
     debug_assert!(resized_width >= target_width);
     debug_assert!(resized_height >= target_height);
 
-    let mut image = image
+    let image = image
         .with_new_axis(0) // Add batch dim
-        .resize_image([resized_height as usize, resized_width as usize])?;
-    image.remove_axis(0);
+        .resize_image([resized_height as usize, resized_width as usize])?
+        .with_axis_removed(0); // Remove batch dim
     let mut image: NdTensor<_, 3> = image.try_into()?;
 
     // Center crop image.
