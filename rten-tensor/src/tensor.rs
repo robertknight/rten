@@ -680,6 +680,36 @@ impl<S: Storage, L: Layout> TensorBase<S, L> {
         }
     }
 
+    /// Return a tensor with a size-1 dimension at `axis` removed.
+    ///
+    /// `axis` must be in the range `0..self.ndim()` and `self.size(axis)` must
+    /// be 1. Panics if `axis` is out of bounds or the dimension size is not 1.
+    ///
+    /// This is a zero-copy operation that only changes the layout metadata.
+    #[track_caller]
+    pub fn with_axis_removed(self, axis: usize) -> TensorBase<S, <L as RemoveDim>::Output>
+    where
+        L: RemoveDim,
+    {
+        assert!(
+            axis < self.ndim(),
+            "axis {} is out of bounds for tensor with {} dims",
+            axis,
+            self.ndim()
+        );
+        assert!(
+            self.size(axis) == 1,
+            "cannot remove axis {} of size {}",
+            axis,
+            self.size(axis)
+        );
+        let layout = self.layout.remove_dim(axis);
+        TensorBase {
+            data: self.data,
+            layout,
+        }
+    }
+
     /// Consume this tensor and return the underlying storage.
     ///
     /// Be aware that the underlying elements are not guaranteed to be contiguous.

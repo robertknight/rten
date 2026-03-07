@@ -945,6 +945,62 @@ fn test_with_new_axis() {
 }
 
 #[test]
+fn test_with_axis_removed() {
+    // NdTensor: remove at start
+    let tensor = NdTensor::from([[1, 2, 3]]);
+    let squeezed = tensor.with_axis_removed(0);
+    assert_eq!(squeezed.shape(), [3]);
+    assert_eq!(squeezed.to_vec(), &[1, 2, 3]);
+
+    // NdTensor: remove at end
+    let tensor = NdTensor::from([[1], [2], [3]]);
+    let squeezed = tensor.with_axis_removed(1);
+    assert_eq!(squeezed.shape(), [3]);
+    assert_eq!(squeezed.to_vec(), &[1, 2, 3]);
+
+    // NdTensor: remove in middle
+    let tensor = NdTensor::from_data([2, 1, 2], vec![1, 2, 3, 4]);
+    let squeezed = tensor.with_axis_removed(1);
+    assert_eq!(squeezed.shape(), [2, 2]);
+    assert_eq!(squeezed.to_vec(), &[1, 2, 3, 4]);
+
+    // Tensor (dynamic): remove axis
+    let tensor = Tensor::from_data(&[1, 2, 2], vec![1, 2, 3, 4]);
+    let squeezed = tensor.with_axis_removed(0);
+    assert_eq!(squeezed.shape(), &[2, 2]);
+    assert_eq!(squeezed.to_vec(), &[1, 2, 3, 4]);
+
+    // NdTensorView: remove axis on a view
+    let tensor = NdTensor::from_data([2, 1, 2], vec![1, 2, 3, 4]);
+    let view = tensor.view();
+    let squeezed = view.with_axis_removed(1);
+    assert_eq!(squeezed.shape(), [2, 2]);
+    assert_eq!(squeezed.to_vec(), &[1, 2, 3, 4]);
+
+    // Non-contiguous tensor (transposed then with size-1 dim)
+    let tensor = NdTensor::from([[1, 2], [3, 4]]);
+    let transposed = tensor.transposed();
+    let expanded = transposed.with_new_axis(0);
+    let squeezed = expanded.with_axis_removed(0);
+    assert_eq!(squeezed.shape(), [2, 2]);
+    assert_eq!(squeezed.to_vec(), &[1, 3, 2, 4]);
+}
+
+#[test]
+#[should_panic(expected = "cannot remove axis 1 of size 3")]
+fn test_with_axis_removed_not_size_one() {
+    let tensor = NdTensor::from([[1, 2, 3]]);
+    tensor.with_axis_removed(1);
+}
+
+#[test]
+#[should_panic(expected = "axis 2 is out of bounds for tensor with 2 dims")]
+fn test_with_axis_removed_out_of_bounds() {
+    let tensor = NdTensor::from([[1, 2, 3]]);
+    tensor.with_axis_removed(2);
+}
+
+#[test]
 fn test_item() {
     let tensor = NdTensor::from(5.);
     assert_eq!(tensor.item(), Some(&5.));
