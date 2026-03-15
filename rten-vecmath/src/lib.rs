@@ -125,7 +125,7 @@ pub use tanh::Tanh;
 pub use min_max::{MaxNum, MinMax, MinNum};
 pub use normalize::{Normalize, NormalizeOptions};
 pub use softmax::Softmax;
-pub use sum::{Sum, SumSquare, SumSquareSub};
+pub use sum::{Sum, SumAbs, SumSquare, SumSquareSub};
 
 // Utilities
 pub use extend_init::ExtendInit;

@@ -184,6 +184,7 @@ impl OnnxOpRegistry {
         register_op!(RandomUniformLike, feature = "random");
         register_op!(Range);
         register_op!(Reciprocal);
+        register_op!(ReduceL1);
         register_op!(ReduceL2);
         register_op!(ReduceMax);
         register_op!(ReduceMean);
@@ -1399,6 +1400,7 @@ macro_rules! impl_read_op_for_reduce_op {
     };
 }
 
+impl_read_op_for_reduce_op!(ReduceL1);
 impl_read_op_for_reduce_op!(ReduceL2);
 impl_read_op_for_reduce_op!(ReduceMax);
 impl_read_op_for_reduce_op!(ReduceMean);

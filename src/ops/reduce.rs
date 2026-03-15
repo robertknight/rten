@@ -608,6 +608,78 @@ impl Operator for ReduceL2 {
 
 impl_infer_shapes_for_reduce_op!(ReduceL2);
 
+struct OptimizedL1ReduceKernel;
+impl ReduceKernel<f32> for OptimizedL1ReduceKernel {
+    fn reduce_slice(&self, slice: &[f32]) -> f32 {
+        vecmath::SumAbs::new(slice).dispatch()
+    }
+}
+
+struct GenericL1ReduceKernel;
+impl<T: Copy + std::ops::Neg<Output = T> + PartialOrd + Default + std::iter::Sum> ReduceKernel<T>
+    for GenericL1ReduceKernel
+{
+    fn reduce_slice(&self, slice: &[T]) -> T {
+        let zero = T::default();
+        slice
+            .iter()
+            .copied()
+            .map(|x| if x < zero { -x } else { x })
+            .sum()
+    }
+}
+
+pub fn reduce_l1<T: Copy + std::ops::Neg<Output = T> + PartialOrd + Default + std::iter::Sum>(
+    pool: &BufferPool,
+    input: TensorView<T>,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+) -> Result<Tensor<T>, OpError> {
+    let kernel = cast_kernel::<f32, T>(&OptimizedL1ReduceKernel).unwrap_or(&GenericL1ReduceKernel);
+    reduce(pool, input, axes, keep_dims, kernel)
+}
+
+#[derive(Debug)]
+pub struct ReduceL1 {
+    pub axes: Option<Vec<i32>>,
+    pub keep_dims: bool,
+    pub noop_with_empty_axes: bool,
+}
+
+impl Operator for ReduceL1 {
+    fn name(&self) -> &str {
+        "ReduceL1"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let input = inputs.require(0)?;
+        let axes = get_axes(inputs, &self.axes)?;
+
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
+            if is_none_or_empty(axes.as_deref()) && self.noop_with_empty_axes {
+                input.map_in(ctx.pool(), |x| x.abs()).into_op_result()
+            } else {
+                reduce_l1(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
+            }
+        })
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+}
+
+impl_infer_shapes_for_reduce_op!(ReduceL1);
+
 /// Compare `a` and `b`, treating all NaN values as greater than non-NaN values.
 pub fn cmp_nan_greater<T: PartialOrd + IsNaN>(a: T, b: T) -> std::cmp::Ordering {
     match a.partial_cmp(&b) {
@@ -1124,9 +1196,9 @@ mod tests {
     use crate::buffer_pool::BufferPool;
     use crate::operator::{Operator, OperatorExt};
     use crate::ops::{
-        OpError, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
-        ReduceSumSquare, arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean,
-        reduce_min, reduce_prod, reduce_sum, reduce_sum_square, topk,
+        OpError, ReduceL1, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
+        ReduceSumSquare, arg_max, arg_min, cum_sum, nonzero, reduce_l1, reduce_l2, reduce_max,
+        reduce_mean, reduce_min, reduce_prod, reduce_sum, reduce_sum_square, topk,
     };
 
     #[test]
@@ -1359,6 +1431,7 @@ mod tests {
         }
 
         let cases = [
+            op_case!(ReduceL1),
             op_case!(ReduceL2),
             op_case!(ReduceMax),
             op_case!(ReduceMean),
@@ -1404,6 +1477,38 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn test_reduce_l1() {
+        let pool = BufferPool::new();
+
+        // Float tensor
+        let input = Tensor::from([
+            [[-1., 2.], [-3., 4.]],
+            [[-5., 6.], [-7., 8.]],
+            [[-9., 10.], [-11., 12.]],
+        ]);
+        let expected = Tensor::from([[3., 7.], [11., 15.], [19., 23.]]);
+
+        let result = reduce_l1(&pool, input.view(), Some(&[2]), false /* keep_dims */).unwrap();
+        assert_eq!(result, expected);
+
+        let result = reduce_l1(&pool, input.view(), Some(&[2]), true /* keep_dims */).unwrap();
+        let expected = expected.to_shape([3, 2, 1].as_slice());
+        assert_eq!(result, expected);
+
+        // Int tensor
+        let input = Tensor::from([[-1, 2, -3], [4, -5, 6]]);
+        let expected = Tensor::from([6, 15]);
+
+        let result = reduce_l1(&pool, input.view(), Some(&[1]), false /* keep_dims */).unwrap();
+        assert_eq!(result, expected);
+
+        // Reduce all axes
+        let input = Tensor::from([[-1.0, 2.0], [-3.0, 4.0]]);
+        let result = reduce_l1(&pool, input.view(), None, false /* keep_dims */).unwrap();
+        assert_eq!(result.item(), Some(&10.0));
     }
 
     // Tests for ReduceMean specifically that also cover common functionality
@@ -1727,6 +1832,17 @@ mod tests {
 
         // For reductions with fused pointwise ops, the pointwise op is still
         // applied.
+        let input = Tensor::from([-1.0f32, -2., 3.]);
+        let expected = input.map(|x| x.abs());
+        let output: Tensor<f32> = ReduceL1 {
+            axes: None,
+            keep_dims: false,
+            noop_with_empty_axes: true,
+        }
+        .run_simple(input.view())
+        .unwrap();
+        assert_eq!(output, expected);
+
         let input = Tensor::<f32>::rand(&[5, 5], &mut rng);
         let expected = input.map(|x| x * x);
         let output: Tensor<f32> = ReduceSumSquare {
