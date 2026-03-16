@@ -12,8 +12,8 @@ use crate::operator::{OutputType, OutputTypesContext};
 use crate::value::ValueType;
 
 pub use rten_shape_inference::{
-    BinaryOp, Constant, InferShapes, InferShapesError, ReductionOp, SymExpr, SymTensor, Symbol,
-    SymbolGen, UnaryOp,
+    BinaryOp, InferShapes, InferShapesError, ReductionOp, SymExpr, SymTensor, Symbol, SymbolGen,
+    UnaryOp,
 };
 
 /// Impl [`InferShapes`] for a type by delegating to another type which
@@ -91,24 +91,32 @@ impl fmt::Display for InferError {
 
 impl Error for InferError {}
 
-/// Info about a value node determined by shape inference.
-#[derive(Debug, PartialEq)]
-pub enum Shape {
-    Constant { index: usize },
-    Shape(Vec<Dimension>),
-}
-
 /// Results of shape and type inference.
 #[derive(Debug)]
 pub struct InferResult {
-    /// Unique constants.
-    pub constants: Vec<Constant>,
+    /// Unique shapes or symbolic values.
+    pub values: Vec<SymTensor>,
 
-    /// Map of value node ID to inferred shape or constant index.
-    pub shapes: HashMap<NodeId, Shape>,
+    /// Map of value node ID to index in `values`.
+    pub shapes: HashMap<NodeId, usize>,
 
     /// Map of value node ID to inferred type.
     pub types: HashMap<NodeId, ValueType>,
+}
+
+impl InferResult {
+    /// Return the inferred shape for a value node as a [`Dimension`] vec.
+    pub fn dims(&self, id: NodeId) -> Option<Vec<Dimension>> {
+        let shape_id = self.shapes.get(&id)?;
+        let shape = self.values[*shape_id].shape()?;
+        let dims = shape
+            .map(|dim| match dim {
+                SymExpr::Value(size) => Dimension::Fixed(size as usize),
+                expr => Dimension::Symbolic(expr.to_string()),
+            })
+            .collect();
+        Some(dims)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -263,54 +271,40 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
         }
     }
 
-    // Unique constant values.
-    let mut constants = Vec::new();
-    let mut constant_to_index = HashMap::new();
-    let mut total_const_values = 0;
+    // Unique values
+    let mut unique_values = Vec::new();
+    let mut value_to_index = HashMap::new();
+    let mut total_values = 0;
 
     // Map of value ID to shape.
     let mut shapes = HashMap::with_capacity(values.len());
 
     for (value_id, sym_value) in values {
-        let shape = if let Some(val) = sym_value.to_constant() {
-            total_const_values += 1;
-            if let Some(&index) = constant_to_index.get(&val) {
-                Some(Shape::Constant { index })
-            } else {
-                let index = constants.len();
-                constant_to_index.insert(val.clone(), index);
-                constants.push(val);
-                Some(Shape::Constant { index })
-            }
-        } else if let Some(dims) = sym_value.shape() {
-            let dims = dims
-                .map(|dim| match dim {
-                    // If a dimension size is unexpectedly inferred as a negative
-                    // value, just ignore it.
-                    SymExpr::Value(size) if size >= 0 => Some(Dimension::Fixed(size as usize)),
-                    dim => Some(Dimension::Symbolic(dim.to_string())),
-                })
-                .collect::<Option<Vec<_>>>();
-            dims.map(Shape::Shape)
-        } else {
-            None
-        };
-
-        if let Some(shape) = shape {
-            shapes.insert(value_id, shape);
+        if sym_value.ndim().is_none() {
+            continue;
         }
+        total_values += 1;
+        let value_index = if let Some(idx) = value_to_index.get(&sym_value) {
+            *idx
+        } else {
+            let idx = unique_values.len();
+            value_to_index.insert(sym_value.clone(), idx);
+            unique_values.push(sym_value);
+            idx
+        };
+        shapes.insert(value_id, value_index);
     }
 
     if debug {
         println!(
-            "Shape inference: {} constant values, {} unique",
-            total_const_values,
-            constants.len()
+            "Shape inference: {} values, {} unique",
+            total_values,
+            unique_values.len()
         );
     }
 
     Ok(InferResult {
-        constants,
+        values: unique_values,
         shapes,
         types,
     })
@@ -371,6 +365,7 @@ fn sym_tensor_from_input(
 
 #[cfg(test)]
 mod tests {
+    use rten_shape_inference::Constant;
     use rten_tensor::NdTensor;
 
     use crate::Dimension;
@@ -378,7 +373,7 @@ mod tests {
     use crate::ops::{Concat, Gather, MatMul, Shape as ShapeOp, Split, Unsqueeze};
     use crate::value::{DataType, ValueType};
 
-    use super::{Constant, InferError, InferShapeOptions, Shape, infer_shapes};
+    use super::{InferError, InferShapeOptions, infer_shapes};
 
     #[test]
     fn test_infer_shapes() {
@@ -396,9 +391,7 @@ mod tests {
         let shapes = infer_shapes(&graph, Default::default()).unwrap();
 
         let output_id = graph.output_ids()[0];
-        let Some(Shape::Shape(shape)) = shapes.shapes.get(&output_id) else {
-            panic!("output is not a shape");
-        };
+        let shape = shapes.dims(output_id).unwrap();
         assert_eq!(shape.as_slice(), dims!("batch", 12).as_slice());
         assert_eq!(
             shapes.types.get(&output_id).copied(),
@@ -521,11 +514,8 @@ mod tests {
 
         let output_id = graph.output_ids()[0];
         let result = infer_shapes(&graph, Default::default()).unwrap();
-
-        let shape = result.shapes.get(&output_id).unwrap();
-        let Shape::Constant { index } = shape else {
-            panic!("{:?} is not a constant", shape);
-        };
-        assert_eq!(result.constants[*index], Constant::Vector(vec![64, 32]));
+        let shape_index = result.shapes.get(&output_id).unwrap();
+        let const_value = result.values[*shape_index].to_constant().unwrap();
+        assert_eq!(const_value, Constant::Vector(vec![64, 32]));
     }
 }
