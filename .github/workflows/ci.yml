@@ -64,6 +64,12 @@ jobs:
         make wasm-test PACKAGE=rten-simd
         make wasm-test PACKAGE=rten-gemm
       if: ${{ matrix.os == 'ubuntu-latest' }}
+    - name: Test (WASM relaxed-simd)
+      run: |
+        make wasm-test RELAXED=y
+        make wasm-test RELAXED=y PACKAGE=rten-simd
+        make wasm-test RELAXED=y PACKAGE=rten-gemm
+      if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build (Intel macOS)
       run: cargo check --workspace --target x86_64-apple-darwin
       if: ${{ matrix.os == 'macos-14' }}

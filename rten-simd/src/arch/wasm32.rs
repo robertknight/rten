@@ -17,7 +17,7 @@ use std::arch::wasm32::{
 use std::mem::transmute;
 
 #[cfg(target_feature = "relaxed-simd")]
-use std::arch::wasm32::f32x4_relaxed_madd;
+use std::arch::wasm32::{f32x4_relaxed_madd, f32x4_relaxed_nmadd};
 
 use super::{lanes, simd_type};
 use crate::ops::{
