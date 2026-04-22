@@ -303,15 +303,13 @@ impl Pattern {
         match (&*self.kind, node) {
             // Operator patterns can match either an operator node or an
             // operator output.
-            (PatternKind::Operator(op_pat), Node::Operator(op_node)) => {
-                if op_pat.matches(op_node, graph, symbols) {
-                    if let Some(key) = op_pat.key {
-                        symbols.add(key, node_id);
-                    }
-                    true
-                } else {
-                    false
+            (PatternKind::Operator(op_pat), Node::Operator(op_node))
+                if op_pat.matches(op_node, graph, symbols) =>
+            {
+                if let Some(key) = op_pat.key {
+                    symbols.add(key, node_id);
                 }
+                true
             }
             (PatternKind::Operator(op_pat), Node::Value(_)) => {
                 let Some((op_node_id, op_node)) = graph.get_source_node(node_id) else {
