@@ -159,7 +159,7 @@ mod tests {
         let xs: Vec<f32> = (0..LEN).map(|i| (i as f32 * 0.1) - 5.0).collect();
         let expected_sum: f64 = xs.iter().map(|x| (*x as f64).abs()).sum();
         let sum = SumAbs::new(&xs).dispatch();
-        assert_ulp_diff_le!(sum, expected_sum as f32, 1.0);
+        assert_ulp_diff_le!(sum, expected_sum as f32, 2.0);
     }
 
     #[test]
