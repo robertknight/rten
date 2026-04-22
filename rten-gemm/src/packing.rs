@@ -152,7 +152,7 @@ pub fn pack_b_block<T: Copy + Default, const NR: usize>(
     let b_rows = rows.len();
     let b_row_stride = b.row_stride();
     let b_col_stride = b.col_stride();
-    let n_panels = b_cols.next_multiple_of(NR) / NR;
+    let n_panels = b_cols.div_ceil(NR);
 
     let used_size = n_panels * b_rows * NR;
     assert_eq!(out.len(), used_size);
@@ -249,7 +249,7 @@ impl<'a, const NR: usize> BlockQuantizedMatrixPacker<'a, f32, NR> {
         rows: Range<usize>,
         cols: Range<usize>,
     ) -> &'a mut [f32] {
-        let n_panels = cols.len().next_multiple_of(NR) / NR;
+        let n_panels = cols.len().div_ceil(NR);
 
         let block_size = self.mat.elements_per_block();
         assert!(rows.start.is_multiple_of(block_size) && rows.len().is_multiple_of(block_size));

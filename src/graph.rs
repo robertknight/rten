@@ -1094,7 +1094,7 @@ impl Graph {
                 op_node
                     .output_ids()
                     .iter()
-                    .zip(outputs.into_iter())
+                    .zip(outputs)
                     .filter_map(|(output_id, output)| output_id.map(|id| (id, output))),
             );
 

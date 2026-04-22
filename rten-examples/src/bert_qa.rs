@@ -209,7 +209,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     for chunk in encoded {
         let nbest_per_chunk = args.n_best;
         let chunk_answers = extract_nbest_answers(chunk, &model, nbest_per_chunk)?;
-        answers.extend(chunk_answers.into_iter());
+        answers.extend(chunk_answers);
     }
     answers.sort_by(|ans_a, ans_b| ans_a.score.total_cmp(&ans_b.score).reverse());
 

@@ -328,6 +328,7 @@ fn resolve_shape(
     let (unspecified_dim_size, remainder) = match input_len {
         0 => (0, 0),
         _ => {
+            #[allow(clippy::manual_checked_ops)]
             if specified_dims_size == 0 {
                 // If `specified_dims_size` is zero but `input_len` is non-zero,
                 // this means that the target shape doesn't match the input length.
