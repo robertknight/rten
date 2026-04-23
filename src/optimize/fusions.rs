@@ -1,10 +1,8 @@
 //! Traits for defining operator fusions and implementations of fusions.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use rten_shape_inference::{SymExpr, Symbol};
 use rten_tensor::{ArcTensor, NdTensorView, SliceRange};
 
 use crate::graph::{
@@ -14,9 +12,9 @@ use crate::graph::{
 use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, Cast, ComputeShape, DynamicQuantizeLinear, FusedMatMul, Gelu,
-    GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, Mul, RMSNormalization,
-    Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Softmax, Swish, SymbolInfo, Transpose,
+    AddSoftmax, Cast, DynamicQuantizeLinear, FusedMatMul, Gelu, GroupedQueryAttentionMatMul,
+    LayerNormalization, MatMulIntegerToFloat, Mul, RMSNormalization, Reciprocal, ReduceMean,
+    RepeatInterleave, Silu, Softmax, Swish, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::ValueType;
@@ -1404,149 +1402,6 @@ impl PatternFusion for SafeSoftmaxFusion {
             flush_nans_to_zero: true,
             ..*softmax_op
         })
-    }
-}
-
-/// Replace `Shape` operators with `ComputeShape` operators which generate the
-/// same output using dimension sizes that are either precomputed or extracted
-/// from graph inputs.
-///
-/// The benefit of this fusion is to remove a consumer of the value which feeds
-/// into the Shape operator. This potentially frees up the source operator to be
-/// included in fusions. For example, given:
-///
-/// ```text
-/// T = Sigmoid(X)
-/// S = Shape(T)
-/// Y = Mul(X, T)
-/// ```
-///
-/// The `Shape` operator prevents fusing this subgraph into `Silu(X)`, because
-/// it relies on the intermediate value `S`. If however we determine that `S`
-/// can be computed from another node closer to the graph inputs, we remove the
-/// `Shape(T)` and free up the remaining `Mul(X, Sigmoid(X))` to be fused.
-pub struct ComputeShapeFusion {}
-
-impl FusionVisitor for ComputeShapeFusion {
-    // Map of symbolic_dimension => (input_id, dimension_index)
-    type State = HashMap<String, (NodeId, u32)>;
-
-    fn name(&self) -> &str {
-        "ComputeShapeFusion"
-    }
-
-    fn prepare(&self, graph: &Graph) -> Self::State {
-        let mut map = HashMap::new();
-
-        for id in graph.input_ids() {
-            let Some(node) = graph.get_node(*id) else {
-                continue;
-            };
-            let Some(shape) = node.shape() else {
-                continue;
-            };
-
-            for (dim_idx, dim) in shape.iter().enumerate() {
-                match dim {
-                    Dimension::Symbolic(name) => {
-                        if !map.contains_key(name) {
-                            map.insert(name.to_string(), (*id, dim_idx as u32));
-                        }
-                    }
-                    Dimension::Fixed(_) => {}
-                }
-            }
-        }
-
-        map
-    }
-
-    fn maybe_fuse(
-        &self,
-        state: &Self::State,
-        graph: &Graph,
-        _op_node_id: NodeId,
-        op_node: &OperatorNode,
-    ) -> Result<Fusion, FusionError> {
-        let shape_op = op_node
-            .operator()
-            .downcast_ref::<Shape>()
-            .ok_or(FusionError::NoMatch)?;
-
-        // Shape operators which slice their inputs are not supported yet.
-        if shape_op.start.is_some() || shape_op.end.is_some() {
-            return Err(FusionError::CheckFailed(
-                "slice has start or end attributes",
-            ));
-        }
-
-        let &[Some(shape_source)] = op_node.input_ids() else {
-            return Err(FusionError::CheckFailed("wrong input count"));
-        };
-        let dims = graph
-            .get_node(shape_source)
-            .ok_or(FusionError::NoMatch)?
-            .shape()
-            .ok_or(FusionError::CheckFailed("unknown input shape"))?;
-
-        if dims.iter().any(|dim| match dim {
-            Dimension::Symbolic(name) => !state.contains_key(name),
-            Dimension::Fixed(_) => false,
-        }) {
-            return Err(FusionError::CheckFailed("unknown symbolic dim"));
-        }
-
-        let mut input_ids = Vec::new();
-        let symbols: Vec<SymbolInfo> = dims
-            .iter()
-            .filter_map(|dim| match dim {
-                Dimension::Fixed(_) => None,
-                Dimension::Symbolic(name) => {
-                    let (input_id, dim) = state
-                        .get(name.as_str())
-                        .copied()
-                        .expect("should have symbolic name");
-                    let idx =
-                        if let Some(used_idx) = input_ids.iter().position(|id| *id == input_id) {
-                            used_idx
-                        } else {
-                            input_ids.push(input_id);
-                            input_ids.len() - 1
-                        };
-                    Some(SymbolInfo {
-                        name: name.clone(),
-                        input: idx as u32,
-                        axis: dim,
-                    })
-                }
-            })
-            .collect();
-
-        let shape: Vec<SymExpr> = dims
-            .iter()
-            .map(|dim| match dim {
-                Dimension::Fixed(size) => SymExpr::Value(*size as i32),
-                Dimension::Symbolic(name) => SymExpr::Var(
-                    Symbol {
-                        name: name.to_string(),
-                        positive: true,
-                    }
-                    .into(),
-                ),
-            })
-            .collect();
-
-        let input_ids: Vec<_> = input_ids.into_iter().map(Some).collect();
-
-        let compute_shape = ComputeShape { shape, symbols };
-
-        Ok(Fusion::from_op(
-            op_node.name(),
-            Arc::new(compute_shape),
-            &input_ids,
-            op_node.output_ids(),
-            op_node.input_ids(),
-        ))
     }
 }
 

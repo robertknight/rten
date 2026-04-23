@@ -72,7 +72,7 @@ pub(crate) use {
         Add, And, Div, Equal, Greater, GreaterOrEqual, Less, LessOrEqual, Mod, Mul, Or, Pow, Sub,
         Where, Xor,
     },
-    compute_shape::{ComputeShape, SymbolInfo},
+    compute_shape::{ComputeShape, SymExprKind, SymbolInfo},
     concat::{Concat, Tile},
     control_flow::{If, Loop},
     conv::{Conv, ConvInteger},
