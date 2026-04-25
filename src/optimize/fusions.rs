@@ -404,11 +404,6 @@ impl PatternFusion for GeluFusion {
     }
 
     fn pattern(&self) -> Pattern {
-        // The expression for GELU is usually written as `x * 0.5 * (...)`
-        // instead of `x * (...) * 0.5`. Ideally our graph pattern matcher
-        // would be smart enough to let us write one pattern and have it match
-        // either structure. However it isn't. The pattern used matches PyTorch's
-        // `nn.GELU`.
         let x = Pattern::symbol("x");
         x.clone() * (Pattern::unary_op("Erf", x.clone() / (2.0f32).sqrt()) + 1.0) * 0.5
     }
