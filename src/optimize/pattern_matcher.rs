@@ -4,38 +4,51 @@ use std::rc::Rc;
 use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode};
 use crate::value::ValueView;
 
+/// Tells [`SymbolMap::transaction`] what to do with the symbol bindings added
+/// during the transaction body.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum SymbolsAction {
+    /// Keep the bindings added during the transaction.
+    Keep,
+    /// Roll back the bindings added during the transaction.
+    Discard,
+}
+
+impl SymbolsAction {
+    fn is_keep(self) -> bool {
+        matches!(self, SymbolsAction::Keep)
+    }
+}
+
 /// Tracks an association between named symbols (variables) in a pattern and
 /// the node IDs they have been resolved to.
 struct SymbolMap {
     // Map of `(name, node_id)` for resolved symbols. This is modified only
     // by extending and truncating it.
     symbols: Vec<(&'static str, NodeId)>,
-
-    // Stack of checkpoints. Each is the length of `symbols` at the time of
-    // the checkpoint.
-    checkpoints: Vec<usize>,
 }
 
 impl SymbolMap {
     fn new() -> SymbolMap {
         SymbolMap {
             symbols: Vec::new(),
-            checkpoints: Vec::new(),
         }
     }
 
-    /// Save the current state of the map.
+    /// Run `f`, which may extend the symbol map, then either keep or discard
+    /// any bindings it added based on the [`SymbolsAction`] it returns.
     ///
-    /// This is useful if we need to backtrack during pattern matching.
-    fn checkpoint(&mut self) {
-        self.checkpoints.push(self.symbols.len());
-    }
-
-    /// Discard any new symbols recorded since the last call to `checkpoint`.
-    fn revert(&mut self) {
-        if let Some(checkpoint) = self.checkpoints.pop() {
-            self.symbols.truncate(checkpoint);
+    /// Returns the result of `f`.
+    fn transaction<F>(&mut self, f: F) -> SymbolsAction
+    where
+        F: FnOnce(&mut Self) -> SymbolsAction,
+    {
+        let saved_len = self.symbols.len();
+        let action = f(self);
+        if action == SymbolsAction::Discard {
+            self.symbols.truncate(saved_len);
         }
+        action
     }
 
     /// Add a new symbol-node association.
@@ -129,16 +142,16 @@ impl OpPattern {
             && let [pat_a, pat_b] = &self.inputs[..]
             && let [Some(input_a), Some(input_b)] = node.input_ids()
         {
-            symbols.checkpoint();
-
-            if pat_a.test_impl(*input_a, graph, symbols)
-                && pat_b.test_impl(*input_b, graph, symbols)
-            {
+            let action = symbols.transaction(|s| {
+                if pat_a.test_impl(*input_a, graph, s) && pat_b.test_impl(*input_b, graph, s) {
+                    SymbolsAction::Keep
+                } else {
+                    SymbolsAction::Discard
+                }
+            });
+            if action.is_keep() {
                 return true;
             }
-
-            symbols.revert();
-
             pat_b.test_impl(*input_a, graph, symbols) && pat_a.test_impl(*input_b, graph, symbols)
         } else {
             self.inputs
@@ -341,16 +354,17 @@ impl Pattern {
                     true
                 }
             }
-            (PatternKind::AnyOf(patterns), _) => {
-                for pattern in patterns {
-                    symbols.checkpoint();
-                    if pattern.test_impl(node_id, graph, symbols) {
-                        return true;
-                    }
-                    symbols.revert();
-                }
-                false
-            }
+            (PatternKind::AnyOf(patterns), _) => patterns.iter().any(|pattern| {
+                symbols
+                    .transaction(|s| {
+                        if pattern.test_impl(node_id, graph, s) {
+                            SymbolsAction::Keep
+                        } else {
+                            SymbolsAction::Discard
+                        }
+                    })
+                    .is_keep()
+            }),
             _ => false,
         }
     }
