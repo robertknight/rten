@@ -428,18 +428,54 @@ fn test_chained_fused_ops() {
 
 #[test]
 fn test_fuse_gelu() {
-    let graph = {
-        let x = Expr::value("x");
-        let sqrt_2 = (2.0f32).sqrt();
-        let expr = x.clone() * ((x / sqrt_2).erf() + 1.0) * 0.5;
-        expr.build_graph(["x"])
-    };
+    #[derive(Debug)]
+    struct Case {
+        build: fn(Expr) -> Expr,
+    }
 
-    let graph = optimize_graph(graph).unwrap();
+    // Test all bracketings of the GELU expression. The optimizer should fuse
+    // each form, regardless of how the chain of `Mul` ops is associated.
+    let cases = [
+        // PyTorch's `nn.GELU` form.
+        Case {
+            build: |x| x.clone() * ((x / (2.0f32).sqrt()).erf() + 1.0) * 0.5,
+        },
+        // Scale-first form: `(x * 0.5) * (1 + erf(x / sqrt(2)))`
+        Case {
+            build: |x| x.clone() * 0.5 * ((x / (2.0f32).sqrt()).erf() + 1.0),
+        },
+        // Right-associated form: `x * ((1 + erf(x / sqrt(2))) * 0.5)`
+        Case {
+            build: |x| {
+                let half = Expr::constant(0.5);
+                x.clone() * (((x / (2.0f32).sqrt()).erf() + 1.0) * half)
+            },
+        },
+        // Right-associated, scale-first form: `x * (0.5 * (1 + erf(...)))`
+        Case {
+            build: |x| {
+                let half = Expr::constant(0.5);
+                x.clone() * (half * ((x / (2.0f32).sqrt()).erf() + 1.0))
+            },
+        },
+    ];
 
-    let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
-    let gelu = op.operator().downcast_ref::<Gelu>().unwrap();
-    assert_eq!(gelu.approximate, false);
+    cases.test_each(|case| {
+        let graph = {
+            let x = Expr::value("x");
+            let expr = (case.build)(x);
+            expr.build_graph(["x"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        let gelu = op
+            .operator()
+            .downcast_ref::<Gelu>()
+            .expect("expected fused Gelu op");
+        assert_eq!(gelu.approximate, false);
+    });
 }
 
 #[test]

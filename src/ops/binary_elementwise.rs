@@ -490,6 +490,10 @@ impl Operator for Add {
         true
     }
 
+    fn is_associative(&self) -> bool {
+        true
+    }
+
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), add_in_place, add)
     }
@@ -842,6 +846,10 @@ impl Operator for Mul {
     }
 
     fn is_commutative(&self) -> bool {
+        true
+    }
+
+    fn is_associative(&self) -> bool {
         true
     }
 

@@ -63,6 +63,10 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
         self.inner.is_commutative()
     }
 
+    fn is_associative(&self) -> bool {
+        self.inner.is_associative()
+    }
+
     fn max_inputs(&self) -> Option<usize> {
         self.inner.max_inputs()
     }

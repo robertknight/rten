@@ -1,8 +1,16 @@
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::rc::Rc;
 
+use smallvec::SmallVec;
+
 use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode};
 use crate::value::ValueView;
+
+/// Inline capacity for chains of associative+commutative operands.
+const SMALL_VEC_CAP: usize = 4;
+
+type PatternVec<'a> = SmallVec<[&'a Pattern; SMALL_VEC_CAP]>;
+type NodeIdVec = SmallVec<[NodeId; SMALL_VEC_CAP]>;
 
 /// Tells [`SymbolMap::transaction`] what to do with the symbol bindings added
 /// during the transaction body.
@@ -136,9 +144,33 @@ impl OpPattern {
             return false;
         }
 
+        let op = node.operator();
+
+        // For binary operators that are both associative and commutative
+        // (eg. `Add`, `Mul`), match against the flattened chain of operands.
+        // This makes patterns insensitive to the bracketing of nested chains:
+        // a pattern of the form `Op(Op(a, b), c)` will match a graph of the
+        // form `Op(a, Op(b, c))` and vice versa.
+        //
+        // The multiset match only adds value when at least one side has a
+        // nested chain (so its flattened length is >= 3). If both sides
+        // flatten to two inputs, the strict commutative matcher below handles
+        // the case identically.
+        if op.is_associative() && op.is_commutative() && self.inputs.len() == 2 {
+            let patterns = self.flatten_associative_chain();
+            if patterns.len() >= 3 {
+                let nodes = flatten_graph_associative_chain(node, graph, self.name);
+                if patterns.len() == nodes.len()
+                    && match_pattern_set(&patterns, &nodes, graph, symbols)
+                {
+                    return true;
+                }
+            }
+        }
+
         // For commutative binary operators, we allow the pattern to match
         // either way around.
-        if node.operator().is_commutative()
+        if op.is_commutative()
             && let [pat_a, pat_b] = &self.inputs[..]
             && let [Some(input_a), Some(input_b)] = node.input_ids()
         {
@@ -163,6 +195,123 @@ impl OpPattern {
                 })
         }
     }
+
+    /// Flatten operands of a nested associative pattern.
+    ///
+    /// eg. `Add(A, Add(B, C))` is flattened to `[A, B, C]`.
+    fn flatten_associative_chain(&self) -> PatternVec<'_> {
+        let mut patterns = PatternVec::new();
+        for input in &self.inputs {
+            flatten_associative_pattern_impl(input, self.name, &mut patterns);
+        }
+        patterns
+    }
+}
+
+fn flatten_associative_pattern_impl<'a>(
+    pat: &'a Pattern,
+    op_name: &'static str,
+    patterns: &mut PatternVec<'a>,
+) {
+    if let PatternKind::Operator(op_pat) = &*pat.kind
+        && op_pat.name == op_name
+        && op_pat.inputs.len() == 2
+        // Don't flatten through patterns that have a key, since we need to
+        // preserve them as a single unit so the matching node ID can be
+        // recorded.
+        && op_pat.key.is_none()
+    {
+        for input in &op_pat.inputs {
+            flatten_associative_pattern_impl(input, op_name, patterns);
+        }
+    } else {
+        patterns.push(pat);
+    }
+}
+
+/// Flatten the graph subtree rooted at `node`, descending recursively through
+/// any operator with the same name as `op_name` that has two inputs. Returns
+/// the list of sub-graph nodes that form the chain.
+fn flatten_graph_associative_chain(node: &OperatorNode, graph: &Graph, op_name: &str) -> NodeIdVec {
+    let mut nodes = NodeIdVec::new();
+    for input in node.input_ids() {
+        match input {
+            Some(input_id) => flatten_associative_graph_impl(*input_id, graph, op_name, &mut nodes),
+            None => {
+                // Bail out: a missing input means we can't represent the chain
+                // faithfully. Return an empty list so the multiset matcher
+                // falls back to the strict matcher.
+                return NodeIdVec::new();
+            }
+        }
+    }
+    nodes
+}
+
+fn flatten_associative_graph_impl(
+    node_id: NodeId,
+    graph: &Graph,
+    op_name: &str,
+    nodes: &mut NodeIdVec,
+) {
+    if let Some((_, op_node)) = graph.get_source_node(node_id)
+        && op_node.operator().name() == op_name
+        && let [Some(lhs), Some(rhs)] = op_node.input_ids()
+    {
+        flatten_associative_graph_impl(*lhs, graph, op_name, nodes);
+        flatten_associative_graph_impl(*rhs, graph, op_name, nodes);
+    } else {
+        nodes.push(node_id);
+    }
+}
+
+/// Try to match each pattern against a distinct graph node, allowing any
+/// permutation. Returns true if a successful assignment is found, in which case
+/// symbol bindings are added to `symbols`.
+fn match_pattern_set(
+    patterns: &[&Pattern],
+    nodes: &[NodeId],
+    graph: &Graph,
+    symbols: &mut SymbolMap,
+) -> bool {
+    debug_assert_eq!(patterns.len(), nodes.len());
+    let mut used = SmallVec::<[bool; SMALL_VEC_CAP]>::from_elem(false, nodes.len());
+    match_pattern_set_recursive(patterns, nodes, &mut used, graph, symbols)
+}
+
+fn match_pattern_set_recursive(
+    patterns: &[&Pattern],
+    nodes: &[NodeId],
+    used: &mut [bool],
+    graph: &Graph,
+    symbols: &mut SymbolMap,
+) -> bool {
+    let Some((pat, rest)) = patterns.split_first() else {
+        return true;
+    };
+
+    for (i, &graph_input) in nodes.iter().enumerate() {
+        if used[i] {
+            continue;
+        }
+        let action = symbols.transaction(|s| {
+            if !pat.test_impl(graph_input, graph, s) {
+                return SymbolsAction::Discard;
+            }
+            used[i] = true;
+            if match_pattern_set_recursive(rest, nodes, used, graph, s) {
+                SymbolsAction::Keep
+            } else {
+                used[i] = false;
+                SymbolsAction::Discard
+            }
+        });
+        if action.is_keep() {
+            return true;
+        }
+    }
+
+    false
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -433,7 +582,7 @@ mod tests {
     use super::Pattern;
     use crate::graph::builder::Expr;
     use crate::graph::{Graph, Node};
-    use crate::ops::{Abs, Reciprocal, Sqrt};
+    use crate::ops::{Abs, Pow, Reciprocal, Sqrt};
 
     /// Create a graph that implements the softsign function `x / 1 + |x|`.
     fn softsign_graph() -> Graph {
@@ -577,5 +726,128 @@ mod tests {
             rcp_match.node_id("x").unwrap(),
             rsqrt_rcp_graph.input_ids()[0]
         );
+    }
+
+    /// A pattern of the form `(a op b) op c` for an associative+commutative
+    /// `op` should match any bracketing of an equivalent chain in the graph.
+    #[test]
+    fn test_pattern_match_associative_chain() {
+        let make_graph = |build: fn(Expr, Expr, Expr) -> Expr| -> Graph {
+            let a = Expr::value("a");
+            let b = Expr::value("b");
+            let c = Expr::value("c");
+            let pow_ab = a.clone().binary(Pow {}, b);
+            build(a, pow_ab, c).build_graph(["a", "b", "c"])
+        };
+
+        // Pattern is `(x * pow(x, y)) * z` (left-associated). Each input is
+        // distinct: `x` and `z` are symbols, the middle input is a `Pow`.
+        let x = Pattern::symbol("x");
+        let y = Pattern::symbol("y");
+        let z = Pattern::symbol("z");
+        let pat = x.clone() * Pattern::binary_op("Pow", x.clone(), y.clone()) * z.clone();
+
+        let matching = [
+            // `(a * pow(a,b)) * c` — same shape as the pattern.
+            (|a, p, c| a * p * c) as fn(Expr, Expr, Expr) -> Expr,
+            // `a * (pow(a,b) * c)` — right-associated.
+            |a, p, c| a * (p * c),
+            // `(c * a) * pow(a,b)` — operands re-ordered.
+            |a, p, c| c * a * p,
+            // `pow(a,b) * (a * c)` — re-ordered and re-associated.
+            |a, p, c| p * (a * c),
+        ];
+
+        for (i, build) in matching.iter().enumerate() {
+            let graph = make_graph(*build);
+            let m = pat.test(graph.output_ids()[0], &graph);
+            assert!(m.is_some(), "expected match for case {}", i);
+        }
+
+        // The chain in the graph only has two `Mul` operands (the pattern
+        // expects three), so the pattern must not match.
+        let graph = {
+            let a = Expr::value("a");
+            let b = Expr::value("b");
+            let pow_ab = a.clone().binary(Pow {}, b);
+            (a * pow_ab).build_graph(["a", "b"])
+        };
+        assert!(pat.test(graph.output_ids()[0], &graph).is_none());
+    }
+
+    /// `Equal` is commutative (`a == b` iff `b == a`) but not associative
+    /// (`(a == b) == c` differs from `a == (b == c)` in general). A pattern
+    /// with a chain of `Equal` ops should NOT match a re-associated graph:
+    /// the associative-chain path is gated on `is_associative()` being true.
+    #[test]
+    fn test_pattern_match_skips_non_associative_ops() {
+        use crate::ops::Equal;
+
+        let w = Pattern::symbol("w");
+        let x = Pattern::symbol("x");
+        let y = Pattern::symbol("y");
+        let z = Pattern::symbol("z");
+        let eq = |a, b| Pattern::binary_op("Equal", a, b);
+        let pat = eq(eq(w, x), eq(y, z));
+
+        let graph = {
+            let a = Expr::value("a");
+            let b = Expr::value("b");
+            let c = Expr::value("c");
+            let d = Expr::value("d");
+            let eq_ab = a.binary(Equal {}, b);
+            let eq_abc = eq_ab.binary(Equal {}, c);
+            let eq_abcd = eq_abc.binary(Equal {}, d);
+            eq_abcd.build_graph(["a", "b", "c", "d"])
+        };
+
+        assert!(pat.test(graph.output_ids()[0], &graph).is_none());
+    }
+
+    /// Flattening an associative chain must not descend through a keyed
+    /// pattern: doing so would prevent the key from being recorded.
+    #[test]
+    fn test_pattern_match_associative_preserves_keyed_pattern() {
+        let x = Pattern::symbol("x");
+        let y = Pattern::symbol("y");
+        let z = Pattern::symbol("z");
+        let inner = Pattern::binary_op("Mul", x, y).with_name("inner");
+        let pat = inner * z;
+
+        let graph = {
+            let a = Expr::value("a");
+            let b = Expr::value("b");
+            let c = Expr::value("c");
+            ((a * b) * c).build_graph(["a", "b", "c"])
+        };
+
+        let m = pat.test(graph.output_ids()[0], &graph).unwrap();
+        let inner_id = m
+            .node_id("inner")
+            .expect("expected key 'inner' to be recorded");
+        let inner_node = graph.get_node(inner_id).unwrap();
+        assert!(matches!(inner_node, Node::Operator(op) if op.operator().name() == "Mul"));
+    }
+
+    /// An associative pattern with more inputs than the graph chain should not
+    /// match. An associative pattern with fewer inputs than the graph chain
+    /// should still match by binding a single symbol to a `Mul` sub-chain.
+    #[test]
+    fn test_pattern_match_associative_partial() {
+        let x = Pattern::symbol("x");
+        let y = Pattern::symbol("y");
+        let pat = x.clone() * y.clone();
+
+        let graph = {
+            let a = Expr::value("a");
+            let b = Expr::value("b");
+            let c = Expr::value("c");
+            (a * b * c).build_graph(["a", "b", "c"])
+        };
+
+        let m = pat.test(graph.output_ids()[0], &graph).unwrap();
+        let x_id = m.node_id("x").unwrap();
+        let y_id = m.node_id("y").unwrap();
+        assert_ne!(x_id, y_id);
     }
 }

@@ -388,6 +388,17 @@ pub trait Operator: Any + Debug {
         false
     }
 
+    /// Return true if this operator is associative, meaning that the operands
+    /// of nested chains of this operator can be regrouped without affecting the
+    /// result. Formally, `Op(Op(a, b), c) == Op(a, Op(b, c))`.
+    ///
+    /// The term _associative_ here refers to the ideal mathematical behavior of
+    /// the operation, ignoring the non-associativity of corresponding
+    /// floating-point operations.
+    fn is_associative(&self) -> bool {
+        false
+    }
+
     /// Return true if this operator's outputs depend only on its inputs.
     ///
     /// The default implementation returns true, since most operators are
