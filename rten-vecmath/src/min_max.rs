@@ -2,6 +2,9 @@ use rten_simd::ops::NumOps;
 use rten_simd::{Isa, Simd, SimdIterable, SimdOp};
 
 /// Compute the minimum and maximum values in a slice of floats.
+///
+/// For an empty slice, returns `(+infinity, -infinity)` — the identity values
+/// for min and max on the extended reals.
 pub struct MinMax<'a> {
     input: &'a [f32],
 }
@@ -19,7 +22,7 @@ impl SimdOp for MinMax<'_> {
     fn eval<I: Isa>(self, isa: I) -> Self::Output {
         let ops = isa.f32();
         let [vec_min, vec_max] = self.input.simd_iter(ops).fold_n_unroll::<2, 4>(
-            [ops.splat(f32::MAX), ops.splat(f32::MIN)],
+            [ops.splat(f32::INFINITY), ops.splat(f32::NEG_INFINITY)],
             #[inline(always)]
             |[min, max], x| [ops.min(x, min), ops.max(x, max)],
             #[inline(always)]
@@ -29,17 +32,20 @@ impl SimdOp for MinMax<'_> {
             .to_array()
             .as_ref()
             .iter()
-            .fold(f32::MAX, |min, x| x.min(min));
+            .fold(f32::INFINITY, |min, x| x.min(min));
         let max = vec_max
             .to_array()
             .as_ref()
             .iter()
-            .fold(f32::MIN, |max, x| x.max(max));
+            .fold(f32::NEG_INFINITY, |max, x| x.max(max));
         (min, max)
     }
 }
 
 /// Compute the maximum value in a slice, propagating NaNs.
+///
+/// For an empty slice, returns `-infinity` — the identity value for max on
+/// the extended reals.
 pub struct MaxNum<'a, T> {
     input: &'a [T],
 }
@@ -63,17 +69,18 @@ impl<'a> SimdOp for MaxNum<'a, f32> {
             ops.select(new_max, x, not_nan)
         };
 
-        let vec_max =
-            self.input
-                .simd_iter(ops)
-                .fold_unroll::<2>(ops.splat(f32::MIN), max_num, max_num);
+        let vec_max = self.input.simd_iter(ops).fold_unroll::<2>(
+            ops.splat(f32::NEG_INFINITY),
+            max_num,
+            max_num,
+        );
 
         vec_max
             .to_array()
             .as_ref()
             .iter()
             .copied()
-            .fold(f32::MIN, |max, x| {
+            .fold(f32::NEG_INFINITY, |max, x| {
                 if x.is_nan() {
                     x
                 } else if max.is_nan() {
@@ -86,6 +93,9 @@ impl<'a> SimdOp for MaxNum<'a, f32> {
 }
 
 /// Compute the minimum value in a slice, propagating NaNs.
+///
+/// For an empty slice, returns `+infinity` — the identity value for min on
+/// the extended reals.
 pub struct MinNum<'a, T> {
     input: &'a [T],
 }
@@ -109,14 +119,17 @@ impl<'a> SimdOp for MinNum<'a, f32> {
             ops.select(new_min, x, not_nan)
         };
 
-        let vec_min = self.input.simd_iter(ops).fold(ops.splat(f32::MAX), min_num);
+        let vec_min = self
+            .input
+            .simd_iter(ops)
+            .fold(ops.splat(f32::INFINITY), min_num);
 
         vec_min
             .to_array()
             .as_ref()
             .iter()
             .copied()
-            .fold(f32::MAX, |min, x| {
+            .fold(f32::INFINITY, |min, x| {
                 if x.is_nan() {
                     x
                 } else if min.is_nan() {
@@ -173,5 +186,19 @@ mod tests {
         let xs = [0.1, 1.0, 0.2, f32::NAN, 0.4, 0.5, 0.6];
         let min = MinNum::new(&xs).dispatch();
         assert!(min.is_nan());
+    }
+
+    // For an empty slice, min and max return their identity values on the
+    // extended reals (+/-infinity). This matches the ONNX spec for ReduceMin
+    // and ReduceMax.
+    #[test]
+    fn test_empty() {
+        let xs: [f32; 0] = [];
+        assert_eq!(MinNum::new(&xs).dispatch(), f32::INFINITY);
+        assert_eq!(MaxNum::new(&xs).dispatch(), f32::NEG_INFINITY);
+        assert_eq!(
+            MinMax::new(&xs).dispatch(),
+            (f32::INFINITY, f32::NEG_INFINITY)
+        );
     }
 }
