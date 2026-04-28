@@ -761,11 +761,6 @@ impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for GenericMinKernel {
 struct OptimizedMinKernel;
 impl ReduceKernel<f32> for OptimizedMinKernel {
     fn reduce_slice(&self, slice: &[f32]) -> f32 {
-        // Override the vecmath kernel's `f32::MAX` seed: ONNX ReduceMin
-        // requires `+infinity` as the identity.
-        if slice.is_empty() {
-            return f32::INFINITY;
-        }
         vecmath::MinNum::new(slice).dispatch()
     }
 }
@@ -835,11 +830,6 @@ impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for GenericMaxKernel {
 struct OptimizedMaxKernel;
 impl ReduceKernel<f32> for OptimizedMaxKernel {
     fn reduce_slice(&self, slice: &[f32]) -> f32 {
-        // Override the vecmath kernel's `f32::MIN` seed: ONNX ReduceMax
-        // requires `-infinity` as the identity.
-        if slice.is_empty() {
-            return f32::NEG_INFINITY;
-        }
         vecmath::MaxNum::new(slice).dispatch()
     }
 }
