@@ -391,20 +391,6 @@ fn reduce<T: Copy>(
         return Ok(Tensor::from_scalar(kernel.reduce_slice(&[*item])));
     }
 
-    // nb. Some reduce operations cannot produce a meaningful result with
-    // an empty tensor, but others can, if there is a suitable identity.
-    if input.is_empty() {
-        return Err(OpError::InvalidValue("Cannot reduce empty tensor"));
-    }
-
-    // Number of innermost dims being iterated over, or None if we're not
-    // iterating over innermost dims.
-    let reduced_inner_dims: Option<usize> = resolved_axes
-        .iter()
-        .enumerate()
-        .all(|(i, &axis)| axis == input.ndim() - 1 - i)
-        .then_some(resolved_axes.len());
-
     let reduced_shape: Vec<usize> = input
         .shape()
         .iter()
@@ -417,55 +403,72 @@ fn reduce<T: Copy>(
             }
         })
         .collect();
-    let mut reduced_data = pool.alloc(reduced_shape.iter().product());
+    let output_size: usize = reduced_shape.iter().product();
+    let mut reduced_data = pool.alloc(output_size);
 
-    match (reduced_inner_dims, input.data()) {
-        (Some(ndims), Some(input_data)) => {
-            // Fast path for reducing over contiguous chunks of the input.
-            let slice_len = if ndims == input.ndim() {
-                input.len()
-            } else {
-                input.stride(input.ndim() - 1 - ndims)
-            };
-
-            reduced_data.extend(
-                input_data
-                    .chunks(slice_len)
-                    .map(|chunk| kernel.reduce_slice(chunk)),
-            );
+    if input.is_empty() {
+        // Per the ONNX spec, reduction over an empty set yields the kernel's
+        // identity. Output may itself be empty if a non-reduced dim is zero.
+        if output_size > 0 {
+            reduced_data.resize(output_size, kernel.reduce_slice(&[]));
         }
-        _ => {
-            if resolved_axes.len() == 1 {
-                // Fast path for reducing a single axis.
-                let resolved_axis = resolved_axes[0];
-                reduced_data.extend(input.lanes(resolved_axis).map(|lane| {
-                    if let Some(lane_slice) = lane.as_slice() {
-                        kernel.reduce_slice(lane_slice)
-                    } else {
-                        let buf = tmp_buf.reserve(lane.len());
-                        buf.extend(lane.copied());
-                        kernel.reduce_slice(buf)
-                    }
-                }));
-            } else {
-                // Permute input so the N reduced dims are last, then iterate
-                // over slices of the inner N dims.
-                let mut perm: Vec<usize> = (0..input.ndim()).collect();
-                perm.sort_by_key(|&dim| (resolved_axes.contains(&dim), dim));
-                let permuted = input.permuted(&perm);
+    } else {
+        // Number of innermost dims being iterated over, or None if we're not
+        // iterating over innermost dims.
+        let reduced_inner_dims: Option<usize> = resolved_axes
+            .iter()
+            .enumerate()
+            .all(|(i, &axis)| axis == input.ndim() - 1 - i)
+            .then_some(resolved_axes.len());
 
-                for slice in permuted.inner_iter_dyn(resolved_axes.len()) {
-                    // The reduced dimensions may be contiguous even if the
-                    // tensor is not.
-                    let reduced = if let Some(data) = slice.data() {
-                        kernel.reduce_slice(data)
-                    } else {
-                        let buf = tmp_buf.reserve(slice.len());
-                        let tmp_uninit = &mut buf.spare_capacity_mut()[..slice.len()];
-                        let tmp = slice.copy_into_slice(tmp_uninit);
-                        kernel.reduce_slice(tmp)
-                    };
-                    reduced_data.push(reduced);
+        match (reduced_inner_dims, input.data()) {
+            (Some(ndims), Some(input_data)) => {
+                // Fast path for reducing over contiguous chunks of the input.
+                let slice_len = if ndims == input.ndim() {
+                    input.len()
+                } else {
+                    input.stride(input.ndim() - 1 - ndims)
+                };
+
+                reduced_data.extend(
+                    input_data
+                        .chunks(slice_len)
+                        .map(|chunk| kernel.reduce_slice(chunk)),
+                );
+            }
+            _ => {
+                if resolved_axes.len() == 1 {
+                    // Fast path for reducing a single axis.
+                    let resolved_axis = resolved_axes[0];
+                    reduced_data.extend(input.lanes(resolved_axis).map(|lane| {
+                        if let Some(lane_slice) = lane.as_slice() {
+                            kernel.reduce_slice(lane_slice)
+                        } else {
+                            let buf = tmp_buf.reserve(lane.len());
+                            buf.extend(lane.copied());
+                            kernel.reduce_slice(buf)
+                        }
+                    }));
+                } else {
+                    // Permute input so the N reduced dims are last, then iterate
+                    // over slices of the inner N dims.
+                    let mut perm: Vec<usize> = (0..input.ndim()).collect();
+                    perm.sort_by_key(|&dim| (resolved_axes.contains(&dim), dim));
+                    let permuted = input.permuted(&perm);
+
+                    for slice in permuted.inner_iter_dyn(resolved_axes.len()) {
+                        // The reduced dimensions may be contiguous even if the
+                        // tensor is not.
+                        let reduced = if let Some(data) = slice.data() {
+                            kernel.reduce_slice(data)
+                        } else {
+                            let buf = tmp_buf.reserve(slice.len());
+                            let tmp_uninit = &mut buf.spare_capacity_mut()[..slice.len()];
+                            let tmp = slice.copy_into_slice(tmp_uninit);
+                            kernel.reduce_slice(tmp)
+                        };
+                        reduced_data.push(reduced);
+                    }
                 }
             }
         }
@@ -491,6 +494,9 @@ pub fn reduce_mean(
     struct MeanKernel {}
     impl ReduceKernel<f32> for MeanKernel {
         fn reduce_slice(&self, slice: &[f32]) -> f32 {
+            // ONNX leaves reduction over an empty set undefined for
+            // ReduceMean. We yield NaN here, matching numpy and the ONNX
+            // reference implementation. ONNX Runtime returns 0 instead.
             vecmath::Sum::new(slice).dispatch() / slice.len() as f32
         }
     }
@@ -755,6 +761,11 @@ impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for GenericMinKernel {
 struct OptimizedMinKernel;
 impl ReduceKernel<f32> for OptimizedMinKernel {
     fn reduce_slice(&self, slice: &[f32]) -> f32 {
+        // Override the vecmath kernel's `f32::MAX` seed: ONNX ReduceMin
+        // requires `+infinity` as the identity.
+        if slice.is_empty() {
+            return f32::INFINITY;
+        }
         vecmath::MinNum::new(slice).dispatch()
     }
 }
@@ -824,6 +835,11 @@ impl<T: Copy + IsNaN + MinMax> ReduceKernel<T> for GenericMaxKernel {
 struct OptimizedMaxKernel;
 impl ReduceKernel<f32> for OptimizedMaxKernel {
     fn reduce_slice(&self, slice: &[f32]) -> f32 {
+        // Override the vecmath kernel's `f32::MIN` seed: ONNX ReduceMax
+        // requires `-infinity` as the identity.
+        if slice.is_empty() {
+            return f32::NEG_INFINITY;
+        }
         vecmath::MaxNum::new(slice).dispatch()
     }
 }
@@ -1686,18 +1702,82 @@ mod tests {
 
         let result = reduce_mean(&pool, input.view(), Some(&[-3]), false /* keep_dims */);
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
+    }
 
-        // Empty tensor
-        let result = reduce_mean(
-            &pool,
-            Tensor::from([0.; 0]).view(),
-            Some(&[0]),
-            false, /* keep_dims */
-        );
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue("Cannot reduce empty tensor"))
-        );
+    // ONNX leaves `ReduceMean` over an empty set undefined. We follow numpy
+    // and yield NaN, rather than erroring.
+    #[test]
+    fn test_reduce_mean_empty() {
+        let pool = BufferPool::new();
+        let input = Tensor::<f32>::from_data(&[0], vec![]);
+        let result = reduce_mean(&pool, input.view(), Some(&[0]), false /* keep_dims */).unwrap();
+        assert!(result.item().unwrap().is_nan());
+    }
+
+    // Verify the identity values returned for reduction over an empty set.
+    #[test]
+    fn test_reduce_empty() {
+        let pool = BufferPool::new();
+
+        // ReduceMin: spec says +infinity (or max of dtype if no inf).
+        let input = Tensor::<f32>::from_data(&[0], vec![]);
+        let result = reduce_min(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&f32::INFINITY));
+
+        let input = Tensor::<i32>::from_data(&[0], vec![]);
+        let result = reduce_min(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&i32::MAX));
+
+        // ReduceMax: spec says -infinity (or min of dtype if no inf).
+        let input = Tensor::<f32>::from_data(&[0], vec![]);
+        let result = reduce_max(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&f32::NEG_INFINITY));
+
+        let input = Tensor::<i32>::from_data(&[0], vec![]);
+        let result = reduce_max(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&i32::MIN));
+
+        // ReduceSum: spec says 0.
+        let input = Tensor::<f32>::from_data(&[0], vec![]);
+        let result = reduce_sum(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&0.0));
+
+        // ReduceProd: spec says 1.
+        let input = Tensor::<f32>::from_data(&[0], vec![]);
+        let result = reduce_prod(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&1.0));
+
+        let input = Tensor::<i32>::from_data(&[0], vec![]);
+        let result = reduce_prod(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&1));
+
+        // ReduceL1, ReduceL2, ReduceSumSquare: spec says 0.
+        let input = Tensor::<f32>::from_data(&[0], vec![]);
+        let result = reduce_l1(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&0.0));
+        let result = reduce_l2(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&0.0));
+        let result = reduce_sum_square(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&0.0));
+
+        // Reduce a tensor where only a non-reduced dim is 0. Output should
+        // be empty.
+        let input = Tensor::<f32>::from_data(&[3, 0, 5], vec![]);
+        let result = reduce_max(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.shape(), &[0, 5]);
+
+        // Reduce a tensor where only the reduced dim is 0. Output should
+        // be filled with the identity value.
+        let input = Tensor::<f32>::from_data(&[3, 0, 5], vec![]);
+        let result = reduce_max(&pool, input.view(), Some(&[1]), false).unwrap();
+        assert_eq!(result.shape(), &[3, 5]);
+        assert!(result.iter().all(|&x| x == f32::NEG_INFINITY));
+
+        // Same, with keep_dims.
+        let input = Tensor::<f32>::from_data(&[3, 0, 5], vec![]);
+        let result = reduce_min(&pool, input.view(), Some(&[1]), true).unwrap();
+        assert_eq!(result.shape(), &[3, 1, 5]);
+        assert!(result.iter().all(|&x| x == f32::INFINITY));
     }
 
     fn result_item<T: Copy>(result: Result<Tensor<T>, OpError>) -> T {
