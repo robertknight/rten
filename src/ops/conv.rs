@@ -1,5 +1,3 @@
-use std::any::TypeId;
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
@@ -19,7 +17,7 @@ use crate::operator::{
     OutputTypesContext, static_dims,
 };
 use crate::ops::Padding;
-use crate::ops::matmul::zero_point_to_vec;
+use crate::ops::matmul::{shift_cast_gemm_lhs_to_u8, zero_point_to_vec};
 use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
 use crate::shift_cast::ShiftCast;
 use crate::value::{DataType, ValueType, ValueView};
@@ -454,55 +452,10 @@ where
         .map(|zp| zp.to_vec())
         .unwrap_or_else(|| vec![W::default(); out_chans]);
 
-    // Only i8 x u8 -> i32 convolution is currently supported directly, because
-    // this conveniently maps to the supported input combinations for GEMM
-    // ops.
-    //
-    // For other input types we map the int8 inputs to the opposite sign by
-    // shifting the input and zero point by 128.
-    //
-    // If the lower-level GEMM ops gain support for more int8 signed-ness
-    // combinations natively, this copy can be avoided.
     let input: PoolRef<CowTensor<i8>> = input.shift_cast_in(pool).auto_return(pool);
     let input_zero: i8 = input_zero.shift_cast();
 
-    let (kernel, kernel_zero) = if TypeId::of::<W>() == TypeId::of::<i8>() {
-        let gemm = GemmExecutor::<u8, i8, i32>::default();
-        if gemm.may_saturate() {
-            // If we are on a platform (x64 without VNNI) where int8 GEMM can
-            // encounter i16 saturation then we need to make sure the u8 weights
-            // lie within the `u7` safe range ([0, 127]).
-            //
-            // To avoid the saturation hazard, the model should be converted with `reduce_range`
-            // enabled
-            // (https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html#when-and-why-do-i-need-to-try-u8u8).
-            // Then the weights will be in `[-64, 63]` and we can shift them to
-            // the safe range by adding 64.
-            //
-            // To handle the case where the weights are outside this range, we
-            // shift by the minimum amount needed to avoid underflow when
-            // converting i8 -> i16 -> u8. Saturation may then occur, but we
-            // limit the amount and that's better than underflow.
-            let kernel_min: i16 = kernel
-                .iter()
-                .copied()
-                .fold(0i16, |acc, x| acc.min(x.into()));
-            let shift = -kernel_min;
-
-            let kernel: Tensor<u8> =
-                kernel.map_in(pool, |w| (<W as Into<i16>>::into(*w) + shift) as u8);
-            let kernel_zero: Vec<u8> = kernel_zero
-                .into_iter()
-                .map(|w| (w.into() + shift) as u8)
-                .collect();
-            (kernel.into_cow(), kernel_zero)
-        } else {
-            (kernel.shift_cast_in(pool), kernel_zero.shift_cast())
-        }
-    } else {
-        // No-op cast
-        (kernel.shift_cast_in(pool), kernel_zero.shift_cast())
-    };
+    let (kernel, kernel_zero) = shift_cast_gemm_lhs_to_u8(pool, kernel, kernel_zero);
     let kernel = kernel.auto_return(pool);
 
     conv_impl::<i8, u8, i32>(
