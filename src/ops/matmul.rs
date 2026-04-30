@@ -1,3 +1,5 @@
+use std::any::TypeId;
+
 use rayon::prelude::*;
 use rten_base::byte_cast::{Pod, cast_pod_vec};
 use rten_gemm::{
@@ -7,7 +9,7 @@ use rten_gemm::{
 };
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
-use rten_tensor::{CowNdTensor, Matrix, NdTensorView, Tensor, TensorView};
+use rten_tensor::{CowNdTensor, CowTensor, Matrix, NdTensorView, Tensor, TensorView};
 use rten_vecmath::ExtendInit;
 use smallvec::SmallVec;
 
@@ -19,6 +21,7 @@ use crate::operator::{
 };
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
+use crate::shift_cast::ShiftCast;
 use crate::value::{DataType, ValueType, ValueView};
 
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
@@ -524,18 +527,68 @@ pub fn zero_point_to_vec<T>(
     }
 }
 
+/// Convert an int8 or uint8 tensor and its zero-point vector to `u8` by
+/// shifting the values using [`ShiftCast`].
+///
+/// This is a cheap no-op cast if the tensor is already `u8`.
+///
+/// This is needed for preparing the LHS operand of an int8 matmul as the GEMM
+/// implementation currently only supports `u8 x i8 -> i32`.
+pub(crate) fn shift_cast_gemm_lhs_to_u8<'a, T>(
+    pool: &BufferPool,
+    tensor: TensorView<'a, T>,
+    zero_point: Vec<T>,
+) -> (CowTensor<'a, u8>, Vec<u8>)
+where
+    T: Copy + Default + Into<i16> + ShiftCast<u8> + 'static,
+    TensorView<'a, T>: ShiftCast<CowTensor<'a, u8>>,
+    Vec<T>: ShiftCast<Vec<u8>>,
+{
+    if TypeId::of::<T>() == TypeId::of::<i8>() {
+        let gemm = GemmExecutor::<u8, i8, i32>::default();
+        if gemm.may_saturate() {
+            // When the source type is `i8` and the GEMM may saturate (x64
+            // without VNNI), values are instead shifted by the minimum amount
+            // needed to avoid underflow when converting `i8 -> i16 -> u8`, so
+            // the post-shift values stay as close as possible to the `u7`
+            // safe range `[0, 127]`. To avoid the saturation hazard entirely,
+            // the model should be converted with `reduce_range` enabled
+            // (see https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html#when-and-why-do-i-need-to-try-u8u8).
+            // Saturation may still occur for inputs outside the safe range,
+            // but this strategy limits the amount, which is better than the
+            // alternative of underflow when converting full-range `i8`
+            // directly to `u8`.
+            let min: i16 = tensor
+                .iter()
+                .copied()
+                .fold(0i16, |acc, x| acc.min(x.into()));
+            let shift = -min;
+            let cast: Tensor<u8> =
+                tensor.map_in(pool, |v| (<T as Into<i16>>::into(*v) + shift) as u8);
+            let zero_cast: Vec<u8> = zero_point
+                .into_iter()
+                .map(|v| (v.into() + shift) as u8)
+                .collect();
+            return (cast.into_cow(), zero_cast);
+        }
+    }
+    // No-op cast when `T` is already `u8`, otherwise a regular sign flip.
+    (tensor.shift_cast_in(pool), zero_point.shift_cast())
+}
+
 pub fn matmul_integer<LhsT, RhsT>(
     pool: &BufferPool,
     a: TensorView<LhsT>,
     b: TensorView<RhsT>,
     a_zero_point: Option<TensorView<LhsT>>,
     b_zero_point: Option<TensorView<RhsT>>,
-    packed_b: Option<&PackedBMatrix<RhsT>>,
+    packed_b: Option<&PackedBMatrix<i8>>,
 ) -> Result<Tensor<i32>, OpError>
 where
-    LhsT: GemmInT,
-    RhsT: GemmInT,
-    GemmExecutor<LhsT, RhsT, i32>: Default,
+    LhsT: Copy + Default + Into<i16> + ShiftCast<u8> + 'static,
+    RhsT: Copy + Default + ShiftCast<i8> + 'static,
+    for<'a> TensorView<'a, LhsT>: ShiftCast<CowTensor<'a, u8>>,
+    for<'a> TensorView<'a, RhsT>: ShiftCast<CowTensor<'a, i8>>,
 {
     let a_rows = if a.ndim() > 1 {
         a.size(a.ndim() - 2)
@@ -548,26 +601,45 @@ where
         1
     };
 
-    let a_zero = zero_point_to_vec(a_zero_point, a_rows)?.map(|zp| zp.to_contiguous());
-    let a_quant = a_zero.as_ref().map(|zp| QuantParams {
-        zero_point: zp.data(),
-    });
+    let a_zero = zero_point_to_vec(a_zero_point, a_rows)?
+        .map(|zp| zp.to_vec())
+        .unwrap_or_else(|| vec![LhsT::default(); a_rows]);
+    let b_zero = zero_point_to_vec(b_zero_point, b_cols)?
+        .map(|zp| zp.to_vec())
+        .unwrap_or_else(|| vec![RhsT::default(); b_cols]);
 
-    let b_zero = zero_point_to_vec(b_zero_point, b_cols)?.map(|zp| zp.to_contiguous());
-    let b_quant = b_zero.as_ref().map(|zp| QuantParams {
-        zero_point: zp.data(),
-    });
+    let (a_cast, a_zero_cast) = shift_cast_gemm_lhs_to_u8(pool, a, a_zero);
+    let a_cast = a_cast.auto_return(pool);
+
+    let b_cast = b.shift_cast_in(pool).auto_return(pool);
+    let b_zero_cast: Vec<i8> = b_zero.shift_cast();
+
+    // Pre-packed B can only be used when the original RHS is i8. For other
+    // RHS types we shift cast to i8 and ignore any prepacked data, since
+    // prepacking only happens for i8 RHS inputs.
+    let packed_b = if TypeId::of::<RhsT>() == TypeId::of::<i8>() {
+        packed_b
+    } else {
+        None
+    };
+
+    let a_quant = QuantParams {
+        zero_point: a_zero_cast.as_slice(),
+    };
+    let b_quant = QuantParams {
+        zero_point: b_zero_cast.as_slice(),
+    };
 
     matmul_impl(
         pool,
-        a,
-        b,
+        a_cast.view(),
+        b_cast.view(),
         packed_b,
         MatmulStrategy::Auto,
         None,
         None,
-        a_quant,
-        b_quant,
+        Some(a_quant),
+        Some(b_quant),
     )
 }
 
@@ -602,12 +674,9 @@ impl Operator for MatMulInteger {
 
         match (a, b) {
             (ValueView::UInt8Tensor(a), ValueView::Int8Tensor(b)) => matmul_integer!(a, b),
-
-            // GEMM doesn't support other int8 signed-ness combinations yet.
-            (ValueView::Int8Tensor(_), ValueView::Int8Tensor(_)) => Err(OpError::UnsupportedType),
-            (ValueView::Int8Tensor(_), ValueView::UInt8Tensor(_)) => Err(OpError::UnsupportedType),
-            (ValueView::UInt8Tensor(_), ValueView::UInt8Tensor(_)) => Err(OpError::UnsupportedType),
-
+            (ValueView::UInt8Tensor(a), ValueView::UInt8Tensor(b)) => matmul_integer!(a, b),
+            (ValueView::Int8Tensor(a), ValueView::Int8Tensor(b)) => matmul_integer!(a, b),
+            (ValueView::Int8Tensor(a), ValueView::UInt8Tensor(b)) => matmul_integer!(a, b),
             _ => Err(OpError::UnsupportedType),
         }
     }
@@ -879,7 +948,7 @@ mod tests {
     use rten_bench::run_bench;
     use rten_gemm::{
         BiasVector, BlockQuantizedMatrix, GemmExecutor, GemmInT, GemmInputA, GemmInputB,
-        GemmOptions, GemmOutT, QuantParams,
+        GemmOptions, GemmOutT, QuantParams, ReducedRangeRng,
     };
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
@@ -1619,6 +1688,186 @@ mod tests {
 
         Ok(())
     }
+
+    /// Reference matmul that performs the integer multiply-add in `i32` and
+    /// supports any combination of input types where `i32: From<LhsT> +
+    /// From<RhsT>`. Used to validate the optimized [`matmul_integer`] for
+    /// type combinations that the underlying GEMM does not support directly.
+    fn reference_matmul_integer<LhsT, RhsT>(
+        mut a: TensorView<LhsT>,
+        mut b: TensorView<RhsT>,
+        a_zero: Option<TensorView<LhsT>>,
+        b_zero: Option<TensorView<RhsT>>,
+    ) -> Tensor<i32>
+    where
+        LhsT: Copy + Default,
+        RhsT: Copy + Default,
+        i32: From<LhsT> + From<RhsT>,
+    {
+        let a_is_vec = a.ndim() == 1;
+        if a_is_vec {
+            a.insert_axis(0);
+        }
+        let b_is_vec = b.ndim() == 1;
+        if b_is_vec {
+            b.insert_axis(1);
+        }
+
+        let a_rows = a.size(a.ndim() - 2);
+        let a_cols = a.size(a.ndim() - 1);
+        let b_cols = b.size(b.ndim() - 1);
+
+        let a_zero_v: Vec<i32> = a_zero
+            .map(|zp| {
+                zp.broadcast([a_rows])
+                    .iter()
+                    .map(|&v| i32::from(v))
+                    .collect()
+            })
+            .unwrap_or_else(|| vec![0; a_rows]);
+        let b_zero_v: Vec<i32> = b_zero
+            .map(|zp| {
+                zp.broadcast([b_cols])
+                    .iter()
+                    .map(|&v| i32::from(v))
+                    .collect()
+            })
+            .unwrap_or_else(|| vec![0; b_cols]);
+
+        let a_prefix = &a.shape()[..a.ndim() - 2];
+        let b_prefix = &b.shape()[..b.ndim() - 2];
+        let out_prefix = broadcast_shapes(a_prefix, b_prefix).unwrap();
+        let out_shape: Vec<usize> = out_prefix.iter().copied().chain([a_rows, b_cols]).collect();
+        let mut c = Tensor::<i32>::zeros(&out_shape);
+
+        let a_bcast: Vec<usize> = out_prefix.iter().copied().chain([a_rows, a_cols]).collect();
+        let b_bcast: Vec<usize> = out_prefix.iter().copied().chain([a_cols, b_cols]).collect();
+
+        a.broadcast(a_bcast.as_slice())
+            .inner_iter::<2>()
+            .zip(b.broadcast(b_bcast.as_slice()).inner_iter::<2>())
+            .zip(c.inner_iter_mut::<2>())
+            .for_each(|((a_mat, b_mat), mut c_mat)| {
+                for i in 0..a_rows {
+                    for j in 0..b_cols {
+                        let mut acc = 0i32;
+                        for k in 0..a_cols {
+                            let av = i32::from(a_mat[[i, k]]) - a_zero_v[i];
+                            let bv = i32::from(b_mat[[k, j]]) - b_zero_v[j];
+                            acc += av * bv;
+                        }
+                        c_mat[[i, j]] = acc;
+                    }
+                }
+            });
+
+        match (a_is_vec, b_is_vec) {
+            (true, false) => c.remove_axis(c.ndim() - 2),
+            (false, true) => c.remove_axis(c.ndim() - 1),
+            (true, true) => {
+                c.remove_axis(c.ndim() - 1);
+                c.remove_axis(c.ndim() - 1);
+            }
+            (false, false) => {}
+        }
+
+        c
+    }
+
+    macro_rules! impl_matmul_integer_test {
+        ($name:ident, $lhs_ty:ty, $rhs_ty:ty) => {
+            #[test]
+            fn $name() {
+                // The LHS becomes the `u8` operand of the underlying `u8 x i8
+                // -> i32` GEMM after shift casting. To avoid `i16` saturation
+                // hazards on x64 platforms without VNNI, we restrict it to the
+                // u7/i7 safe range.
+                let mut a_rng = ReducedRangeRng::new(true /* reduce_range */, 1234);
+                let mut b_rng = XorShiftRng::new(5678);
+
+                #[derive(Debug)]
+                struct Case {
+                    a: Tensor<$lhs_ty>,
+                    b: Tensor<$rhs_ty>,
+                    a_zero_point: Option<Tensor<$lhs_ty>>,
+                    b_zero_point: Option<Tensor<$rhs_ty>>,
+                }
+
+                let cases = [
+                    // No zero points.
+                    Case {
+                        a: Tensor::rand(&[3, 4], &mut a_rng),
+                        b: Tensor::rand(&[4, 5], &mut b_rng),
+                        a_zero_point: None,
+                        b_zero_point: None,
+                    },
+                    // Scalar zero points.
+                    Case {
+                        a: Tensor::rand(&[3, 4], &mut a_rng),
+                        b: Tensor::rand(&[4, 5], &mut b_rng),
+                        a_zero_point: Some(Tensor::from(2 as $lhs_ty)),
+                        b_zero_point: Some(Tensor::from(3 as $rhs_ty)),
+                    },
+                    // Vector zero points.
+                    Case {
+                        a: Tensor::rand(&[3, 4], &mut a_rng),
+                        b: Tensor::rand(&[4, 5], &mut b_rng),
+                        a_zero_point: Some(Tensor::from([1 as $lhs_ty, 2, 3])),
+                        b_zero_point: Some(Tensor::from([1 as $rhs_ty, 2, 3, 4, 5])),
+                    },
+                    // Batched LHS with vector zero points.
+                    Case {
+                        a: Tensor::rand(&[2, 3, 4], &mut a_rng),
+                        b: Tensor::rand(&[4, 5], &mut b_rng),
+                        a_zero_point: Some(Tensor::from([1 as $lhs_ty, 2, 3])),
+                        b_zero_point: Some(Tensor::from([1 as $rhs_ty, 2, 3, 4, 5])),
+                    },
+                    // Vector LHS.
+                    Case {
+                        a: Tensor::rand(&[4], &mut a_rng),
+                        b: Tensor::rand(&[4, 5], &mut b_rng),
+                        a_zero_point: Some(Tensor::from([1 as $lhs_ty])),
+                        b_zero_point: Some(Tensor::from([1 as $rhs_ty, 2, 3, 4, 5])),
+                    },
+                    // Vector RHS.
+                    Case {
+                        a: Tensor::rand(&[3, 4], &mut a_rng),
+                        b: Tensor::rand(&[4], &mut b_rng),
+                        a_zero_point: Some(Tensor::from([1 as $lhs_ty, 2, 3])),
+                        b_zero_point: Some(Tensor::from([1 as $rhs_ty])),
+                    },
+                ];
+
+                cases.test_each(|case| {
+                    let pool = BufferPool::new();
+                    let result = matmul_integer(
+                        &pool,
+                        case.a.view(),
+                        case.b.view(),
+                        case.a_zero_point.as_ref().map(|t| t.view()),
+                        case.b_zero_point.as_ref().map(|t| t.view()),
+                        None,
+                    )
+                    .expect("matmul_integer failed");
+
+                    let expected = reference_matmul_integer(
+                        case.a.view(),
+                        case.b.view(),
+                        case.a_zero_point.as_ref().map(|t| t.view()),
+                        case.b_zero_point.as_ref().map(|t| t.view()),
+                    );
+
+                    assert_eq!(result, expected);
+                });
+            }
+        };
+    }
+
+    // Test all the i8/u8 combinations for inputs.
+    impl_matmul_integer_test!(test_matmul_integer_u8_i8, u8, i8);
+    impl_matmul_integer_test!(test_matmul_integer_u8_u8, u8, u8);
+    impl_matmul_integer_test!(test_matmul_integer_i8_u8, i8, u8);
+    impl_matmul_integer_test!(test_matmul_integer_i8_i8, i8, i8);
 
     fn reference_matmul_nbits(
         lhs: TensorView<f32>,
