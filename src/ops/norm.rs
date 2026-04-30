@@ -528,6 +528,43 @@ impl Operator for LayerNormalization {
     }
 }
 
+/// Simplified Layer Normalization
+///
+/// This is a experimental ONNX operator for layer normalization which is equivalent to the later
+/// stabilised RMSNormalization. See [onnx/onnx#6582](https://github.com/onnx/onnx/issues/6582) for
+/// more details.
+#[derive(Debug)]
+pub struct SimplifiedLayerNormalization {
+    pub axis: isize,
+    pub epsilon: Option<f32>,
+}
+
+impl Operator for SimplifiedLayerNormalization {
+    fn name(&self) -> &str {
+        "SimplifiedLayerNormalization"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let input = inputs.require_as(0)?;
+        let scale = inputs.require_as(1)?;
+
+        rms_normalization(ctx.pool(), input, scale, self.axis, self.epsilon).into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+}
+
 /// Root Mean Square normalization.
 ///
 /// This is a simplified version of [`LayerNormalization`] which does not center
