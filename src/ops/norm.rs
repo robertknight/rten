@@ -531,7 +531,8 @@ impl Operator for LayerNormalization {
 /// Simplified Layer Normalization
 ///
 /// This is a experimental ONNX operator for layer normalization which is equivalent to the later
-/// stabilised RMSNormalization.
+/// stabilised RMSNormalization. See [onnx/onnx#6582](https://github.com/onnx/onnx/issues/6582) for
+/// more details.
 #[derive(Debug)]
 pub struct SimplifiedLayerNormalization {
     pub axis: isize,

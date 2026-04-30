@@ -1186,14 +1186,6 @@ impl_read_op!(LSTM, |attrs: &Attrs| {
 impl_read_op!(MatMul);
 impl_read_op!(MatMulInteger);
 
-impl_read_op!("ai.onnx", SimplifiedLayerNormalization, |attrs: &Attrs| {
-    let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
-    let epsilon = attrs.get_as("epsilon");
-    attrs.check_eq("stash_type", 1)?;
-
-    Ok(ops::SimplifiedLayerNormalization { axis, epsilon })
-});
-
 impl_read_op!("com.microsoft", MatMulNBits, |attrs: &Attrs| {
     // Spec allows any value between 2 and 8.
     attrs.check_eq("bits", 4)?;
@@ -1534,6 +1526,15 @@ impl_read_op!(Shape, |attrs: &Attrs| {
 
 impl_read_op!(Sigmoid);
 impl_read_op!(Sign);
+
+impl_read_op!("ai.onnx", SimplifiedLayerNormalization, |attrs: &Attrs| {
+    let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
+    let epsilon = attrs.get_as("epsilon");
+    attrs.check_eq("stash_type", 1)?;
+
+    Ok(ops::SimplifiedLayerNormalization { axis, epsilon })
+});
+
 impl_read_op!(Sin);
 impl_read_op!(Size);
 impl_read_op!(Slice);
