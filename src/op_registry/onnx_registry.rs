@@ -1188,22 +1188,6 @@ impl_read_op!(LSTM, |attrs: &Attrs| {
 impl_read_op!(MatMul);
 impl_read_op!(MatMulInteger);
 
-impl_read_op!("com.microsoft", RotaryEmbedding, |attrs: &Attrs| {
-    let interleaved = attrs
-        .get_as_int::<isize>("interleaved")?
-        .unwrap_or_default();
-    let num_heads = attrs.get_as_int::<isize>("num_heads")?;
-    let rotary_embedding_dim = attrs
-        .get_as_int::<isize>("rotary_embedding_dim")?
-        .unwrap_or_default();
-
-    Ok(ops::RotaryEmbedding {
-        interleaved,
-        num_heads,
-        rotary_embedding_dim,
-    })
-});
-
 impl_read_op!("com.microsoft", MatMulNBits, |attrs: &Attrs| {
     // Spec allows any value between 2 and 8.
     attrs.check_eq("bits", 4)?;
@@ -1492,6 +1476,22 @@ impl_read_op!(Resize, |attrs: &Attrs| {
         mode,
         nearest_mode,
         coord_mode,
+    })
+});
+
+impl_read_op!("com.microsoft", RotaryEmbedding, |attrs: &Attrs| {
+    let interleaved = attrs
+        .get_as_int::<isize>("interleaved")?
+        .unwrap_or_default();
+    let num_heads = attrs.get_as_int::<usize>("num_heads")?;
+    let rotary_embedding_dim = attrs
+        .get_as_int::<usize>("rotary_embedding_dim")?
+        .unwrap_or_default();
+
+    Ok(ops::RotaryEmbedding {
+        interleaved,
+        num_heads,
+        rotary_embedding_dim,
     })
 });
 
