@@ -2,10 +2,13 @@ use rten_tensor::{AsView, Layout, NdTensorView, Tensor, TensorView};
 
 use crate::value::Value;
 use crate::{
-    operator::{OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext},
+    operator::{
+        IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputTypeList,
+        OutputTypesContext,
+    },
     ops::{
         binary_elementwise::{add, mul, sub},
-        gather,
+        concat, gather,
     },
 };
 
@@ -120,26 +123,27 @@ impl Operator for RotaryEmbedding {
         let rhs = mul(ctx.pool(), cos_cache.view(), x2.as_dyn())?;
         let imag = add(ctx.pool(), lhs.view(), rhs.view())?;
 
-        if self.interleaved != 0 {
+        let x_rotate = if self.interleaved != 0 {
+            let insert_axis = real.ndim() - 1;
+            let real = real.with_new_axis(insert_axis);
+            let imag = imag.with_new_axis(insert_axis);
 
-            // real = np.expand_dims(real, axis=-1)
-            // imag = np.expand_dims(imag, axis=-1)
-            // x_rotate_concat = np.concatenate((real, imag), axis=-1)
-            // x_rotate = np.reshape(x_rotate_concat, x_rotate.shape)
+            let mut x_rotate_concat = concat(ctx.pool(), &[real.view(), imag.view()], -1)?;
+            x_rotate_concat.reshape(&x_rotate.shape());
+            x_rotate_concat
         } else {
-            // x_rotate = np.concatenate((real, imag), axis=-1)
-        }
+            concat(ctx.pool(), &[real.view(), imag.view()], -1)?
+        };
 
-        /*
-        output = np.concatenate((x_rotate, x_not_rotate), axis=-1)
-        if len(original_input_shape) == 3:
-            output = np.reshape(output, original_input_shape)
-        else:
-            output = np.transpose(output, (0, 2, 1, 3))
-        return output
-         */
+        let output = concat(ctx.pool(), &[x_rotate.view(), x_not_rotate.as_dyn()], -1)?;
 
-        todo!()
+        let output = if input.ndim() == 3 {
+            output.reshaped(input.shape())
+        } else {
+            input.permuted(&[0, 2, 1, 3]).as_cow()
+        };
+
+        output.to_tensor().into_op_result()
     }
 
     fn is_commutative(&self) -> bool {
