@@ -14,7 +14,6 @@ use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
 };
-use crate::ops::binary_elementwise::add_in_place;
 use crate::ops::{add, resolve_axis};
 use crate::slice_reductions::slice_max;
 use crate::value::Value;
@@ -569,13 +568,13 @@ impl Operator for SimplifiedLayerNormalization {
 
 /// Skip Simplified Layer Normalization
 ///
-/// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#commicrosoftskiplayernormalization 
+/// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#commicrosoftskiplayernormalization
 #[derive(Debug)]
-pub struct SkipSimplifiedLayerNormalisation {
-    epsilon: f32,
+pub struct SkipSimplifiedLayerNormalization {
+    pub epsilon: f32,
 }
 
-impl Operator for SkipSimplifiedLayerNormalisation {
+impl Operator for SkipSimplifiedLayerNormalization {
     fn name(&self) -> &str {
         "SkipSimplifiedLayerNormalisation"
     }
@@ -597,6 +596,10 @@ impl Operator for SkipSimplifiedLayerNormalisation {
             ));
         }
 
+        if !matches!(input.ndim(), 2 | 3) {
+            return Err(OpError::InvalidValue("input must be 2 or 3 dimensioned"));
+        }
+
         let x_plus_skip = add(ctx.pool(), input, skip)?;
 
         layer_normalization_impl(
@@ -611,7 +614,7 @@ impl Operator for SkipSimplifiedLayerNormalisation {
         .into_op_result()
     }
 
-    fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }

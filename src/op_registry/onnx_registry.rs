@@ -234,7 +234,7 @@ impl OnnxOpRegistry {
 
         // com.microsoft ops.
         register_op!(MatMulNBits);
-        register_op!(SimplifiedLayerNormalization);
+        register_op!(SkipSimplifiedLayerNormalization);
 
         reg
     }
@@ -1538,6 +1538,17 @@ impl_read_op!("ai.onnx", SimplifiedLayerNormalization, |attrs: &Attrs| {
 
 impl_read_op!(Sin);
 impl_read_op!(Size);
+
+impl_read_op!(
+    "com.microsoft",
+    SkipSimplifiedLayerNormalization,
+    |attrs: &Attrs| {
+        let epsilon = attrs.require("epsilon")?.as_f32();
+
+        Ok(ops::SkipSimplifiedLayerNormalization { epsilon })
+    }
+);
+
 impl_read_op!(Slice);
 
 impl_read_op!(Softmax, |attrs: &Attrs| {
