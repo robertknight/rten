@@ -3,8 +3,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_simd::SimdOp;
-use rten_tensor::prelude::*;
+use rten_tensor::storage::ViewData;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
+use rten_tensor::{TensorBase, prelude::*};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
@@ -13,7 +14,8 @@ use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
 };
-use crate::ops::resolve_axis;
+use crate::ops::binary_elementwise::add_in_place;
+use crate::ops::{add, resolve_axis};
 use crate::slice_reductions::slice_max;
 use crate::value::Value;
 
@@ -562,6 +564,55 @@ impl Operator for SimplifiedLayerNormalization {
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
         Some(&UnaryOp)
+    }
+}
+
+/// Skip Simplified Layer Normalization
+///
+/// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#commicrosoftskiplayernormalization 
+#[derive(Debug)]
+pub struct SkipSimplifiedLayerNormalisation {
+    epsilon: f32,
+}
+
+impl Operator for SkipSimplifiedLayerNormalisation {
+    fn name(&self) -> &str {
+        "SkipSimplifiedLayerNormalisation"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(4)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let input: TensorBase<ViewData<'_, f32>, _> = inputs.require_as(0)?;
+        let skip: TensorBase<ViewData<'_, f32>, _> = inputs.require_as(1)?;
+        let gamma: TensorBase<ViewData<'_, f32>, _> = inputs.require_as(2)?;
+        let bias: Option<TensorBase<ViewData<'_, f32>, _>> = inputs.get_as(3)?;
+
+        if input.shape() != skip.shape() {
+            return Err(OpError::IncompatibleInputShapes(
+                "input and skip tensor shapes must match",
+            ));
+        }
+
+        let x_plus_skip = add(ctx.pool(), input, skip)?;
+
+        layer_normalization_impl(
+            ctx.pool(),
+            x_plus_skip.view(),
+            gamma.view(),
+            bias,
+            -1,
+            Some(self.epsilon),
+            MeanNormalize::DynamicRootMeanSquare,
+        )
+        .into_op_result()
+    }
+
+    fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 

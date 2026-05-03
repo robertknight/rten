@@ -234,6 +234,7 @@ impl OnnxOpRegistry {
 
         // com.microsoft ops.
         register_op!(MatMulNBits);
+        register_op!(SimplifiedLayerNormalization);
 
         reg
     }
