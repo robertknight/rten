@@ -13,7 +13,7 @@ include = ["/src", "/README.md"]
 crate-type = ["lib"]
 
 [dependencies]
-fancy-regex = { version = "0.14.0", default-features = false, features = ["std", "unicode"] }
+fancy-regex = { version = "0.18.0", default-features = false, features = ["std", "unicode"] }
 rten-base = { path = "../rten-base", version = "0.24.0" }
 rustc-hash = { workspace = true }
 serde = { workspace = true }
