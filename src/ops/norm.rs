@@ -8,7 +8,7 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_tensor::{TensorBase, prelude::*};
 use rten_vecmath as vecmath;
 
-use crate::buffer_pool::BufferPool;
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, UnaryOp};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
@@ -568,7 +568,7 @@ impl Operator for SimplifiedLayerNormalization {
 
 /// Skip Simplified Layer Normalization
 ///
-/// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#commicrosoftskiplayernormalization
+/// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.SkipSimplifiedLayerNormalization
 #[derive(Debug)]
 pub struct SkipSimplifiedLayerNormalization {
     pub epsilon: f32,
@@ -585,10 +585,10 @@ impl Operator for SkipSimplifiedLayerNormalization {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
-        let input: TensorBase<ViewData<'_, f32>, _> = inputs.require_as(0)?;
-        let skip: TensorBase<ViewData<'_, f32>, _> = inputs.require_as(1)?;
-        let gamma: TensorBase<ViewData<'_, f32>, _> = inputs.require_as(2)?;
-        let bias: Option<TensorBase<ViewData<'_, f32>, _>> = inputs.get_as(3)?;
+        let input: TensorView<_> = inputs.require_as(0)?;
+        let skip: TensorView<_> = inputs.require_as(1)?;
+        let gamma: TensorView<_> = inputs.require_as(2)?;
+        let bias: Option<TensorView<_>> = inputs.get_as(3)?;
 
         if input.shape() != skip.shape() {
             return Err(OpError::IncompatibleInputShapes(
@@ -600,12 +600,12 @@ impl Operator for SkipSimplifiedLayerNormalization {
             return Err(OpError::InvalidValue("input must be 2 or 3 dimensioned"));
         }
 
-        let x_plus_skip = add(ctx.pool(), input, skip)?;
+        let x_plus_skip = add(ctx.pool(), input, skip)?.auto_return(ctx.pool());
 
         layer_normalization_impl(
             ctx.pool(),
             x_plus_skip.view(),
-            gamma.view(),
+            gamma,
             bias,
             -1,
             Some(self.epsilon),
