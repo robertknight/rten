@@ -35,7 +35,7 @@ argh = "0.1"
 fastrand = "2.0.2"
 fastrand-contrib = "0.1.0"
 flatbuffers = "24.3.25"
-image = { version = "0.25.1", default-features = false, features = ["png", "jpeg", "webp"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
 libm = "0.2.6"
 rayon = "1.7.0"
 rustc-hash = "2.0.0"
