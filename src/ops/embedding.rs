@@ -1,4 +1,4 @@
-use rten_tensor::{AsView, Layout, NdTensorView, Tensor, TensorView};
+use rten_tensor::{AsView, Layout, NdTensorView, TensorView};
 
 use crate::{
     buffer_pool::AutoReturn,
