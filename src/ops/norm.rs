@@ -3,9 +3,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_simd::SimdOp;
-use rten_tensor::storage::ViewData;
+use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
-use rten_tensor::{TensorBase, prelude::*};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
