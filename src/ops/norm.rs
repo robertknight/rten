@@ -567,6 +567,9 @@ impl Operator for SimplifiedLayerNormalization {
 
 /// Skip Simplified Layer Normalization
 ///
+/// This is a fusion of `Add` and `RMSNormalization` (also known as
+/// SimplifiedLayerNormalization in Microsoft's contrib ops).
+///
 /// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.SkipSimplifiedLayerNormalization
 #[derive(Debug)]
 pub struct SkipSimplifiedLayerNormalization {
@@ -586,7 +589,10 @@ impl Operator for SkipSimplifiedLayerNormalization {
         let inputs = ctx.inputs();
         let input: TensorView<_> = inputs.require_as(0)?;
         let skip: TensorView<_> = inputs.require_as(1)?;
+
+        // Scale factor, called gamma (γ) in the RMS normalization paper.
         let gamma: TensorView<_> = inputs.require_as(2)?;
+
         let bias: Option<TensorView<_>> = inputs.get_as(3)?;
 
         if input.shape() != skip.shape() {
