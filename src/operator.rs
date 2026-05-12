@@ -741,6 +741,19 @@ impl<'a, I1: Into<ValueView<'a>>, I2: Into<ValueView<'a>>, I3: Into<ValueView<'a
     }
 }
 
+impl<
+    'a,
+    I1: Into<ValueView<'a>>,
+    I2: Into<ValueView<'a>>,
+    I3: Into<ValueView<'a>>,
+    I4: Into<ValueView<'a>>,
+> From<(I1, I2, I3, I4)> for InputList<'a>
+{
+    fn from((a, b, c, d): (I1, I2, I3, I4)) -> InputList<'a> {
+        InputList::from(&[a.into(), b.into(), c.into(), d.into()])
+    }
+}
+
 impl<'a> Extend<ValueView<'a>> for InputList<'a> {
     fn extend<T>(&mut self, iter: T)
     where

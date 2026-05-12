@@ -889,7 +889,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{NdTensor, NdTensorView, Tensor};
+    use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
     use rten_testing::TestCases;
 
     use super::SOFTMAX_GRAIN_SIZE;
@@ -898,8 +898,9 @@ mod tests {
         log_softmax, rms_normalization, softmax,
     };
     use crate::buffer_pool::BufferPool;
-    use crate::ops::OpError;
+    use crate::operator::OperatorExt;
     use crate::ops::tests::expect_eq_1e4;
+    use crate::ops::{OpError, SkipSimplifiedLayerNormalization};
 
     #[test]
     fn test_batch_norm() {
@@ -1177,6 +1178,138 @@ mod tests {
         expect_eq_1e4(&result, &expected)?;
 
         Ok(())
+    }
+
+    fn reference_skip_simplified_layer_norm(
+        input: TensorView,
+        skip: TensorView,
+        gamma: TensorView,
+        bias: Option<TensorView>,
+        epsilon: f32,
+    ) -> Tensor {
+        assert_eq!(input.shape(), skip.shape());
+        let last = input.size(input.ndim() - 1);
+        let gamma = gamma.to_vec();
+        let bias = bias.map(|b| b.to_vec()).unwrap_or_else(|| vec![0.0; last]);
+        let sum: Vec<f32> = input.iter().zip(skip.iter()).map(|(x, s)| x + s).collect();
+
+        let mut out = Vec::with_capacity(sum.len());
+        for row in sum.chunks(last) {
+            let ms = row.iter().map(|x| x * x).sum::<f32>() / last as f32;
+            let denom = (ms + epsilon).sqrt();
+            for ((x, g), b) in row.iter().zip(&gamma).zip(&bias) {
+                out.push((x / denom) * g + b);
+            }
+        }
+        Tensor::from_data(input.shape(), out)
+    }
+
+    #[test]
+    fn test_skip_simplified_layer_normalization() -> Result<(), Box<dyn Error>> {
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor,
+            skip: Tensor,
+            gamma: Tensor,
+            bias: Option<Tensor>,
+        }
+
+        let mut rng = XorShiftRng::new(1234);
+        let cases = [
+            // 2D input, no bias
+            Case {
+                input: Tensor::rand(&[3, 4], &mut rng),
+                skip: Tensor::rand(&[3, 4], &mut rng),
+                gamma: Tensor::rand(&[4], &mut rng),
+                bias: None,
+            },
+            // 2D input, with bias
+            Case {
+                input: Tensor::rand(&[3, 4], &mut rng),
+                skip: Tensor::rand(&[3, 4], &mut rng),
+                gamma: Tensor::rand(&[4], &mut rng),
+                bias: Some(Tensor::rand(&[4], &mut rng)),
+            },
+            // 3D input (typical transformer shape: [batch, seq, hidden])
+            Case {
+                input: Tensor::rand(&[2, 3, 4], &mut rng),
+                skip: Tensor::rand(&[2, 3, 4], &mut rng),
+                gamma: Tensor::rand(&[4], &mut rng),
+                bias: Some(Tensor::rand(&[4], &mut rng)),
+            },
+        ];
+
+        let epsilon = 1e-5;
+        cases.test_each(|case| {
+            let op = SkipSimplifiedLayerNormalization { epsilon };
+            let result: Tensor = if let Some(bias) = case.bias.as_ref() {
+                op.run_simple((
+                    case.input.view(),
+                    case.skip.view(),
+                    case.gamma.view(),
+                    bias.view(),
+                ))
+            } else {
+                op.run_simple((case.input.view(), case.skip.view(), case.gamma.view()))
+            }
+            .unwrap();
+
+            let expected = reference_skip_simplified_layer_norm(
+                case.input.view(),
+                case.skip.view(),
+                case.gamma.view(),
+                case.bias.as_ref().map(|b| b.view()),
+                epsilon,
+            );
+            expect_eq_1e4(&result, &expected).unwrap();
+        });
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_skip_simplified_layer_normalization_invalid() {
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor,
+            skip: Tensor,
+            gamma: Tensor,
+            expected: OpError,
+        }
+
+        let cases = [
+            // Mismatched input/skip shapes
+            Case {
+                input: Tensor::zeros(&[2, 4]),
+                skip: Tensor::zeros(&[2, 3]),
+                gamma: Tensor::zeros(&[4]),
+                expected: OpError::IncompatibleInputShapes(
+                    "input and skip tensor shapes must match",
+                ),
+            },
+            // 1D input is unsupported
+            Case {
+                input: Tensor::zeros(&[4]),
+                skip: Tensor::zeros(&[4]),
+                gamma: Tensor::zeros(&[4]),
+                expected: OpError::InvalidValue("input must be 2 or 3 dimensioned"),
+            },
+            // 4D input is unsupported
+            Case {
+                input: Tensor::zeros(&[1, 1, 2, 4]),
+                skip: Tensor::zeros(&[1, 1, 2, 4]),
+                gamma: Tensor::zeros(&[4]),
+                expected: OpError::InvalidValue("input must be 2 or 3 dimensioned"),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = SkipSimplifiedLayerNormalization { epsilon: 1e-5 };
+            let result: Result<Tensor, _> =
+                op.run_simple((case.input.view(), case.skip.view(), case.gamma.view()));
+            let err = result.err().expect("expected an error");
+            assert_eq!(&err, &case.expected);
+        })
     }
 
     #[test]
