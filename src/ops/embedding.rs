@@ -130,7 +130,7 @@ impl Operator for RotaryEmbedding {
         let output = if input.ndim() == 3 {
             output.into_shape(input.shape())
         } else {
-            input.permuted(&[0, 2, 1, 3]).to_tensor_in(ctx.pool())
+            output.permuted(&[0, 2, 1, 3]).to_tensor_in(ctx.pool())
         };
 
         output.into_op_result()
@@ -208,7 +208,7 @@ mod tests {
             0.6460, -1.2937, -0.1822, 0.6972, // seq 1 (rotated)
             -0.3694, -0.9235, 0.1840, 0.6180,
         ]);
-        expected.reshape(&[1, 3, 2, 4]); // ?? Should it be same shape as input?
+        expected.reshape(&[1, 2, 3, 4]); // ?? Should it be same shape as input?
         let cases = [Case {
             input_data,
             position_ids,
