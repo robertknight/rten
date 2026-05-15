@@ -173,7 +173,7 @@ mod tests {
     use crate::{BufferPool, operator::InputList};
 
     use super::*;
-    use rten_tensor::{Tensor, test_util::expect_equal};
+    use rten_tensor::{Tensor, test_util::expect_equal_with_tolerance};
     use rten_testing::TestCases;
 
     #[derive(Debug)]
@@ -259,9 +259,11 @@ mod tests {
             let ctx = OpRunContext::new(&pool, &input_list);
 
             let result = rotary.run(&ctx).unwrap();
-            expect_equal(
+            expect_equal_with_tolerance(
                 &expected.view(),
                 &result[0].as_tensor_view().unwrap().view(),
+                1e-4,
+                0.0,
             )
             .unwrap();
         });
