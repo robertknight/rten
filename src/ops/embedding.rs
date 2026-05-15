@@ -40,7 +40,7 @@ impl Operator for RotaryEmbedding {
         let position_ids: Option<NdTensorView<i32, 1>> = inputs.get_as(3)?;
 
         let reshaped_input = match input.shape() {
-            &[batch, _seq_len, hidden_size] => {
+            &[batch, seq_len, hidden_size] => {
                 let num_heads = self.num_heads.unwrap_or(0);
                 if num_heads == 0 {
                     return Err(OpError::InvalidValue(
@@ -49,7 +49,7 @@ impl Operator for RotaryEmbedding {
                 }
 
                 let head_size = hidden_size / num_heads;
-                input.reshaped([batch, hidden_size, num_heads, head_size])
+                input.reshaped([batch, seq_len, num_heads, head_size])
             }
             [_batch, _num_heads, _seq_len, _head_size] => {
                 input.nd_view().permuted([0, 2, 1, 3]).as_cow()
@@ -92,8 +92,8 @@ impl Operator for RotaryEmbedding {
             ));
         }
 
-        let cos_cache = cos_cache.view().with_new_axis(2);
-        let sin_cache = sin_cache.view().with_new_axis(2);
+        let cos_cache = cos_cache.view().with_new_axis(0).with_new_axis(2);
+        let sin_cache = sin_cache.view().with_new_axis(0).with_new_axis(2);
 
         let (x1, x2) = if self.interleaved != 0 {
             let starts_x1 = Tensor::<i32>::from([0]);
@@ -136,7 +136,7 @@ impl Operator for RotaryEmbedding {
         let imag = add(ctx.pool(), lhs.view(), rhs.view())?.auto_return(ctx.pool());
 
         let x_rotate = if self.interleaved != 0 {
-            let insert_axis = real.ndim() - 1;
+            let insert_axis = real.ndim();
             let real = real.view().with_new_axis(insert_axis);
             let imag = imag.view().with_new_axis(insert_axis);
 
