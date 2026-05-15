@@ -144,3 +144,103 @@ impl Operator for RotaryEmbedding {
         Some([OutputType::CopyFromInput(0)].into())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{BufferPool, operator::InputList};
+
+    use super::*;
+    use rten_tensor::{Tensor, test_util::expect_equal};
+    use rten_testing::TestCases;
+
+    #[derive(Debug)]
+    struct Case {
+        input_data: Tensor<f32>,
+        position_ids: Tensor<i32>,
+        cos_cache: Tensor<f32>,
+        sin_cache: Tensor<f32>,
+        expected: Tensor<f32>,
+    }
+
+    // Test rotary embedding using a ported version of the test case from
+    // https://github.com/microsoft/onnxruntime/blob/e3c34da40639669f3dbb7ae95db0662afbec8cc9/onnxruntime/test/providers/cpu/llm/rotary_embedding_op_test.cc#L509
+    #[test]
+    fn rotary_embedding_test() {
+        let rotary = RotaryEmbedding {
+            interleaved: 1,
+            num_heads: Some(2),
+            rotary_embedding_dim: 0,
+        };
+        let mut input_data = Tensor::from_vec(vec![
+            // Head 0: sequence 0, 1, 2
+            -1.0408, 0.9166, -1.3042, -1.1097, // seq 0
+            -1.2188, 1.1676, -1.0574, -0.1188, // seq 1
+            -0.8110, 0.6737, -1.1233, -0.0919, // seq 2
+            // Head 1: sequence 0, 1, 2
+            -0.1320, -0.2751, -0.2350, 0.0937, // seq 0
+            -0.7396, -1.2425, -0.1752, 0.6990, // seq 1
+            -0.6861, 0.7202, 0.1963, 0.6142,
+        ]);
+
+        input_data.reshape(&[1, 2, 3, 4]);
+
+        // TODO batch size is mentioned as a dimension of this tensor - maybe something wrong in my
+        // impl
+        let position_ids = Tensor::from_vec(vec![0, 1, 2]);
+
+        let mut cos_cache = Tensor::from_vec(vec![
+            1.0000, 1.0000, 0.5403, 0.9999, -0.4161, 0.9998, -0.9900, 0.9996, -0.6536, 0.9992,
+            0.2837, 0.9988, 0.9602, 0.9982, 0.7539, 0.9976,
+        ]);
+        cos_cache.reshape(&[8, 2]);
+        let mut sin_cache = Tensor::from_vec(vec![
+            0.0000, 0.0000, 0.8415, 0.0100, 0.9093, 0.0200, 0.1411, 0.0300, -0.7568, 0.0400,
+            -0.9589, 0.0500, -0.2794, 0.0600, 0.6570, 0.0699,
+        ]);
+        sin_cache.reshape(&[8, 2]);
+        let mut expected = Tensor::from_vec(vec![
+            // Head 0: sequence 0, 1, 2
+            -1.0408, 0.9166, -1.3042, -1.1097, // seq 0 (no change)
+            -1.6411, -0.3948, -1.0561, -0.1294, // seq 1 (rotated)
+            -0.2751, -1.0178, -1.1212, -0.1143, // seq 2 (rotated)
+            // Head 1: sequence 0, 1, 2
+            -0.1320, -0.2751, -0.2350, 0.0937, // seq 0 (no change)
+            0.6460, -1.2937, -0.1822, 0.6972, // seq 1 (rotated)
+            -0.3694, -0.9235, 0.1840, 0.6180,
+        ]);
+        expected.reshape(&[1, 3, 2, 4]); // ?? Should it be same shape as input?
+        let cases = [Case {
+            input_data,
+            position_ids,
+            cos_cache,
+            sin_cache,
+            expected,
+        }];
+
+        cases.test_each(|case| {
+            let pool = BufferPool::new();
+            let Case {
+                input_data,
+                position_ids,
+                cos_cache,
+                sin_cache,
+                expected,
+            } = case;
+
+            let mut input_list = InputList::new();
+            input_list.push(input_data.view());
+            input_list.push(cos_cache.view());
+            input_list.push(sin_cache.view());
+            input_list.push(position_ids.view());
+
+            let ctx = OpRunContext::new(&pool, &input_list);
+
+            let result = rotary.run(&ctx).unwrap();
+            expect_equal(
+                &expected.view(),
+                &result[0].as_tensor_view().unwrap().view(),
+            )
+            .unwrap();
+        });
+    }
+}
