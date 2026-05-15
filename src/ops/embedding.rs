@@ -1,4 +1,4 @@
-use rten_tensor::{AsView, Layout, NdTensorView, TensorView};
+use rten_tensor::{AsView, Layout, NdTensorView, Tensor, TensorView};
 
 use crate::{
     buffer_pool::AutoReturn,
@@ -8,7 +8,7 @@ use crate::{
     },
     ops::{
         binary_elementwise::{add, mul, sub},
-        concat, gather,
+        concat, gather, slice,
     },
 };
 
@@ -96,12 +96,35 @@ impl Operator for RotaryEmbedding {
         let sin_cache = sin_cache.view().with_new_axis(2);
 
         let (x1, x2) = if self.interleaved != 0 {
-            (
-                x_rotate.slice((.., .., .., 0..2)),
-                x_rotate.slice((.., .., .., 1..2)),
-            )
+            let starts_x1 = Tensor::<i32>::from([0]);
+            let starts_x2 = Tensor::<i32>::from([1]);
+            let ends = Tensor::<i32>::from([i32::MAX]); // i32::MAX means "to the end"
+            let axes = Tensor::<i32>::from([3]);
+            let steps = Tensor::<i32>::from([2]);
+
+            let x1 = slice(
+                ctx.pool(),
+                x_rotate.as_dyn(),
+                &starts_x1.nd_view(),
+                &ends.nd_view(),
+                Some(&axes.nd_view()),
+                Some(&steps.nd_view()),
+            )?;
+
+            let x2 = slice(
+                ctx.pool(),
+                x_rotate.as_dyn(),
+                &starts_x2.nd_view(),
+                &ends.nd_view(),
+                Some(&axes.nd_view()),
+                Some(&steps.nd_view()),
+            )?;
+
+            (x1, x2)
         } else {
-            x_rotate.split_at(3, rotary_embedding_dim_half)
+            let (a, b) = x_rotate.split_at(3, rotary_embedding_dim_half);
+
+            (a.to_tensor().into_dyn(), b.to_tensor().into_dyn())
         };
 
         let lhs = mul(ctx.pool(), cos_cache.view(), x1.as_dyn())?.auto_return(ctx.pool());
