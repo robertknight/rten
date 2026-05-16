@@ -180,6 +180,8 @@ mod tests {
 
     #[derive(Debug)]
     struct Case {
+        name: &'static str,
+        input_is_4d: bool,
         input_data: Tensor<f32>,
         position_ids: Option<Tensor<i32>>,
         cos_cache: Tensor<f32>,
@@ -202,6 +204,8 @@ mod tests {
 
             if let Some(pids) = self.position_ids.as_mut() {
                 pids.reshape(&[self.batch_size, self.sequence_length]);
+            }
+            if self.input_is_4d {
                 self.input_data.reshape(&[
                     self.batch_size,
                     self.op.num_heads.unwrap(),
@@ -280,6 +284,8 @@ mod tests {
         ]);
         // Case name: RotaryEmbedding_Interleaved_SmallData_LlamaMSFT_4D_Input
         cases.push(Case {
+            name: "RotaryEmbedding_Interleaved_SmallData_LlamaMSFT_4D_Input",
+            input_is_4d: true,
             input_data,
             position_ids: Some(position_ids),
             cos_cache,
@@ -322,6 +328,8 @@ mod tests {
         ]);
         // Case name RotaryEmbedding_NotInterleaved_SmallData_LlamaMSFT
         cases.push(Case {
+            name: "RotaryEmbedding_NotInterleaved_SmallData_LlamaMSFT",
+            input_is_4d: false,
             input_data,
             position_ids: Some(position_ids),
             cos_cache,
@@ -354,6 +362,8 @@ mod tests {
         ]);
         // Case name: RotaryEmbedding_CustomRotaryDim_SmallData_Phi
         cases.push(Case {
+            name: "RotaryEmbedding_CustomRotaryDim_SmallData_Phi",
+            input_is_4d: false,
             input_data,
             position_ids: Some(position_ids),
             cos_cache,
@@ -388,6 +398,8 @@ mod tests {
         ]);
         // Case name: RotaryEmbedding_NotInterleaved_NoPosIds_SmallData_LlamaMSFT
         cases.push(Case {
+            name: "RotaryEmbedding_NotInterleaved_NoPosIds_SmallData_LlamaMSFT",
+            input_is_4d: false,
             input_data,
             position_ids: None,
             cos_cache,
@@ -420,6 +432,8 @@ mod tests {
         ]);
         // Case name: RotaryEmbedding_Interleaved_NoPosIds_SmallData_LlamaMSFT
         cases.push(Case {
+            name: "RotaryEmbedding_Interleaved_NoPosIds_SmallData_LlamaMSFT",
+            input_is_4d: false,
             input_data,
             position_ids: None,
             cos_cache,
