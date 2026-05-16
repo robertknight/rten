@@ -38,7 +38,7 @@ impl Operator for RotaryEmbedding {
         let cos: TensorView<f32> = inputs.require_as(1)?;
         let sin: TensorView<f32> = inputs.require_as(2)?;
         // TODO batching doesn't work on position_ids.
-        let position_ids: Option<NdTensorView<i32, 1>> = inputs.get_as(3)?;
+        let position_ids: Option<NdTensorView<i32, 2>> = inputs.get_as(3)?;
 
         let reshaped_input = match input.shape() {
             &[batch, seq_len, hidden_size] => {
@@ -94,8 +94,8 @@ impl Operator for RotaryEmbedding {
             ));
         }
 
-        let cos_cache = cos_cache.view().with_new_axis(0).with_new_axis(2);
-        let sin_cache = sin_cache.view().with_new_axis(0).with_new_axis(2);
+        let cos_cache = cos_cache.view().with_new_axis(2);
+        let sin_cache = sin_cache.view().with_new_axis(2);
 
         let (x1, x2) = if self.interleaved != 0 {
             let starts_x1 = Tensor::<i32>::from([0]);
@@ -129,13 +129,13 @@ impl Operator for RotaryEmbedding {
             (a.to_tensor().into_dyn(), b.to_tensor().into_dyn())
         };
 
-        let lhs = mul(ctx.pool(), cos_cache.view(), x1.as_dyn())?.auto_return(ctx.pool());
-        let rhs = mul(ctx.pool(), sin_cache.view(), x2.as_dyn())?.auto_return(ctx.pool());
-        let real = sub(ctx.pool(), lhs.view(), rhs.view())?.auto_return(ctx.pool());
+        let cos_x1 = mul(ctx.pool(), cos_cache.view(), x1.as_dyn())?.auto_return(ctx.pool());
+        let sin_x2 = mul(ctx.pool(), sin_cache.view(), x2.as_dyn())?.auto_return(ctx.pool());
+        let real = sub(ctx.pool(), cos_x1.view(), sin_x2.view())?.auto_return(ctx.pool());
 
-        let lhs = mul(ctx.pool(), sin_cache.view(), x1.as_dyn())?.auto_return(ctx.pool());
-        let rhs = mul(ctx.pool(), cos_cache.view(), x2.as_dyn())?.auto_return(ctx.pool());
-        let imag = add(ctx.pool(), lhs.view(), rhs.view())?.auto_return(ctx.pool());
+        let sin_x1 = mul(ctx.pool(), sin_cache.view(), x1.as_dyn())?.auto_return(ctx.pool());
+        let cos_x2 = mul(ctx.pool(), cos_cache.view(), x2.as_dyn())?.auto_return(ctx.pool());
+        let imag = add(ctx.pool(), sin_x1.view(), cos_x2.view())?.auto_return(ctx.pool());
 
         let x_rotate = if self.interleaved != 0 {
             let insert_axis = real.ndim();
@@ -201,7 +201,7 @@ mod tests {
             assert!(self.op.interleaved == 0 || self.op.interleaved == 1);
 
             if let Some(pids) = self.position_ids.as_mut() {
-                //pids.reshape(&[self.batch_size, self.sequence_length]);
+                pids.reshape(&[self.batch_size, self.sequence_length]);
                 self.input_data.reshape(&[
                     self.batch_size,
                     self.op.num_heads.unwrap(),
