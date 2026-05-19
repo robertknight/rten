@@ -48,6 +48,17 @@ impl Operator for RotaryEmbedding {
                         "num_heads must not be 0 for 3 dimensioned input",
                     ));
                 }
+                if hidden_size % num_heads != 0 {
+                    // The reference implementation also adds "or rank-3 input", but not sure fully
+                    // what that means in this context so excluded it = after all input is rank-3
+                    // here.
+                    //
+                    // Note without this check this becomes a panic as the resize will fail - maybe
+                    // acceptable?
+                    return Err(OpError::InvalidValue(
+                        "hidden_size must be divisible by num_heads",
+                    ));
+                }
 
                 let head_size = hidden_size / num_heads;
                 input.reshaped([batch, seq_len, num_heads, head_size])
@@ -479,5 +490,27 @@ mod tests {
             )
             .unwrap();
         });
+    }
+
+    #[test]
+    fn reject_indivisible_hidden_size() {
+        let op = RotaryEmbedding {
+            interleaved: 0,
+            num_heads: Some(2),
+            rotary_embedding_dim: 0,
+        };
+
+        let input_data = Tensor::from([[0., 0., 0., 0., 0.]]).with_new_axis(0);
+        let cos_cache = Tensor::from([[[1.0]]]);
+        let sin_cache = Tensor::from([[[0.0]]]);
+        let mut input_list = InputList::new();
+        input_list.push(input_data.view());
+        input_list.push(cos_cache.view());
+        input_list.push(sin_cache.view());
+
+        let pool = BufferPool::new();
+        let ctx = OpRunContext::new(&pool, &input_list);
+
+        assert!(op.run(&ctx).is_err());
     }
 }
