@@ -195,6 +195,7 @@ impl OnnxOpRegistry {
         register_op!(Relu);
         register_op!(Reshape);
         register_op!(Resize);
+        register_op!(RotaryEmbedding);
         register_op!(Round);
         register_op!(ScatterElements);
         register_op!(ScatterND);
@@ -235,7 +236,7 @@ impl OnnxOpRegistry {
         // com.microsoft ops.
         register_op!(MatMulNBits);
         register_op!(SkipSimplifiedLayerNormalization);
-        register_op!(RotaryEmbedding);
+        register_op!(RotaryEmbeddingMicrosoft);
 
         reg
     }
@@ -1479,7 +1480,27 @@ impl_read_op!(Resize, |attrs: &Attrs| {
     })
 });
 
-impl_read_op!("com.microsoft", RotaryEmbedding, |attrs: &Attrs| {
+impl_read_op!(
+    "com.microsoft",
+    RotaryEmbeddingMicrosoft,
+    |attrs: &Attrs| {
+        let interleaved = attrs
+            .get_as_int::<isize>("interleaved")?
+            .unwrap_or_default();
+        let num_heads = attrs.get_as_int::<usize>("num_heads")?;
+        let rotary_embedding_dim = attrs
+            .get_as_int::<usize>("rotary_embedding_dim")?
+            .unwrap_or_default();
+
+        Ok(ops::RotaryEmbeddingMicrosoft {
+            interleaved,
+            num_heads,
+            rotary_embedding_dim,
+        })
+    }
+);
+
+impl_read_op!(RotaryEmbedding, |attrs: &Attrs| {
     let interleaved = attrs
         .get_as_int::<isize>("interleaved")?
         .unwrap_or_default();
@@ -1492,7 +1513,6 @@ impl_read_op!("com.microsoft", RotaryEmbedding, |attrs: &Attrs| {
         interleaved,
         num_heads,
         rotary_embedding_dim,
-        version: ops::RotaryEmbeddingImpl::Microsoft,
     })
 });
 

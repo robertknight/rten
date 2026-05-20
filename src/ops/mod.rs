@@ -80,7 +80,7 @@ pub(crate) use {
     conv_transpose::ConvTranspose,
     convert::{Cast, CastLike},
     einsum::Einsum,
-    embedding::{RotaryEmbedding, RotaryEmbeddingImpl},
+    embedding::{RotaryEmbedding, RotaryEmbeddingMicrosoft},
     gather::{Gather, GatherElements, GatherND, ScatterElements, ScatterND, ScatterReduction},
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
     grid_sample::GridSample,
