@@ -1492,6 +1492,7 @@ impl_read_op!("com.microsoft", RotaryEmbedding, |attrs: &Attrs| {
         interleaved,
         num_heads,
         rotary_embedding_dim,
+        version: ops::RotaryEmbeddingImpl::Microsoft,
     })
 });
 

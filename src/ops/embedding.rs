@@ -12,11 +12,18 @@ use crate::{
     },
 };
 
+#[derive(Copy, Clone, Debug)]
+pub enum RotaryEmbeddingImpl {
+    Standard,
+    Microsoft,
+}
+
 #[derive(Debug)]
 pub struct RotaryEmbedding {
     pub interleaved: isize,
     pub num_heads: Option<usize>,
     pub rotary_embedding_dim: usize,
+    pub version: RotaryEmbeddingImpl,
 }
 
 impl Operator for RotaryEmbedding {
@@ -35,10 +42,32 @@ impl Operator for RotaryEmbedding {
         }
 
         let input: TensorView<f32> = inputs.require_as(0)?;
-        let cos: TensorView<f32> = inputs.require_as(1)?;
-        let sin: TensorView<f32> = inputs.require_as(2)?;
-        // TODO batching doesn't work on position_ids.
-        let position_ids: Option<NdTensorView<i32, 2>> = inputs.get_as(3)?;
+        let (cos, sin, position_ids) = match self.version {
+            RotaryEmbeddingImpl::Standard => {
+                let cos: TensorView<f32> = inputs.require_as(1)?;
+                let sin: TensorView<f32> = inputs.require_as(2)?;
+                let position_ids: Option<TensorView<i32>> = inputs.get_as(3)?;
+                if let Some(pos) = &position_ids {
+                    if pos.ndim() != 2 {
+                        return Err(OpError::InvalidValue(
+                            "position_ids must be a 2 dimensioned input",
+                        ));
+                    }
+                }
+                (cos, sin, position_ids)
+            }
+            RotaryEmbeddingImpl::Microsoft => {
+                let position_ids: TensorView<i32> = inputs.require_as(1)?;
+                let cos: TensorView<f32> = inputs.require_as(2)?;
+                let sin: TensorView<f32> = inputs.require_as(3)?;
+                let position_ids = if position_ids.ndim() == 1 {
+                    position_ids.with_new_axis(0)
+                } else {
+                    position_ids
+                };
+                (cos, sin, Some(position_ids))
+            }
+        };
 
         let reshaped_input = match input.shape() {
             &[batch, seq_len, hidden_size] => {
@@ -261,6 +290,7 @@ mod tests {
             interleaved: 1,
             num_heads: Some(2),
             rotary_embedding_dim: 0,
+            version: RotaryEmbeddingImpl::Standard,
         };
         let input_data = Tensor::from_vec(vec![
             // Head 0: sequence 0, 1, 2
@@ -313,6 +343,7 @@ mod tests {
             interleaved: 0,
             num_heads: Some(3),
             rotary_embedding_dim: 0,
+            version: RotaryEmbeddingImpl::Standard,
         };
         let input_data = Tensor::from_vec(vec![
             -1.0408, 0.9166, -1.3042, -1.1097, -1.2188, 1.1676, 1.0076, -0.7529, -0.2250, -0.4327,
@@ -357,6 +388,7 @@ mod tests {
             interleaved: 0,
             num_heads: Some(1),
             rotary_embedding_dim: 4,
+            version: RotaryEmbeddingImpl::Standard,
         };
         let input_data = Tensor::from_vec(vec![
             -1.0408, 0.9166, -1.3042, -1.1097, -1.2188, 1.1676, 1.0076, -0.7529, -0.2250, -0.4327,
@@ -391,6 +423,7 @@ mod tests {
             interleaved: 0,
             num_heads: Some(3),
             rotary_embedding_dim: 0,
+            version: RotaryEmbeddingImpl::Standard,
         };
         let input_data = Tensor::from_vec(vec![
             -1.0408, 0.9166, -1.3042, -1.1097, -1.2188, 1.1676, 1.0076, -0.7529, -0.2250, -0.4327,
@@ -427,6 +460,7 @@ mod tests {
             interleaved: 1,
             num_heads: Some(2),
             rotary_embedding_dim: 0,
+            version: RotaryEmbeddingImpl::Standard,
         };
         let input_data = Tensor::from_vec(vec![
             -1.0408, 0.9166, -1.3042, -1.1097, -0.1320, -0.2751, -0.2350, 0.0937, -1.2188, 1.1676,
@@ -498,6 +532,7 @@ mod tests {
             interleaved: 0,
             num_heads: Some(2),
             rotary_embedding_dim: 0,
+            version: RotaryEmbeddingImpl::Standard,
         };
 
         let input_data = Tensor::from([[0., 0., 0., 0., 0.]]).with_new_axis(0);
