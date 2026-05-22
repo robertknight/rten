@@ -936,7 +936,18 @@ fn add_operator(
         ));
     }
 
-    graph.add_op(onnx_op.name.as_deref(), op, &inputs, &outputs);
+    let mut name = onnx_op.name.as_deref();
+
+    // It is possible for ONNX operators to have a name that conflicts with a
+    // value. We assume here that values have already been added to the graph,
+    // and if there is a conflict, we make the graph operator anonymous.
+    //
+    // See https://github.com/robertknight/rten/issues/1220.
+    if name.and_then(|n| graph.get_node_id(n)).is_some() {
+        name = None;
+    }
+
+    graph.add_op(name, op, &inputs, &outputs);
 
     Ok(())
 }
@@ -953,7 +964,7 @@ mod tests {
     use crate::model::onnx_builder::{
         GraphProtoExt, NodeProtoExt, TensorData, create_node, create_tensor, create_value_info,
     };
-    use crate::model::{LoadError, Model, ModelOptions};
+    use crate::model::{LoadError, Model, ModelOptions, Node};
 
     /// Load a model from a parsed `ModelProto` message.
     fn load_model(
@@ -1341,5 +1352,27 @@ mod tests {
                 Dimension::Symbolic("unnamed_1".to_string()),
             ]
         );
+    }
+
+    // See https://github.com/robertknight/rten/issues/1220.
+    #[test]
+    fn test_op_value_name_conflict() {
+        // Create graph where an operator has the same name as a value.
+        let node = create_node("Clip")
+            .with_name("clip_op")
+            .with_input("clip_op");
+        let model_proto = onnx::GraphProto::default().with_node(node).into_model();
+
+        let model = load_model(model_proto, None).unwrap();
+
+        // In the loaded model, the name should refer to the value. The operator
+        // name is currently discarded if there is a conflict.
+        let node = model
+            .graph()
+            .get_node_id("clip_op")
+            .and_then(|id| model.graph().get_node(id))
+            .unwrap();
+
+        assert!(matches!(node, Node::Value(_)));
     }
 }
