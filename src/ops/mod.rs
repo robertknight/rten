@@ -27,6 +27,7 @@ mod conv;
 mod conv_transpose;
 mod convert;
 mod einsum;
+mod embedding;
 mod gather;
 mod generate;
 mod grid_sample;
@@ -79,6 +80,7 @@ pub(crate) use {
     conv_transpose::ConvTranspose,
     convert::{Cast, CastLike},
     einsum::Einsum,
+    embedding::{RotaryEmbedding, RotaryEmbeddingMicrosoft},
     gather::{Gather, GatherElements, GatherND, ScatterElements, ScatterND, ScatterReduction},
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
     grid_sample::GridSample,
