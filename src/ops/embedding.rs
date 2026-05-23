@@ -118,13 +118,14 @@ fn rotary_embedding(
     }
     .auto_return(pool);
 
-    let output = concat(pool, &[x_rotate.view(), x_not_rotate.as_dyn()], -1)?;
+    let mut output = concat(pool, &[x_rotate.view(), x_not_rotate.as_dyn()], -1)?;
 
-    let output = if input.ndim() == 3 {
-        output.into_shape(input.shape())
+    if input.ndim() == 3 {
+        output.reshape(input.shape());
     } else {
-        output.permuted(&[0, 2, 1, 3]).to_tensor_in(pool)
+        output.permute(&[0, 2, 1, 3])
     };
+
     Ok(output)
 }
 
