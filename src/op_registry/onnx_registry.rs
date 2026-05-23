@@ -1484,9 +1484,7 @@ impl_read_op!(
     "com.microsoft",
     RotaryEmbeddingMicrosoft,
     |attrs: &Attrs| {
-        let interleaved = attrs
-            .get_as_int::<isize>("interleaved")?
-            .unwrap_or_default();
+        let interleaved = attrs.get_as("interleaved").unwrap_or_default();
         let num_heads = attrs.get_as_int::<usize>("num_heads")?;
         let rotary_embedding_dim = attrs
             .get_as_int::<usize>("rotary_embedding_dim")?
@@ -1501,9 +1499,7 @@ impl_read_op!(
 );
 
 impl_read_op!(RotaryEmbedding, |attrs: &Attrs| {
-    let interleaved = attrs
-        .get_as_int::<isize>("interleaved")?
-        .unwrap_or_default();
+    let interleaved = attrs.get_as("interleaved").unwrap_or_default();
     let num_heads = attrs.get_as_int::<usize>("num_heads")?;
     let rotary_embedding_dim = attrs
         .get_as_int::<usize>("rotary_embedding_dim")?

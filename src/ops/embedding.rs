@@ -1,10 +1,10 @@
-use rten_tensor::{AsView, Layout, Tensor, TensorView};
+use rten_tensor::{AsView, Layout, NdTensorView, Tensor, TensorView};
 
 use crate::{
     buffer_pool::{AutoReturn, BufferPool},
     operator::{
-        InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
-        OutputTypeList, OutputTypesContext,
+        IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+        OutputTypesContext,
     },
     ops::{
         binary_elementwise::{add, mul, sub},
@@ -12,65 +12,16 @@ use crate::{
     },
 };
 
-enum RotaryEmbeddingImpl {
-    Standard,
-    Microsoft,
-}
-
-#[derive(Debug)]
-pub struct RotaryEmbedding {
-    pub interleaved: isize,
-    pub num_heads: Option<usize>,
-    pub rotary_embedding_dim: usize,
-}
-
-#[derive(Debug)]
-pub struct RotaryEmbeddingMicrosoft {
-    pub interleaved: isize,
-    pub num_heads: Option<usize>,
-    pub rotary_embedding_dim: usize,
-}
-
 fn rotary_embedding(
     pool: &BufferPool,
-    inputs: &InputList,
-    version: RotaryEmbeddingImpl,
+    input: TensorView<f32>,
+    cos: TensorView<f32>,
+    sin: TensorView<f32>,
+    position_ids: Option<NdTensorView<i32, 2>>,
     interleaved: bool,
     num_heads: Option<usize>,
     rotary_embedding_dim: usize,
 ) -> Result<Tensor, OpError> {
-    if inputs.len() < 3 || inputs.len() > 4 {
-        return Err(OpError::MissingInputs);
-    }
-
-    let input: TensorView<f32> = inputs.require_as(0)?;
-    let (cos, sin, position_ids) = match version {
-        RotaryEmbeddingImpl::Standard => {
-            let cos: TensorView<f32> = inputs.require_as(1)?;
-            let sin: TensorView<f32> = inputs.require_as(2)?;
-            let position_ids: Option<TensorView<i32>> = inputs.get_as(3)?;
-            if let Some(pos) = &position_ids {
-                if pos.ndim() != 2 {
-                    return Err(OpError::InvalidValue(
-                        "position_ids must be a 2 dimensioned input",
-                    ));
-                }
-            }
-            (cos, sin, position_ids)
-        }
-        RotaryEmbeddingImpl::Microsoft => {
-            let position_ids: TensorView<i32> = inputs.require_as(1)?;
-            let cos: TensorView<f32> = inputs.require_as(2)?;
-            let sin: TensorView<f32> = inputs.require_as(3)?;
-            let position_ids = if position_ids.ndim() == 1 {
-                position_ids.with_new_axis(0)
-            } else {
-                position_ids
-            };
-            (cos, sin, Some(position_ids))
-        }
-    };
-
     let reshaped_input = match input.shape() {
         &[batch, seq_len, hidden_size] => {
             let num_heads = num_heads.unwrap_or(0);
@@ -123,13 +74,13 @@ fn rotary_embedding(
         (cos.as_cow(), sin.as_cow())
     };
 
-    if cos_cache.shape()[cos_cache.ndim() - 1] != rotary_embedding_dim_half {
+    if cos_cache.shape().last() != Some(&rotary_embedding_dim_half) {
         return Err(OpError::InvalidValue(
             "Last dimension of cos cache does not match rotary_embedding_dim/2",
         ));
     }
 
-    if sin_cache.shape()[cos_cache.ndim() - 1] != rotary_embedding_dim_half {
+    if sin_cache.shape().last() != Some(&rotary_embedding_dim_half) {
         return Err(OpError::InvalidValue(
             "Last dimension of sin cache does not match rotary_embedding_dim/2",
         ));
@@ -201,6 +152,13 @@ fn rotary_embedding(
     Ok(output)
 }
 
+#[derive(Debug)]
+pub struct RotaryEmbedding {
+    pub interleaved: bool,
+    pub num_heads: Option<usize>,
+    pub rotary_embedding_dim: usize,
+}
+
 impl Operator for RotaryEmbedding {
     fn name(&self) -> &str {
         "RotaryEmbedding"
@@ -211,20 +169,23 @@ impl Operator for RotaryEmbedding {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        let cos = ctx.inputs().require_as(1)?;
+        let sin = ctx.inputs().require_as(2)?;
+        let position_ids = ctx.inputs().get_as(3)?;
+
         let output = rotary_embedding(
             ctx.pool(),
-            ctx.inputs(),
-            RotaryEmbeddingImpl::Standard,
-            self.interleaved != 0,
+            input,
+            cos,
+            sin,
+            position_ids,
+            self.interleaved,
             self.num_heads,
             self.rotary_embedding_dim,
         )?;
 
         output.into_op_result()
-    }
-
-    fn is_commutative(&self) -> bool {
-        false
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -232,9 +193,16 @@ impl Operator for RotaryEmbedding {
     }
 }
 
+#[derive(Debug)]
+pub struct RotaryEmbeddingMicrosoft {
+    pub interleaved: bool,
+    pub num_heads: Option<usize>,
+    pub rotary_embedding_dim: usize,
+}
+
 impl Operator for RotaryEmbeddingMicrosoft {
     fn name(&self) -> &str {
-        "RotaryEmbedding"
+        "com.microsoft.RotaryEmbedding"
     }
 
     fn max_inputs(&self) -> Option<usize> {
@@ -242,20 +210,32 @@ impl Operator for RotaryEmbeddingMicrosoft {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+
+        let input = inputs.require_as(0)?;
+        let position_ids: TensorView<i32> = inputs.require_as(1)?;
+        let position_ids = match position_ids.ndim() {
+            1 => position_ids.with_new_axis(0).nd_view(),
+            2 => position_ids.nd_view(),
+            _ => {
+                return Err(OpError::InvalidValue("position_ids must have 1 or 2 dims"));
+            }
+        };
+        let cos = inputs.require_as(2)?;
+        let sin = inputs.require_as(3)?;
+
         let output = rotary_embedding(
             ctx.pool(),
-            ctx.inputs(),
-            RotaryEmbeddingImpl::Microsoft,
-            self.interleaved != 0,
+            input,
+            cos,
+            sin,
+            Some(position_ids),
+            self.interleaved,
             self.num_heads,
             self.rotary_embedding_dim,
         )?;
 
         output.into_op_result()
-    }
-
-    fn is_commutative(&self) -> bool {
-        false
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -273,7 +253,6 @@ mod tests {
 
     #[derive(Debug)]
     struct Case {
-        name: &'static str,
         input_is_4d: bool,
         input_data: Tensor<f32>,
         position_ids: Option<Tensor<i32>>,
@@ -292,9 +271,6 @@ mod tests {
         // in as 1D and using this method to apply the correct shaping based on the 3-D and 4-D
         // input cases.
         fn shape_inputs(&mut self) {
-            // Quick sanity check on the input data.
-            assert!(self.op.interleaved == 0 || self.op.interleaved == 1);
-
             if let Some(pids) = self.position_ids.as_mut() {
                 pids.reshape(&[self.batch_size, self.sequence_length]);
             }
@@ -337,10 +313,10 @@ mod tests {
     // Test rotary embedding using a ported version of the test case from
     // https://github.com/microsoft/onnxruntime/blob/e3c34da40639669f3dbb7ae95db0662afbec8cc9/onnxruntime/test/providers/cpu/llm/rotary_embedding_op_test.cc#L509
     #[test]
-    fn rotary_embedding_test() {
+    fn test_rotary_embedding() {
         let mut cases = vec![];
         let op = RotaryEmbedding {
-            interleaved: 1,
+            interleaved: true,
             num_heads: Some(2),
             rotary_embedding_dim: 0,
         };
@@ -377,7 +353,6 @@ mod tests {
         ]);
         // Case name: RotaryEmbedding_Interleaved_SmallData_LlamaMSFT_4D_Input
         cases.push(Case {
-            name: "RotaryEmbedding_Interleaved_SmallData_LlamaMSFT_4D_Input",
             input_is_4d: true,
             input_data,
             position_ids: Some(position_ids),
@@ -392,7 +367,7 @@ mod tests {
         });
 
         let op = RotaryEmbedding {
-            interleaved: 0,
+            interleaved: false,
             num_heads: Some(3),
             rotary_embedding_dim: 0,
         };
@@ -421,7 +396,6 @@ mod tests {
         ]);
         // Case name RotaryEmbedding_NotInterleaved_SmallData_LlamaMSFT
         cases.push(Case {
-            name: "RotaryEmbedding_NotInterleaved_SmallData_LlamaMSFT",
             input_is_4d: false,
             input_data,
             position_ids: Some(position_ids),
@@ -436,7 +410,7 @@ mod tests {
         });
 
         let op = RotaryEmbedding {
-            interleaved: 0,
+            interleaved: false,
             num_heads: Some(1),
             rotary_embedding_dim: 4,
         };
@@ -455,7 +429,6 @@ mod tests {
         ]);
         // Case name: RotaryEmbedding_CustomRotaryDim_SmallData_Phi
         cases.push(Case {
-            name: "RotaryEmbedding_CustomRotaryDim_SmallData_Phi",
             input_is_4d: false,
             input_data,
             position_ids: Some(position_ids),
@@ -470,7 +443,7 @@ mod tests {
         });
 
         let op = RotaryEmbedding {
-            interleaved: 0,
+            interleaved: false,
             num_heads: Some(3),
             rotary_embedding_dim: 0,
         };
@@ -491,7 +464,6 @@ mod tests {
         ]);
         // Case name: RotaryEmbedding_NotInterleaved_NoPosIds_SmallData_LlamaMSFT
         cases.push(Case {
-            name: "RotaryEmbedding_NotInterleaved_NoPosIds_SmallData_LlamaMSFT",
             input_is_4d: false,
             input_data,
             position_ids: None,
@@ -506,7 +478,7 @@ mod tests {
         });
 
         let op = RotaryEmbedding {
-            interleaved: 1,
+            interleaved: true,
             num_heads: Some(2),
             rotary_embedding_dim: 0,
         };
@@ -525,7 +497,6 @@ mod tests {
         ]);
         // Case name: RotaryEmbedding_Interleaved_NoPosIds_SmallData_LlamaMSFT
         cases.push(Case {
-            name: "RotaryEmbedding_Interleaved_NoPosIds_SmallData_LlamaMSFT",
             input_is_4d: false,
             input_data,
             position_ids: None,
@@ -577,7 +548,7 @@ mod tests {
     #[test]
     fn reject_indivisible_hidden_size() {
         let op = RotaryEmbedding {
-            interleaved: 0,
+            interleaved: false,
             num_heads: Some(2),
             rotary_embedding_dim: 0,
         };
