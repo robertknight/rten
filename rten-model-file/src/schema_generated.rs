@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 129;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 134;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 130] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 135] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -148,6 +148,11 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 130] = [
     OperatorType::STFT,
     OperatorType::GlobalMaxPool,
     OperatorType::ReduceL1,
+    OperatorType::Acosh,
+    OperatorType::Asinh,
+    OperatorType::Atanh,
+    OperatorType::Cosh,
+    OperatorType::Sinh,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -285,9 +290,14 @@ impl OperatorType {
     pub const STFT: Self = Self(127);
     pub const GlobalMaxPool: Self = Self(128);
     pub const ReduceL1: Self = Self(129);
+    pub const Acosh: Self = Self(130);
+    pub const Asinh: Self = Self(131);
+    pub const Atanh: Self = Self(132);
+    pub const Cosh: Self = Self(133);
+    pub const Sinh: Self = Self(134);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 129;
+    pub const ENUM_MAX: u8 = 134;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -419,6 +429,11 @@ impl OperatorType {
         Self::STFT,
         Self::GlobalMaxPool,
         Self::ReduceL1,
+        Self::Acosh,
+        Self::Asinh,
+        Self::Atanh,
+        Self::Cosh,
+        Self::Sinh,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -553,6 +568,11 @@ impl OperatorType {
             Self::STFT => Some("STFT"),
             Self::GlobalMaxPool => Some("GlobalMaxPool"),
             Self::ReduceL1 => Some("ReduceL1"),
+            Self::Acosh => Some("Acosh"),
+            Self::Asinh => Some("Asinh"),
+            Self::Atanh => Some("Atanh"),
+            Self::Cosh => Some("Cosh"),
+            Self::Sinh => Some("Sinh"),
             _ => None,
         }
     }

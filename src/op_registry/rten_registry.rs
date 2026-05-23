@@ -95,12 +95,15 @@ impl RtenOpRegistry {
 
         register_op!(Abs);
         register_op!(Acos);
+        register_op!(Acosh);
         register_op!(Add);
         register_op!(And);
         register_op!(ArgMax);
         register_op!(ArgMin);
         register_op!(Asin);
+        register_op!(Asinh);
         register_op!(Atan);
+        register_op!(Atanh);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
         register_op!(Cast);
@@ -114,6 +117,7 @@ impl RtenOpRegistry {
         register_op!(ConstantOfShape);
         register_op!(ConvTranspose);
         register_op!(Cos);
+        register_op!(Cosh);
         register_op!(CumSum);
         register_op!(DequantizeLinear);
         register_op!(DepthToSpace);
@@ -203,6 +207,7 @@ impl RtenOpRegistry {
         register_op!(Sigmoid);
         register_op!(Sign);
         register_op!(Sin);
+        register_op!(Sinh);
         register_op!(Size);
         register_op!(Slice);
         register_op!(Softmax);
@@ -400,12 +405,15 @@ macro_rules! impl_read_op {
 
 impl_read_op!(Abs);
 impl_read_op!(Acos);
+impl_read_op!(Acosh);
 impl_read_op!(Add);
 impl_read_op!(And);
 impl_read_op!(ArgMax, attrs_as_arg_max_attrs, reduce_axis);
 impl_read_op!(ArgMin, attrs_as_arg_max_attrs, reduce_axis);
 impl_read_op!(Asin);
+impl_read_op!(Asinh);
 impl_read_op!(Atan);
+impl_read_op!(Atanh);
 impl_read_op!(
     AveragePool,
     attrs_as_average_pool_attrs,
@@ -511,6 +519,7 @@ impl_read_op!(
     }
 );
 impl_read_op!(Cos);
+impl_read_op!(Cosh);
 impl_read_op!(CumSum);
 impl_read_op!(DequantizeLinear, attrs_as_dequantize_linear_attrs, axis);
 impl_read_op!(
@@ -985,6 +994,7 @@ impl ReadOp for ops::Shape {
 impl_read_op!(Sigmoid);
 impl_read_op!(Sign);
 impl_read_op!(Sin);
+impl_read_op!(Sinh);
 impl_read_op!(Size);
 impl_read_op!(Slice);
 impl_read_op!(

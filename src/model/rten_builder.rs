@@ -32,12 +32,15 @@ pub struct IfArgs<'a> {
 pub enum OpType<'a> {
     Abs,
     Acos,
+    Acosh,
     Add,
     And,
     ArgMax(ArgMax),
     ArgMin(ArgMin),
     Asin,
+    Asinh,
     Atan,
+    Atanh,
     AveragePool(AveragePool),
     BatchNormalization(BatchNormalization),
     Cast(Cast),
@@ -50,6 +53,7 @@ pub enum OpType<'a> {
     ConvInteger(ConvInteger),
     ConvTranspose(ConvTranspose),
     Cos,
+    Cosh,
     DequantizeLinear(DequantizeLinear),
     DepthToSpace(DepthToSpace),
     Div,
@@ -142,6 +146,7 @@ pub enum OpType<'a> {
     Sigmoid,
     Sign,
     Sin,
+    Sinh,
     Size,
     Slice,
     Softmax(Softmax),
@@ -427,6 +432,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
         let (op_type, attrs_type, attrs) = match op_info {
             OpType::Abs => op!(Abs),
             OpType::Acos => op!(Acos),
+            OpType::Acosh => op!(Acosh),
             OpType::Add => op!(Add),
             OpType::And => op!(And),
             OpType::ArgMax(args) => op_with_attrs!(ArgMax, ArgMaxAttrs, {
@@ -442,7 +448,9 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 }
             }),
             OpType::Asin => op!(Asin),
+            OpType::Asinh => op!(Asinh),
             OpType::Atan => op!(Atan),
+            OpType::Atanh => op!(Atanh),
             OpType::AveragePool(args) => op_with_attrs!(AveragePool, AveragePoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
@@ -551,6 +559,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 }
             }),
             OpType::Cos => op!(Cos),
+            OpType::Cosh => op!(Cosh),
             OpType::DequantizeLinear(args) => op_with_attrs!(
                 DequantizeLinear,
                 DequantizeLinearAttrs,
@@ -906,6 +915,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
             OpType::Sigmoid => op!(Sigmoid),
             OpType::Slice => op!(Slice),
             OpType::Sin => op!(Sin),
+            OpType::Sinh => op!(Sinh),
             OpType::Sign => op!(Sign),
             OpType::Size => op!(Size),
             OpType::Softmax(args) => op_with_attrs!(
