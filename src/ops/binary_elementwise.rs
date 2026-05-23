@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 use std::fmt::Debug;
-use std::iter::repeat;
+use std::iter::repeat_n;
 use std::mem::MaybeUninit;
 
 use rten_base::num::{AsBool, Identities, IsInt};
@@ -33,8 +33,8 @@ pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<SmallVec<[usize; 4]>
     let a_pad = b.len().saturating_sub(a.len());
     let b_pad = a.len().saturating_sub(b.len());
 
-    let a_iter = a.iter().copied().rev().chain(repeat(1).take(a_pad));
-    let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
+    let a_iter = a.iter().copied().rev().chain(repeat_n(1, a_pad));
+    let b_iter = b.iter().copied().rev().chain(repeat_n(1, b_pad));
 
     let mut result = SmallVec::with_capacity(a.len().max(b.len()));
     for (a, b) in a_iter.zip(b_iter) {

@@ -1,6 +1,6 @@
 //! Layouts which describe the shape and strides of a tensor.
 
-use std::iter::repeat;
+use std::iter::repeat_n;
 use std::ops::Range;
 
 use smallvec::{SmallVec, smallvec};
@@ -199,8 +199,8 @@ pub trait Layout {
         let a_pad = b.len().saturating_sub(a.len());
         let b_pad = a.len().saturating_sub(b.len());
 
-        let a_iter = a.iter().copied().rev().chain(repeat(1).take(a_pad));
-        let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
+        let a_iter = a.iter().copied().rev().chain(repeat_n(1, a_pad));
+        let b_iter = b.iter().copied().rev().chain(repeat_n(1, b_pad));
 
         a_iter.zip(b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
     }
@@ -468,17 +468,15 @@ fn broadcast_strides<'a>(
     to_shape: &'a [usize],
 ) -> impl Iterator<Item = usize> + 'a {
     let pad = to_shape.len() - from_shape.len();
-    repeat(0)
-        .take(pad)
-        .chain(from_shape.iter().zip(from_strides.iter()).enumerate().map(
-            move |(i, (size, stride))| {
-                if *size == 1 && to_shape[i + pad] > 1 {
-                    0
-                } else {
-                    *stride
-                }
-            },
-        ))
+    repeat_n(0, pad).chain(from_shape.iter().zip(from_strides.iter()).enumerate().map(
+        move |(i, (size, stride))| {
+            if *size == 1 && to_shape[i + pad] > 1 {
+                0
+            } else {
+                *stride
+            }
+        },
+    ))
 }
 
 impl<const N: usize> NdLayout<N> {

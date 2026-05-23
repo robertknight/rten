@@ -26,5 +26,4 @@ unicode-normalization = "0.1.22"
 rten-testing = { path = "../rten-testing" }
 
 [lints.clippy]
-manual_repeat_n = "allow"  # TODO - Address existing failures
 uninlined_format_args = "allow"

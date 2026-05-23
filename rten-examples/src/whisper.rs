@@ -156,7 +156,7 @@ fn log_mel_spectrogram(
             audio
                 .iter()
                 .copied()
-                .chain(std::iter::repeat(0.).take(n_pad))
+                .chain(std::iter::repeat_n(0., n_pad))
                 .collect(),
         ),
     };
