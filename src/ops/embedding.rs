@@ -222,7 +222,10 @@ impl Operator for RotaryEmbeddingMicrosoft {
 
 #[cfg(test)]
 mod tests {
-    use crate::{BufferPool, operator::InputList};
+    use crate::{
+        BufferPool,
+        operator::{InputList, OperatorExt},
+    };
 
     use super::*;
     use rten_tensor::{Tensor, test_util::expect_equal_with_tolerance};
@@ -542,5 +545,41 @@ mod tests {
         let ctx = OpRunContext::new(&pool, &input_list);
 
         assert!(op.run(&ctx).is_err());
+    }
+
+    // Exercises the Microsoft variant's distinctive paths: input ordering
+    // (input, position_ids, cos, sin) and 1D → 2D position_ids reshape. Input
+    // data ported from the `RotaryEmbedding_CustomRotaryDim_SmallData_Phi`
+    // case above.
+    #[test]
+    fn test_rotary_embedding_microsoft() {
+        let op = RotaryEmbeddingMicrosoft {
+            interleaved: false,
+            num_heads: Some(1),
+            rotary_embedding_dim: 4,
+        };
+
+        let input = Tensor::from([[
+            [-1.0408, 0.9166, -1.3042, -1.1097, -1.2188, 1.1676],
+            [1.0076, -0.7529, -0.2250, -0.4327, -1.5071, -0.4586],
+        ]]);
+        let position_ids = Tensor::from([0i32, 1]);
+        let cos_cache = Tensor::from([[1.0000, 1.0000], [1.0000, 0.5403]]);
+        let sin_cache = Tensor::from([[0.0000, 0.0000], [0.0000, 0.8415]]);
+        let expected = Tensor::from([[
+            [-1.0408, 0.9166, -1.3042, -1.1097, -1.2188, 1.1676],
+            [1.0076, -0.0427, -0.2250, -0.8673, -1.5071, -0.4586],
+        ]]);
+
+        let result: Tensor<f32> = op
+            .run_simple((
+                input.view(),
+                position_ids.view(),
+                cos_cache.view(),
+                sin_cache.view(),
+            ))
+            .unwrap();
+
+        expect_equal_with_tolerance(&expected.view(), &result.view(), 1e-4, 0.0).unwrap();
     }
 }
