@@ -220,6 +220,7 @@ impl OnnxOpRegistry {
         register_op!(STFT, feature = "fft");
         register_op!(Sub);
         register_op!(Sum);
+        register_op!(Swish);
         register_op!(Tan);
         register_op!(Tanh);
         register_op!(Tile);
@@ -1631,6 +1632,12 @@ impl_read_op!(STFT, |attrs: &Attrs| {
 
 impl_read_op!(Sub);
 impl_read_op!(Sum);
+
+impl_read_op!(Swish, |attrs: &Attrs| {
+    let alpha = attrs.get_as("alpha").unwrap_or(1.0);
+    Ok(ops::Swish { alpha })
+});
+
 impl_read_op!(Tan);
 impl_read_op!(Tanh);
 impl_read_op!(Tile);
