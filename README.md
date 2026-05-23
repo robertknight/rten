@@ -82,10 +82,6 @@ python -m tools.export-timm-model timm/resnet50.a1_in1k
 cargo run -p rten-examples --release --bin imagenet resnet50.a1_in1k.onnx image.png
 ```
 
-**Model format note:** Support for running `.onnx` models directly is new in
-RTen v0.23. To run models with earlier versions you need to convert them to the
-`.rten` format first using [rten-convert](https://pypi.org/project/rten-convert/).
-
 ## Usage in JavaScript
 
 To use this library in a JavaScript application, there are two approaches:
