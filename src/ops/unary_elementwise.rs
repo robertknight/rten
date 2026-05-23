@@ -657,18 +657,18 @@ impl_get_kernel!(Silu, f32, SimdKernel(vecmath::Silu {}));
 
 /// Swish function (<https://en.wikipedia.org/wiki/Swish_function>).
 ///
-/// This computes `x * sigmoid(beta * x)`. The special case where beta = 1 is
+/// This computes `x * sigmoid(alpha * x)`. The special case where alpha = 1 is
 /// known as [`Silu`].
 #[derive(Debug)]
 pub struct Swish {
-    pub beta: f32,
+    pub alpha: f32,
 }
 
 impl_operator!(Swish, [FloatTensor]);
 
 impl GetKernel<f32> for Swish {
     fn get_kernel(&self) -> impl UnaryKernel<f32> + Send + Sync {
-        SimdKernel(vecmath::Swish { beta: self.beta })
+        SimdKernel(vecmath::Swish { alpha: self.alpha })
     }
 }
 
@@ -1156,7 +1156,7 @@ mod tests {
         |x: &f32| x.sqrt(),
         Tensor::from([4., 9., 16.])
     );
-    test_unary_op!(test_swish, Swish { beta: 0.5 }, |x: &f32| x
+    test_unary_op!(test_swish, Swish { alpha: 0.5 }, |x: &f32| x
         * reference_sigmoid(0.5 * *x));
     test_unary_op!(test_tan, Tan {}, |x: &f32| x.tan());
     test_unary_op!(test_tanh, Tanh {}, |x: &f32| x.tanh());

@@ -586,8 +586,8 @@ impl PatternFusion for SwishFusion {
 
     fn pattern(&self) -> Pattern {
         let x = Pattern::symbol("x");
-        let beta = Pattern::const_symbol("beta");
-        x.clone() * Pattern::unary_op("Sigmoid", beta * x.clone())
+        let alpha = Pattern::const_symbol("alpha");
+        x.clone() * Pattern::unary_op("Sigmoid", alpha * x.clone())
     }
 
     fn inputs(&self) -> &[&str] {
@@ -595,11 +595,11 @@ impl PatternFusion for SwishFusion {
     }
 
     fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Swish, FusionError> {
-        let beta_input = pat_match.node_id("beta").expect("missing symbol");
-        let beta = g
-            .get_scalar(beta_input)
-            .ok_or(FusionError::CheckFailed("beta not a scalar"))?;
-        Ok(Swish { beta })
+        let alpha_input = pat_match.node_id("alpha").expect("missing symbol");
+        let alpha = g
+            .get_scalar(alpha_input)
+            .ok_or(FusionError::CheckFailed("alpha not a scalar"))?;
+        Ok(Swish { alpha })
     }
 }
 

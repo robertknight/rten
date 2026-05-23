@@ -229,9 +229,9 @@ impl SimdUnaryOp<f32> for Silu {
 
 /// Vectorized Swish function.
 ///
-/// This computes `x * sigmoid(beta * x)` for each element.
+/// This computes `x * sigmoid(alpha * x)` for each element.
 pub struct Swish {
-    pub beta: f32,
+    pub alpha: f32,
 }
 
 impl SimdUnaryOp<f32> for Swish {
@@ -239,8 +239,8 @@ impl SimdUnaryOp<f32> for Swish {
     fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
         let ops = isa.f32();
 
-        let beta = ops.splat(self.beta);
-        ops.mul(x, Sigmoid::apply(isa, ops.mul(x, beta)))
+        let alpha = ops.splat(self.alpha);
+        ops.mul(x, Sigmoid::apply(isa, ops.mul(x, alpha)))
     }
 }
 
@@ -298,8 +298,8 @@ mod tests {
         x * reference_sigmoid(x)
     }
 
-    fn reference_swish(x: f32, beta: f32) -> f32 {
-        x * reference_sigmoid(beta * x)
+    fn reference_swish(x: f32, alpha: f32) -> f32 {
+        x * reference_sigmoid(alpha * x)
     }
 
     #[test]
@@ -406,10 +406,10 @@ mod tests {
 
     #[test]
     fn test_swish() {
-        let beta = 1.7;
+        let alpha = 1.7;
         let test = UnaryOpTester {
-            reference: |x| reference_swish(x, beta),
-            simd: Swish { beta },
+            reference: |x| reference_swish(x, alpha),
+            simd: Swish { alpha },
             range: arange(-6., 6., 0.001),
             tolerance: Tolerance::Ulp(MAX_SIGMOID_ERROR_ULPS),
         };

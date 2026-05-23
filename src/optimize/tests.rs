@@ -341,8 +341,8 @@ fn test_fuse_silu() {
 fn test_fuse_swish() {
     let graph = {
         let x = Expr::value("x");
-        let beta = 1.7;
-        let expr = x.clone() * (x.clone() * beta).sigmoid();
+        let alpha = 1.7;
+        let expr = x.clone() * (x.clone() * alpha).sigmoid();
         expr.build_graph(["x"])
     };
 
@@ -350,7 +350,7 @@ fn test_fuse_swish() {
 
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
     let swish_op = op.operator().downcast_ref::<Swish>().unwrap();
-    assert_eq!(swish_op.beta, 1.7);
+    assert_eq!(swish_op.alpha, 1.7);
 }
 
 #[test]
