@@ -1138,7 +1138,7 @@ impl TensorDataBuilder {
         // of matrices start on a cache line boundary.
         let align = std::mem::align_of::<T>();
         let padding = offset.next_multiple_of(align) - offset;
-        self.data.extend(std::iter::repeat(0).take(padding));
+        self.data.extend(std::iter::repeat_n(0, padding));
 
         let start_offset = self.data.len();
 

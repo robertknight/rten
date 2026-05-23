@@ -48,12 +48,14 @@ pub fn build_im2col<T>(
     let mut row_x_offsets = Vec::<i32>::with_capacity(n_rows_padded);
     for chan in 0..chans {
         // Offset to image channel
-        row_chan_offsets.extend(std::iter::repeat(chan as i32 * im_stride_c).take(k_h * k_w));
+        row_chan_offsets.extend(std::iter::repeat_n(chan as i32 * im_stride_c, k_h * k_w));
 
         for k_y in 0..k_h {
             // Offset from top-left corner of patch
-            row_y_offsets
-                .extend(std::iter::repeat(im_stride_h * k_y as i32 * dilation_y as i32).take(k_w));
+            row_y_offsets.extend(std::iter::repeat_n(
+                im_stride_h * k_y as i32 * dilation_y as i32,
+                k_w,
+            ));
             row_x_offsets.extend(
                 (0..k_w as i32)
                     .map(|k_x| im_stride_w * k_x * dilation_x as i32)
@@ -87,7 +89,7 @@ pub fn build_im2col<T>(
     let mut col_x_offsets = Vec::with_capacity(n_cols_padded);
     for patch_y in 0..y_patches {
         let img_y = (patch_y as i32 * stride_h as i32) - pad_top as i32;
-        col_y_offsets.extend(std::iter::repeat(img_y * im_stride_h).take(x_patches));
+        col_y_offsets.extend(std::iter::repeat_n(img_y * im_stride_h, x_patches));
         col_x_offsets.extend((0..x_patches).map(|patch_x| {
             let img_x = (patch_x as i32 * stride_w as i32) - pad_left as i32;
             img_x * im_stride_w

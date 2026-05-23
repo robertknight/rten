@@ -131,7 +131,7 @@ mod tests {
                     (128u32)
                         .to_le_bytes()
                         .into_iter()
-                        .chain(std::iter::repeat(0).take(128))
+                        .chain(std::iter::repeat_n(0, 128))
                         .collect()
                 },
                 expected: Some(FileType::Rten),

@@ -415,7 +415,7 @@ impl_read_op!(
         let strides = attrs
             .strides()
             .map(|stride| stride.iter().map(|x| x.as_usize()).collect())
-            .unwrap_or(std::iter::repeat(1).take(kernel_size.len()).collect());
+            .unwrap_or(std::iter::repeat_n(1, kernel_size.len()).collect());
 
         Ok(ops::AveragePool {
             kernel_size,
@@ -748,7 +748,7 @@ impl_read_op!(
         let strides = attrs
             .strides()
             .map(|stride| stride.iter().map(|x| x.as_usize()).collect())
-            .unwrap_or(std::iter::repeat(1).take(kernel_size.len()).collect());
+            .unwrap_or(std::iter::repeat_n(1, kernel_size.len()).collect());
 
         Ok(ops::MaxPool {
             kernel_size,

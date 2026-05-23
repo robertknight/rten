@@ -210,7 +210,10 @@ impl Normalizer for Replace {
             offsets.extend(last_match_end..match_.range().start);
 
             normalized.push_str(&self.content);
-            offsets.extend(std::iter::repeat(match_.range().start).take(self.content.len()));
+            offsets.extend(std::iter::repeat_n(
+                match_.range().start,
+                self.content.len(),
+            ));
 
             last_match_end = match_.range().end;
         }

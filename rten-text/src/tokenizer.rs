@@ -13,7 +13,7 @@
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt;
-use std::iter::repeat;
+use std::iter::repeat_n;
 use std::ops::Range;
 use std::path::Path;
 
@@ -123,9 +123,7 @@ impl<'a> Encoded<'a> {
     /// in the model, if it has one.
     pub fn token_type_ids(&self) -> impl Iterator<Item = usize> {
         let second_seq_tokens = self.token_ids.len() - self.first_seq_tokens;
-        repeat(0)
-            .take(self.first_seq_tokens)
-            .chain(repeat(1).take(second_seq_tokens))
+        repeat_n(0, self.first_seq_tokens).chain(repeat_n(1, second_seq_tokens))
     }
 
     /// Return the text from the input sequence(s) that corresponds to a range
