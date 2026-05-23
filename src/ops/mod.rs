@@ -111,9 +111,9 @@ pub(crate) use {
     split::Split,
     trilu::Trilu,
     unary_elementwise::{
-        Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Elu, Erf, Exp, Floor, Gelu, HardSigmoid, HardSwish,
-        IsInf, IsNaN, LeakyRelu, Log, Neg, Not, PRelu, Reciprocal, Relu, Round, Sigmoid, Sign,
-        Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh,
+        Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Ceil, Clip, Cos, Cosh, Elu, Erf, Exp, Floor,
+        Gelu, HardSigmoid, HardSwish, IsInf, IsNaN, LeakyRelu, Log, Neg, Not, PRelu, Reciprocal,
+        Relu, Round, Sigmoid, Sign, Silu, Sin, Sinh, Softplus, Sqrt, Swish, Tan, Tanh,
     },
     variadic_elementwise::{Max, Mean, Min, Sum},
 };

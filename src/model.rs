@@ -1416,12 +1416,15 @@ mod tests {
 
         add_operator!(Abs, [input_node]);
         add_operator!(Acos, [input_node]);
+        add_operator!(Acosh, [input_node]);
         add_operator!(Add, [input_node, input_node]);
         add_operator!(And, [input_bool, input_bool]);
         add_operator!(ArgMax, [input_node], { axis: 3, keep_dims: false });
         add_operator!(ArgMin, [input_node], { axis: 3, keep_dims: false });
         add_operator!(Asin, [input_node]);
+        add_operator!(Asinh, [input_node]);
         add_operator!(Atan, [input_node]);
+        add_operator!(Atanh, [input_node]);
         add_operator!(AveragePool, [input_node], {
             kernel_size: [2, 2].into(),
             strides: [2, 2].into(),
@@ -1477,6 +1480,7 @@ mod tests {
             output_padding: None,
         });
         add_operator!(Cos, [input_node]);
+        add_operator!(Cosh, [input_node]);
 
         let const_u8_val = Tensor::from([0u8, 1, 2, 3, 4]);
         let const_u8 = graph_builder.add_constant(const_u8_val.view());
@@ -1755,6 +1759,7 @@ mod tests {
         add_operator!(Sigmoid, [input_node]);
         add_operator!(Sign, [input_node]);
         add_operator!(Sin, [input_node]);
+        add_operator!(Sinh, [input_node]);
         add_operator!(Size, [input_node]);
 
         let scatter_elem_indices_val = Tensor::<i32>::zeros(&input_shape);

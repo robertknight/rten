@@ -223,6 +223,18 @@ declare_operator!(Atan);
 impl_operator!(Atan, [FloatTensor]);
 impl_get_kernel!(Atan, f32, |val: f32| val.atan());
 
+declare_operator!(Acosh);
+impl_operator!(Acosh, [FloatTensor]);
+impl_get_kernel!(Acosh, f32, |val: f32| val.acosh());
+
+declare_operator!(Asinh);
+impl_operator!(Asinh, [FloatTensor]);
+impl_get_kernel!(Asinh, f32, |val: f32| val.asinh());
+
+declare_operator!(Atanh);
+impl_operator!(Atanh, [FloatTensor]);
+impl_get_kernel!(Atanh, f32, |val: f32| val.atanh());
+
 declare_operator!(Ceil);
 impl_operator!(Ceil, [FloatTensor]);
 impl_operator_fn!(Ceil, ceil, cfg_test);
@@ -340,6 +352,10 @@ impl Operator for Clip {
 declare_operator!(Cos);
 impl_operator!(Cos, [FloatTensor]);
 impl_get_kernel!(Cos, f32, SimdKernel(vecmath::Cos::new()));
+
+declare_operator!(Cosh);
+impl_operator!(Cosh, [FloatTensor]);
+impl_get_kernel!(Cosh, f32, |val: f32| val.cosh());
 
 #[derive(Debug)]
 pub struct Elu {
@@ -676,6 +692,10 @@ declare_operator!(Sin);
 impl_operator!(Sin, [FloatTensor]);
 impl_get_kernel!(Sin, f32, SimdKernel(vecmath::Sin::new()));
 
+declare_operator!(Sinh);
+impl_operator!(Sinh, [FloatTensor]);
+impl_get_kernel!(Sinh, f32, |val: f32| val.sinh());
+
 /// Trait for obtaining the sign of a number (-1, 0 or 1) as a value of the
 /// same type.
 pub trait Signum: Copy {
@@ -733,9 +753,10 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        Abs, Acos, Asin, Atan, Cos, Elu, Exp, Gelu, IsInf, IsNaN, Log, Neg, Not, PRelu, Reciprocal,
-        Relu, Sigmoid, Sign, Silu, Sin, Softplus, Sqrt, Swish, Tan, Tanh, ceil, clip,
-        clip_in_place, erf, floor, hard_sigmoid, hard_swish, leaky_relu, round,
+        Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Cos, Cosh, Elu, Exp, Gelu, IsInf, IsNaN, Log,
+        Neg, Not, PRelu, Reciprocal, Relu, Sigmoid, Sign, Silu, Sin, Sinh, Softplus, Sqrt, Swish,
+        Tan, Tanh, ceil, clip, clip_in_place, erf, floor, hard_sigmoid, hard_swish, leaky_relu,
+        round,
     };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, Operator, OperatorExt};
@@ -844,6 +865,14 @@ mod tests {
     test_unary_op!(test_acos, Acos {}, |x: &f32| x.acos());
     test_unary_op!(test_asin, Asin {}, |x: &f32| x.asin());
     test_unary_op!(test_atan, Atan {}, |x: &f32| x.atan());
+    test_unary_op!(
+        test_acosh,
+        Acosh {},
+        |x: &f32| x.acosh(),
+        Tensor::from([1.0, 1.5, 2.0, 5.0, 100.0])
+    );
+    test_unary_op!(test_asinh, Asinh {}, |x: &f32| x.asinh());
+    test_unary_op!(test_atanh, Atanh {}, |x: &f32| x.atanh());
 
     #[test]
     fn test_ceil() {
@@ -915,6 +944,7 @@ mod tests {
     }
 
     test_unary_op!(test_cos, Cos {}, |x: &f32| x.cos());
+    test_unary_op!(test_cosh, Cosh {}, |x: &f32| x.cosh());
 
     #[test]
     fn test_elu() {
@@ -1149,6 +1179,7 @@ mod tests {
     );
     test_unary_op!(test_silu, Silu {}, |x: &f32| x * reference_sigmoid(*x));
     test_unary_op!(test_sin, Sin {}, |x: &f32| x.sin());
+    test_unary_op!(test_sinh, Sinh {}, |x: &f32| x.sinh());
     test_unary_op!(test_softplus, Softplus {}, |x: &f32| { x.exp().ln_1p() });
     test_unary_op!(
         test_sqrt,

@@ -137,6 +137,11 @@ class OperatorType(object):
     STFT = 127
     GlobalMaxPool = 128
     ReduceL1 = 129
+    Acosh = 130
+    Asinh = 131
+    Atanh = 132
+    Cosh = 133
+    Sinh = 134
 
 
 class RNNDirection(object):

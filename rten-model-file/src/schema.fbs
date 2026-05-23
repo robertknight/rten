@@ -143,6 +143,11 @@ enum OperatorType: ubyte {
   STFT,
   GlobalMaxPool,
   ReduceL1,
+  Acosh,
+  Asinh,
+  Atanh,
+  Cosh,
+  Sinh,
 }
 
 enum RNNDirection: ubyte {

@@ -99,12 +99,15 @@ impl OnnxOpRegistry {
         // ai.onnx ops.
         register_op!(Abs);
         register_op!(Acos);
+        register_op!(Acosh);
         register_op!(Add);
         register_op!(And);
         register_op!(ArgMax);
         register_op!(ArgMin);
         register_op!(Asin);
+        register_op!(Asinh);
         register_op!(Atan);
+        register_op!(Atanh);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
         register_op!(Cast);
@@ -118,6 +121,7 @@ impl OnnxOpRegistry {
         register_op!(ConstantOfShape);
         register_op!(ConvTranspose);
         register_op!(Cos);
+        register_op!(Cosh);
         register_op!(CumSum);
         register_op!(DequantizeLinear);
         register_op!(DepthToSpace);
@@ -209,6 +213,7 @@ impl OnnxOpRegistry {
         register_op!(Sigmoid);
         register_op!(Sign);
         register_op!(Sin);
+        register_op!(Sinh);
         register_op!(Size);
         register_op!(Slice);
         register_op!(Softmax);
@@ -653,6 +658,7 @@ macro_rules! impl_read_op {
 
 impl_read_op!(Abs);
 impl_read_op!(Acos);
+impl_read_op!(Acosh);
 impl_read_op!(Add);
 impl_read_op!(And);
 
@@ -680,7 +686,9 @@ impl_read_op!(ArgMin, |attrs: &Attrs| {
 });
 
 impl_read_op!(Asin);
+impl_read_op!(Asinh);
 impl_read_op!(Atan);
+impl_read_op!(Atanh);
 
 impl_read_op!(AveragePool, |attrs: &Attrs| {
     let PoolAttrs {
@@ -932,6 +940,7 @@ impl_read_op!(ConvTranspose, |attrs: &Attrs| {
 });
 
 impl_read_op!(Cos);
+impl_read_op!(Cosh);
 impl_read_op!(CumSum, |attrs: &Attrs| {
     attrs.check_eq("exclusive", 0)?;
     attrs.check_eq("reverse", 0)?;
@@ -1572,6 +1581,7 @@ impl_read_op!("ai.onnx", SimplifiedLayerNormalization, |attrs: &Attrs| {
 });
 
 impl_read_op!(Sin);
+impl_read_op!(Sinh);
 impl_read_op!(Size);
 
 impl_read_op!(
