@@ -157,6 +157,112 @@ impl InferShapes for Conv<'_> {
     }
 }
 
+/// Return the output size for a spatial dimension in a transposed
+/// convolution.
+///
+/// See the output_shape formula in
+/// <https://onnx.ai/onnx/operators/onnx__ConvTranspose.html>.
+fn conv_transpose_output_size(
+    in_size: SymExpr,
+    kernel_size: SymExpr,
+    stride: usize,
+    dilation: usize,
+    output_padding: usize,
+    padding: DimPadding,
+) -> SymExpr {
+    let stride = SymExpr::from(stride as i32);
+    match padding {
+        DimPadding::Same => in_size * stride,
+        DimPadding::Fixed {
+            start: pad_start,
+            end: pad_end,
+        } => {
+            let one = SymExpr::from(1);
+            let dilated_kernel =
+                (kernel_size - one.clone()) * SymExpr::from(dilation as i32) + one.clone();
+            (in_size - one) * stride + SymExpr::from(output_padding as i32) + dilated_kernel
+                - SymExpr::from(pad_start as i32)
+                - SymExpr::from(pad_end as i32)
+        }
+    }
+}
+
+/// ConvTranspose operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__ConvTranspose.html>.
+pub struct ConvTranspose<'a> {
+    pub groups: usize,
+    pub padding: Padding<'a>,
+    pub strides: &'a [usize],
+    pub dilations: &'a [usize],
+    pub output_padding: Option<&'a [usize]>,
+}
+
+impl InferShapes for ConvTranspose<'_> {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [data, weights, ..] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let Some(data_dims) = data.shape() else {
+            return Ok([SymTensor::unknown("unknown input shape")].into());
+        };
+        let Some(weight_dims) = weights.shape() else {
+            return Ok([SymTensor::unknown("unknown weights shape")].into());
+        };
+
+        if data_dims.len() < 3 {
+            return Err(InferShapesError::IncorrectRank);
+        }
+        if weight_dims.len() != data_dims.len() {
+            return Err(InferShapesError::IncorrectRank);
+        }
+
+        let data_shape: SmallVec<[_; 4]> = data_dims.collect();
+        let weight_shape: SmallVec<[_; 4]> = weight_dims.collect();
+        let spatial_dims = data_shape.len() - 2;
+
+        // Output channels = weights.size(1) * groups. Weights are laid out as
+        // (in_channels, out_channels / groups, ...spatial).
+        let out_channels = weight_shape[1].clone() * SymExpr::from(self.groups as i32);
+
+        let mut out_shape = Vec::with_capacity(data_shape.len());
+        out_shape.push(data_shape[0].clone());
+        out_shape.push(out_channels);
+
+        for d in 0..spatial_dims {
+            let pad = self
+                .padding
+                .dim(d, spatial_dims)
+                .ok_or(InferShapesError::InvalidValue)?;
+            let stride = *self.strides.get(d).ok_or(InferShapesError::InvalidValue)?;
+            let dilation = *self
+                .dilations
+                .get(d)
+                .ok_or(InferShapesError::InvalidValue)?;
+            let out_pad = match self.output_padding {
+                Some(out_pad) => *out_pad.get(d).ok_or(InferShapesError::InvalidValue)?,
+                None => 0,
+            };
+
+            out_shape.push(conv_transpose_output_size(
+                data_shape[2 + d].clone(),
+                weight_shape[2 + d].clone(),
+                stride,
+                dilation,
+                out_pad,
+                pad,
+            ));
+        }
+
+        Ok([SymTensor::from_shape(out_shape)].into())
+    }
+}
+
 /// Local pooling operators (MaxPool, AveragePool etc.)
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__MaxPool.html>.
@@ -275,7 +381,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_shape};
 
-    use super::{Conv, GlobalPool, Padding, Pool};
+    use super::{Conv, ConvTranspose, GlobalPool, Padding, Pool};
 
     #[test]
     fn test_conv() {
@@ -418,6 +524,120 @@ mod tests {
                     + SymExpr::from(1),
             )
         );
+    }
+
+    #[test]
+    fn test_conv_transpose() {
+        let mut sym_gen = SymbolGen::new();
+
+        // 2D transposed conv with stride 1, no padding, no output padding.
+        // Expected: out = (in - 1)*1 + 0 + k - 0 - 0 = in + k - 1, so
+        // in=4, k=3 -> 6.
+        let data = sym_shape!(1, "in_c", 4, 4);
+        let weights = sym_shape!("in_c", 16, 3, 3);
+        let op = ConvTranspose {
+            groups: 1,
+            padding: Padding::Fixed(&[0, 0, 0, 0]),
+            strides: &[1, 1],
+            dilations: &[1, 1],
+            output_padding: None,
+        };
+        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        assert_eq!(result[0].clone().simplify(), sym_shape!(1, 16, 6, 6));
+
+        // 2D transposed conv with output padding.
+        // Reference values from `test_conv_transpose_output_size_and_padding`:
+        // in=[5,5], k=[3,3], output_padding=[1,0], stride 1, no pad -> [8,7].
+        let data = sym_shape!(1, "in_c", 5, 5);
+        let weights = sym_shape!("in_c", 16, 3, 3);
+        let op = ConvTranspose {
+            groups: 1,
+            padding: Padding::Fixed(&[0, 0, 0, 0]),
+            strides: &[1, 1],
+            dilations: &[1, 1],
+            output_padding: Some(&[1, 0]),
+        };
+        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        assert_eq!(result[0].clone().simplify(), sym_shape!(1, 16, 8, 7));
+
+        // 2D transposed conv with Same padding. Expected: out = in * stride.
+        let data = sym_shape!("batch", "in_c", "height", "width");
+        let weights = sym_shape!("in_c", 16, 3, 3);
+        let op = ConvTranspose {
+            groups: 1,
+            padding: Padding::Same,
+            strides: &[2, 2],
+            dilations: &[1, 1],
+            output_padding: None,
+        };
+        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0].clone().simplify(),
+            sym_shape!(
+                "batch",
+                16,
+                SymExpr::from("height") * SymExpr::from(2),
+                SymExpr::from("width") * SymExpr::from(2),
+            )
+        );
+
+        // Grouped transposed conv: out_channels = weights.size(1) * groups.
+        let data = sym_shape!(1, 4, 5, 5);
+        let weights = sym_shape!(4, 2, 3, 3);
+        let op = ConvTranspose {
+            groups: 2,
+            padding: Padding::Fixed(&[0, 0, 0, 0]),
+            strides: &[1, 1],
+            dilations: &[1, 1],
+            output_padding: None,
+        };
+        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        assert_eq!(result[0].clone().simplify(), sym_shape!(1, 4, 7, 7));
+
+        // 1D transposed conv. Expected:
+        //   (in-1)*stride + output_padding + ((k-1)*dilation + 1) - pad_start - pad_end
+        //   = (4-1)*2 + 0 + 4 - 1 - 1 = 8.
+        let data = sym_shape!(1, "in_c", 4);
+        let weights = sym_shape!("in_c", 8, 4);
+        let op = ConvTranspose {
+            groups: 1,
+            padding: Padding::Fixed(&[1, 1]),
+            strides: &[2],
+            dilations: &[1],
+            output_padding: None,
+        };
+        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        assert_eq!(result[0].clone().simplify(), sym_shape!(1, 8, 8));
+
+        // Unknown input shape.
+        let result = ConvTranspose {
+            groups: 1,
+            padding: Padding::Fixed(&[0, 0, 0, 0]),
+            strides: &[1, 1],
+            dilations: &[1, 1],
+            output_padding: None,
+        }
+        .infer_shapes(
+            &[SymTensor::unknown("?"), sym_shape!("in_c", 16, 3, 3)],
+            &mut sym_gen,
+        )
+        .unwrap();
+        assert_eq!(result[0], SymTensor::unknown("unknown input shape"));
+
+        // Dilation > 1: with in=5, k=3, dilation=2, no pad, stride=1 the
+        // dilated kernel covers (3-1)*2 + 1 = 5 input positions, so
+        // out = (5-1)*1 + 0 + 5 - 0 - 0 = 9.
+        let data = sym_shape!(1, "in_c", 5, 5);
+        let weights = sym_shape!("in_c", 16, 3, 3);
+        let op = ConvTranspose {
+            groups: 1,
+            padding: Padding::Fixed(&[0, 0, 0, 0]),
+            strides: &[1, 1],
+            dilations: &[2, 2],
+            output_padding: None,
+        };
+        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        assert_eq!(result[0].clone().simplify(), sym_shape!(1, 16, 9, 9));
     }
 
     #[test]

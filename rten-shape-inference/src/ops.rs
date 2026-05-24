@@ -18,7 +18,7 @@ mod split;
 mod unary;
 
 pub use binary::{Add, Div, Equal, Mul, Sub};
-pub use conv_pool::{Conv, GlobalPool, Padding, Pool};
+pub use conv_pool::{Conv, ConvTranspose, GlobalPool, Padding, Pool};
 pub use layout::{Expand, Flatten, Reshape, Shape, Squeeze, Transpose, Unsqueeze};
 pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use resize::Resize;
