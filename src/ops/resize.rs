@@ -4,10 +4,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rayon::prelude::*;
 use rten_base::iter::range_chunks;
 use rten_parallel::par_iter::ParIter;
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
     OutputTypeList, OutputTypesContext, static_dims,
@@ -510,6 +512,10 @@ impl Operator for Resize {
         Some([OutputType::CopyFromInput(0)].into())
     }
 
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
     fn can_run_in_place(&self) -> bool {
         // Resize can run in place if the computed output size is the same
         // as the input size. In that case the in-place operation is a noop.
@@ -542,6 +548,8 @@ impl Operator for Resize {
         .map(|t| t.into())
     }
 }
+
+impl_infer_shapes!(Resize, _op, shape_ops::Resize);
 
 #[cfg(test)]
 mod tests {
