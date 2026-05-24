@@ -477,6 +477,16 @@ impl SymExpr {
                         }
                         (c1, c2) => lhs.div_ceil(&(c1.clone() * c2)),
                     },
+                    // DivCeil(c * x, d) => (c/d) * x when d > 0 and d divides
+                    // c exactly. Sound because exact integer division gives
+                    // the same result as the ceiling (no fractional part to
+                    // round), regardless of the sign of `x`.
+                    (SymExpr::Mul(a, b), SymExpr::Value(d)) if d > 0 => {
+                        match try_extract_div_ceil_factor(a, b, d) {
+                            Ok(simplified) => simplified,
+                            Err((a, b)) => SymExpr::Mul(a, b).div_ceil(&SymExpr::Value(d)),
+                        }
+                    }
                     (lhs, rhs) => lhs.div_ceil(&rhs),
                 }
             }
@@ -813,6 +823,39 @@ fn compare_ceil_div_scaled(a: &SymExpr, b: &SymExpr) -> Option<Compare> {
     Some(Compare::from_ord(c1.cmp(&c2)))
 }
 
+/// Try to simplify `DivCeil(Mul(a, b), Value(d))` by exact division when the
+/// `Mul` contains a constant factor `c` that's exactly divisible by `d`.
+/// Returns the simplified form on success, or the original `Mul` operands on
+/// failure so the caller can reconstruct.
+fn try_extract_div_ceil_factor(
+    a: Arc<SymExpr>,
+    b: Arc<SymExpr>,
+    d: i32,
+) -> Result<SymExpr, (Arc<SymExpr>, Arc<SymExpr>)> {
+    if let SymExpr::Value(c) = a.as_ref()
+        && c % d == 0
+    {
+        let factor = *c / d;
+        let other = Arc::unwrap_or_clone(b);
+        return Ok(if factor == 1 {
+            other
+        } else {
+            SymExpr::Value(factor) * other
+        });
+    }
+    if let SymExpr::Value(c) = b.as_ref()
+        && c % d == 0
+    {
+        let factor = *c / d;
+        let other = Arc::unwrap_or_clone(a);
+        return Ok(if factor == 1 {
+            other
+        } else {
+            SymExpr::Value(factor) * other
+        });
+    }
+    Err((a, b))
+}
 
 /// Sort terms in an order that makes simplification easier, by making terms
 /// which can be combined or eliminated adjacent.
@@ -1547,6 +1590,32 @@ mod tests {
         let a = d.div_ceil(&SymExpr::from(16));
         let b = d.div_ceil(&SymExpr::from(8));
         assert_eq!(compare(&a, &b), Compare::Unknown);
+    }
+
+    // Check that `DivCeil(c * x, d) => (c/d) * x` when d > 0 and d | c.
+    #[test]
+    fn test_simplify_div_ceil_exact_factor() {
+        let x = SymExpr::pos_var("x");
+
+        // ceil_div(6 * x, 2) => 3 * x
+        let expr = (SymExpr::from(6) * x.clone()).div_ceil(&SymExpr::from(2));
+        assert_eq!(expr.simplify(), SymExpr::from(3) * x.clone());
+
+        // ceil_div(2 * x, 2) => x  (factor of 1 should drop)
+        let expr = (SymExpr::from(2) * x.clone()).div_ceil(&SymExpr::from(2));
+        assert_eq!(expr.simplify(), x.clone());
+
+        // ceil_div(5 * x, 2) doesn't simplify (5 not divisible by 2).
+        let expr = (SymExpr::from(5) * x.clone()).div_ceil(&SymExpr::from(2));
+        assert!(matches!(expr.simplify(), SymExpr::DivCeil(_, _)));
+
+        // ceil_div(8 * ceil_div(D, 32), 2) => 4 * ceil_div(D, 32). This is the
+        // pattern that arises after broadcast dominance in shape inference
+        // for FPN-style multi-scale feature pyramids.
+        let d = SymExpr::pos_var("d");
+        let inner = d.div_ceil(&SymExpr::from(32));
+        let expr = (SymExpr::from(8) * inner.clone()).div_ceil(&SymExpr::from(2));
+        assert_eq!(expr.simplify(), SymExpr::from(4) * inner);
     }
 
     #[test]
