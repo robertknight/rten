@@ -516,8 +516,20 @@ impl SymExpr {
                     (x, SymExpr::Value(1)) => x,
                     (SymExpr::Value(x), _y) if x != 1 => SymExpr::Value(x),
                     (_x, SymExpr::Value(y)) if y != 1 => SymExpr::Value(y),
-                    (lhs, rhs) if lhs == rhs => lhs,
-                    (lhs, rhs) => SymExpr::Broadcast(lhs.into(), rhs.into()),
+                    // Dominance: if one side is provably >= the other, the
+                    // broadcast collapses to it. Both operands are valid
+                    // simultaneously only when they're equal or one is 1
+                    // (handled above), so the larger one is the result.
+                    (lhs, rhs) => {
+                        let cmp = compare(&lhs, &rhs);
+                        if cmp.is_ge() {
+                            lhs
+                        } else if cmp.is_le() {
+                            rhs
+                        } else {
+                            SymExpr::Broadcast(lhs.into(), rhs.into())
+                        }
+                    }
                 }
             }
         }
@@ -657,6 +669,150 @@ impl SymExpr {
         }
     }
 }
+
+/// Result of partially ordering two [`SymExpr`] values.
+///
+/// This is a *partial* order: many pairs of symbolic expressions can't be
+/// compared without knowing the values of their symbols, and those cases
+/// return [`Compare::Unknown`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Compare {
+    /// Both expressions evaluate to the same value for all valid inputs.
+    Equal,
+    /// `a >= b` for all valid inputs.
+    GreaterOrEqual,
+    /// `a <= b` for all valid inputs.
+    LessOrEqual,
+    /// The relationship couldn't be determined.
+    Unknown,
+}
+
+impl Compare {
+    /// Return true if the first expression is known to be `>=` the second.
+    pub(crate) fn is_ge(self) -> bool {
+        matches!(self, Self::Equal | Self::GreaterOrEqual)
+    }
+
+    /// Return true if the first expression is known to be `<=` the second.
+    pub(crate) fn is_le(self) -> bool {
+        matches!(self, Self::Equal | Self::LessOrEqual)
+    }
+
+    fn from_ord(o: std::cmp::Ordering) -> Self {
+        match o {
+            std::cmp::Ordering::Less => Self::LessOrEqual,
+            std::cmp::Ordering::Equal => Self::Equal,
+            std::cmp::Ordering::Greater => Self::GreaterOrEqual,
+        }
+    }
+}
+
+/// Try to determine the ordering of two symbolic expressions.
+///
+/// Returns [`Compare::Unknown`] when no rule applies. The currently recognised
+/// patterns are:
+///
+/// - Structural equality.
+/// - Both sides are integer [`SymExpr::Value`]s.
+/// - `x + c1` vs `x + c2` for the same base `x` and constant offsets.
+/// - `c1 * x` vs `c2 * x` for the same positive base `x` and constant
+///   coefficients.
+/// - `c1 * DivCeil(D, m1)` vs `c2 * DivCeil(D, m2)` where the coefficients
+///   and divisors are proportional (`c1 * m2 == c2 * m1`). This encodes the
+///   lemma `c * DivCeil(D, c*k) >= DivCeil(D, k)` for positive `c`, `k`, `D`.
+pub(crate) fn compare(a: &SymExpr, b: &SymExpr) -> Compare {
+    if a == b {
+        return Compare::Equal;
+    }
+
+    if let (SymExpr::Value(x), SymExpr::Value(y)) = (a, b) {
+        return Compare::from_ord(x.cmp(y));
+    }
+
+    if let Some(c) = compare_with_offset(a, b) {
+        return c;
+    }
+    if let Some(c) = compare_scaled(a, b) {
+        return c;
+    }
+    if let Some(c) = compare_ceil_div_scaled(a, b) {
+        return c;
+    }
+
+    Compare::Unknown
+}
+
+/// Split an expression into `(base, constant_offset)`. For `Value(c) + rest`
+/// returns `(rest, c)`; otherwise returns `(expr, 0)`.
+fn split_offset(expr: &SymExpr) -> (&SymExpr, i32) {
+    if let SymExpr::Add(a, b) = expr {
+        match (a.as_ref(), b.as_ref()) {
+            (SymExpr::Value(c), _) => return (b, *c),
+            (_, SymExpr::Value(c)) => return (a, *c),
+            _ => (),
+        }
+    }
+    (expr, 0)
+}
+
+/// Split an expression into `(base, constant_coefficient)`. For `Value(c) *
+/// rest` returns `(rest, c)`; otherwise returns `(expr, 1)`.
+fn split_scaled(expr: &SymExpr) -> (&SymExpr, i32) {
+    if let SymExpr::Mul(a, b) = expr {
+        match (a.as_ref(), b.as_ref()) {
+            (SymExpr::Value(c), _) => return (b, *c),
+            (_, SymExpr::Value(c)) => return (a, *c),
+            _ => (),
+        }
+    }
+    (expr, 1)
+}
+
+/// Recognise `c * DivCeil(d, m)` (or bare `DivCeil(d, m)` as `c=1`). Returns
+/// `(coefficient, divisor, dividend)`. Both coefficient and divisor must be
+/// positive constants.
+fn split_scaled_ceil_div(expr: &SymExpr) -> Option<(i32, i32, &SymExpr)> {
+    let (inner, coef) = split_scaled(expr);
+    if coef <= 0 {
+        return None;
+    }
+    let SymExpr::DivCeil(d, m) = inner else {
+        return None;
+    };
+    let SymExpr::Value(m_val) = m.as_ref() else {
+        return None;
+    };
+    if *m_val <= 0 {
+        return None;
+    }
+    Some((coef, *m_val, d.as_ref()))
+}
+
+fn compare_with_offset(a: &SymExpr, b: &SymExpr) -> Option<Compare> {
+    let (a_base, a_off) = split_offset(a);
+    let (b_base, b_off) = split_offset(b);
+    (a_base == b_base).then(|| Compare::from_ord(a_off.cmp(&b_off)))
+}
+
+fn compare_scaled(a: &SymExpr, b: &SymExpr) -> Option<Compare> {
+    let (a_base, a_coef) = split_scaled(a);
+    let (b_base, b_coef) = split_scaled(b);
+    if a_base == b_base && a_base.is_positive() {
+        Some(Compare::from_ord(a_coef.cmp(&b_coef)))
+    } else {
+        None
+    }
+}
+
+fn compare_ceil_div_scaled(a: &SymExpr, b: &SymExpr) -> Option<Compare> {
+    let (c1, m1, d1) = split_scaled_ceil_div(a)?;
+    let (c2, m2, d2) = split_scaled_ceil_div(b)?;
+    if d1 != d2 || c1 * m2 != c2 * m1 {
+        return None;
+    }
+    Some(Compare::from_ord(c1.cmp(&c2)))
+}
+
 
 /// Sort terms in an order that makes simplification easier, by making terms
 /// which can be combined or eliminated adjacent.
@@ -1329,6 +1485,107 @@ mod tests {
         let expr = SymExpr::from(-2) * x.clone().max(&y);
         let simplified = expr.simplify();
         assert!(!matches!(simplified, SymExpr::Max(..)));
+    }
+
+    #[test]
+    fn test_compare() {
+        use super::{Compare, compare};
+
+        let x = SymExpr::pos_var("x");
+        let y = SymExpr::pos_var("y");
+        let d = SymExpr::pos_var("d");
+
+        // Structural equality.
+        assert_eq!(compare(&x, &x), Compare::Equal);
+
+        // Two constants.
+        assert_eq!(
+            compare(&SymExpr::from(3), &SymExpr::from(5)),
+            Compare::LessOrEqual
+        );
+        assert_eq!(
+            compare(&SymExpr::from(7), &SymExpr::from(7)),
+            Compare::Equal
+        );
+        assert_eq!(
+            compare(&SymExpr::from(9), &SymExpr::from(2)),
+            Compare::GreaterOrEqual
+        );
+
+        // Constant offset: `x + 3` vs `x + 5`.
+        let a = (x.clone() + SymExpr::from(3)).simplify();
+        let b = (x.clone() + SymExpr::from(5)).simplify();
+        assert_eq!(compare(&a, &b), Compare::LessOrEqual);
+
+        // Constant scaling: `2 * x` vs `3 * x` (positive x).
+        let a = (SymExpr::from(2) * x.clone()).simplify();
+        let b = (SymExpr::from(3) * x.clone()).simplify();
+        assert_eq!(compare(&a, &b), Compare::LessOrEqual);
+
+        // Proportional ceil-div lemma: 2 * ceil(D/32) >= ceil(D/16).
+        let a = (SymExpr::from(2) * d.div_ceil(&SymExpr::from(32))).simplify();
+        let b = d.div_ceil(&SymExpr::from(16));
+        assert_eq!(compare(&a, &b), Compare::GreaterOrEqual);
+
+        // Same lemma, both sides scaled: 4 * ceil(D/32) >= 2 * ceil(D/16).
+        let a = (SymExpr::from(4) * d.div_ceil(&SymExpr::from(32))).simplify();
+        let b = (SymExpr::from(2) * d.div_ceil(&SymExpr::from(16))).simplify();
+        assert_eq!(compare(&a, &b), Compare::GreaterOrEqual);
+
+        // Equal when proportional with equal coefficients.
+        let a = (SymExpr::from(2) * d.div_ceil(&SymExpr::from(32))).simplify();
+        let b = (SymExpr::from(2) * d.div_ceil(&SymExpr::from(32))).simplify();
+        assert_eq!(compare(&a, &b), Compare::Equal);
+
+        // Unknown for unrelated variables.
+        assert_eq!(compare(&x, &y), Compare::Unknown);
+
+        // Unknown for `c * ceil(D/m1)` vs `c' * ceil(D/m2)` when the
+        // coefficient/divisor ratios don't match (eg. `ceil(D/16)` vs
+        // `ceil(D/8)` are both >= 0 but we don't know which dominates without
+        // checking magnitudes).
+        let a = d.div_ceil(&SymExpr::from(16));
+        let b = d.div_ceil(&SymExpr::from(8));
+        assert_eq!(compare(&a, &b), Compare::Unknown);
+    }
+
+    #[test]
+    fn test_simplify_broadcast_dominance() {
+        let d = SymExpr::pos_var("d");
+
+        // broadcast(ceil(D/16), 2 * ceil(D/32)) => 2 * ceil(D/32)
+        let lhs = d.div_ceil(&SymExpr::from(16));
+        let rhs = SymExpr::from(2) * d.div_ceil(&SymExpr::from(32));
+        assert_eq!(
+            lhs.broadcast(&rhs).simplify(),
+            (SymExpr::from(2) * d.div_ceil(&SymExpr::from(32))).simplify()
+        );
+
+        // Symmetric: the larger side wins regardless of order.
+        assert_eq!(
+            rhs.broadcast(&lhs).simplify(),
+            (SymExpr::from(2) * d.div_ceil(&SymExpr::from(32))).simplify()
+        );
+
+        // Deeper broadcast tree (slice of the user's expression):
+        //   broadcast(broadcast(broadcast(ceil(D/4), 2*ceil(D/8)),
+        //                       4*ceil(D/16)),
+        //             8*ceil(D/32))
+        // Each inner broadcast collapses to its right (more-divided) side,
+        // so the whole thing reduces to 8*ceil(D/32).
+        let t4 = d.div_ceil(&SymExpr::from(4));
+        let t8 = SymExpr::from(2) * d.div_ceil(&SymExpr::from(8));
+        let t16 = SymExpr::from(4) * d.div_ceil(&SymExpr::from(16));
+        let t32 = SymExpr::from(8) * d.div_ceil(&SymExpr::from(32));
+        let expr = t4.broadcast(&t8).broadcast(&t16).broadcast(&t32);
+        let expected = (SymExpr::from(8) * d.div_ceil(&SymExpr::from(32))).simplify();
+        assert_eq!(expr.simplify(), expected);
+
+        // Unrelated variables: no simplification.
+        let x = SymExpr::pos_var("x");
+        let y = SymExpr::pos_var("y");
+        let expr = x.broadcast(&y);
+        assert_eq!(expr.clone().simplify(), expr);
     }
 
     #[test]
