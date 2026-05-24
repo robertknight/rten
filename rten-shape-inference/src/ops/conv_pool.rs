@@ -11,6 +11,15 @@ use crate::sym_tensor::SymTensor;
 /// The formulae are given in the ONNX docs for convolution and pooling
 /// operators, but expressed more clearly in the [PyTorch
 /// docs](https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxPool1d.html).
+///
+/// The ONNX-spec formula for Fixed padding is `(padded - dil*(k-1) - 1) /
+/// stride + 1`, where `/` is truncating integer division. We emit
+/// `DivCeil(padded - dil*(k-1), stride)` instead. The two agree whenever
+/// `padded - dil*(k-1) >= 1` — the only case where the kernel fits the input.
+/// They diverge at the boundary `padded - dil*(k-1) == 0`: DivCeil yields the
+/// correct zero valid kernel positions, while the ONNX formula yields a
+/// spurious one. Emitting `DivCeil` also keeps the simplifier-friendly form
+/// rather than relying on pattern recognition to undo the C-style emulation.
 fn output_size(
     in_size: SymExpr,
     kernel_size: SymExpr,
@@ -29,8 +38,7 @@ fn output_size(
             let one = SymExpr::from(1);
             let padded_in_size =
                 in_size + SymExpr::from(pad_start as i32) + SymExpr::from(pad_end as i32);
-            (padded_in_size - dilation * (kernel_size - one.clone()) - one.clone()) / stride
-                + one.clone()
+            (padded_in_size - dilation * (kernel_size - one)).div_ceil(&stride)
         }
         DimPadding::Same => in_size.div_ceil(&stride),
     }
@@ -404,10 +412,8 @@ mod tests {
                 "batch",
                 768,
                 (SymExpr::from("len") + SymExpr::from(0) + SymExpr::from(2)
-                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1))
-                    - SymExpr::from(1))
-                    / SymExpr::from(16)
-                    + SymExpr::from(1),
+                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1)))
+                    .div_ceil(&SymExpr::from(16)),
             )
         );
 
@@ -442,15 +448,11 @@ mod tests {
                 "batch",
                 768,
                 (SymExpr::from("height") + SymExpr::from(0) + SymExpr::from(2)
-                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1))
-                    - SymExpr::from(1))
-                    / SymExpr::from(16)
-                    + SymExpr::from(1),
+                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1)))
+                    .div_ceil(&SymExpr::from(16)),
                 (SymExpr::from("width") + SymExpr::from(1) + SymExpr::from(3)
-                    - SymExpr::from(5) * (SymExpr::from(32) - SymExpr::from(1))
-                    - SymExpr::from(1))
-                    / SymExpr::from(32)
-                    + SymExpr::from(1),
+                    - SymExpr::from(5) * (SymExpr::from(32) - SymExpr::from(1)))
+                    .div_ceil(&SymExpr::from(32)),
             )
         );
     }
@@ -474,10 +476,8 @@ mod tests {
                 "batch",
                 "in_c",
                 (SymExpr::from("seq") + SymExpr::from(0) + SymExpr::from(2)
-                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1))
-                    - SymExpr::from(1))
-                    / SymExpr::from(16)
-                    + SymExpr::from(1),
+                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1)))
+                    .div_ceil(&SymExpr::from(16)),
             )
         );
 
@@ -513,15 +513,11 @@ mod tests {
                 "batch",
                 "in_c",
                 (SymExpr::from("height") + SymExpr::from(0) + SymExpr::from(2)
-                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1))
-                    - SymExpr::from(1))
-                    / SymExpr::from(16)
-                    + SymExpr::from(1),
+                    - SymExpr::from(4) * (SymExpr::from(32) - SymExpr::from(1)))
+                    .div_ceil(&SymExpr::from(16)),
                 (SymExpr::from("width") + SymExpr::from(1) + SymExpr::from(3)
-                    - SymExpr::from(5) * (SymExpr::from(32) - SymExpr::from(1))
-                    - SymExpr::from(1))
-                    / SymExpr::from(32)
-                    + SymExpr::from(1),
+                    - SymExpr::from(5) * (SymExpr::from(32) - SymExpr::from(1)))
+                    .div_ceil(&SymExpr::from(32)),
             )
         );
     }
