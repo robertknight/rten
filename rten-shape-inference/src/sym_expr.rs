@@ -406,6 +406,30 @@ impl SymExpr {
                         let b = Arc::unwrap_or_clone(b);
                         (SymExpr::Value(c) * a + SymExpr::Value(c) * b).simplify()
                     }
+                    // Distribute over Max/Min/Broadcast when the constant
+                    // factor is positive: `c * f(a, b) = f(c*a, c*b)` for c > 0.
+                    // (Negative c would flip Max<->Min and isn't handled.)
+                    (SymExpr::Value(c), SymExpr::Max(a, b)) if c > 0 => {
+                        let a = Arc::unwrap_or_clone(a);
+                        let b = Arc::unwrap_or_clone(b);
+                        (SymExpr::Value(c) * a)
+                            .max(&(SymExpr::Value(c) * b))
+                            .simplify()
+                    }
+                    (SymExpr::Value(c), SymExpr::Min(a, b)) if c > 0 => {
+                        let a = Arc::unwrap_or_clone(a);
+                        let b = Arc::unwrap_or_clone(b);
+                        (SymExpr::Value(c) * a)
+                            .min(&(SymExpr::Value(c) * b))
+                            .simplify()
+                    }
+                    (SymExpr::Value(c), SymExpr::Broadcast(a, b)) if c > 0 => {
+                        let a = Arc::unwrap_or_clone(a);
+                        let b = Arc::unwrap_or_clone(b);
+                        (SymExpr::Value(c) * a)
+                            .broadcast(&(SymExpr::Value(c) * b))
+                            .simplify()
+                    }
                     (lhs, rhs) => lhs * rhs,
                 }
             }
@@ -1269,6 +1293,42 @@ mod tests {
         let expr = SymExpr::from(2) * (x.clone() + y.clone());
         let simplified = expr.simplify();
         assert_eq!(simplified, SymExpr::from(2) * (x + y));
+    }
+
+    // Check that `c * f(a, b)` distributes to `f(c*a, c*b)` for positive c
+    // when f is Max, Min, or Broadcast.
+    #[test]
+    fn test_simplify_mul_distributes_over_max_min_broadcast() {
+        let x = SymExpr::pos_var("x");
+        let y = SymExpr::pos_var("y");
+
+        // Max
+        let expr = SymExpr::from(2) * SymExpr::from(3).max(&x);
+        assert_eq!(
+            expr.simplify(),
+            SymExpr::from(6).max(&(SymExpr::from(2) * x.clone()))
+        );
+
+        // Min
+        let expr = SymExpr::from(2) * SymExpr::from(3).min(&x);
+        assert_eq!(
+            expr.simplify(),
+            SymExpr::from(6).min(&(SymExpr::from(2) * x.clone()))
+        );
+
+        // Broadcast — use two symbolic operands since the existing Broadcast
+        // simplifier collapses `broadcast(value≠1, _)` to that value.
+        let expr = SymExpr::from(2) * x.broadcast(&y);
+        assert_eq!(
+            expr.simplify(),
+            (SymExpr::from(2) * x.clone()).broadcast(&(SymExpr::from(2) * y.clone()))
+        );
+
+        // Doesn't fire for non-positive c (negative c would flip Max/Min and
+        // we don't model that).
+        let expr = SymExpr::from(-2) * x.clone().max(&y);
+        let simplified = expr.simplify();
+        assert!(!matches!(simplified, SymExpr::Max(..)));
     }
 
     #[test]
