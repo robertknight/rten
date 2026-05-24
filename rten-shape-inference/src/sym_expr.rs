@@ -357,6 +357,22 @@ impl SymExpr {
                     (lhs, SymExpr::Value(0)) => lhs,
                     (SymExpr::Value(x), SymExpr::Value(y)) => SymExpr::Value(x + y),
                     (lhs, SymExpr::Neg(rhs)) if lhs == *rhs => SymExpr::Value(0),
+                    // Fold a constant into a nested Add: `c1 + (c2 + x)` =>
+                    // `(c1+c2) + x`. This pattern can arise after the Mul-over-
+                    // Add distribution rule leaves nested Adds with separate
+                    // constants — canonicalize wouldn't have flattened them
+                    // because they were created mid-simplification.
+                    (SymExpr::Value(x), SymExpr::Add(a, b)) => match (a.as_ref(), b.as_ref()) {
+                        (SymExpr::Value(y), _) => {
+                            let b = Arc::unwrap_or_clone(b);
+                            (SymExpr::Value(x + y) + b).simplify_canonical()
+                        }
+                        (_, SymExpr::Value(y)) => {
+                            let a = Arc::unwrap_or_clone(a);
+                            (SymExpr::Value(x + y) + a).simplify_canonical()
+                        }
+                        _ => SymExpr::Value(x) + SymExpr::Add(a, b),
+                    },
                     (lhs, rhs) => lhs + rhs,
                 }
             }
@@ -379,6 +395,17 @@ impl SymExpr {
                     (SymExpr::Value(1), rhs) => rhs,
                     (lhs, SymExpr::Value(1)) => lhs,
                     (SymExpr::Value(x), SymExpr::Value(y)) => SymExpr::Value(x * y),
+                    // Distribute over addition when at least one addend is a
+                    // constant. This lets the constant fold with the outer
+                    // factor and collapses chains like `c1 * (c2 + x)`.
+                    (SymExpr::Value(c), SymExpr::Add(a, b))
+                        if matches!(a.as_ref(), SymExpr::Value(_))
+                            || matches!(b.as_ref(), SymExpr::Value(_)) =>
+                    {
+                        let a = Arc::unwrap_or_clone(a);
+                        let b = Arc::unwrap_or_clone(b);
+                        (SymExpr::Value(c) * a + SymExpr::Value(c) * b).simplify()
+                    }
                     (lhs, rhs) => lhs * rhs,
                 }
             }
@@ -1214,6 +1241,34 @@ mod tests {
         let expr = (x.clone() * c1) * (x.clone() * c2);
         let simplified = expr.simplify();
         assert_eq!(simplified, SymExpr::from(12) * x.clone() * x);
+    }
+
+    // Check that `c1 * (c2 + x)` distributes to `c1*c2 + c1*x`, so the
+    // constants fold instead of staying nested.
+    #[test]
+    fn test_simplify_mul_distributes_over_add() {
+        let x = SymExpr::pos_var("x");
+
+        // 2 * (3 + x) => 6 + 2*x
+        let expr = SymExpr::from(2) * (SymExpr::from(3) + x.clone());
+        assert_eq!(
+            expr.simplify(),
+            SymExpr::from(6) + SymExpr::from(2) * x.clone()
+        );
+
+        // Nested chain: 2 + 2 * (1 + 2 * (-1 + 8 * x)) => 32 * x
+        let expr = SymExpr::from(2)
+            + SymExpr::from(2)
+                * (SymExpr::from(1)
+                    + SymExpr::from(2) * (SymExpr::from(-1) + SymExpr::from(8) * x.clone()));
+        assert_eq!(expr.simplify(), SymExpr::from(32) * x.clone());
+
+        // Don't distribute when neither addend is a constant: 2 * (x + y)
+        // stays as-is (avoid trading one Mul for two Muls and an Add).
+        let y = SymExpr::pos_var("y");
+        let expr = SymExpr::from(2) * (x.clone() + y.clone());
+        let simplified = expr.simplify();
+        assert_eq!(simplified, SymExpr::from(2) * (x + y));
     }
 
     #[test]
