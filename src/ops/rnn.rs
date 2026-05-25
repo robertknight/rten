@@ -2,10 +2,12 @@ use std::iter::Rev;
 use std::ops::Range;
 
 use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmOptions};
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext, static_dims,
@@ -28,6 +30,15 @@ impl Direction {
         match self {
             Self::Forward | Self::Reverse => 1,
             Self::Bidirectional => 2,
+        }
+    }
+}
+
+impl From<Direction> for shape_ops::Direction {
+    fn from(direction: Direction) -> Self {
+        match direction {
+            Direction::Forward | Direction::Reverse => Self::Unidirectional,
+            Direction::Bidirectional => Self::Bidirectional,
         }
     }
 }
@@ -353,7 +364,19 @@ impl Operator for GRU {
             OutputType::Fixed(ValueType::Tensor(DataType::Float)),
         ]))
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    GRU,
+    op,
+    shape_ops::GRU {
+        direction: op.direction.into(),
+    }
+);
 
 /// Long Short-Term Memory operator.
 #[derive(Debug)]
@@ -608,7 +631,19 @@ impl Operator for LSTM {
             OutputType::Fixed(ValueType::Tensor(DataType::Float)),
         ]))
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    LSTM,
+    op,
+    shape_ops::LSTM {
+        direction: op.direction.into(),
+    }
+);
 
 #[cfg(test)]
 mod tests {
