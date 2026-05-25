@@ -90,6 +90,33 @@ impl InferShapes for ConstantOfShape {
     }
 }
 
+/// Dropout operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Dropout.html>.
+pub struct Dropout;
+
+impl InferShapes for Dropout {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let Some(data) = inputs.first() else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let shape = if let Some(dims) = data.shape() {
+            SymTensor::from_shape(dims.collect())
+        } else {
+            SymTensor::unknown("unknown input shape")
+        };
+
+        // Output 0 is the dropped-out data; output 1 is the boolean mask. Both
+        // have the same shape as the input.
+        Ok([shape.clone(), shape].into())
+    }
+}
+
 /// DynamicQuantizeLinear operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__DynamicQuantizeLinear.html>.
@@ -415,8 +442,8 @@ mod tests {
     use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
     use super::{
-        ConstantOfShape, DynamicQuantizeLinear, FixedShape, Gather, GatherElements, NonZero, Range,
-        TopK, Where,
+        ConstantOfShape, Dropout, DynamicQuantizeLinear, FixedShape, Gather, GatherElements,
+        NonZero, Range, TopK, Where,
     };
 
     #[test]
@@ -446,6 +473,23 @@ mod tests {
         let op = ConstantOfShape { value: Some(1) };
         let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!(2, 2));
+    }
+
+    #[test]
+    fn test_dropout() {
+        let mut sym_gen = SymbolGen::new();
+        let data = sym_shape!("batch", 16, 32);
+        let result = Dropout.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], sym_shape!("batch", 16, 32));
+        assert_eq!(result[1], sym_shape!("batch", 16, 32));
+
+        // Unknown input shape.
+        let data = SymTensor::unknown("unknown");
+        let result = Dropout.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].ndim(), None);
+        assert_eq!(result[1].ndim(), None);
     }
 
     #[test]
