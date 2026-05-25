@@ -379,6 +379,23 @@ impl InferShapes for FixedShape<'_> {
     }
 }
 
+/// NonMaxSuppression operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__NonMaxSuppression.html>.
+pub struct NonMaxSuppression;
+
+impl InferShapes for NonMaxSuppression {
+    fn infer_shapes(
+        &self,
+        _inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        // Output is `(num_selected, 3)`. `num_selected` is data-dependent.
+        let out_shape = vec![sym_gen.gen_positive(), SymExpr::Value(3)];
+        Ok([SymTensor::from_shape(out_shape)].into())
+    }
+}
+
 /// Range operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Range.html>.
@@ -547,7 +564,7 @@ mod tests {
 
     use super::{
         ConstantOfShape, Dropout, DynamicQuantizeLinear, FixedShape, Gather, GatherElements,
-        GatherND, GridSample, NonZero, Range, TopK, Where,
+        GatherND, GridSample, NonMaxSuppression, NonZero, Range, TopK, Where,
     };
 
     #[test]
@@ -781,6 +798,22 @@ mod tests {
         let result = NonZero.infer_shapes(&[data], &mut sym_gen).unwrap();
         let shape: Vec<_> = result[0].shape().unwrap().collect();
         assert_eq!(shape.len(), 2);
+    }
+
+    #[test]
+    fn test_non_max_suppression() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Output is `(num_selected, 3)` with a symbolic first dim.
+        let boxes = sym_shape!(1, 100, 4);
+        let scores = sym_shape!(1, 80, 100);
+        let result = NonMaxSuppression
+            .infer_shapes(&[boxes, scores], &mut sym_gen)
+            .unwrap();
+        let shape: Vec<_> = result[0].shape().unwrap().collect();
+        assert_eq!(shape.len(), 2);
+        assert!(matches!(shape[0], SymExpr::Var(_)));
+        assert_eq!(shape[1], SymExpr::Value(3));
     }
 
     #[test]
