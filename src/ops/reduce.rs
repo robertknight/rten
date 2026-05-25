@@ -258,6 +258,10 @@ impl Operator for CumSum {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&rten_shape_inference::UnaryOp)
+    }
 }
 
 /// Return the indices of nonzero elements in `input` as a `(dim, index)` tensor.
