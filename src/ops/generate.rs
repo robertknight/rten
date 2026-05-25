@@ -7,7 +7,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::infer_shapes::{InferShapes, impl_infer_shapes};
+use crate::infer_shapes::{InferShapes, UnaryOp, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext, static_dims,
@@ -275,6 +275,10 @@ impl Operator for EyeLike {
             }]
             .into(),
         )
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 }
 

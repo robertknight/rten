@@ -2,6 +2,7 @@ use rten_tensor::{AsView, Layout, NdTensorView, SliceRange, Tensor, TensorView};
 
 use crate::{
     buffer_pool::{AutoReturn, BufferPool},
+    infer_shapes::{InferShapes, UnaryOp},
     operator::{
         IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
         OutputTypesContext,
@@ -168,6 +169,10 @@ impl Operator for RotaryEmbedding {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
 }
 
 #[derive(Debug)]
@@ -217,6 +222,10 @@ impl Operator for RotaryEmbeddingMicrosoft {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
     }
 }
 

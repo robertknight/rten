@@ -622,6 +622,10 @@ impl Operator for SkipSimplifiedLayerNormalization {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
 }
 
 /// Root Mean Square normalization.
