@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use rten_base::num::AsUsize;
+use rten_shape_inference::einsum_parser::{EinsumExpr, ValidateError, expand_ellipsis};
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::layout::{MutLayout, OverlapPolicy};
 use rten_tensor::prelude::*;
 use rten_tensor::{Contiguous, DynLayout, Tensor, TensorView};
@@ -8,126 +10,13 @@ use rten_tensor::{Contiguous, DynLayout, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
 };
 use crate::ops::layout::expand_to;
 use crate::ops::{matmul, mul, reduce_sum};
-
-/// A parsed equation for an Einsum operator.
-///
-/// Einsum expressions have the form `abc,def,...->xyz` where the `->xyz` part
-/// is optional. If ommitted, it is inferred as the alphabetically ordered
-/// set of letters from the left hand side that do not repeat.
-struct EinsumExpr {
-    inputs: Vec<String>,
-    output: String,
-}
-
-impl EinsumExpr {
-    /// Parse an [Einsum expression][einsum].
-    ///
-    /// The expression must contain at least one input term.
-    ///
-    /// [einsum]: https://onnx.ai/onnx/operators/onnx__Einsum.html
-    fn parse(expr: &str) -> Result<EinsumExpr, OpError> {
-        let mut parts = expr.trim().splitn(2, "->").map(|part| part.trim());
-
-        let lhs = match parts.next() {
-            Some(lhs) if !lhs.is_empty() => lhs,
-            _ => {
-                return Err(OpError::InvalidValue(
-                    "Einsum equation must have at least one term",
-                ));
-            }
-        };
-
-        let inputs: Vec<String> = lhs
-            .split(',')
-            .map(|term| non_whitespace_chars(term).collect())
-            .collect();
-        if inputs.iter().any(|term| !is_valid_einsum_term(term)) {
-            return Err(OpError::InvalidValue("Input term is invalid"));
-        }
-
-        let output: String = match parts.next() {
-            Some(rhs) => non_whitespace_chars(rhs).collect(),
-            None => {
-                const N_LETTERS: usize = 26;
-
-                // Count occurences of each lowercase ASCII letter.
-                let mut char_count = [0; N_LETTERS];
-                for ch in inputs
-                    .iter()
-                    .flat_map(|term| term.chars().filter(|c| c.is_ascii_lowercase()))
-                {
-                    let ascii_idx = ch as u8 - b'a';
-                    char_count[ascii_idx.as_usize()] += 1;
-                }
-
-                // Generate output as sequence of alphabetically ordered
-                // letters which appear only once in the input.
-                let mut output = String::with_capacity(N_LETTERS);
-
-                if inputs.iter().any(|term| term.contains("...")) {
-                    output.push_str("...");
-                }
-
-                for i in 0..N_LETTERS as u8 {
-                    if char_count[i.as_usize()] == 1 {
-                        let ascii_ch = b'a' + i;
-                        output.push(ascii_ch as char);
-                    }
-                }
-
-                output
-            }
-        };
-
-        if !is_valid_einsum_term(&output) {
-            return Err(OpError::InvalidValue("Output term is invalid"));
-        }
-        if contains_repeated_chars(&output) {
-            return Err(OpError::InvalidValue(
-                "Einsum output term contains repeated labels",
-            ));
-        }
-
-        Ok(EinsumExpr { inputs, output })
-    }
-
-    /// Return the dimensions in the expression which are summed over.
-    fn reduced_dims(&self) -> Vec<char> {
-        let mut terms = Vec::new();
-        for in_term in &self.inputs {
-            for in_ch in in_term.chars() {
-                if !terms.contains(&in_ch) && !self.output.contains(in_ch) {
-                    terms.push(in_ch);
-                }
-            }
-        }
-        terms
-    }
-}
-
-fn is_valid_einsum_term(term: &str) -> bool {
-    if let Some((lhs, rhs)) = term.split_once("...") {
-        is_valid_einsum_term(lhs) && !rhs.contains("...") && is_valid_einsum_term(rhs)
-    } else {
-        term.chars().all(|c| c.is_ascii_lowercase())
-    }
-}
-
-fn non_whitespace_chars(s: &str) -> impl Iterator<Item = char> + '_ {
-    s.chars().filter(|c| !c.is_ascii_whitespace())
-}
-
-fn contains_repeated_chars(term: &str) -> bool {
-    term.chars()
-        .filter(|c| *c != '.')
-        .any(|c1| term.chars().filter(|c2| c1 == *c2).count() > 1)
-}
 
 #[derive(Debug)]
 pub struct Einsum {
@@ -155,61 +44,48 @@ impl Operator for Einsum {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    Einsum,
+    op,
+    shape_ops::Einsum {
+        equation: &op.equation,
+    }
+);
 
 pub fn einsum(
     pool: &BufferPool,
     inputs: &[TensorView],
     equation_str: &str,
 ) -> Result<Tensor, OpError> {
-    let equation = EinsumExpr::parse(equation_str)?;
-    if equation.inputs.len() != inputs.len() {
-        return Err(OpError::InvalidValue(
-            "Number of terms in Einsum equation does not match input tensor count",
-        ));
-    }
+    let equation =
+        EinsumExpr::parse(equation_str).map_err(|err| OpError::InvalidValue(err.as_str()))?;
 
-    // Maximum number of dimensions allowed. This value is chosen to make it
-    // easy to use single digits to represent broadcasting dimensions in terms.
-    const MAX_DIMS: usize = 10;
-
-    // Number of dimensions represented by "..." in equation. This must be the
-    // same for every term.
-    let mut broadcast_ndim = None;
-    for (term, view) in equation.inputs.iter().zip(inputs) {
-        let non_broadcast_ndim = term.split("...").fold(0, |len, term| len + term.len());
-        if view.ndim() < non_broadcast_ndim {
-            return Err(OpError::InvalidValue(
-                "Einsum term dimension count does not match input tensor",
-            ));
-        }
-        if non_broadcast_ndim > MAX_DIMS || view.ndim() > MAX_DIMS {
-            return Err(OpError::UnsupportedValue(
-                "Einsum input or term has too many dimensions",
-            ));
-        }
-
-        if term.contains("...") {
-            let new_broadcast_ndim = (view.ndim() - non_broadcast_ndim) as u8;
-            match broadcast_ndim {
-                None => {
-                    broadcast_ndim = Some(new_broadcast_ndim);
-                }
-                Some(b) if b == new_broadcast_ndim => {}
-                _ => {
-                    return Err(OpError::InvalidValue(
-                        "Number of broadcast dims does not match across inputs",
-                    ));
-                }
+    let broadcast_ndim = equation
+        .validate_inputs(inputs.iter().map(|view| Some(view.ndim())))
+        .map_err(|err| match err {
+            ValidateError::IncorrectInputCount => OpError::InvalidValue(
+                "Number of terms in Einsum equation does not match input tensor count",
+            ),
+            ValidateError::TooManyDims => {
+                OpError::UnsupportedValue("Einsum input or term has too many dimensions")
             }
-        } else if term.len() != view.ndim() {
-            return Err(OpError::InvalidValue(
-                "Einsum term dimension count does not match input tensor",
-            ));
-        }
-    }
+            ValidateError::BroadcastMismatch => {
+                OpError::InvalidValue("Number of broadcast dims does not match across inputs")
+            }
+            ValidateError::RankMismatch => {
+                OpError::InvalidValue("Einsum term dimension count does not match input tensor")
+            }
+            // Should not happen as the rank of every input is known.
+            ValidateError::UnknownRank => unreachable!(),
+        })? as u8;
 
-    let path = einsum_path(&equation, broadcast_ndim.unwrap_or(0));
+    let path = einsum_path(&equation, broadcast_ndim);
 
     let mut output: Option<PoolRef<Tensor>> = None;
     for step in &path {
@@ -574,36 +450,15 @@ impl EinsumStep {
     }
 }
 
-/// Replace an ellipsis representing a fixed number of dimensions with a
-/// sequence of numbers.
-///
-/// Numbers are used because they are not allowed as dimension labels in
-/// input Einsum equations.
-///
-/// eg. `replace_ellipsis("i...j", 3)` returns `"i012j"`.
-fn replace_ellipsis(term: &str, broadcast_ndim: u8) -> String {
-    assert!(broadcast_ndim <= 10);
-
-    let zero = b'0';
-    if let Some((lhs, rhs)) = term.split_once("...") {
-        lhs.chars()
-            .chain((0..broadcast_ndim).map(|i| (zero + i) as char))
-            .chain(rhs.chars())
-            .collect()
-    } else {
-        term.to_string()
-    }
-}
-
 /// Convert an Einsum expression with many inputs into a sequence of steps which
 /// each processes one or two inputs.
 ///
 /// `broadcast_ndim` specifies how many dimensions ellipses in input and output
 /// terms stand for. The ellipses are replaced with digit labels in the path.
 fn einsum_path(expr: &EinsumExpr, broadcast_ndim: u8) -> Vec<EinsumStep> {
-    let output = replace_ellipsis(&expr.output, broadcast_ndim);
+    let output = expand_ellipsis(&expr.output, broadcast_ndim as usize);
     let input_term = |term: &str, index: u32| EinsumTerm {
-        term: replace_ellipsis(term, broadcast_ndim),
+        term: expand_ellipsis(term, broadcast_ndim as usize),
         input: EinsumInput::Index(index),
     };
 

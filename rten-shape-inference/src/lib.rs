@@ -60,6 +60,7 @@
 //! named symbols, or composite expressions involving these. Values are
 //! represented by [`SymTensor`] and expressions by [`SymExpr`].
 
+pub mod einsum_parser;
 mod infer_shapes;
 pub mod ops;
 mod sym_expr;

@@ -11,6 +11,7 @@ use crate::sym_tensor::{Constant, SymTensor};
 mod binary;
 mod concat;
 mod conv_pool;
+mod einsum;
 mod generate;
 mod layout;
 mod matmul;
@@ -24,6 +25,7 @@ mod unary;
 pub use binary::{Add, Div, Equal, Mul, Sub};
 pub use concat::{Concat, Tile};
 pub use conv_pool::{Conv, ConvTranspose, GlobalPool, Padding, Pool};
+pub use einsum::Einsum;
 pub use generate::OneHot;
 pub use layout::{
     DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
