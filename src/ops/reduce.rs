@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use rten_base::num::{Identities, IsNaN, MinMax};
+use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor;
 use rten_tensor::prelude::*;
@@ -9,7 +10,9 @@ use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
-use crate::infer_shapes::{InferShapes, InferShapesError, ReductionOp, SymTensor, SymbolGen};
+use crate::infer_shapes::{
+    InferShapes, InferShapesError, ReductionOp, SymTensor, SymbolGen, impl_infer_shapes,
+};
 use crate::operator::{
     InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
     OutputTypeList, OutputTypesContext,
@@ -1191,7 +1194,19 @@ impl Operator for TopK {
             OutputType::Fixed(ValueType::Tensor(DataType::Int32)),
         ]))
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    TopK,
+    op,
+    shape_ops::TopK {
+        axis: op.axis.map(|a| a as i32),
+    }
+);
 
 #[cfg(test)]
 mod tests {
