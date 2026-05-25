@@ -1,9 +1,10 @@
 use fastrand::Rng;
 use fastrand_contrib::RngExt;
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
-use crate::infer_shapes::{InferShapes, UnaryOp};
+use crate::infer_shapes::{InferShapes, UnaryOp, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
@@ -51,7 +52,17 @@ impl Operator for RandomUniform {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    RandomUniform,
+    op,
+    shape_ops::FixedShape { shape: &op.shape }
+);
 
 #[derive(Debug)]
 pub struct RandomUniformLike {
@@ -146,7 +157,13 @@ impl Operator for RandomNormal {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(RandomNormal, op, shape_ops::FixedShape { shape: &op.shape });
 
 #[derive(Debug)]
 pub struct RandomNormalLike {
