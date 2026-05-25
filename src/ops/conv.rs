@@ -525,7 +525,21 @@ impl Operator for ConvInteger {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    ConvInteger,
+    op,
+    shape_ops::Conv {
+        strides: &op.strides,
+        dilations: &op.dilations,
+        padding: op.padding.as_shape_inference_padding(),
+    }
+);
 
 #[cfg(test)]
 mod tests {
