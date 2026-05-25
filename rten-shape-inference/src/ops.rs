@@ -24,7 +24,9 @@ pub use binary::{Add, Div, Equal, Mul, Sub};
 pub use concat::{Concat, Tile};
 pub use conv_pool::{Conv, ConvTranspose, GlobalPool, Padding, Pool};
 pub use generate::OneHot;
-pub use layout::{Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze};
+pub use layout::{
+    DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
+};
 pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use pad::Pad;
 pub use resize::Resize;
