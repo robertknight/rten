@@ -298,6 +298,34 @@ impl InferShapes for Shape {
     }
 }
 
+/// Size operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Size.html>.
+pub struct Size;
+
+impl InferShapes for Size {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [input] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        // The value of the output is the product of the input's dimensions,
+        // when they are known.
+        let value = if let Some(dims) = input.shape() {
+            let prod = dims.fold(SymExpr::Value(1), |prod, d| prod * d).simplify();
+            SymTensor::from_scalar(prod)
+        } else {
+            SymTensor::from_shape(vec![])
+        };
+
+        Ok([value].into())
+    }
+}
+
 /// Squeeze operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Squeeze.html>.
@@ -470,7 +498,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
-    use super::{Expand, Flatten, Reshape, Shape, Squeeze, Transpose, Unsqueeze};
+    use super::{Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze};
 
     #[test]
     fn test_expand() {
@@ -671,6 +699,31 @@ mod tests {
         };
         let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_vec!("seq"));
+    }
+
+    #[test]
+    fn test_size() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Fully fixed shape — result is a known scalar.
+        let data = sym_shape!(2, 3, 4);
+        let result = Size.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result[0], SymTensor::from_scalar(SymExpr::Value(24)));
+
+        // Symbolic dims — result is a scalar product expression.
+        let data = sym_shape!("batch", 16, "seq");
+        let result = Size.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0],
+            SymTensor::from_scalar(
+                SymExpr::from("batch") * SymExpr::from(16) * SymExpr::from("seq")
+            )
+        );
+
+        // Unknown input shape — result is a scalar with unknown value.
+        let data = SymTensor::unknown("unknown");
+        let result = Size.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result[0].ndim(), Some(0));
     }
 
     #[test]

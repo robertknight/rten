@@ -516,7 +516,13 @@ impl Operator for Size {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(Size, _op, shape_ops::Size);
 
 pub fn squeeze_in_place<T: Clone>(
     input: &mut Tensor<T>,
