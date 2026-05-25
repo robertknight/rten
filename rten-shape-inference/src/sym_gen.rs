@@ -50,6 +50,11 @@ impl SymbolGen {
             .into(),
         )
     }
+
+    /// Generate a shape with dimensions of unknown size.
+    pub fn gen_shape(&mut self, ndim: usize) -> Vec<SymExpr> {
+        (0..ndim).map(|_| self.gen_positive()).collect()
+    }
 }
 
 #[cfg(test)]

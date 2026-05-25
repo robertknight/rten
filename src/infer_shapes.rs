@@ -7,6 +7,7 @@ use std::fmt;
 use rten_base::num::AsUsize;
 
 use crate::env::env_flag;
+use crate::graph;
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, TypedConstant};
 use crate::operator::{OutputType, OutputTypesContext};
 use crate::value::ValueType;
@@ -316,6 +317,57 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
     })
 }
 
+/// Convert a `f32` value to `i32` if it represents an exact integer that
+/// fits in the `i32` range.
+fn f32_to_int_checked(x: f32) -> Option<i32> {
+    // `i32::MIN as f32` preserves the exact value. `i32::MAX as f32` rounds up
+    // by one. Hence we use an exclusive upper bound.
+    if x.is_finite() && x.fract() == 0.0 && x >= (i32::MIN as f32) && x < (i32::MAX as f32) {
+        Some(x as i32)
+    } else {
+        None
+    }
+}
+
+/// Extract a constant's scalar value as a symbolic values.
+///
+/// This supports `i32` constants and `f32` constants whose value is an
+/// exact integer.
+fn const_to_sym_scalar(constant: &graph::Constant) -> Option<SymExpr> {
+    let int_val: Option<i32> = constant.as_scalar();
+    if let Some(val) = int_val {
+        return Some(SymExpr::Value(val));
+    }
+
+    let float_val: Option<f32> = constant.as_scalar();
+    if let Some(val) = float_val.and_then(f32_to_int_checked) {
+        return Some(SymExpr::Value(val));
+    }
+
+    None
+}
+
+/// Extract a constant's 1D values as symbolic values.
+///
+/// This supports `i32` vectors and `f32` vectors whose values are all exact
+/// integers.
+fn const_to_sym_vector(constant: &graph::Constant) -> Option<Vec<SymExpr>> {
+    let int_vec: Option<&[i32]> = constant.as_vector();
+    if let Some(int_vec) = int_vec {
+        return Some(int_vec.into_iter().copied().map(SymExpr::Value).collect());
+    }
+
+    let float_vec: Option<&[f32]> = constant.as_vector();
+    if let Some(float_vec) = float_vec {
+        return float_vec
+            .into_iter()
+            .map(|&f| f32_to_int_checked(f).map(SymExpr::Value))
+            .collect();
+    }
+
+    None
+}
+
 /// Convert an operator input into a symbolic tensor.
 ///
 /// If the input is a constant, we can use its shape and values directly. If
@@ -329,14 +381,14 @@ fn sym_tensor_from_input(
 ) -> SymTensor {
     match node {
         Node::Constant(constant) => {
-            // `as_scalar` will return a value if the constant is a vector
-            // with one item. Only convert to a scalar if it is actually scalar.
-            if let Some(scalar) = constant.as_scalar()
+            // `const_to_sym_scalar` will return a value if the constant is a
+            // vector with one item. Only convert to a scalar if it is actually
+            // scalar.
+            if let Some(scalar) = const_to_sym_scalar(constant)
                 && constant.ndim() == 0
             {
-                SymTensor::from_scalar(SymExpr::Value(scalar))
-            } else if let Some(vec) = constant.as_vector() {
-                let vec = vec.iter().copied().map(SymExpr::Value).collect();
+                SymTensor::from_scalar(scalar)
+            } else if let Some(vec) = const_to_sym_vector(constant) {
                 SymTensor::from_vec(vec)
             } else {
                 SymTensor::from_fixed_shape(constant.shape())
