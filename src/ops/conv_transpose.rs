@@ -4,10 +4,12 @@ use rayon::prelude::*;
 use rten_base::iter::range_chunks;
 use rten_base::num::div_ceil;
 use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext, static_dims,
@@ -395,7 +397,24 @@ impl Operator for ConvTranspose {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(ConvTranspose, op, {
+    let spatial_dims = op.strides.len().min(2);
+    shape_ops::ConvTranspose {
+        groups: op.groups,
+        padding: op.padding.as_shape_inference_padding(),
+        strides: &op.strides,
+        // ConvTranspose operator doesn't support dilations yet so we always
+        // pass 1s here.
+        dilations: &[1, 1][..spatial_dims],
+        output_padding: op.output_padding.as_deref(),
+    }
+});
 
 #[cfg(test)]
 mod tests {
