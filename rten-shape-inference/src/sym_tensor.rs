@@ -246,7 +246,7 @@ impl SymTensor {
 }
 
 #[cfg(test)]
-pub(crate) use tests::{sym_elems, sym_shape, sym_vec};
+pub(crate) use tests::{sym_elems, sym_scalar, sym_shape, sym_vec};
 
 #[cfg(test)]
 mod tests {
@@ -256,6 +256,13 @@ mod tests {
     macro_rules! sym_elems {
         ($($x:expr),* $(,)?) => {
             vec![$(SymExpr::from($x)),*]
+        };
+    }
+
+    /// Create a symbolic scalar from a symbol name or value.
+    macro_rules! sym_scalar {
+        ($x:expr) => {
+            SymTensor::from_scalar(SymExpr::from($x))
         };
     }
 
@@ -273,7 +280,7 @@ mod tests {
         };
     }
 
-    pub(crate) use {sym_elems, sym_shape, sym_vec};
+    pub(crate) use {sym_elems, sym_scalar, sym_shape, sym_vec};
 
     #[test]
     fn test_scalar() {

@@ -1,9 +1,11 @@
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, TensorView};
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex32;
 
 use crate::buffer_pool::BufferPool;
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
@@ -158,7 +160,19 @@ impl Operator for STFT {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    STFT,
+    op,
+    shape_ops::STFT {
+        onesided: op.onesided,
+    }
+);
 
 #[cfg(test)]
 mod tests {
