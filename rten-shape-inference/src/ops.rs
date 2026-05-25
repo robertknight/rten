@@ -254,6 +254,21 @@ impl InferShapes for GatherElements {
     }
 }
 
+/// Operator which produces a tensor of a fixed shape.
+pub struct FixedShape<'a> {
+    pub shape: &'a [usize],
+}
+
+impl InferShapes for FixedShape<'_> {
+    fn infer_shapes(
+        &self,
+        _inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        Ok([SymTensor::from_fixed_shape(self.shape)].into())
+    }
+}
+
 /// Range operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Range.html>.
@@ -421,7 +436,8 @@ mod tests {
     use crate::sym_tensor::{SymTensor, sym_elems, sym_shape, sym_vec};
 
     use super::{
-        Concat, ConstantOfShape, DynamicQuantizeLinear, Gather, GatherElements, Range, TopK, Where,
+        Concat, ConstantOfShape, DynamicQuantizeLinear, FixedShape, Gather, GatherElements, Range,
+        TopK, Where,
     };
 
     fn extract_shape(mut result: Vec<SymTensor>) -> Vec<SymExpr> {
@@ -557,6 +573,19 @@ mod tests {
             .infer_shapes(&[data, indices], &mut sym_gen)
             .unwrap();
         assert_eq!(result[0].ndim(), None);
+    }
+
+    #[test]
+    fn test_fixed_shape() {
+        let mut sym_gen = SymbolGen::new();
+        let op = FixedShape { shape: &[2, 3, 4] };
+        let result = op.infer_shapes(&[], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(2, 3, 4));
+
+        // Zero-dim shape produces a scalar tensor.
+        let op = FixedShape { shape: &[] };
+        let result = op.infer_shapes(&[], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!());
     }
 
     #[test]
