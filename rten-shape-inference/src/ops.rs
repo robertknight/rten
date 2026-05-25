@@ -9,6 +9,7 @@ use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::{Constant, SymTensor};
 
 mod binary;
+mod concat;
 mod conv_pool;
 mod layout;
 mod matmul;
@@ -19,6 +20,7 @@ mod split;
 mod unary;
 
 pub use binary::{Add, Div, Equal, Mul, Sub};
+pub use concat::Tile;
 pub use conv_pool::{Conv, ConvTranspose, GlobalPool, Padding, Pool};
 pub use layout::{Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze};
 pub use matmul::{Gemm, MatMul, MatMulNBits};
