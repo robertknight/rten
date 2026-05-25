@@ -317,7 +317,13 @@ impl Operator for NonZero {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(NonZero, _op, shape_ops::NonZero);
 
 /// Manages a scratch buffer allocated from a pool.
 struct TempBuffer<'a, T> {
