@@ -326,7 +326,13 @@ impl Operator for GatherElements {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(GatherElements, _op, shape_ops::GatherElements);
 
 pub fn gather_nd<T: Clone + Default>(
     pool: &BufferPool,

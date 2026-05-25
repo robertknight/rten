@@ -229,6 +229,31 @@ impl InferShapes for Gather {
     }
 }
 
+/// GatherElements operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__GatherElements.html>.
+pub struct GatherElements;
+
+impl InferShapes for GatherElements {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [_data, indices] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let shape = if let Some(dims) = indices.shape() {
+            SymTensor::from_shape(dims.collect())
+        } else {
+            SymTensor::unknown("unknown indices shape")
+        };
+
+        Ok([shape].into())
+    }
+}
+
 /// Range operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Range.html>.
@@ -352,7 +377,9 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_elems, sym_shape, sym_vec};
 
-    use super::{Concat, ConstantOfShape, DynamicQuantizeLinear, Gather, Range, Where};
+    use super::{
+        Concat, ConstantOfShape, DynamicQuantizeLinear, Gather, GatherElements, Range, Where,
+    };
 
     fn extract_shape(mut result: Vec<SymTensor>) -> Vec<SymExpr> {
         result.remove(0).shape().unwrap().collect()
@@ -466,6 +493,27 @@ mod tests {
         let op = Gather { axis: 0 };
         let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!("n_tokens", "embed"));
+    }
+
+    #[test]
+    fn test_gather_elements() {
+        let mut sym_gen = SymbolGen::new();
+
+        // Output shape = indices shape.
+        let data = sym_shape!(4, 3, 2);
+        let indices = sym_shape!(2, 3, 2);
+        let result = GatherElements
+            .infer_shapes(&[data, indices], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!(2, 3, 2));
+
+        // Unknown indices shape.
+        let data = sym_shape!(4, 3, 2);
+        let indices = SymTensor::unknown("unknown");
+        let result = GatherElements
+            .infer_shapes(&[data, indices], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0].ndim(), None);
     }
 
     #[test]
