@@ -306,7 +306,13 @@ impl Operator for Tile {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(Tile, _op, shape_ops::Tile);
 
 #[cfg(test)]
 mod tests {
