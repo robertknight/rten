@@ -291,7 +291,13 @@ impl Operator for Dropout {
             OutputType::Fixed(ValueType::Tensor(DataType::Int32)),
         ]))
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(Dropout, _op, shape_ops::Dropout);
 
 #[cfg(test)]
 mod tests {
