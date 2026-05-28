@@ -458,7 +458,19 @@ impl Operator for GatherND {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    GatherND,
+    op,
+    shape_ops::GatherND {
+        batch_dims: op.batch_dims,
+    }
+);
 
 // Specifies how to combine an existing element value with an update in a
 // scatter operation.
