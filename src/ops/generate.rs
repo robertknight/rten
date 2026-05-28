@@ -149,7 +149,19 @@ impl Operator for OneHot {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(2)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    OneHot,
+    op,
+    shape_ops::OneHot {
+        axis: op.axis as i32,
+    }
+);
 
 pub fn range<T: Copy + Default + ops::Add<Output = T> + PartialOrd>(
     start: T,
