@@ -87,7 +87,19 @@ impl Operator for DepthToSpace {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    DepthToSpace,
+    op,
+    shape_ops::DepthToSpace {
+        block_size: op.block_size,
+    }
+);
 
 /// Return the tensor shape resulting from broadcasting `input_shape` with `shape`.
 fn expand_output_shape(

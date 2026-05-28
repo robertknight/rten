@@ -326,6 +326,54 @@ impl InferShapes for Size {
     }
 }
 
+/// DepthToSpace operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__DepthToSpace.html>.
+pub struct DepthToSpace {
+    pub block_size: u32,
+}
+
+impl InferShapes for DepthToSpace {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [data] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let Some(dims) = data.shape() else {
+            return Ok([SymTensor::unknown("unknown input shape")].into());
+        };
+
+        let dims: Vec<_> = dims.collect();
+        let [n, c, h, w]: &[SymExpr; 4] = dims
+            .as_slice()
+            .try_into()
+            .map_err(|_| InferShapesError::IncorrectRank)?;
+
+        // Compute `block_size ^ 2` channel divisor, reject if it can't fit in
+        // a `SymExpr` value.
+        let block_sq = self
+            .block_size
+            .checked_mul(self.block_size)
+            .and_then(|sq| i32::try_from(sq).ok())
+            .ok_or(InferShapesError::InvalidValue)?;
+        let block_size = SymExpr::Value(self.block_size as i32);
+        let block_sq = SymExpr::Value(block_sq);
+
+        let out_shape = vec![
+            n.clone(),
+            c.clone() / block_sq,
+            h.clone() * block_size.clone(),
+            w.clone() * block_size,
+        ];
+
+        Ok([SymTensor::from_shape(out_shape)].into())
+    }
+}
+
 /// Squeeze operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Squeeze.html>.
@@ -493,12 +541,14 @@ impl InferShapes for Unsqueeze {
 
 #[cfg(test)]
 mod tests {
-    use crate::infer_shapes::InferShapes;
+    use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
-    use super::{Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze};
+    use super::{
+        DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
+    };
 
     #[test]
     fn test_expand() {
@@ -724,6 +774,43 @@ mod tests {
         let data = SymTensor::unknown("unknown");
         let result = Size.infer_shapes(&[data], &mut sym_gen).unwrap();
         assert_eq!(result[0].ndim(), Some(0));
+    }
+
+    #[test]
+    fn test_depth_to_space() {
+        let mut sym_gen = SymbolGen::new();
+
+        // 4D input with block_size=2.
+        let data = sym_shape!(1, 8, 4, 6);
+        let op = DepthToSpace { block_size: 2 };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(result[0].clone().simplify(), sym_shape!(1, 2, 8, 12));
+
+        // Symbolic input.
+        let data = sym_shape!("batch", "chans", "h", "w");
+        let op = DepthToSpace { block_size: 2 };
+        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        assert_eq!(
+            result[0].clone().simplify(),
+            sym_shape!(
+                "batch",
+                SymExpr::from("chans") / SymExpr::from(4),
+                SymExpr::from("h") * SymExpr::from(2),
+                SymExpr::from("w") * SymExpr::from(2),
+            )
+        );
+
+        // Wrong rank.
+        let data = sym_shape!(1, 8, 4);
+        let op = DepthToSpace { block_size: 2 };
+        let err = op.infer_shapes(&[data], &mut sym_gen).unwrap_err();
+        assert_eq!(err, InferShapesError::IncorrectRank);
+
+        // Block size whose square exceeds `i32::MAX` (but fits in `u32`).
+        let data = sym_shape!("batch", "chans", "h", "w");
+        let op = DepthToSpace { block_size: 50_000 };
+        let err = op.infer_shapes(&[data], &mut sym_gen).unwrap_err();
+        assert_eq!(err, InferShapesError::InvalidValue);
     }
 
     #[test]
