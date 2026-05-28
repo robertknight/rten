@@ -236,6 +236,64 @@ impl InferShapes for GatherElements {
     }
 }
 
+/// GatherND operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__GatherND.html>.
+pub struct GatherND {
+    pub batch_dims: usize,
+}
+
+impl InferShapes for GatherND {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [data, indices] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+
+        let Some(data_dims) = data.shape() else {
+            return Ok([SymTensor::unknown("unknown data shape")].into());
+        };
+        let Some(indices_dims) = indices.shape() else {
+            return Ok([SymTensor::unknown("unknown indices shape")].into());
+        };
+
+        let indices_shape: Vec<SymExpr> = indices_dims.collect();
+
+        // The last dim of indices is the size of the index tuple. We need this
+        // to be a concrete value to determine which input dimensions are
+        // gathered vs. preserved.
+        let idx_tuple_size = match indices_shape.last() {
+            Some(&SymExpr::Value(v)) => {
+                usize::try_from(v).map_err(|_| InferShapesError::InvalidValue)?
+            }
+            Some(_) => {
+                return Ok([SymTensor::unknown("unknown index tuple size")].into());
+            }
+            None => {
+                return Err(InferShapesError::IncorrectRank);
+            }
+        };
+
+        let suffix_start = self.batch_dims + idx_tuple_size;
+        if suffix_start > data_dims.len() {
+            return Err(InferShapesError::IncorrectRank);
+        }
+        let idx_len = indices_shape.len() - 1;
+
+        // Output shape = indices.shape[:-1] + data.shape[batch_dims + idx_tuple_size:]
+        let out_shape: Vec<SymExpr> = indices_shape
+            .into_iter()
+            .take(idx_len)
+            .chain(data_dims.skip(suffix_start))
+            .collect();
+
+        Ok([SymTensor::from_shape(out_shape)].into())
+    }
+}
+
 /// NonZero operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__NonZero.html>.
@@ -438,14 +496,14 @@ impl InferShapes for Where {
 
 #[cfg(test)]
 mod tests {
-    use crate::infer_shapes::InferShapes;
+    use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
     use super::{
         ConstantOfShape, Dropout, DynamicQuantizeLinear, FixedShape, Gather, GatherElements,
-        NonZero, Range, TopK, Where,
+        GatherND, NonZero, Range, TopK, Where,
     };
 
     #[test]
@@ -556,6 +614,60 @@ mod tests {
             .infer_shapes(&[data, indices], &mut sym_gen)
             .unwrap();
         assert_eq!(result[0].ndim(), None);
+    }
+
+    #[test]
+    fn test_gather_nd() {
+        let mut sym_gen = SymbolGen::new();
+
+        // No batch dims, index tuple selects entire dimensions.
+        let data = sym_shape!(4, 3, 2);
+        let indices = sym_shape!(2, 1);
+        let op = GatherND { batch_dims: 0 };
+        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(2, 3, 2));
+
+        // Index tuple covers all input dims.
+        let data = sym_shape!(4, 3, 2);
+        let indices = sym_shape!(2, 3);
+        let op = GatherND { batch_dims: 0 };
+        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(2));
+
+        // With batch_dims.
+        let data = sym_shape!(2, 3, 4);
+        let indices = sym_shape!(2, 1);
+        let op = GatherND { batch_dims: 1 };
+        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!(2, 4));
+
+        // Symbolic dims preserved.
+        let data = sym_shape!("batch", "seq", 64);
+        let indices = sym_shape!("batch", "k", 1);
+        let op = GatherND { batch_dims: 1 };
+        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("batch", "k", 64));
+
+        // Unknown data shape.
+        let data = SymTensor::unknown("unknown");
+        let indices = sym_shape!(2, 1);
+        let op = GatherND { batch_dims: 0 };
+        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0].ndim(), None);
+
+        // Symbolic index tuple size — output rank can't be determined.
+        let data = sym_shape!(4, 3, 2);
+        let indices = sym_shape!(2, "k");
+        let op = GatherND { batch_dims: 0 };
+        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        assert_eq!(result[0].ndim(), None);
+
+        // Negative index tuple size — invalid value.
+        let data = sym_shape!(4, 3, 2);
+        let indices = sym_shape!(2, -1);
+        let op = GatherND { batch_dims: 0 };
+        let result = op.infer_shapes(&[data, indices], &mut sym_gen);
+        assert_eq!(result, Err(InferShapesError::InvalidValue));
     }
 
     #[test]
