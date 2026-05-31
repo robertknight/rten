@@ -310,6 +310,32 @@ impl Operator for GroupedQueryAttentionMatMul {
     }
 }
 
+#[derive(Debug)]
+pub struct MultiHeadAttention {
+    pub mask_filter_value: f32,
+    pub num_heads: i64,
+    pub scale: Option<f32>,
+    pub unidirectional: bool,
+}
+
+impl Operator for MultiHeadAttention {
+    fn name(&self) -> &str {
+        "MultiHeadAttention"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(10)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        todo!()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
