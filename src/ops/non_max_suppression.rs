@@ -1,7 +1,9 @@
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
 use crate::buffer_pool::BufferPool;
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
@@ -224,7 +226,13 @@ impl Operator for NonMaxSuppression {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(NonMaxSuppression, _op, shape_ops::NonMaxSuppression);
 
 #[cfg(test)]
 mod tests {
