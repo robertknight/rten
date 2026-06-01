@@ -16,6 +16,7 @@ mod layout;
 mod matmul;
 mod pad;
 mod resize;
+mod rnn;
 mod slice;
 mod split;
 mod unary;
@@ -30,6 +31,7 @@ pub use layout::{
 pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use pad::Pad;
 pub use resize::Resize;
+pub use rnn::{Direction, GRU, LSTM};
 pub use slice::Slice;
 pub use split::Split;
 pub use unary::Neg;
