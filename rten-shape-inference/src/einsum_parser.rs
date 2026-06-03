@@ -17,6 +17,9 @@ pub enum ParseError {
     InvalidOutputTerm,
     /// The output term contains a repeated label.
     RepeatedOutputLabels,
+    /// The output term contains a label which does not appear in any input
+    /// term.
+    UnknownOutputLabel,
 }
 
 impl ParseError {
@@ -27,6 +30,9 @@ impl ParseError {
             ParseError::InvalidInputTerm => "Input term is invalid",
             ParseError::InvalidOutputTerm => "Output term is invalid",
             ParseError::RepeatedOutputLabels => "Einsum output term contains repeated labels",
+            ParseError::UnknownOutputLabel => {
+                "Einsum output term contains a label not present in any input term"
+            }
         }
     }
 }
@@ -84,6 +90,12 @@ impl EinsumExpr {
         }
         if contains_repeated_chars(&output) {
             return Err(ParseError::RepeatedOutputLabels);
+        }
+        if output
+            .chars()
+            .any(|c| c.is_ascii_lowercase() && !inputs.iter().any(|term| term.contains(c)))
+        {
+            return Err(ParseError::UnknownOutputLabel);
         }
 
         Ok(EinsumExpr { inputs, output })
@@ -353,6 +365,11 @@ mod tests {
             Case {
                 equation: "ij->ii",
                 expected: Err(ParseError::RepeatedOutputLabels),
+            },
+            // Output label which does not appear in any input term.
+            Case {
+                equation: "ij->ik",
+                expected: Err(ParseError::UnknownOutputLabel),
             },
         ];
 
