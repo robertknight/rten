@@ -314,7 +314,76 @@ impl Operator for MultiHeadAttention {
         Some(10)
     }
 
+    // TODO https://github.com/microsoft/onnxruntime/blob/13af65970aaa6a0b9ac71106da07376fef24aa56/onnxruntime/test/contrib_ops/multihead_attention_op_test.cc
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let query: TensorView<f32> = ctx.inputs().require_as(0)?;
+        let key: Option<TensorView<f32>> = ctx.inputs().get_as(1)?;
+        let key: Option<TensorView<f32>> = ctx.inputs().get_as(2)?;
+        let value: Option<TensorView<f32>> = ctx.inputs().get_as(3)?;
+        let bias: Option<TensorView<f32>> = ctx.inputs().get_as(4)?;
+        let key_padding_mask: Option<TensorView<i32>> = ctx.inputs().get_as(5)?;
+        let attention_bias: Option<TensorView<f32>> = ctx.inputs().get_as(6)?;
+        let past_key: Option<TensorView<f32>> = ctx.inputs().get_as(7)?;
+        let past_value: Option<TensorView<f32>> = ctx.inputs().get_as(8)?;
+        let past_seq_len: Option<TensorView<i32>> = ctx.inputs().get_as(9)?;
+        let cache_indirection: Option<TensorView<i32>> = ctx.inputs().get_as(10)?;
+
+        let is_packed_qkv = query.ndim() == 5;
+
+        let (query, key, value, batch_size, seq_len, hidden) = if is_packed_qkv {
+            if key.is_some() {
+                return Err(OpError::InvalidValue(
+                    "key must be None when query is packed",
+                ));
+            }
+            if value.is_some() {
+                return Err(OpError::InvalidValue(
+                    "value must be None when query is packed",
+                ));
+            }
+            if bias.is_some() {
+                return Err(OpError::InvalidValue(
+                    "bias is not supported with packed QKV format",
+                ));
+            }
+            let [batch_size, kv_seq_len, num_heads, three, head_size] = query.shape() else {
+                return Err(OpError::InvalidValue(
+                    "query must be [batch_size, sequence_len, hidden_size] or [batch_size, kv_sequence_length, num_heads, 3, head_size]",
+                ));
+            };
+            if *three != 3 {
+                return Err(OpError::InvalidValue(
+                    "4th dimension of packed qkv input must be 3",
+                ));
+            }
+            if *num_heads != self.num_heads as usize {
+                return Err(OpError::InvalidValue(
+                    "2nd dimension of packed qkv input must be equal to number of attention heads",
+                ));
+            }
+            let q = query.slice((.., .., .., 0, ..));
+            let k = query.slice((.., .., .., 1, ..));
+            let v = query.slice((.., .., .., 2, ..));
+            // unpack QKV
+            todo!()
+        } else {
+            let (batch_size, seq_len, hidden) = match query.shape() {
+                &[batch_size, seq_len, hidden] => (batch_size, seq_len, hidden),
+                _ => {
+                    return Err(OpError::InvalidValue(
+                        "query must be [batch_size, sequence_len, hidden_size] or [batch_size, kv_sequence_length, num_heads, 3, head_size]",
+                    ));
+                }
+            };
+            let head_size = hidden / self.num_heads as usize;
+
+            if key.is_none() {
+                // Self attention
+            }
+
+            (0, 0, 0, batch_size, seq_len, hidden)
+        };
+
         todo!()
     }
 
