@@ -34,6 +34,10 @@ impl InferShapes for STFT {
 
         // `n_fft` comes from `frame_length` if it's a known scalar, otherwise
         // from the size of the `window` input.
+        //
+        // If both `frame_length` and `window` are set, they must be equal. We
+        // don't enforce that here, as the infrastructure for handling symbolic
+        // equality doesn't exist yet.
         let n_fft = if let Some(fl) = frame_length
             && let Some(val) = fl.as_scalar()
         {

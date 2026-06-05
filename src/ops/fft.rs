@@ -60,6 +60,15 @@ pub fn stft(
         return Err(OpError::InvalidValue("frame_step must be > 0"));
     };
 
+    // If both `frame_length` and `window` are set, their sizes must match.
+    if let (Some(frame_length), Some(window)) = (frame_length, window)
+        && frame_length != window.size(0)
+    {
+        return Err(OpError::InvalidValue(
+            "window length must equal frame_length",
+        ));
+    }
+
     let Some(n_fft) = frame_length.or_else(|| window.map(|w| w.size(0))) else {
         return Err(OpError::InvalidValue(
             "Either frame_length or window must be set",
@@ -354,6 +363,17 @@ mod tests {
                 frame_step: 4,
                 expected: Err(OpError::InvalidValue(
                     "Either frame_length or window must be set",
+                )),
+                ..Default::default()
+            },
+            // Conflicting frame_length and window sizes (window shorter)
+            Case {
+                signal: real_signal.clone(),
+                frame_step: 4,
+                frame_length: Some(4),
+                window: Some([0., 0.5].into()),
+                expected: Err(OpError::InvalidValue(
+                    "window length must equal frame_length",
                 )),
                 ..Default::default()
             },
