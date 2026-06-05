@@ -1,9 +1,11 @@
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, TensorView};
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex32;
 
 use crate::buffer_pool::BufferPool;
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
@@ -57,6 +59,15 @@ pub fn stft(
     } else {
         return Err(OpError::InvalidValue("frame_step must be > 0"));
     };
+
+    // If both `frame_length` and `window` are set, their sizes must match.
+    if let (Some(frame_length), Some(window)) = (frame_length, window)
+        && frame_length != window.size(0)
+    {
+        return Err(OpError::InvalidValue(
+            "window length must equal frame_length",
+        ));
+    }
 
     let Some(n_fft) = frame_length.or_else(|| window.map(|w| w.size(0))) else {
         return Err(OpError::InvalidValue(
@@ -158,7 +169,19 @@ impl Operator for STFT {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
 }
+
+impl_infer_shapes!(
+    STFT,
+    op,
+    shape_ops::STFT {
+        onesided: op.onesided,
+    }
+);
 
 #[cfg(test)]
 mod tests {
@@ -340,6 +363,17 @@ mod tests {
                 frame_step: 4,
                 expected: Err(OpError::InvalidValue(
                     "Either frame_length or window must be set",
+                )),
+                ..Default::default()
+            },
+            // Conflicting frame_length and window sizes (window shorter)
+            Case {
+                signal: real_signal.clone(),
+                frame_step: 4,
+                frame_length: Some(4),
+                window: Some([0., 0.5].into()),
+                expected: Err(OpError::InvalidValue(
+                    "window length must equal frame_length",
                 )),
                 ..Default::default()
             },
