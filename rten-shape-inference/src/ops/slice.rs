@@ -115,10 +115,16 @@ impl InferShapes for Slice {
                     && (start == &SymExpr::Value(0) || *start == -dims[axis].clone())
                     && let Some(end) = end
                     && (end == &SymExpr::Value(i32::MAX) || *end == dims[axis])
-                    && step == Some(&SymExpr::Value(1))
+                    && let Some(SymExpr::Value(step)) = step
+                    && *step >= 1
                 {
-                    // This is a no-op slice that doesn't alter the dimension
-                    // size.
+                    // Slice over the full extent of the dimension. With a step
+                    // of 1 this is a no-op, otherwise the dimension shrinks to
+                    // `ceil(size / step)`.
+                    if *step != 1 {
+                        let size = dims[axis].clone();
+                        dims[axis] = size.div_ceil(&SymExpr::Value(*step));
+                    }
                 } else if let Some(start) = start
                     && start.is_positive()
                     && let Some(end) = end
@@ -128,6 +134,18 @@ impl InferShapes for Slice {
                     // nb. This assumes start <= end.
                     let size = dims[axis].clone();
                     dims[axis] = end.min(&size) - start.min(&size);
+                } else if let Some(SymExpr::Value(start)) = start
+                    && *start >= 0
+                    && let Some(SymExpr::Value(end)) = end
+                    && *end < 0
+                    && *end != i32::MIN
+                    && step == Some(&SymExpr::Value(1))
+                {
+                    // Slice with a non-negative start and negative end, e.g.
+                    // `[0:-1]`. The end index counts back from the size, so the
+                    // result has `size + end - start` elements.
+                    let size = dims[axis].clone();
+                    dims[axis] = size + SymExpr::Value(*end) - SymExpr::Value(*start);
                 } else {
                     dims[axis] = sym_gen.gen_positive();
                 }
@@ -290,5 +308,33 @@ mod tests {
             .infer_shapes([data, starts, ends, axes, steps].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", "unknown_1", 8));
+
+        // Slice `[0:-1]` of a symbolic dimension drops the last element,
+        // leaving `size - 1` elements.
+        let seq = SymExpr::from("seq");
+        let data = sym_shape!("batch", seq.clone(), 8);
+        let starts = sym_vec!(0);
+        let ends = sym_vec!(-1);
+        let axes = sym_vec!(1);
+        let result = Slice
+            .infer_shapes([data, starts, ends, axes].into(), &mut sym_gen)
+            .unwrap();
+        let expected = seq.clone() + SymExpr::Value(-1) - SymExpr::Value(0);
+        assert_eq!(result[0], sym_shape!("batch", expected, 8));
+
+        // Full-range slice of a symbolic dimension with a step > 1 shrinks the
+        // dimension to `ceil(size / step)`.
+        let data = sym_shape!("batch", seq.clone(), 8);
+        let starts = sym_vec!(0);
+        let ends = sym_vec!(i32::MAX);
+        let axes = sym_vec!(1);
+        let steps = sym_vec!(2);
+        let result = Slice
+            .infer_shapes([data, starts, ends, axes, steps].into(), &mut sym_gen)
+            .unwrap();
+        assert_eq!(
+            result[0],
+            sym_shape!("batch", seq.div_ceil(&SymExpr::Value(2)), 8)
+        );
     }
 }
