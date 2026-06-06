@@ -5,6 +5,7 @@ use rten_shape_inference::{SymExpr, SymbolMap};
 use rten_tensor::Tensor;
 use rten_tensor::prelude::*;
 
+use crate::infer_shapes::InferShapes;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
@@ -77,6 +78,10 @@ impl Operator for ComputeShape {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
     }
 }
 

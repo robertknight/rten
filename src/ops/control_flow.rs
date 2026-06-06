@@ -3,6 +3,7 @@ use rten_tensor::{Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::graph::{CaptureEnv, Graph, NodeId, RunError, RunOptions};
+use crate::infer_shapes::InferShapes;
 use crate::operator::{
     OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext,
     SubgraphOperator,
@@ -49,6 +50,11 @@ impl Operator for If {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         // Type inference is not implemented for ops with subgraphs yet.
+        None
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // Shape inference does not support ops with subgraphs yet.
         None
     }
 }
@@ -138,6 +144,11 @@ impl Operator for Loop {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         // Type inference is not implemented for ops with subgraphs yet.
+        None
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // Shape inference does not support ops with subgraphs yet.
         None
     }
 }
