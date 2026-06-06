@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use rten_tensor::{AsView, Layout, Tensor};
+
 use crate::sym_expr::{EvalError, SymExpr, SymbolMap};
 use crate::sym_gen::SymbolGen;
 
@@ -46,8 +48,7 @@ impl fmt::Debug for Constant {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum SymTensorKind {
-    Scalar(SymExpr),
-    Vector(Vec<SymExpr>),
+    Tensor(Tensor<SymExpr>),
     Shape(Vec<SymExpr>),
     Unknown {
         /// Note about why this Unknown value was created, for debugging purposes.
@@ -118,18 +119,31 @@ impl SymTensor {
 
     /// Create a new symbolic vector.
     pub fn from_vec(vec: Vec<SymExpr>) -> Self {
-        Self(SymTensorKind::Vector(vec))
+        Self(SymTensorKind::Tensor(Tensor::from_vec(vec)))
     }
 
     /// Create a new symbolic scalar.
     pub fn from_scalar(item: SymExpr) -> Self {
-        Self(SymTensorKind::Scalar(item))
+        Self(SymTensorKind::Tensor(Tensor::from_scalar(item)))
+    }
+
+    /// Create a new symbolic tensor from a tensor of values with a known shape.
+    pub fn from_tensor(tensor: Tensor<SymExpr>) -> Self {
+        Self(SymTensorKind::Tensor(tensor))
+    }
+
+    /// Return this tensor's values as an n-dimensional tensor, if known.
+    pub fn as_tensor(&self) -> Option<&Tensor<SymExpr>> {
+        match &self.0 {
+            SymTensorKind::Tensor(tensor) => Some(tensor),
+            _ => None,
+        }
     }
 
     /// Return this tensor's single element, if it is a scalar.
     pub fn as_scalar(&self) -> Option<&SymExpr> {
         match &self.0 {
-            SymTensorKind::Scalar(item) => Some(item),
+            SymTensorKind::Tensor(tensor) if tensor.ndim() == 0 => tensor.item(),
             _ => None,
         }
     }
@@ -137,7 +151,7 @@ impl SymTensor {
     /// Return this tensor's values as a slice, if it is a vector.
     pub fn as_vector(&self) -> Option<&[SymExpr]> {
         match &self.0 {
-            SymTensorKind::Vector(vec) => Some(vec),
+            SymTensorKind::Tensor(tensor) if tensor.ndim() == 1 => tensor.data(),
             _ => None,
         }
     }
@@ -146,19 +160,19 @@ impl SymTensor {
     /// all values are fixed.
     pub fn to_constant(&self) -> Option<Constant> {
         match &self.0 {
-            SymTensorKind::Scalar(val) => match val {
-                SymExpr::Value(v) => Some(Constant::Scalar(*v)),
-                _ => None,
-            },
-            SymTensorKind::Vector(vec) => {
-                let values = vec
+            SymTensorKind::Tensor(tensor) => {
+                let values = tensor
                     .iter()
                     .map(|v| match v {
                         SymExpr::Value(v) => Some(*v),
                         _ => None,
                     })
                     .collect::<Option<Vec<i32>>>()?;
-                Some(Constant::Vector(values))
+                match tensor.ndim() {
+                    0 => Some(Constant::Scalar(values[0])),
+                    1 => Some(Constant::Vector(values)),
+                    _ => None,
+                }
             }
             SymTensorKind::Shape(_) | SymTensorKind::Unknown { .. } => None,
         }
@@ -167,8 +181,7 @@ impl SymTensor {
     /// Return the number of dimensions, if known.
     pub fn ndim(&self) -> Option<usize> {
         match &self.0 {
-            SymTensorKind::Scalar(_) => Some(0),
-            SymTensorKind::Vector(_) => Some(1),
+            SymTensorKind::Tensor(tensor) => Some(tensor.ndim()),
             SymTensorKind::Shape(val) => Some(val.len()),
             SymTensorKind::Unknown { .. } => None,
         }
@@ -180,14 +193,10 @@ impl SymTensor {
     /// is unknown.
     pub fn size(&self, index: usize) -> Option<SymExpr> {
         match &self.0 {
-            SymTensorKind::Scalar(_) => None,
-            SymTensorKind::Vector(val) => {
-                if index == 0 {
-                    Some(SymExpr::Value(val.len() as i32))
-                } else {
-                    None
-                }
-            }
+            SymTensorKind::Tensor(tensor) => tensor
+                .shape()
+                .get(index)
+                .map(|&size| SymExpr::Value(size as i32)),
             SymTensorKind::Shape(val) => val.get(index).cloned(),
             SymTensorKind::Unknown { .. } => None,
         }
@@ -203,8 +212,7 @@ impl SymTensor {
     /// Return the symbolic values in this tensor, or `None` if unknown.
     pub fn values(&self) -> Option<&[SymExpr]> {
         match &self.0 {
-            SymTensorKind::Scalar(item) => Some(std::slice::from_ref(item)),
-            SymTensorKind::Vector(val) => Some(val),
+            SymTensorKind::Tensor(tensor) => tensor.data(),
             SymTensorKind::Shape(_) | SymTensorKind::Unknown { .. } => None,
         }
     }
@@ -214,9 +222,8 @@ impl SymTensor {
     /// See [`SymExpr::simplify`].
     pub fn simplify(self) -> Self {
         match self.0 {
-            SymTensorKind::Scalar(item) => Self::from_scalar(item.simplify()),
-            SymTensorKind::Vector(vec) => {
-                Self::from_vec(vec.into_iter().map(|x| x.simplify()).collect())
+            SymTensorKind::Tensor(tensor) => {
+                Self(SymTensorKind::Tensor(tensor.map(|x| x.clone().simplify())))
             }
             SymTensorKind::Shape(shape) => {
                 Self::from_shape(shape.into_iter().map(|d| d.simplify()).collect())
@@ -240,9 +247,8 @@ impl SymTensor {
         };
 
         match &mut self.0 {
-            SymTensorKind::Scalar(item) => replace_complex(item),
-            SymTensorKind::Vector(val) => val.iter_mut().for_each(replace_complex),
-            SymTensorKind::Shape(shape) => shape.iter_mut().for_each(replace_complex),
+            SymTensorKind::Tensor(val) => val.iter_mut().for_each(&mut replace_complex),
+            SymTensorKind::Shape(shape) => shape.iter_mut().for_each(&mut replace_complex),
             SymTensorKind::Unknown { .. } => {}
         }
 
@@ -257,13 +263,16 @@ impl SymTensor {
     /// Returns `None` if evaluation of any elements is not possible.
     pub fn eval(&self, symbols: &SymbolMap) -> Result<Constant, EvalError> {
         match &self.0 {
-            SymTensorKind::Scalar(item) => item.eval(symbols).map(Constant::Scalar),
-            SymTensorKind::Vector(vec) => {
-                let values = vec
+            SymTensorKind::Tensor(tensor) => {
+                let values = tensor
                     .iter()
                     .map(|item| item.eval(symbols))
-                    .collect::<Result<Vec<_>, _>>();
-                values.map(Constant::Vector)
+                    .collect::<Result<Vec<_>, _>>()?;
+                if tensor.ndim() == 0 {
+                    Ok(Constant::Scalar(values[0]))
+                } else {
+                    Ok(Constant::Vector(values))
+                }
             }
             _ => Err(EvalError::UnknownValues),
         }
