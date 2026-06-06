@@ -4,13 +4,10 @@ use std::borrow::Cow;
 use std::error::Error;
 use std::fmt;
 
+use rten_tensor::{AsView, Layout};
 use smallvec::SmallVec;
 
-pub use crate::{
-    sym_expr::SymExpr,
-    sym_gen::SymbolGen,
-    sym_tensor::{Constant, SymTensor},
-};
+pub use crate::{sym_expr::SymExpr, sym_gen::SymbolGen, sym_tensor::SymTensor};
 
 /// Errors when performing shape inference.
 #[derive(Clone, Debug, PartialEq)]
@@ -305,7 +302,7 @@ impl InferShapes for ReductionOp<'_> {
         let mut axes: SmallVec<[usize; 4]> = if let Some(axes_input) = inputs.get(1) {
             // The `axes` input is present, so its value must be known to
             // determine which dims are reduced.
-            let Some(Constant::Vector(axes)) = axes_input.to_constant() else {
+            let Some(axes) = axes_input.to_constant().filter(|axes| axes.ndim() == 1) else {
                 let out = if self.keep_dims {
                     // Each dim is either preserved or reduced to size 1, so
                     // the rank is known but the sizes are not.

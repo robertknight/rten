@@ -72,4 +72,4 @@ pub use infer_shapes::{
 };
 pub use sym_expr::{EvalError, SymExpr, Symbol, SymbolMap};
 pub use sym_gen::SymbolGen;
-pub use sym_tensor::{Constant, SymTensor};
+pub use sym_tensor::SymTensor;

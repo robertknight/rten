@@ -5,6 +5,7 @@ use std::error::Error;
 use std::fmt;
 
 use rten_base::num::AsUsize;
+use rten_tensor::Tensor;
 
 use crate::env::env_flag;
 use crate::graph;
@@ -13,8 +14,8 @@ use crate::operator::{OutputType, OutputTypesContext};
 use crate::value::ValueType;
 
 pub use rten_shape_inference::{
-    BinaryOp, Constant, InferShapes, InferShapesContext, InferShapesError, ReductionOp, SymExpr,
-    SymTensor, Symbol, SymbolGen, UnaryOp,
+    BinaryOp, InferShapes, InferShapesContext, InferShapesError, ReductionOp, SymExpr, SymTensor,
+    Symbol, SymbolGen, UnaryOp,
 };
 
 /// Impl [`InferShapes`] for a type by delegating to another type which
@@ -124,7 +125,7 @@ pub enum Shape {
 #[derive(Debug)]
 pub struct InferResult {
     /// Unique constants.
-    pub constants: Vec<Constant>,
+    pub constants: Vec<Tensor<i32>>,
 
     /// Map of value node ID to inferred shape or constant index.
     pub shapes: HashMap<NodeId, Shape>,
@@ -494,7 +495,7 @@ mod tests {
     use crate::ops::{Concat, Gather, Gemm, MatMul, Shape as ShapeOp, Split, Unsqueeze};
     use crate::value::{DataType, ValueType};
 
-    use super::{Constant, InferError, InferShapeOptions, Shape, infer_shapes};
+    use super::{InferError, InferShapeOptions, Shape, Tensor, infer_shapes};
 
     #[test]
     fn test_infer_shapes() {
@@ -673,6 +674,6 @@ mod tests {
         let Shape::Constant { index } = shape else {
             panic!("{:?} is not a constant", shape);
         };
-        assert_eq!(result.constants[*index], Constant::Vector(vec![64, 32]));
+        assert_eq!(result.constants[*index], Tensor::from([64, 32]));
     }
 }

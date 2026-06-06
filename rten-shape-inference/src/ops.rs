@@ -3,12 +3,14 @@
 //! See the [ONNX operator reference](https://onnx.ai/onnx/operators/index.html)
 //! for operator details.
 
+use rten_tensor::{AsView, Layout};
+
 use crate::infer_shapes::{
     BinaryOp, InferShapes, InferShapesContext, InferShapesError, resolve_axis, resolve_index,
 };
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{Constant, SymTensor};
+use crate::sym_tensor::SymTensor;
 
 mod attention;
 mod binary;
@@ -188,15 +190,15 @@ impl InferShapes for Gather {
         let value = if let Some(sym_vec) = data.values()
             && let Some(indices) = indices.to_constant()
         {
-            match indices {
-                Constant::Vector(idxs) => {
-                    let values = idxs
-                        .iter()
-                        .map(|idx| get(sym_vec, *idx))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    SymTensor::from_vec(values)
-                }
-                Constant::Scalar(idx) => SymTensor::from_scalar(get(sym_vec, idx)?),
+            if indices.ndim() == 0 {
+                let idx = *indices.item().expect("scalar should have one element");
+                SymTensor::from_scalar(get(sym_vec, idx)?)
+            } else {
+                let values = indices
+                    .iter()
+                    .map(|idx| get(sym_vec, *idx))
+                    .collect::<Result<Vec<_>, _>>()?;
+                SymTensor::from_vec(values)
             }
         } else if let Some(index_dims) = indices.shape() {
             let mut out_shape = Vec::with_capacity(data_dims.len() + index_dims.len() - 1);
