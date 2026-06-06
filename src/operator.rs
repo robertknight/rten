@@ -456,9 +456,9 @@ pub trait Operator: Any + Debug {
     }
 
     /// Return the shape inference implementation for this operator.
-    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        None
-    }
+    ///
+    /// The implementation may return `None` if shape inference is unsupported.
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes>;
 }
 
 impl dyn Operator {

@@ -2,6 +2,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
+use crate::infer_shapes::InferShapes;
 use crate::operator::{
     InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
     OutputTypeList, OutputTypesContext,
@@ -34,6 +35,11 @@ impl Operator for SequenceEmpty {
         let dtype = self.dtype.unwrap_or(DataType::Float);
         Some([OutputType::Fixed(ValueType::Sequence(dtype))].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // Shape inference does not support sequence types yet.
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -61,6 +67,11 @@ impl Operator for SequenceAt {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::ElementTypeOfInputSequence(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // Shape inference does not support sequence types yet.
+        None
     }
 }
 
@@ -97,6 +108,11 @@ impl Operator for SequenceConstruct {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::SequenceWithElementTypeOfInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // Shape inference does not support sequence types yet.
+        None
     }
 }
 
@@ -152,6 +168,11 @@ impl Operator for SequenceErase {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // Shape inference does not support sequence types yet.
+        None
     }
 }
 
@@ -218,6 +239,11 @@ impl Operator for SequenceInsert {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // Shape inference does not support sequence types yet.
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -240,6 +266,11 @@ impl Operator for SequenceLength {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // Shape inference does not support sequence types yet.
+        None
     }
 }
 
@@ -296,6 +327,11 @@ impl Operator for ConcatFromSequence {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::ElementTypeOfInputSequence(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // Shape inference does not support sequence types yet.
+        None
     }
 }
 
@@ -363,6 +399,11 @@ impl Operator for SplitToSequence {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::SequenceWithElementTypeOfInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // Shape inference does not support sequence types yet.
+        None
     }
 }
 

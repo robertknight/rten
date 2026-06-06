@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use rten_tensor::prelude::*;
 
+use crate::infer_shapes::InferShapes;
 use crate::operator::{
     OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext,
 };
@@ -144,6 +145,12 @@ impl Operator for TransformInputs {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         self.inner.output_types(_ctx)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // `TransformInputs` can reorder inputs, so the inner operator's shape
+        // inference does not apply directly.
+        None
     }
 }
 

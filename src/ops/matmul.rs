@@ -501,6 +501,10 @@ impl Operator for FusedMatMul {
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
+    }
 }
 
 /// Normalize a zero point input by converting it to a vector.
@@ -762,6 +766,10 @@ impl Operator for MatMulIntegerToFloat {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
     }
 }
 

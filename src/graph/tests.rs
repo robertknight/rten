@@ -12,6 +12,7 @@ use super::{CachedPlan, CaptureEnv, PlanOptions};
 use crate::graph::{
     Dimension, Graph, Node, NodeId, RunError, RunErrorKind, RunOptions, TypedConstant,
 };
+use crate::infer_shapes::InferShapes;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext,
     PrepackedInput, SubgraphOperator,
@@ -90,6 +91,10 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
         }
         self.inner.run_in_place(input, ctx)
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        self.inner.as_infer_shapes()
+    }
 }
 
 /// Operator that wraps a function.
@@ -128,6 +133,10 @@ impl<V: Into<Value> + 'static, F: Fn(&OpRunContext) -> Result<V, OpError>> Opera
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         (self.run)(ctx).map(|v| [v.into()].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
     }
 }
 
@@ -302,6 +311,10 @@ impl Operator for AddOne {
         let input: TensorView<f32> = ctx.inputs().require_as(0)?;
         let output_data: Vec<f32> = input.iter().map(|x| x + 1.0).collect();
         Tensor::<f32>::from_data(input.shape().into(), output_data).into_op_result()
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
     }
 }
 
@@ -742,6 +755,10 @@ impl Operator for AddOneInPlace {
         }
         Ok(output.into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
+    }
 }
 
 #[test]
@@ -891,6 +908,10 @@ impl Operator for Split {
         let left_split = Tensor::from_vec(input.iter().take(left_split_len).copied().collect());
         let right_split = Tensor::from_vec(input.iter().skip(left_split_len).copied().collect());
         Ok(smallvec![left_split.into(), right_split.into()])
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
     }
 }
 
@@ -1080,6 +1101,10 @@ impl Operator for Counter {
         let count = self.count.fetch_add(1, Ordering::SeqCst);
         Ok([Tensor::from(count).into()].into())
     }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
+    }
 }
 
 #[test]
@@ -1170,6 +1195,10 @@ impl Operator for Subgraph {
 
     fn as_subgraph_op(&self) -> Option<&dyn SubgraphOperator> {
         Some(self as &dyn SubgraphOperator)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
     }
 }
 
@@ -1537,6 +1566,10 @@ impl Operator for MatMulExpectPacked {
         let prepacked = ctx.inputs().get_prepacked(1);
         assert!(prepacked.is_some());
         self.inner.run(ctx)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        self.inner.as_infer_shapes()
     }
 }
 
