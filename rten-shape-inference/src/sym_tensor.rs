@@ -241,7 +241,7 @@ impl SymTensor {
 }
 
 #[cfg(test)]
-pub(crate) use tests::{sym_elems, sym_scalar, sym_shape, sym_vec};
+pub(crate) use tests::{sym_elems, sym_scalar, sym_shape, sym_tensor, sym_vec};
 
 #[cfg(test)]
 mod tests {
@@ -277,7 +277,41 @@ mod tests {
         };
     }
 
-    pub(crate) use {sym_elems, sym_scalar, sym_shape, sym_vec};
+    /// Create a symbolic tensor from a scalar or a 1D, 2D or 3D nested array of
+    /// symbol names and values.
+    ///
+    /// ```text
+    /// sym_tensor!(5);                  // 0D (scalar), shape []
+    /// sym_tensor!([1, 2, 3]);          // 1D, shape [3]
+    /// sym_tensor!([[1, 2], [3, 4]]);   // 2D, shape [2, 2]
+    /// sym_tensor!([[["a"], [2]]]);     // 3D, shape [1, 2, 1]
+    /// ```
+    macro_rules! sym_tensor {
+        // 3D: a list of 2D matrices.
+        ([$([$([$($x:expr),* $(,)?]),* $(,)?]),+ $(,)?]) => {{
+            let blocks = [$([$([$(SymExpr::from($x)),*]),*]),+];
+            let shape = [blocks.len(), blocks[0].len(), blocks[0][0].len()];
+            let data: Vec<SymExpr> = blocks.into_iter().flatten().flatten().collect();
+            SymTensor::from_tensor(rten_tensor::Tensor::from_data(shape.as_slice(), data))
+        }};
+        // 2D: a list of rows.
+        ([$([$($x:expr),* $(,)?]),+ $(,)?]) => {{
+            let rows = [$([$(SymExpr::from($x)),*]),+];
+            let shape = [rows.len(), rows[0].len()];
+            let data: Vec<SymExpr> = rows.into_iter().flatten().collect();
+            SymTensor::from_tensor(rten_tensor::Tensor::from_data(shape.as_slice(), data))
+        }};
+        // 1D: a list of values.
+        ([$($x:expr),* $(,)?]) => {
+            SymTensor::from_vec(vec![$(SymExpr::from($x)),*])
+        };
+        // 0D: a scalar value.
+        ($x:expr) => {
+            SymTensor::from_scalar(SymExpr::from($x))
+        };
+    }
+
+    pub(crate) use {sym_elems, sym_scalar, sym_shape, sym_tensor, sym_vec};
 
     #[test]
     fn test_scalar() {
@@ -294,6 +328,44 @@ mod tests {
         assert_eq!(x.size(0), Some(2.into()));
         assert_eq!(x.size(1), None);
         assert_eq!(x.values(), Some(["x".into(), 2.into()].as_slice()));
+    }
+
+    #[test]
+    fn test_sym_tensor_macro() {
+        // 0D (scalar)
+        let x = sym_tensor!("x");
+        assert_eq!(x.ndim(), Some(0));
+        assert_eq!(x.as_scalar(), Some(&"x".into()));
+
+        // 1D
+        let x = sym_tensor!([1, "a", 3]);
+        assert_eq!(x.ndim(), Some(1));
+        assert_eq!(
+            x.values(),
+            Some([1.into(), "a".into(), 3.into()].as_slice())
+        );
+
+        // 2D, including a negative value and a symbol name.
+        let x = sym_tensor!([[1, -2], ["a", 4]]);
+        assert_eq!(x.ndim(), Some(2));
+        assert_eq!(x.size(0), Some(2.into()));
+        assert_eq!(x.size(1), Some(2.into()));
+        assert_eq!(
+            x.values(),
+            Some([1.into(), (-2).into(), "a".into(), 4.into()].as_slice())
+        );
+
+        // 3D
+        let x = sym_tensor!([[[1], [2]], [[3], [4]]]);
+        assert_eq!(x.ndim(), Some(3));
+        assert_eq!(
+            x.shape().unwrap().collect::<Vec<_>>(),
+            vec![2.into(), 2.into(), 1.into()]
+        );
+        assert_eq!(
+            x.values(),
+            Some([1.into(), 2.into(), 3.into(), 4.into()].as_slice())
+        );
     }
 
     #[test]
