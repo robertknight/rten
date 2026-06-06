@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Range};
 use std::sync::Arc;
@@ -2504,6 +2505,17 @@ impl<T: PartialEq, S: Storage<Elem = T>, L: Layout + Clone, V: AsView<Elem = T>>
 {
     fn eq(&self, other: &V) -> bool {
         self.shape().as_ref() == other.shape().as_ref() && self.iter().eq(other.iter())
+    }
+}
+
+impl<T: Eq, S: Storage<Elem = T>, L: Layout + Clone> Eq for TensorBase<S, L> {}
+
+impl<T: Hash, S: Storage<Elem = T>, L: Layout + Clone> Hash for TensorBase<S, L> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.shape().as_ref().hash(state);
+        for elem in self.iter() {
+            elem.hash(state);
+        }
     }
 }
 
