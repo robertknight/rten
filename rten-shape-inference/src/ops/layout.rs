@@ -1,7 +1,9 @@
+use rten_tensor::Layout;
+
 use crate::infer_shapes::{BinaryOp, InferShapes, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{Constant, SymTensor};
+use crate::sym_tensor::SymTensor;
 
 /// Expand operator.
 ///
@@ -398,10 +400,9 @@ impl InferShapes for Squeeze {
         // Check if the `axes` input is constant and if so, resolve negative
         // values.
         let const_axes = axes.as_ref().and_then(|ax| match ax.to_constant() {
-            Some(Constant::Vector(axes)) => Some(axes),
-            // Perhaps this case should error?
-            Some(Constant::Scalar(_)) => None,
-            None => None,
+            Some(axes) if axes.ndim() == 1 => Some(axes.into_data()),
+            // Perhaps higher-rank or scalar `axes` should error?
+            _ => None,
         });
 
         let const_axes = const_axes
@@ -512,7 +513,7 @@ impl InferShapes for Unsqueeze {
         //
         // Otherwise the output is unknown.
 
-        let axes_vec = axes.to_constant().map(|c| c.into_vec());
+        let axes_vec = axes.to_constant().map(|c| c.into_data());
 
         let value = if let Some(var) = data.as_scalar()
             && axes_vec.as_deref().map(|v| v == [0]).unwrap_or(false)

@@ -1,7 +1,9 @@
+use rten_tensor::Layout;
+
 use crate::infer_shapes::{InferShapes, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{Constant, SymTensor};
+use crate::sym_tensor::SymTensor;
 
 /// Pad operator.
 ///
@@ -37,7 +39,8 @@ impl InferShapes for Pad {
         // all dimensions are padded.
         let resolved_axes: Vec<usize> = if let Some(axes) = axes {
             match axes.to_constant() {
-                Some(Constant::Vector(axes)) => axes
+                Some(axes) if axes.ndim() == 1 => axes
+                    .into_data()
                     .into_iter()
                     .map(|axis| resolve_axis(ndim, axis))
                     .collect::<Result<Vec<_>, _>>()?,

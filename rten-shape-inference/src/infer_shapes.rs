@@ -3,13 +3,10 @@
 use std::error::Error;
 use std::fmt;
 
+use rten_tensor::{AsView, Layout};
 use smallvec::SmallVec;
 
-pub use crate::{
-    sym_expr::SymExpr,
-    sym_gen::SymbolGen,
-    sym_tensor::{Constant, SymTensor},
-};
+pub use crate::{sym_expr::SymExpr, sym_gen::SymbolGen, sym_tensor::SymTensor};
 
 /// Errors when performing shape inference.
 #[derive(Clone, Debug, PartialEq)]
@@ -228,14 +225,17 @@ impl InferShapes for ReductionOp<'_> {
         };
 
         let ndim = data_dims.len();
-        let mut axes: SmallVec<[usize; 4]> =
-            if let Some(Constant::Vector(axes)) = inputs.get(1).and_then(|x| x.to_constant()) {
-                resolve_axes(ndim, axes.iter()).map_err(|_| InferShapesError::IncorrectRank)?
-            } else if let Some(axes) = self.axes {
-                resolve_axes(ndim, axes.iter()).map_err(|_| InferShapesError::IncorrectRank)?
-            } else {
-                (0..ndim).collect()
-            };
+        let mut axes: SmallVec<[usize; 4]> = if let Some(axes) = inputs
+            .get(1)
+            .and_then(|x| x.to_constant())
+            .filter(|axes| axes.ndim() == 1)
+        {
+            resolve_axes(ndim, axes.iter()).map_err(|_| InferShapesError::IncorrectRank)?
+        } else if let Some(axes) = self.axes {
+            resolve_axes(ndim, axes.iter()).map_err(|_| InferShapesError::IncorrectRank)?
+        } else {
+            (0..ndim).collect()
+        };
         axes.sort();
         axes.dedup();
 

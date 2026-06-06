@@ -1,10 +1,10 @@
-use rten_tensor::SliceRange;
+use rten_tensor::{AsView, SliceRange, Tensor};
 
 use crate::infer_shapes::{InferShapes, InferShapesError};
 use crate::ops::resolve_axis;
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{Constant, SymTensor};
+use crate::sym_tensor::SymTensor;
 
 /// Slice operator.
 ///
@@ -30,7 +30,7 @@ impl InferShapes for Slice {
             .map(|axes| axes.to_constant())
             .unwrap_or_else(|| {
                 let axes = (0..data_dims.len()).map(|i| i as i32).collect();
-                Some(Constant::Vector(axes))
+                Some(Tensor::from_vec(axes))
             });
 
         let steps = rest.get(1);
@@ -42,7 +42,7 @@ impl InferShapes for Slice {
             let ends = ends.as_vector();
             let steps = steps.and_then(|s| s.as_vector());
 
-            for (i, axis) in axes.values().iter().copied().enumerate() {
+            for (i, axis) in axes.iter().copied().enumerate() {
                 let axis =
                     resolve_axis(dims.len(), axis).map_err(|_| InferShapesError::IncorrectRank)?;
 

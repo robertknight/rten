@@ -1,49 +1,8 @@
 //! Tensors with symbolic shapes and values.
 
-use std::fmt;
-
 use rten_tensor::{AsView, Layout, Tensor};
 
 use crate::sym_expr::{EvalError, SymExpr, SymbolMap};
-
-/// Vector or scalar with integer values.
-#[derive(Clone, Eq, Hash, PartialEq)]
-pub enum Constant {
-    Scalar(i32),
-    Vector(Vec<i32>),
-}
-
-impl Constant {
-    pub fn ndim(&self) -> usize {
-        match self {
-            Self::Scalar(_) => 0,
-            Self::Vector(_) => 1,
-        }
-    }
-
-    pub fn values(&self) -> &[i32] {
-        match self {
-            Self::Scalar(elem) => std::slice::from_ref(elem),
-            Self::Vector(vec) => vec.as_slice(),
-        }
-    }
-
-    pub fn into_vec(self) -> Vec<i32> {
-        match self {
-            Self::Scalar(x) => vec![x],
-            Self::Vector(vec) => vec,
-        }
-    }
-}
-
-impl fmt::Debug for Constant {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Scalar(val) => write!(f, "{}", val),
-            Self::Vector(vec) => write!(f, "{:?}", vec),
-        }
-    }
-}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum SymTensorKind {
@@ -142,9 +101,9 @@ impl SymTensor {
         }
     }
 
-    /// Return this tensor's fixed values, if it is a scalar or a vector and
-    /// all values are fixed.
-    pub fn to_constant(&self) -> Option<Constant> {
+    /// Return this tensor's values as a concrete tensor, if all of them are
+    /// fixed.
+    pub fn to_constant(&self) -> Option<Tensor<i32>> {
         match &self.0 {
             SymTensorKind::Tensor(tensor) => {
                 let values = tensor
@@ -154,11 +113,7 @@ impl SymTensor {
                         _ => None,
                     })
                     .collect::<Option<Vec<i32>>>()?;
-                match tensor.ndim() {
-                    0 => Some(Constant::Scalar(values[0])),
-                    1 => Some(Constant::Vector(values)),
-                    _ => None,
-                }
+                Some(Tensor::from_data(tensor.shape(), values))
             }
             SymTensorKind::Shape(_) | SymTensorKind::Unknown { .. } => None,
         }
@@ -224,18 +179,14 @@ impl SymTensor {
     /// See also [`SymExpr::eval`].
     ///
     /// Returns `None` if evaluation of any elements is not possible.
-    pub fn eval(&self, symbols: &SymbolMap) -> Result<Constant, EvalError> {
+    pub fn eval(&self, symbols: &SymbolMap) -> Result<Tensor<i32>, EvalError> {
         match &self.0 {
             SymTensorKind::Tensor(tensor) => {
                 let values = tensor
                     .iter()
                     .map(|item| item.eval(symbols))
                     .collect::<Result<Vec<_>, _>>()?;
-                if tensor.ndim() == 0 {
-                    Ok(Constant::Scalar(values[0]))
-                } else {
-                    Ok(Constant::Vector(values))
-                }
+                Ok(Tensor::from_data(tensor.shape(), values))
             }
             _ => Err(EvalError::UnknownValues),
         }
@@ -247,7 +198,9 @@ pub(crate) use tests::{sym_elems, sym_scalar, sym_shape, sym_vec};
 
 #[cfg(test)]
 mod tests {
-    use super::{Constant, SymExpr, SymTensor, SymbolMap};
+    use rten_tensor::Tensor;
+
+    use super::{SymExpr, SymTensor, SymbolMap};
 
     /// Create a `Vec<SymExpr>` from a list of symbol names and values.
     macro_rules! sym_elems {
@@ -301,14 +254,14 @@ mod tests {
         let values = SymbolMap::new(&[("batch", 2), ("past_seq", 10), ("seq", 5)]);
 
         let sym_scalar = SymTensor::from_scalar("batch".into());
-        assert_eq!(sym_scalar.eval(&values), Ok(Constant::Scalar(2)));
+        assert_eq!(sym_scalar.eval(&values), Ok(Tensor::from_scalar(2)));
 
         let sym_vec = SymTensor::from_vec(vec![
             SymExpr::from("batch"),
             SymExpr::from("past_seq") + SymExpr::from("seq"),
             64.into(),
         ]);
-        assert_eq!(sym_vec.eval(&values), Ok(Constant::Vector(vec![2, 15, 64])));
+        assert_eq!(sym_vec.eval(&values), Ok(Tensor::from_vec(vec![2, 15, 64])));
     }
 
     #[test]
