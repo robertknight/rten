@@ -1,8 +1,11 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use super::{AsView, NdTensor, NdTensorView, NdTensorViewMut, Tensor};
+use super::{AsView, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use crate::errors::{ExpandError, FromDataError};
 use crate::layout::{DynLayout, MatrixLayout, MutLayout};
 use crate::prelude::*;
@@ -378,6 +381,27 @@ fn test_data_truncates_slice() {
 }
 
 #[test]
+fn test_eq() {
+    // Equal shape and elements.
+    let a = NdTensor::from([[1, 2], [3, 4]]);
+    let b = NdTensor::from([[1, 2], [3, 4]]);
+    assert_eq!(a, b);
+
+    // Same elements, different shape.
+    let c = NdTensor::from([1, 2, 3, 4]);
+    assert_ne!(a, c);
+
+    // Same shape, different elements.
+    let d = NdTensor::from([[1, 2], [3, 5]]);
+    assert_ne!(a, d);
+
+    // Same shape and elements, different storage order.
+    let row_major = NdTensor::from([[1, 2], [3, 4]]);
+    let col_major = NdTensor::from([[1, 3], [2, 4]]);
+    assert_eq!(row_major, col_major.transposed());
+}
+
+#[test]
 fn test_fill() {
     let data = vec![1., 2., 3., 4.];
     let mut tensor = NdTensor::from_data([2, 2], data);
@@ -681,6 +705,36 @@ fn test_has_capacity() {
         assert!(tensor.has_capacity(1, i));
     }
     assert!(!tensor.has_capacity(1, 4));
+}
+
+#[test]
+fn test_hash() {
+    fn hash(tensor: TensorView<i32>) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        tensor.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    // Same shape and elements
+    let a = Tensor::from([[1, 2], [3, 4]]);
+    let b = Tensor::from([[1, 2], [3, 4]]);
+    assert_eq!(hash(a.view()), hash(b.view()));
+
+    // Same shape and elements, different storage order.
+    let col_major = Tensor::from([[1, 3], [2, 4]]);
+    let transposed = col_major.transposed();
+    assert_eq!(a, transposed);
+    assert_eq!(hash(a.view()), hash(transposed));
+
+    // Same elements but a different shape.
+    let flat = Tensor::from([1, 2, 3, 4]);
+    assert_ne!(hash(a.view()), hash(flat.view()));
+
+    // Test use in a HashSet
+    let mut set = HashSet::new();
+    set.insert(NdTensor::from([[1, 2], [3, 4]]));
+    assert!(set.contains(&NdTensor::from([[1, 2], [3, 4]])));
+    assert!(!set.contains(&NdTensor::from([[1, 2], [3, 5]])));
 }
 
 #[test]
