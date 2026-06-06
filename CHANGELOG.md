@@ -5,6 +5,88 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+**Highlights:**
+
+- Extended the shape and type inference system (introduced in 0.24.0) to cover
+  many more operators, including `ArgMax`, `ArgMin`, `ConvInteger`,
+  `ConvTranspose`, `CumSum`, `DepthToSpace`, `Dropout`, `Einsum`, `EyeLike`,
+  `GatherElements`, `GatherND`, `GridSample`, `GRU`, `LSTM`, `NonMaxSuppression`,
+  `NonZero`, `OneHot`, `Pad`, `RandomNormal`, `RandomNormalLike`,
+  `RandomUniform`, `RandomUniformLike`, `Resize`, `RotaryEmbedding`,
+  `ScatterElements`, `Size`, `SkipSimplifiedLayerNormalization`, `STFT`, `Tile`
+  and `TopK`.
+
+- Added several new operators commonly used in transformer and LLM models,
+  including `RotaryEmbedding`, `RMSNormalization`, `SimplifiedLayerNormalization`
+  and `SkipSimplifiedLayerNormalization`.
+
+- Added support for loading f16 ONNX models by up-converting weights to f32
+  (https://github.com/robertknight/rten/pull/1171).
+
+### rten
+
+- Added `RotaryEmbedding` operator (thanks @xd009642)
+  (https://github.com/robertknight/rten/pull/1209)
+
+- Added `RMSNormalization` operator
+  (https://github.com/robertknight/rten/pull/1190)
+
+- Added `SimplifiedLayerNormalization` and `SkipSimplifiedLayerNormalization`
+  operators (thanks @xd009642) (https://github.com/robertknight/rten/pull/1206,
+  https://github.com/robertknight/rten/pull/1210)
+
+- Added `Swish` operator (https://github.com/robertknight/rten/pull/1223)
+
+- Added `Acosh`, `Asinh`, `Atanh`, `Cosh` and `Sinh` operators
+  (https://github.com/robertknight/rten/pull/1224)
+
+- Added `ReduceL1` operator (https://github.com/robertknight/rten/pull/1198)
+
+- Support f16 ONNX models by up-converting to f32 in the loader
+  (https://github.com/robertknight/rten/pull/1171)
+
+- Support all int8/uint8 input combinations in `MatMulInteger`
+  (https://github.com/robertknight/rten/pull/1208)
+
+- Added a strict shape inference mode which reports errors when shapes cannot be
+  inferred (https://github.com/robertknight/rten/pull/1179)
+
+- Support shape inference for models in the `.rten` format
+  (https://github.com/robertknight/rten/pull/1178)
+
+- Aligned `Reduce*` operators with the ONNX spec for empty inputs
+  (https://github.com/robertknight/rten/pull/1204)
+
+- Fixed `ConvInteger` zero point handling when `group` > 1
+  (https://github.com/robertknight/rten/pull/1193)
+
+- Check that the K dimension is compatible between the LHS and RHS inputs of the
+  `Gemm` operator (https://github.com/robertknight/rten/pull/1169)
+
+- Handle the case where an ONNX operator and value have the same name
+  (https://github.com/robertknight/rten/pull/1221)
+
+- Fixed conversion of the `to` attribute for the `Cast` operator to match the
+  initializer loader (https://github.com/robertknight/rten/pull/1181)
+
+### rten-tensor
+
+- Added `TensorBase::concat` method
+  (https://github.com/robertknight/rten/pull/1195)
+
+- Added `InsertDim` trait and `TensorBase::with_new_axis` method to insert a new
+  axis into a tensor (https://github.com/robertknight/rten/pull/1196)
+
+- Added `TensorBase::with_axis_removed` method
+  (https://github.com/robertknight/rten/pull/1197)
+
+### rten-examples
+
+- Updated the JS / WASM usage guide and example
+  (https://github.com/robertknight/rten/pull/1172)
+
 ## [0.24.0] - 2025-12-23
 
 **Highlights:**
