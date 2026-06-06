@@ -85,6 +85,19 @@ impl SymTensor {
         Self(SymTensorKind::Tensor(Tensor::from_scalar(item)))
     }
 
+    /// Create a new symbolic tensor from a tensor of values with a known shape.
+    pub fn from_tensor(tensor: Tensor<SymExpr>) -> Self {
+        Self(SymTensorKind::Tensor(tensor))
+    }
+
+    /// Return this tensor's values as an n-dimensional tensor, if known.
+    pub fn as_tensor(&self) -> Option<&Tensor<SymExpr>> {
+        match &self.0 {
+            SymTensorKind::Tensor(tensor) => Some(tensor),
+            _ => None,
+        }
+    }
+
     /// Return this tensor's single element, if it is a scalar.
     pub fn as_scalar(&self) -> Option<&SymExpr> {
         match &self.0 {
