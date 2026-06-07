@@ -1,13 +1,13 @@
 //! Tensors with symbolic shapes and values.
 
-use rten_tensor::{AsView, Layout, Tensor};
+use rten_tensor::{AsView, Contiguous, Layout, Tensor, TensorView};
 
 use crate::sym_expr::{EvalError, SymExpr, SymbolMap};
 use crate::sym_gen::SymbolGen;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum SymTensorKind {
-    Tensor(Tensor<SymExpr>),
+    Tensor(Contiguous<Tensor<SymExpr>>),
     Shape(Vec<SymExpr>),
     Unknown {
         /// Note about why this Unknown value was created, for debugging purposes.
@@ -78,23 +78,27 @@ impl SymTensor {
 
     /// Create a new symbolic vector.
     pub fn from_vec(vec: Vec<SymExpr>) -> Self {
-        Self(SymTensorKind::Tensor(Tensor::from_vec(vec)))
+        Self(SymTensorKind::Tensor(
+            Tensor::from_vec(vec).into_contiguous(),
+        ))
     }
 
     /// Create a new symbolic scalar.
     pub fn from_scalar(item: SymExpr) -> Self {
-        Self(SymTensorKind::Tensor(Tensor::from_scalar(item)))
+        Self(SymTensorKind::Tensor(
+            Tensor::from_scalar(item).into_contiguous(),
+        ))
     }
 
     /// Create a new symbolic tensor from a tensor of values with a known shape.
     pub fn from_tensor(tensor: Tensor<SymExpr>) -> Self {
-        Self(SymTensorKind::Tensor(tensor))
+        Self(SymTensorKind::Tensor(tensor.into_contiguous()))
     }
 
     /// Return this tensor's values as an n-dimensional tensor, if known.
-    pub fn as_tensor(&self) -> Option<&Tensor<SymExpr>> {
+    pub fn as_tensor(&self) -> Option<TensorView<'_, SymExpr>> {
         match &self.0 {
-            SymTensorKind::Tensor(tensor) => Some(tensor),
+            SymTensorKind::Tensor(tensor) => Some(tensor.view().into()),
             _ => None,
         }
     }
@@ -110,7 +114,7 @@ impl SymTensor {
     /// Return this tensor's values as a slice, if it is a vector.
     pub fn as_vector(&self) -> Option<&[SymExpr]> {
         match &self.0 {
-            SymTensorKind::Tensor(tensor) if tensor.ndim() == 1 => tensor.data(),
+            SymTensorKind::Tensor(tensor) if tensor.ndim() == 1 => Some(tensor.data()),
             _ => None,
         }
     }
@@ -167,7 +171,7 @@ impl SymTensor {
     /// Return the symbolic values in this tensor, or `None` if unknown.
     pub fn values(&self) -> Option<&[SymExpr]> {
         match &self.0 {
-            SymTensorKind::Tensor(tensor) => tensor.data(),
+            SymTensorKind::Tensor(tensor) => Some(tensor.data()),
             SymTensorKind::Shape(_) | SymTensorKind::Unknown { .. } => None,
         }
     }
@@ -177,9 +181,9 @@ impl SymTensor {
     /// See [`SymExpr::simplify`].
     pub fn simplify(self) -> Self {
         match self.0 {
-            SymTensorKind::Tensor(tensor) => {
-                Self(SymTensorKind::Tensor(tensor.map(|x| x.clone().simplify())))
-            }
+            SymTensorKind::Tensor(tensor) => Self(SymTensorKind::Tensor(
+                tensor.map(|x| x.clone().simplify()).into_contiguous(),
+            )),
             SymTensorKind::Shape(shape) => {
                 Self::from_shape(shape.into_iter().map(|d| d.simplify()).collect())
             }
@@ -202,7 +206,13 @@ impl SymTensor {
         };
 
         match &mut self.0 {
-            SymTensorKind::Tensor(val) => val.iter_mut().for_each(&mut replace_complex),
+            // `Contiguous` doesn't allow mutating elements in place, so replace
+            // expressions in a copy of the tensor.
+            SymTensorKind::Tensor(val) => {
+                let mut tensor = val.to_tensor();
+                tensor.iter_mut().for_each(&mut replace_complex);
+                *val = tensor.into_contiguous();
+            }
             SymTensorKind::Shape(shape) => shape.iter_mut().for_each(&mut replace_complex),
             SymTensorKind::Unknown { .. } => {}
         }
