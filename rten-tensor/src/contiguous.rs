@@ -8,7 +8,7 @@ use crate::{AsView, Layout, Storage, TensorBase};
 ///
 /// A contiguous layout means that the order of elements in memory matches the
 /// logical row-major ordering of elements with no gaps.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Contiguous<T>(T);
 
 impl<T> Deref for Contiguous<T> {
