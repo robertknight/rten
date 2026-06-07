@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use crate::layout::MutLayout;
 use crate::storage::{CowData, ViewData};
 use crate::{AsView, Layout, Storage, TensorBase};
 
@@ -58,6 +59,19 @@ impl<S: Storage, L: Layout> Contiguous<TensorBase<S, L>> {
 }
 
 impl<T, L: Clone + Layout> Contiguous<TensorBase<Vec<T>, L>> {
+    /// Wrap `inner` as a contiguous tensor.
+    ///
+    /// This is cheap if `inner` is already contiguous, otherwise the elements
+    /// are copied into a new buffer.
+    pub fn from_owned(mut inner: TensorBase<Vec<T>, L>) -> Self
+    where
+        L: MutLayout,
+        T: Clone,
+    {
+        inner.make_contiguous();
+        Self(inner)
+    }
+
     /// Extract the owned, contiguous data from this tensor.
     pub fn into_data(self) -> Vec<T> {
         self.0.into_non_contiguous_data()

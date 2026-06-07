@@ -1148,6 +1148,22 @@ fn test_make_contiguous() {
 }
 
 #[test]
+fn test_into_contiguous() {
+    let tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
+
+    // Cheap, since tensor is already contiguous.
+    let tensor = tensor.into_contiguous();
+
+    let mut transposed = tensor.into_inner();
+    transposed.transpose();
+    assert!(!transposed.is_contiguous());
+
+    // Forces a copy, since tensor is not contiguous.
+    let transposed = transposed.into_contiguous();
+    assert_eq!(transposed.data(), [1., 3., 2., 4.].as_slice());
+}
+
+#[test]
 fn test_map() {
     let data = vec![1., 2., 3., 4.];
     let tensor = NdTensor::from_data([2, 2], data);
