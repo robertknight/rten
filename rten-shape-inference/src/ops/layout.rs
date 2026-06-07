@@ -1,4 +1,4 @@
-use rten_tensor::Layout;
+use rten_tensor::{AsView, Layout, Tensor};
 
 use crate::infer_shapes::{
     BinaryOp, InferShapes, InferShapesContext, InferShapesError, resolve_axis,
@@ -6,6 +6,28 @@ use crate::infer_shapes::{
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
+
+/// Construct the result of reshaping `data` to `out_shape`.
+///
+/// If `data` has known values and `out_shape` is fully concrete with a matching
+/// element count, the values are reshaped and preserved. Otherwise only the
+/// shape is retained.
+fn reshape_output(data: &SymTensor, out_shape: Vec<SymExpr>) -> SymTensor {
+    if let Some(values) = data.values()
+        && let Some(concrete) = out_shape
+            .iter()
+            .map(|dim| match dim {
+                SymExpr::Value(size) if *size >= 0 => Some(*size as usize),
+                _ => None,
+            })
+            .collect::<Option<Vec<usize>>>()
+        && concrete.iter().product::<usize>() == values.len()
+    {
+        SymTensor::from_tensor(Tensor::from_data(&concrete, values.to_vec()))
+    } else {
+        SymTensor::from_shape(out_shape)
+    }
+}
 
 /// Expand operator.
 ///
@@ -156,7 +178,7 @@ impl InferShapes for Reshape {
             } else if all_fixed {
                 // If all output sizes are fixed, we can generate the output shape
                 // whether we know the input shape or not.
-                SymTensor::from_shape(dim_sizes.to_vec())
+                reshape_output(data, dim_sizes.to_vec())
             } else if let Some(data_dims) = data.shape() {
                 let remainder_index = dim_sizes
                     .iter()
@@ -208,7 +230,7 @@ impl InferShapes for Reshape {
                     out_shape[rem_index] = remainder.simplify();
                 }
 
-                SymTensor::from_shape(out_shape)
+                reshape_output(data, out_shape)
             } else {
                 let out_shape = dim_sizes
                     .iter()
@@ -452,6 +474,20 @@ impl InferShapes for Transpose<'_> {
     ) -> Result<Vec<SymTensor>, InferShapesError> {
         let input = inputs.require(0)?;
 
+        // If the input values are known, transpose them so they are preserved.
+        if let Some(values) = input.as_tensor() {
+            if let Some(perm) = self.perm
+                && (perm.len() != values.ndim() || perm.iter().any(|&i| i >= values.ndim()))
+            {
+                return Err(InferShapesError::IncorrectRank);
+            }
+            let permuted = match self.perm {
+                Some(perm) => values.permuted(perm).to_tensor(),
+                None => values.transposed().to_tensor(),
+            };
+            return Ok([SymTensor::from_tensor(permuted)].into());
+        }
+
         if let Some(dims) = input.shape() {
             let permuted_dims = if let Some(perm) = self.perm {
                 let dims: Vec<_> = dims.collect();
@@ -541,7 +577,7 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_tensor::{SymTensor, sym_shape, sym_tensor, sym_vec};
 
     use super::{
         DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
@@ -682,6 +718,18 @@ mod tests {
             .infer_shapes([data.clone(), shape].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], data);
+
+        // Reshape of a known vector into a 2D tensor preserves the values.
+        let data = sym_vec!(1, 2, 3, 4);
+        let shape = sym_vec!(2, 2);
+        let result = op.infer_shapes([data, shape].into(), &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_tensor!([[1, 2], [3, 4]]));
+
+        // Values are also preserved when the 2D output shape uses -1.
+        let data = sym_vec!("a", "b", "c", "d");
+        let shape = sym_vec!(-1, 2);
+        let result = op.infer_shapes([data, shape].into(), &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_tensor!([["a", "b"], ["c", "d"]]));
 
         // Unknown input shape, but known output shape.
         let data = SymTensor::unknown("unknown");
@@ -913,6 +961,12 @@ mod tests {
         let op = Transpose { perm: None };
         let result = op.infer_shapes([data].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0], SymTensor::unknown("unknown input shape"));
+
+        // Transpose of a known 2D value tensor preserves and permutes values.
+        let data = sym_tensor!([[1, 2], [3, 4]]);
+        let op = Transpose { perm: None };
+        let result = op.infer_shapes([data].into(), &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_tensor!([[1, 3], [2, 4]]));
     }
 
     #[test]

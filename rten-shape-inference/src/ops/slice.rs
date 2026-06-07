@@ -1,4 +1,4 @@
-use rten_tensor::{AsView, SliceRange, Tensor};
+use rten_tensor::{AsView, Layout, SliceItem, SliceRange, Tensor};
 
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::ops::resolve_axis;
@@ -35,6 +35,46 @@ impl InferShapes for Slice {
 
         let steps = inputs.get(4);
 
+        // If the input values and all slice parameters are known constants, we
+        // can compute the sliced values directly. This works for any rank and
+        // step, including negative steps.
+        if let Some(values) = data.as_tensor()
+            && let Some(axes) = axes.as_ref()
+            && let Some(starts) = starts.to_constant()
+            && let Some(ends) = ends.to_constant()
+            && let Some(step_values) = match steps {
+                Some(steps) => steps.to_constant().map(Some),
+                None => Some(None),
+            }
+        {
+            let ndim = values.ndim();
+            let mut items: Vec<SliceItem> = vec![SliceItem::full_range(); ndim];
+            let mut resolved = true;
+            for (i, axis) in axes.iter().copied().enumerate() {
+                let step = match &step_values {
+                    Some(steps) => steps.get([i]).copied(),
+                    None => Some(1),
+                };
+                let (Ok(axis), Some(&start), Some(&end), Some(step)) = (
+                    resolve_axis(ndim, axis),
+                    starts.get([i]),
+                    ends.get([i]),
+                    step,
+                ) else {
+                    resolved = false;
+                    break;
+                };
+                items[axis] = SliceItem::Range(
+                    SliceRange::new(start as isize, Some(end as isize), step as isize)
+                        .clamp(values.size(axis)),
+                );
+            }
+
+            if resolved {
+                return Ok([SymTensor::from_tensor(values.slice_copy(items.as_slice()))].into());
+            }
+        }
+
         let sliced_shape = if let Some(axes) = axes {
             let mut dims: Vec<_> = data_dims.collect();
 
@@ -69,16 +109,6 @@ impl InferShapes for Slice {
                     };
 
                     let range = SliceRange::new(*start as isize, end, *step as isize);
-
-                    // When slicing a symbolic vec along axis 0, the result can
-                    // also be a symbolic vec.
-                    if let Some(vals) = data.values()
-                        && *step == 1
-                    {
-                        let clamped_range = range.resolve_clamped(size as usize);
-                        return Ok([SymTensor::from_vec(vals[clamped_range].to_vec())].into());
-                    }
-
                     let slice_size = range.steps(size as usize) as i32;
                     dims[axis] = SymExpr::Value(slice_size);
                 } else if let Some(start) = start
@@ -120,7 +150,7 @@ mod tests {
     use crate::infer_shapes::InferShapes;
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_tensor::{SymTensor, sym_shape, sym_tensor, sym_vec};
 
     use super::Slice;
 
@@ -202,6 +232,18 @@ mod tests {
             .infer_shapes([data, starts, ends].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_vec!(3, "height", "width"));
+
+        // Slice of a known 2D value tensor along axis 0 with a negative step,
+        // which reverses that axis. The values are preserved.
+        let data = sym_tensor!([[1, 2], [3, 4]]);
+        let starts = sym_vec!(-1);
+        let ends = sym_vec!(i32::MIN);
+        let axes = sym_vec!(0);
+        let steps = sym_vec!(-1);
+        let result = Slice
+            .infer_shapes([data, starts, ends, axes, steps].into(), &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_tensor!([[3, 4], [1, 2]]));
 
         // Slice of a symbolic vector with negative starts and ends.
         let data = sym_vec!("s6", 6, 400, 64);
