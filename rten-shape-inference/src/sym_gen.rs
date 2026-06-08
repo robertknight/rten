@@ -46,6 +46,7 @@ impl SymbolGen {
             Symbol {
                 name: self.gen_name(),
                 positive: true,
+                synthetic: true,
             }
             .into(),
         )

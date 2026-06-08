@@ -1094,7 +1094,8 @@ fn test_fuse_compute_shape() {
             SymExpr::Var(
                 Symbol {
                     name: "batch".into(),
-                    positive: true
+                    positive: true,
+                    synthetic: false,
                 }
                 .into()
             ),

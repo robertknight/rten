@@ -51,8 +51,8 @@ pub struct OpInfo {
 
 /// Errors that prevent shape inference from finishing.
 ///
-/// Shape inference can still complete if errors only happen for certain nodes.
-/// In that case the shapes or types will be treated as unknown.
+/// Depending on the settings that shape inference is run with, shape inference
+/// may attempt to keep going after an error is encountered or may abort.
 #[derive(Debug)]
 pub enum InferError {
     /// Failed to generate the sequence of operators to run shape inference on.
@@ -62,7 +62,15 @@ pub enum InferError {
     /// Shape inference is not implemented for an operator.
     UnsupportedOperator(OpInfo),
     /// Shape inference failed for an operator.
+    ///
+    /// Shape inference can fail if the inputs to an operator are incorrect
+    /// (wrong count, wrong rank, incompatible).
     ShapeInferenceFailed(OpInfo),
+    /// Shape inference was incomplete for an operator.
+    ///
+    /// _Incomplete_ shape inference means that shape inference successfully
+    /// ran, but at least one output has a dimension of unknown size.
+    ShapeInferenceIncomplete(OpInfo),
 }
 
 impl fmt::Display for InferError {
@@ -84,6 +92,11 @@ impl fmt::Display for InferError {
             Self::ShapeInferenceFailed(op_info) => write!(
                 f,
                 "shape inference failed for {} op \"{}\"",
+                op_info.op_type, op_info.name
+            ),
+            Self::ShapeInferenceIncomplete(op_info) => write!(
+                f,
+                "shape inference incomplete for {} op \"{}\"",
                 op_info.op_type, op_info.name
             ),
         }
@@ -245,9 +258,25 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
                             continue;
                         };
 
-                        // Fail inference if any output has unknown shape.
-                        if opts.strict && out_shape.ndim().is_none() {
-                            return Err(InferError::ShapeInferenceFailed(op_info()));
+                        // Fail inference if any output dimension has an unknown shape.
+                        if opts.strict {
+                            let has_unknown = if let Some(mut out_shape) = out_shape.shape() {
+                                out_shape.any(|dims| {
+                                    dims.iter().any(|expr| match expr {
+                                        // If we encounter a synthetic variable, this means that
+                                        // the size of a dimension could not be computed.
+                                        SymExpr::Var(symbol) => symbol.synthetic,
+                                        _ => false,
+                                    })
+                                })
+                            } else {
+                                // Output rank is unknown.
+                                true
+                            };
+
+                            if has_unknown {
+                                return Err(InferError::ShapeInferenceIncomplete(op_info()));
+                            }
                         }
 
                         values.insert(*out_id, out_shape.simplify());
@@ -405,6 +434,7 @@ fn sym_tensor_from_input(
                             Symbol {
                                 name: name.clone(),
                                 positive: true,
+                                synthetic: false,
                             }
                             .into(),
                         ),
@@ -427,7 +457,7 @@ mod tests {
 
     use crate::Dimension;
     use crate::graph::builder::{Expr, OutputMeta, dims};
-    use crate::ops::{Concat, Gather, MatMul, Shape as ShapeOp, Split, Unsqueeze};
+    use crate::ops::{Concat, Gather, Gemm, MatMul, Shape as ShapeOp, Split, Unsqueeze};
     use crate::value::{DataType, ValueType};
 
     use super::{Constant, InferError, InferShapeOptions, Shape, infer_shapes};
@@ -476,16 +506,44 @@ mod tests {
         let result = infer_shapes(&graph, opts.clone());
         assert!(result.is_ok());
 
-        // Unsuccessful shape inference
+        // Incomplete shape inference.
         let graph = {
-            let x = Expr::value("data");
+            let x = Expr::value("data"); // Missing type, shape
             let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
             let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
             out.build_graph(&["data"])
         };
         let result = infer_shapes(&graph, opts.clone());
         assert!(
-            matches!(&result, Err(InferError::ShapeInferenceFailed(op_info)) if op_info.name == "MatMul"),
+            matches!(&result, Err(InferError::ShapeInferenceIncomplete(op_info)) if op_info.name == "MatMul"),
+            "{:?} is not expected error",
+            result
+        );
+
+        // Failed shape inference.
+        let graph = {
+            let x = Expr::value_with_info(
+                "data",
+                ValueType::Tensor(DataType::Float),
+                &dims!("batch", 64),
+            );
+            // RHS input to Gemm with too few dims.
+            let w = Expr::constant(NdTensor::<f32, _>::zeros([64]));
+            let out = x.apply(
+                Gemm {
+                    alpha: 1.,
+                    beta: 0.,
+                    transpose_a: false,
+                    transpose_b: false,
+                },
+                &[w],
+                &[OutputMeta::NoMeta],
+            );
+            out.build_graph(&["data"])
+        };
+        let result = infer_shapes(&graph, opts.clone());
+        assert!(
+            matches!(&result, Err(InferError::ShapeInferenceFailed(op_info)) if op_info.name == "Gemm"),
             "{:?} is not expected error",
             result
         );
