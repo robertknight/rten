@@ -14,7 +14,10 @@ use crate::operator::{
     OutputTypesContext,
 };
 use crate::ops::{
-    binary_elementwise::broadcast_shapes, layout::expand_to, norm::NanHandling, resolve_axis,
+    binary_elementwise::{add, broadcast_shapes},
+    layout::expand_to,
+    norm::NanHandling,
+    resolve_axis,
 };
 use crate::value::Value;
 
@@ -377,8 +380,19 @@ impl Operator for MultiHeadAttention {
             let q = query.slice((.., .., .., 0, ..));
             let k = query.slice((.., .., .., 1, ..));
             let v = query.slice((.., .., .., 2, ..));
-            // unpack QKV
-            todo!()
+
+            let q_t = q.nd_view().permuted([0, 2, 1, 3]).as_dyn().as_cow();
+            let k_t = k.nd_view().permuted([0, 2, 1, 3]).as_dyn().as_cow();
+            let v_t = v.nd_view().permuted([0, 2, 1, 3]).as_dyn().as_cow();
+            // TODO sort out the to_tensor thing
+            (
+                q_t,
+                k_t.to_tensor(),
+                v_t.to_tensor(),
+                *batch_size,
+                *kv_seq_len,
+                num_heads * head_size,
+            )
         } else {
             let (batch_size, seq_len, hidden) = match query.shape() {
                 &[batch_size, seq_len, hidden] => (batch_size, seq_len, hidden),
@@ -390,13 +404,39 @@ impl Operator for MultiHeadAttention {
             };
             let head_size = hidden / self.num_heads as usize;
 
-            if key.is_none() {
-                // Self attention
-            }
+            let (key, value) = match (&key, &value) {
+                (None, _) => (&query, &query), // Reference impl ignores if value is some
+                (Some(key), Some(value)) => (key, value),
+                (Some(_), None) => {
+                    return Err(OpError::InvalidValue("If key is some value must be some"));
+                }
+            };
 
-            (0, 0, 0, batch_size, seq_len, hidden)
+            let (key, value) = if let Some(bias) = &bias {
+                let q_bias = bias.slice(..hidden);
+                let k_bias = bias.slice(hidden..(hidden * 2));
+                let v_bias = bias.slice((hidden * 2)..);
+
+                let query = add(ctx.pool(), query.view(), q_bias)?.auto_return(ctx.pool());
+                let key = add(ctx.pool(), key.view(), k_bias)?.auto_return(ctx.pool());
+                let value = add(ctx.pool(), value.view(), v_bias)?.auto_return(ctx.pool());
+                let key = key.to_owned();
+                let value = value.to_owned();
+                (key, value)
+            } else {
+                (key.to_tensor(), value.to_tensor())
+            };
+
+            (query.as_cow(), key, value, batch_size, seq_len, hidden)
         };
 
+        // split the heads
+
+        // KV-cache concat
+
+        // scaled dot product attention
+
+        // merge heads
         todo!()
     }
 
