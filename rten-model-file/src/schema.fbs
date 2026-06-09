@@ -148,6 +148,7 @@ enum OperatorType: ubyte {
   Atanh,
   Cosh,
   Sinh,
+  Multinomial,
 }
 
 enum RNNDirection: ubyte {
@@ -254,6 +255,7 @@ union OperatorAttrs {
   SplitToSequenceAttrs,
   GridSampleAttrs,
   STFTAttrs,
+  MultinomialAttrs,
 }
 
 table ArgMaxAttrs {
@@ -450,6 +452,11 @@ table MaxPoolAttrs {
 
 table ModAttrs {
   fmod:bool;
+}
+
+table MultinomialAttrs {
+  sample_size:int;
+  seed:float = null;
 }
 
 enum NMSBoxOrder: ubyte {

@@ -1682,6 +1682,10 @@ mod tests {
                 high: 1.,
                 seed: None,
             });
+            add_operator!(Multinomial, [input_2d], {
+                sample_size: 4,
+                seed: None,
+            });
         }
 
         let range_start_node = graph_builder.add_value("range_start", None, None);
@@ -1856,6 +1860,7 @@ mod tests {
                 "Dropout_out_mask",
                 "Gemm_out",
                 "MatMul_out",
+                "Multinomial_out",
                 "Range_out",
                 "Split_out_1",
                 "Split_out_2",
@@ -1925,7 +1930,7 @@ mod tests {
 
         #[cfg(feature = "random")]
         {
-            outputs.extend(["Dropout_out", "Dropout_out_mask"]);
+            outputs.extend(["Dropout_out", "Dropout_out_mask", "Multinomial_out"]);
         }
 
         let input = Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);

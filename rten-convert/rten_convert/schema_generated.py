@@ -142,6 +142,7 @@ class OperatorType(object):
     Atanh = 132
     Cosh = 133
     Sinh = 134
+    Multinomial = 135
 
 
 class RNNDirection(object):
@@ -237,6 +238,7 @@ class OperatorAttrs(object):
     SplitToSequenceAttrs = 52
     GridSampleAttrs = 53
     STFTAttrs = 54
+    MultinomialAttrs = 55
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -350,6 +352,8 @@ def OperatorAttrsCreator(unionType, table):
         return GridSampleAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.STFTAttrs:
         return STFTAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.MultinomialAttrs:
+        return MultinomialAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -4097,6 +4101,104 @@ class ModAttrsT(object):
         return modAttrs
 
 
+class MultinomialAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = MultinomialAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsMultinomialAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def MultinomialAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # MultinomialAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # MultinomialAttrs
+    def SampleSize(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+    # MultinomialAttrs
+    def Seed(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return None
+
+def MultinomialAttrsStart(builder):
+    builder.StartObject(2)
+
+def MultinomialAttrsAddSampleSize(builder, sampleSize):
+    builder.PrependInt32Slot(0, sampleSize, 0)
+
+def MultinomialAttrsAddSeed(builder, seed):
+    builder.PrependFloat32Slot(1, seed, None)
+
+def MultinomialAttrsEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import Optional
+except:
+    pass
+
+class MultinomialAttrsT(object):
+
+    # MultinomialAttrsT
+    def __init__(
+        self,
+        sampleSize = 0,
+        seed = None,
+    ):
+        self.sampleSize = sampleSize  # type: int
+        self.seed = seed  # type: Optional[float]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        multinomialAttrs = MultinomialAttrs()
+        multinomialAttrs.Init(buf, pos)
+        return cls.InitFromObj(multinomialAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, multinomialAttrs):
+        x = MultinomialAttrsT()
+        x._UnPack(multinomialAttrs)
+        return x
+
+    # MultinomialAttrsT
+    def _UnPack(self, multinomialAttrs):
+        if multinomialAttrs is None:
+            return
+        self.sampleSize = multinomialAttrs.SampleSize()
+        self.seed = multinomialAttrs.Seed()
+
+    # MultinomialAttrsT
+    def Pack(self, builder):
+        MultinomialAttrsStart(builder)
+        MultinomialAttrsAddSampleSize(builder, self.sampleSize)
+        MultinomialAttrsAddSeed(builder, self.seed)
+        multinomialAttrs = MultinomialAttrsEnd(builder)
+        return multinomialAttrs
+
+
 class NonMaxSuppressionAttrs(object):
     __slots__ = ['_tab']
 
@@ -6489,7 +6591,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 

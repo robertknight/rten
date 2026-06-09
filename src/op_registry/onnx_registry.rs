@@ -171,6 +171,7 @@ impl OnnxOpRegistry {
         register_op!(Min);
         register_op!(Mod);
         register_op!(Mul);
+        register_op!(Multinomial, feature = "random");
         register_op!(Neg);
         register_op!(NonMaxSuppression);
         register_op!(NonZero);
@@ -1344,6 +1345,24 @@ impl_read_op!(RMSNormalization, |attrs: &Attrs| {
     attrs.check_eq("stash_type", 1)?;
 
     Ok(ops::RMSNormalization { axis, epsilon })
+});
+
+#[cfg(feature = "random")]
+impl_read_op!(Multinomial, |attrs: &Attrs| {
+    let dtype = attrs
+        .get_as_int::<i32>("dtype")?
+        .map(onnx::DataType)
+        .unwrap_or(onnx::DataType::INT32);
+    if !matches!(dtype, onnx::DataType::INT32 | onnx::DataType::INT64) {
+        return Err(ReadOpError::attr_error(
+            "dtype",
+            "only int32 and int64 output types are supported",
+        ));
+    }
+
+    let sample_size = attrs.get_as_int::<usize>("sample_size")?.unwrap_or(1);
+    let seed = attrs.get_as("seed");
+    Ok(ops::Multinomial { sample_size, seed })
 });
 
 #[cfg(feature = "random")]

@@ -601,6 +601,18 @@ def op_node_from_onnx_operator(
             attrs = sg.ModAttrsT()
             attrs.fmod = bool(attr_reader.get_attr("fmod", "int", 0))
 
+        case "Multinomial":
+            attrs = sg.MultinomialAttrsT()
+            # Only int32 and int64 output types are supported. RTen represents
+            # both as int32. The default is int32.
+            attr_reader.check_attr(
+                "dtype",
+                "int",
+                (TensorProto.DataType.INT32, TensorProto.DataType.INT64),
+            )
+            attrs.sampleSize = attr_reader.get_attr("sample_size", "int", 1)
+            attrs.seed = attr_reader.get_attr("seed", "float", None)
+
         case "NonMaxSuppression":
             attrs = sg.NonMaxSuppressionAttrsT()
             center_point_box = attr_reader.get_attr("center_point_box", "int", 0)

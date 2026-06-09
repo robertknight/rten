@@ -65,7 +65,7 @@ pub(crate) mod transform_inputs;
 pub(crate) use fft::STFT;
 #[cfg(feature = "random")]
 pub(crate) use random::{
-    Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike,
+    Dropout, Multinomial, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike,
 };
 pub(crate) use {
     attention::{AddSoftmax, GroupedQueryAttentionMatMul, RepeatInterleave},
