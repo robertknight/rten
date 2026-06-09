@@ -281,6 +281,7 @@ pub mod op_types {
     declare_op!(Min);
     declare_op!(Mod);
     declare_op!(Mul);
+    declare_op!(Multinomial, feature = "random");
     declare_op!(Neg);
     declare_op!(NonMaxSuppression);
     declare_op!(NonZero);

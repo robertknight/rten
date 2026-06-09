@@ -167,6 +167,7 @@ impl RtenOpRegistry {
         register_op!(Min);
         register_op!(Mod);
         register_op!(Mul);
+        register_op!(Multinomial, feature = "random");
         register_op!(Neg);
         register_op!(NonMaxSuppression);
         register_op!(NonZero);
@@ -826,6 +827,18 @@ impl_read_op!(
         Ok(ops::QuantizeLinear {
             axis: attrs.axis() as isize,
             output_dtype,
+        })
+    }
+);
+
+#[cfg(feature = "random")]
+impl_read_op!(
+    Multinomial,
+    attrs_as_multinomial_attrs,
+    |attrs: sg::MultinomialAttrs| {
+        Ok(ops::Multinomial {
+            sample_size: attrs.sample_size().max(0) as usize,
+            seed: attrs.seed(),
         })
     }
 );

@@ -19,7 +19,9 @@ use crate::ops::{
 use crate::value::{DataType, Scalar};
 
 #[cfg(feature = "random")]
-use crate::ops::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
+use crate::ops::{
+    Dropout, Multinomial, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike,
+};
 
 /// Struct like `crate::ops::If` with subgraph attributes replaced by
 /// pre-serialized graphs.
@@ -102,6 +104,10 @@ pub enum OpType<'a> {
     Min,
     Mod(Mod),
     Mul,
+
+    #[cfg(feature = "random")]
+    Multinomial(Multinomial),
+
     Neg,
     NonMaxSuppression(NonMaxSuppression),
     NonZero,
@@ -739,6 +745,17 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 op_with_attrs!(Mod, ModAttrs, sg::ModAttrsArgs { fmod: args.fmod })
             }
             OpType::Mul => op!(Mul),
+
+            #[cfg(feature = "random")]
+            OpType::Multinomial(args) => {
+                op_with_attrs!(Multinomial, MultinomialAttrs, {
+                    sg::MultinomialAttrsArgs {
+                        sample_size: args.sample_size as i32,
+                        seed: args.seed,
+                    }
+                })
+            }
+
             OpType::Neg => op!(Neg),
             OpType::NonMaxSuppression(args) => {
                 op_with_attrs!(

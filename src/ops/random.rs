@@ -2,14 +2,26 @@ use fastrand::Rng;
 use fastrand_contrib::RngExt;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
-use rten_tensor::{Tensor, TensorView};
+use rten_tensor::{NdTensorView, Tensor, TensorView};
 
+use crate::buffer_pool::AutoReturn;
 use crate::infer_shapes::{InferShapes, UnaryOp, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
 };
 use crate::value::{DataType, Value, ValueType};
+
+/// Create a random number generator, seeded with `seed` if it is provided.
+///
+/// The seed is an `f32` for consistency with the ONNX specification, which
+/// specifies random seeds for operators as floats.
+fn rng_from_seed(seed: Option<f32>) -> Rng {
+    match seed {
+        Some(seed) => Rng::with_seed(seed.to_bits() as u64),
+        None => Rng::new(),
+    }
+}
 
 #[derive(Debug)]
 pub struct RandomUniform {
@@ -41,11 +53,7 @@ impl Operator for RandomUniform {
         let scale_value = |val: f32| self.low + val * (self.high - self.low);
         let shape = self.shape.as_slice();
 
-        let mut rng = if let Some(seed) = self.seed {
-            Rng::with_seed(seed.to_bits() as u64)
-        } else {
-            Rng::new()
-        };
+        let mut rng = rng_from_seed(self.seed);
         Tensor::from_simple_fn_in(ctx.pool(), shape, || scale_value(rng.f32())).into_op_result()
     }
 
@@ -135,11 +143,7 @@ impl Operator for RandomNormal {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let shape = self.shape.as_slice();
 
-        let mut rng = if let Some(seed) = self.seed {
-            Rng::with_seed(seed.to_bits() as u64)
-        } else {
-            Rng::new()
-        };
+        let mut rng = rng_from_seed(self.seed);
 
         // Use `Rng::f32_normal_approx` here rather than `Rng::f32_normal`
         // because the approximation is much faster and good enough for use
@@ -206,6 +210,92 @@ impl Operator for RandomNormalLike {
         Some(&UnaryOp)
     }
 }
+
+#[derive(Debug)]
+pub struct Multinomial {
+    /// Number of samples to draw for each row of the input.
+    pub sample_size: usize,
+
+    /// Random seed. See [`RandomUniform::seed`].
+    pub seed: Option<f32>,
+}
+
+impl Operator for Multinomial {
+    fn name(&self) -> &str {
+        "Multinomial"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn is_deterministic(&self) -> bool {
+        false
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let pool = ctx.pool();
+        let input: NdTensorView<f32, 2> = ctx.inputs().require_as(0)?;
+        let [batch_size, class_size] = input.shape();
+
+        if class_size == 0 {
+            return Err(OpError::InvalidValue("input must have at least one class"));
+        }
+
+        let mut rng = rng_from_seed(self.seed);
+
+        let input = input.to_contiguous_in(pool).auto_return(pool);
+        let input = input.data();
+
+        let mut output = pool.alloc(batch_size * self.sample_size);
+        let mut cdf = pool.alloc(class_size).auto_return(pool);
+        for row in input.chunks(class_size) {
+            // Convert the unnormalized log probabilities for this row into a
+            // cumulative distribution. The maximum is subtracted before
+            // exponentiating, for numerical stability.
+            //
+            // `cdf` is left unnormalized to avoid a division per class. `sum`
+            // ends up as the total weight, which is folded into the sampling
+            // threshold below instead.
+            let max = row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            cdf.clear();
+            let mut sum = 0.;
+            for &logit in row {
+                sum += (logit - max).exp();
+                cdf.push(sum);
+            }
+
+            for _ in 0..self.sample_size {
+                // Scale the `[0, 1)` draw by `sum` to match the scale of `cdf`.
+                let threshold = rng.f32() * sum;
+                // Sample the first class whose cumulative probability exceeds
+                // the threshold. The last value in `cdf` is exactly `sum` and
+                // `rng.f32() < 1`, so the maximum value of `idx` is
+                // `class_size - 1`.
+                let idx = cdf.partition_point(|&c| c <= threshold);
+                output.push(idx as i32);
+            }
+        }
+
+        Tensor::from_data(&[batch_size, self.sample_size], output).into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Int32))].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl_infer_shapes!(
+    Multinomial,
+    op,
+    shape_ops::Multinomial {
+        sample_size: op.sample_size
+    }
+);
 
 #[derive(Debug)]
 pub struct Dropout {
@@ -306,10 +396,12 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::buffer_pool::BufferPool;
-    use crate::operator::{InputList, OpRunContext, Operator, OperatorExt};
+    use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt};
     use crate::ops::operators::{FloatOperators, Operators};
 
-    use super::{Dropout, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
+    use super::{
+        Dropout, Multinomial, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike,
+    };
 
     #[test]
     fn test_random_uniform() {
@@ -522,6 +614,128 @@ mod tests {
         };
         let output: Tensor<f32> = op.run_simple(input.view()).unwrap();
         assert_eq!(output.shape(), &[5, 5]);
+    }
+
+    #[test]
+    fn test_multinomial() {
+        #[derive(Clone, Debug)]
+        struct Case {
+            // Per-class unnormalized log probabilities.
+            logits: Vec<f32>,
+            seed: Option<f32>,
+        }
+
+        let cases = [
+            // Non-uniform distribution.
+            Case {
+                logits: vec![1.0, 2.0, 3.0, 4.0],
+                seed: Some(0.5),
+            },
+            // Uniform distribution.
+            Case {
+                logits: vec![2.0, 2.0, 2.0, 2.0],
+                seed: Some(1.0),
+            },
+            // All zeros
+            Case {
+                logits: vec![0.0, 0.0, 0.0, 0.0],
+                seed: Some(1.0),
+            },
+            // Auto-generated seed.
+            Case {
+                logits: vec![-1.0, 0.0, 2.0],
+                seed: None,
+            },
+        ];
+
+        cases.test_each_clone(|Case { logits, seed }| {
+            let class_size = logits.len();
+            let sample_size = 5000;
+            let input = Tensor::from_data(&[1, class_size], logits.clone());
+
+            let op = Multinomial { sample_size, seed };
+            let output: Tensor<i32> = op.run_simple(input.view()).unwrap();
+            assert_eq!(output.shape(), &[1, sample_size]);
+
+            // Expected per-class probabilities, computed via softmax.
+            let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let exp: Vec<f32> = logits.iter().map(|x| (x - max).exp()).collect();
+            let exp_sum: f32 = exp.iter().sum();
+            let expected: Vec<f32> = exp.iter().map(|x| x / exp_sum).collect();
+
+            // Count how often each class was sampled.
+            let mut counts = vec![0; class_size];
+            for &idx in output.iter() {
+                assert!(
+                    (idx as usize) < class_size,
+                    "sampled class {idx} out of range"
+                );
+                counts[idx as usize] += 1;
+            }
+
+            // Check that empirical frequencies approximately match the expected
+            // distribution.
+            for (cls, &count) in counts.iter().enumerate() {
+                let freq = count as f32 / sample_size as f32;
+                let delta = (freq - expected[cls]).abs();
+                assert!(
+                    delta <= 0.05,
+                    "class {cls} frequency {freq} too far from expected {}",
+                    expected[cls]
+                );
+            }
+        })
+    }
+
+    #[test]
+    fn test_multinomial_seed() {
+        let input = Tensor::from([[1.0f32, 2.0, 3.0]]);
+
+        // A fixed seed produces repeatable output.
+        let seeded = Multinomial {
+            sample_size: 20,
+            seed: Some(0.5),
+        };
+        let a: Tensor<i32> = seeded.run_simple(input.view()).unwrap();
+        let b: Tensor<i32> = seeded.run_simple(input.view()).unwrap();
+        assert_eq!(a, b);
+
+        // Without a seed, repeated runs (very likely) differ.
+        let unseeded = Multinomial {
+            sample_size: 20,
+            seed: None,
+        };
+        let a: Tensor<i32> = unseeded.run_simple(input.view()).unwrap();
+        let b: Tensor<i32> = unseeded.run_simple(input.view()).unwrap();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_multinomial_empty_classes() {
+        // An input with zero classes has no distribution to sample from. This
+        // should report an error rather than panic.
+        let input = Tensor::<f32>::zeros(&[2, 0]);
+        let op = Multinomial {
+            sample_size: 4,
+            seed: None,
+        };
+        let result: Result<Tensor<i32>, _> = op.run_simple(input.view());
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("input must have at least one class"))
+        );
+    }
+
+    #[test]
+    fn test_multinomial_empty_batch() {
+        // An input with no rows yields an empty output without error.
+        let input = Tensor::<f32>::zeros(&[0, 3]);
+        let op = Multinomial {
+            sample_size: 4,
+            seed: None,
+        };
+        let output: Tensor<i32> = op.run_simple(input.view()).unwrap();
+        assert_eq!(output.shape(), &[0, 4]);
     }
 
     #[test]

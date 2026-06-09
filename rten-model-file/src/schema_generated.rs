@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 134;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 135;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 135] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 136] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -153,6 +153,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 135] = [
     OperatorType::Atanh,
     OperatorType::Cosh,
     OperatorType::Sinh,
+    OperatorType::Multinomial,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -295,9 +296,10 @@ impl OperatorType {
     pub const Atanh: Self = Self(132);
     pub const Cosh: Self = Self(133);
     pub const Sinh: Self = Self(134);
+    pub const Multinomial: Self = Self(135);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 134;
+    pub const ENUM_MAX: u8 = 135;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -434,6 +436,7 @@ impl OperatorType {
         Self::Atanh,
         Self::Cosh,
         Self::Sinh,
+        Self::Multinomial,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -573,6 +576,7 @@ impl OperatorType {
             Self::Atanh => Some("Atanh"),
             Self::Cosh => Some("Cosh"),
             Self::Sinh => Some("Sinh"),
+            Self::Multinomial => Some("Multinomial"),
             _ => None,
         }
     }
@@ -1208,13 +1212,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 54;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 55;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 55] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 56] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1270,6 +1274,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 55] = [
     OperatorAttrs::SplitToSequenceAttrs,
     OperatorAttrs::GridSampleAttrs,
     OperatorAttrs::STFTAttrs,
+    OperatorAttrs::MultinomialAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1332,9 +1337,10 @@ impl OperatorAttrs {
     pub const SplitToSequenceAttrs: Self = Self(52);
     pub const GridSampleAttrs: Self = Self(53);
     pub const STFTAttrs: Self = Self(54);
+    pub const MultinomialAttrs: Self = Self(55);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 54;
+    pub const ENUM_MAX: u8 = 55;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1391,6 +1397,7 @@ impl OperatorAttrs {
         Self::SplitToSequenceAttrs,
         Self::GridSampleAttrs,
         Self::STFTAttrs,
+        Self::MultinomialAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1450,6 +1457,7 @@ impl OperatorAttrs {
             Self::SplitToSequenceAttrs => Some("SplitToSequenceAttrs"),
             Self::GridSampleAttrs => Some("GridSampleAttrs"),
             Self::STFTAttrs => Some("STFTAttrs"),
+            Self::MultinomialAttrs => Some("MultinomialAttrs"),
             _ => None,
         }
     }
@@ -6915,6 +6923,136 @@ impl ::core::fmt::Debug for ModAttrs<'_> {
         ds.finish()
     }
 }
+pub enum MultinomialAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct MultinomialAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for MultinomialAttrs<'a> {
+    type Inner = MultinomialAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> MultinomialAttrs<'a> {
+    pub const VT_SAMPLE_SIZE: ::flatbuffers::VOffsetT = 4;
+    pub const VT_SEED: ::flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        MultinomialAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args MultinomialAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<MultinomialAttrs<'bldr>> {
+        let mut builder = MultinomialAttrsBuilder::new(_fbb);
+        if let Some(x) = args.seed {
+            builder.add_seed(x);
+        }
+        builder.add_sample_size(args.sample_size);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn sample_size(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<i32>(MultinomialAttrs::VT_SAMPLE_SIZE, Some(0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn seed(&self) -> Option<f32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<f32>(MultinomialAttrs::VT_SEED, None) }
+    }
+}
+
+impl ::flatbuffers::Verifiable for MultinomialAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<i32>("sample_size", Self::VT_SAMPLE_SIZE, false)?
+            .visit_field::<f32>("seed", Self::VT_SEED, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct MultinomialAttrsArgs {
+    pub sample_size: i32,
+    pub seed: Option<f32>,
+}
+impl<'a> Default for MultinomialAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        MultinomialAttrsArgs {
+            sample_size: 0,
+            seed: None,
+        }
+    }
+}
+
+pub struct MultinomialAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> MultinomialAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_sample_size(&mut self, sample_size: i32) {
+        self.fbb_
+            .push_slot::<i32>(MultinomialAttrs::VT_SAMPLE_SIZE, sample_size, 0);
+    }
+    #[inline]
+    pub fn add_seed(&mut self, seed: f32) {
+        self.fbb_
+            .push_slot_always::<f32>(MultinomialAttrs::VT_SEED, seed);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> MultinomialAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        MultinomialAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<MultinomialAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for MultinomialAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("MultinomialAttrs");
+        ds.field("sample_size", &self.sample_size());
+        ds.field("seed", &self.seed());
+        ds.finish()
+    }
+}
 pub enum NonMaxSuppressionAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -10736,6 +10874,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_multinomial_attrs(&self) -> Option<MultinomialAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::MultinomialAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { MultinomialAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -10802,6 +10955,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::SplitToSequenceAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<SplitToSequenceAttrs>>("OperatorAttrs::SplitToSequenceAttrs", pos),
           OperatorAttrs::GridSampleAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<GridSampleAttrs>>("OperatorAttrs::GridSampleAttrs", pos),
           OperatorAttrs::STFTAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<STFTAttrs>>("OperatorAttrs::STFTAttrs", pos),
+          OperatorAttrs::MultinomialAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<MultinomialAttrs>>("OperatorAttrs::MultinomialAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -11422,6 +11576,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::STFTAttrs => {
                 if let Some(x) = self.attrs_as_stftattrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::MultinomialAttrs => {
+                if let Some(x) = self.attrs_as_multinomial_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
