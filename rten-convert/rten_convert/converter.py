@@ -724,6 +724,13 @@ def op_node_from_onnx_operator(
             if end is not None:
                 attrs.end = end
 
+        case "Slice":
+            # In opset versions <10, `starts`, `ends` and `axes` were specified
+            # as attributes rather than inputs.
+            attr_reader.generate_input_from_attr(1, "starts", "ints")
+            attr_reader.generate_input_from_attr(2, "ends", "ints")
+            attr_reader.generate_input_from_attr(3, "axes", "ints")
+
         case "Softmax":
             attrs = sg.SoftmaxAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", 0)

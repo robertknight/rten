@@ -1594,7 +1594,22 @@ impl_read_op!(
     }
 );
 
-impl_read_op!(Slice);
+impl_read_op!(Slice, |attrs: &Attrs| {
+    // In opset versions <10, `starts`, `ends` and `axes` were specified as
+    // attributes rather than inputs. Convert them to constant inputs at the
+    // positions where the operator expects them.
+    let mut const_inputs = Vec::new();
+    if let Some(starts) = attrs.get("starts") {
+        const_inputs.push((1, ConstInput::Ints(starts.as_ints().to_vec())));
+    }
+    if let Some(ends) = attrs.get("ends") {
+        const_inputs.push((2, ConstInput::Ints(ends.as_ints().to_vec())));
+    }
+    if let Some(axes) = attrs.get("axes") {
+        const_inputs.push((3, ConstInput::Ints(axes.as_ints().to_vec())));
+    }
+    Ok(ParsedOp::new(ops::Slice {}).with_inputs(const_inputs))
+});
 
 impl_read_op!(Softmax, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
@@ -1907,6 +1922,18 @@ mod tests {
             Case {
                 op: create_node("Squeeze").with_attr("axes", vec![-1]),
                 expected_inputs: [(1, ConstInput::Ints([-1].into()))].into(),
+            },
+            Case {
+                op: create_node("Slice")
+                    .with_attr("starts", vec![0, 1])
+                    .with_attr("ends", vec![2, 3])
+                    .with_attr("axes", vec![0, 1]),
+                expected_inputs: [
+                    (1, ConstInput::Ints([0, 1].into())),
+                    (2, ConstInput::Ints([2, 3].into())),
+                    (3, ConstInput::Ints([0, 1].into())),
+                ]
+                .into(),
             },
             Case {
                 op: create_node("Split").with_attr("split", vec![10]),
