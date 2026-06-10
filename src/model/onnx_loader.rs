@@ -705,6 +705,7 @@ fn constant_from_attr_value(val: ConstInput) -> Constant {
             Constant::new(None, Tensor::from(vals).into_arc())
         }
         ConstInput::Float(float) => Constant::new(None, Tensor::from(float).into_arc()),
+        ConstInput::Floats(floats) => Constant::new(None, Tensor::from(floats).into_arc()),
     }
 }
 

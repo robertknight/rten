@@ -11,6 +11,7 @@ use crate::model::external_data::DataLocation;
 pub enum AttrValue {
     Bool(bool),
     Float(f32),
+    Floats(Vec<f32>),
     Graph(onnx::GraphProto),
     Int(i64),
     Ints(Vec<i64>),
@@ -20,6 +21,7 @@ pub enum AttrValue {
 
 enum_from!(AttrValue, Bool, bool);
 enum_from!(AttrValue, Float, f32);
+enum_from!(AttrValue, Floats, Vec<f32>);
 enum_from!(AttrValue, Graph, onnx::GraphProto);
 enum_from!(AttrValue, Int, i64);
 enum_from!(AttrValue, Ints, Vec<i64>);
@@ -32,6 +34,7 @@ pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
     match value {
         AttrValue::Bool(val) => attr.i = Some(val as i64),
         AttrValue::Float(val) => attr.f = Some(val),
+        AttrValue::Floats(val) => attr.floats = val,
         AttrValue::Graph(val) => attr.g = Some(val),
         AttrValue::Int(val) => attr.i = Some(val),
         AttrValue::Ints(val) => attr.ints = val,

@@ -234,6 +234,7 @@ impl OnnxOpRegistry {
         register_op!(Transpose);
         register_op!(Trilu);
         register_op!(Unsqueeze);
+        register_op!(Upsample);
         register_op!(Where);
         register_op!(Xor);
 
@@ -301,6 +302,7 @@ pub trait OpLoadContext {
 pub enum ConstInput {
     Ints(Vec<i64>),
     Float(f32),
+    Floats(Vec<f32>),
 }
 
 /// Result of deserializing an ONNX operator and converting it to RTen's
@@ -1509,6 +1511,29 @@ impl_read_op!(Resize, |attrs: &Attrs| {
     })
 });
 
+impl_read_op!(Upsample, |attrs: &Attrs| {
+    let mode = attrs
+        .get("mode")
+        .map(|v| {
+            v.as_string_enum(|val| match val {
+                "nearest" => Some(ResizeMode::Nearest),
+                "linear" => Some(ResizeMode::Linear),
+                _ => None,
+            })
+        })
+        .transpose()?
+        .unwrap_or(ResizeMode::Nearest);
+
+    // `scales` is a required attribute in opset 7. In opset 9+ it is passed as
+    // the second input.
+    let mut const_inputs = Vec::new();
+    if let Some(scales) = attrs.get("scales") {
+        const_inputs.push((1, ConstInput::Floats(scales.as_floats().to_vec())));
+    }
+
+    Ok(ParsedOp::new(ops::Upsample { mode }).with_inputs(const_inputs))
+});
+
 impl_read_op!(
     "com.microsoft",
     RotaryEmbeddingMicrosoft,
@@ -1726,7 +1751,7 @@ mod tests {
     use super::{ConstInput, OnnxOpRegistry, OpLoadContext, ReadOpError};
     use crate::graph::Graph;
     use crate::model::onnx_builder::{NodeProtoExt, TensorData, create_node, create_tensor};
-    use crate::ops::{ArgMax, ConstantOfShape, Conv, Padding};
+    use crate::ops::{ArgMax, ConstantOfShape, Conv, Padding, ResizeMode, Upsample};
     use crate::value::Scalar;
 
     struct FakeOpLoadContext;
@@ -1764,6 +1789,22 @@ mod tests {
         let argmax_op = op.downcast_ref::<ArgMax>().unwrap();
         assert_eq!(argmax_op.axis, 1);
         assert_eq!(argmax_op.keep_dims, true);
+    }
+
+    #[test]
+    fn test_read_upsample() {
+        let reg = OnnxOpRegistry::with_all_ops();
+
+        // `mode` defaults to nearest.
+        let node = create_node("Upsample");
+        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+        let upsample = op.downcast_ref::<Upsample>().unwrap();
+        assert!(matches!(upsample.mode, ResizeMode::Nearest));
+
+        let node = create_node("Upsample").with_attr("mode", "linear".to_string());
+        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+        let upsample = op.downcast_ref::<Upsample>().unwrap();
+        assert!(matches!(upsample.mode, ResizeMode::Linear));
     }
 
     #[test]
@@ -1961,6 +2002,10 @@ mod tests {
             Case {
                 op: create_node("Unsqueeze").with_attr("axes", vec![-1]),
                 expected_inputs: [(1, ConstInput::Ints([-1].into()))].into(),
+            },
+            Case {
+                op: create_node("Upsample").with_attr("scales", vec![1.0f32, 1.0, 2.0, 2.0]),
+                expected_inputs: [(1, ConstInput::Floats([1.0, 1.0, 2.0, 2.0].into()))].into(),
             },
         ];
 

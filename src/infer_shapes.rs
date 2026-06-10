@@ -354,13 +354,13 @@ fn const_to_sym_scalar(constant: &graph::Constant) -> Option<SymExpr> {
 fn const_to_sym_vector(constant: &graph::Constant) -> Option<Vec<SymExpr>> {
     let int_vec: Option<&[i32]> = constant.as_vector();
     if let Some(int_vec) = int_vec {
-        return Some(int_vec.into_iter().copied().map(SymExpr::Value).collect());
+        return Some(int_vec.iter().copied().map(SymExpr::Value).collect());
     }
 
     let float_vec: Option<&[f32]> = constant.as_vector();
     if let Some(float_vec) = float_vec {
         return float_vec
-            .into_iter()
+            .iter()
             .map(|&f| f32_to_int_checked(f).map(SymExpr::Value))
             .collect();
     }

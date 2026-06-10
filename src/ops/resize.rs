@@ -551,6 +551,52 @@ impl Operator for Resize {
 
 impl_infer_shapes!(Resize, _op, shape_ops::Resize);
 
+/// Upsample operator.
+///
+/// This is a deprecated operator that has been replaced by [`Resize`]. It is
+/// supported for compatibility with older ONNX models. See
+/// <https://onnx.ai/onnx/operators/onnx__Upsample.html>.
+#[derive(Debug)]
+pub struct Upsample {
+    pub mode: ResizeMode,
+}
+
+impl Operator for Upsample {
+    fn name(&self) -> &str {
+        "Upsample"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let input = inputs.require_as(0)?;
+        let scales: NdTensorView<f32, 1> = inputs.require_as(1)?;
+
+        resize(
+            ctx.pool(),
+            input,
+            ResizeTarget::Scales(scales),
+            self.mode,
+            CoordTransformMode::Asymmetric,
+            NearestMode::Floor,
+        )
+        .into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl_infer_shapes!(Upsample, _op, shape_ops::Upsample);
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
@@ -559,9 +605,12 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::buffer_pool::BufferPool;
+    use crate::operator::OperatorExt;
     use crate::operator::{InputList, OpError, OpRunContext, Operator};
     use crate::ops::tests::expect_eq_1e4;
-    use crate::ops::{CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget, resize};
+    use crate::ops::{
+        CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget, Upsample, resize,
+    };
 
     // Reference values for these tests can be computed with either OpenCV
     // (`cv2.resize`) or PyTorch (`torch.nn.functional.interpolate`).
@@ -1010,6 +1059,53 @@ mod tests {
                     panic!("Expected error but got output");
                 }
             }
+        })
+    }
+
+    #[test]
+    fn test_upsample() {
+        #[derive(Debug)]
+        struct Case {
+            mode: ResizeMode,
+            scales: Tensor,
+            expected: Tensor,
+        }
+
+        let image = Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]);
+
+        let cases = [
+            // Nearest resize
+            Case {
+                mode: ResizeMode::Nearest,
+                scales: Tensor::from([1., 1., 2., 2.]),
+                expected: Tensor::from([
+                    [0.2, 0.2, 0.7, 0.7],
+                    [0.2, 0.2, 0.7, 0.7],
+                    [0.3, 0.3, 0.8, 0.8],
+                    [0.3, 0.3, 0.8, 0.8],
+                ])
+                .with_new_axis(0) // C
+                .with_new_axis(0), // N
+            },
+            // Bilinear resize
+            Case {
+                mode: ResizeMode::Linear,
+                scales: Tensor::from([1., 1., 2., 2.]),
+                expected: Tensor::from([
+                    [0.2, 0.45, 0.7, 0.7],
+                    [0.25, 0.5, 0.75, 0.75],
+                    [0.3, 0.55, 0.8, 0.8],
+                    [0.3, 0.55, 0.8, 0.8],
+                ])
+                .with_new_axis(0) // C
+                .with_new_axis(0), // N
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = Upsample { mode: case.mode };
+            let result: Tensor = op.run_simple((&image, &case.scales)).unwrap();
+            expect_eq_1e4(&result, &case.expected).unwrap();
         })
     }
 }

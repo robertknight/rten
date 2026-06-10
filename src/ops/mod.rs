@@ -101,7 +101,7 @@ pub(crate) use {
         ArgMax, ArgMin, CumSum, NonZero, ReduceL1, ReduceL2, ReduceMax, ReduceMean, ReduceMin,
         ReduceProd, ReduceSum, ReduceSumSquare, TopK,
     },
-    resize::Resize,
+    resize::{Resize, Upsample},
     rnn::{GRU, LSTM},
     sequence::{
         ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,

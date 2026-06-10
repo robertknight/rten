@@ -54,6 +54,45 @@ impl InferShapes for Resize {
     }
 }
 
+/// Upsample operator.
+///
+/// This is a deprecated operator that has been replaced by [`Resize`]. See
+/// <https://onnx.ai/onnx/operators/onnx__Upsample.html>.
+pub struct Upsample;
+
+// Input position of the `scales` input. The data input is at the same position
+// (`DATA`) as for `Resize`.
+const UPSAMPLE_SCALES: usize = 1;
+
+impl InferShapes for Upsample {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let data = inputs
+            .get(DATA)
+            .ok_or(InferShapesError::IncorrectInputCount)?;
+
+        let Some(data_dims) = data.shape() else {
+            return Ok([SymTensor::unknown("unknown input shape")].into());
+        };
+
+        let input_scales = optional_input(inputs, UPSAMPLE_SCALES).and_then(|s| s.as_vector());
+
+        let out_shape: Vec<SymExpr> = if let Some(scales) = input_scales {
+            data_dims
+                .zip(scales.iter())
+                .map(|(in_dim, scale)| in_dim * scale.clone())
+                .collect()
+        } else {
+            sym_gen.gen_shape(data_dims.len())
+        };
+
+        Ok([SymTensor::from_shape(out_shape)].into())
+    }
+}
+
 /// Get an optional input.
 ///
 /// As a special case this treats an empty vector as missing. In opset < 13, the
@@ -75,7 +114,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
-    use super::Resize;
+    use super::{Resize, Upsample};
 
     #[test]
     fn test_resize_sizes() {
@@ -159,5 +198,36 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(err, InferShapesError::IncorrectInputCount);
+    }
+
+    #[test]
+    fn test_upsample() {
+        let data = sym_shape!("batch", 3, 224, 224);
+        let scales = sym_vec!(1, 1, 2, 2);
+
+        let mut sym_gen = SymbolGen::new();
+        let result = Upsample
+            .infer_shapes(&[data, scales], &mut sym_gen)
+            .unwrap();
+        assert_eq!(
+            result[0].clone().simplify(),
+            sym_shape!("batch", 3, 448, 448)
+        );
+    }
+
+    #[test]
+    fn test_upsample_unknown_scales() {
+        let data = sym_shape!(1, 3, 224, 224);
+        let scales = SymTensor::unknown("unknown");
+
+        let mut sym_gen = SymbolGen::new();
+        let result = Upsample
+            .infer_shapes(&[data, scales], &mut sym_gen)
+            .unwrap();
+        let shape: Vec<_> = result[0].shape().unwrap().collect();
+        assert_eq!(shape.len(), 4);
+        for dim in &shape {
+            assert!(matches!(dim, SymExpr::Var(_)));
+        }
     }
 }
