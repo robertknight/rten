@@ -34,7 +34,7 @@ pub use layout::{
 };
 pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use pad::Pad;
-pub use resize::Resize;
+pub use resize::{Resize, Upsample};
 pub use rnn::{Direction, GRU, LSTM};
 pub use slice::Slice;
 pub use split::Split;
