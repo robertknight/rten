@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use rten_tensor::prelude::*;
 use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
 use rten_tensor::{Tensor, TensorView};
+use rten_testing::TestCases;
 
 use smallvec::{SmallVec, smallvec};
 
@@ -275,6 +276,97 @@ fn test_graph_node_shapes() {
         )
     );
     assert_eq!(g.get_node(relu_op_id).and_then(|n| n.shape()), None);
+}
+
+#[test]
+fn test_graph_run_invalid_input() {
+    #[derive(Debug)]
+    struct Case {
+        expected_shape: Option<Vec<Dimension>>,
+        expected_dtype: Option<ValueType>,
+        input: Value,
+        expected_error: Option<&'static str>,
+    }
+
+    let cases = [
+        // Input matches expected shape and dtype.
+        Case {
+            expected_shape: Some(vec![
+                Dimension::Symbolic("N".to_string()),
+                Dimension::Fixed(2),
+            ]),
+            expected_dtype: Some(ValueType::Tensor(DataType::Float)),
+            input: Tensor::<f32>::zeros(&[3, 2]).into(),
+            expected_error: None,
+        },
+        // Input node has no shape or dtype metadata.
+        Case {
+            expected_shape: None,
+            expected_dtype: None,
+            input: Tensor::<f32>::zeros(&[3]).into(),
+            expected_error: None,
+        },
+        // Wrong dtype.
+        Case {
+            expected_shape: None,
+            expected_dtype: Some(ValueType::Tensor(DataType::Float)),
+            input: Tensor::<i32>::zeros(&[3, 2]).into(),
+            expected_error: Some(
+                "input \"input\" is invalid: expected type tensor(f32) but got tensor(i32)",
+            ),
+        },
+        // Wrong rank.
+        Case {
+            expected_shape: Some(vec![
+                Dimension::Symbolic("N".to_string()),
+                Dimension::Fixed(2),
+            ]),
+            expected_dtype: None,
+            input: Tensor::<f32>::zeros(&[3]).into(),
+            expected_error: Some(
+                "input \"input\" is invalid: expected tensor with 2 dims but got 1",
+            ),
+        },
+        // Wrong size for fixed dimension.
+        Case {
+            expected_shape: Some(vec![
+                Dimension::Symbolic("N".to_string()),
+                Dimension::Fixed(2),
+            ]),
+            expected_dtype: None,
+            input: Tensor::<f32>::zeros(&[3, 4]).into(),
+            expected_error: Some(
+                "input \"input\" is invalid: expected dim 1 to have size 2 but got 4",
+            ),
+        },
+    ];
+
+    cases.test_each(|case| {
+        let mut g = Graph::new();
+        let input_id = g.add_value(
+            Some("input"),
+            case.expected_shape.clone(),
+            case.expected_dtype,
+        );
+        let (_, op_out) = g.add_simple_op("relu", Relu {}, &[input_id]);
+
+        let result = g.run(
+            vec![(input_id, case.input.as_view().into())],
+            &[op_out],
+            None,
+            None,
+        );
+
+        match (&result, case.expected_error) {
+            (Ok(_), None) => {}
+            (Err(err), Some(expected_error)) => {
+                assert_eq!(err.kind(), RunErrorKind::InvalidInput);
+                assert_eq!(err.to_string(), expected_error);
+            }
+            (Ok(_), Some(_)) => panic!("expected run to fail"),
+            (Err(err), None) => panic!("expected run to succeed but got error: {}", err),
+        }
+    })
 }
 
 #[test]

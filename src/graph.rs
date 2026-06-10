@@ -680,6 +680,74 @@ impl Graph {
         self.create_plan(inputs, outputs, opts)
     }
 
+    /// Check that supplied input values match the shape and dtype specified
+    /// in the graph's metadata for the input node.
+    ///
+    /// Symbolic dimensions in the expected shape can match any size.
+    fn validate_inputs(&self, inputs: &[(NodeId, ValueOrView)]) -> Result<(), RunError> {
+        let error = |node_id: NodeId, error: String| -> RunError {
+            RunErrorImpl::InvalidInput {
+                name: self.node_name(node_id),
+                error,
+            }
+            .into()
+        };
+
+        for (node_id, input) in inputs {
+            let Some(Node::Value(value_node)) = self.get_node(*node_id) else {
+                continue;
+            };
+            let value = input.as_view();
+
+            if let Some(expected_dtype) = value_node.dtype() {
+                let dtype = value.dtype();
+                if dtype != expected_dtype {
+                    return Err(error(
+                        *node_id,
+                        format!("expected type {} but got {}", expected_dtype, dtype),
+                    ));
+                }
+            }
+
+            // Shape metadata describes tensor inputs. Sequences don't have a
+            // shape of their own.
+            if matches!(value, ValueView::Sequence(_)) {
+                continue;
+            }
+
+            let Some(expected_shape) = value_node.shape() else {
+                continue;
+            };
+
+            let shape = value.shape();
+            if shape.len() != expected_shape.len() {
+                return Err(error(
+                    *node_id,
+                    format!(
+                        "expected tensor with {} dims but got {}",
+                        expected_shape.len(),
+                        shape.len()
+                    ),
+                ));
+            }
+            for (dim, (expected_size, size)) in expected_shape.iter().zip(shape.iter()).enumerate()
+            {
+                if let Dimension::Fixed(expected_size) = expected_size
+                    && expected_size != size
+                {
+                    return Err(error(
+                        *node_id,
+                        format!(
+                            "expected dim {} to have size {} but got {}",
+                            dim, expected_size, size
+                        ),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Compute a set of output values given a set of inputs, using the
     /// processing steps and constant values defined by the graph.
     pub fn run(
@@ -689,6 +757,7 @@ impl Graph {
         weight_cache: Option<&WeightCache>,
         opts: Option<RunOptions>,
     ) -> Result<Vec<Value>, RunError> {
+        self.validate_inputs(&inputs)?;
         let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
         let plan = self.get_cached_plan(&input_ids, outputs, false /* is_subgraph */)?;
         let opts = opts.unwrap_or_default();
@@ -1217,6 +1286,7 @@ impl Graph {
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<(NodeId, Value)>, RunError> {
+        self.validate_inputs(&inputs)?;
         let input_ids: Vec<_> = inputs.iter().map(|(id, _)| id).copied().collect();
         let planner = Planner::with_graph(self);
         let plan = planner.create_plan(
