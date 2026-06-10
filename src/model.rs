@@ -472,6 +472,9 @@ impl Model {
     ///
     /// The input and output nodes are specified via IDs looked up via
     /// [`node_id`](Model::node_id).
+    ///
+    /// Input values are validated against the shape and dtype specified in the
+    /// model, which can be queried via [`Model::node_info`].
     pub fn run(
         &self,
         inputs: Vec<(NodeId, ValueOrView)>,

@@ -90,6 +90,8 @@ impl From<RunErrorImpl> for RunError {
 pub enum RunErrorKind {
     /// An input or output node was not found.
     NodeNotFound,
+    /// An input value did not match the shape or dtype expected by the model.
+    InvalidInput,
     /// Failed to construct an execution plan that would generate the requested
     /// outputs from the inputs.
     PlanningError,
@@ -105,6 +107,15 @@ pub(crate) enum RunErrorImpl {
 
     /// No node with a given name could be found
     InvalidNodeName(String),
+
+    /// An input value did not match the shape or dtype expected by the model.
+    InvalidInput {
+        /// Name of the input node.
+        name: String,
+
+        /// Error details.
+        error: String,
+    },
 
     /// A plan could not be constructed that would generate the requested output
     /// from the input.
@@ -149,6 +160,7 @@ impl RunErrorImpl {
 
         match self {
             Self::InvalidNodeId | Self::InvalidNodeName(_) => Kind::NodeNotFound,
+            Self::InvalidInput { .. } => Kind::InvalidInput,
             Self::PlanningError(_) => Kind::PlanningError,
             Self::OperatorError { .. } | Self::OutputMismatch { .. } => Kind::OperatorError,
             Self::SubgraphError { error, .. } => error.kind(),
@@ -159,6 +171,7 @@ impl RunErrorImpl {
         match self {
             Self::InvalidNodeId => [None].into(),
             Self::InvalidNodeName(name) => [Some(name.as_str())].into(),
+            Self::InvalidInput { name, .. } => [Some(name.as_str())].into(),
             Self::PlanningError(_) => [None].into(),
             Self::OperatorError { name, .. } => [Some(name.as_str())].into(),
             Self::OutputMismatch { name, .. } => [Some(name.as_str())].into(),
@@ -176,6 +189,9 @@ impl Display for RunErrorImpl {
         match self {
             Self::InvalidNodeId => write!(f, "node ID is invalid"),
             Self::InvalidNodeName(name) => write!(f, "no node found with name {}", name),
+            Self::InvalidInput { name, error } => {
+                write!(f, "input \"{}\" is invalid: {}", name, error)
+            }
             Self::PlanningError(err) => write!(f, "planning error: {}", err),
             Self::OperatorError {
                 name,
