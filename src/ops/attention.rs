@@ -14,7 +14,10 @@ use crate::operator::{
     OutputTypesContext,
 };
 use crate::ops::{
-    binary_elementwise::broadcast_shapes, layout::expand_to, norm::NanHandling, resolve_axis,
+    binary_elementwise::{add, broadcast_shapes},
+    layout::expand_to,
+    norm::NanHandling,
+    resolve_axis,
 };
 use crate::value::Value;
 
@@ -307,6 +310,138 @@ impl Operator for GroupedQueryAttentionMatMul {
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
         None
+    }
+}
+
+#[derive(Debug)]
+pub struct MultiHeadAttention {
+    pub mask_filter_value: f32,
+    pub num_heads: i64,
+    pub scale: Option<f32>,
+    pub unidirectional: bool,
+}
+
+impl Operator for MultiHeadAttention {
+    fn name(&self) -> &str {
+        "MultiHeadAttention"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(10)
+    }
+
+    // TODO https://github.com/microsoft/onnxruntime/blob/13af65970aaa6a0b9ac71106da07376fef24aa56/onnxruntime/test/contrib_ops/multihead_attention_op_test.cc
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let query: TensorView<f32> = ctx.inputs().require_as(0)?;
+        let key: Option<TensorView<f32>> = ctx.inputs().get_as(1)?;
+        let key: Option<TensorView<f32>> = ctx.inputs().get_as(2)?;
+        let value: Option<TensorView<f32>> = ctx.inputs().get_as(3)?;
+        let bias: Option<TensorView<f32>> = ctx.inputs().get_as(4)?;
+        let key_padding_mask: Option<TensorView<i32>> = ctx.inputs().get_as(5)?;
+        let attention_bias: Option<TensorView<f32>> = ctx.inputs().get_as(6)?;
+        let past_key: Option<TensorView<f32>> = ctx.inputs().get_as(7)?;
+        let past_value: Option<TensorView<f32>> = ctx.inputs().get_as(8)?;
+        let past_seq_len: Option<TensorView<i32>> = ctx.inputs().get_as(9)?;
+        let cache_indirection: Option<TensorView<i32>> = ctx.inputs().get_as(10)?;
+
+        let is_packed_qkv = query.ndim() == 5;
+
+        let (query, key, value, batch_size, seq_len, hidden) = if is_packed_qkv {
+            if key.is_some() {
+                return Err(OpError::InvalidValue(
+                    "key must be None when query is packed",
+                ));
+            }
+            if value.is_some() {
+                return Err(OpError::InvalidValue(
+                    "value must be None when query is packed",
+                ));
+            }
+            if bias.is_some() {
+                return Err(OpError::InvalidValue(
+                    "bias is not supported with packed QKV format",
+                ));
+            }
+            let [batch_size, kv_seq_len, num_heads, three, head_size] = query.shape() else {
+                return Err(OpError::InvalidValue(
+                    "query must be [batch_size, sequence_len, hidden_size] or [batch_size, kv_sequence_length, num_heads, 3, head_size]",
+                ));
+            };
+            if *three != 3 {
+                return Err(OpError::InvalidValue(
+                    "4th dimension of packed qkv input must be 3",
+                ));
+            }
+            if *num_heads != self.num_heads as usize {
+                return Err(OpError::InvalidValue(
+                    "2nd dimension of packed qkv input must be equal to number of attention heads",
+                ));
+            }
+            let q = query.slice((.., .., .., 0, ..));
+            let k = query.slice((.., .., .., 1, ..));
+            let v = query.slice((.., .., .., 2, ..));
+
+            let q_t = q.nd_view().permuted([0, 2, 1, 3]).as_dyn().as_cow();
+            let k_t = k.nd_view().permuted([0, 2, 1, 3]).as_dyn().as_cow();
+            let v_t = v.nd_view().permuted([0, 2, 1, 3]).as_dyn().as_cow();
+            // TODO sort out the to_tensor thing
+            (
+                q_t,
+                k_t.to_tensor(),
+                v_t.to_tensor(),
+                *batch_size,
+                *kv_seq_len,
+                num_heads * head_size,
+            )
+        } else {
+            let (batch_size, seq_len, hidden) = match query.shape() {
+                &[batch_size, seq_len, hidden] => (batch_size, seq_len, hidden),
+                _ => {
+                    return Err(OpError::InvalidValue(
+                        "query must be [batch_size, sequence_len, hidden_size] or [batch_size, kv_sequence_length, num_heads, 3, head_size]",
+                    ));
+                }
+            };
+            let head_size = hidden / self.num_heads as usize;
+
+            let (key, value) = match (&key, &value) {
+                (None, _) => (&query, &query), // Reference impl ignores if value is some
+                (Some(key), Some(value)) => (key, value),
+                (Some(_), None) => {
+                    return Err(OpError::InvalidValue("If key is some value must be some"));
+                }
+            };
+
+            let (key, value) = if let Some(bias) = &bias {
+                let q_bias = bias.slice(..hidden);
+                let k_bias = bias.slice(hidden..(hidden * 2));
+                let v_bias = bias.slice((hidden * 2)..);
+
+                let query = add(ctx.pool(), query.view(), q_bias)?.auto_return(ctx.pool());
+                let key = add(ctx.pool(), key.view(), k_bias)?.auto_return(ctx.pool());
+                let value = add(ctx.pool(), value.view(), v_bias)?.auto_return(ctx.pool());
+                let key = key.to_owned();
+                let value = value.to_owned();
+                (key, value)
+            } else {
+                (key.to_tensor(), value.to_tensor())
+            };
+
+            (query.as_cow(), key, value, batch_size, seq_len, hidden)
+        };
+
+        // split the heads
+
+        // KV-cache concat
+
+        // scaled dot product attention
+
+        // merge heads
+        todo!()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
     }
 }
 
