@@ -100,19 +100,30 @@ pub fn gather<T: Copy + Default>(
     .concat();
     let mut out_data = pool.alloc(out_shape.iter().product());
 
-    // Fast path for common case of gathering from a contiguous input along
-    // axis zero. For example, when gathering from a `[token_id, embed_dim]`
-    // embedding matrix.
-    if axis == 0
-        && let Some(in_data) = input.data()
-    {
-        let in_slice_len = input.shape()[axis + 1..].iter().product();
-        for index in indices.iter() {
-            let Some(index) = resolve_index(input.size(axis), *index as isize) else {
+    // Fast path for gathering from a contiguous input. Each gathered slice is
+    // a contiguous chunk of the input, so the gather reduces to copying chunks.
+    if let Some(in_data) = input.data() {
+        let axis_size = input.size(axis);
+        let in_slice_len: usize = input.shape()[axis + 1..].iter().product();
+        let chunk_len = axis_size * in_slice_len;
+
+        // `chunks` requires a non-zero size. A zero-length chunk implies an
+        // empty input, in which case the output is empty too, unless `indices`
+        // references the (size zero) gather axis, which is out of range.
+        if chunk_len == 0 {
+            if axis_size == 0 && !indices.is_empty() {
                 return Err(INVALID_INDEX_ERR);
-            };
-            let in_chunk = &in_data[index * in_slice_len..][..in_slice_len];
-            out_data.extend_from_slice(in_chunk);
+            }
+            return Ok(Tensor::from_data(&out_shape, out_data));
+        }
+
+        for in_outer in in_data.chunks(chunk_len) {
+            for index in indices.iter() {
+                let Some(index) = resolve_index(axis_size, *index as isize) else {
+                    return Err(INVALID_INDEX_ERR);
+                };
+                out_data.extend_from_slice(&in_outer[index * in_slice_len..][..in_slice_len]);
+            }
         }
         return Ok(Tensor::from_data(&out_shape, out_data));
     }
@@ -739,6 +750,14 @@ mod tests {
         let result = gather(&pool, input.view(), 1, indices.view()).unwrap();
         expect_equal(&result, &expected)?;
 
+        // Gather along an inner axis where each gathered slice spans multiple
+        // elements.
+        let input = Tensor::from([[[1, 2], [3, 4], [5, 6]]]); // [1, 3, 2]
+        let indices = Tensor::from([[0, 2], [2, 1]]);
+        let expected = Tensor::from_data(&[1, 2, 2, 2], vec![1, 2, 5, 6, 5, 6, 3, 4]);
+        let result = gather(&pool, input.view(), 1, indices.view())?;
+        expect_equal(&result, &expected)?;
+
         // Negative index values.
         let input = Tensor::from([1, 2, 3]);
         let indices = Tensor::from([-1, -2, -3]);
@@ -748,6 +767,13 @@ mod tests {
 
         // Empty indices
         let input = Tensor::from([1, 2, 3]);
+        let indices = Tensor::from([0i32; 0]);
+        let expected = Tensor::from([0i32; 0]);
+        let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Empty input and empty indices
+        let input = Tensor::from([0i32; 0]);
         let indices = Tensor::from([0i32; 0]);
         let expected = Tensor::from([0i32; 0]);
         let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
@@ -780,6 +806,11 @@ mod tests {
             Case {
                 input: Tensor::zeros(&[128, 10]),
                 indices: Tensor::from_data(&[2, 2], vec![2, 5, 8, 130]),
+            },
+            // Non-scalar indices into an empty (size zero) axis
+            Case {
+                input: Tensor::zeros(&[0]),
+                indices: Tensor::from([0]),
             },
             // Scalar indices, with 1D and ND inputs
             Case {
