@@ -100,23 +100,21 @@ pub fn gather<T: Copy + Default>(
     .concat();
     let mut out_data = pool.alloc(out_shape.iter().product());
 
+    let axis_size = input.size(axis);
+    let in_slice_len: usize = input.shape()[axis + 1..].iter().product();
+    let chunk_len = axis_size * in_slice_len;
+
+    // Early exit if chunks to copy are empty.
+    if chunk_len == 0 {
+        if axis_size == 0 && !indices.is_empty() {
+            return Err(INVALID_INDEX_ERR);
+        }
+        return Ok(Tensor::from_data(&out_shape, out_data));
+    }
+
     // Fast path for gathering from a contiguous input. Each gathered slice is
     // a contiguous chunk of the input, so the gather reduces to copying chunks.
     if let Some(in_data) = input.data() {
-        let axis_size = input.size(axis);
-        let in_slice_len: usize = input.shape()[axis + 1..].iter().product();
-        let chunk_len = axis_size * in_slice_len;
-
-        // `chunks` requires a non-zero size. A zero-length chunk implies an
-        // empty input, in which case the output is empty too, unless `indices`
-        // references the (size zero) gather axis, which is out of range.
-        if chunk_len == 0 {
-            if axis_size == 0 && !indices.is_empty() {
-                return Err(INVALID_INDEX_ERR);
-            }
-            return Ok(Tensor::from_data(&out_shape, out_data));
-        }
-
         for in_outer in in_data.chunks(chunk_len) {
             for index in indices.iter() {
                 let Some(index) = resolve_index(axis_size, *index as isize) else {
