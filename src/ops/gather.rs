@@ -4,11 +4,9 @@ use std::mem::MaybeUninit;
 use rten_base::num::IsNaN;
 use rten_shape_inference::UnaryOp;
 use rten_shape_inference::ops as shape_ops;
-use rten_tensor::layout::ResizeLayout;
 use rten_tensor::prelude::*;
 use rten_tensor::slice_range::to_slice_items;
-use rten_tensor::storage::StorageMut;
-use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut};
+use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorBase, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
@@ -100,6 +98,7 @@ pub fn gather<T: Copy + Default>(
         &input.shape()[axis + 1..],
     ]
     .concat();
+    let mut out_data = pool.alloc(out_shape.iter().product());
 
     // Fast path for common case of gathering from a contiguous input along
     // axis zero. For example, when gathering from a `[token_id, embed_dim]`
@@ -108,7 +107,6 @@ pub fn gather<T: Copy + Default>(
         && let Some(in_data) = input.data()
     {
         let in_slice_len = input.shape()[axis + 1..].iter().product();
-        let mut out_data = pool.alloc(out_shape.iter().product());
         for index in indices.iter() {
             let Some(index) = resolve_index(input.size(axis), *index as isize) else {
                 return Err(INVALID_INDEX_ERR);
@@ -119,53 +117,32 @@ pub fn gather<T: Copy + Default>(
         return Ok(Tensor::from_data(&out_shape, out_data));
     }
 
-    // Construct layout for gathered slice of the input. Each slice has the same
-    // layout so we construct it once outside the loop and then reuse it on each
-    // iteration.
-    let mut in_slice_layout = input.layout().clone();
-    in_slice_layout.remove_axis_of_any_size(axis);
-    let in_slice_layout = in_slice_layout;
+    let inner_dims = input.ndim() - axis;
+    for input_chunk in input.inner_iter_dyn(inner_dims) {
+        // Each entry to copy has the same layout but different offset. Prepare
+        // layout here and reuse it.
+        let entry = input_chunk.slice(0);
+        let entry_layout = entry.layout();
+        let entry_len = entry_layout.min_data_len();
 
-    let mut output = Tensor::uninit_in(pool, &out_shape);
-    let mut out_slice_layout = output.layout().clone();
-    for _ in axis..axis + indices.ndim() {
-        out_slice_layout.remove_axis_of_any_size(axis);
-    }
-    let out_slice_layout = out_slice_layout;
+        for index in indices.iter() {
+            let Some(index) = resolve_index(input_chunk.size(0), *index as isize) else {
+                return Err(INVALID_INDEX_ERR);
+            };
 
-    let out_step = output.shape()[axis + indices.ndim()..].iter().product();
-    let in_slice_data_len = in_slice_layout.min_data_len();
-    let out_slice_data_len = out_slice_layout.min_data_len();
+            // Conceptually `entry = input_chunk.slice(index)` but we re-use
+            // the pre-prepared view layout.
+            let entry_offset = index * input_chunk.stride(0);
+            let entry_data = input_chunk
+                .storage()
+                .slice(entry_offset..entry_offset + entry_len);
+            let entry = TensorBase::from_storage_and_layout(entry_data, entry_layout);
 
-    let mut n_init = 0;
-    let mut out_storage = output.storage_mut();
-    for (index, out_data_offset) in indices.iter().zip((0..).step_by(out_step)) {
-        let Some(index) = resolve_index(input.size(axis), *index as isize) else {
-            return Err(INVALID_INDEX_ERR);
-        };
-
-        // Compute storage offsets for this slice.
-        let in_offset = index * input.stride(axis);
-        let in_slice_data = input
-            .storage()
-            .slice(in_offset..in_offset + in_slice_data_len);
-        let out_slice_data =
-            out_storage.slice_mut(out_data_offset..out_data_offset + out_slice_data_len);
-
-        // Create input and output slices using the pre-computed layout.
-        let out_slice =
-            TensorViewMut::from_storage_and_layout(out_slice_data, out_slice_layout.clone());
-        let in_slice = TensorView::from_storage_and_layout(in_slice_data, in_slice_layout.clone());
-
-        // Copy data from input to output
-        let out_slice = out_slice.init_from(&in_slice);
-        n_init += out_slice.len();
+            entry.iter().for_each(|x| out_data.push(*x));
+        }
     }
 
-    assert_eq!(n_init, output.len());
-    let output = unsafe { output.assume_init() };
-
-    Ok(output)
+    Ok(Tensor::from_data(&out_shape, out_data))
 }
 
 #[derive(Debug)]
