@@ -4,11 +4,9 @@ use std::mem::MaybeUninit;
 use rten_base::num::IsNaN;
 use rten_shape_inference::UnaryOp;
 use rten_shape_inference::ops as shape_ops;
-use rten_tensor::layout::ResizeLayout;
 use rten_tensor::prelude::*;
 use rten_tensor::slice_range::to_slice_items;
-use rten_tensor::storage::StorageMut;
-use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut};
+use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorBase, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
@@ -100,72 +98,60 @@ pub fn gather<T: Copy + Default>(
         &input.shape()[axis + 1..],
     ]
     .concat();
+    let mut out_data = pool.alloc(out_shape.iter().product());
 
-    // Fast path for common case of gathering from a contiguous input along
-    // axis zero. For example, when gathering from a `[token_id, embed_dim]`
-    // embedding matrix.
-    if axis == 0
-        && let Some(in_data) = input.data()
-    {
-        let in_slice_len = input.shape()[axis + 1..].iter().product();
-        let mut out_data = pool.alloc(out_shape.iter().product());
-        for index in indices.iter() {
-            let Some(index) = resolve_index(input.size(axis), *index as isize) else {
-                return Err(INVALID_INDEX_ERR);
-            };
-            let in_chunk = &in_data[index * in_slice_len..][..in_slice_len];
-            out_data.extend_from_slice(in_chunk);
+    let axis_size = input.size(axis);
+    let in_slice_len: usize = input.shape()[axis + 1..].iter().product();
+    let chunk_len = axis_size * in_slice_len;
+
+    // Early exit if chunks to copy are empty.
+    if chunk_len == 0 {
+        if axis_size == 0 && !indices.is_empty() {
+            return Err(INVALID_INDEX_ERR);
         }
         return Ok(Tensor::from_data(&out_shape, out_data));
     }
 
-    // Construct layout for gathered slice of the input. Each slice has the same
-    // layout so we construct it once outside the loop and then reuse it on each
-    // iteration.
-    let mut in_slice_layout = input.layout().clone();
-    in_slice_layout.remove_axis_of_any_size(axis);
-    let in_slice_layout = in_slice_layout;
-
-    let mut output = Tensor::uninit_in(pool, &out_shape);
-    let mut out_slice_layout = output.layout().clone();
-    for _ in axis..axis + indices.ndim() {
-        out_slice_layout.remove_axis_of_any_size(axis);
-    }
-    let out_slice_layout = out_slice_layout;
-
-    let out_step = output.shape()[axis + indices.ndim()..].iter().product();
-    let in_slice_data_len = in_slice_layout.min_data_len();
-    let out_slice_data_len = out_slice_layout.min_data_len();
-
-    let mut n_init = 0;
-    let mut out_storage = output.storage_mut();
-    for (index, out_data_offset) in indices.iter().zip((0..).step_by(out_step)) {
-        let Some(index) = resolve_index(input.size(axis), *index as isize) else {
-            return Err(INVALID_INDEX_ERR);
-        };
-
-        // Compute storage offsets for this slice.
-        let in_offset = index * input.stride(axis);
-        let in_slice_data = input
-            .storage()
-            .slice(in_offset..in_offset + in_slice_data_len);
-        let out_slice_data =
-            out_storage.slice_mut(out_data_offset..out_data_offset + out_slice_data_len);
-
-        // Create input and output slices using the pre-computed layout.
-        let out_slice =
-            TensorViewMut::from_storage_and_layout(out_slice_data, out_slice_layout.clone());
-        let in_slice = TensorView::from_storage_and_layout(in_slice_data, in_slice_layout.clone());
-
-        // Copy data from input to output
-        let out_slice = out_slice.init_from(&in_slice);
-        n_init += out_slice.len();
+    // Fast path for gathering from a contiguous input. Each gathered slice is
+    // a contiguous chunk of the input, so the gather reduces to copying chunks.
+    if let Some(in_data) = input.data() {
+        for in_outer in in_data.chunks(chunk_len) {
+            for index in indices.iter() {
+                let Some(index) = resolve_index(axis_size, *index as isize) else {
+                    return Err(INVALID_INDEX_ERR);
+                };
+                out_data.extend_from_slice(&in_outer[index * in_slice_len..][..in_slice_len]);
+            }
+        }
+        return Ok(Tensor::from_data(&out_shape, out_data));
     }
 
-    assert_eq!(n_init, output.len());
-    let output = unsafe { output.assume_init() };
+    let inner_dims = input.ndim() - axis;
+    for input_chunk in input.inner_iter_dyn(inner_dims) {
+        // Each entry to copy has the same layout but different offset. Prepare
+        // layout here and reuse it.
+        let entry = input_chunk.slice(0);
+        let entry_layout = entry.layout();
+        let entry_len = entry_layout.min_data_len();
 
-    Ok(output)
+        for index in indices.iter() {
+            let Some(index) = resolve_index(input_chunk.size(0), *index as isize) else {
+                return Err(INVALID_INDEX_ERR);
+            };
+
+            // Conceptually `entry = input_chunk.slice(index)` but we re-use
+            // the pre-prepared view layout.
+            let entry_offset = index * input_chunk.stride(0);
+            let entry_data = input_chunk
+                .storage()
+                .slice(entry_offset..entry_offset + entry_len);
+            let entry = TensorBase::from_storage_and_layout(entry_data, entry_layout);
+
+            entry.iter().for_each(|x| out_data.push(*x));
+        }
+    }
+
+    Ok(Tensor::from_data(&out_shape, out_data))
 }
 
 #[derive(Debug)]
@@ -762,6 +748,14 @@ mod tests {
         let result = gather(&pool, input.view(), 1, indices.view()).unwrap();
         expect_equal(&result, &expected)?;
 
+        // Gather along an inner axis where each gathered slice spans multiple
+        // elements.
+        let input = Tensor::from([[[1, 2], [3, 4], [5, 6]]]); // [1, 3, 2]
+        let indices = Tensor::from([[0, 2], [2, 1]]);
+        let expected = Tensor::from_data(&[1, 2, 2, 2], vec![1, 2, 5, 6, 5, 6, 3, 4]);
+        let result = gather(&pool, input.view(), 1, indices.view())?;
+        expect_equal(&result, &expected)?;
+
         // Negative index values.
         let input = Tensor::from([1, 2, 3]);
         let indices = Tensor::from([-1, -2, -3]);
@@ -771,6 +765,13 @@ mod tests {
 
         // Empty indices
         let input = Tensor::from([1, 2, 3]);
+        let indices = Tensor::from([0i32; 0]);
+        let expected = Tensor::from([0i32; 0]);
+        let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Empty input and empty indices
+        let input = Tensor::from([0i32; 0]);
         let indices = Tensor::from([0i32; 0]);
         let expected = Tensor::from([0i32; 0]);
         let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
@@ -803,6 +804,11 @@ mod tests {
             Case {
                 input: Tensor::zeros(&[128, 10]),
                 indices: Tensor::from_data(&[2, 2], vec![2, 5, 8, 130]),
+            },
+            // Non-scalar indices into an empty (size zero) axis
+            Case {
+                input: Tensor::zeros(&[0]),
+                indices: Tensor::from([0]),
             },
             // Scalar indices, with 1D and ND inputs
             Case {
