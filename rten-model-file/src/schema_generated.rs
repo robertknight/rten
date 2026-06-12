@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 135;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 136;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 136] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 137] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -154,6 +154,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 136] = [
     OperatorType::Cosh,
     OperatorType::Sinh,
     OperatorType::Multinomial,
+    OperatorType::ReverseSequence,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -297,9 +298,10 @@ impl OperatorType {
     pub const Cosh: Self = Self(133);
     pub const Sinh: Self = Self(134);
     pub const Multinomial: Self = Self(135);
+    pub const ReverseSequence: Self = Self(136);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 135;
+    pub const ENUM_MAX: u8 = 136;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -437,6 +439,7 @@ impl OperatorType {
         Self::Cosh,
         Self::Sinh,
         Self::Multinomial,
+        Self::ReverseSequence,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -577,6 +580,7 @@ impl OperatorType {
             Self::Cosh => Some("Cosh"),
             Self::Sinh => Some("Sinh"),
             Self::Multinomial => Some("Multinomial"),
+            Self::ReverseSequence => Some("ReverseSequence"),
             _ => None,
         }
     }
@@ -1212,13 +1216,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 55;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 56;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 56] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 57] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1275,6 +1279,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 56] = [
     OperatorAttrs::GridSampleAttrs,
     OperatorAttrs::STFTAttrs,
     OperatorAttrs::MultinomialAttrs,
+    OperatorAttrs::ReverseSequenceAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1338,9 +1343,10 @@ impl OperatorAttrs {
     pub const GridSampleAttrs: Self = Self(53);
     pub const STFTAttrs: Self = Self(54);
     pub const MultinomialAttrs: Self = Self(55);
+    pub const ReverseSequenceAttrs: Self = Self(56);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 55;
+    pub const ENUM_MAX: u8 = 56;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1398,6 +1404,7 @@ impl OperatorAttrs {
         Self::GridSampleAttrs,
         Self::STFTAttrs,
         Self::MultinomialAttrs,
+        Self::ReverseSequenceAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1458,6 +1465,7 @@ impl OperatorAttrs {
             Self::GridSampleAttrs => Some("GridSampleAttrs"),
             Self::STFTAttrs => Some("STFTAttrs"),
             Self::MultinomialAttrs => Some("MultinomialAttrs"),
+            Self::ReverseSequenceAttrs => Some("ReverseSequenceAttrs"),
             _ => None,
         }
     }
@@ -9578,6 +9586,138 @@ impl ::core::fmt::Debug for STFTAttrs<'_> {
         ds.finish()
     }
 }
+pub enum ReverseSequenceAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ReverseSequenceAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ReverseSequenceAttrs<'a> {
+    type Inner = ReverseSequenceAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> ReverseSequenceAttrs<'a> {
+    pub const VT_BATCH_AXIS: ::flatbuffers::VOffsetT = 4;
+    pub const VT_TIME_AXIS: ::flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        ReverseSequenceAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args ReverseSequenceAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<ReverseSequenceAttrs<'bldr>> {
+        let mut builder = ReverseSequenceAttrsBuilder::new(_fbb);
+        builder.add_time_axis(args.time_axis);
+        builder.add_batch_axis(args.batch_axis);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn batch_axis(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<i32>(ReverseSequenceAttrs::VT_BATCH_AXIS, Some(1))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn time_axis(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<i32>(ReverseSequenceAttrs::VT_TIME_AXIS, Some(0))
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for ReverseSequenceAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<i32>("batch_axis", Self::VT_BATCH_AXIS, false)?
+            .visit_field::<i32>("time_axis", Self::VT_TIME_AXIS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct ReverseSequenceAttrsArgs {
+    pub batch_axis: i32,
+    pub time_axis: i32,
+}
+impl<'a> Default for ReverseSequenceAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        ReverseSequenceAttrsArgs {
+            batch_axis: 1,
+            time_axis: 0,
+        }
+    }
+}
+
+pub struct ReverseSequenceAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ReverseSequenceAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_batch_axis(&mut self, batch_axis: i32) {
+        self.fbb_
+            .push_slot::<i32>(ReverseSequenceAttrs::VT_BATCH_AXIS, batch_axis, 1);
+    }
+    #[inline]
+    pub fn add_time_axis(&mut self, time_axis: i32) {
+        self.fbb_
+            .push_slot::<i32>(ReverseSequenceAttrs::VT_TIME_AXIS, time_axis, 0);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> ReverseSequenceAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        ReverseSequenceAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<ReverseSequenceAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for ReverseSequenceAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("ReverseSequenceAttrs");
+        ds.field("batch_axis", &self.batch_axis());
+        ds.field("time_axis", &self.time_axis());
+        ds.finish()
+    }
+}
 pub enum TopKAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -10889,6 +11029,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_reverse_sequence_attrs(&self) -> Option<ReverseSequenceAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ReverseSequenceAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ReverseSequenceAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -10956,6 +11111,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::GridSampleAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<GridSampleAttrs>>("OperatorAttrs::GridSampleAttrs", pos),
           OperatorAttrs::STFTAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<STFTAttrs>>("OperatorAttrs::STFTAttrs", pos),
           OperatorAttrs::MultinomialAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<MultinomialAttrs>>("OperatorAttrs::MultinomialAttrs", pos),
+          OperatorAttrs::ReverseSequenceAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<ReverseSequenceAttrs>>("OperatorAttrs::ReverseSequenceAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -11586,6 +11742,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::MultinomialAttrs => {
                 if let Some(x) = self.attrs_as_multinomial_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::ReverseSequenceAttrs => {
+                if let Some(x) = self.attrs_as_reverse_sequence_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

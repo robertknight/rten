@@ -149,6 +149,7 @@ enum OperatorType: ubyte {
   Cosh,
   Sinh,
   Multinomial,
+  ReverseSequence,
 }
 
 enum RNNDirection: ubyte {
@@ -256,6 +257,7 @@ union OperatorAttrs {
   GridSampleAttrs,
   STFTAttrs,
   MultinomialAttrs,
+  ReverseSequenceAttrs,
 }
 
 table ArgMaxAttrs {
@@ -572,6 +574,11 @@ table SplitToSequenceAttrs {
 
 table STFTAttrs {
   onesided:bool = true;
+}
+
+table ReverseSequenceAttrs {
+  batch_axis:int = 1;
+  time_axis:int = 0;
 }
 
 table TopKAttrs {

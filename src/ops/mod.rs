@@ -81,7 +81,10 @@ pub(crate) use {
     convert::{Cast, CastLike},
     einsum::Einsum,
     embedding::{RotaryEmbedding, RotaryEmbeddingMicrosoft},
-    gather::{Gather, GatherElements, GatherND, ScatterElements, ScatterND, ScatterReduction},
+    gather::{
+        Gather, GatherElements, GatherND, ReverseSequence, ScatterElements, ScatterND,
+        ScatterReduction,
+    },
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
     grid_sample::GridSample,
     identity::Identity,
