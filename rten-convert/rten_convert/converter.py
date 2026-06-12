@@ -672,6 +672,11 @@ def op_node_from_onnx_operator(
             attrs = sg.ReshapeAttrsT()
             attrs.allowZero = bool(attr_reader.get_attr("allowzero", "int", 0))
 
+        case "ReverseSequence":
+            attrs = sg.ReverseSequenceAttrsT()
+            attrs.batchAxis = attr_reader.get_attr("batch_axis", "int", 1)
+            attrs.timeAxis = attr_reader.get_attr("time_axis", "int", 0)
+
         case "Resize":
             attrs = sg.ResizeAttrsT()
             attrs.mode = attr_reader.get_enum_attr(

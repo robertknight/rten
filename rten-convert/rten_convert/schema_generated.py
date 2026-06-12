@@ -143,6 +143,7 @@ class OperatorType(object):
     Cosh = 133
     Sinh = 134
     Multinomial = 135
+    ReverseSequence = 136
 
 
 class RNNDirection(object):
@@ -239,6 +240,7 @@ class OperatorAttrs(object):
     GridSampleAttrs = 53
     STFTAttrs = 54
     MultinomialAttrs = 55
+    ReverseSequenceAttrs = 56
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -354,6 +356,8 @@ def OperatorAttrsCreator(unionType, table):
         return STFTAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.MultinomialAttrs:
         return MultinomialAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.ReverseSequenceAttrs:
+        return ReverseSequenceAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -6135,6 +6139,100 @@ class STFTAttrsT(object):
         return stftattrs
 
 
+class ReverseSequenceAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ReverseSequenceAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsReverseSequenceAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ReverseSequenceAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # ReverseSequenceAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ReverseSequenceAttrs
+    def BatchAxis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 1
+
+    # ReverseSequenceAttrs
+    def TimeAxis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+def ReverseSequenceAttrsStart(builder):
+    builder.StartObject(2)
+
+def ReverseSequenceAttrsAddBatchAxis(builder, batchAxis):
+    builder.PrependInt32Slot(0, batchAxis, 1)
+
+def ReverseSequenceAttrsAddTimeAxis(builder, timeAxis):
+    builder.PrependInt32Slot(1, timeAxis, 0)
+
+def ReverseSequenceAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class ReverseSequenceAttrsT(object):
+
+    # ReverseSequenceAttrsT
+    def __init__(
+        self,
+        batchAxis = 1,
+        timeAxis = 0,
+    ):
+        self.batchAxis = batchAxis  # type: int
+        self.timeAxis = timeAxis  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        reverseSequenceAttrs = ReverseSequenceAttrs()
+        reverseSequenceAttrs.Init(buf, pos)
+        return cls.InitFromObj(reverseSequenceAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, reverseSequenceAttrs):
+        x = ReverseSequenceAttrsT()
+        x._UnPack(reverseSequenceAttrs)
+        return x
+
+    # ReverseSequenceAttrsT
+    def _UnPack(self, reverseSequenceAttrs):
+        if reverseSequenceAttrs is None:
+            return
+        self.batchAxis = reverseSequenceAttrs.BatchAxis()
+        self.timeAxis = reverseSequenceAttrs.TimeAxis()
+
+    # ReverseSequenceAttrsT
+    def Pack(self, builder):
+        ReverseSequenceAttrsStart(builder)
+        ReverseSequenceAttrsAddBatchAxis(builder, self.batchAxis)
+        ReverseSequenceAttrsAddTimeAxis(builder, self.timeAxis)
+        reverseSequenceAttrs = ReverseSequenceAttrsEnd(builder)
+        return reverseSequenceAttrs
+
+
 class TopKAttrs(object):
     __slots__ = ['_tab']
 
@@ -6591,7 +6689,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 

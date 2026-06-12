@@ -308,6 +308,7 @@ pub mod op_types {
     declare_op!(Relu);
     declare_op!(Reshape);
     declare_op!(Resize);
+    declare_op!(ReverseSequence);
     declare_op!(Round);
     declare_op!(ScatterElements);
     declare_op!(ScatterND);

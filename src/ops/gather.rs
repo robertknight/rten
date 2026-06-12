@@ -17,7 +17,7 @@ use crate::operator::{
 };
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{map_value_view, resolve_axis, resolve_index};
-use crate::value::ValueView;
+use crate::value::{Value, ValueView};
 
 const INVALID_INDEX_ERR: OpError = OpError::InvalidValue("Entry in `indices` is out of range");
 
@@ -679,6 +679,140 @@ impl Operator for ScatterND {
     }
 }
 
+/// Order of the batch and time axes for [`ReverseSequence`].
+#[derive(Copy, Clone, Debug)]
+enum SequenceLayout {
+    /// Batch axis is 0, time axis is 1.
+    BatchFirst,
+    /// Time axis is 0, batch axis is 1.
+    TimeFirst,
+}
+
+/// Reverse variable-length slices of `input` along the time axis.
+///
+/// For each batch element `b` (indexed along the batch axis), the first
+/// `seq_lens[b]` elements along the time axis are reversed. Elements beyond
+/// `seq_lens[b]` are copied unchanged.
+fn reverse_sequence<T: Copy>(
+    pool: &BufferPool,
+    input: TensorView<T>,
+    seq_lens: NdTensorView<i32, 1>,
+    layout: SequenceLayout,
+) -> Result<Tensor<T>, OpError> {
+    if input.ndim() < 2 {
+        return Err(OpError::InvalidValue(
+            "ReverseSequence input must have at least 2 dims",
+        ));
+    }
+
+    let (batch_size, time_size) = match layout {
+        SequenceLayout::BatchFirst => (input.size(0), input.size(1)),
+        SequenceLayout::TimeFirst => (input.size(1), input.size(0)),
+    };
+
+    if seq_lens.size(0) != batch_size {
+        return Err(OpError::InvalidValue(
+            "sequence_lens length must match the batch dimension size",
+        ));
+    }
+    for &len in seq_lens.iter() {
+        if len < 0 || len as usize > time_size {
+            return Err(OpError::InvalidValue(
+                "sequence_lens values must be in the range [0, time_size]",
+            ));
+        }
+    }
+
+    // The batch and time axes are the first two dimensions in some order, so
+    // for a contiguous input, each (batch, time) coordinate selects a
+    // contiguous inner block which can be copied as a unit.
+    let input = input.to_contiguous_in(pool).auto_return(pool);
+    let in_data = input.data();
+    let d0 = input.size(0);
+    let d1 = input.size(1);
+    let inner_size: usize = input.shape()[2..].iter().product();
+
+    let mut out_data = pool.alloc(in_data.len());
+
+    // Write output blocks in order. Reversal happens when we pick the input
+    // chunk to copy at each step.
+    for i0 in 0..d0 {
+        for i1 in 0..d1 {
+            // Map physical output coords to logical (batch, time) coords.
+            let (batch, time) = match layout {
+                SequenceLayout::BatchFirst => (i0, i1),
+                SequenceLayout::TimeFirst => (i1, i0),
+            };
+            let seq_len = seq_lens[[batch]] as usize;
+
+            // Read from the mirrored position within the reversed prefix.
+            let src_time = if time < seq_len {
+                seq_len - 1 - time
+            } else {
+                time
+            };
+
+            // Map logical (batch, src_time) back to physical input coords.
+            let (src0, src1) = match layout {
+                SequenceLayout::BatchFirst => (i0, src_time),
+                SequenceLayout::TimeFirst => (src_time, i1),
+            };
+            let src_offset = (src0 * d1 + src1) * inner_size;
+            out_data.extend_from_slice(&in_data[src_offset..src_offset + inner_size]);
+        }
+    }
+
+    Ok(Tensor::from_data(input.shape(), out_data))
+}
+
+#[derive(Debug)]
+pub struct ReverseSequence {
+    pub batch_axis: i32,
+    pub time_axis: i32,
+}
+
+impl Operator for ReverseSequence {
+    fn name(&self) -> &str {
+        "ReverseSequence"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
+        let seq_lens: NdTensorView<i32, 1> = ctx.inputs().require_as(1)?;
+
+        // `batch_axis` and `time_axis` must each be 0 or 1 and refer to
+        // different dimensions.
+        let layout = match (self.batch_axis, self.time_axis) {
+            (0, 1) => SequenceLayout::BatchFirst,
+            (1, 0) => SequenceLayout::TimeFirst,
+            _ => {
+                return Err(OpError::InvalidValue(
+                    "batch_axis and time_axis must be 0 and 1 in some order",
+                ));
+            }
+        };
+
+        let result = map_value_view!(input, input, {
+            reverse_sequence(ctx.pool(), input, seq_lens, layout).map(Value::from)
+        });
+        result.into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // The output has the same shape as the (first) input, so we can reuse
+        // the shape inference for unary operators.
+        Some(&UnaryOp)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -690,9 +824,10 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::buffer_pool::BufferPool;
-    use crate::operator::OpError;
+    use crate::operator::{OpError, OperatorExt};
     use crate::ops::{
-        ScatterReduction, gather, gather_elements, gather_nd, scatter_elements, scatter_nd,
+        ReverseSequence, ScatterReduction, gather, gather_elements, gather_nd, scatter_elements,
+        scatter_nd,
     };
 
     #[test]
@@ -1324,5 +1459,103 @@ mod tests {
             );
             assert_eq!(result.as_ref(), Err(&case.expected));
         })
+    }
+
+    #[test]
+    fn test_reverse_sequence() {
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<f32>,
+            seq_lens: Tensor<i32>,
+            batch_axis: i32,
+            time_axis: i32,
+            expected: Result<Tensor<f32>, OpError>,
+        }
+
+        // 4x4 matrix with values 0..16.
+        let input = Tensor::from([
+            [0., 1., 2., 3.],
+            [4., 5., 6., 7.],
+            [8., 9., 10., 11.],
+            [12., 13., 14., 15.],
+        ]);
+
+        let cases = [
+            // time_axis=0, batch_axis=1 (reverse down columns).
+            Case {
+                input: input.clone(),
+                seq_lens: Tensor::from([4, 3, 2, 1]),
+                batch_axis: 1,
+                time_axis: 0,
+                expected: Ok(Tensor::from([
+                    [12., 9., 6., 3.],
+                    [8., 5., 2., 7.],
+                    [4., 1., 10., 11.],
+                    [0., 13., 14., 15.],
+                ])),
+            },
+            // time_axis=1, batch_axis=0 (reverse along rows).
+            Case {
+                input: input.clone(),
+                seq_lens: Tensor::from([1, 2, 3, 4]),
+                batch_axis: 0,
+                time_axis: 1,
+                expected: Ok(Tensor::from([
+                    [0., 1., 2., 3.],
+                    [5., 4., 6., 7.],
+                    [10., 9., 8., 11.],
+                    [15., 14., 13., 12.],
+                ])),
+            },
+            // 3D input, where each (batch, time) coordinate selects a
+            // contiguous block of elements rather than a single element.
+            Case {
+                input: Tensor::from([[[0., 1.], [2., 3.]], [[4., 5.], [6., 7.]]]),
+                seq_lens: Tensor::from([2, 1]),
+                batch_axis: 0,
+                time_axis: 1,
+                expected: Ok(Tensor::from([[[2., 3.], [0., 1.]], [[4., 5.], [6., 7.]]])),
+            },
+            // Mismatched `sequence_lens` length.
+            Case {
+                input: input.clone(),
+                seq_lens: Tensor::from([1, 2]),
+                batch_axis: 1,
+                time_axis: 0,
+                expected: Err(OpError::InvalidValue(
+                    "sequence_lens length must match the batch dimension size",
+                )),
+            },
+            // Out-of-range sequence length.
+            Case {
+                input: input.clone(),
+                seq_lens: Tensor::from([1, 2, 3, 5]),
+                batch_axis: 1,
+                time_axis: 0,
+                expected: Err(OpError::InvalidValue(
+                    "sequence_lens values must be in the range [0, time_size]",
+                )),
+            },
+            // Invalid axes.
+            Case {
+                input: input.clone(),
+                seq_lens: Tensor::from([4, 4, 4, 4]),
+                batch_axis: 0,
+                time_axis: 2,
+                expected: Err(OpError::InvalidValue(
+                    "batch_axis and time_axis must be 0 and 1 in some order",
+                )),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = ReverseSequence {
+                batch_axis: case.batch_axis,
+                time_axis: case.time_axis,
+            };
+            let result: Result<Tensor<f32>, _> =
+                op.run_simple((case.input.view(), case.seq_lens.view()));
+            assert_eq!(result, case.expected);
+        });
     }
 }

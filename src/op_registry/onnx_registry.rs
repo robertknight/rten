@@ -200,6 +200,7 @@ impl OnnxOpRegistry {
         register_op!(Relu);
         register_op!(Reshape);
         register_op!(Resize);
+        register_op!(ReverseSequence);
         register_op!(RotaryEmbedding);
         register_op!(Round);
         register_op!(ScatterElements);
@@ -1508,6 +1509,15 @@ impl_read_op!(Resize, |attrs: &Attrs| {
         mode,
         nearest_mode,
         coord_mode,
+    })
+});
+
+impl_read_op!(ReverseSequence, |attrs: &Attrs| {
+    let batch_axis = attrs.get_as_int("batch_axis")?.unwrap_or(1);
+    let time_axis = attrs.get_as_int("time_axis")?.unwrap_or(0);
+    Ok(ops::ReverseSequence {
+        batch_axis,
+        time_axis,
     })
 });
 

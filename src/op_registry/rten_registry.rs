@@ -195,6 +195,7 @@ impl RtenOpRegistry {
         register_op!(Relu);
         register_op!(Reshape);
         register_op!(Resize);
+        register_op!(ReverseSequence);
         register_op!(Round);
         register_op!(ScatterElements);
         register_op!(ScatterND);
@@ -952,6 +953,16 @@ impl_read_op!(Resize, attrs_as_resize_attrs, |attrs: sg::ResizeAttrs| {
         nearest_mode,
     })
 });
+impl_read_op!(
+    ReverseSequence,
+    attrs_as_reverse_sequence_attrs,
+    |attrs: sg::ReverseSequenceAttrs| {
+        Ok(ops::ReverseSequence {
+            batch_axis: attrs.batch_axis(),
+            time_axis: attrs.time_axis(),
+        })
+    }
+);
 impl_read_op!(Round);
 impl_read_op!(
     ScatterElements,
