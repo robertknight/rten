@@ -1247,6 +1247,20 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
     /// [`from_simple_fn`](TensorBase::from_simple_fn) instead, as it is faster.
     pub fn from_fn<F: FnMut(L::Index<'_>) -> T, Idx>(
         shape: L::Index<'_>,
+        f: F,
+    ) -> TensorBase<Vec<T>, L>
+    where
+        L::Indices: Iterator<Item = Idx>,
+        Idx: AsIndex<L>,
+        L: MutLayout,
+    {
+        Self::from_fn_in(GlobalAlloc::new(), shape, f)
+    }
+
+    /// Variant of [`from_fn`](TensorBase::from_fn) that takes an allocator.
+    pub fn from_fn_in<A: Alloc, F: FnMut(L::Index<'_>) -> T, Idx>(
+        alloc: A,
+        shape: L::Index<'_>,
         mut f: F,
     ) -> TensorBase<Vec<T>, L>
     where
@@ -1255,7 +1269,8 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
         L: MutLayout,
     {
         let layout = L::from_shape(shape);
-        let data: Vec<T> = layout.indices().map(|idx| f(idx.as_index())).collect();
+        let mut data = alloc.alloc(layout.len());
+        data.extend(layout.indices().map(|idx| f(idx.as_index())));
         TensorBase { data, layout }
     }
 
