@@ -104,6 +104,7 @@ pub fn stft(
 
     let mut planner = FftPlanner::new();
     let fft = planner.plan_fft_forward(n_fft);
+    let mut scratch = vec![Complex32::default(); fft.get_inplace_scratch_len()];
 
     for (signal_batch, mut out_batch) in signal.axis_iter(0).zip(output.axis_iter_mut(0)) {
         for (frame, mut out_frame) in out_batch.axis_iter_mut(0).enumerate() {
@@ -119,7 +120,7 @@ pub fn stft(
                 Complex32 { re, im }
             }));
 
-            fft.process(&mut tmp_buf);
+            fft.process_with_scratch(&mut tmp_buf, &mut scratch);
 
             for (bin, val) in tmp_buf.iter().take(out_frame.size(0)).enumerate() {
                 out_frame[[bin, 0]] = val.re;
@@ -280,6 +281,7 @@ pub fn dft(
     let scale = if inverse { 1.0 / n_fft as f32 } else { 1.0 };
 
     let mut buf: Vec<Complex32> = Vec::with_capacity(n_fft);
+    let mut scratch = vec![Complex32::default(); fft.get_inplace_scratch_len()];
     let get = |base: usize, i: usize| {
         let re = in_data[base + i * n_components];
         let im = if n_components == 2 {
@@ -298,7 +300,7 @@ pub fn dft(
         buf.extend((0..signal_len.min(n_fft)).map(|k| get(in_base, k)));
         buf.resize(n_fft, Complex32::default());
 
-        fft.process(&mut buf);
+        fft.process_with_scratch(&mut buf, &mut scratch);
 
         let out_base = lane * out_len * 2;
         for (i, val) in buf.iter().take(out_len).enumerate() {
