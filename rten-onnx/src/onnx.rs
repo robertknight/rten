@@ -407,6 +407,41 @@ impl DecodeMessage for StringStringEntryProto {
 }
 
 #[derive(Clone, Debug, Default)]
+pub struct OperatorSetIdProto {
+    pub domain: Option<String>,
+    pub version: Option<i64>,
+}
+
+impl OperatorSetIdProto {
+    const DOMAIN: u64 = 1;
+    const VERSION: u64 = 2;
+}
+
+impl DecodeMessage for OperatorSetIdProto {
+    type Types = OwnedValues;
+
+    fn decode_fields<R: ReadValue<Types = Self::Types>>(
+        mut fields: Fields<R>,
+    ) -> Result<Self, ProtobufError> {
+        let mut msg = Self::default();
+        while let Some(mut field) = fields.next()? {
+            match field.number() {
+                Self::DOMAIN => {
+                    msg.domain = Some(field.read_string()?);
+                }
+                Self::VERSION => {
+                    msg.version = Some(field.get_int64()?);
+                }
+                _ => {
+                    field.skip()?;
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct TensorShapeProto {
     pub dim: Vec<Dimension>,
 }
@@ -626,6 +661,7 @@ impl DecodeMessage for GraphProto {
 pub struct ModelProto {
     pub ir_version: Option<i64>,
     pub graph: Option<GraphProto>,
+    pub opset_import: Vec<OperatorSetIdProto>,
     pub metadata_props: Vec<StringStringEntryProto>,
     pub producer_name: Option<String>,
     pub producer_version: Option<String>,
@@ -636,6 +672,7 @@ impl ModelProto {
     const PRODUCER_NAME: u64 = 2;
     const PRODUCER_VERSION: u64 = 3;
     const GRAPH: u64 = 7;
+    const OPSET_IMPORT: u64 = 8;
     const METADATA_PROPS: u64 = 14;
 
     // The non-generic `parse_file` and `parse_buf` methods allow the parsing
@@ -668,6 +705,10 @@ impl DecodeMessage for ModelProto {
                 }
                 Self::GRAPH => {
                     msg.graph = Some(GraphProto::decode_field(&mut field)?);
+                }
+                Self::OPSET_IMPORT => {
+                    msg.opset_import
+                        .push(OperatorSetIdProto::decode_field(&mut field)?);
                 }
                 Self::PRODUCER_NAME => {
                     msg.producer_name = Some(field.read_string()?);
@@ -773,6 +814,12 @@ mod tests {
         let file = File::open(model_path).unwrap();
         let value_reader = ValueReader::from_file(file);
         let model = ModelProto::decode(value_reader).unwrap();
+
+        let default_opset = model
+            .opset_import
+            .iter()
+            .find(|os| os.domain.as_deref().unwrap_or_default().is_empty());
+        assert_eq!(default_opset.and_then(|os| os.version), Some(18));
 
         let graph = model.graph.unwrap();
         assert_eq!(graph.node.len(), 13);
