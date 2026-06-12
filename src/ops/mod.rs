@@ -62,7 +62,7 @@ pub(crate) mod transform_inputs;
 // Operator structs. These are re-exported for internal use by the model loader
 // and tests.
 #[cfg(feature = "fft")]
-pub(crate) use fft::STFT;
+pub(crate) use fft::{DFT, STFT};
 #[cfg(feature = "random")]
 pub(crate) use random::{
     Dropout, Multinomial, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike,
@@ -149,7 +149,7 @@ pub use pooling::{average_pool, global_average_pool, max_pool};
 pub use quantize::{dequantize_linear, dynamic_quantize_linear, quantize_linear};
 
 #[cfg(feature = "fft")]
-pub use fft::stft;
+pub use fft::{dft, stft};
 
 pub use reduce::{
     arg_max, arg_min, cum_sum, nonzero, reduce_l1, reduce_l2, reduce_max, reduce_mean, reduce_min,

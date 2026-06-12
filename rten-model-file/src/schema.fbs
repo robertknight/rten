@@ -150,6 +150,7 @@ enum OperatorType: ubyte {
   Sinh,
   Multinomial,
   ReverseSequence,
+  DFT,
 }
 
 enum RNNDirection: ubyte {
@@ -258,6 +259,7 @@ union OperatorAttrs {
   STFTAttrs,
   MultinomialAttrs,
   ReverseSequenceAttrs,
+  DFTAttrs,
 }
 
 table ArgMaxAttrs {
@@ -579,6 +581,11 @@ table STFTAttrs {
 table ReverseSequenceAttrs {
   batch_axis:int = 1;
   time_axis:int = 0;
+}
+
+table DFTAttrs {
+  inverse:bool = false;
+  onesided:bool = false;
 }
 
 table TopKAttrs {

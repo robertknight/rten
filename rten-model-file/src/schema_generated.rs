@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 136;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 137;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 137] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 138] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -155,6 +155,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 137] = [
     OperatorType::Sinh,
     OperatorType::Multinomial,
     OperatorType::ReverseSequence,
+    OperatorType::DFT,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -299,9 +300,10 @@ impl OperatorType {
     pub const Sinh: Self = Self(134);
     pub const Multinomial: Self = Self(135);
     pub const ReverseSequence: Self = Self(136);
+    pub const DFT: Self = Self(137);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 136;
+    pub const ENUM_MAX: u8 = 137;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -440,6 +442,7 @@ impl OperatorType {
         Self::Sinh,
         Self::Multinomial,
         Self::ReverseSequence,
+        Self::DFT,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -581,6 +584,7 @@ impl OperatorType {
             Self::Sinh => Some("Sinh"),
             Self::Multinomial => Some("Multinomial"),
             Self::ReverseSequence => Some("ReverseSequence"),
+            Self::DFT => Some("DFT"),
             _ => None,
         }
     }
@@ -1216,13 +1220,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 56;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 57;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 57] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 58] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1280,6 +1284,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 57] = [
     OperatorAttrs::STFTAttrs,
     OperatorAttrs::MultinomialAttrs,
     OperatorAttrs::ReverseSequenceAttrs,
+    OperatorAttrs::DFTAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1344,9 +1349,10 @@ impl OperatorAttrs {
     pub const STFTAttrs: Self = Self(54);
     pub const MultinomialAttrs: Self = Self(55);
     pub const ReverseSequenceAttrs: Self = Self(56);
+    pub const DFTAttrs: Self = Self(57);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 56;
+    pub const ENUM_MAX: u8 = 57;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1405,6 +1411,7 @@ impl OperatorAttrs {
         Self::STFTAttrs,
         Self::MultinomialAttrs,
         Self::ReverseSequenceAttrs,
+        Self::DFTAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1466,6 +1473,7 @@ impl OperatorAttrs {
             Self::STFTAttrs => Some("STFTAttrs"),
             Self::MultinomialAttrs => Some("MultinomialAttrs"),
             Self::ReverseSequenceAttrs => Some("ReverseSequenceAttrs"),
+            Self::DFTAttrs => Some("DFTAttrs"),
             _ => None,
         }
     }
@@ -9718,6 +9726,138 @@ impl ::core::fmt::Debug for ReverseSequenceAttrs<'_> {
         ds.finish()
     }
 }
+pub enum DFTAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct DFTAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for DFTAttrs<'a> {
+    type Inner = DFTAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> DFTAttrs<'a> {
+    pub const VT_INVERSE: ::flatbuffers::VOffsetT = 4;
+    pub const VT_ONESIDED: ::flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        DFTAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args DFTAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<DFTAttrs<'bldr>> {
+        let mut builder = DFTAttrsBuilder::new(_fbb);
+        builder.add_onesided(args.onesided);
+        builder.add_inverse(args.inverse);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn inverse(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(DFTAttrs::VT_INVERSE, Some(false))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn onesided(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(DFTAttrs::VT_ONESIDED, Some(false))
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for DFTAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<bool>("inverse", Self::VT_INVERSE, false)?
+            .visit_field::<bool>("onesided", Self::VT_ONESIDED, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct DFTAttrsArgs {
+    pub inverse: bool,
+    pub onesided: bool,
+}
+impl<'a> Default for DFTAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        DFTAttrsArgs {
+            inverse: false,
+            onesided: false,
+        }
+    }
+}
+
+pub struct DFTAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> DFTAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_inverse(&mut self, inverse: bool) {
+        self.fbb_
+            .push_slot::<bool>(DFTAttrs::VT_INVERSE, inverse, false);
+    }
+    #[inline]
+    pub fn add_onesided(&mut self, onesided: bool) {
+        self.fbb_
+            .push_slot::<bool>(DFTAttrs::VT_ONESIDED, onesided, false);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> DFTAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        DFTAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<DFTAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for DFTAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("DFTAttrs");
+        ds.field("inverse", &self.inverse());
+        ds.field("onesided", &self.onesided());
+        ds.finish()
+    }
+}
 pub enum TopKAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -11044,6 +11184,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_dftattrs(&self) -> Option<DFTAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::DFTAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { DFTAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -11112,6 +11267,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::STFTAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<STFTAttrs>>("OperatorAttrs::STFTAttrs", pos),
           OperatorAttrs::MultinomialAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<MultinomialAttrs>>("OperatorAttrs::MultinomialAttrs", pos),
           OperatorAttrs::ReverseSequenceAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<ReverseSequenceAttrs>>("OperatorAttrs::ReverseSequenceAttrs", pos),
+          OperatorAttrs::DFTAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<DFTAttrs>>("OperatorAttrs::DFTAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -11752,6 +11908,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::ReverseSequenceAttrs => {
                 if let Some(x) = self.attrs_as_reverse_sequence_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::DFTAttrs => {
+                if let Some(x) = self.attrs_as_dftattrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

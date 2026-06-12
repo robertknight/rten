@@ -234,6 +234,7 @@ pub mod op_types {
     declare_op!(ConvTranspose);
     declare_op!(Cos);
     declare_op!(CumSum);
+    declare_op!(DFT, feature = "fft");
     declare_op!(DequantizeLinear);
     declare_op!(DepthToSpace);
     declare_op!(Div);
