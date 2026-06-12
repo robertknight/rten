@@ -430,6 +430,19 @@ fn test_from_fn() {
 }
 
 #[test]
+fn test_from_fn_in() {
+    let pool = FakeAlloc::new();
+
+    let x = NdTensor::from_fn_in(&pool, [2, 2], |[y, x]| y * 10 + x);
+    assert_eq!(x.data(), Some([0, 1, 10, 11].as_slice()));
+
+    let x = Tensor::from_fn_in(&pool, &[2, 2], |index| index[0] * 10 + index[1]);
+    assert_eq!(x.data(), Some([0, 1, 10, 11].as_slice()));
+
+    assert_eq!(pool.count(), 2);
+}
+
+#[test]
 fn test_from_nested_array() {
     // Scalar
     let x = NdTensor::from(5);
