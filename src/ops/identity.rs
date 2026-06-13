@@ -1,8 +1,9 @@
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::infer_shapes::{InferShapes, UnaryOp};
+use crate::infer_shapes::InferShapes;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
@@ -40,7 +41,7 @@ impl Operator for Identity {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        Some(&UnaryOp)
+        Some(&shape_ops::Identity)
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
