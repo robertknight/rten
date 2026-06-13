@@ -344,6 +344,27 @@ impl InferShapes for GridSample {
     }
 }
 
+/// Identity operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Identity.html>.
+///
+/// Unlike [`UnaryOp`](crate::UnaryOp), this copies the input's values (when
+/// known) to the output, not just its shape.
+pub struct Identity;
+
+impl InferShapes for Identity {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [data] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+        Ok([data.clone()].into())
+    }
+}
+
 /// NonZero operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__NonZero.html>.
@@ -601,7 +622,8 @@ mod tests {
 
     use super::{
         ConstantOfShape, Dropout, DynamicQuantizeLinear, FixedShape, Gather, GatherElements,
-        GatherND, GridSample, Multinomial, NonMaxSuppression, NonZero, Range, TopK, Where,
+        GatherND, GridSample, Identity, Multinomial, NonMaxSuppression, NonZero, Range, TopK,
+        Where,
     };
 
     #[test]
@@ -648,6 +670,20 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].ndim(), None);
         assert_eq!(result[1].ndim(), None);
+    }
+
+    #[test]
+    fn test_identity() {
+        let mut sym_gen = SymbolGen::new();
+
+        let input = sym_vec!("batch", 16, "seq", 24);
+        let result = Identity
+            .infer_shapes(&[input.clone()], &mut sym_gen)
+            .unwrap();
+        assert_eq!(result, &[input]);
+
+        let err = Identity.infer_shapes(&[], &mut sym_gen).err().unwrap();
+        assert_eq!(err, InferShapesError::IncorrectInputCount);
     }
 
     #[test]
