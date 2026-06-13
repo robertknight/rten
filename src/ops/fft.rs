@@ -192,6 +192,10 @@ impl_infer_shapes!(
 /// the real values (size 1) or interleaved real and imaginary values (size 2)
 /// of a complex signal.
 ///
+/// With `onesided` set, a forward transform (RFFT) returns the non-redundant
+/// half of the conjugate-symmetric spectrum, and an inverse transform (IRFFT)
+/// reconstructs the full real signal from such a half spectrum.
+///
 /// See <https://onnx.ai/onnx/operators/onnx__DFT.html>.
 pub fn dft(
     pool: &BufferPool,
@@ -214,12 +218,17 @@ pub fn dft(
         ));
     }
 
-    if inverse && onesided {
-        return Err(OpError::UnsupportedValue(
-            "DFT inverse one-sided transform (IRFFT) is not supported",
+    // A one-sided inverse transform (IRFFT) reconstructs a real signal from a
+    // conjugate-symmetric half spectrum, so it requires complex input. A
+    // one-sided forward transform (RFFT) produces such a spectrum from a real
+    // signal, so it requires real input.
+    let irfft = inverse && onesided;
+    if irfft && n_components != 2 {
+        return Err(OpError::InvalidValue(
+            "Inverse one-sided DFT (IRFFT) requires complex input",
         ));
     }
-    if onesided && n_components == 2 {
+    if onesided && !inverse && n_components == 2 {
         return Err(OpError::InvalidValue(
             "DFT cannot be one-sided if input is complex",
         ));
@@ -236,21 +245,32 @@ pub fn dft(
 
     let signal_len = input.size(dft_axis);
 
-    // The length (`N`) of the DFT. The input signal is zero-padded or truncated
-    // to this length along the DFT axis.
+    // The length (`N`) of the DFT, ie. the length of the real signal. The input
+    // signal is zero-padded or truncated to this length along the DFT axis.
+    //
+    // For IRFFT the input is the half spectrum of length `floor(N/2) + 1`, so
+    // the default `N` is `2 * (signal_len - 1)`. Matches NumPy's `irfft`.
     let n_fft = match dft_length {
         Some(len) if len >= 1 => len as usize,
         Some(_) => return Err(OpError::InvalidValue("dft_length must be >= 1")),
+        None if irfft => 2 * signal_len.saturating_sub(1),
         None => signal_len,
     };
 
-    // Number of output values along the DFT axis.
+    // Number of output values along the DFT axis. RFFT returns only the unique
+    // half of the conjugate-symmetric spectrum.
     //
     // If the signal is empty (`n_fft == 0`), the one-sided output has a single
-    // frequency bin filled with zeros. This matches ONNX Runtime; NumPy raises
-    // an error for zero-point transforms instead. Revisit if the spec or ONNX
-    // Runtime define this case more precisely.
-    let out_len = if onesided { n_fft / 2 + 1 } else { n_fft };
+    // frequency bin filled with zeros. This matches ONNX Runtime, although
+    // NumPy raises an error.
+    let out_len = if onesided && !inverse {
+        n_fft / 2 + 1
+    } else {
+        n_fft
+    };
+
+    // IRFFT returns a real signal, all other cases return complex.
+    let out_components = if irfft { 1 } else { 2 };
 
     // Permute the input so the DFT axis and complex dimension are the last two,
     // leaving lanes of shape `[n_fft][n_components]` that are contiguous in
@@ -266,7 +286,7 @@ pub fn dft(
 
     let mut out_shape: Vec<usize> = input.shape().to_vec();
     out_shape[ndim - 2] = out_len;
-    out_shape[ndim - 1] = 2;
+    out_shape[ndim - 1] = out_components;
     let mut output = Tensor::zeros_in(pool, out_shape.as_slice());
     let out_data = output.data_mut().unwrap();
 
@@ -295,18 +315,44 @@ pub fn dft(
     for lane in 0..num_lanes {
         let in_base = lane * signal_len * n_components;
 
-        // Zero-pad or truncate the signal to `n_fft` values.
         buf.clear();
-        buf.extend((0..signal_len.min(n_fft)).map(|k| get(in_base, k)));
-        buf.resize(n_fft, Complex32::default());
+        let n_in = signal_len.min(n_fft);
+        if irfft {
+            // Reconstruct the full conjugate-symmetric spectrum from the half
+            // spectrum: `X[N-k] = conj(X[k])`. For even `N` the Nyquist bin
+            // (`k == N/2`) is its own mirror and is left as the input value.
+            buf.resize(n_fft, Complex32::default());
+            for k in 0..n_in {
+                buf[k] = get(in_base, k);
+            }
+            let conj_end = if n_fft % 2 == 0 {
+                n_in.saturating_sub(1)
+            } else {
+                n_in
+            };
+            for k in 1..conj_end {
+                buf[n_fft - k] = get(in_base, k).conj();
+            }
+        } else {
+            // Zero-pad or truncate the signal to `n_fft` values.
+            buf.extend((0..n_in).map(|k| get(in_base, k)));
+            buf.resize(n_fft, Complex32::default());
+        }
 
         fft.process_with_scratch(&mut buf, &mut scratch);
 
-        let out_base = lane * out_len * 2;
-        for (i, val) in buf.iter().take(out_len).enumerate() {
-            let val = val * scale;
-            out_data[out_base + i * 2] = val.re;
-            out_data[out_base + i * 2 + 1] = val.im;
+        let out_base = lane * out_len * out_components;
+        if irfft {
+            // IRFFT discards the imaginary part, which is zero up to rounding.
+            for (i, val) in buf.iter().take(out_len).enumerate() {
+                out_data[out_base + i] = val.re * scale;
+            }
+        } else {
+            for (i, val) in buf.iter().take(out_len).enumerate() {
+                let val = val * scale;
+                out_data[out_base + i * 2] = val.re;
+                out_data[out_base + i * 2 + 1] = val.im;
+            }
         }
     }
 
@@ -686,13 +732,33 @@ mod tests {
                 .into_dyn()),
                 ..Default::default()
             },
-            // Combining `inverse` and `onesided` is disallowed by the spec.
+            // Inverse one-sided real-to-complex (`np.fft.irfft`). The half
+            // spectrum is `rfft([1, 2, 3, 4])` and the default `dft_length`
+            // reconstructs the original length-4 signal.
+            Case {
+                input: Tensor::from([[[10., 0.], [-2., 2.], [-2., 0.]]]).into_dyn(),
+                inverse: true,
+                onesided: true,
+                expected: Ok(Tensor::from([[[1.], [2.], [3.], [4.]]]).into_dyn()),
+                ..Default::default()
+            },
+            // Inverse one-sided with an explicit odd `dft_length`
+            // (`np.fft.irfft(rfft([1, 2, 3]), n=3)`).
+            Case {
+                input: Tensor::from([[[6., 0.], [-1.5, 0.8660254]]]).into_dyn(),
+                dft_length: Some(3),
+                inverse: true,
+                onesided: true,
+                expected: Ok(Tensor::from([[[1.], [2.], [3.]]]).into_dyn()),
+                ..Default::default()
+            },
+            // IRFFT requires complex input.
             Case {
                 input: real_signal.clone(),
                 inverse: true,
                 onesided: true,
-                expected: Err(OpError::UnsupportedValue(
-                    "DFT inverse one-sided transform (IRFFT) is not supported",
+                expected: Err(OpError::InvalidValue(
+                    "Inverse one-sided DFT (IRFFT) requires complex input",
                 )),
                 ..Default::default()
             },
