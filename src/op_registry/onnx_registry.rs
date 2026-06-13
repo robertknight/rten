@@ -296,6 +296,10 @@ impl fmt::Display for OpId<'_> {
 pub trait OpLoadContext {
     /// Deserialize a graph definition.
     fn load_graph(&self, graph: &onnx::GraphProto) -> Result<Graph, ReadOpError>;
+
+    /// Return the opset version that the operator uses, or `None` if
+    /// unspecified or invalid.
+    fn opset_version(&self) -> Option<u16>;
 }
 
 /// Value for an operator input created from an attribute (`onnx::AttributeProto`).
@@ -398,10 +402,14 @@ pub trait ReadOp: Operator + Sized + Send + Sync {
 struct Attrs<'a> {
     attrs: &'a [onnx::AttributeProto],
     unused_attrs: Cell<BitSet>,
+
+    /// Opset version the operator uses.
+    #[allow(dead_code)] // May be unused depending on enabled features.
+    opset_version: Option<u16>,
 }
 
 impl<'a> Attrs<'a> {
-    fn new(attrs: &'a [onnx::AttributeProto]) -> Self {
+    fn new(attrs: &'a [onnx::AttributeProto], opset_version: Option<u16>) -> Self {
         // Assume there will be at most 32 attributes. If there are more, we'll
         // just ignore them.
         let n_attrs: u32 = attrs.len().min(BitSet::BITS).try_into().unwrap();
@@ -410,7 +418,15 @@ impl<'a> Attrs<'a> {
         Self {
             attrs,
             unused_attrs,
+            opset_version,
         }
+    }
+
+    /// Return the opset version the operator was exported against, or `None` if
+    /// it was not specified.
+    #[allow(dead_code)] // Only used by feature-gated deserializers (eg. DFT).
+    fn opset_version(&self) -> Option<u16> {
+        self.opset_version
     }
 
     /// Get an optional attribute.
@@ -619,9 +635,9 @@ macro_rules! impl_read_op {
 
             fn read(
                 op: &onnx::NodeProto,
-                _ctx: &dyn OpLoadContext,
+                ctx: &dyn OpLoadContext,
             ) -> Result<ParsedOp<Self>, ReadOpError> {
-                let attrs = Attrs::new(&op.attribute);
+                let attrs = Attrs::new(&op.attribute, ctx.opset_version());
                 Ok(ParsedOp::new(ops::$op {}).with_unused_attrs(attrs.unused_attrs()))
             }
         }
@@ -635,9 +651,9 @@ macro_rules! impl_read_op {
 
             fn read(
                 op: &onnx::NodeProto,
-                _ctx: &dyn OpLoadContext,
+                ctx: &dyn OpLoadContext,
             ) -> Result<ParsedOp<Self>, ReadOpError> {
-                let attrs = Attrs::new(&op.attribute);
+                let attrs = Attrs::new(&op.attribute, ctx.opset_version());
                 $read(&attrs).map(|op| ParsedOp::from(op).with_unused_attrs(attrs.unused_attrs()))
             }
         }
@@ -651,9 +667,9 @@ macro_rules! impl_read_op {
 
             fn read(
                 op: &onnx::NodeProto,
-                _ctx: &dyn OpLoadContext,
+                ctx: &dyn OpLoadContext,
             ) -> Result<ParsedOp<Self>, ReadOpError> {
-                let attrs = Attrs::new(&op.attribute);
+                let attrs = Attrs::new(&op.attribute, ctx.opset_version());
                 $read(&attrs).map(|op| ParsedOp::from(op).with_unused_attrs(attrs.unused_attrs()))
             }
         }
@@ -1095,7 +1111,7 @@ impl ReadOp for ops::If {
     }
 
     fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<ParsedOp<Self>, ReadOpError> {
-        let attrs = Attrs::new(&op.attribute);
+        let attrs = Attrs::new(&op.attribute, ctx.opset_version());
         let then_branch = ctx.load_graph(attrs.require("then_branch")?.as_graph()?)?;
         let else_branch = ctx.load_graph(attrs.require("else_branch")?.as_graph()?)?;
         Ok(ops::If {
@@ -1147,7 +1163,7 @@ impl ReadOp for ops::Loop {
     }
 
     fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<ParsedOp<Self>, ReadOpError> {
-        let attrs = Attrs::new(&op.attribute);
+        let attrs = Attrs::new(&op.attribute, ctx.opset_version());
         let body = ctx.load_graph(attrs.require("body")?.as_graph()?)?;
         Ok(ops::Loop { body }.into())
     }
@@ -1764,11 +1780,18 @@ mod tests {
     use crate::ops::{ArgMax, ConstantOfShape, Conv, Padding, ResizeMode, Upsample};
     use crate::value::Scalar;
 
-    struct FakeOpLoadContext;
+    #[derive(Default)]
+    struct FakeOpLoadContext {
+        opset_version: Option<u16>,
+    }
 
     impl OpLoadContext for FakeOpLoadContext {
         fn load_graph(&self, _graph: &onnx::GraphProto) -> Result<Graph, ReadOpError> {
             Ok(Graph::new())
+        }
+
+        fn opset_version(&self) -> Option<u16> {
+            self.opset_version
         }
     }
 
@@ -1778,12 +1801,18 @@ mod tests {
 
         // Supported op with no domain.
         let node = create_node("MatMul");
-        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
         assert_eq!(op.name(), "MatMul");
 
         // Supported op with empty domain.
         let node = create_node("MatMul").with_domain("");
-        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
         assert_eq!(op.name(), "MatMul");
     }
 
@@ -1794,7 +1823,10 @@ mod tests {
             .with_attr("axis", 1)
             .with_attr("keepdims", true);
 
-        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
 
         let argmax_op = op.downcast_ref::<ArgMax>().unwrap();
         assert_eq!(argmax_op.axis, 1);
@@ -1807,12 +1839,18 @@ mod tests {
 
         // `mode` defaults to nearest.
         let node = create_node("Upsample");
-        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
         let upsample = op.downcast_ref::<Upsample>().unwrap();
         assert!(matches!(upsample.mode, ResizeMode::Nearest));
 
         let node = create_node("Upsample").with_attr("mode", "linear".to_string());
-        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
         let upsample = op.downcast_ref::<Upsample>().unwrap();
         assert!(matches!(upsample.mode, ResizeMode::Linear));
     }
@@ -1826,7 +1864,7 @@ mod tests {
             .with_attr("keepdims", true)
             .with_attr("unused_b", false);
 
-        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap();
+        let op = reg.read_op(&node, &FakeOpLoadContext::default()).unwrap();
         assert_eq!(op.unused_attrs.len(), 2);
         let unused_attrs: Vec<_> = op
             .unused_attrs
@@ -1841,14 +1879,14 @@ mod tests {
         // Default domain, unknown op type.
         let reg = OnnxOpRegistry::with_all_ops();
         let node = create_node("UnsupportedOp");
-        let op = reg.read_op(&node, &FakeOpLoadContext);
+        let op = reg.read_op(&node, &FakeOpLoadContext::default());
         assert!(
             matches!(op, Err(ReadOpError::OperatorUnavailable { name }) if name == Some("UnsupportedOp".to_string()))
         );
 
         // Known op type, but custom domain.
         let node = create_node("MatMul").with_domain("com.foobar");
-        let op = reg.read_op(&node, &FakeOpLoadContext);
+        let op = reg.read_op(&node, &FakeOpLoadContext::default());
         assert!(
             matches!(op, Err(ReadOpError::OperatorUnavailable { name }) if name == Some("com.foobar/MatMul".to_string()))
         );
@@ -1859,7 +1897,10 @@ mod tests {
         let reg = OnnxOpRegistry::with_all_ops();
         let node = create_node("Conv").with_attr("kernel_shape", vec![3, 3]);
 
-        let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
         let conv_op = op.downcast_ref::<Conv>().unwrap();
 
         assert_eq!(conv_op.padding, Padding::Fixed([0, 0, 0, 0].into()));
@@ -1908,7 +1949,10 @@ mod tests {
                 node = node.with_attr("pads", pads.clone());
             }
 
-            let op = reg.read_op(&node, &FakeOpLoadContext).unwrap().op;
+            let op = reg
+                .read_op(&node, &FakeOpLoadContext::default())
+                .unwrap()
+                .op;
             let conv_op = op.downcast_ref::<Conv>().unwrap();
 
             assert_eq!(conv_op.padding, case.expected);
@@ -1968,7 +2012,7 @@ mod tests {
             let reg = OnnxOpRegistry::with_all_ops();
             let tensor = create_tensor("test", &[], case.dtype, case.data.clone());
             let node = create_node("ConstantOfShape").with_attr("value", tensor);
-            let op = reg.read_op(&node, &FakeOpLoadContext).unwrap();
+            let op = reg.read_op(&node, &FakeOpLoadContext::default()).unwrap();
             let cos_op = op.op.downcast_ref::<ConstantOfShape>().unwrap();
             assert_eq!(cos_op, &case.expected);
         });
@@ -2021,7 +2065,9 @@ mod tests {
 
         cases.test_each_value(|case| {
             let reg = OnnxOpRegistry::with_all_ops();
-            let op = reg.read_op(&case.op, &FakeOpLoadContext).unwrap();
+            let op = reg
+                .read_op(&case.op, &FakeOpLoadContext::default())
+                .unwrap();
             assert_eq!(op.const_inputs, case.expected_inputs);
         });
     }
