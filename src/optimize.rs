@@ -24,8 +24,8 @@ mod pattern_matcher;
 use diagnostics::{DiagnosticLevel, Diagnostics};
 
 use fusions::{
-    AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, Fusion, FusionError,
-    FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
+    AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, ConvAddFusion, Fusion,
+    FusionError, FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
     LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
     PatternFusion, RMSNormalizationFusion, ReciprocalFusion, ReduceMeanAxesFusion,
     RepeatInterleaveFusion, SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion,
@@ -251,10 +251,17 @@ impl GraphMutator {
         {
             match fusion {
                 Fusion::Op(fusion) => {
+                    // Create any new constants required by the fused op and
+                    // place their IDs in the input list.
+                    let mut input_ids = fusion.input_ids;
+                    for (index, constant) in fusion.new_constant_inputs {
+                        let const_id = self.add_constant_node(constant);
+                        input_ids[index] = Some(const_id);
+                    }
                     self.add_operator(
                         fusion.name.as_deref(),
                         fusion.fused_op,
-                        &fusion.input_ids,
+                        &input_ids,
                         &fusion.output_ids,
                     );
                 }
@@ -513,6 +520,9 @@ impl GraphOptimizer {
         fusions.push(MatMulAddFusion {}.into_visitor());
         fusions.push(MatMulScaleFusion {});
         fusions.push(MatMulIntegerToFloatFusion {}.into_visitor());
+
+        // Convolution fusions
+        fusions.push(ConvAddFusion {});
 
         // Attention fusions.
         //

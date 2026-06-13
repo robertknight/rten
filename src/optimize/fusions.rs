@@ -14,7 +14,7 @@ use crate::graph::{
 use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, Cast, ComputeShape, DynamicQuantizeLinear, FusedMatMul, Gelu,
+    AddSoftmax, Cast, ComputeShape, Conv, DynamicQuantizeLinear, FusedMatMul, Gelu,
     GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, Mul, RMSNormalization,
     Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Softmax, Swish, SymbolInfo, Transpose,
 };
@@ -30,6 +30,15 @@ pub struct FusedOp {
 
     /// IDs of input value nodes.
     pub input_ids: Vec<Option<NodeId>>,
+
+    /// New constants to create and use as inputs to the fused operator.
+    ///
+    /// Each `(index, constant)` entry causes `constant` to be added to the
+    /// graph and its node ID placed at position `index` in [`input_ids`]. The
+    /// corresponding slot in [`input_ids`] should be `None`.
+    ///
+    /// [`input_ids`]: FusedOp::input_ids
+    pub new_constant_inputs: Vec<(usize, Constant)>,
 
     /// IDs of output value nodes.
     pub output_ids: Vec<Option<NodeId>>,
@@ -75,6 +84,7 @@ impl Fusion {
             name: name.map(|s| s.to_string()),
             fused_op,
             input_ids: input_ids.to_vec(),
+            new_constant_inputs: Vec::new(),
             output_ids: output_ids.to_vec(),
             unused_input_ids: unused_input_ids.to_vec(),
         })
@@ -1660,6 +1670,100 @@ impl PatternFusion for GroupedQueryAttentionMatMulFusion {
         })
     }
 }
+
+/// Fuse `Add(Conv(X, W), bias)` into `Conv(X, W, bias)`.
+pub struct ConvAddFusion {}
+
+impl FusionVisitor for ConvAddFusion {
+    type State = ();
+
+    fn name(&self) -> &str {
+        "ConvAddFusion"
+    }
+
+    fn prepare(&self, _: &Graph) {}
+
+    fn maybe_fuse(
+        &self,
+        _state: &(),
+        graph: &Graph,
+        _op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        // Match an `Add` with two inputs.
+        if op_node.operator().name() != "Add" {
+            return Err(FusionError::NoMatch);
+        }
+        let [Some(lhs), Some(rhs)] = op_node.input_ids() else {
+            return Err(FusionError::NoMatch);
+        };
+        let (lhs, rhs) = (*lhs, *rhs);
+
+        // One input must be the output of a `Conv`, the other the bias. `Add`
+        // is commutative, so try both orderings.
+        let is_conv = |id: NodeId| {
+            graph
+                .get_source_node(id)
+                .filter(|(_, conv_op)| conv_op.operator().downcast_ref::<Conv>().is_some())
+        };
+        let ((_, conv_op), bias_id) = if let Some(conv) = is_conv(lhs) {
+            (conv, rhs)
+        } else if let Some(conv) = is_conv(rhs) {
+            (conv, lhs)
+        } else {
+            return Err(FusionError::NoMatch);
+        };
+
+        // The `Conv` must not already have a bias input.
+        let (conv_input, conv_weight) = match conv_op.input_ids() {
+            [Some(input), Some(weight)] | [Some(input), Some(weight), None] => (*input, *weight),
+            _ => return Err(FusionError::CheckFailed("conv already has a bias")),
+        };
+
+        // The bias must be an `f32` constant of shape `[1, out_channels, 1, 1]`.
+        let Some(Node::Constant(bias_const)) = graph.get_node(bias_id) else {
+            return Err(FusionError::NoMatch);
+        };
+        let &[1, channels, 1, 1] = bias_const.shape() else {
+            return Err(FusionError::CheckFailed("bias shape is not [1, C, 1, 1]"));
+        };
+        let Some(bias_view) = TypedConstant::<f32>::as_typed_view(bias_const) else {
+            return Err(FusionError::CheckFailed("bias is not an f32 constant"));
+        };
+
+        // The bias length must match the `Conv`'s output channel count so that
+        // reshaping `[1, C, 1, 1]` to `[C]` produces a valid per-channel bias.
+        let out_channels = graph
+            .get_node(conv_weight)
+            .and_then(|n| n.shape())
+            .and_then(|shape| match shape.first() {
+                Some(Dimension::Fixed(size)) => Some(*size),
+                _ => None,
+            })
+            .ok_or(FusionError::CheckFailed("unknown conv output channels"))?;
+        if channels != out_channels {
+            return Err(FusionError::CheckFailed("bias size != output channels"));
+        }
+
+        // Create the `[out_channels]` bias constant from the existing data.
+        let bias_data: Vec<f32> = bias_view.iter().copied().collect();
+        let bias_const: Constant = ConstantNode::new(
+            None,
+            ConstantNodeData::Arc(ArcTensor::from_data(&[channels], Arc::new(bias_data))),
+        )
+        .into();
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: conv_op.clone_operator(),
+            input_ids: vec![Some(conv_input), Some(conv_weight), None],
+            new_constant_inputs: vec![(2, bias_const)],
+            output_ids: op_node.output_ids().to_vec(),
+            unused_input_ids: Vec::new(),
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Tests for fusions are currently defined in the main `optimize.rs` module.

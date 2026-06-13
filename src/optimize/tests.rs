@@ -15,10 +15,10 @@ use crate::graph::{
 };
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
-    Add, Cast, ComputeShape, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
+    Add, Cast, ComputeShape, Conv, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
     GroupedQueryAttentionMatMul, Identity, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg,
-    Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid, Slice, Softmax,
-    Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
+    Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid, Slice,
+    Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -367,6 +367,70 @@ fn test_fuse_matmul_add() {
 
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
     assert_eq!(op.operator().name(), "FusedMatMul");
+}
+
+#[test]
+fn test_fuse_conv_add() {
+    let out_channels = 4;
+    let graph = {
+        let x = Expr::value("x");
+        let weight = Expr::constant(Tensor::<f32>::zeros(&[out_channels, 3, 3, 3]));
+        let conv = x.apply(
+            Conv {
+                groups: 1,
+                dilations: vec![1, 1],
+                padding: Padding::zero::<2>(),
+                strides: vec![1, 1],
+            },
+            &[weight],
+            &[OutputMeta::NoMeta],
+        );
+        // Per-channel bias broadcast over a NCHW Conv output.
+        let bias = Tensor::<f32>::zeros(&[1, out_channels, 1, 1]);
+        (conv + bias).build_graph(["x"])
+    };
+
+    let graph = optimize_graph(graph).unwrap();
+
+    let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+    assert_eq!(op.operator().name(), "Conv");
+
+    // The fused Conv should have a 1D bias input of shape `[out_channels]`.
+    let bias_id = op.input_ids()[2].expect("conv should have a bias input");
+    let bias = graph
+        .get_node(bias_id)
+        .and_then(|n| n.as_constant())
+        .expect("bias should be a constant");
+    assert_eq!(bias.shape(), [out_channels]);
+}
+
+#[test]
+fn test_no_fuse_conv_add_non_channel_bias() {
+    // A value added to the Conv output which broadcasts over a non-channel
+    // axis (here the last/width axis, shape `[1, 1, 1, 4]`) is a valid add but
+    // not a per-channel bias, so it must not be fused into the Conv.
+    let graph = {
+        let x = Expr::value("x");
+        let weight = Expr::constant(Tensor::<f32>::zeros(&[4, 3, 3, 3]));
+        let conv = x.apply(
+            Conv {
+                groups: 1,
+                dilations: vec![1, 1],
+                padding: Padding::zero::<2>(),
+                strides: vec![1, 1],
+            },
+            &[weight],
+            &[OutputMeta::NoMeta],
+        );
+        // Non-1 dimension is at index 3, not the channel index (1).
+        let addend = Tensor::<f32>::zeros(&[1, 1, 1, 4]);
+        (conv + addend).build_graph(["x"])
+    };
+
+    let graph = optimize_graph(graph).unwrap();
+
+    let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+    assert_eq!(op.operator().name(), "Add");
 }
 
 #[test]
