@@ -49,6 +49,8 @@ pub fn load(
     }
     .map_err(|err| LoadErrorImpl::ParseFailed(Box::new(err)))?;
 
+    let opset_versions = OpsetVersions::from_model(&model);
+
     let graph = if let Some(onnx_graph) = &model.graph {
         load_graph(
             onnx_graph,
@@ -56,6 +58,7 @@ pub fn load(
             options.optimize_mode(),
             None,
             loader,
+            opset_versions,
         )?
     } else {
         Graph::new()
@@ -73,6 +76,37 @@ pub fn load(
         graph,
         weight_cache,
     })
+}
+
+#[derive(Clone, Copy)]
+struct OpsetVersions<'a> {
+    imports: &'a [onnx::OperatorSetIdProto],
+}
+
+impl<'a> OpsetVersions<'a> {
+    /// Create from a model's opset imports.
+    fn from_model(model: &'a onnx::ModelProto) -> Self {
+        OpsetVersions {
+            imports: &model.opset_import,
+        }
+    }
+
+    /// Return the opset version for a domain.
+    ///
+    /// Returns `None` if the domain was not imported or its version was not
+    /// specified or out of range.
+    fn version(&self, domain: &str) -> Option<u16> {
+        fn normalize_domain(domain: &str) -> &str {
+            if domain.is_empty() { "ai.onnx" } else { domain }
+        }
+
+        let domain = normalize_domain(domain);
+        self.imports
+            .iter()
+            .find(|os| normalize_domain(os.domain.as_deref().unwrap_or_default()) == domain)
+            .and_then(|os| os.version)
+            .and_then(|version| u16::try_from(version).ok())
+    }
 }
 
 fn load_metadata(model: &onnx::ModelProto) -> ModelMetadata {
@@ -99,6 +133,7 @@ fn load_graph(
     optimize: OptimizeMode,
     capture_env: Option<&CaptureEnv>,
     loader: Option<&dyn DataLoader>,
+    opset_versions: OpsetVersions,
 ) -> Result<Graph, LoadError> {
     let approx_node_count = onnx_graph.node.len() + onnx_graph.value_info.len();
     let mut graph = Graph::with_capacity(approx_node_count);
@@ -248,6 +283,7 @@ fn load_graph(
                 optimize: optimize.clone(),
                 capture_env,
                 loader,
+                opset_versions,
             },
         )?;
     }
@@ -825,6 +861,9 @@ struct SubgraphOptions<'a> {
 
     /// Data source for tensors with data stored outside model.
     loader: Option<&'a dyn DataLoader>,
+
+    /// Opset versions the model uses.
+    opset_versions: OpsetVersions<'a>,
 }
 
 /// Load an ONNX operator and its subgraphs.
@@ -842,23 +881,42 @@ fn add_operator(
             optimize,
             capture_env,
             loader,
+            opset_versions,
         } = &subgraph_opts;
         let capture_env = CaptureEnv::new(*capture_env, graph, None, None, None);
-        load_graph(g, registry, optimize.clone(), Some(&capture_env), *loader)
+        load_graph(
+            g,
+            registry,
+            optimize.clone(),
+            Some(&capture_env),
+            *loader,
+            *opset_versions,
+        )
     };
 
     struct LoadContext<'a> {
         load_graph: &'a dyn Fn(&onnx::GraphProto) -> Result<Graph, LoadError>,
+        opset_versions: OpsetVersions<'a>,
+
+        /// Domain of the operator being loaded.
+        domain: &'a str,
     }
 
     impl OpLoadContext for LoadContext<'_> {
         fn load_graph(&self, graph: &onnx::GraphProto) -> Result<Graph, ReadOpError> {
             (self.load_graph)(graph).map_err(|err| ReadOpError::SubgraphError(err.into()))
         }
+
+        fn opset_version(&self) -> Option<u16> {
+            // Resolved on demand since most deserializers don't need it.
+            self.opset_versions.version(self.domain)
+        }
     }
 
     let ctx = LoadContext {
         load_graph: &load_subgraph,
+        opset_versions: subgraph_opts.opset_versions,
+        domain: onnx_op.domain.as_deref().unwrap_or_default(),
     };
 
     let node_ids_from_names = |names: &[String]| -> Vec<Option<NodeId>> {
@@ -958,8 +1016,9 @@ mod tests {
     use rten_base::half::{f16_to_f32, f32_to_f16};
     use rten_onnx::onnx;
     use rten_tensor::{Tensor, TensorView};
+    use rten_testing::TestCases;
 
-    use super::{Source, load};
+    use super::{OpsetVersions, Source, load};
     use crate::graph::{Constant, Dimension, Graph, TypedConstant};
     use crate::model::external_data::{DataLoader, DataLocation, MemLoader};
     use crate::model::onnx_builder::{
@@ -1287,6 +1346,74 @@ mod tests {
                 ("producer_version", "2.8.0"),
             ]
         );
+    }
+
+    #[test]
+    fn test_opset_versions() {
+        #[derive(Debug)]
+        struct Case {
+            // (domain, version) pairs for the model's `opset_import` field.
+            opset_imports: Vec<(Option<&'static str>, Option<i64>)>,
+            // (queried domain, expected version) pairs.
+            expected: Vec<(&'static str, Option<u16>)>,
+        }
+
+        let cases = [
+            // Default domain identified by an empty string. It can be queried
+            // by either the empty or "ai.onnx" name.
+            Case {
+                opset_imports: [(Some(""), Some(17))].into(),
+                expected: [("", Some(17)), ("ai.onnx", Some(17))].into(),
+            },
+            // Default domain identified by an unset domain field.
+            Case {
+                opset_imports: [(None, Some(18))].into(),
+                expected: [("", Some(18)), ("ai.onnx", Some(18))].into(),
+            },
+            // Default domain identified by its explicit "ai.onnx" name.
+            Case {
+                opset_imports: [(Some("ai.onnx"), Some(20))].into(),
+                expected: [("", Some(20)), ("ai.onnx", Some(20))].into(),
+            },
+            // Each imported domain reports its own version.
+            Case {
+                opset_imports: [(Some("ai.onnx.ml"), Some(3)), (Some(""), Some(19))].into(),
+                expected: [("ai.onnx.ml", Some(3)), ("", Some(19))].into(),
+            },
+            // Domains that were not imported report no version.
+            Case {
+                opset_imports: [(Some("com.example"), Some(5))].into(),
+                expected: [("com.example", Some(5)), ("", None)].into(),
+            },
+            // No opset imports.
+            Case {
+                opset_imports: [].into(),
+                expected: [("", None), ("ai.onnx", None)].into(),
+            },
+            // Versions outside the `u16` range are treated as unspecified.
+            Case {
+                opset_imports: [(Some(""), Some(-1))].into(),
+                expected: [("", None)].into(),
+            },
+            Case {
+                opset_imports: [(Some(""), Some(1 << 32))].into(),
+                expected: [("", None)].into(),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let mut model = onnx::GraphProto::default().into_model();
+            for (domain, version) in &case.opset_imports {
+                let mut opset = onnx::OperatorSetIdProto::default();
+                opset.domain = domain.map(|d| d.to_string());
+                opset.version = *version;
+                model.opset_import.push(opset);
+            }
+            let opset_versions = OpsetVersions::from_model(&model);
+            for (domain, expected) in &case.expected {
+                assert_eq!(opset_versions.version(domain), *expected);
+            }
+        });
     }
 
     #[test]
