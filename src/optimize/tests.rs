@@ -371,37 +371,57 @@ fn test_fuse_matmul_add() {
 
 #[test]
 fn test_fuse_conv_add() {
-    let out_channels = 4;
-    let graph = {
-        let x = Expr::value("x");
-        let weight = Expr::constant(Tensor::<f32>::zeros(&[out_channels, 3, 3, 3]));
-        let conv = x.apply(
-            Conv {
-                groups: 1,
-                dilations: vec![1, 1],
-                padding: Padding::zero::<2>(),
-                strides: vec![1, 1],
-            },
-            &[weight],
-            &[OutputMeta::NoMeta],
-        );
-        // Per-channel bias broadcast over a NCHW Conv output.
-        let bias = Tensor::<f32>::zeros(&[1, out_channels, 1, 1]);
-        (conv + bias).build_graph(["x"])
-    };
+    #[derive(Debug)]
+    struct Case {
+        // Number of spatial dimensions: 1 for a 1D conv (`[N, C, L]`), 2 for a
+        // 2D conv (`[N, C, H, W]`).
+        spatial_dims: usize,
+    }
 
-    let graph = optimize_graph(graph).unwrap();
+    let cases = [Case { spatial_dims: 1 }, Case { spatial_dims: 2 }];
 
-    let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
-    assert_eq!(op.operator().name(), "Conv");
+    cases.test_each(|&Case { spatial_dims }| {
+        let out_channels = 4;
+        let graph = {
+            let x = Expr::value("x");
 
-    // The fused Conv should have a 1D bias input of shape `[out_channels]`.
-    let bias_id = op.input_ids()[2].expect("conv should have a bias input");
-    let bias = graph
-        .get_node(bias_id)
-        .and_then(|n| n.as_constant())
-        .expect("bias should be a constant");
-    assert_eq!(bias.shape(), [out_channels]);
+            // Weight shape is `[out_channels, in_channels, ...kernel]`.
+            let mut weight_shape = vec![out_channels, 3];
+            weight_shape.extend(std::iter::repeat_n(3, spatial_dims));
+            let weight = Expr::constant(Tensor::<f32>::zeros(&weight_shape));
+
+            let conv = x.apply(
+                Conv {
+                    groups: 1,
+                    dilations: vec![1; spatial_dims],
+                    padding: Padding::Same,
+                    strides: vec![1; spatial_dims],
+                },
+                &[weight],
+                &[OutputMeta::NoMeta],
+            );
+
+            // Per-channel bias broadcast over the conv output: `[1, C, 1, ...]`.
+            let mut bias_shape = vec![1, out_channels];
+            bias_shape.extend(std::iter::repeat_n(1, spatial_dims));
+            let bias = Tensor::<f32>::zeros(&bias_shape);
+
+            (conv + bias).build_graph(["x"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(op.operator().name(), "Conv");
+
+        // The fused Conv should have a 1D bias input of shape `[out_channels]`.
+        let bias_id = op.input_ids()[2].expect("conv should have a bias input");
+        let bias = graph
+            .get_node(bias_id)
+            .and_then(|n| n.as_constant())
+            .expect("bias should be a constant");
+        assert_eq!(bias.shape(), [out_channels]);
+    });
 }
 
 #[test]

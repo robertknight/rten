@@ -1720,36 +1720,41 @@ impl FusionVisitor for ConvAddFusion {
             _ => return Err(FusionError::CheckFailed("conv already has a bias")),
         };
 
-        // The bias must be an `f32` constant of shape `[1, out_channels, 1, 1]`.
+        // Determine the `Conv`'s rank and output channel count from the weights,
+        // which have shape `[out_channels, in_channels / groups, ...kernel]`.
+        let weight_shape = graph
+            .get_node(conv_weight)
+            .and_then(|n| n.shape())
+            .ok_or(FusionError::CheckFailed("unknown conv weight shape"))?;
+        let out_channels = match weight_shape.first() {
+            Some(Dimension::Fixed(size)) => *size,
+            _ => return Err(FusionError::CheckFailed("unknown conv output channels")),
+        };
+        let conv_rank = weight_shape.len();
+
+        // Check bias is a constant with shape `[1, out_channels, ...]` that
+        // can be reshaped to `[out_channels]`.
         let Some(Node::Constant(bias_const)) = graph.get_node(bias_id) else {
             return Err(FusionError::NoMatch);
         };
-        let &[1, channels, 1, 1] = bias_const.shape() else {
-            return Err(FusionError::CheckFailed("bias shape is not [1, C, 1, 1]"));
-        };
+        let bias_shape = bias_const.shape();
+        let is_per_channel_bias = bias_shape.len() == conv_rank
+            && bias_shape
+                .iter()
+                .enumerate()
+                .all(|(axis, &size)| size == if axis == 1 { out_channels } else { 1 });
+        if !is_per_channel_bias {
+            return Err(FusionError::CheckFailed("bias is not a per-channel bias"));
+        }
         let Some(bias_view) = TypedConstant::<f32>::as_typed_view(bias_const) else {
             return Err(FusionError::CheckFailed("bias is not an f32 constant"));
         };
 
-        // The bias length must match the `Conv`'s output channel count so that
-        // reshaping `[1, C, 1, 1]` to `[C]` produces a valid per-channel bias.
-        let out_channels = graph
-            .get_node(conv_weight)
-            .and_then(|n| n.shape())
-            .and_then(|shape| match shape.first() {
-                Some(Dimension::Fixed(size)) => Some(*size),
-                _ => None,
-            })
-            .ok_or(FusionError::CheckFailed("unknown conv output channels"))?;
-        if channels != out_channels {
-            return Err(FusionError::CheckFailed("bias size != output channels"));
-        }
-
-        // Create the `[out_channels]` bias constant from the existing data.
+        // Create the `[out_channels]` bias constant.
         let bias_data: Vec<f32> = bias_view.iter().copied().collect();
         let bias_const: Constant = ConstantNode::new(
             None,
-            ConstantNodeData::Arc(ArcTensor::from_data(&[channels], Arc::new(bias_data))),
+            ConstantNodeData::Arc(ArcTensor::from_data(&[out_channels], Arc::new(bias_data))),
         )
         .into();
 
