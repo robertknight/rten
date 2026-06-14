@@ -119,6 +119,7 @@ impl RtenOpRegistry {
         register_op!(Cos);
         register_op!(Cosh);
         register_op!(CumSum);
+        register_op!(DFT, feature = "fft");
         register_op!(DequantizeLinear);
         register_op!(DepthToSpace);
         register_op!(Div);
@@ -523,6 +524,13 @@ impl_read_op!(
 impl_read_op!(Cos);
 impl_read_op!(Cosh);
 impl_read_op!(CumSum);
+#[cfg(feature = "fft")]
+impl_read_op!(DFT, attrs_as_dftattrs, |attrs: sg::DFTAttrs| {
+    Ok(ops::DFT {
+        inverse: attrs.inverse(),
+        onesided: attrs.onesided(),
+    })
+});
 impl_read_op!(DequantizeLinear, attrs_as_dequantize_linear_attrs, axis);
 impl_read_op!(
     DepthToSpace,

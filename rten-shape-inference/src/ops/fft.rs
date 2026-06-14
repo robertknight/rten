@@ -1,4 +1,4 @@
-use crate::infer_shapes::{InferShapes, InferShapesError};
+use crate::infer_shapes::{InferShapes, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
@@ -71,6 +71,89 @@ impl InferShapes for STFT {
     }
 }
 
+/// DFT operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__DFT.html>.
+pub struct DFT {
+    pub inverse: bool,
+    pub onesided: bool,
+}
+
+impl InferShapes for DFT {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let [input, ..] = inputs else {
+            return Err(InferShapesError::IncorrectInputCount);
+        };
+        let dft_length = inputs.get(1);
+
+        let irfft = self.inverse && self.onesided;
+
+        // `axis` is an optional input (input 2). It must be a known constant to
+        // determine the output shape; otherwise the shape is unknown. The
+        // default of -2 matches the `axis` input added in opset 20.
+        let axis = match inputs.get(2) {
+            None => -2,
+            Some(axis) => match axis.as_scalar() {
+                Some(&SymExpr::Value(val)) => val,
+                _ => return Ok([SymTensor::unknown("DFT axis is not constant")].into()),
+            },
+        };
+
+        let Some(dims) = input.shape() else {
+            return Ok([SymTensor::unknown("unknown DFT input shape")].into());
+        };
+        let mut shape: Vec<SymExpr> = dims.collect();
+        let ndim = shape.len();
+        if ndim < 2 {
+            return Err(InferShapesError::InvalidValue);
+        }
+        let complex_dim = ndim - 1;
+
+        // Resolve the signal axis. The final (complex) dimension is excluded.
+        let dft_axis = resolve_axis(ndim, axis).map_err(|_| InferShapesError::InvalidValue)?;
+        if dft_axis == complex_dim {
+            return Err(InferShapesError::InvalidValue);
+        }
+
+        let signal_len = shape[dft_axis].clone();
+
+        // `n_fft` (the real signal length) comes from the `dft_length` input if
+        // it's a known scalar. For IRFFT the input is the half spectrum of
+        // length `floor(n_fft / 2) + 1`, so the default is `2 * (signal_len - 1)`.
+        let n_fft = if let Some(dl) = dft_length
+            && let Some(val) = dl.as_scalar()
+        {
+            val.clone()
+        } else if irfft {
+            (signal_len - SymExpr::Value(1)) * SymExpr::Value(2)
+        } else {
+            signal_len
+        };
+
+        // IRFFT returns the full real signal (component dim of size 1); a
+        // forward one-sided transform returns the unique half of the spectrum.
+        let (out_len, n_components) = if irfft {
+            (n_fft, SymExpr::Value(1))
+        } else if self.onesided {
+            (
+                n_fft / SymExpr::Value(2) + SymExpr::Value(1),
+                SymExpr::Value(2),
+            )
+        } else {
+            (n_fft, SymExpr::Value(2))
+        };
+
+        shape[dft_axis] = out_len;
+        shape[complex_dim] = n_components;
+
+        Ok([SymTensor::from_shape(shape)].into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_testing::TestCases;
@@ -80,7 +163,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_scalar, sym_shape, sym_vec};
 
-    use super::STFT;
+    use super::{DFT, STFT};
 
     fn infer_stft(
         onesided: bool,
@@ -217,5 +300,108 @@ mod tests {
         let result = STFT { onesided: true }
             .infer_shapes(&[sym_shape!("batch", 8), sym_scalar!(4)], &mut sym_gen);
         assert_eq!(result, Err(InferShapesError::InvalidValue));
+    }
+
+    fn infer_dft(
+        axis: i32,
+        inverse: bool,
+        onesided: bool,
+        input: SymTensor,
+        dft_length: Option<SymTensor>,
+    ) -> SymTensor {
+        // `axis` is input 2. `dft_length` (input 1) is optional, so a
+        // placeholder is needed when it is absent.
+        let inputs = vec![
+            input,
+            dft_length.unwrap_or_else(|| SymTensor::unknown("no dft_length")),
+            SymTensor::from_scalar(SymExpr::Value(axis)),
+        ];
+        let mut sym_gen = SymbolGen::new();
+        let mut result = DFT { inverse, onesided }
+            .infer_shapes(&inputs, &mut sym_gen)
+            .unwrap();
+        result.remove(0).simplify()
+    }
+
+    #[test]
+    fn test_dft() {
+        #[derive(Debug)]
+        struct Case {
+            axis: i32,
+            inverse: bool,
+            onesided: bool,
+            input: SymTensor,
+            dft_length: Option<SymTensor>,
+            expected: SymTensor,
+        }
+
+        let cases = [
+            // Two-sided forward transform.
+            Case {
+                axis: -2,
+                inverse: false,
+                onesided: false,
+                input: sym_shape!("batch", 8, 1),
+                dft_length: None,
+                expected: sym_shape!("batch", 8, 2),
+            },
+            // One-sided forward transform.
+            Case {
+                axis: -2,
+                inverse: false,
+                onesided: true,
+                input: sym_shape!("batch", 8, 1),
+                dft_length: None,
+                expected: sym_shape!("batch", 5, 2),
+            },
+            // `dft_length` overrides the signal length.
+            Case {
+                axis: -2,
+                inverse: false,
+                onesided: true,
+                input: sym_shape!("batch", 8, 1),
+                dft_length: Some(sym_scalar!(16)),
+                expected: sym_shape!("batch", 9, 2),
+            },
+            // Inverse transform has the same shape as the input.
+            Case {
+                axis: -2,
+                inverse: true,
+                onesided: false,
+                input: sym_shape!("batch", 8, 2),
+                dft_length: None,
+                expected: sym_shape!("batch", 8, 2),
+            },
+            // Inverse one-sided transform (IRFFT). The half spectrum of length
+            // 5 reconstructs a real signal of length `2 * (5 - 1) = 8`.
+            Case {
+                axis: -2,
+                inverse: true,
+                onesided: true,
+                input: sym_shape!("batch", 5, 2),
+                dft_length: None,
+                expected: sym_shape!("batch", 8, 1),
+            },
+            // IRFFT with an explicit `dft_length`.
+            Case {
+                axis: -2,
+                inverse: true,
+                onesided: true,
+                input: sym_shape!("batch", 5, 2),
+                dft_length: Some(sym_scalar!(7)),
+                expected: sym_shape!("batch", 7, 1),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let out = infer_dft(
+                case.axis,
+                case.inverse,
+                case.onesided,
+                case.input.clone(),
+                case.dft_length.clone(),
+            );
+            assert_eq!(out, case.expected);
+        });
     }
 }

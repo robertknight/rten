@@ -123,6 +123,7 @@ impl OnnxOpRegistry {
         register_op!(Cos);
         register_op!(Cosh);
         register_op!(CumSum);
+        register_op!(DFT, feature = "fft");
         register_op!(DequantizeLinear);
         register_op!(DepthToSpace);
         register_op!(Div);
@@ -305,6 +306,10 @@ pub trait OpLoadContext {
 /// Value for an operator input created from an attribute (`onnx::AttributeProto`).
 #[derive(Debug, PartialEq)]
 pub enum ConstInput {
+    // Only constructed by feature-gated deserializers (eg. DFT), so it may be
+    // unused depending on the enabled features.
+    #[allow(dead_code)]
+    Int(i64),
     Ints(Vec<i64>),
     Float(f32),
     Floats(Vec<f32>),
@@ -965,6 +970,25 @@ impl_read_op!(CumSum, |attrs: &Attrs| {
     attrs.check_eq("exclusive", 0)?;
     attrs.check_eq("reverse", 0)?;
     Ok(ops::CumSum {})
+});
+
+#[cfg(feature = "fft")]
+impl_read_op!(DFT, |attrs: &Attrs| {
+    let inverse = attrs.get_as("inverse").unwrap_or(false);
+    let onesided = attrs.get_as("onesided").unwrap_or(false);
+
+    // `axis` was an attribute with default 1 in opset 17 and became an optional
+    // input with default -2 in opset 20.
+    let axis = attrs.get_as_int::<i32>("axis")?.or_else(|| {
+        let pre_opset_20 = attrs.opset_version().is_some_and(|v| v < 20);
+        pre_opset_20.then_some(1)
+    });
+    let mut const_inputs = Vec::new();
+    if let Some(axis) = axis {
+        const_inputs.push((2, ConstInput::Int(i64::from(axis))));
+    }
+
+    Ok(ParsedOp::new(ops::DFT { inverse, onesided }).with_inputs(const_inputs))
 });
 
 impl_read_op!(DequantizeLinear, |attrs: &Attrs| {
@@ -2067,6 +2091,61 @@ mod tests {
             let reg = OnnxOpRegistry::with_all_ops();
             let op = reg
                 .read_op(&case.op, &FakeOpLoadContext::default())
+                .unwrap();
+            assert_eq!(op.const_inputs, case.expected_inputs);
+        });
+    }
+
+    #[cfg(feature = "fft")]
+    #[test]
+    fn test_dft_axis() {
+        #[derive(Debug)]
+        struct Case {
+            opset_version: Option<u16>,
+            axis: Option<i64>,
+            expected_inputs: Vec<(u32, ConstInput)>,
+        }
+
+        let cases = [
+            // Explicit `axis` attribute is promoted regardless of opset.
+            Case {
+                opset_version: Some(18),
+                axis: Some(-2),
+                expected_inputs: [(2, ConstInput::Int(-2))].into(),
+            },
+            // Absent `axis` in a pre-opset-20 model uses the default of 1.
+            Case {
+                opset_version: Some(17),
+                axis: None,
+                expected_inputs: [(2, ConstInput::Int(1))].into(),
+            },
+            // Absent `axis` in opset 20+ is left to the operator (default -2).
+            Case {
+                opset_version: Some(20),
+                axis: None,
+                expected_inputs: [].into(),
+            },
+            // Absent `axis` with an unknown opset is left to the operator.
+            Case {
+                opset_version: None,
+                axis: None,
+                expected_inputs: [].into(),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let mut node = create_node("DFT");
+            if let Some(axis) = case.axis {
+                node = node.with_attr("axis", axis);
+            }
+            let reg = OnnxOpRegistry::with_all_ops();
+            let op = reg
+                .read_op(
+                    &node,
+                    &FakeOpLoadContext {
+                        opset_version: case.opset_version,
+                    },
+                )
                 .unwrap();
             assert_eq!(op.const_inputs, case.expected_inputs);
         });

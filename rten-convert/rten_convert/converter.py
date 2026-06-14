@@ -453,6 +453,19 @@ def op_node_from_onnx_operator(
             attr_reader.check_attr("exclusive", "int", 0)
             attr_reader.check_attr("reverse", "int", 0)
 
+        case "DFT":
+            attrs = sg.DFTAttrsT()
+            attrs.inverse = attr_reader.get_bool_attr("inverse", False)
+            attrs.onesided = attr_reader.get_bool_attr("onesided", False)
+            # `axis` was an attribute in opset 17 and became an optional input
+            # (index 2) in opset 20. Promote the attribute to a constant input.
+            #
+            # Known issue: If a pre-opset-20 model omits the attribute, its
+            # default of 1 is not applied here (the runtime will use the
+            # opset-20 default of -2). The two defaults coincide for the
+            # common case of rank-3 inputs.
+            attr_reader.generate_input_from_attr(2, "axis", "int")
+
         case "DequantizeLinear":
             attrs = sg.DequantizeLinearAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", 1)

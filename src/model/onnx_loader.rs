@@ -736,6 +736,10 @@ fn load_constant_from_constant_op(
 
 fn constant_from_attr_value(val: ConstInput) -> Constant {
     match val {
+        ConstInput::Int(val) => Constant::new(
+            None,
+            Tensor::from(saturating_cast_i64_to_i32(val)).into_arc(),
+        ),
         ConstInput::Ints(vals) => {
             let vals: Vec<i32> = vals.into_iter().map(saturating_cast_i64_to_i32).collect();
             Constant::new(None, Tensor::from(vals).into_arc())
