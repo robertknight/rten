@@ -298,6 +298,7 @@ pub fn dft(
     };
     // ONNX defines the inverse transform with a `1/N` normalization factor,
     // which `rustfft` does not apply.
+    // See https://docs.rs/rustfft/latest/rustfft/#normalization.
     let scale = if inverse { 1.0 / n_fft as f32 } else { 1.0 };
 
     let mut buf: Vec<Complex32> = Vec::with_capacity(n_fft);
@@ -690,33 +691,39 @@ mod tests {
         }
 
         // Real signal `[1, 2, 3, 4]` with shape `[1, 4, 1]`.
-        let real_signal = Tensor::from([[[1.], [2.], [3.], [4.]]]).into_dyn();
+        let real_signal = Tensor::from([[[1.], [2.], [3.], [4.]]]);
 
         // Complex signal `[1, 2+1j, 3-1j, 4+2j]` with shape `[1, 4, 2]`.
-        let complex_signal = Tensor::from([[[1., 0.], [2., 1.], [3., -1.], [4., 2.]]]).into_dyn();
+        let complex_signal = Tensor::from([[[1., 0.], [2., 1.], [3., -1.], [4., 2.]]]);
 
         let cases = [
             // One-sided real-to-complex (`np.fft.rfft`).
             Case {
                 input: real_signal.clone(),
                 onesided: true,
-                expected: Ok(Tensor::from([[[10., 0.], [-2., 2.], [-2., 0.]]]).into_dyn()),
+                expected: Ok(Tensor::from([[[10., 0.], [-2., 2.], [-2., 0.]]])),
                 ..Default::default()
             },
             // Two-sided real-to-complex (`np.fft.fft`).
             Case {
                 input: real_signal.clone(),
-                expected: Ok(
-                    Tensor::from([[[10., 0.], [-2., 2.], [-2., 0.], [-2., -2.]]]).into_dyn(),
-                ),
+                expected: Ok(Tensor::from([[
+                    [10., 0.],
+                    [-2., 2.],
+                    [-2., 0.],
+                    [-2., -2.],
+                ]])),
                 ..Default::default()
             },
             // Complex-to-complex (`np.fft.fft`).
             Case {
                 input: complex_signal.clone(),
-                expected: Ok(
-                    Tensor::from([[[10., 2.], [-3., 3.], [-2., -4.], [-1., -1.]]]).into_dyn(),
-                ),
+                expected: Ok(Tensor::from([[
+                    [10., 2.],
+                    [-3., 3.],
+                    [-2., -4.],
+                    [-1., -1.],
+                ]])),
                 ..Default::default()
             },
             // Inverse complex-to-complex (`np.fft.ifft`).
@@ -728,28 +735,27 @@ mod tests {
                     [-0.25, -0.25],
                     [-0.5, -1.],
                     [-0.75, 0.75],
-                ]])
-                .into_dyn()),
+                ]])),
                 ..Default::default()
             },
             // Inverse one-sided real-to-complex (`np.fft.irfft`). The half
             // spectrum is `rfft([1, 2, 3, 4])` and the default `dft_length`
             // reconstructs the original length-4 signal.
             Case {
-                input: Tensor::from([[[10., 0.], [-2., 2.], [-2., 0.]]]).into_dyn(),
+                input: Tensor::from([[[10., 0.], [-2., 2.], [-2., 0.]]]),
                 inverse: true,
                 onesided: true,
-                expected: Ok(Tensor::from([[[1.], [2.], [3.], [4.]]]).into_dyn()),
+                expected: Ok(Tensor::from([[[1.], [2.], [3.], [4.]]])),
                 ..Default::default()
             },
             // Inverse one-sided with an explicit odd `dft_length`
             // (`np.fft.irfft(rfft([1, 2, 3]), n=3)`).
             Case {
-                input: Tensor::from([[[6., 0.], [-1.5, 0.8660254]]]).into_dyn(),
+                input: Tensor::from([[[6., 0.], [-1.5, 0.8660254]]]),
                 dft_length: Some(3),
                 inverse: true,
                 onesided: true,
-                expected: Ok(Tensor::from([[[1.], [2.], [3.]]]).into_dyn()),
+                expected: Ok(Tensor::from([[[1.], [2.], [3.]]])),
                 ..Default::default()
             },
             // IRFFT requires complex input.
@@ -782,8 +788,7 @@ mod tests {
                     [-3.5, -4.330127],
                     [2.5, 0.866025],
                     [-2., 0.],
-                ]])
-                .into_dyn()),
+                ]])),
                 ..Default::default()
             },
             // Truncation via `dft_length` (`np.fft.rfft(x, n=2)`).
@@ -791,7 +796,7 @@ mod tests {
                 input: real_signal.clone(),
                 dft_length: Some(2),
                 onesided: true,
-                expected: Ok(Tensor::from([[[3., 0.], [-1., 0.]]]).into_dyn()),
+                expected: Ok(Tensor::from([[[3., 0.], [-1., 0.]]])),
                 ..Default::default()
             },
             // Transform along a non-default axis of a higher-rank input. The
@@ -814,7 +819,7 @@ mod tests {
             },
             // Invalid component count.
             Case {
-                input: Tensor::from([[[1., 2., 3.]]]).into_dyn(),
+                input: Tensor::from([[[1., 2., 3.]]]),
                 expected: Err(OpError::InvalidValue(
                     "Last dimension of DFT input must have size 1 or 2",
                 )),
@@ -830,8 +835,6 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            // `axis` is passed as an input (input 2). `dft_length` (input 1) is
-            // optional, so a `None` placeholder is used when it is unset.
             let dft_length = case.dft_length.map(Tensor::from);
             let axis = Tensor::from(case.axis);
             let inputs = InputList::from_iter([
