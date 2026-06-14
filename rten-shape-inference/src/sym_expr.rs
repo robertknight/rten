@@ -19,8 +19,12 @@ use smallvec::SmallVec;
 pub struct Symbol {
     pub name: String,
 
-    // True if this value is assumed to be >= 0.
+    /// True if this value is assumed to be >= 0.
     pub positive: bool,
+
+    /// True if this is a synthetic/unknown variable created to represent a
+    /// value that could not be computed.
+    pub synthetic: bool,
 }
 
 /// Symbolic expression representing an integer value.
@@ -495,6 +499,7 @@ impl SymExpr {
             Symbol {
                 name: name.to_string(),
                 positive: false,
+                synthetic: false,
             }
             .into(),
         )
@@ -506,6 +511,7 @@ impl SymExpr {
             Symbol {
                 name: name.to_string(),
                 positive: true,
+                synthetic: false,
             }
             .into(),
         )
@@ -825,6 +831,7 @@ impl<'a> From<&'a str> for SymExpr {
             Symbol {
                 name: name.to_string(),
                 positive: true,
+                synthetic: false,
             }
             .into(),
         )

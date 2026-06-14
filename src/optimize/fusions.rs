@@ -1535,6 +1535,7 @@ impl FusionVisitor for ComputeShapeFusion {
                     Symbol {
                         name: name.to_string(),
                         positive: true,
+                        synthetic: false,
                     }
                     .into(),
                 ),

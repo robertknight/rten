@@ -120,6 +120,7 @@ mod tests {
                     Symbol {
                         name: "x".to_string(),
                         positive: true,
+                        synthetic: false,
                     }
                     .into(),
                 ),
@@ -128,6 +129,7 @@ mod tests {
                     Symbol {
                         name: "y".to_string(),
                         positive: true,
+                        synthetic: false,
                     }
                     .into(),
                 ),
