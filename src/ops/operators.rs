@@ -35,6 +35,7 @@ pub trait Operators {
         Self::Elem: Copy
             + Debug
             + Default
+            + PartialEq
             + std::ops::Mul<Output = Self::Elem>
             + std::ops::Div<Output = Self::Elem>
             + IsInt
@@ -146,6 +147,7 @@ impl<T: Send, S: Storage<Elem = T> + Sync, L: Layout + Clone + Sync> Operators
         Self::Elem: Copy
             + Debug
             + Default
+            + PartialEq
             + std::ops::Mul<Output = Self::Elem>
             + std::ops::Div<Output = Self::Elem>
             + IsInt
