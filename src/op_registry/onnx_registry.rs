@@ -204,6 +204,7 @@ impl OnnxOpRegistry {
         register_op!(ReverseSequence);
         register_op!(RotaryEmbedding);
         register_op!(Round);
+        register_op!(Scatter);
         register_op!(ScatterElements);
         register_op!(ScatterND);
         register_op!(SequenceAt);
@@ -1631,6 +1632,11 @@ fn convert_scatter_reduction(
         _ => Err(ReadOpError::attr_error(attr, "unknown value")),
     }
 }
+
+impl_read_op!(Scatter, |attrs: &Attrs| {
+    let axis = attrs.get_as_int("axis")?.unwrap_or(0);
+    Ok(ops::Scatter { axis })
+});
 
 impl_read_op!(ScatterElements, |attrs: &Attrs| {
     let reduction = attrs.get_as("reduction");

@@ -543,6 +543,44 @@ pub fn scatter_elements<
     Ok(output)
 }
 
+/// Deprecated alias for [`ScatterElements`].
+///
+/// See https://github.com/onnx/onnx/pull/2143.
+#[derive(Debug)]
+pub struct Scatter {
+    pub axis: isize,
+}
+
+impl Operator for Scatter {
+    fn name(&self) -> &str {
+        "Scatter"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        ScatterElements {
+            axis: self.axis,
+            reduction: None,
+        }
+        .max_inputs()
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        ScatterElements {
+            axis: self.axis,
+            reduction: None,
+        }
+        .run(ctx)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+}
+
 #[derive(Debug)]
 pub struct ScatterElements {
     pub axis: isize,
