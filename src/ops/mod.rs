@@ -241,6 +241,8 @@ fn resolve_axis(ndim: usize, axis: isize) -> Result<usize, OpError> {
 /// indexes in a tensor with `ndim` dimensions.
 ///
 /// Negative axis values count backwards from the last dimension.
+///
+/// Returns the unique axes in ascending order.
 pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
     ndim: usize,
     axes: I,
@@ -250,6 +252,8 @@ pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
         let resolved = resolve_axis(ndim, *axis as isize)?;
         resolved_axes.push(resolved);
     }
+    resolved_axes.sort();
+    resolved_axes.dedup();
     Ok(resolved_axes)
 }
 
@@ -380,6 +384,8 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{ExpectEqualError, expect_equal_with_tolerance};
 
+    use super::resolve_axes;
+
     /// Compare two f32 tensors with a higher absolute tolerance (1e-4) than
     /// the default (1e-5).
     ///
@@ -415,5 +421,23 @@ mod tests {
                 std::array::from_fn(|d| if d < new_dims { 1 } else { shape[d - new_dims] });
             self.into_shape(new_shape)
         }
+    }
+
+    #[test]
+    fn test_resolve_axes() {
+        let axes = resolve_axes(3, [0, 1, 2].iter()).unwrap();
+        assert_eq!(axes.as_slice(), [0, 1, 2]);
+
+        // Negative axes are resolved.
+        let axes = resolve_axes(3, [-1, -2, -3].iter()).unwrap();
+        assert_eq!(axes.as_slice(), [0, 1, 2]);
+
+        // Returned axes are sorted in ascending order.
+        let axes = resolve_axes(3, [-3, -2, -1].iter()).unwrap();
+        assert_eq!(axes.as_slice(), [0, 1, 2]);
+
+        // Only unique axes are returned.
+        let axes = resolve_axes(3, [1, -2].iter()).unwrap();
+        assert_eq!(axes.as_slice(), [1]);
     }
 }

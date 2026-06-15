@@ -540,21 +540,15 @@ pub fn squeeze_in_place<T: Clone>(
     input: &mut Tensor<T>,
     axes: Option<NdTensorView<i32, 1>>,
 ) -> Result<(), OpError> {
-    let axes = axes
-        .map(|axes| resolve_axes(input.ndim(), axes.iter()))
-        .transpose()?;
-    let sorted_axes = if let Some(mut axes) = axes {
+    let sorted_axes = if let Some(axes) = axes {
+        let axes = resolve_axes(input.ndim(), axes.iter())?;
         for &axis in axes.iter() {
-            if axis >= input.ndim() {
-                return Err(OpError::InvalidValue("Axis is invalid"));
-            }
             if input.size(axis) != 1 {
                 return Err(OpError::InvalidValue(
                     "Can only remove dimensions of size 1",
                 ));
             }
         }
-        axes.sort();
         axes
     } else {
         input
@@ -691,25 +685,22 @@ pub fn unsqueeze_in_place<T: Clone>(
     mut input: Tensor<T>,
     axes: &NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {
-    let sorted_axes = if axes.len() == 1 {
-        let axis = resolve_axis(input.ndim() + 1, axes[0] as isize)?;
-        SmallVec::from_slice(&[axis])
-    } else {
-        let mut sorted_axes = resolve_axes(input.ndim() + axes.len(), axes.iter())?;
-        sorted_axes.sort_unstable();
+    let mut resolved_axes: SmallVec<[usize; 4]> = SmallVec::with_capacity(axes.len());
+    for axis in axes.iter() {
+        let resolved = resolve_axis(input.ndim() + axes.len(), *axis as isize)?;
+        resolved_axes.push(resolved);
+    }
+    resolved_axes.sort();
 
-        let axes_unique = sorted_axes
-            .iter()
-            .skip(1)
-            .zip(sorted_axes.iter())
-            .all(|(prev, current)| prev != current);
-        if !axes_unique {
-            return Err(OpError::InvalidValue("Axes must be unique"));
-        }
-        sorted_axes
-    };
+    if resolved_axes
+        .iter()
+        .zip(resolved_axes.iter().skip(1))
+        .any(|(prev, curr)| prev == curr)
+    {
+        return Err(OpError::InvalidValue("Axes must be unique"));
+    }
 
-    for axis in sorted_axes {
+    for axis in resolved_axes {
         input.insert_axis(axis);
     }
 
