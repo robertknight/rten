@@ -389,11 +389,10 @@ fn reduce<T: Copy>(
     keep_dims: bool,
     kernel: &dyn ReduceKernel<T>,
 ) -> Result<Tensor<T>, OpError> {
-    let mut resolved_axes = match axes {
+    let resolved_axes = match axes {
         Some(axes) if !axes.is_empty() => resolve_axes(input.ndim(), axes.iter())?,
         _ => (0..input.ndim()).collect(),
     };
-    resolved_axes.sort();
 
     // Temporary buffer where slices of the input to be reduced are packed first
     // if non-contiguous.
