@@ -680,6 +680,22 @@ macro_rules! impl_read_op {
             }
         }
     };
+
+    ($domain:literal, $op_type:literal, $op:ident, $read:expr) => {
+        impl ReadOp for ops::$op {
+            fn id() -> OpId<'static> {
+                OpId::with_domain($domain, $op_type)
+            }
+
+            fn read(
+                op: &onnx::NodeProto,
+                ctx: &dyn OpLoadContext,
+            ) -> Result<ParsedOp<Self>, ReadOpError> {
+                let attrs = Attrs::new(&op.attribute, ctx.opset_version());
+                $read(&attrs).map(|op| ParsedOp::from(op).with_unused_attrs(attrs.unused_attrs()))
+            }
+        }
+    };
 }
 
 impl_read_op!(Abs);
@@ -1587,6 +1603,7 @@ impl_read_op!(Upsample, |attrs: &Attrs| {
 
 impl_read_op!(
     "com.microsoft",
+    "RotaryEmbedding",
     RotaryEmbeddingMicrosoft,
     |attrs: &Attrs| {
         let interleaved = attrs.get_as("interleaved").unwrap_or_default();
@@ -1807,7 +1824,10 @@ mod tests {
     use super::{ConstInput, OnnxOpRegistry, OpLoadContext, ReadOpError};
     use crate::graph::Graph;
     use crate::model::onnx_builder::{NodeProtoExt, TensorData, create_node, create_tensor};
-    use crate::ops::{ArgMax, ConstantOfShape, Conv, Padding, ResizeMode, Upsample};
+    use crate::operator::Operator;
+    use crate::ops::{
+        ArgMax, ConstantOfShape, Conv, Padding, ResizeMode, RotaryEmbeddingMicrosoft, Upsample,
+    };
     use crate::value::Scalar;
 
     #[derive(Default)]
@@ -1844,6 +1864,23 @@ mod tests {
             .unwrap()
             .op;
         assert_eq!(op.name(), "MatMul");
+    }
+
+    #[test]
+    fn test_read_domain_op_with_distinct_impl_name() {
+        let reg = OnnxOpRegistry::with_all_ops();
+        let node = create_node("RotaryEmbedding")
+            .with_domain("com.microsoft")
+            .with_attr("num_heads", 2i64);
+
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
+
+        let rotary = op.downcast_ref::<RotaryEmbeddingMicrosoft>().unwrap();
+        assert_eq!(rotary.num_heads, Some(2));
+        assert_eq!(rotary.name(), "com.microsoft.RotaryEmbedding");
     }
 
     #[test]

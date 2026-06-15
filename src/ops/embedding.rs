@@ -23,9 +23,31 @@ fn rotary_embedding(
     num_heads: Option<usize>,
     rotary_embedding_dim: usize,
 ) -> Result<Tensor, OpError> {
+    let cache_rotary_embedding_dim = cos
+        .shape()
+        .last()
+        .copied()
+        .ok_or(OpError::InvalidValue("cos cache must not be scalar"))?
+        * 2;
+
     let reshaped_input = match input.shape() {
         &[batch, seq_len, hidden_size] => {
-            let num_heads = num_heads.unwrap_or(0);
+            let num_heads = match num_heads {
+                Some(0) | None => {
+                    let rotary_embedding_dim = if rotary_embedding_dim == 0 {
+                        cache_rotary_embedding_dim
+                    } else {
+                        rotary_embedding_dim
+                    };
+                    if hidden_size % rotary_embedding_dim != 0 {
+                        return Err(OpError::InvalidValue(
+                            "hidden_size must be divisible by rotary_embedding_dim",
+                        ));
+                    }
+                    hidden_size / rotary_embedding_dim
+                }
+                Some(num_heads) => num_heads,
+            };
             if num_heads == 0 {
                 return Err(OpError::InvalidValue(
                     "num_heads must not be 0 for 3 dimensioned input",
@@ -497,6 +519,31 @@ mod tests {
         let ctx = OpRunContext::new(&pool, &input_list);
 
         assert!(op.run(&ctx).is_err());
+    }
+
+    #[test]
+    fn infer_num_heads_from_cache_dim() {
+        let op = RotaryEmbeddingMicrosoft {
+            interleaved: false,
+            num_heads: Some(0),
+            rotary_embedding_dim: 0,
+        };
+
+        let input = Tensor::from([[[1., 2., 3., 4.]]]);
+        let position_ids = Tensor::from([[0i32]]);
+        let cos_cache = Tensor::from([[1.0, 1.0]]);
+        let sin_cache = Tensor::from([[0.0, 0.0]]);
+
+        let result: Tensor<f32> = op
+            .run_simple((
+                input.view(),
+                position_ids.view(),
+                cos_cache.view(),
+                sin_cache.view(),
+            ))
+            .unwrap();
+
+        expect_equal_with_tolerance(&input.view(), &result.view(), 1e-4, 0.0).unwrap();
     }
 
     // Exercises the Microsoft variant's distinctive paths: input ordering
