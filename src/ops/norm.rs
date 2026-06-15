@@ -11,7 +11,7 @@ use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, UnaryOp};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext,
+    OutputTypesContext, check_eq,
 };
 use crate::ops::{add, resolve_axis};
 use crate::slice_reductions::slice_max;
@@ -203,6 +203,12 @@ pub fn batch_norm_in_place(
     if input.ndim() < 1 {
         return Err(OpError::InvalidValue("Input must have at least 1 dim"));
     }
+
+    let channels = if input.ndim() >= 2 { input.size(1) } else { 1 };
+    check_eq!(scale.size(0), channels)?;
+    check_eq!(bias.size(0), channels)?;
+    check_eq!(mean.size(0), channels)?;
+    check_eq!(var.size(0), channels)?;
 
     normalize_each_channel(input, |chan| NormalizeOptions {
         mean_normalize: MeanNormalize::Static {
@@ -949,13 +955,15 @@ mod tests {
                 input.map(|&x| (x - mean[0]) / (var[0] + epsilon).sqrt() * scale[0] + bias[0])
             };
 
+            let n_chans = if input.ndim() >= 2 { 2 } else { 1 };
+
             let result = batch_norm(
                 &pool,
                 input.view(),
-                &scale.into(),
-                &bias.into(),
-                &mean.into(),
-                &var.into(),
+                &scale[..n_chans].into(),
+                &bias[..n_chans].into(),
+                &mean[..n_chans].into(),
+                &var[..n_chans].into(),
                 epsilon,
             )
             .unwrap();
