@@ -82,7 +82,7 @@ pub(crate) use {
     einsum::Einsum,
     embedding::{RotaryEmbedding, RotaryEmbeddingMicrosoft},
     gather::{
-        Gather, GatherElements, GatherND, ReverseSequence, ScatterElements, ScatterND,
+        Gather, GatherElements, GatherND, ReverseSequence, Scatter, ScatterElements, ScatterND,
         ScatterReduction,
     },
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
