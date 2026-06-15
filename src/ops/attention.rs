@@ -536,7 +536,7 @@ impl Operator for MultiHeadAttention {
                 "past_key and past_value must either both be present or both be absent",
             ));
         }
-        let return_present = past_key.is_some();
+        let return_present = past_key.is_some() || ctx.num_outputs().is_some_and(|n| n > 1);
         if let Some(past_key) = past_key {
             let past_value = past_value.unwrap();
             let [past_batch, past_heads, _, past_head_size] = past_key.shape() else {
