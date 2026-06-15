@@ -244,6 +244,19 @@ macro_rules! static_dims {
 
 pub(crate) use static_dims;
 
+/// Check that two input dimension sizes are equal.
+macro_rules! check_eq {
+    ($actual:expr, $expected:expr) => {{
+        if $actual != $expected {
+            return Err(OpError::IncompatibleInputShapes(stringify!(
+                $actual != $expected
+            )));
+        }
+        Ok::<_, OpError>(())
+    }};
+}
+pub(crate) use check_eq;
+
 /// Context passed to [`Operator::run`] containing the information needed for
 /// the operator to execute.
 pub struct OpRunContext<'a, 'i> {
