@@ -2,6 +2,7 @@ use std::error::Error;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use rten_base::bit_set::BitSet;
 use rten_tensor::prelude::*;
 use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
 use rten_tensor::{Tensor, TensorView};
@@ -101,25 +102,23 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
 /// Operator that wraps a function.
 ///
 /// Useful for tests that want to inspect operator inputs.
-struct RunFn<V: Into<Value>, F: Fn(&OpRunContext) -> Result<V, OpError> + 'static> {
+struct RunFn<F: Fn(&OpRunContext) -> Result<OutputList, OpError> + 'static> {
     run: F,
 }
 
-impl<V: Into<Value>, F: Fn(&OpRunContext) -> Result<V, OpError>> RunFn<V, F> {
+impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> RunFn<F> {
     fn new(run: F) -> Self {
         Self { run }
     }
 }
 
-impl<V: Into<Value>, F: Fn(&OpRunContext) -> Result<V, OpError>> std::fmt::Debug for RunFn<V, F> {
+impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> std::fmt::Debug for RunFn<F> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(fmt, "RunFn")
     }
 }
 
-impl<V: Into<Value> + 'static, F: Fn(&OpRunContext) -> Result<V, OpError>> Operator
-    for RunFn<V, F>
-{
+impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> Operator for RunFn<F> {
     fn name(&self) -> &str {
         "RunFn"
     }
@@ -133,7 +132,7 @@ impl<V: Into<Value> + 'static, F: Fn(&OpRunContext) -> Result<V, OpError>> Opera
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        (self.run)(ctx).map(|v| [v.into()].into())
+        (self.run)(ctx).map(|v| v.into())
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -1718,19 +1717,37 @@ fn test_prepack_weights() {
 }
 
 #[test]
-fn test_run_context_num_outputs() {
+fn test_run_context_outputs() {
     let mut g = Graph::new();
     let input_id = g.add_value(Some("input"), None, None);
-    let (_, op_out) = g.add_simple_op(
-        "test_op",
-        RunFn::new(|ctx| {
-            assert_eq!(ctx.num_outputs(), Some(1));
-            Ok(Tensor::from_scalar(0.))
-        }),
-        &[input_id],
+    let out_0 = g.add_value(Some("out_0"), None, None);
+    let out_1 = g.add_value(Some("out_1"), None, None);
+    g.add_op(
+        Some("test_op"),
+        Arc::new(RunFn::new(|ctx| {
+            let mut expected = BitSet::ones(4);
+            expected.delete(1);
+            expected.delete(2);
+            assert_eq!(ctx.outputs(), Some(expected));
+            Ok([
+                // Expected output.
+                Tensor::from(1.).into(),
+                // Dummy values for unused outputs. This should use `None`,
+                // but `OutputList` can't represent non-present values yet.
+                Tensor::from(0.).into(),
+                Tensor::from(0.).into(),
+                // Expected output.
+                Tensor::from(2.).into(),
+            ]
+            .into_iter()
+            .collect())
+        })),
+        &[Some(input_id)],
+        // Operator has 4 outputs, only two are used.
+        &[Some(out_0), None, None, Some(out_1)],
     );
     let input = Tensor::from([1, 2, 3]);
-    g.run(vec![(input_id, input.into())], &[op_out], None, None)
+    g.run(vec![(input_id, input.into())], &[out_0, out_1], None, None)
         .unwrap();
 }
 
@@ -1742,7 +1759,7 @@ fn test_run_context_name() {
         "test_op",
         RunFn::new(|ctx| {
             assert_eq!(ctx.name(), Some("test_op"));
-            Ok(Tensor::from_scalar(0.))
+            Ok([Tensor::from_scalar(0.).into()].into_iter().collect())
         }),
         &[input_id],
     );
