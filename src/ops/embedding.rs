@@ -20,34 +20,11 @@ fn rotary_embedding(
     sin: TensorView<f32>,
     position_ids: Option<NdTensorView<i32, 2>>,
     interleaved: bool,
-    num_heads: Option<usize>,
+    num_heads: usize,
     rotary_embedding_dim: usize,
 ) -> Result<Tensor, OpError> {
-    let cache_rotary_embedding_dim = cos
-        .shape()
-        .last()
-        .copied()
-        .ok_or(OpError::InvalidValue("cos cache must not be scalar"))?
-        * 2;
-
     let reshaped_input = match input.shape() {
         &[batch, seq_len, hidden_size] => {
-            let num_heads = match num_heads {
-                Some(0) | None => {
-                    let rotary_embedding_dim = if rotary_embedding_dim == 0 {
-                        cache_rotary_embedding_dim
-                    } else {
-                        rotary_embedding_dim
-                    };
-                    if hidden_size % rotary_embedding_dim != 0 {
-                        return Err(OpError::InvalidValue(
-                            "hidden_size must be divisible by rotary_embedding_dim",
-                        ));
-                    }
-                    hidden_size / rotary_embedding_dim
-                }
-                Some(num_heads) => num_heads,
-            };
             if num_heads == 0 {
                 return Err(OpError::InvalidValue(
                     "num_heads must not be 0 for 3 dimensioned input",
@@ -83,6 +60,11 @@ fn rotary_embedding(
     } else {
         rotary_embedding_dim
     };
+    if rotary_embedding_dim == 0 || rotary_embedding_dim % 2 != 0 {
+        return Err(OpError::InvalidValue(
+            "rotary_embedding_dim must be a positive even number",
+        ));
+    }
 
     let x_rotate = reshaped_input.slice((.., .., .., ..rotary_embedding_dim));
     let x_not_rotate = reshaped_input.slice((.., .., .., rotary_embedding_dim..));
@@ -155,7 +137,7 @@ fn rotary_embedding(
 #[derive(Debug)]
 pub struct RotaryEmbedding {
     pub interleaved: bool,
-    pub num_heads: Option<usize>,
+    pub num_heads: usize,
     pub rotary_embedding_dim: usize,
 }
 
@@ -216,7 +198,7 @@ impl Operator for RotaryEmbeddingMicrosoft {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
 
-        let input = inputs.require_as(0)?;
+        let input: TensorView<f32> = inputs.require_as(0)?;
         let position_ids: TensorView<i32> = inputs.require_as(1)?;
         let position_ids = match position_ids.ndim() {
             1 => position_ids.with_new_axis(0).nd_view(),
@@ -225,8 +207,42 @@ impl Operator for RotaryEmbeddingMicrosoft {
                 return Err(OpError::InvalidValue("position_ids must have 1 or 2 dims"));
             }
         };
-        let cos = inputs.require_as(2)?;
+        let cos: TensorView<f32> = inputs.require_as(2)?;
         let sin = inputs.require_as(3)?;
+
+        let num_heads = match input.shape() {
+            &[_, _, hidden_size] => match self.num_heads {
+                // The ONNX spec requires `num_heads` for rank-3 input. The
+                // Microsoft contrib op gives this attribute a default of 0,
+                // so infer it here before calling the shared implementation.
+                Some(0) | None => {
+                    let cache_rotary_embedding_dim_half = cos
+                        .shape()
+                        .last()
+                        .copied()
+                        .ok_or(OpError::InvalidValue("cos cache must not be scalar"))?;
+                    if cache_rotary_embedding_dim_half == 0 {
+                        return Err(OpError::InvalidValue(
+                            "Last dimension of cos cache must not be 0",
+                        ));
+                    }
+                    let cache_rotary_embedding_dim = cache_rotary_embedding_dim_half * 2;
+                    let rotary_embedding_dim = if self.rotary_embedding_dim == 0 {
+                        cache_rotary_embedding_dim
+                    } else {
+                        self.rotary_embedding_dim
+                    };
+                    if hidden_size % rotary_embedding_dim != 0 {
+                        return Err(OpError::InvalidValue(
+                            "hidden_size must be divisible by rotary_embedding_dim",
+                        ));
+                    }
+                    hidden_size / rotary_embedding_dim
+                }
+                Some(num_heads) => num_heads,
+            },
+            _ => self.num_heads.unwrap_or_default(),
+        };
 
         let output = rotary_embedding(
             ctx.pool(),
@@ -235,7 +251,7 @@ impl Operator for RotaryEmbeddingMicrosoft {
             sin,
             Some(position_ids),
             self.interleaved,
-            self.num_heads,
+            num_heads,
             self.rotary_embedding_dim,
         )?;
 
@@ -331,7 +347,7 @@ mod tests {
                 .with_new_axis(0),
                 op: RotaryEmbedding {
                     interleaved: true,
-                    num_heads: Some(2),
+                    num_heads: 2,
                     rotary_embedding_dim: 0,
                 },
             },
@@ -377,7 +393,7 @@ mod tests {
                 ]]),
                 op: RotaryEmbedding {
                     interleaved: false,
-                    num_heads: Some(3),
+                    num_heads: 3,
                     rotary_embedding_dim: 0,
                 },
             },
@@ -397,7 +413,7 @@ mod tests {
                 ]]),
                 op: RotaryEmbedding {
                     interleaved: false,
-                    num_heads: Some(1),
+                    num_heads: 1,
                     rotary_embedding_dim: 4,
                 },
             },
@@ -433,7 +449,7 @@ mod tests {
                 ]]),
                 op: RotaryEmbedding {
                     interleaved: false,
-                    num_heads: Some(3),
+                    num_heads: 3,
                     rotary_embedding_dim: 0,
                 },
             },
@@ -467,7 +483,7 @@ mod tests {
                 ]]),
                 op: RotaryEmbedding {
                     interleaved: true,
-                    num_heads: Some(2),
+                    num_heads: 2,
                     rotary_embedding_dim: 0,
                 },
             },
@@ -503,7 +519,7 @@ mod tests {
     fn reject_indivisible_hidden_size() {
         let op = RotaryEmbedding {
             interleaved: false,
-            num_heads: Some(2),
+            num_heads: 2,
             rotary_embedding_dim: 0,
         };
 
@@ -544,6 +560,59 @@ mod tests {
             .unwrap();
 
         expect_equal_with_tolerance(&input.view(), &result.view(), 1e-4, 0.0).unwrap();
+    }
+
+    #[test]
+    fn reject_zero_cache_dim_when_inferring_num_heads() {
+        let op = RotaryEmbeddingMicrosoft {
+            interleaved: false,
+            num_heads: None,
+            rotary_embedding_dim: 0,
+        };
+
+        let input = Tensor::from([[[1., 2., 3., 4.]]]);
+        let position_ids = Tensor::from([[0i32]]);
+        let cos_cache = Tensor::<f32>::zeros(&[1, 0]);
+        let sin_cache = Tensor::<f32>::zeros(&[1, 0]);
+
+        let result = op.run_simple::<_, Tensor<f32>>((
+            input.view(),
+            position_ids.view(),
+            cos_cache.view(),
+            sin_cache.view(),
+        ));
+
+        assert_eq!(
+            result,
+            Err(OpError::InvalidValue(
+                "Last dimension of cos cache must not be 0"
+            ))
+        );
+    }
+
+    #[test]
+    fn reject_zero_or_odd_rotary_embedding_dim() {
+        for rotary_embedding_dim in [0, 1] {
+            let op = RotaryEmbedding {
+                interleaved: false,
+                num_heads: 1,
+                rotary_embedding_dim,
+            };
+
+            let input = Tensor::from([[[1.]]]);
+            let cos_cache = Tensor::<f32>::zeros(&[1, 0]);
+            let sin_cache = Tensor::<f32>::zeros(&[1, 0]);
+
+            let result =
+                op.run_simple::<_, Tensor<f32>>((input.view(), cos_cache.view(), sin_cache.view()));
+
+            assert_eq!(
+                result,
+                Err(OpError::InvalidValue(
+                    "rotary_embedding_dim must be a positive even number"
+                ))
+            );
+        }
     }
 
     // Exercises the Microsoft variant's distinctive paths: input ordering

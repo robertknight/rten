@@ -1622,7 +1622,9 @@ impl_read_op!(
 
 impl_read_op!(RotaryEmbedding, |attrs: &Attrs| {
     let interleaved = attrs.get_as("interleaved").unwrap_or_default();
-    let num_heads = attrs.get_as_int::<usize>("num_heads")?;
+    let num_heads = attrs
+        .get_as_int::<usize>("num_heads")?
+        .ok_or_else(|| ReadOpError::attr_error("num_heads", "required attribute missing"))?;
     let rotary_embedding_dim = attrs
         .get_as_int::<usize>("rotary_embedding_dim")?
         .unwrap_or_default();
@@ -1826,7 +1828,8 @@ mod tests {
     use crate::model::onnx_builder::{NodeProtoExt, TensorData, create_node, create_tensor};
     use crate::operator::Operator;
     use crate::ops::{
-        ArgMax, ConstantOfShape, Conv, Padding, ResizeMode, RotaryEmbeddingMicrosoft, Upsample,
+        ArgMax, ConstantOfShape, Conv, Padding, ResizeMode, RotaryEmbedding,
+        RotaryEmbeddingMicrosoft, Upsample,
     };
     use crate::value::Scalar;
 
@@ -1881,6 +1884,60 @@ mod tests {
         let rotary = op.downcast_ref::<RotaryEmbeddingMicrosoft>().unwrap();
         assert_eq!(rotary.num_heads, Some(2));
         assert_eq!(rotary.name(), "com.microsoft.RotaryEmbedding");
+    }
+
+    #[test]
+    fn test_read_rotary_embedding_requires_num_heads() {
+        let reg = OnnxOpRegistry::with_all_ops();
+        let node = create_node("RotaryEmbedding");
+
+        let result = reg.read_op(&node, &FakeOpLoadContext::default());
+
+        assert!(matches!(
+            result,
+            Err(ReadOpError::AttrError { attr, .. }) if attr == "num_heads"
+        ));
+    }
+
+    #[test]
+    fn test_read_rotary_embedding_microsoft_allows_missing_num_heads() {
+        let reg = OnnxOpRegistry::with_all_ops();
+        let node = create_node("RotaryEmbedding").with_domain("com.microsoft");
+
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
+
+        let rotary = op.downcast_ref::<RotaryEmbeddingMicrosoft>().unwrap();
+        assert_eq!(rotary.num_heads, None);
+    }
+
+    #[test]
+    fn test_read_rotary_embedding_rejects_negative_num_heads() {
+        let reg = OnnxOpRegistry::with_all_ops();
+        let node = create_node("RotaryEmbedding").with_attr("num_heads", -1i64);
+
+        let result = reg.read_op(&node, &FakeOpLoadContext::default());
+
+        assert!(matches!(
+            result,
+            Err(ReadOpError::AttrError { attr, .. }) if attr == "num_heads"
+        ));
+    }
+
+    #[test]
+    fn test_read_rotary_embedding() {
+        let reg = OnnxOpRegistry::with_all_ops();
+        let node = create_node("RotaryEmbedding").with_attr("num_heads", 2i64);
+
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
+
+        let rotary = op.downcast_ref::<RotaryEmbedding>().unwrap();
+        assert_eq!(rotary.num_heads, 2);
     }
 
     #[test]
