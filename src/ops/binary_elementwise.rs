@@ -431,6 +431,23 @@ macro_rules! run_typed_op {
     };
 }
 
+/// Helper used to call in-place ops which can be fallible or infallible.
+trait IntoUnitResult {
+    fn into_unit_result(self) -> Result<(), OpError>;
+}
+
+impl IntoUnitResult for () {
+    fn into_unit_result(self) -> Result<(), OpError> {
+        Ok(self)
+    }
+}
+
+impl IntoUnitResult for Result<(), OpError> {
+    fn into_unit_result(self) -> Result<(), OpError> {
+        self
+    }
+}
+
 /// Extract two input operands from `$input` and `$other` and invoke the
 /// appropriate instantiations of `$in_place_op_func` or `$op_func` depending
 /// on the tensor type.
@@ -439,7 +456,7 @@ macro_rules! run_typed_op_in_place {
         map_value!($input, a, [FloatTensor, Int32Tensor], {
             let b = $other.require_as(0)?;
             if can_run_binary_op_in_place(&a, &b) {
-                $in_place_op_func(a.view_mut(), b);
+                $in_place_op_func(a.view_mut(), b).into_unit_result()?;
                 Ok(a.into())
             } else {
                 let a = a.auto_return($pool);
@@ -564,6 +581,18 @@ logical_boolean_op!(And, and, |x, y| x && y);
 logical_boolean_op!(Or, or, |x, y| x || y);
 logical_boolean_op!(Xor, xor, |x, y| x ^ y);
 
+/// Check the RHS input of a Div / Mod op for zeros.
+///
+/// This is used to avoid a divide-by-zero panic for integer inputs. For float
+/// inputs zeros are allowed in the divisor and produce inf or NaN.
+fn check_nonzero<T: Default + PartialEq>(x: &TensorView<T>) -> Result<(), OpError> {
+    if x.iter().any(|x| *x == T::default()) {
+        Err(OpError::InvalidValue("Divisor contains zero"))
+    } else {
+        Ok(())
+    }
+}
+
 /// Perform elementwise division of two tensors.
 pub fn div<
     T: Copy
@@ -572,12 +601,16 @@ pub fn div<
         + std::ops::Mul<Output = T>
         + std::ops::Div<Output = T>
         + IsInt
-        + Identities,
+        + Identities
+        + PartialEq,
 >(
     pool: &BufferPool,
     a: TensorView<T>,
     b: TensorView<T>,
 ) -> Result<Tensor<T>, OpError> {
+    if T::is_int() {
+        check_nonzero(&b)?;
+    }
     match (T::is_int(), b.item()) {
         // Optimize division as multiplication-by-reciprocal.
         //
@@ -589,15 +622,26 @@ pub fn div<
 
 /// Perform in-place elementwise division of two tensors.
 pub fn div_in_place<
-    T: Copy + Debug + std::ops::Mul<Output = T> + std::ops::Div<Output = T> + IsInt + Identities,
+    T: Copy
+        + Debug
+        + Default
+        + PartialEq
+        + std::ops::Mul<Output = T>
+        + std::ops::Div<Output = T>
+        + IsInt
+        + Identities,
 >(
     a: TensorViewMut<T>,
     b: TensorView<T>,
-) {
+) -> Result<(), OpError> {
+    if T::is_int() {
+        check_nonzero(&b)?;
+    }
     match (T::is_int(), b.item()) {
         (false, Some(scalar)) => mul_in_place(a, Tensor::from_scalar(T::one() / *scalar).view()),
         _ => binary_op_in_place(a, b, &|x, y| x / y),
     }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -750,13 +794,22 @@ pub enum DivMode {
 
 /// Return the elementwise remainder of dividing `a / b`.
 pub fn mod_op<
-    T: Copy + Debug + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Rem<Output = T>,
+    T: Copy
+        + Debug
+        + Default
+        + PartialOrd
+        + std::ops::Add<Output = T>
+        + std::ops::Rem<Output = T>
+        + IsInt,
 >(
     pool: &BufferPool,
     a: TensorView<T>,
     b: TensorView<T>,
     mode: DivMode,
 ) -> Result<Tensor<T>, OpError> {
+    if T::is_int() {
+        check_nonzero(&b)?;
+    }
     binary_op(
         pool,
         a,
@@ -1179,7 +1232,7 @@ mod tests {
     use std::error::Error;
 
     use rten_tensor::prelude::*;
-    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::test_util::{eq_with_nans, expect_equal};
     use rten_tensor::{Scalar, Tensor};
     use rten_testing::TestCases;
 
@@ -1421,6 +1474,22 @@ mod tests {
         let result = div(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
+        // Zero in divisor
+        let a = Tensor::from([1, 2, 3, 4]);
+        let b = Tensor::from([1, 0, 1, 1]);
+        let result = div(&pool, a.view(), b.view());
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Divisor contains zero"))
+        );
+
+        // Zero in float divisor
+        let a = Tensor::from([1., 2., 3., 4.]);
+        let b = Tensor::from([1., 0., 1., 1.]);
+        let expected = Tensor::from([1., f32::INFINITY, 3., 4.]);
+        let result = div(&pool, a.view(), b.view()).unwrap();
+        assert_eq!(result, expected);
+
         Ok(())
     }
 
@@ -1430,29 +1499,45 @@ mod tests {
         let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let b = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let expected = Tensor::from_data(&[2, 2], vec![10., 10., 10., 10.]);
-        div_in_place(a.view_mut(), b.view());
+        div_in_place(a.view_mut(), b.view()).unwrap();
         expect_equal(&a, &expected)?;
 
         // Scalar b
         let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let b = Tensor::from(10.);
         let expected = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        div_in_place(a.view_mut(), b.view());
+        div_in_place(a.view_mut(), b.view()).unwrap();
         expect_equal(&a, &expected)?;
 
         // Non-scalar a and b ints
         let mut a = Tensor::from([1, 2, 3, 4]);
         let b = Tensor::from([2, 2, 2, 2]);
         let expected = Tensor::from([0, 1, 1, 2]);
-        div_in_place(a.view_mut(), b.view());
+        div_in_place(a.view_mut(), b.view()).unwrap();
         assert_eq!(&a, &expected);
 
         // Scalar b int
         let mut a = Tensor::from([1, 2, 3, 4]);
         let b = Tensor::from(2);
         let expected = Tensor::from([0, 1, 1, 2]);
-        div_in_place(a.view_mut(), b.view());
+        div_in_place(a.view_mut(), b.view()).unwrap();
         assert_eq!(&a, &expected);
+
+        // Zero in divisor
+        let mut a = Tensor::from([1, 2, 3, 4]);
+        let b = Tensor::from([1, 0, 1, 1]);
+        let result = div_in_place(a.view_mut(), b.view());
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Divisor contains zero"))
+        );
+
+        // Zero in float divisor
+        let mut a = Tensor::from([1., 2., 3., 4.]);
+        let b = Tensor::from([1., 0., 1., 1.]);
+        let expected = Tensor::from([1., f32::INFINITY, 3., 4.]);
+        div_in_place(a.view_mut(), b.view()).unwrap();
+        assert_eq!(a, expected);
 
         Ok(())
     }
@@ -1579,6 +1664,22 @@ mod tests {
         let expected = Tensor::from([1., -1., 1., -1.]);
         let result = mod_op(&pool, af.view(), bf.view(), DivMode::TruncDiv).unwrap();
         assert_eq!(&result, &expected);
+
+        // Zero in divisor
+        let a = Tensor::from([1, 2, 3, 4]);
+        let b = Tensor::from([1, 0, 1, 1]);
+        let result = mod_op(&pool, a.view(), b.view(), DivMode::FloorDiv);
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Divisor contains zero"))
+        );
+
+        // Zero in float divisor
+        let a = Tensor::from([1., 2., 3., 4.]);
+        let b = Tensor::from([1., 0., 1., 1.]);
+        let expected = Tensor::from([0.0, f32::NAN, 0.0, 0.0]);
+        let result = mod_op(&pool, a.view(), b.view(), DivMode::FloorDiv).unwrap();
+        assert!(eq_with_nans(result.view(), expected.view()));
     }
 
     #[test]
