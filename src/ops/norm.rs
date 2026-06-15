@@ -7,7 +7,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
-use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::{InferShapes, UnaryOp};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
@@ -611,18 +611,47 @@ impl Operator for SkipSimplifiedLayerNormalization {
             return Err(OpError::InvalidValue("input must be 2 or 3 dimensioned"));
         }
 
-        let x_plus_skip = add(ctx.pool(), input, skip)?.auto_return(ctx.pool());
+        let mut stats_shape = input.shape().to_vec();
+        if let Some(last_dim) = stats_shape.last_mut() {
+            *last_dim = 1;
+        }
 
-        layer_normalization_impl(
+        let mut x_plus_skip = add(ctx.pool(), input, skip)?;
+        if let Some(bias) = bias {
+            x_plus_skip = add(ctx.pool(), x_plus_skip.view(), bias)?;
+        }
+
+        let output = layer_normalization_impl(
             ctx.pool(),
             x_plus_skip.view(),
             gamma,
-            bias,
+            None,
             -1,
             Some(self.epsilon),
             MeanNormalize::DynamicRootMeanSquare,
-        )
-        .into_op_result()
+        )?;
+
+        let mut outputs: OutputList = [output.into()].into();
+        if ctx.num_outputs().is_some_and(|n| n > 1) {
+            let hidden_size = x_plus_skip.size(x_plus_skip.ndim() - 1);
+            let mut mean = Tensor::<f32>::zeros(&stats_shape);
+            let mut inv_std_var = Tensor::<f32>::zeros(&stats_shape);
+            for ((row, mean), inv_std_var) in x_plus_skip
+                .lanes(x_plus_skip.ndim() - 1)
+                .zip(mean.data_mut().unwrap())
+                .zip(inv_std_var.data_mut().unwrap())
+            {
+                let row = row.as_slice().unwrap();
+                let root_mean_square = vecmath::SumSquare::new(row).dispatch() / hidden_size as f32;
+                *mean = 0.0;
+                *inv_std_var = 1.0 / (root_mean_square + self.epsilon).sqrt();
+            }
+            outputs.push(mean.into());
+            outputs.push(inv_std_var.into());
+            outputs.push(x_plus_skip.into());
+        }
+
+        Ok(outputs)
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -908,7 +937,7 @@ mod tests {
         log_softmax, rms_normalization, softmax,
     };
     use crate::buffer_pool::BufferPool;
-    use crate::operator::OperatorExt;
+    use crate::operator::{InputList, OpRunContext, Operator, OperatorExt};
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{OpError, SkipSimplifiedLayerNormalization};
 
@@ -1203,14 +1232,19 @@ mod tests {
         let last = input.size(input.ndim() - 1);
         let gamma = gamma.to_vec();
         let bias = bias.map(|b| b.to_vec()).unwrap_or_else(|| vec![0.0; last]);
-        let sum: Vec<f32> = input.iter().zip(skip.iter()).map(|(x, s)| x + s).collect();
+        let sum: Vec<f32> = input
+            .iter()
+            .zip(skip.iter())
+            .enumerate()
+            .map(|(i, (x, s))| x + s + bias[i % last])
+            .collect();
 
         let mut out = Vec::with_capacity(sum.len());
         for row in sum.chunks(last) {
             let ms = row.iter().map(|x| x * x).sum::<f32>() / last as f32;
             let denom = (ms + epsilon).sqrt();
-            for ((x, g), b) in row.iter().zip(&gamma).zip(&bias) {
-                out.push((x / denom) * g + b);
+            for (x, g) in row.iter().zip(&gamma) {
+                out.push((x / denom) * g);
             }
         }
         Tensor::from_data(input.shape(), out)
@@ -1277,6 +1311,53 @@ mod tests {
         });
 
         Ok(())
+    }
+
+    #[test]
+    fn test_skip_simplified_layer_normalization_optional_outputs() {
+        let op = SkipSimplifiedLayerNormalization { epsilon: 1e-5 };
+
+        let input = Tensor::from([[1., 2.], [3., 4.]]);
+        let skip = Tensor::from([[10., 20.], [30., 40.]]);
+        let gamma = Tensor::from([1., 1.]);
+        let bias = Tensor::from([0.5, -0.5]);
+
+        let mut inputs = InputList::new();
+        inputs.push(input.view());
+        inputs.push(skip.view());
+        inputs.push(gamma.view());
+        inputs.push(bias.view());
+
+        let pool = BufferPool::new();
+        let mut ctx = OpRunContext::new(&pool, &inputs);
+        ctx.set_num_outputs(4);
+
+        let mut outputs = op.run(&ctx).unwrap();
+        assert_eq!(outputs.len(), 4);
+
+        let output: Tensor = outputs.remove(0).try_into().unwrap();
+        let mean: Tensor = outputs.remove(0).try_into().unwrap();
+        let inv_std_var: Tensor = outputs.remove(0).try_into().unwrap();
+        let input_skip_bias_sum: Tensor = outputs.remove(0).try_into().unwrap();
+
+        let expected_sum = Tensor::from([[11.5, 21.5], [33.5, 43.5]]);
+        let expected_output = reference_skip_simplified_layer_norm(
+            input.view(),
+            skip.view(),
+            gamma.view(),
+            Some(bias.view()),
+            op.epsilon,
+        );
+        let expected_mean = Tensor::from([[0.], [0.]]);
+        let expected_inv_std_var = Tensor::from([
+            [1.0 / (((11.5 * 11.5 + 21.5 * 21.5) / 2.0) + op.epsilon).sqrt()],
+            [1.0 / (((33.5 * 33.5 + 43.5 * 43.5) / 2.0) + op.epsilon).sqrt()],
+        ]);
+
+        expect_eq_1e4(&output, &expected_output).unwrap();
+        expect_equal(&mean.view(), &expected_mean.view()).unwrap();
+        expect_eq_1e4(&inv_std_var, &expected_inv_std_var).unwrap();
+        expect_equal(&input_skip_bias_sum.view(), &expected_sum.view()).unwrap();
     }
 
     #[test]
