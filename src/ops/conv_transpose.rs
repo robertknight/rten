@@ -12,7 +12,7 @@ use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext, static_dims,
+    OutputTypesContext, check_eq, static_dims,
 };
 use crate::ops::Padding;
 
@@ -194,7 +194,7 @@ pub fn conv_transpose(
     pool: &BufferPool,
     input: TensorView,
     kernel: TensorView,
-    bias: Option<TensorView>,
+    bias: Option<NdTensorView<f32, 1>>,
     padding: Padding,
     groups: usize,
     strides: &[usize],
@@ -247,11 +247,19 @@ pub fn conv_transpose(
         });
     }
 
+    if groups == 0 {
+        return Err(OpError::InvalidValue("Group count must be > 0"));
+    }
+
     let input = static_dims!(input, 4, "NCHW")?;
     let [batch, in_c, in_h, in_w] = input.shape();
     let kernel = static_dims!(kernel, 4, "COHW")?;
     let [k_in_c, out_chans_per_group, k_h, k_w] = kernel.shape();
-    static_dims!(bias?, 1).transpose()?;
+    let out_channels = out_chans_per_group * groups;
+
+    if let Some(bias) = bias {
+        check_eq!(bias.size(0), out_channels)?;
+    }
 
     let bias = bias.map(|b| b.nd_view());
 
@@ -259,10 +267,6 @@ pub fn conv_transpose(
         return Err(OpError::IncompatibleInputShapes(
             "Input channels does not match kernel input channels",
         ));
-    }
-
-    if groups == 0 {
-        return Err(OpError::InvalidValue("Group count must be > 0"));
     }
 
     if k_in_c % groups != 0 {
@@ -423,7 +427,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{ExpectEqualError, expect_equal};
-    use rten_tensor::{NdTensor, Tensor, TensorView};
+    use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
     use rten_testing::TestCases;
 
     use super::{conv_transpose, conv_transpose_output_size_and_padding};
@@ -433,7 +437,7 @@ mod tests {
     fn reference_conv_transpose(
         input: TensorView,
         kernel: TensorView,
-        bias: Option<TensorView>,
+        bias: Option<NdTensorView<f32, 1>>,
         padding: Padding,
         groups: usize,
         [stride_h, stride_w]: [usize; 2],
@@ -502,7 +506,7 @@ mod tests {
     fn check_conv_transpose(
         input: TensorView<f32>,
         kernel: TensorView<f32>,
-        bias: Option<TensorView<f32>>,
+        bias: Option<NdTensorView<f32, 1>>,
         pads: Padding,
         groups: usize,
         strides: [usize; 2],
@@ -563,7 +567,7 @@ mod tests {
         for eb in expected_with_bias.iter_mut() {
             *eb += 1.234;
         }
-        let bias = Tensor::from([1.234]);
+        let bias = NdTensor::from([1.234]);
         let result = conv_transpose(
             &pool,
             input.view(),
@@ -659,7 +663,7 @@ mod tests {
         .unwrap();
         expect_equal(&result, &expected)?;
 
-        let bias = Tensor::from([0.5]);
+        let bias = NdTensor::from([0.5]);
         let expected_with_bias = expected.map(|x| x + bias[[0]]);
         let result = conv_transpose(
             &pool,

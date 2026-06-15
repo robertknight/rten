@@ -14,7 +14,7 @@ use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext, static_dims,
+    OutputTypesContext, check_eq, static_dims,
 };
 use crate::ops::Padding;
 use crate::ops::matmul::{shift_cast_gemm_lhs_to_u8, zero_point_to_vec};
@@ -106,7 +106,7 @@ pub fn conv<X: GemmInT, W: GemmInT, Y: GemmOutT + Default>(
     pool: &BufferPool,
     input: TensorView<X>,
     kernel: TensorView<W>,
-    bias: Option<TensorView<Y>>,
+    bias: Option<NdTensorView<Y, 1>>,
     padding: Padding,
     groups: usize,
     strides: &[usize],
@@ -125,7 +125,7 @@ fn conv_impl<X: GemmInT, W: GemmInT, Y: GemmOutT + Default>(
     pool: &BufferPool,
     input: TensorView<X>,
     kernel: TensorView<W>,
-    bias: Option<TensorView<Y>>,
+    bias: Option<NdTensorView<Y, 1>>,
     padding: Padding,
     groups: usize,
     strides: &[usize],
@@ -188,8 +188,11 @@ where
     let [batch, in_c, in_h, in_w] = input.shape();
 
     let kernel = static_dims!(kernel, 4, "OCHW")?;
-    let [out_c, k_in_c, k_h, k_w] = kernel.shape();
-    static_dims!(bias?, 1).transpose()?;
+    let [out_channels, k_in_c, k_h, k_w] = kernel.shape();
+
+    if let Some(bias) = bias {
+        check_eq!(bias.size(0), out_channels)?;
+    }
 
     let input = input.view();
     let kernel = kernel.view();
@@ -256,14 +259,14 @@ where
         ));
     }
 
-    let out_chans_per_group = out_c / groups;
-    if out_c % groups != 0 {
+    let out_chans_per_group = out_channels / groups;
+    if out_channels % groups != 0 {
         return Err(OpError::InvalidValue(
             "Output channel count not divisible by groups",
         ));
     }
 
-    if in_c == out_c && groups == in_c {
+    if in_c == out_channels && groups == in_c {
         let dw_conv = DepthwiseConvExecutor::default();
         let output = dw_conv.depthwise_conv_2d(
             pool,
@@ -281,7 +284,7 @@ where
     }
 
     let n_patches = out_h * out_w;
-    let mut output = NdTensor::uninit_in(pool, [batch, out_c, n_patches]);
+    let mut output = NdTensor::uninit_in(pool, [batch, out_channels, n_patches]);
     let gemm = GemmExecutor::<W, X, Y>::default();
 
     // Bias must be contiguous for use with `gemm_bias`.
@@ -290,8 +293,8 @@ where
 
     let n_init = AtomicUsize::new(0);
 
-    for (in_chans, out_chans) in
-        range_chunks(0..in_c, in_chans_per_group).zip(range_chunks(0..out_c, out_chans_per_group))
+    for (in_chans, out_chans) in range_chunks(0..in_c, in_chans_per_group)
+        .zip(range_chunks(0..out_channels, out_chans_per_group))
     {
         let in_group = input.slice((.., in_chans.clone()));
         let mut out_group = output.slice_mut((.., out_chans.clone()));
@@ -352,7 +355,7 @@ where
             });
     }
 
-    let output = output.into_shape([batch, out_c, out_h, out_w]);
+    let output = output.into_shape([batch, out_channels, out_h, out_w]);
 
     // Safety: We used `gemm_uninit_bias` to initialize all elements.
     assert!(n_init.load(Ordering::SeqCst) == output.len());
@@ -549,7 +552,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{ExpectEqualError, expect_equal};
-    use rten_tensor::{Tensor, TensorView};
+    use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
     use rten_testing::TestCases;
 
     use crate::buffer_pool::AutoReturn;
@@ -584,7 +587,7 @@ mod tests {
     fn reference_conv<X, W, Y>(
         input: TensorView<X>,
         kernel: TensorView<W>,
-        bias: Option<TensorView<Y>>,
+        bias: Option<NdTensorView<Y, 1>>,
         padding: Padding,
         groups: usize,
         strides: &[usize],
@@ -706,7 +709,7 @@ mod tests {
     fn check_conv(
         input: TensorView<f32>,
         kernel: TensorView<f32>,
-        bias: Option<TensorView<f32>>,
+        bias: Option<NdTensorView<f32, 1>>,
         pads: Padding,
         groups: usize,
         strides: &[usize],
@@ -781,7 +784,7 @@ mod tests {
         expect_eq_1e4(&result, &expected_with_no_padding)?;
 
         let expected_with_bias = Tensor::from_data(&[1, 1, 1, 1], vec![3.6358]);
-        let bias = Tensor::from([1.0]);
+        let bias = NdTensor::from([1.0]);
         let result = check_conv(
             input.view(),
             kernel.view(),
@@ -841,7 +844,7 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[10, 5, 3, 3], &mut rng);
         let input = Tensor::rand(&[1, 5, 10, 10], &mut rng);
-        let bias = Tensor::rand(&[10], &mut rng);
+        let bias = NdTensor::rand([10], &mut rng);
 
         check_conv(
             input.view(),
@@ -861,7 +864,7 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[10, 1, 3, 3], &mut rng);
         let input = Tensor::rand(&[1, 10, 10, 10], &mut rng);
-        let bias = Tensor::rand(&[10], &mut rng);
+        let bias = NdTensor::rand([10], &mut rng);
 
         check_conv(
             input.view(),
@@ -882,7 +885,7 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[10, 5, 1, 1], &mut rng);
         let input = Tensor::rand(&[1, 5, 20, 20], &mut rng);
-        let bias = Tensor::rand(&[10], &mut rng);
+        let bias = NdTensor::rand([10], &mut rng);
 
         // Contiguous inputs
         let result = check_conv(
@@ -959,7 +962,7 @@ mod tests {
                 0.4273, 0.4180, 0.4338,
             ],
         );
-        let bias = Tensor::from([0.1, 0.2, 0.3]);
+        let bias = NdTensor::from([0.1, 0.2, 0.3]);
         let expected = Tensor::from_data(
             &[1, 3, 1, 1],
             vec![
@@ -1068,7 +1071,7 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[4, 2, 3, 3], &mut rng);
         let input = Tensor::rand(&[2, 4, 20, 20], &mut rng);
-        let bias = Tensor::rand(&[4], &mut rng);
+        let bias = NdTensor::rand([4], &mut rng);
 
         check_conv(
             input.view(),
