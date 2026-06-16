@@ -255,6 +255,12 @@ impl Operator for BatchNormalization {
         Some(5)
     }
 
+    fn max_outputs(&self) -> Option<usize> {
+        // ONNX allows additional outputs in training mode (`running_mean`,
+        // `running_var`), but we only support inference.
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
@@ -515,6 +521,12 @@ impl Operator for LayerNormalization {
         Some(3)
     }
 
+    fn max_outputs(&self) -> Option<usize> {
+        // ONNX allows optional `Mean` and `InvStdDev` outputs, but we only
+        // produce the normalized output.
+        Some(1)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
@@ -588,6 +600,10 @@ impl Operator for SkipSimplifiedLayerNormalization {
     }
 
     fn max_inputs(&self) -> Option<usize> {
+        Some(4)
+    }
+
+    fn max_outputs(&self) -> Option<usize> {
         Some(4)
     }
 

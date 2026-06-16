@@ -438,6 +438,10 @@ impl Operator for DynamicQuantizeLinear {
         Some(1)
     }
 
+    fn max_outputs(&self) -> Option<usize> {
+        Some(3)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require_as(0)?;
 

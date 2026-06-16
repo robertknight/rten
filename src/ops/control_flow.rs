@@ -38,6 +38,10 @@ impl Operator for If {
         Some(1)
     }
 
+    fn max_outputs(&self) -> Option<usize> {
+        None
+    }
+
     fn run(&self, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
         Err(OpError::InvalidValue(
             "operator must be run with `run_subgraph`",
@@ -129,6 +133,10 @@ impl Operator for Loop {
     }
 
     fn max_inputs(&self) -> Option<usize> {
+        None
+    }
+
+    fn max_outputs(&self) -> Option<usize> {
         None
     }
 
