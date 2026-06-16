@@ -999,6 +999,22 @@ fn add_operator(
         ));
     }
 
+    // We set a limit of 32 outputs per operator so we can represent the used
+    // positions conveniently in a u32 mask.
+    //
+    // TODO: We should also allow individual operators to declare the maximum
+    // number of outputs they support.
+    let max_outputs = u32::BITS as usize;
+    if outputs.len() >= max_outputs {
+        return Err(load_error!(
+            OperatorInvalid,
+            onnx_op.name.as_deref(),
+            "operator has {} outputs but maximum is {}",
+            outputs.len(),
+            max_outputs
+        ));
+    }
+
     let mut name = onnx_op.name.as_deref();
 
     // It is possible for ONNX operators to have a name that conflicts with a
@@ -1438,6 +1454,28 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "in node \"relu_op\": operator error: operator has 2 inputs but maximum is 1"
+        );
+    }
+
+    #[test]
+    fn test_too_many_outputs_for_operator() {
+        let mut node = create_node("Split").with_input("x").with_name("split_op");
+
+        for i in 0..33 {
+            let name = format!("y_{}", i);
+            node = node.with_output(&name);
+        }
+
+        let graph = onnx::GraphProto::default()
+            .with_input(create_value_info("x"))
+            .with_input(create_value_info("y"))
+            .with_node(node);
+
+        let err = load_model(graph.into_model(), None).err().unwrap();
+
+        assert_eq!(
+            err.to_string(),
+            "in node \"split_op\": operator error: operator has 33 outputs but maximum is 32"
         );
     }
 
