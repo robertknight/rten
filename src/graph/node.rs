@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::sync::Arc;
 
+use rten_base::bit_set::BitSet;
 use rten_tensor::prelude::*;
 use rten_tensor::{ArcTensor, DynLayout, TensorView};
 
@@ -118,6 +119,10 @@ pub struct OperatorNode {
     name: Option<String>,
     inputs: Box<[Option<NodeId>]>,
     outputs: Box<[Option<NodeId>]>,
+
+    // Cached mask indicating which positions in `outputs` are set.
+    output_mask: BitSet,
+
     operator: Arc<dyn Operator + Send + Sync>,
 
     // Cached names of nodes captured by operator's subgraphs.
@@ -138,10 +143,19 @@ impl OperatorNode {
             }
         }
 
+        // Pre-compute mask of used outputs.
+        let mut output_mask = BitSet::ones(output_ids.len() as u32);
+        for (i, id) in output_ids.iter().enumerate() {
+            if id.is_none() {
+                output_mask.delete(i as u32);
+            }
+        }
+
         OperatorNode {
             name: name.map(|s| s.to_owned()),
             inputs: input_ids.into(),
             outputs: output_ids.into(),
+            output_mask,
             operator,
             capture_names: capture_names.into(),
         }
@@ -157,6 +171,11 @@ impl OperatorNode {
 
     pub fn output_ids(&self) -> &[Option<NodeId>] {
         &self.outputs
+    }
+
+    /// Return a bit mask indicating which outputs are used.
+    pub fn output_mask(&self) -> BitSet {
+        self.output_mask
     }
 
     /// Return the names of nodes captured by this operator's subgraphs.

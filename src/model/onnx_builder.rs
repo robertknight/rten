@@ -99,6 +99,7 @@ pub trait NodeProtoExt {
     fn with_domain(self, domain: &str) -> Self;
     fn with_name(self, name: &str) -> Self;
     fn with_input(self, name: &str) -> Self;
+    fn with_output(self, name: &str) -> Self;
 }
 
 impl NodeProtoExt for onnx::NodeProto {
@@ -119,6 +120,11 @@ impl NodeProtoExt for onnx::NodeProto {
 
     fn with_input(mut self, name: &str) -> Self {
         self.input.push(name.to_string());
+        self
+    }
+
+    fn with_output(mut self, name: &str) -> Self {
+        self.output.push(name.to_string());
         self
     }
 }

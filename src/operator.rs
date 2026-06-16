@@ -7,6 +7,7 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
+use rten_base::bit_set::BitSet;
 use rten_gemm::PackedBMatrix;
 use rten_tensor::errors::DimensionError;
 use rten_tensor::{Layout, Storage, TensorBase};
@@ -262,7 +263,7 @@ pub(crate) use check_eq;
 pub struct OpRunContext<'a, 'i> {
     pool: &'a BufferPool,
     inputs: &'a InputList<'i>,
-    n_outputs: Option<u32>,
+    outputs: Option<BitSet>,
     name: Option<&'a str>,
 }
 
@@ -271,7 +272,7 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
         OpRunContext {
             pool,
             inputs,
-            n_outputs: None,
+            outputs: None,
             name: None,
         }
     }
@@ -299,19 +300,18 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
         self.inputs
     }
 
-    /// Set the requested number of outputs.
+    /// Set a mask indicating which outputs are requested.
     ///
     /// This can be used to skip generating outputs that are unused, or in
     /// the rare cases that the output count cannot be determined from the
     /// operator's inputs and attributes alone.
-    pub fn set_num_outputs(&mut self, n: u32) {
-        self.n_outputs = Some(n);
+    pub fn set_outputs(&mut self, mask: BitSet) {
+        self.outputs = Some(mask);
     }
 
-    /// Return the number of requested outputs or `None` if this has not been
-    /// specified.
-    pub fn num_outputs(&self) -> Option<u32> {
-        self.n_outputs
+    /// Return a mask indicating the requested outputs of `None` if not specified.
+    pub fn outputs(&self) -> Option<BitSet> {
+        self.outputs
     }
 
     /// Set the name of the current node in the graph.

@@ -116,7 +116,7 @@ impl Operator for Split {
         //
         // See https://github.com/robertknight/rten/issues/689.
         let splits = ctx.inputs().get_as(1)?;
-        let num_outputs = self.num_outputs.or(ctx.num_outputs());
+        let num_outputs = self.num_outputs.or(ctx.outputs().map(|o| o.len()));
 
         let split_sizes = if let Some(splits) = splits {
             SplitSizes::Sizes(splits)
@@ -157,6 +157,7 @@ impl_infer_shapes!(
 
 #[cfg(test)]
 mod tests {
+    use rten_base::bit_set::BitSet;
     use rten_tensor::prelude::*;
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
@@ -247,7 +248,7 @@ mod tests {
             let pool = BufferPool::new();
             let mut ctx = OpRunContext::new(&pool, &inputs);
             if let Some(n_outputs) = case.graph_outputs {
-                ctx.set_num_outputs(n_outputs);
+                ctx.set_outputs(BitSet::ones(n_outputs));
             }
             let results = split_op.run(&ctx).unwrap();
             let results: Vec<Tensor> = results.into_iter().map(|o| o.try_into().unwrap()).collect();
