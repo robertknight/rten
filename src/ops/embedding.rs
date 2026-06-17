@@ -516,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn reject_indivisible_hidden_size() {
+    fn test_reject_indivisible_hidden_size() {
         let op = RotaryEmbedding {
             interleaved: false,
             num_heads: 2,
@@ -538,7 +538,7 @@ mod tests {
     }
 
     #[test]
-    fn infer_num_heads_from_cache_dim() {
+    fn test_infer_num_heads_from_cache_dim() {
         let op = RotaryEmbeddingMicrosoft {
             interleaved: false,
             num_heads: Some(0),
@@ -563,7 +563,7 @@ mod tests {
     }
 
     #[test]
-    fn reject_zero_cache_dim_when_inferring_num_heads() {
+    fn test_reject_zero_cache_dim_when_inferring_num_heads() {
         let op = RotaryEmbeddingMicrosoft {
             interleaved: false,
             num_heads: None,
@@ -591,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn reject_zero_or_odd_rotary_embedding_dim() {
+    fn test_reject_zero_or_odd_rotary_embedding_dim() {
         for rotary_embedding_dim in [0, 1] {
             let op = RotaryEmbedding {
                 interleaved: false,
