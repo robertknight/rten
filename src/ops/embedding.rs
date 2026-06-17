@@ -219,31 +219,36 @@ impl Operator for RotaryEmbeddingMicrosoft {
         let num_heads = match input.shape() {
             &[_, _, hidden_size] => match self.num_heads {
                 // The ONNX spec requires `num_heads` for rank-3 input. The
-                // Microsoft contrib op gives this attribute a default of 0,
-                // so infer it here before calling the shared implementation.
+                // Microsoft contrib op gives this attribute a default of 0, so
+                // infer it from the cos cache before calling the shared
+                // implementation. The cache's last dimension is
+                // `rotary_embedding_dim / 2`, which only equals `head_size / 2`
+                // for full rotation. With partial rotary embeddings the head
+                // size cannot be recovered from the cache, so `num_heads` must
+                // be provided explicitly.
                 Some(0) | None => {
-                    let cache_rotary_embedding_dim_half = cos
+                    if self.rotary_embedding_dim != 0 {
+                        return Err(OpError::InvalidValue(
+                            "num_heads must be specified when rotary_embedding_dim is set",
+                        ));
+                    }
+                    let head_size_half = cos
                         .shape()
                         .last()
                         .copied()
                         .ok_or(OpError::InvalidValue("cos cache must not be scalar"))?;
-                    if cache_rotary_embedding_dim_half == 0 {
+                    if head_size_half == 0 {
                         return Err(OpError::InvalidValue(
                             "Last dimension of cos cache must not be 0",
                         ));
                     }
-                    let cache_rotary_embedding_dim = cache_rotary_embedding_dim_half * 2;
-                    let rotary_embedding_dim = if self.rotary_embedding_dim == 0 {
-                        cache_rotary_embedding_dim
-                    } else {
-                        self.rotary_embedding_dim
-                    };
-                    if hidden_size % rotary_embedding_dim != 0 {
+                    let head_size = head_size_half * 2;
+                    if hidden_size % head_size != 0 {
                         return Err(OpError::InvalidValue(
-                            "hidden_size must be divisible by rotary_embedding_dim",
+                            "hidden_size must be divisible by head size",
                         ));
                     }
-                    hidden_size / rotary_embedding_dim
+                    hidden_size / head_size
                 }
                 Some(num_heads) => num_heads,
             },
@@ -566,6 +571,37 @@ mod tests {
             .unwrap();
 
         expect_equal_with_tolerance(&input.view(), &result.view(), 1e-4, 0.0).unwrap();
+    }
+
+    #[test]
+    fn test_reject_inferring_num_heads_with_partial_rotary_dim() {
+        // `num_heads` cannot be inferred from the cache when partial rotary
+        // embeddings are used, since the cache only encodes
+        // `rotary_embedding_dim / 2`, not `head_size / 2`.
+        let op = RotaryEmbeddingMicrosoft {
+            interleaved: false,
+            num_heads: None,
+            rotary_embedding_dim: 2,
+        };
+
+        let input = Tensor::from([[[1., 2., 3., 4.]]]);
+        let position_ids = Tensor::from([[0i32]]);
+        let cos_cache = Tensor::from([[1.0]]);
+        let sin_cache = Tensor::from([[0.0]]);
+
+        let result = op.run_simple::<_, Tensor<f32>>((
+            input.view(),
+            position_ids.view(),
+            cos_cache.view(),
+            sin_cache.view(),
+        ));
+
+        assert_eq!(
+            result,
+            Err(OpError::InvalidValue(
+                "num_heads must be specified when rotary_embedding_dim is set"
+            ))
+        );
     }
 
     #[test]
