@@ -378,6 +378,14 @@ pub trait Operator: Any + Debug {
     /// This can return `None` for variadic inputs with no limit.
     fn max_inputs(&self) -> Option<usize>;
 
+    /// Return the maximum number of outputs this operator can produce.
+    ///
+    /// The default is one. Operators can return `None` to indicate no limit
+    /// (eg. for variadic operators).
+    fn max_outputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
     /// Return the rules for determining the types of this operator's outputs.
     fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList>;
 

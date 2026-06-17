@@ -311,6 +311,10 @@ impl Operator for Dropout {
         Some(2)
     }
 
+    fn max_outputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn is_deterministic(&self) -> bool {
         self.seed.is_some()
     }

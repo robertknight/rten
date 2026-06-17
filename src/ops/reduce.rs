@@ -1175,6 +1175,10 @@ impl Operator for TopK {
         Some(2)
     }
 
+    fn max_outputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let values = inputs.require(0)?;

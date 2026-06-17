@@ -74,6 +74,10 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
         self.inner.max_inputs()
     }
 
+    fn max_outputs(&self) -> Option<usize> {
+        self.inner.max_outputs()
+    }
+
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         self.inner.output_types(_ctx)
     }
@@ -124,6 +128,10 @@ impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> Operator for RunFn<F> 
     }
 
     fn max_inputs(&self) -> Option<usize> {
+        None
+    }
+
+    fn max_outputs(&self) -> Option<usize> {
         None
     }
 
@@ -984,6 +992,10 @@ impl Operator for Split {
         Some(1)
     }
 
+    fn max_outputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         None
     }
@@ -1271,6 +1283,10 @@ impl Operator for Subgraph {
     }
 
     fn max_inputs(&self) -> Option<usize> {
+        None
+    }
+
+    fn max_outputs(&self) -> Option<usize> {
         None
     }
 
