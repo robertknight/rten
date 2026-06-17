@@ -611,11 +611,6 @@ impl Operator for SkipSimplifiedLayerNormalization {
             return Err(OpError::InvalidValue("input must be 2 or 3 dimensioned"));
         }
 
-        let mut stats_shape = input.shape().to_vec();
-        if let Some(last_dim) = stats_shape.last_mut() {
-            *last_dim = 1;
-        }
-
         let mut x_plus_skip = add(ctx.pool(), input, skip)?;
         if let Some(bias) = bias {
             x_plus_skip = add(ctx.pool(), x_plus_skip.view(), bias)?;
@@ -632,22 +627,9 @@ impl Operator for SkipSimplifiedLayerNormalization {
         )?;
 
         let mut outputs: OutputList = [output.into()].into();
-        if ctx.num_outputs().is_some_and(|n| n > 1) {
-            let hidden_size = x_plus_skip.size(x_plus_skip.ndim() - 1);
-            let mut mean = Tensor::<f32>::zeros(&stats_shape);
-            let mut inv_std_var = Tensor::<f32>::zeros(&stats_shape);
-            for ((row, mean), inv_std_var) in x_plus_skip
-                .lanes(x_plus_skip.ndim() - 1)
-                .zip(mean.data_mut().unwrap())
-                .zip(inv_std_var.data_mut().unwrap())
-            {
-                let row = row.as_slice().unwrap();
-                let root_mean_square = vecmath::SumSquare::new(row).dispatch() / hidden_size as f32;
-                *mean = 0.0;
-                *inv_std_var = 1.0 / (root_mean_square + self.epsilon).sqrt();
-            }
-            outputs.push(mean.into());
-            outputs.push(inv_std_var.into());
+        if ctx.outputs().get(3) {
+            outputs.push(Tensor::<f32>::zeros(&[0]).into()); // mean dummy
+            outputs.push(Tensor::<f32>::zeros(&[0]).into()); // inv_std_var dummy
             outputs.push(x_plus_skip.into());
         }
 
@@ -925,6 +907,7 @@ impl Operator for Softmax {
 mod tests {
     use std::error::Error;
 
+    use rten_base::bit_set::BitSet;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
@@ -1329,15 +1312,14 @@ mod tests {
         inputs.push(bias.view());
 
         let pool = BufferPool::new();
-        let mut ctx = OpRunContext::new(&pool, &inputs);
-        ctx.set_num_outputs(4);
+        let ctx = OpRunContext::new(&pool, &inputs, BitSet::from_indices([0, 3]));
 
         let mut outputs = op.run(&ctx).unwrap();
         assert_eq!(outputs.len(), 4);
 
         let output: Tensor = outputs.remove(0).try_into().unwrap();
-        let mean: Tensor = outputs.remove(0).try_into().unwrap();
-        let inv_std_var: Tensor = outputs.remove(0).try_into().unwrap();
+        outputs.remove(0); // mean dummy
+        outputs.remove(0); // inv_std_var dummy
         let input_skip_bias_sum: Tensor = outputs.remove(0).try_into().unwrap();
 
         let expected_sum = Tensor::from([[11.5, 21.5], [33.5, 43.5]]);
@@ -1348,15 +1330,8 @@ mod tests {
             Some(bias.view()),
             op.epsilon,
         );
-        let expected_mean = Tensor::from([[0.], [0.]]);
-        let expected_inv_std_var = Tensor::from([
-            [1.0 / (((11.5 * 11.5 + 21.5 * 21.5) / 2.0) + op.epsilon).sqrt()],
-            [1.0 / (((33.5 * 33.5 + 43.5 * 43.5) / 2.0) + op.epsilon).sqrt()],
-        ]);
 
         expect_eq_1e4(&output, &expected_output).unwrap();
-        expect_equal(&mean.view(), &expected_mean.view()).unwrap();
-        expect_eq_1e4(&inv_std_var, &expected_inv_std_var).unwrap();
         expect_equal(&input_skip_bias_sum.view(), &expected_sum.view()).unwrap();
     }
 
