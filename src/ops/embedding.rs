@@ -1,4 +1,6 @@
-use rten_tensor::{AsView, Layout, NdTensor, NdTensorView, SliceRange, Tensor, TensorView};
+use rayon::prelude::*;
+use rten_tensor::prelude::*;
+use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
 use crate::{
     buffer_pool::{AutoReturn, BufferPool},
@@ -7,11 +9,39 @@ use crate::{
         IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
         OutputTypesContext,
     },
-    ops::{
-        binary_elementwise::{add, mul, sub},
-        concat, gather,
-    },
+    ops::gather,
 };
+
+/// Validate a cos/sin cache and return its `(batch, seq_len)` dimensions.
+///
+/// The cache must have shape `[batch, seq_len, rotary_embedding_dim / 2]`, where
+/// the batch and sequence dimensions may each be 1 to broadcast across the
+/// corresponding input dimension.
+fn rotary_cache_dims(
+    cache_shape: &[usize],
+    batch: usize,
+    seq_len: usize,
+    half: usize,
+    bad_last_dim: &'static str,
+) -> Result<(usize, usize), OpError> {
+    let &[cache_batch, cache_seq, cache_half] = cache_shape else {
+        return Err(OpError::InvalidValue("cos/sin cache must be a 3D tensor"));
+    };
+    if cache_half != half {
+        return Err(OpError::InvalidValue(bad_last_dim));
+    }
+    if cache_seq != 1 && cache_seq != seq_len {
+        return Err(OpError::InvalidValue(
+            "cos/sin cache sequence length must be 1 or match the input",
+        ));
+    }
+    if cache_batch != 1 && cache_batch != batch {
+        return Err(OpError::InvalidValue(
+            "cos/sin cache batch size must be 1 or match the input",
+        ));
+    }
+    Ok((cache_batch, cache_seq))
+}
 
 fn rotary_embedding(
     pool: &BufferPool,
@@ -23,6 +53,7 @@ fn rotary_embedding(
     num_heads: usize,
     rotary_embedding_dim: usize,
 ) -> Result<Tensor, OpError> {
+    // Reshape input to `[batch, seq_len, num_heads, head_size]`.
     let reshaped_input = match input.shape() {
         &[batch, seq_len, hidden_size] => {
             if num_heads == 0 {
@@ -31,12 +62,6 @@ fn rotary_embedding(
                 ));
             }
             if hidden_size % num_heads != 0 {
-                // The reference implementation also adds "or rank-3 input", but not sure fully
-                // what that means in this context so excluded it = after all input is rank-3
-                // here.
-                //
-                // Note without this check this becomes a panic as the resize will fail - maybe
-                // acceptable?
                 return Err(OpError::InvalidValue(
                     "hidden_size must be divisible by num_heads",
                 ));
@@ -54,8 +79,8 @@ fn rotary_embedding(
             ));
         }
     };
+    let [batch, seq_len, num_heads, head_size] = reshaped_input.shape();
 
-    let head_size = reshaped_input.shape()[3];
     let rotary_embedding_dim = if rotary_embedding_dim == 0 {
         head_size
     } else {
@@ -71,71 +96,104 @@ fn rotary_embedding(
             "rotary_embedding_dim must not exceed head size",
         ));
     }
+    let half = rotary_embedding_dim / 2;
 
-    let x_rotate = reshaped_input.slice((.., .., .., ..rotary_embedding_dim));
-    let x_not_rotate = reshaped_input.slice((.., .., .., rotary_embedding_dim..));
-
-    let rotary_embedding_dim_half = rotary_embedding_dim / 2;
-
+    // Resolve the cos/sin caches to a `[batch, seq_len, half]` layout. When
+    // `position_ids` is provided the caches are gathered by position, otherwise
+    // they are indexed by `(batch, seq_len)` directly.
     let (cos_cache, sin_cache) = if let Some(position_ids) = position_ids {
-        let cos_subset = gather(pool, cos, 0, position_ids.as_dyn())?.into_cow();
-        let sin_subset = gather(pool, sin, 0, position_ids.as_dyn())?.into_cow();
-        (cos_subset, sin_subset)
+        let cos = gather(pool, cos, 0, position_ids.as_dyn())?.into_cow();
+        let sin = gather(pool, sin, 0, position_ids.as_dyn())?.into_cow();
+        (cos, sin)
     } else {
         (cos.as_cow(), sin.as_cow())
     };
 
-    if cos_cache.shape().last() != Some(&rotary_embedding_dim_half) {
-        return Err(OpError::InvalidValue(
-            "Last dimension of cos cache does not match rotary_embedding_dim/2",
-        ));
-    }
+    let (cos_batch, cos_seq) = rotary_cache_dims(
+        cos_cache.shape(),
+        batch,
+        seq_len,
+        half,
+        "Last dimension of cos cache does not match rotary_embedding_dim/2",
+    )?;
+    let (sin_batch, sin_seq) = rotary_cache_dims(
+        sin_cache.shape(),
+        batch,
+        seq_len,
+        half,
+        "Last dimension of sin cache does not match rotary_embedding_dim/2",
+    )?;
 
-    if sin_cache.shape().last() != Some(&rotary_embedding_dim_half) {
-        return Err(OpError::InvalidValue(
-            "Last dimension of sin cache does not match rotary_embedding_dim/2",
-        ));
-    }
+    // Make the inputs contiguous so each head vector and cache row is a
+    // contiguous slice that the kernel can index directly.
+    let input_contig = reshaped_input.to_contiguous_in(pool).auto_return(pool);
+    let cos_contig = cos_cache.to_contiguous_in(pool).auto_return(pool);
+    let sin_contig = sin_cache.to_contiguous_in(pool).auto_return(pool);
+    let in_data = input_contig.data();
+    let cos_data = cos_contig.data();
+    let sin_data = sin_contig.data();
 
-    let cos_cache = cos_cache.view().with_new_axis(2);
-    let sin_cache = sin_cache.view().with_new_axis(2);
+    let n_rows = batch * seq_len * num_heads;
+    let out_len = n_rows * head_size;
+    let mut out_data = pool.alloc::<f32>(out_len);
 
-    let (x1, x2) = if interleaved {
-        let x1 = x_rotate.slice((.., .., .., SliceRange::new(0, None, 2)));
-        let x2 = x_rotate.slice((.., .., .., SliceRange::new(1, None, 2)));
-        (x1, x2)
-    } else {
-        x_rotate.split_at(3, rotary_embedding_dim_half)
-    };
+    // For each `(batch, seq, head)` row, apply the rotation to the first
+    // `rotary_embedding_dim` elements and copy the remainder.
+    let out_uninit = &mut out_data.spare_capacity_mut()[..out_len];
+    in_data
+        .par_chunks(head_size)
+        .zip(out_uninit.par_chunks_mut(head_size))
+        .enumerate()
+        .for_each(|(row, (x, y))| {
+            let bs = row / num_heads;
+            let b = bs / seq_len;
+            let s = bs % seq_len;
 
-    let cos_x1 = mul(pool, cos_cache.view(), x1.as_dyn())?.auto_return(pool);
-    let sin_x2 = mul(pool, sin_cache.view(), x2.as_dyn())?.auto_return(pool);
-    let real = sub(pool, cos_x1.view(), sin_x2.view())?.auto_return(pool);
+            let broadcast_idx = |dim_size: usize, index: usize| {
+                if dim_size == 1 { 0 } else { index }
+            };
 
-    let sin_x1 = mul(pool, sin_cache.view(), x1.as_dyn())?.auto_return(pool);
-    let cos_x2 = mul(pool, cos_cache.view(), x2.as_dyn())?.auto_return(pool);
-    let imag = add(pool, sin_x1.view(), cos_x2.view())?.auto_return(pool);
+            let cos_off =
+                (broadcast_idx(cos_batch, b) * cos_seq + broadcast_idx(cos_seq, s)) * half;
+            let sin_off =
+                (broadcast_idx(sin_batch, b) * sin_seq + broadcast_idx(sin_seq, s)) * half;
+            let cos_row = &cos_data[cos_off..cos_off + half];
+            let sin_row = &sin_data[sin_off..sin_off + half];
 
-    let x_rotate = if interleaved {
-        let insert_axis = real.ndim();
-        let real = real.view().with_new_axis(insert_axis);
-        let imag = imag.view().with_new_axis(insert_axis);
+            if interleaved {
+                for i in 0..half {
+                    let (x1, x2) = (x[2 * i], x[2 * i + 1]);
+                    let (cos_i, sin_i) = (cos_row[i], sin_row[i]);
+                    y[2 * i].write(x1 * cos_i - x2 * sin_i);
+                    y[2 * i + 1].write(x1 * sin_i + x2 * cos_i);
+                }
+            } else {
+                for i in 0..half {
+                    let (x1, x2) = (x[i], x[half + i]);
+                    let (cos_i, sin_i) = (cos_row[i], sin_row[i]);
+                    y[i].write(x1 * cos_i - x2 * sin_i);
+                    y[half + i].write(x1 * sin_i + x2 * cos_i);
+                }
+            }
 
-        let mut x_rotate_concat = concat(pool, &[real, imag], -1)?;
-        x_rotate_concat.reshape(&x_rotate.shape());
-        x_rotate_concat
-    } else {
-        concat(pool, &[real.view(), imag.view()], -1)?
-    }
-    .auto_return(pool);
+            // Copy the elements that are not rotated.
+            for (yj, &xj) in y[rotary_embedding_dim..]
+                .iter_mut()
+                .zip(&x[rotary_embedding_dim..])
+            {
+                yj.write(xj);
+            }
+        });
 
-    let mut output = concat(pool, &[x_rotate.view(), x_not_rotate.as_dyn()], -1)?;
+    // Safety: every element of `out_data[..out_len]` was initialized above.
+    unsafe { out_data.set_len(out_len) };
 
+    let mut output = Tensor::from_data(&[batch, seq_len, num_heads, head_size], out_data);
     if input.ndim() == 3 {
         output.reshape(input.shape());
     } else {
-        output.permute(&[0, 2, 1, 3])
-    };
+        output.permute(&[0, 2, 1, 3]);
+    }
 
     Ok(output)
 }
