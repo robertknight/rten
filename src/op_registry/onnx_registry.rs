@@ -1622,9 +1622,10 @@ impl_read_op!(
 
 impl_read_op!(RotaryEmbedding, |attrs: &Attrs| {
     let interleaved = attrs.get_as("interleaved").unwrap_or_default();
-    let num_heads = attrs
-        .get_as_int::<usize>("num_heads")?
-        .ok_or_else(|| ReadOpError::attr_error("num_heads", "required attribute missing"))?;
+
+    // Required for 3D input but optional for 4D, so we validate at runtime.
+    let num_heads = attrs.get_as_int::<usize>("num_heads")?.unwrap_or_default();
+
     let rotary_embedding_dim = attrs
         .get_as_int::<usize>("rotary_embedding_dim")?
         .unwrap_or_default();
@@ -1887,16 +1888,19 @@ mod tests {
     }
 
     #[test]
-    fn test_read_rotary_embedding_requires_num_heads() {
+    fn test_read_rotary_embedding_allows_missing_num_heads() {
+        // `num_heads` is only required for 3D input, which is validated at run
+        // time. A missing attribute loads with `num_heads` defaulting to 0.
         let reg = OnnxOpRegistry::with_all_ops();
         let node = create_node("RotaryEmbedding");
 
-        let result = reg.read_op(&node, &FakeOpLoadContext::default());
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
 
-        assert!(matches!(
-            result,
-            Err(ReadOpError::AttrError { attr, .. }) if attr == "num_heads"
-        ));
+        let rotary = op.downcast_ref::<RotaryEmbedding>().unwrap();
+        assert_eq!(rotary.num_heads, 0);
     }
 
     #[test]
