@@ -55,14 +55,20 @@ fn rotary_embedding(
         }
     };
 
+    let head_size = reshaped_input.shape()[3];
     let rotary_embedding_dim = if rotary_embedding_dim == 0 {
-        reshaped_input.shape()[3]
+        head_size
     } else {
         rotary_embedding_dim
     };
     if rotary_embedding_dim == 0 || rotary_embedding_dim % 2 != 0 {
         return Err(OpError::InvalidValue(
             "rotary_embedding_dim must be a positive even number",
+        ));
+    }
+    if rotary_embedding_dim > head_size {
+        return Err(OpError::InvalidValue(
+            "rotary_embedding_dim must not exceed head size",
         ));
     }
 
