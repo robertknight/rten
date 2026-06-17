@@ -1895,7 +1895,7 @@ mod tests {
             .with_attr("unused_b", false);
 
         let op = reg.read_op(&node, &FakeOpLoadContext::default()).unwrap();
-        assert_eq!(op.unused_attrs.len(), 2);
+        assert_eq!(op.unused_attrs.count_true(), 2);
         let unused_attrs: Vec<_> = op
             .unused_attrs
             .iter()

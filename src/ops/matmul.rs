@@ -953,6 +953,7 @@ impl Operator for MatMulNBits {
 mod tests {
     use std::error::Error;
 
+    use rten_base::bit_set::BitSet;
     use rten_bench::run_bench;
     use rten_gemm::{
         BiasVector, BlockQuantizedMatrix, GemmExecutor, GemmInT, GemmInputA, GemmInputB,
@@ -1356,7 +1357,7 @@ mod tests {
                 inputs.push(bias.view());
             }
 
-            let ctx = OpRunContext::new(&pool, &inputs);
+            let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
             let mut result = op.run(&ctx).unwrap();
             let result: Tensor<f32> = result.remove(0).try_into().unwrap();
 
@@ -1688,7 +1689,7 @@ mod tests {
         };
         let inputs =
             InputList::from(&[a.view().into(), b.view().into()]).with_prepacked(&get_prepacked);
-        let ctx = OpRunContext::new(&pool, &inputs);
+        let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
         let mut result = op.run(&ctx).unwrap();
         let result: Tensor<i32> = result.remove(0).try_into().unwrap();
 

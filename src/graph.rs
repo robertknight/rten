@@ -1089,9 +1089,8 @@ impl Graph {
             let inputs = InputList::from_optional(&op_inputs)
                 .with_prepacked(&get_prepacked)
                 .with_first_input_omitted(in_place_input.is_some());
-            let mut ctx = OpRunContext::new(pool, &inputs);
+            let mut ctx = OpRunContext::new(pool, &inputs, op_node.output_mask());
             ctx.set_name(op_node.name());
-            ctx.set_outputs(op_node.output_mask());
 
             let op_result = if let Some((_id, value)) = in_place_input {
                 let input_dtype = value.dtype();

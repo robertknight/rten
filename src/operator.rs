@@ -263,16 +263,20 @@ pub(crate) use check_eq;
 pub struct OpRunContext<'a, 'i> {
     pool: &'a BufferPool,
     inputs: &'a InputList<'i>,
-    outputs: Option<BitSet>,
+    outputs: BitSet,
     name: Option<&'a str>,
 }
 
 impl<'a, 'i> OpRunContext<'a, 'i> {
-    pub fn new(pool: &'a BufferPool, inputs: &'a InputList<'i>) -> Self {
+    /// Create a new context.
+    ///
+    /// `outputs` is a mask indicating which of the operator's outputs are
+    /// requested.
+    pub fn new(pool: &'a BufferPool, inputs: &'a InputList<'i>, outputs: BitSet) -> Self {
         OpRunContext {
             pool,
             inputs,
-            outputs: None,
+            outputs,
             name: None,
         }
     }
@@ -300,17 +304,12 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
         self.inputs
     }
 
-    /// Set a mask indicating which outputs are requested.
+    /// Return a mask indicating the requested outputs.
     ///
     /// This can be used to skip generating outputs that are unused, or in
     /// the rare cases that the output count cannot be determined from the
     /// operator's inputs and attributes alone.
-    pub fn set_outputs(&mut self, mask: BitSet) {
-        self.outputs = Some(mask);
-    }
-
-    /// Return a mask indicating the requested outputs of `None` if not specified.
-    pub fn outputs(&self) -> Option<BitSet> {
+    pub fn outputs(&self) -> BitSet {
         self.outputs
     }
 
@@ -524,7 +523,7 @@ pub trait OperatorExt: Operator {
     {
         let pool = BufferPool::new();
         let inputs = inputs.into();
-        let ctx = OpRunContext::new(&pool, &inputs);
+        let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
         let mut outputs = self.run(&ctx)?;
         Ok(outputs.remove(0).try_into()?)
     }
@@ -540,7 +539,7 @@ pub trait OperatorExt: Operator {
     {
         let pool = BufferPool::new();
         let inputs = inputs.into();
-        let ctx = OpRunContext::new(&pool, &inputs);
+        let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
         let output = self.run_in_place(mut_input.into(), &ctx)?;
         let typed_output = output.try_into()?;
         Ok(typed_output)
