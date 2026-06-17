@@ -111,21 +111,18 @@ impl Operator for Split {
         // In Split v18+, the operator should specify either a vector of split
         // sizes or a count of outputs to produce. Older versions of the Split
         // operator could omit both of these, in which case the number of
-        // outputs was determined by looking at the operator node's number of
-        // outputs.
+        // outputs is determined by the number of outputs the node has in the
+        // graph.
         //
         // See https://github.com/robertknight/rten/issues/689.
         let splits = ctx.inputs().get_as(1)?;
-        let num_outputs = self.num_outputs.or(ctx.outputs().map(|o| o.len()));
-
         let split_sizes = if let Some(splits) = splits {
             SplitSizes::Sizes(splits)
-        } else if let Some(num_outputs) = num_outputs {
-            SplitSizes::NumSplits(num_outputs)
         } else {
-            return Err(OpError::InvalidValue(
-                "Either `num_outputs` or `splits` must be set",
-            ));
+            SplitSizes::NumSplits(
+                self.num_outputs
+                    .unwrap_or_else(|| ctx.outputs().count_true()),
+            )
         };
 
         map_value_view!(input, x, {
@@ -246,10 +243,8 @@ mod tests {
                 case.splits.as_ref().map(|s| s.view().into()),
             ]);
             let pool = BufferPool::new();
-            let mut ctx = OpRunContext::new(&pool, &inputs);
-            if let Some(n_outputs) = case.graph_outputs {
-                ctx.set_outputs(BitSet::ones(n_outputs));
-            }
+            let output_mask = case.graph_outputs.map(BitSet::ones).unwrap_or_default();
+            let ctx = OpRunContext::new(&pool, &inputs, output_mask);
             let results = split_op.run(&ctx).unwrap();
             let results: Vec<Tensor> = results.into_iter().map(|o| o.try_into().unwrap()).collect();
 

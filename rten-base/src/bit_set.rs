@@ -4,15 +4,34 @@ pub struct BitSet(u32);
 impl BitSet {
     pub const BITS: usize = u32::BITS as usize;
 
+    /// Return a bit set with all positions cleared.
+    pub fn new() -> Self {
+        Self(0)
+    }
+
     /// Return a bit set with the first `n` positions set.
     pub fn ones(n: u32) -> Self {
         let bits = if n >= 32 { u32::MAX } else { (1 << n) - 1 };
         Self(bits)
     }
 
+    /// Return a bit set with given indices set.
+    pub fn from_indices<I: IntoIterator<Item = u32>>(indices: I) -> Self {
+        let mut bits = Self(0);
+        for pos in indices {
+            bits.set(pos);
+        }
+        bits
+    }
+
     /// Unset the bit at position `pos`.
     pub fn delete(&mut self, pos: u32) {
         self.0 &= !(1 << pos)
+    }
+
+    /// Set the bit at position `pos`.
+    pub fn set(&mut self, pos: u32) {
+        self.0 |= 1 << pos;
     }
 
     /// Return true if position `pos` is set.
@@ -21,7 +40,7 @@ impl BitSet {
     }
 
     /// Return the number of bits set.
-    pub fn len(&self) -> u32 {
+    pub fn count_true(&self) -> u32 {
         self.0.count_ones()
     }
 
@@ -49,25 +68,26 @@ mod tests {
     #[test]
     fn test_bit_set() {
         let mut set = BitSet::ones(5);
-        assert_eq!(set.len(), 5);
+        assert_eq!(set.count_true(), 5);
         assert!(!set.is_empty());
         for i in 0..5 {
             assert!(set.get(i));
             set.delete(i);
             assert!(!set.get(i));
         }
-        assert_eq!(set.len(), 0);
+        assert_eq!(set.count_true(), 0);
         assert!(set.is_empty());
 
         let all_zeros = BitSet::default();
-        assert_eq!(all_zeros.len(), 0);
+        assert_eq!(all_zeros.count_true(), 0);
+        assert_eq!(BitSet::new(), all_zeros);
     }
 
     #[test]
     fn test_bit_set_ones() {
         for i in 0..=32 {
             let all_ones = BitSet::ones(i);
-            assert_eq!(all_ones.len(), i);
+            assert_eq!(all_ones.count_true(), i);
         }
     }
 
@@ -79,5 +99,13 @@ mod tests {
 
         let positions: Vec<usize> = set.iter().collect();
         assert_eq!(positions, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_bit_set_from_indices() {
+        let set = BitSet::from_indices([0, 3]);
+        for i in 0..BitSet::BITS {
+            assert_eq!(set.get(i as u32), i == 0 || i == 3);
+        }
     }
 }

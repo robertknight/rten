@@ -1231,6 +1231,7 @@ impl Operator for Where {
 mod tests {
     use std::error::Error;
 
+    use rten_base::bit_set::BitSet;
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{eq_with_nans, expect_equal};
     use rten_tensor::{Scalar, Tensor};
@@ -1384,7 +1385,7 @@ mod tests {
         // Run `Add` operator in place with inputs that support in-place addition.
         let op = Add {};
         let inputs: InputList = (&b).into();
-        let ctx = OpRunContext::new(&pool, &inputs);
+        let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
         let result = op.run_in_place(Value::FloatTensor(a_copy), &ctx).unwrap();
         expect_equal(&result.as_tensor_view().unwrap(), &expected.view())?;
 

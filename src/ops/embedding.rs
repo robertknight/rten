@@ -231,14 +231,16 @@ impl Operator for RotaryEmbeddingMicrosoft {
 
 #[cfg(test)]
 mod tests {
+    use rten_base::bit_set::BitSet;
+    use rten_tensor::{Tensor, test_util::expect_equal_with_tolerance};
+    use rten_testing::TestCases;
+
     use crate::{
         BufferPool,
         operator::{InputList, OperatorExt},
     };
 
     use super::*;
-    use rten_tensor::{Tensor, test_util::expect_equal_with_tolerance};
-    use rten_testing::TestCases;
 
     // Test rotary embedding using ported test cases from
     // https://github.com/microsoft/onnxruntime/blob/e3c34da40639669f3dbb7ae95db0662afbec8cc9/onnxruntime/test/providers/cpu/llm/rotary_embedding_op_test.cc#L509
@@ -494,7 +496,7 @@ mod tests {
         input_list.push(sin_cache.view());
 
         let pool = BufferPool::new();
-        let ctx = OpRunContext::new(&pool, &input_list);
+        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(1));
 
         assert!(op.run(&ctx).is_err());
     }

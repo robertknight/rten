@@ -1725,10 +1725,7 @@ fn test_run_context_outputs() {
     g.add_op(
         Some("test_op"),
         Arc::new(RunFn::new(|ctx| {
-            let mut expected = BitSet::ones(4);
-            expected.delete(1);
-            expected.delete(2);
-            assert_eq!(ctx.outputs(), Some(expected));
+            assert_eq!(ctx.outputs(), BitSet::from_indices([0, 3]));
             Ok([
                 // Expected output.
                 Tensor::from(1.).into(),
