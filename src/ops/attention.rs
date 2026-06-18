@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
+use rten_tensor::{CowNdTensor, NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath::Softmax;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
@@ -315,12 +315,18 @@ impl Operator for GroupedQueryAttentionMatMul {
     }
 }
 
-fn split_attention_heads(
+/// Reshape an attention input of shape `[batch, seq, hidden]` into per-head
+/// form `[batch, num_heads, seq, head_size]`.
+///
+/// This is a reshape plus axis permutation, so the result is a (zero-copy)
+/// view of `input` whenever `input` is contiguous. `reshaped_in` only copies
+/// (via `pool`) if `input`'s layout cannot be split into heads as a view.
+fn split_attention_heads<'a>(
     pool: &BufferPool,
-    input: NdTensorView<f32, 3>,
+    input: NdTensorView<'a, f32, 3>,
     num_heads: usize,
     head_size: usize,
-) -> Result<NdTensor<f32, 4>, OpError> {
+) -> Result<CowNdTensor<'a, f32, 4>, OpError> {
     let [batch_size, seq_len, hidden] = input.shape();
     if hidden != num_heads * head_size {
         return Err(OpError::IncompatibleInputShapes(
@@ -328,19 +334,41 @@ fn split_attention_heads(
         ));
     }
 
-    let reshaped = input.reshaped_in(pool, [batch_size, seq_len, num_heads, head_size]);
-    Ok(reshaped.permuted([0, 2, 1, 3]).to_tensor_in(pool))
+    let mut reshaped = input.reshaped_in(pool, [batch_size, seq_len, num_heads, head_size]);
+    reshaped.permute([0, 2, 1, 3]);
+    Ok(reshaped)
+}
+
+/// Add `bias` to an attention input of shape `[batch, seq, hidden]` and split
+/// the result into per-head form `[batch, num_heads, seq, head_size]`.
+///
+/// Unlike [`split_attention_heads`] the bias addition produces a fresh owned
+/// buffer, which is reinterpreted into head form without any further copy.
+fn add_bias_and_split_heads(
+    pool: &BufferPool,
+    input: TensorView<f32>,
+    bias: TensorView<f32>,
+    num_heads: usize,
+    head_size: usize,
+) -> Result<CowNdTensor<'static, f32, 4>, OpError> {
+    let biased = add(pool, input, bias)?;
+    let batch_size = biased.size(0);
+    let seq_len = biased.size(1);
+    let mut biased = biased.into_shape([batch_size, seq_len, num_heads, head_size]);
+    biased.permute([0, 2, 1, 3]);
+    Ok(biased.into_cow())
 }
 
 /// Query, key and value tensors split into per-head form, plus the dimensions
 /// needed to interpret them.
 ///
 /// `query`, `key` and `value` have shape `[batch, num_heads, seq, head_size]`
-/// (`v_head_size` for `value`).
-struct AttentionInputs {
-    query: NdTensor<f32, 4>,
-    key: NdTensor<f32, 4>,
-    value: NdTensor<f32, 4>,
+/// (`v_head_size` for `value`). They borrow the operator inputs where possible
+/// and only own their data when a copy was required (e.g. to apply a bias).
+struct AttentionInputs<'a> {
+    query: CowNdTensor<'a, f32, 4>,
+    key: CowNdTensor<'a, f32, 4>,
+    value: CowNdTensor<'a, f32, 4>,
     batch_size: usize,
     seq_len: usize,
     head_size: usize,
@@ -350,14 +378,13 @@ struct AttentionInputs {
 
 /// Resolve a packed QKV query of shape
 /// `[batch, kv_seq_len, num_heads, 3, head_size]` into per-head Q/K/V tensors.
-fn prepare_packed_qkv(
-    pool: &BufferPool,
-    query: NdTensorView<f32, 5>,
+fn prepare_packed_qkv<'a>(
+    query: NdTensorView<'a, f32, 5>,
     key: Option<NdTensorView<f32, 3>>,
     value: Option<NdTensorView<f32, 3>>,
     bias: Option<NdTensorView<f32, 1>>,
     num_heads: usize,
-) -> Result<AttentionInputs, OpError> {
+) -> Result<AttentionInputs<'a>, OpError> {
     if key.is_some() {
         return Err(OpError::InvalidValue(
             "key must be None when query is packed",
@@ -387,11 +414,12 @@ fn prepare_packed_qkv(
     }
 
     // Slice out Q/K/V and permute each into [batch, num_heads, seq, head_size].
+    // Both operations are views, so this borrows the packed input with no copy.
     let to_heads = |index| {
         query
             .slice((.., .., .., index, ..))
             .permuted([0, 2, 1, 3])
-            .to_tensor_in(pool)
+            .as_cow()
     };
 
     Ok(AttentionInputs {
@@ -408,14 +436,14 @@ fn prepare_packed_qkv(
 
 /// Resolve separate query/key/value inputs into per-head Q/K/V tensors,
 /// applying the optional QKV `bias` first.
-fn prepare_separate_qkv(
+fn prepare_separate_qkv<'a>(
     pool: &BufferPool,
-    query: NdTensorView<f32, 3>,
-    key: Option<NdTensorView<f32, 3>>,
-    value: Option<NdTensorView<f32, 3>>,
+    query: NdTensorView<'a, f32, 3>,
+    key: Option<NdTensorView<'a, f32, 3>>,
+    value: Option<NdTensorView<'a, f32, 3>>,
     bias: Option<NdTensorView<f32, 1>>,
     num_heads: usize,
-) -> Result<AttentionInputs, OpError> {
+) -> Result<AttentionInputs<'a>, OpError> {
     let [batch_size, seq_len, hidden] = query.shape();
     if hidden % num_heads != 0 {
         return Err(OpError::IncompatibleInputShapes(
@@ -451,10 +479,8 @@ fn prepare_separate_qkv(
     }
     let v_head_size = v_hidden / num_heads;
 
-    // Split Q/K/V into heads, applying the bias first if present.
-    // `split_attention_heads` copies its input, so the bias `add` results are
-    // wrapped in `auto_return` to recycle their buffers once the split has read
-    // from them.
+    // Split Q/K/V into heads. Without a bias this borrows the inputs; with a
+    // bias the add produces owned buffers that are split in place.
     let (query, key, value) = if let Some(bias) = &bias {
         if bias.shape() != [hidden * 2 + v_hidden] {
             return Err(OpError::IncompatibleInputShapes(
@@ -465,13 +491,13 @@ fn prepare_separate_qkv(
         let k_bias = bias.slice(hidden..(hidden * 2));
         let v_bias = bias.slice((hidden * 2)..);
 
-        let query = add(pool, query.as_dyn(), q_bias.as_dyn())?.auto_return(pool);
-        let key = add(pool, key.as_dyn(), k_bias.as_dyn())?.auto_return(pool);
-        let value = add(pool, value.as_dyn(), v_bias.as_dyn())?.auto_return(pool);
+        let split = |input: NdTensorView<f32, 3>, bias, head_size| {
+            add_bias_and_split_heads(pool, input.as_dyn(), bias, num_heads, head_size)
+        };
         (
-            split_attention_heads(pool, query.nd_view(), num_heads, head_size)?,
-            split_attention_heads(pool, key.nd_view(), num_heads, head_size)?,
-            split_attention_heads(pool, value.nd_view(), num_heads, v_head_size)?,
+            split(query, q_bias.as_dyn(), head_size)?,
+            split(key.view(), k_bias.as_dyn(), head_size)?,
+            split(value.view(), v_bias.as_dyn(), v_head_size)?,
         )
     } else {
         (
@@ -495,17 +521,17 @@ fn prepare_separate_qkv(
 
 /// Concatenate the past KV cache onto the current `key` and `value` along the
 /// sequence axis, validating that the cache shapes are compatible.
-fn concat_past_kv(
+fn concat_past_kv<'a>(
     pool: &BufferPool,
-    key: NdTensor<f32, 4>,
-    value: NdTensor<f32, 4>,
+    key: CowNdTensor<f32, 4>,
+    value: CowNdTensor<f32, 4>,
     past_key: NdTensorView<f32, 4>,
     past_value: NdTensorView<f32, 4>,
     batch_size: usize,
     num_heads: usize,
     head_size: usize,
     v_head_size: usize,
-) -> Result<(NdTensor<f32, 4>, NdTensor<f32, 4>), OpError> {
+) -> Result<(CowNdTensor<'a, f32, 4>, CowNdTensor<'a, f32, 4>), OpError> {
     let [past_batch, past_heads, _, past_head_size] = past_key.shape();
     if past_batch != batch_size || past_heads != num_heads || past_head_size != head_size {
         return Err(OpError::IncompatibleInputShapes(
@@ -526,8 +552,11 @@ fn concat_past_kv(
     let key_seq_len = key.size(2);
     let value_seq_len = value.size(2);
     Ok((
-        key.into_shape([batch_size, num_heads, key_seq_len, head_size]),
-        value.into_shape([batch_size, num_heads, value_seq_len, v_head_size]),
+        key.into_shape([batch_size, num_heads, key_seq_len, head_size])
+            .into_cow(),
+        value
+            .into_shape([batch_size, num_heads, value_seq_len, v_head_size])
+            .into_cow(),
     ))
 }
 
@@ -715,7 +744,7 @@ impl Operator for MultiHeadAttention {
             v_head_size,
             v_hidden,
         } = if query.ndim() == 5 {
-            prepare_packed_qkv(ctx.pool(), query.nd_view(), key, value, bias, num_heads)?
+            prepare_packed_qkv(query.nd_view(), key, value, bias, num_heads)?
         } else if query.ndim() == 3 {
             prepare_separate_qkv(ctx.pool(), query.nd_view(), key, value, bias, num_heads)?
         } else {
@@ -780,8 +809,10 @@ impl Operator for MultiHeadAttention {
 
         let mut outputs: OutputList = [output.into()].into();
         if return_present {
-            outputs.push(key.into());
-            outputs.push(value.into());
+            // The present key/value are returned as owned model outputs, so
+            // materialize them (a no-op copy when they are already owned).
+            outputs.push(key.to_tensor_in(ctx.pool()).into());
+            outputs.push(value.to_tensor_in(ctx.pool()).into());
         }
         Ok(outputs)
     }
