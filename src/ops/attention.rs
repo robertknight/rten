@@ -536,7 +536,7 @@ impl Operator for MultiHeadAttention {
                 "past_key and past_value must either both be present or both be absent",
             ));
         }
-        let return_present = past_key.is_some() || ctx.num_outputs().is_some_and(|n| n > 1);
+        let return_present = past_key.is_some() || ctx.outputs().count_true() > 1;
         if let Some(past_key) = past_key {
             let past_value = past_value.unwrap();
             let [past_batch, past_heads, _, past_head_size] = past_key.shape() else {
@@ -664,6 +664,7 @@ impl Operator for MultiHeadAttention {
 
 #[cfg(test)]
 mod tests {
+    use rten_base::bit_set::BitSet;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
@@ -905,7 +906,7 @@ mod tests {
         ];
         let input_list = InputList::from_optional(&inputs);
         let pool = BufferPool::new();
-        let ctx = OpRunContext::new(&pool, &input_list);
+        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(1));
 
         let mut outputs = op.run(&ctx).unwrap();
         let result: Tensor = outputs.remove(0).try_into().unwrap();
