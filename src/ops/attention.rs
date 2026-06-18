@@ -500,6 +500,10 @@ impl Operator for MultiHeadAttention {
                 }
                 let v_head_size = *v_hidden / num_heads;
 
+                // Split Q/K/V into heads, applying the bias first if present.
+                // `split_attention_heads` copies its input, so the bias `add`
+                // results are wrapped in `auto_return` to recycle their buffers
+                // once the split has read from them.
                 let (query, key, value) = if let Some(bias) = &bias {
                     if bias.shape() != [hidden * 2 + *v_hidden] {
                         return Err(OpError::IncompatibleInputShapes(
@@ -513,22 +517,23 @@ impl Operator for MultiHeadAttention {
                     let query = add(ctx.pool(), query.view(), q_bias)?.auto_return(ctx.pool());
                     let key = add(ctx.pool(), key.view(), k_bias)?.auto_return(ctx.pool());
                     let value = add(ctx.pool(), value.view(), v_bias)?.auto_return(ctx.pool());
-                    let key = key.to_owned();
-                    let value = value.to_owned();
-                    let query = query.to_owned();
-                    (query, key, value)
+                    (
+                        split_attention_heads(ctx.pool(), query.view(), num_heads, head_size)?,
+                        split_attention_heads(ctx.pool(), key.view(), num_heads, head_size)?,
+                        split_attention_heads(ctx.pool(), value.view(), num_heads, v_head_size)?,
+                    )
                 } else {
                     (
-                        query.to_tensor_in(ctx.pool()),
-                        key.to_tensor_in(ctx.pool()),
-                        value.to_tensor_in(ctx.pool()),
+                        split_attention_heads(ctx.pool(), query.view(), num_heads, head_size)?,
+                        split_attention_heads(ctx.pool(), key.view(), num_heads, head_size)?,
+                        split_attention_heads(ctx.pool(), value.view(), num_heads, v_head_size)?,
                     )
                 };
 
                 (
-                    split_attention_heads(ctx.pool(), query.view(), num_heads, head_size)?,
-                    split_attention_heads(ctx.pool(), key.view(), num_heads, head_size)?,
-                    split_attention_heads(ctx.pool(), value.view(), num_heads, v_head_size)?,
+                    query,
+                    key,
+                    value,
                     batch_size,
                     seq_len,
                     head_size,
