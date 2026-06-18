@@ -10,6 +10,7 @@ members = [
   "rten-model-file",
   "rten-onnx",
   "rten-parallel",
+  "rten-serialize",
   "rten-shape-inference",
   "rten-simd",
   "rten-tensor",
@@ -21,7 +22,7 @@ members = [
 
   # Development crates. These are not published.
   "rten-bench",
-  "rten-testing", "rten-serialize",
+  "rten-testing",
 ]
 default-members = [
   ".",
