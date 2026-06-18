@@ -560,6 +560,73 @@ fn attention_scores(
     Ok(scores)
 }
 
+/// Mask out attention scores in place, writing `mask_filter_value` into
+/// positions a query may not attend to.
+///
+/// `scores` has shape `[batch, num_heads, seq, total_seq]`. When
+/// `unidirectional` is set a causal mask is applied (a query at position `i`
+/// may not attend to keys after `past_len + i`). `key_padding_mask`, if
+/// present, has shape `[batch, total_seq]` where a `0` marks a key position
+/// that all queries should ignore.
+fn apply_masks(
+    pool: &BufferPool,
+    scores: &mut NdTensor<f32, 4>,
+    key_padding_mask: Option<NdTensorView<i32, 2>>,
+    mask_filter_value: f32,
+    unidirectional: bool,
+) -> Result<(), OpError> {
+    let batch_size = scores.size(0);
+    let num_heads = scores.size(1);
+    let seq_len = scores.size(2);
+    let total_seq_len = scores.size(3);
+
+    let scores_data = scores
+        .data_mut()
+        .ok_or(OpError::InvalidValue("Attention scores must be contiguous"))?;
+
+    if unidirectional {
+        let past_len = total_seq_len - seq_len;
+        scores_data
+            .par_chunks_mut(seq_len * total_seq_len)
+            .for_each(|scores| {
+                for q_idx in 0..seq_len {
+                    for k_idx in (past_len + q_idx + 1)..total_seq_len {
+                        scores[q_idx * total_seq_len + k_idx] = mask_filter_value;
+                    }
+                }
+            });
+    }
+
+    if let Some(key_padding_mask) = key_padding_mask {
+        if key_padding_mask.shape() != [batch_size, total_seq_len] {
+            return Err(OpError::IncompatibleInputShapes(
+                "key_padding_mask shape does not match key sequence length",
+            ));
+        }
+        let mask = key_padding_mask.to_contiguous_in(pool);
+        let mask = mask.data();
+        let head_stride = seq_len * total_seq_len;
+        let batch_stride = num_heads * head_stride;
+        for batch in 0..batch_size {
+            for key_idx in 0..total_seq_len {
+                if mask[batch * total_seq_len + key_idx] == 0 {
+                    for head in 0..num_heads {
+                        for query_idx in 0..seq_len {
+                            let offset = batch * batch_stride
+                                + head * head_stride
+                                + query_idx * total_seq_len
+                                + key_idx;
+                            scores_data[offset] = mask_filter_value;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Apply softmax over the last (key) axis of the attention scores, in place.
 fn softmax_last_dim(scores: &mut NdTensor<f32, 4>) {
     for mut lane in scores.lanes_mut(3) {
@@ -688,7 +755,13 @@ impl Operator for MultiHeadAttention {
         }
 
         // Apply the causal and key-padding masks, then softmax over the keys.
-        self.apply_masks(ctx.pool(), &mut scores, key_padding_mask)?;
+        apply_masks(
+            ctx.pool(),
+            &mut scores,
+            key_padding_mask,
+            self.mask_filter_value,
+            self.unidirectional,
+        )?;
         softmax_last_dim(&mut scores);
 
         // Context = softmax(scores) . V, reshaped to [batch, seq, v_hidden].
@@ -715,74 +788,6 @@ impl Operator for MultiHeadAttention {
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
         None
-    }
-}
-
-impl MultiHeadAttention {
-    /// Mask out attention scores in place, writing `mask_filter_value` into
-    /// positions a query may not attend to.
-    ///
-    /// `scores` has shape `[batch, num_heads, seq, total_seq]`. When
-    /// `unidirectional` is set a causal mask is applied (a query at position
-    /// `i` may not attend to keys after `past_len + i`). `key_padding_mask`, if
-    /// present, has shape `[batch, total_seq]` where a `0` marks a key position
-    /// that all queries should ignore.
-    fn apply_masks(
-        &self,
-        pool: &BufferPool,
-        scores: &mut NdTensor<f32, 4>,
-        key_padding_mask: Option<NdTensorView<i32, 2>>,
-    ) -> Result<(), OpError> {
-        let batch_size = scores.size(0);
-        let num_heads = scores.size(1);
-        let seq_len = scores.size(2);
-        let total_seq_len = scores.size(3);
-
-        let scores_data = scores
-            .data_mut()
-            .ok_or(OpError::InvalidValue("Attention scores must be contiguous"))?;
-
-        if self.unidirectional {
-            let past_len = total_seq_len - seq_len;
-            scores_data
-                .par_chunks_mut(seq_len * total_seq_len)
-                .for_each(|scores| {
-                    for q_idx in 0..seq_len {
-                        for k_idx in (past_len + q_idx + 1)..total_seq_len {
-                            scores[q_idx * total_seq_len + k_idx] = self.mask_filter_value;
-                        }
-                    }
-                });
-        }
-
-        if let Some(key_padding_mask) = key_padding_mask {
-            if key_padding_mask.shape() != [batch_size, total_seq_len] {
-                return Err(OpError::IncompatibleInputShapes(
-                    "key_padding_mask shape does not match key sequence length",
-                ));
-            }
-            let mask = key_padding_mask.to_contiguous_in(pool);
-            let mask = mask.data();
-            let head_stride = seq_len * total_seq_len;
-            let batch_stride = num_heads * head_stride;
-            for batch in 0..batch_size {
-                for key_idx in 0..total_seq_len {
-                    if mask[batch * total_seq_len + key_idx] == 0 {
-                        for head in 0..num_heads {
-                            for query_idx in 0..seq_len {
-                                let offset = batch * batch_stride
-                                    + head * head_stride
-                                    + query_idx * total_seq_len
-                                    + key_idx;
-                                scores_data[offset] = self.mask_filter_value;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
     }
 }
 
