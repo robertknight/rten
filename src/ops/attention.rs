@@ -14,7 +14,7 @@ use crate::operator::{
     OutputTypesContext,
 };
 use crate::ops::{
-    binary_elementwise::{add, add_in_place, broadcast_shapes},
+    binary_elementwise::{add, broadcast_shapes},
     concat::concat,
     layout::expand_to,
     matmul::matmul,
@@ -560,17 +560,15 @@ fn concat_past_kv<'a>(
     ))
 }
 
-/// Compute scaled attention scores `(Q . K^T) * scale + attention_bias`.
+/// Compute scaled attention scores `(Q . K^T) * scale`.
 ///
 /// `query` and `key` have shape `[batch, num_heads, seq, head_size]`; the
-/// result has shape `[batch, num_heads, seq, total_seq]`. `attention_bias`, if
-/// present, is added to the scores and must broadcast to that shape.
+/// result has shape `[batch, num_heads, seq, total_seq]`.
 fn attention_scores(
     pool: &BufferPool,
     query: NdTensorView<f32, 4>,
     key: NdTensorView<f32, 4>,
     scale: f32,
-    attention_bias: Option<NdTensorView<f32, 4>>,
 ) -> Result<NdTensor<f32, 4>, OpError> {
     let [batch_size, num_heads, seq_len, _head_size] = query.shape();
     let total_seq_len = key.size(2);
@@ -580,17 +578,6 @@ fn attention_scores(
     for score in scores.iter_mut() {
         *score *= scale;
     }
-
-    if let Some(attention_bias) = attention_bias {
-        let attention_bias = attention_bias.as_dyn();
-        // `add_in_place` would panic on a non-broadcastable bias, so check
-        // first to return an error instead.
-        attention_bias
-            .try_broadcast(scores.shape())
-            .map_err(|_| BROADCAST_ERROR)?;
-        add_in_place(scores.as_dyn_mut(), attention_bias);
-    }
-
     Ok(scores)
 }
 
@@ -787,12 +774,18 @@ impl Operator for MultiHeadAttention {
             )?;
         }
 
-        // Scores = (Q . K^T) * scale + attention_bias.
+        // Scores = (Q . K^T) * scale.
         let scale = self
             .scale
             .unwrap_or_else(|| 1.0 / (head_size as f32).sqrt());
-        let mut scores =
-            attention_scores(ctx.pool(), query.view(), key.view(), scale, attention_bias)?;
+        let mut scores = attention_scores(ctx.pool(), query.view(), key.view(), scale)?;
+
+        // Add the attention bias. It broadcasts against the scores, which are
+        // the larger operand, so the result keeps the scores' shape.
+        if let Some(attention_bias) = attention_bias {
+            let shape = scores.shape();
+            scores = add(ctx.pool(), scores.as_dyn(), attention_bias.as_dyn())?.into_shape(shape);
+        }
 
         // Apply the causal and key-padding masks, then softmax over the keys.
         apply_masks(
