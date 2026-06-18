@@ -612,7 +612,7 @@ impl Operator for MultiHeadAttention {
                 let batch_stride = num_heads * head_stride;
                 for batch in 0..batch_size {
                     for key_idx in 0..total_seq_len {
-                        if mask[batch * total_seq_len + key_idx] != 0 {
+                        if mask[batch * total_seq_len + key_idx] == 0 {
                             for head in 0..num_heads {
                                 for query_idx in 0..seq_len {
                                     let offset = batch * batch_stride
@@ -893,6 +893,8 @@ mod tests {
             unidirectional: false,
         };
         let query = Tensor::from_data(&[1, 2, 2], vec![1., 0., 0., 1.]);
+        // Key position 0 is masked out, so both queries attend only to
+        // key/value position 1.
         let key_padding_mask = Tensor::from_data(&[1, 2], vec![0i32, 1]);
         let inputs = [
             Some(ValueView::from(query.view())),
@@ -907,7 +909,7 @@ mod tests {
 
         let mut outputs = op.run(&ctx).unwrap();
         let result: Tensor = outputs.remove(0).try_into().unwrap();
-        let expected = Tensor::from_data(&[1, 2, 2], vec![1., 0., 1., 0.]);
+        let expected = Tensor::from_data(&[1, 2, 2], vec![0., 1., 0., 1.]);
         expect_equal_with_tolerance(&result, &expected, 1e-6, 0.).unwrap();
     }
 
