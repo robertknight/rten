@@ -114,6 +114,17 @@ impl fmt::Debug for Dimension {
     }
 }
 
+/// Trim trailing `None`s from a slice.
+fn trim_none_suffix<T>(mut slice: &[Option<T>]) -> &[Option<T>] {
+    while let Some((last, prefix)) = slice.split_last() {
+        match last {
+            None => slice = prefix,
+            Some(_) => break,
+        }
+    }
+    slice
+}
+
 #[derive(Debug)]
 pub struct OperatorNode {
     name: Option<String>,
@@ -142,6 +153,9 @@ impl OperatorNode {
                 capture_names.extend(subgraph.capture_names().iter().map(|s| s.to_string()));
             }
         }
+
+        // Trim trailing empty IDs
+        let output_ids = trim_none_suffix(output_ids);
 
         // Pre-compute mask of used outputs.
         let mut output_mask = BitSet::ones(output_ids.len() as u32);
