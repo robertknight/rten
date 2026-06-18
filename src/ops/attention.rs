@@ -346,14 +346,13 @@ fn split_attention_heads<'a>(
 /// buffer, which is reinterpreted into head form without any further copy.
 fn add_bias_and_split_heads(
     pool: &BufferPool,
-    input: TensorView<f32>,
-    bias: TensorView<f32>,
+    input: NdTensorView<f32, 3>,
+    bias: NdTensorView<f32, 1>,
     num_heads: usize,
     head_size: usize,
 ) -> Result<CowNdTensor<'static, f32, 4>, OpError> {
-    let biased = add(pool, input, bias)?;
-    let batch_size = biased.size(0);
-    let seq_len = biased.size(1);
+    let [batch_size, seq_len, _hidden] = input.shape();
+    let biased = add(pool, input.as_dyn(), bias.as_dyn())?;
     let mut biased = biased.into_shape([batch_size, seq_len, num_heads, head_size]);
     biased.permute([0, 2, 1, 3]);
     Ok(biased.into_cow())
@@ -491,13 +490,13 @@ fn prepare_separate_qkv<'a>(
         let k_bias = bias.slice(hidden..(hidden * 2));
         let v_bias = bias.slice((hidden * 2)..);
 
-        let split = |input: NdTensorView<f32, 3>, bias, head_size| {
-            add_bias_and_split_heads(pool, input.as_dyn(), bias, num_heads, head_size)
+        let split = |input, bias, head_size| {
+            add_bias_and_split_heads(pool, input, bias, num_heads, head_size)
         };
         (
-            split(query, q_bias.as_dyn(), head_size)?,
-            split(key.view(), k_bias.as_dyn(), head_size)?,
-            split(value.view(), v_bias.as_dyn(), v_head_size)?,
+            split(query, q_bias, head_size)?,
+            split(key.view(), k_bias, head_size)?,
+            split(value.view(), v_bias, v_head_size)?,
         )
     } else {
         (
