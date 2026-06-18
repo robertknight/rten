@@ -644,6 +644,10 @@ fn attention_output(
         .into_shape([batch_size, seq_len, v_hidden]))
 }
 
+/// Multi-head attention operator.
+///
+/// See the `com.microsoft.MultiHeadAttention` contrib operator spec:
+/// <https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.MultiHeadAttention>.
 #[derive(Debug)]
 pub struct MultiHeadAttention {
     pub mask_filter_value: f32,
