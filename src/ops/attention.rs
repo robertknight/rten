@@ -315,14 +315,6 @@ impl Operator for GroupedQueryAttentionMatMul {
     }
 }
 
-#[derive(Debug)]
-pub struct MultiHeadAttention {
-    pub mask_filter_value: f32,
-    pub num_heads: i64,
-    pub scale: Option<f32>,
-    pub unidirectional: bool,
-}
-
 fn split_attention_heads(
     pool: &BufferPool,
     input: NdTensorView<f32, 3>,
@@ -650,6 +642,14 @@ fn attention_output(
         .permuted([0, 2, 1, 3])
         .to_tensor_in(pool)
         .into_shape([batch_size, seq_len, v_hidden]))
+}
+
+#[derive(Debug)]
+pub struct MultiHeadAttention {
+    pub mask_filter_value: f32,
+    pub num_heads: i64,
+    pub scale: Option<f32>,
+    pub unidirectional: bool,
 }
 
 impl Operator for MultiHeadAttention {
