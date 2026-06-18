@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, Tensor, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath::Softmax;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
@@ -325,23 +325,19 @@ pub struct MultiHeadAttention {
 
 fn split_attention_heads(
     pool: &BufferPool,
-    input: TensorView<f32>,
+    input: NdTensorView<f32, 3>,
     num_heads: usize,
     head_size: usize,
-) -> Result<Tensor<f32>, OpError> {
-    let [batch_size, seq_len, hidden] = input.shape() else {
-        return Err(OpError::InvalidValue(
-            "attention input must have shape [batch_size, sequence_len, hidden_size]",
-        ));
-    };
-    if *hidden != num_heads * head_size {
+) -> Result<NdTensor<f32, 4>, OpError> {
+    let [batch_size, seq_len, hidden] = input.shape();
+    if hidden != num_heads * head_size {
         return Err(OpError::IncompatibleInputShapes(
             "Hidden size does not match number of attention heads",
         ));
     }
 
-    let reshaped = input.reshaped_in(pool, [*batch_size, *seq_len, num_heads, head_size]);
-    Ok(reshaped.permuted([0, 2, 1, 3]).as_dyn().to_tensor_in(pool))
+    let reshaped = input.reshaped_in(pool, [batch_size, seq_len, num_heads, head_size]);
+    Ok(reshaped.permuted([0, 2, 1, 3]).to_tensor_in(pool))
 }
 
 /// Query, key and value tensors split into per-head form, plus the dimensions
@@ -350,9 +346,9 @@ fn split_attention_heads(
 /// `query`, `key` and `value` have shape `[batch, num_heads, seq, head_size]`
 /// (`v_head_size` for `value`).
 struct AttentionInputs {
-    query: Tensor<f32>,
-    key: Tensor<f32>,
-    value: Tensor<f32>,
+    query: NdTensor<f32, 4>,
+    key: NdTensor<f32, 4>,
+    value: NdTensor<f32, 4>,
     batch_size: usize,
     seq_len: usize,
     head_size: usize,
@@ -364,10 +360,10 @@ struct AttentionInputs {
 /// `[batch, kv_seq_len, num_heads, 3, head_size]` into per-head Q/K/V tensors.
 fn prepare_packed_qkv(
     pool: &BufferPool,
-    query: TensorView<f32>,
-    key: Option<TensorView<f32>>,
-    value: Option<TensorView<f32>>,
-    bias: Option<TensorView<f32>>,
+    query: NdTensorView<f32, 5>,
+    key: Option<NdTensorView<f32, 3>>,
+    value: Option<NdTensorView<f32, 3>>,
+    bias: Option<NdTensorView<f32, 1>>,
     num_heads: usize,
 ) -> Result<AttentionInputs, OpError> {
     if key.is_some() {
@@ -386,11 +382,7 @@ fn prepare_packed_qkv(
         ));
     }
 
-    let &[batch_size, kv_seq_len, packed_num_heads, three, head_size] = query.shape() else {
-        return Err(OpError::InvalidValue(
-            "query must be [batch_size, sequence_len, hidden_size] or [batch_size, kv_sequence_length, num_heads, 3, head_size]",
-        ));
-    };
+    let [batch_size, kv_seq_len, packed_num_heads, three, head_size] = query.shape();
     if three != 3 {
         return Err(OpError::InvalidValue(
             "4th dimension of packed qkv input must be 3",
@@ -406,9 +398,7 @@ fn prepare_packed_qkv(
     let to_heads = |index| {
         query
             .slice((.., .., .., index, ..))
-            .nd_view()
             .permuted([0, 2, 1, 3])
-            .as_dyn()
             .to_tensor_in(pool)
     };
 
@@ -428,17 +418,13 @@ fn prepare_packed_qkv(
 /// applying the optional QKV `bias` first.
 fn prepare_separate_qkv(
     pool: &BufferPool,
-    query: TensorView<f32>,
-    key: Option<TensorView<f32>>,
-    value: Option<TensorView<f32>>,
-    bias: Option<TensorView<f32>>,
+    query: NdTensorView<f32, 3>,
+    key: Option<NdTensorView<f32, 3>>,
+    value: Option<NdTensorView<f32, 3>>,
+    bias: Option<NdTensorView<f32, 1>>,
     num_heads: usize,
 ) -> Result<AttentionInputs, OpError> {
-    let &[batch_size, seq_len, hidden] = query.shape() else {
-        return Err(OpError::InvalidValue(
-            "query must be [batch_size, sequence_len, hidden_size] or [batch_size, kv_sequence_length, num_heads, 3, head_size]",
-        ));
-    };
+    let [batch_size, seq_len, hidden] = query.shape();
     if hidden % num_heads != 0 {
         return Err(OpError::IncompatibleInputShapes(
             "Hidden size must be divisible by number of attention heads",
@@ -454,16 +440,8 @@ fn prepare_separate_qkv(
         }
     };
 
-    let &[key_batch, key_seq_len, key_hidden] = key.shape() else {
-        return Err(OpError::InvalidValue(
-            "key must have shape [batch_size, sequence_len, hidden_size]",
-        ));
-    };
-    let &[value_batch, value_seq_len, v_hidden] = value.shape() else {
-        return Err(OpError::InvalidValue(
-            "value must have shape [batch_size, sequence_len, hidden_size]",
-        ));
-    };
+    let [key_batch, key_seq_len, key_hidden] = key.shape();
+    let [value_batch, value_seq_len, v_hidden] = value.shape();
     if key_batch != batch_size || value_batch != batch_size || value_seq_len != key_seq_len {
         return Err(OpError::IncompatibleInputShapes(
             "Key and value batch or sequence lengths do not match",
@@ -495,13 +473,13 @@ fn prepare_separate_qkv(
         let k_bias = bias.slice(hidden..(hidden * 2));
         let v_bias = bias.slice((hidden * 2)..);
 
-        let query = add(pool, query.view(), q_bias)?.auto_return(pool);
-        let key = add(pool, key.view(), k_bias)?.auto_return(pool);
-        let value = add(pool, value.view(), v_bias)?.auto_return(pool);
+        let query = add(pool, query.as_dyn(), q_bias.as_dyn())?.auto_return(pool);
+        let key = add(pool, key.as_dyn(), k_bias.as_dyn())?.auto_return(pool);
+        let value = add(pool, value.as_dyn(), v_bias.as_dyn())?.auto_return(pool);
         (
-            split_attention_heads(pool, query.view(), num_heads, head_size)?,
-            split_attention_heads(pool, key.view(), num_heads, head_size)?,
-            split_attention_heads(pool, value.view(), num_heads, v_head_size)?,
+            split_attention_heads(pool, query.nd_view(), num_heads, head_size)?,
+            split_attention_heads(pool, key.nd_view(), num_heads, head_size)?,
+            split_attention_heads(pool, value.nd_view(), num_heads, v_head_size)?,
         )
     } else {
         (
@@ -527,39 +505,38 @@ fn prepare_separate_qkv(
 /// sequence axis, validating that the cache shapes are compatible.
 fn concat_past_kv(
     pool: &BufferPool,
-    key: Tensor<f32>,
-    value: Tensor<f32>,
-    past_key: TensorView<f32>,
-    past_value: TensorView<f32>,
+    key: NdTensor<f32, 4>,
+    value: NdTensor<f32, 4>,
+    past_key: NdTensorView<f32, 4>,
+    past_value: NdTensorView<f32, 4>,
     batch_size: usize,
     num_heads: usize,
     head_size: usize,
     v_head_size: usize,
-) -> Result<(Tensor<f32>, Tensor<f32>), OpError> {
-    let &[past_batch, past_heads, _, past_head_size] = past_key.shape() else {
-        return Err(OpError::InvalidValue(
-            "past_key must have shape [batch_size, num_heads, past_sequence_len, head_size]",
-        ));
-    };
+) -> Result<(NdTensor<f32, 4>, NdTensor<f32, 4>), OpError> {
+    let [past_batch, past_heads, _, past_head_size] = past_key.shape();
     if past_batch != batch_size || past_heads != num_heads || past_head_size != head_size {
         return Err(OpError::IncompatibleInputShapes(
             "past_key shape does not match query/key shape",
         ));
     }
-    let &[past_batch, past_heads, _, past_v_head_size] = past_value.shape() else {
-        return Err(OpError::InvalidValue(
-            "past_value must have shape [batch_size, num_heads, past_sequence_len, v_head_size]",
-        ));
-    };
+    let [past_batch, past_heads, _, past_v_head_size] = past_value.shape();
     if past_batch != batch_size || past_heads != num_heads || past_v_head_size != v_head_size {
         return Err(OpError::IncompatibleInputShapes(
             "past_value shape does not match query/value shape",
         ));
     }
 
-    let key = concat(pool, &[past_key, key.view()], 2)?;
-    let value = concat(pool, &[past_value, value.view()], 2)?;
-    Ok((key, value))
+    // `concat` works on dynamic-rank views; the result is contiguous with the
+    // sequence axis extended, so reinterpret it back as a rank-4 tensor.
+    let key = concat(pool, &[past_key.as_dyn(), key.as_dyn()], 2)?;
+    let value = concat(pool, &[past_value.as_dyn(), value.as_dyn()], 2)?;
+    let key_seq_len = key.size(2);
+    let value_seq_len = value.size(2);
+    Ok((
+        key.into_shape([batch_size, num_heads, key_seq_len, head_size]),
+        value.into_shape([batch_size, num_heads, value_seq_len, v_head_size]),
+    ))
 }
 
 /// Compute scaled attention scores `(Q . K^T) * scale`.
@@ -568,12 +545,15 @@ fn concat_past_kv(
 /// result has shape `[batch, num_heads, seq, total_seq]`.
 fn attention_scores(
     pool: &BufferPool,
-    query: TensorView<f32>,
-    key: TensorView<f32>,
+    query: NdTensorView<f32, 4>,
+    key: NdTensorView<f32, 4>,
     scale: f32,
-) -> Result<Tensor<f32>, OpError> {
-    let key_t = key.nd_view().permuted([0, 1, 3, 2]).as_dyn();
-    let mut scores = matmul(pool, query, key_t, None)?;
+) -> Result<NdTensor<f32, 4>, OpError> {
+    let [batch_size, num_heads, seq_len, _head_size] = query.shape();
+    let total_seq_len = key.size(2);
+    let key_t = key.permuted([0, 1, 3, 2]);
+    let mut scores = matmul(pool, query.as_dyn(), key_t.as_dyn(), None)?
+        .into_shape([batch_size, num_heads, seq_len, total_seq_len]);
     for score in scores.iter_mut() {
         *score *= scale;
     }
@@ -581,8 +561,8 @@ fn attention_scores(
 }
 
 /// Apply softmax over the last (key) axis of the attention scores, in place.
-fn softmax_last_dim(scores: &mut Tensor<f32>) {
-    for mut lane in scores.lanes_mut(scores.ndim() - 1) {
+fn softmax_last_dim(scores: &mut NdTensor<f32, 4>) {
+    for mut lane in scores.lanes_mut(3) {
         Softmax::new_mut(lane.as_slice_mut().unwrap()).dispatch();
     }
 }
@@ -591,19 +571,18 @@ fn softmax_last_dim(scores: &mut Tensor<f32>) {
 /// `[batch, seq, v_hidden]`.
 fn attention_output(
     pool: &BufferPool,
-    scores: TensorView<f32>,
-    value: TensorView<f32>,
+    scores: NdTensorView<f32, 4>,
+    value: NdTensorView<f32, 4>,
     batch_size: usize,
     seq_len: usize,
     v_hidden: usize,
-) -> Result<Tensor<f32>, OpError> {
-    let context = matmul(pool, scores, value, None)?;
+) -> Result<NdTensor<f32, 3>, OpError> {
+    let context = matmul(pool, scores.as_dyn(), value.as_dyn(), None)?;
     Ok(context
-        .nd_view()
+        .nd_view::<4>()
         .permuted([0, 2, 1, 3])
-        .as_dyn()
         .to_tensor_in(pool)
-        .into_shape([batch_size, seq_len, v_hidden].as_slice()))
+        .into_shape([batch_size, seq_len, v_hidden]))
 }
 
 impl Operator for MultiHeadAttention {
@@ -623,14 +602,16 @@ impl Operator for MultiHeadAttention {
 
     // TODO https://github.com/microsoft/onnxruntime/blob/13af65970aaa6a0b9ac71106da07376fef24aa56/onnxruntime/test/contrib_ops/multihead_attention_op_test.cc
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        // `query` may be rank 3 (separate Q/K/V) or rank 5 (packed QKV), so it
+        // is read as a dynamic-rank view and narrowed below.
         let query: TensorView<f32> = ctx.inputs().require_as(0)?;
-        let key: Option<TensorView<f32>> = ctx.inputs().get_as(1)?;
-        let value: Option<TensorView<f32>> = ctx.inputs().get_as(2)?;
-        let bias: Option<TensorView<f32>> = ctx.inputs().get_as(3)?;
-        let key_padding_mask: Option<TensorView<i32>> = ctx.inputs().get_as(4)?;
-        let attention_bias: Option<TensorView<f32>> = ctx.inputs().get_as(5)?;
-        let past_key: Option<TensorView<f32>> = ctx.inputs().get_as(6)?;
-        let past_value: Option<TensorView<f32>> = ctx.inputs().get_as(7)?;
+        let key: Option<NdTensorView<f32, 3>> = ctx.inputs().get_as(1)?;
+        let value: Option<NdTensorView<f32, 3>> = ctx.inputs().get_as(2)?;
+        let bias: Option<NdTensorView<f32, 1>> = ctx.inputs().get_as(3)?;
+        let key_padding_mask: Option<NdTensorView<i32, 2>> = ctx.inputs().get_as(4)?;
+        let attention_bias: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(5)?;
+        let past_key: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(6)?;
+        let past_value: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(7)?;
         let past_seq_len: Option<TensorView<i32>> = ctx.inputs().get_as(8)?;
         let cache_indirection: Option<TensorView<i32>> = ctx.inputs().get_as(9)?;
 
@@ -663,9 +644,13 @@ impl Operator for MultiHeadAttention {
             v_head_size,
             v_hidden,
         } = if query.ndim() == 5 {
-            prepare_packed_qkv(ctx.pool(), query, key, value, bias, num_heads)?
+            prepare_packed_qkv(ctx.pool(), query.nd_view(), key, value, bias, num_heads)?
+        } else if query.ndim() == 3 {
+            prepare_separate_qkv(ctx.pool(), query.nd_view(), key, value, bias, num_heads)?
         } else {
-            prepare_separate_qkv(ctx.pool(), query, key, value, bias, num_heads)?
+            return Err(OpError::InvalidValue(
+                "query must be [batch_size, sequence_len, hidden_size] or [batch_size, kv_sequence_length, num_heads, 3, head_size]",
+            ));
         };
 
         // Extend key/value with the past KV cache, if provided.
@@ -695,9 +680,11 @@ impl Operator for MultiHeadAttention {
             .unwrap_or_else(|| 1.0 / (head_size as f32).sqrt());
         let mut scores = attention_scores(ctx.pool(), query.view(), key.view(), scale)?;
 
-        // Add the attention bias.
+        // Add the attention bias. It broadcasts against the scores, which are
+        // the larger operand, so the result keeps the scores' shape.
         if let Some(attention_bias) = attention_bias {
-            scores = add(ctx.pool(), scores.view(), attention_bias)?;
+            let shape = scores.shape();
+            scores = add(ctx.pool(), scores.as_dyn(), attention_bias.as_dyn())?.into_shape(shape);
         }
 
         // Apply the causal and key-padding masks, then softmax over the keys.
@@ -743,8 +730,8 @@ impl MultiHeadAttention {
     fn apply_masks(
         &self,
         pool: &BufferPool,
-        scores: &mut Tensor<f32>,
-        key_padding_mask: Option<TensorView<i32>>,
+        scores: &mut NdTensor<f32, 4>,
+        key_padding_mask: Option<NdTensorView<i32, 2>>,
     ) -> Result<(), OpError> {
         let batch_size = scores.size(0);
         let num_heads = scores.size(1);
