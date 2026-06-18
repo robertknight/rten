@@ -205,6 +205,31 @@ fn test_graph_run() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn test_op_node_trailing_unused_outputs() {
+    let mut g = Graph::new();
+
+    let input_id = g.add_value(Some("input"), None, None);
+    let relu_out_id = g.add_value(Some("relu_out"), None, None);
+
+    g.add_op(
+        Some("relu"),
+        Arc::new(Relu {}),
+        &[Some(input_id)],
+        // Add operator with unused output IDs. When checking actual vs
+        // expected outputs at runtime, these should be ignored.
+        &[Some(relu_out_id), None, None],
+    );
+
+    g.run(
+        vec![(input_id, Tensor::from(1.).into())],
+        &[relu_out_id],
+        None,
+        None,
+    )
+    .unwrap();
+}
+
+#[test]
 fn test_graph_node_debug_names() {
     let mut g = Graph::new();
 
