@@ -353,6 +353,12 @@ impl Operator for MultiHeadAttention {
         Some(10)
     }
 
+    fn max_outputs(&self) -> Option<usize> {
+        // Spec defines 4 outputs: output, present_key, present_value, qk.
+        // The `qk` output is not yet implemented.
+        Some(3)
+    }
+
     // TODO https://github.com/microsoft/onnxruntime/blob/13af65970aaa6a0b9ac71106da07376fef24aa56/onnxruntime/test/contrib_ops/multihead_attention_op_test.cc
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let query: TensorView<f32> = ctx.inputs().require_as(0)?;
