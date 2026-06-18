@@ -1,0 +1,16 @@
+[package]
+name = "rten-serialize"
+version = "0.1.0"
+edition = "2024"
+description = "Numpy format support for the Rten machine learning runtime"
+license = "MIT OR Apache-2.0"
+resolver = "2"
+
+[features]
+default = []
+npy = ["npyz"]
+npz = ["npyz/npz"]
+
+[dependencies]
+npyz = { version = "0.9.1", optional = true }
+rten-tensor = { path = "../rten-tensor", version = "0.24.0" }

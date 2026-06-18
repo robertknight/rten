@@ -21,7 +21,7 @@ members = [
 
   # Development crates. These are not published.
   "rten-bench",
-  "rten-testing",
+  "rten-testing", "rten-serialize",
 ]
 default-members = [
   ".",
