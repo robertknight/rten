@@ -17,7 +17,6 @@ use crate::ops::{
     binary_elementwise::{add, broadcast_shapes},
     concat::concat,
     layout::expand_to,
-    matmul::matmul,
     norm::NanHandling,
     resolve_axis,
 };
@@ -572,12 +571,36 @@ fn attention_scores(
     let [batch_size, num_heads, seq_len, _head_size] = query.shape();
     let total_seq_len = key.size(2);
     let key_t = key.permuted([0, 1, 3, 2]);
-    let mut scores = matmul(pool, query.as_dyn(), key_t.as_dyn(), None)?
-        .into_shape([batch_size, num_heads, seq_len, total_seq_len]);
-    for score in scores.iter_mut() {
-        *score *= scale;
-    }
-    Ok(scores)
+
+    let chunk_size = seq_len * total_seq_len;
+    let out_size = batch_size * num_heads * chunk_size;
+    let mut out_data = pool.alloc(out_size);
+    let out_uninit = &mut out_data.spare_capacity_mut()[..out_size];
+
+    let gemm = GemmExecutor::default();
+    let a_mats: Vec<_> = query.inner_iter::<2>().map(GemmInputA::Unpacked).collect();
+    let b_mats: Vec<_> = key_t.inner_iter::<2>().map(GemmInputB::Unpacked).collect();
+
+    gemm.batched_gemm_uninit(
+        out_uninit,
+        &a_mats,
+        &b_mats,
+        GemmUninitOptions {
+            // Apply `scale` as the GEMM's `alpha` multiplier to avoid a separate
+            // pass over the scores.
+            alpha: scale,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // Safety: batched_gemm_uninit initialized the full output data.
+    unsafe { out_data.set_len(out_size) };
+
+    Ok(NdTensor::from_data(
+        [batch_size, num_heads, seq_len, total_seq_len],
+        out_data,
+    ))
 }
 
 /// Mask out attention scores in place, writing `mask_filter_value` into
@@ -649,9 +672,9 @@ fn apply_masks(
 
 /// Apply softmax over the last (key) axis of the attention scores, in place.
 fn softmax_last_dim(scores: &mut NdTensor<f32, 4>) {
-    for mut lane in scores.lanes_mut(3) {
+    scores.lanes_mut(3).into_par_iter().for_each(|mut lane| {
         Softmax::new_mut(lane.as_slice_mut().unwrap()).dispatch();
-    }
+    });
 }
 
 /// Compute the attention output `softmax(scores) . V` and reshape it back to
@@ -664,9 +687,28 @@ fn attention_output(
     seq_len: usize,
     v_hidden: usize,
 ) -> Result<NdTensor<f32, 3>, OpError> {
-    let context = matmul(pool, scores.as_dyn(), value.as_dyn(), None)?;
+    let [_, num_heads, _, _] = scores.shape();
+    let v_head_size = value.size(3);
+
+    let chunk_size = seq_len * v_head_size;
+    let out_size = batch_size * num_heads * chunk_size;
+    let mut out_data = pool.alloc(out_size);
+    let out_uninit = &mut out_data.spare_capacity_mut()[..out_size];
+
+    let gemm = GemmExecutor::default();
+    let a_mats: Vec<_> = scores.inner_iter::<2>().map(GemmInputA::Unpacked).collect();
+    let b_mats: Vec<_> = value.inner_iter::<2>().map(GemmInputB::Unpacked).collect();
+
+    gemm.batched_gemm_uninit(out_uninit, &a_mats, &b_mats, GemmUninitOptions::default())
+        .unwrap();
+
+    // Safety: batched_gemm_uninit initialized the full output data.
+    unsafe { out_data.set_len(out_size) };
+
+    // Transpose the per-head context `[batch, num_heads, seq, v_head_size]` back
+    // to `[batch, seq, num_heads * v_head_size]`.
+    let context = NdTensor::from_data([batch_size, num_heads, seq_len, v_head_size], out_data);
     Ok(context
-        .nd_view::<4>()
         .permuted([0, 2, 1, 3])
         .to_tensor_in(pool)
         .into_shape([batch_size, seq_len, v_hidden]))
