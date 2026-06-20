@@ -686,8 +686,7 @@ impl Operator for MultiHeadAttention {
             .into_shape([batch_size, seq_len, v_hidden]);
 
         let mut outputs: OutputList = [output.into()].into();
-        let return_present = past_key.is_some() || ctx.outputs().count_true() > 1;
-        if return_present {
+        if ctx.outputs().get(1) || ctx.outputs().get(2) {
             outputs.push(key.into());
             outputs.push(value.into());
         }
