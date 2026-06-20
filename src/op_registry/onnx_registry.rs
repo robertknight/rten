@@ -1353,7 +1353,7 @@ impl_read_op!(Mul);
 
 impl_read_op!("com.microsoft", MultiHeadAttention, |attrs: &Attrs| {
     let mask_filter_value: f32 = attrs.get_as("mask_filter_value").unwrap_or(-10000.0);
-    let num_heads = attrs.require("num_heads")?.as_i64();
+    let num_heads = attrs.require("num_heads")?.cast_int()?;
     let unidirectional = attrs.get_as("unidirectional").unwrap_or_default();
     let scale = attrs.get_as("scale");
 
