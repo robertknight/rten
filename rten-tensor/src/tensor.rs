@@ -1501,7 +1501,7 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
     }
 }
 
-impl<T, L: Layout> TensorBase<CowData<'_, T>, L> {
+impl<'a, T, L: Layout> TensorBase<CowData<'a, T>, L> {
     /// Consume self and return the underlying data in whatever order the
     /// elements are currently stored, if the storage is owned, or `None` if
     /// it is borrowed.
@@ -1512,6 +1512,72 @@ impl<T, L: Layout> TensorBase<CowData<'_, T>, L> {
                 Some(vec)
             }
             CowData::Borrowed(_) => None,
+        }
+    }
+
+    /// Convert this copy-on-write tensor into an owned tensor.
+    ///
+    /// This is cheap if the data is already owned or requires a copy otherwise.
+    pub fn into_owned(self) -> TensorBase<Vec<T>, L>
+    where
+        L: MutLayout,
+        T: Clone,
+    {
+        match self.data {
+            CowData::Owned(data) => TensorBase {
+                data,
+                layout: self.layout,
+            },
+            CowData::Borrowed(_) => {
+                let data = self.to_vec();
+                let layout = L::from_shape(self.shape());
+                TensorBase { data, layout }
+            }
+        }
+    }
+
+    /// Consume self and return a new contiguous tensor with the given shape.
+    ///
+    /// This avoids copying the data if it is already contiguous.
+    pub fn into_shape<S: Clone + IntoLayout>(
+        self,
+        shape: S,
+    ) -> TensorBase<CowData<'a, T>, S::Layout>
+    where
+        T: Clone,
+        L: MutLayout,
+    {
+        self.into_shape_in(GlobalAlloc::new(), shape)
+    }
+
+    /// Variant of [`into_shape`](Self::into_shape) which takes an allocator.
+    pub fn into_shape_in<A: Alloc, S: Clone + IntoLayout>(
+        self,
+        alloc: A,
+        shape: S,
+    ) -> TensorBase<CowData<'a, T>, S::Layout>
+    where
+        T: Clone,
+        L: MutLayout,
+    {
+        if let Ok(layout) = self.layout.reshaped_for_view(shape.clone()) {
+            TensorBase {
+                data: self.data,
+                layout,
+            }
+        } else {
+            let Ok(layout) = self.layout.reshaped_for_copy(shape.clone()) else {
+                panic!(
+                    "element count mismatch reshaping {:?} to {:?}",
+                    self.shape(),
+                    shape
+                );
+            };
+
+            TensorBase {
+                data: CowData::Owned(self.to_vec_in(alloc)),
+                layout,
+            }
         }
     }
 }
