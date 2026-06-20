@@ -246,6 +246,7 @@ impl OnnxOpRegistry {
 
         // com.microsoft ops.
         register_op!(MatMulNBits);
+        register_op!(MultiHeadAttention);
         register_op!(SkipSimplifiedLayerNormalization);
         register_op!(RotaryEmbeddingMicrosoft);
 
@@ -1349,6 +1350,21 @@ impl_read_op!(Mod, |attrs: &Attrs| {
 });
 
 impl_read_op!(Mul);
+
+impl_read_op!("com.microsoft", MultiHeadAttention, |attrs: &Attrs| {
+    let mask_filter_value: f32 = attrs.get_as("mask_filter_value").unwrap_or(-10000.0);
+    let num_heads = attrs.require("num_heads")?.cast_int()?;
+    let unidirectional = attrs.get_as("unidirectional").unwrap_or_default();
+    let scale = attrs.get_as("scale");
+
+    Ok(ops::MultiHeadAttention {
+        mask_filter_value,
+        num_heads,
+        scale,
+        unidirectional,
+    })
+});
+
 impl_read_op!(Neg);
 
 impl_read_op!(NonMaxSuppression, |attrs: &Attrs| {

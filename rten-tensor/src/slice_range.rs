@@ -159,6 +159,27 @@ impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>, T4: Into<Sli
     }
 }
 
+impl<
+    T1: Into<SliceItem>,
+    T2: Into<SliceItem>,
+    T3: Into<SliceItem>,
+    T4: Into<SliceItem>,
+    T5: Into<SliceItem>,
+> IntoSliceItems for (T1, T2, T3, T4, T5)
+{
+    type Array = [SliceItem; 5];
+
+    fn into_slice_items(self) -> [SliceItem; 5] {
+        [
+            self.0.into(),
+            self.1.into(),
+            self.2.into(),
+            self.3.into(),
+            self.4.into(),
+        ]
+    }
+}
+
 /// Dynamically sized array of [`SliceItem`]s, which avoids allocating in the
 /// common case where the length is small.
 pub type DynSliceItems = SmallVec<[SliceItem; 5]>;
