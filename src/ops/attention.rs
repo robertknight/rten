@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, Tensor, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath::Softmax;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
@@ -325,23 +325,19 @@ pub struct MultiHeadAttention {
 
 fn split_attention_heads(
     pool: &BufferPool,
-    input: TensorView<f32>,
+    input: NdTensorView<f32, 3>,
     num_heads: usize,
     head_size: usize,
-) -> Result<Tensor<f32>, OpError> {
-    let [batch_size, seq_len, hidden] = input.shape() else {
-        return Err(OpError::InvalidValue(
-            "attention input must have shape [batch_size, sequence_len, hidden_size]",
-        ));
-    };
-    if *hidden != num_heads * head_size {
+) -> Result<NdTensor<f32, 4>, OpError> {
+    let [batch_size, seq_len, hidden] = input.shape();
+    if hidden != num_heads * head_size {
         return Err(OpError::IncompatibleInputShapes(
             "Hidden size does not match number of attention heads",
         ));
     }
 
-    let reshaped = input.reshaped_in(pool, [*batch_size, *seq_len, num_heads, head_size]);
-    Ok(reshaped.permuted([0, 2, 1, 3]).as_dyn().to_tensor_in(pool))
+    let reshaped = input.reshaped_in(pool, [batch_size, seq_len, num_heads, head_size]);
+    Ok(reshaped.permuted([0, 2, 1, 3]).to_tensor_in(pool))
 }
 
 impl Operator for MultiHeadAttention {
@@ -359,16 +355,15 @@ impl Operator for MultiHeadAttention {
         Some(3)
     }
 
-    // TODO https://github.com/microsoft/onnxruntime/blob/13af65970aaa6a0b9ac71106da07376fef24aa56/onnxruntime/test/contrib_ops/multihead_attention_op_test.cc
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let query: TensorView<f32> = ctx.inputs().require_as(0)?;
-        let key: Option<TensorView<f32>> = ctx.inputs().get_as(1)?;
-        let value: Option<TensorView<f32>> = ctx.inputs().get_as(2)?;
-        let bias: Option<TensorView<f32>> = ctx.inputs().get_as(3)?;
-        let key_padding_mask: Option<TensorView<i32>> = ctx.inputs().get_as(4)?;
+        let key: Option<NdTensorView<f32, 3>> = ctx.inputs().get_as(1)?;
+        let value: Option<NdTensorView<f32, 3>> = ctx.inputs().get_as(2)?;
+        let bias: Option<NdTensorView<f32, 1>> = ctx.inputs().get_as(3)?;
+        let key_padding_mask: Option<NdTensorView<i32, 2>> = ctx.inputs().get_as(4)?;
         let attention_bias: Option<TensorView<f32>> = ctx.inputs().get_as(5)?;
-        let past_key: Option<TensorView<f32>> = ctx.inputs().get_as(6)?;
-        let past_value: Option<TensorView<f32>> = ctx.inputs().get_as(7)?;
+        let past_key: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(6)?;
+        let past_value: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(7)?;
         let past_seq_len: Option<TensorView<i32>> = ctx.inputs().get_as(8)?;
         let cache_indirection: Option<TensorView<i32>> = ctx.inputs().get_as(9)?;
 
@@ -408,17 +403,14 @@ impl Operator for MultiHeadAttention {
                         "bias is not supported with packed QKV format",
                     ));
                 }
-                let [batch_size, kv_seq_len, num_heads, three, head_size] = query.shape() else {
-                    return Err(OpError::InvalidValue(
-                        "query must be [batch_size, sequence_len, hidden_size] or [batch_size, kv_sequence_length, num_heads, 3, head_size]",
-                    ));
-                };
-                if *three != 3 {
+                let query = query.nd_view::<5>();
+                let [batch_size, kv_seq_len, q_num_heads, three, head_size] = query.shape();
+                if three != 3 {
                     return Err(OpError::InvalidValue(
                         "4th dimension of packed qkv input must be 3",
                     ));
                 }
-                if *num_heads != self.num_heads as usize {
+                if q_num_heads != num_heads {
                     return Err(OpError::InvalidValue(
                         "2nd dimension of packed qkv input must be equal to number of attention heads",
                     ));
@@ -428,33 +420,18 @@ impl Operator for MultiHeadAttention {
                 let v = query.slice((.., .., .., 2, ..));
 
                 (
-                    q.nd_view()
-                        .permuted([0, 2, 1, 3])
-                        .as_dyn()
-                        .to_tensor_in(ctx.pool()),
-                    k.nd_view()
-                        .permuted([0, 2, 1, 3])
-                        .as_dyn()
-                        .to_tensor_in(ctx.pool()),
-                    v.nd_view()
-                        .permuted([0, 2, 1, 3])
-                        .as_dyn()
-                        .to_tensor_in(ctx.pool()),
-                    *batch_size,
-                    *kv_seq_len,
-                    *head_size,
-                    *head_size,
+                    q.permuted([0, 2, 1, 3]).to_tensor_in(ctx.pool()),
+                    k.permuted([0, 2, 1, 3]).to_tensor_in(ctx.pool()),
+                    v.permuted([0, 2, 1, 3]).to_tensor_in(ctx.pool()),
+                    batch_size,
+                    kv_seq_len,
+                    head_size,
+                    head_size,
                     num_heads * head_size,
                 )
             } else {
-                let (batch_size, seq_len, hidden) = match query.shape() {
-                    &[batch_size, seq_len, hidden] => (batch_size, seq_len, hidden),
-                    _ => {
-                        return Err(OpError::InvalidValue(
-                            "query must be [batch_size, sequence_len, hidden_size] or [batch_size, kv_sequence_length, num_heads, 3, head_size]",
-                        ));
-                    }
-                };
+                let query = query.nd_view::<3>();
+                let [batch_size, seq_len, hidden] = query.shape();
                 if hidden % num_heads != 0 {
                     return Err(OpError::IncompatibleInputShapes(
                         "Hidden size must be divisible by number of attention heads",
@@ -462,46 +439,38 @@ impl Operator for MultiHeadAttention {
                 }
                 let head_size = hidden / num_heads;
 
-                let (key, value) = match (&key, &value) {
-                    (None, _) => (&query, &query), // Reference impl ignores if value is some
+                let (key, value) = match (key, value) {
+                    (None, _) => (query, query), // Reference impl ignores if value is some
                     (Some(key), Some(value)) => (key, value),
                     (Some(_), None) => {
                         return Err(OpError::InvalidValue("If key is some value must be some"));
                     }
                 };
 
-                let [key_batch, key_seq_len, key_hidden] = key.shape() else {
-                    return Err(OpError::InvalidValue(
-                        "key must have shape [batch_size, sequence_len, hidden_size]",
-                    ));
-                };
-                let [value_batch, value_seq_len, v_hidden] = value.shape() else {
-                    return Err(OpError::InvalidValue(
-                        "value must have shape [batch_size, sequence_len, hidden_size]",
-                    ));
-                };
-                if *key_batch != batch_size
-                    || *value_batch != batch_size
-                    || *value_seq_len != *key_seq_len
+                let [key_batch, key_seq_len, key_hidden] = key.shape();
+                let [value_batch, value_seq_len, v_hidden] = value.shape();
+                if key_batch != batch_size
+                    || value_batch != batch_size
+                    || value_seq_len != key_seq_len
                 {
                     return Err(OpError::IncompatibleInputShapes(
                         "Key and value batch or sequence lengths do not match",
                     ));
                 }
-                if *key_hidden != hidden {
+                if key_hidden != hidden {
                     return Err(OpError::IncompatibleInputShapes(
                         "Key hidden size does not match query hidden size",
                     ));
                 }
-                if *v_hidden % num_heads != 0 {
+                if v_hidden % num_heads != 0 {
                     return Err(OpError::IncompatibleInputShapes(
                         "Value hidden size must be divisible by number of attention heads",
                     ));
                 }
-                let v_head_size = *v_hidden / num_heads;
+                let v_head_size = v_hidden / num_heads;
 
-                let (query, key, value) = if let Some(bias) = &bias {
-                    if bias.shape() != [hidden * 2 + *v_hidden] {
+                let (query, key, value) = if let Some(bias) = bias {
+                    if bias.shape() != [hidden * 2 + v_hidden] {
                         return Err(OpError::IncompatibleInputShapes(
                             "Bias shape does not match QKV hidden sizes",
                         ));
@@ -510,30 +479,34 @@ impl Operator for MultiHeadAttention {
                     let k_bias = bias.slice(hidden..(hidden * 2));
                     let v_bias = bias.slice((hidden * 2)..);
 
-                    let query = add(ctx.pool(), query.view(), q_bias)?.auto_return(ctx.pool());
-                    let key = add(ctx.pool(), key.view(), k_bias)?.auto_return(ctx.pool());
-                    let value = add(ctx.pool(), value.view(), v_bias)?.auto_return(ctx.pool());
-                    let key = key.to_owned();
-                    let value = value.to_owned();
-                    let query = query.to_owned();
-                    (query, key, value)
+                    let query =
+                        add(ctx.pool(), query.as_dyn(), q_bias.as_dyn())?.auto_return(ctx.pool());
+                    let key =
+                        add(ctx.pool(), key.as_dyn(), k_bias.as_dyn())?.auto_return(ctx.pool());
+                    let value =
+                        add(ctx.pool(), value.as_dyn(), v_bias.as_dyn())?.auto_return(ctx.pool());
+                    (
+                        split_attention_heads(ctx.pool(), query.nd_view(), num_heads, head_size)?,
+                        split_attention_heads(ctx.pool(), key.nd_view(), num_heads, head_size)?,
+                        split_attention_heads(ctx.pool(), value.nd_view(), num_heads, v_head_size)?,
+                    )
                 } else {
                     (
-                        query.to_tensor_in(ctx.pool()),
-                        key.to_tensor_in(ctx.pool()),
-                        value.to_tensor_in(ctx.pool()),
+                        split_attention_heads(ctx.pool(), query, num_heads, head_size)?,
+                        split_attention_heads(ctx.pool(), key, num_heads, head_size)?,
+                        split_attention_heads(ctx.pool(), value, num_heads, v_head_size)?,
                     )
                 };
 
                 (
-                    split_attention_heads(ctx.pool(), query.view(), num_heads, head_size)?,
-                    split_attention_heads(ctx.pool(), key.view(), num_heads, head_size)?,
-                    split_attention_heads(ctx.pool(), value.view(), num_heads, v_head_size)?,
+                    query,
+                    key,
+                    value,
                     batch_size,
                     seq_len,
                     head_size,
                     v_head_size,
-                    *v_hidden,
+                    v_hidden,
                 )
             };
 
@@ -545,50 +518,49 @@ impl Operator for MultiHeadAttention {
         let return_present = past_key.is_some() || ctx.outputs().count_true() > 1;
         if let Some(past_key) = past_key {
             let past_value = past_value.unwrap();
-            let [past_batch, past_heads, _, past_head_size] = past_key.shape() else {
-                return Err(OpError::InvalidValue(
-                    "past_key must have shape [batch_size, num_heads, past_sequence_len, head_size]",
-                ));
-            };
-            if *past_batch != batch_size || *past_heads != num_heads || *past_head_size != head_size
-            {
+            let [past_batch, past_heads, _, past_head_size] = past_key.shape();
+            if past_batch != batch_size || past_heads != num_heads || past_head_size != head_size {
                 return Err(OpError::IncompatibleInputShapes(
                     "past_key shape does not match query/key shape",
                 ));
             }
-            let [past_batch, past_heads, _, past_v_head_size] = past_value.shape() else {
-                return Err(OpError::InvalidValue(
-                    "past_value must have shape [batch_size, num_heads, past_sequence_len, v_head_size]",
-                ));
-            };
-            if *past_batch != batch_size
-                || *past_heads != num_heads
-                || *past_v_head_size != v_head_size
+            let [past_batch, past_heads, _, past_v_head_size] = past_value.shape();
+            if past_batch != batch_size
+                || past_heads != num_heads
+                || past_v_head_size != v_head_size
             {
                 return Err(OpError::IncompatibleInputShapes(
                     "past_value shape does not match query/value shape",
                 ));
             }
-            key = concat(ctx.pool(), &[past_key, key.view()], 2)?;
-            value = concat(ctx.pool(), &[past_value, value.view()], 2)?;
+            key = concat(ctx.pool(), &[past_key.as_dyn(), key.as_dyn()], 2)?
+                .try_into()
+                .expect("concat of rank-4 tensors has rank 4");
+            value = concat(ctx.pool(), &[past_value.as_dyn(), value.as_dyn()], 2)?
+                .try_into()
+                .expect("concat of rank-4 tensors has rank 4");
         }
 
         let total_seq_len = key.size(2);
         let scale = self
             .scale
             .unwrap_or_else(|| 1.0 / (head_size as f32).sqrt());
-        let key_t = key.nd_view().permuted([0, 1, 3, 2]).as_dyn();
-        let mut scores: Tensor<f32> = matmul(ctx.pool(), query.view(), key_t, None)?;
+        let key_t = key.permuted([0, 1, 3, 2]);
+        let mut scores: NdTensor<f32, 4> =
+            matmul(ctx.pool(), query.as_dyn(), key_t.as_dyn(), None)?
+                .try_into()
+                .expect("matmul of rank-4 tensors has rank 4");
         for score in scores.iter_mut() {
             *score *= scale;
         }
 
         if let Some(attention_bias) = attention_bias {
-            scores = add(ctx.pool(), scores.view(), attention_bias)?;
+            scores = add(ctx.pool(), scores.as_dyn(), attention_bias)?
+                .try_into()
+                .expect("attention scores have rank 4");
         }
 
         {
-            let scores_shape = scores.shape().to_vec();
             let scores_data = scores
                 .data_mut()
                 .ok_or(OpError::InvalidValue("Attention scores must be contiguous"))?;
@@ -632,24 +604,24 @@ impl Operator for MultiHeadAttention {
                     }
                 }
             }
-
-            debug_assert_eq!(
-                scores_shape,
-                [batch_size, num_heads, seq_len, total_seq_len]
-            );
         }
+
+        debug_assert_eq!(
+            scores.shape(),
+            [batch_size, num_heads, seq_len, total_seq_len]
+        );
 
         for mut lane in scores.lanes_mut(3) {
             Softmax::new_mut(lane.as_slice_mut().unwrap()).dispatch();
         }
 
-        let context: Tensor<f32> = matmul(ctx.pool(), scores.view(), value.view(), None)?;
+        let context: NdTensor<f32, 4> = matmul(ctx.pool(), scores.as_dyn(), value.as_dyn(), None)?
+            .try_into()
+            .expect("matmul of rank-4 tensors has rank 4");
         let output = context
-            .nd_view()
             .permuted([0, 2, 1, 3])
-            .as_dyn()
             .to_tensor_in(ctx.pool())
-            .into_shape([batch_size, seq_len, v_hidden].as_slice());
+            .into_shape([batch_size, seq_len, v_hidden]);
 
         let mut outputs: OutputList = [output.into()].into();
         if return_present {
