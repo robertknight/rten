@@ -676,9 +676,9 @@ impl Operator for MultiHeadAttention {
         }
 
         // Normalize scores to probabilities.
-        for mut lane in scores.lanes_mut(3) {
+        scores.lanes_mut(3).into_par_iter().for_each(|mut lane| {
             Softmax::new_mut(lane.as_slice_mut().unwrap()).dispatch();
-        }
+        });
 
         // Compute attention outputs.
         let context: NdTensor<f32, 4> = matmul(ctx.pool(), scores.as_dyn(), value.as_dyn(), None)?
