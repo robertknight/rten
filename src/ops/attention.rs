@@ -602,13 +602,36 @@ impl Operator for MultiHeadAttention {
             .scale
             .unwrap_or_else(|| 1.0 / (head_size as f32).sqrt());
         let key_t = key.permuted([0, 1, 3, 2]);
-        let mut scores: NdTensor<f32, 4> =
-            matmul(ctx.pool(), query.as_dyn(), key_t.as_dyn(), None)?
-                .try_into()
-                .expect("matmul of rank-4 tensors has rank 4");
-        for score in scores.iter_mut() {
-            *score *= scale;
-        }
+
+        let mut scores = NdTensor::uninit_in(
+            ctx.pool(),
+            [batch_size, num_heads, query.size(2), key_t.size(3)],
+        );
+        let gemm = GemmExecutor::new();
+        scores
+            .inner_iter_mut::<2>()
+            .into_par_iter()
+            .zip(
+                query
+                    .inner_iter::<2>()
+                    .into_par_iter()
+                    .zip(key_t.inner_iter::<2>().into_par_iter()),
+            )
+            .for_each(|(mut out, (query, key))| {
+                gemm.gemm_uninit(
+                    out.data_mut().unwrap(),
+                    GemmInputA::Unpacked(query),
+                    GemmInputB::Unpacked(key),
+                    GemmUninitOptions {
+                        alpha: scale,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            });
+
+        // Safety: Score matrices initialized.
+        let mut scores = unsafe { scores.assume_init() };
 
         if let Some(attention_bias) = attention_bias {
             scores = add(ctx.pool(), scores.as_dyn(), attention_bias.as_dyn())?
