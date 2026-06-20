@@ -731,6 +731,28 @@ impl<S: Storage, L: Layout> TensorBase<S, L> {
         Some(layout)
     }
 
+    /// Convert this tensor into a tensor with rank `N`.
+    ///
+    /// Returns None if the rank is not N.
+    pub fn into_rank<const N: usize>(self) -> Option<TensorBase<S, NdLayout<N>>> {
+        let layout = self.nd_layout()?;
+        Some(TensorBase {
+            data: self.data,
+            layout,
+        })
+    }
+
+    /// Convert this tensor into one with dimensions re-ordered.
+    pub fn into_permuted(self, order: L::Index<'_>) -> TensorBase<S, L>
+    where
+        L: MutLayout,
+    {
+        TensorBase {
+            layout: self.layout.permuted(order),
+            data: self.data,
+        }
+    }
+
     /// Return a raw pointer to the tensor's underlying data.
     pub fn data_ptr(&self) -> *const S::Elem {
         self.data.as_ptr()
