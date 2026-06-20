@@ -315,14 +315,6 @@ impl Operator for GroupedQueryAttentionMatMul {
     }
 }
 
-#[derive(Debug)]
-pub struct MultiHeadAttention {
-    pub mask_filter_value: f32,
-    pub num_heads: i64,
-    pub scale: Option<f32>,
-    pub unidirectional: bool,
-}
-
 fn split_attention_heads(
     pool: &BufferPool,
     input: NdTensorView<f32, 3>,
@@ -338,6 +330,18 @@ fn split_attention_heads(
 
     let reshaped = input.reshaped_in(pool, [batch_size, seq_len, num_heads, head_size]);
     Ok(reshaped.permuted([0, 2, 1, 3]).to_tensor_in(pool))
+}
+
+/// Fused multi-head attention contrib operator.
+///
+/// See
+/// <https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#commicrosoftmultiheadattention>.
+#[derive(Debug)]
+pub struct MultiHeadAttention {
+    pub mask_filter_value: f32,
+    pub num_heads: i64,
+    pub scale: Option<f32>,
+    pub unidirectional: bool,
 }
 
 impl Operator for MultiHeadAttention {
