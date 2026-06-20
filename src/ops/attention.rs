@@ -14,7 +14,7 @@ use crate::operator::{
     OutputTypesContext,
 };
 use crate::ops::{
-    binary_elementwise::{add, broadcast_shapes},
+    binary_elementwise::{add, add_in_place, broadcast_shapes},
     concat::concat,
     layout::expand_to,
     matmul::matmul,
@@ -634,15 +634,11 @@ impl Operator for MultiHeadAttention {
         let mut scores = unsafe { scores.assume_init() };
 
         if let Some(attention_bias) = attention_bias {
-            scores = add(ctx.pool(), scores.as_dyn(), attention_bias.as_dyn())?
-                .try_into()
-                .expect("attention scores have rank 4");
+            let attention_bias = attention_bias
+                .try_broadcast(scores.shape())
+                .map_err(|_| BROADCAST_ERROR)?;
+            add_in_place(scores.as_dyn_mut(), attention_bias.into());
         }
-
-        debug_assert_eq!(
-            scores.shape(),
-            [batch_size, num_heads, seq_len, total_seq_len]
-        );
 
         // Apply masks to attention scores
         if self.unidirectional {
