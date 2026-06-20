@@ -874,6 +874,50 @@ fn test_into_dyn() {
 }
 
 #[test]
+fn test_into_owned() {
+    // Borrowed data is copied into an owned tensor.
+    let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+    let owned = tensor.as_cow().into_owned();
+    assert_eq!(owned.shape(), [2, 2]);
+    assert_eq!(owned.data(), Some([1, 2, 3, 4].as_slice()));
+
+    // Borrowed non-contiguous data is copied in logical order.
+    let mut tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+    tensor.transpose();
+    let owned = tensor.as_cow().into_owned();
+    assert_eq!(owned.shape(), [2, 2]);
+    assert_eq!(owned.data(), Some([1, 3, 2, 4].as_slice()));
+
+    // Owned data is preserved without copying.
+    let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+    let ptr = tensor.data().unwrap().as_ptr();
+    let owned = tensor.into_cow().into_owned();
+    assert_eq!(owned.shape(), [2, 2]);
+    assert_eq!(owned.data().unwrap().as_ptr(), ptr);
+}
+
+#[test]
+fn test_into_permuted() {
+    let tensor = NdTensor::from_data([2, 3], vec![1, 2, 3, 4, 5, 6]);
+    let permuted = tensor.into_permuted([1, 0]);
+    assert_eq!(permuted.shape(), [3, 2]);
+    assert_eq!(permuted.to_vec(), &[1, 4, 2, 5, 3, 6]);
+}
+
+#[test]
+fn test_into_rank() {
+    let tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+
+    // Converting to the matching rank succeeds and preserves the data.
+    let nd = tensor.clone().into_rank::<2>().unwrap();
+    assert_eq!(nd.shape(), [2, 2]);
+    assert_eq!(nd.data(), Some([1, 2, 3, 4].as_slice()));
+
+    // Converting to a different rank returns `None`.
+    assert!(tensor.into_rank::<3>().is_none());
+}
+
+#[test]
 fn test_into_shape() {
     // Contiguous tensor.
     let tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
@@ -887,6 +931,48 @@ fn test_into_shape() {
     let reshaped = tensor.into_shape([4]);
     assert_eq!(reshaped.shape(), [4]);
     assert_eq!(reshaped.data(), Some([1., 3., 2., 4.].as_slice()));
+}
+
+#[test]
+fn test_into_shape_cow() {
+    // Contiguous tensor is reshaped without copying.
+    let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+    let ptr = tensor.data().unwrap().as_ptr();
+    let reshaped = tensor.into_cow().into_shape([4]);
+    assert_eq!(reshaped.shape(), [4]);
+    assert_eq!(reshaped.data().unwrap().as_ptr(), ptr);
+
+    // Non-contiguous tensor is copied into logical order.
+    let mut tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+    tensor.transpose();
+    let reshaped = tensor.into_cow().into_shape([4]);
+    assert_eq!(reshaped.shape(), [4]);
+    assert_eq!(reshaped.data(), Some([1, 3, 2, 4].as_slice()));
+}
+
+#[test]
+#[should_panic(expected = "element count mismatch reshaping [16] to [2, 2]")]
+fn test_into_shape_cow_invalid() {
+    NdTensor::arange(0, 16, None).into_cow().into_shape([2, 2]);
+}
+
+#[test]
+fn test_into_shape_in() {
+    let alloc = FakeAlloc::new();
+
+    // A contiguous reshape can re-use the existing storage.
+    let tensor = NdTensor::arange(0, 4, None);
+    let reshaped = tensor.into_cow().into_shape_in(&alloc, [2, 2]);
+    assert_eq!(reshaped.shape(), [2, 2]);
+    assert_eq!(alloc.count(), 0);
+
+    // A non-contiguous reshape allocates once via the supplied allocator.
+    let mut tensor = NdTensor::arange(0, 4, None).into_shape([2, 2]);
+    tensor.transpose();
+    let reshaped = tensor.into_cow().into_shape_in(&alloc, [4]);
+    assert_eq!(reshaped.shape(), [4]);
+    assert_eq!(reshaped.data(), Some([0, 2, 1, 3].as_slice()));
+    assert_eq!(alloc.count(), 1);
 }
 
 #[test]

@@ -1523,13 +1523,22 @@ impl<'a, T, L: Layout> TensorBase<CowData<'a, T>, L> {
         L: MutLayout,
         T: Clone,
     {
+        self.into_owned_in(GlobalAlloc::new())
+    }
+
+    /// Variant of [`into_owned`](Self) that takes an allocator.
+    pub fn into_owned_in<A: Alloc>(self, alloc: A) -> TensorBase<Vec<T>, L>
+    where
+        L: MutLayout,
+        T: Clone,
+    {
         match self.data {
             CowData::Owned(data) => TensorBase {
                 data,
                 layout: self.layout,
             },
             CowData::Borrowed(_) => {
-                let data = self.to_vec();
+                let data = self.to_vec_in(alloc);
                 let layout = L::from_shape(self.shape());
                 TensorBase { data, layout }
             }
