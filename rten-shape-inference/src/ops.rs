@@ -8,6 +8,7 @@ use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::{Constant, SymTensor};
 
+mod attention;
 mod binary;
 mod concat;
 mod conv_pool;
@@ -23,6 +24,7 @@ mod slice;
 mod split;
 mod unary;
 
+pub use attention::MultiHeadAttention;
 pub use binary::{Add, Div, Equal, Mul, Sub};
 pub use concat::{Concat, Tile};
 pub use conv_pool::{Conv, ConvTranspose, GlobalPool, Padding, Pool};
