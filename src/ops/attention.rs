@@ -14,7 +14,7 @@ use crate::operator::{
     OutputTypesContext,
 };
 use crate::ops::{
-    binary_elementwise::{add, broadcast_shapes},
+    binary_elementwise::{add, add_in_place, broadcast_shapes},
     concat::concat,
     layout::expand_to,
     matmul::matmul,
@@ -602,34 +602,51 @@ impl Operator for MultiHeadAttention {
             .scale
             .unwrap_or_else(|| 1.0 / (head_size as f32).sqrt());
         let key_t = key.permuted([0, 1, 3, 2]);
-        let mut scores: NdTensor<f32, 4> =
-            matmul(ctx.pool(), query.as_dyn(), key_t.as_dyn(), None)?
-                .try_into()
-                .expect("matmul of rank-4 tensors has rank 4");
-        for score in scores.iter_mut() {
-            *score *= scale;
-        }
+
+        let mut scores = NdTensor::uninit_in(
+            ctx.pool(),
+            [batch_size, num_heads, query.size(2), key_t.size(3)],
+        );
+        let gemm = GemmExecutor::new();
+        scores
+            .inner_iter_mut::<2>()
+            .into_par_iter()
+            .zip(
+                query
+                    .inner_iter::<2>()
+                    .into_par_iter()
+                    .zip(key_t.inner_iter::<2>().into_par_iter()),
+            )
+            .for_each(|(mut out, (query, key))| {
+                gemm.gemm_uninit(
+                    out.data_mut().unwrap(),
+                    GemmInputA::Unpacked(query),
+                    GemmInputB::Unpacked(key),
+                    GemmUninitOptions {
+                        alpha: scale,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            });
+
+        // Safety: Score matrices initialized.
+        let mut scores = unsafe { scores.assume_init() };
 
         if let Some(attention_bias) = attention_bias {
-            scores = add(ctx.pool(), scores.as_dyn(), attention_bias.as_dyn())?
-                .try_into()
-                .expect("attention scores have rank 4");
+            let attention_bias = attention_bias
+                .try_broadcast(scores.shape())
+                .map_err(|_| BROADCAST_ERROR)?;
+            add_in_place(scores.as_dyn_mut(), attention_bias.into());
         }
-
-        debug_assert_eq!(
-            scores.shape(),
-            [batch_size, num_heads, seq_len, total_seq_len]
-        );
 
         // Apply masks to attention scores
         if self.unidirectional {
             let past_len = total_seq_len - seq_len;
-            for mut head_scores in scores.inner_iter_mut::<2>() {
-                for q_idx in 0..head_scores.size(0) {
-                    for k_idx in (past_len + q_idx + 1)..head_scores.size(1) {
-                        head_scores[[q_idx, k_idx]] = self.mask_filter_value;
-                    }
-                }
+            for q_idx in 0..scores.size(2) {
+                scores
+                    .slice_mut((.., .., q_idx, past_len + q_idx + 1..))
+                    .fill(self.mask_filter_value);
             }
         }
 
@@ -653,9 +670,9 @@ impl Operator for MultiHeadAttention {
         }
 
         // Normalize scores to probabilities.
-        for mut lane in scores.lanes_mut(3) {
+        scores.lanes_mut(3).into_par_iter().for_each(|mut lane| {
             Softmax::new_mut(lane.as_slice_mut().unwrap()).dispatch();
-        }
+        });
 
         // Compute attention outputs.
         let context: NdTensor<f32, 4> = matmul(ctx.pool(), scores.as_dyn(), value.as_dyn(), None)?
@@ -667,8 +684,7 @@ impl Operator for MultiHeadAttention {
             .into_shape([batch_size, seq_len, v_hidden]);
 
         let mut outputs: OutputList = [output.into()].into();
-        let return_present = past_key.is_some() || ctx.outputs().count_true() > 1;
-        if return_present {
+        if ctx.outputs().get(1) || ctx.outputs().get(2) {
             outputs.push(key.into());
             outputs.push(value.into());
         }
