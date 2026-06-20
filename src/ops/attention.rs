@@ -689,7 +689,7 @@ mod tests {
     use rten_base::bit_set::BitSet;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
-    use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
+    use rten_tensor::test_util::expect_equal;
     use rten_tensor::{NdTensor, Tensor, TensorView};
     use rten_testing::TestCases;
 
@@ -877,7 +877,7 @@ mod tests {
                 e / (e + 1.0),
             ],
         );
-        expect_equal_with_tolerance(&result, &expected, 1e-6, 0.).unwrap();
+        expect_equal(&result, &expected).unwrap();
     }
 
     #[test]
@@ -904,7 +904,7 @@ mod tests {
                 e / (e + 1.0),
             ],
         );
-        expect_equal_with_tolerance(&result, &expected, 1e-6, 0.).unwrap();
+        expect_equal(&result, &expected).unwrap();
     }
 
     #[test]
@@ -933,7 +933,7 @@ mod tests {
         let mut outputs = op.run(&ctx).unwrap();
         let result: Tensor = outputs.remove(0).try_into().unwrap();
         let expected = Tensor::from_data(&[1, 2, 2], vec![0., 1., 0., 1.]);
-        expect_equal_with_tolerance(&result, &expected, 1e-6, 0.).unwrap();
+        expect_equal(&result, &expected).unwrap();
     }
 
     #[test]
@@ -1183,7 +1183,7 @@ mod tests {
                 -0.82380491,
             ],
         );
-        expect_equal_with_tolerance(&result, &expected, 1e-5, 1e-5).unwrap();
+        expect_equal(&result, &expected).unwrap();
 
         let result: Tensor = op
             .run_simple((query.view(), key.view(), value.view()))
@@ -1225,6 +1225,6 @@ mod tests {
                 -1.09703445,
             ],
         );
-        expect_equal_with_tolerance(&result, &expected, 1e-5, 1e-5).unwrap();
+        expect_equal(&result, &expected).unwrap();
     }
 }
