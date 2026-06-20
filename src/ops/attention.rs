@@ -643,12 +643,10 @@ impl Operator for MultiHeadAttention {
         // Apply masks to attention scores
         if self.unidirectional {
             let past_len = total_seq_len - seq_len;
-            for mut head_scores in scores.inner_iter_mut::<2>() {
-                for q_idx in 0..head_scores.size(0) {
-                    for k_idx in (past_len + q_idx + 1)..head_scores.size(1) {
-                        head_scores[[q_idx, k_idx]] = self.mask_filter_value;
-                    }
-                }
+            for q_idx in 0..scores.size(2) {
+                scores
+                    .slice_mut((.., .., q_idx, past_len + q_idx + 1..))
+                    .fill(self.mask_filter_value);
             }
         }
 
