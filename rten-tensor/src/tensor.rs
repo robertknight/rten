@@ -720,23 +720,24 @@ impl<S: Storage, L: Layout> TensorBase<S, L> {
 
     /// Attempt to convert this tensor's layout to a static-rank layout with `N`
     /// dimensions.
-    fn nd_layout<const N: usize>(&self) -> Option<NdLayout<N>> {
+    fn nd_layout<const N: usize>(&self) -> Result<NdLayout<N>, DimensionError> {
         if self.ndim() != N {
-            return None;
+            return Err(DimensionError {
+                actual: self.ndim(),
+                expected: N,
+            });
         }
         let shape: [usize; N] = std::array::from_fn(|i| self.size(i));
         let strides: [usize; N] = std::array::from_fn(|i| self.stride(i));
         let layout = NdLayout::from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap)
             .expect("invalid layout");
-        Some(layout)
+        Ok(layout)
     }
 
     /// Convert this tensor into a tensor with rank `N`.
-    ///
-    /// Returns None if the rank is not N.
-    pub fn into_rank<const N: usize>(self) -> Option<TensorBase<S, NdLayout<N>>> {
+    pub fn into_rank<const N: usize>(self) -> Result<TensorBase<S, NdLayout<N>>, DimensionError> {
         let layout = self.nd_layout()?;
-        Some(TensorBase {
+        Ok(TensorBase {
             data: self.data,
             layout,
         })
