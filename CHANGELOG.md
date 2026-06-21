@@ -12,20 +12,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Extended the shape and type inference system (introduced in 0.24.0) to cover
   many more operators, including `ArgMax`, `ArgMin`, `ConvInteger`,
   `ConvTranspose`, `CumSum`, `DepthToSpace`, `Dropout`, `Einsum`, `EyeLike`,
-  `GatherElements`, `GatherND`, `GridSample`, `GRU`, `LSTM`, `NonMaxSuppression`,
+  `GatherElements`, `GatherND`, `GridSample`, `GRU`, `LSTM`,
+  `MultiHeadAttention`, `NonMaxSuppression`,
   `NonZero`, `OneHot`, `Pad`, `RandomNormal`, `RandomNormalLike`,
   `RandomUniform`, `RandomUniformLike`, `Resize`, `RotaryEmbedding`,
   `ScatterElements`, `Size`, `SkipSimplifiedLayerNormalization`, `STFT`, `Tile`
   and `TopK`.
 
 - Added several new operators commonly used in transformer and LLM models,
-  including `RotaryEmbedding`, `RMSNormalization`, `SimplifiedLayerNormalization`
-  and `SkipSimplifiedLayerNormalization`.
+  including `MultiHeadAttention`, `RotaryEmbedding`, `RMSNormalization`,
+  `SimplifiedLayerNormalization` and `SkipSimplifiedLayerNormalization`.
+
+- Added the `DFT`, `Multinomial`, `ReverseSequence`, `Scatter` and (deprecated)
+  `Upsample` operators.
 
 - Added support for loading f16 ONNX models by up-converting weights to f32
   (https://github.com/robertknight/rten/pull/1171).
 
 ### rten
+
+- Added `MultiHeadAttention` operator, including shape inference (thanks
+  @xd009642) (https://github.com/robertknight/rten/pull/1251,
+  https://github.com/robertknight/rten/pull/1287,
+  https://github.com/robertknight/rten/pull/1288,
+  https://github.com/robertknight/rten/pull/1290)
+
+- Added `DFT` operator, including support for the inverse one-sided DFT (IRFFT)
+  (https://github.com/robertknight/rten/pull/1261)
+
+- Added `Scatter` operator
+  (https://github.com/robertknight/rten/pull/1268)
+
+- Added `ReverseSequence` operator
+  (https://github.com/robertknight/rten/pull/1259)
+
+- Added `Multinomial` operator
+  (https://github.com/robertknight/rten/pull/1254)
+
+- Added support for the deprecated `Upsample` operator
+  (https://github.com/robertknight/rten/pull/1255)
+
+- Added fusion for `Conv` + `Add` bias into a `Conv` with bias, including 1D
+  convolutions (https://github.com/robertknight/rten/pull/1265,
+  https://github.com/robertknight/rten/pull/1266)
+
+- Optimized the `Gather` operator for contiguous inputs along inner axes
+  (https://github.com/robertknight/rten/pull/1258)
+
+- Validate the shape and dtype of model inputs
+  (https://github.com/robertknight/rten/pull/1257)
+
+- Read `Slice` starts/ends/axes from attributes in addition to inputs
+  (https://github.com/robertknight/rten/pull/1253)
+
+- Validate operator output counts when deserializing ONNX operators
+  (https://github.com/robertknight/rten/pull/1281,
+  https://github.com/robertknight/rten/pull/1283,
+  https://github.com/robertknight/rten/pull/1284)
+
+- Validate the size of bias inputs to the `Conv` and `ConvTranspose` operators
+  (https://github.com/robertknight/rten/pull/1280)
+
+- Validate the size of scale, bias, mean and var inputs to `BatchNormalization`
+  (https://github.com/robertknight/rten/pull/1277)
+
+- Handle divide-by-zero in the `Div` and `Mod` operators with integer inputs
+  (https://github.com/robertknight/rten/pull/1276)
+
+- Deduplicate axes in `Reduce*` operators and `Squeeze`
+  (https://github.com/robertknight/rten/pull/1275)
+
+- Improved shape inference for the `Identity` operator
+  (https://github.com/robertknight/rten/pull/1264)
 
 - Added `RotaryEmbedding` operator (thanks @xd009642)
   (https://github.com/robertknight/rten/pull/1209)
@@ -72,6 +130,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   initializer loader (https://github.com/robertknight/rten/pull/1181)
 
 ### rten-tensor
+
+- Added `TensorBase::{into_rank, into_permuted}` methods, plus `into_owned` and
+  `into_shape` for `Cow` tensors
+  (https://github.com/robertknight/rten/pull/1289)
+
+- Added `Tensor::into_contiguous` method and implemented `Eq`/`Hash` for
+  `Contiguous` (https://github.com/robertknight/rten/pull/1250)
+
+- Added `Tensor::from_fn_in` method
+  (https://github.com/robertknight/rten/pull/1260)
+
+- Implemented `Eq` and `Hash` for `TensorBase`
+  (https://github.com/robertknight/rten/pull/1249)
 
 - Added `TensorBase::concat` method
   (https://github.com/robertknight/rten/pull/1195)
