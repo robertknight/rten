@@ -104,8 +104,15 @@ def run_model(
             else:
                 dynamic_dims_without_sizes.add(d)
                 resolved_shape.append(1)
-            value = np.random.rand(*resolved_shape).astype(type_map[node.type])
-            inputs[node.name] = value
+
+        value = np.random.rand(*resolved_shape)
+
+        # `np.random.rand` returns a float if the shape is empty.
+        if not isinstance(value, np.ndarray):
+            value = np.array(value)
+        value = value.astype(type_map[node.type])
+
+        inputs[node.name] = value
 
         print(f"  {node.name}: {node.type} {node.shape}")
 
