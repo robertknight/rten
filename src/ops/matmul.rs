@@ -706,29 +706,47 @@ impl Operator for MatMulInteger {
     }
 }
 
+#[derive(Clone, Debug)]
+enum OutputScale<'a> {
+    Scalar(f32),
+    Vector(NdTensorView<'a, f32, 1>),
+}
+
 /// Cast elements in `data` to f32 and scale by the per-column scales in `scale`.
 fn cast_scale(
     pool: &BufferPool,
     mut data: Tensor<i32>,
-    scale: NdTensorView<f32, 1>,
+    scale: OutputScale,
 ) -> Result<Tensor<f32>, OpError> {
-    if data.size(data.ndim() - 1) != scale.size(0) {
-        return Err(OpError::IncompatibleInputShapes(
-            "Scale length does not match tensor columns",
-        ));
-    }
+    match scale {
+        OutputScale::Vector(scale) => {
+            if data.size(data.ndim() - 1) != scale.size(0) {
+                return Err(OpError::IncompatibleInputShapes(
+                    "Scale length does not match tensor columns",
+                ));
+            }
 
-    let scale = scale.to_contiguous_in(pool);
-    let scale_data = scale.data();
+            let scale = scale.to_contiguous_in(pool);
+            let scale_data = scale.data();
 
-    // Convert i32 elements to f32 in-place and multiply by column scale.
-    let output_data = data.data_mut().expect("should be contiguous");
-    output_data.par_chunks_mut(scale.len()).for_each(|chunk| {
-        for (el, scale) in chunk.iter_mut().zip(scale_data) {
-            let scaled = *el as f32 * scale;
-            *el = scaled.cast_bytes();
+            // Convert i32 elements to f32 in-place and multiply by column scale.
+            let output_data = data.data_mut().expect("should be contiguous");
+            output_data.par_chunks_mut(scale.len()).for_each(|chunk| {
+                for (el, scale) in chunk.iter_mut().zip(scale_data) {
+                    let scaled = *el as f32 * scale;
+                    *el = scaled.cast_bytes();
+                }
+            });
         }
-    });
+        OutputScale::Scalar(scale) => {
+            // Convert i32 elements to f32 in-place and multiply by column scale.
+            let output_data = data.data_mut().expect("should be contiguous");
+            output_data.par_iter_mut().for_each(|el| {
+                let scaled = *el as f32 * scale;
+                *el = scaled.cast_bytes();
+            });
+        }
+    }
 
     // Transmute tensor from i32 to f32.
     let shape = data.shape().to_vec();
@@ -751,8 +769,15 @@ impl Operator for MatMulIntegerToFloat {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let scale: TensorView<f32> = ctx.inputs().require_as(4)?;
+        let scale = match scale.ndim() {
+            0 => OutputScale::Scalar(scale.item().copied().unwrap()),
+            1 => OutputScale::Vector(scale.into_rank().unwrap()),
+            _ => {
+                return Err(OpError::InvalidValue("scale should have rank 0 or 1"));
+            }
+        };
         let output: Tensor<i32> = self.matmul.run(ctx)?.remove(0).try_into().unwrap();
-        let scale = ctx.inputs().require_as(4)?;
         cast_scale(ctx.pool(), output, scale).into_op_result()
     }
 
@@ -972,7 +997,8 @@ mod tests {
 
     use super::{
         AccuracyLevel, FusedMatMul, MatMul, MatMulInteger, MatMulNBits, MatmulStrategy, OpError,
-        OpRunContext, cast_scale, gemm, matmul, matmul_fused, matmul_impl, matmul_integer,
+        OpRunContext, OutputScale, cast_scale, gemm, matmul, matmul_fused, matmul_impl,
+        matmul_integer,
     };
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -1084,21 +1110,26 @@ mod tests {
     #[test]
     fn test_cast_scale() {
         #[derive(Debug)]
-        struct Case {
+        struct Case<'a> {
             input: Tensor<i32>,
-            scales: NdTensor<f32, 1>,
+            scales: OutputScale<'a>,
             expected: Result<Tensor<f32>, OpError>,
         }
 
         let cases = [
             Case {
                 input: [[1, 2], [3, 4]].into(),
-                scales: [2., 3.].into(),
+                scales: OutputScale::Vector(NdTensorView::from(&[2., 3.])),
                 expected: Ok([[2., 6.], [6., 12.]].into()),
             },
             Case {
                 input: [[1, 2], [3, 4]].into(),
-                scales: [2., 3., 4.].into(),
+                scales: OutputScale::Scalar(2.),
+                expected: Ok([[2., 4.], [6., 8.]].into()),
+            },
+            Case {
+                input: [[1, 2], [3, 4]].into(),
+                scales: OutputScale::Vector(NdTensorView::from(&[2., 3., 4.])),
                 expected: Err(OpError::IncompatibleInputShapes(
                     "Scale length does not match tensor columns",
                 )),
@@ -1107,7 +1138,7 @@ mod tests {
 
         cases.test_each(|case| {
             let pool = BufferPool::new();
-            let result = cast_scale(&pool, case.input.clone(), case.scales.view());
+            let result = cast_scale(&pool, case.input.clone(), case.scales.clone());
             assert_eq!(result, case.expected);
         });
     }
