@@ -2,13 +2,14 @@
 
 use rayon::prelude::*;
 use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
+use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{CowNdTensor, NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath::Softmax;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::infer_shapes::InferShapes;
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
@@ -704,9 +705,17 @@ impl Operator for MultiHeadAttention {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        None
+        Some(self)
     }
 }
+
+impl_infer_shapes!(
+    MultiHeadAttention,
+    op,
+    shape_ops::MultiHeadAttention {
+        num_heads: op.num_heads,
+    }
+);
 
 #[cfg(test)]
 mod tests {
