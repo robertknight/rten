@@ -693,7 +693,7 @@ impl ModelOptions {
             optimize: true,
             prepack_weights: false,
             external_data: HashMap::new(),
-            infer_shapes: ShapeInferenceMode::Off,
+            infer_shapes: ShapeInferenceMode::On,
         }
     }
 
@@ -718,9 +718,12 @@ impl ModelOptions {
 
     /// Set whether shape and type inference is run as part of optimization.
     ///
-    /// This is an experimental option that is needed to enable certain more
-    /// complex fusions to work. It will eventually be enabled by default. See
-    /// <https://github.com/robertknight/rten/pull/1124>.
+    /// Shape inference is needed for some optimizations in order to verify that
+    /// they are safe, by checking the shape and/or type of various values. By
+    /// default shape inference is [enabled](ShapeInferenceMode::On) but will
+    /// fail gracefully if the shapes of some values cannot be inferred. To
+    /// enforce that shape inference is fully successful, [strict
+    /// mode](ShapeInferenceMode::Strict) can be enabled.
     pub fn shape_inference(&mut self, mode: ShapeInferenceMode) -> &mut Self {
         self.infer_shapes = mode;
         self
