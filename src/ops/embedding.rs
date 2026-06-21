@@ -614,6 +614,62 @@ mod tests {
         });
     }
 
+    // Exercises batch sizes > 1.
+    #[test]
+    fn test_rotary_embedding_batched() {
+        #[derive(Debug)]
+        struct Case {
+            input: Tensor<f32>,
+            cos_cache: Tensor<f32>,
+            sin_cache: Tensor<f32>,
+            expected: Tensor<f32>,
+        }
+
+        // All cases use `num_heads=1`, `head_size=2` and non-interleaved rotation,
+        // so with `half=1` the rotation reduces to:
+        //   y[0] = x[0]*cos - x[1]*sin
+        //   y[1] = x[0]*sin + x[1]*cos
+        let cases = [
+            // Distinct cache row per batch (cos/sin shape [batch=2, seq=1, 1]).
+            // Batch 0 uses cos=1,sin=0 (identity); batch 1 uses cos=0,sin=1
+            // (90-degree rotation).
+            Case {
+                input: Tensor::from([[[1.0, 2.0]], [[3.0, 4.0]]]),
+                cos_cache: Tensor::from([[[1.0]], [[0.0]]]),
+                sin_cache: Tensor::from([[[0.0]], [[1.0]]]),
+                expected: Tensor::from([[[1.0, 2.0]], [[-4.0, 3.0]]]),
+            },
+            // Single-batch cache (shape [1, seq=1, 1]) broadcast across batch=2.
+            // Both batches use cos=0,sin=1.
+            Case {
+                input: Tensor::from([[[1.0, 2.0]], [[3.0, 4.0]]]),
+                cos_cache: Tensor::from([[[0.0]]]),
+                sin_cache: Tensor::from([[[1.0]]]),
+                expected: Tensor::from([[[-2.0, 1.0]], [[-4.0, 3.0]]]),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let Case {
+                input,
+                cos_cache,
+                sin_cache,
+                expected,
+            } = case;
+
+            let op = RotaryEmbedding {
+                interleaved: false,
+                num_heads: 1,
+                rotary_embedding_dim: 0,
+            };
+            let result: Tensor<f32> = op
+                .run_simple((input.view(), cos_cache.view(), sin_cache.view()))
+                .unwrap();
+
+            expect_equal_with_tolerance(&expected.view(), &result.view(), 1e-4, 0.0).unwrap();
+        });
+    }
+
     #[test]
     fn test_reject_indivisible_hidden_size() {
         let op = RotaryEmbedding {
