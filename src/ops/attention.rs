@@ -587,12 +587,12 @@ impl Operator for MultiHeadAttention {
                 }
                 key = concat(ctx.pool(), &[past_key.as_dyn(), key.as_dyn()], 2)?
                     .into_rank::<4>()
-                    .expect("should have rank 4")
+                    .unwrap()
                     .into_cow()
                     .auto_return(ctx.pool());
                 value = concat(ctx.pool(), &[past_value.as_dyn(), value.as_dyn()], 2)?
                     .into_rank::<4>()
-                    .expect("should have rank 4")
+                    .unwrap()
                     .into_cow()
                     .auto_return(ctx.pool());
             }
@@ -685,7 +685,7 @@ impl Operator for MultiHeadAttention {
         // Compute attention outputs.
         let context = matmul(ctx.pool(), scores.as_dyn(), value.as_dyn(), None)?
             .into_rank::<4>()
-            .expect("should have rank 4")
+            .unwrap()
             .auto_return(ctx.pool());
         let output = context
             .permuted([0, 2, 1, 3])

@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use super::{AsView, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
-use crate::errors::{ExpandError, FromDataError};
+use crate::errors::{DimensionError, ExpandError, FromDataError};
 use crate::layout::{DynLayout, MatrixLayout, MutLayout};
 use crate::prelude::*;
 use crate::rng::XorShiftRng;
@@ -914,7 +914,13 @@ fn test_into_rank() {
     assert_eq!(nd.data(), Some([1, 2, 3, 4].as_slice()));
 
     // Converting to a different rank returns `None`.
-    assert!(tensor.into_rank::<3>().is_none());
+    assert_eq!(
+        tensor.into_rank::<3>(),
+        Err(DimensionError {
+            actual: 2,
+            expected: 3
+        })
+    );
 }
 
 #[test]
