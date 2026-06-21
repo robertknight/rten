@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+**Breaking changes:**
+
+- RTen now validates the types and shapes of input values when running ONNX
+  models. This results in better errors if values with incorrect shapes are
+  passed, but will cause errors if a caller was previously passing input values
+  that did not match the model's metadata but happened to work. See
+  https://github.com/robertknight/rten/pull/1257.
+
 **Highlights:**
 
 - Extended the shape and type inference system (introduced in 0.24.0) to cover
