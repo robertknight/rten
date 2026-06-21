@@ -14,9 +14,9 @@ use crate::graph::{
 use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, Cast, ComputeShape, Conv, DynamicQuantizeLinear, FusedMatMul, Gelu,
-    GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, Mul, RMSNormalization,
-    Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Softmax, Swish, SymbolInfo, Transpose,
+    AddSoftmax, Cast, ComputeShape, Conv, FusedMatMul, Gelu, GroupedQueryAttentionMatMul,
+    LayerNormalization, MatMulIntegerToFloat, RMSNormalization, Reciprocal, ReduceMean,
+    RepeatInterleave, Shape, Silu, Softmax, Swish, SymbolInfo, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::ValueType;
@@ -990,48 +990,16 @@ impl PatternFusion for MatMulIntegerToFloatFusion {
     }
 
     fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Result<Self::Operator, FusionError> {
-        let a = pat_match.node_id("a").unwrap();
-        let a_zero = pat_match.node_id("a_zero").unwrap();
-
-        // Check that the candidate inputs are all outputs from a
-        // DynamicQuantizeLinear node. This allows us to be sure that the
-        // inputs will have the expected shape.
-        let (a_src_id, quantize_op) = graph.get_source_node(a).ok_or(FusionError::NoMatch)?;
-        let (a_zero_src_id, _) = graph.get_source_node(a_zero).ok_or(FusionError::NoMatch)?;
-
-        let [
-            Some(quant_out_data),
-            Some(quant_out_scale),
-            Some(quant_out_zero),
-        ] = quantize_op.output_ids()
-        else {
-            return Err(FusionError::NoMatch);
-        };
-
-        // The data and zero point should come from the same DynamicQuantizeLinear op.
-        if a_src_id != a_zero_src_id
-            || quantize_op
-                .operator()
-                .downcast_ref::<DynamicQuantizeLinear>()
-                .is_none()
-            || a != *quant_out_data
-            || a_zero != *quant_out_zero
-        {
-            return Err(FusionError::NoMatch);
-        }
-
-        // The scale should come from `Mul(dyn_scale, const_scale)` where
-        // `dyn_scale` is the scale output of the DynamicQuantizeLinear op and
-        // `const_scale` is a vector.
         let scale = pat_match.node_id("scale").unwrap();
-        let (_, scale_src) = graph.get_source_node(scale).ok_or(FusionError::NoMatch)?;
-        let [Some(dyn_scale), Some(const_scale)] = scale_src.input_ids() else {
-            return Err(FusionError::NoMatch);
-        };
-        if scale_src.operator().downcast_ref::<Mul>().is_none()
-            || graph.get_rank(*const_scale) != Some(1)
-            || quant_out_scale != dyn_scale
-        {
+        let scale_shape = graph
+            .get_node(scale)
+            .ok_or(FusionError::NoMatch)?
+            .shape()
+            .ok_or(FusionError::CheckFailed("unknown scale shape"))?;
+
+        // Fusion supports scalar or vector scale which can be broadcast to
+        // MatMulInteger output shape.
+        if scale_shape.len() > 1 {
             return Err(FusionError::NoMatch);
         }
 

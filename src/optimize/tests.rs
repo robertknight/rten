@@ -27,6 +27,18 @@ fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
     optimizer.optimize(graph, None, OptimizeOptions::default())
 }
 
+fn optimize_graph_infer_shapes(graph: Graph) -> Result<Graph, OptimizeError> {
+    let optimizer = GraphOptimizer::new();
+    optimizer.optimize(
+        graph,
+        None,
+        OptimizeOptions {
+            infer_shapes: Some(InferShapeOptions { strict: false }),
+            ..Default::default()
+        },
+    )
+}
+
 fn arc_tensor_view(val: f32) -> ArcTensorView<f32> {
     let const_data = Vec::from(val.to_le_bytes());
     let const_storage = Arc::new(ConstantStorage::Buffer(const_data));
@@ -878,7 +890,11 @@ fn test_fuse_matmulinteger_cast_scale() {
         let quant = x.apply(
             DynamicQuantizeLinear {},
             &[],
-            &[OutputMeta::NoMeta, OutputMeta::NoMeta, OutputMeta::NoMeta],
+            &[
+                OutputMeta::NoMeta,
+                OutputMeta::Meta((DataType::Float, vec![])),
+                OutputMeta::NoMeta,
+            ],
         );
         let quant_x = quant.output(0);
         let quant_scale = quant.output(1);
@@ -898,7 +914,7 @@ fn test_fuse_matmulinteger_cast_scale() {
         expr.build_graph(["x"])
     };
 
-    let graph = optimize_graph(graph).unwrap();
+    let graph = optimize_graph_infer_shapes(graph).unwrap();
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
 
     assert_eq!(op.operator().name(), "MatMulIntegerToFloat");
