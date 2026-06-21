@@ -42,8 +42,7 @@ struct Args {
     #[argh(option)]
     check_outputs: Option<String>,
 
-    /// run shape and type inference (experimental). This can enable more
-    /// optimizations (see https://github.com/robertknight/rten/pull/1124).
+    /// set shape and type inference mode.
     ///
     /// Can be "off", "on" (best-effort) or "strict". If "strict", model will
     /// fail to load if shape inference is not complete.
@@ -102,8 +101,8 @@ struct Args {
 
 #[derive(Clone, Copy, Default, PartialEq)]
 enum InferShapesMode {
-    #[default]
     Off,
+    #[default] // Matches ModelOptions defaults.
     On,
     Strict,
 }
