@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
+use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
@@ -652,12 +653,18 @@ impl Operator for SkipSimplifiedLayerNormalization {
         Ok(outputs)
     }
 
-    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
-        Some([OutputType::CopyFromInput(0)].into())
+    fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        let mut types = OutputTypeList::from([OutputType::CopyFromInput(0)]);
+        if ctx.num_outputs > 1 {
+            types.push(OutputType::CopyFromInput(0));
+            types.push(OutputType::CopyFromInput(0));
+            types.push(OutputType::CopyFromInput(0));
+        }
+        Some(types)
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        Some(&UnaryOp)
+        Some(&shape_ops::SkipSimplifiedLayerNormalization)
     }
 }
 
