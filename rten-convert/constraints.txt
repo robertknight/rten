@@ -1,0 +1,4 @@
+# Pinned versions of rten-convert's runtime dependencies, used in CI.
+flatbuffers==25.12.19
+numpy==2.4.0
+onnx==1.22.0
