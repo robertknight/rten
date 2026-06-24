@@ -123,6 +123,7 @@ pub(crate) enum LoadErrorImpl {
     UnknownFileType,
 
     /// An error occurred reading tensor data stored externally.
+    #[cfg(feature = "onnx_format")]
     ExternalDataError(Box<dyn Error + Send + Sync>),
 
     /// The model file type is supported by RTen, but the necessary crate
@@ -147,6 +148,7 @@ impl LoadErrorImpl {
                 OptimizeError::InferShapesError(_) => Kind::ShapeInferenceFailed,
             },
             Self::UnknownFileType => Kind::UnknownFileType,
+            #[cfg(feature = "onnx_format")]
             Self::ExternalDataError(_) => Kind::ExternalDataError,
             Self::FormatNotEnabled => Kind::FormatNotEnabled,
         }
@@ -162,6 +164,7 @@ impl LoadErrorImpl {
             Self::GraphError(err) => Some(err.as_ref()),
             Self::OptimizeError(err) => Some(err),
             Self::UnknownFileType => None,
+            #[cfg(feature = "onnx_format")]
             Self::ExternalDataError(err) => Some(err.as_ref()),
             Self::FormatNotEnabled => None,
         }
@@ -182,6 +185,7 @@ impl Display for LoadErrorImpl {
                 e => write!(f, "graph optimization error: {e}"),
             },
             Self::UnknownFileType => write!(f, "unknown model file type"),
+            #[cfg(feature = "onnx_format")]
             Self::ExternalDataError(e) => write!(f, "external data error: {e}"),
             Self::FormatNotEnabled => {
                 write!(f, "rten was built without support for this model format")

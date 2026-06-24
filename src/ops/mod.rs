@@ -68,7 +68,7 @@ pub(crate) use random::{
     Dropout, Multinomial, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike,
 };
 pub(crate) use {
-    attention::{AddSoftmax, GroupedQueryAttentionMatMul, MultiHeadAttention, RepeatInterleave},
+    attention::{AddSoftmax, GroupedQueryAttentionMatMul, RepeatInterleave},
     binary_elementwise::{
         Add, And, Div, Equal, Greater, GreaterOrEqual, Less, LessOrEqual, Mod, Mul, Or, Pow, Sub,
         Where, Xor,
@@ -80,7 +80,7 @@ pub(crate) use {
     conv_transpose::ConvTranspose,
     convert::{Cast, CastLike},
     einsum::Einsum,
-    embedding::{RotaryEmbedding, RotaryEmbeddingMicrosoft},
+    embedding::RotaryEmbedding,
     gather::{
         Gather, GatherElements, GatherND, ReverseSequence, Scatter, ScatterElements, ScatterND,
         ScatterReduction,
@@ -89,13 +89,11 @@ pub(crate) use {
     grid_sample::GridSample,
     identity::Identity,
     layout::{DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze},
-    matmul::{
-        AccuracyLevel, FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat, MatMulNBits,
-    },
+    matmul::{FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat},
     non_max_suppression::NonMaxSuppression,
     norm::{
         BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax,
-        RMSNormalization, SimplifiedLayerNormalization, SkipSimplifiedLayerNormalization, Softmax,
+        RMSNormalization, Softmax,
     },
     pad::Pad,
     pooling::{AveragePool, GlobalAveragePool, GlobalMaxPool, MaxPool},
@@ -119,6 +117,18 @@ pub(crate) use {
         Relu, Round, Sigmoid, Sign, Silu, Sin, Sinh, Softplus, Sqrt, Swish, Tan, Tanh,
     },
     variadic_elementwise::{Max, Mean, Min, Sum},
+};
+
+// Non-standard "contrib" operators in the `com.microsoft` namespace which
+// are supported.
+//
+// See https://onnxruntime.ai/docs/reference/operators/ContribOperators.html.
+#[cfg(feature = "onnx_format")]
+pub(crate) use {
+    attention::MultiHeadAttention,
+    embedding::RotaryEmbeddingMicrosoft,
+    matmul::{AccuracyLevel, MatMulNBits},
+    norm::{SimplifiedLayerNormalization, SkipSimplifiedLayerNormalization},
 };
 
 // Operators as functions. These are exported for use by pre/post-processing

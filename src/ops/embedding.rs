@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
+use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::{
     buffer_pool::{AutoReturn, BufferPool},
@@ -243,124 +243,143 @@ impl Operator for RotaryEmbedding {
     }
 }
 
-#[derive(Debug)]
-pub struct RotaryEmbeddingMicrosoft {
-    pub interleaved: bool,
-    pub num_heads: Option<usize>,
-    pub rotary_embedding_dim: usize,
-}
+#[cfg(feature = "onnx_format")]
+pub use contrib::RotaryEmbeddingMicrosoft;
 
-impl Operator for RotaryEmbeddingMicrosoft {
-    fn name(&self) -> &str {
-        "com.microsoft.RotaryEmbedding"
+#[cfg(feature = "onnx_format")]
+mod contrib {
+    use rten_tensor::prelude::*;
+    use rten_tensor::{NdTensor, TensorView};
+
+    use crate::{
+        infer_shapes::{InferShapes, UnaryOp},
+        operator::{
+            IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+            OutputTypesContext,
+        },
+    };
+
+    use super::rotary_embedding;
+
+    #[derive(Debug)]
+    pub struct RotaryEmbeddingMicrosoft {
+        pub interleaved: bool,
+        pub num_heads: Option<usize>,
+        pub rotary_embedding_dim: usize,
     }
 
-    fn max_inputs(&self) -> Option<usize> {
-        Some(4)
-    }
+    impl Operator for RotaryEmbeddingMicrosoft {
+        fn name(&self) -> &str {
+            "com.microsoft.RotaryEmbedding"
+        }
 
-    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let inputs = ctx.inputs();
+        fn max_inputs(&self) -> Option<usize> {
+            Some(4)
+        }
 
-        let input: TensorView<f32> = inputs.require_as(0)?;
-        let position_ids: TensorView<i32> = inputs.require_as(1)?;
-        let cos: TensorView<f32> = inputs.require_as(2)?;
-        let sin = inputs.require_as(3)?;
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+            let inputs = ctx.inputs();
 
-        // The sequence length is needed to expand the offset form of
-        // `position_ids` below. The shared implementation re-validates the full
-        // input shape.
-        let (batch, seq_len) = match *input.shape() {
-            [batch, seq_len, _] => (batch, seq_len),
-            [batch, _, seq_len, _] => (batch, seq_len),
-            _ => {
-                return Err(OpError::IncompatibleInputShapes(
-                    "Input processed needs 3-4 dimensions",
-                ));
-            }
-        };
+            let input: TensorView<f32> = inputs.require_as(0)?;
+            let position_ids: TensorView<i32> = inputs.require_as(1)?;
+            let cos: TensorView<f32> = inputs.require_as(2)?;
+            let sin = inputs.require_as(3)?;
 
-        // `position_ids` has two forms, matching ONNX Runtime's contrib op:
-        //
-        //  - Format 1, shape `(batch, seq_len)`: the explicit position of each
-        //    token.
-        //  - Format 0, a scalar or 1-element tensor holding an offset `k`:
-        //    token `i` uses position `k + i`. This is used during generation,
-        //    where only the position of the sequence's first token is passed.
-        let offset_positions;
-        let position_ids = match (position_ids.ndim(), position_ids.item().copied()) {
-            (0 | 1, Some(offset)) => {
-                offset_positions =
-                    NdTensor::from_fn([batch, seq_len], |[_, pos]| offset + pos as i32);
-                offset_positions.view()
-            }
-            (2, _) => position_ids.nd_view(),
-            _ => {
-                return Err(OpError::InvalidValue(
-                    "position_ids must be a scalar, a 1-element vector or have 2 dims",
-                ));
-            }
-        };
-
-        let num_heads = match input.shape() {
-            &[_, _, hidden_size] => match self.num_heads {
-                // The ONNX spec requires `num_heads` for rank-3 input. The
-                // Microsoft contrib op gives this attribute a default of 0, so
-                // infer it from the cos cache before calling the shared
-                // implementation. The cache's last dimension is
-                // `rotary_embedding_dim / 2`, which only equals `head_size / 2`
-                // for full rotation. With partial rotary embeddings the head
-                // size cannot be recovered from the cache, so `num_heads` must
-                // be provided explicitly.
-                Some(0) | None => {
-                    if self.rotary_embedding_dim != 0 {
-                        return Err(OpError::InvalidValue(
-                            "num_heads must be specified when rotary_embedding_dim is set",
-                        ));
-                    }
-                    let head_size_half = cos
-                        .shape()
-                        .last()
-                        .copied()
-                        .ok_or(OpError::InvalidValue("cos cache must not be scalar"))?;
-                    if head_size_half == 0 {
-                        return Err(OpError::InvalidValue(
-                            "Last dimension of cos cache must not be 0",
-                        ));
-                    }
-                    let head_size = head_size_half * 2;
-                    if hidden_size % head_size != 0 {
-                        return Err(OpError::InvalidValue(
-                            "hidden_size must be divisible by head size",
-                        ));
-                    }
-                    hidden_size / head_size
+            // The sequence length is needed to expand the offset form of
+            // `position_ids` below. The shared implementation re-validates the full
+            // input shape.
+            let (batch, seq_len) = match *input.shape() {
+                [batch, seq_len, _] => (batch, seq_len),
+                [batch, _, seq_len, _] => (batch, seq_len),
+                _ => {
+                    return Err(OpError::IncompatibleInputShapes(
+                        "Input processed needs 3-4 dimensions",
+                    ));
                 }
-                Some(num_heads) => num_heads,
-            },
-            _ => self.num_heads.unwrap_or_default(),
-        };
+            };
 
-        let output = rotary_embedding(
-            ctx.pool(),
-            input,
-            cos,
-            sin,
-            Some(position_ids),
-            self.interleaved,
-            num_heads,
-            self.rotary_embedding_dim,
-        )?;
+            // `position_ids` has two forms, matching ONNX Runtime's contrib op:
+            //
+            //  - Format 1, shape `(batch, seq_len)`: the explicit position of each
+            //    token.
+            //  - Format 0, a scalar or 1-element tensor holding an offset `k`:
+            //    token `i` uses position `k + i`. This is used during generation,
+            //    where only the position of the sequence's first token is passed.
+            let offset_positions;
+            let position_ids = match (position_ids.ndim(), position_ids.item().copied()) {
+                (0 | 1, Some(offset)) => {
+                    offset_positions =
+                        NdTensor::from_fn([batch, seq_len], |[_, pos]| offset + pos as i32);
+                    offset_positions.view()
+                }
+                (2, _) => position_ids.nd_view(),
+                _ => {
+                    return Err(OpError::InvalidValue(
+                        "position_ids must be a scalar, a 1-element vector or have 2 dims",
+                    ));
+                }
+            };
 
-        output.into_op_result()
-    }
+            let num_heads = match input.shape() {
+                &[_, _, hidden_size] => match self.num_heads {
+                    // The ONNX spec requires `num_heads` for rank-3 input. The
+                    // Microsoft contrib op gives this attribute a default of 0, so
+                    // infer it from the cos cache before calling the shared
+                    // implementation. The cache's last dimension is
+                    // `rotary_embedding_dim / 2`, which only equals `head_size / 2`
+                    // for full rotation. With partial rotary embeddings the head
+                    // size cannot be recovered from the cache, so `num_heads` must
+                    // be provided explicitly.
+                    Some(0) | None => {
+                        if self.rotary_embedding_dim != 0 {
+                            return Err(OpError::InvalidValue(
+                                "num_heads must be specified when rotary_embedding_dim is set",
+                            ));
+                        }
+                        let head_size_half = cos
+                            .shape()
+                            .last()
+                            .copied()
+                            .ok_or(OpError::InvalidValue("cos cache must not be scalar"))?;
+                        if head_size_half == 0 {
+                            return Err(OpError::InvalidValue(
+                                "Last dimension of cos cache must not be 0",
+                            ));
+                        }
+                        let head_size = head_size_half * 2;
+                        if hidden_size % head_size != 0 {
+                            return Err(OpError::InvalidValue(
+                                "hidden_size must be divisible by head size",
+                            ));
+                        }
+                        hidden_size / head_size
+                    }
+                    Some(num_heads) => num_heads,
+                },
+                _ => self.num_heads.unwrap_or_default(),
+            };
 
-    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
-        Some([OutputType::CopyFromInput(0)].into())
-    }
+            let output = rotary_embedding(
+                ctx.pool(),
+                input,
+                cos,
+                sin,
+                Some(position_ids),
+                self.interleaved,
+                num_heads,
+                self.rotary_embedding_dim,
+            )?;
 
-    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        Some(&UnaryOp)
+            output.into_op_result()
+        }
+
+        fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+            Some([OutputType::CopyFromInput(0)].into())
+        }
+
+        fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+            Some(&UnaryOp)
+        }
     }
 }
 

@@ -2,7 +2,6 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
-use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
@@ -14,7 +13,7 @@ use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext, check_eq,
 };
-use crate::ops::{add, resolve_axis};
+use crate::ops::resolve_axis;
 use crate::slice_reductions::slice_max;
 use crate::value::Value;
 
@@ -547,127 +546,6 @@ impl Operator for LayerNormalization {
     }
 }
 
-/// Simplified Layer Normalization
-///
-/// This is a experimental ONNX operator for layer normalization which is equivalent to the later
-/// stabilised RMSNormalization. See [onnx/onnx#6582](https://github.com/onnx/onnx/issues/6582) for
-/// more details.
-#[derive(Debug)]
-pub struct SimplifiedLayerNormalization {
-    pub axis: isize,
-    pub epsilon: Option<f32>,
-}
-
-impl Operator for SimplifiedLayerNormalization {
-    fn name(&self) -> &str {
-        "SimplifiedLayerNormalization"
-    }
-
-    fn max_inputs(&self) -> Option<usize> {
-        Some(2)
-    }
-
-    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let inputs = ctx.inputs();
-        let input = inputs.require_as(0)?;
-        let scale = inputs.require_as(1)?;
-
-        rms_normalization(ctx.pool(), input, scale, self.axis, self.epsilon).into_op_result()
-    }
-
-    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
-        Some([OutputType::CopyFromInput(0)].into())
-    }
-
-    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        Some(&UnaryOp)
-    }
-}
-
-/// Skip Simplified Layer Normalization
-///
-/// This is a fusion of `Add` and `RMSNormalization` (also known as
-/// SimplifiedLayerNormalization in Microsoft's contrib ops).
-///
-/// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.SkipSimplifiedLayerNormalization
-#[derive(Debug)]
-pub struct SkipSimplifiedLayerNormalization {
-    pub epsilon: f32,
-}
-
-impl Operator for SkipSimplifiedLayerNormalization {
-    fn name(&self) -> &str {
-        "SkipSimplifiedLayerNormalisation"
-    }
-
-    fn max_inputs(&self) -> Option<usize> {
-        Some(4)
-    }
-
-    fn max_outputs(&self) -> Option<usize> {
-        Some(4)
-    }
-
-    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let inputs = ctx.inputs();
-        let input: TensorView<_> = inputs.require_as(0)?;
-        let skip: TensorView<_> = inputs.require_as(1)?;
-
-        // Scale factor, called gamma (γ) in the RMS normalization paper.
-        let gamma: TensorView<_> = inputs.require_as(2)?;
-
-        let bias: Option<TensorView<_>> = inputs.get_as(3)?;
-
-        if input.shape() != skip.shape() {
-            return Err(OpError::IncompatibleInputShapes(
-                "input and skip tensor shapes must match",
-            ));
-        }
-
-        if !matches!(input.ndim(), 2 | 3) {
-            return Err(OpError::InvalidValue("input must be 2 or 3 dimensioned"));
-        }
-
-        let mut x_plus_skip = add(ctx.pool(), input, skip)?;
-        if let Some(bias) = bias {
-            x_plus_skip = add(ctx.pool(), x_plus_skip.view(), bias)?;
-        }
-
-        let output = layer_normalization_impl(
-            ctx.pool(),
-            x_plus_skip.view(),
-            gamma,
-            None,
-            -1,
-            Some(self.epsilon),
-            MeanNormalize::DynamicRootMeanSquare,
-        )?;
-
-        let mut outputs: OutputList = [output.into()].into();
-        if ctx.outputs().get(3) {
-            outputs.push(Tensor::<f32>::zeros(&[0]).into()); // mean dummy
-            outputs.push(Tensor::<f32>::zeros(&[0]).into()); // inv_std_var dummy
-            outputs.push(x_plus_skip.into());
-        }
-
-        Ok(outputs)
-    }
-
-    fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList> {
-        let mut types = OutputTypeList::from([OutputType::CopyFromInput(0)]);
-        if ctx.num_outputs > 1 {
-            types.push(OutputType::CopyFromInput(0));
-            types.push(OutputType::CopyFromInput(0));
-            types.push(OutputType::CopyFromInput(0));
-        }
-        Some(types)
-    }
-
-    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        Some(&shape_ops::SkipSimplifiedLayerNormalization)
-    }
-}
-
 /// Root Mean Square normalization.
 ///
 /// This is a simplified version of [`LayerNormalization`] which does not center
@@ -923,6 +801,146 @@ impl Operator for Softmax {
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some([OutputType::CopyFromInput(0)].into())
+    }
+}
+
+#[cfg(feature = "onnx_format")]
+pub use contrib::{SimplifiedLayerNormalization, SkipSimplifiedLayerNormalization};
+
+#[cfg(feature = "onnx_format")]
+mod contrib {
+    use rten_shape_inference::ops as shape_ops;
+    use rten_tensor::prelude::*;
+    use rten_tensor::{Tensor, TensorView};
+
+    use crate::infer_shapes::{InferShapes, UnaryOp};
+    use crate::operator::{
+        IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+        OutputTypesContext,
+    };
+    use crate::ops::add;
+
+    use super::{MeanNormalize, layer_normalization_impl, rms_normalization};
+
+    /// Simplified Layer Normalization
+    ///
+    /// This is a experimental ONNX operator for layer normalization which is equivalent to the later
+    /// stabilised RMSNormalization. See [onnx/onnx#6582](https://github.com/onnx/onnx/issues/6582) for
+    /// more details.
+    #[derive(Debug)]
+    pub struct SimplifiedLayerNormalization {
+        pub axis: isize,
+        pub epsilon: Option<f32>,
+    }
+
+    impl Operator for SimplifiedLayerNormalization {
+        fn name(&self) -> &str {
+            "SimplifiedLayerNormalization"
+        }
+
+        fn max_inputs(&self) -> Option<usize> {
+            Some(2)
+        }
+
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+            let inputs = ctx.inputs();
+            let input = inputs.require_as(0)?;
+            let scale = inputs.require_as(1)?;
+
+            rms_normalization(ctx.pool(), input, scale, self.axis, self.epsilon).into_op_result()
+        }
+
+        fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+            Some([OutputType::CopyFromInput(0)].into())
+        }
+
+        fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+            Some(&UnaryOp)
+        }
+    }
+
+    /// Skip Simplified Layer Normalization
+    ///
+    /// This is a fusion of `Add` and `RMSNormalization` (also known as
+    /// SimplifiedLayerNormalization in Microsoft's contrib ops).
+    ///
+    /// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.SkipSimplifiedLayerNormalization
+    #[derive(Debug)]
+    pub struct SkipSimplifiedLayerNormalization {
+        pub epsilon: f32,
+    }
+
+    impl Operator for SkipSimplifiedLayerNormalization {
+        fn name(&self) -> &str {
+            "SkipSimplifiedLayerNormalisation"
+        }
+
+        fn max_inputs(&self) -> Option<usize> {
+            Some(4)
+        }
+
+        fn max_outputs(&self) -> Option<usize> {
+            Some(4)
+        }
+
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+            let inputs = ctx.inputs();
+            let input: TensorView<_> = inputs.require_as(0)?;
+            let skip: TensorView<_> = inputs.require_as(1)?;
+
+            // Scale factor, called gamma (γ) in the RMS normalization paper.
+            let gamma: TensorView<_> = inputs.require_as(2)?;
+
+            let bias: Option<TensorView<_>> = inputs.get_as(3)?;
+
+            if input.shape() != skip.shape() {
+                return Err(OpError::IncompatibleInputShapes(
+                    "input and skip tensor shapes must match",
+                ));
+            }
+
+            if !matches!(input.ndim(), 2 | 3) {
+                return Err(OpError::InvalidValue("input must be 2 or 3 dimensioned"));
+            }
+
+            let mut x_plus_skip = add(ctx.pool(), input, skip)?;
+            if let Some(bias) = bias {
+                x_plus_skip = add(ctx.pool(), x_plus_skip.view(), bias)?;
+            }
+
+            let output = layer_normalization_impl(
+                ctx.pool(),
+                x_plus_skip.view(),
+                gamma,
+                None,
+                -1,
+                Some(self.epsilon),
+                MeanNormalize::DynamicRootMeanSquare,
+            )?;
+
+            let mut outputs: OutputList = [output.into()].into();
+            if ctx.outputs().get(3) {
+                outputs.push(Tensor::<f32>::zeros(&[0]).into()); // mean dummy
+                outputs.push(Tensor::<f32>::zeros(&[0]).into()); // inv_std_var dummy
+                outputs.push(x_plus_skip.into());
+            }
+
+            Ok(outputs)
+        }
+
+        fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+            let mut types = OutputTypeList::from([OutputType::CopyFromInput(0)]);
+            if ctx.num_outputs > 1 {
+                types.push(OutputType::CopyFromInput(0));
+                types.push(OutputType::CopyFromInput(0));
+                types.push(OutputType::CopyFromInput(0));
+            }
+            Some(types)
+        }
+
+        fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+            Some(&shape_ops::SkipSimplifiedLayerNormalization)
+        }
     }
 }
 
