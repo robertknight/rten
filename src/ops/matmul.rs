@@ -3,13 +3,12 @@ use std::any::TypeId;
 use rayon::prelude::*;
 use rten_base::byte_cast::{Pod, cast_pod_vec};
 use rten_gemm::{
-    BiasVector, BlockQuantizedError, BlockQuantizedGemm, BlockQuantizedMatrix, ComputeMode,
-    GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOptions, GemmOutT, GemmUninitOptions,
-    PackedBMatrix, QuantParams,
+    BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOptions, GemmOutT,
+    GemmUninitOptions, PackedBMatrix, QuantParams,
 };
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
-use rten_tensor::{CowNdTensor, CowTensor, Matrix, NdTensorView, Tensor, TensorView};
+use rten_tensor::{CowTensor, Matrix, NdTensorView, Tensor, TensorView};
 use rten_vecmath::ExtendInit;
 use smallvec::SmallVec;
 
@@ -798,179 +797,203 @@ impl Operator for MatMulIntegerToFloat {
     }
 }
 
-fn matmul_nbits(
-    pool: &BufferPool,
-    lhs: TensorView<f32>,
-    rhs: NdTensorView<u8, 3>,
-    scales: NdTensorView<f32, 2>,
-    bits: u8,
-    accuracy: AccuracyLevel,
-) -> Result<Tensor<f32>, OpError> {
-    if lhs.ndim() < 2 {
-        return Err(OpError::InvalidValue("A input must have at least 2 dims"));
-    }
+#[cfg(feature = "onnx_format")]
+pub use contrib::{AccuracyLevel, MatMulNBits};
 
-    let batch_dims = &lhs.shape()[..lhs.ndim() - 2];
-    let rows = lhs.size(lhs.ndim() - 2);
-    let lhs_cols = lhs.size(lhs.ndim() - 1);
+#[cfg(feature = "onnx_format")]
+mod contrib {
+    use rten_gemm::{
+        BlockQuantizedError, BlockQuantizedGemm, BlockQuantizedMatrix, ComputeMode, GemmExecutor,
+        GemmInputA, GemmInputB, GemmUninitOptions,
+    };
+    use rten_shape_inference::ops as shape_ops;
+    use rten_tensor::prelude::*;
+    use rten_tensor::{CowNdTensor, NdTensorView, Tensor, TensorView};
+    use rten_vecmath::ExtendInit;
+    use smallvec::SmallVec;
 
-    let rhs = rhs.to_contiguous_in(pool);
-    let scales = scales.to_contiguous_in(pool);
+    use crate::buffer_pool::{AutoReturn, BufferPool};
+    use crate::infer_shapes::InferShapes;
+    use crate::operator::{
+        IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+        OutputTypesContext,
+    };
+    use crate::value::{DataType, ValueType};
 
-    let b_mat = BlockQuantizedMatrix::new(rhs.view(), scales.view(), bits).map_err(|err| {
-        OpError::UnsupportedValue(match err {
-            BlockQuantizedError::UnsupportedBlockSize => "Unsupported K block size",
-            BlockQuantizedError::UnsupportedElementSize => "Unsupported bits-per-element",
-        })
-    })?;
+    fn matmul_nbits(
+        pool: &BufferPool,
+        lhs: TensorView<f32>,
+        rhs: NdTensorView<u8, 3>,
+        scales: NdTensorView<f32, 2>,
+        bits: u8,
+        accuracy: AccuracyLevel,
+    ) -> Result<Tensor<f32>, OpError> {
+        if lhs.ndim() < 2 {
+            return Err(OpError::InvalidValue("A input must have at least 2 dims"));
+        }
 
-    let batch_len = batch_dims.iter().product();
-    let out_shape: SmallVec<[usize; 4]> = batch_dims
-        .iter()
-        .copied()
-        .chain([rows, b_mat.cols()])
-        .collect();
-    let out_len = out_shape.iter().product();
-    let mut out_data = pool.alloc(out_len);
+        let batch_dims = &lhs.shape()[..lhs.ndim() - 2];
+        let rows = lhs.size(lhs.ndim() - 2);
+        let lhs_cols = lhs.size(lhs.ndim() - 1);
 
-    if lhs_cols != b_mat.rows() {
-        return Err(OpError::IncompatibleInputShapes(
-            "Columns of first matrix does not match rows of second matrix",
-        ));
-    }
+        let rhs = rhs.to_contiguous_in(pool);
+        let scales = scales.to_contiguous_in(pool);
 
-    // For vector-matrix products use an optimized implementation. Otherwise use
-    // the standard GEMM implementation which handles block-quantized inputs via
-    // a custom packing function, but otherwise uses the same logic as for
-    // regular matmuls.
-    if rows == 1 {
-        let compute = match accuracy {
-            AccuracyLevel::Int8 => ComputeMode::Int8,
-            AccuracyLevel::Float => ComputeMode::Float,
-        };
-        let gemm = if BlockQuantizedGemm::is_compute_optimized(compute) {
-            BlockQuantizedGemm::new().with_compute(compute)
-        } else {
-            BlockQuantizedGemm::new()
-        };
+        let b_mat = BlockQuantizedMatrix::new(rhs.view(), scales.view(), bits).map_err(|err| {
+            OpError::UnsupportedValue(match err {
+                BlockQuantizedError::UnsupportedBlockSize => "Unsupported K block size",
+                BlockQuantizedError::UnsupportedElementSize => "Unsupported bits-per-element",
+            })
+        })?;
 
-        let lhs = lhs
-            .reshaped_in(pool, [batch_len, rows, lhs_cols])
-            .auto_return(pool);
-        out_data.extend_init(|uninit_out_data| {
-            gemm.batched_gemm_uninit(&mut uninit_out_data[..out_len], lhs.view(), b_mat)
-                .unwrap()
-        });
-    } else {
-        let lhs = lhs
-            .reshaped_in(pool, [batch_len * rows, lhs_cols])
-            .auto_return(pool);
+        let batch_len = batch_dims.iter().product();
+        let out_shape: SmallVec<[usize; 4]> = batch_dims
+            .iter()
+            .copied()
+            .chain([rows, b_mat.cols()])
+            .collect();
+        let out_len = out_shape.iter().product();
+        let mut out_data = pool.alloc(out_len);
 
-        let gemm = GemmExecutor::default();
-        out_data.extend_init(|uninit_out_data| {
-            gemm.gemm_uninit(
-                &mut uninit_out_data[..out_len],
-                GemmInputA::Unpacked(lhs.view()),
-                GemmInputB::BlockQuantized(b_mat),
-                GemmUninitOptions::default(),
-            )
-            .unwrap()
-        });
-    }
-
-    Ok(Tensor::from_data(out_shape.as_slice(), out_data))
-}
-
-/// Specifies whether the LHS input may be quantized.
-///
-/// Using [`Int8`](Self::Int8) quantization can significantly improve
-/// performance but may reduce accuracy. The accuracy level that is used may
-/// be higher than requested if an optimized implementation of the requested
-/// level is not available on the current platform.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum AccuracyLevel {
-    /// Do not quantize the LHS input.
-    Float,
-    /// Quantize the LHS to 8-bit integers using blockwise quantization with
-    /// the same quantization as the RHS.
-    Int8,
-}
-
-/// Matrix multiplication of un-quantized LHS by block-quantized RHS.
-///
-/// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.MatMulNBits.
-#[derive(Debug)]
-pub struct MatMulNBits {
-    pub bits: u8,
-    pub block_size: usize,
-    pub accuracy_level: AccuracyLevel,
-}
-
-impl Operator for MatMulNBits {
-    fn name(&self) -> &str {
-        "MatMulNBits"
-    }
-
-    fn max_inputs(&self) -> Option<usize> {
-        Some(3)
-    }
-
-    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let lhs: TensorView<f32> = ctx.inputs().require_as(0)?;
-        let rhs: NdTensorView<u8, 3> = ctx.inputs().require_as(1)?;
-
-        // Current spec requires scales to be 2D, but earlier versions used 1D
-        // scales. See https://github.com/microsoft/onnxruntime/pull/24828.
-        let scales: TensorView<f32> = ctx.inputs().require_as(2)?;
-
-        let scales: CowNdTensor<f32, 2> = match scales.ndim() {
-            2 => scales
-                .to_contiguous_in(ctx.pool())
-                .into_inner()
-                .try_into()
-                .unwrap(),
-            1 => {
-                let k = lhs.ndim().checked_sub(1).map(|d| lhs.size(d)).unwrap_or(1);
-                let k_blocks = k.checked_div(self.block_size).unwrap_or(0);
-                let rhs_cols = rhs.size(0);
-
-                if scales.len() != rhs_cols * k_blocks {
-                    return Err(OpError::InvalidValue(
-                        "Expected 1D `scales` size to match columns * block_size",
-                    ));
-                }
-                scales.reshaped([rhs_cols, k_blocks])
-            }
-            _ => {
-                return Err(OpError::InvalidValue(
-                    "Expected `scales` to have one or two dims",
-                ));
-            }
-        };
-
-        if ctx.inputs().len() > 3 {
-            return Err(OpError::UnsupportedValue(
-                "zero_points, g_idx and bias inputs are unsupported",
+        if lhs_cols != b_mat.rows() {
+            return Err(OpError::IncompatibleInputShapes(
+                "Columns of first matrix does not match rows of second matrix",
             ));
         }
 
-        matmul_nbits(
-            ctx.pool(),
-            lhs,
-            rhs,
-            scales.view(),
-            self.bits,
-            self.accuracy_level,
-        )
-        .into_op_result()
+        // For vector-matrix products use an optimized implementation. Otherwise use
+        // the standard GEMM implementation which handles block-quantized inputs via
+        // a custom packing function, but otherwise uses the same logic as for
+        // regular matmuls.
+        if rows == 1 {
+            let compute = match accuracy {
+                AccuracyLevel::Int8 => ComputeMode::Int8,
+                AccuracyLevel::Float => ComputeMode::Float,
+            };
+            let gemm = if BlockQuantizedGemm::is_compute_optimized(compute) {
+                BlockQuantizedGemm::new().with_compute(compute)
+            } else {
+                BlockQuantizedGemm::new()
+            };
+
+            let lhs = lhs
+                .reshaped_in(pool, [batch_len, rows, lhs_cols])
+                .auto_return(pool);
+            out_data.extend_init(|uninit_out_data| {
+                gemm.batched_gemm_uninit(&mut uninit_out_data[..out_len], lhs.view(), b_mat)
+                    .unwrap()
+            });
+        } else {
+            let lhs = lhs
+                .reshaped_in(pool, [batch_len * rows, lhs_cols])
+                .auto_return(pool);
+
+            let gemm = GemmExecutor::default();
+            out_data.extend_init(|uninit_out_data| {
+                gemm.gemm_uninit(
+                    &mut uninit_out_data[..out_len],
+                    GemmInputA::Unpacked(lhs.view()),
+                    GemmInputB::BlockQuantized(b_mat),
+                    GemmUninitOptions::default(),
+                )
+                .unwrap()
+            });
+        }
+
+        Ok(Tensor::from_data(out_shape.as_slice(), out_data))
     }
 
-    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
+    /// Specifies whether the LHS input may be quantized.
+    ///
+    /// Using [`Int8`](Self::Int8) quantization can significantly improve
+    /// performance but may reduce accuracy. The accuracy level that is used may
+    /// be higher than requested if an optimized implementation of the requested
+    /// level is not available on the current platform.
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    pub enum AccuracyLevel {
+        /// Do not quantize the LHS input.
+        Float,
+        /// Quantize the LHS to 8-bit integers using blockwise quantization with
+        /// the same quantization as the RHS.
+        Int8,
     }
 
-    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        Some(&shape_ops::MatMulNBits)
+    /// Matrix multiplication of un-quantized LHS by block-quantized RHS.
+    ///
+    /// See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.MatMulNBits.
+    #[derive(Debug)]
+    pub struct MatMulNBits {
+        pub bits: u8,
+        pub block_size: usize,
+        pub accuracy_level: AccuracyLevel,
+    }
+
+    impl Operator for MatMulNBits {
+        fn name(&self) -> &str {
+            "MatMulNBits"
+        }
+
+        fn max_inputs(&self) -> Option<usize> {
+            Some(3)
+        }
+
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+            let lhs: TensorView<f32> = ctx.inputs().require_as(0)?;
+            let rhs: NdTensorView<u8, 3> = ctx.inputs().require_as(1)?;
+
+            // Current spec requires scales to be 2D, but earlier versions used 1D
+            // scales. See https://github.com/microsoft/onnxruntime/pull/24828.
+            let scales: TensorView<f32> = ctx.inputs().require_as(2)?;
+
+            let scales: CowNdTensor<f32, 2> = match scales.ndim() {
+                2 => scales
+                    .to_contiguous_in(ctx.pool())
+                    .into_inner()
+                    .try_into()
+                    .unwrap(),
+                1 => {
+                    let k = lhs.ndim().checked_sub(1).map(|d| lhs.size(d)).unwrap_or(1);
+                    let k_blocks = k.checked_div(self.block_size).unwrap_or(0);
+                    let rhs_cols = rhs.size(0);
+
+                    if scales.len() != rhs_cols * k_blocks {
+                        return Err(OpError::InvalidValue(
+                            "Expected 1D `scales` size to match columns * block_size",
+                        ));
+                    }
+                    scales.reshaped([rhs_cols, k_blocks])
+                }
+                _ => {
+                    return Err(OpError::InvalidValue(
+                        "Expected `scales` to have one or two dims",
+                    ));
+                }
+            };
+
+            if ctx.inputs().len() > 3 {
+                return Err(OpError::UnsupportedValue(
+                    "zero_points, g_idx and bias inputs are unsupported",
+                ));
+            }
+
+            matmul_nbits(
+                ctx.pool(),
+                lhs,
+                rhs,
+                scales.view(),
+                self.bits,
+                self.accuracy_level,
+            )
+            .into_op_result()
+        }
+
+        fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+            Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
+        }
+
+        fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+            Some(&shape_ops::MatMulNBits)
+        }
     }
 }
 
