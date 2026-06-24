@@ -188,6 +188,10 @@ class AttributeReader:
             case "ints":
                 shape = [len(attr_val)]
                 data = np.array([attr_val]).astype(np.int32)
+
+            case "floats":
+                shape = [len(attr_val)]
+                data = np.array(attr_val).astype(np.float32)
             case _:
                 raise ConversionError(
                     f'Unable to generate input from "{attr_name}" attribute of type "{attr_type}"'

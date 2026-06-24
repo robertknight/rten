@@ -726,6 +726,19 @@ def op_node_from_onnx_operator(
             if output_dtype is not None:
                 attrs.outputDtype = convert_data_type(output_dtype)
 
+        case "RotaryEmbedding":
+            attrs = sg.RotaryEmbeddingAttrsT()
+            attrs.interleaved = attr_reader.get_bool_attr("interleaved", False)
+            attrs.numHeads = attr_reader.get_attr("num_heads", "int", 0)
+            attrs.rotaryEmbeddingDim = attr_reader.get_attr(
+                "rotary_embedding_dim", "int", 0
+            )
+
+        case "Scatter":
+            # Deprecated alias for ScatterElements without a reduction.
+            attrs = sg.ScatterElementsAttrsT()
+            attrs.axis = attr_reader.get_attr("axis", "int", 0)
+
         case "ScatterElements":
             attrs = sg.ScatterElementsAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", 0)
@@ -799,6 +812,14 @@ def op_node_from_onnx_operator(
 
         case "Unsqueeze":
             attr_reader.generate_input_from_attr(1, "axes", "ints")
+
+        case "Upsample":
+            attrs = sg.UpsampleAttrsT()
+            attrs.mode = attr_reader.get_enum_attr("mode", sg.ResizeMode, "nearest")
+
+            # `scales` was a required attribute in opset 7 and became the second
+            # input in opset 9.
+            attr_reader.generate_input_from_attr(1, "scales", "floats")
 
     if not hasattr(sg.OperatorType, op_type):
         raise UnsupportedOperatorError(op_type)

@@ -197,7 +197,9 @@ impl RtenOpRegistry {
         register_op!(Reshape);
         register_op!(Resize);
         register_op!(ReverseSequence);
+        register_op!(RotaryEmbedding);
         register_op!(Round);
+        register_op!(Scatter);
         register_op!(ScatterElements);
         register_op!(ScatterND);
         register_op!(SequenceAt);
@@ -229,6 +231,7 @@ impl RtenOpRegistry {
         register_op!(Transpose);
         register_op!(Trilu);
         register_op!(Unsqueeze);
+        register_op!(Upsample);
         register_op!(Where);
         register_op!(Xor);
 
@@ -971,7 +974,27 @@ impl_read_op!(
         })
     }
 );
+impl_read_op!(
+    RotaryEmbedding,
+    attrs_as_rotary_embedding_attrs,
+    |attrs: sg::RotaryEmbeddingAttrs| {
+        Ok(ops::RotaryEmbedding {
+            interleaved: attrs.interleaved(),
+            num_heads: attrs.num_heads().as_usize(),
+            rotary_embedding_dim: attrs.rotary_embedding_dim().as_usize(),
+        })
+    }
+);
 impl_read_op!(Round);
+impl_read_op!(
+    Scatter,
+    attrs_as_scatter_elements_attrs,
+    |attrs: sg::ScatterElementsAttrs| {
+        Ok(ops::Scatter {
+            axis: attrs.axis() as isize,
+        })
+    }
+);
 impl_read_op!(
     ScatterElements,
     attrs_as_scatter_elements_attrs,
@@ -1096,6 +1119,18 @@ impl_read_op!(Trilu, attrs_as_trilu_attrs, |attrs: sg::TriluAttrs| {
     })
 });
 impl_read_op!(Unsqueeze);
+impl_read_op!(
+    Upsample,
+    attrs_as_upsample_attrs,
+    |attrs: sg::UpsampleAttrs| {
+        let mode = match attrs.mode() {
+            sg::ResizeMode::Nearest => ResizeMode::Nearest,
+            sg::ResizeMode::Linear => ResizeMode::Linear,
+            _ => ResizeMode::Nearest,
+        };
+        Ok(ops::Upsample { mode })
+    }
+);
 impl_read_op!(Where);
 impl_read_op!(Xor);
 

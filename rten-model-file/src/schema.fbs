@@ -151,6 +151,9 @@ enum OperatorType: ubyte {
   Multinomial,
   ReverseSequence,
   DFT,
+  Scatter,
+  Upsample,
+  RotaryEmbedding,
 }
 
 enum RNNDirection: ubyte {
@@ -225,7 +228,7 @@ union OperatorAttrs {
   // New operator attrs. These are appended here to preserve binary compatibility
   // of existing model files.
   ModAttrs,
-  ScatterElementsAttrs,
+  ScatterElementsAttrs, // Also used for Scatter
   OneHotAttrs,
   TopKAttrs,
   HardSigmoidAttrs,
@@ -260,6 +263,8 @@ union OperatorAttrs {
   MultinomialAttrs,
   ReverseSequenceAttrs,
   DFTAttrs,
+  UpsampleAttrs,
+  RotaryEmbeddingAttrs,
 }
 
 table ArgMaxAttrs {
@@ -549,6 +554,16 @@ table ScatterElementsAttrs {
 
 table ScatterNDAttrs {
   reduction:ScatterReduction;
+}
+
+table UpsampleAttrs {
+  mode:ResizeMode;
+}
+
+table RotaryEmbeddingAttrs {
+  interleaved:bool;
+  num_heads:uint;
+  rotary_embedding_dim:uint;
 }
 
 table SequenceEmptyAttrs {

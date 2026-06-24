@@ -310,7 +310,9 @@ pub mod op_types {
     declare_op!(Reshape);
     declare_op!(Resize);
     declare_op!(ReverseSequence);
+    declare_op!(RotaryEmbedding);
     declare_op!(Round);
+    declare_op!(Scatter);
     declare_op!(ScatterElements);
     declare_op!(ScatterND);
     declare_op!(SequenceAt);
@@ -341,6 +343,7 @@ pub mod op_types {
     declare_op!(Transpose);
     declare_op!(Trilu);
     declare_op!(Unsqueeze);
+    declare_op!(Upsample);
     declare_op!(Where);
     declare_op!(Xor);
 }
