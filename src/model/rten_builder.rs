@@ -13,8 +13,8 @@ use crate::ops::{
     GatherND, Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu,
     LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, QuantizeLinear,
     ReduceL1, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare,
-    Reshape, Resize, ResizeMode, ScatterElements, ScatterReduction, SequenceEmpty, Shape, Softmax,
-    Split, TopK, Transpose, Trilu,
+    Reshape, Resize, ResizeMode, RotaryEmbedding, Scatter, ScatterElements, ScatterReduction,
+    SequenceEmpty, Shape, Softmax, Split, TopK, Transpose, Trilu, Upsample,
 };
 use crate::value::{DataType, Scalar};
 
@@ -139,8 +139,10 @@ pub enum OpType<'a> {
     Relu,
     Reshape(Reshape),
     Resize(Resize),
+    RotaryEmbedding(RotaryEmbedding),
     Round,
     QuantizeLinear(QuantizeLinear),
+    Scatter(Scatter),
     ScatterElements(ScatterElements),
     #[allow(dead_code)]
     SequenceAt,
@@ -169,6 +171,7 @@ pub enum OpType<'a> {
     Transpose(Transpose),
     Trilu(Trilu),
     Unsqueeze,
+    Upsample(Upsample),
     Where,
     Xor,
 }
@@ -898,6 +901,15 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                     nearest_mode,
                 }
             }),
+            OpType::RotaryEmbedding(args) => op_with_attrs!(
+                RotaryEmbedding,
+                RotaryEmbeddingAttrs,
+                sg::RotaryEmbeddingAttrsArgs {
+                    interleaved: args.interleaved,
+                    num_heads: args.num_heads as u32,
+                    rotary_embedding_dim: args.rotary_embedding_dim as u32,
+                }
+            ),
             OpType::Round => op!(Round),
             OpType::SequenceAt => op!(SequenceAt),
             OpType::SequenceEmpty(args) => op_with_attrs!(
@@ -908,6 +920,14 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 }
             ),
             OpType::SequenceInsert => op!(SequenceInsert),
+            OpType::Scatter(args) => op_with_attrs!(
+                Scatter,
+                ScatterElementsAttrs,
+                sg::ScatterElementsAttrsArgs {
+                    axis: args.axis as i32,
+                    reduction: sg::ScatterReduction::None,
+                }
+            ),
             OpType::ScatterElements(args) => {
                 op_with_attrs!(ScatterElements, ScatterElementsAttrs, {
                     let reduction = match args.reduction {
@@ -971,6 +991,13 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 sg::TriluAttrsArgs { upper: args.upper }
             }),
             OpType::Unsqueeze => op!(Unsqueeze),
+            OpType::Upsample(args) => op_with_attrs!(Upsample, UpsampleAttrs, {
+                let mode = match args.mode {
+                    ResizeMode::Nearest => sg::ResizeMode::Nearest,
+                    ResizeMode::Linear => sg::ResizeMode::Linear,
+                };
+                sg::UpsampleAttrsArgs { mode }
+            }),
             OpType::Where => op!(Where),
             OpType::Xor => op!(Xor),
         };

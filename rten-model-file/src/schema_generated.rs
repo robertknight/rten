@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 137;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 140;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 138] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 141] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -156,6 +156,9 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 138] = [
     OperatorType::Multinomial,
     OperatorType::ReverseSequence,
     OperatorType::DFT,
+    OperatorType::Scatter,
+    OperatorType::Upsample,
+    OperatorType::RotaryEmbedding,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -301,9 +304,12 @@ impl OperatorType {
     pub const Multinomial: Self = Self(135);
     pub const ReverseSequence: Self = Self(136);
     pub const DFT: Self = Self(137);
+    pub const Scatter: Self = Self(138);
+    pub const Upsample: Self = Self(139);
+    pub const RotaryEmbedding: Self = Self(140);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 137;
+    pub const ENUM_MAX: u8 = 140;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -443,6 +449,9 @@ impl OperatorType {
         Self::Multinomial,
         Self::ReverseSequence,
         Self::DFT,
+        Self::Scatter,
+        Self::Upsample,
+        Self::RotaryEmbedding,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -585,6 +594,9 @@ impl OperatorType {
             Self::Multinomial => Some("Multinomial"),
             Self::ReverseSequence => Some("ReverseSequence"),
             Self::DFT => Some("DFT"),
+            Self::Scatter => Some("Scatter"),
+            Self::Upsample => Some("Upsample"),
+            Self::RotaryEmbedding => Some("RotaryEmbedding"),
             _ => None,
         }
     }
@@ -1220,13 +1232,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 57;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 59;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 58] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 60] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1285,6 +1297,8 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 58] = [
     OperatorAttrs::MultinomialAttrs,
     OperatorAttrs::ReverseSequenceAttrs,
     OperatorAttrs::DFTAttrs,
+    OperatorAttrs::UpsampleAttrs,
+    OperatorAttrs::RotaryEmbeddingAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1350,9 +1364,11 @@ impl OperatorAttrs {
     pub const MultinomialAttrs: Self = Self(55);
     pub const ReverseSequenceAttrs: Self = Self(56);
     pub const DFTAttrs: Self = Self(57);
+    pub const UpsampleAttrs: Self = Self(58);
+    pub const RotaryEmbeddingAttrs: Self = Self(59);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 57;
+    pub const ENUM_MAX: u8 = 59;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1412,6 +1428,8 @@ impl OperatorAttrs {
         Self::MultinomialAttrs,
         Self::ReverseSequenceAttrs,
         Self::DFTAttrs,
+        Self::UpsampleAttrs,
+        Self::RotaryEmbeddingAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1474,6 +1492,8 @@ impl OperatorAttrs {
             Self::MultinomialAttrs => Some("MultinomialAttrs"),
             Self::ReverseSequenceAttrs => Some("ReverseSequenceAttrs"),
             Self::DFTAttrs => Some("DFTAttrs"),
+            Self::UpsampleAttrs => Some("UpsampleAttrs"),
+            Self::RotaryEmbeddingAttrs => Some("RotaryEmbeddingAttrs"),
             _ => None,
         }
     }
@@ -8886,6 +8906,273 @@ impl ::core::fmt::Debug for ScatterNDAttrs<'_> {
         ds.finish()
     }
 }
+pub enum UpsampleAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct UpsampleAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for UpsampleAttrs<'a> {
+    type Inner = UpsampleAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> UpsampleAttrs<'a> {
+    pub const VT_MODE: ::flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        UpsampleAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args UpsampleAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<UpsampleAttrs<'bldr>> {
+        let mut builder = UpsampleAttrsBuilder::new(_fbb);
+        builder.add_mode(args.mode);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn mode(&self) -> ResizeMode {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<ResizeMode>(UpsampleAttrs::VT_MODE, Some(ResizeMode::Nearest))
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for UpsampleAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<ResizeMode>("mode", Self::VT_MODE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct UpsampleAttrsArgs {
+    pub mode: ResizeMode,
+}
+impl<'a> Default for UpsampleAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        UpsampleAttrsArgs {
+            mode: ResizeMode::Nearest,
+        }
+    }
+}
+
+pub struct UpsampleAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> UpsampleAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_mode(&mut self, mode: ResizeMode) {
+        self.fbb_
+            .push_slot::<ResizeMode>(UpsampleAttrs::VT_MODE, mode, ResizeMode::Nearest);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> UpsampleAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        UpsampleAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<UpsampleAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for UpsampleAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("UpsampleAttrs");
+        ds.field("mode", &self.mode());
+        ds.finish()
+    }
+}
+pub enum RotaryEmbeddingAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct RotaryEmbeddingAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for RotaryEmbeddingAttrs<'a> {
+    type Inner = RotaryEmbeddingAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> RotaryEmbeddingAttrs<'a> {
+    pub const VT_INTERLEAVED: ::flatbuffers::VOffsetT = 4;
+    pub const VT_NUM_HEADS: ::flatbuffers::VOffsetT = 6;
+    pub const VT_ROTARY_EMBEDDING_DIM: ::flatbuffers::VOffsetT = 8;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        RotaryEmbeddingAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args RotaryEmbeddingAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<RotaryEmbeddingAttrs<'bldr>> {
+        let mut builder = RotaryEmbeddingAttrsBuilder::new(_fbb);
+        builder.add_rotary_embedding_dim(args.rotary_embedding_dim);
+        builder.add_num_heads(args.num_heads);
+        builder.add_interleaved(args.interleaved);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn interleaved(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(RotaryEmbeddingAttrs::VT_INTERLEAVED, Some(false))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn num_heads(&self) -> u32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(RotaryEmbeddingAttrs::VT_NUM_HEADS, Some(0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn rotary_embedding_dim(&self) -> u32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(RotaryEmbeddingAttrs::VT_ROTARY_EMBEDDING_DIM, Some(0))
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for RotaryEmbeddingAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<bool>("interleaved", Self::VT_INTERLEAVED, false)?
+            .visit_field::<u32>("num_heads", Self::VT_NUM_HEADS, false)?
+            .visit_field::<u32>("rotary_embedding_dim", Self::VT_ROTARY_EMBEDDING_DIM, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct RotaryEmbeddingAttrsArgs {
+    pub interleaved: bool,
+    pub num_heads: u32,
+    pub rotary_embedding_dim: u32,
+}
+impl<'a> Default for RotaryEmbeddingAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        RotaryEmbeddingAttrsArgs {
+            interleaved: false,
+            num_heads: 0,
+            rotary_embedding_dim: 0,
+        }
+    }
+}
+
+pub struct RotaryEmbeddingAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RotaryEmbeddingAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_interleaved(&mut self, interleaved: bool) {
+        self.fbb_
+            .push_slot::<bool>(RotaryEmbeddingAttrs::VT_INTERLEAVED, interleaved, false);
+    }
+    #[inline]
+    pub fn add_num_heads(&mut self, num_heads: u32) {
+        self.fbb_
+            .push_slot::<u32>(RotaryEmbeddingAttrs::VT_NUM_HEADS, num_heads, 0);
+    }
+    #[inline]
+    pub fn add_rotary_embedding_dim(&mut self, rotary_embedding_dim: u32) {
+        self.fbb_.push_slot::<u32>(
+            RotaryEmbeddingAttrs::VT_ROTARY_EMBEDDING_DIM,
+            rotary_embedding_dim,
+            0,
+        );
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> RotaryEmbeddingAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        RotaryEmbeddingAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<RotaryEmbeddingAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for RotaryEmbeddingAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("RotaryEmbeddingAttrs");
+        ds.field("interleaved", &self.interleaved());
+        ds.field("num_heads", &self.num_heads());
+        ds.field("rotary_embedding_dim", &self.rotary_embedding_dim());
+        ds.finish()
+    }
+}
 pub enum SequenceEmptyAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -11199,6 +11486,36 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_upsample_attrs(&self) -> Option<UpsampleAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::UpsampleAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { UpsampleAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_rotary_embedding_attrs(&self) -> Option<RotaryEmbeddingAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::RotaryEmbeddingAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { RotaryEmbeddingAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -11268,6 +11585,8 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::MultinomialAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<MultinomialAttrs>>("OperatorAttrs::MultinomialAttrs", pos),
           OperatorAttrs::ReverseSequenceAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<ReverseSequenceAttrs>>("OperatorAttrs::ReverseSequenceAttrs", pos),
           OperatorAttrs::DFTAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<DFTAttrs>>("OperatorAttrs::DFTAttrs", pos),
+          OperatorAttrs::UpsampleAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<UpsampleAttrs>>("OperatorAttrs::UpsampleAttrs", pos),
+          OperatorAttrs::RotaryEmbeddingAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<RotaryEmbeddingAttrs>>("OperatorAttrs::RotaryEmbeddingAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -11918,6 +12237,26 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::DFTAttrs => {
                 if let Some(x) = self.attrs_as_dftattrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::UpsampleAttrs => {
+                if let Some(x) = self.attrs_as_upsample_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::RotaryEmbeddingAttrs => {
+                if let Some(x) = self.attrs_as_rotary_embedding_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

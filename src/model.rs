@@ -1762,6 +1762,11 @@ mod tests {
 
         add_operator!(Round, [input_node]);
 
+        let upsample_scales = graph_builder.add_constant(Tensor::from([1., 1., 2., 2.]).view());
+        add_operator!(Upsample, [input_node, upsample_scales], {
+            mode: ResizeMode::Nearest
+        });
+
         add_operator!(Shape, [input_node], {
             start: Some(1),
             end: Some(-1),
@@ -1780,6 +1785,25 @@ mod tests {
             ScatterElements,
             [input_node, scatter_elem_indices, scatter_elem_updates],
             { axis: 0, reduction: None }
+        );
+        add_operator!(
+            Scatter,
+            [input_node, scatter_elem_indices, scatter_elem_updates],
+            { axis: 0 }
+        );
+
+        // The standard 4D input has shape [batch=1, num_heads=1, seq=3,
+        // head_size=3]. `rotary_embedding_dim` must be even and `<= head_size`,
+        // so rotate the first 2 of the 3 head elements. The cos/sin caches have
+        // shape [max_pos, rotary_embedding_dim / 2] and are gathered by
+        // `position_ids`.
+        let rotary_cos = graph_builder.add_constant(Tensor::<f32>::zeros(&[3, 1]).view());
+        let rotary_sin = graph_builder.add_constant(Tensor::<f32>::zeros(&[3, 1]).view());
+        let rotary_pos = graph_builder.add_constant(Tensor::from([[0i32, 1, 2]]).view());
+        add_operator!(
+            RotaryEmbedding,
+            [input_node, rotary_cos, rotary_sin, rotary_pos],
+            { interleaved: false, num_heads: 1, rotary_embedding_dim: 2 }
         );
 
         let const_0 = graph_builder.add_constant(Tensor::from([0]).view());

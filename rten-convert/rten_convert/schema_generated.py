@@ -145,6 +145,9 @@ class OperatorType(object):
     Multinomial = 135
     ReverseSequence = 136
     DFT = 137
+    Scatter = 138
+    Upsample = 139
+    RotaryEmbedding = 140
 
 
 class RNNDirection(object):
@@ -243,6 +246,8 @@ class OperatorAttrs(object):
     MultinomialAttrs = 55
     ReverseSequenceAttrs = 56
     DFTAttrs = 57
+    UpsampleAttrs = 58
+    RotaryEmbeddingAttrs = 59
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -362,6 +367,10 @@ def OperatorAttrsCreator(unionType, table):
         return ReverseSequenceAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.DFTAttrs:
         return DFTAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.UpsampleAttrs:
+        return UpsampleAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.RotaryEmbeddingAttrs:
+        return RotaryEmbeddingAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -5609,6 +5618,194 @@ class ScatterNDAttrsT(object):
         return scatterNdattrs
 
 
+class UpsampleAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = UpsampleAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsUpsampleAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def UpsampleAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # UpsampleAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # UpsampleAttrs
+    def Mode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
+        return 0
+
+def UpsampleAttrsStart(builder):
+    builder.StartObject(1)
+
+def UpsampleAttrsAddMode(builder, mode):
+    builder.PrependUint8Slot(0, mode, 0)
+
+def UpsampleAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class UpsampleAttrsT(object):
+
+    # UpsampleAttrsT
+    def __init__(
+        self,
+        mode = 0,
+    ):
+        self.mode = mode  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        upsampleAttrs = UpsampleAttrs()
+        upsampleAttrs.Init(buf, pos)
+        return cls.InitFromObj(upsampleAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, upsampleAttrs):
+        x = UpsampleAttrsT()
+        x._UnPack(upsampleAttrs)
+        return x
+
+    # UpsampleAttrsT
+    def _UnPack(self, upsampleAttrs):
+        if upsampleAttrs is None:
+            return
+        self.mode = upsampleAttrs.Mode()
+
+    # UpsampleAttrsT
+    def Pack(self, builder):
+        UpsampleAttrsStart(builder)
+        UpsampleAttrsAddMode(builder, self.mode)
+        upsampleAttrs = UpsampleAttrsEnd(builder)
+        return upsampleAttrs
+
+
+class RotaryEmbeddingAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = RotaryEmbeddingAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsRotaryEmbeddingAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def RotaryEmbeddingAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # RotaryEmbeddingAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # RotaryEmbeddingAttrs
+    def Interleaved(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+    # RotaryEmbeddingAttrs
+    def NumHeads(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+    # RotaryEmbeddingAttrs
+    def RotaryEmbeddingDim(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+def RotaryEmbeddingAttrsStart(builder):
+    builder.StartObject(3)
+
+def RotaryEmbeddingAttrsAddInterleaved(builder, interleaved):
+    builder.PrependBoolSlot(0, interleaved, 0)
+
+def RotaryEmbeddingAttrsAddNumHeads(builder, numHeads):
+    builder.PrependUint32Slot(1, numHeads, 0)
+
+def RotaryEmbeddingAttrsAddRotaryEmbeddingDim(builder, rotaryEmbeddingDim):
+    builder.PrependUint32Slot(2, rotaryEmbeddingDim, 0)
+
+def RotaryEmbeddingAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class RotaryEmbeddingAttrsT(object):
+
+    # RotaryEmbeddingAttrsT
+    def __init__(
+        self,
+        interleaved = False,
+        numHeads = 0,
+        rotaryEmbeddingDim = 0,
+    ):
+        self.interleaved = interleaved  # type: bool
+        self.numHeads = numHeads  # type: int
+        self.rotaryEmbeddingDim = rotaryEmbeddingDim  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        rotaryEmbeddingAttrs = RotaryEmbeddingAttrs()
+        rotaryEmbeddingAttrs.Init(buf, pos)
+        return cls.InitFromObj(rotaryEmbeddingAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, rotaryEmbeddingAttrs):
+        x = RotaryEmbeddingAttrsT()
+        x._UnPack(rotaryEmbeddingAttrs)
+        return x
+
+    # RotaryEmbeddingAttrsT
+    def _UnPack(self, rotaryEmbeddingAttrs):
+        if rotaryEmbeddingAttrs is None:
+            return
+        self.interleaved = rotaryEmbeddingAttrs.Interleaved()
+        self.numHeads = rotaryEmbeddingAttrs.NumHeads()
+        self.rotaryEmbeddingDim = rotaryEmbeddingAttrs.RotaryEmbeddingDim()
+
+    # RotaryEmbeddingAttrsT
+    def Pack(self, builder):
+        RotaryEmbeddingAttrsStart(builder)
+        RotaryEmbeddingAttrsAddInterleaved(builder, self.interleaved)
+        RotaryEmbeddingAttrsAddNumHeads(builder, self.numHeads)
+        RotaryEmbeddingAttrsAddRotaryEmbeddingDim(builder, self.rotaryEmbeddingDim)
+        rotaryEmbeddingAttrs = RotaryEmbeddingAttrsEnd(builder)
+        return rotaryEmbeddingAttrs
+
+
 class SequenceEmptyAttrs(object):
     __slots__ = ['_tab']
 
@@ -6787,7 +6984,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 
