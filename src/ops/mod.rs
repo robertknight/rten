@@ -119,6 +119,10 @@ pub(crate) use {
     variadic_elementwise::{Max, Mean, Min, Sum},
 };
 
+// Non-standard "contrib" operators in the `com.microsoft` namespace which
+// are supported.
+//
+// See https://onnxruntime.ai/docs/reference/operators/ContribOperators.html.
 #[cfg(feature = "onnx_format")]
 pub(crate) use {
     attention::MultiHeadAttention,
