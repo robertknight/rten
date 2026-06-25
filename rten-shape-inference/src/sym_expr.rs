@@ -659,6 +659,24 @@ fn remove_common_factors(lhs: SymExpr, rhs: SymExpr) -> (SymExpr, SymExpr) {
         }
     }
 
+    // Divide out the greatest common divisor of the constant factors on each
+    // side. For example `(768 * x) / 256` reduces the constants to `(3 * x) / 1`.
+    let const_term = |terms: &[SymExpr]| {
+        terms.iter().enumerate().find_map(|(i, t)| match t {
+            SymExpr::Value(x) => Some((i, *x)),
+            _ => None,
+        })
+    };
+    if let (Some((li, lc)), Some((ri, rc))) = (const_term(&lhs_terms), const_term(&rhs_terms)) {
+        if let Some(g) = gcd(lc, rc)
+            && g > 1
+            && rc != 0
+        {
+            lhs_terms[li] = SymExpr::Value(lc / g);
+            rhs_terms[ri] = SymExpr::Value(rc / g);
+        }
+    }
+
     // Construct simplified LHS and RHS
     let lhs = lhs_terms
         .into_iter()
@@ -913,6 +931,19 @@ impl fmt::Display for SymExpr {
     }
 }
 
+/// Return the greatest common divisor of the absolute values of `a` and `b`.
+///
+/// Returns `None` if the result doesn't fit in an `i32`. This happens only when
+/// both `a` and `b` are `i32::MIN`, giving a GCD of `2^31`.
+fn gcd(a: i32, b: i32) -> Option<i32> {
+    let mut a = a.unsigned_abs();
+    let mut b = b.unsigned_abs();
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    i32::try_from(a).ok()
+}
+
 /// Copied from unstable [`i32::div_ceil`] in the standard library.
 pub const fn div_ceil(lhs: i32, rhs: i32) -> i32 {
     let d = lhs / rhs;
@@ -1146,6 +1177,13 @@ mod tests {
         // (x * (y + z)) / x => y + z
         let expr = (x.clone() * (y.clone() + z.clone())) / x.clone();
         assert_eq!(expr.simplify(), y.clone() + z.clone());
+
+        // (768 * x) / 256 => x * 3
+        let c1 = SymExpr::from(768);
+        let c2 = SymExpr::from(256);
+        let three = SymExpr::from(3);
+        let expr = (c1 * x.clone()) / c2;
+        assert_eq!(expr.simplify(), three * x.clone());
     }
 
     #[test]
