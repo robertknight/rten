@@ -106,6 +106,86 @@ impl InferShapes for MultiHeadAttention {
     }
 }
 
+/// GroupQueryAttention operator.
+///
+/// See <https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.GroupQueryAttention>.
+pub struct GroupQueryAttention {
+    pub num_heads: u32,
+    pub kv_num_heads: u32,
+}
+
+impl InferShapes for GroupQueryAttention {
+    fn infer_shapes(
+        &self,
+        inputs: &[SymTensor],
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        if self.num_heads == 0
+            || self.kv_num_heads == 0
+            || self.num_heads > i32::MAX as u32
+            || self.kv_num_heads > i32::MAX as u32
+        {
+            return Err(InferShapesError::InvalidValue);
+        }
+        let num_heads = SymExpr::Value(self.num_heads as i32);
+        let kv_num_heads = SymExpr::Value(self.kv_num_heads as i32);
+
+        // Inputs: query (0), key (1), value (2), past_key (3), past_value (4),
+        // seqlens_k (5), total_sequence_length (6), ...
+        let query = inputs
+            .first()
+            .ok_or(InferShapesError::IncorrectInputCount)?;
+        let past_key = inputs.get(3);
+
+        // Three outputs: attention output, present_key, present_value.
+        let unknown = || -> Vec<SymTensor> {
+            (0..3)
+                .map(|_| SymTensor::unknown("unknown attention shape"))
+                .collect()
+        };
+
+        let Some(query_ndim) = query.ndim() else {
+            return Ok(unknown());
+        };
+        // Only the separate `[batch, seq, hidden]` query format is supported.
+        if query_ndim != 3 {
+            return Err(InferShapesError::IncorrectRank);
+        }
+
+        let (Some(batch), Some(seq), Some(q_hidden)) =
+            (query.size(0), query.size(1), query.size(2))
+        else {
+            return Ok(unknown());
+        };
+
+        // `q_hidden = num_heads * head_size`, so the per-head size follows from
+        // the query hidden size.
+        let head_size = q_hidden.clone() / num_heads;
+
+        // The present KV cache holds the past cache plus the new key/value
+        // tokens. New KV length equals the query sequence length.
+        let total_seq = match past_key.and_then(|p| p.size(2)) {
+            Some(past_seq) => past_seq + seq.clone(),
+            None => seq.clone(),
+        };
+
+        // Output 0: attention output `[batch, seq, q_hidden]`.
+        let output = SymTensor::from_shape(vec![batch.clone(), seq, q_hidden]);
+
+        // Outputs 1 & 2: present key/value
+        // `[batch, kv_num_heads, past_seq + seq, head_size]`.
+        let present_key = SymTensor::from_shape(vec![
+            batch.clone(),
+            kv_num_heads.clone(),
+            total_seq.clone(),
+            head_size.clone(),
+        ]);
+        let present_value = SymTensor::from_shape(vec![batch, kv_num_heads, total_seq, head_size]);
+
+        Ok([output, present_key, present_value].into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesError};
@@ -113,7 +193,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_shape};
 
-    use super::MultiHeadAttention;
+    use super::{GroupQueryAttention, MultiHeadAttention};
 
     fn infer(num_heads: u32, inputs: &[SymTensor]) -> Vec<SymTensor> {
         let mut sym_gen = SymbolGen::new();
@@ -204,6 +284,70 @@ mod tests {
         let op = MultiHeadAttention { num_heads: 0 };
         let err = op
             .infer_shapes(&[sym_shape!("batch", "seq", 768)], &mut sym_gen)
+            .unwrap_err();
+        assert_eq!(err, InferShapesError::InvalidValue);
+    }
+
+    fn infer_gqa(num_heads: u32, kv_num_heads: u32, inputs: &[SymTensor]) -> Vec<SymTensor> {
+        let mut sym_gen = SymbolGen::new();
+        let op = GroupQueryAttention {
+            num_heads,
+            kv_num_heads,
+        };
+        op.infer_shapes(inputs, &mut sym_gen)
+            .unwrap()
+            .into_iter()
+            .map(SymTensor::simplify)
+            .collect()
+    }
+
+    #[test]
+    fn test_gqa_prompt() {
+        // Prompt with no past KV cache. 16 query heads share 4 KV heads, so the
+        // per-head size is 1024 / 16 = 64 and the KV hidden size is 4 * 64 = 256.
+        let query = sym_shape!("batch", "seq", 1024);
+        let key = sym_shape!("batch", "seq", 256);
+        let value = sym_shape!("batch", "seq", 256);
+        let result = infer_gqa(16, 4, &[query, key, value]);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], sym_shape!("batch", "seq", 1024));
+        assert_eq!(result[1], sym_shape!("batch", 4, "seq", 64));
+        assert_eq!(result[2], sym_shape!("batch", 4, "seq", 64));
+    }
+
+    #[test]
+    fn test_gqa_with_past_cache() {
+        // present_key/value sequence length is past_seq + seq.
+        let query = sym_shape!("batch", "seq", 1024);
+        let key = sym_shape!("batch", "seq", 256);
+        let value = sym_shape!("batch", "seq", 256);
+        let past_key = sym_shape!("batch", 4, "past_seq", 64);
+        let past_value = sym_shape!("batch", 4, "past_seq", 64);
+        let result = infer_gqa(16, 4, &[query, key, value, past_key, past_value]);
+        let total_seq = SymExpr::from("past_seq") + SymExpr::from("seq");
+        assert_eq!(result[0], sym_shape!("batch", "seq", 1024));
+        assert_eq!(result[1], sym_shape!("batch", 4, total_seq.clone(), 64));
+        assert_eq!(result[2], sym_shape!("batch", 4, total_seq, 64));
+    }
+
+    #[test]
+    fn test_gqa_unknown_query_shape() {
+        let result = infer_gqa(16, 4, &[SymTensor::unknown("query")]);
+        assert_eq!(result.len(), 3);
+        for shape in &result {
+            assert!(shape.ndim().is_none());
+        }
+    }
+
+    #[test]
+    fn test_gqa_invalid_num_heads() {
+        let mut sym_gen = SymbolGen::new();
+        let op = GroupQueryAttention {
+            num_heads: 16,
+            kv_num_heads: 0,
+        };
+        let err = op
+            .infer_shapes(&[sym_shape!("batch", "seq", 1024)], &mut sym_gen)
             .unwrap_err();
         assert_eq!(err, InferShapesError::InvalidValue);
     }

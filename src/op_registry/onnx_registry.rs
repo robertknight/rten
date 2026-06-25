@@ -245,6 +245,7 @@ impl OnnxOpRegistry {
         register_op!(SimplifiedLayerNormalization);
 
         // com.microsoft ops.
+        register_op!(GroupQueryAttention);
         register_op!(MatMulNBits);
         register_op!(MultiHeadAttention);
         register_op!(SkipSimplifiedLayerNormalization);
@@ -1351,6 +1352,33 @@ impl_read_op!(Mod, |attrs: &Attrs| {
 
 impl_read_op!(Mul);
 
+impl_read_op!("com.microsoft", GroupQueryAttention, |attrs: &Attrs| {
+    let num_heads = attrs.require("num_heads")?.cast_int()?;
+    let kv_num_heads = attrs.require("kv_num_heads")?.cast_int()?;
+    let scale = attrs.get_as("scale");
+    let do_rotary = attrs.get_as("do_rotary").unwrap_or_default();
+    let rotary_interleaved = attrs.get_as("rotary_interleaved").unwrap_or_default();
+    // A non-positive window size (default is -1) means local attention is
+    // disabled.
+    let local_window_size = attrs
+        .get_as_int::<i32>("local_window_size")?
+        .and_then(|size| u32::try_from(size).ok())
+        .filter(|&size| size > 0);
+    let softcap = attrs.get_as("softcap").unwrap_or(0.0);
+    let smooth_softmax = attrs.get_as("smooth_softmax").unwrap_or_default();
+
+    Ok(ops::GroupQueryAttention {
+        num_heads,
+        kv_num_heads,
+        scale,
+        do_rotary,
+        rotary_interleaved,
+        local_window_size,
+        softcap,
+        smooth_softmax,
+    })
+});
+
 impl_read_op!("com.microsoft", MultiHeadAttention, |attrs: &Attrs| {
     let mask_filter_value: f32 = attrs.get_as("mask_filter_value").unwrap_or(-10000.0);
     let num_heads = attrs.require("num_heads")?.cast_int()?;
@@ -1845,7 +1873,7 @@ mod tests {
     use crate::model::onnx_builder::{NodeProtoExt, TensorData, create_node, create_tensor};
     use crate::operator::Operator;
     use crate::ops::{
-        ArgMax, ConstantOfShape, Conv, Padding, ResizeMode, RotaryEmbedding,
+        ArgMax, ConstantOfShape, Conv, GroupQueryAttention, Padding, ResizeMode, RotaryEmbedding,
         RotaryEmbeddingMicrosoft, Upsample,
     };
     use crate::value::Scalar;
@@ -1901,6 +1929,35 @@ mod tests {
         let rotary = op.downcast_ref::<RotaryEmbeddingMicrosoft>().unwrap();
         assert_eq!(rotary.num_heads, Some(2));
         assert_eq!(rotary.name(), "com.microsoft.RotaryEmbedding");
+    }
+
+    #[test]
+    fn test_read_group_query_attention_local_window_size() {
+        let reg = OnnxOpRegistry::with_all_ops();
+
+        let read = |local_window_size: Option<i64>| {
+            let mut node = create_node("GroupQueryAttention")
+                .with_domain("com.microsoft")
+                .with_attr("num_heads", 2i64)
+                .with_attr("kv_num_heads", 1i64);
+            if let Some(size) = local_window_size {
+                node = node.with_attr("local_window_size", size);
+            }
+            let op = reg
+                .read_op(&node, &FakeOpLoadContext::default())
+                .unwrap()
+                .op;
+            op.downcast_ref::<GroupQueryAttention>()
+                .unwrap()
+                .local_window_size
+        };
+
+        // A positive window enables local attention.
+        assert_eq!(read(Some(4)), Some(4));
+        // The default (-1) and any non-positive value disable local attention.
+        assert_eq!(read(Some(-1)), None);
+        assert_eq!(read(Some(0)), None);
+        assert_eq!(read(None), None);
     }
 
     #[test]

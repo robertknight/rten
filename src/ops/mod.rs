@@ -125,7 +125,7 @@ pub(crate) use {
 // See https://onnxruntime.ai/docs/reference/operators/ContribOperators.html.
 #[cfg(feature = "onnx_format")]
 pub(crate) use {
-    attention::MultiHeadAttention,
+    attention::{GroupQueryAttention, MultiHeadAttention},
     embedding::RotaryEmbeddingMicrosoft,
     matmul::{AccuracyLevel, MatMulNBits},
     norm::{SimplifiedLayerNormalization, SkipSimplifiedLayerNormalization},
