@@ -246,7 +246,12 @@ impl SymExpr {
 
         match self {
             Self::Value(_) | Self::Var(_) => self.clone(),
-            Self::Neg(expr) => Self::Neg(expr.canonicalize().into()),
+            // Fold negation of a constant so it sorts and combines with other
+            // constant terms (eg. in `3 + x + -3`).
+            Self::Neg(expr) => match expr.canonicalize() {
+                SymExpr::Value(x) if x != i32::MIN => SymExpr::Value(-x),
+                e => Self::Neg(e.into()),
+            },
             Self::Mul(..) => reassociate_terms(
                 self,
                 &|term| {
@@ -1377,6 +1382,12 @@ mod tests {
 
         // -(-5) => 5
         assert_eq!((-(-SymExpr::from(5))).simplify(), SymExpr::from(5));
+
+        // (x + 3) - 3 => x
+        assert_eq!(
+            ((x.clone() + SymExpr::from(3)) - SymExpr::from(3)).simplify(),
+            x
+        );
     }
 
     #[test]
