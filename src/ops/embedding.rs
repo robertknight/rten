@@ -43,7 +43,7 @@ fn rotary_cache_dims(
     Ok((cache_batch, cache_seq))
 }
 
-fn rotary_embedding(
+pub(crate) fn rotary_embedding(
     pool: &BufferPool,
     input: TensorView<f32>,
     cos: TensorView<f32>,
