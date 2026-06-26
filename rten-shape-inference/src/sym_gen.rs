@@ -40,6 +40,18 @@ impl SymbolGen {
         format!("{}_{}", self.prefix, self.next_symbol_id)
     }
 
+    /// Generate a new symbolic value.
+    pub fn generate(&mut self) -> SymExpr {
+        SymExpr::Var(
+            Symbol {
+                name: self.gen_name(),
+                positive: false,
+                synthetic: true,
+            }
+            .into(),
+        )
+    }
+
     /// Generate a new symbolic value which is assumed to be positive.
     pub fn gen_positive(&mut self) -> SymExpr {
         SymExpr::Var(
