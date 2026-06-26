@@ -33,7 +33,10 @@ fn optimize_graph_infer_shapes(graph: Graph) -> Result<Graph, OptimizeError> {
         graph,
         None,
         OptimizeOptions {
-            infer_shapes: Some(InferShapeOptions { strict: false }),
+            infer_shapes: Some(InferShapeOptions {
+                strict: false,
+                ..Default::default()
+            }),
             ..Default::default()
         },
     )

@@ -343,6 +343,24 @@ impl SymExpr {
         self.canonicalize().simplify_canonical()
     }
 
+    /// Return true of the depth of the expression exceeds `depth`.
+    pub fn exceeds_depth(&self, depth: u32) -> bool {
+        match self {
+            Self::Value(_) | Self::Var(_) => false,
+            Self::Neg(expr) => depth == 0 || expr.exceeds_depth(depth - 1),
+            Self::Add(lhs, rhs)
+            | Self::Sub(lhs, rhs)
+            | Self::Mul(lhs, rhs)
+            | Self::Div(lhs, rhs)
+            | Self::DivCeil(lhs, rhs)
+            | Self::Max(lhs, rhs)
+            | Self::Min(lhs, rhs)
+            | Self::Broadcast(lhs, rhs) => {
+                depth == 0 || lhs.exceeds_depth(depth - 1) || rhs.exceeds_depth(depth - 1)
+            }
+        }
+    }
+
     /// Simplify an expression which is assumed to have been put in canonical
     /// form by [`canonicalize`](Self::canonicalize).
     fn simplify_canonical(self) -> SymExpr {
@@ -1014,6 +1032,28 @@ mod tests {
 
         let y = SymExpr::var("y");
         assert_eq!(y.range(), (i32::MIN, i32::MAX));
+    }
+
+    #[test]
+    fn test_exceeds_depth() {
+        // Leaf nodes (values and variables) have a depth of zero.
+        assert!(!SymExpr::var("x").exceeds_depth(0));
+        assert!(!SymExpr::from(5).exceeds_depth(0));
+
+        // A binary operation adds one level of depth.
+        let add = SymExpr::var("x") + SymExpr::var("y");
+        assert!(add.exceeds_depth(0));
+        assert!(!add.exceeds_depth(1));
+
+        // A unary operation (negation) also adds one level of depth.
+        let neg = -SymExpr::var("x");
+        assert!(neg.exceeds_depth(0));
+        assert!(!neg.exceeds_depth(1));
+
+        // Nested expressions accumulate depth from the deepest branch.
+        let nested = (SymExpr::var("x") + SymExpr::var("y")) + SymExpr::var("z");
+        assert!(nested.exceeds_depth(1));
+        assert!(!nested.exceeds_depth(2));
     }
 
     #[test]

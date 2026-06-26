@@ -71,6 +71,9 @@ pub enum InferError {
     /// _Incomplete_ shape inference means that shape inference successfully
     /// ran, but at least one output has a dimension of unknown size.
     ShapeInferenceIncomplete(OpInfo),
+    /// Shape inference produced a symbolic expression that exceeds the
+    /// complexity limit.
+    ShapeTooComplex(OpInfo),
 }
 
 impl fmt::Display for InferError {
@@ -99,6 +102,11 @@ impl fmt::Display for InferError {
                 "shape inference incomplete for {} op \"{}\"",
                 op_info.op_type, op_info.name
             ),
+            Self::ShapeTooComplex(op_info) => write!(
+                f,
+                "shape too complex for {} op \"{}\"",
+                op_info.op_type, op_info.name
+            ),
         }
     }
 }
@@ -125,7 +133,7 @@ pub struct InferResult {
     pub types: HashMap<NodeId, ValueType>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct InferShapeOptions {
     /// Enable strict shape inference mode.
     ///
@@ -134,6 +142,21 @@ pub struct InferShapeOptions {
     /// is best-effort and will continue with remaining operators in the event
     /// of an error.
     pub strict: bool,
+
+    /// Upper limit on the maximum complexity of symbolic expressions that
+    /// shape inference may produce.
+    ///
+    /// The value is the maximum depth of any expression tree.
+    pub max_complexity: u32,
+}
+
+impl Default for InferShapeOptions {
+    fn default() -> Self {
+        InferShapeOptions {
+            strict: false,
+            max_complexity: 10,
+        }
+    }
 }
 
 /// Infer the shapes and types of operator outputs in a graph.
@@ -277,6 +300,18 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
                             if has_unknown {
                                 return Err(InferError::ShapeInferenceIncomplete(op_info()));
                             }
+                        }
+
+                        // Handle excessively complex symbolic expressions in the shape.
+                        //
+                        // We do this to avoid building up excessively complex expressions on which
+                        // operations such as simplification become very slow. See
+                        // https://github.com/robertknight/rten/issues/1298.
+                        let mut out_shape = out_shape;
+                        let had_complex = out_shape
+                            .replace_complex_expressions(opts.max_complexity, &mut symbol_gen);
+                        if opts.strict && had_complex {
+                            return Err(InferError::ShapeTooComplex(op_info()));
                         }
 
                         values.insert(*out_id, out_shape.simplify());
@@ -490,7 +525,10 @@ mod tests {
 
     #[test]
     fn test_infer_shapes_strict() {
-        let opts = InferShapeOptions { strict: true };
+        let opts = InferShapeOptions {
+            strict: true,
+            ..Default::default()
+        };
 
         // Successful strict shape inference
         let graph = {
