@@ -368,6 +368,7 @@ impl SymExpr {
             Self::Value(_) | Self::Var(_) => self.clone(),
             Self::Neg(expr) => match Arc::unwrap_or_clone(expr).simplify_canonical() {
                 SymExpr::Value(x) => SymExpr::Value(-x),
+                SymExpr::Neg(inner) => Arc::unwrap_or_clone(inner),
                 expr => Self::Neg(expr.into()),
             },
             Self::Add(lhs, rhs) => {
@@ -1369,6 +1370,13 @@ mod tests {
     fn test_simplify_neg() {
         let minus_one = -SymExpr::from(1);
         assert_eq!(minus_one.simplify(), SymExpr::from(-1));
+
+        // -(-x) => x
+        let x = SymExpr::pos_var("x");
+        assert_eq!((-(-x.clone())).simplify(), x);
+
+        // -(-5) => 5
+        assert_eq!((-(-SymExpr::from(5))).simplify(), SymExpr::from(5));
     }
 
     #[test]
