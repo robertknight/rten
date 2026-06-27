@@ -538,9 +538,9 @@ dependencies = [
  "fastrand",
  "rten",
  "rten-base",
+ "rten-serialize",
  "rten-tensor",
  "rten-testing",
- "safetensors",
 ]
 
 [[package]]

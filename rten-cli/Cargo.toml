@@ -14,7 +14,7 @@ argh = { workspace = true }
 fastrand = { workspace = true }
 rten = { path = "../", version = "0.24.0", features=["all-ops", "mmap"] }
 rten-base = { path = "../rten-base", version = "0.24.0" }
-safetensors = "0.6.2"
+rten-serialize = { path = "../rten-serialize", version = "0.1.0", features = ["safetensors"] }
 
 [dependencies.rten-tensor]
 path = "../rten-tensor"
