@@ -1,15 +1,20 @@
 use npyz::{AutoSerialize, Deserialize, NpyFile, Order, WriterBuilder};
-use rten_tensor::{AsView, Layout, Tensor, TensorView};
+use rten_tensor::{AsView, Layout, Storage, Tensor, TensorBase};
 use std::fs::File;
 use std::io;
 use std::path::Path;
 
-/// Serialize the given `TensorView` to the writer.
-pub fn write_npy<T: Clone + AutoSerialize>(
+/// Serialize a tensor to a writer.
+pub fn write<T: Clone + AutoSerialize, S: Storage<Elem = T>, L: Layout + Clone>(
     writer: impl io::Write,
-    array: TensorView<T>,
+    array: &TensorBase<S, L>,
 ) -> io::Result<()> {
-    let shape = array.shape().iter().map(|x| *x as u64).collect::<Vec<_>>();
+    let shape = array
+        .shape()
+        .as_ref()
+        .iter()
+        .map(|x| *x as u64)
+        .collect::<Vec<_>>();
 
     let mut writer = npyz::WriteOptions::new()
         .default_dtype()
@@ -20,16 +25,17 @@ pub fn write_npy<T: Clone + AutoSerialize>(
     writer.finish()
 }
 
-/// Serialize the given `TensorView` to a file - this will create the file.
-pub fn write_npy_to_file<T: Clone + AutoSerialize>(
+/// Serialize a tensor to a file.
+pub fn write_to_file<T: Clone + AutoSerialize, S: Storage<Elem = T>, L: Layout + Clone>(
     path: impl AsRef<Path>,
-    array: TensorView<T>,
+    array: &TensorBase<S, L>,
 ) -> io::Result<()> {
     let file = io::BufWriter::new(File::create(path)?);
-    write_npy(file, array)
+    write(file, array)
 }
 
-pub fn read_npy<T: Clone + Deserialize>(reader: impl io::Read) -> io::Result<Tensor<T>> {
+/// Read a tensor from a reader.
+pub fn read<T: Clone + Deserialize>(reader: impl io::Read) -> io::Result<Tensor<T>> {
     let reader = NpyFile::new(reader)?;
     tensor_from_npy_file(reader)
 }
@@ -54,8 +60,7 @@ pub(crate) fn tensor_from_npy_file<T: Clone + Deserialize, R: io::Read>(
         Order::Fortran => fortran_order_to_row_major(values, &shape),
     };
 
-    let mut result = Tensor::from_vec(values);
-    result.reshape(&shape);
+    let result = Tensor::from_vec(values).into_shape(shape.as_slice());
     Ok(result)
 }
 
@@ -67,14 +72,16 @@ fn fortran_order_to_row_major<T: Clone>(values: Vec<T>, shape: &[usize]) -> Vec<
     let reversed_shape = shape.iter().copied().rev().collect::<Vec<_>>();
     let reverse_axes = (0..shape.len()).rev().collect::<Vec<_>>();
 
-    let mut tensor = Tensor::from_vec(values);
-    tensor.reshape(&reversed_shape);
-    tensor.permuted(&reverse_axes).to_vec()
+    Tensor::from_vec(values)
+        .reshaped(reversed_shape.as_slice())
+        .permuted(&reverse_axes)
+        .to_vec()
 }
 
-pub fn read_npy_from_file<T: Clone + Deserialize>(path: impl AsRef<Path>) -> io::Result<Tensor<T>> {
+/// Read a tensor from a file.
+pub fn read_from_file<T: Clone + Deserialize>(path: impl AsRef<Path>) -> io::Result<Tensor<T>> {
     let file = io::BufReader::new(File::open(path)?);
-    read_npy(file)
+    read(file)
 }
 
 #[cfg(test)]
@@ -105,8 +112,8 @@ mod tests {
         let tensor: Tensor<i32> = [[1, 2, 3], [4, 5, 6]].into();
         let mut buffer = Vec::new();
 
-        write_npy(&mut buffer, tensor.view()).unwrap();
-        let read = read_npy::<i32>(&buffer[..]).unwrap();
+        write(&mut buffer, &tensor).unwrap();
+        let read = read::<i32>(&buffer[..]).unwrap();
 
         assert_tensor_eq(&read, &tensor);
     }
@@ -118,8 +125,8 @@ mod tests {
         let path = temp_file("round-trip.npy");
         let tensor: Tensor<f32> = [[1., 2.], [3., 4.]].into();
 
-        write_npy_to_file(&path, tensor.view()).unwrap();
-        let read = read_npy_from_file::<f32>(&path).unwrap();
+        write_to_file(&path, &tensor).unwrap();
+        let read = read_from_file::<f32>(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
 
         assert_tensor_eq(&read, &tensor);
@@ -129,7 +136,7 @@ mod tests {
     /// accepted as an empty or partially decoded tensor.
     #[test]
     fn read_npy_rejects_invalid_data() {
-        let err = read_npy::<i32>(&b"not an npy file"[..]).unwrap_err();
+        let err = read::<i32>(&b"not an npy file"[..]).unwrap_err();
 
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
@@ -150,8 +157,8 @@ mod tests {
         let c_order = include_bytes!("../tests/fixtures/order_c_i32.npy");
         let fortran_order = include_bytes!("../tests/fixtures/order_fortran_i32.npy");
 
-        let c_tensor = read_npy::<i32>(&c_order[..]).unwrap();
-        let fortran_tensor = read_npy::<i32>(&fortran_order[..]).unwrap();
+        let c_tensor = read::<i32>(&c_order[..]).unwrap();
+        let fortran_tensor = read::<i32>(&fortran_order[..]).unwrap();
         let expected = Tensor::from([
             [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11]],
             [[12, 13, 14, 15], [16, 17, 18, 19], [20, 21, 22, 23]],

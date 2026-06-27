@@ -1,19 +1,23 @@
-use crate::tensor_from_npy_file;
-use npyz::npz::{NpzArchive, NpzWriter};
-use npyz::{AutoSerialize, Deserialize, WriterBuilder};
-use rten_tensor::{Layout, Tensor, TensorView};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::path::Path;
 
+use npyz::npz::{NpzArchive, NpzWriter};
+use npyz::{AutoSerialize, Deserialize, WriterBuilder};
+use rten_tensor::{AsView, Layout, Storage, Tensor, TensorBase};
+
+use crate::npy::tensor_from_npy_file;
+
 /// Serialize named tensors to an NPZ archive.
 ///
 /// Tensor names may be passed with or without the `.npy` suffix.
-pub fn write_npz<'a, T, I, N, W>(writer: W, arrays: I) -> io::Result<()>
+pub fn write<'a, T, S, L, I, N, W>(writer: W, arrays: I) -> io::Result<()>
 where
     T: Clone + AutoSerialize + 'a,
-    I: IntoIterator<Item = (N, TensorView<'a, T>)>,
+    S: Storage<Elem = T>,
+    L: Layout + Clone,
+    I: IntoIterator<Item = (N, TensorBase<S, L>)>,
     N: AsRef<str>,
     W: io::Write + io::Seek,
 {
@@ -21,7 +25,12 @@ where
 
     for (name, array) in arrays {
         let name = npz_array_name(name.as_ref())?;
-        let shape = array.shape().iter().map(|x| *x as u64).collect::<Vec<_>>();
+        let shape = array
+            .shape()
+            .as_ref()
+            .iter()
+            .map(|x| *x as u64)
+            .collect::<Vec<_>>();
 
         let mut writer = archive
             .array::<T>(&name, Default::default())?
@@ -37,20 +46,22 @@ where
 }
 
 /// Serialize named tensors to an NPZ archive file - this will create the file.
-pub fn write_npz_to_file<'a, T, I, N>(path: impl AsRef<Path>, arrays: I) -> io::Result<()>
+pub fn write_to_file<'a, T, S, L, I, N>(path: impl AsRef<Path>, arrays: I) -> io::Result<()>
 where
     T: Clone + AutoSerialize + 'a,
-    I: IntoIterator<Item = (N, TensorView<'a, T>)>,
+    S: Storage<Elem = T>,
+    L: Layout + Clone,
+    I: IntoIterator<Item = (N, TensorBase<S, L>)>,
     N: AsRef<str>,
 {
     let file = io::BufWriter::new(File::create(path)?);
-    write_npz(file, arrays)
+    write(file, arrays)
 }
 
 /// Read all `.npy` entries from an NPZ archive.
 ///
 /// Returned names have the `.npy` suffix removed.
-pub fn read_npz<T: Clone + Deserialize>(
+pub fn read<T: Clone + Deserialize>(
     reader: impl io::Read + io::Seek,
 ) -> io::Result<HashMap<String, Tensor<T>>> {
     let mut archive = NpzArchive::new(reader)?;
@@ -75,17 +86,17 @@ pub fn read_npz<T: Clone + Deserialize>(
 }
 
 /// Read all `.npy` entries from an NPZ archive file.
-pub fn read_npz_from_file<T: Clone + Deserialize>(
+pub fn read_from_file<T: Clone + Deserialize>(
     path: impl AsRef<Path>,
 ) -> io::Result<HashMap<String, Tensor<T>>> {
     let file = io::BufReader::new(File::open(path)?);
-    read_npz(file)
+    read(file)
 }
 
 /// Read a single named tensor from an NPZ archive.
 ///
 /// `name` may be passed with or without the `.npy` suffix.
-pub fn read_npz_array<T: Clone + Deserialize>(
+pub fn read_array<T: Clone + Deserialize>(
     reader: impl io::Read + io::Seek,
     name: &str,
 ) -> io::Result<Tensor<T>> {
@@ -101,12 +112,12 @@ pub fn read_npz_array<T: Clone + Deserialize>(
 }
 
 /// Read a single named tensor from an NPZ archive file.
-pub fn read_npz_array_from_file<T: Clone + Deserialize>(
+pub fn read_array_from_file<T: Clone + Deserialize>(
     path: impl AsRef<Path>,
     name: &str,
 ) -> io::Result<Tensor<T>> {
     let file = io::BufReader::new(File::open(path)?);
-    read_npz_array(file, name)
+    read_array(file, name)
 }
 
 fn npz_array_name(name: &str) -> io::Result<String> {
@@ -154,10 +165,10 @@ mod tests {
         let b: Tensor<i32> = [7, 8, 9].into();
 
         let mut buffer = Cursor::new(Vec::new());
-        write_npz(&mut buffer, [("a", a.view()), ("nested/b.npy", b.view())]).unwrap();
+        write(&mut buffer, [("a", a.view()), ("nested/b.npy", b.view())]).unwrap();
 
         buffer.set_position(0);
-        let arrays = read_npz::<i32>(&mut buffer).unwrap();
+        let arrays = read::<i32>(&mut buffer).unwrap();
 
         assert_eq!(arrays.len(), 2);
         assert_tensor_eq(arrays.get("a").unwrap(), &a);
@@ -171,10 +182,10 @@ mod tests {
         let a: Tensor<f32> = [[1., 2.], [3., 4.]].into();
 
         let mut buffer = Cursor::new(Vec::new());
-        write_npz(&mut buffer, [("a.npy", a.view())]).unwrap();
+        write(&mut buffer, [("a.npy", a.view())]).unwrap();
 
         buffer.set_position(0);
-        let read = read_npz_array::<f32>(&mut buffer, "a").unwrap();
+        let read = read_array::<f32>(&mut buffer, "a").unwrap();
 
         assert_tensor_eq(&read, &a);
     }
@@ -187,9 +198,9 @@ mod tests {
         let a: Tensor<i32> = [[1, 2], [3, 4]].into();
         let b: Tensor<i32> = [5, 6, 7].into();
 
-        write_npz_to_file(&path, [("a", a.view()), ("b", b.view())]).unwrap();
-        let arrays = read_npz_from_file::<i32>(&path).unwrap();
-        let b_read = read_npz_array_from_file::<i32>(&path, "b.npy").unwrap();
+        write_to_file(&path, [("a", a.view()), ("b", b.view())]).unwrap();
+        let arrays = read_from_file::<i32>(&path).unwrap();
+        let b_read = read_array_from_file::<i32>(&path, "b.npy").unwrap();
         std::fs::remove_file(&path).unwrap();
 
         assert_eq!(arrays.len(), 2);
@@ -204,10 +215,10 @@ mod tests {
     fn read_npz_array_reports_missing_name() {
         let a: Tensor<i32> = [1, 2, 3].into();
         let mut buffer = Cursor::new(Vec::new());
-        write_npz(&mut buffer, [("a", a.view())]).unwrap();
+        write(&mut buffer, [("a", a.view())]).unwrap();
 
         buffer.set_position(0);
-        let err = read_npz_array::<i32>(&mut buffer, "missing").unwrap_err();
+        let err = read_array::<i32>(&mut buffer, "missing").unwrap_err();
 
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
     }
@@ -239,7 +250,7 @@ mod tests {
         }
 
         buffer.set_position(0);
-        let arrays = read_npz::<i32>(&mut buffer).unwrap();
+        let arrays = read::<i32>(&mut buffer).unwrap();
 
         assert_eq!(arrays.len(), 1);
         assert_tensor_eq(arrays.get("a").unwrap(), &a);
@@ -262,7 +273,7 @@ mod tests {
         let tensor: Tensor<i32> = [1, 2, 3].into();
         let mut buffer = Cursor::new(Vec::new());
 
-        let err = write_npz(&mut buffer, [("", tensor.view())]).unwrap_err();
+        let err = write(&mut buffer, [("", tensor.view())]).unwrap_err();
 
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
