@@ -229,7 +229,7 @@ define_value_types! {
 
 /// Evaluate `$body` with `$T` bound to the Rust element type corresponding to a
 /// runtime [`DataType`].
-#[cfg(any(feature = "npy", feature = "npz"))]
+#[cfg(any(feature = "npy", feature = "npz", feature = "safetensors"))]
 macro_rules! dispatch_data_type {
     ($dtype:expr, $T:ident => $body:expr) => {
         match $dtype {
@@ -280,12 +280,12 @@ macro_rules! dispatch_data_type {
         }
     };
 }
-#[cfg(any(feature = "npy", feature = "npz"))]
+#[cfg(any(feature = "npy", feature = "npz", feature = "safetensors"))]
 pub(crate) use dispatch_data_type;
 
 /// Evaluate `$body` with `$v` bound to the typed [`TensorView`] held by a
 /// [`View`].
-#[cfg(any(feature = "npy", feature = "npz"))]
+#[cfg(any(feature = "npy", feature = "npz", feature = "safetensors"))]
 macro_rules! match_view {
     ($view:expr, $v:ident => $body:expr) => {
         match $view {
@@ -303,7 +303,7 @@ macro_rules! match_view {
         }
     };
 }
-#[cfg(any(feature = "npy", feature = "npz"))]
+#[cfg(any(feature = "npy", feature = "npz", feature = "safetensors"))]
 pub(crate) use match_view;
 
 impl Value {

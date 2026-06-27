@@ -9,6 +9,7 @@
 //!  - **npz** - Enable the .npz format
 //!  - **npz-compression** - Enable reading compressed (deflate) .npz archives,
 //!    such as those produced by `numpy.savez_compressed`
+//!  - **safetensors** - Enable the .safetensors format
 //!
 //! # Data types
 //!
@@ -27,6 +28,10 @@
 //! is an archive format for reading and writing multiple tensors. Archives are
 //! always written uncompressed (matching `numpy.savez`). Reading compressed
 //! archives requires the **npz-compression** feature.
+//!
+//! [Safetensors](https://github.com/huggingface/safetensors) is an archive
+//! format for reading and writing multiple tensors, commonly used for model
+//! weights.
 #![cfg_attr(
     feature = "npz",
     doc = r#"
@@ -80,3 +85,7 @@ pub mod npy;
 /// Read and write tensors in NumPy's `.npz` format.
 #[cfg(feature = "npz")]
 pub mod npz;
+
+/// Read and write tensors in the `.safetensors` format.
+#[cfg(feature = "safetensors")]
+pub mod safetensors;

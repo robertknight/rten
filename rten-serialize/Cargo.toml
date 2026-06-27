@@ -13,9 +13,15 @@ npz = ["npy", "dep:zip"]
 # `numpy.savez_compressed`. Without this, only uncompressed archives are
 # supported.
 npz-compression = ["npz", "zip/deflate"]
+safetensors = ["dep:safetensors"]
 
 [dependencies]
+rten-base = { path = "../rten-base", version = "0.24.0" }
 rten-tensor = { path = "../rten-tensor", version = "0.24.0" }
+
+# We disable default features in these crates to reduce dependencies and build
+# times.
+safetensors = { version = "0.8.0", default-features = false, optional = true }
 zip = { version = "8.6.0", default-features = false, optional = true }
 
 [package.metadata.docs.rs]
