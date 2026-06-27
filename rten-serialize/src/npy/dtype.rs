@@ -44,10 +44,6 @@ impl ElementKind {
 /// This is implemented for Rust's primitive integer and floating point types
 /// and `bool`.
 pub trait Element: sealed::Sealed + Copy {
-    /// NumPy array-protocol type kind.
-    #[doc(hidden)]
-    const KIND: ElementKind;
-
     /// Size of the element in bytes.
     #[doc(hidden)]
     const ITEM_SIZE: usize;
@@ -70,11 +66,10 @@ pub trait Element: sealed::Sealed + Copy {
 }
 
 macro_rules! impl_element {
-    ($ty:ty, $kind:expr, $descr:literal) => {
+    ($ty:ty, $descr:literal) => {
         impl sealed::Sealed for $ty {}
 
         impl Element for $ty {
-            const KIND: ElementKind = $kind;
             const ITEM_SIZE: usize = size_of::<$ty>();
             const DESCR: &'static str = $descr;
 
@@ -93,21 +88,20 @@ macro_rules! impl_element {
 
 // Single-byte types use the `|` ("not applicable") byte-order marker, matching
 // the output of `numpy.dtype.str`.
-impl_element!(i8, ElementKind::Int, "|i1");
-impl_element!(i16, ElementKind::Int, "<i2");
-impl_element!(i32, ElementKind::Int, "<i4");
-impl_element!(i64, ElementKind::Int, "<i8");
-impl_element!(u8, ElementKind::Uint, "|u1");
-impl_element!(u16, ElementKind::Uint, "<u2");
-impl_element!(u32, ElementKind::Uint, "<u4");
-impl_element!(u64, ElementKind::Uint, "<u8");
-impl_element!(f32, ElementKind::Float, "<f4");
-impl_element!(f64, ElementKind::Float, "<f8");
+impl_element!(i8, "|i1");
+impl_element!(i16, "<i2");
+impl_element!(i32, "<i4");
+impl_element!(i64, "<i8");
+impl_element!(u8, "|u1");
+impl_element!(u16, "<u2");
+impl_element!(u32, "<u4");
+impl_element!(u64, "<u8");
+impl_element!(f32, "<f4");
+impl_element!(f64, "<f8");
 
 impl sealed::Sealed for bool {}
 
 impl Element for bool {
-    const KIND: ElementKind = ElementKind::Bool;
     const ITEM_SIZE: usize = 1;
     const DESCR: &'static str = "|b1";
 

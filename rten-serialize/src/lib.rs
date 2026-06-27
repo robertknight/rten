@@ -10,6 +10,14 @@
 //!  - **npz-compression** - Enable reading compressed (deflate) .npz archives,
 //!    such as those produced by `numpy.savez_compressed`
 //!
+//! # Data types
+//!
+//! Readers return tensors as a [`Value`], and writers accept them as a
+//! [`View`]. These are enums that hold a tensor of any supported
+//! [element type](Element), since a single file may contain tensors with
+//! different element types. Use [`Value::into_type`] / [`Value::as_type`] to
+//! extract a typed tensor.
+//!
 //! # Supported formats
 //!
 //! [NumPy's .npy format](https://numpy.org/doc/stable/reference/generated/numpy.lib.format.html)
@@ -26,35 +34,44 @@
 
 ```
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-use rten_serialize::npy;
-use rten_serialize::npz;
+use rten_serialize::{npy, npz};
 use rten_tensor::prelude::*;
 use rten_tensor::NdTensor;
 
-// Write a single tensor.
 let matrix = NdTensor::from([[1i32, 2], [3, 4]]);
-npy::write_to_file("tensor.npy", &matrix)?;
 
-// Read a single tensor.
-let matrix_2 = npy::read_from_file("tensor.npy")?.into_rank::<2>()?;
+// Write and read back a single tensor.
+npy::write_to_file("tensor.npy", matrix.view())?;
+let matrix_2 = npy::read_from_file("tensor.npy")?.into_type::<i32>()?.into_rank::<2>()?;
 assert_eq!(matrix, matrix_2);
 
-// Write multiple tensors.
+// Write and read back a map of named tensors.
 npz::write_to_file("tensors.npz", [("some_matrix", matrix.view())])?;
+let mut tensors = npz::read_from_file("tensors.npz")?;
 
-// Read a map of name to tensor
-let tensors = npz::read_from_file("tensors.npz")?;
+// Borrow a tensor from the map as a typed view.
 let matrix_3 = tensors
     .get("some_matrix")
     .ok_or("tensor not found")?
-    .view()
+    .as_type::<i32>()?
     .into_rank::<2>()?;
 assert_eq!(matrix, matrix_3);
+
+// Or remove an entry to extract its tensor as an owned value.
+let matrix_4 = tensors
+    .remove("some_matrix")
+    .ok_or("tensor not found")?
+    .into_type::<i32>()?
+    .into_rank::<2>()?;
+assert_eq!(matrix, matrix_4);
 
 # Ok(()) }
 ```
 "#
 )]
+
+mod value;
+pub use value::{DataType, Element, TypeError, Value, View};
 
 /// Read and write tensors in NumPy's `.npy` format.
 #[cfg(feature = "npy")]

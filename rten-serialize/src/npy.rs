@@ -1,11 +1,12 @@
-use rten_tensor::{AsView, Layout, Storage, Tensor, TensorBase};
+use rten_tensor::{AsView, Layout, Tensor, TensorView};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
 
 mod dtype;
-pub use dtype::Element;
-use dtype::ElementKind;
+use dtype::{Element, ElementKind};
+
+use crate::value::{DataType, Value, View, dispatch_data_type, match_view};
 
 /// Magic bytes at the start of every `.npy` file.
 const MAGIC: &[u8; 6] = b"\x93NUMPY";
@@ -19,13 +20,20 @@ fn invalid_data(msg: impl Into<String>) -> io::Error {
 }
 
 /// Serialize a tensor to a writer.
-pub fn write<T: Element, S: Storage<Elem = T>, L: Layout + Clone>(
-    writer: impl io::Write,
-    array: &TensorBase<S, L>,
-) -> io::Result<()> {
+pub fn write<'a, V: Into<View<'a>>>(writer: impl io::Write, array: V) -> io::Result<()> {
+    let view = array.into();
+    match_view!(view, array => write_typed(writer, array))
+}
+
+/// Serialize a tensor to a file.
+pub fn write_to_file<'a, V: Into<View<'a>>>(path: impl AsRef<Path>, array: V) -> io::Result<()> {
+    write(File::create(path)?, array)
+}
+
+fn write_typed<T: Element>(writer: impl io::Write, array: TensorView<T>) -> io::Result<()> {
     let mut writer = io::BufWriter::new(writer);
 
-    let header = build_header::<T>(array.shape().as_ref())?;
+    let header = build_header::<T>(array.shape())?;
     writer.write_all(&header)?;
 
     for x in array.iter() {
@@ -34,26 +42,27 @@ pub fn write<T: Element, S: Storage<Elem = T>, L: Layout + Clone>(
     writer.flush()
 }
 
-/// Serialize a tensor to a file.
-pub fn write_to_file<T: Element, S: Storage<Elem = T>, L: Layout + Clone>(
-    path: impl AsRef<Path>,
-    array: &TensorBase<S, L>,
-) -> io::Result<()> {
-    write(File::create(path)?, array)
-}
-
 /// Read a tensor from a reader.
-pub fn read<T: Element>(mut reader: impl io::Read) -> io::Result<Tensor<T>> {
+///
+/// The returned [`Value`] holds a tensor whose element type matches the dtype
+/// stored in the file. Use [`Value::into_type`] / [`Value::as_type`] to extract
+/// a typed tensor.
+pub fn read(mut reader: impl io::Read) -> io::Result<Value> {
     let header = read_header(&mut reader)?;
-
-    if header.dtype.kind != T::KIND || header.dtype.item_size != T::ITEM_SIZE {
-        return Err(invalid_data(format!(
-            "array dtype `{}{}` does not match requested element type",
+    let data_type = data_type_from_dtype(&header.dtype).ok_or_else(|| {
+        invalid_data(format!(
+            "unsupported npy dtype `{}{}`",
             header.dtype.kind.as_char(),
             header.dtype.item_size
-        )));
-    }
+        ))
+    })?;
+    let value = dispatch_data_type!(data_type, T => {
+        Value::from(read_typed::<T>(&header, reader)?)
+    });
+    Ok(value)
+}
 
+fn read_typed<T: Element>(header: &Header, mut reader: impl io::Read) -> io::Result<Tensor<T>> {
     let n_elements = header
         .shape
         .iter()
@@ -102,9 +111,29 @@ pub fn read<T: Element>(mut reader: impl io::Read) -> io::Result<Tensor<T>> {
 }
 
 /// Read a tensor from a file.
-pub fn read_from_file<T: Element>(path: impl AsRef<Path>) -> io::Result<Tensor<T>> {
+pub fn read_from_file(path: impl AsRef<Path>) -> io::Result<Value> {
     let file = io::BufReader::new(File::open(path)?);
     read(file)
+}
+
+/// Map a parsed npy dtype to the corresponding [`DataType`], or `None` if it is
+/// not a supported scalar type.
+fn data_type_from_dtype(dtype: &DType) -> Option<DataType> {
+    let data_type = match (dtype.kind, dtype.item_size) {
+        (ElementKind::Bool, 1) => DataType::Bool,
+        (ElementKind::Int, 1) => DataType::Int8,
+        (ElementKind::Int, 2) => DataType::Int16,
+        (ElementKind::Int, 4) => DataType::Int32,
+        (ElementKind::Int, 8) => DataType::Int64,
+        (ElementKind::Uint, 1) => DataType::UInt8,
+        (ElementKind::Uint, 2) => DataType::UInt16,
+        (ElementKind::Uint, 4) => DataType::UInt32,
+        (ElementKind::Uint, 8) => DataType::UInt64,
+        (ElementKind::Float, 4) => DataType::Float32,
+        (ElementKind::Float, 8) => DataType::Float64,
+        _ => return None,
+    };
+    Some(data_type)
 }
 
 fn fortran_order_to_row_major<T: Clone>(values: Vec<T>, shape: &[usize]) -> Vec<T> {
@@ -400,8 +429,9 @@ fn build_header<T: Element>(shape: &[usize]) -> io::Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
 
     static NEXT_TEST_FILE: AtomicUsize = AtomicUsize::new(0);
 
@@ -417,10 +447,10 @@ mod tests {
         let tensor: Tensor<i32> = [[1, 2, 3], [4, 5, 6]].into();
         let mut buffer = Vec::new();
 
-        write(&mut buffer, &tensor).unwrap();
-        let read = read::<i32>(&buffer[..]).unwrap();
+        write(&mut buffer, tensor.view()).unwrap();
+        let read = read(&buffer[..]).unwrap().into_type::<i32>().unwrap();
 
-        assert_eq!(&read, &tensor);
+        assert_eq!(read, tensor);
     }
 
     /// Round-trip every supported element type through the in-memory writer
@@ -431,8 +461,8 @@ mod tests {
             ($ty:ty, $tensor:expr) => {{
                 let tensor: Tensor<$ty> = $tensor;
                 let mut buffer = Vec::new();
-                write(&mut buffer, &tensor).unwrap();
-                let read = read::<$ty>(&buffer[..]).unwrap();
+                write(&mut buffer, tensor.view()).unwrap();
+                let read = read(&buffer[..]).unwrap().into_type::<$ty>().unwrap();
                 assert_eq!(&read, &tensor);
             }};
         }
@@ -457,11 +487,11 @@ mod tests {
         let path = temp_file("round-trip.npy");
         let tensor: Tensor<f32> = [[1., 2.], [3., 4.]].into();
 
-        write_to_file(&path, &tensor).unwrap();
-        let read = read_from_file::<f32>(&path).unwrap();
+        write_to_file(&path, tensor.view()).unwrap();
+        let read = read_from_file(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
 
-        assert_eq!(&read, &tensor);
+        assert_eq!(read.into_type::<f32>().unwrap(), tensor);
     }
 
     /// Round-trips a scalar tensor, whose header has an empty shape
@@ -471,8 +501,8 @@ mod tests {
         let tensor = Tensor::from_scalar(42i32);
         let mut buffer = Vec::new();
 
-        write(&mut buffer, &tensor).unwrap();
-        let read = read::<i32>(&buffer[..]).unwrap();
+        write(&mut buffer, tensor.view()).unwrap();
+        let read = read(&buffer[..]).unwrap().into_type::<i32>().unwrap();
 
         assert_eq!(&read, &tensor);
     }
@@ -481,20 +511,20 @@ mod tests {
     /// accepted as an empty or partially decoded tensor.
     #[test]
     fn test_read_npy_rejects_invalid_data() {
-        let err = read::<i32>(&b"not an npy file"[..]).unwrap_err();
+        let err = read(&b"not an npy file"[..]).unwrap_err();
 
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]
-    fn test_read_npy_rejects_dtype_mismatch() {
+    fn test_read_npy_reports_stored_dtype() {
         let tensor: Tensor<i32> = [1, 2, 3].into();
         let mut buffer = Vec::new();
-        write(&mut buffer, &tensor).unwrap();
+        write(&mut buffer, tensor.view()).unwrap();
 
-        let err = read::<f32>(&buffer[..]).unwrap_err();
+        let value = read(&buffer[..]).unwrap();
 
-        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(value.dtype(), DataType::Int32);
     }
 
     /// Builds a minimal version 1.0 `.npy` file with the given header
@@ -529,7 +559,7 @@ mod tests {
 
         for case in cases {
             let bytes = npy_with_header(case, &[0, 0, 0, 0]);
-            let err = read::<i32>(&bytes[..]).unwrap_err();
+            let err = read(&bytes[..]).unwrap_err();
             assert_eq!(err.kind(), io::ErrorKind::InvalidData, "case: {case}");
         }
     }
@@ -541,7 +571,7 @@ mod tests {
             &[1, 0, 0, 0, 2, 0, 0, 0],
         );
 
-        let read = read::<i32>(&bytes[..]).unwrap();
+        let read = read(&bytes[..]).unwrap().into_type::<i32>().unwrap();
 
         assert_eq!(read, Tensor::from([1, 2]));
     }
@@ -554,7 +584,7 @@ mod tests {
             &[0, 0, 0, 1, 0, 0, 0, 2],
         );
 
-        let read = read::<i32>(&bytes[..]).unwrap();
+        let read = read(&bytes[..]).unwrap().into_type::<i32>().unwrap();
 
         assert_eq!(read, Tensor::from([1, 2]));
     }
@@ -575,15 +605,18 @@ mod tests {
         let c_order = include_bytes!("../tests/fixtures/order_c_i32.npy");
         let fortran_order = include_bytes!("../tests/fixtures/order_fortran_i32.npy");
 
-        let c_tensor = read::<i32>(&c_order[..]).unwrap();
-        let fortran_tensor = read::<i32>(&fortran_order[..]).unwrap();
+        let c_tensor = read(&c_order[..]).unwrap().into_type::<i32>().unwrap();
+        let fortran_tensor = read(&fortran_order[..])
+            .unwrap()
+            .into_type::<i32>()
+            .unwrap();
         let expected = Tensor::from([
             [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11]],
             [[12, 13, 14, 15], [16, 17, 18, 19], [20, 21, 22, 23]],
         ]);
 
-        assert_eq!(&c_tensor, &expected);
-        assert_eq!(&fortran_tensor, &expected);
-        assert_eq!(&fortran_tensor, &c_tensor);
+        assert_eq!(c_tensor, expected);
+        assert_eq!(fortran_tensor, expected);
+        assert_eq!(fortran_tensor, c_tensor);
     }
 }
