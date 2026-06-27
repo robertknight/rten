@@ -160,7 +160,7 @@ mod tests {
     /// Verifies that multiple arrays written to an in-memory NPZ archive can be
     /// read back by name with matching shapes and values.
     #[test]
-    fn round_trip_npz() {
+    fn test_round_trip_npz() {
         let a: Tensor<i32> = [[1, 2, 3], [4, 5, 6]].into();
         let b: Tensor<i32> = [7, 8, 9].into();
 
@@ -178,7 +178,7 @@ mod tests {
     /// Exercises the single-array reader and confirms callers can use either
     /// the logical array name or its `.npy` archive filename form.
     #[test]
-    fn read_npz_array_accepts_suffixless_name() {
+    fn test_read_npz_array_accepts_suffixless_name() {
         let a: Tensor<f32> = [[1., 2.], [3., 4.]].into();
 
         let mut buffer = Cursor::new(Vec::new());
@@ -193,7 +193,7 @@ mod tests {
     /// Covers the NPZ file convenience helpers with a real file path and checks
     /// that the resulting archive preserves array data.
     #[test]
-    fn round_trip_npz_file_helpers() {
+    fn test_round_trip_npz_file_helpers() {
         let path = temp_file("round-trip.npz");
         let a: Tensor<i32> = [[1, 2], [3, 4]].into();
         let b: Tensor<i32> = [5, 6, 7].into();
@@ -212,7 +212,7 @@ mod tests {
     /// Ensures lookup of a missing NPZ array returns a not-found error instead
     /// of fabricating a default tensor or failing with an unrelated error.
     #[test]
-    fn read_npz_array_reports_missing_name() {
+    fn test_read_npz_array_reports_missing_name() {
         let a: Tensor<i32> = [1, 2, 3].into();
         let mut buffer = Cursor::new(Vec::new());
         write(&mut buffer, [("a", a.view())]).unwrap();
@@ -226,7 +226,7 @@ mod tests {
     /// Confirms non-array entries in the underlying zip archive are ignored
     /// when reading all NPZ arrays.
     #[test]
-    fn read_npz_ignores_non_npy_members() {
+    fn test_read_npz_ignores_non_npy_members() {
         let a: Tensor<i32> = [1, 2, 3].into();
         let mut buffer = Cursor::new(Vec::new());
         {
@@ -259,7 +259,7 @@ mod tests {
     /// Checks validation of empty array names so invalid NPZ member names are
     /// rejected before writing an archive entry.
     #[test]
-    fn rejects_empty_npz_array_name() {
+    fn test_rejects_empty_npz_array_name() {
         assert_eq!(
             npz_array_name("").unwrap_err().kind(),
             io::ErrorKind::InvalidInput
@@ -269,7 +269,7 @@ mod tests {
     /// Exercises the public write path for empty names rather than only the
     /// private normalizer helper.
     #[test]
-    fn write_npz_rejects_empty_array_name() {
+    fn test_write_npz_rejects_empty_array_name() {
         let tensor: Tensor<i32> = [1, 2, 3].into();
         let mut buffer = Cursor::new(Vec::new());
 

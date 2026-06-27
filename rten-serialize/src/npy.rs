@@ -108,7 +108,7 @@ mod tests {
     /// Verifies that data written to an in-memory NPY stream can be read back
     /// with the same shape and values.
     #[test]
-    fn round_trip_npy_in_memory() {
+    fn test_round_trip_npy_in_memory() {
         let tensor: Tensor<i32> = [[1, 2, 3], [4, 5, 6]].into();
         let mut buffer = Vec::new();
 
@@ -121,7 +121,7 @@ mod tests {
     /// Exercises the file convenience helpers by writing and then reading a
     /// tensor from a real file path.
     #[test]
-    fn round_trip_npy_file_helpers() {
+    fn test_round_trip_npy_file_helpers() {
         let path = temp_file("round-trip.npy");
         let tensor: Tensor<f32> = [[1., 2.], [3., 4.]].into();
 
@@ -135,7 +135,7 @@ mod tests {
     /// Confirms malformed input is surfaced as an I/O error instead of being
     /// accepted as an empty or partially decoded tensor.
     #[test]
-    fn read_npy_rejects_invalid_data() {
+    fn test_read_npy_rejects_invalid_data() {
         let err = read::<i32>(&b"not an npy file"[..]).unwrap_err();
 
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
@@ -144,7 +144,7 @@ mod tests {
     /// Covers the rank-2 boundary in Fortran-to-row-major conversion. The
     /// input is the Fortran flat representation of `[[1, 2, 3], [4, 5, 6]]`.
     #[test]
-    fn fortran_order_to_row_major_converts_rank_2_data() {
+    fn test_fortran_order_to_row_major_converts_rank_2_data() {
         let converted = fortran_order_to_row_major(vec![1, 4, 2, 5, 3, 6], &[2, 3]);
 
         assert_eq!(converted, [1, 2, 3, 4, 5, 6]);
@@ -153,7 +153,7 @@ mod tests {
     /// Checks that equivalent NumPy-generated C-order and Fortran-order files
     /// decode to the same row-major tensor.
     #[test]
-    fn read_npy_c_and_fortran_order_fixtures_match() {
+    fn test_read_npy_c_and_fortran_order_fixtures_match() {
         let c_order = include_bytes!("../tests/fixtures/order_c_i32.npy");
         let fortran_order = include_bytes!("../tests/fixtures/order_fortran_i32.npy");
 
