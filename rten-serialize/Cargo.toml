@@ -14,3 +14,6 @@ npz = ["npy", "npyz/npz"]
 [dependencies]
 npyz = { version = "0.9.1", optional = true }
 rten-tensor = { path = "../rten-tensor", version = "0.24.0" }
+
+[package.metadata.docs.rs]
+all-features = true
