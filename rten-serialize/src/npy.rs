@@ -5,7 +5,7 @@ use std::io;
 use std::path::Path;
 
 /// Serialize a tensor to a writer.
-pub fn write<T: Clone + AutoSerialize, S: Storage<Elem = T>, L: Layout + Clone>(
+pub fn write<T: AutoSerialize, S: Storage<Elem = T>, L: Layout + Clone>(
     writer: impl io::Write,
     array: &TensorBase<S, L>,
 ) -> io::Result<()> {
@@ -26,7 +26,7 @@ pub fn write<T: Clone + AutoSerialize, S: Storage<Elem = T>, L: Layout + Clone>(
 }
 
 /// Serialize a tensor to a file.
-pub fn write_to_file<T: Clone + AutoSerialize, S: Storage<Elem = T>, L: Layout + Clone>(
+pub fn write_to_file<T: AutoSerialize, S: Storage<Elem = T>, L: Layout + Clone>(
     path: impl AsRef<Path>,
     array: &TensorBase<S, L>,
 ) -> io::Result<()> {
@@ -87,7 +87,6 @@ pub fn read_from_file<T: Clone + Deserialize>(path: impl AsRef<Path>) -> io::Res
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rten_tensor::AsView;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static NEXT_TEST_FILE: AtomicUsize = AtomicUsize::new(0);
@@ -95,14 +94,6 @@ mod tests {
     fn temp_file(name: &str) -> std::path::PathBuf {
         let id = NEXT_TEST_FILE.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!("rten-npy-{}-{id}-{name}", std::process::id()))
-    }
-
-    fn assert_tensor_eq<T: Clone + PartialEq + std::fmt::Debug>(
-        actual: &Tensor<T>,
-        expected: &Tensor<T>,
-    ) {
-        assert_eq!(actual.shape(), expected.shape());
-        assert_eq!(actual.to_vec(), expected.to_vec());
     }
 
     /// Verifies that data written to an in-memory NPY stream can be read back
@@ -115,7 +106,7 @@ mod tests {
         write(&mut buffer, &tensor).unwrap();
         let read = read::<i32>(&buffer[..]).unwrap();
 
-        assert_tensor_eq(&read, &tensor);
+        assert_eq!(&read, &tensor);
     }
 
     /// Exercises the file convenience helpers by writing and then reading a
@@ -129,7 +120,7 @@ mod tests {
         let read = read_from_file::<f32>(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
 
-        assert_tensor_eq(&read, &tensor);
+        assert_eq!(&read, &tensor);
     }
 
     /// Confirms malformed input is surfaced as an I/O error instead of being
@@ -164,8 +155,8 @@ mod tests {
             [[12, 13, 14, 15], [16, 17, 18, 19], [20, 21, 22, 23]],
         ]);
 
-        assert_tensor_eq(&c_tensor, &expected);
-        assert_tensor_eq(&fortran_tensor, &expected);
-        assert_tensor_eq(&fortran_tensor, &c_tensor);
+        assert_eq!(&c_tensor, &expected);
+        assert_eq!(&fortran_tensor, &expected);
+        assert_eq!(&fortran_tensor, &c_tensor);
     }
 }

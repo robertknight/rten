@@ -1,6 +1,6 @@
 //! rten-serialize supports reading and writing tensors in popular formats.
 //!
-//! All formats are disabled by support and must be enabled using the
+//! All formats are disabled by default and must be enabled using the
 //! corresponding crate features.
 //!
 //! # Features
@@ -13,7 +13,7 @@
 //! [NumPy's .npy format](https://numpy.org/doc/stable/reference/generated/numpy.lib.format.html)
 //! is a simple format for reading and writing single tensors.
 //!
-//! [NumPy's .npz format](https://numpy.org/doc/stable/reference/generated/numpy.lib.format.html)
+//! [NumPy's .npz format](https://numpy.org/doc/stable/reference/generated/numpy.savez.html)
 //! is an archive format for reading and writing multiple tensors.
 #![cfg_attr(
     feature = "npz",
@@ -22,8 +22,8 @@
 
 ```
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-use rten_serialize::npy as npy;
-use rten_serialize::npz as npz;
+use rten_serialize::npy;
+use rten_serialize::npz;
 use rten_tensor::prelude::*;
 use rten_tensor::NdTensor;
 

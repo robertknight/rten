@@ -14,7 +14,7 @@ use crate::npy::tensor_from_npy_file;
 /// Tensor names may be passed with or without the `.npy` suffix.
 pub fn write<'a, T, S, L, I, N, W>(writer: W, arrays: I) -> io::Result<()>
 where
-    T: Clone + AutoSerialize + 'a,
+    T: AutoSerialize + 'a,
     S: Storage<Elem = T>,
     L: Layout + Clone,
     I: IntoIterator<Item = (N, TensorBase<S, L>)>,
@@ -33,11 +33,11 @@ where
             .collect::<Vec<_>>();
 
         let mut writer = archive
-            .array::<T>(&name, Default::default())?
+            .array(&name, Default::default())?
             .default_dtype()
             .shape(&shape)
             .begin_nd()?;
-        writer.extend(array.iter().cloned())?;
+        writer.extend(array.iter())?;
         writer.finish()?;
     }
 
@@ -48,7 +48,7 @@ where
 /// Serialize named tensors to an NPZ archive file - this will create the file.
 pub fn write_to_file<'a, T, S, L, I, N>(path: impl AsRef<Path>, arrays: I) -> io::Result<()>
 where
-    T: Clone + AutoSerialize + 'a,
+    T: AutoSerialize + 'a,
     S: Storage<Elem = T>,
     L: Layout + Clone,
     I: IntoIterator<Item = (N, TensorBase<S, L>)>,
@@ -149,14 +149,6 @@ mod tests {
         std::env::temp_dir().join(format!("rten-npy-npz-{}-{id}-{name}", std::process::id()))
     }
 
-    fn assert_tensor_eq<T: Clone + PartialEq + std::fmt::Debug>(
-        actual: &Tensor<T>,
-        expected: &Tensor<T>,
-    ) {
-        assert_eq!(actual.shape(), expected.shape());
-        assert_eq!(actual.to_vec(), expected.to_vec());
-    }
-
     /// Verifies that multiple arrays written to an in-memory NPZ archive can be
     /// read back by name with matching shapes and values.
     #[test]
@@ -171,8 +163,8 @@ mod tests {
         let arrays = read::<i32>(&mut buffer).unwrap();
 
         assert_eq!(arrays.len(), 2);
-        assert_tensor_eq(arrays.get("a").unwrap(), &a);
-        assert_tensor_eq(arrays.get("nested/b").unwrap(), &b);
+        assert_eq!(arrays.get("a").unwrap(), &a);
+        assert_eq!(arrays.get("nested/b").unwrap(), &b);
     }
 
     /// Exercises the single-array reader and confirms callers can use either
@@ -187,7 +179,7 @@ mod tests {
         buffer.set_position(0);
         let read = read_array::<f32>(&mut buffer, "a").unwrap();
 
-        assert_tensor_eq(&read, &a);
+        assert_eq!(&read, &a);
     }
 
     /// Covers the NPZ file convenience helpers with a real file path and checks
@@ -204,9 +196,9 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
 
         assert_eq!(arrays.len(), 2);
-        assert_tensor_eq(arrays.get("a").unwrap(), &a);
-        assert_tensor_eq(arrays.get("b").unwrap(), &b);
-        assert_tensor_eq(&b_read, &b);
+        assert_eq!(arrays.get("a").unwrap(), &a);
+        assert_eq!(arrays.get("b").unwrap(), &b);
+        assert_eq!(&b_read, &b);
     }
 
     /// Ensures lookup of a missing NPZ array returns a not-found error instead
@@ -253,7 +245,7 @@ mod tests {
         let arrays = read::<i32>(&mut buffer).unwrap();
 
         assert_eq!(arrays.len(), 1);
-        assert_tensor_eq(arrays.get("a").unwrap(), &a);
+        assert_eq!(arrays.get("a").unwrap(), &a);
     }
 
     /// Checks validation of empty array names so invalid NPZ member names are
