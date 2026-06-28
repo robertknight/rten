@@ -52,9 +52,8 @@ where
 ///
 /// Returned names have the `.npy` suffix removed.
 ///
-/// Only uncompressed archives, as produced by `numpy.savez`, are supported.
-/// Reading a compressed entry (e.g. from `numpy.savez_compressed`) fails with
-/// an [`io::ErrorKind::Unsupported`] error.
+/// Without the `npz-compression` feature, only uncompressed archives (as
+/// produced by `numpy.savez`) are supported.
 pub fn read<T: Element>(
     reader: impl io::Read + io::Seek,
 ) -> io::Result<HashMap<String, Tensor<T>>> {
@@ -88,9 +87,8 @@ pub fn read_from_file<T: Element>(
 ///
 /// `name` may be passed with or without the `.npy` suffix.
 ///
-/// Only uncompressed archives, as produced by `numpy.savez`, are supported.
-/// Reading a compressed entry (e.g. from `numpy.savez_compressed`) fails with
-/// an [`io::ErrorKind::Unsupported`] error.
+/// See [`read`] for behavior when reading compressed archives without the
+/// `npz-compression` feature.
 pub fn read_array<T: Element>(
     reader: impl io::Read + io::Seek,
     name: &str,
@@ -218,6 +216,27 @@ mod tests {
 
             archive.start_file("metadata.txt", options).unwrap();
             archive.write_all(b"not an array").unwrap();
+            archive.finish().unwrap();
+        }
+
+        buffer.set_position(0);
+        let arrays = read::<i32>(&mut buffer).unwrap();
+
+        assert_eq!(arrays.len(), 1);
+        assert_eq!(arrays.get("a").unwrap(), &a);
+    }
+
+    #[cfg(feature = "npz-compression")]
+    #[test]
+    fn test_read_compressed_npz() {
+        let a: Tensor<i32> = [[1, 2, 3], [4, 5, 6]].into();
+        let mut buffer = Cursor::new(Vec::new());
+        {
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+            let mut archive = ZipWriter::new(&mut buffer);
+            archive.start_file("a.npy", options).unwrap();
+            crate::npy::write(&mut archive, &a).unwrap();
             archive.finish().unwrap();
         }
 
