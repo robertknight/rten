@@ -7,6 +7,8 @@
 //!
 //!  - **npy** - Enable the .npy format
 //!  - **npz** - Enable the .npz format
+//!  - **npz-compression** - Enable reading compressed (deflate) .npz archives,
+//!    such as those produced by `numpy.savez_compressed`
 //!
 //! # Supported formats
 //!
@@ -14,7 +16,9 @@
 //! is a simple format for reading and writing single tensors.
 //!
 //! [NumPy's .npz format](https://numpy.org/doc/stable/reference/generated/numpy.savez.html)
-//! is an archive format for reading and writing multiple tensors.
+//! is an archive format for reading and writing multiple tensors. Archives are
+//! always written uncompressed (matching `numpy.savez`). Reading compressed
+//! archives requires the **npz-compression** feature.
 #![cfg_attr(
     feature = "npz",
     doc = r#"

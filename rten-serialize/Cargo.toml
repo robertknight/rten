@@ -7,12 +7,16 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = []
-npy = ["dep:npyz"]
-npz = ["npy", "npyz/npz"]
+npy = []
+npz = ["npy", "dep:zip"]
+# Enable reading compressed (deflate) NPZ archives, e.g. those produced by
+# `numpy.savez_compressed`. Without this, only uncompressed archives are
+# supported.
+npz-compression = ["npz", "zip/deflate"]
 
 [dependencies]
-npyz = { version = "0.9.1", optional = true }
 rten-tensor = { path = "../rten-tensor", version = "0.24.0" }
+zip = { version = "8.6.0", default-features = false, optional = true }
 
 [package.metadata.docs.rs]
 all-features = true

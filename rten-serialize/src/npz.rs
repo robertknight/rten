@@ -3,52 +3,42 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 
-use npyz::npz::{NpzArchive, NpzWriter};
-use npyz::{AutoSerialize, Deserialize, WriterBuilder};
-use rten_tensor::{AsView, Layout, Storage, Tensor, TensorBase};
+use rten_tensor::{Layout, Storage, Tensor, TensorBase};
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
-use crate::npy::tensor_from_npy_file;
+use crate::npy::Element;
 
 /// Serialize named tensors to an NPZ archive.
 ///
 /// Tensor names may be passed with or without the `.npy` suffix.
+///
+/// Arrays are stored uncompressed, matching the output of `numpy.savez`.
 pub fn write<'a, T, S, L, I, N, W>(writer: W, arrays: I) -> io::Result<()>
 where
-    T: AutoSerialize + 'a,
+    T: Element + 'a,
     S: Storage<Elem = T>,
     L: Layout + Clone,
     I: IntoIterator<Item = (N, TensorBase<S, L>)>,
     N: AsRef<str>,
     W: io::Write + io::Seek,
 {
-    let mut archive = NpzWriter::new(writer);
+    let mut archive = ZipWriter::new(writer);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
 
     for (name, array) in arrays {
-        let name = npz_array_name(name.as_ref())?;
-        let shape = array
-            .shape()
-            .as_ref()
-            .iter()
-            .map(|x| *x as u64)
-            .collect::<Vec<_>>();
-
-        let mut writer = archive
-            .array(&name, Default::default())?
-            .default_dtype()
-            .shape(&shape)
-            .begin_nd()?;
-        writer.extend(array.iter())?;
-        writer.finish()?;
+        archive.start_file(npz_file_name(name.as_ref())?, options)?;
+        crate::npy::write(&mut archive, &array)?;
     }
 
-    archive.zip_writer().finish()?;
+    archive.finish()?;
     Ok(())
 }
 
 /// Serialize named tensors to an NPZ archive file - this will create the file.
 pub fn write_to_file<'a, T, S, L, I, N>(path: impl AsRef<Path>, arrays: I) -> io::Result<()>
 where
-    T: AutoSerialize + 'a,
+    T: Element + 'a,
     S: Storage<Elem = T>,
     L: Layout + Clone,
     I: IntoIterator<Item = (N, TensorBase<S, L>)>,
@@ -61,24 +51,24 @@ where
 /// Read all `.npy` entries from an NPZ archive.
 ///
 /// Returned names have the `.npy` suffix removed.
-pub fn read<T: Clone + Deserialize>(
+///
+/// Without the `npz-compression` feature, only uncompressed archives (as
+/// produced by `numpy.savez`) are supported.
+pub fn read<T: Element>(
     reader: impl io::Read + io::Seek,
 ) -> io::Result<HashMap<String, Tensor<T>>> {
-    let mut archive = NpzArchive::new(reader)?;
+    let mut archive = ZipArchive::new(reader)?;
     let names = archive
-        .array_names()
+        .file_names()
+        .filter(|name| name.ends_with(".npy"))
         .map(str::to_string)
         .collect::<Vec<_>>();
     let mut arrays = HashMap::new();
 
     for name in names {
-        let file = archive.by_name(&name)?.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("missing NPZ array `{name}`"),
-            )
-        })?;
-        let array = tensor_from_npy_file(file)?;
+        let file = archive.by_name(&name)?;
+        let array = crate::npy::read(file)?;
+        let name = name.strip_suffix(".npy").unwrap().to_string();
         arrays.insert(name, array);
     }
 
@@ -86,7 +76,7 @@ pub fn read<T: Clone + Deserialize>(
 }
 
 /// Read all `.npy` entries from an NPZ archive file.
-pub fn read_from_file<T: Clone + Deserialize>(
+pub fn read_from_file<T: Element>(
     path: impl AsRef<Path>,
 ) -> io::Result<HashMap<String, Tensor<T>>> {
     let file = io::BufReader::new(File::open(path)?);
@@ -96,23 +86,20 @@ pub fn read_from_file<T: Clone + Deserialize>(
 /// Read a single named tensor from an NPZ archive.
 ///
 /// `name` may be passed with or without the `.npy` suffix.
-pub fn read_array<T: Clone + Deserialize>(
+///
+/// See [`read`] for behavior when reading compressed archives without the
+/// `npz-compression` feature.
+pub fn read_array<T: Element>(
     reader: impl io::Read + io::Seek,
     name: &str,
 ) -> io::Result<Tensor<T>> {
-    let mut archive = NpzArchive::new(reader)?;
-    let name = npz_array_name(name)?;
-    let file = archive.by_name(&name)?.ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("missing NPZ array `{name}`"),
-        )
-    })?;
-    tensor_from_npy_file(file)
+    let mut archive = ZipArchive::new(reader)?;
+    let file = archive.by_name(&npz_file_name(name)?)?;
+    crate::npy::read(file)
 }
 
 /// Read a single named tensor from an NPZ archive file.
-pub fn read_array_from_file<T: Clone + Deserialize>(
+pub fn read_array_from_file<T: Element>(
     path: impl AsRef<Path>,
     name: &str,
 ) -> io::Result<Tensor<T>> {
@@ -120,19 +107,17 @@ pub fn read_array_from_file<T: Clone + Deserialize>(
     read_array(file, name)
 }
 
-fn npz_array_name(name: &str) -> io::Result<String> {
-    if name.is_empty() {
+/// Map a user-supplied array name, with or without the `.npy` suffix, to the
+/// archive entry filename, which always has exactly one `.npy` suffix.
+fn npz_file_name(name: &str) -> io::Result<String> {
+    let base = name.strip_suffix(".npy").unwrap_or(name);
+    if base.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "NPZ array name must not be empty",
         ));
     }
-
-    if name.ends_with(".npy") {
-        Ok(name.strip_suffix(".npy").unwrap().to_string())
-    } else {
-        Ok(name.to_string())
-    }
+    Ok(format!("{base}.npy"))
 }
 
 #[cfg(test)]
@@ -222,23 +207,37 @@ mod tests {
         let a: Tensor<i32> = [1, 2, 3].into();
         let mut buffer = Cursor::new(Vec::new());
         {
-            let mut archive = NpzWriter::new(&mut buffer);
-            let mut writer = archive
-                .array::<i32>("a", Default::default())
-                .unwrap()
-                .default_dtype()
-                .shape(&[3])
-                .begin_nd()
-                .unwrap();
-            writer.extend(a.iter().cloned()).unwrap();
-            writer.finish().unwrap();
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+            let mut archive = ZipWriter::new(&mut buffer);
 
-            archive
-                .zip_writer()
-                .start_file("metadata.txt", Default::default())
-                .unwrap();
-            archive.zip_writer().write_all(b"not an array").unwrap();
-            archive.zip_writer().finish().unwrap();
+            archive.start_file("a.npy", options).unwrap();
+            crate::npy::write(&mut archive, &a).unwrap();
+
+            archive.start_file("metadata.txt", options).unwrap();
+            archive.write_all(b"not an array").unwrap();
+            archive.finish().unwrap();
+        }
+
+        buffer.set_position(0);
+        let arrays = read::<i32>(&mut buffer).unwrap();
+
+        assert_eq!(arrays.len(), 1);
+        assert_eq!(arrays.get("a").unwrap(), &a);
+    }
+
+    #[cfg(feature = "npz-compression")]
+    #[test]
+    fn test_read_compressed_npz() {
+        let a: Tensor<i32> = [[1, 2, 3], [4, 5, 6]].into();
+        let mut buffer = Cursor::new(Vec::new());
+        {
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+            let mut archive = ZipWriter::new(&mut buffer);
+            archive.start_file("a.npy", options).unwrap();
+            crate::npy::write(&mut archive, &a).unwrap();
+            archive.finish().unwrap();
         }
 
         buffer.set_position(0);
@@ -253,7 +252,7 @@ mod tests {
     #[test]
     fn test_rejects_empty_npz_array_name() {
         assert_eq!(
-            npz_array_name("").unwrap_err().kind(),
+            npz_file_name("").unwrap_err().kind(),
             io::ErrorKind::InvalidInput
         );
     }
