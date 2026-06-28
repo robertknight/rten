@@ -3,10 +3,11 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 
-use npyz::{AutoSerialize, Deserialize};
 use rten_tensor::{Layout, Storage, Tensor, TensorBase};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
+
+use crate::npy::Element;
 
 /// Serialize named tensors to an NPZ archive.
 ///
@@ -15,7 +16,7 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 /// Arrays are stored uncompressed, matching the output of `numpy.savez`.
 pub fn write<'a, T, S, L, I, N, W>(writer: W, arrays: I) -> io::Result<()>
 where
-    T: AutoSerialize + 'a,
+    T: Element + 'a,
     S: Storage<Elem = T>,
     L: Layout + Clone,
     I: IntoIterator<Item = (N, TensorBase<S, L>)>,
@@ -37,7 +38,7 @@ where
 /// Serialize named tensors to an NPZ archive file - this will create the file.
 pub fn write_to_file<'a, T, S, L, I, N>(path: impl AsRef<Path>, arrays: I) -> io::Result<()>
 where
-    T: AutoSerialize + 'a,
+    T: Element + 'a,
     S: Storage<Elem = T>,
     L: Layout + Clone,
     I: IntoIterator<Item = (N, TensorBase<S, L>)>,
@@ -50,7 +51,11 @@ where
 /// Read all `.npy` entries from an NPZ archive.
 ///
 /// Returned names have the `.npy` suffix removed.
-pub fn read<T: Clone + Deserialize>(
+///
+/// Only uncompressed archives, as produced by `numpy.savez`, are supported.
+/// Reading a compressed entry (e.g. from `numpy.savez_compressed`) fails with
+/// an [`io::ErrorKind::Unsupported`] error.
+pub fn read<T: Element>(
     reader: impl io::Read + io::Seek,
 ) -> io::Result<HashMap<String, Tensor<T>>> {
     let mut archive = ZipArchive::new(reader)?;
@@ -72,7 +77,7 @@ pub fn read<T: Clone + Deserialize>(
 }
 
 /// Read all `.npy` entries from an NPZ archive file.
-pub fn read_from_file<T: Clone + Deserialize>(
+pub fn read_from_file<T: Element>(
     path: impl AsRef<Path>,
 ) -> io::Result<HashMap<String, Tensor<T>>> {
     let file = io::BufReader::new(File::open(path)?);
@@ -82,7 +87,11 @@ pub fn read_from_file<T: Clone + Deserialize>(
 /// Read a single named tensor from an NPZ archive.
 ///
 /// `name` may be passed with or without the `.npy` suffix.
-pub fn read_array<T: Clone + Deserialize>(
+///
+/// Only uncompressed archives, as produced by `numpy.savez`, are supported.
+/// Reading a compressed entry (e.g. from `numpy.savez_compressed`) fails with
+/// an [`io::ErrorKind::Unsupported`] error.
+pub fn read_array<T: Element>(
     reader: impl io::Read + io::Seek,
     name: &str,
 ) -> io::Result<Tensor<T>> {
@@ -92,7 +101,7 @@ pub fn read_array<T: Clone + Deserialize>(
 }
 
 /// Read a single named tensor from an NPZ archive file.
-pub fn read_array_from_file<T: Clone + Deserialize>(
+pub fn read_array_from_file<T: Element>(
     path: impl AsRef<Path>,
     name: &str,
 ) -> io::Result<Tensor<T>> {
