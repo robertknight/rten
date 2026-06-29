@@ -7,7 +7,7 @@ use std::mem::MaybeUninit;
 use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
-use rten_base::byte_cast::Pod;
+use rten_base::byte_cast::FromByteArray;
 use rten_base::iter::range_chunks;
 use rten_base::num::Identities;
 use rten_parallel::par_iter::MaybeParIter;
@@ -66,7 +66,7 @@ impl<T> GemmInputA<'_, T> {
 }
 
 /// Trait implemented by GEMM input types.
-pub trait GemmInT: Copy + Default + Send + Sync + Identities + Pod {}
+pub trait GemmInT: Copy + Default + Send + Sync + Identities + FromByteArray {}
 impl GemmInT for i8 {}
 impl GemmInT for u8 {}
 impl GemmInT for f32 {}
@@ -81,7 +81,7 @@ pub trait GemmOutT:
     + Mul<Self, Output = Self>
     + Add<Self, Output = Self>
     + Identities
-    + Pod
+    + FromByteArray
 {
 }
 impl GemmOutT for i32 {}

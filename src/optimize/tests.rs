@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use rten_base::byte_cast::cast_pod_slice;
+use rten_base::byte_cast::cast_slice;
 use rten_shape_inference::{SymExpr, Symbol};
 use rten_tensor::{NdTensor, Tensor};
 use rten_testing::TestCases;
@@ -47,7 +47,7 @@ fn arc_tensor_view(val: f32) -> ArcTensorView<f32> {
     let const_storage = Arc::new(ConstantStorage::Buffer(const_data));
     let slice = ArcSlice::new(
         const_storage.clone(),
-        cast_pod_slice(const_storage.data()).unwrap(),
+        cast_slice(const_storage.data()).unwrap(),
     )
     .unwrap();
     ArcTensorView::from_data(&[], slice)

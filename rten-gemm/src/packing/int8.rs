@@ -508,7 +508,7 @@ pub fn extract_packed_b<const NR: usize>(b: &[u8]) -> (&[u8], &PackedBMeta<NR>) 
 
 #[cfg(test)]
 mod tests {
-    use rten_base::byte_cast::{AsBytes, cast_pod_slice};
+    use rten_base::byte_cast::{AsBytes, cast_slice};
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::{Matrix, MatrixLayout, NdTensor};
@@ -615,7 +615,7 @@ mod tests {
                 col_sums,
                 zero_points: [0; NR],
             };
-            buf.extend_from_slice(cast_pod_slice(meta.as_bytes()).unwrap());
+            buf.extend_from_slice(cast_slice(meta.as_bytes()).unwrap());
         }
 
         assert_eq!(buf.len(), layout.size());
@@ -729,7 +729,7 @@ mod tests {
         let mat = NdTensor::<i8, 2>::from([[1, 2], [3, 4]]);
         let packed = pack_b_matrix::<NR, K_TILE_I8DOT>(mat.view());
 
-        let (packed_elems, meta) = extract_packed_b(cast_pod_slice(&packed).unwrap());
+        let (packed_elems, meta) = extract_packed_b(cast_slice(&packed).unwrap());
 
         assert!(packed_elems.len() >= mat.rows() * mat.cols());
         assert_eq!(meta.col_sums, [4, 6, 0, 0, 0, 0, 0, 0]);

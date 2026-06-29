@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_base::byte_cast::{AsBytes, cast_uninit_pod_mut_slice};
+use rten_base::byte_cast::{AsBytes, cast_uninit_mut_slice};
 use rten_simd::ops::{MaskOps, NumOps};
 use rten_simd::{Isa, Mask, Simd};
 use rten_tensor::{NdTensorView, Storage};
@@ -256,7 +256,7 @@ impl Im2Col<'_, i8> {
         cols: Range<usize>,
         zero_point: i8,
     ) {
-        let out = cast_uninit_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_mut_slice(out).unwrap();
         self.pack_block_int8::<_, NR, NR_REGS, K_TILE, true>(isa, out, rows, cols, zero_point);
     }
 

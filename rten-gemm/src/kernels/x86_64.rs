@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_base::byte_cast::{cast_pod_slice, cast_uninit_pod_mut_slice};
+use rten_base::byte_cast::{cast_slice, cast_uninit_mut_slice};
 use rten_simd::{Isa, isa::Avx2Isa};
 use rten_tensor::{Matrix, MatrixLayout};
 
@@ -97,7 +97,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_uninit_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
+        let out = cast_uninit_mut_slice(out).expect("incorrect alignment for packing buffer");
 
         // Safety: Kernel can only be constructed if AVX is supported.
         unsafe {
@@ -122,7 +122,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_uninit_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_mut_slice(out).unwrap();
 
         // Safety: Kernel can only be constructed if AVX is supported.
         unsafe {
@@ -153,7 +153,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         }
 
         // Safety: Kernel can only be constructed if AVX is supported
-        let out = cast_uninit_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_mut_slice(out).unwrap();
         unsafe {
             pack_im2col_avx::<NR_REGS, { Self::NR }>(self.isa, out, image, rows, cols);
         }
@@ -188,7 +188,7 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         const NR: usize = FmaKernel::NR;
         const NR_REGS: usize = NR / AVX2_X32_LANES;
 
-        let b = cast_pod_slice(b).unwrap();
+        let b = cast_slice(b).unwrap();
 
         // TODO - Replace temporary tile with masked loads and stores.
         let mut tmp_tile = TempTile::<f32, MR, NR>::new();
@@ -312,7 +312,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_uninit_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
+        let out = cast_uninit_mut_slice(out).expect("incorrect alignment for packing buffer");
 
         // Safety: AVX-512 implies availability of AVX 2.
         unsafe {
@@ -337,7 +337,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         cols: Range<usize>,
         _quant: Option<QuantParams<f32>>,
     ) {
-        let out = cast_uninit_pod_mut_slice(out).expect("incorrect alignment for packing buffer");
+        let out = cast_uninit_mut_slice(out).expect("incorrect alignment for packing buffer");
 
         // Safety: We assume AVX-512 implies availability of AVX 2.
         unsafe {
@@ -368,7 +368,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         const NR_REGS: usize = Avx512Kernel::NR / AVX512_X32_LANES;
 
         // Safety: Kernel can only be constructed if AVX-512 is supported.
-        let out = cast_uninit_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_mut_slice(out).unwrap();
         unsafe {
             pack_im2col_avx512::<NR_REGS, { Self::NR }>(self.isa, out, image, rows, cols);
         }
@@ -403,7 +403,7 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         const NR: usize = Avx512Kernel::NR;
         const NR_REGS: usize = NR / AVX512_X32_LANES;
 
-        let b = cast_pod_slice(b).unwrap();
+        let b = cast_slice(b).unwrap();
 
         // TODO - Replace temporary tile with masked loads and stores.
         let mut tmp_tile = TempTile::<f32, MR, NR>::new();
@@ -529,7 +529,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         cols: Range<usize>,
         quant: Option<QuantParams<u8>>,
     ) {
-        let out = cast_uninit_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_mut_slice(out).unwrap();
         packing::int8::pack_a::<{ Self::MR }, K_TILE>(
             out,
             a.slice((rows.clone(), cols)),
@@ -554,7 +554,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         cols: Range<usize>,
         quant: Option<QuantParams<i8>>,
     ) {
-        let out = cast_uninit_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_mut_slice(out).unwrap();
         packing::int8::pack_b::<{ Self::NR }, K_TILE>(
             out,
             b.slice((rows, cols.clone())),
@@ -582,7 +582,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
             const NR: usize = Avx2Int8Kernel::NR;
             const NR_REGS: usize = NR / AVX2_X32_LANES;
 
-            let out = cast_uninit_pod_mut_slice(out).unwrap();
+            let out = cast_uninit_mut_slice(out).unwrap();
             image.pack_block_i8_dot::<_, NR, NR_REGS, K_TILE>(
                 isa,
                 out,
@@ -753,7 +753,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         cols: Range<usize>,
         quant: Option<QuantParams<u8>>,
     ) {
-        let out = cast_uninit_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_mut_slice(out).unwrap();
         packing::int8::pack_a::<{ Self::MR }, K_TILE>(
             out,
             a.slice((rows.clone(), cols)),
@@ -778,7 +778,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         cols: Range<usize>,
         quant: Option<QuantParams<i8>>,
     ) {
-        let out = cast_uninit_pod_mut_slice(out).unwrap();
+        let out = cast_uninit_mut_slice(out).unwrap();
         packing::int8::pack_b::<{ Self::NR }, K_TILE>(
             out,
             b.slice((rows, cols.clone())),
@@ -807,7 +807,7 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
             const NR: usize = Avx512Int8Kernel::NR;
             const NR_REGS: usize = NR / AVX512_X32_LANES;
 
-            let out = cast_uninit_pod_mut_slice(out).unwrap();
+            let out = cast_uninit_mut_slice(out).unwrap();
             image.pack_block_i8_dot::<_, NR, NR_REGS, K_TILE>(
                 isa,
                 out,

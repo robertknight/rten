@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 
-use rten_base::byte_cast::{Pod, cast_pod_slice};
+use rten_base::byte_cast::{FromByteArray, cast_slice};
 use rten_base::half::f16_to_f32;
 use rten_onnx::onnx;
 use rten_tensor::{ArcTensor, Storage, Tensor};
@@ -610,7 +610,7 @@ fn external_data_location(
 ///
 /// The tensor will use `raw_data` without copying if provided, otherwise the
 /// data in `typed_data` will be copied and converted.
-fn make_constant<T: Pod, U: Pod>(
+fn make_constant<T: FromByteArray, U: FromByteArray>(
     name: Option<&str>,
     shape: &[usize],
     raw_data: Option<Vec<u8>>,
@@ -770,7 +770,7 @@ fn tensor_from_elements<T>(
 }
 
 /// Create a tensor by reinterpreting the little-endian bytes in `data` as type T.
-fn tensor_from_bytes<T: Pod>(
+fn tensor_from_bytes<T: FromByteArray>(
     shape: &[usize],
     data: Vec<u8>,
     name: Option<&str>,
@@ -806,12 +806,12 @@ fn tensor_from_bytes<T: Pod>(
 
 /// Create a tensor by reinterpreting bytes that have been loaded or
 /// memory-mapped from an external file.
-fn tensor_from_external_data<T: Pod>(
+fn tensor_from_external_data<T: FromByteArray>(
     shape: &[usize],
     data: &DataSlice,
     name: Option<&str>,
 ) -> Result<ArcTensorView<T>, LoadError> {
-    let data: ArcSlice<T> = if let Some(elements) = cast_pod_slice(data.data()) {
+    let data: ArcSlice<T> = if let Some(elements) = cast_slice(data.data()) {
         ArcSlice::new(data.storage.clone(), elements).unwrap()
     } else if data.data().is_empty() {
         // If `data.storage`'s backing storage is a zero-length `Vec<u8>` it
