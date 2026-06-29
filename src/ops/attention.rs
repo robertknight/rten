@@ -4,13 +4,14 @@ use std::mem::MaybeUninit;
 
 use rayon::prelude::*;
 use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
+use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{CowNdTensor, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use rten_vecmath::Softmax;
 
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
-use crate::infer_shapes::InferShapes;
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
@@ -847,10 +848,19 @@ impl Operator for Attention {
         )
     }
 
-    fn as_infer_shapes(&self) -> Option<&dyn crate::infer_shapes::InferShapes> {
-        None
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
     }
 }
+
+impl_infer_shapes!(
+    Attention,
+    op,
+    shape_ops::Attention {
+        q_num_heads: op.q_num_heads,
+        kv_num_heads: op.kv_num_heads,
+    }
+);
 
 #[cfg(feature = "onnx_format")]
 pub use contrib::{GroupQueryAttention, MultiHeadAttention};

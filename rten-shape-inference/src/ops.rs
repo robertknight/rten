@@ -24,7 +24,7 @@ mod slice;
 mod split;
 mod unary;
 
-pub use attention::{GroupQueryAttention, MultiHeadAttention};
+pub use attention::{Attention, GroupQueryAttention, MultiHeadAttention};
 pub use binary::{Add, Div, Equal, Mul, Sub};
 pub use concat::{Concat, Tile};
 pub use conv_pool::{Conv, ConvTranspose, GlobalPool, Padding, Pool};
