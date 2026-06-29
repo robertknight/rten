@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
-use rten_base::byte_cast::Pod;
+use rten_base::byte_cast::FromByteArray;
 use rten_tensor::{DynLayout, Storage, TensorBase};
 
 #[cfg(feature = "mmap")]
@@ -126,7 +126,7 @@ impl<T> ArcSlice<T> {
     /// `T` respectively.
     pub fn from_bytes(buf: Vec<u8>) -> Option<ArcSlice<T>>
     where
-        T: Pod,
+        T: FromByteArray,
     {
         // Vecs with zero capacity have a non-null dangling pointer which can
         // have a smaller alignment that the minimum used by the global
@@ -186,7 +186,7 @@ pub type ArcTensorView<T> = TensorBase<ArcSlice<T>, DynLayout>;
 mod tests {
     use std::sync::Arc;
 
-    use rten_base::byte_cast::cast_pod_slice;
+    use rten_base::byte_cast::cast_slice;
     use rten_tensor::prelude::*;
 
     use super::{ArcSlice, ArcTensorView, ConstantStorage};
@@ -205,10 +205,10 @@ mod tests {
         let storage = Arc::new(ConstantStorage::Buffer(bytes));
 
         // Create two slices referencing memory from the storage.
-        let slice_one = cast_pod_slice::<u8, i32>(&storage.data()[0..32]).unwrap();
+        let slice_one = cast_slice::<u8, i32>(&storage.data()[0..32]).unwrap();
         assert_eq!(slice_one, [0, 1, 2, 3, 4, 5, 6, 7]);
 
-        let slice_two = cast_pod_slice::<u8, i32>(&storage.data()[32..64]).unwrap();
+        let slice_two = cast_slice::<u8, i32>(&storage.data()[32..64]).unwrap();
         assert_eq!(slice_two, [8, 9, 10, 11, 12, 13, 14, 15]);
 
         let arc_slice_one = ArcSlice::new(storage.clone(), slice_one).unwrap();

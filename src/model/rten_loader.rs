@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use rten_base::byte_cast::{Pod, cast_pod_slice};
+use rten_base::byte_cast::{FromByteArray, cast_slice};
 use rten_base::num::{AsUsize, LeBytes};
 use rten_model_file::header::{Header, HeaderError};
 use rten_model_file::schema as sg;
@@ -385,7 +385,7 @@ fn add_graph_constant(
 ///
 /// If the data is correctly aligned and the system is little-endian, this will
 /// return a view, otherwise it will copy the data into an owned tensor.
-fn constant_data_from_flatbuffers_vec<'a, T: Pod + flatbuffers::Follow<'a, Inner = T>>(
+fn constant_data_from_flatbuffers_vec<'a, T: FromByteArray + flatbuffers::Follow<'a, Inner = T>>(
     storage: &Arc<ConstantStorage>,
     fb_vec: flatbuffers::Vector<'a, T>,
     shape: &[usize],
@@ -402,18 +402,18 @@ fn constant_data_from_flatbuffers_vec<'a, T: Pod + flatbuffers::Follow<'a, Inner
 
 /// Transmute a `[u8]` to `[T]` provided it is correctly aligned and we're on
 /// a little-endian system.
-fn cast_le_bytes<T: Pod>(bytes: &[u8]) -> Option<&[T]> {
+fn cast_le_bytes<T: FromByteArray>(bytes: &[u8]) -> Option<&[T]> {
     if std::mem::size_of::<T>() != 1 && !cfg!(target_endian = "little") {
         return None;
     }
-    cast_pod_slice(bytes)
+    cast_slice(bytes)
 }
 
 /// Convert a range of bytes in storage into data for a graph constant.
 ///
 /// If the data is correctly aligned and the system is little-endian, this will
 /// return a view, otherwise it will copy the data into an owned tensor.
-fn constant_data_from_storage_offset<T: LeBytes + Pod>(
+fn constant_data_from_storage_offset<T: LeBytes + FromByteArray>(
     storage: &Arc<ConstantStorage>,
     shape: &[usize],
     offset: usize,

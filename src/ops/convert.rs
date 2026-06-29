@@ -1,4 +1,4 @@
-use rten_base::byte_cast::{Pod, cast_pod_vec};
+use rten_base::byte_cast::{FromByteArray, cast_vec};
 use rten_base::num;
 
 use rten_tensor::Tensor;
@@ -63,15 +63,15 @@ fn cast(pool: &BufferPool, input: ValueView, dtype: DataType) -> Result<Value, O
 /// Both T and U must have the same size.
 fn cast_tensor<T, U>(mut data: Tensor<T>) -> Tensor<U>
 where
-    T: Pod + num::Cast<U>,
-    U: Pod<Bytes = T::Bytes>,
+    T: FromByteArray + num::Cast<U>,
+    U: FromByteArray<Bytes = T::Bytes>,
 {
     // Cast elements from type T to U in place.
     data.apply(|x| num::Cast::<U>::cast(*x).cast_bytes());
 
     // Extract the converted data and transmute from T to U.
     let shape = data.shape().to_vec();
-    let data = cast_pod_vec::<T, U>(data.into_data()).unwrap();
+    let data = cast_vec::<T, U>(data.into_data()).unwrap();
     Tensor::from_data(&shape, data)
 }
 
