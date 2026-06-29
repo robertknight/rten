@@ -346,6 +346,20 @@ def op_node_from_onnx_operator(
             attrs.keepDims = bool(attr_reader.get_attr("keepdims", "int", 1))
             attr_reader.check_attr("select_last_index", "int", 0)
 
+        case "Attention":
+            attrs = sg.AttentionAttrsT()
+            attrs.isCausal = attr_reader.get_bool_attr("is_causal", False)
+            attrs.qNumHeads = attr_reader.get_attr("q_num_heads", "int", None)
+            attrs.kvNumHeads = attr_reader.get_attr("kv_num_heads", "int", None)
+            attrs.scale = attr_reader.get_attr("scale", "float", None)
+            attrs.softcap = attr_reader.get_attr("softcap", "float", 0.0)
+
+            # These attributes only affect the unsupported `qk_matmul_output`
+            # debug output, or select a softmax precision (we always use the
+            # input type), so accept but ignore them.
+            attr_reader.ignore_attr("qk_matmul_output_mode")
+            attr_reader.ignore_attr("softmax_precision")
+
         case "AveragePool":
             kernel_shape = attr_reader.require_attr("kernel_shape", "ints")
             check_ints_length("kernel_shape", kernel_shape, [1, 2])

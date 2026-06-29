@@ -1,13 +1,15 @@
 //! Attention-related operations.
 
+use std::mem::MaybeUninit;
+
 use rayon::prelude::*;
 use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, Tensor, TensorView};
+use rten_tensor::{CowNdTensor, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use rten_vecmath::Softmax;
 
-use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
 use crate::infer_shapes::InferShapes;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
@@ -16,7 +18,7 @@ use crate::operator::{
 use crate::ops::{
     binary_elementwise::broadcast_shapes, layout::expand_to, norm::NanHandling, resolve_axis,
 };
-use crate::value::Value;
+use crate::value::{Value, ValueView};
 
 const BROADCAST_ERROR: OpError = OpError::IncompatibleInputShapes("Cannot broadcast inputs");
 
@@ -310,100 +312,569 @@ impl Operator for GroupedQueryAttentionMatMul {
     }
 }
 
+/// Reshape (batch, seq, hidden) to (batch, num_heads, seq, head).
+pub fn split_attention_heads<'a>(
+    pool: &BufferPool,
+    input: CowNdTensor<'a, f32, 3>,
+    num_heads: usize,
+    head_size: usize,
+) -> Result<CowNdTensor<'a, f32, 4>, OpError> {
+    let [batch_size, seq_len, hidden] = input.shape();
+    if hidden != num_heads * head_size {
+        return Err(OpError::IncompatibleInputShapes(
+            "Hidden size does not match number of attention heads",
+        ));
+    }
+
+    Ok(input
+        .into_shape_in(pool, [batch_size, seq_len, num_heads, head_size])
+        .into_permuted([0, 2, 1, 3]))
+}
+
+/// Reshape (batch, num_heads, seq, head) to (batch, seq, num_heads * head).
+///
+/// This is the inverse of [`split_attention_heads`].
+pub fn merge_attention_heads(pool: &BufferPool, input: NdTensor<f32, 4>) -> NdTensor<f32, 3> {
+    let [batch, num_heads, seq, head_size] = input.shape();
+    input
+        .permuted([0, 2, 1, 3])
+        .to_tensor_in(pool)
+        .into_shape([batch, seq, num_heads * head_size])
+}
+
+/// Concatenate a past KV cache and the current key or value along the
+/// sequence dimension.
+///
+/// `past` has shape `(batch, kv_heads, past_seq, head_size)` and `current`
+/// has shape `(batch, kv_heads, current_seq, head_size)`.
+///
+/// TODO: Support in-place extension of the KV cache, which will make decoding
+/// much more efficient. See https://github.com/robertknight/rten/issues/1305.
+fn concat_kv_cache(
+    pool: &BufferPool,
+    past: NdTensorView<f32, 4>,
+    current: NdTensorView<f32, 4>,
+) -> NdTensor<f32, 4> {
+    let [batch, kv_heads, past_seq, head_size] = past.shape();
+    let total_seq = past_seq + current.size(2);
+
+    let mut out = NdTensor::uninit_in(pool, [batch, kv_heads, total_seq, head_size]);
+    out.inner_iter_mut::<2>()
+        .into_par_iter()
+        .enumerate()
+        .for_each(|(i, mut block)| {
+            let b = i / kv_heads;
+            let h = i % kv_heads;
+            block.slice_mut(..past_seq).init_from(&past.slice([b, h]));
+            block
+                .slice_mut(past_seq..)
+                .init_from(&current.slice([b, h]));
+        });
+
+    // Safety: every (total_seq, head_size) block was fully initialized above.
+    unsafe { out.assume_init() }
+}
+
+/// Validate the shapes of past key/value caches against the current key and
+/// value, then concatenate past and current along the sequence dimension.
+///
+/// `key` and `value` have shape `(batch, kv_heads, kv_seq, {head_size,
+/// v_head_size})` and the past tensors, if present, must have shape
+/// `(batch, kv_heads, past_seq, {head_size, v_head_size})`.
+///
+/// Returns the number of cached key/value positions (zero when there is no
+/// cache).
+fn concat_past_kv<'a, 'b>(
+    pool: &'a BufferPool,
+    past_key: Option<NdTensorView<f32, 4>>,
+    past_value: Option<NdTensorView<f32, 4>>,
+    key: &mut PoolRef<'a, CowNdTensor<'b, f32, 4>>,
+    value: &mut PoolRef<'a, CowNdTensor<'b, f32, 4>>,
+) -> Result<usize, OpError> {
+    match (past_key, past_value) {
+        (Some(past_key), Some(past_value)) => {
+            let [batch, kv_heads, _kv_seq, head_size] = key.shape();
+            let v_head_size = value.size(3);
+            let [pk_batch, pk_heads, pk_seq, pk_head_size] = past_key.shape();
+            let [pv_batch, pv_heads, pv_seq, pv_head_size] = past_value.shape();
+            if pk_batch != batch
+                || pv_batch != batch
+                || pk_heads != kv_heads
+                || pv_heads != kv_heads
+                || pk_head_size != head_size
+                || pv_head_size != v_head_size
+                || pk_seq != pv_seq
+            {
+                return Err(OpError::IncompatibleInputShapes(
+                    "past_key/past_value shape does not match key/value shape",
+                ));
+            }
+            *key = concat_kv_cache(pool, past_key, key.view())
+                .into_cow()
+                .auto_return(pool);
+            *value = concat_kv_cache(pool, past_value, value.view())
+                .into_cow()
+                .auto_return(pool);
+            Ok(pk_seq)
+        }
+        (None, None) => Ok(0),
+        _ => Err(OpError::InvalidValue(
+            "past_key and past_value must either both be present or both be absent",
+        )),
+    }
+}
+
+/// Compute scaled dot-product attention for a single (batch, head):
+///
+/// `out = softmax(score_mod(scale · Q Kᵀ)) · V`
+///
+/// `query` is `[q_seq, head_size]`, `key` is `[kv_seq, head_size]`, `value`
+/// is `[kv_seq, v_head_size]` and `out` is `[q_seq, v_head_size]`.
+/// `score_mod(row, query_index)` modifies a single score row (of length
+/// `kv_seq`).
+pub fn sdpa_head(
+    pool: &BufferPool,
+    gemm: &GemmExecutor<f32>,
+    scale: f32,
+    query: NdTensorView<f32, 2>,
+    key: NdTensorView<f32, 2>,
+    value: NdTensorView<f32, 2>,
+    mut out: NdTensorViewMut<MaybeUninit<f32>, 2>,
+    score_mod: impl Fn(&mut [f32], usize),
+) {
+    let q_seq = query.size(0);
+    let kv_seq = key.size(0);
+
+    // scores = scale · Q Kᵀ
+    let mut scores = NdTensor::uninit_in(pool, [q_seq, kv_seq]);
+    gemm.gemm_uninit(
+        scores.data_mut().unwrap(),
+        GemmInputA::Unpacked(query),
+        GemmInputB::Unpacked(key.transposed()),
+        GemmUninitOptions {
+            alpha: scale,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    // Safety: `gemm_uninit` initializes every element.
+    let mut scores = unsafe { scores.assume_init() };
+
+    for (s, mut row) in scores.lanes_mut(1).enumerate() {
+        let row = row.as_slice_mut().unwrap();
+        score_mod(row, s);
+        // Flush NaNs to zero so that fully-masked rows (all scores -inf)
+        // produces zeros rather than NaN outputs.
+        Softmax::new_mut(row).flush_nans_to_zero(true).dispatch();
+    }
+
+    // out = scores · V
+    gemm.gemm_uninit(
+        out.data_mut().unwrap(),
+        GemmInputA::Unpacked(scores.view()),
+        GemmInputB::Unpacked(value),
+        GemmUninitOptions::default(),
+    )
+    .unwrap();
+}
+
+/// Softcap a row of attention scores in place via `softcap · tanh(x / softcap)`.
+pub fn apply_softcap(row: &mut [f32], softcap: f32) {
+    if softcap > 0.0 {
+        for x in row.iter_mut() {
+            *x = softcap * (*x / softcap).tanh();
+        }
+    }
+}
+
+/// Apply causal masking to a row of attention scores.
+fn causal_mask_row(row: &mut [f32], offset: isize, q_idx: usize, fill: f32) {
+    let masked_from = (offset + q_idx as isize + 1).clamp(0, row.len() as isize) as usize;
+    row[masked_from..].fill(fill);
+}
+
+/// Compute scaled dot-product attention for every (batch, head) of a query.
+///
+/// `query` has shape (batch, q_heads, q_seq, head_size); `key` and `value`
+/// have shape (batch, kv_heads, kv_seq, {head_size, v_head_size}), where
+/// `q_heads` must be a multiple of `kv_heads` (grouped-query attention).
+/// `score_mod(b, h, row, q_idx)` modifies a single score row (of length
+/// `kv_seq`) for query index `q_idx` of batch `b` and query head `h`.
+///
+/// Returns the attention output with shape (batch, q_heads, q_seq,
+/// v_head_size).
+fn sdpa_multi_head(
+    pool: &BufferPool,
+    gemm: &GemmExecutor<f32>,
+    scale: f32,
+    query: NdTensorView<f32, 4>,
+    key: NdTensorView<f32, 4>,
+    value: NdTensorView<f32, 4>,
+    score_mod: impl Fn(usize, usize, &mut [f32], usize) + Sync,
+) -> NdTensor<f32, 4> {
+    let [batch, q_heads, q_seq, _head_size] = query.shape();
+    let kv_factor = q_heads / key.size(1);
+    let v_head_size = value.size(3);
+
+    let mut attn_out = NdTensor::uninit_in(pool, [batch, q_heads, q_seq, v_head_size]);
+    attn_out
+        .inner_iter_mut::<2>()
+        .into_par_iter()
+        .enumerate()
+        .for_each(|(i, out)| {
+            let b = i / q_heads;
+            let h = i % q_heads;
+            let kv_head = h / kv_factor;
+
+            sdpa_head(
+                pool,
+                gemm,
+                scale,
+                query.slice([b, h]),
+                key.slice([b, kv_head]),
+                value.slice([b, kv_head]),
+                out,
+                |row, q_idx| score_mod(b, h, row, q_idx),
+            );
+        });
+
+    // Safety: every (q_seq, v_head_size) block was written by `sdpa_head`.
+    unsafe { attn_out.assume_init() }
+}
+
+/// Attention mask, broadcast to (batch, q_heads, q_seq, total_seq).
+///
+/// A boolean mask allows attending to a key position where the value is
+/// non-zero. A float mask is added to the pre-softmax attention scores.
+#[derive(Clone, Copy)]
+enum Mask<'a> {
+    Bool(NdTensorView<'a, i32, 4>),
+    Float(NdTensorView<'a, f32, 4>),
+}
+
+/// Scaled dot-product attention operator from the ONNX standard.
+///
+/// This computes `softmax(softcap(scale · Q Kᵀ) + mask) · V` with optional
+/// causal masking, attention softcapping and grouped-query attention.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__Attention.html>.
+#[derive(Debug)]
+pub struct Attention {
+    /// Enable causal masking.
+    pub is_causal: bool,
+    /// Number of key/value heads. Required when Q/K/V are 3D.
+    pub kv_num_heads: Option<u32>,
+    /// Number of query heads. Required when Q/K/V are 3D.
+    pub q_num_heads: Option<u32>,
+    /// Scale applied to `Q Kᵀ`. Defaults to `1 / sqrt(head_size)`.
+    pub scale: Option<f32>,
+    /// If `> 0`, softcap the attention scores via `softcap · tanh(x / softcap)`.
+    pub softcap: f32,
+}
+
+impl Operator for Attention {
+    fn name(&self) -> &str {
+        "Attention"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        // Q, K, V, attn_mask, past_key, past_value, nonpad_kv_seqlen.
+        Some(7)
+    }
+
+    fn max_outputs(&self) -> Option<usize> {
+        // Spec defines 4 outputs: Y, present_key, present_value,
+        // qk_matmul_output. The `qk_matmul_output` output is not implemented.
+        Some(4)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+
+        // (batch, q_seq, q_hidden) or (batch, q_heads, q_seq, head_size)
+        let query: TensorView<f32> = inputs.require_as(0)?;
+        let key: TensorView<f32> = inputs.require_as(1)?;
+        let value: TensorView<f32> = inputs.require_as(2)?;
+        // Broadcastable to (batch, q_heads, q_seq, total_seq).
+        let attn_mask = inputs.get(3);
+        // (batch, kv_heads, past_seq, head_size)
+        let past_key: Option<NdTensorView<f32, 4>> = inputs.get_as(4)?;
+        // (batch, kv_heads, past_seq, v_head_size)
+        let past_value: Option<NdTensorView<f32, 4>> = inputs.get_as(5)?;
+        // (batch,). Number of valid (non-padding) key/value positions per
+        // batch row, when the caller manages the KV cache externally and the
+        // key/value inputs are right-padded.
+        let nonpad_kv_seqlen: Option<NdTensorView<i32, 1>> = inputs.get_as(6)?;
+
+        if ctx.outputs().get(3) {
+            return Err(OpError::UnsupportedValue(
+                "qk_matmul_output output is not supported",
+            ));
+        }
+
+        let input_3d = match query.ndim() {
+            3 => true,
+            4 => false,
+            _ => {
+                return Err(OpError::InvalidValue("query must have 3 or 4 dimensions"));
+            }
+        };
+        if key.ndim() != query.ndim() || value.ndim() != query.ndim() {
+            return Err(OpError::IncompatibleInputShapes(
+                "query, key and value must have the same rank",
+            ));
+        }
+
+        let pool = ctx.pool();
+
+        // Reshape inputs to (batch, heads, seq, head_size) layout.
+        let (query, key, value) = if input_3d {
+            let q_num_heads = self.q_num_heads.ok_or(OpError::InvalidValue(
+                "q_num_heads is required for 3D inputs",
+            ))? as usize;
+            let kv_num_heads = self.kv_num_heads.ok_or(OpError::InvalidValue(
+                "kv_num_heads is required for 3D inputs",
+            ))? as usize;
+            if q_num_heads == 0 || kv_num_heads == 0 {
+                return Err(OpError::InvalidValue(
+                    "q_num_heads and kv_num_heads must be positive",
+                ));
+            }
+
+            let query = query.nd_view::<3>();
+            let key = key.nd_view::<3>();
+            let value = value.nd_view::<3>();
+
+            let [batch, _q_seq, q_hidden] = query.shape();
+            let [key_batch, kv_seq, k_hidden] = key.shape();
+            let [value_batch, v_seq, v_hidden] = value.shape();
+            if key_batch != batch || value_batch != batch {
+                return Err(OpError::IncompatibleInputShapes(
+                    "query, key and value must have the same batch size",
+                ));
+            }
+            if kv_seq != v_seq {
+                return Err(OpError::IncompatibleInputShapes(
+                    "key and value must have the same sequence length",
+                ));
+            }
+            if q_hidden % q_num_heads != 0 {
+                return Err(OpError::IncompatibleInputShapes(
+                    "query hidden size must be divisible by q_num_heads",
+                ));
+            }
+            let head_size = q_hidden / q_num_heads;
+            if k_hidden % kv_num_heads != 0 || v_hidden % kv_num_heads != 0 {
+                return Err(OpError::IncompatibleInputShapes(
+                    "key/value hidden size must be divisible by kv_num_heads",
+                ));
+            }
+            if k_hidden / kv_num_heads != head_size {
+                return Err(OpError::IncompatibleInputShapes(
+                    "key head size must match query head size",
+                ));
+            }
+            let v_head_size = v_hidden / kv_num_heads;
+
+            (
+                split_attention_heads(pool, query.as_cow(), q_num_heads, head_size)?,
+                split_attention_heads(pool, key.as_cow(), kv_num_heads, head_size)?,
+                split_attention_heads(pool, value.as_cow(), kv_num_heads, v_head_size)?,
+            )
+        } else {
+            let query = query.nd_view::<4>();
+            let key = key.nd_view::<4>();
+            let value = value.nd_view::<4>();
+
+            let [batch, _q_heads, _q_seq, head_size] = query.shape();
+            let [key_batch, kv_heads, kv_seq, k_head_size] = key.shape();
+            let [value_batch, v_kv_heads, value_seq, _v_head_size] = value.shape();
+            if key_batch != batch || value_batch != batch {
+                return Err(OpError::IncompatibleInputShapes(
+                    "query, key and value must have the same batch size",
+                ));
+            }
+            if kv_heads != v_kv_heads || kv_seq != value_seq {
+                return Err(OpError::IncompatibleInputShapes(
+                    "key and value must have the same number of heads and sequence length",
+                ));
+            }
+            if k_head_size != head_size {
+                return Err(OpError::IncompatibleInputShapes(
+                    "key head size must match query head size",
+                ));
+            }
+
+            (query.as_cow(), key.as_cow(), value.as_cow())
+        };
+
+        let query = query.auto_return(pool);
+        let mut key = key.auto_return(pool);
+        let mut value = value.auto_return(pool);
+
+        let [batch, q_num_heads, q_seq, head_size] = query.shape();
+        let kv_num_heads = key.size(1);
+
+        if q_num_heads == 0 || kv_num_heads == 0 || !q_num_heads.is_multiple_of(kv_num_heads) {
+            return Err(OpError::IncompatibleInputShapes(
+                "q_num_heads must be a positive multiple of kv_num_heads",
+            ));
+        }
+
+        // Concatenate past and present key/value caches along the sequence
+        // dimension to form the full (batch, kv_heads, total_seq, head)
+        // tensors.
+        let past_len = concat_past_kv(pool, past_key, past_value, &mut key, &mut value)?;
+
+        let total_seq = key.size(2);
+
+        if let Some(nonpad) = nonpad_kv_seqlen.as_ref() {
+            if past_key.is_some() {
+                return Err(OpError::InvalidValue(
+                    "nonpad_kv_seqlen cannot be combined with past_key/past_value",
+                ));
+            }
+            if nonpad.len() != batch {
+                return Err(OpError::IncompatibleInputShapes(
+                    "nonpad_kv_seqlen must have batch_size elements",
+                ));
+            }
+            if nonpad
+                .iter()
+                .any(|&len| len < 0 || len as usize > total_seq)
+            {
+                return Err(OpError::InvalidValue(
+                    "nonpad_kv_seqlen entry is out of range",
+                ));
+            }
+        }
+        let scale = self
+            .scale
+            .unwrap_or_else(|| 1.0 / (head_size as f32).sqrt());
+
+        // Validate and broadcast the attention mask.
+        let target = [batch, q_num_heads, q_seq, total_seq];
+        let mask = match attn_mask {
+            None => None,
+            Some(ValueView::FloatTensor(mask)) => Some(Mask::Float(
+                mask.try_broadcast(target).map_err(|_| BROADCAST_ERROR)?,
+            )),
+            Some(ValueView::Int32Tensor(mask)) => Some(Mask::Bool(
+                mask.try_broadcast(target).map_err(|_| BROADCAST_ERROR)?,
+            )),
+            Some(_) => {
+                return Err(OpError::InvalidValue(
+                    "attn_mask must have a float or bool (int32) type",
+                ));
+            }
+        };
+
+        let gemm = GemmExecutor::<f32>::new();
+        let attn_out = sdpa_multi_head(
+            pool,
+            &gemm,
+            scale,
+            query.view(),
+            key.view(),
+            value.view(),
+            |b, h, row, q_idx| {
+                apply_softcap(row, self.softcap);
+
+                // Apply the attention mask. A float mask is added to the
+                // scores; a boolean mask disallows attending to positions
+                // where the value is zero.
+                match mask {
+                    Some(Mask::Float(m)) => {
+                        for (x, m) in row.iter_mut().zip(m.slice([b, h, q_idx]).iter()) {
+                            *x += m;
+                        }
+                    }
+                    Some(Mask::Bool(m)) => {
+                        for (x, keep) in row.iter_mut().zip(m.slice([b, h, q_idx]).iter()) {
+                            if *keep == 0 {
+                                *x = f32::NEG_INFINITY;
+                            }
+                        }
+                    }
+                    None => {}
+                }
+
+                // Mask padded key positions.
+                if let Some(nonpad) = nonpad_kv_seqlen.as_ref() {
+                    row[nonpad[[b]] as usize..].fill(f32::NEG_INFINITY);
+                }
+
+                // Mask future positions for causal attention. With an
+                // external KV cache the causal window is anchored by the
+                // per-batch valid key/value length instead of the internal
+                // cache length.
+                if self.is_causal {
+                    let offset = match nonpad_kv_seqlen.as_ref() {
+                        Some(nonpad) => nonpad[[b]] as isize - q_seq as isize,
+                        None => past_len as isize,
+                    };
+                    causal_mask_row(row, offset, q_idx, f32::NEG_INFINITY);
+                }
+            },
+        );
+
+        // For 3D inputs, reshape the output back to (batch, q_seq, hidden).
+        let output: Value = if input_3d {
+            merge_attention_heads(pool, attn_out).into()
+        } else {
+            attn_out.into()
+        };
+
+        let mut outputs: OutputList = [output].into();
+        if ctx.outputs().get(1) || ctx.outputs().get(2) {
+            outputs.push(key.take().into_owned_in(pool).into());
+        }
+        if ctx.outputs().get(2) {
+            outputs.push(value.take().into_owned_in(pool).into());
+        }
+        Ok(outputs)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some(
+            [
+                OutputType::CopyFromInput(0),
+                OutputType::CopyFromInput(0),
+                OutputType::CopyFromInput(0),
+            ]
+            .into_iter()
+            .collect(),
+        )
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn crate::infer_shapes::InferShapes> {
+        None
+    }
+}
+
 #[cfg(feature = "onnx_format")]
 pub use contrib::{GroupQueryAttention, MultiHeadAttention};
 
 #[cfg(feature = "onnx_format")]
 mod contrib {
     use rayon::prelude::*;
-    use std::mem::MaybeUninit;
 
-    use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
+    use rten_gemm::GemmExecutor;
     use rten_shape_inference::ops as shape_ops;
-    use rten_simd::SimdOp;
     use rten_tensor::prelude::*;
-    use rten_tensor::{CowNdTensor, NdTensor, NdTensorView, NdTensorViewMut, TensorView};
-    use rten_vecmath::Softmax;
+    use rten_tensor::{NdTensor, NdTensorView, TensorView};
 
-    use crate::buffer_pool::{AutoReturn, BufferPool};
+    use crate::buffer_pool::AutoReturn;
     use crate::infer_shapes::{InferShapes, impl_infer_shapes};
     use crate::operator::{
         OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList, OutputTypesContext,
     };
-    use crate::ops::{binary_elementwise::add, concat::concat, embedding::rotary_embedding};
+    use crate::ops::{binary_elementwise::add, embedding::rotary_embedding};
 
-    use super::BROADCAST_ERROR;
-
-    /// Reshape (batch, seq, hidden) to (batch, num_heads, seq, head).
-    fn split_attention_heads<'a>(
-        pool: &BufferPool,
-        input: CowNdTensor<'a, f32, 3>,
-        num_heads: usize,
-        head_size: usize,
-    ) -> Result<CowNdTensor<'a, f32, 4>, OpError> {
-        let [batch_size, seq_len, hidden] = input.shape();
-        if hidden != num_heads * head_size {
-            return Err(OpError::IncompatibleInputShapes(
-                "Hidden size does not match number of attention heads",
-            ));
-        }
-
-        Ok(input
-            .into_shape_in(pool, [batch_size, seq_len, num_heads, head_size])
-            .into_permuted([0, 2, 1, 3]))
-    }
-
-    /// Compute scaled dot-product attention for a single (batch, head):
-    ///
-    /// `out = softmax(score_mod(scale · Q Kᵀ)) · V`
-    ///
-    /// `query` is `[q_seq, head_size]`, `key` is `[kv_seq, head_size]`, `value`
-    /// is `[kv_seq, v_head_size]` and `out` is `[q_seq, v_head_size]`.
-    /// `score_mod(row, query_index)` modifies a single score row (of length
-    /// `kv_seq`).
-    pub(super) fn sdpa_head(
-        pool: &BufferPool,
-        gemm: &GemmExecutor<f32>,
-        scale: f32,
-        query: NdTensorView<f32, 2>,
-        key: NdTensorView<f32, 2>,
-        value: NdTensorView<f32, 2>,
-        mut out: NdTensorViewMut<MaybeUninit<f32>, 2>,
-        score_mod: impl Fn(&mut [f32], usize),
-    ) {
-        let q_seq = query.size(0);
-        let kv_seq = key.size(0);
-
-        // scores = scale · Q Kᵀ
-        let mut scores = NdTensor::uninit_in(pool, [q_seq, kv_seq]);
-        gemm.gemm_uninit(
-            scores.data_mut().unwrap(),
-            GemmInputA::Unpacked(query),
-            GemmInputB::Unpacked(key.transposed()),
-            GemmUninitOptions {
-                alpha: scale,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        // Safety: `gemm_uninit` initializes every element.
-        let mut scores = unsafe { scores.assume_init() };
-
-        for (s, mut row) in scores.lanes_mut(1).enumerate() {
-            let row = row.as_slice_mut().unwrap();
-            score_mod(row, s);
-            Softmax::new_mut(row).flush_nans_to_zero(true).dispatch();
-        }
-
-        // out = scores · V
-        gemm.gemm_uninit(
-            out.data_mut().unwrap(),
-            GemmInputA::Unpacked(scores.view()),
-            GemmInputB::Unpacked(value),
-            GemmUninitOptions::default(),
-        )
-        .unwrap();
-    }
+    use super::{
+        BROADCAST_ERROR, apply_softcap, causal_mask_row, concat_past_kv, merge_attention_heads,
+        sdpa_head, sdpa_multi_head, split_attention_heads,
+    };
 
     /// `query` input for MultiHeadAttention which can be either the query tensor
     /// or packed QKV tensors.
@@ -493,167 +964,150 @@ mod contrib {
                 return Err(OpError::InvalidValue("num_heads must be positive"));
             }
 
-            let (query, key, value, batch_size, seq_len, head_size, v_head_size, v_hidden) =
-                match query {
-                    MhaQuery::Packed(query) => {
-                        let [batch_size, kv_seq_len, q_num_heads, three, head_size] = query.shape();
+            let (query, key, value, batch_size, seq_len, head_size) = match query {
+                MhaQuery::Packed(query) => {
+                    let [batch_size, kv_seq_len, q_num_heads, three, head_size] = query.shape();
 
-                        if key.is_some() {
-                            return Err(OpError::InvalidValue(
-                                "key must be None when query is packed",
-                            ));
-                        }
-                        if value.is_some() {
-                            return Err(OpError::InvalidValue(
-                                "value must be None when query is packed",
-                            ));
-                        }
-                        if bias.is_some() {
-                            return Err(OpError::InvalidValue(
-                                "bias is not supported with packed QKV format",
-                            ));
-                        }
-                        if three != 3 {
-                            return Err(OpError::InvalidValue(
-                                "4th dimension of packed qkv input must be 3",
-                            ));
-                        }
-                        if q_num_heads != num_heads {
-                            return Err(OpError::InvalidValue(
-                                "2nd dimension of packed qkv input must be equal to number of attention heads",
-                            ));
-                        }
-                        let q = query.slice((.., .., .., 0, ..));
-                        let k = query.slice((.., .., .., 1, ..));
-                        let v = query.slice((.., .., .., 2, ..));
-
-                        (
-                            // (batch, kv_seq, num_heads, head) => (batch, num_heads, kv_seq, head)
-                            q.permuted([0, 2, 1, 3]).as_cow(),
-                            k.permuted([0, 2, 1, 3]).as_cow(),
-                            v.permuted([0, 2, 1, 3]).as_cow(),
-                            batch_size,
-                            kv_seq_len,
-                            head_size,
-                            head_size,
-                            num_heads * head_size,
-                        )
+                    if key.is_some() {
+                        return Err(OpError::InvalidValue(
+                            "key must be None when query is packed",
+                        ));
                     }
-                    MhaQuery::Unpacked(query) => {
-                        let [batch_size, seq_len, hidden] = query.shape();
-                        if hidden % num_heads != 0 {
-                            return Err(OpError::IncompatibleInputShapes(
-                                "Hidden size must be divisible by number of attention heads",
-                            ));
-                        }
-                        let head_size = hidden / num_heads;
-
-                        let (key, value) = match (key, value) {
-                            (None, _) => (query, query), // Reference impl ignores if value is some
-                            (Some(key), Some(value)) => (key, value),
-                            (Some(_), None) => {
-                                return Err(OpError::InvalidValue(
-                                    "value input must be set if key input is present",
-                                ));
-                            }
-                        };
-
-                        let [key_batch, key_seq_len, key_hidden] = key.shape();
-                        let [value_batch, value_seq_len, v_hidden] = value.shape();
-                        if key_batch != batch_size
-                            || value_batch != batch_size
-                            || value_seq_len != key_seq_len
-                        {
-                            return Err(OpError::IncompatibleInputShapes(
-                                "Key and value batch or sequence lengths do not match",
-                            ));
-                        }
-                        if key_hidden != hidden {
-                            return Err(OpError::IncompatibleInputShapes(
-                                "Key hidden size does not match query hidden size",
-                            ));
-                        }
-                        if v_hidden % num_heads != 0 {
-                            return Err(OpError::IncompatibleInputShapes(
-                                "Value hidden size must be divisible by number of attention heads",
-                            ));
-                        }
-                        let v_head_size = v_hidden / num_heads;
-
-                        let (query, key, value) = if let Some(bias) = bias {
-                            if bias.shape() != [hidden * 2 + v_hidden] {
-                                return Err(OpError::IncompatibleInputShapes(
-                                    "Bias shape does not match QKV hidden sizes",
-                                ));
-                            }
-                            let q_bias = bias.slice(..hidden);
-                            let k_bias = bias.slice(hidden..(hidden * 2));
-                            let v_bias = bias.slice((hidden * 2)..);
-
-                            let query = add(ctx.pool(), query.as_dyn(), q_bias.as_dyn())?
-                                .into_rank::<3>()
-                                .unwrap();
-                            let key = add(ctx.pool(), key.as_dyn(), k_bias.as_dyn())?
-                                .into_rank::<3>()
-                                .unwrap();
-                            let value = add(ctx.pool(), value.as_dyn(), v_bias.as_dyn())?
-                                .into_rank::<3>()
-                                .unwrap();
-                            (
-                                split_attention_heads(
-                                    ctx.pool(),
-                                    query.into_cow(),
-                                    num_heads,
-                                    head_size,
-                                )?,
-                                split_attention_heads(
-                                    ctx.pool(),
-                                    key.into_cow(),
-                                    num_heads,
-                                    head_size,
-                                )?,
-                                split_attention_heads(
-                                    ctx.pool(),
-                                    value.into_cow(),
-                                    num_heads,
-                                    v_head_size,
-                                )?,
-                            )
-                        } else {
-                            (
-                                split_attention_heads(
-                                    ctx.pool(),
-                                    query.as_cow(),
-                                    num_heads,
-                                    head_size,
-                                )?,
-                                split_attention_heads(
-                                    ctx.pool(),
-                                    key.as_cow(),
-                                    num_heads,
-                                    head_size,
-                                )?,
-                                split_attention_heads(
-                                    ctx.pool(),
-                                    value.as_cow(),
-                                    num_heads,
-                                    v_head_size,
-                                )?,
-                            )
-                        };
-
-                        (
-                            query,
-                            key,
-                            value,
-                            batch_size,
-                            seq_len,
-                            head_size,
-                            v_head_size,
-                            v_hidden,
-                        )
+                    if value.is_some() {
+                        return Err(OpError::InvalidValue(
+                            "value must be None when query is packed",
+                        ));
                     }
-                };
+                    if bias.is_some() {
+                        return Err(OpError::InvalidValue(
+                            "bias is not supported with packed QKV format",
+                        ));
+                    }
+                    if three != 3 {
+                        return Err(OpError::InvalidValue(
+                            "4th dimension of packed qkv input must be 3",
+                        ));
+                    }
+                    if q_num_heads != num_heads {
+                        return Err(OpError::InvalidValue(
+                            "2nd dimension of packed qkv input must be equal to number of attention heads",
+                        ));
+                    }
+                    let q = query.slice((.., .., .., 0, ..));
+                    let k = query.slice((.., .., .., 1, ..));
+                    let v = query.slice((.., .., .., 2, ..));
+
+                    (
+                        // (batch, kv_seq, num_heads, head) => (batch, num_heads, kv_seq, head)
+                        q.permuted([0, 2, 1, 3]).as_cow(),
+                        k.permuted([0, 2, 1, 3]).as_cow(),
+                        v.permuted([0, 2, 1, 3]).as_cow(),
+                        batch_size,
+                        kv_seq_len,
+                        head_size,
+                    )
+                }
+                MhaQuery::Unpacked(query) => {
+                    let [batch_size, seq_len, hidden] = query.shape();
+                    if hidden % num_heads != 0 {
+                        return Err(OpError::IncompatibleInputShapes(
+                            "Hidden size must be divisible by number of attention heads",
+                        ));
+                    }
+                    let head_size = hidden / num_heads;
+
+                    let (key, value) = match (key, value) {
+                        (None, _) => (query, query), // Reference impl ignores if value is some
+                        (Some(key), Some(value)) => (key, value),
+                        (Some(_), None) => {
+                            return Err(OpError::InvalidValue(
+                                "value input must be set if key input is present",
+                            ));
+                        }
+                    };
+
+                    let [key_batch, key_seq_len, key_hidden] = key.shape();
+                    let [value_batch, value_seq_len, v_hidden] = value.shape();
+                    if key_batch != batch_size
+                        || value_batch != batch_size
+                        || value_seq_len != key_seq_len
+                    {
+                        return Err(OpError::IncompatibleInputShapes(
+                            "Key and value batch or sequence lengths do not match",
+                        ));
+                    }
+                    if key_hidden != hidden {
+                        return Err(OpError::IncompatibleInputShapes(
+                            "Key hidden size does not match query hidden size",
+                        ));
+                    }
+                    if v_hidden % num_heads != 0 {
+                        return Err(OpError::IncompatibleInputShapes(
+                            "Value hidden size must be divisible by number of attention heads",
+                        ));
+                    }
+                    let v_head_size = v_hidden / num_heads;
+
+                    let (query, key, value) = if let Some(bias) = bias {
+                        if bias.shape() != [hidden * 2 + v_hidden] {
+                            return Err(OpError::IncompatibleInputShapes(
+                                "Bias shape does not match QKV hidden sizes",
+                            ));
+                        }
+                        let q_bias = bias.slice(..hidden);
+                        let k_bias = bias.slice(hidden..(hidden * 2));
+                        let v_bias = bias.slice((hidden * 2)..);
+
+                        let query = add(ctx.pool(), query.as_dyn(), q_bias.as_dyn())?
+                            .into_rank::<3>()
+                            .unwrap();
+                        let key = add(ctx.pool(), key.as_dyn(), k_bias.as_dyn())?
+                            .into_rank::<3>()
+                            .unwrap();
+                        let value = add(ctx.pool(), value.as_dyn(), v_bias.as_dyn())?
+                            .into_rank::<3>()
+                            .unwrap();
+                        (
+                            split_attention_heads(
+                                ctx.pool(),
+                                query.into_cow(),
+                                num_heads,
+                                head_size,
+                            )?,
+                            split_attention_heads(
+                                ctx.pool(),
+                                key.into_cow(),
+                                num_heads,
+                                head_size,
+                            )?,
+                            split_attention_heads(
+                                ctx.pool(),
+                                value.into_cow(),
+                                num_heads,
+                                v_head_size,
+                            )?,
+                        )
+                    } else {
+                        (
+                            split_attention_heads(
+                                ctx.pool(),
+                                query.as_cow(),
+                                num_heads,
+                                head_size,
+                            )?,
+                            split_attention_heads(ctx.pool(), key.as_cow(), num_heads, head_size)?,
+                            split_attention_heads(
+                                ctx.pool(),
+                                value.as_cow(),
+                                num_heads,
+                                v_head_size,
+                            )?,
+                        )
+                    };
+
+                    (query, key, value, batch_size, seq_len, head_size)
+                }
+            };
 
             // (batch, num_heads, seq, head_size)
             let query = query.auto_return(ctx.pool());
@@ -662,46 +1116,8 @@ mod contrib {
             // (batch, num_heads, kv_seq, v_head_size)
             let mut value = value.auto_return(ctx.pool());
 
-            // Concatenate present and past KV
-            let past_len = match (past_key, past_value) {
-                (Some(past_key), Some(past_value)) => {
-                    let [past_batch, past_heads, past_seq, past_head_size] = past_key.shape();
-                    if past_batch != batch_size
-                        || past_heads != num_heads
-                        || past_head_size != head_size
-                    {
-                        return Err(OpError::IncompatibleInputShapes(
-                            "past_key shape does not match query/key shape",
-                        ));
-                    }
-                    let [past_batch, past_heads, _past_seq, past_v_head_size] = past_value.shape();
-                    if past_batch != batch_size
-                        || past_heads != num_heads
-                        || past_v_head_size != v_head_size
-                    {
-                        return Err(OpError::IncompatibleInputShapes(
-                            "past_value shape does not match query/value shape",
-                        ));
-                    }
-                    key = concat(ctx.pool(), &[past_key.as_dyn(), key.as_dyn()], 2)?
-                        .into_rank::<4>()
-                        .unwrap()
-                        .into_cow()
-                        .auto_return(ctx.pool());
-                    value = concat(ctx.pool(), &[past_value.as_dyn(), value.as_dyn()], 2)?
-                        .into_rank::<4>()
-                        .unwrap()
-                        .into_cow()
-                        .auto_return(ctx.pool());
-                    past_seq
-                }
-                (Some(_), None) | (None, Some(_)) => {
-                    return Err(OpError::InvalidValue(
-                        "past_key and past_value must either both be present or both be absent",
-                    ));
-                }
-                (None, None) => 0,
-            };
+            // Concatenate present and past KV.
+            let past_len = concat_past_kv(ctx.pool(), past_key, past_value, &mut key, &mut value)?;
 
             // Compute attention output per (batch, head):
             //   out = softmax(scale · Q Kᵀ + bias, masked) · V
@@ -727,66 +1143,46 @@ mod contrib {
 
             let gemm = GemmExecutor::new();
             let pool = ctx.pool();
-            let mut attn_out =
-                NdTensor::uninit_in(pool, [batch_size, num_heads, seq_len, v_head_size]);
-            attn_out
-                .inner_iter_mut::<2>()
-                .into_par_iter()
-                .enumerate()
-                .for_each(|(i, out)| {
-                    let b = i / num_heads;
-                    let h = i % num_heads;
-                    let q_head = query.slice([b, h]);
-                    let k_head = key.slice([b, h]);
-                    let v_head = value.slice([b, h]);
-                    let head_attn_bias = attention_bias.as_ref().map(|bs| bs.slice([b, h]));
+            let attn_out = sdpa_multi_head(
+                pool,
+                &gemm,
+                scale,
+                query.view(),
+                key.view(),
+                value.view(),
+                |b, h, row, q_idx| {
+                    // Add the broadcast attention bias for this query row.
+                    if let Some(bias) = attention_bias.as_ref() {
+                        let bias = bias.slice([b, h, q_idx]);
+                        row.iter_mut().zip(bias.iter()).for_each(|(x, b)| {
+                            *x += b;
+                        });
+                    }
 
-                    sdpa_head(
-                        pool,
-                        &gemm,
-                        scale,
-                        q_head,
-                        k_head,
-                        v_head,
-                        out,
-                        |row, q_idx| {
-                            // Add the broadcast attention bias for this query row.
-                            if let Some(bias) = head_attn_bias.as_ref() {
-                                let bias = bias.slice(q_idx);
-                                row.iter_mut().zip(bias.iter()).for_each(|(x, b)| {
-                                    *x += b;
-                                });
+                    // Mask future positions for causal attention.
+                    if self.unidirectional {
+                        causal_mask_row(row, past_len as isize, q_idx, self.mask_filter_value);
+                    }
+
+                    // Mask padded key positions.
+                    if let Some(key_padding_mask) = key_padding_mask {
+                        for (key_idx, x) in row.iter_mut().enumerate() {
+                            if key_padding_mask[[b, key_idx]] == 0 {
+                                *x = self.mask_filter_value;
                             }
+                        }
+                    }
+                },
+            );
 
-                            // Mask future positions for causal attention.
-                            if self.unidirectional {
-                                let masked_from = (past_len + q_idx + 1).min(row.len());
-                                row[masked_from..].fill(self.mask_filter_value);
-                            }
-
-                            // Mask padded key positions.
-                            if let Some(key_padding_mask) = key_padding_mask {
-                                for (key_idx, x) in row.iter_mut().enumerate() {
-                                    if key_padding_mask[[b, key_idx]] == 0 {
-                                        *x = self.mask_filter_value;
-                                    }
-                                }
-                            }
-                        },
-                    );
-                });
-
-            // Safety: every (seq, v_head_size) block was written by sdpa_head.
-            let attn_out = unsafe { attn_out.assume_init() };
-            let output = attn_out
-                .permuted([0, 2, 1, 3])
-                .to_tensor_in(pool)
-                .into_shape([batch_size, seq_len, v_hidden]);
+            let output = merge_attention_heads(pool, attn_out);
 
             let mut outputs: OutputList = [output.into()].into();
             if ctx.outputs().get(1) || ctx.outputs().get(2) {
-                outputs.push(key.take().into_owned().into());
-                outputs.push(value.take().into_owned().into());
+                outputs.push(key.take().into_owned_in(pool).into());
+            }
+            if ctx.outputs().get(2) {
+                outputs.push(value.take().into_owned_in(pool).into());
             }
             Ok(outputs)
         }
@@ -1140,12 +1536,7 @@ mod contrib {
 
                         let attended = &mut row[start..start + window];
 
-                        if self.softcap > 0.0 {
-                            let softcap = self.softcap;
-                            for x in attended.iter_mut() {
-                                *x = softcap * (*x / softcap).tanh();
-                            }
-                        }
+                        apply_softcap(attended, self.softcap);
 
                         if let Some(bias) = bias {
                             for (x, b) in attended.iter_mut().zip(&bias[start..start + window]) {
@@ -1166,10 +1557,7 @@ mod contrib {
             let attn_out = unsafe { attn_out.assume_init() };
 
             // (batch, num_heads, seq, head_size) -> (batch, seq, num_heads * head_size).
-            let output = attn_out
-                .permuted([0, 2, 1, 3])
-                .to_tensor_in(ctx.pool())
-                .into_shape([batch, seq, q_hidden]);
+            let output = merge_attention_heads(ctx.pool(), attn_out);
 
             let mut outputs: OutputList = [output.into()].into();
             if ctx.outputs().get(1) || ctx.outputs().get(2) {
@@ -1214,14 +1602,13 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{NdTensor, Tensor, TensorView};
+    use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
     use rten_testing::TestCases;
     use rten_vecmath::Softmax as SoftmaxSimd;
 
-    use super::contrib::sdpa_head;
     use super::{
-        AddSoftmax, BROADCAST_ERROR, GroupQueryAttention, GroupedQueryAttentionMatMul,
-        MultiHeadAttention, RepeatInterleave,
+        AddSoftmax, Attention, BROADCAST_ERROR, GroupQueryAttention, GroupedQueryAttentionMatMul,
+        Mask, MultiHeadAttention, RepeatInterleave, apply_softcap, sdpa_head,
     };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt};
@@ -2343,11 +2730,709 @@ mod tests {
         // Safety: `sdpa_head` initializes every element of `out`.
         let out = unsafe { out.assume_init() };
 
-        // The fully-masked row is finite (all zeros), not NaN.
-        assert!(out.iter().all(|x| x.is_finite()));
-        assert_eq!(out.slice([1]).to_vec(), vec![0.0; head_size]);
+        assert_eq!(out.size(0), 3);
+        // The fully-masked row is all-zeros (not NaNs).
+        assert_eq!(out.slice(1).to_vec(), vec![0.0; head_size]);
         // Unmasked rows still receive normal (non-zero) attention output.
-        assert!(out.slice([0]).iter().any(|&x| x != 0.0));
-        assert!(out.slice([2]).iter().any(|&x| x != 0.0));
+        assert!(out.slice(0).iter().any(|&x| x != 0.0));
+        assert!(out.slice(2).iter().any(|&x| x != 0.0));
+    }
+
+    /// Reshape (batch, seq, num_heads * head_size) to (batch, num_heads, seq,
+    /// head_size).
+    fn split_heads(x: &NdTensor<f32, 3>, num_heads: usize) -> NdTensor<f32, 4> {
+        let [batch, seq, hidden] = x.shape();
+        let head_size = hidden / num_heads;
+        NdTensor::from_fn([batch, num_heads, seq, head_size], |[b, h, s, d]| {
+            x[[b, s, h * head_size + d]]
+        })
+    }
+
+    /// Reshape (batch, num_heads, seq, head_size) to (batch, seq, num_heads *
+    /// head_size).
+    fn merge_heads(x: &NdTensor<f32, 4>) -> NdTensor<f32, 3> {
+        let [batch, num_heads, seq, head_size] = x.shape();
+        NdTensor::from_fn([batch, seq, num_heads * head_size], |[b, s, c]| {
+            x[[b, c / head_size, s, c % head_size]]
+        })
+    }
+
+    /// Reference implementation of the ONNX Attention operator operating on
+    /// inputs in (batch, num_heads, seq, head_size) layout.
+    #[allow(clippy::too_many_arguments)]
+    fn reference_attention(
+        query: NdTensorView<f32, 4>,
+        key: NdTensorView<f32, 4>,
+        value: NdTensorView<f32, 4>,
+        past_key: Option<NdTensorView<f32, 4>>,
+        past_value: Option<NdTensorView<f32, 4>>,
+        mask: Option<Mask>,
+        nonpad_kv_seqlen: Option<&[i32]>,
+        scale: f32,
+        softcap: f32,
+        is_causal: bool,
+    ) -> NdTensor<f32, 4> {
+        let [batch, q_heads, q_seq, head_size] = query.shape();
+        let [_, kv_heads, kv_seq, _] = key.shape();
+        let v_head_size = value.size(3);
+        let past_seq = past_key.map(|p| p.size(2)).unwrap_or(0);
+        let total = past_seq + kv_seq;
+        let kv_factor = q_heads / kv_heads;
+
+        let k_at = |b, h, t: usize, d| {
+            if t < past_seq {
+                past_key.unwrap()[[b, h, t, d]]
+            } else {
+                key[[b, h, t - past_seq, d]]
+            }
+        };
+        let v_at = |b, h, t: usize, d| {
+            if t < past_seq {
+                past_value.unwrap()[[b, h, t, d]]
+            } else {
+                value[[b, h, t - past_seq, d]]
+            }
+        };
+
+        let mut out = NdTensor::zeros([batch, q_heads, q_seq, v_head_size]);
+        for b in 0..batch {
+            for n in 0..q_heads {
+                let kvh = n / kv_factor;
+                for s in 0..q_seq {
+                    let mut scores = vec![0.0f32; total];
+                    for (t, score) in scores.iter_mut().enumerate() {
+                        let mut dot = 0.0;
+                        for d in 0..head_size {
+                            dot += query[[b, n, s, d]] * k_at(b, kvh, t, d);
+                        }
+                        *score = dot * scale;
+                    }
+
+                    apply_softcap(&mut scores, softcap);
+
+                    match mask {
+                        Some(Mask::Float(m)) => {
+                            for (t, score) in scores.iter_mut().enumerate() {
+                                *score += m[[b, n, s, t]];
+                            }
+                        }
+                        Some(Mask::Bool(m)) => {
+                            for (t, score) in scores.iter_mut().enumerate() {
+                                if m[[b, n, s, t]] == 0 {
+                                    *score = f32::NEG_INFINITY;
+                                }
+                            }
+                        }
+                        None => {}
+                    }
+
+                    // Mask padded key positions.
+                    if let Some(nonpad) = nonpad_kv_seqlen {
+                        for score in scores.iter_mut().skip(nonpad[b] as usize) {
+                            *score = f32::NEG_INFINITY;
+                        }
+                    }
+
+                    // Causal alignment: query `s` attends to `0..=s + offset`,
+                    // where the offset is anchored by the internal cache length
+                    // or the per-batch valid key/value length.
+                    if is_causal {
+                        let offset = match nonpad_kv_seqlen {
+                            Some(nonpad) => nonpad[b] as isize - q_seq as isize,
+                            None => past_seq as isize,
+                        };
+                        for (t, score) in scores.iter_mut().enumerate() {
+                            if t as isize > s as isize + offset {
+                                *score = f32::NEG_INFINITY;
+                            }
+                        }
+                    }
+
+                    SoftmaxSimd::new_mut(&mut scores)
+                        .flush_nans_to_zero(true)
+                        .dispatch();
+
+                    for d in 0..v_head_size {
+                        let mut acc = 0.0;
+                        for (t, score) in scores.iter().enumerate() {
+                            acc += score * v_at(b, kvh, t, d);
+                        }
+                        out[[b, n, s, d]] = acc;
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Run [`Attention`] with the given inputs, returning all outputs.
+    fn run_attention(op: &Attention, inputs: &[Option<ValueView>]) -> Result<Vec<Tensor>, OpError> {
+        let input_list = InputList::from_optional(inputs);
+        let pool = BufferPool::new();
+        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+        op.run(&ctx)
+            .map(|outputs| outputs.into_iter().map(|o| o.try_into().unwrap()).collect())
+    }
+
+    #[test]
+    fn test_attention() {
+        #[derive(Debug)]
+        enum MaskKind {
+            None,
+            Float,
+            Bool,
+        }
+
+        #[derive(Debug)]
+        struct Case {
+            q_num_heads: u32,
+            kv_num_heads: u32,
+            q_seq: usize,
+            kv_seq: usize,
+            past_seq: usize,
+            batch: usize,
+            scale: Option<f32>,
+            softcap: f32,
+            is_causal: bool,
+            mask: MaskKind,
+        }
+
+        let cases = [
+            // Multi-head self-attention prompt (no past, no grouping).
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 2,
+                q_seq: 4,
+                kv_seq: 4,
+                past_seq: 0,
+                batch: 1,
+                scale: None,
+                softcap: 0.0,
+                is_causal: false,
+                mask: MaskKind::None,
+            },
+            // Grouped-query attention with a custom scale.
+            Case {
+                q_num_heads: 4,
+                kv_num_heads: 2,
+                q_seq: 3,
+                kv_seq: 3,
+                past_seq: 0,
+                batch: 1,
+                scale: Some(0.3),
+                softcap: 0.0,
+                is_causal: false,
+                mask: MaskKind::None,
+            },
+            // Multi-query attention.
+            Case {
+                q_num_heads: 4,
+                kv_num_heads: 1,
+                q_seq: 3,
+                kv_seq: 3,
+                past_seq: 0,
+                batch: 2,
+                scale: None,
+                softcap: 0.0,
+                is_causal: false,
+                mask: MaskKind::None,
+            },
+            // Causal masking.
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 2,
+                q_seq: 5,
+                kv_seq: 5,
+                past_seq: 0,
+                batch: 1,
+                scale: None,
+                softcap: 0.0,
+                is_causal: true,
+                mask: MaskKind::None,
+            },
+            // Causal masking with a past key/value cache.
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 1,
+                q_seq: 2,
+                kv_seq: 2,
+                past_seq: 3,
+                batch: 1,
+                scale: None,
+                softcap: 0.0,
+                is_causal: true,
+                mask: MaskKind::None,
+            },
+            // Cross-attention where the key/value sequence is shorter than the
+            // query sequence.
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 2,
+                q_seq: 5,
+                kv_seq: 3,
+                past_seq: 0,
+                batch: 1,
+                scale: None,
+                softcap: 0.0,
+                is_causal: false,
+                mask: MaskKind::None,
+            },
+            // Cross attention where query sequence length is longer than
+            // key/value sequence length. Causal masking is enabled, which is
+            // not a sensible configuration for cross-attention, but at least
+            // it shouldn't panic.
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 2,
+                q_seq: 5,
+                kv_seq: 3,
+                past_seq: 0,
+                batch: 1,
+                scale: None,
+                softcap: 0.0,
+                is_causal: true,
+                mask: MaskKind::None,
+            },
+            // Cross-attention where the key/value sequence is longer than the
+            // query sequence.
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 2,
+                q_seq: 2,
+                kv_seq: 4,
+                past_seq: 0,
+                batch: 1,
+                scale: None,
+                softcap: 0.0,
+                is_causal: false,
+                mask: MaskKind::None,
+            },
+            // Additive float mask.
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 2,
+                q_seq: 3,
+                kv_seq: 3,
+                past_seq: 0,
+                batch: 1,
+                scale: None,
+                softcap: 0.0,
+                is_causal: false,
+                mask: MaskKind::Float,
+            },
+            // Boolean mask.
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 2,
+                q_seq: 3,
+                kv_seq: 3,
+                past_seq: 0,
+                batch: 1,
+                scale: None,
+                softcap: 0.0,
+                is_causal: false,
+                mask: MaskKind::Bool,
+            },
+            // Float mask combined with causal masking.
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 2,
+                q_seq: 4,
+                kv_seq: 4,
+                past_seq: 0,
+                batch: 1,
+                scale: None,
+                softcap: 0.0,
+                is_causal: true,
+                mask: MaskKind::Float,
+            },
+            // Boolean mask with a past KV cache.
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 1,
+                q_seq: 2,
+                kv_seq: 2,
+                past_seq: 3,
+                batch: 1,
+                scale: None,
+                softcap: 0.0,
+                is_causal: false,
+                mask: MaskKind::Bool,
+            },
+            // Float mask with a past KV cache and causal masking.
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 2,
+                q_seq: 2,
+                kv_seq: 2,
+                past_seq: 2,
+                batch: 1,
+                scale: None,
+                softcap: 0.0,
+                is_causal: true,
+                mask: MaskKind::Float,
+            },
+            // Softcapping.
+            Case {
+                q_num_heads: 2,
+                kv_num_heads: 2,
+                q_seq: 4,
+                kv_seq: 4,
+                past_seq: 0,
+                batch: 1,
+                scale: None,
+                softcap: 20.0,
+                is_causal: false,
+                mask: MaskKind::None,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let &Case {
+                q_num_heads,
+                kv_num_heads,
+                q_seq,
+                kv_seq,
+                past_seq,
+                batch,
+                scale,
+                softcap,
+                is_causal,
+                ref mask,
+            } = case;
+            let head_size = 8;
+            let q_hidden = q_num_heads as usize * head_size;
+            let kv_hidden = kv_num_heads as usize * head_size;
+            let total = past_seq + kv_seq;
+
+            let mut rng = XorShiftRng::new(1234);
+            let query = NdTensor::<f32, 3>::rand([batch, q_seq, q_hidden], &mut rng);
+            let key = NdTensor::<f32, 3>::rand([batch, kv_seq, kv_hidden], &mut rng);
+            let value = NdTensor::<f32, 3>::rand([batch, kv_seq, kv_hidden], &mut rng);
+            let (past_key, past_value) = if past_seq > 0 {
+                (
+                    Some(NdTensor::<f32, 4>::rand(
+                        [batch, kv_num_heads as usize, past_seq, head_size],
+                        &mut rng,
+                    )),
+                    Some(NdTensor::<f32, 4>::rand(
+                        [batch, kv_num_heads as usize, past_seq, head_size],
+                        &mut rng,
+                    )),
+                )
+            } else {
+                (None, None)
+            };
+
+            let (float_mask, bool_mask) = match mask {
+                MaskKind::None => (None, None),
+                MaskKind::Float => (
+                    Some(NdTensor::<f32, 4>::rand(
+                        [batch, q_num_heads as usize, q_seq, total],
+                        &mut rng,
+                    )),
+                    None,
+                ),
+                MaskKind::Bool => {
+                    // Generate a boolean mask, forcing the first key position to
+                    // be attended so that no query row is fully masked.
+                    let mut m = NdTensor::<i32, 4>::from_fn(
+                        [batch, q_num_heads as usize, q_seq, total],
+                        |[_, _, _, t]| if t % 2 == 0 { 1 } else { 0 },
+                    );
+                    m.slice_mut((.., .., .., 0)).fill(1);
+                    (None, Some(m))
+                }
+            };
+            let ref_mask = match (&float_mask, &bool_mask) {
+                (Some(m), _) => Some(Mask::Float(m.view())),
+                (_, Some(m)) => Some(Mask::Bool(m.view())),
+                _ => None,
+            };
+
+            let op = Attention {
+                is_causal,
+                kv_num_heads: Some(kv_num_heads),
+                q_num_heads: Some(q_num_heads),
+                scale,
+                softcap,
+            };
+            let resolved_scale = scale.unwrap_or(1.0 / (head_size as f32).sqrt());
+
+            // Build expected output using the reference implementation.
+            let expected = reference_attention(
+                split_heads(&query, q_num_heads as usize).view(),
+                split_heads(&key, kv_num_heads as usize).view(),
+                split_heads(&value, kv_num_heads as usize).view(),
+                past_key.as_ref().map(|p| p.view()),
+                past_value.as_ref().map(|p| p.view()),
+                ref_mask,
+                None,
+                resolved_scale,
+                softcap,
+                is_causal,
+            );
+            let expected = merge_heads(&expected);
+
+            let mask_input = match (&float_mask, &bool_mask) {
+                (Some(m), _) => Some(ValueView::from(m.view())),
+                (_, Some(m)) => Some(ValueView::from(m.view())),
+                _ => None,
+            };
+            let inputs = [
+                Some(ValueView::from(query.view())),
+                Some(ValueView::from(key.view())),
+                Some(ValueView::from(value.view())),
+                mask_input,
+                past_key.as_ref().map(|p| ValueView::from(p.view())),
+                past_value.as_ref().map(|p| ValueView::from(p.view())),
+            ];
+            let outputs = run_attention(&op, &inputs).unwrap();
+
+            expect_equal(&outputs[0], &expected.into_dyn()).unwrap();
+
+            // Check the present key/value cache outputs.
+            assert_eq!(outputs.len(), 3);
+            assert_eq!(
+                outputs[1].shape(),
+                [batch, kv_num_heads as usize, total, head_size]
+            );
+            assert_eq!(
+                outputs[2].shape(),
+                [batch, kv_num_heads as usize, total, head_size]
+            );
+        });
+    }
+
+    #[test]
+    fn test_attention_4d_inputs() {
+        let batch = 1;
+        let q_heads = 4;
+        let kv_heads = 2;
+        let q_seq = 3;
+        let head_size = 8;
+
+        let mut rng = XorShiftRng::new(5678);
+        let query = NdTensor::<f32, 4>::rand([batch, q_heads, q_seq, head_size], &mut rng);
+        let key = NdTensor::<f32, 4>::rand([batch, kv_heads, q_seq, head_size], &mut rng);
+        let value = NdTensor::<f32, 4>::rand([batch, kv_heads, q_seq, head_size], &mut rng);
+
+        let op = Attention {
+            is_causal: true,
+            kv_num_heads: None,
+            q_num_heads: None,
+            scale: None,
+            softcap: 0.0,
+        };
+        let scale = 1.0 / (head_size as f32).sqrt();
+        let expected = reference_attention(
+            query.view(),
+            key.view(),
+            value.view(),
+            None,
+            None,
+            None,
+            None,
+            scale,
+            0.0,
+            true,
+        );
+
+        let inputs = [
+            Some(ValueView::from(query.view())),
+            Some(ValueView::from(key.view())),
+            Some(ValueView::from(value.view())),
+        ];
+        let outputs = run_attention(&op, &inputs).unwrap();
+
+        // 4D inputs produce a 4D output with the same layout.
+        expect_equal(&outputs[0], &expected.into_dyn()).unwrap();
+    }
+
+    #[test]
+    fn test_attention_key_value_seq_mismatch() {
+        let mut rng = XorShiftRng::new(9012);
+        let query = NdTensor::<f32, 3>::rand([1, 3, 16], &mut rng);
+        let key = NdTensor::<f32, 3>::rand([1, 4, 16], &mut rng);
+        let value = NdTensor::<f32, 3>::rand([1, 3, 16], &mut rng);
+
+        let op = Attention {
+            is_causal: false,
+            kv_num_heads: Some(2),
+            q_num_heads: Some(2),
+            scale: None,
+            softcap: 0.0,
+        };
+        let inputs = [
+            Some(ValueView::from(query.view())),
+            Some(ValueView::from(key.view())),
+            Some(ValueView::from(value.view())),
+        ];
+        let err = run_attention(&op, &inputs).unwrap_err();
+        assert_eq!(
+            err,
+            OpError::IncompatibleInputShapes("key and value must have the same sequence length")
+        );
+    }
+
+    #[test]
+    fn test_attention_nonpad_kv_seqlen() {
+        #[derive(Debug)]
+        struct Case {
+            /// Valid key/value length per batch row. Batch size is the length
+            /// of this vec.
+            valid_lens: Vec<i32>,
+            q_seq: usize,
+            is_causal: bool,
+        }
+
+        let kv_seq = 5;
+        let cases = [
+            // Right-padded keys/values, bidirectional attention.
+            Case {
+                valid_lens: vec![5, 3],
+                q_seq: 4,
+                is_causal: false,
+            },
+            // Causal masking anchored per batch row: query `s` attends to key
+            // positions `0..=s + valid_len - q_seq`.
+            Case {
+                valid_lens: vec![5, 3],
+                q_seq: 3,
+                is_causal: true,
+            },
+            // Valid length shorter than the query sequence gives a negative
+            // causal offset, fully masking the leading query rows (which
+            // produce zero output).
+            Case {
+                valid_lens: vec![1],
+                q_seq: 3,
+                is_causal: true,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let &Case {
+                ref valid_lens,
+                q_seq,
+                is_causal,
+            } = case;
+            let batch = valid_lens.len();
+            let num_heads = 2;
+            let head_size = 8;
+            let hidden = num_heads * head_size;
+
+            let mut rng = XorShiftRng::new(3456);
+            let query = NdTensor::<f32, 3>::rand([batch, q_seq, hidden], &mut rng);
+            let key = NdTensor::<f32, 3>::rand([batch, kv_seq, hidden], &mut rng);
+            let value = NdTensor::<f32, 3>::rand([batch, kv_seq, hidden], &mut rng);
+            let nonpad = NdTensor::<i32, 1>::from(valid_lens.clone());
+
+            let op = Attention {
+                is_causal,
+                kv_num_heads: Some(num_heads as u32),
+                q_num_heads: Some(num_heads as u32),
+                scale: None,
+                softcap: 0.0,
+            };
+            let scale = 1.0 / (head_size as f32).sqrt();
+            let expected = reference_attention(
+                split_heads(&query, num_heads).view(),
+                split_heads(&key, num_heads).view(),
+                split_heads(&value, num_heads).view(),
+                None,
+                None,
+                None,
+                Some(valid_lens),
+                scale,
+                0.0,
+                is_causal,
+            );
+            let expected = merge_heads(&expected);
+
+            let inputs = [
+                Some(ValueView::from(query.view())),
+                Some(ValueView::from(key.view())),
+                Some(ValueView::from(value.view())),
+                None,
+                None,
+                None,
+                Some(ValueView::from(nonpad.view())),
+            ];
+            let outputs = run_attention(&op, &inputs).unwrap();
+            expect_equal(&outputs[0], &expected.into_dyn()).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_attention_nonpad_kv_seqlen_invalid() {
+        #[derive(Debug)]
+        struct Case {
+            nonpad: Vec<i32>,
+            with_past: bool,
+            expected: OpError,
+        }
+
+        let cases = [
+            Case {
+                nonpad: vec![3, 3],
+                with_past: true,
+                expected: OpError::InvalidValue(
+                    "nonpad_kv_seqlen cannot be combined with past_key/past_value",
+                ),
+            },
+            Case {
+                nonpad: vec![3],
+                with_past: false,
+                expected: OpError::IncompatibleInputShapes(
+                    "nonpad_kv_seqlen must have batch_size elements",
+                ),
+            },
+            Case {
+                nonpad: vec![-1, 3],
+                with_past: false,
+                expected: OpError::InvalidValue("nonpad_kv_seqlen entry is out of range"),
+            },
+            Case {
+                nonpad: vec![4, 3],
+                with_past: false,
+                expected: OpError::InvalidValue("nonpad_kv_seqlen entry is out of range"),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let batch = 2;
+            let kv_seq = 3;
+            let num_heads = 2;
+            let head_size = 8;
+            let hidden = num_heads * head_size;
+
+            let mut rng = XorShiftRng::new(7890);
+            let query = NdTensor::<f32, 3>::rand([batch, kv_seq, hidden], &mut rng);
+            let key = NdTensor::<f32, 3>::rand([batch, kv_seq, hidden], &mut rng);
+            let value = NdTensor::<f32, 3>::rand([batch, kv_seq, hidden], &mut rng);
+            let past = NdTensor::<f32, 4>::rand([batch, num_heads, 2, head_size], &mut rng);
+            let nonpad = NdTensor::<i32, 1>::from(case.nonpad.clone());
+
+            let op = Attention {
+                is_causal: false,
+                kv_num_heads: Some(num_heads as u32),
+                q_num_heads: Some(num_heads as u32),
+                scale: None,
+                softcap: 0.0,
+            };
+            let past_input = case.with_past.then(|| ValueView::from(past.view()));
+            let inputs = [
+                Some(ValueView::from(query.view())),
+                Some(ValueView::from(key.view())),
+                Some(ValueView::from(value.view())),
+                None,
+                past_input.clone(),
+                past_input,
+                Some(ValueView::from(nonpad.view())),
+            ];
+            let err = run_attention(&op, &inputs).unwrap_err();
+            assert_eq!(err, case.expected);
+        });
     }
 }

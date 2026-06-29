@@ -148,6 +148,7 @@ class OperatorType(object):
     Scatter = 138
     Upsample = 139
     RotaryEmbedding = 140
+    Attention = 141
 
 
 class RNNDirection(object):
@@ -248,6 +249,7 @@ class OperatorAttrs(object):
     DFTAttrs = 57
     UpsampleAttrs = 58
     RotaryEmbeddingAttrs = 59
+    AttentionAttrs = 60
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -371,6 +373,8 @@ def OperatorAttrsCreator(unionType, table):
         return UpsampleAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.RotaryEmbeddingAttrs:
         return RotaryEmbeddingAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.AttentionAttrs:
+        return AttentionAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -5806,6 +5810,146 @@ class RotaryEmbeddingAttrsT(object):
         return rotaryEmbeddingAttrs
 
 
+class AttentionAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = AttentionAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsAttentionAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def AttentionAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # AttentionAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # AttentionAttrs
+    def IsCausal(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+    # AttentionAttrs
+    def QNumHeads(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return None
+
+    # AttentionAttrs
+    def KvNumHeads(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return None
+
+    # AttentionAttrs
+    def Scale(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return None
+
+    # AttentionAttrs
+    def Softcap(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+def AttentionAttrsStart(builder):
+    builder.StartObject(5)
+
+def AttentionAttrsAddIsCausal(builder, isCausal):
+    builder.PrependBoolSlot(0, isCausal, 0)
+
+def AttentionAttrsAddQNumHeads(builder, qNumHeads):
+    builder.PrependUint32Slot(1, qNumHeads, None)
+
+def AttentionAttrsAddKvNumHeads(builder, kvNumHeads):
+    builder.PrependUint32Slot(2, kvNumHeads, None)
+
+def AttentionAttrsAddScale(builder, scale):
+    builder.PrependFloat32Slot(3, scale, None)
+
+def AttentionAttrsAddSoftcap(builder, softcap):
+    builder.PrependFloat32Slot(4, softcap, 0.0)
+
+def AttentionAttrsEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import Optional
+except:
+    pass
+
+class AttentionAttrsT(object):
+
+    # AttentionAttrsT
+    def __init__(
+        self,
+        isCausal = False,
+        qNumHeads = None,
+        kvNumHeads = None,
+        scale = None,
+        softcap = 0.0,
+    ):
+        self.isCausal = isCausal  # type: bool
+        self.qNumHeads = qNumHeads  # type: Optional[int]
+        self.kvNumHeads = kvNumHeads  # type: Optional[int]
+        self.scale = scale  # type: Optional[float]
+        self.softcap = softcap  # type: float
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        attentionAttrs = AttentionAttrs()
+        attentionAttrs.Init(buf, pos)
+        return cls.InitFromObj(attentionAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, attentionAttrs):
+        x = AttentionAttrsT()
+        x._UnPack(attentionAttrs)
+        return x
+
+    # AttentionAttrsT
+    def _UnPack(self, attentionAttrs):
+        if attentionAttrs is None:
+            return
+        self.isCausal = attentionAttrs.IsCausal()
+        self.qNumHeads = attentionAttrs.QNumHeads()
+        self.kvNumHeads = attentionAttrs.KvNumHeads()
+        self.scale = attentionAttrs.Scale()
+        self.softcap = attentionAttrs.Softcap()
+
+    # AttentionAttrsT
+    def Pack(self, builder):
+        AttentionAttrsStart(builder)
+        AttentionAttrsAddIsCausal(builder, self.isCausal)
+        AttentionAttrsAddQNumHeads(builder, self.qNumHeads)
+        AttentionAttrsAddKvNumHeads(builder, self.kvNumHeads)
+        AttentionAttrsAddScale(builder, self.scale)
+        AttentionAttrsAddSoftcap(builder, self.softcap)
+        attentionAttrs = AttentionAttrsEnd(builder)
+        return attentionAttrs
+
+
 class SequenceEmptyAttrs(object):
     __slots__ = ['_tab']
 
@@ -6984,7 +7128,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 
