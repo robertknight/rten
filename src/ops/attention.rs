@@ -361,7 +361,7 @@ mod contrib {
     /// is `[kv_seq, v_head_size]` and `out` is `[q_seq, v_head_size]`.
     /// `score_mod(row, query_index)` modifies a single score row (of length
     /// `kv_seq`).
-    fn sdpa_head(
+    pub(super) fn sdpa_head(
         pool: &BufferPool,
         gemm: &GemmExecutor<f32>,
         scale: f32,
@@ -392,7 +392,12 @@ mod contrib {
         for (s, mut row) in scores.lanes_mut(1).enumerate() {
             let row = row.as_slice_mut().unwrap();
             score_mod(row, s);
-            Softmax::new_mut(row).dispatch();
+            // A fully-masked query row has every score set to -inf, which would
+            // make a plain softmax produce NaN across the row. Flush those to
+            // zero so the row contributes nothing, matching PyTorch's
+            // scaled_dot_product_attention (which zeros such rows) rather than
+            // propagating NaNs.
+            Softmax::new_mut(row).flush_nans_to_zero(true).dispatch();
         }
 
         // out = scores · V
@@ -659,10 +664,13 @@ mod contrib {
             let mut key = key.auto_return(ctx.pool());
             let mut value = value.auto_return(ctx.pool());
 
-            // Concatenate present and past KV
-            match (past_key, past_value) {
+            // Concatenate present and past KV. `past_len` is the number of
+            // cached key/value positions, taken from the past tensors (zero when
+            // there is no cache). Causal masking uses upper-left alignment: query
+            // `q_idx` attends to key positions `0..=past_len + q_idx`.
+            let past_len = match (past_key, past_value) {
                 (Some(past_key), Some(past_value)) => {
-                    let [past_batch, past_heads, _past_seq, past_head_size] = past_key.shape();
+                    let [past_batch, past_heads, past_seq, past_head_size] = past_key.shape();
                     if past_batch != batch_size
                         || past_heads != num_heads
                         || past_head_size != head_size
@@ -690,14 +698,15 @@ mod contrib {
                         .unwrap()
                         .into_cow()
                         .auto_return(ctx.pool());
+                    past_seq
                 }
                 (Some(_), None) | (None, Some(_)) => {
                     return Err(OpError::InvalidValue(
                         "past_key and past_value must either both be present or both be absent",
                     ));
                 }
-                (None, None) => {}
-            }
+                (None, None) => 0,
+            };
 
             // Compute attention output per (batch, head):
             //   out = softmax(scale · Q Kᵀ + bias, masked) · V
@@ -723,7 +732,6 @@ mod contrib {
 
             let gemm = GemmExecutor::new();
             let pool = ctx.pool();
-            let past_len = total_seq_len - seq_len;
             let mut attn_out =
                 NdTensor::uninit_in(pool, [batch_size, num_heads, seq_len, v_head_size]);
             attn_out
@@ -756,8 +764,13 @@ mod contrib {
                             }
 
                             // Mask future positions for causal attention.
+                            // Upper-left alignment: query `q_idx` attends to key
+                            // positions `0..=past_len + q_idx`. The start is
+                            // clamped since a query's causal window may cover
+                            // every key position.
                             if self.unidirectional {
-                                row[past_len + q_idx + 1..].fill(self.mask_filter_value);
+                                let masked_from = (past_len + q_idx + 1).min(row.len());
+                                row[masked_from..].fill(self.mask_filter_value);
                             }
 
                             // Mask padded key positions.
@@ -1205,6 +1218,7 @@ mod contrib {
 #[cfg(test)]
 mod tests {
     use rten_base::bit_set::BitSet;
+    use rten_gemm::GemmExecutor;
     use rten_simd::SimdOp;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
@@ -1213,6 +1227,7 @@ mod tests {
     use rten_testing::TestCases;
     use rten_vecmath::Softmax as SoftmaxSimd;
 
+    use super::contrib::sdpa_head;
     use super::{
         AddSoftmax, BROADCAST_ERROR, GroupQueryAttention, GroupedQueryAttentionMatMul,
         MultiHeadAttention, RepeatInterleave,
@@ -1906,6 +1921,40 @@ mod tests {
     }
 
     #[test]
+    fn test_multihead_attention_causal_cross_attention() {
+        // Cross-attention where the key/value sequence (2) is shorter than the
+        // query sequence (3), with causal (unidirectional) masking. Causal
+        // masking is upper-left, so query 0 attends only to key 0 and its output
+        // equals value row 0 exactly (the other key's score is masked far below
+        // the f32 `exp` underflow threshold, contributing exactly zero weight).
+        let op = MultiHeadAttention {
+            mask_filter_value: -10000.0,
+            num_heads: 1,
+            scale: Some(1.0),
+            unidirectional: true,
+        };
+        let query = Tensor::from_data(&[1, 3, 2], vec![1., 0., 1., 0., 1., 0.]);
+        let key = Tensor::from_data(&[1, 2, 2], vec![1., 0., 1., 0.]);
+        let value = Tensor::from_data(&[1, 2, 2], vec![5., 6., 7., 8.]);
+        let inputs = [
+            Some(ValueView::from(query.view())),
+            Some(ValueView::from(key.view())),
+            Some(ValueView::from(value.view())),
+        ];
+        let input_list = InputList::from_optional(&inputs);
+        let pool = BufferPool::new();
+        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(1));
+
+        let mut outputs = op.run(&ctx).unwrap();
+        let result: Tensor = outputs.remove(0).try_into().unwrap();
+
+        assert_eq!(result.shape(), [1, 3, 2]);
+        assert!(result.iter().all(|x| x.is_finite()));
+        // Query 0 attends only to key 0 (upper-left causal) -> value row 0.
+        assert_eq!(result.slice([0, 0]).to_vec(), [5., 6.]);
+    }
+
+    #[test]
     fn test_multihead_attention_attention_bias() {
         let op = MultiHeadAttention {
             mask_filter_value: -10000.0,
@@ -2248,5 +2297,49 @@ mod tests {
             ],
         );
         expect_equal(&result, &expected).unwrap();
+    }
+
+    // When a query row is fully masked (every score set to -inf by `score_mod`),
+    // a plain softmax over the row produces NaN. `sdpa_head` flushes such rows to
+    // zero so the NaNs do not propagate into the output, matching PyTorch's
+    // scaled_dot_product_attention.
+    #[test]
+    fn test_sdpa_head_flushes_fully_masked_rows() {
+        let pool = BufferPool::new();
+        let gemm = GemmExecutor::<f32>::new();
+
+        let q_seq = 3;
+        let kv_seq = 4;
+        let head_size = 8;
+        let mut rng = XorShiftRng::new(9999);
+        let query = NdTensor::<f32, 2>::rand([q_seq, head_size], &mut rng);
+        let key = NdTensor::<f32, 2>::rand([kv_seq, head_size], &mut rng);
+        let value = NdTensor::<f32, 2>::rand([kv_seq, head_size], &mut rng);
+
+        let mut out = NdTensor::<f32, 2>::uninit_in(&pool, [q_seq, head_size]);
+        sdpa_head(
+            &pool,
+            &gemm,
+            1.0 / (head_size as f32).sqrt(),
+            query.view(),
+            key.view(),
+            value.view(),
+            out.view_mut(),
+            // Fully mask query row 1: every key position is disallowed.
+            |row, q_idx| {
+                if q_idx == 1 {
+                    row.fill(f32::NEG_INFINITY);
+                }
+            },
+        );
+        // Safety: `sdpa_head` initializes every element of `out`.
+        let out = unsafe { out.assume_init() };
+
+        // The fully-masked row is finite (all zeros), not NaN.
+        assert!(out.iter().all(|x| x.is_finite()));
+        assert_eq!(out.slice([1]).to_vec(), vec![0.0; head_size]);
+        // Unmasked rows still receive normal (non-zero) attention output.
+        assert!(out.slice([0]).iter().any(|&x| x != 0.0));
+        assert!(out.slice([2]).iter().any(|&x| x != 0.0));
     }
 }
