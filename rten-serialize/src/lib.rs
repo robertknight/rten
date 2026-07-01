@@ -45,14 +45,18 @@ use rten_tensor::NdTensor;
 
 let matrix = NdTensor::from([[1i32, 2], [3, 4]]);
 
+let tmp_dir = std::env::temp_dir();
+
 // Write and read back a single tensor.
-npy::write_to_file("tensor.npy", matrix.view())?;
-let matrix_2 = npy::read_from_file("tensor.npy")?.into_type::<i32>()?.into_rank::<2>()?;
+let npy_path = tmp_dir.join("tensor.npy");
+npy::write_to_file(&npy_path, matrix.view())?;
+let matrix_2 = npy::read_from_file(&npy_path)?.into_type::<i32>()?.into_rank::<2>()?;
 assert_eq!(matrix, matrix_2);
 
 // Write and read back a map of named tensors.
-npz::write_to_file("tensors.npz", [("some_matrix", matrix.view())])?;
-let mut tensors = npz::read_from_file("tensors.npz")?;
+let npz_path = tmp_dir.join("tensors.npz");
+npz::write_to_file(&npz_path, [("some_matrix", matrix.view())])?;
+let mut tensors = npz::read_from_file(&npz_path)?;
 
 // Borrow a tensor from the map as a typed view.
 let matrix_3 = tensors
