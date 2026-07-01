@@ -12,7 +12,6 @@ use rten::{
 use rten_base::num::AsUsize;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
-use safetensors::SafeTensors;
 
 mod dim_size;
 use dim_size::DimSize;
@@ -507,39 +506,31 @@ impl RandomInputGenerator {
     }
 }
 
-/// Convert a tensor from a Safetensors file into an rten Tensor.
-fn read_tensor<T, const ELEM_BYTES: usize>(
-    view: safetensors::tensor::TensorView,
-    convert: impl Fn([u8; ELEM_BYTES]) -> T,
-) -> Tensor<T> {
-    // We assume that safetensors has validated the length of the data.
-    let (chunks, remainder) = view.data().as_chunks::<ELEM_BYTES>();
-    assert!(remainder.is_empty());
-    let data: Vec<T> = chunks.iter().copied().map(convert).collect();
-    Tensor::from_data(view.shape(), data)
+/// Convert a tensor read from a Safetensors file into an rten [`Value`].
+fn rten_value(value: rten_serialize::Value) -> Result<Value, Box<dyn Error>> {
+    use rten_serialize::Value as SV;
+
+    let value = match value {
+        SV::Float32(tensor) => Value::from(tensor),
+        SV::Int32(tensor) => Value::from(tensor),
+        SV::Int8(tensor) => Value::from(tensor),
+        SV::UInt8(tensor) => Value::from(tensor),
+        other => {
+            return Err(format!("Unsupported tensor dtype {:?}", other.dtype()).into());
+        }
+    };
+    Ok(value)
 }
 
 /// Read tensor values from a Safetensors file.
 ///
 /// Returns a map of input name to value.
 fn read_safetensors(path: &Path) -> Result<HashMap<String, Value>, Box<dyn Error>> {
-    use safetensors::tensor::Dtype;
-
-    let data = std::fs::read(path)?;
-    let tensors = SafeTensors::deserialize(&data)?;
-
-    let mut result = HashMap::new();
-    for (name, view) in tensors.iter() {
-        let value: Value = match view.dtype() {
-            Dtype::F32 => read_tensor::<f32, _>(view, f32::from_le_bytes).into(),
-            Dtype::I32 => read_tensor::<i32, _>(view, i32::from_le_bytes).into(),
-            _ => {
-                return Err(format!("Unsupported tensor dtype {:?}", view.dtype()).into());
-            }
-        };
-        result.insert(name.to_string(), value);
-    }
-    Ok(result)
+    let tensors = rten_serialize::safetensors::read_from_file(path)?;
+    tensors
+        .into_iter()
+        .map(|(name, value)| Ok((name, rten_value(value)?)))
+        .collect()
 }
 
 /// Tool for inspecting converted ONNX models and running them with randomly
