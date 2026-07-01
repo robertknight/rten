@@ -655,14 +655,17 @@ mod contrib {
                     }
                 };
 
+            // (batch, num_heads, seq, head_size)
             let query = query.auto_return(ctx.pool());
+            // (batch, num_heads, kv_seq, head_size)
             let mut key = key.auto_return(ctx.pool());
+            // (batch, num_heads, kv_seq, v_head_size)
             let mut value = value.auto_return(ctx.pool());
 
             // Concatenate present and past KV
-            match (past_key, past_value) {
+            let past_len = match (past_key, past_value) {
                 (Some(past_key), Some(past_value)) => {
-                    let [past_batch, past_heads, _past_seq, past_head_size] = past_key.shape();
+                    let [past_batch, past_heads, past_seq, past_head_size] = past_key.shape();
                     if past_batch != batch_size
                         || past_heads != num_heads
                         || past_head_size != head_size
@@ -690,14 +693,15 @@ mod contrib {
                         .unwrap()
                         .into_cow()
                         .auto_return(ctx.pool());
+                    past_seq
                 }
                 (Some(_), None) | (None, Some(_)) => {
                     return Err(OpError::InvalidValue(
                         "past_key and past_value must either both be present or both be absent",
                     ));
                 }
-                (None, None) => {}
-            }
+                (None, None) => 0,
+            };
 
             // Compute attention output per (batch, head):
             //   out = softmax(scale · Q Kᵀ + bias, masked) · V
@@ -723,7 +727,6 @@ mod contrib {
 
             let gemm = GemmExecutor::new();
             let pool = ctx.pool();
-            let past_len = total_seq_len - seq_len;
             let mut attn_out =
                 NdTensor::uninit_in(pool, [batch_size, num_heads, seq_len, v_head_size]);
             attn_out
@@ -757,7 +760,8 @@ mod contrib {
 
                             // Mask future positions for causal attention.
                             if self.unidirectional {
-                                row[past_len + q_idx + 1..].fill(self.mask_filter_value);
+                                let masked_from = (past_len + q_idx + 1).min(row.len());
+                                row[masked_from..].fill(self.mask_filter_value);
                             }
 
                             // Mask padded key positions.
@@ -1905,6 +1909,61 @@ mod tests {
         let result: Tensor = outputs.remove(0).try_into().unwrap();
         let expected = Tensor::from_data(&[1, 2, 2], vec![0., 1., 0., 1.]);
         expect_equal(&result, &expected).unwrap();
+    }
+
+    // Test scenarios where the key/value sequence is shorter than the query.
+    // This happens in cross-attention where the encoder output is shorter than
+    // the query.
+    #[test]
+    fn test_multihead_attention_kv_shorter_than_query() {
+        #[derive(Debug)]
+        struct Case {
+            unidirectional: bool,
+        }
+
+        let cases = [
+            // Without causal masking. This is normal for cross-attention.
+            Case {
+                unidirectional: false,
+            },
+            // With causal masking. This doesn't make sense for cross-attention,
+            // but at least it shouldn't panic.
+            Case {
+                unidirectional: true,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = MultiHeadAttention {
+                mask_filter_value: -10000.0,
+                num_heads: 1,
+                scale: Some(1.0),
+                unidirectional: case.unidirectional,
+            };
+            // Query sequence of length 3.
+            let query = Tensor::from([[[1., 0.], [1., 0.], [1., 0.]]]);
+            // Key/value sequences of length 2.
+            let key = Tensor::from([[[1., 0.], [1., 0.]]]);
+            let value = Tensor::from([[[5., 6.], [7., 8.]]]);
+
+            let result: Tensor = op
+                .run_simple((query.view(), key.view(), value.view()))
+                .unwrap();
+
+            assert_eq!(result.shape(), [1, 3, 2]);
+            assert!(result.iter().all(|x| x.is_finite()));
+
+            if case.unidirectional {
+                // Query 0 attends only to key 0 (upper-left causal) -> value row 0.
+                let expected = Tensor::from([[[5., 6.], [6., 7.], [6., 7.]]]);
+                expect_equal(&result, &expected).unwrap();
+            } else {
+                // The keys are identical, so each query attends equally to both, and
+                // every output row is the mean of the two value rows.
+                let expected = Tensor::from([[[6., 7.], [6., 7.], [6., 7.]]]);
+                expect_equal(&result, &expected).unwrap();
+            }
+        });
     }
 
     #[test]
