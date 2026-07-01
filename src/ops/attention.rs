@@ -361,7 +361,7 @@ mod contrib {
     /// is `[kv_seq, v_head_size]` and `out` is `[q_seq, v_head_size]`.
     /// `score_mod(row, query_index)` modifies a single score row (of length
     /// `kv_seq`).
-    fn sdpa_head(
+    pub(super) fn sdpa_head(
         pool: &BufferPool,
         gemm: &GemmExecutor<f32>,
         scale: f32,
@@ -392,7 +392,7 @@ mod contrib {
         for (s, mut row) in scores.lanes_mut(1).enumerate() {
             let row = row.as_slice_mut().unwrap();
             score_mod(row, s);
-            Softmax::new_mut(row).dispatch();
+            Softmax::new_mut(row).flush_nans_to_zero(true).dispatch();
         }
 
         // out = scores · V
@@ -1205,6 +1205,7 @@ mod contrib {
 #[cfg(test)]
 mod tests {
     use rten_base::bit_set::BitSet;
+    use rten_gemm::GemmExecutor;
     use rten_simd::SimdOp;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
@@ -1213,6 +1214,7 @@ mod tests {
     use rten_testing::TestCases;
     use rten_vecmath::Softmax as SoftmaxSimd;
 
+    use super::contrib::sdpa_head;
     use super::{
         AddSoftmax, BROADCAST_ERROR, GroupQueryAttention, GroupedQueryAttentionMatMul,
         MultiHeadAttention, RepeatInterleave,
@@ -2248,5 +2250,45 @@ mod tests {
             ],
         );
         expect_equal(&result, &expected).unwrap();
+    }
+
+    #[test]
+    fn test_sdpa_head_zeros_fully_masked_rows() {
+        let pool = BufferPool::new();
+        let gemm = GemmExecutor::<f32>::new();
+
+        let q_seq = 3;
+        let kv_seq = 4;
+        let head_size = 8;
+        let mut rng = XorShiftRng::new(9999);
+        let query = NdTensor::<f32, 2>::rand([q_seq, head_size], &mut rng);
+        let key = NdTensor::<f32, 2>::rand([kv_seq, head_size], &mut rng);
+        let value = NdTensor::<f32, 2>::rand([kv_seq, head_size], &mut rng);
+
+        let mut out = NdTensor::<f32, 2>::uninit_in(&pool, [q_seq, head_size]);
+        sdpa_head(
+            &pool,
+            &gemm,
+            1.0 / (head_size as f32).sqrt(),
+            query.view(),
+            key.view(),
+            value.view(),
+            out.view_mut(),
+            // Fully mask query row 1: every key position is disallowed.
+            |row, q_idx| {
+                if q_idx == 1 {
+                    row.fill(f32::NEG_INFINITY);
+                }
+            },
+        );
+        // Safety: `sdpa_head` initializes every element of `out`.
+        let out = unsafe { out.assume_init() };
+
+        // The fully-masked row is finite (all zeros), not NaN.
+        assert!(out.iter().all(|x| x.is_finite()));
+        assert_eq!(out.slice([1]).to_vec(), vec![0.0; head_size]);
+        // Unmasked rows still receive normal (non-zero) attention output.
+        assert!(out.slice([0]).iter().any(|&x| x != 0.0));
+        assert!(out.slice([2]).iter().any(|&x| x != 0.0));
     }
 }
