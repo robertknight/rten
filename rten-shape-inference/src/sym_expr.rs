@@ -691,14 +691,13 @@ fn remove_common_factors(lhs: SymExpr, rhs: SymExpr) -> (SymExpr, SymExpr) {
             _ => None,
         })
     };
-    if let (Some((li, lc)), Some((ri, rc))) = (const_term(&lhs_terms), const_term(&rhs_terms)) {
-        if let Some(g) = gcd(lc, rc)
-            && g > 1
-            && rc != 0
-        {
-            lhs_terms[li] = SymExpr::Value(lc / g);
-            rhs_terms[ri] = SymExpr::Value(rc / g);
-        }
+    if let (Some((li, lc)), Some((ri, rc))) = (const_term(&lhs_terms), const_term(&rhs_terms))
+        && let Some(g) = gcd(lc, rc)
+        && g > 1
+        && rc != 0
+    {
+        lhs_terms[li] = SymExpr::Value(lc / g);
+        rhs_terms[ri] = SymExpr::Value(rc / g);
     }
 
     // Construct simplified LHS and RHS
