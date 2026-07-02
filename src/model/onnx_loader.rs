@@ -951,7 +951,12 @@ fn add_operator(
     if !unused_attrs.is_empty() {
         let names: Vec<_> = unused_attrs
             .iter()
-            .map(|i| onnx_op.attribute[i].name.as_deref().unwrap_or_default())
+            .map(|i| {
+                onnx_op.attribute[i as usize]
+                    .name
+                    .as_deref()
+                    .unwrap_or_default()
+            })
             .collect();
 
         return Err(load_error!(

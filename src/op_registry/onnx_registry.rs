@@ -7,7 +7,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use rten_base::bit_set::BitSet;
-use rten_base::num::LeBytes;
+use rten_base::num::{AsUsize, LeBytes};
 use rten_onnx::onnx;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -331,7 +331,7 @@ pub struct ParsedOp<Op: Operator + Send + Sync> {
     const_inputs: Vec<(u32, ConstInput)>,
 
     /// Indices of unused attributes in the [`onnx::NodeProto::attribute`] field.
-    unused_attrs: BitSet,
+    unused_attrs: BitSet<u32>,
 }
 
 impl<Op: Operator + Send + Sync> From<Op> for ParsedOp<Op> {
@@ -354,7 +354,7 @@ impl<Op: Operator + Send + Sync> ParsedOp<Op> {
         self
     }
 
-    fn with_unused_attrs(mut self, attrs: BitSet) -> Self {
+    fn with_unused_attrs(mut self, attrs: BitSet<u32>) -> Self {
         self.unused_attrs = attrs;
         self
     }
@@ -364,7 +364,7 @@ impl<Op: Operator + Send + Sync> ParsedOp<Op> {
 pub struct DynParsedOp {
     pub op: Arc<dyn Operator + Send + Sync>,
     pub const_inputs: Vec<(u32, ConstInput)>,
-    pub unused_attrs: BitSet,
+    pub unused_attrs: BitSet<u32>,
 }
 
 impl<Op: Operator + Send + Sync> From<ParsedOp<Op>> for DynParsedOp {
@@ -409,7 +409,7 @@ pub trait ReadOp: Operator + Sized + Send + Sync {
 /// detecting unsupported attributes.
 struct Attrs<'a> {
     attrs: &'a [onnx::AttributeProto],
-    unused_attrs: Cell<BitSet>,
+    unused_attrs: Cell<BitSet<u32>>,
 
     /// Opset version the operator uses.
     #[allow(dead_code)] // May be unused depending on enabled features.
@@ -420,8 +420,8 @@ impl<'a> Attrs<'a> {
     fn new(attrs: &'a [onnx::AttributeProto], opset_version: Option<u16>) -> Self {
         // Assume there will be at most 32 attributes. If there are more, we'll
         // just ignore them.
-        let n_attrs: u32 = attrs.len().min(BitSet::BITS).try_into().unwrap();
-        let unused_attrs = Cell::new(BitSet::ones(n_attrs));
+        let n_attrs: u32 = attrs.len().min(u32::BITS.as_usize()).try_into().unwrap();
+        let unused_attrs = Cell::new(BitSet::<u32>::ones(n_attrs));
 
         Self {
             attrs,
@@ -446,7 +446,7 @@ impl<'a> Attrs<'a> {
             .find(|(_pos, att)| att.name.as_deref() == Some(name))?;
 
         let mut unused_attrs = self.unused_attrs.take();
-        if pos < BitSet::BITS {
+        if pos < u32::BITS.as_usize() {
             unused_attrs.delete(pos.try_into().unwrap());
             self.unused_attrs.set(unused_attrs);
         }
@@ -477,7 +477,7 @@ impl<'a> Attrs<'a> {
     }
 
     /// Return the indices of unused attributes
-    fn unused_attrs(&self) -> BitSet {
+    fn unused_attrs(&self) -> BitSet<u32> {
         self.unused_attrs.get()
     }
 
@@ -2070,7 +2070,12 @@ mod tests {
         let unused_attrs: Vec<_> = op
             .unused_attrs
             .iter()
-            .map(|i| node.attribute[i].name.as_deref().unwrap_or_default())
+            .map(|i| {
+                node.attribute[i as usize]
+                    .name
+                    .as_deref()
+                    .unwrap_or_default()
+            })
             .collect();
         assert_eq!(unused_attrs, &["unused_a", "unused_b"]);
     }
