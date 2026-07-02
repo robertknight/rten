@@ -263,7 +263,7 @@ pub(crate) use check_eq;
 pub struct OpRunContext<'a, 'i> {
     pool: &'a BufferPool,
     inputs: &'a InputList<'i>,
-    outputs: BitSet,
+    outputs: BitSet<u64>,
     name: Option<&'a str>,
 }
 
@@ -272,7 +272,7 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     ///
     /// `outputs` is a mask indicating which of the operator's outputs are
     /// requested.
-    pub fn new(pool: &'a BufferPool, inputs: &'a InputList<'i>, outputs: BitSet) -> Self {
+    pub fn new(pool: &'a BufferPool, inputs: &'a InputList<'i>, outputs: BitSet<u64>) -> Self {
         OpRunContext {
             pool,
             inputs,
@@ -309,7 +309,7 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     /// This can be used to skip generating outputs that are unused, or in
     /// the rare cases that the output count cannot be determined from the
     /// operator's inputs and attributes alone.
-    pub fn outputs(&self) -> BitSet {
+    pub fn outputs(&self) -> BitSet<u64> {
         self.outputs
     }
 
