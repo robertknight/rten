@@ -1004,9 +1004,9 @@ fn add_operator(
         ));
     }
 
-    // We set a limit of 32 outputs per operator so we can represent the used
-    // positions conveniently in a u32 mask.
-    const MAX_OUTPUTS: usize = u32::BITS as usize;
+    // We set a limit of 64 outputs per operator so we can represent the used
+    // positions conveniently in a u64 mask.
+    const MAX_OUTPUTS: usize = u64::BITS as usize;
 
     let max_outputs = op.max_outputs().unwrap_or(MAX_OUTPUTS).min(MAX_OUTPUTS);
 
@@ -1486,7 +1486,7 @@ mod tests {
         // Test RTen's implementation limit that applies to all op types.
         let mut node = create_node("Split").with_input("x").with_name("split_op");
 
-        for i in 0..33 {
+        for i in 0..65 {
             let name = format!("y_{}", i);
             node = node.with_output(&name);
         }
@@ -1496,7 +1496,7 @@ mod tests {
         let err = load_model(graph.into_model(), None).err().unwrap();
         assert_eq!(
             err.to_string(),
-            "in node \"split_op\": operator error: operator has 33 outputs but maximum is 32"
+            "in node \"split_op\": operator error: operator has 65 outputs but maximum is 64"
         );
     }
 

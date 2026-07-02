@@ -132,7 +132,7 @@ pub struct OperatorNode {
     outputs: Box<[Option<NodeId>]>,
 
     // Cached mask indicating which positions in `outputs` are set.
-    output_mask: BitSet<u32>,
+    output_mask: BitSet<u64>,
 
     operator: Arc<dyn Operator + Send + Sync>,
 
@@ -158,7 +158,7 @@ impl OperatorNode {
         let output_ids = trim_none_suffix(output_ids);
 
         // Pre-compute mask of used outputs.
-        let mut output_mask = BitSet::<u32>::ones(output_ids.len() as u32);
+        let mut output_mask = BitSet::<u64>::ones(output_ids.len() as u32);
         for (i, id) in output_ids.iter().enumerate() {
             if id.is_none() {
                 output_mask.delete(i as u32);
@@ -188,7 +188,7 @@ impl OperatorNode {
     }
 
     /// Return a bit mask indicating which outputs are used.
-    pub fn output_mask(&self) -> BitSet<u32> {
+    pub fn output_mask(&self) -> BitSet<u64> {
         self.output_mask
     }
 
