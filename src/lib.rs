@@ -140,6 +140,12 @@
 //! guide](https://github.com/robertknight/rten/blob/main/docs/performance.md) for
 //! information on profiling and improving model execution performance.
 //!
+//! # Security and untrusted models
+//!
+//! Loading and running a model in RTen should always be memory-safe, but RTen
+//! does not limit the CPU time or memory an inference may use. See the
+//! [security guide][security] for more details.
+//!
 //! # Crate features
 //!
 //!  - **all-ops** - Enables all operators which are not enabled by default
@@ -152,6 +158,7 @@
 //!
 //! At least one of the **onnx_format** or **rten_format** features must be enabled.
 //!
+//! [security]: crate::docs::security
 //! [model_formats]: https://github.com/robertknight/rten/blob/main/docs/model-formats.md
 //! [onnx_operators]: https://onnx.ai/onnx/operators/
 //! [rten_examples]: https://github.com/robertknight/rten/tree/main/rten-examples
@@ -199,3 +206,9 @@ pub use value::{DataType, Sequence, TryFromValueError, Value, ValueOrView, Value
 
 #[deprecated = "renamed to `LoadError`"]
 pub type ModelLoadError = LoadError;
+
+/// Additional documentation on various topics.
+pub mod docs {
+    #[doc = include_str!("../docs/security.md")]
+    pub mod security {}
+}
