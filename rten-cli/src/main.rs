@@ -256,9 +256,19 @@ fn run_model(
     // Run duration in milliseconds.
     let mut durations: Vec<f32> = Vec::new();
 
+    // Take views of owned inputs to avoid copying potentially large input
+    // values in the loop, which might distort timings.
+    let input_views: Vec<(NodeId, ValueOrView)> = inputs
+        .iter()
+        .map(|(id, value)| (*id, value.as_view().into()))
+        .collect();
     for iter_num in 1..=n_iters {
         let start = Instant::now();
-        let outputs = model.run(inputs.clone(), model.output_ids(), Some(run_opts.clone()))?;
+        let outputs = model.run(
+            input_views.clone(),
+            model.output_ids(),
+            Some(run_opts.clone()),
+        )?;
         let elapsed_ms = (start.elapsed().as_secs_f64() * 1000.0) as f32;
 
         if !quiet {
