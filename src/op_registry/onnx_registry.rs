@@ -249,6 +249,7 @@ impl OnnxOpRegistry {
         register_op!(GroupQueryAttention);
         register_op!(MatMulNBits);
         register_op!(MultiHeadAttention);
+        register_op!(SkipLayerNormalization);
         register_op!(SkipSimplifiedLayerNormalization);
         register_op!(RotaryEmbeddingMicrosoft);
 
@@ -1769,6 +1770,12 @@ impl_read_op!("ai.onnx", SimplifiedLayerNormalization, |attrs: &Attrs| {
 impl_read_op!(Sin);
 impl_read_op!(Sinh);
 impl_read_op!(Size);
+
+impl_read_op!("com.microsoft", SkipLayerNormalization, |attrs: &Attrs| {
+    let epsilon = attrs.require("epsilon")?.as_f32();
+
+    Ok(ops::SkipLayerNormalization { epsilon })
+});
 
 impl_read_op!(
     "com.microsoft",

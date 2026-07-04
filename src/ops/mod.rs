@@ -128,7 +128,9 @@ pub(crate) use {
     attention::{GroupQueryAttention, MultiHeadAttention},
     embedding::RotaryEmbeddingMicrosoft,
     matmul::{AccuracyLevel, MatMulNBits},
-    norm::{SimplifiedLayerNormalization, SkipSimplifiedLayerNormalization},
+    norm::{
+        SimplifiedLayerNormalization, SkipLayerNormalization, SkipSimplifiedLayerNormalization,
+    },
 };
 
 // Operators as functions. These are exported for use by pre/post-processing
