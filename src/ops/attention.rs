@@ -1258,8 +1258,18 @@ mod contrib {
             // (batch, kv_num_heads, past_seq, head_size)
             let past_key: Option<NdTensorView<f32, 4>> = inputs.get_as(3)?;
             let past_value: Option<NdTensorView<f32, 4>> = inputs.get_as(4)?;
+
             // (batch,). Equal to total_sequence_lengths - 1.
-            let seqlens_k: NdTensorView<i32, 1> = inputs.require_as(5)?;
+            //
+            // For ONNX Runtime compatibility, accept `(batch, 1)` as well.
+            let mut seqlens_k: TensorView<i32> = inputs.require_as(5)?;
+            while seqlens_k.ndim() > 1 && seqlens_k.size(seqlens_k.ndim() - 1) == 1 {
+                seqlens_k.remove_axis(seqlens_k.ndim() - 1);
+            }
+            let seqlens_k = seqlens_k
+                .into_rank::<1>()
+                .map_err(|_| OpError::UnsupportedValue("seqlens_k must be a vector"))?;
+
             // Scalar. Maximum total sequence length (past + new) across the batch.
             let total_seqlen: NdTensorView<i32, 0> = inputs.require_as(6)?;
             // (max_seq, head_size / 2)
