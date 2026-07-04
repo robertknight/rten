@@ -1,4 +1,4 @@
-use crate::infer_shapes::{InferShapes, InferShapesError, resolve_axis};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
 
@@ -12,12 +12,10 @@ pub struct Concat {
 impl InferShapes for Concat {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [first, rest @ ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let first = inputs.require(0)?;
 
         let Some(first_dims) = first.shape() else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
@@ -28,10 +26,14 @@ impl InferShapes for Concat {
 
         // If input is a constant or symbolic vector, return a constant or
         // symbolic vector by concatenating each input.
-        if axis == 0 && inputs.iter().all(|inp| inp.values().is_some()) {
+        if axis == 0
+            && inputs
+                .iter()
+                .all(|inp| inp.is_some_and(|t| t.values().is_some()))
+        {
             let value = {
                 let mut values = Vec::new();
-                for inp in inputs {
+                for inp in inputs.iter().flatten() {
                     values.extend(inp.values().expect("should have values").to_vec());
                 }
                 SymTensor::from_vec(values)
@@ -41,7 +43,8 @@ impl InferShapes for Concat {
 
         let mut out_shape: Vec<_> = first_dims.collect();
 
-        for input in rest {
+        for i in 1..inputs.len() {
+            let input = inputs.require(i)?;
             if let Some(dim) = input.shape().and_then(|mut dims| dims.nth(axis)) {
                 out_shape[axis] += dim;
             } else {
@@ -61,12 +64,11 @@ pub struct Tile;
 impl InferShapes for Tile {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, repeats] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
+        let repeats = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
@@ -115,7 +117,7 @@ mod tests {
 
         let mut sym_gen = SymbolGen::new();
         let op = Concat { axis: 1 };
-        let result = op.infer_shapes(&[a, b], &mut sym_gen).unwrap();
+        let result = op.infer_shapes([a, b].into(), &mut sym_gen).unwrap();
         let shape = extract_shape(result);
         assert_eq!(
             shape,
@@ -127,7 +129,7 @@ mod tests {
         let b = sym_shape!("batch", "bar", 64);
 
         let op = Concat { axis: 1 };
-        let result = op.infer_shapes(&[a, b], &mut sym_gen).unwrap();
+        let result = op.infer_shapes([a, b].into(), &mut sym_gen).unwrap();
         let shape = extract_shape(result);
         assert_eq!(
             shape,
@@ -138,7 +140,9 @@ mod tests {
         let bc_dims = sym_vec!("batch", "chans");
         let hw_dims = sym_vec!("height", "width");
         let op = Concat { axis: 0 };
-        let mut result = op.infer_shapes(&[bc_dims, hw_dims], &mut sym_gen).unwrap();
+        let mut result = op
+            .infer_shapes([bc_dims, hw_dims].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(
             result.remove(0).as_vector().unwrap(),
             sym_elems!("batch", "chans", "height", "width")
@@ -152,13 +156,17 @@ mod tests {
         // Fixed shape and known repeats.
         let data = sym_shape!(2, 3, 4);
         let repeats = sym_vec!(2, 1, 3);
-        let result = Tile.infer_shapes(&[data, repeats], &mut sym_gen).unwrap();
+        let result = Tile
+            .infer_shapes([data, repeats].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0].clone().simplify(), sym_shape!(4, 3, 12));
 
         // Symbolic dim multiplied by a known repeat.
         let data = sym_shape!("batch", 16);
         let repeats = sym_vec!(2, 1);
-        let result = Tile.infer_shapes(&[data, repeats], &mut sym_gen).unwrap();
+        let result = Tile
+            .infer_shapes([data, repeats].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(
             result[0].clone().simplify(),
             sym_shape!(SymExpr::from("batch") * SymExpr::from(2), 16)
@@ -168,7 +176,9 @@ mod tests {
         // symbols.
         let data = sym_shape!(2, 3);
         let repeats = SymTensor::unknown("unknown");
-        let result = Tile.infer_shapes(&[data, repeats], &mut sym_gen).unwrap();
+        let result = Tile
+            .infer_shapes([data, repeats].into(), &mut sym_gen)
+            .unwrap();
         let shape: Vec<_> = result[0].shape().unwrap().collect();
         assert_eq!(shape.len(), 2);
         for dim in &shape {
@@ -179,7 +189,7 @@ mod tests {
         let data = sym_shape!(2, 3);
         let repeats = sym_vec!(2, 2, 2);
         let err = Tile
-            .infer_shapes(&[data, repeats], &mut sym_gen)
+            .infer_shapes([data, repeats].into(), &mut sym_gen)
             .unwrap_err();
         assert_eq!(err, InferShapesError::InvalidValue);
     }

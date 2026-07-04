@@ -5,7 +5,9 @@ use rten_tensor::Tensor;
 use rten_tensor::prelude::*;
 
 use crate::buffer_pool::BufferPool;
-use crate::infer_shapes::{InferShapes, InferShapesError, SymTensor, SymbolGen, UnaryOp};
+use crate::infer_shapes::{
+    InferShapes, InferShapesContext, InferShapesError, SymTensor, SymbolGen, UnaryOp,
+};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
@@ -150,12 +152,10 @@ impl Operator for Cast {
 impl InferShapes for Cast {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let Some(data) = inputs.first() else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
 
         // If this is a no-op cast from int to int, preserve symbolic values.
         // Otherwise preserve just the shape like a generic unary operator.

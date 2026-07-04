@@ -1,4 +1,4 @@
-use crate::infer_shapes::{InferShapes, InferShapesError};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
@@ -31,7 +31,7 @@ pub struct MultiHeadAttention {
 impl InferShapes for MultiHeadAttention {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
         if self.num_heads == 0 || self.num_heads > i32::MAX as u32 {
@@ -41,9 +41,7 @@ impl InferShapes for MultiHeadAttention {
 
         // Inputs: query (0), key (1), value (2), bias (3), key_padding_mask (4),
         // attention_bias (5), past_key (6), past_value (7), ...
-        let query = inputs
-            .first()
-            .ok_or(InferShapesError::IncorrectInputCount)?;
+        let query = inputs.require(0)?;
         let key = inputs.get(1);
         let value = inputs.get(2);
         let past_key = inputs.get(6);
@@ -125,7 +123,7 @@ pub struct GroupQueryAttention {
 impl InferShapes for GroupQueryAttention {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
         if self.num_heads == 0
@@ -140,9 +138,7 @@ impl InferShapes for GroupQueryAttention {
 
         // Inputs: query (0), key (1), value (2), past_key (3), past_value (4),
         // seqlens_k (5), total_sequence_length (6), ...
-        let query = inputs
-            .first()
-            .ok_or(InferShapesError::IncorrectInputCount)?;
+        let query = inputs.require(0)?;
         let past_key = inputs.get(3);
 
         let Some(query_ndim) = query.ndim() else {
@@ -197,7 +193,7 @@ pub struct Attention {
 impl InferShapes for Attention {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
         // Validate the head-count attributes that are set.
@@ -209,9 +205,7 @@ impl InferShapes for Attention {
 
         // Inputs: query (0), key (1), value (2), attn_mask (3), past_key (4),
         // past_value (5), nonpad_kv_seqlen (6).
-        let query = inputs
-            .first()
-            .ok_or(InferShapesError::IncorrectInputCount)?;
+        let query = inputs.require(0)?;
         let (Some(key), Some(value)) = (inputs.get(1), inputs.get(2)) else {
             return Err(InferShapesError::IncorrectInputCount);
         };
@@ -306,7 +300,7 @@ mod tests {
     fn infer(num_heads: u32, inputs: &[SymTensor]) -> Vec<SymTensor> {
         let mut sym_gen = SymbolGen::new();
         let op = MultiHeadAttention { num_heads };
-        op.infer_shapes(inputs, &mut sym_gen)
+        op.infer_shapes(inputs.to_vec().into(), &mut sym_gen)
             .unwrap()
             .into_iter()
             .map(SymTensor::simplify)
@@ -391,7 +385,7 @@ mod tests {
         let mut sym_gen = SymbolGen::new();
         let op = MultiHeadAttention { num_heads: 0 };
         let err = op
-            .infer_shapes(&[sym_shape!("batch", "seq", 768)], &mut sym_gen)
+            .infer_shapes([sym_shape!("batch", "seq", 768)].into(), &mut sym_gen)
             .unwrap_err();
         assert_eq!(err, InferShapesError::InvalidValue);
     }
@@ -402,7 +396,7 @@ mod tests {
             num_heads,
             kv_num_heads,
         };
-        op.infer_shapes(inputs, &mut sym_gen)
+        op.infer_shapes(inputs.to_vec().into(), &mut sym_gen)
             .unwrap()
             .into_iter()
             .map(SymTensor::simplify)
@@ -455,7 +449,7 @@ mod tests {
             kv_num_heads: 0,
         };
         let err = op
-            .infer_shapes(&[sym_shape!("batch", "seq", 1024)], &mut sym_gen)
+            .infer_shapes([sym_shape!("batch", "seq", 1024)].into(), &mut sym_gen)
             .unwrap_err();
         assert_eq!(err, InferShapesError::InvalidValue);
     }
@@ -470,7 +464,7 @@ mod tests {
             q_num_heads,
             kv_num_heads,
         };
-        op.infer_shapes(inputs, &mut sym_gen)
+        op.infer_shapes(inputs.to_vec().into(), &mut sym_gen)
             .unwrap()
             .into_iter()
             .map(SymTensor::simplify)
@@ -588,7 +582,7 @@ mod tests {
             kv_num_heads: Some(12),
         };
         let err = op
-            .infer_shapes(&[sym_shape!("batch", "seq", 768)], &mut sym_gen)
+            .infer_shapes([sym_shape!("batch", "seq", 768)].into(), &mut sym_gen)
             .unwrap_err();
         assert_eq!(err, InferShapesError::InvalidValue);
     }

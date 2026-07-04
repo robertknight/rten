@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::infer_shapes::{BinaryOp, InferShapes, InferShapesError};
+use crate::infer_shapes::{BinaryOp, InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
 
@@ -15,12 +15,11 @@ pub struct Gemm {
 impl InferShapes for Gemm {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [a, b, ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let a = inputs.require(0)?;
+        let b = inputs.require(1)?;
 
         let (Some(a_shape), Some(b_shape)) = (a.shape(), b.shape()) else {
             let out_shape = vec![sym_gen.gen_positive(), sym_gen.gen_positive()];
@@ -56,12 +55,11 @@ pub struct MatMul;
 impl InferShapes for MatMul {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [lhs, rhs, ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let lhs = inputs.require(0)?;
+        let rhs = inputs.require(1)?;
         let Some(mut lhs_dims) = lhs.shape() else {
             return Ok([SymTensor::unknown("unknown lhs shape")].into());
         };
@@ -82,7 +80,7 @@ impl InferShapes for MatMul {
         let rhs_batch_dims = SymTensor::from_shape(rhs_dims.by_ref().take(rhs_ndim - 2).collect());
 
         let [batch_dims] = BinaryOp
-            .infer_shapes(&[lhs_batch_dims, rhs_batch_dims], sym_gen)?
+            .infer_shapes([lhs_batch_dims, rhs_batch_dims].into(), sym_gen)?
             .try_into()
             .expect("should have one output");
 
@@ -108,12 +106,11 @@ pub struct MatMulNBits;
 impl InferShapes for MatMulNBits {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [lhs, rhs, ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let lhs = inputs.require(0)?;
+        let rhs = inputs.require(1)?;
         let Some(lhs_dims) = lhs.shape() else {
             return Ok([SymTensor::unknown("unknown lhs shape")].into());
         };
@@ -157,7 +154,7 @@ mod tests {
             transpose_a: false,
             transpose_b: false,
         }
-        .infer_shapes(&[lhs, rhs], &mut sym_gen)
+        .infer_shapes([lhs, rhs].into(), &mut sym_gen)
         .unwrap();
         assert_eq!(result[0], sym_shape!("m", "n"));
 
@@ -168,7 +165,7 @@ mod tests {
             transpose_a: true,
             transpose_b: false,
         }
-        .infer_shapes(&[lhs, rhs], &mut sym_gen)
+        .infer_shapes([lhs, rhs].into(), &mut sym_gen)
         .unwrap();
         assert_eq!(result[0], sym_shape!("m", "n"));
 
@@ -179,7 +176,7 @@ mod tests {
             transpose_a: false,
             transpose_b: true,
         }
-        .infer_shapes(&[lhs, rhs], &mut sym_gen)
+        .infer_shapes([lhs, rhs].into(), &mut sym_gen)
         .unwrap();
         assert_eq!(result[0], sym_shape!("m", "n"));
 
@@ -190,7 +187,7 @@ mod tests {
             transpose_a: false,
             transpose_b: false,
         }
-        .infer_shapes(&[lhs, rhs], &mut sym_gen)
+        .infer_shapes([lhs, rhs].into(), &mut sym_gen)
         .unwrap();
         assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2"));
     }
@@ -202,25 +199,33 @@ mod tests {
         // MatMul with no batch dims
         let lhs = sym_shape!("m", "k");
         let rhs = sym_shape!("k", "n");
-        let result = MatMul.infer_shapes(&[lhs, rhs], &mut sym_gen).unwrap();
+        let result = MatMul
+            .infer_shapes([lhs, rhs].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!("m", "n"));
 
         // MatMul with batch dim
         let lhs = sym_shape!("batch", "m", "k");
         let rhs = sym_shape!("batch", "k", "n");
-        let result = MatMul.infer_shapes(&[lhs, rhs], &mut sym_gen).unwrap();
+        let result = MatMul
+            .infer_shapes([lhs, rhs].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!("batch", "m", "n"));
 
         // MatMul with batch dims that are broadcast
         let lhs = sym_shape!(1, "batch_b", "m", "k");
         let rhs = sym_shape!("batch_a", 1, "k", "n");
-        let result = MatMul.infer_shapes(&[lhs, rhs], &mut sym_gen).unwrap();
+        let result = MatMul
+            .infer_shapes([lhs, rhs].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!("batch_a", "batch_b", "m", "n"));
 
         // Case where LHS is a vector.
         let lhs = sym_shape!("k");
         let rhs = sym_shape!("k", "n");
-        let result = MatMul.infer_shapes(&[lhs, rhs], &mut sym_gen).unwrap();
+        let result = MatMul
+            .infer_shapes([lhs, rhs].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], SymTensor::unknown("rank < 2"));
     }
 
@@ -229,7 +234,9 @@ mod tests {
         let mut sym_gen = SymbolGen::new();
         let lhs = sym_shape!("batch", "m", "k");
         let rhs = sym_shape!("n", "k_blocks", "block");
-        let result = MatMulNBits.infer_shapes(&[lhs, rhs], &mut sym_gen).unwrap();
+        let result = MatMulNBits
+            .infer_shapes([lhs, rhs].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!("batch", "m", "n"));
     }
 }

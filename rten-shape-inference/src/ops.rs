@@ -3,7 +3,9 @@
 //! See the [ONNX operator reference](https://onnx.ai/onnx/operators/index.html)
 //! for operator details.
 
-use crate::infer_shapes::{BinaryOp, InferShapes, InferShapesError, resolve_axis, resolve_index};
+use crate::infer_shapes::{
+    BinaryOp, InferShapes, InferShapesContext, InferShapesError, resolve_axis, resolve_index,
+};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::{Constant, SymTensor};
@@ -54,12 +56,10 @@ pub struct ConstantOfShape {
 impl InferShapes for ConstantOfShape {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [shape] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let shape = inputs.require(0)?;
 
         let out_shape = if let Some(values) = shape.values() {
             if let Some(val) = self.value
@@ -110,12 +110,10 @@ pub struct Dropout;
 impl InferShapes for Dropout {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let Some(data) = inputs.first() else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
 
         let shape = if let Some(dims) = data.shape() {
             SymTensor::from_shape(dims.collect())
@@ -137,12 +135,10 @@ pub struct DynamicQuantizeLinear;
 impl InferShapes for DynamicQuantizeLinear {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let Some(data) = inputs.first() else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
 
         let shape = if let Some(shape) = data.shape() {
             SymTensor::from_shape(shape.collect())
@@ -166,12 +162,11 @@ pub struct Gather {
 impl InferShapes for Gather {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, indices] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
+        let indices = inputs.require(1)?;
 
         let Some(mut data_dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown data shape")].into());
@@ -225,12 +220,10 @@ pub struct GatherElements;
 impl InferShapes for GatherElements {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [_data, indices] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let indices = inputs.require(1)?;
 
         let shape = if let Some(dims) = indices.shape() {
             SymTensor::from_shape(dims.collect())
@@ -252,12 +245,11 @@ pub struct GatherND {
 impl InferShapes for GatherND {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, indices] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
+        let indices = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown data shape")].into());
@@ -308,12 +300,11 @@ pub struct GridSample;
 impl InferShapes for GridSample {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, grid] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
+        let grid = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
@@ -353,12 +344,10 @@ pub struct Identity;
 impl InferShapes for Identity {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
         Ok([data.clone()].into())
     }
 }
@@ -371,12 +360,10 @@ pub struct NonZero;
 impl InferShapes for NonZero {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
 
         // Output is a 2D tensor of shape `(input.ndim(), num_nonzero)`.
         let first_dim = data
@@ -397,7 +384,7 @@ pub struct FixedShape<'a> {
 impl InferShapes for FixedShape<'_> {
     fn infer_shapes(
         &self,
-        _inputs: &[SymTensor],
+        _inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
         Ok([SymTensor::from_fixed_shape(self.shape)].into())
@@ -415,12 +402,10 @@ pub struct Multinomial {
 impl InferShapes for Multinomial {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [input] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let input = inputs.require(0)?;
 
         if input.ndim().is_some_and(|ndim| ndim != 2) {
             return Err(InferShapesError::IncorrectRank);
@@ -443,7 +428,7 @@ pub struct NonMaxSuppression;
 impl InferShapes for NonMaxSuppression {
     fn infer_shapes(
         &self,
-        _inputs: &[SymTensor],
+        _inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
         // Output is `(num_selected, 3)`. `num_selected` is data-dependent.
@@ -460,12 +445,12 @@ pub struct Range;
 impl InferShapes for Range {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [start, limit, delta] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let start = inputs.require(0)?;
+        let limit = inputs.require(1)?;
+        let delta = inputs.require(2)?;
 
         let start = start.values().map(|v| v[0].clone());
         let limit = limit.values().map(|v| v[0].clone());
@@ -514,12 +499,10 @@ pub struct SkipSimplifiedLayerNormalization;
 impl InferShapes for SkipSimplifiedLayerNormalization {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let Some(data) = inputs.first() else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
 
         let shape = if let Some(dims) = data.shape() {
             SymTensor::from_shape(dims.collect())
@@ -547,12 +530,11 @@ pub struct TopK {
 impl InferShapes for TopK {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, k] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
+        let k = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([
@@ -588,12 +570,12 @@ pub struct Where;
 impl InferShapes for Where {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [cond, x, y] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let cond = inputs.require(0)?;
+        let x = inputs.require(1)?;
+        let y = inputs.require(2)?;
 
         if let Some(cond_vals) = cond.values()
             && let Some(x_vals) = x.values()
@@ -636,15 +618,15 @@ impl InferShapes for Where {
         // Broadcast the first two inputs together, then broadcast the result
         // against the last input.
         let cond_x = BinaryOp
-            .infer_shapes(&[cond.clone(), x.clone()], sym_gen)?
+            .infer_shapes([cond.clone(), x.clone()].into(), sym_gen)?
             .remove(0);
-        BinaryOp.infer_shapes(&[cond_x, y.clone()], sym_gen)
+        BinaryOp.infer_shapes([cond_x, y.clone()].into(), sym_gen)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::infer_shapes::{InferShapes, InferShapesError};
+    use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
@@ -662,25 +644,25 @@ mod tests {
         // Scalar shape, int value.
         let shape = sym_vec!();
         let op = ConstantOfShape { value: Some(1) };
-        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        let result = op.infer_shapes([shape].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0], SymTensor::from_scalar(1.into()));
 
         // Vector shape, int value.
         let shape = sym_vec!(3);
         let op = ConstantOfShape { value: Some(1) };
-        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        let result = op.infer_shapes([shape].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_vec!(1, 1, 1));
 
         // Vector shape, non-int value.
         let shape = sym_vec!(3);
         let op = ConstantOfShape { value: None };
-        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        let result = op.infer_shapes([shape].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!(3));
 
         // 2D+ shape
         let shape = sym_vec!(2, 2);
         let op = ConstantOfShape { value: Some(1) };
-        let result = op.infer_shapes(&[shape], &mut sym_gen).unwrap();
+        let result = op.infer_shapes([shape].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!(2, 2));
     }
 
@@ -688,14 +670,14 @@ mod tests {
     fn test_dropout() {
         let mut sym_gen = SymbolGen::new();
         let data = sym_shape!("batch", 16, 32);
-        let result = Dropout.infer_shapes(&[data], &mut sym_gen).unwrap();
+        let result = Dropout.infer_shapes([data].into(), &mut sym_gen).unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], sym_shape!("batch", 16, 32));
         assert_eq!(result[1], sym_shape!("batch", 16, 32));
 
         // Unknown input shape.
         let data = SymTensor::unknown("unknown");
-        let result = Dropout.infer_shapes(&[data], &mut sym_gen).unwrap();
+        let result = Dropout.infer_shapes([data].into(), &mut sym_gen).unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].ndim(), None);
         assert_eq!(result[1].ndim(), None);
@@ -707,11 +689,14 @@ mod tests {
 
         let input = sym_vec!("batch", 16, "seq", 24);
         let result = Identity
-            .infer_shapes(&[input.clone()], &mut sym_gen)
+            .infer_shapes([input.clone()].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result, &[input]);
 
-        let err = Identity.infer_shapes(&[], &mut sym_gen).err().unwrap();
+        let err = Identity
+            .infer_shapes(InferShapesContext::new(&[]), &mut sym_gen)
+            .err()
+            .unwrap();
         assert_eq!(err, InferShapesError::IncorrectInputCount);
     }
 
@@ -722,14 +707,14 @@ mod tests {
         // Known batch size.
         let data = sym_shape!("batch", 32);
         let result = Multinomial { sample_size: 4 }
-            .infer_shapes(&[data], &mut sym_gen)
+            .infer_shapes([data].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result, &[sym_shape!("batch", 4)]);
 
         // Unknown input shape still yields a known sample size.
         let data = SymTensor::unknown("unknown");
         let result = Multinomial { sample_size: 4 }
-            .infer_shapes(&[data], &mut sym_gen)
+            .infer_shapes([data].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0].ndim(), Some(2));
         assert_eq!(result[0].size(1), Some(4.into()));
@@ -737,7 +722,7 @@ mod tests {
         // Input with a known rank other than 2 is an error.
         let data = sym_shape!("batch", 32, 8);
         let err = Multinomial { sample_size: 4 }
-            .infer_shapes(&[data], &mut sym_gen)
+            .infer_shapes([data].into(), &mut sym_gen)
             .err();
         assert_eq!(err, Some(InferShapesError::IncorrectRank));
     }
@@ -750,7 +735,7 @@ mod tests {
         // `mean` and `inv_std_var` are empty placeholders.
         let data = sym_shape!("batch", "seq", 32);
         let result = SkipSimplifiedLayerNormalization
-            .infer_shapes(&[data], &mut sym_gen)
+            .infer_shapes([data].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(
             result,
@@ -765,7 +750,7 @@ mod tests {
         // Unknown input shape.
         let data = SymTensor::unknown("unknown");
         let result = SkipSimplifiedLayerNormalization
-            .infer_shapes(&[data], &mut sym_gen)
+            .infer_shapes([data].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result.len(), 4);
         assert_eq!(result[0].ndim(), None);
@@ -775,7 +760,7 @@ mod tests {
 
         // Missing input.
         let err = SkipSimplifiedLayerNormalization
-            .infer_shapes(&[], &mut sym_gen)
+            .infer_shapes(InferShapesContext::new(&[]), &mut sym_gen)
             .err();
         assert_eq!(err, Some(InferShapesError::IncorrectInputCount));
     }
@@ -785,7 +770,7 @@ mod tests {
         let mut sym_gen = SymbolGen::new();
         let data = sym_shape!(32, 32);
         let result = DynamicQuantizeLinear
-            .infer_shapes(&[data], &mut sym_gen)
+            .infer_shapes([data].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result, &[sym_shape!(32, 32), sym_shape!(), sym_shape!(),]);
     }
@@ -795,7 +780,7 @@ mod tests {
         let infer = |data, indices, axis| {
             let mut sym_gen = SymbolGen::new();
             let op = Gather { axis };
-            op.infer_shapes(&[data, indices], &mut sym_gen)
+            op.infer_shapes([data, indices].into(), &mut sym_gen)
         };
 
         // Gather scalar from symbolic vec.
@@ -837,7 +822,7 @@ mod tests {
         let data = sym_shape!(4, 3, 2);
         let indices = sym_shape!(2, 3, 2);
         let result = GatherElements
-            .infer_shapes(&[data, indices], &mut sym_gen)
+            .infer_shapes([data, indices].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!(2, 3, 2));
 
@@ -845,7 +830,7 @@ mod tests {
         let data = sym_shape!(4, 3, 2);
         let indices = SymTensor::unknown("unknown");
         let result = GatherElements
-            .infer_shapes(&[data, indices], &mut sym_gen)
+            .infer_shapes([data, indices].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0].ndim(), None);
     }
@@ -858,49 +843,61 @@ mod tests {
         let data = sym_shape!(4, 3, 2);
         let indices = sym_shape!(2, 1);
         let op = GatherND { batch_dims: 0 };
-        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, indices].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!(2, 3, 2));
 
         // Index tuple covers all input dims.
         let data = sym_shape!(4, 3, 2);
         let indices = sym_shape!(2, 3);
         let op = GatherND { batch_dims: 0 };
-        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, indices].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!(2));
 
         // With batch_dims.
         let data = sym_shape!(2, 3, 4);
         let indices = sym_shape!(2, 1);
         let op = GatherND { batch_dims: 1 };
-        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, indices].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!(2, 4));
 
         // Symbolic dims preserved.
         let data = sym_shape!("batch", "seq", 64);
         let indices = sym_shape!("batch", "k", 1);
         let op = GatherND { batch_dims: 1 };
-        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, indices].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!("batch", "k", 64));
 
         // Unknown data shape.
         let data = SymTensor::unknown("unknown");
         let indices = sym_shape!(2, 1);
         let op = GatherND { batch_dims: 0 };
-        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, indices].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0].ndim(), None);
 
         // Symbolic index tuple size — output rank can't be determined.
         let data = sym_shape!(4, 3, 2);
         let indices = sym_shape!(2, "k");
         let op = GatherND { batch_dims: 0 };
-        let result = op.infer_shapes(&[data, indices], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, indices].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0].ndim(), None);
 
         // Negative index tuple size — invalid value.
         let data = sym_shape!(4, 3, 2);
         let indices = sym_shape!(2, -1);
         let op = GatherND { batch_dims: 0 };
-        let result = op.infer_shapes(&[data, indices], &mut sym_gen);
+        let result = op.infer_shapes([data, indices].into(), &mut sym_gen);
         assert_eq!(result, Err(InferShapesError::InvalidValue));
     }
 
@@ -908,12 +905,16 @@ mod tests {
     fn test_fixed_shape() {
         let mut sym_gen = SymbolGen::new();
         let op = FixedShape { shape: &[2, 3, 4] };
-        let result = op.infer_shapes(&[], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes(InferShapesContext::new(&[]), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!(2, 3, 4));
 
         // Zero-dim shape produces a scalar tensor.
         let op = FixedShape { shape: &[] };
-        let result = op.infer_shapes(&[], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes(InferShapesContext::new(&[]), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!());
     }
 
@@ -925,7 +926,7 @@ mod tests {
         let data = sym_shape!("batch", 3, 224, 224);
         let grid = sym_shape!("batch", 32, 64, 2);
         let result = GridSample
-            .infer_shapes(&[data, grid], &mut sym_gen)
+            .infer_shapes([data, grid].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", 3, 32, 64));
 
@@ -933,7 +934,7 @@ mod tests {
         let data = sym_shape!("batch", 3, 224);
         let grid = sym_shape!("batch", 32, 1);
         let result = GridSample
-            .infer_shapes(&[data, grid], &mut sym_gen)
+            .infer_shapes([data, grid].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", 3, 32));
 
@@ -941,7 +942,7 @@ mod tests {
         let data = SymTensor::unknown("unknown");
         let grid = sym_shape!(1, 32, 64, 2);
         let result = GridSample
-            .infer_shapes(&[data, grid], &mut sym_gen)
+            .infer_shapes([data, grid].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0].ndim(), None);
 
@@ -949,7 +950,7 @@ mod tests {
         let data = sym_shape!(1, 3, 224);
         let grid = sym_shape!(1, 32, 64, 2);
         let err = GridSample
-            .infer_shapes(&[data, grid], &mut sym_gen)
+            .infer_shapes([data, grid].into(), &mut sym_gen)
             .unwrap_err();
         assert_eq!(err, InferShapesError::IncorrectRank);
     }
@@ -960,7 +961,7 @@ mod tests {
 
         // Known input shape, output is 2D with first dim = ndim.
         let data = sym_shape!("batch", 16, 32);
-        let result = NonZero.infer_shapes(&[data], &mut sym_gen).unwrap();
+        let result = NonZero.infer_shapes([data].into(), &mut sym_gen).unwrap();
         let shape: Vec<_> = result[0].shape().unwrap().collect();
         assert_eq!(shape.len(), 2);
         assert_eq!(shape[0], SymExpr::Value(3));
@@ -968,7 +969,7 @@ mod tests {
 
         // Unknown input shape, output is still 2D.
         let data = SymTensor::unknown("unknown");
-        let result = NonZero.infer_shapes(&[data], &mut sym_gen).unwrap();
+        let result = NonZero.infer_shapes([data].into(), &mut sym_gen).unwrap();
         let shape: Vec<_> = result[0].shape().unwrap().collect();
         assert_eq!(shape.len(), 2);
     }
@@ -981,7 +982,7 @@ mod tests {
         let boxes = sym_shape!(1, 100, 4);
         let scores = sym_shape!(1, 80, 100);
         let result = NonMaxSuppression
-            .infer_shapes(&[boxes, scores], &mut sym_gen)
+            .infer_shapes([boxes, scores].into(), &mut sym_gen)
             .unwrap();
         let shape: Vec<_> = result[0].shape().unwrap().collect();
         assert_eq!(shape.len(), 2);
@@ -998,7 +999,7 @@ mod tests {
         let limit = sym_vec!(5);
         let delta = sym_vec!(1);
         let result = Range
-            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .infer_shapes([start, limit, delta].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_vec!(0, 1, 2, 3, 4));
 
@@ -1007,7 +1008,7 @@ mod tests {
         let limit = sym_vec!("limit");
         let delta = sym_vec!(1);
         let result = Range
-            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .infer_shapes([start, limit, delta].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("limit"));
 
@@ -1016,7 +1017,7 @@ mod tests {
         let limit = sym_vec!(SymExpr::from("start") + SymExpr::from("limit"));
         let delta = sym_vec!(1);
         let result = Range
-            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .infer_shapes([start, limit, delta].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("limit"));
 
@@ -1025,7 +1026,7 @@ mod tests {
         let limit = sym_vec!("limit");
         let delta = sym_vec!(1);
         let result = Range
-            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .infer_shapes([start, limit, delta].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(
             result[0],
@@ -1037,7 +1038,7 @@ mod tests {
         let limit = sym_vec!("end");
         let delta = sym_vec!("delta");
         let result = Range
-            .infer_shapes(&[start, limit, delta], &mut sym_gen)
+            .infer_shapes([start, limit, delta].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("unknown_1"));
     }
@@ -1050,7 +1051,7 @@ mod tests {
         let data = sym_shape!("batch", 16, 32);
         let k = sym_vec!(5);
         let op = TopK { axis: None };
-        let result = op.infer_shapes(&[data, k], &mut sym_gen).unwrap();
+        let result = op.infer_shapes([data, k].into(), &mut sym_gen).unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], sym_shape!("batch", 16, 5));
         assert_eq!(result[1], sym_shape!("batch", 16, 5));
@@ -1059,14 +1060,14 @@ mod tests {
         let data = sym_shape!("batch", 16, 32);
         let k = sym_vec!(5);
         let op = TopK { axis: Some(0) };
-        let result = op.infer_shapes(&[data, k], &mut sym_gen).unwrap();
+        let result = op.infer_shapes([data, k].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!(5, 16, 32));
 
         // Symbolic K value.
         let data = sym_shape!("batch", 32);
         let k = sym_vec!(SymExpr::from("k"));
         let op = TopK { axis: Some(-1) };
-        let result = op.infer_shapes(&[data, k], &mut sym_gen).unwrap();
+        let result = op.infer_shapes([data, k].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!("batch", "k"));
     }
 
@@ -1078,7 +1079,9 @@ mod tests {
         let cond = sym_vec!(0, 1, 0, 1);
         let x = sym_vec!(1, 2, 3, 4);
         let y = sym_vec!("foo", "bar", "baz", "meep");
-        let result = Where.infer_shapes(&[cond, x, y], &mut sym_gen).unwrap();
+        let result = Where
+            .infer_shapes([cond, x, y].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_vec!("foo", 2, "baz", 4));
 
         // Where op with shapes.
@@ -1087,7 +1090,9 @@ mod tests {
         let cond = sym_shape!(1, 16, 1);
         let x = sym_shape!(8, 16, 1);
         let y = sym_shape!(1, 16, 24);
-        let result = Where.infer_shapes(&[cond, x, y], &mut sym_gen).unwrap();
+        let result = Where
+            .infer_shapes([cond, x, y].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!(8, 16, 24));
     }
 }

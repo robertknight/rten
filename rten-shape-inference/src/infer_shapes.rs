@@ -1,5 +1,6 @@
 //! Traits for shape inference and common implementations.
 
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt;
 
@@ -46,6 +47,86 @@ impl fmt::Display for InferShapesError {
 
 impl Error for InferShapesError {}
 
+/// Inputs to an operator's shape inference.
+///
+/// This provides access to the shapes and (optionally) values of an operator's
+/// inputs.
+pub struct InferShapesContext<'a> {
+    /// Shapes or values of operator inputs. Can be `None` for optional inputs
+    /// that are not set.
+    inputs: Cow<'a, [Option<SymTensor>]>,
+}
+
+impl<'a> InferShapesContext<'a> {
+    /// Create a context which wraps a slice of optional inputs.
+    pub fn new(inputs: &'a [Option<SymTensor>]) -> Self {
+        Self {
+            inputs: Cow::Borrowed(inputs),
+        }
+    }
+
+    /// Return the number of inputs.
+    pub fn len(&self) -> usize {
+        self.inputs.len()
+    }
+
+    /// Return true if the operator was given no inputs.
+    pub fn is_empty(&self) -> bool {
+        self.inputs.is_empty()
+    }
+
+    /// Get an optional input by index.
+    ///
+    /// Returns `None` if the input was omitted or the index is out of range.
+    pub fn get(&self, idx: usize) -> Option<&SymTensor> {
+        self.inputs.get(idx).and_then(|t| t.as_ref())
+    }
+
+    /// Get a required input by index.
+    ///
+    /// Returns an error if the input was omitted or the index is out of range.
+    pub fn require(&self, idx: usize) -> Result<&SymTensor, InferShapesError> {
+        self.get(idx).ok_or(InferShapesError::IncorrectInputCount)
+    }
+
+    /// Iterate over all inputs, yielding `None` for omitted inputs.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = Option<&SymTensor>> {
+        self.inputs.iter().map(|t| t.as_ref())
+    }
+}
+
+impl From<Vec<SymTensor>> for InferShapesContext<'static> {
+    fn from(inputs: Vec<SymTensor>) -> Self {
+        Self {
+            inputs: Cow::Owned(inputs.into_iter().map(Some).collect()),
+        }
+    }
+}
+
+impl<const N: usize> From<[SymTensor; N]> for InferShapesContext<'static> {
+    fn from(inputs: [SymTensor; N]) -> Self {
+        Self {
+            inputs: Cow::Owned(inputs.into_iter().map(Some).collect()),
+        }
+    }
+}
+
+impl From<Vec<Option<SymTensor>>> for InferShapesContext<'static> {
+    fn from(inputs: Vec<Option<SymTensor>>) -> Self {
+        Self {
+            inputs: Cow::Owned(inputs),
+        }
+    }
+}
+
+impl<const N: usize> From<[Option<SymTensor>; N]> for InferShapesContext<'static> {
+    fn from(inputs: [Option<SymTensor>; N]) -> Self {
+        Self {
+            inputs: Cow::Owned(inputs.into()),
+        }
+    }
+}
+
 /// Infer the shapes of an operator's outputs given its inputs.
 pub trait InferShapes {
     /// Infer the shapes and optionally values of an operator's outputs given
@@ -56,7 +137,7 @@ pub trait InferShapes {
     /// generated using `sym_gen`.
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError>;
 }
@@ -72,12 +153,10 @@ pub struct UnaryOp;
 impl InferShapes for UnaryOp {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let Some(data) = inputs.first() else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
 
         let shape = if let Some(shape) = data.shape() {
             SymTensor::from_shape(shape.collect())
@@ -99,12 +178,11 @@ pub struct BinaryOp;
 impl InferShapes for BinaryOp {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [a, b] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let a = inputs.require(0)?;
+        let b = inputs.require(1)?;
 
         let (Some(a_dims), Some(b_dims)) = (a.shape(), b.shape()) else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
@@ -168,27 +246,23 @@ pub struct VariadicOp;
 impl InferShapes for VariadicOp {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        if inputs.is_empty() {
-            return Err(InferShapesError::IncorrectInputCount);
-        }
+        let first = inputs.require(0)?;
 
-        let first_shape = inputs[0]
+        let first_shape = first
             .shape()
             .map(|shape| SymTensor::from_shape(shape.collect()))
             .unwrap_or_else(|| SymTensor::unknown("unknown input shape"));
 
         let out_shape: Result<SymTensor, InferShapesError> =
-            inputs
-                .iter()
-                .skip(1)
-                .try_fold(first_shape, |out_shape, in_shape| {
-                    let mut shapes =
-                        BinaryOp.infer_shapes(&[out_shape, in_shape.clone()], sym_gen)?;
-                    Ok(shapes.remove(0))
-                });
+            (1..inputs.len()).try_fold(first_shape, |out_shape, i| {
+                let in_shape = inputs.require(i)?;
+                let mut shapes =
+                    BinaryOp.infer_shapes([out_shape, in_shape.clone()].into(), sym_gen)?;
+                Ok(shapes.remove(0))
+            });
 
         Ok([out_shape?].into())
     }
@@ -211,7 +285,7 @@ pub struct ReductionOp<'a> {
 impl InferShapes for ReductionOp<'_> {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
         match inputs.len() {
@@ -221,7 +295,7 @@ impl InferShapes for ReductionOp<'_> {
             }
         }
 
-        let data = &inputs[0];
+        let data = inputs.require(0)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
@@ -303,8 +377,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        BinaryOp, InferShapes, InferShapesError, ReductionOp, SymExpr, SymTensor, SymbolGen,
-        UnaryOp, VariadicOp,
+        BinaryOp, InferShapes, InferShapesContext, InferShapesError, ReductionOp, SymExpr,
+        SymTensor, SymbolGen, UnaryOp, VariadicOp,
     };
     use crate::sym_tensor::{sym_elems, sym_shape};
 
@@ -313,12 +387,15 @@ mod tests {
         let input = sym_shape!("batch", 16, "seq", 24);
         let mut sym_gen = SymbolGen::new();
         let shape = UnaryOp
-            .infer_shapes(&[input.clone()], &mut sym_gen)
+            .infer_shapes([input.clone()].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(shape.len(), 1);
         assert_eq!(shape[0], input);
 
-        let err = UnaryOp.infer_shapes(&[], &mut sym_gen).err().unwrap();
+        let err = UnaryOp
+            .infer_shapes(InferShapesContext::new(&[]), &mut sym_gen)
+            .err()
+            .unwrap();
         assert_eq!(err, InferShapesError::IncorrectInputCount);
     }
 
@@ -367,7 +444,7 @@ mod tests {
         cases.test_each(|case| {
             let mut sym_gen = SymbolGen::new();
             let shape = BinaryOp
-                .infer_shapes(&[case.lhs.clone(), case.rhs.clone()], &mut sym_gen)
+                .infer_shapes([case.lhs.clone(), case.rhs.clone()].into(), &mut sym_gen)
                 .unwrap();
             assert_eq!(shape.len(), 1);
             assert_eq!(shape[0], case.expected.clone());
@@ -396,7 +473,10 @@ mod tests {
         cases.test_each_clone(|case| {
             let mut sym_gen = SymbolGen::new();
             let inputs: Vec<_> = case.inputs.into_iter().map(SymTensor::from_shape).collect();
-            let err = BinaryOp.infer_shapes(&inputs, &mut sym_gen).err().unwrap();
+            let err = BinaryOp
+                .infer_shapes(inputs.into(), &mut sym_gen)
+                .err()
+                .unwrap();
             assert_eq!(err, case.expected);
         });
     }
@@ -409,12 +489,14 @@ mod tests {
         let c = sym_shape!("batch", 1, 8, 16);
 
         // Single input
-        let result = VariadicOp.infer_shapes(&[a.clone()], &mut sym_gen).unwrap();
+        let result = VariadicOp
+            .infer_shapes([a.clone()].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!("batch", 4, 1, 1));
 
         // N inputs
         let result = VariadicOp
-            .infer_shapes(&[a.clone(), b, c], &mut sym_gen)
+            .infer_shapes([a.clone(), b, c].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", 4, 8, 16));
     }
@@ -478,7 +560,10 @@ mod tests {
 
         cases.test_each(|case| {
             let mut sym_gen = SymbolGen::new();
-            let shapes = case.op.infer_shapes(&case.inputs, &mut sym_gen).unwrap();
+            let shapes = case
+                .op
+                .infer_shapes(case.inputs.clone().into(), &mut sym_gen)
+                .unwrap();
             assert_eq!(shapes.len(), 1);
             assert_eq!(shapes[0], SymTensor::from_shape(case.expected.clone()));
         });

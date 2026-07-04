@@ -1,4 +1,4 @@
-use crate::infer_shapes::{InferShapes, InferShapesError, resolve_axis};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
@@ -13,12 +13,13 @@ pub struct OneHot {
 impl InferShapes for OneHot {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [indices, depth, _values] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let indices = inputs.require(0)?;
+        let depth = inputs.require(1)?;
+        // `values` is required but unused for shape inference.
+        inputs.require(2)?;
 
         let Some(indices_dims) = indices.shape() else {
             return Ok([SymTensor::unknown("unknown indices shape")].into());
@@ -62,7 +63,7 @@ mod tests {
         let values = sym_vec!(0, 1);
         let op = OneHot { axis: -1 };
         let result = op
-            .infer_shapes(&[indices, depth, values], &mut sym_gen)
+            .infer_shapes([indices, depth, values].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", 8, 10));
 
@@ -72,7 +73,7 @@ mod tests {
         let values = sym_vec!(0, 1);
         let op = OneHot { axis: 0 };
         let result = op
-            .infer_shapes(&[indices, depth, values], &mut sym_gen)
+            .infer_shapes([indices, depth, values].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!(10, "batch", 8));
 
@@ -82,7 +83,7 @@ mod tests {
         let values = sym_vec!(0, 1);
         let op = OneHot { axis: -1 };
         let result = op
-            .infer_shapes(&[indices, depth, values], &mut sym_gen)
+            .infer_shapes([indices, depth, values].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!(4, "d"));
 
@@ -92,7 +93,7 @@ mod tests {
         let values = sym_vec!(0, 1);
         let op = OneHot { axis: -1 };
         let result = op
-            .infer_shapes(&[indices, depth, values], &mut sym_gen)
+            .infer_shapes([indices, depth, values].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", 8, 10));
 
@@ -102,7 +103,7 @@ mod tests {
         let values = sym_vec!(0, 1);
         let op = OneHot { axis: -1 };
         let result = op
-            .infer_shapes(&[indices, depth, values], &mut sym_gen)
+            .infer_shapes([indices, depth, values].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0].ndim(), None);
     }

@@ -1,4 +1,4 @@
-use crate::infer_shapes::{InferShapes, InferShapesError};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
@@ -78,12 +78,13 @@ pub struct GRU {
 impl InferShapes for GRU {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [input, weights, _recurrent, ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let input = inputs.require(0)?;
+        let weights = inputs.require(1)?;
+        // Recurrent weights (input 2) are required, though not used here.
+        inputs.require(2)?;
 
         match rnn_output_shapes(input, weights, self.direction, 3)? {
             Some((y, y_h)) => Ok([y, y_h].into()),
@@ -106,12 +107,13 @@ pub struct LSTM {
 impl InferShapes for LSTM {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [input, weights, _recurrent, ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let input = inputs.require(0)?;
+        let weights = inputs.require(1)?;
+        // Recurrent weights (input 2) are required, though not used here.
+        inputs.require(2)?;
 
         match rnn_output_shapes(input, weights, self.direction, 4)? {
             Some((y, y_h)) => {
@@ -153,7 +155,7 @@ mod tests {
             direction: Direction::Unidirectional,
         };
         let result = op
-            .infer_shapes(&[input, weights, recurrent], &mut sym_gen)
+            .infer_shapes([input, weights, recurrent].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(
@@ -170,7 +172,7 @@ mod tests {
             direction: Direction::Bidirectional,
         };
         let result = op
-            .infer_shapes(&[input, weights, recurrent], &mut sym_gen)
+            .infer_shapes([input, weights, recurrent].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(
             result[0].clone().simplify(),
@@ -186,7 +188,7 @@ mod tests {
             direction: Direction::Unidirectional,
         };
         let result = op
-            .infer_shapes(&[input, weights, recurrent], &mut sym_gen)
+            .infer_shapes([input, weights, recurrent].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(
             result[0].clone().simplify(),
@@ -209,7 +211,7 @@ mod tests {
             direction: Direction::Unidirectional,
         };
         let result = op
-            .infer_shapes(&[input, weights, recurrent], &mut sym_gen)
+            .infer_shapes([input, weights, recurrent].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result.len(), 3);
         assert_eq!(
@@ -227,7 +229,7 @@ mod tests {
             direction: Direction::Unidirectional,
         };
         let result = op
-            .infer_shapes(&[input, weights, recurrent], &mut sym_gen)
+            .infer_shapes([input, weights, recurrent].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0].ndim(), None);
         assert_eq!(result[1].ndim(), None);
@@ -240,7 +242,7 @@ mod tests {
         let op = LSTM {
             direction: Direction::Unidirectional,
         };
-        let result = op.infer_shapes(&[input, weights, recurrent], &mut sym_gen);
+        let result = op.infer_shapes([input, weights, recurrent].into(), &mut sym_gen);
         assert_eq!(result, Err(InferShapesError::IncorrectRank));
     }
 }

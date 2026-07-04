@@ -13,8 +13,8 @@ use crate::operator::{OutputType, OutputTypesContext};
 use crate::value::ValueType;
 
 pub use rten_shape_inference::{
-    BinaryOp, Constant, InferShapes, InferShapesError, ReductionOp, SymExpr, SymTensor, Symbol,
-    SymbolGen, UnaryOp,
+    BinaryOp, Constant, InferShapes, InferShapesContext, InferShapesError, ReductionOp, SymExpr,
+    SymTensor, Symbol, SymbolGen, UnaryOp,
 };
 
 /// Impl [`InferShapes`] for a type by delegating to another type which
@@ -27,7 +27,7 @@ macro_rules! impl_infer_shapes {
         impl rten_shape_inference::InferShapes for $op {
             fn infer_shapes(
                 &self,
-                inputs: &[rten_shape_inference::SymTensor],
+                inputs: rten_shape_inference::InferShapesContext,
                 sym_gen: &mut rten_shape_inference::SymbolGen,
             ) -> Result<
                 Vec<rten_shape_inference::SymTensor>,
@@ -193,7 +193,7 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
     let debug = env_flag("RTEN_INFER_SHAPES_DEBUG", false);
 
     // Temp buffer for shape inference operands.
-    let mut input_shapes: Vec<SymTensor> = Vec::new();
+    let mut input_shapes: Vec<Option<SymTensor>> = Vec::new();
 
     for op_id in ops {
         let Some(Node::Operator(op)) = graph.get_node(op_id) else {
@@ -254,15 +254,14 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
         if let Some(infer) = op.operator().as_infer_shapes() {
             input_shapes.clear();
             input_shapes.extend(op.input_ids().iter().map(|input_id| {
-                input_id
-                    .and_then(|id| {
-                        let node = graph.get_node(id)?;
-                        Some(sym_tensor_from_input(id, node, &values))
-                    })
-                    .unwrap_or_else(|| SymTensor::unknown("missing input"))
+                input_id.and_then(|id| {
+                    let node = graph.get_node(id)?;
+                    Some(sym_tensor_from_input(id, node, &values))
+                })
             }));
 
-            let out_shapes = infer.infer_shapes(&input_shapes, &mut symbol_gen);
+            let out_shapes =
+                infer.infer_shapes(InferShapesContext::new(&input_shapes), &mut symbol_gen);
 
             if debug {
                 println!(
