@@ -261,7 +261,7 @@ impl InferShapes for ReductionOp<'_> {
 
 /// Resolve an index given as a value in `[-len, len-1]` to a positive index in
 /// `[0, len)`, or return None if the index is out of bounds.
-fn resolve_index(len: usize, index: i32) -> Option<usize> {
+pub(crate) fn resolve_index(len: usize, index: i32) -> Option<usize> {
     let len = len.min(i32::MAX as usize) as i32;
     if index < -len || index >= len {
         return None;
