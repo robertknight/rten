@@ -40,7 +40,8 @@ impl InferShapes for Slice {
 
             let starts = starts.as_vector();
             let ends = ends.as_vector();
-            let steps = steps.and_then(|s| s.as_vector());
+            let step_values = steps.map(|s| s.as_vector());
+            let default_step = SymExpr::Value(1);
 
             for (i, axis) in axes.values().iter().copied().enumerate() {
                 let axis =
@@ -48,11 +49,18 @@ impl InferShapes for Slice {
 
                 let start = starts.and_then(|s| s.get(i));
                 let end = ends.and_then(|e| e.get(i));
-                let step = steps.and_then(|s| s.get(i)).unwrap_or(&SymExpr::Value(1));
+
+                // The step is 1 if the `steps` input is missing. If it is
+                // present, its value for this axis must be known, otherwise
+                // the size of the sliced dimension is unknown.
+                let step = match step_values {
+                    None => Some(&default_step),
+                    Some(values) => values.and_then(|s| s.get(i)),
+                };
 
                 if let Some(SymExpr::Value(start)) = start
                     && let Some(SymExpr::Value(end)) = end
-                    && let SymExpr::Value(step) = step
+                    && let Some(SymExpr::Value(step)) = step
                     && let SymExpr::Value(size) = dims[axis]
                 {
                     let end = match *end {
@@ -77,7 +85,7 @@ impl InferShapes for Slice {
                     && (start == &SymExpr::Value(0) || *start == -dims[axis].clone())
                     && let Some(end) = end
                     && (end == &SymExpr::Value(i32::MAX) || *end == dims[axis])
-                    && step == &SymExpr::Value(1)
+                    && step == Some(&SymExpr::Value(1))
                 {
                     // This is a no-op slice that doesn't alter the dimension
                     // size.
@@ -85,7 +93,7 @@ impl InferShapes for Slice {
                     && start.is_positive()
                     && let Some(end) = end
                     && end.is_positive()
-                    && step == &SymExpr::Value(1)
+                    && step == Some(&SymExpr::Value(1))
                 {
                     // nb. This assumes start <= end.
                     let size = dims[axis].clone();
@@ -225,5 +233,20 @@ mod tests {
             .infer_shapes([data, starts, ends, axes, steps].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", 1, "seq"));
+
+        // Slice where the `steps` input is present but its value is unknown.
+        //
+        // The step may not be 1, so the size of the sliced dimension is
+        // unknown even for an otherwise no-op 0..i32::MAX range.
+        let mut sym_gen = SymbolGen::new();
+        let data = sym_shape!("batch", 64, 8);
+        let starts = sym_vec!(0);
+        let ends = sym_vec!(i32::MAX);
+        let axes = sym_vec!(1);
+        let steps = SymTensor::unknown("runtime-computed steps");
+        let result = Slice
+            .infer_shapes([data, starts, ends, axes, steps].into(), &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], sym_shape!("batch", "unknown_1", 8));
     }
 }

@@ -286,7 +286,7 @@ impl InferShapes for ReductionOp<'_> {
     fn infer_shapes(
         &self,
         inputs: InferShapesContext,
-        _sym_gen: &mut SymbolGen,
+        sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
         match inputs.len() {
             1 | 2 => {}
@@ -302,14 +302,27 @@ impl InferShapes for ReductionOp<'_> {
         };
 
         let ndim = data_dims.len();
-        let mut axes: SmallVec<[usize; 4]> =
-            if let Some(Constant::Vector(axes)) = inputs.get(1).and_then(|x| x.to_constant()) {
-                resolve_axes(ndim, axes.iter()).map_err(|_| InferShapesError::IncorrectRank)?
-            } else if let Some(axes) = self.axes {
-                resolve_axes(ndim, axes.iter()).map_err(|_| InferShapesError::IncorrectRank)?
-            } else {
-                (0..ndim).collect()
+        let mut axes: SmallVec<[usize; 4]> = if let Some(axes_input) = inputs.get(1) {
+            // The `axes` input is present, so its value must be known to
+            // determine which dims are reduced.
+            let Some(Constant::Vector(axes)) = axes_input.to_constant() else {
+                let out = if self.keep_dims {
+                    // Each dim is either preserved or reduced to size 1, so
+                    // the rank is known but the sizes are not.
+                    let out_shape = (0..ndim).map(|_| sym_gen.gen_positive()).collect();
+                    SymTensor::from_shape(out_shape)
+                } else {
+                    SymTensor::unknown("unknown axes")
+                };
+                return Ok([out].into());
             };
+            resolve_axes(ndim, axes.iter()).map_err(|_| InferShapesError::IncorrectRank)?
+        } else if let Some(axes) = self.axes {
+            resolve_axes(ndim, axes.iter()).map_err(|_| InferShapesError::IncorrectRank)?
+        } else {
+            // Missing `axes` reduces all dims.
+            (0..ndim).collect()
+        };
         axes.sort();
         axes.dedup();
 
@@ -567,5 +580,34 @@ mod tests {
             assert_eq!(shapes.len(), 1);
             assert_eq!(shapes[0], SymTensor::from_shape(case.expected.clone()));
         });
+    }
+
+    #[test]
+    fn test_reduction_op_unknown_axes() {
+        let mut sym_gen = SymbolGen::new();
+        let data = SymTensor::from_shape(sym_elems!(3, 4, 5));
+        let axes = SymTensor::unknown("runtime-computed axes");
+
+        // With `keep_dims=false` the output rank depends on the axes values,
+        // so nothing about the output shape is known.
+        let op = ReductionOp {
+            axes: None,
+            keep_dims: false,
+        };
+        let result = op
+            .infer_shapes([data.clone(), axes.clone()].into(), &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0].ndim(), None);
+
+        // With `keep_dims=true` the rank is preserved but each dim is either
+        // kept or reduced to size 1.
+        let op = ReductionOp {
+            axes: None,
+            keep_dims: true,
+        };
+        let result = op.infer_shapes([data, axes].into(), &mut sym_gen).unwrap();
+        let shape: Vec<_> = result[0].shape().unwrap().collect();
+        assert_eq!(shape.len(), 3);
+        assert!(shape.iter().all(|dim| matches!(dim, SymExpr::Var(_))));
     }
 }
