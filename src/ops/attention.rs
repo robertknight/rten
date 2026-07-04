@@ -800,21 +800,19 @@ impl Operator for Attention {
                     None => {}
                 }
 
-                // Mask padded key positions.
-                if let Some(nonpad) = nonpad_kv_seqlen.as_ref() {
-                    row[nonpad[[b]] as usize..].fill(f32::NEG_INFINITY);
-                }
-
                 // Mask future positions for causal attention. With an
                 // external KV cache the causal window is anchored by the
                 // per-batch valid key/value length instead of the internal
                 // cache length.
                 if self.is_causal {
                     let offset = match nonpad_kv_seqlen.as_ref() {
-                        Some(nonpad) => nonpad[[b]] as isize - q_seq as isize,
+                        Some(nonpad) => nonpad[b] as isize - q_seq as isize,
                         None => past_len as isize,
                     };
                     causal_mask_row(row, offset, q_idx, f32::NEG_INFINITY);
+                } else if let Some(nonpad) = nonpad_kv_seqlen.as_ref() {
+                    // Mask padded key positions.
+                    row[nonpad[b] as usize..].fill(f32::NEG_INFINITY);
                 }
             },
         );
