@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::infer_shapes::{InferShapes, InferShapesError};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
@@ -84,12 +84,11 @@ pub struct Conv<'a> {
 impl InferShapes for Conv<'_> {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, weights, ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
+        let weights = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
@@ -201,12 +200,11 @@ pub struct ConvTranspose<'a> {
 impl InferShapes for ConvTranspose<'_> {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, weights, ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
+        let weights = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
@@ -276,12 +274,10 @@ pub struct Pool<'a> {
 impl InferShapes for Pool<'_> {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
@@ -354,12 +350,10 @@ pub struct GlobalPool;
 impl InferShapes for GlobalPool {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
         let Some(dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
         };
@@ -396,7 +390,7 @@ mod tests {
             strides: &[16],
         };
         let result = op
-            .infer_shapes(&[data.clone(), weights.clone()], &mut sym_gen)
+            .infer_shapes([data.clone(), weights.clone()].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(
             result[0],
@@ -417,7 +411,9 @@ mod tests {
             dilations: &[4],
             strides: &[16],
         };
-        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, weights].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(
             result[0],
             sym_shape!(
@@ -435,7 +431,9 @@ mod tests {
             dilations: &[4, 5],
             strides: &[16, 32],
         };
-        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, weights].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(
             result[0],
             sym_shape!(
@@ -467,7 +465,9 @@ mod tests {
             dilations: &[4],
             strides: &[16],
         };
-        let result = op.infer_shapes(&[data.clone()], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data.clone()].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(
             result[0],
             sym_shape!(
@@ -488,7 +488,7 @@ mod tests {
             dilations: &[4],
             strides: &[16],
         };
-        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        let result = op.infer_shapes([data].into(), &mut sym_gen).unwrap();
         assert_eq!(
             result[0],
             sym_shape!(
@@ -506,7 +506,7 @@ mod tests {
             dilations: &[4, 5],
             strides: &[16, 32],
         };
-        let result = op.infer_shapes(&[data], &mut sym_gen).unwrap();
+        let result = op.infer_shapes([data].into(), &mut sym_gen).unwrap();
         assert_eq!(
             result[0],
             sym_shape!(
@@ -542,7 +542,9 @@ mod tests {
             dilations: &[1, 1],
             output_padding: None,
         };
-        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, weights].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0].clone().simplify(), sym_shape!(1, 16, 6, 6));
 
         // 2D transposed conv with output padding.
@@ -557,7 +559,9 @@ mod tests {
             dilations: &[1, 1],
             output_padding: Some(&[1, 0]),
         };
-        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, weights].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0].clone().simplify(), sym_shape!(1, 16, 8, 7));
 
         // 2D transposed conv with Same padding. Expected: out = in * stride.
@@ -570,7 +574,9 @@ mod tests {
             dilations: &[1, 1],
             output_padding: None,
         };
-        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, weights].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(
             result[0].clone().simplify(),
             sym_shape!(
@@ -591,7 +597,9 @@ mod tests {
             dilations: &[1, 1],
             output_padding: None,
         };
-        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, weights].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0].clone().simplify(), sym_shape!(1, 4, 7, 7));
 
         // 1D transposed conv. Expected:
@@ -606,7 +614,9 @@ mod tests {
             dilations: &[1],
             output_padding: None,
         };
-        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, weights].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0].clone().simplify(), sym_shape!(1, 8, 8));
 
         // Unknown input shape.
@@ -618,7 +628,7 @@ mod tests {
             output_padding: None,
         }
         .infer_shapes(
-            &[SymTensor::unknown("?"), sym_shape!("in_c", 16, 3, 3)],
+            [SymTensor::unknown("?"), sym_shape!("in_c", 16, 3, 3)].into(),
             &mut sym_gen,
         )
         .unwrap();
@@ -636,7 +646,9 @@ mod tests {
             dilations: &[2, 2],
             output_padding: None,
         };
-        let result = op.infer_shapes(&[data, weights], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, weights].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0].clone().simplify(), sym_shape!(1, 16, 9, 9));
     }
 
@@ -646,12 +658,16 @@ mod tests {
 
         // 1D global pool
         let data = sym_shape!("batch", "in_c", "height", "width");
-        let result = GlobalPool.infer_shapes(&[data], &mut sym_gen).unwrap();
+        let result = GlobalPool
+            .infer_shapes([data].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!("batch", "in_c", 1, 1,));
 
         // 2D global pool
         let data = sym_shape!("batch", "in_c", "height", "width");
-        let result = GlobalPool.infer_shapes(&[data], &mut sym_gen).unwrap();
+        let result = GlobalPool
+            .infer_shapes([data].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(result[0], sym_shape!("batch", "in_c", 1, 1,));
     }
 }

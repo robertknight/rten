@@ -1,4 +1,4 @@
-use crate::infer_shapes::{InferShapes, InferShapesError};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::ops::resolve_axis;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
@@ -18,14 +18,12 @@ pub struct Split {
 impl InferShapes for Split {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, rest @ ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
 
-        let Some(splits) = rest.first() else {
+        let Some(splits) = inputs.get(1) else {
             return Err(InferShapesError::UnknownOutputCount);
         };
 
@@ -75,7 +73,9 @@ mod tests {
             axis: 2,
             num_outputs: None,
         };
-        let result = op.infer_shapes(&[data, splits], &mut sym_gen).unwrap();
+        let result = op
+            .infer_shapes([data, splits].into(), &mut sym_gen)
+            .unwrap();
         assert_eq!(
             result,
             [

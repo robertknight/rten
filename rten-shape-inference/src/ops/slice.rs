@@ -1,6 +1,6 @@
 use rten_tensor::SliceRange;
 
-use crate::infer_shapes::{InferShapes, InferShapesError};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::ops::resolve_axis;
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
@@ -14,26 +14,26 @@ pub struct Slice;
 impl InferShapes for Slice {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data, starts, ends, rest @ ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
+        let starts = inputs.require(1)?;
+        let ends = inputs.require(2)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
         };
 
-        let axes = rest
-            .first()
+        let axes = inputs
+            .get(3)
             .map(|axes| axes.to_constant())
             .unwrap_or_else(|| {
                 let axes = (0..data_dims.len()).map(|i| i as i32).collect();
                 Some(Constant::Vector(axes))
             });
 
-        let steps = rest.get(1);
+        let steps = inputs.get(4);
 
         let sliced_shape = if let Some(axes) = axes {
             let mut dims: Vec<_> = data_dims.collect();
@@ -126,7 +126,7 @@ mod tests {
         let ends = sym_vec!(i32::MAX);
         let axes = sym_vec!(1);
         let result = Slice
-            .infer_shapes(&[data, starts, ends, axes], &mut sym_gen)
+            .infer_shapes([data, starts, ends, axes].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", 32, 8));
 
@@ -144,7 +144,7 @@ mod tests {
         let ends = sym_vec!(end.clone());
         let axes = sym_vec!(0);
         let result = Slice
-            .infer_shapes(&[data, starts, ends, axes], &mut sym_gen)
+            .infer_shapes([data, starts, ends, axes].into(), &mut sym_gen)
             .unwrap();
         let batch_expr = end.min(&batch) - start.min(&batch);
         assert_eq!(result[0], sym_shape!(batch_expr, 64, 8));
@@ -157,7 +157,7 @@ mod tests {
         let ends = sym_vec!(i32::MAX);
         let axes = sym_vec!(0);
         let result = Slice
-            .infer_shapes(&[data, starts, ends, axes], &mut sym_gen)
+            .infer_shapes([data, starts, ends, axes].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", 64, 8));
 
@@ -171,7 +171,7 @@ mod tests {
         let ends = sym_vec!(i32::MAX);
         let axes = sym_vec!("axes");
         let result = Slice
-            .infer_shapes(&[data, starts, ends, axes], &mut sym_gen)
+            .infer_shapes([data, starts, ends, axes].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2", "unknown_3"));
 
@@ -181,7 +181,7 @@ mod tests {
         let starts = sym_vec!(0);
         let ends = sym_vec!(0);
         let result = Slice
-            .infer_shapes(&[data, starts, ends], &mut sym_gen)
+            .infer_shapes([data, starts, ends].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], SymTensor::unknown("unknown input shape"));
 
@@ -191,7 +191,7 @@ mod tests {
         let starts = sym_vec!(1);
         let ends = sym_vec!(i32::MAX);
         let result = Slice
-            .infer_shapes(&[data, starts, ends], &mut sym_gen)
+            .infer_shapes([data, starts, ends].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_vec!(3, "height", "width"));
 
@@ -200,7 +200,7 @@ mod tests {
         let starts = sym_vec!(i32::MIN);
         let ends = sym_vec!(-2);
         let result = Slice
-            .infer_shapes(&[data, starts, ends], &mut sym_gen)
+            .infer_shapes([data, starts, ends].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_vec!("s6", 6));
 
@@ -211,7 +211,7 @@ mod tests {
         let axes = sym_vec!(2);
         let steps = sym_vec!(1);
         let result = Slice
-            .infer_shapes(&[data, starts, ends, axes, steps], &mut sym_gen)
+            .infer_shapes([data, starts, ends, axes, steps].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", 1, "seq"));
 
@@ -222,7 +222,7 @@ mod tests {
         let axes = sym_vec!(2);
         let steps = sym_vec!(1);
         let result = Slice
-            .infer_shapes(&[data, starts, ends, axes, steps], &mut sym_gen)
+            .infer_shapes([data, starts, ends, axes, steps].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!("batch", 1, "seq"));
     }

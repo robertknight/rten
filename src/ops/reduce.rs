@@ -11,7 +11,8 @@ use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::{
-    InferShapes, InferShapesError, ReductionOp, SymTensor, SymbolGen, impl_infer_shapes,
+    InferShapes, InferShapesContext, InferShapesError, ReductionOp, SymTensor, SymbolGen,
+    impl_infer_shapes,
 };
 use crate::operator::{
     InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
@@ -27,7 +28,7 @@ macro_rules! impl_infer_shapes_for_reduce_op {
         impl InferShapes for $op {
             fn infer_shapes(
                 &self,
-                inputs: &[SymTensor],
+                inputs: InferShapesContext,
                 sym_gen: &mut SymbolGen,
             ) -> Result<Vec<SymTensor>, InferShapesError> {
                 ReductionOp {
@@ -45,7 +46,7 @@ macro_rules! impl_infer_shapes_for_arg_op {
         impl InferShapes for $op {
             fn infer_shapes(
                 &self,
-                inputs: &[SymTensor],
+                inputs: InferShapesContext,
                 sym_gen: &mut SymbolGen,
             ) -> Result<Vec<SymTensor>, InferShapesError> {
                 ReductionOp {

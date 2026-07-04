@@ -1,4 +1,4 @@
-use crate::infer_shapes::{InferShapes, InferShapesError};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
@@ -16,20 +16,18 @@ const SIZES: usize = 3;
 impl InferShapes for Resize {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let data = inputs
-            .get(DATA)
-            .ok_or(InferShapesError::IncorrectInputCount)?;
+        let data = inputs.require(DATA)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
         };
 
         // `sizes` takes precedence if both are provided.
-        let sizes = optional_input(inputs, SIZES);
-        let scales = optional_input(inputs, SCALES);
+        let sizes = optional_input(&inputs, SIZES);
+        let scales = optional_input(&inputs, SCALES);
 
         let out_shape: Vec<SymExpr> = if let Some(sizes) = sizes {
             if let Some(values) = sizes.as_vector() {
@@ -67,18 +65,16 @@ const UPSAMPLE_SCALES: usize = 1;
 impl InferShapes for Upsample {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let data = inputs
-            .get(DATA)
-            .ok_or(InferShapesError::IncorrectInputCount)?;
+        let data = inputs.require(DATA)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([SymTensor::unknown("unknown input shape")].into());
         };
 
-        let input_scales = optional_input(inputs, UPSAMPLE_SCALES).and_then(|s| s.as_vector());
+        let input_scales = optional_input(&inputs, UPSAMPLE_SCALES).and_then(|s| s.as_vector());
 
         let out_shape: Vec<SymExpr> = if let Some(scales) = input_scales {
             data_dims
@@ -98,7 +94,7 @@ impl InferShapes for Upsample {
 /// As a special case this treats an empty vector as missing. In opset < 13, the
 /// ONNX Resize op uses an empty vector to represent missing `sizes`/`scales`
 /// inputs.
-fn optional_input(inputs: &[SymTensor], idx: usize) -> Option<&SymTensor> {
+fn optional_input<'a>(inputs: &'a InferShapesContext, idx: usize) -> Option<&'a SymTensor> {
     let input = inputs.get(idx)?;
     let is_empty_vec = input.as_vector().is_some_and(|v| v.is_empty());
     if is_empty_vec {
@@ -123,7 +119,7 @@ mod tests {
 
         let mut sym_gen = SymbolGen::new();
         let result = Resize
-            .infer_shapes(&[data, sym_vec!(), sym_vec!(), sizes], &mut sym_gen)
+            .infer_shapes([data, sym_vec!(), sym_vec!(), sizes].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!(1, 3, 448, 448));
     }
@@ -135,7 +131,7 @@ mod tests {
 
         let mut sym_gen = SymbolGen::new();
         let result = Resize
-            .infer_shapes(&[data, sym_vec!(), scales, sym_vec!()], &mut sym_gen)
+            .infer_shapes([data, sym_vec!(), scales, sym_vec!()].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(
             result[0].clone().simplify(),
@@ -150,7 +146,7 @@ mod tests {
 
         let mut sym_gen = SymbolGen::new();
         let result = Resize
-            .infer_shapes(&[data, sym_vec!(), scales, sym_vec!()], &mut sym_gen)
+            .infer_shapes([data, sym_vec!(), scales, sym_vec!()].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0].ndim(), None);
     }
@@ -162,7 +158,7 @@ mod tests {
 
         let mut sym_gen = SymbolGen::new();
         let result = Resize
-            .infer_shapes(&[data, sym_vec!(), scales, sym_vec!()], &mut sym_gen)
+            .infer_shapes([data, sym_vec!(), scales, sym_vec!()].into(), &mut sym_gen)
             .unwrap();
 
         let shape: Vec<_> = result[0].shape().unwrap().collect();
@@ -179,7 +175,7 @@ mod tests {
 
         let mut sym_gen = SymbolGen::new();
         let result = Resize
-            .infer_shapes(&[data, sym_vec!(), sym_vec!(), sizes], &mut sym_gen)
+            .infer_shapes([data, sym_vec!(), sym_vec!(), sizes].into(), &mut sym_gen)
             .unwrap();
         let shape: Vec<_> = result[0].shape().unwrap().collect();
         assert_eq!(shape.len(), 4);
@@ -194,7 +190,10 @@ mod tests {
 
         let mut sym_gen = SymbolGen::new();
         let err = Resize
-            .infer_shapes(&[data, sym_vec!(), sym_vec!(), sym_vec!()], &mut sym_gen)
+            .infer_shapes(
+                [data, sym_vec!(), sym_vec!(), sym_vec!()].into(),
+                &mut sym_gen,
+            )
             .err()
             .unwrap();
         assert_eq!(err, InferShapesError::IncorrectInputCount);
@@ -207,7 +206,7 @@ mod tests {
 
         let mut sym_gen = SymbolGen::new();
         let result = Upsample
-            .infer_shapes(&[data, scales], &mut sym_gen)
+            .infer_shapes([data, scales].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(
             result[0].clone().simplify(),
@@ -222,7 +221,7 @@ mod tests {
 
         let mut sym_gen = SymbolGen::new();
         let result = Upsample
-            .infer_shapes(&[data, scales], &mut sym_gen)
+            .infer_shapes([data, scales].into(), &mut sym_gen)
             .unwrap();
         let shape: Vec<_> = result[0].shape().unwrap().collect();
         assert_eq!(shape.len(), 4);

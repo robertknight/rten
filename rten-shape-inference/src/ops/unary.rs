@@ -1,4 +1,4 @@
-use crate::infer_shapes::{InferShapes, InferShapesError, UnaryOp};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, UnaryOp};
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
 
@@ -10,12 +10,10 @@ pub struct Neg;
 impl InferShapes for Neg {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [data] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let data = inputs.require(0)?;
         if let Some(item) = data.as_scalar() {
             return Ok([SymTensor::from_scalar(-item.clone())].into());
         } else if let Some(vec) = data.as_vector() {
@@ -39,17 +37,17 @@ mod tests {
     fn test_neg() {
         let mut sym_gen = SymbolGen::new();
         let x = sym_shape!("batch", 4, 4);
-        let result = Neg.infer_shapes(&[x], &mut sym_gen).unwrap();
+        let result = Neg.infer_shapes([x].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!("batch", 4, 4));
 
         // Symbolic scalar
         let x = SymTensor::from_scalar("batch".into());
-        let result = Neg.infer_shapes(&[x], &mut sym_gen).unwrap();
+        let result = Neg.infer_shapes([x].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0], SymTensor::from_scalar(-SymExpr::from("batch")));
 
         // Symbolic vec
         let x = sym_vec!("batch", 64);
-        let result = Neg.infer_shapes(&[x], &mut sym_gen).unwrap();
+        let result = Neg.infer_shapes([x].into(), &mut sym_gen).unwrap();
         assert_eq!(
             result[0],
             SymTensor::from_vec(vec![-SymExpr::from("batch"), -SymExpr::from(64),])

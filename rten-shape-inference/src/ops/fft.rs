@@ -1,4 +1,4 @@
-use crate::infer_shapes::{InferShapes, InferShapesError, resolve_axis};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
@@ -13,14 +13,13 @@ pub struct STFT {
 impl InferShapes for STFT {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [signal, frame_step, rest @ ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
-        let window = rest.first();
-        let frame_length = rest.get(1);
+        let signal = inputs.require(0)?;
+        let frame_step = inputs.require(1)?;
+        let window = inputs.get(2);
+        let frame_length = inputs.get(3);
 
         // At least one of `window` or `frame_length` must be set so `n_fft`
         // can be determined.
@@ -82,12 +81,10 @@ pub struct DFT {
 impl InferShapes for DFT {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let [input, ..] = inputs else {
-            return Err(InferShapesError::IncorrectInputCount);
-        };
+        let input = inputs.require(0)?;
         let dft_length = inputs.get(1);
 
         let irfft = self.inverse && self.onesided;
@@ -186,7 +183,7 @@ mod tests {
 
         let mut sym_gen = SymbolGen::new();
         let mut result = STFT { onesided }
-            .infer_shapes(&inputs, &mut sym_gen)
+            .infer_shapes(inputs.into(), &mut sym_gen)
             .unwrap();
         result.remove(0).simplify()
     }
@@ -297,8 +294,10 @@ mod tests {
     #[test]
     fn test_stft_missing_window_and_frame_length() {
         let mut sym_gen = SymbolGen::new();
-        let result = STFT { onesided: true }
-            .infer_shapes(&[sym_shape!("batch", 8), sym_scalar!(4)], &mut sym_gen);
+        let result = STFT { onesided: true }.infer_shapes(
+            [sym_shape!("batch", 8), sym_scalar!(4)].into(),
+            &mut sym_gen,
+        );
         assert_eq!(result, Err(InferShapesError::InvalidValue));
     }
 
@@ -318,7 +317,7 @@ mod tests {
         ];
         let mut sym_gen = SymbolGen::new();
         let mut result = DFT { inverse, onesided }
-            .infer_shapes(&inputs, &mut sym_gen)
+            .infer_shapes(inputs.into(), &mut sym_gen)
             .unwrap();
         result.remove(0).simplify()
     }

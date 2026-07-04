@@ -1,4 +1,4 @@
-use crate::infer_shapes::{InferShapes, InferShapesError, resolve_axis};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::{Constant, SymTensor};
@@ -16,15 +16,11 @@ const AXES: usize = 3;
 impl InferShapes for Pad {
     fn infer_shapes(
         &self,
-        inputs: &[SymTensor],
+        inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let data = inputs
-            .get(DATA)
-            .ok_or(InferShapesError::IncorrectInputCount)?;
-        let pads = inputs
-            .get(PADS)
-            .ok_or(InferShapesError::IncorrectInputCount)?;
+        let data = inputs.require(DATA)?;
+        let pads = inputs.require(PADS)?;
         let axes = inputs.get(AXES);
 
         let Some(data_dims) = data.shape() else {
@@ -79,7 +75,7 @@ impl InferShapes for Pad {
 
 #[cfg(test)]
 mod tests {
-    use crate::infer_shapes::{InferShapes, InferShapesError};
+    use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
@@ -93,13 +89,13 @@ mod tests {
         // Pad a fully-fixed shape with fixed pads.
         let data = sym_shape!(2, 3);
         let pads = sym_vec!(1, 2, 3, 4);
-        let result = Pad.infer_shapes(&[data, pads], &mut sym_gen).unwrap();
+        let result = Pad.infer_shapes([data, pads].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0].clone().simplify(), sym_shape!(6, 9));
 
         // Zero pads (no-op).
         let data = sym_shape!(2, 3);
         let pads = sym_vec!(0, 0, 0, 0);
-        let result = Pad.infer_shapes(&[data, pads], &mut sym_gen).unwrap();
+        let result = Pad.infer_shapes([data, pads].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0].clone().simplify(), sym_shape!(2, 3));
     }
 
@@ -110,7 +106,7 @@ mod tests {
         // Pad symbolic dims with fixed pads.
         let data = sym_shape!("batch", "seq", 64);
         let pads = sym_vec!(0, 1, 2, 0, 3, 4);
-        let result = Pad.infer_shapes(&[data, pads], &mut sym_gen).unwrap();
+        let result = Pad.infer_shapes([data, pads].into(), &mut sym_gen).unwrap();
         assert_eq!(
             result[0].clone().simplify(),
             sym_shape!("batch", SymExpr::from("seq") + SymExpr::from(4), 70)
@@ -127,7 +123,7 @@ mod tests {
         let const_val = SymTensor::unknown("unknown value");
         let axes = sym_vec!(0, 2);
         let result = Pad
-            .infer_shapes(&[data, pads, const_val, axes], &mut sym_gen)
+            .infer_shapes([data, pads, const_val, axes].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0].clone().simplify(), sym_shape!(6, 3, 10));
 
@@ -137,7 +133,7 @@ mod tests {
         let const_val = SymTensor::unknown("unknown value");
         let axes = sym_vec!(-1);
         let result = Pad
-            .infer_shapes(&[data, pads, const_val, axes], &mut sym_gen)
+            .infer_shapes([data, pads, const_val, axes].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0].clone().simplify(), sym_shape!(2, 3, 7));
     }
@@ -147,7 +143,7 @@ mod tests {
         let mut sym_gen = SymbolGen::new();
         let data = SymTensor::unknown("unknown");
         let pads = sym_vec!(1, 1, 1, 1);
-        let result = Pad.infer_shapes(&[data, pads], &mut sym_gen).unwrap();
+        let result = Pad.infer_shapes([data, pads].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0].ndim(), None);
     }
 
@@ -156,7 +152,7 @@ mod tests {
         let mut sym_gen = SymbolGen::new();
         let data = sym_shape!("batch", 16, 32);
         let pads = SymTensor::unknown("unknown");
-        let result = Pad.infer_shapes(&[data, pads], &mut sym_gen).unwrap();
+        let result = Pad.infer_shapes([data, pads].into(), &mut sym_gen).unwrap();
 
         let shape: Vec<_> = result[0].shape().unwrap().collect();
         assert_eq!(shape.len(), 3);
@@ -173,7 +169,7 @@ mod tests {
         let const_val = SymTensor::from_scalar(0.into());
         let axes = SymTensor::unknown("unknown");
         let result = Pad
-            .infer_shapes(&[data, pads, const_val, axes], &mut sym_gen)
+            .infer_shapes([data, pads, const_val, axes].into(), &mut sym_gen)
             .unwrap();
 
         let shape: Vec<_> = result[0].shape().unwrap().collect();
@@ -188,7 +184,9 @@ mod tests {
         let mut sym_gen = SymbolGen::new();
         let data = sym_shape!(2, 3);
         let pads = sym_vec!(1, 1, 1);
-        let err = Pad.infer_shapes(&[data, pads], &mut sym_gen).unwrap_err();
+        let err = Pad
+            .infer_shapes([data, pads].into(), &mut sym_gen)
+            .unwrap_err();
         assert_eq!(err, InferShapesError::InvalidValue);
     }
 
@@ -196,10 +194,12 @@ mod tests {
     fn test_pad_missing_inputs() {
         let mut sym_gen = SymbolGen::new();
         let data = sym_shape!(2, 3);
-        let err = Pad.infer_shapes(&[data], &mut sym_gen).unwrap_err();
+        let err = Pad.infer_shapes([data].into(), &mut sym_gen).unwrap_err();
         assert_eq!(err, InferShapesError::IncorrectInputCount);
 
-        let err = Pad.infer_shapes(&[], &mut sym_gen).unwrap_err();
+        let err = Pad
+            .infer_shapes(InferShapesContext::new(&[]), &mut sym_gen)
+            .unwrap_err();
         assert_eq!(err, InferShapesError::IncorrectInputCount);
     }
 }
