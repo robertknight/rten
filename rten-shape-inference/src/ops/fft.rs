@@ -82,7 +82,7 @@ impl InferShapes for DFT {
     fn infer_shapes(
         &self,
         inputs: InferShapesContext,
-        _sym_gen: &mut SymbolGen,
+        sym_gen: &mut SymbolGen,
     ) -> Result<Vec<SymTensor>, InferShapesError> {
         let input = inputs.require(0)?;
         let dft_length = inputs.get(1);
@@ -118,13 +118,16 @@ impl InferShapes for DFT {
 
         let signal_len = shape[dft_axis].clone();
 
-        // `n_fft` (the real signal length) comes from the `dft_length` input if
-        // it's a known scalar. For IRFFT the input is the half spectrum of
-        // length `floor(n_fft / 2) + 1`, so the default is `2 * (signal_len - 1)`.
-        let n_fft = if let Some(dl) = dft_length
-            && let Some(val) = dl.as_scalar()
-        {
-            val.clone()
+        // `n_fft` (the real signal length) comes from the `dft_length` input
+        // when it is present, so its value must be known. If `dft_length` is
+        // missing, the signal length is used. For IRFFT the input is the half
+        // spectrum of length `floor(n_fft / 2) + 1`, so the default is
+        // `2 * (signal_len - 1)`.
+        let n_fft = if let Some(dl) = dft_length {
+            match dl.as_scalar() {
+                Some(val) => val.clone(),
+                None => sym_gen.gen_positive(),
+            }
         } else if irfft {
             (signal_len - SymExpr::Value(1)) * SymExpr::Value(2)
         } else {
@@ -308,12 +311,10 @@ mod tests {
         input: SymTensor,
         dft_length: Option<SymTensor>,
     ) -> SymTensor {
-        // `axis` is input 2. `dft_length` (input 1) is optional, so a
-        // placeholder is needed when it is absent.
         let inputs = vec![
-            input,
-            dft_length.unwrap_or_else(|| SymTensor::unknown("no dft_length")),
-            SymTensor::from_scalar(SymExpr::Value(axis)),
+            Some(input),
+            dft_length,
+            Some(SymTensor::from_scalar(SymExpr::Value(axis))),
         ];
         let mut sym_gen = SymbolGen::new();
         let mut result = DFT { inverse, onesided }
@@ -402,5 +403,23 @@ mod tests {
             );
             assert_eq!(out, case.expected);
         });
+    }
+
+    #[test]
+    fn test_dft_unknown_dft_length() {
+        // If `dft_length` is present but its value is unknown, the size of
+        // the transformed axis is unknown.
+        let out = infer_dft(
+            -2,
+            false,
+            false,
+            sym_shape!("batch", 8, 1),
+            Some(SymTensor::unknown("runtime-computed dft_length")),
+        );
+        let shape: Vec<_> = out.shape().unwrap().collect();
+        assert_eq!(shape.len(), 3);
+        assert_eq!(shape[0], SymExpr::from("batch"));
+        assert!(matches!(shape[1], SymExpr::Var(_)));
+        assert_eq!(shape[2], SymExpr::Value(2));
     }
 }
