@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 140;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 141;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 141] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 142] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -159,6 +159,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 141] = [
     OperatorType::Scatter,
     OperatorType::Upsample,
     OperatorType::RotaryEmbedding,
+    OperatorType::Attention,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -307,9 +308,10 @@ impl OperatorType {
     pub const Scatter: Self = Self(138);
     pub const Upsample: Self = Self(139);
     pub const RotaryEmbedding: Self = Self(140);
+    pub const Attention: Self = Self(141);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 140;
+    pub const ENUM_MAX: u8 = 141;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -452,6 +454,7 @@ impl OperatorType {
         Self::Scatter,
         Self::Upsample,
         Self::RotaryEmbedding,
+        Self::Attention,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -597,6 +600,7 @@ impl OperatorType {
             Self::Scatter => Some("Scatter"),
             Self::Upsample => Some("Upsample"),
             Self::RotaryEmbedding => Some("RotaryEmbedding"),
+            Self::Attention => Some("Attention"),
             _ => None,
         }
     }
@@ -1232,13 +1236,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 59;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 60;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 60] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 61] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1299,6 +1303,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 60] = [
     OperatorAttrs::DFTAttrs,
     OperatorAttrs::UpsampleAttrs,
     OperatorAttrs::RotaryEmbeddingAttrs,
+    OperatorAttrs::AttentionAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1366,9 +1371,10 @@ impl OperatorAttrs {
     pub const DFTAttrs: Self = Self(57);
     pub const UpsampleAttrs: Self = Self(58);
     pub const RotaryEmbeddingAttrs: Self = Self(59);
+    pub const AttentionAttrs: Self = Self(60);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 59;
+    pub const ENUM_MAX: u8 = 60;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1430,6 +1436,7 @@ impl OperatorAttrs {
         Self::DFTAttrs,
         Self::UpsampleAttrs,
         Self::RotaryEmbeddingAttrs,
+        Self::AttentionAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1494,6 +1501,7 @@ impl OperatorAttrs {
             Self::DFTAttrs => Some("DFTAttrs"),
             Self::UpsampleAttrs => Some("UpsampleAttrs"),
             Self::RotaryEmbeddingAttrs => Some("RotaryEmbeddingAttrs"),
+            Self::AttentionAttrs => Some("AttentionAttrs"),
             _ => None,
         }
     }
@@ -9173,6 +9181,198 @@ impl ::core::fmt::Debug for RotaryEmbeddingAttrs<'_> {
         ds.finish()
     }
 }
+pub enum AttentionAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct AttentionAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for AttentionAttrs<'a> {
+    type Inner = AttentionAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> AttentionAttrs<'a> {
+    pub const VT_IS_CAUSAL: ::flatbuffers::VOffsetT = 4;
+    pub const VT_Q_NUM_HEADS: ::flatbuffers::VOffsetT = 6;
+    pub const VT_KV_NUM_HEADS: ::flatbuffers::VOffsetT = 8;
+    pub const VT_SCALE: ::flatbuffers::VOffsetT = 10;
+    pub const VT_SOFTCAP: ::flatbuffers::VOffsetT = 12;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        AttentionAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args AttentionAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<AttentionAttrs<'bldr>> {
+        let mut builder = AttentionAttrsBuilder::new(_fbb);
+        builder.add_softcap(args.softcap);
+        if let Some(x) = args.scale {
+            builder.add_scale(x);
+        }
+        if let Some(x) = args.kv_num_heads {
+            builder.add_kv_num_heads(x);
+        }
+        if let Some(x) = args.q_num_heads {
+            builder.add_q_num_heads(x);
+        }
+        builder.add_is_causal(args.is_causal);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn is_causal(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(AttentionAttrs::VT_IS_CAUSAL, Some(false))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn q_num_heads(&self) -> Option<u32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<u32>(AttentionAttrs::VT_Q_NUM_HEADS, None) }
+    }
+    #[inline]
+    pub fn kv_num_heads(&self) -> Option<u32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<u32>(AttentionAttrs::VT_KV_NUM_HEADS, None) }
+    }
+    #[inline]
+    pub fn scale(&self) -> Option<f32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<f32>(AttentionAttrs::VT_SCALE, None) }
+    }
+    #[inline]
+    pub fn softcap(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(AttentionAttrs::VT_SOFTCAP, Some(0.0))
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for AttentionAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<bool>("is_causal", Self::VT_IS_CAUSAL, false)?
+            .visit_field::<u32>("q_num_heads", Self::VT_Q_NUM_HEADS, false)?
+            .visit_field::<u32>("kv_num_heads", Self::VT_KV_NUM_HEADS, false)?
+            .visit_field::<f32>("scale", Self::VT_SCALE, false)?
+            .visit_field::<f32>("softcap", Self::VT_SOFTCAP, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct AttentionAttrsArgs {
+    pub is_causal: bool,
+    pub q_num_heads: Option<u32>,
+    pub kv_num_heads: Option<u32>,
+    pub scale: Option<f32>,
+    pub softcap: f32,
+}
+impl<'a> Default for AttentionAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        AttentionAttrsArgs {
+            is_causal: false,
+            q_num_heads: None,
+            kv_num_heads: None,
+            scale: None,
+            softcap: 0.0,
+        }
+    }
+}
+
+pub struct AttentionAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> AttentionAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_is_causal(&mut self, is_causal: bool) {
+        self.fbb_
+            .push_slot::<bool>(AttentionAttrs::VT_IS_CAUSAL, is_causal, false);
+    }
+    #[inline]
+    pub fn add_q_num_heads(&mut self, q_num_heads: u32) {
+        self.fbb_
+            .push_slot_always::<u32>(AttentionAttrs::VT_Q_NUM_HEADS, q_num_heads);
+    }
+    #[inline]
+    pub fn add_kv_num_heads(&mut self, kv_num_heads: u32) {
+        self.fbb_
+            .push_slot_always::<u32>(AttentionAttrs::VT_KV_NUM_HEADS, kv_num_heads);
+    }
+    #[inline]
+    pub fn add_scale(&mut self, scale: f32) {
+        self.fbb_
+            .push_slot_always::<f32>(AttentionAttrs::VT_SCALE, scale);
+    }
+    #[inline]
+    pub fn add_softcap(&mut self, softcap: f32) {
+        self.fbb_
+            .push_slot::<f32>(AttentionAttrs::VT_SOFTCAP, softcap, 0.0);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> AttentionAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        AttentionAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<AttentionAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for AttentionAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("AttentionAttrs");
+        ds.field("is_causal", &self.is_causal());
+        ds.field("q_num_heads", &self.q_num_heads());
+        ds.field("kv_num_heads", &self.kv_num_heads());
+        ds.field("scale", &self.scale());
+        ds.field("softcap", &self.softcap());
+        ds.finish()
+    }
+}
 pub enum SequenceEmptyAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -11516,6 +11716,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_attention_attrs(&self) -> Option<AttentionAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::AttentionAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { AttentionAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -11587,6 +11802,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::DFTAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<DFTAttrs>>("OperatorAttrs::DFTAttrs", pos),
           OperatorAttrs::UpsampleAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<UpsampleAttrs>>("OperatorAttrs::UpsampleAttrs", pos),
           OperatorAttrs::RotaryEmbeddingAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<RotaryEmbeddingAttrs>>("OperatorAttrs::RotaryEmbeddingAttrs", pos),
+          OperatorAttrs::AttentionAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<AttentionAttrs>>("OperatorAttrs::AttentionAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -12257,6 +12473,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::RotaryEmbeddingAttrs => {
                 if let Some(x) = self.attrs_as_rotary_embedding_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::AttentionAttrs => {
+                if let Some(x) = self.attrs_as_attention_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

@@ -108,6 +108,7 @@ impl OnnxOpRegistry {
         register_op!(Asinh);
         register_op!(Atan);
         register_op!(Atanh);
+        register_op!(Attention);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
         register_op!(Cast);
@@ -733,6 +734,27 @@ impl_read_op!(Asin);
 impl_read_op!(Asinh);
 impl_read_op!(Atan);
 impl_read_op!(Atanh);
+
+impl_read_op!(Attention, |attrs: &Attrs| {
+    let is_causal = attrs.get_as("is_causal").unwrap_or(false);
+    let q_num_heads = attrs.get_as_int("q_num_heads")?;
+    let kv_num_heads = attrs.get_as_int("kv_num_heads")?;
+    let scale = attrs.get_as("scale");
+    let softcap = attrs.get_as("softcap").unwrap_or(0.0);
+
+    // `qk_matmul_output` output is unsupported
+    attrs.check_unused::<i64>("qk_matmul_output_mode")?;
+    // We always use f32 softmax precision
+    attrs.check_unused::<i64>("softmax_precision")?;
+
+    Ok(ops::Attention {
+        is_causal,
+        kv_num_heads,
+        q_num_heads,
+        scale,
+        softcap,
+    })
+});
 
 impl_read_op!(AveragePool, |attrs: &Attrs| {
     let PoolAttrs {

@@ -104,6 +104,7 @@ impl RtenOpRegistry {
         register_op!(Asinh);
         register_op!(Atan);
         register_op!(Atanh);
+        register_op!(Attention);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
         register_op!(Cast);
@@ -420,6 +421,19 @@ impl_read_op!(Asin);
 impl_read_op!(Asinh);
 impl_read_op!(Atan);
 impl_read_op!(Atanh);
+impl_read_op!(
+    Attention,
+    attrs_as_attention_attrs,
+    |attrs: sg::AttentionAttrs| {
+        Ok(ops::Attention {
+            is_causal: attrs.is_causal(),
+            kv_num_heads: attrs.kv_num_heads(),
+            q_num_heads: attrs.q_num_heads(),
+            scale: attrs.scale(),
+            softcap: attrs.softcap(),
+        })
+    }
+);
 impl_read_op!(
     AveragePool,
     attrs_as_average_pool_attrs,

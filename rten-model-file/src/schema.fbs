@@ -154,6 +154,7 @@ enum OperatorType: ubyte {
   Scatter,
   Upsample,
   RotaryEmbedding,
+  Attention,
 }
 
 enum RNNDirection: ubyte {
@@ -265,6 +266,7 @@ union OperatorAttrs {
   DFTAttrs,
   UpsampleAttrs,
   RotaryEmbeddingAttrs,
+  AttentionAttrs,
 }
 
 table ArgMaxAttrs {
@@ -564,6 +566,15 @@ table RotaryEmbeddingAttrs {
   interleaved:bool;
   num_heads:uint;
   rotary_embedding_dim:uint;
+}
+
+table AttentionAttrs {
+  is_causal:bool;
+  // Query / key-value head counts. Required for 3D inputs, unset for 4D inputs.
+  q_num_heads:uint = null;
+  kv_num_heads:uint = null;
+  scale:float = null;
+  softcap:float;
 }
 
 table SequenceEmptyAttrs {
