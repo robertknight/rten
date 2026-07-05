@@ -858,11 +858,12 @@ pub use contrib::GatherBlockQuantized;
 mod contrib {
     use rayon::prelude::*;
 
+    use rten_shape_inference::ops as shape_ops;
     use rten_tensor::prelude::*;
     use rten_tensor::{Tensor, TensorView};
 
     use crate::buffer_pool::{AutoReturn, BufferPool};
-    use crate::infer_shapes::InferShapes;
+    use crate::infer_shapes::{InferShapes, impl_infer_shapes};
     use crate::operator::{
         IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
         OutputTypesContext,
@@ -1108,9 +1109,18 @@ mod contrib {
         }
 
         fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-            None
+            Some(self)
         }
     }
+
+    impl_infer_shapes!(
+        GatherBlockQuantized,
+        op,
+        shape_ops::GatherBlockQuantized {
+            gather_axis: op.gather_axis as i32,
+            bits: op.bits as i32,
+        }
+    );
 }
 
 #[cfg(test)]

@@ -212,6 +212,60 @@ impl InferShapes for Gather {
     }
 }
 
+/// Non-standard GatherBlockQuantized operator.
+///
+/// See <https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.GatherBlockQuantized>.
+pub struct GatherBlockQuantized {
+    /// Axis of the data tensor to gather along.
+    pub gather_axis: i32,
+
+    /// Number of bits per quantized element of the data tensor.
+    pub bits: i32,
+}
+
+impl InferShapes for GatherBlockQuantized {
+    fn infer_shapes(
+        &self,
+        inputs: InferShapesContext,
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let data = inputs.require(0)?;
+        let indices = inputs.require(1)?;
+
+        if !matches!(self.bits, 2 | 4 | 8) {
+            return Err(InferShapesError::InvalidValue);
+        }
+        // Number of quantized elements packed into each byte of the data
+        // tensor.
+        let components = 8 / self.bits;
+
+        let Some(data_dims) = data.shape() else {
+            return Ok([SymTensor::unknown("unknown data shape")].into());
+        };
+        let Some(index_dims) = indices.shape() else {
+            return Ok([SymTensor::unknown("unknown indices shape")].into());
+        };
+
+        let mut data_dims: Vec<SymExpr> = data_dims.collect();
+        let ndim = data_dims.len();
+        let axis = resolve_axis(ndim, self.gather_axis)?;
+
+        // For uint8 data, quantized elements are packed along the last axis,
+        // so the dequantized output is `components` times larger along that
+        // axis.
+        if let Some(last) = data_dims.last_mut() {
+            *last = (last.clone() * SymExpr::Value(components)).simplify();
+        }
+
+        let mut out_shape = Vec::with_capacity(ndim + index_dims.len() - 1);
+        out_shape.extend(data_dims[..axis].iter().cloned());
+        out_shape.extend(index_dims);
+        out_shape.extend(data_dims[axis + 1..].iter().cloned());
+
+        Ok(vec![SymTensor::from_shape(out_shape)])
+    }
+}
+
 /// GatherElements operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__GatherElements.html>.
@@ -632,9 +686,9 @@ mod tests {
     use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
     use super::{
-        ConstantOfShape, Dropout, DynamicQuantizeLinear, FixedShape, Gather, GatherElements,
-        GatherND, GridSample, Identity, Multinomial, NonMaxSuppression, NonZero, Range,
-        SkipLayerNormalization, TopK, Where,
+        ConstantOfShape, Dropout, DynamicQuantizeLinear, FixedShape, Gather, GatherBlockQuantized,
+        GatherElements, GatherND, GridSample, Identity, Multinomial, NonMaxSuppression, NonZero,
+        Range, SkipLayerNormalization, TopK, Where,
     };
 
     #[test]
@@ -811,6 +865,47 @@ mod tests {
         let shape = sym_vec!("batch", 16, "seq");
         let indices = SymTensor::from_scalar(3.into());
         let result = infer(shape, indices, 0).err().unwrap();
+        assert_eq!(result, InferShapesError::InvalidValue);
+    }
+
+    #[test]
+    fn test_gather_block_quantized() {
+        let infer = |data, indices, gather_axis, bits| {
+            let mut sym_gen = SymbolGen::new();
+            let op = GatherBlockQuantized { gather_axis, bits };
+            op.infer_shapes([data, indices].into(), &mut sym_gen)
+        };
+
+        // 4-bit quantized embedding lookup. Two elements are packed per byte
+        // of the data tensor, so the output embedding size is twice the packed
+        // size.
+        let data = sym_shape!("vocab", 768);
+        let indices = sym_shape!("batch", "seq");
+        let result = infer(data, indices, 0, 4).unwrap();
+        assert_eq!(result[0], sym_shape!("batch", "seq", 1536));
+
+        // 8-bit data (no packing) with a symbolic quantized dim.
+        let data = sym_shape!("vocab", "embed");
+        let indices = sym_shape!("n_tokens");
+        let result = infer(data, indices, 0, 8).unwrap();
+        assert_eq!(result[0], sym_shape!("n_tokens", "embed"));
+
+        // Unknown data shape.
+        let data = SymTensor::unknown("unknown");
+        let indices = sym_shape!("n_tokens");
+        let result = infer(data, indices, 0, 4).unwrap();
+        assert_eq!(result[0].ndim(), None);
+
+        // Unknown indices shape.
+        let data = sym_shape!("vocab", 768);
+        let indices = SymTensor::unknown("unknown");
+        let result = infer(data, indices, 0, 4).unwrap();
+        assert_eq!(result[0].ndim(), None);
+
+        // Invalid bits.
+        let data = sym_shape!("vocab", 768);
+        let indices = sym_shape!("n_tokens");
+        let result = infer(data, indices, 0, 3).err().unwrap();
         assert_eq!(result, InferShapesError::InvalidValue);
     }
 
