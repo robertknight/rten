@@ -273,6 +273,7 @@ impl OnnxOpRegistry {
 
         // com.microsoft ops.
         register_op!("com.microsoft", BiasGelu, feature = "contrib");
+        register_op!("com.microsoft", GatherBlockQuantized, feature = "contrib");
         register_op!("com.microsoft", GroupQueryAttention, feature = "contrib");
         register_op!("com.microsoft", MatMulNBits, feature = "contrib");
         register_op!("com.microsoft", MultiHeadAttention, feature = "contrib");
@@ -1145,6 +1146,28 @@ impl_read_op!(GatherElements, |attrs: &Attrs| {
 impl_read_op!(GatherND, |attrs: &Attrs| {
     let batch_dims = attrs.get_as_int("batch_dims")?.unwrap_or(0);
     Ok(ops::GatherND { batch_dims })
+});
+
+impl_read_op!("com.microsoft", GatherBlockQuantized, |attrs: &Attrs| {
+    let bits: usize = attrs.get_as_int("bits")?.unwrap_or(4);
+    if !matches!(bits, 2 | 4 | 8) {
+        return Err(ReadOpError::attr_error("bits", "must be 2, 4 or 8"));
+    }
+    let block_size: usize = attrs.get_as_int("block_size")?.unwrap_or(128);
+    if block_size < 16 || !block_size.is_power_of_two() {
+        return Err(ReadOpError::attr_error(
+            "block_size",
+            "must be a power of 2 and at least 16",
+        ));
+    }
+    let gather_axis = attrs.get_as_int("gather_axis")?.unwrap_or(0);
+    let quantize_axis = attrs.get_as_int("quantize_axis")?.unwrap_or(1);
+    Ok(ops::GatherBlockQuantized {
+        bits,
+        block_size,
+        gather_axis,
+        quantize_axis,
+    })
 });
 
 impl_read_op!(Gelu, |attrs: &Attrs| {

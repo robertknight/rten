@@ -127,6 +127,7 @@ pub(crate) use {
 pub(crate) use {
     attention::{GroupQueryAttention, MultiHeadAttention},
     embedding::RotaryEmbeddingMicrosoft,
+    gather::GatherBlockQuantized,
     matmul::{AccuracyLevel, MatMulNBits},
     norm::{
         SimplifiedLayerNormalization, SkipLayerNormalization, SkipSimplifiedLayerNormalization,
