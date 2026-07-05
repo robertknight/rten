@@ -49,9 +49,8 @@ impl DataSlice {
     }
 }
 
-/// Errors reading tensor data from an external file.
 #[derive(Debug)]
-pub enum ExternalDataError {
+enum ExternalDataErrorKind {
     /// An IO error occurred when accessing the external file.
     IoError(std::io::Error),
 
@@ -59,7 +58,7 @@ pub enum ExternalDataError {
     InvalidLength,
 
     /// An invalid path was specified.
-    InvalidPath(PathBuf),
+    InvalidPath,
 
     /// External data is not supported in the current environment.
     NotSupported,
@@ -74,17 +73,49 @@ pub enum ExternalDataError {
     },
 
     /// The external data file path is disallowed.
-    DisallowedPath(PathBuf),
+    DisallowedPath,
+}
+
+/// Errors reading tensor data from an external file.
+#[derive(Debug)]
+pub struct ExternalDataError {
+    /// The path involved in the error.
+    ///
+    /// This should be the absolute path of the data file when available, but
+    /// for some errors it will be the path of the model or the relative data
+    /// file path specified in the model.
+    path: PathBuf,
+    /// The type of error that occurred.
+    kind: ExternalDataErrorKind,
+}
+
+impl ExternalDataError {
+    fn new(path: &Path, kind: ExternalDataErrorKind) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            kind,
+        }
+    }
+
+    fn from_io_error(path: &Path, err: std::io::Error) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            kind: ExternalDataErrorKind::IoError(err),
+        }
+    }
 }
 
 impl std::fmt::Display for ExternalDataError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::IoError(err) => write!(f, "io error: {}", err),
-            Self::InvalidLength => write!(f, "invalid data length"),
-            Self::InvalidPath(path) => write!(f, "invalid path \"{}\"", path.display()),
-            Self::NotSupported => write!(f, "external data not supported"),
-            Self::TooShort {
+        type Kind = ExternalDataErrorKind;
+
+        write!(f, "for path \"{}\": ", self.path.display())?;
+        match &self.kind {
+            Kind::IoError(err) => write!(f, "io error: {}", err),
+            Kind::InvalidLength => write!(f, "invalid data length"),
+            Kind::InvalidPath => write!(f, "invalid path"),
+            Kind::NotSupported => write!(f, "external data not supported"),
+            Kind::TooShort {
                 required_len,
                 actual_len,
             } => write!(
@@ -92,20 +123,14 @@ impl std::fmt::Display for ExternalDataError {
                 "file too short. required {} actual {}",
                 required_len, actual_len
             ),
-            Self::DisallowedPath(path) => {
-                write!(f, "disallowed path \"{}\"", path.display(),)
+            Kind::DisallowedPath => {
+                write!(f, "disallowed path")
             }
         }
     }
 }
 
 impl std::error::Error for ExternalDataError {}
-
-impl From<std::io::Error> for ExternalDataError {
-    fn from(val: std::io::Error) -> Self {
-        Self::IoError(val)
-    }
-}
 
 impl From<ExternalDataError> for LoadError {
     fn from(err: ExternalDataError) -> LoadError {
@@ -159,8 +184,8 @@ pub struct FileLoader {
     /// Path to directory containing external data.
     dir_path: PathBuf,
 
-    /// Map of external data file name to open file.
-    files: RefCell<HashMap<PathBuf, File>>,
+    /// Map of external data file name to (resolved file path, open file).
+    files: RefCell<HashMap<PathBuf, (PathBuf, File)>>,
 }
 
 impl FileLoader {
@@ -179,21 +204,30 @@ impl FileLoader {
     }
 
     fn read(&self, location: &DataLocation) -> Result<Vec<u8>, ExternalDataError> {
+        // Errors at the top of this function refer to the relative path in `location`.
+        let make_err = |kind| ExternalDataError::new(location.path.as_ref(), kind);
+
         // On a big-endian system we'd need to perform byte-swapping while loading.
         if cfg!(target_endian = "big") {
-            return Err(ExternalDataError::NotSupported);
+            return Err(make_err(ExternalDataErrorKind::NotSupported));
         }
 
         // On a 32-bit systems assume we can't load more than 2GB of data.
         if location.length > isize::MAX as u64 {
-            return Err(ExternalDataError::InvalidLength);
+            return Err(make_err(ExternalDataErrorKind::InvalidLength));
         }
         let vec_len = location.length as usize;
 
         let mut files = self.files.borrow_mut();
-        let mut file = get_or_open_file(&mut files, &self.dir_path, Path::new(&location.path))?;
+        let (file_path, file) =
+            get_or_open_file(&mut files, &self.dir_path, Path::new(&location.path))?;
+
+        // Subsequent errors refer to the resolved data file path.
+        let make_err = |kind| ExternalDataError::new(&file_path, kind);
+        let make_io_err = |err| ExternalDataError::from_io_error(&file_path, err);
+
         file.seek(SeekFrom::Start(location.offset))
-            .map_err(ExternalDataError::IoError)?;
+            .map_err(make_io_err)?;
 
         // Ideally we would fill the buffer in one call via [`Read::read_buf`].
         // Since that API is not stabilized yet, we fill in small chunks, which
@@ -207,8 +241,7 @@ impl FileLoader {
 
         loop {
             let tmp_size = remaining.min(TMP_SIZE);
-            let n_read =
-                read_fill(&mut file, &mut tmp[..tmp_size]).map_err(ExternalDataError::IoError)?;
+            let n_read = read_fill(file, &mut tmp[..tmp_size]).map_err(make_io_err)?;
             let chunk = &tmp[..n_read];
             remaining -= chunk.len();
             buf.extend_from_slice(chunk);
@@ -219,10 +252,10 @@ impl FileLoader {
         }
 
         if buf.len() != vec_len {
-            return Err(ExternalDataError::TooShort {
+            return Err(make_err(ExternalDataErrorKind::TooShort {
                 required_len: vec_len,
                 actual_len: buf.len(),
-            });
+            }));
         }
 
         Ok(buf)
@@ -231,7 +264,7 @@ impl FileLoader {
 
 /// Read from `src` repeatedly until `buf` is filled or we reach the end of the
 /// file.
-fn read_fill<R: Read>(mut src: R, buf: &mut [u8]) -> std::io::Result<usize> {
+fn read_fill<R: Read>(src: &mut R, buf: &mut [u8]) -> std::io::Result<usize> {
     let mut total_read = 0;
     loop {
         let n = src.read(&mut buf[total_read..])?;
@@ -254,21 +287,25 @@ impl DataLoader for FileLoader {
 }
 
 fn get_or_open_file<'a>(
-    files: &'a mut HashMap<PathBuf, File>,
+    files: &'a mut HashMap<PathBuf, (PathBuf, File)>,
     dir_path: &Path,
     data_path: &Path,
-) -> Result<&'a mut File, ExternalDataError> {
+) -> Result<&'a mut (PathBuf, File), ExternalDataError> {
     let data_path = Path::new(data_path);
     if !is_allowed_external_data_path(data_path) {
-        return Err(ExternalDataError::DisallowedPath(data_path.into()));
+        return Err(ExternalDataError::new(
+            data_path,
+            ExternalDataErrorKind::DisallowedPath,
+        ));
     }
 
     // Check if we already opened the file.
     if files.get(data_path).is_none() {
         let mut file_path = dir_path.to_path_buf();
         file_path.push(data_path);
-        let file = File::open(file_path).map_err(ExternalDataError::IoError)?;
-        files.insert(data_path.into(), file);
+        let file = File::open(&file_path)
+            .map_err(|err| ExternalDataError::from_io_error(&file_path, err))?;
+        files.insert(data_path.into(), (file_path, file));
     }
 
     Ok(files.get_mut(data_path).unwrap())
@@ -279,14 +316,19 @@ fn dir_path_from_model_path(model_path: &Path) -> Result<PathBuf, ExternalDataEr
     // an unexpected location if `model_path` is relative and the current
     // working directory changes before a data file is loaded.
     let model_path = if !cfg!(target_arch = "wasm32") {
-        model_path.canonicalize()?
+        model_path
+            .canonicalize()
+            .map_err(|err| ExternalDataError::from_io_error(model_path, err))?
     } else {
         // On WASM / WASI `Path::canonicalize` is not available.
         model_path.to_path_buf()
     };
 
     if !model_path.is_file() {
-        return Err(ExternalDataError::InvalidPath(model_path));
+        return Err(ExternalDataError::new(
+            &model_path,
+            ExternalDataErrorKind::InvalidPath,
+        ));
     }
     let dir_path = model_path
         .parent()
@@ -312,8 +354,8 @@ pub struct MmapLoader {
     /// Path to directory containing external data.
     dir_path: PathBuf,
 
-    /// Map of filename to open mmap-ed content.
-    mmaps: RefCell<HashMap<PathBuf, Arc<ConstantStorage>>>,
+    /// Map of filename to (resolved path, open mmap-ed content).
+    mmaps: RefCell<HashMap<PathBuf, (PathBuf, Arc<ConstantStorage>)>>,
 }
 
 #[cfg(feature = "mmap")]
@@ -340,50 +382,58 @@ impl MmapLoader {
         })
     }
 
-    fn get_or_open_mmap(
+    fn get_or_open_mmap<'a>(
         &self,
+        mmaps: &'a mut HashMap<PathBuf, (PathBuf, Arc<ConstantStorage>)>,
         data_path: &Path,
-    ) -> Result<Arc<ConstantStorage>, ExternalDataError> {
-        let mut mmaps = self.mmaps.borrow_mut();
-
+    ) -> Result<&'a (PathBuf, Arc<ConstantStorage>), ExternalDataError> {
         let data_path = Path::new(data_path);
         if !is_allowed_external_data_path(data_path) {
-            return Err(ExternalDataError::DisallowedPath(data_path.into()));
+            return Err(ExternalDataError::new(
+                &data_path,
+                ExternalDataErrorKind::DisallowedPath,
+            ));
         }
 
         // Check if we already opened the file.
         if mmaps.get(data_path).is_none() {
             let mut file_path = self.dir_path.to_path_buf();
             file_path.push(data_path);
-            let file = File::open(file_path).map_err(ExternalDataError::IoError)?;
+
+            let make_io_err = |err| ExternalDataError::from_io_error(&file_path, err);
+            let file = File::open(&file_path).map_err(make_io_err)?;
 
             // Safety: By constructing an instance of `Self`, the caller has
             // accepted the risks that come with mmap.
-            let mmap = unsafe { Mmap::map(&file) }?;
+            let mmap = unsafe { Mmap::map(&file) }.map_err(make_io_err)?;
 
             let storage = Arc::new(ConstantStorage::Mmap(mmap));
-            mmaps.insert(data_path.into(), storage);
+            mmaps.insert(data_path.into(), (file_path, storage));
         }
 
-        Ok(mmaps.get(data_path).unwrap().clone())
+        Ok(mmaps.get(data_path).unwrap())
     }
 }
 
 #[cfg(feature = "mmap")]
 impl DataLoader for MmapLoader {
     fn load(&self, location: &DataLocation) -> Result<DataSlice, ExternalDataError> {
-        let storage = self.get_or_open_mmap(Path::new(&location.path))?;
+        let mut mmaps = self.mmaps.borrow_mut();
+        let (file_path, storage) = self.get_or_open_mmap(&mut mmaps, Path::new(&location.path))?;
 
         let end_offset = location.offset.saturating_add(location.length);
         if end_offset > storage.data().len() as u64 {
-            return Err(ExternalDataError::TooShort {
-                required_len: end_offset as usize,
-                actual_len: storage.data().len(),
-            });
+            return Err(ExternalDataError::new(
+                &file_path,
+                ExternalDataErrorKind::TooShort {
+                    required_len: end_offset as usize,
+                    actual_len: storage.data().len(),
+                },
+            ));
         }
 
         Ok(DataSlice {
-            storage,
+            storage: storage.clone(),
             bytes: location.offset as usize..location.offset as usize + location.length as usize,
         })
     }
@@ -416,26 +466,29 @@ impl MemLoader {
 
 impl DataLoader for MemLoader {
     fn load(&self, location: &DataLocation) -> Result<DataSlice, ExternalDataError> {
+        let make_err = |kind| ExternalDataError::new(location.path.as_ref(), kind);
+
         // The restrictions on allowed data paths don't matter for the in-memory
         // data loader, but we apply them for consistency with other loaders.
         if !is_allowed_external_data_path(Path::new(&location.path)) {
-            return Err(ExternalDataError::DisallowedPath(
-                location.path.clone().into(),
-            ));
+            return Err(make_err(ExternalDataErrorKind::DisallowedPath));
         }
         let Some(storage) = self.0.get(&location.path) else {
             // Error message chosen to match the file loader.
-            return Err(ExternalDataError::IoError(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "No such file or directory".to_string(),
-            )));
+            return Err(ExternalDataError::from_io_error(
+                location.path.as_ref(),
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "No such file or directory".to_string(),
+                ),
+            ));
         };
         let end_offset = location.offset + location.length;
         if end_offset > storage.data().len() as u64 {
-            return Err(ExternalDataError::TooShort {
+            return Err(make_err(ExternalDataErrorKind::TooShort {
                 required_len: end_offset as usize,
                 actual_len: storage.data().len(),
-            });
+            }));
         }
 
         let bytes = (location.offset as usize)..end_offset as usize;
