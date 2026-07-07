@@ -89,6 +89,7 @@ pub mod macos {
 /// because that can return incorrect results on macOS.
 #[cfg(target_arch = "x86_64")]
 pub fn is_avx512_supported() -> bool {
+    #[allow(clippy::needless_bool)]
     if is_x86_feature_detected!("avx512f")
         && is_x86_feature_detected!("avx512vl")
         && is_x86_feature_detected!("avx512bw")

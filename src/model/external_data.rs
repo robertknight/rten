@@ -223,8 +223,8 @@ impl FileLoader {
             get_or_open_file(&mut files, &self.dir_path, Path::new(&location.path))?;
 
         // Subsequent errors refer to the resolved data file path.
-        let make_err = |kind| ExternalDataError::new(&file_path, kind);
-        let make_io_err = |err| ExternalDataError::from_io_error(&file_path, err);
+        let make_err = |kind| ExternalDataError::new(file_path, kind);
+        let make_io_err = |err| ExternalDataError::from_io_error(file_path, err);
 
         file.seek(SeekFrom::Start(location.offset))
             .map_err(make_io_err)?;
@@ -390,7 +390,7 @@ impl MmapLoader {
         let data_path = Path::new(data_path);
         if !is_allowed_external_data_path(data_path) {
             return Err(ExternalDataError::new(
-                &data_path,
+                data_path,
                 ExternalDataErrorKind::DisallowedPath,
             ));
         }
@@ -424,7 +424,7 @@ impl DataLoader for MmapLoader {
         let end_offset = location.offset.saturating_add(location.length);
         if end_offset > storage.data().len() as u64 {
             return Err(ExternalDataError::new(
-                &file_path,
+                file_path,
                 ExternalDataErrorKind::TooShort {
                     required_len: end_offset as usize,
                     actual_len: storage.data().len(),
