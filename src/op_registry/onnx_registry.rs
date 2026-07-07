@@ -246,6 +246,7 @@ impl OnnxOpRegistry {
         register_op!(SimplifiedLayerNormalization);
 
         // com.microsoft ops.
+        register_op!(BiasGelu);
         register_op!(GroupQueryAttention);
         register_op!(MatMulNBits);
         register_op!(MultiHeadAttention);
@@ -784,6 +785,10 @@ impl_read_op!(BatchNormalization, |attrs: &Attrs| {
 
     let epsilon = attrs.get("epsilon").map(|v| v.as_f32()).unwrap_or(1e-05);
     Ok(ops::BatchNormalization { epsilon })
+});
+
+impl_read_op!("com.microsoft", BiasGelu, |_attrs: &Attrs| {
+    Ok(ops::BiasGelu {})
 });
 
 impl_read_op!(Cast, |attrs: &Attrs| {
