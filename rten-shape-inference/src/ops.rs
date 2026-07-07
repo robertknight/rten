@@ -491,12 +491,12 @@ impl InferShapes for Range {
     }
 }
 
-/// SkipSimplifiedLayerNormalization operator.
+/// SkipLayerNormalization / SkipSimplifiedLayerNormalization operators.
 ///
-/// See <https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.SkipSimplifiedLayerNormalization>.
-pub struct SkipSimplifiedLayerNormalization;
+/// See <https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.SkipLayerNormalization>.
+pub struct SkipLayerNormalization;
 
-impl InferShapes for SkipSimplifiedLayerNormalization {
+impl InferShapes for SkipLayerNormalization {
     fn infer_shapes(
         &self,
         inputs: InferShapesContext,
@@ -634,7 +634,7 @@ mod tests {
     use super::{
         ConstantOfShape, Dropout, DynamicQuantizeLinear, FixedShape, Gather, GatherElements,
         GatherND, GridSample, Identity, Multinomial, NonMaxSuppression, NonZero, Range,
-        SkipSimplifiedLayerNormalization, TopK, Where,
+        SkipLayerNormalization, TopK, Where,
     };
 
     #[test]
@@ -728,13 +728,13 @@ mod tests {
     }
 
     #[test]
-    fn test_skip_simplified_layer_normalization() {
+    fn test_skip_layer_normalization() {
         let mut sym_gen = SymbolGen::new();
 
         // `output` and `input_skip_bias_sum` match the input shape, while
         // `mean` and `inv_std_var` are empty placeholders.
         let data = sym_shape!("batch", "seq", 32);
-        let result = SkipSimplifiedLayerNormalization
+        let result = SkipLayerNormalization
             .infer_shapes([data].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(
@@ -749,7 +749,7 @@ mod tests {
 
         // Unknown input shape.
         let data = SymTensor::unknown("unknown");
-        let result = SkipSimplifiedLayerNormalization
+        let result = SkipLayerNormalization
             .infer_shapes([data].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result.len(), 4);
@@ -759,7 +759,7 @@ mod tests {
         assert_eq!(result[3].ndim(), None);
 
         // Missing input.
-        let err = SkipSimplifiedLayerNormalization
+        let err = SkipLayerNormalization
             .infer_shapes(InferShapesContext::new(&[]), &mut sym_gen)
             .err();
         assert_eq!(err, Some(InferShapesError::IncorrectInputCount));

@@ -805,28 +805,94 @@ impl Operator for Softmax {
 }
 
 #[cfg(feature = "onnx_format")]
-pub use contrib::{SimplifiedLayerNormalization, SkipSimplifiedLayerNormalization};
+pub use contrib::{
+    SimplifiedLayerNormalization, SkipLayerNormalization, SkipSimplifiedLayerNormalization,
+};
 
 #[cfg(feature = "onnx_format")]
 mod contrib {
     use rten_shape_inference::ops as shape_ops;
     use rten_tensor::prelude::*;
-    use rten_tensor::{Tensor, TensorView};
+    use rten_tensor::{NdTensorView, Tensor, TensorView};
 
+    use crate::buffer_pool::AutoReturn;
     use crate::infer_shapes::{InferShapes, UnaryOp};
     use crate::operator::{
         IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
         OutputTypesContext,
     };
-    use crate::ops::add;
+    use crate::ops::binary_elementwise::{add, add_in_place};
 
     use super::{MeanNormalize, layer_normalization_impl, rms_normalization};
 
+    /// Fusion of layer normalization and addition.
+    ///
+    /// This computes `norm(input + skip + bias) * gamma + beta`.
+    /// `mean_normalize` controls whether layer normalization is used or RMS
+    /// normalization.
+    fn skip_layer_normalization(
+        ctx: &OpRunContext,
+        input: TensorView,
+        skip: TensorView,
+        gamma: NdTensorView<f32, 1>,
+        beta: Option<NdTensorView<f32, 1>>,
+        bias: Option<NdTensorView<f32, 1>>,
+        epsilon: f32,
+        mean_normalize: MeanNormalize,
+    ) -> Result<OutputList, OpError> {
+        if !matches!(input.ndim(), 2 | 3) {
+            return Err(OpError::InvalidValue("input must be 2 or 3 dimensioned"));
+        }
+
+        // `skip` may either match `input` exactly or broadcast over the batch
+        // dimension (a batch size of 1, or no batch dimension at all). Its
+        // trailing dimensions must match those of `input`. This matches ONNX
+        // Runtime, which indexes `skip` modulo its own size.
+        if !matches!(skip.ndim(), 2 | 3) {
+            return Err(OpError::InvalidValue("skip must be 2 or 3 dimensioned"));
+        }
+        if skip.shape()[skip.ndim() - 2..] != input.shape()[input.ndim() - 2..]
+            || !skip.can_broadcast_to(input.shape())
+        {
+            return Err(OpError::IncompatibleInputShapes(
+                "skip must broadcast to input over the batch dimension",
+            ));
+        }
+
+        // TODO: Fuse the addition of `skip` and `bias` with normalization.
+        let mut x_plus_skip = add(ctx.pool(), input, skip)?.auto_return(ctx.pool());
+        if let Some(bias) = bias {
+            add_in_place(x_plus_skip.view_mut(), bias.as_dyn());
+        }
+
+        let output = layer_normalization_impl(
+            ctx.pool(),
+            x_plus_skip.view(),
+            gamma.as_dyn(),
+            beta.map(|b| b.as_dyn()),
+            -1,
+            Some(epsilon),
+            mean_normalize,
+        )?;
+
+        let mut outputs: OutputList = [output.into()].into();
+        if ctx.outputs().get(3) {
+            // `mean` and `inv_std_var` are used for training. Here we push
+            // dummy values.
+            outputs.push(Tensor::from(0.).into()); // mean
+            outputs.push(Tensor::from(0.).into()); // inv_std_var
+            outputs.push(x_plus_skip.take().into());
+        }
+
+        Ok(outputs)
+    }
+
     /// Simplified Layer Normalization
     ///
-    /// This is a experimental ONNX operator for layer normalization which is equivalent to the later
-    /// stabilised RMSNormalization. See [onnx/onnx#6582](https://github.com/onnx/onnx/issues/6582) for
-    /// more details.
+    /// This is a non-standard ONNX operator for layer normalization which is
+    /// equivalent to the later stabilised RMSNormalization. See
+    /// [onnx/onnx#6582](https://github.com/onnx/onnx/issues/6582) for more
+    /// details.
     #[derive(Debug)]
     pub struct SimplifiedLayerNormalization {
         pub axis: isize,
@@ -856,6 +922,68 @@ mod contrib {
 
         fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
             Some(&UnaryOp)
+        }
+    }
+
+    /// Skip Layer Normalization
+    ///
+    /// This is a fusion of `Add` and `LayerNormalization`.
+    ///
+    /// See <https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.SkipLayerNormalization>.
+    #[derive(Debug)]
+    pub struct SkipLayerNormalization {
+        pub epsilon: f32,
+    }
+
+    impl Operator for SkipLayerNormalization {
+        fn name(&self) -> &str {
+            "SkipLayerNormalization"
+        }
+
+        fn max_inputs(&self) -> Option<usize> {
+            Some(5)
+        }
+
+        fn max_outputs(&self) -> Option<usize> {
+            Some(4)
+        }
+
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+            let inputs = ctx.inputs();
+            let input: TensorView<_> = inputs.require_as(0)?;
+            let skip: TensorView<_> = inputs.require_as(1)?;
+
+            // Scale (gamma) and bias (beta) applied after normalization.
+            let gamma: NdTensorView<_, 1> = inputs.require_as(2)?;
+            let beta: Option<NdTensorView<_, 1>> = inputs.get_as(3)?;
+
+            // Bias added to `input + skip` before normalization.
+            let bias: Option<NdTensorView<_, 1>> = inputs.get_as(4)?;
+
+            skip_layer_normalization(
+                ctx,
+                input,
+                skip,
+                gamma,
+                beta,
+                bias,
+                self.epsilon,
+                MeanNormalize::Dynamic,
+            )
+        }
+
+        fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+            let mut types = OutputTypeList::from([OutputType::CopyFromInput(0)]);
+            if ctx.num_outputs > 1 {
+                types.push(OutputType::CopyFromInput(0));
+                types.push(OutputType::CopyFromInput(0));
+                types.push(OutputType::CopyFromInput(0));
+            }
+            Some(types)
+        }
+
+        fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+            Some(&shape_ops::SkipLayerNormalization)
         }
     }
 
@@ -889,43 +1017,20 @@ mod contrib {
             let skip: TensorView<_> = inputs.require_as(1)?;
 
             // Scale factor, called gamma (γ) in the RMS normalization paper.
-            let gamma: TensorView<_> = inputs.require_as(2)?;
+            let gamma: NdTensorView<_, 1> = inputs.require_as(2)?;
 
-            let bias: Option<TensorView<_>> = inputs.get_as(3)?;
+            let bias: Option<NdTensorView<_, 1>> = inputs.get_as(3)?;
 
-            if input.shape() != skip.shape() {
-                return Err(OpError::IncompatibleInputShapes(
-                    "input and skip tensor shapes must match",
-                ));
-            }
-
-            if !matches!(input.ndim(), 2 | 3) {
-                return Err(OpError::InvalidValue("input must be 2 or 3 dimensioned"));
-            }
-
-            let mut x_plus_skip = add(ctx.pool(), input, skip)?;
-            if let Some(bias) = bias {
-                x_plus_skip = add(ctx.pool(), x_plus_skip.view(), bias)?;
-            }
-
-            let output = layer_normalization_impl(
-                ctx.pool(),
-                x_plus_skip.view(),
+            skip_layer_normalization(
+                ctx,
+                input,
+                skip,
                 gamma,
-                None,
-                -1,
-                Some(self.epsilon),
+                None, // beta
+                bias,
+                self.epsilon,
                 MeanNormalize::DynamicRootMeanSquare,
-            )?;
-
-            let mut outputs: OutputList = [output.into()].into();
-            if ctx.outputs().get(3) {
-                outputs.push(Tensor::<f32>::zeros(&[0]).into()); // mean dummy
-                outputs.push(Tensor::<f32>::zeros(&[0]).into()); // inv_std_var dummy
-                outputs.push(x_plus_skip.into());
-            }
-
-            Ok(outputs)
+            )
         }
 
         fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -939,7 +1044,7 @@ mod contrib {
         }
 
         fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-            Some(&shape_ops::SkipSimplifiedLayerNormalization)
+            Some(&shape_ops::SkipLayerNormalization)
         }
     }
 }
@@ -961,9 +1066,9 @@ mod tests {
         log_softmax, rms_normalization, softmax,
     };
     use crate::buffer_pool::BufferPool;
-    use crate::operator::{InputList, OpRunContext, Operator, OperatorExt};
+    use crate::operator::{InputList, OpRunContext, Operator, OutputList};
     use crate::ops::tests::expect_eq_1e4;
-    use crate::ops::{OpError, SkipSimplifiedLayerNormalization};
+    use crate::ops::{OpError, SkipLayerNormalization, SkipSimplifiedLayerNormalization};
 
     #[test]
     fn test_batch_norm() {
@@ -1245,17 +1350,84 @@ mod tests {
         Ok(())
     }
 
-    fn reference_skip_simplified_layer_norm(
+    /// Wrapper around `SkipLayerNormalization` and
+    /// `SkipSimplifiedLayerNormalization` so the same tests can be used with
+    /// both.
+    #[derive(Clone, Copy, Debug)]
+    enum SkipNormOp {
+        /// `SkipLayerNormalization`: mean-centering layer norm, supports `beta`.
+        Standard,
+        /// `SkipSimplifiedLayerNormalization`: RMS normalization, no `beta`.
+        Simplified,
+    }
+
+    impl SkipNormOp {
+        /// Whether normalization subtracts the mean (layer norm).
+        fn subtracts_mean(self) -> bool {
+            matches!(self, SkipNormOp::Standard)
+        }
+
+        /// Run the operator with the given logical inputs.
+        fn run(
+            self,
+            input: TensorView,
+            skip: TensorView,
+            gamma: TensorView,
+            beta: Option<TensorView>,
+            bias: Option<TensorView>,
+            epsilon: f32,
+            outputs: BitSet<u64>,
+        ) -> Result<OutputList, OpError> {
+            let mut inputs = InputList::new();
+            inputs.push(input);
+            inputs.push(skip);
+            inputs.push(gamma);
+
+            let pool = BufferPool::new();
+            match self {
+                SkipNormOp::Standard => {
+                    // Inputs: input, skip, gamma, beta?, bias?
+                    inputs.push_optional(beta);
+                    inputs.push_optional(bias);
+                    let op = SkipLayerNormalization { epsilon };
+                    let ctx = OpRunContext::new(&pool, &inputs, outputs);
+                    op.run(&ctx)
+                }
+                SkipNormOp::Simplified => {
+                    // Inputs: input, skip, gamma, bias?
+                    assert!(
+                        beta.is_none(),
+                        "SkipSimplifiedLayerNormalization has no beta input"
+                    );
+                    inputs.push_optional(bias);
+                    let op = SkipSimplifiedLayerNormalization { epsilon };
+                    let ctx = OpRunContext::new(&pool, &inputs, outputs);
+                    op.run(&ctx)
+                }
+            }
+        }
+    }
+
+    /// Reference implementation of skip (simplified) layer normalization.
+    ///
+    /// Computes `norm(input + skip + bias) * gamma + beta` over the last
+    /// dimension. When `subtract_mean` is true this is standard layer norm,
+    /// otherwise it is RMS normalization (in which case `beta` is unused).
+    fn reference_skip_layer_norm(
         input: TensorView,
         skip: TensorView,
         gamma: TensorView,
+        beta: Option<TensorView>,
         bias: Option<TensorView>,
         epsilon: f32,
+        subtract_mean: bool,
     ) -> Tensor {
-        assert_eq!(input.shape(), skip.shape());
+        let skip = skip.broadcast(input.shape());
         let last = input.size(input.ndim() - 1);
         let gamma = gamma.to_vec();
+        let beta = beta.map(|b| b.to_vec()).unwrap_or_else(|| vec![0.0; last]);
         let bias = bias.map(|b| b.to_vec()).unwrap_or_else(|| vec![0.0; last]);
+
         let sum: Vec<f32> = input
             .iter()
             .zip(skip.iter())
@@ -1265,157 +1437,214 @@ mod tests {
 
         let mut out = Vec::with_capacity(sum.len());
         for row in sum.chunks(last) {
-            let ms = row.iter().map(|x| x * x).sum::<f32>() / last as f32;
-            let denom = (ms + epsilon).sqrt();
-            for (x, g) in row.iter().zip(&gamma) {
-                out.push((x / denom) * g);
+            let mean = if subtract_mean {
+                row.iter().sum::<f32>() / last as f32
+            } else {
+                0.0
+            };
+            let var = row.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / last as f32;
+            let denom = (var + epsilon).sqrt();
+            for ((x, g), b) in row.iter().zip(&gamma).zip(&beta) {
+                out.push(((x - mean) / denom) * g + b);
             }
         }
         Tensor::from_data(input.shape(), out)
     }
 
     #[test]
-    fn test_skip_simplified_layer_normalization() -> Result<(), Box<dyn Error>> {
+    fn test_skip_layer_normalization() {
         #[derive(Debug)]
         struct Case {
+            op: SkipNormOp,
             input: Tensor,
             skip: Tensor,
             gamma: Tensor,
+            beta: Option<Tensor>,
             bias: Option<Tensor>,
         }
 
-        let mut rng = XorShiftRng::new(1234);
-        let cases = [
+        // Shape configurations exercised for each operator variant, as
+        // `(input shape, skip shape, has bias)`.
+        let shape_cases: [(&[usize], &[usize], bool); 5] = [
             // 2D input, no bias
-            Case {
-                input: Tensor::rand(&[3, 4], &mut rng),
-                skip: Tensor::rand(&[3, 4], &mut rng),
-                gamma: Tensor::rand(&[4], &mut rng),
-                bias: None,
-            },
+            (&[3, 4], &[3, 4], false),
             // 2D input, with bias
-            Case {
-                input: Tensor::rand(&[3, 4], &mut rng),
-                skip: Tensor::rand(&[3, 4], &mut rng),
-                gamma: Tensor::rand(&[4], &mut rng),
-                bias: Some(Tensor::rand(&[4], &mut rng)),
-            },
+            (&[3, 4], &[3, 4], true),
             // 3D input (typical transformer shape: [batch, seq, hidden])
-            Case {
-                input: Tensor::rand(&[2, 3, 4], &mut rng),
-                skip: Tensor::rand(&[2, 3, 4], &mut rng),
-                gamma: Tensor::rand(&[4], &mut rng),
-                bias: Some(Tensor::rand(&[4], &mut rng)),
-            },
+            (&[2, 3, 4], &[2, 3, 4], true),
+            // 3D input with `skip` broadcast over the batch dimension
+            (&[2, 3, 4], &[1, 3, 4], false),
+            // 3D input with a 2D `skip` (no batch dimension)
+            (&[2, 3, 4], &[3, 4], true),
         ];
 
         let epsilon = 1e-5;
+        let mut rng = XorShiftRng::new(1234);
+        let mut cases = Vec::new();
+        for op in [SkipNormOp::Standard, SkipNormOp::Simplified] {
+            for &(input_shape, skip_shape, has_bias) in &shape_cases {
+                let last = *input_shape.last().unwrap();
+                let input = Tensor::rand(input_shape, &mut rng);
+                let skip = Tensor::rand(skip_shape, &mut rng);
+                let gamma = Tensor::rand(&[last], &mut rng);
+                let bias = has_bias.then(|| Tensor::rand(&[last], &mut rng));
+                // Only the standard variant has a `beta` input.
+                let beta = op.subtracts_mean().then(|| Tensor::rand(&[last], &mut rng));
+                cases.push(Case {
+                    op,
+                    input,
+                    skip,
+                    gamma,
+                    beta,
+                    bias,
+                });
+            }
+        }
+
         cases.test_each(|case| {
-            let op = SkipSimplifiedLayerNormalization { epsilon };
-            let result: Tensor = if let Some(bias) = case.bias.as_ref() {
-                op.run_simple((
+            let mut outputs = case
+                .op
+                .run(
                     case.input.view(),
                     case.skip.view(),
                     case.gamma.view(),
-                    bias.view(),
-                ))
-            } else {
-                op.run_simple((case.input.view(), case.skip.view(), case.gamma.view()))
-            }
-            .unwrap();
+                    case.beta.as_ref().map(|b| b.view()),
+                    case.bias.as_ref().map(|b| b.view()),
+                    epsilon,
+                    BitSet::from_indices([0]),
+                )
+                .unwrap();
+            let result: Tensor = outputs.remove(0).try_into().unwrap();
 
-            let expected = reference_skip_simplified_layer_norm(
+            let expected = reference_skip_layer_norm(
                 case.input.view(),
                 case.skip.view(),
                 case.gamma.view(),
+                case.beta.as_ref().map(|b| b.view()),
                 case.bias.as_ref().map(|b| b.view()),
                 epsilon,
+                case.op.subtracts_mean(),
             );
             expect_eq_1e4(&result, &expected).unwrap();
         });
-
-        Ok(())
     }
 
     #[test]
-    fn test_skip_simplified_layer_normalization_optional_outputs() {
-        let op = SkipSimplifiedLayerNormalization { epsilon: 1e-5 };
+    fn test_skip_layer_normalization_optional_outputs() {
+        #[derive(Debug)]
+        struct Case {
+            op: SkipNormOp,
+            beta: Option<Tensor>,
+        }
 
         let input = Tensor::from([[1., 2.], [3., 4.]]);
         let skip = Tensor::from([[10., 20.], [30., 40.]]);
         let gamma = Tensor::from([1., 1.]);
         let bias = Tensor::from([0.5, -0.5]);
+        let epsilon = 1e-5;
 
-        let mut inputs = InputList::new();
-        inputs.push(input.view());
-        inputs.push(skip.view());
-        inputs.push(gamma.view());
-        inputs.push(bias.view());
-
-        let pool = BufferPool::new();
-        let ctx = OpRunContext::new(&pool, &inputs, BitSet::from_indices([0, 3]));
-
-        let mut outputs = op.run(&ctx).unwrap();
-        assert_eq!(outputs.len(), 4);
-
-        let output: Tensor = outputs.remove(0).try_into().unwrap();
-        outputs.remove(0); // mean dummy
-        outputs.remove(0); // inv_std_var dummy
-        let input_skip_bias_sum: Tensor = outputs.remove(0).try_into().unwrap();
-
+        // `input + skip + bias` is independent of the normalization variant.
         let expected_sum = Tensor::from([[11.5, 21.5], [33.5, 43.5]]);
-        let expected_output = reference_skip_simplified_layer_norm(
-            input.view(),
-            skip.view(),
-            gamma.view(),
-            Some(bias.view()),
-            op.epsilon,
-        );
 
-        expect_eq_1e4(&output, &expected_output).unwrap();
-        expect_equal(&input_skip_bias_sum.view(), &expected_sum.view()).unwrap();
+        let cases = [
+            Case {
+                op: SkipNormOp::Standard,
+                beta: Some(Tensor::from([0.25, -0.25])),
+            },
+            Case {
+                op: SkipNormOp::Simplified,
+                beta: None,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let mut outputs = case
+                .op
+                .run(
+                    input.view(),
+                    skip.view(),
+                    gamma.view(),
+                    case.beta.as_ref().map(|b| b.view()),
+                    Some(bias.view()),
+                    epsilon,
+                    BitSet::from_indices([0, 3]),
+                )
+                .unwrap();
+            assert_eq!(outputs.len(), 4);
+
+            let output: Tensor = outputs.remove(0).try_into().unwrap();
+            outputs.remove(0); // mean dummy
+            outputs.remove(0); // inv_std_var dummy
+            let input_skip_bias_sum: Tensor = outputs.remove(0).try_into().unwrap();
+
+            let expected_output = reference_skip_layer_norm(
+                input.view(),
+                skip.view(),
+                gamma.view(),
+                case.beta.as_ref().map(|b| b.view()),
+                Some(bias.view()),
+                epsilon,
+                case.op.subtracts_mean(),
+            );
+
+            expect_eq_1e4(&output, &expected_output).unwrap();
+            expect_equal(&input_skip_bias_sum.view(), &expected_sum.view()).unwrap();
+        });
     }
 
     #[test]
-    fn test_skip_simplified_layer_normalization_invalid() {
+    fn test_skip_layer_normalization_invalid() {
         #[derive(Debug)]
         struct Case {
+            op: SkipNormOp,
             input: Tensor,
             skip: Tensor,
             gamma: Tensor,
             expected: OpError,
         }
 
-        let cases = [
-            // Mismatched input/skip shapes
-            Case {
-                input: Tensor::zeros(&[2, 4]),
-                skip: Tensor::zeros(&[2, 3]),
-                gamma: Tensor::zeros(&[4]),
-                expected: OpError::IncompatibleInputShapes(
-                    "input and skip tensor shapes must match",
-                ),
-            },
-            // 1D input is unsupported
-            Case {
-                input: Tensor::zeros(&[4]),
-                skip: Tensor::zeros(&[4]),
-                gamma: Tensor::zeros(&[4]),
-                expected: OpError::InvalidValue("input must be 2 or 3 dimensioned"),
-            },
-            // 4D input is unsupported
-            Case {
-                input: Tensor::zeros(&[1, 1, 2, 4]),
-                skip: Tensor::zeros(&[1, 1, 2, 4]),
-                gamma: Tensor::zeros(&[4]),
-                expected: OpError::InvalidValue("input must be 2 or 3 dimensioned"),
-            },
-        ];
+        let mut cases = Vec::new();
+        for op in [SkipNormOp::Standard, SkipNormOp::Simplified] {
+            cases.extend([
+                // Mismatched input/skip shapes
+                Case {
+                    op,
+                    input: Tensor::zeros(&[2, 4]),
+                    skip: Tensor::zeros(&[2, 3]),
+                    gamma: Tensor::zeros(&[4]),
+                    expected: OpError::IncompatibleInputShapes(
+                        "skip must broadcast to input over the batch dimension",
+                    ),
+                },
+                // 1D input is unsupported
+                Case {
+                    op,
+                    input: Tensor::zeros(&[4]),
+                    skip: Tensor::zeros(&[4]),
+                    gamma: Tensor::zeros(&[4]),
+                    expected: OpError::InvalidValue("input must be 2 or 3 dimensioned"),
+                },
+                // 4D input is unsupported
+                Case {
+                    op,
+                    input: Tensor::zeros(&[1, 1, 2, 4]),
+                    skip: Tensor::zeros(&[1, 1, 2, 4]),
+                    gamma: Tensor::zeros(&[4]),
+                    expected: OpError::InvalidValue("input must be 2 or 3 dimensioned"),
+                },
+            ]);
+        }
 
         cases.test_each(|case| {
-            let op = SkipSimplifiedLayerNormalization { epsilon: 1e-5 };
-            let result: Result<Tensor, _> =
-                op.run_simple((case.input.view(), case.skip.view(), case.gamma.view()));
+            let result = case.op.run(
+                case.input.view(),
+                case.skip.view(),
+                case.gamma.view(),
+                None,
+                None,
+                1e-5,
+                BitSet::from_indices([0]),
+            );
             let err = result.err().expect("expected an error");
             assert_eq!(&err, &case.expected);
         })
