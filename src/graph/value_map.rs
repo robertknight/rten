@@ -74,3 +74,9 @@ impl ValueMap {
         self.max_bytes
     }
 }
+
+impl Default for ValueMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}

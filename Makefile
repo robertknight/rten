@@ -23,7 +23,10 @@ docs:
 
 .PHONY: lint
 lint:
-	cargo clippy --workspace
+	# `-D warnings` triggers non-zero exit on warnings. `-A unknown_lints` allows
+	# for compiling with an older Rust version (eg. MSRV) that doesn't know about
+	# some lints referenced in config/attributes.
+	cargo clippy --workspace -- -D warnings -A unknown_lints
 
 .PHONY: miri
 miri:
