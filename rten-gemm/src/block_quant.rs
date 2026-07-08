@@ -101,6 +101,11 @@ impl BlockQuantizedGemm {
             };
 
         let col_block = 16;
+
+        // Per-block sums of the current LHS row, needed to correct the output
+        // if the RHS has non-default zero points. See `zero_point_correction`.
+        let mut lhs_block_sums: Vec<f32> = Vec::new();
+
         for (b, out_mat) in out.chunks_mut(n * m).enumerate() {
             // The handling of multiple rows here is inefficient. This is
             // because the initial focus is on efficient vector-matrix products.
@@ -114,6 +119,24 @@ impl BlockQuantizedGemm {
                     LhsRow::Float(lhs.slice((b, row)).data().unwrap())
                 };
 
+                lhs_block_sums.clear();
+                if rhs.has_zero_points() {
+                    let block_size = rhs.elements_per_block();
+                    match &lhs_row {
+                        LhsRow::Float(row) => lhs_block_sums.extend(
+                            row.chunks_exact(block_size)
+                                .map(|block| block.iter().sum::<f32>()),
+                        ),
+                        LhsRow::Quant { data, scales } => lhs_block_sums.extend(
+                            data.data().chunks_exact(block_size).zip(scales.iter()).map(
+                                |(block, &scale)| {
+                                    block.iter().map(|&x| x as i32).sum::<i32>() as f32 * scale
+                                },
+                            ),
+                        ),
+                    }
+                }
+
                 ParIter::from(range_chunks(0..n, col_block))
                     .zip(out_row.par_chunks_mut(col_block))
                     .for_each(|(col_range, out_row_chunk)| match lhs_row {
@@ -123,6 +146,7 @@ impl BlockQuantizedGemm {
                                 lhs_scales: scales,
                                 rhs: rhs.slice(col_range),
                                 out: out_row_chunk,
+                                lhs_block_sums: &lhs_block_sums,
                             };
                             op.dispatch();
                         }
@@ -131,6 +155,7 @@ impl BlockQuantizedGemm {
                                 lhs,
                                 rhs: rhs.slice(col_range),
                                 out: out_row_chunk,
+                                lhs_block_sums: &lhs_block_sums,
                             };
                             op.dispatch();
                         }
@@ -168,6 +193,10 @@ struct VecDotMatrix<'a> {
     lhs: &'a [f32],
     rhs: BlockQuantizedMatrix<'a, f32>,
     out: &'a mut [MaybeUninit<f32>],
+
+    /// Sums of LHS elements in each K block. Only used if `rhs` has
+    /// non-default zero points. See [`zero_point_correction`].
+    lhs_block_sums: &'a [f32],
 }
 
 impl<'a> VecDotMatrix<'a> {
@@ -184,7 +213,12 @@ impl<'a> VecDotMatrix<'a> {
         // larger or smaller than the block size of the RHS.
         let elements_per_vec = u8_ops.len() * 2;
 
-        let VecDotMatrix { lhs, rhs, out } = self;
+        let VecDotMatrix {
+            lhs,
+            rhs,
+            out,
+            lhs_block_sums,
+        } = self;
         let vecs_per_block = rhs.elements_per_block() / elements_per_vec;
 
         // Convert division into shift.
@@ -206,7 +240,9 @@ impl<'a> VecDotMatrix<'a> {
         let rhs_cols = rhs_data.chunks_exact(rhs.blocks_per_column() * rhs.bytes_per_block());
         let scale_blocks = rhs.scales.data().chunks_exact(rhs.blocks_per_column());
 
-        for ((col, col_scales), out) in rhs_cols.zip(scale_blocks).zip(out.iter_mut()) {
+        for (col_idx, ((col, col_scales), out)) in
+            rhs_cols.zip(scale_blocks).zip(out.iter_mut()).enumerate()
+        {
             let mut acc = [ops.zero(); 4];
 
             let mut row_vblocks = lhs.chunks_exact(elements_per_vec);
@@ -335,6 +371,10 @@ impl<'a> VecDotMatrix<'a> {
                 acc += tail_acc;
             }
 
+            if let Some(col_zps) = rhs.column_zero_points(col_idx) {
+                acc += zero_point_correction(isa, col_zps, col_scales, lhs_block_sums);
+            }
+
             out.write(acc);
         }
 
@@ -412,6 +452,11 @@ struct VecDotMatrixQuant<'a> {
     lhs_scales: &'a [f32],
     rhs: BlockQuantizedMatrix<'a, f32>,
     out: &'a mut [MaybeUninit<f32>],
+
+    /// Sums of quantized LHS elements in each K block, multiplied by the
+    /// block's LHS scale. Only used if `rhs` has non-default zero points.
+    /// See [`zero_point_correction`].
+    lhs_block_sums: &'a [f32],
 }
 
 impl<'a> VecDotMatrixQuant<'a> {
@@ -427,6 +472,7 @@ impl<'a> VecDotMatrixQuant<'a> {
             lhs_scales,
             rhs,
             out,
+            lhs_block_sums,
         } = self;
 
         let rhs_data = rhs.quant.data();
@@ -455,7 +501,9 @@ impl<'a> VecDotMatrixQuant<'a> {
         let lo_quad_mask = ops.first_n_mask(ops.len() / 4);
         let lo_three_quads_mask = ops.first_n_mask(3 * ops.len() / 4);
 
-        for ((col, col_scales), out) in rhs_cols.zip(scale_blocks).zip(out.iter_mut()) {
+        for (col_idx, ((col, col_scales), out)) in
+            rhs_cols.zip(scale_blocks).zip(out.iter_mut()).enumerate()
+        {
             let mut acc = [ops.zero(); 2];
 
             let zero_point = i8_ops.splat(8);
@@ -612,6 +660,10 @@ impl<'a> VecDotMatrixQuant<'a> {
                 acc += tail_acc;
             }
 
+            if let Some(col_zps) = rhs.column_zero_points(col_idx) {
+                acc += zero_point_correction(isa.isa(), col_zps, col_scales, lhs_block_sums);
+            }
+
             out.write(acc);
         }
 
@@ -658,6 +710,11 @@ pub struct BlockQuantizedMatrix<'a, T> {
     /// Scales of shape (N, k_blocks)
     scales: Contiguous<NdTensorView<'a, T, 2>>,
 
+    /// Per-block zero points of shape (N, ceil(k_blocks * bits / 8)), using
+    /// the same packed representation as `quant`. If `None`, the default
+    /// zero point (`nbit_zero_point`) is used for all blocks.
+    zero_points: Option<Contiguous<NdTensorView<'a, u8, 2>>>,
+
     /// Bits per quantized element.
     ///
     /// Must be a divisor of `block_size * 8`.
@@ -700,8 +757,50 @@ impl<'a, T: Copy> BlockQuantizedMatrix<'a, T> {
         Ok(Self {
             quant,
             scales,
+            zero_points: None,
             bits,
         })
+    }
+
+    /// Set the per-block zero points for the matrix.
+    ///
+    /// `zero_points` has shape (cols, ceil(k_blocks * bits / 8)) and uses the
+    /// same packed representation as the quantized data. For 4-bit elements
+    /// each byte contains the zero points for two consecutive K blocks, with
+    /// the first in the low 4 bits.
+    ///
+    /// Zero points are currently only supported for 4-bit elements.
+    pub fn with_zero_points(
+        mut self,
+        zero_points: Contiguous<NdTensorView<'a, u8, 2>>,
+    ) -> Result<Self, BlockQuantizedError> {
+        // The zero point consumers (packing, correction kernels) assume 4-bit
+        // packing.
+        if self.bits != 4 {
+            return Err(BlockQuantizedError::UnsupportedElementSize);
+        }
+        let zp_bytes_per_col = (self.blocks_per_column() * self.bits.as_usize()).div_ceil(8);
+        if zero_points.shape() != [self.cols(), zp_bytes_per_col] {
+            return Err(BlockQuantizedError::ZeroPointsSizeMismatch);
+        }
+        self.zero_points = Some(zero_points);
+        Ok(self)
+    }
+
+    /// Return true if the matrix has non-default zero points.
+    pub(crate) fn has_zero_points(&self) -> bool {
+        self.zero_points.is_some()
+    }
+
+    /// Return the packed zero points for all blocks in a column.
+    ///
+    /// Returns `None` if the matrix has no zero points or `col` is out of
+    /// bounds.
+    pub(crate) fn column_zero_points(&self, col: usize) -> Option<&[u8]> {
+        let zero_points = self.zero_points.as_ref()?;
+        let offset = zero_points.offset([col, 0])?;
+        let len = zero_points.size(1);
+        Some(&zero_points.data()[offset..offset + len])
     }
 
     /// Return the number of rows in the dequantized matrix.
@@ -718,7 +817,11 @@ impl<'a, T: Copy> BlockQuantizedMatrix<'a, T> {
     pub(crate) fn slice(&self, col_range: Range<usize>) -> BlockQuantizedMatrix<'a, T> {
         BlockQuantizedMatrix {
             quant: Contiguous::new(self.quant.slice(col_range.clone())).unwrap(),
-            scales: Contiguous::new(self.scales.slice(col_range)).unwrap(),
+            scales: Contiguous::new(self.scales.slice(col_range.clone())).unwrap(),
+            zero_points: self
+                .zero_points
+                .as_ref()
+                .map(|zp| Contiguous::new(zp.slice(col_range)).unwrap()),
             bits: self.bits,
         }
     }
@@ -783,6 +886,134 @@ pub const fn nbit_zero_point(n_bits: u8) -> i16 {
     1 << (n_bits - 1)
 }
 
+/// Extract the 4-bit zero point for block `block_idx` from a column's packed
+/// zero points.
+///
+/// Packing follows the quantized data format: each byte contains the zero
+/// points for two consecutive blocks, with the first in the low 4 bits.
+#[inline]
+pub(crate) fn unpack_zero_point_4bit(packed: &[u8], block_idx: usize) -> u8 {
+    let byte = packed[block_idx / 2];
+    if block_idx.is_multiple_of(2) {
+        byte & 0x0F
+    } else {
+        byte >> 4
+    }
+}
+
+/// Compute the output corrections needed when a column of a block-quantized
+/// matrix has non-default zero points.
+///
+/// The vector-matrix product kernels dequantize elements using the default
+/// zero point `Z0` (see [`nbit_zero_point`]). Since `(q - zp) = (q - Z0) +
+/// (Z0 - zp)`, the result for the actual zero points can be obtained by
+/// adding `sum((Z0 - zp_b) * scale_b * lhs_block_sum_b)` over all K blocks
+/// `b` of the column.
+///
+/// `lhs_block_sums` contains the sum of the LHS row elements in each K block,
+/// with any LHS quantization scale already applied.
+///
+/// This is marked `#[inline(always)]` so that it is compiled with the same
+/// target features as the calling kernel.
+#[inline(always)]
+fn zero_point_correction<I: Isa>(
+    isa: I,
+    col_zero_points: &[u8],
+    col_scales: &[f32],
+    lhs_block_sums: &[f32],
+) -> f32 {
+    const DEFAULT_ZERO_POINT: i8 = nbit_zero_point(4) as i8;
+
+    // Maximum supported SIMD vector width in bytes.
+    const MAX_VEC_BYTES: usize = 64;
+
+    let ops = isa.f32();
+    let u8_ops = isa.u8();
+    let i8_ops = isa.i8();
+    let i16_ops = isa.i16();
+    let i32_ops = isa.i32();
+
+    // Both slices have one entry per block in the column.
+    debug_assert_eq!(col_scales.len(), lhs_block_sums.len());
+    let n_blocks = col_scales.len();
+
+    let zero_point = i8_ops.splat(DEFAULT_ZERO_POINT);
+    let lo_mask = u8_ops.splat(0x0F);
+
+    // Each chunk processes the zero points from a full vector of packed
+    // bytes, ie. two blocks per byte. This equals the number of f32 lanes
+    // in 8 vectors.
+    let blocks_per_chunk = u8_ops.len() * 2;
+    debug_assert_eq!(blocks_per_chunk, ops.len() * 8);
+
+    // Unpack a vector of packed zero points (even blocks in the low 4 bits)
+    // into `Z0 - zp` for each block, widened to i32.
+    let unpack_zp_diffs = |bytes| {
+        let lo = u8_ops.and(bytes, lo_mask);
+        let hi = u8_ops.shift_right::<4>(bytes);
+        let (even, odd) = (
+            u8_ops.interleave_low(lo, hi),
+            u8_ops.interleave_high(lo, hi),
+        );
+        let diff_lo = i8_ops.sub(zero_point, i8_ops.from_bits(even.to_bits()));
+        let diff_hi = i8_ops.sub(zero_point, i8_ops.from_bits(odd.to_bits()));
+        let (a_i16, b_i16) = i8_ops.extend(diff_lo);
+        let (c_i16, d_i16) = i8_ops.extend(diff_hi);
+        let (a_i32, b_i32) = i16_ops.extend(a_i16);
+        let (c_i32, d_i32) = i16_ops.extend(b_i16);
+        let (e_i32, f_i32) = i16_ops.extend(c_i16);
+        let (g_i32, h_i32) = i16_ops.extend(d_i16);
+        [a_i32, b_i32, c_i32, d_i32, e_i32, f_i32, g_i32, h_i32]
+    };
+
+    let mut acc = [ops.zero(); 4];
+
+    // Accumulate `(Z0 - zp_b) * scale_b * lhs_block_sum_b` over chunks where
+    // all blocks are in range, using only full-width loads.
+    let full_blocks = n_blocks - (n_blocks % blocks_per_chunk);
+    let mut block = 0;
+    while block < full_blocks {
+        let diffs = unpack_zp_diffs(u8_ops.load(&col_zero_points[block / 2..]));
+        let scales = ops.load_many::<8>(&col_scales[block..]);
+        let sums = ops.load_many::<8>(&lhs_block_sums[block..]);
+        for i in 0..8 {
+            let diff = i32_ops.to_float(diffs[i]);
+            acc[i % acc.len()] = ops.mul_add(diff, ops.mul(scales[i], sums[i]), acc[i % acc.len()]);
+        }
+        block += blocks_per_chunk;
+    }
+
+    // Handle the final partial chunk by copying the inputs into zero-padded
+    // buffers so that the same full-width loads can be used. This avoids
+    // masked loads, which are slow on ISAs without native support (eg. NEON).
+    // Padded lanes contribute nothing to the result because the scale and
+    // LHS sum lanes are zero.
+    if block < n_blocks {
+        assert!(u8_ops.len() <= MAX_VEC_BYTES && ops.len() * 8 <= MAX_VEC_BYTES * 2);
+
+        let rem_blocks = n_blocks - block;
+        let rem_bytes = rem_blocks.div_ceil(2);
+        let mut zp_buf = [0u8; MAX_VEC_BYTES];
+        let mut scale_buf = [0.; MAX_VEC_BYTES * 2];
+        let mut sum_buf = [0.; MAX_VEC_BYTES * 2];
+        zp_buf[..rem_bytes].copy_from_slice(&col_zero_points[block / 2..][..rem_bytes]);
+        scale_buf[..rem_blocks].copy_from_slice(&col_scales[block..n_blocks]);
+        sum_buf[..rem_blocks].copy_from_slice(&lhs_block_sums[block..n_blocks]);
+
+        let diffs = unpack_zp_diffs(u8_ops.load(&zp_buf));
+        let scales = ops.load_many::<8>(&scale_buf);
+        let sums = ops.load_many::<8>(&sum_buf);
+        for i in 0..8 {
+            let diff = i32_ops.to_float(diffs[i]);
+            acc[i % acc.len()] = ops.mul_add(diff, ops.mul(scales[i], sums[i]), acc[i % acc.len()]);
+        }
+    }
+
+    let acc_01 = ops.add(acc[0], acc[1]);
+    let acc_23 = ops.add(acc[2], acc[3]);
+    ops.sum(ops.add(acc_01, acc_23))
+}
+
 #[cfg(test)]
 pub fn pack_4bit_elements(vals: &[i8], zero_point: i8) -> Vec<u8> {
     let (chunks, tail) = vals.as_chunks::<2>();
@@ -809,18 +1040,19 @@ mod tests {
 
     use super::{
         BlockQuantizedGemm, BlockQuantizedMatrix, ComputeMode, nbit_zero_point, pack_4bit_elements,
-        quantize,
+        quantize, unpack_zero_point_4bit,
     };
+    use crate::errors::BlockQuantizedError;
 
     fn reference_gemm_f32_with_block_quantized_rhs(
         lhs: NdTensorView<f32, 2>,
         rhs: NdTensorView<u8, 3>,
         rhs_scales: NdTensorView<f32, 2>,
+        rhs_zero_points: Option<NdTensorView<u8, 2>>,
     ) -> NdTensor<f32, 2> {
         let [m, k] = lhs.shape();
         let [n, _k_blocks, block_size] = rhs.shape();
         let elems_per_block = block_size * 2;
-        let zero_point = 8;
 
         let mut out = NdTensor::zeros([m, n]);
 
@@ -831,6 +1063,11 @@ mod tests {
                     let k_block = ki / elems_per_block;
                     let block_idx = ki % elems_per_block;
                     let scale = rhs_scales[[col, k_block]];
+                    let zero_point = rhs_zero_points
+                        .map(|zps| {
+                            unpack_zero_point_4bit(zps.slice(col).data().unwrap(), k_block) as i32
+                        })
+                        .unwrap_or(8);
 
                     let byte = rhs[[col, k_block, block_idx / 2]];
                     let elem = if ki % 2 == 0 { byte & 0x0F } else { byte >> 4 };
@@ -885,6 +1122,50 @@ mod tests {
         assert_eq!(mat.column_data(4, 1, 1), None);
         // Out of bounds K block.
         assert_eq!(mat.column_data(3, 2, 1), None);
+
+        // No zero points by default.
+        assert!(!mat.has_zero_points());
+        assert_eq!(mat.column_zero_points(0), None);
+
+        // Add zero points. Two 4-bit zero points per column, packed into one
+        // byte.
+        let zps = NdTensor::from([[0x21u8], [0x43], [0x65], [0x87]]);
+        let mat = mat
+            .with_zero_points(Contiguous::new(zps.view()).unwrap())
+            .unwrap();
+        assert!(mat.has_zero_points());
+        assert_eq!(mat.column_zero_points(1), Some([0x43u8].as_slice()));
+        assert_eq!(mat.column_zero_points(4), None);
+        assert_eq!(
+            mat.column_zero_points(3)
+                .map(|zp| [unpack_zero_point_4bit(zp, 0), unpack_zero_point_4bit(zp, 1)]),
+            Some([7, 8])
+        );
+
+        // Zero points with the wrong shape.
+        let wrong_zps = NdTensor::<u8, 2>::zeros([4, 2]);
+        assert_eq!(
+            mat.with_zero_points(Contiguous::new(wrong_zps.view()).unwrap())
+                .err(),
+            Some(BlockQuantizedError::ZeroPointsSizeMismatch)
+        );
+
+        // Zero points are only supported for 4-bit elements.
+        let quant_8bit = NdTensor::<u8, 3>::zeros([4, 2, 16]);
+        let scales_8bit = NdTensor::<f32, 2>::zeros([4, 2]);
+        let mat_8bit = BlockQuantizedMatrix::new(
+            Contiguous::new(quant_8bit.view()).unwrap(),
+            Contiguous::new(scales_8bit.view()).unwrap(),
+            8, /* bits */
+        )
+        .unwrap();
+        let zps_8bit = NdTensor::<u8, 2>::zeros([4, 2]);
+        assert_eq!(
+            mat_8bit
+                .with_zero_points(Contiguous::new(zps_8bit.view()).unwrap())
+                .err(),
+            Some(BlockQuantizedError::UnsupportedElementSize)
+        );
     }
 
     // The ONNX Runtime definition of MatMulNBits specifies that the block
@@ -938,6 +1219,7 @@ mod tests {
             n_cols: usize,
             n_blocks: usize,
             compute: ComputeMode,
+            zero_points: bool,
             tolerance: Option<f32>,
         }
 
@@ -946,51 +1228,89 @@ mod tests {
 
         let mut cases = Vec::new();
 
-        for block_size in BLOCK_SIZES {
+        for zero_points in [false, true] {
+            for block_size in BLOCK_SIZES {
+                cases.push(Case {
+                    n_rows: 1,
+                    n_cols: 3,
+                    n_blocks: (max_vblock_size / block_size).max(1),
+                    block_size,
+                    compute: ComputeMode::Float,
+                    zero_points,
+                    tolerance: None,
+                });
+            }
+
+            // Add a case that will exercise both the main and tail loops.
             cases.push(Case {
                 n_rows: 1,
-                n_cols: 3,
-                n_blocks: (max_vblock_size / block_size).max(1),
-                block_size,
+                n_cols: 1,
+                // 16 x u4 = 64 bits, smaller than vector length.
+                block_size: 16,
+                // (max_vblock_size / 16) to use main loop once, plus one for a tail.
+                n_blocks: (max_vblock_size / 16) + 1,
                 compute: ComputeMode::Float,
+                zero_points,
                 tolerance: None,
             });
-        }
 
-        // Add a case that will exercise both the main and tail loops.
-        cases.push(Case {
-            n_rows: 1,
-            n_cols: 1,
-            // 16 x u4 = 64 bits, smaller than vector length.
-            block_size: 16,
-            // (max_vblock_size / 16) to use main loop once, plus one for a tail.
-            n_blocks: (max_vblock_size / 16) + 1,
-            compute: ComputeMode::Float,
-            tolerance: None,
-        });
+            // Add cases that use int8 quantization of the LHS.
+            for (block_size, atol) in [(16, 0.1), (32, 0.1), (64, 0.2), (128, 0.2), (256, 0.3)] {
+                cases.push(Case {
+                    n_rows: 1,
+                    n_cols: 3,
+                    block_size,
+                    n_blocks: (max_vblock_size / block_size).max(1),
+                    compute: ComputeMode::Int8,
+                    zero_points,
+                    tolerance: Some(atol),
+                });
+            }
 
-        // Add cases that use int8 quantization of the LHS.
-        for (block_size, atol) in [(16, 0.1), (32, 0.1), (64, 0.2), (128, 0.2), (256, 0.3)] {
+            // Add a case that will exercise both the main and tail loops using int8.
             cases.push(Case {
                 n_rows: 1,
-                n_cols: 3,
-                block_size,
-                n_blocks: (max_vblock_size / block_size).max(1),
+                n_cols: 1,
+                // 16 x u4 = 64 bits, smaller than vector length.
+                block_size: 16,
+                // (max_vblock_size / 16) to use main loop once, plus one for a tail.
+                n_blocks: (max_vblock_size / 16) + 1,
                 compute: ComputeMode::Int8,
-                tolerance: Some(atol),
+                zero_points,
+                tolerance: Some(0.1),
             });
         }
 
-        // Add a case that will exercise both the main and tail loops using int8.
+        // Cases with enough K blocks to exercise the full-chunk path of the
+        // vectorized zero-point correction, which processes two blocks per
+        // u8 vector lane (up to 128 blocks) per iteration.
         cases.push(Case {
             n_rows: 1,
-            n_cols: 1,
-            // 16 x u4 = 64 bits, smaller than vector length.
+            n_cols: 3,
+            block_size: 32,
+            n_blocks: 48,
+            compute: ComputeMode::Float,
+            zero_points: true,
+            tolerance: Some(1e-4),
+        });
+        cases.push(Case {
+            n_rows: 1,
+            n_cols: 3,
             block_size: 16,
-            // (max_vblock_size / 16) to use main loop once, plus one for a tail.
-            n_blocks: (max_vblock_size / 16) + 1,
+            n_blocks: 129,
+            compute: ComputeMode::Float,
+            zero_points: true,
+            tolerance: Some(1e-4),
+        });
+        cases.push(Case {
+            n_rows: 1,
+            n_cols: 3,
+            block_size: 16,
+            n_blocks: 129,
             compute: ComputeMode::Int8,
-            tolerance: Some(0.1),
+            zero_points: true,
+            // Int8 LHS quantization error grows with K.
+            tolerance: Some(2.0),
         });
 
         // Test K=0. The output must still be initialized even though there
@@ -1001,6 +1321,7 @@ mod tests {
             block_size: 32,
             n_blocks: 0,
             compute: ComputeMode::Int8,
+            zero_points: false,
             tolerance: None,
         });
         cases.push(Case {
@@ -1009,6 +1330,7 @@ mod tests {
             block_size: 32,
             n_blocks: 0,
             compute: ComputeMode::Float,
+            zero_points: false,
             tolerance: None,
         });
 
@@ -1019,6 +1341,7 @@ mod tests {
                 n_blocks,
                 block_size,
                 compute,
+                zero_points,
                 tolerance,
             } = case;
 
@@ -1028,17 +1351,25 @@ mod tests {
             let lhs = NdTensor::<f32, 2>::rand([n_rows, n_blocks * block_size], &mut rng);
             let rhs_data = NdTensor::<u8, 3>::rand([n_cols, n_blocks, block_size / 2], &mut rng);
             let rhs_scales = NdTensor::<f32, 2>::rand([n_cols, n_blocks], &mut rng);
-            let bqm = BlockQuantizedMatrix::new(
+            let rhs_zero_points = zero_points
+                .then(|| NdTensor::<u8, 2>::rand([n_cols, n_blocks.div_ceil(2)], &mut rng));
+            let mut bqm = BlockQuantizedMatrix::new(
                 Contiguous::new(rhs_data.view()).unwrap(),
                 Contiguous::new(rhs_scales.view()).unwrap(),
                 4,
             )
             .unwrap();
+            if let Some(zps) = &rhs_zero_points {
+                bqm = bqm
+                    .with_zero_points(Contiguous::new(zps.view()).unwrap())
+                    .unwrap();
+            }
 
             let expected = reference_gemm_f32_with_block_quantized_rhs(
                 lhs.view(),
                 rhs_data.view(),
                 rhs_scales.view(),
+                rhs_zero_points.as_ref().map(|zps| zps.view()),
             );
 
             let mut out = Vec::with_capacity(n_cols);

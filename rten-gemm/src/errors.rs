@@ -69,6 +69,8 @@ pub enum BlockQuantizedError {
     UnsupportedBlockSize,
     /// The number of bits per element is unsupported.
     UnsupportedElementSize,
+    /// The zero points shape does not match the quantized data shape.
+    ZeroPointsSizeMismatch,
 }
 
 impl Display for BlockQuantizedError {
@@ -76,6 +78,9 @@ impl Display for BlockQuantizedError {
         match self {
             Self::UnsupportedBlockSize => write!(f, "block size is unsupported"),
             Self::UnsupportedElementSize => write!(f, "unsupported bits-per-element"),
+            Self::ZeroPointsSizeMismatch => {
+                write!(f, "zero points shape does not match quantized data")
+            }
         }
     }
 }

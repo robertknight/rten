@@ -825,6 +825,7 @@ mod contrib {
         lhs: TensorView<f32>,
         rhs: NdTensorView<u8, 3>,
         scales: NdTensorView<f32, 2>,
+        zero_points: Option<NdTensorView<u8, 2>>,
         bits: u8,
         accuracy: AccuracyLevel,
     ) -> Result<Tensor<f32>, OpError> {
@@ -838,13 +839,26 @@ mod contrib {
 
         let rhs = rhs.to_contiguous_in(pool);
         let scales = scales.to_contiguous_in(pool);
+        let zero_points = zero_points.map(|zp| zp.to_contiguous_in(pool));
 
-        let b_mat = BlockQuantizedMatrix::new(rhs.view(), scales.view(), bits).map_err(|err| {
+        let map_bq_err = |err| {
             OpError::UnsupportedValue(match err {
                 BlockQuantizedError::UnsupportedBlockSize => "Unsupported K block size",
                 BlockQuantizedError::UnsupportedElementSize => "Unsupported bits-per-element",
+                BlockQuantizedError::ZeroPointsSizeMismatch => {
+                    "zero_points size does not match B input"
+                }
             })
-        })?;
+        };
+
+        let mut b_mat =
+            BlockQuantizedMatrix::new(rhs.view(), scales.view(), bits).map_err(map_bq_err)?;
+
+        if let Some(zero_points) = &zero_points {
+            b_mat = b_mat
+                .with_zero_points(zero_points.view())
+                .map_err(map_bq_err)?;
+        }
 
         let batch_len = batch_dims.iter().product();
         let out_shape: SmallVec<[usize; 4]> = batch_dims
@@ -928,51 +942,83 @@ mod contrib {
         pub accuracy_level: AccuracyLevel,
     }
 
+    /// Convert the `scales` or `zero_points` input of [`MatMulNBits`] into a
+    /// matrix with shape `shape`.
+    ///
+    /// The current spec requires these inputs to be 2D, but earlier versions
+    /// used 1D inputs, which are validated against `shape` and reshaped. See
+    /// https://github.com/microsoft/onnxruntime/pull/24828.
+    fn to_matrix<'a, T: Clone>(
+        pool: &BufferPool,
+        input: TensorView<'a, T>,
+        shape: [usize; 2],
+        len_error: &'static str,
+        ndim_error: &'static str,
+    ) -> Result<CowNdTensor<'a, T, 2>, OpError> {
+        match input.ndim() {
+            2 => Ok(input
+                .to_contiguous_in(pool)
+                .into_inner()
+                .try_into()
+                .unwrap()),
+            1 => {
+                if input.len() != shape.iter().product::<usize>() {
+                    return Err(OpError::InvalidValue(len_error));
+                }
+                Ok(input.reshaped(shape))
+            }
+            _ => Err(OpError::InvalidValue(ndim_error)),
+        }
+    }
+
     impl Operator for MatMulNBits {
         fn name(&self) -> &str {
             "MatMulNBits"
         }
 
         fn max_inputs(&self) -> Option<usize> {
-            Some(3)
+            Some(6)
         }
 
         fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
             let lhs: TensorView<f32> = ctx.inputs().require_as(0)?;
             let rhs: NdTensorView<u8, 3> = ctx.inputs().require_as(1)?;
 
-            // Current spec requires scales to be 2D, but earlier versions used 1D
-            // scales. See https://github.com/microsoft/onnxruntime/pull/24828.
             let scales: TensorView<f32> = ctx.inputs().require_as(2)?;
-
-            let scales: CowNdTensor<f32, 2> = match scales.ndim() {
-                2 => scales
-                    .to_contiguous_in(ctx.pool())
-                    .into_inner()
-                    .try_into()
-                    .unwrap(),
-                1 => {
-                    let k = lhs.ndim().checked_sub(1).map(|d| lhs.size(d)).unwrap_or(1);
-                    let k_blocks = k.checked_div(self.block_size).unwrap_or(0);
-                    let rhs_cols = rhs.size(0);
-
-                    if scales.len() != rhs_cols * k_blocks {
-                        return Err(OpError::InvalidValue(
-                            "Expected 1D `scales` size to match columns * block_size",
-                        ));
-                    }
-                    scales.reshaped([rhs_cols, k_blocks])
-                }
-                _ => {
-                    return Err(OpError::InvalidValue(
-                        "Expected `scales` to have one or two dims",
-                    ));
-                }
+            let scales: CowNdTensor<f32, 2> = {
+                let k = lhs.ndim().checked_sub(1).map(|d| lhs.size(d)).unwrap_or(1);
+                let k_blocks = k.checked_div(self.block_size).unwrap_or(0);
+                let rhs_cols = rhs.size(0);
+                to_matrix(
+                    ctx.pool(),
+                    scales,
+                    [rhs_cols, k_blocks],
+                    "Expected 1D `scales` size to match columns * block_size",
+                    "Expected `scales` to have one or two dims",
+                )?
             };
 
-            if ctx.inputs().len() > 3 {
+            // Only zero points with the same packed representation as the B
+            // input are supported. Unpacked (float) zero points will fail
+            // with a type error here.
+            let zero_points: Option<TensorView<u8>> = ctx.inputs().get_as(3)?;
+            let zero_points: Option<CowNdTensor<u8, 2>> = zero_points
+                .map(|zero_points| {
+                    let [rhs_cols, k_blocks, _block_bytes] = rhs.shape();
+                    let bytes_per_col = (k_blocks * self.bits as usize).div_ceil(8);
+                    to_matrix(
+                        ctx.pool(),
+                        zero_points,
+                        [rhs_cols, bytes_per_col],
+                        "Expected 1D `zero_points` size to match columns * bytes_per_column",
+                        "Expected `zero_points` to have one or two dims",
+                    )
+                })
+                .transpose()?;
+
+            if ctx.inputs().get(4).is_some() || ctx.inputs().get(5).is_some() {
                 return Err(OpError::UnsupportedValue(
-                    "zero_points, g_idx and bias inputs are unsupported",
+                    "g_idx and bias inputs are unsupported",
                 ));
             }
 
@@ -981,6 +1027,7 @@ mod contrib {
                 lhs,
                 rhs,
                 scales.view(),
+                zero_points.as_ref().map(|zp| zp.view()),
                 self.bits,
                 self.accuracy_level,
             )
@@ -1936,6 +1983,7 @@ mod tests {
         lhs: TensorView<f32>,
         rhs: NdTensorView<u8, 3>,
         scales: NdTensorView<f32, 2>,
+        zero_points: Option<NdTensorView<u8, 2>>,
         n_bits: u8,
     ) -> Tensor<f32> {
         let batch_dims = &lhs.shape()[..lhs.ndim() - 2];
@@ -1947,7 +1995,11 @@ mod tests {
 
         let rhs = rhs.to_contiguous();
         let scales = scales.to_contiguous();
-        let bqm = BlockQuantizedMatrix::new(rhs.view(), scales.view(), n_bits).unwrap();
+        let mut bqm = BlockQuantizedMatrix::new(rhs.view(), scales.view(), n_bits).unwrap();
+        let zero_points = zero_points.map(|zps| zps.to_contiguous());
+        if let Some(zps) = &zero_points {
+            bqm = bqm.with_zero_points(zps.view()).unwrap();
+        }
 
         let out_shape: Vec<usize> = batch_dims.iter().copied().chain([m, n]).collect();
         let mut out = Tensor::zeros(&out_shape);
@@ -1971,59 +2023,73 @@ mod tests {
             batch_dims: Vec<usize>,
             m: usize,
             accuracy_level: AccuracyLevel,
+            zero_points: bool,
             tolerance: Option<f32>,
         }
 
-        let cases = [
-            // Vector-matrix product
-            Case {
-                batch_dims: [2].into(),
-                m: 1,
-                accuracy_level: AccuracyLevel::Float,
-                tolerance: None,
-            },
-            Case {
-                batch_dims: [2].into(),
-                m: 1,
-                accuracy_level: AccuracyLevel::Int8,
-                tolerance: Some(0.1),
-            },
-            // Matrix-matrix product
-            Case {
-                batch_dims: [2].into(),
-                m: 4,
-                accuracy_level: AccuracyLevel::Float,
-                tolerance: None,
-            },
-            Case {
-                batch_dims: [2].into(),
-                m: 4,
-                accuracy_level: AccuracyLevel::Int8,
-                // MatMulNBits currently falls back to float compute for
-                // matrix-matrix products, so no tolerance is required.
-                tolerance: None,
-            },
-            // Matrix-matrix product with 2 batch dims.
-            Case {
-                batch_dims: [2, 2].into(),
-                m: 4,
-                accuracy_level: AccuracyLevel::Float,
-                tolerance: None,
-            },
-            // Matrix-matrix product with 0 batch dims.
-            Case {
-                batch_dims: [].into(),
-                m: 4,
-                accuracy_level: AccuracyLevel::Float,
-                tolerance: None,
-            },
-        ];
+        let mut cases = Vec::new();
+        for zero_points in [false, true] {
+            cases.extend([
+                // Vector-matrix product
+                Case {
+                    batch_dims: [2].into(),
+                    m: 1,
+                    accuracy_level: AccuracyLevel::Float,
+                    zero_points,
+                    // The vector-matrix kernel applies zero points as a
+                    // separate output correction, which may round differently
+                    // than the reference.
+                    tolerance: zero_points.then_some(1e-4),
+                },
+                Case {
+                    batch_dims: [2].into(),
+                    m: 1,
+                    accuracy_level: AccuracyLevel::Int8,
+                    zero_points,
+                    tolerance: Some(0.1),
+                },
+                // Matrix-matrix product
+                Case {
+                    batch_dims: [2].into(),
+                    m: 4,
+                    accuracy_level: AccuracyLevel::Float,
+                    zero_points,
+                    tolerance: None,
+                },
+                Case {
+                    batch_dims: [2].into(),
+                    m: 4,
+                    accuracy_level: AccuracyLevel::Int8,
+                    zero_points,
+                    // MatMulNBits currently falls back to float compute for
+                    // matrix-matrix products, so no tolerance is required.
+                    tolerance: None,
+                },
+                // Matrix-matrix product with 2 batch dims.
+                Case {
+                    batch_dims: [2, 2].into(),
+                    m: 4,
+                    accuracy_level: AccuracyLevel::Float,
+                    zero_points,
+                    tolerance: None,
+                },
+                // Matrix-matrix product with 0 batch dims.
+                Case {
+                    batch_dims: [].into(),
+                    m: 4,
+                    accuracy_level: AccuracyLevel::Float,
+                    zero_points,
+                    tolerance: None,
+                },
+            ]);
+        }
 
         cases.test_each_clone(|case| {
             let Case {
                 batch_dims,
                 m,
                 accuracy_level,
+                zero_points,
                 tolerance,
             } = case;
 
@@ -2032,16 +2098,25 @@ mod tests {
             let block_size = 16;
             let block_bytes = block_size / 2;
             let k = block_size * 2;
+            let k_blocks = k / block_size;
             let n = 8;
             let n_bits = 4;
 
             let lhs_shape: Vec<usize> = batch_dims.iter().copied().chain([m, k]).collect();
             let lhs = Tensor::rand(&lhs_shape, &mut rng);
-            let rhs = NdTensor::<u8, 3>::rand([n, k / block_size, block_bytes], &mut rng);
-            let scales = NdTensor::<f32, 2>::rand([n, k / block_size], &mut rng);
+            let rhs = NdTensor::<u8, 3>::rand([n, k_blocks, block_bytes], &mut rng);
+            let scales = NdTensor::<f32, 2>::rand([n, k_blocks], &mut rng);
+            let zps =
+                zero_points.then(|| NdTensor::<u8, 2>::rand([n, k_blocks.div_ceil(2)], &mut rng));
 
             // nb. Reference result is always computed in full precision.
-            let expected = reference_matmul_nbits(lhs.as_dyn(), rhs.view(), scales.view(), n_bits);
+            let expected = reference_matmul_nbits(
+                lhs.as_dyn(),
+                rhs.view(),
+                scales.view(),
+                zps.as_ref().map(|zps| zps.view()),
+                n_bits,
+            );
 
             let op = MatMulNBits {
                 bits: n_bits,
@@ -2049,30 +2124,48 @@ mod tests {
                 accuracy_level,
             };
 
-            // With 2D scales.
-            let result: Tensor<f32> = op
-                .run_simple((lhs.view(), rhs.view(), scales.view()))
-                .unwrap();
-            if let Some(atol) = tolerance {
-                let rtol = 0.;
-                expect_equal_with_tolerance(&result, &expected, atol, rtol).unwrap();
-            } else {
-                expect_equal(&result, &expected).unwrap();
-            }
+            let check_result = |result: Tensor<f32>| {
+                if let Some(atol) = tolerance {
+                    let rtol = 0.;
+                    expect_equal_with_tolerance(&result, &expected, atol, rtol).unwrap();
+                } else {
+                    expect_equal(&result, &expected).unwrap();
+                }
+            };
 
-            // With 1D scales (older models)
-            let result: Tensor<f32> = op
-                .run_simple((
-                    lhs.view(),
-                    rhs.view(),
-                    scales.reshaped([scales.len()]).view(),
-                ))
-                .unwrap();
-            if let Some(atol) = tolerance {
-                let rtol = 0.;
-                expect_equal_with_tolerance(&result, &expected, atol, rtol).unwrap();
+            if let Some(zps) = &zps {
+                // With 2D scales and 2D zero points.
+                let result: Tensor<f32> = op
+                    .run_simple((lhs.view(), rhs.view(), scales.view(), zps.view()))
+                    .unwrap();
+                check_result(result);
+
+                // With 1D zero points (older models)
+                let result: Tensor<f32> = op
+                    .run_simple((
+                        lhs.view(),
+                        rhs.view(),
+                        scales.view(),
+                        zps.reshaped([zps.len()]).view(),
+                    ))
+                    .unwrap();
+                check_result(result);
             } else {
-                expect_equal(&result, &expected).unwrap();
+                // With 2D scales.
+                let result: Tensor<f32> = op
+                    .run_simple((lhs.view(), rhs.view(), scales.view()))
+                    .unwrap();
+                check_result(result);
+
+                // With 1D scales (older models)
+                let result: Tensor<f32> = op
+                    .run_simple((
+                        lhs.view(),
+                        rhs.view(),
+                        scales.reshaped([scales.len()]).view(),
+                    ))
+                    .unwrap();
+                check_result(result);
             }
         });
     }
@@ -2107,6 +2200,37 @@ mod tests {
                 op.run_simple((lhs.view(), rhs.view(), scales.view()));
             assert_eq!(result.err().unwrap(), case.expected);
         });
+    }
+
+    #[test]
+    fn test_matmul_nbits_invalid_zero_points() {
+        let op = MatMulNBits {
+            bits: 4,
+            block_size: 16,
+            accuracy_level: AccuracyLevel::Float,
+        };
+        let lhs = Tensor::<f32>::zeros(&[2, 32]);
+        let rhs = Tensor::<u8>::zeros(&[8, 2, 8]);
+        let scales = Tensor::<f32>::zeros(&[8, 2]);
+
+        // Expected size is N=8 columns x 1 byte per column.
+        let zero_points = Tensor::<u8>::zeros(&[8, 3]);
+        let result: Result<Tensor<f32>, _> =
+            op.run_simple((lhs.view(), rhs.view(), scales.view(), zero_points.view()));
+        assert_eq!(
+            result.err().unwrap(),
+            OpError::UnsupportedValue("zero_points size does not match B input")
+        );
+
+        // Unpacked (float) zero points are unsupported.
+        let float_zero_points = Tensor::<f32>::zeros(&[8, 2]);
+        let result: Result<Tensor<f32>, _> = op.run_simple((
+            lhs.view(),
+            rhs.view(),
+            scales.view(),
+            float_zero_points.view(),
+        ));
+        assert!(result.is_err());
     }
 
     #[test]
