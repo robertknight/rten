@@ -459,74 +459,60 @@ fn load_constant(
             |x| x as i8,
         )?,
 
-        // RTen internally does not support i64 or bool tensors. Instead both
-        // are converted to i32 at load time.
+        // RTen does not natively support i64 or bool tensors. Instead convert
+        // to i32 at load time.
         Some(onnx::DataType::INT64) => {
-            let i64_to_i32 = |bytes: [u8; 8]| saturating_cast_i64_to_i32(i64::from_le_bytes(bytes));
-            let data = if let Some(data) = raw_data {
-                elements_from_le_bytes(&data, i64_to_i32)
-            } else if let Some(external_data) = external_data {
-                elements_from_le_bytes(external_data.data(), i64_to_i32)
-            } else {
-                initializer
-                    .int64_data
-                    .iter()
-                    .copied()
-                    .map(saturating_cast_i64_to_i32)
-                    .collect()
-            };
-            let tensor = tensor_from_elements(&shape, data, name)?;
-            Constant::new(name, tensor)
+            let i64_bytes_to_i32 =
+                |bytes: [u8; 8]| saturating_cast_i64_to_i32(i64::from_le_bytes(bytes));
+            convert_constant(
+                name,
+                &shape,
+                raw_data.as_deref(),
+                external_data,
+                &initializer.int64_data,
+                saturating_cast_i64_to_i32,
+                i64_bytes_to_i32,
+            )?
         }
         Some(onnx::DataType::BOOL) => {
             let u8_to_i32 = |bytes: [u8; 1]| if bytes[0] != 0 { 1 } else { 0 };
-            let data = if let Some(data) = raw_data {
-                elements_from_le_bytes(&data, u8_to_i32)
-            } else if let Some(external_data) = external_data {
-                elements_from_le_bytes(external_data.data(), u8_to_i32)
-            } else {
-                initializer
-                    .int32_data
-                    .iter()
-                    .map(|x| if *x != 0 { 1 } else { 0 })
-                    .collect()
-            };
-            let tensor = tensor_from_elements(&shape, data, name)?;
-            Constant::new(name, tensor)
+            convert_constant(
+                name,
+                &shape,
+                raw_data.as_deref(),
+                external_data,
+                &initializer.int32_data,
+                |x| if x != 0 { 1 } else { 0 },
+                u8_to_i32,
+            )?
         }
 
-        // RTen does not natively support f64 tensors. Instead convert to f32
-        // at load time.
+        // RTen does not natively support f16 or f64 tensors. Instead convert to
+        // f32 at load time.
         Some(onnx::DataType::DOUBLE) => {
-            let data = if let Some(data) = raw_data {
-                let f64_to_f32 = |bytes: [u8; 8]| f64::from_le_bytes(bytes) as f32;
-                elements_from_le_bytes(&data, f64_to_f32)
-            } else {
-                initializer
-                    .double_data
-                    .iter()
-                    .copied()
-                    .map(|x| x as f32)
-                    .collect()
-            };
-            let tensor = tensor_from_elements(&shape, data, name)?;
-            Constant::new(name, tensor)
+            let f64_bytes_to_f32 = |bytes: [u8; 8]| f64::from_le_bytes(bytes) as f32;
+            convert_constant(
+                name,
+                &shape,
+                raw_data.as_deref(),
+                external_data,
+                &initializer.double_data,
+                |x| x as f32,
+                f64_bytes_to_f32,
+            )?
         }
 
         Some(onnx::DataType::FLOAT16) => {
-            let data = if let Some(data) = raw_data {
-                let f16_to_f32_bytes = |bytes: [u8; 2]| f16_to_f32(u16::from_le_bytes(bytes));
-                elements_from_le_bytes(&data, f16_to_f32_bytes)
-            } else {
-                initializer
-                    .int32_data
-                    .iter()
-                    .copied()
-                    .map(|x| f16_to_f32(x as u16))
-                    .collect()
-            };
-            let tensor = tensor_from_elements(&shape, data, name)?;
-            Constant::new(name, tensor)
+            let f16_bytes_to_f32 = |bytes: [u8; 2]| f16_to_f32(u16::from_le_bytes(bytes));
+            convert_constant(
+                name,
+                &shape,
+                raw_data.as_deref(),
+                external_data,
+                &initializer.int32_data,
+                |x| f16_to_f32(x as u16),
+                f16_bytes_to_f32,
+            )?
         }
 
         Some(dtype) => {
@@ -608,8 +594,8 @@ fn external_data_location(
 
 /// Create a constant with elements of type `T`.
 ///
-/// The tensor will use `raw_data` without copying if provided, otherwise the
-/// data in `typed_data` will be copied and converted.
+/// The tensor will use `raw_data` or `external_data` without copying if
+/// possible, otherwise the data in `typed_data` will be copied and converted.
 fn make_constant<T: FromByteArray, U: FromByteArray>(
     name: Option<&str>,
     shape: &[usize],
@@ -629,6 +615,36 @@ where
         let data = typed_data.iter().copied().map(convert).collect();
         tensor_from_elements(shape, data, name)?.into()
     };
+    Ok(Constant::new(name, tensor))
+}
+
+/// Create a constant with elements of type `T` by converting elements from
+/// a different type.
+///
+/// Unlike [`make_constant`] this is a potentially lossy conversion to map
+/// elements from an unsupported type to one which is supported. For example,
+/// from f16/f64 to f32. Also unlike `make_constant`, this always copies the
+/// data.
+fn convert_constant<U: Copy, T, const N: usize>(
+    name: Option<&str>,
+    shape: &[usize],
+    raw_data: Option<&[u8]>,
+    external_data: Option<DataSlice>,
+    typed_data: &[U],
+    convert: impl Fn(U) -> T,
+    convert_bytes: impl Fn([u8; N]) -> T,
+) -> Result<Constant, LoadError>
+where
+    Constant: From<ConstantNode<T>>,
+{
+    let data = if let Some(data) = raw_data {
+        elements_from_le_bytes(data, convert_bytes)
+    } else if let Some(external_data) = external_data {
+        elements_from_le_bytes(external_data.data(), convert_bytes)
+    } else {
+        typed_data.iter().copied().map(convert).collect()
+    };
+    let tensor = tensor_from_elements(shape, data, name)?;
     Ok(Constant::new(name, tensor))
 }
 
@@ -1303,11 +1319,15 @@ mod tests {
         let i64_tensor = external_tensor("i64_tensor", onnx::DataType::INT64, 8, 8);
         let f32_tensor = external_tensor("f32_tensor", onnx::DataType::FLOAT, 16, 4);
         let bool_tensor = external_tensor("bool_tensor", onnx::DataType::BOOL, 20, 1);
+        let f16_tensor = external_tensor("f16_tensor", onnx::DataType::FLOAT16, 21, 2);
+        let f64_tensor = external_tensor("f64_tensor", onnx::DataType::DOUBLE, 23, 8);
 
         let model_proto = onnx::GraphProto::default()
-            .with_initializer(i64_tensor)
-            .with_initializer(f32_tensor)
             .with_initializer(bool_tensor)
+            .with_initializer(i64_tensor)
+            .with_initializer(f16_tensor)
+            .with_initializer(f32_tensor)
+            .with_initializer(f64_tensor)
             .into_model();
 
         let mut buf = Vec::new();
@@ -1315,6 +1335,8 @@ mod tests {
         buf.extend(1i64.to_le_bytes());
         buf.extend((3.14f32).to_le_bytes());
         buf.push(1u8);
+        buf.extend([0x00, 0x3C]); // 1.0 in f16
+        buf.extend((1.23f64).to_le_bytes());
         let loader = MemLoader::from_entries([("test.onnx.data".to_string(), buf)]);
 
         let model = load_model(model_proto, Some(&loader)).unwrap();
@@ -1327,6 +1349,12 @@ mod tests {
 
         let tensor = model.get_tensor_by_name::<i32>("bool_tensor").unwrap();
         assert_eq!(tensor, Tensor::from(1i32));
+
+        let tensor = model.get_tensor_by_name::<f32>("f16_tensor").unwrap();
+        assert_eq!(tensor, Tensor::from(1.0));
+
+        let tensor = model.get_tensor_by_name::<f32>("f64_tensor").unwrap();
+        assert_eq!(tensor, Tensor::from(1.23));
     }
 
     #[test]
