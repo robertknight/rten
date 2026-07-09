@@ -509,15 +509,21 @@ impl InferShapes for Unsqueeze {
         {
             SymTensor::from_vec([var.clone()].into())
         } else if let Some(dims) = data.shape()
-            && let Some(mut axes) = axes_vec
+            && let Some(axes) = axes_vec
         {
             let mut dims: Vec<_> = dims.collect();
-            axes.sort();
 
-            for (i, axis) in axes.into_iter().enumerate() {
-                let axis = resolve_axis(dims.len() + 1, axis)
-                    .map_err(|_| InferShapesError::IncorrectRank)?;
-                dims.insert(axis + i, SymExpr::Value(1));
+            let out_rank = dims.len() + axes.len();
+            let mut resolved_axes: Vec<_> = axes
+                .into_iter()
+                .map(|axis| {
+                    resolve_axis(out_rank, axis).map_err(|_| InferShapesError::IncorrectRank)
+                })
+                .collect::<Result<_, _>>()?;
+            resolved_axes.sort();
+
+            for axis in resolved_axes {
+                dims.insert(axis, SymExpr::Value(1));
             }
 
             SymTensor::from_shape(dims)
@@ -928,6 +934,43 @@ mod tests {
         let expected = sym_vec!(1);
         let result = Unsqueeze
             .infer_shapes([scalar, axes].into(), &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], expected);
+
+        // Unsqueeze with multiple axes.
+        let shape = sym_shape!("batch", 64);
+        let axes = sym_vec!(0, 1);
+        let expected = sym_shape!(1, 1, "batch", 64);
+        let result = Unsqueeze
+            .infer_shapes([shape, axes].into(), &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], expected);
+
+        // Unsqueeze with multiple non-adjacent axes, where a later axis refers
+        // to a position near the end of the output.
+        let shape = sym_shape!("batch", 64);
+        let axes = sym_vec!(1, 3);
+        let expected = sym_shape!("batch", 1, 64, 1);
+        let result = Unsqueeze
+            .infer_shapes([shape, axes].into(), &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], expected);
+
+        // Unsqueeze with unsorted axes.
+        let shape = sym_shape!("batch", 64);
+        let axes = sym_vec!(3, 1);
+        let expected = sym_shape!("batch", 1, 64, 1);
+        let result = Unsqueeze
+            .infer_shapes([shape, axes].into(), &mut sym_gen)
+            .unwrap();
+        assert_eq!(result[0], expected);
+
+        // Unsqueeze with negative axes, resolved against the output rank.
+        let shape = sym_shape!("batch", 64);
+        let axes = sym_vec!(-1, -4);
+        let expected = sym_shape!(1, "batch", 64, 1);
+        let result = Unsqueeze
+            .infer_shapes([shape, axes].into(), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], expected);
     }
