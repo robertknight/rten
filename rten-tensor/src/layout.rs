@@ -220,6 +220,27 @@ pub trait Layout {
             .sum();
         max_offset + 1
     }
+
+    /// Return a new layout formed by reshaping this one to `shape`.
+    ///
+    /// This has the same requirements as
+    /// [`reshaped_for_copy`](Layout::reshaped_for_copy) but also requires
+    /// that the layout is contiguous.
+    fn reshaped_for_view<S: IntoLayout>(&self, shape: S) -> Result<S::Layout, ReshapeError> {
+        if !self.is_contiguous() {
+            return Err(ReshapeError::NotContiguous);
+        }
+        self.reshaped_for_copy(shape)
+    }
+
+    /// Return a new layout formed by reshaping this one to `shape`.
+    fn reshaped_for_copy<S: IntoLayout>(&self, shape: S) -> Result<S::Layout, ReshapeError> {
+        let layout = shape.into_layout();
+        if layout.len() != self.len() {
+            return Err(ReshapeError::LengthMismatch);
+        }
+        Ok(layout)
+    }
 }
 
 /// A layout which upholds guarantees on returned storage offsets.
@@ -695,9 +716,6 @@ impl<const N: usize> From<NdLayout<N>> for DynLayout {
 /// [`from_shape_and_strides`](MutLayout::from_shape_and_strides) the intended
 /// usage is specified via an [`OverlapPolicy`].
 pub trait MutLayout: Layout + Clone {
-    /// Create a new contiguous layout with a given shape.
-    fn from_shape(shape: Self::Index<'_>) -> Self;
-
     /// Create a layout with custom strides.
     ///
     /// The strides specify the offset gap between successive entries along a
@@ -731,27 +749,6 @@ pub trait MutLayout: Layout + Clone {
 
     /// Return a layout with the axes permuted according to the given order.
     fn permuted(&self, order: Self::Index<'_>) -> Self;
-
-    /// Return a new layout formed by reshaping this one to `shape`.
-    ///
-    /// This has the same requirements as
-    /// [`reshaped_for_copy`](MutLayout::reshaped_for_copy) but also requires
-    /// that the layout is contiguous.
-    fn reshaped_for_view<S: IntoLayout>(&self, shape: S) -> Result<S::Layout, ReshapeError> {
-        if !self.is_contiguous() {
-            return Err(ReshapeError::NotContiguous);
-        }
-        self.reshaped_for_copy(shape)
-    }
-
-    /// Return a new layout formed by reshaping this one to `shape`.
-    fn reshaped_for_copy<S: IntoLayout>(&self, shape: S) -> Result<S::Layout, ReshapeError> {
-        let layout = shape.into_layout();
-        if layout.len() != self.len() {
-            return Err(ReshapeError::LengthMismatch);
-        }
-        Ok(layout)
-    }
 
     // Modify the size of a dimension. This does not alter the strides.
     fn resize_dim(&mut self, dim: usize, size: usize);
@@ -812,6 +809,12 @@ pub trait MutLayout: Layout + Clone {
     /// Returns a tuple of `(left, right)` where each item is an `(offset_range,
     /// layout)` tuple.
     fn split(&self, axis: usize, mid: usize) -> ((Range<usize>, Self), (Range<usize>, Self));
+}
+
+/// Trait for creating a layout from a shape.
+pub trait FromShape: Layout {
+    /// Create a new contiguous layout with a given shape.
+    fn from_shape(shape: Self::Index<'_>) -> Self;
 }
 
 /// Trait for broadcasting a layout from one shape to another.
@@ -880,14 +883,16 @@ impl<const N: usize> BroadcastLayout<NdLayout<N>> for DynLayout {
     }
 }
 
-impl<const N: usize> MutLayout for NdLayout<N> {
+impl<const N: usize> FromShape for NdLayout<N> {
     fn from_shape(shape: [usize; N]) -> Self {
         Self {
             shape,
             strides: Self::contiguous_strides(shape),
         }
     }
+}
 
+impl<const N: usize> MutLayout for NdLayout<N> {
     fn from_shape_and_strides(
         shape: Self::Index<'_>,
         strides: Self::Index<'_>,
@@ -1006,13 +1011,15 @@ impl<const N: usize> MutLayout for NdLayout<N> {
     }
 }
 
-impl MutLayout for DynLayout {
+impl FromShape for DynLayout {
     fn from_shape(shape: &[usize]) -> Self {
         DynLayout {
             shape_and_strides: Self::contiguous_shape_and_strides(shape),
         }
     }
+}
 
+impl MutLayout for DynLayout {
     fn from_shape_and_strides(
         shape: &[usize],
         strides: &[usize],
@@ -1508,7 +1515,7 @@ mod tests {
     use super::OverlapPolicy;
     use crate::SliceItem;
     use crate::errors::{ReshapeError, SliceError};
-    use crate::layout::{DynLayout, Layout, MutLayout, NdLayout, ResizeLayout};
+    use crate::layout::{DynLayout, FromShape, Layout, MutLayout, NdLayout, ResizeLayout};
 
     fn layout_with_strides<const N: usize>(shape: [usize; N], strides: [usize; N]) -> NdLayout<N> {
         NdLayout::from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap).unwrap()

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use super::{AsView, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use crate::errors::{DimensionError, ExpandError, FromDataError};
-use crate::layout::{DynLayout, MatrixLayout, MutLayout};
+use crate::layout::{DynLayout, FromShape, MatrixLayout};
 use crate::prelude::*;
 use crate::rng::XorShiftRng;
 use crate::storage::{Alloc, IntoStorage};

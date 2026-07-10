@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use crate::layout::MutLayout;
+use crate::layout::FromShape;
 use crate::storage::{CowData, ViewData};
 use crate::{AsView, Layout, Storage, TensorBase};
 
@@ -65,7 +65,7 @@ impl<T, L: Clone + Layout> Contiguous<TensorBase<Vec<T>, L>> {
     /// are copied into a new buffer.
     pub fn from_owned(mut inner: TensorBase<Vec<T>, L>) -> Self
     where
-        L: MutLayout,
+        L: FromShape,
         T: Clone,
     {
         inner.make_contiguous();
