@@ -196,6 +196,14 @@ impl<'a> From<&'a DynLayout> for ValueLayout<'a> {
 /// underlying layout.
 macro_rules! impl_proxy_layout {
     () => {
+        type Shape<'b>
+            = SmallVec<[usize; 4]>
+        where
+            Self: 'b;
+        type Strides<'b>
+            = SmallVec<[usize; 4]>
+        where
+            Self: 'b;
         type Index<'b> = SmallVec<[usize; 4]>;
         type Indices = DynIndices;
 
@@ -229,7 +237,7 @@ macro_rules! impl_proxy_layout {
             }
         }
 
-        fn shape(&self) -> Self::Index<'_> {
+        fn shape(&self) -> Self::Shape<'_> {
             match self.layout() {
                 ValueLayout::Tensor(layout) => SmallVec::from_slice(layout.shape()),
                 ValueLayout::Vector(len) => SmallVec::from_slice(&[len]),
@@ -243,7 +251,7 @@ macro_rules! impl_proxy_layout {
             }
         }
 
-        fn strides(&self) -> Self::Index<'_> {
+        fn strides(&self) -> Self::Strides<'_> {
             match self.layout() {
                 ValueLayout::Tensor(layout) => SmallVec::from_slice(layout.strides()),
                 ValueLayout::Vector(_) => SmallVec::from_slice(&[1]),

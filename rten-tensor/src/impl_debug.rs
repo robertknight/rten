@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Error, Formatter};
 
-use crate::layout::{Layout, MatrixLayout};
+use crate::layout::{Layout, MatrixLayout, SizeArray};
 use crate::{AsView, NdTensorView, Storage, TensorBase};
 
 /// Entry in the formatted representation of a tensor's data.
@@ -119,7 +119,7 @@ where
                 let outer_dims = n - 2;
                 write!(f, "{}", "[".repeat(outer_dims))?;
 
-                let n_matrices: usize = tensor.shape().as_ref().iter().take(outer_dims).product();
+                let n_matrices: usize = tensor.shape().iter().take(outer_dims).product();
 
                 for (i, mat) in tensor
                     .inner_iter::<2>()

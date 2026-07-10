@@ -5,9 +5,10 @@ use std::mem::transmute;
 use std::ops::Range;
 
 use rten_base::iter::SplitIterator;
+use smallvec::SmallVec;
 
 use super::{AsView, DynLayout, NdTensorView, NdTensorViewMut, TensorBase, TensorViewMut};
-use crate::layout::{Layout, MutLayout, NdLayout, OverlapPolicy, RemoveDim, merge_axes};
+use crate::layout::{Layout, MutLayout, NdLayout, OverlapPolicy, RemoveDim, SizeArray, merge_axes};
 use crate::storage::{StorageMut, ViewData, ViewMutData};
 
 mod parallel;
@@ -105,7 +106,7 @@ impl OffsetsBase {
     fn new<L: Layout>(layout: &L) -> OffsetsBase {
         // Merge axes to maximize the number of iterations that use the fast
         // path for stepping over the inner dimensions.
-        let merged = merge_axes(layout.shape().as_ref(), layout.strides().as_ref());
+        let merged = merge_axes(&layout.shape(), &layout.strides());
 
         let inner_pos_pad = INNER_NDIM.saturating_sub(merged.len());
         let n_outer = merged.len().saturating_sub(INNER_NDIM);
@@ -970,7 +971,11 @@ impl<L: Layout + Clone> InnerIterBase<L> {
         let outer_dims = parent_layout.ndim() - inner_dims;
         let parent_shape = parent_layout.shape();
         let parent_strides = parent_layout.strides();
-        let (outer_shape, inner_shape) = parent_shape.as_ref().split_at(outer_dims);
+
+        let parent_dims: SmallVec<[usize; 5]> = parent_shape.iter().collect();
+        let (outer_shape, inner_shape) = parent_dims.as_ref().split_at(outer_dims);
+
+        let parent_strides: SmallVec<[usize; 5]> = parent_strides.iter().collect();
         let (outer_strides, inner_strides) = parent_strides.as_ref().split_at(outer_dims);
 
         let outer_layout = DynLayout::from_shape_and_strides(

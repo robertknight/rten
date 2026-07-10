@@ -4,7 +4,7 @@ use serde::de::{Deserialize, Deserializer, Error, MapAccess, Visitor};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 
 use crate::iterators::Iter;
-use crate::layout::MutLayout;
+use crate::layout::{FromShape, MutLayout};
 use crate::{AsView, Layout, Storage, TensorBase};
 
 struct TensorData<'a, T> {
@@ -31,8 +31,12 @@ where
     where
         Sr: Serializer,
     {
+        use crate::SizeArray;
+
+        let shape: Vec<_> = self.shape().iter().collect();
+
         let mut tensor = serializer.serialize_struct("Tensor", 2)?;
-        tensor.serialize_field("shape", self.shape().as_ref())?;
+        tensor.serialize_field("shape", &shape)?;
         tensor.serialize_field("data", &TensorData { iter: self.iter() })?;
         tensor.end()
     }
@@ -46,8 +50,7 @@ struct TensorVisitor<T, L> {
 impl<'de, T, L> Visitor<'de> for TensorVisitor<T, L>
 where
     T: Deserialize<'de>,
-    L: MutLayout,
-    for<'a> L::Index<'a>: TryFrom<&'a [usize]>,
+    L: for<'a> Layout<Shape<'a>: TryFrom<&'a [usize]>> + FromShape,
 {
     type Value = TensorBase<Vec<T>, L>;
 
@@ -89,7 +92,7 @@ where
             return Err(A::Error::missing_field("data"));
         };
 
-        let Ok(shape_ref): Result<L::Index<'_>, _> = shape.as_slice().try_into() else {
+        let Ok(shape_ref): Result<L::Shape<'_>, _> = shape.as_slice().try_into() else {
             return Err(A::Error::custom("incorrect shape length for tensor rank"));
         };
 
@@ -98,10 +101,10 @@ where
     }
 }
 
-impl<'de, T, L: MutLayout> Deserialize<'de> for TensorBase<Vec<T>, L>
+impl<'de, T, L> Deserialize<'de> for TensorBase<Vec<T>, L>
 where
     T: Deserialize<'de>,
-    for<'a> L::Index<'a>: TryFrom<&'a [usize]>,
+    L: for<'a> Layout<Shape<'a>: TryFrom<&'a [usize]>> + FromShape,
 {
     fn deserialize<D>(deserializer: D) -> Result<TensorBase<Vec<T>, L>, D::Error>
     where

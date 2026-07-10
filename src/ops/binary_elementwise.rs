@@ -56,7 +56,10 @@ pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<SmallVec<[usize; 4]>
 /// Return true if an elementwise binary operation can be performed in-place
 /// on `a` given `b` as the other argument.
 fn can_run_binary_op_in_place<L1: Layout, L2: Layout>(a: &L1, b: &L2) -> bool {
-    b.can_broadcast_to(a.shape().as_ref())
+    use rten_tensor::SizeArray;
+
+    let shape: SmallVec<[usize; 5]> = a.shape().iter().collect();
+    b.can_broadcast_to(&shape)
 }
 
 /// Check whether a tensor of shape `from_shape` can be broadcast to `to_shape`

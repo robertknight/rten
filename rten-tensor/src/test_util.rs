@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
+use crate::layout::SizeArray;
 use crate::{AsView, Layout, TensorView};
 
 /// Trait that tests whether two values are approximately equal.
@@ -93,7 +94,7 @@ impl_approx_eq_for_ints!(i8, i16, i32, i64, u8, u16, u32, u64);
 /// Return the N-dimensional index in a tensor with a given `shape` that
 /// corresponds to a linear index (ie. the index if the tensor was flattened to
 /// 1D).
-fn index_from_linear_index(shape: &[usize], lin_index: usize) -> Vec<usize> {
+fn index_from_linear_index(shape: impl SizeArray, lin_index: usize) -> Vec<usize> {
     assert!(
         lin_index < shape.iter().product(),
         "Linear index {} is out of bounds for shape {:?}",
@@ -102,8 +103,8 @@ fn index_from_linear_index(shape: &[usize], lin_index: usize) -> Vec<usize> {
     );
     (0..shape.len())
         .map(|dim| {
-            let elts_per_index: usize = shape[dim + 1..].iter().product();
-            let lin_index_for_dim = lin_index % (shape[dim] * elts_per_index);
+            let elts_per_index: usize = shape.iter().skip(dim + 1).product();
+            let lin_index_for_dim = lin_index % (shape.get(dim).unwrap() * elts_per_index);
             lin_index_for_dim / elts_per_index
         })
         .collect()
@@ -170,7 +171,7 @@ where
         .enumerate()
         .filter_map(|(i, (xi, yi))| {
             if !xi.approx_eq_with_atol_rtol(yi, atol.clone(), rtol.clone()) {
-                Some((index_from_linear_index(x.shape().as_ref(), i), xi, yi))
+                Some((index_from_linear_index(x.shape(), i), xi, yi))
             } else {
                 None
             }

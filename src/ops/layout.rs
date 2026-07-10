@@ -542,8 +542,8 @@ pub fn squeeze_in_place<T: Clone>(
 ) -> Result<(), OpError> {
     let sorted_axes = if let Some(axes) = axes {
         let axes = resolve_axes(input.ndim(), axes.iter())?;
-        for &axis in axes.iter() {
-            if input.size(axis) != 1 {
+        for axis in axes.iter() {
+            if input.size(*axis) != 1 {
                 return Err(OpError::InvalidValue(
                     "Can only remove dimensions of size 1",
                 ));
