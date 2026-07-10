@@ -24,15 +24,19 @@ pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
 /// single dimension with size N1 * N2 and stride S2 if S1 = N1 * S2;
 ///
 /// Returns a vector of `(size, stride)` tuples for the merged dimensions.
-pub(crate) fn merge_axes(shape: &[usize], strides: &[usize]) -> SmallVec<[(usize, usize); 4]> {
-    let (Some(prev_size), Some(prev_stride)) = (shape.last(), strides.last()) else {
+pub(crate) fn merge_axes<S: SizeArray, St: SizeArray>(
+    shape: &S,
+    strides: &St,
+) -> SmallVec<[(usize, usize); 4]> {
+    let last_dim = shape.len().saturating_sub(1);
+    let (Some(prev_size), Some(prev_stride)) = (shape.get(last_dim), strides.get(last_dim)) else {
         return SmallVec::new();
     };
 
     let mut merged: SmallVec<[(usize, usize); 4]> = SmallVec::with_capacity(shape.len());
-    merged.push((*prev_size, *prev_stride));
+    merged.push((prev_size, prev_stride));
 
-    for (&outer_size, &outer_stride) in shape.iter().zip(strides.iter()).rev().skip(1) {
+    for (outer_size, outer_stride) in shape.iter().zip(strides.iter()).rev().skip(1) {
         let (inner_size, inner_stride) = merged.last_mut().unwrap();
         let can_merge = outer_size == 1 || (outer_stride == *inner_stride * *inner_size);
         if can_merge {
@@ -59,6 +63,41 @@ macro_rules! debug_assert_dim_valid {
     };
 }
 
+/// Array of dimension sizes or strides.
+///
+/// This trait is an abstraction around slices and arrays of [`usize`]s. Unlike
+/// `AsRef<[usize]>` this does not require the data to actually be stored in
+/// memory. This allows for strides which are computed on-demand or stored in a
+/// smaller data type (eg. `u32`) and expanded to `usize`.
+pub trait SizeArray: Clone + std::fmt::Debug + PartialEq<Self> {
+    /// Return the length of the array.
+    fn len(&self) -> usize;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Return the `index`'th entry.
+    fn get(&self, index: usize) -> Option<usize>;
+
+    /// Return an iterator over the entries.
+    fn iter(&self) -> impl ExactSizeIterator<Item = usize> + DoubleEndedIterator;
+}
+
+impl<T: Clone + AsRef<[usize]> + std::fmt::Debug + PartialEq<Self>> SizeArray for T {
+    fn len(&self) -> usize {
+        self.as_ref().len()
+    }
+
+    fn get(&self, index: usize) -> Option<usize> {
+        self.as_ref().get(index).copied()
+    }
+
+    fn iter(&self) -> impl ExactSizeIterator<Item = usize> + DoubleEndedIterator {
+        self.as_ref().iter().copied()
+    }
+}
+
 /// Describes the shape and strides of a tensor.
 ///
 /// The `Layout` trait provides methods to query the shape of a tensor, i.e. the
@@ -70,10 +109,17 @@ macro_rules! debug_assert_dim_valid {
 /// such as [`NdLayout`] (for tensors with a static number of dimensions) and
 /// [`DynLayout`] (for tensors with a dynamic number of dimensions).
 pub trait Layout {
+    /// Type used to represent the layout's shape.
+    type Shape<'a>: SizeArray
+    where
+        Self: 'a;
+
+    /// Type used to represent the layout's strides.
+    type Strides<'a>: SizeArray
+    where
+        Self: 'a;
+
     /// Type used to represent indices.
-    ///
-    /// It is assumed that this type can also represent the shape and strides
-    /// of the tensor.
     type Index<'a>: AsRef<[usize]> + Clone + std::fmt::Debug + PartialEq<Self::Index<'a>>;
 
     /// Iterator over indices in this tensor.
@@ -89,8 +135,8 @@ pub trait Layout {
         index
             .as_ref()
             .iter()
-            .zip(self.strides().as_ref())
-            .map(|(idx, stride)| *idx * *stride)
+            .zip(self.strides().iter())
+            .map(|(idx, stride)| *idx * stride)
             .sum()
     }
 
@@ -112,13 +158,13 @@ pub trait Layout {
     /// Return true if this layout describes a contiguous tensor, where the
     /// logical order of elements matches the order in which they are stored.
     fn is_contiguous(&self) -> bool {
-        is_contiguous(self.shape(), self.strides())
+        is_contiguous(&self.shape(), &self.strides())
     }
 
     /// Return true if iterating over elements in this layout will visit
     /// elements multiple times.
     fn is_broadcast(&self) -> bool {
-        !self.is_empty() && self.strides().as_ref().contains(&0)
+        !self.is_empty() && self.strides().iter().any(|s| s == 0)
     }
 
     /// Returns true if the array has no elements.
@@ -127,21 +173,19 @@ pub trait Layout {
     }
 
     /// Returns an array of the sizes of each dimension.
-    fn shape(&self) -> Self::Index<'_>;
+    fn shape(&self) -> Self::Shape<'_>;
 
     /// Returns the size of the dimension `dim`.
     fn size(&self, dim: usize) -> usize {
-        debug_assert_dim_valid!(self, dim);
-        self.shape().as_ref()[dim]
+        self.shape().get(dim).expect("invalid dim index")
     }
 
     /// Returns an array of the strides of each dimension.
-    fn strides(&self) -> Self::Index<'_>;
+    fn strides(&self) -> Self::Strides<'_>;
 
     /// Returns the offset between adjacent indices along dimension `dim`.
     fn stride(&self, dim: usize) -> usize {
-        debug_assert_dim_valid!(self, dim);
-        self.strides().as_ref()[dim]
+        self.strides().get(dim).expect("invalid dimension")
     }
 
     /// Return an iterator over all valid indices in this tensor.
@@ -149,9 +193,7 @@ pub trait Layout {
 
     /// Return true if this layout's shape can be broadcast to the given shape.
     fn can_broadcast_to(&self, target_shape: &[usize]) -> bool {
-        if self.shape().as_ref() == target_shape {
-            return true;
-        } else if self.ndim() > target_shape.len() {
+        if self.ndim() > target_shape.len() {
             return false;
         }
 
@@ -160,14 +202,12 @@ pub trait Layout {
         //
         // If the tensor has fewer dimensions, pretend that it was prefixed with
         // 1-length dimensions to make the dimension counts equal.
-        let target_dims = target_shape[target_shape.len() - self.shape().as_ref().len()..]
+        let target_dims = target_shape[target_shape.len() - self.shape().len()..]
             .iter()
             .copied();
 
         self.shape()
-            .as_ref()
             .iter()
-            .copied()
             .zip(target_dims)
             .all(|(a, b)| a == b || a == 1)
     }
@@ -182,24 +222,19 @@ pub trait Layout {
     /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
     /// conditions in which broadcasting is allowed.
     fn can_broadcast_with(&self, shape: &[usize]) -> bool {
-        if self.shape().as_ref() == shape {
-            return true;
-        }
-
         // For two shapes to be compatible for broadcasting, each dimension must
         // either be the same or be 1.
         //
         // If the tensor has fewer dimensions, pretend that it was prefixed with
         // 1-length dimensions to make the dimension counts equal.
 
-        let current_shape = self.shape();
-        let a = current_shape.as_ref();
+        let a = self.shape();
         let b = shape;
 
         let a_pad = b.len().saturating_sub(a.len());
         let b_pad = a.len().saturating_sub(b.len());
 
-        let a_iter = a.iter().copied().rev().chain(repeat_n(1, a_pad));
+        let a_iter = a.iter().rev().chain(repeat_n(1, a_pad));
         let b_iter = b.iter().copied().rev().chain(repeat_n(1, b_pad));
 
         a_iter.zip(b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
@@ -208,14 +243,13 @@ pub trait Layout {
     /// Return the minimum length required for the element data buffer used
     /// with this layout.
     fn min_data_len(&self) -> usize {
-        if self.shape().as_ref().contains(&0) {
+        if self.shape().iter().any(|d| d == 0) {
             return 0;
         }
         let max_offset: usize = self
             .shape()
-            .as_ref()
             .iter()
-            .zip(self.strides().as_ref())
+            .zip(self.strides().iter())
             .map(|(size, stride)| (size - 1) * stride)
             .sum();
         max_offset + 1
@@ -267,7 +301,7 @@ pub(crate) trait LayoutExt: Layout {
             panic!(
                 "index {:?} out of bounds for shape {:?}",
                 index.as_ref(),
-                self.shape().as_ref()
+                self.shape()
             )
         })
     }
@@ -302,6 +336,8 @@ pub struct NdLayout<const N: usize> {
 }
 
 impl<const N: usize> Layout for NdLayout<N> {
+    type Shape<'a> = [usize; N];
+    type Strides<'a> = [usize; N];
     type Index<'a> = [usize; N];
     type Indices = NdIndices<N>;
 
@@ -331,12 +367,12 @@ impl<const N: usize> Layout for NdLayout<N> {
     }
 
     #[inline]
-    fn shape(&self) -> Self::Index<'_> {
+    fn shape(&self) -> Self::Shape<'_> {
         self.shape
     }
 
     #[inline]
-    fn strides(&self) -> Self::Index<'_> {
+    fn strides(&self) -> [usize; N] {
         self.strides
     }
 
@@ -348,6 +384,14 @@ impl<const N: usize> Layout for NdLayout<N> {
 unsafe impl<const N: usize> TrustedLayout for NdLayout<N> {}
 
 impl<L: Layout> Layout for &L {
+    type Shape<'b>
+        = L::Shape<'b>
+    where
+        Self: 'b;
+    type Strides<'b>
+        = L::Strides<'b>
+    where
+        Self: 'b;
     type Index<'b> = L::Index<'b>;
     type Indices = L::Indices;
 
@@ -367,11 +411,11 @@ impl<L: Layout> Layout for &L {
         (*self).offset_unchecked(index)
     }
 
-    fn shape(&self) -> Self::Index<'_> {
+    fn shape(&self) -> Self::Shape<'_> {
         (*self).shape()
     }
 
-    fn strides(&self) -> Self::Index<'_> {
+    fn strides(&self) -> Self::Strides<'_> {
         (*self).strides()
     }
 
@@ -413,22 +457,21 @@ impl MatrixLayout for NdLayout<2> {
 ///
 /// This function is generic to allow for specialized variants to be generated
 /// when slicing with statically known input or output shape sizes.
-fn slice_layout<I: AsRef<[usize]>, O: AsMut<[usize]>>(
-    in_shape: I,
-    in_strides: I,
-    mut out_shape: O,
-    mut out_strides: O,
+fn slice_layout(
+    in_shape: impl AsRef<[usize]>,
+    in_strides: impl AsRef<[usize]>,
+    mut out_shape: impl AsMut<[usize]>,
+    mut out_strides: impl AsMut<[usize]>,
     range: &[SliceItem],
 ) -> Result<(usize, usize), SliceError> {
     let in_shape = in_shape.as_ref();
-    let in_strides = in_strides.as_ref();
     let out_shape = out_shape.as_mut();
     let out_strides = out_strides.as_mut();
 
     let mut ndim = 0;
     let mut offset = 0;
 
-    for (in_dim, (&size, &stride)) in in_shape.iter().zip(in_strides.iter()).enumerate() {
+    for (in_dim, (&size, &stride)) in in_shape.iter().zip(in_strides.as_ref()).enumerate() {
         let (offset_adjust, new_size_stride) = match range.get(in_dim) {
             Some(&SliceItem::Index(idx)) => {
                 let pos_idx = if idx >= 0 { idx } else { idx + size as isize };
@@ -489,7 +532,7 @@ fn broadcast_strides<'a>(
     to_shape: &'a [usize],
 ) -> impl Iterator<Item = usize> + 'a {
     let pad = to_shape.len() - from_shape.len();
-    repeat_n(0, pad).chain(from_shape.iter().zip(from_strides.iter()).enumerate().map(
+    repeat_n(0, pad).chain(from_shape.iter().zip(from_strides).enumerate().map(
         move |(i, (size, stride))| {
             if *size == 1 && to_shape[i + pad] > 1 {
                 0
@@ -573,6 +616,8 @@ impl Clone for DynLayout {
 }
 
 impl Layout for DynLayout {
+    type Shape<'a> = &'a [usize];
+    type Strides<'a> = &'a [usize];
     type Index<'a> = &'a [usize];
     type Indices = DynIndices;
 
@@ -587,7 +632,7 @@ impl Layout for DynLayout {
         let strides = self.strides();
         let mut valid = index.as_ref().len() == shape.len();
         let mut offset = 0;
-        for (idx, (size, stride)) in index.as_ref().iter().zip(shape.iter().zip(strides.iter())) {
+        for (idx, (size, stride)) in index.as_ref().iter().zip(shape.iter().zip(strides)) {
             valid = valid && idx < size;
             offset += idx * stride;
         }
@@ -619,7 +664,7 @@ impl Layout for DynLayout {
 
     /// Return the stride (offset between elements) in the tensor's element array.
     #[inline]
-    fn strides(&self) -> &[usize] {
+    fn strides(&self) -> Self::Strides<'_> {
         &self.shape_and_strides[self.ndim()..]
     }
 
@@ -643,10 +688,8 @@ impl DynLayout {
     }
 
     fn permute_iter<I: Clone + Iterator<Item = usize>>(&mut self, dims: I) {
-        let strides = self.strides();
-        let shape = self.shape();
-        let shape_iter = dims.clone().map(|dim| shape[dim]);
-        let stride_iter = dims.map(|dim| strides[dim]);
+        let shape_iter = dims.clone().map(|dim| self.size(dim));
+        let stride_iter = dims.map(|dim| self.stride(dim));
         self.shape_and_strides = shape_iter.chain(stride_iter).collect();
     }
 
@@ -680,12 +723,10 @@ impl DynLayout {
 
 impl<L: Layout> From<&L> for DynLayout {
     fn from(layout: &L) -> DynLayout {
-        DynLayout::from_shape_and_strides(
-            layout.shape().as_ref(),
-            layout.strides().as_ref(),
-            OverlapPolicy::AllowOverlap,
-        )
-        .expect("invalid layout")
+        let shape: SmallVec<[usize; 5]> = layout.shape().iter().collect();
+        let strides: SmallVec<[usize; 5]> = layout.strides().iter().collect();
+        DynLayout::from_shape_and_strides(&shape, &strides, OverlapPolicy::AllowOverlap)
+            .expect("invalid layout")
     }
 }
 
@@ -723,8 +764,8 @@ pub trait MutLayout: Layout + Clone {
     /// multiple indices to the same element. This can be true for immutable
     /// views, but must be false for tensors or views that are mutable.
     fn from_shape_and_strides(
-        shape: Self::Index<'_>,
-        strides: Self::Index<'_>,
+        shape: Self::Shape<'_>,
+        strides: Self::Strides<'_>,
         overlap: OverlapPolicy,
     ) -> Result<Self, FromDataError>;
 
@@ -814,7 +855,7 @@ pub trait MutLayout: Layout + Clone {
 /// Trait for creating a layout from a shape.
 pub trait FromShape: Layout {
     /// Create a new contiguous layout with a given shape.
-    fn from_shape(shape: Self::Index<'_>) -> Self;
+    fn from_shape(shape: Self::Shape<'_>) -> Self;
 }
 
 /// Trait for broadcasting a layout from one shape to another.
@@ -902,7 +943,7 @@ impl<const N: usize> MutLayout for NdLayout<N> {
 
         match overlap {
             OverlapPolicy::DisallowOverlap => {
-                if may_have_internal_overlap(&layout.shape, &layout.strides) {
+                if may_have_internal_overlap(layout.shape, layout.strides) {
                     return Err(FromDataError::MayOverlap);
                 }
             }
@@ -954,7 +995,7 @@ impl<const N: usize> MutLayout for NdLayout<N> {
         let mut strides: [usize; M] = [0; M];
 
         let (ndim, offset) =
-            slice_layout(&self.shape, &self.strides, &mut shape, &mut strides, range)?;
+            slice_layout(self.shape, self.strides, &mut shape, &mut strides, range)?;
 
         if ndim != M {
             return Err(SliceError::OutputDimsMismatch {
@@ -1123,7 +1164,7 @@ impl MutLayout for DynLayout {
         let mut left_shape_strides: SmallVec<[usize; 8]> = (0..self.ndim())
             .map(|i| if i == axis { mid } else { self.size(i) })
             .collect();
-        left_shape_strides.extend(self.strides().iter().copied());
+        left_shape_strides.extend_from_slice(self.strides());
 
         let mut right_shape_strides: SmallVec<[usize; 8]> = (0..self.ndim())
             .map(|i| {
@@ -1134,7 +1175,7 @@ impl MutLayout for DynLayout {
                 }
             })
             .collect();
-        right_shape_strides.extend(self.strides().iter().copied());
+        right_shape_strides.extend_from_slice(self.strides());
 
         let left = DynLayout {
             shape_and_strides: left_shape_strides,
@@ -1253,7 +1294,7 @@ impl ResizeLayout for DynLayout {
     }
 
     fn merge_axes(&mut self) {
-        let merged = merge_axes(self.shape(), self.strides());
+        let merged = merge_axes(&self.shape(), &self.strides());
         self.shape_and_strides = merged
             .iter()
             .map(|dim| dim.0)
@@ -1286,6 +1327,30 @@ impl<const N: usize> AsIndex<NdLayout<N>> for [usize; N] {
 
 impl AsIndex<NdLayout<1>> for usize {
     fn as_index(&self) -> [usize; 1] {
+        [*self]
+    }
+}
+
+/// Trait for converting types into shapes for a given layout.
+pub trait AsShape<L: Layout> {
+    /// Convert `self` into an index for use the layout `L`.
+    fn as_shape(&self) -> L::Shape<'_>;
+}
+
+impl<T: AsRef<[usize]>> AsShape<DynLayout> for T {
+    fn as_shape(&self) -> &[usize] {
+        self.as_ref()
+    }
+}
+
+impl<const N: usize> AsShape<NdLayout<N>> for [usize; N] {
+    fn as_shape(&self) -> [usize; N] {
+        *self
+    }
+}
+
+impl AsShape<NdLayout<1>> for usize {
+    fn as_shape(&self) -> [usize; 1] {
         [*self]
     }
 }

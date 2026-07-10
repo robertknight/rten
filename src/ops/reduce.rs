@@ -431,7 +431,7 @@ fn reduce<T: Copy>(
         let reduced_inner_dims: Option<usize> = resolved_axes
             .iter()
             .enumerate()
-            .all(|(i, &axis)| axis == input.ndim() - 1 - i)
+            .all(|(i, axis)| *axis == input.ndim() - 1 - i)
             .then_some(resolved_axes.len());
 
         match (reduced_inner_dims, input.data()) {
@@ -491,7 +491,7 @@ fn reduce<T: Copy>(
 
     if !keep_dims {
         let resolved_axes_i32: NdTensor<i32, 1> =
-            resolved_axes.iter().map(|&axis| axis as i32).collect();
+            resolved_axes.iter().map(|axis| *axis as i32).collect();
         squeeze_in_place(&mut reduced, Some(resolved_axes_i32.view())).expect("Invalid axis");
     }
 

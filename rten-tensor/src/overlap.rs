@@ -1,10 +1,12 @@
 use smallvec::SmallVec;
 
+use crate::layout::SizeArray;
+
 /// Return true if a given shape and strides describe a contiguous layout in
 /// row-major ("C") order.
-pub fn is_contiguous<S: AsRef<[usize]>>(shape: S, strides: S) -> bool {
+pub fn is_contiguous<S: SizeArray, Strides: SizeArray>(shape: &S, strides: &Strides) -> bool {
     let mut product = 1;
-    for (&size, &stride) in shape.as_ref().iter().zip(strides.as_ref().iter()).rev() {
+    for (size, stride) in shape.iter().zip(strides.iter()).rev() {
         // Dimensions of size 1 cannot affect whether the tensor is contiguous,
         // since the only valid index is 0 and `0 * stride = 0` for any stride.
         if size == 1 {
@@ -40,21 +42,21 @@ pub fn is_contiguous<S: AsRef<[usize]>>(shape: S, strides: S) -> bool {
 ///     and in particular references to internal overlap.
 /// [2] See also references to "memory overlap" in PyTorch source and
 ///     issues.
-pub fn may_have_internal_overlap(shape: &[usize], strides: &[usize]) -> bool {
+pub fn may_have_internal_overlap(shape: impl SizeArray, strides: impl SizeArray) -> bool {
     // If the tensor is empty (ie. there are no valid indices), there can't be
     // any overlap.
-    if shape.contains(&0) {
+    if shape.iter().any(|d| d == 0) {
         return false;
     }
 
     // Fast path for common case of contiguous tensor.
-    if is_contiguous(shape, strides) {
+    if is_contiguous(&shape, &strides) {
         return false;
     }
 
     // Sort dimensions in order of increasing stride.
     let mut stride_shape: SmallVec<[(usize, usize); 8]> =
-        strides.iter().copied().zip(shape.iter().copied()).collect();
+        strides.iter().zip(shape.iter()).collect();
     stride_shape.sort_unstable();
 
     // Verify that the stride for each dimension fully "steps over" the
@@ -157,7 +159,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            assert_eq!(is_contiguous(case.shape, case.strides), case.contiguous);
+            assert_eq!(is_contiguous(&case.shape, &case.strides), case.contiguous);
         })
     }
 }

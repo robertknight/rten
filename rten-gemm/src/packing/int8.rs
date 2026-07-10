@@ -304,6 +304,8 @@ impl RowMajorLayout {
 }
 
 impl Layout for RowMajorLayout {
+    type Shape<'a> = [usize; 2];
+    type Strides<'a> = [usize; 2];
     type Index<'a> = [usize; 2];
     type Indices = NdIndices<2>;
 
@@ -327,7 +329,7 @@ impl Layout for RowMajorLayout {
     }
 
     #[inline]
-    fn shape(&self) -> Self::Index<'_> {
+    fn shape(&self) -> Self::Shape<'_> {
         self.shape
     }
 
@@ -378,7 +380,7 @@ fn pack_a_impl<const MR: usize, const K_TILE: usize, L>(
     a: TensorBase<ViewData<u8>, L>,
     zero_point: Option<&[u8]>,
 ) where
-    L: Clone + for<'a> Layout<Index<'a> = [usize; 2]>,
+    L: Clone + for<'a> Layout<Shape<'a> = [usize; 2]> + 'static,
     [usize; 2]: AsIndex<L>,
 {
     let [a_rows, a_cols] = a.shape();
