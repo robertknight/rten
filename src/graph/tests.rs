@@ -90,7 +90,7 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
         self.inner.run(ctx)
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         {
             let mut m = self.metrics.lock().unwrap();
             m.run_in_place_count += 1;
@@ -872,12 +872,12 @@ impl Operator for AddOneInPlace {
         input.to_tensor().into_op_result()
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut output = input.into_tensor::<f32>().unwrap();
         for x in output.iter_mut() {
             *x = *x + 1.0;
         }
-        Ok(output.into())
+        output.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {

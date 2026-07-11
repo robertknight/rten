@@ -145,7 +145,7 @@ impl Operator for Slice {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let other = ctx.inputs();
         let starts = other.require_as(0)?;
         let ends = other.require_as(1)?;
@@ -168,12 +168,12 @@ impl Operator for Slice {
 
             let input_list = InputList::from(&inputs);
             let ctx = OpRunContext::new(ctx.pool(), &input_list, ctx.outputs());
-            return self.run(&ctx).map(|mut outputs| outputs.remove(0));
+            return self.run(&ctx);
         }
 
         map_value!(input, output, {
             slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
-            Ok(output.into())
+            output.into_op_result()
         })
     }
 

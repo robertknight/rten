@@ -1098,7 +1098,6 @@ impl Graph {
                 op_node
                     .operator()
                     .run_in_place(value, &ctx)
-                    .map(|out| [out].into())
                     .map_err(|e| {
                         // The error here is currently missing information about operator inputs.
                         RunError::in_place_op_error(

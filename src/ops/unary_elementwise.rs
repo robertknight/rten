@@ -143,11 +143,11 @@ macro_rules! impl_operator {
                 })
             }
 
-            fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+            fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
                 map_value!(input, input, $types, {
                     let kernel = self.get_kernel();
                     let result = unary_op_in_place(ctx.pool(), input, &kernel);
-                    Ok(result.into())
+                    result.into_op_result()
                 })
             }
 
@@ -331,12 +331,12 @@ impl Operator for Clip {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         map_value!(input, input, [FloatTensor, Int32Tensor], {
             let min = ctx.inputs().get_as(0)?;
             let max = ctx.inputs().get_as(1)?;
             clip_in_place(&mut input, min, max);
-            Ok(input.into())
+            input.into_op_result()
         })
     }
 
@@ -574,10 +574,10 @@ impl Operator for Not {
         true
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut output: Tensor<i32> = input.try_into()?;
         not_in_place(output.view_mut());
-        Ok(output.into())
+        output.into_op_result()
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {

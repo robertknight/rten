@@ -139,10 +139,10 @@ impl Operator for Concat {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         map_value!(input, input, [FloatTensor, Int32Tensor], {
             let typed_inputs = typed_inputs(ctx.inputs(), input.view())?;
-            concat_in_place(ctx.pool(), input, &typed_inputs, self.axis).map(|t| t.into())
+            concat_in_place(ctx.pool(), input, &typed_inputs, self.axis).into_op_result()
         })
     }
 
@@ -291,15 +291,15 @@ impl Operator for Tile {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let repeats: NdTensorView<i32, 1> = ctx.inputs().require_as(0)?;
 
         if repeats.iter().all(|n| *n == 1) {
-            return Ok(input);
+            return input.into_op_result();
         }
 
         map_value!(input, input, [FloatTensor, Int32Tensor], {
-            tile(ctx.pool(), input.view(), repeats).map(|t| t.into())
+            tile(ctx.pool(), input.view(), repeats).into_op_result()
         })
     }
 

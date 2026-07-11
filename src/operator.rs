@@ -437,7 +437,7 @@ pub trait Operator: Any + Debug {
     /// This may only be called if `can_run_in_place` returns true.
     ///
     /// `input` is the first input, which the implementation may modify and
-    /// return as the output. `ctx.inputs()` contains the remaining inputs.
+    /// return as an output. `ctx.inputs()` contains the remaining inputs.
     ///
     /// Operators may fall back to allocating a new output if some property of
     /// the input data or shapes means in-place operation is not possible. In
@@ -448,7 +448,7 @@ pub trait Operator: Any + Debug {
         &self,
         #[allow(unused)] input: Value,
         #[allow(unused)] ctx: &OpRunContext,
-    ) -> Result<Value, OpError> {
+    ) -> Result<OutputList, OpError> {
         Err(OpError::InvalidValue("In-place execution not supported"))
     }
 
@@ -548,8 +548,8 @@ pub trait OperatorExt: Operator {
         let pool = BufferPool::new();
         let inputs = inputs.into();
         let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
-        let output = self.run_in_place(mut_input.into(), &ctx)?;
-        let typed_output = output.try_into()?;
+        let mut outputs = self.run_in_place(mut_input.into(), &ctx)?;
+        let typed_output = outputs.remove(0).try_into()?;
         Ok(typed_output)
     }
 }

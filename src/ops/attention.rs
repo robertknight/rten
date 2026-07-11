@@ -126,7 +126,7 @@ impl Operator for AddSoftmax {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let qk: Tensor = input.try_into()?;
         let m: TensorView = ctx.inputs().require_as(0)?;
 
@@ -145,7 +145,7 @@ impl Operator for AddSoftmax {
             }
         };
 
-        add_softmax_in_place(ctx.pool(), qk, m, self.nan_handling()).map(|qk| qk.into())
+        add_softmax_in_place(ctx.pool(), qk, m, self.nan_handling()).into_op_result()
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {

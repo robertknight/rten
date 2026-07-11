@@ -194,18 +194,18 @@ impl Operator for Expand {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let shape = ctx.inputs().require_as(0)?;
 
         let out_shape = expand_output_shape(&input.shape(), &shape)?;
         if input.shape() == out_shape {
-            return Ok(input);
+            return input.into_op_result();
         }
 
         map_value!(input, input, {
             let input = input.auto_return(ctx.pool());
             let output = expand_to(ctx.pool(), input.view(), &out_shape);
-            Ok(output.into())
+            output.into_op_result()
         })
     }
 
@@ -275,10 +275,10 @@ impl Operator for Flatten {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         map_value!(input, x, {
             flatten_in_place(ctx.pool(), &mut x, self.axis)?;
-            Ok(x.into())
+            x.into_op_result()
         })
     }
 
@@ -424,12 +424,12 @@ impl Operator for Reshape {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let shape = ctx.inputs().require_as(0)?;
 
         map_value!(input, output, {
             reshape_in_place(ctx.pool(), &mut output, &shape, self.allow_zero)?;
-            Ok(output.into())
+            output.into_op_result()
         })
     }
 
@@ -600,12 +600,12 @@ impl Operator for Squeeze {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let axes = ctx.inputs().get_as(0)?;
 
         map_value!(input, output, {
             squeeze_in_place(&mut output, axes)?;
-            Ok(output.into())
+            output.into_op_result()
         })
     }
 
@@ -741,11 +741,11 @@ impl Operator for Unsqueeze {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let axes = ctx.inputs().require_as(0)?;
 
         map_value!(input, output, {
-            Ok(unsqueeze_in_place(output, &axes)?.into())
+            unsqueeze_in_place(output, &axes)?.into_op_result()
         })
     }
 

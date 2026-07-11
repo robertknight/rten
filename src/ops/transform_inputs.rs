@@ -125,7 +125,7 @@ impl Operator for TransformInputs {
         self.inner.can_run_in_place() && !self.transforms.iter().any(|t| t.input_index == 0)
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut inputs = ctx.inputs().clone();
         for TransformIndex {
             input_index,

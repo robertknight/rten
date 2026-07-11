@@ -522,7 +522,7 @@ impl Operator for Resize {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         // See note in `run` about the `roi` input.
 
         let other = ctx.inputs();
@@ -531,7 +531,7 @@ impl Operator for Resize {
 
         // If this is a no-op resize, just return the input.
         if input.shape().as_slice() == output_size {
-            return Ok(input);
+            return input.into_op_result();
         }
 
         let input = Tensor::<f32>::try_from(input)?.auto_return(ctx.pool());
@@ -545,7 +545,7 @@ impl Operator for Resize {
                 nearest_mode: self.nearest_mode,
             },
         )
-        .map(|t| t.into())
+        .into_op_result()
     }
 }
 

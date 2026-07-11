@@ -36,8 +36,8 @@ impl Operator for Identity {
         true
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
-        Ok(input)
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        input.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {

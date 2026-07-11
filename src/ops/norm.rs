@@ -276,7 +276,7 @@ impl Operator for BatchNormalization {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let mut output: Tensor = input.try_into()?;
         let scale = inputs.require_as(0)?;
@@ -286,7 +286,7 @@ impl Operator for BatchNormalization {
 
         batch_norm_in_place(&mut output, &scale, &bias, &mean, &var, self.epsilon)?;
 
-        Ok(output.into())
+        output.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -373,7 +373,7 @@ impl Operator for InstanceNormalization {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut output: Tensor = input.try_into()?;
         let inputs = ctx.inputs();
         let scale = inputs.require_as(0)?;
@@ -381,7 +381,7 @@ impl Operator for InstanceNormalization {
 
         instance_normalization_in_place(&mut output, scale, bias, self.epsilon)?;
 
-        Ok(output.into())
+        output.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -697,10 +697,10 @@ impl Operator for LogSoftmax {
         true
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut output: Tensor = input.try_into()?;
         log_softmax_in_place(&mut output, self.axis)?;
-        Ok(output.into())
+        output.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -789,10 +789,10 @@ impl Operator for Softmax {
         true
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut output = input.try_into()?;
         softmax_in_place(&mut output, self.axis, self.nan_handling())?;
-        Ok(output.into())
+        output.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {

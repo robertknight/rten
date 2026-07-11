@@ -129,13 +129,13 @@ impl Operator for Cast {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         match cast_in_place(input, self.to) {
-            Ok(output) => Ok(output),
+            Ok(output) => output.into_op_result(),
             Err(input) => {
                 let converted = cast(ctx.pool(), input.as_view(), self.to)?;
                 input.add_to_pool(ctx.pool());
-                Ok(converted)
+                converted.into_op_result()
             }
         }
     }
@@ -195,7 +195,7 @@ impl Operator for CastLike {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let target_type = ctx.inputs().require(0)?;
         let ValueType::Tensor(to) = target_type.dtype() else {
             return Err(OpError::InvalidValue("expected target_type to be a tensor"));
