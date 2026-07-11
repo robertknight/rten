@@ -355,9 +355,6 @@ pub fn merge_attention_heads(pool: &BufferPool, input: NdTensor<f32, 4>) -> NdTe
 ///
 /// `past` has shape `(batch, kv_heads, past_seq, head_size)` and `current`
 /// has shape `(batch, kv_heads, current_seq, head_size)`.
-///
-/// TODO: Support in-place extension of the KV cache, which will make decoding
-/// much more efficient. See https://github.com/robertknight/rten/issues/1305.
 fn concat_kv_cache(
     pool: &BufferPool,
     past: NdTensorView<f32, 4>,
@@ -383,6 +380,84 @@ fn concat_kv_cache(
     unsafe { out.assume_init() }
 }
 
+/// Extend an owned past KV cache with the current key or value along the
+/// sequence dimension (axis 2), reusing spare capacity in the past cache's
+/// buffer if the caller reserved any.
+///
+/// This is the in-place equivalent of [`concat_kv_cache`] and produces an
+/// identical result. It makes decoding much more efficient, as the KV cache no
+/// longer needs to be reallocated and copied on every step. See
+/// <https://github.com/robertknight/rten/issues/1305>.
+fn concat_kv_cache_in_place(
+    pool: &BufferPool,
+    mut past: NdTensor<f32, 4>,
+    current: NdTensorView<f32, 4>,
+) -> NdTensor<f32, 4> {
+    let total_seq = past.size(2) + current.size(2);
+    if past.has_capacity(2, total_seq) {
+        past.append(2, &current).expect("cache has capacity");
+        past
+    } else {
+        // Not enough reserved capacity, so fall back to allocating a new cache.
+        let past = past.auto_return(pool);
+        concat_kv_cache(pool, past.view(), current)
+    }
+}
+
+/// A past key or value cache passed to [`concat_past_kv`].
+enum PastCache<'a> {
+    View(NdTensorView<'a, f32, 4>),
+    Owned(NdTensor<f32, 4>),
+}
+
+impl PastCache<'_> {
+    fn view(&self) -> NdTensorView<'_, f32, 4> {
+        match self {
+            PastCache::View(view) => view.view(),
+            PastCache::Owned(tensor) => tensor.view(),
+        }
+    }
+
+    fn shape(&self) -> [usize; 4] {
+        self.view().shape()
+    }
+}
+
+/// Concatenate a past KV cache and the current key or value along the sequence
+/// dimension, extending the past cache in-place if possible.
+fn extend_kv_cache(
+    pool: &BufferPool,
+    past: PastCache,
+    current: NdTensorView<f32, 4>,
+) -> NdTensor<f32, 4> {
+    match past {
+        PastCache::View(past) => concat_kv_cache(pool, past, current),
+        PastCache::Owned(past) => concat_kv_cache_in_place(pool, past, current),
+    }
+}
+
+/// Extract the owned `past_key` and `past_value` caches from the in-place
+/// inputs of an attention operator.
+fn take_past_kv(
+    in_place: InPlaceInputs,
+    past_key_index: usize,
+    past_value_index: usize,
+) -> Result<(Option<PastCache<'static>>, Option<PastCache<'static>>), OpError> {
+    let mut past_key = None;
+    let mut past_value = None;
+    for (index, value) in in_place {
+        let cache = PastCache::Owned(value.try_into()?);
+        if index == past_key_index {
+            past_key = Some(cache);
+        } else if index == past_value_index {
+            past_value = Some(cache);
+        } else {
+            return Err(OpError::InvalidValue("unexpected in-place input"));
+        }
+    }
+    Ok((past_key, past_value))
+}
+
 /// Validate the shapes of past key/value caches against the current key and
 /// value, then concatenate past and current along the sequence dimension.
 ///
@@ -394,8 +469,8 @@ fn concat_kv_cache(
 /// cache).
 fn concat_past_kv<'a, 'b>(
     pool: &'a BufferPool,
-    past_key: Option<NdTensorView<f32, 4>>,
-    past_value: Option<NdTensorView<f32, 4>>,
+    past_key: Option<PastCache>,
+    past_value: Option<PastCache>,
     key: &mut PoolRef<'a, CowNdTensor<'b, f32, 4>>,
     value: &mut PoolRef<'a, CowNdTensor<'b, f32, 4>>,
 ) -> Result<usize, OpError> {
@@ -417,10 +492,10 @@ fn concat_past_kv<'a, 'b>(
                     "past_key/past_value shape does not match key/value shape",
                 ));
             }
-            *key = concat_kv_cache(pool, past_key, key.view())
+            *key = extend_kv_cache(pool, past_key, key.view())
                 .into_cow()
                 .auto_return(pool);
-            *value = concat_kv_cache(pool, past_value, value.view())
+            *value = extend_kv_cache(pool, past_value, value.view())
                 .into_cow()
                 .auto_return(pool);
             Ok(pk_seq)
@@ -430,6 +505,66 @@ fn concat_past_kv<'a, 'b>(
             "past_key and past_value must either both be present or both be absent",
         )),
     }
+}
+
+/// Build the present key or value cache for grouped-query attention.
+///
+/// `new` contains the new key or value tokens with shape `(batch, seq,
+/// kv_heads, head_size)`. `past`, if present, has shape `(batch, kv_heads,
+/// past_seq, head_size)`. `past_len(b)` is the offset at which batch `b`'s new
+/// tokens are written (which can be less than `past_seq` when the cache is
+/// right-padded). The result has shape `(batch, kv_heads, present_seq,
+/// head_size)`.
+///
+/// The `past` cache is extended in-place if possible.
+fn gqa_present_cache(
+    pool: &BufferPool,
+    past: Option<PastCache>,
+    new: NdTensorView<f32, 4>,
+    past_len: impl Fn(usize) -> usize,
+    present_seq: usize,
+) -> NdTensor<f32, 4> {
+    let [batch, seq, kv_heads, head_size] = new.shape();
+    let past_seq = past.as_ref().map(|p| p.shape()[2]).unwrap_or(0);
+    let is_append = (0..batch).all(|b| past_len(b) == past_seq);
+
+    // Extend owned past cache in-place if possible.
+    let past = match past {
+        Some(PastCache::Owned(mut past)) if is_append && past.has_capacity(2, present_seq) => {
+            // `new` is (batch, seq, kv_heads, head_size); the cache is
+            // (batch, kv_heads, seq, head_size).
+            past.append(2, &new.permuted([0, 2, 1, 3]))
+                .expect("cache has capacity");
+            return past;
+        }
+        past => past,
+    };
+
+    // Otherwise allocate a new present cache with both past and new tokens.
+    let mut present = NdTensor::zeros_in(pool, [batch, kv_heads, present_seq, head_size]);
+    {
+        let past = past.as_ref().map(|p| p.view());
+        for b in 0..batch {
+            let past_b = past_len(b);
+            for h in 0..kv_heads {
+                if let Some(past) = past.as_ref() {
+                    present
+                        .slice_mut((b, h, ..past_b))
+                        .copy_from(&past.slice((b, h, ..past_b)));
+                }
+                present
+                    .slice_mut((b, h, past_b..past_b + seq))
+                    .copy_from(&new.slice((b, .., h)));
+            }
+        }
+    }
+
+    // Return the old owned buffer to the pool.
+    if let Some(PastCache::Owned(past)) = past {
+        past.auto_return(pool);
+    }
+
+    present
 }
 
 /// Compute scaled dot-product attention for a single (batch, head):
@@ -580,23 +715,13 @@ pub struct Attention {
     pub softcap: f32,
 }
 
-impl Operator for Attention {
-    fn name(&self) -> &str {
-        "Attention"
-    }
-
-    fn max_inputs(&self) -> Option<usize> {
-        // Q, K, V, attn_mask, past_key, past_value, nonpad_kv_seqlen.
-        Some(7)
-    }
-
-    fn max_outputs(&self) -> Option<usize> {
-        // Spec defines 4 outputs: Y, present_key, present_value,
-        // qk_matmul_output. The `qk_matmul_output` output is not implemented.
-        Some(4)
-    }
-
-    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+impl Attention {
+    fn run_impl(
+        &self,
+        ctx: &OpRunContext,
+        past_key: Option<PastCache>,
+        past_value: Option<PastCache>,
+    ) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
 
         // (batch, q_seq, q_hidden) or (batch, q_heads, q_seq, head_size)
@@ -605,10 +730,6 @@ impl Operator for Attention {
         let value: TensorView<f32> = inputs.require_as(2)?;
         // Broadcastable to (batch, q_heads, q_seq, total_seq).
         let attn_mask = inputs.get(3);
-        // (batch, kv_heads, past_seq, head_size)
-        let past_key: Option<NdTensorView<f32, 4>> = inputs.get_as(4)?;
-        // (batch, kv_heads, past_seq, v_head_size)
-        let past_value: Option<NdTensorView<f32, 4>> = inputs.get_as(5)?;
         // (batch,). Number of valid (non-padding) key/value positions per
         // batch row, when the caller manages the KV cache externally and the
         // key/value inputs are right-padded.
@@ -732,12 +853,13 @@ impl Operator for Attention {
         // Concatenate past and present key/value caches along the sequence
         // dimension to form the full (batch, kv_heads, total_seq, head)
         // tensors.
+        let has_past_kv = past_key.is_some();
         let past_len = concat_past_kv(pool, past_key, past_value, &mut key, &mut value)?;
 
         let total_seq = key.size(2);
 
         if let Some(nonpad) = nonpad_kv_seqlen.as_ref() {
-            if past_key.is_some() {
+            if has_past_kv {
                 return Err(OpError::InvalidValue(
                     "nonpad_kv_seqlen cannot be combined with past_key/past_value",
                 ));
@@ -840,6 +962,49 @@ impl Operator for Attention {
         }
         Ok(outputs)
     }
+}
+
+impl Operator for Attention {
+    fn name(&self) -> &str {
+        "Attention"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        // Q, K, V, attn_mask, past_key, past_value, nonpad_kv_seqlen.
+        Some(7)
+    }
+
+    fn max_outputs(&self) -> Option<usize> {
+        // Spec defines 4 outputs: Y, present_key, present_value,
+        // qk_matmul_output. The `qk_matmul_output` output is not implemented.
+        Some(4)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        // (batch, kv_heads, past_seq, head_size)
+        let past_key: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(4)?;
+        // (batch, kv_heads, past_seq, v_head_size)
+        let past_value: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(5)?;
+        self.run_impl(
+            ctx,
+            past_key.map(PastCache::View),
+            past_value.map(PastCache::View),
+        )
+    }
+
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        // past_key and past_value.
+        BitSet::from_indices([4, 5])
+    }
+
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let (past_key, past_value) = take_past_kv(in_place, 4, 5)?;
+        self.run_impl(ctx, past_key, past_value)
+    }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
         Some(
@@ -874,6 +1039,7 @@ pub use contrib::{GroupQueryAttention, MultiHeadAttention};
 mod contrib {
     use rayon::prelude::*;
 
+    use rten_base::bit_set::BitSet;
     use rten_gemm::GemmExecutor;
     use rten_shape_inference::ops as shape_ops;
     use rten_tensor::prelude::*;
@@ -882,13 +1048,15 @@ mod contrib {
     use crate::buffer_pool::AutoReturn;
     use crate::infer_shapes::{InferShapes, impl_infer_shapes};
     use crate::operator::{
-        OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList, OutputTypesContext,
+        InPlaceInputs, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
+        OutputTypesContext,
     };
     use crate::ops::{binary_elementwise::add, embedding::rotary_embedding};
 
     use super::{
-        BROADCAST_ERROR, apply_softcap, causal_mask_row, concat_past_kv, merge_attention_heads,
-        sdpa_head, sdpa_multi_head, split_attention_heads,
+        BROADCAST_ERROR, PastCache, apply_softcap, causal_mask_row, concat_past_kv,
+        gqa_present_cache, merge_attention_heads, sdpa_head, sdpa_multi_head,
+        split_attention_heads, take_past_kv,
     };
 
     /// `query` input for MultiHeadAttention which can be either the query tensor
@@ -922,22 +1090,13 @@ mod contrib {
         pub unidirectional: bool,
     }
 
-    impl Operator for MultiHeadAttention {
-        fn name(&self) -> &str {
-            "MultiHeadAttention"
-        }
-
-        fn max_inputs(&self) -> Option<usize> {
-            Some(10)
-        }
-
-        fn max_outputs(&self) -> Option<usize> {
-            // Spec defines 4 outputs: output, present_key, present_value, qk.
-            // The `qk` output is not yet implemented.
-            Some(3)
-        }
-
-        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    impl MultiHeadAttention {
+        fn run_impl(
+            &self,
+            ctx: &OpRunContext,
+            past_key: Option<PastCache>,
+            past_value: Option<PastCache>,
+        ) -> Result<OutputList, OpError> {
             // (batch, seq, hidden) or (batch, kv_seq, num_heads, 3, head_size)
             let query: TensorView<f32> = ctx.inputs().require_as(0)?;
             let query = MhaQuery::new(query)?;
@@ -956,11 +1115,6 @@ mod contrib {
 
             // (batch or 1, num_heads or 1, seq, total_seq)
             let attention_bias: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(5)?;
-
-            // (batch, num_heads, past_seq, head_size)
-            let past_key: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(6)?;
-            // (batch, num_heads, past_seq, head_size)
-            let past_value: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(7)?;
 
             let past_seq_len: Option<NdTensorView<i32, 0>> = ctx.inputs().get_as(8)?;
             if past_seq_len.is_some() {
@@ -1201,6 +1355,47 @@ mod contrib {
             }
             Ok(outputs)
         }
+    }
+
+    impl Operator for MultiHeadAttention {
+        fn name(&self) -> &str {
+            "MultiHeadAttention"
+        }
+
+        fn max_inputs(&self) -> Option<usize> {
+            Some(10)
+        }
+
+        fn max_outputs(&self) -> Option<usize> {
+            // Spec defines 4 outputs: output, present_key, present_value, qk.
+            // The `qk` output is not yet implemented.
+            Some(3)
+        }
+
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+            // (batch, num_heads, past_seq, head_size)
+            let past_key: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(6)?;
+            let past_value: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(7)?;
+            self.run_impl(
+                ctx,
+                past_key.map(PastCache::View),
+                past_value.map(PastCache::View),
+            )
+        }
+
+        fn in_place_inputs(&self) -> BitSet<u16> {
+            // past_key and past_value.
+            BitSet::from_indices([6, 7])
+        }
+
+        fn run_in_place(
+            &self,
+            in_place: InPlaceInputs,
+            ctx: &OpRunContext,
+        ) -> Result<OutputList, OpError> {
+            let (past_key, past_value) = take_past_kv(in_place, 6, 7)?;
+            self.run_impl(ctx, past_key, past_value)
+        }
 
         fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
             Some([OutputType::CopyFromInput(0)].into())
@@ -1237,24 +1432,13 @@ mod contrib {
         pub smooth_softmax: bool,
     }
 
-    impl Operator for GroupQueryAttention {
-        fn name(&self) -> &str {
-            "GroupQueryAttention"
-        }
-
-        fn max_inputs(&self) -> Option<usize> {
-            // Spec defines up to 16 inputs. Quantization scale and Q/K norm weight
-            // inputs (12-15) are not supported.
-            Some(12)
-        }
-
-        fn max_outputs(&self) -> Option<usize> {
-            // Spec defines 4 outputs: output, present_key, present_value, output_qk.
-            // The `output_qk` output is not implemented.
-            Some(3)
-        }
-
-        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    impl GroupQueryAttention {
+        fn run_impl(
+            &self,
+            ctx: &OpRunContext,
+            past_key: Option<PastCache>,
+            past_value: Option<PastCache>,
+        ) -> Result<OutputList, OpError> {
             let inputs = ctx.inputs();
 
             // (batch, seq, q_hidden)
@@ -1262,9 +1446,6 @@ mod contrib {
             // (batch, seq, kv_hidden). Packed QKV (key absent) is not supported.
             let key: NdTensorView<f32, 3> = inputs.require_as(1)?;
             let value: NdTensorView<f32, 3> = inputs.require_as(2)?;
-            // (batch, kv_num_heads, past_seq, head_size)
-            let past_key: Option<NdTensorView<f32, 4>> = inputs.get_as(3)?;
-            let past_value: Option<NdTensorView<f32, 4>> = inputs.get_as(4)?;
 
             // (batch,). Equal to total_sequence_lengths - 1.
             //
@@ -1356,7 +1537,7 @@ mod contrib {
             }
             let total_sequence_length = total_sequence_length as usize;
 
-            let past_seq = match (past_key, past_value) {
+            let past_seq = match (&past_key, &past_value) {
                 (Some(past_key), Some(past_value)) => {
                     let [pk_batch, pk_heads, pk_seq, pk_head_size] = past_key.shape();
                     let [pv_batch, pv_heads, pv_seq, pv_head_size] = past_value.shape();
@@ -1487,39 +1668,15 @@ mod contrib {
             let query = query.permuted([0, 2, 1, 3]);
 
             // Build the present key/value caches in BNSH layout by concatenating the
-            // past cache with the new key/value tokens.
+            // past cache with the new key/value tokens. When the past caches are
+            // owned and have spare capacity, they are extended in place.
             let key = key.reshaped([batch, seq, kv_num_heads, head_size]);
             let value = value.reshaped([batch, seq, kv_num_heads, head_size]);
 
-            // TODO - The copy loop below overwrites the `[0, past_b + seq)` rows of
-            // every head, so zero-initializing them here is wasted work. Allocate
-            // uninitialized and zero only the unfilled tail rows per batch item.
-            let mut present_key =
-                NdTensor::zeros_in(ctx.pool(), [batch, kv_num_heads, present_seq, head_size]);
-            let mut present_value =
-                NdTensor::zeros_in(ctx.pool(), [batch, kv_num_heads, present_seq, head_size]);
-
-            for b in 0..batch {
-                let past_b = past_len(b);
-                for h in 0..kv_num_heads {
-                    if let Some(past_key) = past_key {
-                        present_key
-                            .slice_mut((b, h, ..past_b))
-                            .copy_from(&past_key.slice((b, h, ..past_b)));
-                    }
-                    if let Some(past_value) = past_value {
-                        present_value
-                            .slice_mut((b, h, ..past_b))
-                            .copy_from(&past_value.slice((b, h, ..past_b)));
-                    }
-                    present_key
-                        .slice_mut((b, h, past_b..past_b + seq))
-                        .copy_from(&key.slice((b, .., h)));
-                    present_value
-                        .slice_mut((b, h, past_b..past_b + seq))
-                        .copy_from(&value.slice((b, .., h)));
-                }
-            }
+            let present_key =
+                gqa_present_cache(ctx.pool(), past_key, key.view(), past_len, present_seq);
+            let present_value =
+                gqa_present_cache(ctx.pool(), past_value, value.view(), past_len, present_seq);
 
             // Compute attention output
             let kv_factor = num_heads / kv_num_heads;
@@ -1591,6 +1748,49 @@ mod contrib {
             }
             Ok(outputs)
         }
+    }
+
+    impl Operator for GroupQueryAttention {
+        fn name(&self) -> &str {
+            "GroupQueryAttention"
+        }
+
+        fn max_inputs(&self) -> Option<usize> {
+            // Spec defines up to 16 inputs. Quantization scale and Q/K norm weight
+            // inputs (12-15) are not supported.
+            Some(12)
+        }
+
+        fn max_outputs(&self) -> Option<usize> {
+            // Spec defines 4 outputs: output, present_key, present_value, output_qk.
+            // The `output_qk` output is not implemented.
+            Some(3)
+        }
+
+        fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+            // (batch, kv_num_heads, past_seq, head_size)
+            let past_key: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(3)?;
+            let past_value: Option<NdTensorView<f32, 4>> = ctx.inputs().get_as(4)?;
+            self.run_impl(
+                ctx,
+                past_key.map(PastCache::View),
+                past_value.map(PastCache::View),
+            )
+        }
+
+        fn in_place_inputs(&self) -> BitSet<u16> {
+            // past_key and past_value.
+            BitSet::from_indices([3, 4])
+        }
+
+        fn run_in_place(
+            &self,
+            in_place: InPlaceInputs,
+            ctx: &OpRunContext,
+        ) -> Result<OutputList, OpError> {
+            let (past_key, past_value) = take_past_kv(in_place, 3, 4)?;
+            self.run_impl(ctx, past_key, past_value)
+        }
 
         fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
             Some(
@@ -1636,9 +1836,9 @@ mod tests {
         Mask, MultiHeadAttention, RepeatInterleave, apply_softcap, sdpa_head,
     };
     use crate::buffer_pool::BufferPool;
-    use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt};
+    use crate::operator::{InPlaceInputs, InputList, OpError, OpRunContext, Operator, OperatorExt};
     use crate::ops::{Add, Softmax};
-    use crate::value::ValueView;
+    use crate::value::{Value, ValueView};
 
     /// Reference implementation of causal grouped-query attention.
     #[allow(clippy::too_many_arguments)]
@@ -3459,5 +3659,191 @@ mod tests {
             let err = run_attention(&op, &inputs).unwrap_err();
             assert_eq!(err, case.expected);
         });
+    }
+
+    /// Check that running an attention operator in-place produces the same
+    /// outputs as a normal run.
+    fn check_in_place_kv_cache(
+        op: &dyn Operator,
+        inputs: &[Option<ValueView>],
+        past_key_index: usize,
+        past_value_index: usize,
+        max_seq: Option<usize>,
+    ) {
+        let pool = BufferPool::new();
+
+        // Reference outputs from a normal run with the caches passed as views.
+        let input_list = InputList::from_optional(inputs);
+        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+        let expected: Vec<Tensor> = op
+            .run(&ctx)
+            .unwrap()
+            .into_iter()
+            .map(|o| o.try_into().unwrap())
+            .collect();
+
+        // Convert a past cache into an owned buffer, reserving spare capacity to
+        // grow the sequence dimension (axis 2) up to `max_seq` when it is set.
+        let owned_cache = |index: usize| -> NdTensor<f32, 4> {
+            let data: NdTensorView<f32, 4> = inputs[index].clone().unwrap().try_into().unwrap();
+            if let Some(max_seq) = max_seq {
+                let [batch, heads, _seq, head_size] = data.shape();
+                let mut cache = NdTensor::with_capacity([batch, heads, max_seq, head_size], 2);
+                cache.append(2, &data).unwrap();
+                cache
+            } else {
+                data.to_tensor()
+            }
+        };
+
+        // Convert the past caches into owned buffers and remove them from the
+        // input list, so they are passed as in-place inputs instead.
+        let past_key = owned_cache(past_key_index);
+        let past_value = owned_cache(past_value_index);
+        let past_key_ptr = past_key.data_ptr();
+        let past_value_ptr = past_value.data_ptr();
+
+        let mut inputs = inputs.to_vec();
+        inputs[past_key_index] = None;
+        inputs[past_value_index] = None;
+        let input_list = InputList::from_optional(&inputs);
+        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+        let in_place = InPlaceInputs::from_iter([
+            (past_key_index, Value::from(past_key)),
+            (past_value_index, Value::from(past_value)),
+        ]);
+        let mut outputs = op.run_in_place(in_place, &ctx).unwrap();
+
+        let present_value: NdTensor<f32, 4> = outputs.remove(2).try_into().unwrap();
+        let present_key: NdTensor<f32, 4> = outputs.remove(1).try_into().unwrap();
+        let output: Tensor = outputs.remove(0).try_into().unwrap();
+
+        // The present caches reuse the past buffers exactly when capacity was
+        // reserved, otherwise a new buffer is allocated.
+        assert_eq!(present_key.data_ptr() == past_key_ptr, max_seq.is_some());
+        assert_eq!(
+            present_value.data_ptr() == past_value_ptr,
+            max_seq.is_some()
+        );
+
+        expect_equal(&output, &expected[0]).unwrap();
+        expect_equal(&present_key.into_dyn(), &expected[1]).unwrap();
+        expect_equal(&present_value.into_dyn(), &expected[2]).unwrap();
+    }
+
+    #[test]
+    fn test_attention_in_place_kv_cache() {
+        let batch = 1;
+        let q_heads = 2;
+        let kv_heads = 2;
+        let head_size = 4;
+        let past_seq = 3;
+        let seq = 1;
+
+        let mut rng = XorShiftRng::new(1234);
+        let query = NdTensor::<f32, 4>::rand([batch, q_heads, seq, head_size], &mut rng);
+        let key = NdTensor::<f32, 4>::rand([batch, kv_heads, seq, head_size], &mut rng);
+        let value = NdTensor::<f32, 4>::rand([batch, kv_heads, seq, head_size], &mut rng);
+        let past_key = NdTensor::<f32, 4>::rand([batch, kv_heads, past_seq, head_size], &mut rng);
+        let past_value = NdTensor::<f32, 4>::rand([batch, kv_heads, past_seq, head_size], &mut rng);
+
+        let op = Attention {
+            is_causal: true,
+            kv_num_heads: None,
+            q_num_heads: None,
+            scale: None,
+            softcap: 0.0,
+        };
+
+        // past_key and past_value occupy inputs 4 and 5.
+        let inputs = [
+            Some(ValueView::from(query.view())),
+            Some(ValueView::from(key.view())),
+            Some(ValueView::from(value.view())),
+            None,
+            Some(ValueView::from(past_key.view())),
+            Some(ValueView::from(past_value.view())),
+        ];
+
+        // Test both with and without reserved capacity in the past caches.
+        for max_seq in [Some(past_seq + seq), None] {
+            check_in_place_kv_cache(&op, &inputs, 4, 5, max_seq);
+        }
+    }
+
+    #[test]
+    fn test_multihead_attention_in_place_kv_cache() {
+        let batch = 1;
+        let num_heads = 2;
+        let head_size = 4;
+        let hidden = num_heads * head_size;
+        let past_seq = 3;
+        let seq = 1;
+
+        let mut rng = XorShiftRng::new(1234);
+        let query = NdTensor::<f32, 3>::rand([batch, seq, hidden], &mut rng);
+        let key = NdTensor::<f32, 3>::rand([batch, seq, hidden], &mut rng);
+        let value = NdTensor::<f32, 3>::rand([batch, seq, hidden], &mut rng);
+        let past_key = NdTensor::<f32, 4>::rand([batch, num_heads, past_seq, head_size], &mut rng);
+        let past_value =
+            NdTensor::<f32, 4>::rand([batch, num_heads, past_seq, head_size], &mut rng);
+
+        let op = MultiHeadAttention {
+            mask_filter_value: -10000.0,
+            num_heads: num_heads as u32,
+            scale: None,
+            unidirectional: true,
+        };
+
+        // past_key and past_value occupy inputs 6 and 7.
+        let inputs = [
+            Some(ValueView::from(query.view())),
+            Some(ValueView::from(key.view())),
+            Some(ValueView::from(value.view())),
+            None,
+            None,
+            None,
+            Some(ValueView::from(past_key.view())),
+            Some(ValueView::from(past_value.view())),
+        ];
+
+        check_in_place_kv_cache(&op, &inputs, 6, 7, Some(past_seq + seq));
+    }
+
+    #[test]
+    fn test_group_query_attention_in_place_kv_cache() {
+        let batch = 1;
+        let num_heads = 2;
+        let kv_num_heads = 1;
+        let head_size = 8;
+        let past_seq = 3;
+        let seq = 1;
+        let total = past_seq + seq;
+
+        let mut rng = XorShiftRng::new(1234);
+        let query = NdTensor::<f32, 3>::rand([batch, seq, num_heads * head_size], &mut rng);
+        let key = NdTensor::<f32, 3>::rand([batch, seq, kv_num_heads * head_size], &mut rng);
+        let value = NdTensor::<f32, 3>::rand([batch, seq, kv_num_heads * head_size], &mut rng);
+        let past_key =
+            NdTensor::<f32, 4>::rand([batch, kv_num_heads, past_seq, head_size], &mut rng);
+        let past_value =
+            NdTensor::<f32, 4>::rand([batch, kv_num_heads, past_seq, head_size], &mut rng);
+        let seqlens_k = NdTensor::<i32, 1>::full([batch], total as i32 - 1);
+        let total_seqlen = NdTensor::from_scalar(total as i32);
+
+        let op = default_gqa(num_heads as u32, kv_num_heads as u32, None);
+
+        // past_key and past_value occupy inputs 3 and 4.
+        let inputs = [
+            Some(ValueView::from(query.view())),
+            Some(ValueView::from(key.view())),
+            Some(ValueView::from(value.view())),
+            Some(ValueView::from(past_key.view())),
+            Some(ValueView::from(past_value.view())),
+            Some(ValueView::from(seqlens_k.view())),
+            Some(ValueView::from(total_seqlen.view())),
+        ];
+
+        check_in_place_kv_cache(&op, &inputs, 3, 4, Some(total));
     }
 }
