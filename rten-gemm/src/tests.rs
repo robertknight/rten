@@ -5,8 +5,10 @@ use rten_base::num::AsUsize;
 use rten_bench::run_bench;
 use rten_tensor::prelude::*;
 use rten_tensor::rng::XorShiftRng;
-use rten_tensor::test_util::{ApproxEq, expect_equal};
-use rten_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, RandomSource};
+use rten_tensor::test_util::{ApproxEq, expect_equal, expect_equal_with_tolerance};
+use rten_tensor::{
+    Contiguous, Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, RandomSource,
+};
 use rten_testing::TestCases;
 
 use super::{
@@ -946,11 +948,11 @@ fn reference_gemm_f32_with_block_quantized_rhs(
     lhs: NdTensorView<f32, 2>,
     rhs: NdTensorView<u8, 3>,
     rhs_scales: NdTensorView<f32, 2>,
+    rhs_zero_points: Option<NdTensorView<u8, 2>>,
 ) -> NdTensor<f32, 2> {
     let [m, k] = lhs.shape();
     let [n, _k_blocks, block_size] = rhs.shape();
     let elems_per_block = block_size * 2;
-    let zero_point = 8;
 
     let mut out = NdTensor::zeros([m, n]);
 
@@ -961,6 +963,17 @@ fn reference_gemm_f32_with_block_quantized_rhs(
                 let k_block = ki / elems_per_block;
                 let block_idx = ki % elems_per_block;
                 let scale = rhs_scales[[col, k_block]];
+                let zero_point = rhs_zero_points
+                    .map(|zps| {
+                        let byte = zps[[col, k_block / 2]];
+                        let zp = if k_block % 2 == 0 {
+                            byte & 0x0F
+                        } else {
+                            byte >> 4
+                        };
+                        zp as i32
+                    })
+                    .unwrap_or(8);
 
                 let byte = rhs[[col, k_block, block_idx / 2]];
                 let elem = if ki % 2 == 0 { byte & 0x0F } else { byte >> 4 };
@@ -984,49 +997,59 @@ fn test_gemm_f32_with_block_quantized_rhs() {
         k: usize,
         // Number of elements in each quantized K block. Must be >= 16.
         block_size: usize,
+        zero_points: bool,
     }
 
-    let cases = [
-        // Vector-matrix product
-        Case {
-            m: 1,
-            n: 17,
-            k: 32,
-            block_size: 16,
-        },
-        Case {
-            m: 1,
-            n: 17,
-            k: 32,
-            block_size: 32,
-        },
-        // Matrix-matrix product
-        Case {
-            m: 4,
-            n: 17,
-            k: 32,
-            block_size: 16,
-        },
-        Case {
-            m: 4,
-            n: 16,
-            k: 32,
-            block_size: 32,
-        },
-        Case {
-            m: 4,
-            n: 16,
-            k: 64,
-            block_size: 64,
-        },
-        // Smallest supported input
-        Case {
-            m: 1,
-            n: 1,
-            k: 16,
-            block_size: 16,
-        },
-    ];
+    let mut cases = Vec::new();
+    for zero_points in [false, true] {
+        cases.extend([
+            // Vector-matrix product
+            Case {
+                m: 1,
+                n: 17,
+                k: 32,
+                block_size: 16,
+                zero_points,
+            },
+            Case {
+                m: 1,
+                n: 17,
+                k: 32,
+                block_size: 32,
+                zero_points,
+            },
+            // Matrix-matrix product
+            Case {
+                m: 4,
+                n: 17,
+                k: 32,
+                block_size: 16,
+                zero_points,
+            },
+            Case {
+                m: 4,
+                n: 16,
+                k: 32,
+                block_size: 32,
+                zero_points,
+            },
+            Case {
+                m: 4,
+                n: 16,
+                k: 64,
+                block_size: 64,
+                zero_points,
+            },
+            // Smallest supported input
+            Case {
+                m: 1,
+                n: 1,
+                k: 16,
+                block_size: 16,
+                zero_points,
+            },
+        ]);
+    }
 
     cases.test_each_clone(|case| {
         let Case {
@@ -1034,19 +1057,28 @@ fn test_gemm_f32_with_block_quantized_rhs() {
             n,
             k,
             block_size,
+            zero_points,
         } = case;
 
         let n_bits = 4 as u8;
         let elements_per_byte = 8 / n_bits.as_usize();
         let block_bytes = block_size / elements_per_byte;
+        let k_blocks = k / block_size;
 
         let mut rng = XorShiftRng::new(1234);
         let lhs = NdTensor::<f32, 2>::rand([m, k], &mut rng);
-        let rhs = NdTensor::<u8, 3>::rand([n, k / block_size, block_bytes], &mut rng);
+        let rhs = NdTensor::<u8, 3>::rand([n, k_blocks, block_bytes], &mut rng);
         let rhs = rhs.to_contiguous();
-        let rhs_scales = NdTensor::<f32, 2>::rand([n, k / block_size], &mut rng);
+        let rhs_scales = NdTensor::<f32, 2>::rand([n, k_blocks], &mut rng);
         let rhs_scales = rhs_scales.to_contiguous();
-        let rhs_bqm = BlockQuantizedMatrix::new(rhs.view(), rhs_scales.view(), n_bits).unwrap();
+        let rhs_zero_points =
+            zero_points.then(|| NdTensor::<u8, 2>::rand([n, k_blocks.div_ceil(2)], &mut rng));
+        let mut rhs_bqm = BlockQuantizedMatrix::new(rhs.view(), rhs_scales.view(), n_bits).unwrap();
+        if let Some(zps) = &rhs_zero_points {
+            rhs_bqm = rhs_bqm
+                .with_zero_points(Contiguous::new(zps.view()).unwrap())
+                .unwrap();
+        }
         assert_eq!(rhs_bqm.elements_per_block(), block_size);
         assert_eq!(lhs.cols(), rhs_bqm.rows());
 
@@ -1054,6 +1086,7 @@ fn test_gemm_f32_with_block_quantized_rhs() {
             lhs.view(),
             rhs.view().into(),
             rhs_scales.view().into(),
+            rhs_zero_points.as_ref().map(|zps| zps.view()),
         );
 
         for gemm in all_gemms() {
@@ -1066,7 +1099,15 @@ fn test_gemm_f32_with_block_quantized_rhs() {
             )
             .unwrap();
 
-            expect_equal(&output, &expected).unwrap();
+            if zero_points {
+                // Non-default zero points bias the dequantized values, which
+                // can cause more cancellation in the K sums and thus a larger
+                // rounding difference vs the reference on near-zero outputs.
+                let (atol, rtol) = (1e-6, 1e-5);
+                expect_equal_with_tolerance(&output, &expected, atol, rtol).unwrap();
+            } else {
+                expect_equal(&output, &expected).unwrap();
+            }
         }
     });
 }

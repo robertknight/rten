@@ -7,7 +7,7 @@ use rten_tensor::storage::Alloc;
 use rten_tensor::{AssumeInit, Matrix, MatrixLayout, Storage};
 
 use super::kernels::PackedLayout;
-use crate::block_quant::{BlockQuantizedMatrix, nbit_zero_point};
+use crate::block_quant::{BlockQuantizedMatrix, nbit_zero_point, unpack_zero_point_4bit};
 
 pub mod int8;
 
@@ -268,10 +268,19 @@ impl<'a, const NR: usize> BlockQuantizedMatrixPacker<'a, f32, NR> {
         // padding region.
         let mut pad_data: Vec<u8> = Vec::new();
         let mut pad_scales: Vec<f32> = Vec::new();
+        let mut pad_zero_points: Vec<u8> = Vec::new();
 
         if !cols.len().is_multiple_of(NR) {
             pad_data.resize(block_size * n_blocks, ZERO_POINT as u8);
             pad_scales.resize(n_blocks, 0.);
+            if self.mat.has_zero_points() {
+                // Both nibbles set to the default zero point. The value doesn't
+                // affect the output since the padding scales are zero.
+                pad_zero_points.resize(
+                    self.mat.blocks_per_column().div_ceil(2),
+                    (ZERO_POINT | (ZERO_POINT << N_BITS)) as u8,
+                );
+            }
         }
 
         let block_bytes = self.mat.bytes_per_block();
@@ -293,9 +302,27 @@ impl<'a, const NR: usize> BlockQuantizedMatrixPacker<'a, f32, NR> {
                     .unwrap_or(&pad_scales)
             });
 
+            // Packed zero points for whole columns, if the matrix has
+            // non-default zero points. Unlike `data` and `scales` these are
+            // indexed by absolute block index rather than relative to
+            // `start_block`.
+            let zero_points: Option<[&[u8]; NR]> = self.mat.has_zero_points().then(|| {
+                std::array::from_fn(|col| {
+                    self.mat
+                        .column_zero_points(start_col + col)
+                        .unwrap_or(&pad_zero_points)
+                })
+            });
+
             // Dequantize K blocks.
             for block_idx in 0..n_blocks {
                 let block_scales = scales.map(|bs| *unsafe { bs.get_unchecked(block_idx) });
+                let block_zero_points: [i16; NR] = match &zero_points {
+                    Some(zps) => std::array::from_fn(|c| {
+                        unpack_zero_point_4bit(zps[c], start_block + block_idx) as i16
+                    }),
+                    None => [ZERO_POINT; NR],
+                };
 
                 for k in 0..block_bytes {
                     let bytes: [u8; NR] = std::array::from_fn(|c| unsafe {
@@ -304,14 +331,14 @@ impl<'a, const NR: usize> BlockQuantizedMatrixPacker<'a, f32, NR> {
 
                     // First row from low 4 bits.
                     for c in 0..NR {
-                        let elem = (bytes[c] & 0x0F) as i16 - ZERO_POINT;
+                        let elem = (bytes[c] & 0x0F) as i16 - block_zero_points[c];
                         let dequant = elem as f32 * block_scales[c];
                         unsafe { out.write_unchecked(dequant) };
                     }
 
                     // Second row from high 4 bits.
                     for c in 0..NR {
-                        let elem = (bytes[c] >> 4) as i16 - ZERO_POINT;
+                        let elem = (bytes[c] >> 4) as i16 - block_zero_points[c];
                         let dequant = elem as f32 * block_scales[c];
                         unsafe { out.write_unchecked(dequant) };
                     }
@@ -432,7 +459,9 @@ mod tests {
     use std::mem::MaybeUninit;
 
     use super::{BlockQuantizedMatrixPacker, PackedLayout, PackingBuffer};
-    use crate::block_quant::{BlockQuantizedMatrix, nbit_zero_point, pack_4bit_elements};
+    use crate::block_quant::{
+        BlockQuantizedMatrix, nbit_zero_point, pack_4bit_elements, unpack_zero_point_4bit,
+    };
 
     #[test]
     fn test_packing_buffer() {
@@ -516,6 +545,67 @@ mod tests {
                         panel,
                         row,
                         panel_col
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_block_quantized_matrix_packer_zero_points() {
+        let cols = 4;
+        let k_blocks = 2;
+        let n_bits = 4;
+        let zero_point = nbit_zero_point(n_bits);
+
+        let elems: Vec<i8> = (-8..8).cycle().take(256).collect();
+        let packed_elems = pack_4bit_elements(&elems, zero_point as i8);
+        let data = NdTensor::from_data([cols, k_blocks, 16], packed_elems);
+        let data = data.to_contiguous();
+        let scales = NdTensorView::from_data([cols, k_blocks], &[1., 2., 3., 4., 5., 6., 7., 8.]);
+        let scales = scales.to_contiguous();
+
+        // Two 4-bit zero points per column, packed into one byte with the
+        // first block's zero point in the low 4 bits.
+        let zps = NdTensor::from([[0x21u8], [0x43], [0x65], [0x87]]);
+        let zps = zps.to_contiguous();
+        let mat = BlockQuantizedMatrix::new(data.view(), scales.view(), n_bits)
+            .unwrap()
+            .with_zero_points(zps.view())
+            .unwrap();
+
+        const NR: usize = 2;
+        let packer = BlockQuantizedMatrixPacker::<f32, NR>::new(mat);
+
+        // Dequantized column panels
+        let mut dequantized = Vec::with_capacity(elems.len());
+        let dequantized = packer.pack(
+            dequantized.spare_capacity_mut(),
+            0..mat.rows(),
+            0..mat.cols(),
+        );
+
+        for panel in 0..cols / NR {
+            for row in 0..mat.rows() {
+                for panel_col in 0..NR {
+                    let col = panel * NR + panel_col;
+                    let dequant_offset = panel * mat.rows() * NR + row * NR + panel_col;
+                    let input_offset = col * mat.rows() + row;
+
+                    let block_idx = row / mat.elements_per_block();
+                    let scale = mat.column_scales(col, block_idx, 1).unwrap()[0];
+                    let zp =
+                        unpack_zero_point_4bit(mat.column_zero_points(col).unwrap(), block_idx);
+
+                    // `elems` are quantized with the default zero point, so
+                    // the raw quantized value is `elem + zero_point`.
+                    let expected =
+                        (elems[input_offset] as i16 + zero_point - zp as i16) as f32 * scale;
+
+                    assert_eq!(
+                        dequantized[dequant_offset], expected,
+                        "mismatch at panel {} row {} col {}",
+                        panel, row, panel_col
                     );
                 }
             }
