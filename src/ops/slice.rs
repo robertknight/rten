@@ -1,3 +1,4 @@
+use rten_base::bit_set::BitSet;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
@@ -141,8 +142,8 @@ impl Operator for Slice {
         result.into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {

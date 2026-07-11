@@ -1,3 +1,4 @@
+use rten_base::bit_set::BitSet;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
@@ -148,8 +149,8 @@ impl Operator for SequenceErase {
         Some(2)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -216,8 +217,8 @@ impl Operator for SequenceInsert {
         Some(3)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

@@ -389,14 +389,19 @@ pub trait Operator: Any + Debug {
     /// Return the rules for determining the types of this operator's outputs.
     fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList>;
 
-    /// Return true if this operator supports in-place execution via
-    /// `run_in_place`.
+    /// Return the set of inputs which this operator can modify in-place via
+    /// [`run_in_place`](Operator::run_in_place).
     ///
-    /// In-place execution returns results by modifying an existing tensor
-    /// instead of allocating a new one. Reducing memory allocations can
+    /// In-place execution returns results by modifying an existing input
+    /// instead of allocating a new tensor. Reducing memory allocations can
     /// significantly speed up graph runs.
-    fn can_run_in_place(&self) -> bool {
-        false
+    ///
+    /// The returned bit set contains the index of each input the operator is
+    /// able to modify. An empty set (the default) means in-place execution is
+    /// not supported. Only the first 16 inputs are candidates for in-place
+    /// modification.
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::new()
     }
 
     /// Return true if this operator is commutative, meaning that its inputs
@@ -434,7 +439,7 @@ pub trait Operator: Any + Debug {
 
     /// Execute this operator in-place on an existing tensor.
     ///
-    /// This may only be called if `can_run_in_place` returns true.
+    /// This may only be called if `in_place_inputs` returns a non-empty set.
     ///
     /// `input` is the first input, which the implementation may modify and
     /// return as an output. `ctx.inputs()` contains the remaining inputs.

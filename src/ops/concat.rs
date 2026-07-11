@@ -1,5 +1,6 @@
 use std::mem::MaybeUninit;
 
+use rten_base::bit_set::BitSet;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{AssumeInit, NdTensorView, Tensor, TensorView};
@@ -126,7 +127,7 @@ impl Operator for Concat {
         })
     }
 
-    fn can_run_in_place(&self) -> bool {
+    fn in_place_inputs(&self) -> BitSet<u16> {
         // This operator can run in place in several cases:
         //
         // - There is only one input
@@ -136,7 +137,7 @@ impl Operator for Concat {
         //   spare capacity.
         // - Capacity was specifically reserved (via `Tensor::with_capacity`)
         //   by higher-level code which anticipated the concatenation.
-        true
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -286,9 +287,9 @@ impl Operator for Tile {
         })
     }
 
-    fn can_run_in_place(&self) -> bool {
+    fn in_place_inputs(&self) -> BitSet<u16> {
         // Tile can run in place if it is a noop, ie. all the repeats are 1.
-        true
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {

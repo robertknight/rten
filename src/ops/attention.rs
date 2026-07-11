@@ -3,6 +3,7 @@
 use std::mem::MaybeUninit;
 
 use rayon::prelude::*;
+use rten_base::bit_set::BitSet;
 use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
 use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
@@ -122,8 +123,8 @@ impl Operator for AddSoftmax {
         true
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {

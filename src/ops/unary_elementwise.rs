@@ -3,6 +3,7 @@ use rayon::prelude::*;
 use std::fmt::Debug;
 use std::mem::MaybeUninit;
 
+use rten_base::bit_set::BitSet;
 use rten_base::num::AsBool;
 use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdUnaryOp;
@@ -131,8 +132,8 @@ macro_rules! impl_operator {
                 Some(1)
             }
 
-            fn can_run_in_place(&self) -> bool {
-                true
+            fn in_place_inputs(&self) -> BitSet<u16> {
+                BitSet::from_indices([0])
             }
 
             fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -143,7 +144,11 @@ macro_rules! impl_operator {
                 })
             }
 
-            fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+            fn run_in_place(
+                &self,
+                input: Value,
+                ctx: &OpRunContext,
+            ) -> Result<OutputList, OpError> {
                 map_value!(input, input, $types, {
                     let kernel = self.get_kernel();
                     let result = unary_op_in_place(ctx.pool(), input, &kernel);
@@ -327,8 +332,8 @@ impl Operator for Clip {
         })
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -570,8 +575,8 @@ impl Operator for Not {
         not(ctx.pool(), input).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {

@@ -16,7 +16,7 @@ use smallvec::SmallVec;
 
 use crate::buffer_pool::BufferPool;
 use crate::env::env_flag;
-use crate::operator::{InputList, OpRunContext, Operator, OutputList, PrepackedInput};
+use crate::operator::{InputList, OpError, OpRunContext, Operator, OutputList, PrepackedInput};
 use crate::threading;
 use crate::timing::{Instant, ProfileFormat, Profiler, TimingFilter, TimingRecord, TimingSort};
 use crate::value::{Value, ValueMeta, ValueOrView, ValueType, ValueView};
@@ -950,10 +950,22 @@ impl Graph {
             // allocating a new buffer for the output. This will be passed as
             // the first input to `Operator::run_in_place`.
             //
-            // For non-commutative ops we have to use the first input. For
-            // commutative ops we can swap inputs around if that enables us to
-            // run an op in place.
-            let try_in_place_input_id = if op_node.operator().can_run_in_place() {
+            // For non-commutative ops we use the specific input which the
+            // operator reports it can modify. For commutative ops we can swap
+            // inputs around if that enables us to run an op in place.
+            let in_place_inputs = op_node.operator().in_place_inputs();
+            if in_place_inputs.count_true() > 1 {
+                return Err(RunErrorImpl::OperatorError {
+                    name: op_node.name().unwrap_or_default().to_string(),
+                    error: OpError::UnsupportedValue(
+                        "operators with multiple in-place inputs are not yet supported",
+                    ),
+                    inputs: Vec::new(),
+                }
+                .into());
+            }
+            let try_in_place_input_id = if let Some(in_place_index) = in_place_inputs.iter().next()
+            {
                 if op_node.operator().is_commutative() {
                     // Pick the largest input by number of elements. This
                     // assumes that commutative op outputs will have a shape
@@ -971,7 +983,11 @@ impl Graph {
                         .copied()
                         .flatten()
                 } else {
-                    op_node.input_ids().first().copied().flatten()
+                    op_node
+                        .input_ids()
+                        .get(in_place_index as usize)
+                        .copied()
+                        .flatten()
                 }
             } else {
                 None
@@ -1095,19 +1111,16 @@ impl Graph {
             let op_result = if let Some((_id, value)) = in_place_input {
                 let input_dtype = value.dtype();
                 let input_shape = value.shape();
-                op_node
-                    .operator()
-                    .run_in_place(value, &ctx)
-                    .map_err(|e| {
-                        // The error here is currently missing information about operator inputs.
-                        RunError::in_place_op_error(
-                            op_node.name().unwrap_or_default(),
-                            e,
-                            &ctx,
-                            input_dtype,
-                            &input_shape,
-                        )
-                    })
+                op_node.operator().run_in_place(value, &ctx).map_err(|e| {
+                    // The error here is currently missing information about operator inputs.
+                    RunError::in_place_op_error(
+                        op_node.name().unwrap_or_default(),
+                        e,
+                        &ctx,
+                        input_dtype,
+                        &input_shape,
+                    )
+                })
             } else if let Some(subgraph_op) = subgraph_op {
                 let capture_env = CaptureEnv::new(
                     captures.as_ref(),

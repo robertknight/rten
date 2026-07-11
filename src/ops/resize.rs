@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
+use rten_base::bit_set::BitSet;
 use rten_base::iter::range_chunks;
 use rten_parallel::par_iter::ParIter;
 use rten_shape_inference::ops as shape_ops;
@@ -516,10 +517,10 @@ impl Operator for Resize {
         Some(self)
     }
 
-    fn can_run_in_place(&self) -> bool {
+    fn in_place_inputs(&self) -> BitSet<u16> {
         // Resize can run in place if the computed output size is the same
         // as the input size. In that case the in-place operation is a noop.
-        true
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {

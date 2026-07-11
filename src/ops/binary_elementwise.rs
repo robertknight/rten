@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::iter::repeat_n;
 use std::mem::MaybeUninit;
 
+use rten_base::bit_set::BitSet;
 use rten_base::num::{AsBool, Identities, IsInt};
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
@@ -502,8 +503,8 @@ impl Operator for Add {
         run_typed_op!(ctx.pool(), ctx.inputs(), add)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn is_commutative(&self) -> bool {
@@ -663,8 +664,8 @@ impl Operator for Div {
         run_typed_op!(ctx.pool(), ctx.inputs(), div)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -897,8 +898,8 @@ impl Operator for Mul {
         run_typed_op!(ctx.pool(), ctx.inputs(), mul)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn is_commutative(&self) -> bool {
@@ -1049,8 +1050,8 @@ impl Operator for Pow {
         self.eval(ctx, base, exponent).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, base: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -1121,8 +1122,8 @@ impl Operator for Sub {
         run_typed_op!(ctx.pool(), ctx.inputs(), sub)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {

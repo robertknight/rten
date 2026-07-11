@@ -1,6 +1,7 @@
 //! Operators which query or change the shape of a tensor, or copy/move/reorder
 //! elements.
 
+use rten_base::bit_set::BitSet;
 use rten_base::num::AsUsize;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::layout::is_valid_permutation;
@@ -188,10 +189,10 @@ impl Operator for Expand {
         map_value_view!(input, x, { expand(ctx.pool(), x, &shape).into_op_result() })
     }
 
-    fn can_run_in_place(&self) -> bool {
+    fn in_place_inputs(&self) -> BitSet<u16> {
         // Expand can run in place if it is a noop, ie. if the broadcasted
         // shape is the same as the input shape.
-        true
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -271,8 +272,8 @@ impl Operator for Flatten {
         })
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -420,8 +421,8 @@ impl Operator for Reshape {
         })
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -596,8 +597,8 @@ impl Operator for Squeeze {
         map_value_view!(input, x, { squeeze(ctx.pool(), x, axes).into_op_result() })
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -737,8 +738,8 @@ impl Operator for Unsqueeze {
         })
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {

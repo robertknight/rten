@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rten_base::bit_set::BitSet;
 use rten_tensor::prelude::*;
 
 use crate::infer_shapes::InferShapes;
@@ -119,10 +120,19 @@ impl Operator for TransformInputs {
         self.inner.run(&inner_ctx)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        // Allow in-place execution if supported by the wrapped operator and
-        // no transforms are applied to the in-place input.
-        self.inner.can_run_in_place() && !self.transforms.iter().any(|t| t.input_index == 0)
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        // Allow in-place execution unless a transform is applied to one of the
+        // in-place inputs.
+        let in_place = self.inner.in_place_inputs();
+        let transforms_in_place_input = self
+            .transforms
+            .iter()
+            .any(|t| t.input_index < u16::BITS as usize && in_place.get(t.input_index as u32));
+        if transforms_in_place_input {
+            BitSet::new()
+        } else {
+            in_place
+        }
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -260,7 +270,10 @@ mod tests {
             let fused_transpose = TransformInputsBuilder::new()
                 .permute(transpose_input, Some([1, 0].into()))
                 .build(Arc::new(sub_op));
-            assert_eq!(fused_transpose.can_run_in_place(), expected.is_some());
+            assert_eq!(
+                !fused_transpose.in_place_inputs().is_empty(),
+                expected.is_some()
+            );
 
             if let Some(expected) = expected {
                 let output: Tensor<i32> = fused_transpose.run_simple_in_place(a, b.view()).unwrap();

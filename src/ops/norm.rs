@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
+use rten_base::bit_set::BitSet;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
@@ -272,8 +273,8 @@ impl Operator for BatchNormalization {
         batch_norm(ctx.pool(), input, &scale, &bias, &mean, &var, self.epsilon).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -369,8 +370,8 @@ impl Operator for InstanceNormalization {
         instance_normalization(ctx.pool(), input, scale, bias, self.epsilon).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -693,8 +694,8 @@ impl Operator for LogSoftmax {
         log_softmax(ctx.pool(), input, self.axis).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -785,8 +786,8 @@ impl Operator for Softmax {
         softmax(ctx.pool(), input, self.axis, self.nan_handling()).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
