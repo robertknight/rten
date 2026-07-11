@@ -352,6 +352,65 @@ pub struct OutputTypesContext {
 /// exactly one output.
 pub type OutputList = SmallVec<[Value; 1]>;
 
+/// Owned input values which an operator should modify in-place.
+///
+/// This is a list of `(input_index, value)` for owned inputs passed to
+/// [`Operator::run_in_place`].
+#[derive(Debug)]
+pub struct InPlaceInputs {
+    inputs: SmallVec<[(usize, Value); 1]>,
+}
+
+impl InPlaceInputs {
+    /// Return the number of in-place inputs.
+    pub fn len(&self) -> usize {
+        self.inputs.len()
+    }
+
+    /// Return true if there are no in-place inputs.
+    pub fn is_empty(&self) -> bool {
+        self.inputs.is_empty()
+    }
+
+    /// Return the single in-place input.
+    ///
+    /// Panics if the list does not have exactly one element.
+    pub fn into_single(self) -> Value {
+        assert_eq!(
+            self.inputs.len(),
+            1,
+            "expected exactly one in-place input, got {}",
+            self.inputs.len()
+        );
+        self.inputs.into_iter().next().unwrap().1
+    }
+}
+
+impl From<(usize, Value)> for InPlaceInputs {
+    fn from(input: (usize, Value)) -> Self {
+        InPlaceInputs {
+            inputs: [input].into_iter().collect(),
+        }
+    }
+}
+
+impl FromIterator<(usize, Value)> for InPlaceInputs {
+    fn from_iter<I: IntoIterator<Item = (usize, Value)>>(iter: I) -> Self {
+        InPlaceInputs {
+            inputs: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl IntoIterator for InPlaceInputs {
+    type Item = (usize, Value);
+    type IntoIter = smallvec::IntoIter<[(usize, Value); 1]>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inputs.into_iter()
+    }
+}
+
 /// An Operator performs a computation step when executing a data flow graph.
 ///
 /// Operators take zero or more dynamic input values, plus a set of static
@@ -437,14 +496,14 @@ pub trait Operator: Any + Debug {
         true
     }
 
-    /// Execute this operator in-place on an existing tensor.
+    /// Execute this operator in-place on one or more existing tensors.
     ///
     /// This may only be called if `in_place_inputs` returns a non-empty set.
     ///
-    /// `input` is one of the inputs from that set, which the implementation may
-    /// modify and return as an output. `ctx.inputs()` contains all of the
-    /// operator's inputs, with the position of the in-place `input` set to
-    /// `None`.
+    /// `in_place` holds the owned values for the inputs from that set, which the
+    /// implementation may modify and return as outputs. `ctx.inputs()` contains
+    /// all of the operator's inputs, with the positions of the in-place inputs
+    /// set to `None`.
     ///
     /// Operators may fall back to allocating a new output if some property of
     /// the input data or shapes means in-place operation is not possible. In
@@ -453,7 +512,7 @@ pub trait Operator: Any + Debug {
     /// temporary buffers created during execution.
     fn run_in_place(
         &self,
-        #[allow(unused)] input: Value,
+        #[allow(unused)] in_place: InPlaceInputs,
         #[allow(unused)] ctx: &OpRunContext,
     ) -> Result<OutputList, OpError> {
         Err(OpError::InvalidValue("In-place execution not supported"))
@@ -555,7 +614,8 @@ pub trait OperatorExt: Operator {
         let pool = BufferPool::new();
         let inputs = inputs.into();
         let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
-        let mut outputs = self.run_in_place(mut_input.into(), &ctx)?;
+        let in_place = InPlaceInputs::from((0, mut_input.into()));
+        let mut outputs = self.run_in_place(in_place, &ctx)?;
         let typed_output = outputs.remove(0).try_into()?;
         Ok(typed_output)
     }

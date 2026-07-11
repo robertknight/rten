@@ -13,8 +13,8 @@ use rten_tensor::{Tensor, TensorView, TensorViewMut};
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{BinaryOp, InferShapes};
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext,
+    InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList, OutputTypesContext,
 };
 use crate::ops::{map_value, map_value_view};
 use crate::value::{DataType, Value, ValueType, ValueView};
@@ -517,8 +517,18 @@ impl Operator for Add {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), add_in_place, add)
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        run_typed_op_in_place!(
+            ctx.pool(),
+            in_place.into_single(),
+            ctx.inputs(),
+            add_in_place,
+            add
+        )
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -670,8 +680,18 @@ impl Operator for Div {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), div_in_place, div)
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        run_typed_op_in_place!(
+            ctx.pool(),
+            in_place.into_single(),
+            ctx.inputs(),
+            div_in_place,
+            div
+        )
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -912,8 +932,18 @@ impl Operator for Mul {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), mul_in_place, mul)
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        run_typed_op_in_place!(
+            ctx.pool(),
+            in_place.into_single(),
+            ctx.inputs(),
+            mul_in_place,
+            mul
+        )
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -1056,7 +1086,12 @@ impl Operator for Pow {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, base: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let base = in_place.into_single();
         let exponent = ctx.inputs().require(1)?;
         let result = if can_run_binary_op_in_place(&base, &exponent) {
             match (base, exponent) {
@@ -1128,8 +1163,18 @@ impl Operator for Sub {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), sub_in_place, sub)
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        run_typed_op_in_place!(
+            ctx.pool(),
+            in_place.into_single(),
+            ctx.inputs(),
+            sub_in_place,
+            sub
+        )
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -1393,14 +1438,18 @@ mod tests {
         let op = Add {};
         let inputs: InputList = (&b).into();
         let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
-        let result = op.run_in_place(Value::FloatTensor(a_copy), &ctx).unwrap();
+        let result = op
+            .run_in_place((0, Value::FloatTensor(a_copy)).into(), &ctx)
+            .unwrap();
         expect_equal(&result[0].as_tensor_view().unwrap(), &expected.view())?;
 
         // Run `Add` operator in-place with inputs that don't support in-place
         // addition. The operator should fall back to creating a new output tensor.
         let scalar = Tensor::from(1.0);
         let expected = Tensor::from_data(&[2, 2], vec![11., 21., 31., 41.]);
-        let result = op.run_in_place(Value::FloatTensor(scalar), &ctx).unwrap();
+        let result = op
+            .run_in_place((0, Value::FloatTensor(scalar)).into(), &ctx)
+            .unwrap();
         expect_equal(&result[0].as_tensor_view().unwrap(), &expected.view())?;
 
         // In-place addition where the second input must be broadcast to the

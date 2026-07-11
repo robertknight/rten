@@ -12,8 +12,8 @@ use smallvec::SmallVec;
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext, static_dims,
+    InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList, OutputTypesContext, static_dims,
 };
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{map_value, map_value_view, resolve_axes, resolve_axis};
@@ -195,7 +195,12 @@ impl Operator for Expand {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
         let shape = ctx.inputs().require_as(1)?;
 
         let out_shape = expand_output_shape(&input.shape(), &shape)?;
@@ -276,7 +281,12 @@ impl Operator for Flatten {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
         map_value!(input, x, {
             flatten_in_place(ctx.pool(), &mut x, self.axis)?;
             x.into_op_result()
@@ -425,7 +435,12 @@ impl Operator for Reshape {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
         let shape = ctx.inputs().require_as(1)?;
 
         map_value!(input, output, {
@@ -601,7 +616,12 @@ impl Operator for Squeeze {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
         let axes = ctx.inputs().get_as(1)?;
 
         map_value!(input, output, {
@@ -742,7 +762,12 @@ impl Operator for Unsqueeze {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
         let axes = ctx.inputs().require_as(1)?;
 
         map_value!(input, output, {

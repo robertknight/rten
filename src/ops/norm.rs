@@ -11,12 +11,11 @@ use rten_vecmath as vecmath;
 use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::{InferShapes, UnaryOp};
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext, check_eq,
+    InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList, OutputTypesContext, check_eq,
 };
 use crate::ops::resolve_axis;
 use crate::slice_reductions::slice_max;
-use crate::value::Value;
 
 /// Specifies how to normalize the mean and variance.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -277,9 +276,13 @@ impl Operator for BatchNormalization {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
-        let mut output: Tensor = input.try_into()?;
+        let mut output: Tensor = in_place.into_single().try_into()?;
         let scale = inputs.require_as(1)?;
         let bias = inputs.require_as(2)?;
         let mean = inputs.require_as(3)?;
@@ -374,8 +377,12 @@ impl Operator for InstanceNormalization {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let mut output: Tensor = input.try_into()?;
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let mut output: Tensor = in_place.into_single().try_into()?;
         let inputs = ctx.inputs();
         let scale = inputs.require_as(1)?;
         let bias = inputs.require_as(2)?;
@@ -698,8 +705,12 @@ impl Operator for LogSoftmax {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let mut output: Tensor = input.try_into()?;
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        _ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let mut output: Tensor = in_place.into_single().try_into()?;
         log_softmax_in_place(&mut output, self.axis)?;
         output.into_op_result()
     }
@@ -790,8 +801,12 @@ impl Operator for Softmax {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let mut output = input.try_into()?;
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        _ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let mut output = in_place.into_single().try_into()?;
         softmax_in_place(&mut output, self.axis, self.nan_handling())?;
         output.into_op_result()
     }

@@ -10,8 +10,8 @@ use crate::infer_shapes::{
     InferShapes, InferShapesContext, InferShapesError, SymTensor, SymbolGen, UnaryOp,
 };
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext,
+    InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList, OutputTypesContext,
 };
 use crate::value::{DataType, Value, ValueType, ValueView};
 
@@ -130,7 +130,12 @@ impl Operator for Cast {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
         match cast_in_place(input, self.to) {
             Ok(output) => output.into_op_result(),
             Err(input) => {
@@ -196,12 +201,16 @@ impl Operator for CastLike {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
         let target_type = ctx.inputs().require(1)?;
         let ValueType::Tensor(to) = target_type.dtype() else {
             return Err(OpError::InvalidValue("expected target_type to be a tensor"));
         };
-        Cast { to }.run_in_place(input, ctx)
+        Cast { to }.run_in_place(in_place, ctx)
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {

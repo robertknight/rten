@@ -15,8 +15,8 @@ use rten_vecmath as vecmath;
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, UnaryOp};
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext,
+    InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList, OutputTypesContext,
 };
 use crate::ops::binary_elementwise::binary_op;
 use crate::ops::{map_value, map_value_view};
@@ -146,9 +146,10 @@ macro_rules! impl_operator {
 
             fn run_in_place(
                 &self,
-                input: Value,
+                in_place: InPlaceInputs,
                 ctx: &OpRunContext,
             ) -> Result<OutputList, OpError> {
+                let input = in_place.into_single();
                 map_value!(input, input, $types, {
                     let kernel = self.get_kernel();
                     let result = unary_op_in_place(ctx.pool(), input, &kernel);
@@ -336,7 +337,12 @@ impl Operator for Clip {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
         map_value!(input, input, [FloatTensor, Int32Tensor], {
             let min = ctx.inputs().get_as(1)?;
             let max = ctx.inputs().get_as(2)?;
@@ -579,8 +585,12 @@ impl Operator for Not {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let mut output: Tensor<i32> = input.try_into()?;
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        _ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let mut output: Tensor<i32> = in_place.into_single().try_into()?;
         not_in_place(output.view_mut());
         output.into_op_result()
     }

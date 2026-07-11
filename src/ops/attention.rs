@@ -14,8 +14,8 @@ use rten_vecmath::Softmax;
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext,
+    InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList, OutputTypesContext,
 };
 use crate::ops::{
     binary_elementwise::broadcast_shapes, layout::expand_to, norm::NanHandling, resolve_axis,
@@ -127,8 +127,12 @@ impl Operator for AddSoftmax {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let qk: Tensor = input.try_into()?;
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let qk: Tensor = in_place.into_single().try_into()?;
         // This operator is commutative, so the other input may be at either
         // position depending on which was selected for in-place execution.
         let m: TensorView = ctx.inputs().require_first_present_as()?;
