@@ -158,6 +158,19 @@ impl<'a> CaptureEnv<'a> {
         self.parent.and_then(|parent| parent.get_input(name))
     }
 
+    /// Return true if [`take_input`](Self::take_input) would return a value for
+    /// `name`.
+    pub fn can_take_input(&self, name: &str) -> bool {
+        self.graph
+            .and_then(|g| g.get_node_id(name))
+            .and_then(|node_id| {
+                self.temp_values
+                    .as_ref()
+                    .map(|tv| tv.contains_key(&node_id))
+            })
+            .unwrap_or(false)
+    }
+
     /// Remove and return a value from the capture environment's map of by-value
     /// captures.
     pub fn take_input(&mut self, name: &str) -> Option<Value> {

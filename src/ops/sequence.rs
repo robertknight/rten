@@ -5,8 +5,8 @@ use rten_tensor::{Tensor, TensorView};
 use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::InferShapes;
 use crate::operator::{
-    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
-    OutputTypeList, OutputTypesContext,
+    InPlaceInputs, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
+    OutputType, OutputTypeList, OutputTypesContext,
 };
 use crate::ops::split::SplitSizes;
 use crate::ops::split::split;
@@ -161,8 +161,12 @@ impl Operator for SequenceErase {
             .into_op_result()
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let seq: Sequence = input.try_into()?;
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let seq: Sequence = in_place.into_single().try_into()?;
         let pos: Option<i32> = ctx.inputs().get_as(1)?;
         sequence_erase(seq, pos).map(Value::from).into_op_result()
     }
@@ -230,8 +234,12 @@ impl Operator for SequenceInsert {
             .into_op_result()
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let seq: Sequence = input.try_into()?;
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let seq: Sequence = in_place.into_single().try_into()?;
         let value = ctx.inputs().require(1)?;
         let pos: Option<i32> = ctx.inputs().get_as(2)?;
         sequence_insert(ctx.pool(), seq, pos, value)

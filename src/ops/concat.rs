@@ -10,8 +10,8 @@ use smallvec::SmallVec;
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
-    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
-    OutputTypeList, OutputTypesContext,
+    InPlaceInputs, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
+    OutputType, OutputTypeList, OutputTypesContext,
 };
 use crate::ops::{map_value, map_value_view, resolve_axis};
 use crate::value::{TryFromValueError, Value, ValueView};
@@ -140,7 +140,12 @@ impl Operator for Concat {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
         map_value!(input, input, [FloatTensor, Int32Tensor], {
             let typed_inputs = typed_inputs(ctx.inputs(), input.view())?;
             concat_in_place(ctx.pool(), input, &typed_inputs, self.axis).into_op_result()
@@ -292,7 +297,12 @@ impl Operator for Tile {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
         let repeats: NdTensorView<i32, 1> = ctx.inputs().require_as(1)?;
 
         if repeats.iter().all(|n| *n == 1) {

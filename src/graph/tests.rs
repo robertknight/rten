@@ -16,8 +16,8 @@ use crate::graph::{
 };
 use crate::infer_shapes::InferShapes;
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext,
-    PrepackedInput, SubgraphOperator,
+    InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputTypeList,
+    OutputTypesContext, PrepackedInput, SubgraphOperator,
 };
 use crate::ops::{Add, Concat, Conv, Identity, If, MatMul, Mul, Relu, Shape};
 use crate::timing::Profiler;
@@ -90,12 +90,16 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
         self.inner.run(ctx)
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
         {
             let mut m = self.metrics.lock().unwrap();
             m.run_in_place_count += 1;
         }
-        self.inner.run_in_place(input, ctx)
+        self.inner.run_in_place(in_place, ctx)
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -872,8 +876,12 @@ impl Operator for AddOneInPlace {
         input.to_tensor().into_op_result()
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let mut output = input.into_tensor::<f32>().unwrap();
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        _ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let mut output = in_place.into_single().into_tensor::<f32>().unwrap();
         for x in output.iter_mut() {
             *x = *x + 1.0;
         }
@@ -1020,8 +1028,12 @@ impl Operator for InPlaceSecondInput {
         second.to_tensor().into_op_result()
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let mut output = input.into_tensor::<f32>().unwrap();
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        _ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let mut output = in_place.into_single().into_tensor::<f32>().unwrap();
         for x in output.iter_mut() {
             *x += 1.0;
         }
@@ -1071,6 +1083,138 @@ fn test_runs_non_commutative_op_in_place_with_non_first_input() {
     let op_metrics = op_metrics.lock().unwrap();
     assert_eq!(op_metrics.run_count, 0);
     assert_eq!(op_metrics.run_in_place_count, 1);
+}
+
+/// Test operator that can modify both of its inputs in-place.
+#[derive(Debug)]
+struct AddTwoInPlace {}
+impl Operator for AddTwoInPlace {
+    fn name(&self) -> &str {
+        "AddTwoInPlace"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        None
+    }
+
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0, 1])
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let first: TensorView<f32> = ctx.inputs().require_as(0)?;
+        first.to_tensor().into_op_result()
+    }
+
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        _ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let mut inputs: Vec<(usize, Tensor<f32>)> = in_place
+            .into_iter()
+            .map(|(index, value)| (index, value.into_tensor::<f32>().unwrap()))
+            .collect();
+        inputs.sort_by_key(|(index, _)| *index);
+        let (_, mut a) = inputs.remove(0);
+        let (_, b) = inputs.remove(0);
+        for (x, y) in a.iter_mut().zip(b.iter()) {
+            *x += *y;
+        }
+        a.into_op_result()
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
+    }
+}
+
+// Test that an operator with multiple in-place inputs runs in-place only when
+// all of those inputs are available to take as owned values.
+#[test]
+fn test_runs_op_in_place_with_multiple_inputs() {
+    let first = Tensor::from([1.0f32, 2.0, 3.0]);
+    let second = Tensor::from([10.0f32, 20.0, 30.0]);
+
+    // Both inputs are owned temporaries, so the operator runs in-place.
+    {
+        let mut g = Graph::new();
+        let first_id = g.add_value(Some("first"), None, None);
+        let second_id = g.add_value(Some("second"), None, None);
+        let (_, first_temp) = g.add_simple_op("id1", Identity {}, &[first_id]);
+        let (_, second_temp) = g.add_simple_op("id2", Identity {}, &[second_id]);
+
+        let op = TrackUsage::new(AddTwoInPlace {});
+        let op_metrics = op.metrics();
+        let (_, op_out) = g.add_simple_op("op", op, &[first_temp, second_temp]);
+
+        let results = g
+            .run(
+                vec![
+                    (first_id, first.view().into()),
+                    (second_id, second.view().into()),
+                ],
+                &[op_out],
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            results[0]
+                .as_tensor_view::<f32>()
+                .unwrap()
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            &[11., 22., 33.]
+        );
+
+        let op_metrics = op_metrics.lock().unwrap();
+        assert_eq!(op_metrics.run_count, 0);
+        assert_eq!(op_metrics.run_in_place_count, 1);
+    }
+
+    // The first input is a graph input passed by view, so it cannot be taken.
+    // With the all-or-nothing approach the operator does not run in-place.
+    {
+        let mut g = Graph::new();
+        let first_id = g.add_value(Some("first"), None, None);
+        let second_id = g.add_value(Some("second"), None, None);
+        let (_, second_temp) = g.add_simple_op("id2", Identity {}, &[second_id]);
+
+        let op = TrackUsage::new(AddTwoInPlace {});
+        let op_metrics = op.metrics();
+        let (_, op_out) = g.add_simple_op("op", op, &[first_id, second_temp]);
+
+        let results = g
+            .run(
+                vec![
+                    (first_id, first.view().into()),
+                    (second_id, second.view().into()),
+                ],
+                &[op_out],
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            results[0]
+                .as_tensor_view::<f32>()
+                .unwrap()
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            &[1., 2., 3.]
+        );
+
+        let op_metrics = op_metrics.lock().unwrap();
+        assert_eq!(op_metrics.run_count, 1);
+        assert_eq!(op_metrics.run_in_place_count, 0);
+    }
 }
 
 /// Test operator that produces multiple outputs

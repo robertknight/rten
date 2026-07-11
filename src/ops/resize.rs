@@ -12,10 +12,10 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
-    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
-    OutputTypeList, OutputTypesContext, static_dims,
+    InPlaceInputs, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
+    OutputType, OutputTypeList, OutputTypesContext, static_dims,
 };
-use crate::value::{TryFromValueError, Value, ValueView};
+use crate::value::{TryFromValueError, ValueView};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
@@ -523,9 +523,14 @@ impl Operator for Resize {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
         // See note in `run` about the `roi` input.
 
+        let input = in_place.into_single();
         let other = ctx.inputs();
         let target = target_from_scale_size_inputs(other, 2)?;
         let output_size = calc_output_size(&input.shape(), target)?;

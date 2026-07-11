@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::operator::{OpError, OpRunContext};
-use crate::value::{ValueMeta, ValueType};
+use crate::value::ValueMeta;
 
 /// Errors that occur when running a model.
 #[derive(Debug)]
@@ -44,26 +44,21 @@ impl RunError {
         name: &str,
         error: OpError,
         ctx: &OpRunContext,
-        in_place_index: usize,
-        main_input_dtype: ValueType,
-        main_input_shape: &[usize],
+        in_place_metas: &[(usize, ValueMeta)],
     ) -> Self {
         let inputs: Vec<_> = ctx
             .inputs()
             .iter()
             .enumerate()
             .map(|(index, input)| {
-                if index == in_place_index {
-                    // `ctx.inputs()` has a `None` placeholder at the in-place
-                    // input's position, since that input is passed separately.
-                    // Fill it in so the metadata reflects all of the inputs.
-                    Some(ValueMeta {
-                        dtype: main_input_dtype,
-                        shape: main_input_shape.to_vec(),
-                    })
-                } else {
-                    input.map(|input| input.to_meta())
-                }
+                // `ctx.inputs()` has a `None` placeholder at each in-place
+                // input's position, since those inputs are passed separately.
+                // Fill them in so the metadata reflects all of the inputs.
+                in_place_metas
+                    .iter()
+                    .find(|(pos, _)| *pos == index)
+                    .map(|(_, meta)| meta.clone())
+                    .or_else(|| input.map(|input| input.to_meta()))
             })
             .collect();
 

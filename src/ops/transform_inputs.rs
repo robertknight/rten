@@ -5,10 +5,10 @@ use rten_tensor::prelude::*;
 
 use crate::infer_shapes::InferShapes;
 use crate::operator::{
-    OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext,
+    InPlaceInputs, OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext,
 };
 use crate::ops::map_value_view;
-use crate::value::{Value, ValueView};
+use crate::value::ValueView;
 
 trait TransformInput {
     fn transform(&self, input: &mut ValueView) -> Result<(), OpError>;
@@ -135,7 +135,11 @@ impl Operator for TransformInputs {
         }
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
         let mut inputs = ctx.inputs().clone();
         for TransformIndex {
             input_index,
@@ -148,7 +152,7 @@ impl Operator for TransformInputs {
             transform.transform(input)?;
         }
         let inner_ctx = OpRunContext::new(ctx.pool(), &inputs, ctx.outputs());
-        self.inner.run_in_place(input, &inner_ctx)
+        self.inner.run_in_place(in_place, &inner_ctx)
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {

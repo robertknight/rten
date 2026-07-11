@@ -8,8 +8,8 @@ use smallvec::SmallVec;
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::InferShapes;
 use crate::operator::{
-    InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
-    OutputTypeList, OutputTypesContext,
+    InPlaceInputs, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
+    OutputType, OutputTypeList, OutputTypesContext,
 };
 use crate::ops::{map_value, map_value_view, resolve_axis};
 use crate::value::{Value, ValueView};
@@ -146,7 +146,12 @@ impl Operator for Slice {
         BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
         let other = ctx.inputs();
         let starts = other.require_as(1)?;
         let ends = other.require_as(2)?;
