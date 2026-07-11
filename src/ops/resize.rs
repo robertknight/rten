@@ -527,7 +527,7 @@ impl Operator for Resize {
         // See note in `run` about the `roi` input.
 
         let other = ctx.inputs();
-        let target = target_from_scale_size_inputs(other, 1)?;
+        let target = target_from_scale_size_inputs(other, 2)?;
         let output_size = calc_output_size(&input.shape(), target)?;
 
         // If this is a no-op resize, just return the input.

@@ -338,8 +338,8 @@ impl Operator for Clip {
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         map_value!(input, input, [FloatTensor, Int32Tensor], {
-            let min = ctx.inputs().get_as(0)?;
-            let max = ctx.inputs().get_as(1)?;
+            let min = ctx.inputs().get_as(1)?;
+            let max = ctx.inputs().get_as(2)?;
             clip_in_place(&mut input, min, max);
             input.into_op_result()
         })

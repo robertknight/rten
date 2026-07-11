@@ -163,7 +163,7 @@ impl Operator for SequenceErase {
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let seq: Sequence = input.try_into()?;
-        let pos: Option<i32> = ctx.inputs().get_as(0)?;
+        let pos: Option<i32> = ctx.inputs().get_as(1)?;
         sequence_erase(seq, pos).map(Value::from).into_op_result()
     }
 
@@ -232,8 +232,8 @@ impl Operator for SequenceInsert {
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let seq: Sequence = input.try_into()?;
-        let value = ctx.inputs().require(0)?;
-        let pos: Option<i32> = ctx.inputs().get_as(1)?;
+        let value = ctx.inputs().require(1)?;
+        let pos: Option<i32> = ctx.inputs().get_as(2)?;
         sequence_insert(ctx.pool(), seq, pos, value)
             .map(Value::from)
             .into_op_result()

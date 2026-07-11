@@ -197,7 +197,7 @@ impl Operator for CastLike {
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let target_type = ctx.inputs().require(0)?;
+        let target_type = ctx.inputs().require(1)?;
         let ValueType::Tensor(to) = target_type.dtype() else {
             return Err(OpError::InvalidValue("expected target_type to be a tensor"));
         };

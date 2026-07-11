@@ -129,7 +129,9 @@ impl Operator for AddSoftmax {
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let qk: Tensor = input.try_into()?;
-        let m: TensorView = ctx.inputs().require_as(0)?;
+        // This operator is commutative, so the other input may be at either
+        // position depending on which was selected for in-place execution.
+        let m: TensorView = ctx.inputs().require_first_present_as()?;
 
         let out_shape = broadcast_shapes(qk.shape(), m.shape());
         let qk = match out_shape.as_deref() {

@@ -458,7 +458,9 @@ impl IntoUnitResult for Result<(), OpError> {
 macro_rules! run_typed_op_in_place {
     ($pool:expr, $input:expr, $other: expr, $in_place_op_func:ident, $op_func:ident) => {{
         map_value!($input, a, [FloatTensor, Int32Tensor], {
-            let b = $other.require_as(0)?;
+            // The in-place input is passed separately, so the other operand is
+            // the sole remaining input.
+            let b = $other.require_first_present_as()?;
             if can_run_binary_op_in_place(&a, &b) {
                 $in_place_op_func(a.view_mut(), b).into_unit_result()?;
                 a.into_op_result()
@@ -1055,7 +1057,7 @@ impl Operator for Pow {
     }
 
     fn run_in_place(&self, base: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let exponent = ctx.inputs().require(0)?;
+        let exponent = ctx.inputs().require(1)?;
         let result = if can_run_binary_op_in_place(&base, &exponent) {
             match (base, exponent) {
                 (Value::FloatTensor(mut base), ValueView::FloatTensor(exponent)) => {

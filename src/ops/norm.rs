@@ -280,10 +280,10 @@ impl Operator for BatchNormalization {
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let mut output: Tensor = input.try_into()?;
-        let scale = inputs.require_as(0)?;
-        let bias = inputs.require_as(1)?;
-        let mean = inputs.require_as(2)?;
-        let var = inputs.require_as(3)?;
+        let scale = inputs.require_as(1)?;
+        let bias = inputs.require_as(2)?;
+        let mean = inputs.require_as(3)?;
+        let var = inputs.require_as(4)?;
 
         batch_norm_in_place(&mut output, &scale, &bias, &mean, &var, self.epsilon)?;
 
@@ -377,8 +377,8 @@ impl Operator for InstanceNormalization {
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut output: Tensor = input.try_into()?;
         let inputs = ctx.inputs();
-        let scale = inputs.require_as(0)?;
-        let bias = inputs.require_as(1)?;
+        let scale = inputs.require_as(1)?;
+        let bias = inputs.require_as(2)?;
 
         instance_normalization_in_place(&mut output, scale, bias, self.epsilon)?;
 

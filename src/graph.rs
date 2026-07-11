@@ -1046,7 +1046,8 @@ impl Graph {
                         && node_id == id
                     {
                         // This input is being passed separately as a mutable
-                        // value.
+                        // value, so leave a `None` placeholder in its position.
+                        op_inputs.push(None);
                         continue;
                     }
 
@@ -1073,22 +1074,24 @@ impl Graph {
 
             // Collect input metadata if we'll need it for timing or logging.
             let input_meta = if opts.timing_by_shape || opts.verbose {
-                // Record the input value IDs and metadata together here because
-                // inputs may be reordered if the operator is commutative.
-                let mut meta: Vec<(Option<NodeId>, Option<ValueMeta>)> = Vec::new();
-                if let Some((id, value)) = &in_place_input {
-                    meta.push((Some(*id), Some(value.to_meta())));
-                }
-                for (id, input) in op_node
+                // `op_inputs` has a `None` placeholder at the in-place input's
+                // position, so fill in the metadata for that input separately.
+                op_node
                     .input_ids()
                     .iter()
                     .copied()
-                    .filter(|id| *id != in_place_input.as_ref().map(|(id, _value)| *id))
                     .zip(&op_inputs)
-                {
-                    meta.push((id, input.as_ref().map(|i| i.to_meta())))
-                }
-                meta
+                    .map(|(id, input)| {
+                        let meta = if let Some((ip_id, ip_value)) = &in_place_input
+                            && id == Some(*ip_id)
+                        {
+                            Some(ip_value.to_meta())
+                        } else {
+                            input.as_ref().map(|i| i.to_meta())
+                        };
+                        (id, meta)
+                    })
+                    .collect()
             } else {
                 Vec::new()
             };
@@ -1102,21 +1105,24 @@ impl Graph {
                     .flatten()
                     .and_then(|node_id| weight_cache.and_then(|wc| wc.get(node_id)))
             };
-            let inputs = InputList::from_optional(&op_inputs)
-                .with_prepacked(&get_prepacked)
-                .with_first_input_omitted(in_place_input.is_some());
+            let inputs = InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
             let mut ctx = OpRunContext::new(pool, &inputs, op_node.output_mask());
             ctx.set_name(op_node.name());
 
-            let op_result = if let Some((_id, value)) = in_place_input {
+            let op_result = if let Some((id, value)) = in_place_input {
                 let input_dtype = value.dtype();
                 let input_shape = value.shape();
+                let in_place_index = op_node
+                    .input_ids()
+                    .iter()
+                    .position(|input_id| *input_id == Some(id))
+                    .unwrap_or(0);
                 op_node.operator().run_in_place(value, &ctx).map_err(|e| {
-                    // The error here is currently missing information about operator inputs.
                     RunError::in_place_op_error(
                         op_node.name().unwrap_or_default(),
                         e,
                         &ctx,
+                        in_place_index,
                         input_dtype,
                         &input_shape,
                     )

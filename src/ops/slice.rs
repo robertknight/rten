@@ -148,11 +148,11 @@ impl Operator for Slice {
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let other = ctx.inputs();
-        let starts = other.require_as(0)?;
-        let ends = other.require_as(1)?;
+        let starts = other.require_as(1)?;
+        let ends = other.require_as(2)?;
 
-        let axes = other.get_as(2)?;
-        let steps = other.get_as::<NdTensorView<i32, 1>>(3)?;
+        let axes = other.get_as(3)?;
+        let steps = other.get_as::<NdTensorView<i32, 1>>(4)?;
 
         // Fall back to copying if non-default steps are given.
         if let Some(steps) = steps

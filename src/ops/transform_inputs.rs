@@ -142,9 +142,7 @@ impl Operator for TransformInputs {
             transform,
         } in &self.transforms
         {
-            // We don't allow in-place execution if any input has index 0, so
-            // the index should always be > 0 here.
-            let Some(input) = inputs.get_mut(*input_index - 1) else {
+            let Some(input) = inputs.get_mut(*input_index) else {
                 return Err(OpError::MissingInputs);
             };
             transform.transform(input)?;
@@ -168,12 +166,12 @@ impl Operator for TransformInputs {
 mod tests {
     use std::sync::Arc;
 
-    use rten_tensor::Tensor;
     use rten_tensor::prelude::*;
+    use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
     use super::TransformInputsBuilder;
-    use crate::operator::{Operator, OperatorExt};
+    use crate::operator::{InputList, Operator, OperatorExt};
     use crate::ops::Sub;
 
     #[test]
@@ -276,7 +274,12 @@ mod tests {
             );
 
             if let Some(expected) = expected {
-                let output: Tensor<i32> = fused_transpose.run_simple_in_place(a, b.view()).unwrap();
+                // The in-place input occupies index 0, so `b` is passed at
+                // index 1 with a `None` placeholder at index 0.
+                let mut inputs = InputList::new();
+                inputs.push_optional(None::<TensorView<i32>>);
+                inputs.push(b.view());
+                let output: Tensor<i32> = fused_transpose.run_simple_in_place(a, inputs).unwrap();
                 assert_eq!(output, expected);
             }
         })

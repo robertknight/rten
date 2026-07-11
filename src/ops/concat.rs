@@ -293,7 +293,7 @@ impl Operator for Tile {
     }
 
     fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let repeats: NdTensorView<i32, 1> = ctx.inputs().require_as(0)?;
+        let repeats: NdTensorView<i32, 1> = ctx.inputs().require_as(1)?;
 
         if repeats.iter().all(|n| *n == 1) {
             return input.into_op_result();
