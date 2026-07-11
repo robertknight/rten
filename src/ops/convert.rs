@@ -1,3 +1,4 @@
+use rten_base::bit_set::BitSet;
 use rten_base::byte_cast::{FromByteArray, cast_vec};
 use rten_base::num;
 
@@ -123,19 +124,19 @@ impl Operator for Cast {
         cast(ctx.pool(), input, self.to).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
+    fn in_place_inputs(&self) -> BitSet<u16> {
         // Cast can run in place if the input's dtype already matches `self.to`
         // or both dtypes have the same element size.
-        true
+        BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         match cast_in_place(input, self.to) {
-            Ok(output) => Ok(output),
+            Ok(output) => output.into_op_result(),
             Err(input) => {
                 let converted = cast(ctx.pool(), input.as_view(), self.to)?;
                 input.add_to_pool(ctx.pool());
-                Ok(converted)
+                converted.into_op_result()
             }
         }
     }
@@ -191,12 +192,12 @@ impl Operator for CastLike {
         Cast { to }.run(ctx)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
-        let target_type = ctx.inputs().require(0)?;
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let target_type = ctx.inputs().require(1)?;
         let ValueType::Tensor(to) = target_type.dtype() else {
             return Err(OpError::InvalidValue("expected target_type to be a tensor"));
         };

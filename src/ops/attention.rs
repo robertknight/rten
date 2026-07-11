@@ -3,6 +3,7 @@
 use std::mem::MaybeUninit;
 
 use rayon::prelude::*;
+use rten_base::bit_set::BitSet;
 use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
 use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
@@ -122,13 +123,15 @@ impl Operator for AddSoftmax {
         true
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let qk: Tensor = input.try_into()?;
-        let m: TensorView = ctx.inputs().require_as(0)?;
+        // This operator is commutative, so the other input may be at either
+        // position depending on which was selected for in-place execution.
+        let m: TensorView = ctx.inputs().require_first_present_as()?;
 
         let out_shape = broadcast_shapes(qk.shape(), m.shape());
         let qk = match out_shape.as_deref() {
@@ -145,7 +148,7 @@ impl Operator for AddSoftmax {
             }
         };
 
-        add_softmax_in_place(ctx.pool(), qk, m, self.nan_handling()).map(|qk| qk.into())
+        add_softmax_in_place(ctx.pool(), qk, m, self.nan_handling()).into_op_result()
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {

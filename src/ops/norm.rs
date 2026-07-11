@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
+use rten_base::bit_set::BitSet;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
@@ -272,21 +273,21 @@ impl Operator for BatchNormalization {
         batch_norm(ctx.pool(), input, &scale, &bias, &mean, &var, self.epsilon).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let mut output: Tensor = input.try_into()?;
-        let scale = inputs.require_as(0)?;
-        let bias = inputs.require_as(1)?;
-        let mean = inputs.require_as(2)?;
-        let var = inputs.require_as(3)?;
+        let scale = inputs.require_as(1)?;
+        let bias = inputs.require_as(2)?;
+        let mean = inputs.require_as(3)?;
+        let var = inputs.require_as(4)?;
 
         batch_norm_in_place(&mut output, &scale, &bias, &mean, &var, self.epsilon)?;
 
-        Ok(output.into())
+        output.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -369,19 +370,19 @@ impl Operator for InstanceNormalization {
         instance_normalization(ctx.pool(), input, scale, bias, self.epsilon).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut output: Tensor = input.try_into()?;
         let inputs = ctx.inputs();
-        let scale = inputs.require_as(0)?;
-        let bias = inputs.require_as(1)?;
+        let scale = inputs.require_as(1)?;
+        let bias = inputs.require_as(2)?;
 
         instance_normalization_in_place(&mut output, scale, bias, self.epsilon)?;
 
-        Ok(output.into())
+        output.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -693,14 +694,14 @@ impl Operator for LogSoftmax {
         log_softmax(ctx.pool(), input, self.axis).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut output: Tensor = input.try_into()?;
         log_softmax_in_place(&mut output, self.axis)?;
-        Ok(output.into())
+        output.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -785,14 +786,14 @@ impl Operator for Softmax {
         softmax(ctx.pool(), input, self.axis, self.nan_handling()).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut output = input.try_into()?;
         softmax_in_place(&mut output, self.axis, self.nan_handling())?;
-        Ok(output.into())
+        output.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {

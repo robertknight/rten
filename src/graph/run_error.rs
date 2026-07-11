@@ -44,15 +44,29 @@ impl RunError {
         name: &str,
         error: OpError,
         ctx: &OpRunContext,
+        in_place_index: usize,
         main_input_dtype: ValueType,
         main_input_shape: &[usize],
     ) -> Self {
-        let meta = ValueMeta {
-            dtype: main_input_dtype,
-            shape: main_input_shape.to_vec(),
-        };
-        let mut inputs: Vec<_> = [Some(meta)].into();
-        inputs.extend(ctx.inputs().iter().map(|inp| inp.map(|inp| inp.to_meta())));
+        let inputs: Vec<_> = ctx
+            .inputs()
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                if index == in_place_index {
+                    // `ctx.inputs()` has a `None` placeholder at the in-place
+                    // input's position, since that input is passed separately.
+                    // Fill it in so the metadata reflects all of the inputs.
+                    Some(ValueMeta {
+                        dtype: main_input_dtype,
+                        shape: main_input_shape.to_vec(),
+                    })
+                } else {
+                    input.map(|input| input.to_meta())
+                }
+            })
+            .collect();
+
         RunErrorImpl::OperatorError {
             name: name.to_string(),
             error,

@@ -1,3 +1,4 @@
+use rten_base::bit_set::BitSet;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
@@ -141,17 +142,17 @@ impl Operator for Slice {
         result.into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let other = ctx.inputs();
-        let starts = other.require_as(0)?;
-        let ends = other.require_as(1)?;
+        let starts = other.require_as(1)?;
+        let ends = other.require_as(2)?;
 
-        let axes = other.get_as(2)?;
-        let steps = other.get_as::<NdTensorView<i32, 1>>(3)?;
+        let axes = other.get_as(3)?;
+        let steps = other.get_as::<NdTensorView<i32, 1>>(4)?;
 
         // Fall back to copying if non-default steps are given.
         if let Some(steps) = steps
@@ -168,12 +169,12 @@ impl Operator for Slice {
 
             let input_list = InputList::from(&inputs);
             let ctx = OpRunContext::new(ctx.pool(), &input_list, ctx.outputs());
-            return self.run(&ctx).map(|mut outputs| outputs.remove(0));
+            return self.run(&ctx);
         }
 
         map_value!(input, output, {
             slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
-            Ok(output.into())
+            output.into_op_result()
         })
     }
 

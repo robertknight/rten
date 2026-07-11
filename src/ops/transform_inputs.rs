@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rten_base::bit_set::BitSet;
 use rten_tensor::prelude::*;
 
 use crate::infer_shapes::InferShapes;
@@ -119,22 +120,29 @@ impl Operator for TransformInputs {
         self.inner.run(&inner_ctx)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        // Allow in-place execution if supported by the wrapped operator and
-        // no transforms are applied to the in-place input.
-        self.inner.can_run_in_place() && !self.transforms.iter().any(|t| t.input_index == 0)
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        // Allow in-place execution unless a transform is applied to one of the
+        // in-place inputs.
+        let in_place = self.inner.in_place_inputs();
+        let transforms_in_place_input = self
+            .transforms
+            .iter()
+            .any(|t| t.input_index < u16::BITS as usize && in_place.get(t.input_index as u32));
+        if transforms_in_place_input {
+            BitSet::new()
+        } else {
+            in_place
+        }
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut inputs = ctx.inputs().clone();
         for TransformIndex {
             input_index,
             transform,
         } in &self.transforms
         {
-            // We don't allow in-place execution if any input has index 0, so
-            // the index should always be > 0 here.
-            let Some(input) = inputs.get_mut(*input_index - 1) else {
+            let Some(input) = inputs.get_mut(*input_index) else {
                 return Err(OpError::MissingInputs);
             };
             transform.transform(input)?;
@@ -158,12 +166,12 @@ impl Operator for TransformInputs {
 mod tests {
     use std::sync::Arc;
 
-    use rten_tensor::Tensor;
     use rten_tensor::prelude::*;
+    use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
     use super::TransformInputsBuilder;
-    use crate::operator::{Operator, OperatorExt};
+    use crate::operator::{InputList, Operator, OperatorExt};
     use crate::ops::Sub;
 
     #[test]
@@ -260,10 +268,18 @@ mod tests {
             let fused_transpose = TransformInputsBuilder::new()
                 .permute(transpose_input, Some([1, 0].into()))
                 .build(Arc::new(sub_op));
-            assert_eq!(fused_transpose.can_run_in_place(), expected.is_some());
+            assert_eq!(
+                !fused_transpose.in_place_inputs().is_empty(),
+                expected.is_some()
+            );
 
             if let Some(expected) = expected {
-                let output: Tensor<i32> = fused_transpose.run_simple_in_place(a, b.view()).unwrap();
+                // The in-place input occupies index 0, so `b` is passed at
+                // index 1 with a `None` placeholder at index 0.
+                let mut inputs = InputList::new();
+                inputs.push_optional(None::<TensorView<i32>>);
+                inputs.push(b.view());
+                let output: Tensor<i32> = fused_transpose.run_simple_in_place(a, inputs).unwrap();
                 assert_eq!(output, expected);
             }
         })

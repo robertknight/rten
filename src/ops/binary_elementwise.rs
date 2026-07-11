@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::iter::repeat_n;
 use std::mem::MaybeUninit;
 
+use rten_base::bit_set::BitSet;
 use rten_base::num::{AsBool, Identities, IsInt};
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
@@ -457,13 +458,15 @@ impl IntoUnitResult for Result<(), OpError> {
 macro_rules! run_typed_op_in_place {
     ($pool:expr, $input:expr, $other: expr, $in_place_op_func:ident, $op_func:ident) => {{
         map_value!($input, a, [FloatTensor, Int32Tensor], {
-            let b = $other.require_as(0)?;
+            // The in-place input is passed separately, so the other operand is
+            // the sole remaining input.
+            let b = $other.require_first_present_as()?;
             if can_run_binary_op_in_place(&a, &b) {
                 $in_place_op_func(a.view_mut(), b).into_unit_result()?;
-                Ok(a.into())
+                a.into_op_result()
             } else {
                 let a = a.auto_return($pool);
-                $op_func($pool, a.view(), b.view()).map(|t| t.into())
+                $op_func($pool, a.view(), b.view()).into_op_result()
             }
         })
     }};
@@ -502,8 +505,8 @@ impl Operator for Add {
         run_typed_op!(ctx.pool(), ctx.inputs(), add)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn is_commutative(&self) -> bool {
@@ -514,7 +517,7 @@ impl Operator for Add {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), add_in_place, add)
     }
 
@@ -663,11 +666,11 @@ impl Operator for Div {
         run_typed_op!(ctx.pool(), ctx.inputs(), div)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), div_in_place, div)
     }
 
@@ -897,8 +900,8 @@ impl Operator for Mul {
         run_typed_op!(ctx.pool(), ctx.inputs(), mul)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn is_commutative(&self) -> bool {
@@ -909,7 +912,7 @@ impl Operator for Mul {
         true
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), mul_in_place, mul)
     }
 
@@ -1049,13 +1052,13 @@ impl Operator for Pow {
         self.eval(ctx, base, exponent).into_op_result()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, base: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
-        let exponent = ctx.inputs().require(0)?;
-        if can_run_binary_op_in_place(&base, &exponent) {
+    fn run_in_place(&self, base: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let exponent = ctx.inputs().require(1)?;
+        let result = if can_run_binary_op_in_place(&base, &exponent) {
             match (base, exponent) {
                 (Value::FloatTensor(mut base), ValueView::FloatTensor(exponent)) => {
                     pow_in_place(base.view_mut(), exponent);
@@ -1075,7 +1078,8 @@ impl Operator for Pow {
             }
         } else {
             self.eval(ctx, base.as_view(), exponent)
-        }
+        };
+        result.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -1120,11 +1124,11 @@ impl Operator for Sub {
         run_typed_op!(ctx.pool(), ctx.inputs(), sub)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         run_typed_op_in_place!(ctx.pool(), input, ctx.inputs(), sub_in_place, sub)
     }
 
@@ -1390,14 +1394,14 @@ mod tests {
         let inputs: InputList = (&b).into();
         let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
         let result = op.run_in_place(Value::FloatTensor(a_copy), &ctx).unwrap();
-        expect_equal(&result.as_tensor_view().unwrap(), &expected.view())?;
+        expect_equal(&result[0].as_tensor_view().unwrap(), &expected.view())?;
 
         // Run `Add` operator in-place with inputs that don't support in-place
         // addition. The operator should fall back to creating a new output tensor.
         let scalar = Tensor::from(1.0);
         let expected = Tensor::from_data(&[2, 2], vec![11., 21., 31., 41.]);
         let result = op.run_in_place(Value::FloatTensor(scalar), &ctx).unwrap();
-        expect_equal(&result.as_tensor_view().unwrap(), &expected.view())?;
+        expect_equal(&result[0].as_tensor_view().unwrap(), &expected.view())?;
 
         // In-place addition where the second input must be broadcast to the
         // shape of the first.

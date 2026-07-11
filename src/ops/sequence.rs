@@ -1,3 +1,4 @@
+use rten_base::bit_set::BitSet;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
@@ -148,8 +149,8 @@ impl Operator for SequenceErase {
         Some(2)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -160,10 +161,10 @@ impl Operator for SequenceErase {
             .into_op_result()
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let seq: Sequence = input.try_into()?;
-        let pos: Option<i32> = ctx.inputs().get_as(0)?;
-        sequence_erase(seq, pos).map(Value::from)
+        let pos: Option<i32> = ctx.inputs().get_as(1)?;
+        sequence_erase(seq, pos).map(Value::from).into_op_result()
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -216,8 +217,8 @@ impl Operator for SequenceInsert {
         Some(3)
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -229,11 +230,13 @@ impl Operator for SequenceInsert {
             .into_op_result()
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let seq: Sequence = input.try_into()?;
-        let value = ctx.inputs().require(0)?;
-        let pos: Option<i32> = ctx.inputs().get_as(1)?;
-        sequence_insert(ctx.pool(), seq, pos, value).map(Value::from)
+        let value = ctx.inputs().require(1)?;
+        let pos: Option<i32> = ctx.inputs().get_as(2)?;
+        sequence_insert(ctx.pool(), seq, pos, value)
+            .map(Value::from)
+            .into_op_result()
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {

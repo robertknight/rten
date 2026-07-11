@@ -58,8 +58,8 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
         self.inner.name()
     }
 
-    fn can_run_in_place(&self) -> bool {
-        self.inner.can_run_in_place()
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        self.inner.in_place_inputs()
     }
 
     fn is_commutative(&self) -> bool {
@@ -90,7 +90,7 @@ impl<Op: Operator> Operator for TrackUsage<Op> {
         self.inner.run(ctx)
     }
 
-    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         {
             let mut m = self.metrics.lock().unwrap();
             m.run_in_place_count += 1;
@@ -860,8 +860,8 @@ impl Operator for AddOneInPlace {
         None
     }
 
-    fn can_run_in_place(&self) -> bool {
-        true
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -872,12 +872,12 @@ impl Operator for AddOneInPlace {
         input.to_tensor().into_op_result()
     }
 
-    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<Value, OpError> {
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let mut output = input.into_tensor::<f32>().unwrap();
         for x in output.iter_mut() {
             *x = *x + 1.0;
         }
-        Ok(output.into())
+        output.into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -992,6 +992,85 @@ fn test_runs_commutative_op_in_place() {
     let op2_metrics = op2_metrics.lock().unwrap();
     assert_eq!(op2_metrics.run_count, 0);
     assert_eq!(op2_metrics.run_in_place_count, 1);
+}
+
+/// Operator that runs in-place on its second input.
+#[derive(Debug)]
+struct InPlaceSecondInput {}
+
+impl Operator for InPlaceSecondInput {
+    fn name(&self) -> &str {
+        "InPlaceSecondInput"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        None
+    }
+
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([1])
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let second: TensorView<f32> = ctx.inputs().require_as(1)?;
+        second.to_tensor().into_op_result()
+    }
+
+    fn run_in_place(&self, input: Value, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let mut output = input.into_tensor::<f32>().unwrap();
+        for x in output.iter_mut() {
+            *x += 1.0;
+        }
+        output.into_op_result()
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
+    }
+}
+
+#[test]
+fn test_runs_non_commutative_op_in_place_with_non_first_input() {
+    let mut g = Graph::new();
+    let first_id = g.add_value(Some("first"), None, None);
+    let second_id = g.add_value(Some("second"), None, None);
+
+    let (_, second_temp) = g.add_simple_op("identity", Identity {}, &[second_id]);
+    let op = TrackUsage::new(InPlaceSecondInput {});
+    let op_metrics = op.metrics();
+    let (_, op_out) = g.add_simple_op("op", op, &[first_id, second_temp]);
+
+    let first = Tensor::from([1.0f32, 2.0, 3.0]);
+    let second = Tensor::from([10.0f32, 20.0, 30.0]);
+    let results = g
+        .run(
+            vec![
+                (first_id, first.view().into()),
+                (second_id, second.view().into()),
+            ],
+            &[op_out],
+            None,
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(
+        results[0]
+            .as_tensor_view::<f32>()
+            .unwrap()
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
+        &[11., 21., 31.]
+    );
+
+    let op_metrics = op_metrics.lock().unwrap();
+    assert_eq!(op_metrics.run_count, 0);
+    assert_eq!(op_metrics.run_in_place_count, 1);
 }
 
 /// Test operator that produces multiple outputs

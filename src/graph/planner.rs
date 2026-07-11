@@ -359,7 +359,7 @@ impl<'a> PlanBuilder<'a> {
             // inputs available for in-place execution.
             let op_pos = frontier
                 .iter()
-                .position(|(_id, op)| !op.operator().can_run_in_place())
+                .position(|(_id, op)| op.operator().in_place_inputs().is_empty())
                 .unwrap_or(0);
             let (next_op_id, op_node) = frontier.remove(op_pos);
             output_plan.push(next_op_id);
