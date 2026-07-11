@@ -95,7 +95,12 @@ impl BlockQuantizedGemm {
 
         let lhs_quant: Option<(NdTensor<i8, 4>, NdTensor<f32, 3>)> =
             if matches!(self.mode, ComputeMode::Int8) && m == 1 {
-                Some(quantize(lhs.view(), rhs.elements_per_block()))
+                let (data, scales) = Quantize {
+                    data: lhs.view(),
+                    block_size: rhs.elements_per_block(),
+                }
+                .dispatch();
+                Some((data, scales))
             } else {
                 None
             };
@@ -160,6 +165,21 @@ fn is_int8_compute_optimized() -> bool {
         }
     }
     HasInt8Simd.dispatch()
+}
+
+/// Return the number of int4 elements that fit in a SIMD vector of the ISA
+/// used by [`Quantize`] and [`VecDotMatrixQuant`].
+#[cfg(test)]
+fn int8_vblock_size() -> usize {
+    struct VblockSize;
+    impl SimdInt8DotOp for VblockSize {
+        type Output = usize;
+
+        fn eval<I: Int8DotIsa>(self, isa: I) -> Self::Output {
+            isa.isa().u8().len() * 2
+        }
+    }
+    VblockSize.dispatch()
 }
 
 /// SIMD operation which computes the product between an f32 vector and a 4-bit
@@ -369,41 +389,102 @@ impl<'a> SimdOp for VecDotMatrix<'a> {
     }
 }
 
-/// Quantize blocks of `data` to i8 values.
+/// Quantize blocks of `data` to i8 values and pack them in the optimal order
+/// for the compute kernel.
 ///
 /// `data` has shape (batch, row, col) and `block_size` is a power of 2 >= 16.
 ///
 /// Returns a tuple of (quantized_data, scales) where `quantized_data` has shape
 /// (batch, row, block, element) and `scales` has shape (batch, row, block).
 /// Elements can be dequantized via `x as f32 * block_scale`.
-fn quantize(
-    data: Contiguous<NdTensorView<f32, 3>>,
+struct Quantize<'a> {
+    data: Contiguous<NdTensorView<'a, f32, 3>>,
     block_size: usize,
-) -> (NdTensor<i8, 4>, NdTensor<f32, 3>) {
-    let [batch, rows, k] = data.shape();
+}
 
-    assert!(block_size >= 16 && block_size.is_power_of_two());
-    assert!(k.is_multiple_of(block_size));
+// We don't use dot-product operations in this operation, but it needs to use
+// the same SIMD ISA as the compute kernels which do.
+impl<'a> SimdInt8DotOp for Quantize<'a> {
+    type Output = (NdTensor<i8, 4>, NdTensor<f32, 3>);
 
-    let n_blocks = k / block_size;
-    let mut output = Vec::with_capacity(n_blocks * block_size);
-    let mut scales = Vec::with_capacity(n_blocks);
+    fn eval<I: Int8DotIsa>(self, isa: I) -> Self::Output {
+        let u8_ops = isa.isa().u8();
 
-    for block in data.data().chunks_exact(block_size) {
-        let abs_max = block.iter().fold(0., |max, x| x.abs().max(max));
-        let inv_scale = i8::MAX as f32 / abs_max;
+        let Quantize { data, block_size } = self;
 
-        for &x in block {
-            let qx = (x * inv_scale).round() as i8;
-            output.push(qx);
+        let [batch, rows, k] = data.shape();
+
+        assert!(block_size >= 16 && block_size.is_power_of_two());
+        assert!(k.is_multiple_of(block_size));
+
+        let n_blocks = k / block_size;
+        let mut output = Vec::with_capacity(n_blocks * block_size);
+        let mut scales = Vec::with_capacity(n_blocks);
+
+        // Number of int4 RHS elements that fit in one SIMD vector.
+        //
+        // Both the vblock size and block size are powers of two. The minimum
+        // vblock size is 32 (128 bits).
+        let vblock_size = u8_ops.len() * 2;
+
+        // Quantize blocks.
+        //
+        // Within each vblock, we pack elements at even positions (0, 2, ...)
+        // followed by elements at odd positions. This allows us to save
+        // instructions in the compute kernel. The kernel loads one SIMD vector
+        // of int4 values from the RHS input and unpacks into two vectors
+        // containing the even and odd-indexed values respectively. To get
+        // values arranged in their logical order these two vectors need to be
+        // interleaved. We can skip this interleaving by instead changing the
+        // packing order of the LHS so that it matches the RHS.
+        if block_size >= vblock_size {
+            for block in data.data().chunks_exact(block_size) {
+                let abs_max = block.iter().fold(0., |max, x| x.abs().max(max));
+                let inv_scale = i8::MAX as f32 / abs_max;
+
+                for vblock in block.chunks_exact(vblock_size) {
+                    for &x in vblock.iter().step_by(2) {
+                        let qx = (x * inv_scale).round() as i8;
+                        output.push(qx);
+                    }
+                    for &x in vblock.iter().skip(1).step_by(2) {
+                        let qx = (x * inv_scale).round() as i8;
+                        output.push(qx);
+                    }
+                }
+
+                scales.push(1. / inv_scale);
+            }
+        } else {
+            for block in data.data().chunks_exact(block_size) {
+                let abs_max = block.iter().fold(0., |max, x| x.abs().max(max));
+                let inv_scale = i8::MAX as f32 / abs_max;
+                for &x in block {
+                    let qx = (x * inv_scale).round() as i8;
+                    output.push(qx);
+                }
+                scales.push(1. / inv_scale);
+            }
+
+            // When the block size is smaller than the vblock size, elements
+            // are packed in logical order and the compute kernel interleaves
+            // the unpacked RHS values instead.
+            //
+            // We can't de-interleave in this case because a vblock spans
+            // multiple blocks, so the even (or odd) elements of a vblock use
+            // different scales, and after de-interleaving, elements using
+            // different scales would end up in the same group of 4 in the
+            // int8 dot product.
+            //
+            // The outcome of this is that we skip de-interleaving on Neon
+            // in the common case of block size 32. On AVX2 de-interleaving is
+            // needed for block sizes <64 and on AVX-512 for block sizes <128.
         }
 
-        scales.push(1. / inv_scale);
+        let quant_data = NdTensor::from_data([batch, rows, n_blocks, block_size], output);
+        let scales = NdTensor::from_data([batch, rows, n_blocks], scales);
+        (quant_data, scales)
     }
-
-    let quant_data = NdTensor::from_data([batch, rows, n_blocks, block_size], output);
-    let scales = NdTensor::from_data([batch, rows, n_blocks], scales);
-    (quant_data, scales)
 }
 
 /// Multiply an int8-quantized LHS by an int4-quantized RHS.
@@ -476,10 +557,21 @@ impl<'a> VecDotMatrixQuant<'a> {
                 // Unpack to u8.
                 let lo = u8_ops.and(rhs_vblock, lo_mask);
                 let hi = u8_ops.shift_right::<4>(rhs_vblock);
-                let (lo, hi) = (
-                    u8_ops.interleave_low(lo, hi),
-                    u8_ops.interleave_high(lo, hi),
-                );
+
+                // If the block size is >= the vblock size, the LHS was packed
+                // with each vblock's even-indexed elements followed by its
+                // odd-indexed elements, matching the (lo, hi) layout above, so
+                // no interleaving is needed. Otherwise the LHS is in logical
+                // order and the RHS elements must be restored to logical order
+                // by interleaving. See `Quantize` for details.
+                let (lo, hi) = if SCALES_PER_VBLOCK > 1 {
+                    (
+                        u8_ops.interleave_low(lo, hi),
+                        u8_ops.interleave_high(lo, hi),
+                    )
+                } else {
+                    (lo, hi)
+                };
 
                 // Re-interpret as i8
                 let mut lo = i8_ops.from_bits(lo.to_bits());
@@ -587,8 +679,11 @@ impl<'a> VecDotMatrixQuant<'a> {
             let acc = ops.add(acc[0], acc[1]);
             let mut acc = ops.sum(acc);
 
-            // Handle tail blocks in column. This contains < 128 elements
-            // (512 / 4).
+            // Handle tail blocks in column. These are present if the K
+            // dimension doesn't divide the vblock size (note that it will
+            // always divide the _block_ size).
+            //
+            // This contains < 128 elements (512 / 4).
             if n_tail_blocks > 0 {
                 let row_tail_blocks = row_vblocks.remainder().chunks_exact(elements_per_block);
                 let col_tail_blocks = col_vblocks.remainder().chunks_exact(elements_per_block / 2);
@@ -808,8 +903,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        BlockQuantizedGemm, BlockQuantizedMatrix, ComputeMode, nbit_zero_point, pack_4bit_elements,
-        quantize,
+        BlockQuantizedGemm, BlockQuantizedMatrix, ComputeMode, Quantize, SimdInt8DotOp,
+        nbit_zero_point, pack_4bit_elements,
     };
 
     fn reference_gemm_f32_with_block_quantized_rhs(
@@ -907,13 +1002,32 @@ mod tests {
             // Shift range from [0, 1] to [-1, -1]
             data.apply(|x| (x - 0.5) * 2.);
 
-            let (quantized, scales) = quantize(Contiguous::new(data.view()).unwrap(), block_size);
+            let (quantized, scales) = Quantize {
+                data: Contiguous::new(data.view()).unwrap(),
+                block_size,
+            }
+            .dispatch();
 
-            let dequantized: Vec<f32> = quantized
+            let mut dequantized: Vec<f32> = quantized
                 .inner_iter::<1>()
                 .zip(scales.iter())
                 .flat_map(|(block, scale)| block.iter().map(move |x| *x as f32 * scale))
                 .collect();
+
+            // Undo the packing order within each vblock (even-indexed
+            // elements followed by odd-indexed elements) to restore the
+            // logical element order.
+            let vblock_size = super::int8_vblock_size();
+            if block_size >= vblock_size {
+                for vblock in dequantized.chunks_mut(vblock_size) {
+                    let packed = vblock.to_vec();
+                    let (evens, odds) = packed.split_at(vblock_size / 2);
+                    for (i, (even, odd)) in evens.iter().zip(odds).enumerate() {
+                        vblock[i * 2] = *even;
+                        vblock[i * 2 + 1] = *odd;
+                    }
+                }
+            }
 
             let max_err = data
                 .iter()
@@ -1063,5 +1177,44 @@ mod tests {
                 expect_equal(&result_matrix, &expected.view()).unwrap();
             }
         });
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_block_quantized_gemm() {
+        use rten_bench::run_bench;
+
+        // Vector-matrix product with typical LLM decode shapes.
+        let k = 2048;
+        let n = 8192;
+
+        for compute in [ComputeMode::Int8, ComputeMode::Float] {
+            for block_size in [16, 32, 64, 128] {
+                let mut rng = XorShiftRng::new(1234);
+                let n_blocks = k / block_size;
+
+                let gemm = BlockQuantizedGemm::new().with_compute(compute);
+                let lhs = NdTensor::<f32, 2>::rand([1, k], &mut rng);
+                let rhs_data = NdTensor::<u8, 3>::rand([n, n_blocks, block_size / 2], &mut rng);
+                let rhs_scales = NdTensor::<f32, 2>::rand([n, n_blocks], &mut rng);
+                let bqm = BlockQuantizedMatrix::new(
+                    Contiguous::new(rhs_data.view()).unwrap(),
+                    Contiguous::new(rhs_scales.view()).unwrap(),
+                    4,
+                )
+                .unwrap();
+
+                let mut out = vec![MaybeUninit::new(f32::NAN); n];
+
+                let trials = 500;
+                let desc = format!("k={k} n={n} block_size={block_size} compute={compute:?}");
+                let stats = run_bench(trials, Some(&desc), || {
+                    gemm.batched_gemm_uninit(&mut out, lhs.reshaped([1, 1, k]).view(), bqm)
+                        .unwrap();
+                });
+                let gflops = (2. * k as f32 * n as f32) / (stats.median * 1e-3) / 1e9;
+                println!("  {gflops:.1} GFLOPS (median)");
+            }
+        }
     }
 }
