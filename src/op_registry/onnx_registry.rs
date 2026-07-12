@@ -140,6 +140,7 @@ impl OnnxOpRegistry {
         register_op!(Cast);
         register_op!(CastLike);
         register_op!(Ceil);
+        register_op!(Celu);
         register_op!(Clip);
         register_op!(Concat);
         register_op!(ConcatFromSequence);
@@ -902,6 +903,10 @@ impl_read_op!(CastLike, |attrs: &Attrs| {
     Ok(ops::CastLike {})
 });
 impl_read_op!(Ceil);
+impl_read_op!(Celu, |attrs: &Attrs| {
+    let alpha = attrs.get_as("alpha").unwrap_or(1.0);
+    Ok(ops::Celu { alpha })
+});
 
 impl_read_op!(Clip, |attrs: &Attrs| {
     let mut const_inputs = Vec::new();

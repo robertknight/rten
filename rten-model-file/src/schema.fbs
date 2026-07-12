@@ -161,6 +161,7 @@ enum OperatorType: ubyte {
   Softsign,
   Mish,
   ThresholdedRelu,
+  Celu,
 }
 
 enum RNNDirection: ubyte {
@@ -244,7 +245,7 @@ union OperatorAttrs {
   NonMaxSuppressionAttrs,
   LayerNormalizationAttrs,
   RandomUniformAttrs,
-  EluAttrs, // Also used for ThresholdedRelu
+  EluAttrs, // Also used for Celu, ThresholdedRelu
   RandomUniformLikeAttrs,
   RandomNormalAttrs,
   RandomNormalLikeAttrs,
