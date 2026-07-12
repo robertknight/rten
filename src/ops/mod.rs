@@ -82,7 +82,7 @@ pub(crate) use {
     convert::{BitCast, Cast, CastLike},
     einsum::Einsum,
     embedding::RotaryEmbedding,
-    gather::{Gather, GatherElements, GatherND, ReverseSequence},
+    gather::{Compress, Gather, GatherElements, GatherND, ReverseSequence},
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
     grid_sample::GridSample,
     identity::Identity,
@@ -152,7 +152,7 @@ pub use concat::{concat, tile};
 pub use conv::{conv, conv_integer};
 pub use conv_transpose::conv_transpose;
 pub use einsum::einsum;
-pub use gather::{gather, gather_elements, gather_nd};
+pub use gather::{compress, gather, gather_elements, gather_nd};
 pub use generate::{constant_of_shape, onehot, range};
 pub use layout::{
     DepthToSpaceMode, depth_to_space, expand, flatten, reshape, space_to_depth, squeeze,
