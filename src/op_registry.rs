@@ -280,6 +280,7 @@ pub mod op_types {
     declare_op!(BitwiseNot, onnx_only);
     declare_op!(BitwiseOr, onnx_only);
     declare_op!(BitwiseXor, onnx_only);
+    declare_op!(BlackmanWindow, onnx_only);
     declare_op!(Cast);
     declare_op!(CastLike);
     declare_op!(Ceil);
