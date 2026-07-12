@@ -340,6 +340,7 @@ pub mod op_types {
     declare_op!(Sum);
     declare_op!(Tan);
     declare_op!(Tanh);
+    declare_op!(ThresholdedRelu);
     declare_op!(Tile);
     declare_op!(TopK);
     declare_op!(Transpose);

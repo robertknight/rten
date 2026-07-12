@@ -157,6 +157,7 @@ enum OperatorType: ubyte {
   Attention,
   Softsign,
   Mish,
+  ThresholdedRelu,
 }
 
 enum RNNDirection: ubyte {
@@ -240,7 +241,7 @@ union OperatorAttrs {
   NonMaxSuppressionAttrs,
   LayerNormalizationAttrs,
   RandomUniformAttrs,
-  EluAttrs,
+  EluAttrs, // Also used for ThresholdedRelu
   RandomUniformLikeAttrs,
   RandomNormalAttrs,
   RandomNormalLikeAttrs,

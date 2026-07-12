@@ -810,6 +810,10 @@ def op_node_from_onnx_operator(
             attrs = sg.STFTAttrsT()
             attrs.onesided = attr_reader.get_bool_attr("onesided", True)
 
+        case "ThresholdedRelu":
+            attrs = sg.EluAttrsT()
+            attrs.alpha = attr_reader.get_attr("alpha", "float", 1.0)
+
         case "TopK":
             attrs = sg.TopKAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", -1)

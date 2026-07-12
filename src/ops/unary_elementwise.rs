@@ -765,6 +765,19 @@ impl_operator!(Tanh, [FloatTensor]);
 impl_operator_fn!(Tanh, tanh);
 impl_get_kernel!(Tanh, f32, SimdKernel(vecmath::Tanh {}));
 
+#[derive(Debug)]
+pub struct ThresholdedRelu {
+    pub alpha: f32,
+}
+
+impl_operator!(ThresholdedRelu, [FloatTensor]);
+
+impl GetKernel<f32> for ThresholdedRelu {
+    fn get_kernel(&self) -> impl UnaryKernel<f32> + Send + Sync {
+        move |val: f32| if val > self.alpha { val } else { 0. }
+    }
+}
+
 #[cfg(feature = "contrib")]
 pub use contrib::BiasGelu;
 
@@ -784,8 +797,8 @@ mod tests {
     use super::{
         Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Cos, Cosh, Elu, Exp, Gelu, IsInf, IsNaN, Log,
         Mish, Neg, Not, PRelu, Reciprocal, Relu, Sigmoid, Sign, Silu, Sin, Sinh, Softplus,
-        Softsign, Sqrt, Swish, Tan, Tanh, ceil, clip, clip_in_place, erf, floor, hard_sigmoid,
-        hard_swish, leaky_relu, round,
+        Softsign, Sqrt, Swish, Tan, Tanh, ThresholdedRelu, ceil, clip, clip_in_place, erf, floor,
+        hard_sigmoid, hard_swish, leaky_relu, round,
     };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, Operator, OperatorExt};
@@ -1222,4 +1235,10 @@ mod tests {
         * reference_sigmoid(0.5 * *x));
     test_unary_op!(test_tan, Tan {}, |x: &f32| x.tan());
     test_unary_op!(test_tanh, Tanh {}, |x: &f32| x.tanh());
+    test_unary_op!(
+        test_thresholded_relu,
+        ThresholdedRelu { alpha: 0.5 },
+        |&x: &f32| if x > 0.5 { x } else { 0. },
+        Tensor::from([0., 0.4, 0.5, 0.6, -1., 2.])
+    );
 }

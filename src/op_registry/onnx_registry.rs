@@ -261,6 +261,7 @@ impl OnnxOpRegistry {
         register_op!(Swish);
         register_op!(Tan);
         register_op!(Tanh);
+        register_op!(ThresholdedRelu);
         register_op!(Tile);
         register_op!(TopK);
         register_op!(Transpose);
@@ -1910,6 +1911,10 @@ impl_read_op!(Swish, |attrs: &Attrs| {
 
 impl_read_op!(Tan);
 impl_read_op!(Tanh);
+impl_read_op!(ThresholdedRelu, |attrs: &Attrs| {
+    let alpha = attrs.get_as("alpha").unwrap_or(1.0);
+    Ok(ops::ThresholdedRelu { alpha })
+});
 impl_read_op!(Tile);
 
 impl_read_op!(TopK, |attrs: &Attrs| {

@@ -151,6 +151,7 @@ class OperatorType(object):
     Attention = 141
     Softsign = 142
     Mish = 143
+    ThresholdedRelu = 144
 
 
 class RNNDirection(object):
