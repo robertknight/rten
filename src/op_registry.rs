@@ -249,6 +249,18 @@ pub mod op_types {
                 }
             }
         };
+
+        ($op:ident, feature=$feature:literal, onnx_only) => {
+            #[cfg(all(feature = $feature, feature = "onnx_format"))]
+            pub struct $op;
+
+            #[cfg(all(feature = $feature, feature = "onnx_format"))]
+            impl RegisterOp for $op {
+                fn register(&self, registry: &mut OpRegistry) {
+                    registry.onnx_registry.register_op::<ops::$op>();
+                }
+            }
+        };
     }
 
     declare_op!(Abs);
@@ -261,6 +273,7 @@ pub mod op_types {
     declare_op!(Atan);
     declare_op!(AveragePool);
     declare_op!(BatchNormalization);
+    declare_op!(Bernoulli, feature = "random", onnx_only);
     declare_op!(BitCast, onnx_only);
     declare_op!(BitShift, onnx_only);
     declare_op!(BitwiseAnd, onnx_only);
