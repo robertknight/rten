@@ -225,6 +225,7 @@ pub mod op_types {
     declare_op!(Cast);
     declare_op!(CastLike);
     declare_op!(Ceil);
+    declare_op!(Celu);
     declare_op!(Clip);
     declare_op!(Concat);
     declare_op!(ConcatFromSequence);

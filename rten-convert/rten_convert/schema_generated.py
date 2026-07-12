@@ -152,6 +152,7 @@ class OperatorType(object):
     Softsign = 142
     Mish = 143
     ThresholdedRelu = 144
+    Celu = 145
 
 
 class RNNDirection(object):

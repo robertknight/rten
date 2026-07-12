@@ -110,6 +110,7 @@ impl RtenOpRegistry {
         register_op!(Cast);
         register_op!(CastLike);
         register_op!(Ceil);
+        register_op!(Celu);
         register_op!(Clip);
         register_op!(Concat);
         register_op!(ConcatFromSequence);
@@ -476,6 +477,11 @@ impl_read_op!(
     |_attrs: sg::CastLikeAttrs| { Ok(ops::CastLike {}) }
 );
 impl_read_op!(Ceil);
+impl_read_op!(Celu, attrs_as_elu_attrs, |attrs: sg::EluAttrs| {
+    Ok(ops::Celu {
+        alpha: attrs.alpha(),
+    })
+});
 impl_read_op!(Clip);
 impl_read_op!(Concat, attrs_as_concat_attrs, axis);
 impl_read_op!(
