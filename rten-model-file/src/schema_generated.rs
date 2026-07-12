@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 160;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 161;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 161] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 162] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -179,6 +179,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 161] = [
     OperatorType::GlobalLpPool,
     OperatorType::MeanVarianceNormalization,
     OperatorType::Hardmax,
+    OperatorType::SpaceToDepth,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -347,9 +348,10 @@ impl OperatorType {
     pub const GlobalLpPool: Self = Self(158);
     pub const MeanVarianceNormalization: Self = Self(159);
     pub const Hardmax: Self = Self(160);
+    pub const SpaceToDepth: Self = Self(161);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 160;
+    pub const ENUM_MAX: u8 = 161;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -512,6 +514,7 @@ impl OperatorType {
         Self::GlobalLpPool,
         Self::MeanVarianceNormalization,
         Self::Hardmax,
+        Self::SpaceToDepth,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -677,6 +680,7 @@ impl OperatorType {
             Self::GlobalLpPool => Some("GlobalLpPool"),
             Self::MeanVarianceNormalization => Some("MeanVarianceNormalization"),
             Self::Hardmax => Some("Hardmax"),
+            Self::SpaceToDepth => Some("SpaceToDepth"),
             _ => None,
         }
     }
@@ -1312,13 +1316,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 67;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 68;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 68] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 69] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1387,6 +1391,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 68] = [
     OperatorAttrs::BitShiftAttrs,
     OperatorAttrs::GlobalLpPoolAttrs,
     OperatorAttrs::MeanVarianceNormalizationAttrs,
+    OperatorAttrs::SpaceToDepthAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1462,9 +1467,10 @@ impl OperatorAttrs {
     pub const BitShiftAttrs: Self = Self(65);
     pub const GlobalLpPoolAttrs: Self = Self(66);
     pub const MeanVarianceNormalizationAttrs: Self = Self(67);
+    pub const SpaceToDepthAttrs: Self = Self(68);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 67;
+    pub const ENUM_MAX: u8 = 68;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1534,6 +1540,7 @@ impl OperatorAttrs {
         Self::BitShiftAttrs,
         Self::GlobalLpPoolAttrs,
         Self::MeanVarianceNormalizationAttrs,
+        Self::SpaceToDepthAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1606,6 +1613,7 @@ impl OperatorAttrs {
             Self::BitShiftAttrs => Some("BitShiftAttrs"),
             Self::GlobalLpPoolAttrs => Some("GlobalLpPoolAttrs"),
             Self::MeanVarianceNormalizationAttrs => Some("MeanVarianceNormalizationAttrs"),
+            Self::SpaceToDepthAttrs => Some("SpaceToDepthAttrs"),
             _ => None,
         }
     }
@@ -3789,6 +3797,114 @@ impl ::core::fmt::Debug for DepthToSpaceAttrs<'_> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         let mut ds = f.debug_struct("DepthToSpaceAttrs");
         ds.field("mode", &self.mode());
+        ds.field("block_size", &self.block_size());
+        ds.finish()
+    }
+}
+pub enum SpaceToDepthAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct SpaceToDepthAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for SpaceToDepthAttrs<'a> {
+    type Inner = SpaceToDepthAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> SpaceToDepthAttrs<'a> {
+    pub const VT_BLOCK_SIZE: ::flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        SpaceToDepthAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args SpaceToDepthAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<SpaceToDepthAttrs<'bldr>> {
+        let mut builder = SpaceToDepthAttrsBuilder::new(_fbb);
+        builder.add_block_size(args.block_size);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn block_size(&self) -> u32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(SpaceToDepthAttrs::VT_BLOCK_SIZE, Some(0))
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for SpaceToDepthAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<u32>("block_size", Self::VT_BLOCK_SIZE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct SpaceToDepthAttrsArgs {
+    pub block_size: u32,
+}
+impl<'a> Default for SpaceToDepthAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        SpaceToDepthAttrsArgs { block_size: 0 }
+    }
+}
+
+pub struct SpaceToDepthAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SpaceToDepthAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_block_size(&mut self, block_size: u32) {
+        self.fbb_
+            .push_slot::<u32>(SpaceToDepthAttrs::VT_BLOCK_SIZE, block_size, 0);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> SpaceToDepthAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        SpaceToDepthAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<SpaceToDepthAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for SpaceToDepthAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("SpaceToDepthAttrs");
         ds.field("block_size", &self.block_size());
         ds.finish()
     }
@@ -12932,6 +13048,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_space_to_depth_attrs(&self) -> Option<SpaceToDepthAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::SpaceToDepthAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { SpaceToDepthAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -13011,6 +13142,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::BitShiftAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<BitShiftAttrs>>("OperatorAttrs::BitShiftAttrs", pos),
           OperatorAttrs::GlobalLpPoolAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<GlobalLpPoolAttrs>>("OperatorAttrs::GlobalLpPoolAttrs", pos),
           OperatorAttrs::MeanVarianceNormalizationAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<MeanVarianceNormalizationAttrs>>("OperatorAttrs::MeanVarianceNormalizationAttrs", pos),
+          OperatorAttrs::SpaceToDepthAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<SpaceToDepthAttrs>>("OperatorAttrs::SpaceToDepthAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -13761,6 +13893,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::MeanVarianceNormalizationAttrs => {
                 if let Some(x) = self.attrs_as_mean_variance_normalization_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::SpaceToDepthAttrs => {
+                if let Some(x) = self.attrs_as_space_to_depth_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
