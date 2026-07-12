@@ -164,6 +164,7 @@ class OperatorType(object):
     ReduceLogSum = 154
     ReduceLogSumExp = 155
     CumProd = 156
+    GlobalLpPool = 157
 
 
 class RNNDirection(object):
@@ -268,6 +269,7 @@ class OperatorAttrs(object):
     SeluAttrs = 61
     ShrinkAttrs = 62
     BitShiftAttrs = 63
+    GlobalLpPoolAttrs = 64
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -399,6 +401,8 @@ def OperatorAttrsCreator(unionType, table):
         return ShrinkAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.BitShiftAttrs:
         return BitShiftAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.GlobalLpPoolAttrs:
+        return GlobalLpPoolAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2965,6 +2969,86 @@ class LoopAttrsT(object):
             LoopAttrsAddBody(builder, body)
         loopAttrs = LoopAttrsEnd(builder)
         return loopAttrs
+
+
+class GlobalLpPoolAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = GlobalLpPoolAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsGlobalLpPoolAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def GlobalLpPoolAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # GlobalLpPoolAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # GlobalLpPoolAttrs
+    def P(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 2
+
+def GlobalLpPoolAttrsStart(builder):
+    builder.StartObject(1)
+
+def GlobalLpPoolAttrsAddP(builder, p):
+    builder.PrependUint32Slot(0, p, 2)
+
+def GlobalLpPoolAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class GlobalLpPoolAttrsT(object):
+
+    # GlobalLpPoolAttrsT
+    def __init__(
+        self,
+        p = 2,
+    ):
+        self.p = p  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        globalLpPoolAttrs = GlobalLpPoolAttrs()
+        globalLpPoolAttrs.Init(buf, pos)
+        return cls.InitFromObj(globalLpPoolAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, globalLpPoolAttrs):
+        x = GlobalLpPoolAttrsT()
+        x._UnPack(globalLpPoolAttrs)
+        return x
+
+    # GlobalLpPoolAttrsT
+    def _UnPack(self, globalLpPoolAttrs):
+        if globalLpPoolAttrs is None:
+            return
+        self.p = globalLpPoolAttrs.P()
+
+    # GlobalLpPoolAttrsT
+    def Pack(self, builder):
+        GlobalLpPoolAttrsStart(builder)
+        GlobalLpPoolAttrsAddP(builder, self.p)
+        globalLpPoolAttrs = GlobalLpPoolAttrsEnd(builder)
+        return globalLpPoolAttrs
 
 
 class GatherAttrs(object):
@@ -7425,7 +7509,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT', 'BitShiftAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT', 'BitShiftAttrsT', 'GlobalLpPoolAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 

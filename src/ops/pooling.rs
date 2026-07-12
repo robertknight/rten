@@ -550,6 +550,52 @@ impl Operator for GlobalAveragePool {
     }
 }
 
+/// Compute the p-norm of each channel of `input`, reducing the spatial
+/// dimensions to 1.
+pub fn global_lp_pool(pool: &BufferPool, input: TensorView, p: u32) -> Result<Tensor, OpError> {
+    match p {
+        0 => Err(OpError::UnsupportedValue("`p` must be a positive integer")),
+        1 => global_pool(pool, input, &|chan_data| {
+            rten_vecmath::SumAbs::new(chan_data).dispatch()
+        }),
+        2 => global_pool(pool, input, &|chan_data| {
+            rten_vecmath::SumSquare::new(chan_data).dispatch().sqrt()
+        }),
+        p => global_pool(pool, input, &move |chan_data| {
+            let sum: f32 = chan_data.iter().map(|x| x.abs().powi(p as i32)).sum();
+            sum.powf(1. / p as f32)
+        }),
+    }
+}
+
+#[derive(Debug)]
+pub struct GlobalLpPool {
+    pub p: u32,
+}
+
+impl Operator for GlobalLpPool {
+    fn name(&self) -> &str {
+        "GlobalLpPool"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        global_lp_pool(ctx.pool(), input, self.p).into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&shape_ops::GlobalPool)
+    }
+}
+
 pub fn global_max_pool(pool: &BufferPool, input: TensorView) -> Result<Tensor, OpError> {
     global_pool(pool, input, &|chan_data| {
         rten_vecmath::MaxNum::new(chan_data).dispatch()
@@ -673,7 +719,7 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        RoundMode, average_pool, calc_output_size_and_padding, global_average_pool,
+        RoundMode, average_pool, calc_output_size_and_padding, global_average_pool, global_lp_pool,
         global_max_pool, max_pool,
     };
     use crate::buffer_pool::BufferPool;
@@ -851,6 +897,38 @@ mod tests {
         let expected = Tensor::from_data(&[1, 2, 1, 1], vec![2.5, 25.]);
         let result = global_average_pool(&pool, input.view()).unwrap();
         expect_equal(&result, &expected)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_global_lp_pool() -> Result<(), Box<dyn Error>> {
+        let pool = BufferPool::new();
+        let input = Tensor::from_data(&[1, 2, 2, 2], vec![1., 2., 3., 4., -1., -2., -3., -4.]);
+
+        // p=1: sum of absolute values.
+        let result = global_lp_pool(&pool, input.view(), 1).unwrap();
+        let expected = Tensor::from_data(&[1, 2, 1, 1], vec![10., 10.]);
+        expect_equal(&result, &expected)?;
+
+        // p=2: Euclidean norm.
+        let result = global_lp_pool(&pool, input.view(), 2).unwrap();
+        let norm = (1f32 + 4. + 9. + 16.).sqrt();
+        let expected = Tensor::from_data(&[1, 2, 1, 1], vec![norm, norm]);
+        expect_equal(&result, &expected)?;
+
+        // p=3: generic case.
+        let result = global_lp_pool(&pool, input.view(), 3).unwrap();
+        let norm = (1f32 + 8. + 27. + 64.).powf(1. / 3.);
+        let expected = Tensor::from_data(&[1, 2, 1, 1], vec![norm, norm]);
+        expect_equal(&result, &expected)?;
+
+        // p=0: unsupported.
+        let result = global_lp_pool(&pool, input.view(), 0);
+        assert_eq!(
+            result.err(),
+            Some(OpError::UnsupportedValue("`p` must be a positive integer"))
+        );
+
         Ok(())
     }
 

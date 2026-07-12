@@ -545,6 +545,10 @@ def op_node_from_onnx_operator(
                 "approximate", sg.GeluApproximation, "none"
             )
 
+        case "GlobalLpPool":
+            attrs = sg.GlobalLpPoolAttrsT()
+            attrs.p = attr_reader.get_attr("p", "int", 2)
+
         case "Gemm":
             attrs = sg.GemmAttrsT()
             attrs.alpha = attr_reader.get_attr("alpha", "float", 1.0)

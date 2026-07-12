@@ -96,7 +96,7 @@ pub(crate) use {
         RMSNormalization, Softmax,
     },
     pad::Pad,
-    pooling::{AveragePool, GlobalAveragePool, GlobalMaxPool, MaxPool},
+    pooling::{AveragePool, GlobalAveragePool, GlobalLpPool, GlobalMaxPool, MaxPool},
     quantize::{DequantizeLinear, DynamicQuantizeLinear, QuantizeLinear},
     reduce::{
         ArgMax, ArgMin, CumProd, CumSum, NonZero, ReduceL1, ReduceL2, ReduceLogSum,
@@ -160,7 +160,7 @@ pub use norm::{
     softmax,
 };
 pub use pad::{PadMode, pad};
-pub use pooling::{average_pool, global_average_pool, max_pool};
+pub use pooling::{average_pool, global_average_pool, global_lp_pool, max_pool};
 pub use quantize::{dequantize_linear, dynamic_quantize_linear, quantize_linear};
 
 #[cfg(feature = "fft")]

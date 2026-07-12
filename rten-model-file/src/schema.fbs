@@ -170,6 +170,7 @@ enum OperatorType: ubyte {
   ReduceLogSum,
   ReduceLogSumExp,
   CumProd,
+  GlobalLpPool,
 }
 
 enum RNNDirection: ubyte {
@@ -285,6 +286,7 @@ union OperatorAttrs {
   SeluAttrs,
   ShrinkAttrs,
   BitShiftAttrs,
+  GlobalLpPoolAttrs,
 }
 
 table ArgMaxAttrs {
@@ -422,6 +424,10 @@ table LayerNormalizationAttrs {
 
 table LoopAttrs {
   body:Graph;
+}
+
+table GlobalLpPoolAttrs {
+  p:uint = 2;
 }
 
 table GatherAttrs {

@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 156;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 157;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 157] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 158] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -175,6 +175,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 157] = [
     OperatorType::ReduceLogSum,
     OperatorType::ReduceLogSumExp,
     OperatorType::CumProd,
+    OperatorType::GlobalLpPool,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -339,9 +340,10 @@ impl OperatorType {
     pub const ReduceLogSum: Self = Self(154);
     pub const ReduceLogSumExp: Self = Self(155);
     pub const CumProd: Self = Self(156);
+    pub const GlobalLpPool: Self = Self(157);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 156;
+    pub const ENUM_MAX: u8 = 157;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -500,6 +502,7 @@ impl OperatorType {
         Self::ReduceLogSum,
         Self::ReduceLogSumExp,
         Self::CumProd,
+        Self::GlobalLpPool,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -661,6 +664,7 @@ impl OperatorType {
             Self::ReduceLogSum => Some("ReduceLogSum"),
             Self::ReduceLogSumExp => Some("ReduceLogSumExp"),
             Self::CumProd => Some("CumProd"),
+            Self::GlobalLpPool => Some("GlobalLpPool"),
             _ => None,
         }
     }
@@ -1296,13 +1300,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 63;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 64;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 64] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 65] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1367,6 +1371,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 64] = [
     OperatorAttrs::SeluAttrs,
     OperatorAttrs::ShrinkAttrs,
     OperatorAttrs::BitShiftAttrs,
+    OperatorAttrs::GlobalLpPoolAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1438,9 +1443,10 @@ impl OperatorAttrs {
     pub const SeluAttrs: Self = Self(61);
     pub const ShrinkAttrs: Self = Self(62);
     pub const BitShiftAttrs: Self = Self(63);
+    pub const GlobalLpPoolAttrs: Self = Self(64);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 63;
+    pub const ENUM_MAX: u8 = 64;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1506,6 +1512,7 @@ impl OperatorAttrs {
         Self::SeluAttrs,
         Self::ShrinkAttrs,
         Self::BitShiftAttrs,
+        Self::GlobalLpPoolAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1574,6 +1581,7 @@ impl OperatorAttrs {
             Self::SeluAttrs => Some("SeluAttrs"),
             Self::ShrinkAttrs => Some("ShrinkAttrs"),
             Self::BitShiftAttrs => Some("BitShiftAttrs"),
+            Self::GlobalLpPoolAttrs => Some("GlobalLpPoolAttrs"),
             _ => None,
         }
     }
@@ -5619,6 +5627,113 @@ impl ::core::fmt::Debug for LoopAttrs<'_> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         let mut ds = f.debug_struct("LoopAttrs");
         ds.field("body", &self.body());
+        ds.finish()
+    }
+}
+pub enum GlobalLpPoolAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct GlobalLpPoolAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for GlobalLpPoolAttrs<'a> {
+    type Inner = GlobalLpPoolAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> GlobalLpPoolAttrs<'a> {
+    pub const VT_P: ::flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        GlobalLpPoolAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args GlobalLpPoolAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<GlobalLpPoolAttrs<'bldr>> {
+        let mut builder = GlobalLpPoolAttrsBuilder::new(_fbb);
+        builder.add_p(args.p);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn p(&self) -> u32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(GlobalLpPoolAttrs::VT_P, Some(2))
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for GlobalLpPoolAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<u32>("p", Self::VT_P, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct GlobalLpPoolAttrsArgs {
+    pub p: u32,
+}
+impl<'a> Default for GlobalLpPoolAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        GlobalLpPoolAttrsArgs { p: 2 }
+    }
+}
+
+pub struct GlobalLpPoolAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> GlobalLpPoolAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_p(&mut self, p: u32) {
+        self.fbb_.push_slot::<u32>(GlobalLpPoolAttrs::VT_P, p, 2);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> GlobalLpPoolAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        GlobalLpPoolAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<GlobalLpPoolAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for GlobalLpPoolAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("GlobalLpPoolAttrs");
+        ds.field("p", &self.p());
         ds.finish()
     }
 }
@@ -12316,6 +12431,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_global_lp_pool_attrs(&self) -> Option<GlobalLpPoolAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::GlobalLpPoolAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { GlobalLpPoolAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -12391,6 +12521,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::SeluAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<SeluAttrs>>("OperatorAttrs::SeluAttrs", pos),
           OperatorAttrs::ShrinkAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<ShrinkAttrs>>("OperatorAttrs::ShrinkAttrs", pos),
           OperatorAttrs::BitShiftAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<BitShiftAttrs>>("OperatorAttrs::BitShiftAttrs", pos),
+          OperatorAttrs::GlobalLpPoolAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<GlobalLpPoolAttrs>>("OperatorAttrs::GlobalLpPoolAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -13101,6 +13232,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::BitShiftAttrs => {
                 if let Some(x) = self.attrs_as_bit_shift_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::GlobalLpPoolAttrs => {
+                if let Some(x) = self.attrs_as_global_lp_pool_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

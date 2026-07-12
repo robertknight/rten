@@ -263,6 +263,7 @@ pub mod op_types {
     declare_op!(Gelu);
     declare_op!(Gemm);
     declare_op!(GlobalAveragePool);
+    declare_op!(GlobalLpPool);
     declare_op!(Greater);
     declare_op!(GreaterOrEqual);
     declare_op!(GridSample);

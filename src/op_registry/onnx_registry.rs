@@ -179,6 +179,7 @@ impl OnnxOpRegistry {
         register_op!(Gelu);
         register_op!(Gemm);
         register_op!(GlobalAveragePool);
+        register_op!(GlobalLpPool);
         register_op!(GlobalMaxPool);
         register_op!(Greater);
         register_op!(GreaterOrEqual);
@@ -1219,6 +1220,10 @@ impl_read_op!(Gemm, |attrs: &Attrs| {
 });
 
 impl_read_op!(GlobalAveragePool);
+impl_read_op!(GlobalLpPool, |attrs: &Attrs| {
+    let p = attrs.get_as_int("p")?.unwrap_or(2);
+    Ok(ops::GlobalLpPool { p })
+});
 impl_read_op!(GlobalMaxPool);
 impl_read_op!(Greater);
 impl_read_op!(GreaterOrEqual);
