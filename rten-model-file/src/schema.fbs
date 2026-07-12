@@ -173,6 +173,7 @@ enum OperatorType: ubyte {
   GlobalLpPool,
   LpNormalization,
   MeanVarianceNormalization,
+  Hardmax,
 }
 
 enum RNNDirection: ubyte {
@@ -241,7 +242,7 @@ union OperatorAttrs {
   ReshapeAttrs,
   ResizeAttrs,
   SplitAttrs,
-  SoftmaxAttrs, // Also used for LogSoftmax
+  SoftmaxAttrs, // Also used for LogSoftmax, Hardmax
   TransposeAttrs,
 
   // New operator attrs. These are appended here to preserve binary compatibility

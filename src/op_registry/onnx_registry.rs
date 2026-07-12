@@ -185,6 +185,7 @@ impl OnnxOpRegistry {
         register_op!(GreaterOrEqual);
         register_op!(GridSample);
         register_op!(GRU);
+        register_op!(Hardmax);
         register_op!(HardSigmoid);
         register_op!(HardSwish);
         register_op!(Identity);
@@ -1250,6 +1251,11 @@ impl_read_op!(GRU, |attrs: &Attrs| {
         hidden_size,
         linear_before_reset,
     })
+});
+
+impl_read_op!(Hardmax, |attrs: &Attrs| {
+    let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
+    Ok(ops::Hardmax { axis })
 });
 
 impl_read_op!(HardSigmoid, |attrs: &Attrs| {

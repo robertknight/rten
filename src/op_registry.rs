@@ -268,6 +268,7 @@ pub mod op_types {
     declare_op!(GreaterOrEqual);
     declare_op!(GridSample);
     declare_op!(GRU);
+    declare_op!(Hardmax);
     declare_op!(HardSigmoid);
     declare_op!(HardSwish);
     declare_op!(Identity);

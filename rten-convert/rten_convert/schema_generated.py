@@ -167,6 +167,7 @@ class OperatorType(object):
     GlobalLpPool = 157
     LpNormalization = 158
     MeanVarianceNormalization = 159
+    Hardmax = 160
 
 
 class RNNDirection(object):

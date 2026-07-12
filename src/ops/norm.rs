@@ -595,6 +595,53 @@ impl Operator for RMSNormalization {
     }
 }
 
+/// Set the first occurrence of the maximum value in each lane along `axis`
+/// to 1 and all other values to 0.
+pub fn hardmax(pool: &BufferPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
+    let mut output = input.to_tensor_in(pool);
+    normalize_lanes(&mut output, axis, |lane| {
+        // Find the maximum with a vectorized reduction, then locate its first
+        // occurrence. This is faster than a single scalar argmax loop, whose
+        // data-dependent branches predict poorly.
+        //
+        // NaN values are never selected as the maximum, matching a scalar
+        // `x > max` scan. If a lane is all-NaN the first element is used.
+        let max_val = slice_max(lane);
+        let max_idx = lane.iter().position(|&x| x == max_val).unwrap_or(0);
+        lane.fill(0.);
+        lane[max_idx] = 1.;
+    })?;
+    Ok(output)
+}
+
+#[derive(Debug)]
+pub struct Hardmax {
+    pub axis: isize,
+}
+
+impl Operator for Hardmax {
+    fn name(&self) -> &str {
+        "Hardmax"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        hardmax(ctx.pool(), input, self.axis).into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+}
+
 /// Normalize `input` to zero mean and unit variance over the given axes.
 pub fn mean_variance_normalization(
     pool: &BufferPool,
@@ -950,8 +997,9 @@ mod tests {
 
     use super::NORMALIZE_GRAIN_SIZE;
     use super::{
-        NanHandling, batch_norm, batch_norm_in_place, instance_normalization, layer_normalization,
-        log_softmax, lp_normalization, mean_variance_normalization, rms_normalization, softmax,
+        NanHandling, batch_norm, batch_norm_in_place, hardmax, instance_normalization,
+        layer_normalization, log_softmax, lp_normalization, mean_variance_normalization,
+        rms_normalization, softmax,
     };
     use crate::buffer_pool::BufferPool;
     use crate::ops::OpError;
@@ -1233,6 +1281,24 @@ mod tests {
 
         let expected = reference_rms(input.nd_view(), scale.nd_view()).into_dyn();
         expect_eq_1e4(&result, &expected)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_hardmax() -> Result<(), Box<dyn Error>> {
+        let pool = BufferPool::new();
+        let input = Tensor::from([[1., 3., 2.], [5., 4., 5.]]);
+
+        // Hardmax along the last axis. Ties resolve to the first occurrence.
+        let result = hardmax(&pool, input.view(), -1).unwrap();
+        let expected = Tensor::from([[0., 1., 0.], [1., 0., 0.]]);
+        expect_equal(&result, &expected)?;
+
+        // Hardmax along axis 0.
+        let result = hardmax(&pool, input.view(), 0).unwrap();
+        let expected = Tensor::from([[0., 0., 0.], [1., 1., 1.]]);
+        expect_equal(&result, &expected)?;
 
         Ok(())
     }

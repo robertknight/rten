@@ -155,6 +155,7 @@ impl RtenOpRegistry {
         register_op!(GreaterOrEqual);
         register_op!(GridSample);
         register_op!(GRU);
+        register_op!(Hardmax);
         register_op!(HardSigmoid);
         register_op!(HardSwish);
         register_op!(Identity);
@@ -714,6 +715,7 @@ impl_read_op!(GRU, attrs_as_gruattrs, |attrs: sg::GRUAttrs| {
         linear_before_reset: attrs.linear_before_reset(),
     })
 });
+impl_read_op!(Hardmax, attrs_as_softmax_attrs, axis);
 impl_read_op!(
     HardSigmoid,
     attrs_as_hard_sigmoid_attrs,

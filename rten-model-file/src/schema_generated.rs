@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 159;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 160;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 160] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 161] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -178,6 +178,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 160] = [
     OperatorType::GlobalLpPool,
     OperatorType::LpNormalization,
     OperatorType::MeanVarianceNormalization,
+    OperatorType::Hardmax,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -345,9 +346,10 @@ impl OperatorType {
     pub const GlobalLpPool: Self = Self(157);
     pub const LpNormalization: Self = Self(158);
     pub const MeanVarianceNormalization: Self = Self(159);
+    pub const Hardmax: Self = Self(160);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 159;
+    pub const ENUM_MAX: u8 = 160;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -509,6 +511,7 @@ impl OperatorType {
         Self::GlobalLpPool,
         Self::LpNormalization,
         Self::MeanVarianceNormalization,
+        Self::Hardmax,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -673,6 +676,7 @@ impl OperatorType {
             Self::GlobalLpPool => Some("GlobalLpPool"),
             Self::LpNormalization => Some("LpNormalization"),
             Self::MeanVarianceNormalization => Some("MeanVarianceNormalization"),
+            Self::Hardmax => Some("Hardmax"),
             _ => None,
         }
     }

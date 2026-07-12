@@ -590,6 +590,10 @@ def op_node_from_onnx_operator(
             )
             attrs.elseBranch = DummyGraphT(else_branch, None)
 
+        case "Hardmax":
+            attrs = sg.SoftmaxAttrsT()
+            attrs.axis = attr_reader.get_attr("axis", "int", -1)
+
         case "InstanceNormalization":
             attrs = sg.BatchNormalizationAttrsT()
             attrs.epsilon = attr_reader.get_attr("epsilon", "float", 1e-5)
