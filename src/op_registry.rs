@@ -254,6 +254,7 @@ pub mod op_types {
     declare_op!(BitwiseNot);
     declare_op!(BitwiseOr);
     declare_op!(BitwiseXor);
+    declare_op!(BlackmanWindow);
     declare_op!(Cast);
     declare_op!(CastLike);
     declare_op!(Ceil);
