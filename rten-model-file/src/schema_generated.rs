@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 165;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 166;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 166] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 167] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -184,6 +184,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 166] = [
     OperatorType::Bernoulli,
     OperatorType::HannWindow,
     OperatorType::HammingWindow,
+    OperatorType::BlackmanWindow,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -357,9 +358,10 @@ impl OperatorType {
     pub const Bernoulli: Self = Self(163);
     pub const HannWindow: Self = Self(164);
     pub const HammingWindow: Self = Self(165);
+    pub const BlackmanWindow: Self = Self(166);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 165;
+    pub const ENUM_MAX: u8 = 166;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -527,6 +529,7 @@ impl OperatorType {
         Self::Bernoulli,
         Self::HannWindow,
         Self::HammingWindow,
+        Self::BlackmanWindow,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -697,6 +700,7 @@ impl OperatorType {
             Self::Bernoulli => Some("Bernoulli"),
             Self::HannWindow => Some("HannWindow"),
             Self::HammingWindow => Some("HammingWindow"),
+            Self::BlackmanWindow => Some("BlackmanWindow"),
             _ => None,
         }
     }

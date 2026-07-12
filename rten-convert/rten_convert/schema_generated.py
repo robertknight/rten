@@ -173,6 +173,7 @@ class OperatorType(object):
     Bernoulli = 163
     HannWindow = 164
     HammingWindow = 165
+    BlackmanWindow = 166
 
 
 class RNNDirection(object):
