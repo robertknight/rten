@@ -167,6 +167,7 @@ enum OperatorType: ubyte {
   BitwiseXor,
   BitShift,
   BitCast,
+  ReduceLogSum,
 }
 
 enum RNNDirection: ubyte {

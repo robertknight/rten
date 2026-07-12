@@ -627,6 +627,65 @@ impl Operator for ReduceL2 {
 
 impl_infer_shapes_for_reduce_op!(ReduceL2);
 
+pub fn reduce_log_sum(
+    pool: &BufferPool,
+    input: TensorView,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+) -> Result<Tensor, OpError> {
+    struct LogSumKernel {}
+    impl ReduceKernel<f32> for LogSumKernel {
+        fn reduce_slice(&self, slice: &[f32]) -> f32 {
+            vecmath::Sum::new(slice).dispatch().ln()
+        }
+    }
+
+    reduce(pool, input, axes, keep_dims, &LogSumKernel {})
+}
+
+#[derive(Debug)]
+pub struct ReduceLogSum {
+    pub axes: Option<Vec<i32>>,
+    pub keep_dims: bool,
+    pub noop_with_empty_axes: bool,
+}
+
+impl Operator for ReduceLogSum {
+    fn name(&self) -> &str {
+        "ReduceLogSum"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let input = inputs.require(0)?;
+        let axes = get_axes(inputs, &self.axes)?;
+
+        map_value_view!(input, input, [FloatTensor], {
+            if is_none_or_empty(axes.as_deref()) && self.noop_with_empty_axes {
+                // This operator is defined as `Log(ReduceSum(x))`, so if the
+                // reduction is skipped, the log still applies.
+                input.map_in(ctx.pool(), |x| x.ln()).into_op_result()
+            } else {
+                reduce_log_sum(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
+            }
+        })
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+}
+
+impl_infer_shapes_for_reduce_op!(ReduceLogSum);
+
 struct OptimizedL1ReduceKernel;
 impl ReduceKernel<f32> for OptimizedL1ReduceKernel {
     fn reduce_slice(&self, slice: &[f32]) -> f32 {
@@ -1231,9 +1290,10 @@ mod tests {
     use crate::buffer_pool::BufferPool;
     use crate::operator::{Operator, OperatorExt};
     use crate::ops::{
-        OpError, ReduceL1, ReduceL2, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
-        ReduceSumSquare, arg_max, arg_min, cum_sum, nonzero, reduce_l1, reduce_l2, reduce_max,
-        reduce_mean, reduce_min, reduce_prod, reduce_sum, reduce_sum_square, topk,
+        OpError, ReduceL1, ReduceL2, ReduceLogSum, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
+        ReduceSum, ReduceSumSquare, arg_max, arg_min, cum_sum, nonzero, reduce_l1, reduce_l2,
+        reduce_log_sum, reduce_max, reduce_mean, reduce_min, reduce_prod, reduce_sum,
+        reduce_sum_square, topk,
     };
 
     #[test]
@@ -1468,6 +1528,7 @@ mod tests {
         let cases = [
             op_case!(ReduceL1),
             op_case!(ReduceL2),
+            op_case!(ReduceLogSum),
             op_case!(ReduceMax),
             op_case!(ReduceMean),
             op_case!(ReduceMin),
@@ -1871,6 +1932,21 @@ mod tests {
             false, /* keep_dims */
         ));
         assert_eq!(result, input.iter().product::<f32>());
+    }
+
+    #[test]
+    fn test_reduce_log_sum() {
+        let pool = BufferPool::new();
+
+        let input = Tensor::from([[1., 2., 3.], [4., 5., 6.]]);
+        let result = reduce_log_sum(&pool, input.view(), Some(&[1]), false).unwrap();
+        let expected = Tensor::from([6f32.ln(), 15f32.ln()]);
+        expect_equal(&result, &expected).unwrap();
+
+        // Reduction over an empty set yields log(0).
+        let input = Tensor::<f32>::from_data(&[0], vec![]);
+        let result = reduce_log_sum(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&f32::NEG_INFINITY));
     }
 
     #[test]
