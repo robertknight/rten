@@ -176,6 +176,7 @@ impl RtenOpRegistry {
         register_op!(Max);
         register_op!(MaxPool);
         register_op!(Mean);
+        register_op!(MeanVarianceNormalization);
         register_op!(Min);
         register_op!(Mish);
         register_op!(Mod);
@@ -855,6 +856,17 @@ impl_read_op!(
     }
 );
 impl_read_op!(Mean);
+impl_read_op!(
+    MeanVarianceNormalization,
+    attrs_as_mean_variance_normalization_attrs,
+    |attrs: sg::MeanVarianceNormalizationAttrs| {
+        let axes = attrs
+            .axes()
+            .map(|axes| axes.iter().collect())
+            .unwrap_or_else(|| vec![0, 2, 3]);
+        Ok(ops::MeanVarianceNormalization { axes })
+    }
+);
 impl_read_op!(Min);
 impl_read_op!(Mish);
 impl_read_op!(Mod, attrs_as_mod_attrs, |attrs: sg::ModAttrs| {

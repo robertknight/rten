@@ -206,6 +206,7 @@ impl OnnxOpRegistry {
         register_op!(Max);
         register_op!(MaxPool);
         register_op!(Mean);
+        register_op!(MeanVarianceNormalization);
         register_op!(Min);
         register_op!(Mish);
         register_op!(Mod);
@@ -1461,6 +1462,14 @@ impl_read_op!(MaxPool, |attrs: &Attrs| {
 });
 
 impl_read_op!(Mean);
+impl_read_op!(MeanVarianceNormalization, |attrs: &Attrs| {
+    let axes = attrs
+        .get("axes")
+        .map(|v| v.cast_ints())
+        .transpose()?
+        .unwrap_or_else(|| vec![0, 2, 3]);
+    Ok(ops::MeanVarianceNormalization { axes })
+});
 impl_read_op!(Min);
 impl_read_op!(Mish);
 

@@ -166,6 +166,7 @@ class OperatorType(object):
     CumProd = 156
     GlobalLpPool = 157
     LpNormalization = 158
+    MeanVarianceNormalization = 159
 
 
 class RNNDirection(object):
@@ -272,6 +273,7 @@ class OperatorAttrs(object):
     BitShiftAttrs = 63
     GlobalLpPoolAttrs = 64
     LpNormalizationAttrs = 65
+    MeanVarianceNormalizationAttrs = 66
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -407,6 +409,8 @@ def OperatorAttrsCreator(unionType, table):
         return GlobalLpPoolAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.LpNormalizationAttrs:
         return LpNormalizationAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.MeanVarianceNormalizationAttrs:
+        return MeanVarianceNormalizationAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2976,6 +2980,128 @@ class LpNormalizationAttrsT(object):
         LpNormalizationAttrsAddP(builder, self.p)
         lpNormalizationAttrs = LpNormalizationAttrsEnd(builder)
         return lpNormalizationAttrs
+
+
+class MeanVarianceNormalizationAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = MeanVarianceNormalizationAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsMeanVarianceNormalizationAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def MeanVarianceNormalizationAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # MeanVarianceNormalizationAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # MeanVarianceNormalizationAttrs
+    def Axes(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # MeanVarianceNormalizationAttrs
+    def AxesAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Int32Flags, o)
+        return 0
+
+    # MeanVarianceNormalizationAttrs
+    def AxesLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # MeanVarianceNormalizationAttrs
+    def AxesIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+def MeanVarianceNormalizationAttrsStart(builder):
+    builder.StartObject(1)
+
+def MeanVarianceNormalizationAttrsAddAxes(builder, axes):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(axes), 0)
+
+def MeanVarianceNormalizationAttrsStartAxesVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def MeanVarianceNormalizationAttrsEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import List
+except:
+    pass
+
+class MeanVarianceNormalizationAttrsT(object):
+
+    # MeanVarianceNormalizationAttrsT
+    def __init__(
+        self,
+        axes = None,
+    ):
+        self.axes = axes  # type: Optional[List[int]]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        meanVarianceNormalizationAttrs = MeanVarianceNormalizationAttrs()
+        meanVarianceNormalizationAttrs.Init(buf, pos)
+        return cls.InitFromObj(meanVarianceNormalizationAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, meanVarianceNormalizationAttrs):
+        x = MeanVarianceNormalizationAttrsT()
+        x._UnPack(meanVarianceNormalizationAttrs)
+        return x
+
+    # MeanVarianceNormalizationAttrsT
+    def _UnPack(self, meanVarianceNormalizationAttrs):
+        if meanVarianceNormalizationAttrs is None:
+            return
+        if not meanVarianceNormalizationAttrs.AxesIsNone():
+            if np is None:
+                self.axes = []
+                for i in range(meanVarianceNormalizationAttrs.AxesLength()):
+                    self.axes.append(meanVarianceNormalizationAttrs.Axes(i))
+            else:
+                self.axes = meanVarianceNormalizationAttrs.AxesAsNumpy()
+
+    # MeanVarianceNormalizationAttrsT
+    def Pack(self, builder):
+        if self.axes is not None:
+            if np is not None and type(self.axes) is np.ndarray:
+                axes = builder.CreateNumpyVector(self.axes)
+            else:
+                MeanVarianceNormalizationAttrsStartAxesVector(builder, len(self.axes))
+                for i in reversed(range(len(self.axes))):
+                    builder.PrependInt32(self.axes[i])
+                axes = builder.EndVector()
+        MeanVarianceNormalizationAttrsStart(builder)
+        if self.axes is not None:
+            MeanVarianceNormalizationAttrsAddAxes(builder, axes)
+        meanVarianceNormalizationAttrs = MeanVarianceNormalizationAttrsEnd(builder)
+        return meanVarianceNormalizationAttrs
 
 
 class LoopAttrs(object):
@@ -7607,7 +7733,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT', 'BitShiftAttrsT', 'GlobalLpPoolAttrsT', 'LpNormalizationAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT', 'BitShiftAttrsT', 'GlobalLpPoolAttrsT', 'LpNormalizationAttrsT', 'MeanVarianceNormalizationAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 

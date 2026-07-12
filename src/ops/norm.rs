@@ -14,6 +14,8 @@ use crate::operator::{
     InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
     OutputTypeList, OutputTypesContext, check_eq,
 };
+use crate::ops::binary_elementwise::binary_op;
+use crate::ops::reduce::reduce_mean;
 use crate::ops::resolve_axis;
 use crate::slice_reductions::slice_max;
 
@@ -593,6 +595,55 @@ impl Operator for RMSNormalization {
     }
 }
 
+/// Normalize `input` to zero mean and unit variance over the given axes.
+pub fn mean_variance_normalization(
+    pool: &BufferPool,
+    input: TensorView,
+    axes: &[i32],
+) -> Result<Tensor, OpError> {
+    let mean = reduce_mean(pool, input.view(), Some(axes), true /* keep_dims */)?;
+    let centered = binary_op(pool, input, mean.view(), &|x, m| x - m)?;
+
+    // Compute the standard deviation from the mean-centered values, ie.
+    // `sqrt(E[(x - E[x])^2])`. This is more numerically stable than the
+    // mathematically equivalent `sqrt(E[x^2] - E[x]^2)`, which catastrophically
+    // cancels when the input values are large relative to their variance,
+    // producing a negative radicand (hence NaN) or a wildly inaccurate result.
+    let centered_sq = centered.map_in(pool, |x| x * x);
+    let variance = reduce_mean(pool, centered_sq.view(), Some(axes), true /* keep_dims */)?;
+    let std_dev = variance.map_in(pool, |v| v.sqrt());
+
+    binary_op(pool, centered.view(), std_dev.view(), &|x, s| x / s)
+}
+
+#[derive(Debug)]
+pub struct MeanVarianceNormalization {
+    pub axes: Vec<i32>,
+}
+
+impl Operator for MeanVarianceNormalization {
+    fn name(&self) -> &str {
+        "MeanVarianceNormalization"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        mean_variance_normalization(ctx.pool(), input, &self.axes).into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+}
+
 /// Normalize lanes of `input` along `axis` by their L1 or L2 norm.
 pub fn lp_normalization(
     pool: &BufferPool,
@@ -900,7 +951,7 @@ mod tests {
     use super::NORMALIZE_GRAIN_SIZE;
     use super::{
         NanHandling, batch_norm, batch_norm_in_place, instance_normalization, layer_normalization,
-        log_softmax, lp_normalization, rms_normalization, softmax,
+        log_softmax, lp_normalization, mean_variance_normalization, rms_normalization, softmax,
     };
     use crate::buffer_pool::BufferPool;
     use crate::ops::OpError;
@@ -1182,6 +1233,45 @@ mod tests {
 
         let expected = reference_rms(input.nd_view(), scale.nd_view()).into_dyn();
         expect_eq_1e4(&result, &expected)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_mean_variance_normalization() -> Result<(), Box<dyn Error>> {
+        let pool = BufferPool::new();
+
+        // Normalize over the last axis and verify each row has zero mean and
+        // unit variance.
+        let input = Tensor::from([[1., 2., 3., 4.], [10., 20., 30., 40.]]);
+        let result = mean_variance_normalization(&pool, input.view(), &[1]).unwrap();
+
+        for row in 0..2 {
+            let row_data: Vec<f32> = (0..4).map(|col| result[[row, col]]).collect();
+            let mean: f32 = row_data.iter().sum::<f32>() / 4.;
+            let var: f32 = row_data
+                .iter()
+                .map(|x| (x - mean) * (x - mean))
+                .sum::<f32>()
+                / 4.;
+            assert!(mean.abs() < 1e-5);
+            assert!((var - 1.).abs() < 1e-4);
+        }
+
+        // Compare against manually computed values for a single slice.
+        let input = Tensor::from([[0., 2.]]);
+        let result = mean_variance_normalization(&pool, input.view(), &[1]).unwrap();
+        let expected = Tensor::from([[-1., 1.]]);
+        expect_equal(&result, &expected)?;
+
+        // Values that are large relative to their variance. These are exactly
+        // representable in f32 and normalize to the same result as `1..=4`, but
+        // the naive `sqrt(E[x^2] - E[x]^2)` formula cancels catastrophically at
+        // this magnitude and yields NaN. See `sqrt(E[(x - E[x])^2])` above.
+        let input = Tensor::from([[10000., 10001., 10002., 10003.]]);
+        let result = mean_variance_normalization(&pool, input.view(), &[1]).unwrap();
+        let expected = Tensor::from([[-1.3416407, -0.4472136, 0.4472136, 1.3416407]]);
+        expect_equal(&result, &expected)?;
 
         Ok(())
     }

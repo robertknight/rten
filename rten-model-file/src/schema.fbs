@@ -172,6 +172,7 @@ enum OperatorType: ubyte {
   CumProd,
   GlobalLpPool,
   LpNormalization,
+  MeanVarianceNormalization,
 }
 
 enum RNNDirection: ubyte {
@@ -289,6 +290,7 @@ union OperatorAttrs {
   BitShiftAttrs,
   GlobalLpPoolAttrs,
   LpNormalizationAttrs,
+  MeanVarianceNormalizationAttrs,
 }
 
 table ArgMaxAttrs {
@@ -427,6 +429,10 @@ table LayerNormalizationAttrs {
 table LpNormalizationAttrs {
   axis:int = -1;
   p:uint = 2;
+}
+
+table MeanVarianceNormalizationAttrs {
+  axes:[int];
 }
 
 table LoopAttrs {

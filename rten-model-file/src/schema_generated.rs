@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 158;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 159;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 159] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 160] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -177,6 +177,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 159] = [
     OperatorType::CumProd,
     OperatorType::GlobalLpPool,
     OperatorType::LpNormalization,
+    OperatorType::MeanVarianceNormalization,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -343,9 +344,10 @@ impl OperatorType {
     pub const CumProd: Self = Self(156);
     pub const GlobalLpPool: Self = Self(157);
     pub const LpNormalization: Self = Self(158);
+    pub const MeanVarianceNormalization: Self = Self(159);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 158;
+    pub const ENUM_MAX: u8 = 159;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -506,6 +508,7 @@ impl OperatorType {
         Self::CumProd,
         Self::GlobalLpPool,
         Self::LpNormalization,
+        Self::MeanVarianceNormalization,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -669,6 +672,7 @@ impl OperatorType {
             Self::CumProd => Some("CumProd"),
             Self::GlobalLpPool => Some("GlobalLpPool"),
             Self::LpNormalization => Some("LpNormalization"),
+            Self::MeanVarianceNormalization => Some("MeanVarianceNormalization"),
             _ => None,
         }
     }
@@ -1304,13 +1308,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 65;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 66;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 66] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 67] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1377,6 +1381,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 66] = [
     OperatorAttrs::BitShiftAttrs,
     OperatorAttrs::GlobalLpPoolAttrs,
     OperatorAttrs::LpNormalizationAttrs,
+    OperatorAttrs::MeanVarianceNormalizationAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1450,9 +1455,10 @@ impl OperatorAttrs {
     pub const BitShiftAttrs: Self = Self(63);
     pub const GlobalLpPoolAttrs: Self = Self(64);
     pub const LpNormalizationAttrs: Self = Self(65);
+    pub const MeanVarianceNormalizationAttrs: Self = Self(66);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 65;
+    pub const ENUM_MAX: u8 = 66;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1520,6 +1526,7 @@ impl OperatorAttrs {
         Self::BitShiftAttrs,
         Self::GlobalLpPoolAttrs,
         Self::LpNormalizationAttrs,
+        Self::MeanVarianceNormalizationAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1590,6 +1597,7 @@ impl OperatorAttrs {
             Self::BitShiftAttrs => Some("BitShiftAttrs"),
             Self::GlobalLpPoolAttrs => Some("GlobalLpPoolAttrs"),
             Self::LpNormalizationAttrs => Some("LpNormalizationAttrs"),
+            Self::MeanVarianceNormalizationAttrs => Some("MeanVarianceNormalizationAttrs"),
             _ => None,
         }
     }
@@ -5654,6 +5662,126 @@ impl ::core::fmt::Debug for LpNormalizationAttrs<'_> {
         let mut ds = f.debug_struct("LpNormalizationAttrs");
         ds.field("axis", &self.axis());
         ds.field("p", &self.p());
+        ds.finish()
+    }
+}
+pub enum MeanVarianceNormalizationAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct MeanVarianceNormalizationAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for MeanVarianceNormalizationAttrs<'a> {
+    type Inner = MeanVarianceNormalizationAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> MeanVarianceNormalizationAttrs<'a> {
+    pub const VT_AXES: ::flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        MeanVarianceNormalizationAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args MeanVarianceNormalizationAttrsArgs<'args>,
+    ) -> ::flatbuffers::WIPOffset<MeanVarianceNormalizationAttrs<'bldr>> {
+        let mut builder = MeanVarianceNormalizationAttrsBuilder::new(_fbb);
+        if let Some(x) = args.axes {
+            builder.add_axes(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axes(&self) -> Option<::flatbuffers::Vector<'a, i32>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, i32>>>(
+                    MeanVarianceNormalizationAttrs::VT_AXES,
+                    None,
+                )
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for MeanVarianceNormalizationAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, i32>>>(
+                "axes",
+                Self::VT_AXES,
+                false,
+            )?
+            .finish();
+        Ok(())
+    }
+}
+pub struct MeanVarianceNormalizationAttrsArgs<'a> {
+    pub axes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, i32>>>,
+}
+impl<'a> Default for MeanVarianceNormalizationAttrsArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        MeanVarianceNormalizationAttrsArgs { axes: None }
+    }
+}
+
+pub struct MeanVarianceNormalizationAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a>
+    MeanVarianceNormalizationAttrsBuilder<'a, 'b, A>
+{
+    #[inline]
+    pub fn add_axes(&mut self, axes: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b, i32>>) {
+        self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(
+            MeanVarianceNormalizationAttrs::VT_AXES,
+            axes,
+        );
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> MeanVarianceNormalizationAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        MeanVarianceNormalizationAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<MeanVarianceNormalizationAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for MeanVarianceNormalizationAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("MeanVarianceNormalizationAttrs");
+        ds.field("axes", &self.axes());
         ds.finish()
     }
 }
@@ -12597,6 +12725,23 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_mean_variance_normalization_attrs(
+        &self,
+    ) -> Option<MeanVarianceNormalizationAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::MeanVarianceNormalizationAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { MeanVarianceNormalizationAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -12674,6 +12819,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::BitShiftAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<BitShiftAttrs>>("OperatorAttrs::BitShiftAttrs", pos),
           OperatorAttrs::GlobalLpPoolAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<GlobalLpPoolAttrs>>("OperatorAttrs::GlobalLpPoolAttrs", pos),
           OperatorAttrs::LpNormalizationAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<LpNormalizationAttrs>>("OperatorAttrs::LpNormalizationAttrs", pos),
+          OperatorAttrs::MeanVarianceNormalizationAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<MeanVarianceNormalizationAttrs>>("OperatorAttrs::MeanVarianceNormalizationAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -13404,6 +13550,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::LpNormalizationAttrs => {
                 if let Some(x) = self.attrs_as_lp_normalization_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::MeanVarianceNormalizationAttrs => {
+                if let Some(x) = self.attrs_as_mean_variance_normalization_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

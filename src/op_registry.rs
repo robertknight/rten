@@ -289,6 +289,7 @@ pub mod op_types {
     declare_op!(Max);
     declare_op!(MaxPool);
     declare_op!(Mean);
+    declare_op!(MeanVarianceNormalization);
     declare_op!(Min);
     declare_op!(Mish);
     declare_op!(Mod);

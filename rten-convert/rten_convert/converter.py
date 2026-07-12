@@ -652,6 +652,10 @@ def op_node_from_onnx_operator(
             attr_reader.check_attr("dilations", "ints", ([1], [1, 1]))
             attr_reader.check_attr("storage_order", "int", 0)
 
+        case "MeanVarianceNormalization":
+            attrs = sg.MeanVarianceNormalizationAttrsT()
+            attrs.axes = attr_reader.get_attr("axes", "ints", [0, 2, 3])
+
         case "Mod":
             attrs = sg.ModAttrsT()
             attrs.fmod = bool(attr_reader.get_attr("fmod", "int", 0))
