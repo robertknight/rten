@@ -13,7 +13,7 @@ use crate::operator::Operator;
 use crate::ops;
 use crate::ops::{
     BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, PadMode, Padding,
-    ResizeMode, ScatterReduction,
+    ResizeMode, ScatterReduction, ShiftDirection,
 };
 use crate::value::{DataType, Scalar};
 
@@ -107,6 +107,7 @@ impl RtenOpRegistry {
         register_op!(Attention);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
+        register_op!(BitShift);
         register_op!(BitwiseAnd);
         register_op!(BitwiseNot);
         register_op!(BitwiseOr);
@@ -481,6 +482,20 @@ impl_read_op!(
     CastLike,
     attrs_as_cast_like_attrs,
     |_attrs: sg::CastLikeAttrs| { Ok(ops::CastLike {}) }
+);
+impl_read_op!(
+    BitShift,
+    attrs_as_bit_shift_attrs,
+    |attrs: sg::BitShiftAttrs| {
+        let direction = match attrs.direction() {
+            sg::BitShiftDirection::LEFT => ShiftDirection::Left,
+            sg::BitShiftDirection::RIGHT => ShiftDirection::Right,
+            _ => {
+                return Err(ReadOpError::attr_error("direction", "unknown value"));
+            }
+        };
+        Ok(ops::BitShift { direction })
+    }
 );
 impl_read_op!(BitwiseAnd);
 impl_read_op!(BitwiseNot);

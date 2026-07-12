@@ -70,8 +70,8 @@ pub(crate) use random::{
 pub(crate) use {
     attention::{AddSoftmax, Attention, GroupedQueryAttentionMatMul, RepeatInterleave},
     binary_elementwise::{
-        Add, And, BitwiseAnd, BitwiseOr, BitwiseXor, Div, Equal, Greater, GreaterOrEqual, Less,
-        LessOrEqual, Mod, Mul, Or, Pow, Sub, Where, Xor,
+        Add, And, BitShift, BitwiseAnd, BitwiseOr, BitwiseXor, Div, Equal, Greater, GreaterOrEqual,
+        Less, LessOrEqual, Mod, Mul, Or, Pow, Sub, Where, Xor,
     },
     compute_shape::{ComputeShape, SymbolInfo},
     concat::{Concat, Tile},
@@ -142,8 +142,8 @@ pub(crate) use {
 // These may be removed from the public API of the crate in future.
 // See https://github.com/robertknight/rten/issues/911.
 pub use binary_elementwise::{
-    DivMode, add, and, div, equal, greater, greater_or_equal, less, less_or_equal, mod_op, mul, or,
-    pow, sub, where_op, xor,
+    DivMode, ShiftDirection, add, and, div, equal, greater, greater_or_equal, less, less_or_equal,
+    mod_op, mul, or, pow, sub, where_op, xor,
 };
 pub use concat::{concat, tile};
 pub use conv::{conv, conv_integer};

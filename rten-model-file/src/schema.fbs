@@ -165,6 +165,7 @@ enum OperatorType: ubyte {
   BitwiseAnd,
   BitwiseOr,
   BitwiseXor,
+  BitShift,
 }
 
 enum RNNDirection: ubyte {
@@ -279,6 +280,7 @@ union OperatorAttrs {
   AttentionAttrs,
   SeluAttrs,
   ShrinkAttrs,
+  BitShiftAttrs,
 }
 
 table ArgMaxAttrs {
@@ -301,6 +303,15 @@ table AveragePoolAttrs {
 
 table BatchNormalizationAttrs {
   epsilon:float;
+}
+
+enum BitShiftDirection: ubyte {
+  LEFT,
+  RIGHT,
+}
+
+table BitShiftAttrs {
+  direction:BitShiftDirection;
 }
 
 table CastAttrs {

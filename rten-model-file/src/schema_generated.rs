@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 151;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 152;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 152] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 153] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -170,6 +170,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 152] = [
     OperatorType::BitwiseAnd,
     OperatorType::BitwiseOr,
     OperatorType::BitwiseXor,
+    OperatorType::BitShift,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -329,9 +330,10 @@ impl OperatorType {
     pub const BitwiseAnd: Self = Self(149);
     pub const BitwiseOr: Self = Self(150);
     pub const BitwiseXor: Self = Self(151);
+    pub const BitShift: Self = Self(152);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 151;
+    pub const ENUM_MAX: u8 = 152;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -485,6 +487,7 @@ impl OperatorType {
         Self::BitwiseAnd,
         Self::BitwiseOr,
         Self::BitwiseXor,
+        Self::BitShift,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -641,6 +644,7 @@ impl OperatorType {
             Self::BitwiseAnd => Some("BitwiseAnd"),
             Self::BitwiseOr => Some("BitwiseOr"),
             Self::BitwiseXor => Some("BitwiseXor"),
+            Self::BitShift => Some("BitShift"),
             _ => None,
         }
     }
@@ -1276,13 +1280,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 62;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 63;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 63] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 64] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1346,6 +1350,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 63] = [
     OperatorAttrs::AttentionAttrs,
     OperatorAttrs::SeluAttrs,
     OperatorAttrs::ShrinkAttrs,
+    OperatorAttrs::BitShiftAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1416,9 +1421,10 @@ impl OperatorAttrs {
     pub const AttentionAttrs: Self = Self(60);
     pub const SeluAttrs: Self = Self(61);
     pub const ShrinkAttrs: Self = Self(62);
+    pub const BitShiftAttrs: Self = Self(63);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 62;
+    pub const ENUM_MAX: u8 = 63;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1483,6 +1489,7 @@ impl OperatorAttrs {
         Self::AttentionAttrs,
         Self::SeluAttrs,
         Self::ShrinkAttrs,
+        Self::BitShiftAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1550,6 +1557,7 @@ impl OperatorAttrs {
             Self::AttentionAttrs => Some("AttentionAttrs"),
             Self::SeluAttrs => Some("SeluAttrs"),
             Self::ShrinkAttrs => Some("ShrinkAttrs"),
+            Self::BitShiftAttrs => Some("BitShiftAttrs"),
             _ => None,
         }
     }
@@ -1607,6 +1615,95 @@ impl<'a> ::flatbuffers::Verifiable for OperatorAttrs {
 impl ::flatbuffers::SimpleToVerifyInSlice for OperatorAttrs {}
 pub struct OperatorAttrsUnionTableOffset {}
 
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MIN_BIT_SHIFT_DIRECTION: u8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_BIT_SHIFT_DIRECTION: u8 = 1;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_BIT_SHIFT_DIRECTION: [BitShiftDirection; 2] =
+    [BitShiftDirection::LEFT, BitShiftDirection::RIGHT];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct BitShiftDirection(pub u8);
+#[allow(non_upper_case_globals)]
+impl BitShiftDirection {
+    pub const LEFT: Self = Self(0);
+    pub const RIGHT: Self = Self(1);
+
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 1;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::LEFT, Self::RIGHT];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::LEFT => Some("LEFT"),
+            Self::RIGHT => Some("RIGHT"),
+            _ => None,
+        }
+    }
+}
+impl ::core::fmt::Debug for BitShiftDirection {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> ::flatbuffers::Follow<'a> for BitShiftDirection {
+    type Inner = Self;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+        Self(b)
+    }
+}
+
+impl ::flatbuffers::Push for BitShiftDirection {
+    type Output = BitShiftDirection;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for BitShiftDirection {
+    type Scalar = u8;
+    #[inline]
+    fn to_little_endian(self) -> u8 {
+        self.0.to_le()
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
+        Self(b)
+    }
+}
+
+impl<'a> ::flatbuffers::Verifiable for BitShiftDirection {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        u8::run_verifier(v, pos)
+    }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for BitShiftDirection {}
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -2966,6 +3063,122 @@ impl ::core::fmt::Debug for BatchNormalizationAttrs<'_> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         let mut ds = f.debug_struct("BatchNormalizationAttrs");
         ds.field("epsilon", &self.epsilon());
+        ds.finish()
+    }
+}
+pub enum BitShiftAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct BitShiftAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for BitShiftAttrs<'a> {
+    type Inner = BitShiftAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> BitShiftAttrs<'a> {
+    pub const VT_DIRECTION: ::flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        BitShiftAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args BitShiftAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<BitShiftAttrs<'bldr>> {
+        let mut builder = BitShiftAttrsBuilder::new(_fbb);
+        builder.add_direction(args.direction);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn direction(&self) -> BitShiftDirection {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<BitShiftDirection>(
+                    BitShiftAttrs::VT_DIRECTION,
+                    Some(BitShiftDirection::LEFT),
+                )
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for BitShiftAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<BitShiftDirection>("direction", Self::VT_DIRECTION, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct BitShiftAttrsArgs {
+    pub direction: BitShiftDirection,
+}
+impl<'a> Default for BitShiftAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        BitShiftAttrsArgs {
+            direction: BitShiftDirection::LEFT,
+        }
+    }
+}
+
+pub struct BitShiftAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> BitShiftAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_direction(&mut self, direction: BitShiftDirection) {
+        self.fbb_.push_slot::<BitShiftDirection>(
+            BitShiftAttrs::VT_DIRECTION,
+            direction,
+            BitShiftDirection::LEFT,
+        );
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> BitShiftAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        BitShiftAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<BitShiftAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for BitShiftAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("BitShiftAttrs");
+        ds.field("direction", &self.direction());
         ds.finish()
     }
 }
@@ -12072,6 +12285,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_bit_shift_attrs(&self) -> Option<BitShiftAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::BitShiftAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { BitShiftAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -12146,6 +12374,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::AttentionAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<AttentionAttrs>>("OperatorAttrs::AttentionAttrs", pos),
           OperatorAttrs::SeluAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<SeluAttrs>>("OperatorAttrs::SeluAttrs", pos),
           OperatorAttrs::ShrinkAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<ShrinkAttrs>>("OperatorAttrs::ShrinkAttrs", pos),
+          OperatorAttrs::BitShiftAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<BitShiftAttrs>>("OperatorAttrs::BitShiftAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -12846,6 +13075,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::ShrinkAttrs => {
                 if let Some(x) = self.attrs_as_shrink_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::BitShiftAttrs => {
+                if let Some(x) = self.attrs_as_bit_shift_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

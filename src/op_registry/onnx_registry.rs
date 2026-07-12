@@ -20,7 +20,7 @@ use crate::ops;
 use crate::ops::AccuracyLevel;
 use crate::ops::{
     BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, PadMode, Padding,
-    ResizeMode, ScatterReduction,
+    ResizeMode, ScatterReduction, ShiftDirection,
 };
 use crate::value::{DataType, Scalar};
 
@@ -137,6 +137,7 @@ impl OnnxOpRegistry {
         register_op!(Attention);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
+        register_op!(BitShift);
         register_op!(BitwiseAnd);
         register_op!(BitwiseNot);
         register_op!(BitwiseOr);
@@ -847,6 +848,16 @@ impl_read_op!(Cast, |attrs: &Attrs| {
 });
 
 impl_read_op!(CastLike);
+impl_read_op!(BitShift, |attrs: &Attrs| {
+    let direction = attrs
+        .require("direction")?
+        .as_string_enum(|val| match val {
+            "LEFT" => Some(ShiftDirection::Left),
+            "RIGHT" => Some(ShiftDirection::Right),
+            _ => None,
+        })?;
+    Ok(ops::BitShift { direction })
+});
 impl_read_op!(BitwiseAnd);
 impl_read_op!(BitwiseNot);
 impl_read_op!(BitwiseOr);

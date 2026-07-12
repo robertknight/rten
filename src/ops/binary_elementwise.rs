@@ -657,6 +657,87 @@ bitwise_binary_op!(BitwiseAnd, |x, y| x & y);
 bitwise_binary_op!(BitwiseOr, |x, y| x | y);
 bitwise_binary_op!(BitwiseXor, |x, y| x ^ y);
 
+/// Elementwise bit shift operations used by [`BitShift`].
+pub trait Shift: Copy {
+    /// Shift left by `amount` bits, yielding zero if `amount` is negative or
+    /// equals or exceeds the bit width.
+    fn shl(self, amount: Self) -> Self;
+
+    /// Shift right by `amount` bits, yielding zero if `amount` is negative or
+    /// equals or exceeds the bit width.
+    fn shr(self, amount: Self) -> Self;
+}
+
+macro_rules! impl_shift {
+    ($type:ty) => {
+        impl Shift for $type {
+            fn shl(self, amount: Self) -> Self {
+                u32::try_from(amount)
+                    .ok()
+                    .and_then(|amount| self.checked_shl(amount))
+                    .unwrap_or(0)
+            }
+
+            fn shr(self, amount: Self) -> Self {
+                u32::try_from(amount)
+                    .ok()
+                    .and_then(|amount| self.checked_shr(amount))
+                    .unwrap_or(0)
+            }
+        }
+    };
+}
+impl_shift!(i32);
+impl_shift!(i8);
+impl_shift!(u8);
+
+/// Direction of a `BitShift` operation.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ShiftDirection {
+    Left,
+    Right,
+}
+
+#[derive(Debug)]
+pub struct BitShift {
+    pub direction: ShiftDirection,
+}
+
+impl Operator for BitShift {
+    fn name(&self) -> &str {
+        "BitShift"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let a = inputs.require(0)?;
+        map_value_view!(a, a, [Int32Tensor, Int8Tensor, UInt8Tensor], {
+            let b = inputs.require_as(1)?;
+            let result = match self.direction {
+                ShiftDirection::Left => {
+                    same_type_binary_op(ctx.pool(), a, b, &|x, y| Shift::shl(x, y))
+                }
+                ShiftDirection::Right => {
+                    same_type_binary_op(ctx.pool(), a, b, &|x, y| Shift::shr(x, y))
+                }
+            };
+            result.into_op_result()
+        })
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&BinaryOp)
+    }
+}
+
 /// Check the RHS input of a Div / Mod op for zeros.
 ///
 /// This is used to avoid a divide-by-zero panic for integer inputs. For float
@@ -1351,9 +1432,10 @@ mod tests {
 
     use super::fast_broadcast_cycles_repeats;
     use super::{
-        Add, BitwiseAnd, BitwiseOr, BitwiseXor, DivMode, add, add_in_place, and, div, div_in_place,
-        equal, greater, greater_or_equal, less, less_or_equal, mod_op, mul, mul_in_place, or, pow,
-        pow_in_place, sub, sub_in_place, where_op, xor,
+        Add, BitShift, BitwiseAnd, BitwiseOr, BitwiseXor, DivMode, ShiftDirection, add,
+        add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
+        less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
+        where_op, xor,
     };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt};
@@ -1556,6 +1638,37 @@ mod tests {
         let b = Tensor::from([0, 0, 1, 1]);
         let expected = Tensor::from([0, 0, 0, 1]);
         let result = and(&pool, a.view(), b.view()).unwrap();
+        assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn test_bit_shift() {
+        let a = Tensor::from([1i32, 2, -1, 1, 1]);
+        let shift = Tensor::from([0i32, 3, 1, 31, 32]);
+
+        // Left shifts, including out-of-range shift amounts.
+        let expected = Tensor::from([1i32, 16, -2, i32::MIN, 0]);
+        let op = BitShift {
+            direction: ShiftDirection::Left,
+        };
+        let result: Tensor<i32> = op.run_simple((a.view(), shift.view())).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Right shifts.
+        let a = Tensor::from([16i32, 3, 1, 1]);
+        let shift = Tensor::from([2i32, 1, 32, -1]);
+        let expected = Tensor::from([4i32, 1, 0, 0]);
+        let op = BitShift {
+            direction: ShiftDirection::Right,
+        };
+        let result: Tensor<i32> = op.run_simple((a.view(), shift.view())).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Broadcast unsigned bytes.
+        let a = Tensor::from([0x80u8, 0x40]);
+        let shift = Tensor::from(1u8);
+        let expected = Tensor::from([0x40u8, 0x20]);
+        let result: Tensor<u8> = op.run_simple((a.view(), shift.view())).unwrap();
         assert_eq!(&result, &expected);
     }
 

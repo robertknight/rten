@@ -159,6 +159,7 @@ class OperatorType(object):
     BitwiseAnd = 149
     BitwiseOr = 150
     BitwiseXor = 151
+    BitShift = 152
 
 
 class RNNDirection(object):
@@ -262,6 +263,7 @@ class OperatorAttrs(object):
     AttentionAttrs = 60
     SeluAttrs = 61
     ShrinkAttrs = 62
+    BitShiftAttrs = 63
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -391,7 +393,14 @@ def OperatorAttrsCreator(unionType, table):
         return SeluAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.ShrinkAttrs:
         return ShrinkAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.BitShiftAttrs:
+        return BitShiftAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
+
+
+class BitShiftDirection(object):
+    LEFT = 0
+    RIGHT = 1
 
 
 class DepthToSpaceMode(object):
@@ -928,6 +937,86 @@ class BatchNormalizationAttrsT(object):
         BatchNormalizationAttrsAddEpsilon(builder, self.epsilon)
         batchNormalizationAttrs = BatchNormalizationAttrsEnd(builder)
         return batchNormalizationAttrs
+
+
+class BitShiftAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = BitShiftAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsBitShiftAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def BitShiftAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # BitShiftAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # BitShiftAttrs
+    def Direction(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
+        return 0
+
+def BitShiftAttrsStart(builder):
+    builder.StartObject(1)
+
+def BitShiftAttrsAddDirection(builder, direction):
+    builder.PrependUint8Slot(0, direction, 0)
+
+def BitShiftAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class BitShiftAttrsT(object):
+
+    # BitShiftAttrsT
+    def __init__(
+        self,
+        direction = 0,
+    ):
+        self.direction = direction  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        bitShiftAttrs = BitShiftAttrs()
+        bitShiftAttrs.Init(buf, pos)
+        return cls.InitFromObj(bitShiftAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, bitShiftAttrs):
+        x = BitShiftAttrsT()
+        x._UnPack(bitShiftAttrs)
+        return x
+
+    # BitShiftAttrsT
+    def _UnPack(self, bitShiftAttrs):
+        if bitShiftAttrs is None:
+            return
+        self.direction = bitShiftAttrs.Direction()
+
+    # BitShiftAttrsT
+    def Pack(self, builder):
+        BitShiftAttrsStart(builder)
+        BitShiftAttrsAddDirection(builder, self.direction)
+        bitShiftAttrs = BitShiftAttrsEnd(builder)
+        return bitShiftAttrs
 
 
 class CastAttrs(object):
@@ -7332,7 +7421,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT', 'BitShiftAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 
