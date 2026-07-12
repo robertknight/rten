@@ -101,6 +101,7 @@ mod min_max;
 mod normalize;
 mod quantize;
 mod relu;
+mod shrink;
 mod sin_cos;
 mod softmax;
 mod sum;
@@ -119,6 +120,7 @@ pub use erf::{ApproxGelu, Erf, Gelu};
 pub use exp::{Celu, Elu, Exp, Mish, Selu, Sigmoid, Silu, Swish};
 pub use quantize::Quantize;
 pub use relu::LeakyRelu;
+pub use shrink::Shrink;
 pub use sin_cos::{Cos, Sin};
 pub use tanh::Tanh;
 
