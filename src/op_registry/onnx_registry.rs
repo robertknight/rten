@@ -197,6 +197,7 @@ impl OnnxOpRegistry {
         register_op!(MaxPool);
         register_op!(Mean);
         register_op!(Min);
+        register_op!(Mish);
         register_op!(Mod);
         register_op!(Mul);
         register_op!(Multinomial, feature = "random");
@@ -1410,6 +1411,7 @@ impl_read_op!(MaxPool, |attrs: &Attrs| {
 
 impl_read_op!(Mean);
 impl_read_op!(Min);
+impl_read_op!(Mish);
 
 impl_read_op!(Mod, |attrs: &Attrs| {
     let fmod = attrs.get_as("fmod").unwrap_or(false);

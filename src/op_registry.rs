@@ -280,6 +280,7 @@ pub mod op_types {
     declare_op!(MaxPool);
     declare_op!(Mean);
     declare_op!(Min);
+    declare_op!(Mish);
     declare_op!(Mod);
     declare_op!(Mul);
     declare_op!(Multinomial, feature = "random");

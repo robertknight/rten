@@ -547,6 +547,10 @@ declare_operator!(Log);
 impl_operator!(Log, [FloatTensor]);
 impl_get_kernel!(Log, f32, |val: f32| val.ln());
 
+declare_operator!(Mish);
+impl_operator!(Mish, [FloatTensor]);
+impl_get_kernel!(Mish, f32, SimdKernel(vecmath::Mish {}));
+
 declare_operator!(Neg);
 impl_operator!(Neg, [FloatTensor, Int32Tensor], Some(&shape_ops::Neg));
 
@@ -779,9 +783,9 @@ mod tests {
 
     use super::{
         Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Cos, Cosh, Elu, Exp, Gelu, IsInf, IsNaN, Log,
-        Neg, Not, PRelu, Reciprocal, Relu, Sigmoid, Sign, Silu, Sin, Sinh, Softplus, Softsign,
-        Sqrt, Swish, Tan, Tanh, ceil, clip, clip_in_place, erf, floor, hard_sigmoid, hard_swish,
-        leaky_relu, round,
+        Mish, Neg, Not, PRelu, Reciprocal, Relu, Sigmoid, Sign, Silu, Sin, Sinh, Softplus,
+        Softsign, Sqrt, Swish, Tan, Tanh, ceil, clip, clip_in_place, erf, floor, hard_sigmoid,
+        hard_swish, leaky_relu, round,
     };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, Operator, OperatorExt};
@@ -1130,6 +1134,7 @@ mod tests {
         Tensor::from([0.1, 0.5, 1., 10.])
     );
 
+    test_unary_op!(test_mish, Mish {}, |x: &f32| x * x.exp().ln_1p().tanh());
     test_unary_op!(test_neg, Neg {}, |x| -x, Tensor::from([0, 1, -1, 2]));
 
     test_unary_op!(

@@ -150,6 +150,7 @@ class OperatorType(object):
     RotaryEmbedding = 140
     Attention = 141
     Softsign = 142
+    Mish = 143
 
 
 class RNNDirection(object):

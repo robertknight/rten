@@ -167,6 +167,7 @@ impl RtenOpRegistry {
         register_op!(MaxPool);
         register_op!(Mean);
         register_op!(Min);
+        register_op!(Mish);
         register_op!(Mod);
         register_op!(Mul);
         register_op!(Multinomial, feature = "random");
@@ -797,6 +798,7 @@ impl_read_op!(
 );
 impl_read_op!(Mean);
 impl_read_op!(Min);
+impl_read_op!(Mish);
 impl_read_op!(Mod, attrs_as_mod_attrs, |attrs: sg::ModAttrs| {
     Ok(ops::Mod { fmod: attrs.fmod() })
 });

@@ -156,6 +156,7 @@ enum OperatorType: ubyte {
   RotaryEmbedding,
   Attention,
   Softsign,
+  Mish,
 }
 
 enum RNNDirection: ubyte {
