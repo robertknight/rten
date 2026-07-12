@@ -84,7 +84,7 @@ pub(crate) use {
     einsum::Einsum,
     embedding::RotaryEmbedding,
     gather::{Compress, Gather, GatherElements, GatherND, ReverseSequence},
-    generate::{ConstantOfShape, EyeLike, OneHot, Range},
+    generate::{ConstantOfShape, EyeLike, HannWindow, OneHot, Range},
     grid_sample::GridSample,
     identity::Identity,
     layout::{
