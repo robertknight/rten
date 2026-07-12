@@ -372,6 +372,7 @@ pub mod op_types {
     declare_op!(Slice);
     declare_op!(Softmax);
     declare_op!(Softplus);
+    declare_op!(Softsign, onnx_only);
     declare_op!(Split);
     declare_op!(SplitToSequence);
     declare_op!(Sqrt);
