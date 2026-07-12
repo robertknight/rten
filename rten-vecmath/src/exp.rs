@@ -272,13 +272,43 @@ impl SimdUnaryOp<f32> for Elu {
     }
 }
 
+/// Computes the Mish activation function.
+///
+/// Computes `x * tanh(softplus(x))` where `softplus(x) = ln(1 + exp(x))`.
+pub struct Mish {}
+
+impl SimdUnaryOp<f32> for Mish {
+    #[inline(always)]
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
+        // Using `tanh(y) = (exp(2y) - 1) / (exp(2y) + 1)` and
+        // `exp(2 * softplus(x)) = (1 + exp(x))^2`, Mish can be computed with
+        // a single exponential:
+        //
+        //   mish(x) = x * n / (n + 2), where n = t * (t + 2), t = exp(x)
+        //
+        // The `t * (t + 2)` form is preferred over `(1 + t)^2 - 1` as it
+        // avoids cancellation for negative `x`.
+        let ops = isa.f32();
+        let two = ops.splat(2.);
+
+        let t = Exp::apply(isa, x);
+        let n = ops.mul(t, ops.add(t, two));
+        let y = ops.mul(x, ops.div(n, ops.add(n, two)));
+
+        // For large `x`, `n` overflows to infinity, making `n / (n + 2)` NaN.
+        // tanh(softplus(x)) saturates to 1 well before that, so return `x`.
+        let saturated = ops.ge(x, ops.splat(20.));
+        ops.select(x, y, saturated)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_simd::SimdUnaryOp;
 
     use super::{EXP_LOWER_CUTOFF, ReducedRangeExp};
     use crate::testing::{AllF32s, Tolerance, UnaryOpTester, arange, benchmark_op};
-    use crate::{Elu, Exp, Sigmoid, Silu, Swish};
+    use crate::{Elu, Exp, Mish, Sigmoid, Silu, Swish};
 
     // Maximum error of `Exp` compared to Rust standard library implementation.
     const MAX_EXP_ERROR_ULPS: f32 = 1.0;
@@ -300,6 +330,19 @@ mod tests {
 
     fn reference_swish(x: f32, alpha: f32) -> f32 {
         x * reference_sigmoid(alpha * x)
+    }
+
+    #[test]
+    fn test_mish() {
+        let test = UnaryOpTester {
+            reference: |x: f32| x * x.exp().ln_1p().tanh(),
+            simd: Mish {},
+            range: arange(-30., 30., 0.005),
+            // Mish is computed via a different formulation than the reference,
+            // with slightly different rounding.
+            tolerance: Tolerance::Absolute(1e-5),
+        };
+        test.run();
     }
 
     #[test]
