@@ -382,6 +382,11 @@ def op_node_from_onnx_operator(
             # is unsupported.
             attr_reader.ignore_attr("momentum")
 
+        case "BitCast":
+            attrs = sg.CastAttrsT()
+            to = attr_reader.require_attr("to", "int")
+            attrs.to = convert_data_type(to)
+
         case "BitShift":
             attrs = sg.BitShiftAttrsT()
             attrs.direction = attr_reader.get_enum_attr(

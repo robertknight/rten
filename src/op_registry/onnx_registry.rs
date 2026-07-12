@@ -137,6 +137,7 @@ impl OnnxOpRegistry {
         register_op!(Attention);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
+        register_op!(BitCast);
         register_op!(BitShift);
         register_op!(BitwiseAnd);
         register_op!(BitwiseNot);
@@ -848,6 +849,10 @@ impl_read_op!(Cast, |attrs: &Attrs| {
 });
 
 impl_read_op!(CastLike);
+impl_read_op!(BitCast, |attrs: &Attrs| {
+    let to = attrs.require("to")?.as_dtype()?;
+    Ok(ops::BitCast { to })
+});
 impl_read_op!(BitShift, |attrs: &Attrs| {
     let direction = attrs
         .require("direction")?

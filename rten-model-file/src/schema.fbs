@@ -166,6 +166,7 @@ enum OperatorType: ubyte {
   BitwiseOr,
   BitwiseXor,
   BitShift,
+  BitCast,
 }
 
 enum RNNDirection: ubyte {
@@ -218,7 +219,7 @@ union OperatorAttrs {
   ArgMaxAttrs, // Also used for ArgMin
   AveragePoolAttrs,
   BatchNormalizationAttrs, // Also used for InstanceNormalization
-  CastAttrs,
+  CastAttrs, // Also used for BitCast
   ConcatAttrs,
   ConstantOfShapeAttrs,
   ConvAttrs, // Also used for ConvInteger

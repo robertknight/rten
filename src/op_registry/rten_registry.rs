@@ -107,6 +107,7 @@ impl RtenOpRegistry {
         register_op!(Attention);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
+        register_op!(BitCast);
         register_op!(BitShift);
         register_op!(BitwiseAnd);
         register_op!(BitwiseNot);
@@ -483,6 +484,10 @@ impl_read_op!(
     attrs_as_cast_like_attrs,
     |_attrs: sg::CastLikeAttrs| { Ok(ops::CastLike {}) }
 );
+impl_read_op!(BitCast, attrs_as_cast_attrs, |attrs: sg::CastAttrs| {
+    let to = convert_dtype("to", attrs.to())?;
+    Ok(ops::BitCast { to })
+});
 impl_read_op!(
     BitShift,
     attrs_as_bit_shift_attrs,

@@ -1,9 +1,9 @@
 use rten_base::bit_set::BitSet;
-use rten_base::byte_cast::{FromByteArray, cast_vec};
+use rten_base::byte_cast::{FromByteArray, ToByteArray, cast_vec};
 use rten_base::num;
 
-use rten_tensor::Tensor;
 use rten_tensor::prelude::*;
+use rten_tensor::Tensor;
 
 use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::{
@@ -102,6 +102,96 @@ fn cast_in_place(input: Value, dtype: DataType) -> Result<Value, Value> {
             Value::Int8Tensor(t) => Ok(cast_tensor::<_, u8>(t).into()),
             _ => Err(input),
         },
+    }
+}
+
+/// Reinterpret a tensor's bits as another type of the same width.
+///
+/// Unlike [`Cast`], which converts values, this preserves the exact bit
+/// pattern of each element. Casts between types of different bit widths are
+/// not supported.
+fn bit_cast(pool: &BufferPool, input: ValueView, dtype: DataType) -> Result<Value, OpError> {
+    // Copy `input` to a contiguous owned tensor, then reinterpret its buffer in
+    // place. The copy is the only per-element work required.
+    bit_cast_in_place(input.to_owned_in(pool), dtype)
+}
+
+/// Reinterpret a tensor's bits as another type of the same width, in place.
+///
+/// This supports the same conversions as [`bit_cast`] and returns the same
+/// errors, but reuses the input's buffer instead of copying.
+fn bit_cast_in_place(input: Value, dtype: DataType) -> Result<Value, OpError> {
+    // Transmute the element type of a tensor, reusing the existing buffer
+    // if the data is contiguous.
+    fn bit_cast_tensor<T, U>(input: Tensor<T>) -> Tensor<U>
+    where
+        T: Clone + ToByteArray,
+        U: FromByteArray,
+    {
+        let shape = input.shape().to_vec();
+        // `cast_vec` only fails if the array layouts differ. `T` and `U` have
+        // the same size and alignment for all conversions used here.
+        let data = cast_vec::<T, U>(input.into_data()).unwrap();
+        Tensor::from_data(&shape, data)
+    }
+
+    match (input, dtype) {
+        (Value::FloatTensor(t), DataType::Float) => Ok(t.into()),
+        (Value::FloatTensor(t), DataType::Int32) => Ok(bit_cast_tensor::<f32, i32>(t).into()),
+        (Value::Int32Tensor(t), DataType::Int32) => Ok(t.into()),
+        (Value::Int32Tensor(t), DataType::Float) => Ok(bit_cast_tensor::<i32, f32>(t).into()),
+        (Value::Int8Tensor(t), DataType::Int8) => Ok(t.into()),
+        (Value::Int8Tensor(t), DataType::UInt8) => Ok(bit_cast_tensor::<i8, u8>(t).into()),
+        (Value::UInt8Tensor(t), DataType::UInt8) => Ok(t.into()),
+        (Value::UInt8Tensor(t), DataType::Int8) => Ok(bit_cast_tensor::<u8, i8>(t).into()),
+        (Value::Sequence(_), _) => Err(OpError::UnsupportedType),
+        _ => Err(OpError::UnsupportedValue(
+            "BitCast requires types with the same bit width",
+        )),
+    }
+}
+
+#[derive(Debug)]
+pub struct BitCast {
+    pub to: DataType,
+}
+
+impl Operator for BitCast {
+    fn name(&self) -> &str {
+        "BitCast"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
+        bit_cast(ctx.pool(), input, self.to).into_op_result()
+    }
+
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        // BitCast can run in place if the input and output dtypes have the
+        // same element size, which is also a requirement for the operator to
+        // succeed at all.
+        BitSet::from_indices([0])
+    }
+
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        _ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
+        bit_cast_in_place(input, self.to).into_op_result()
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(ValueType::Tensor(self.to))].into())
     }
 }
 
@@ -227,8 +317,8 @@ mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use super::{Cast, CastLike};
-    use crate::operator::{InputList, OperatorExt};
+    use super::{BitCast, Cast, CastLike};
+    use crate::operator::{InputList, OpError, OperatorExt};
     use crate::value::{DataType, Value, ValueType};
 
     #[test]
@@ -314,6 +404,70 @@ mod tests {
                     .unwrap();
                 assert_eq!(result, case.expected);
             }
+        })
+    }
+
+    #[test]
+    fn test_bit_cast() {
+        #[derive(Debug)]
+        struct Case {
+            input: Value,
+            dtype: DataType,
+            expected: Result<Value, OpError>,
+        }
+
+        let cases = [
+            // f32 -> i32
+            Case {
+                input: Tensor::from([1.0f32, -2.0]).into(),
+                dtype: DataType::Int32,
+                expected: Ok(Tensor::from([0x3f800000i32, -1073741824]).into()),
+            },
+            // i32 -> f32
+            Case {
+                input: Tensor::from([0x3f800000i32]).into(),
+                dtype: DataType::Float,
+                expected: Ok(Tensor::from([1.0f32]).into()),
+            },
+            // i8 -> u8
+            Case {
+                input: Tensor::from([-1i8, 0, 127]).into(),
+                dtype: DataType::UInt8,
+                expected: Ok(Tensor::from([255u8, 0, 127]).into()),
+            },
+            // u8 -> i8
+            Case {
+                input: Tensor::from([255u8]).into(),
+                dtype: DataType::Int8,
+                expected: Ok(Tensor::from([-1i8]).into()),
+            },
+            // No-op cast
+            Case {
+                input: Tensor::from([1.0f32, 2.0]).into(),
+                dtype: DataType::Float,
+                expected: Ok(Tensor::from([1.0f32, 2.0]).into()),
+            },
+            // Different bit widths
+            Case {
+                input: Tensor::from([1.0f32]).into(),
+                dtype: DataType::UInt8,
+                expected: Err(OpError::UnsupportedValue(
+                    "BitCast requires types with the same bit width",
+                )),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = BitCast { to: case.dtype };
+
+            // Copying cast.
+            let result: Result<Value, OpError> = op.run_simple(&case.input);
+            assert_eq!(result, case.expected);
+
+            // In-place cast.
+            let result: Result<Value, OpError> =
+                op.run_simple_in_place(case.input.clone(), InputList::new());
+            assert_eq!(result, case.expected);
         })
     }
 
