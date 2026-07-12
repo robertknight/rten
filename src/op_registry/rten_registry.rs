@@ -236,6 +236,7 @@ impl RtenOpRegistry {
         register_op!(Softmax);
         register_op!(Softplus);
         register_op!(Softsign);
+        register_op!(SpaceToDepth);
         register_op!(Split);
         register_op!(SplitToSequence);
         register_op!(Sqrt);
@@ -1167,6 +1168,15 @@ impl_read_op!(
 );
 impl_read_op!(Softplus);
 impl_read_op!(Softsign);
+impl_read_op!(
+    SpaceToDepth,
+    attrs_as_space_to_depth_attrs,
+    |attrs: sg::SpaceToDepthAttrs| {
+        Ok(ops::SpaceToDepth {
+            block_size: attrs.block_size(),
+        })
+    }
+);
 impl_read_op!(Split, attrs_as_split_attrs, |attrs: sg::SplitAttrs| {
     let axis = attrs.axis() as isize;
     let num_outputs = attrs.num_outputs().map(|n| n as u32);

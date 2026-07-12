@@ -88,7 +88,10 @@ pub(crate) use {
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
     grid_sample::GridSample,
     identity::Identity,
-    layout::{DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze},
+    layout::{
+        DepthToSpace, Expand, Flatten, Reshape, Shape, Size, SpaceToDepth, Squeeze, Transpose,
+        Unsqueeze,
+    },
     matmul::{FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat},
     non_max_suppression::NonMaxSuppression,
     norm::{
@@ -152,7 +155,9 @@ pub use conv_transpose::conv_transpose;
 pub use einsum::einsum;
 pub use gather::{gather, gather_elements, gather_nd, scatter_elements, scatter_nd};
 pub use generate::{constant_of_shape, onehot, range};
-pub use layout::{DepthToSpaceMode, depth_to_space, expand, flatten, reshape, squeeze};
+pub use layout::{
+    DepthToSpaceMode, depth_to_space, expand, flatten, reshape, space_to_depth, squeeze,
+};
 pub use matmul::{gemm, matmul};
 pub use non_max_suppression::{BoxOrder, non_max_suppression};
 pub use norm::{

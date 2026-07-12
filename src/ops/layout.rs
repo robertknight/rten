@@ -102,6 +102,149 @@ impl_infer_shapes!(
     }
 );
 
+/// Rearrange blocks of spatial data into depth.
+///
+/// This is the inverse of [`depth_to_space`] with the
+/// [`DepthColumnRow`](DepthToSpaceMode::DepthColumnRow) mode.
+pub fn space_to_depth<T: Clone>(
+    pool: &BufferPool,
+    input: TensorView<T>,
+    block_size: u32,
+) -> Result<Tensor<T>, OpError> {
+    if block_size == 0 {
+        return Err(OpError::InvalidValue("`block_size` must be > 0"));
+    }
+
+    let input = static_dims!(input, 4, "NCHW")?;
+    let [n, c, h, w] = input.shape();
+    let block_size = block_size.as_usize();
+
+    if h % block_size != 0 || w % block_size != 0 {
+        return Err(OpError::InvalidValue(
+            "input height and width must be a multiple of `block_size`",
+        ));
+    }
+
+    let new_h = h / block_size;
+    let new_w = w / block_size;
+    let new_shape = [n, c * block_size * block_size, new_h, new_w];
+
+    if input.is_empty() {
+        return Ok(Tensor::from_data(&new_shape, pool.alloc(0)));
+    }
+
+    // This is equivalent to the reshape + transpose + reshape steps in the
+    // `SpaceToDepth` ONNX spec, but implemented as a direct copy loop where
+    // each output row is written contiguously from a strided read of an
+    // input row.
+    //
+    // See https://onnx.ai/onnx/operators/onnx__SpaceToDepth.html#summary
+    let src = input.to_contiguous_in(pool);
+    let src_data = src.data();
+    let out_len = n * c * h * w;
+    let mut out_data = pool.alloc(out_len);
+    let out_uninit = &mut out_data.spare_capacity_mut()[..out_len];
+
+    if block_size == 2 {
+        // Specialized loop for the common 2x2 block size. Each input row is
+        // read sequentially and de-interleaved into two output rows, which
+        // vectorizes better than a strided gather per output row.
+        //
+        // The output blocks for (by, bx) pairs are `c * new_h * new_w`
+        // element chunks, laid out in the same (n, by, bx) order that the
+        // loop visits them in.
+        let block_len = c * new_h * new_w;
+        let mut rest = &mut *out_uninit;
+        for ni in 0..n {
+            for by in 0..2 {
+                let (block_0, tail) = rest.split_at_mut(block_len);
+                let (block_1, tail) = tail.split_at_mut(block_len);
+                rest = tail;
+                for ch in 0..c {
+                    for hi in 0..new_h {
+                        let row_start = ((ni * c + ch) * h + hi * 2 + by) * w;
+                        let in_row = &src_data[row_start..row_start + w];
+                        let out_off = (ch * new_h + hi) * new_w;
+                        let out_row_0 = &mut block_0[out_off..out_off + new_w];
+                        let out_row_1 = &mut block_1[out_off..out_off + new_w];
+                        for ((pair, out_0), out_1) in in_row
+                            .chunks_exact(2)
+                            .zip(out_row_0.iter_mut())
+                            .zip(out_row_1.iter_mut())
+                        {
+                            out_0.write(pair[0].clone());
+                            out_1.write(pair[1].clone());
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // Generic path: write each output row contiguously from a strided
+        // read of an input row.
+        let mut out_idx = 0;
+        for ni in 0..n {
+            for by in 0..block_size {
+                for bx in 0..block_size {
+                    for ch in 0..c {
+                        for hi in 0..new_h {
+                            let row_start = ((ni * c + ch) * h + hi * block_size + by) * w + bx;
+                            let row =
+                                &src_data[row_start..row_start + (new_w - 1) * block_size + 1];
+                            let out_row = &mut out_uninit[out_idx..out_idx + new_w];
+                            for (wi, out) in out_row.iter_mut().enumerate() {
+                                out.write(row[wi * block_size].clone());
+                            }
+                            out_idx += new_w;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Safety: The loops above wrote all `out_len` elements.
+    unsafe { out_data.set_len(out_len) };
+
+    Ok(Tensor::from_data(&new_shape, out_data))
+}
+
+#[derive(Debug)]
+pub struct SpaceToDepth {
+    pub block_size: u32,
+}
+
+impl Operator for SpaceToDepth {
+    fn name(&self) -> &str {
+        "SpaceToDepth"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        space_to_depth::<f32>(ctx.pool(), input, self.block_size).into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl_infer_shapes!(
+    SpaceToDepth,
+    op,
+    shape_ops::SpaceToDepth {
+        block_size: op.block_size,
+    }
+);
+
 /// Return the tensor shape resulting from broadcasting `input_shape` with `shape`.
 fn expand_output_shape(
     input_shape: &[usize],
@@ -795,7 +938,7 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
-    use super::{DepthToSpaceMode, depth_to_space};
+    use super::{DepthToSpaceMode, depth_to_space, space_to_depth};
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, OperatorExt};
     use crate::ops::layout::{
@@ -803,6 +946,50 @@ mod tests {
         squeeze_in_place, transpose, unsqueeze,
     };
     use crate::value::Value;
+
+    #[test]
+    fn test_space_to_depth() {
+        let pool = BufferPool::new();
+
+        // 1x1x4x4 input with 2x2 blocks.
+        let input = Tensor::from_data(
+            &[1, 1, 4, 4],
+            vec![
+                0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15.,
+            ],
+        );
+        let result = space_to_depth(&pool, input.view(), 2).unwrap();
+        let expected = Tensor::from_data(
+            &[1, 4, 2, 2],
+            vec![
+                0., 2., 8., 10., 1., 3., 9., 11., 4., 6., 12., 14., 5., 7., 13., 15.,
+            ],
+        );
+        expect_equal(&result, &expected).unwrap();
+
+        // DepthToSpace in DCR mode inverts SpaceToDepth.
+        let round_trip =
+            depth_to_space(&pool, result.view(), 2, DepthToSpaceMode::DepthColumnRow).unwrap();
+        expect_equal(&round_trip, &input).unwrap();
+
+        // Block sizes other than 2 use a generic copy loop. Verify via a
+        // round trip.
+        let result = space_to_depth(&pool, input.view(), 4).unwrap();
+        assert_eq!(result.shape(), &[1, 16, 1, 1]);
+        let round_trip =
+            depth_to_space(&pool, result.view(), 4, DepthToSpaceMode::DepthColumnRow).unwrap();
+        expect_equal(&round_trip, &input).unwrap();
+
+        // Spatial dims not divisible by the block size.
+        let input = Tensor::<f32>::zeros(&[1, 1, 3, 4]);
+        let result = space_to_depth(&pool, input.view(), 2);
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue(
+                "input height and width must be a multiple of `block_size`"
+            ))
+        );
+    }
 
     #[test]
     fn test_depth_to_space() {

@@ -347,6 +347,7 @@ pub mod op_types {
     declare_op!(Softmax);
     declare_op!(Softplus);
     declare_op!(Softsign);
+    declare_op!(SpaceToDepth);
     declare_op!(Split);
     declare_op!(SplitToSequence);
     declare_op!(Sqrt);

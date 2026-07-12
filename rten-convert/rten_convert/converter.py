@@ -840,6 +840,10 @@ def op_node_from_onnx_operator(
             attrs = sg.SoftmaxAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", 0)
 
+        case "SpaceToDepth":
+            attrs = sg.SpaceToDepthAttrsT()
+            attrs.blockSize = attr_reader.require_attr("blocksize", "int")
+
         case "Split":
             attrs = sg.SplitAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", 0)

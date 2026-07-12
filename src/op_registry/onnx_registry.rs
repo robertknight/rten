@@ -267,6 +267,7 @@ impl OnnxOpRegistry {
         register_op!(Softmax);
         register_op!(Softplus);
         register_op!(Softsign);
+        register_op!(SpaceToDepth);
         register_op!(Split);
         register_op!(SplitToSequence);
         register_op!(Sqrt);
@@ -1943,6 +1944,10 @@ impl_read_op!(Softmax, |attrs: &Attrs| {
 
 impl_read_op!(Softplus);
 impl_read_op!(Softsign);
+impl_read_op!(SpaceToDepth, |attrs: &Attrs| {
+    let block_size = attrs.require("blocksize")?.cast_int()?;
+    Ok(ops::SpaceToDepth { block_size })
+});
 
 impl_read_op!(Split, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?.unwrap_or(0);
