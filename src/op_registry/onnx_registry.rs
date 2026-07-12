@@ -187,6 +187,7 @@ impl OnnxOpRegistry {
         register_op!(GreaterOrEqual);
         register_op!(GridSample);
         register_op!(GRU);
+        register_op!(HammingWindow);
         register_op!(HannWindow);
         register_op!(Hardmax);
         register_op!(HardSigmoid);
@@ -1268,6 +1269,18 @@ impl_read_op!(GRU, |attrs: &Attrs| {
     })
 });
 
+impl_read_op!(HammingWindow, |attrs: &Attrs| {
+    if let Some(dtype) = attrs.get("output_datatype")
+        && dtype.as_dtype()? != DataType::Float
+    {
+        return Err(ReadOpError::attr_error(
+            "output_datatype",
+            "only float output is supported",
+        ));
+    }
+    let periodic = attrs.get_as("periodic").unwrap_or(true);
+    Ok(ops::HammingWindow { periodic })
+});
 impl_read_op!(HannWindow, |attrs: &Attrs| {
     if let Some(dtype) = attrs.get("output_datatype")
         && dtype.as_dtype()? != DataType::Float

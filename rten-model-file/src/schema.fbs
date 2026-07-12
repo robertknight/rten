@@ -178,6 +178,7 @@ enum OperatorType: ubyte {
   Compress,
   Bernoulli,
   HannWindow,
+  HammingWindow,
 }
 
 enum RNNDirection: ubyte {
@@ -499,6 +500,7 @@ table GRUAttrs {
   linear_before_reset:bool;
 }
 
+// Also used for HammingWindow
 table HannWindowAttrs {
   periodic:bool = true;
 }

@@ -256,6 +256,42 @@ fn window_size(size: i32) -> Result<usize, OpError> {
 }
 
 #[derive(Debug)]
+pub struct HammingWindow {
+    pub periodic: bool,
+}
+
+impl Operator for HammingWindow {
+    fn name(&self) -> &str {
+        "HammingWindow"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let size: i32 = ctx.inputs().require_as(0)?;
+        // The ONNX spec uses coefficients 25/46 and 21/46, unlike the
+        // traditional Hamming window's 0.54 and 0.46.
+        cosine_window(
+            window_size(size)?,
+            self.periodic,
+            [25. / 46., 21. / 46., 0.],
+        )
+        .into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // The output shape depends on the value of the `size` input.
+        None
+    }
+}
+
+#[derive(Debug)]
 pub struct HannWindow {
     pub periodic: bool,
 }
@@ -363,8 +399,36 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::operator::{OpError, OperatorExt};
-    use crate::ops::{ConstantOfShape, EyeLike, HannWindow, OneHot, range};
+    use crate::ops::{ConstantOfShape, EyeLike, HammingWindow, HannWindow, OneHot, range};
     use crate::value::{DataType, Scalar, Value};
+
+    #[test]
+    fn test_hamming_window() {
+        let a0 = 25. / 46.;
+        let a1 = 21. / 46.;
+
+        // Periodic window of size 4: cos values are [1, 0, -1, 0].
+        let op = HammingWindow { periodic: true };
+        let result: Tensor<f32> = op.run_simple(&Tensor::from(4)).unwrap();
+        let expected = Tensor::from([a0 - a1, a0, a0 + a1, a0]);
+        assert!(
+            result
+                .iter()
+                .zip(expected.iter())
+                .all(|(a, b)| (a - b).abs() < 1e-6)
+        );
+
+        // Symmetric window of size 5.
+        let op = HammingWindow { periodic: false };
+        let result: Tensor<f32> = op.run_simple(&Tensor::from(5)).unwrap();
+        let expected = Tensor::from([a0 - a1, a0, a0 + a1, a0, a0 - a1]);
+        assert!(
+            result
+                .iter()
+                .zip(expected.iter())
+                .all(|(a, b)| (a - b).abs() < 1e-6)
+        );
+    }
 
     #[test]
     fn test_hann_window() {

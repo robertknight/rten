@@ -172,6 +172,7 @@ class OperatorType(object):
     Compress = 162
     Bernoulli = 163
     HannWindow = 164
+    HammingWindow = 165
 
 
 class RNNDirection(object):
