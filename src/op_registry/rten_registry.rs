@@ -126,6 +126,7 @@ impl RtenOpRegistry {
         register_op!(ConvTranspose);
         register_op!(Cos);
         register_op!(Cosh);
+        register_op!(CumProd);
         register_op!(CumSum);
         register_op!(DFT, feature = "fft");
         register_op!(DequantizeLinear);
@@ -585,6 +586,7 @@ impl_read_op!(
 );
 impl_read_op!(Cos);
 impl_read_op!(Cosh);
+impl_read_op!(CumProd);
 
 impl ReadOp for ops::CumSum {
     fn op_type() -> sg::OperatorType {
