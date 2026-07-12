@@ -412,6 +412,12 @@ def op_node_from_onnx_operator(
             # `spatial` was removed in opset 9.
             attr_reader.check_attr("spatial", "int", 1)
 
+        case "BitShift":
+            attrs = sg.BitShiftAttrsT()
+            attrs.direction = attr_reader.get_enum_attr(
+                "direction", sg.BitShiftDirection, "LEFT"
+            )
+
         case "Cast":
             attrs = sg.CastAttrsT()
             to = attr_reader.get_attr(
