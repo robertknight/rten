@@ -246,6 +246,19 @@ impl_operator!(Ceil, [FloatTensor]);
 impl_operator_fn!(Ceil, ceil, cfg_test);
 impl_get_kernel!(Ceil, f32, |val: f32| val.ceil());
 
+#[derive(Debug)]
+pub struct Celu {
+    pub alpha: f32,
+}
+
+impl_operator!(Celu, [FloatTensor]);
+
+impl GetKernel<f32> for Celu {
+    fn get_kernel(&self) -> impl UnaryKernel<f32> + Send + Sync {
+        SimdKernel(vecmath::Celu { alpha: self.alpha })
+    }
+}
+
 /// Numeric value with a finite minimum and maximum and operations to clamp
 /// values.
 pub trait Clamp: Copy + PartialOrd {
@@ -795,8 +808,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Cos, Cosh, Elu, Exp, Gelu, IsInf, IsNaN, Log,
-        Mish, Neg, Not, PRelu, Reciprocal, Relu, Sigmoid, Sign, Silu, Sin, Sinh, Softplus,
+        Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Celu, Cos, Cosh, Elu, Exp, Gelu, IsInf, IsNaN,
+        Log, Mish, Neg, Not, PRelu, Reciprocal, Relu, Sigmoid, Sign, Silu, Sin, Sinh, Softplus,
         Softsign, Sqrt, Swish, Tan, Tanh, ThresholdedRelu, ceil, clip, clip_in_place, erf, floor,
         hard_sigmoid, hard_swish, leaky_relu, round,
     };
@@ -985,6 +998,12 @@ mod tests {
         })
     }
 
+    test_unary_op!(
+        test_celu,
+        Celu { alpha: 2.0 },
+        |&x: &f32| x.max(0.) + (2.0 * ((x / 2.0).exp() - 1.)).min(0.),
+        Tensor::from([-5., -1., 0., 0.5, 3.])
+    );
     test_unary_op!(test_cos, Cos {}, |x: &f32| x.cos());
     test_unary_op!(test_cosh, Cosh {}, |x: &f32| x.cosh());
 
