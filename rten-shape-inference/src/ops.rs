@@ -34,7 +34,8 @@ pub use einsum::Einsum;
 pub use fft::{DFT, STFT};
 pub use generate::OneHot;
 pub use layout::{
-    DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
+    DepthToSpace, Expand, Flatten, Reshape, Shape, Size, SpaceToDepth, Squeeze, Transpose,
+    Unsqueeze,
 };
 pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use pad::Pad;

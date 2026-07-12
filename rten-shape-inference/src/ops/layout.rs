@@ -369,6 +369,52 @@ impl InferShapes for DepthToSpace {
     }
 }
 
+/// SpaceToDepth operator.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__SpaceToDepth.html>.
+pub struct SpaceToDepth {
+    pub block_size: u32,
+}
+
+impl InferShapes for SpaceToDepth {
+    fn infer_shapes(
+        &self,
+        inputs: InferShapesContext,
+        _sym_gen: &mut SymbolGen,
+    ) -> Result<Vec<SymTensor>, InferShapesError> {
+        let data = inputs.require(0)?;
+
+        let Some(dims) = data.shape() else {
+            return Ok([SymTensor::unknown("unknown input shape")].into());
+        };
+
+        let dims: Vec<_> = dims.collect();
+        let [n, c, h, w]: &[SymExpr; 4] = dims
+            .as_slice()
+            .try_into()
+            .map_err(|_| InferShapesError::IncorrectRank)?;
+
+        // Compute `block_size ^ 2` channel multiplier, reject if it can't fit
+        // in a `SymExpr` value.
+        let block_sq = self
+            .block_size
+            .checked_mul(self.block_size)
+            .and_then(|sq| i32::try_from(sq).ok())
+            .ok_or(InferShapesError::InvalidValue)?;
+        let block_size = SymExpr::Value(self.block_size as i32);
+        let block_sq = SymExpr::Value(block_sq);
+
+        let out_shape = vec![
+            n.clone(),
+            c.clone() * block_sq,
+            h.clone() / block_size.clone(),
+            w.clone() / block_size,
+        ];
+
+        Ok([SymTensor::from_shape(out_shape)].into())
+    }
+}
+
 /// Squeeze operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Squeeze.html>.
