@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 141;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 142;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 142] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 143] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -160,6 +160,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 142] = [
     OperatorType::Upsample,
     OperatorType::RotaryEmbedding,
     OperatorType::Attention,
+    OperatorType::Softsign,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -309,9 +310,10 @@ impl OperatorType {
     pub const Upsample: Self = Self(139);
     pub const RotaryEmbedding: Self = Self(140);
     pub const Attention: Self = Self(141);
+    pub const Softsign: Self = Self(142);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 141;
+    pub const ENUM_MAX: u8 = 142;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -455,6 +457,7 @@ impl OperatorType {
         Self::Upsample,
         Self::RotaryEmbedding,
         Self::Attention,
+        Self::Softsign,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -601,6 +604,7 @@ impl OperatorType {
             Self::Upsample => Some("Upsample"),
             Self::RotaryEmbedding => Some("RotaryEmbedding"),
             Self::Attention => Some("Attention"),
+            Self::Softsign => Some("Softsign"),
             _ => None,
         }
     }

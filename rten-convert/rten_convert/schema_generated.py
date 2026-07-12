@@ -149,6 +149,7 @@ class OperatorType(object):
     Upsample = 139
     RotaryEmbedding = 140
     Attention = 141
+    Softsign = 142
 
 
 class RNNDirection(object):

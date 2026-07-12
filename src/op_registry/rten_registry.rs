@@ -218,6 +218,7 @@ impl RtenOpRegistry {
         register_op!(Slice);
         register_op!(Softmax);
         register_op!(Softplus);
+        register_op!(Softsign);
         register_op!(Split);
         register_op!(SplitToSequence);
         register_op!(Sqrt);
@@ -1077,6 +1078,7 @@ impl_read_op!(
     }
 );
 impl_read_op!(Softplus);
+impl_read_op!(Softsign);
 impl_read_op!(Split, attrs_as_split_attrs, |attrs: sg::SplitAttrs| {
     let axis = attrs.axis() as isize;
     let num_outputs = attrs.num_outputs().map(|n| n as u32);

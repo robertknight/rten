@@ -114,7 +114,7 @@ pub(crate) use {
     unary_elementwise::{
         Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Ceil, Clip, Cos, Cosh, Elu, Erf, Exp, Floor,
         Gelu, HardSigmoid, HardSwish, IsInf, IsNaN, LeakyRelu, Log, Neg, Not, PRelu, Reciprocal,
-        Relu, Round, Sigmoid, Sign, Silu, Sin, Sinh, Softplus, Sqrt, Swish, Tan, Tanh,
+        Relu, Round, Sigmoid, Sign, Silu, Sin, Sinh, Softplus, Softsign, Sqrt, Swish, Tan, Tanh,
     },
     variadic_elementwise::{Max, Mean, Min, Sum},
 };

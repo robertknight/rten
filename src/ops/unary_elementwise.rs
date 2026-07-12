@@ -748,6 +748,10 @@ declare_operator!(Softplus);
 impl_operator!(Softplus, [FloatTensor]);
 impl_get_kernel!(Softplus, f32, |val: f32| val.exp().ln_1p());
 
+declare_operator!(Softsign);
+impl_operator!(Softsign, [FloatTensor]);
+impl_get_kernel!(Softsign, f32, |val: f32| val / (1. + val.abs()));
+
 declare_operator!(Tan);
 impl_operator!(Tan, [FloatTensor]);
 impl_get_kernel!(Tan, f32, |val: f32| val.tan());
@@ -775,9 +779,9 @@ mod tests {
 
     use super::{
         Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Cos, Cosh, Elu, Exp, Gelu, IsInf, IsNaN, Log,
-        Neg, Not, PRelu, Reciprocal, Relu, Sigmoid, Sign, Silu, Sin, Sinh, Softplus, Sqrt, Swish,
-        Tan, Tanh, ceil, clip, clip_in_place, erf, floor, hard_sigmoid, hard_swish, leaky_relu,
-        round,
+        Neg, Not, PRelu, Reciprocal, Relu, Sigmoid, Sign, Silu, Sin, Sinh, Softplus, Softsign,
+        Sqrt, Swish, Tan, Tanh, ceil, clip, clip_in_place, erf, floor, hard_sigmoid, hard_swish,
+        leaky_relu, round,
     };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, Operator, OperatorExt};
@@ -1202,6 +1206,7 @@ mod tests {
     test_unary_op!(test_sin, Sin {}, |x: &f32| x.sin());
     test_unary_op!(test_sinh, Sinh {}, |x: &f32| x.sinh());
     test_unary_op!(test_softplus, Softplus {}, |x: &f32| { x.exp().ln_1p() });
+    test_unary_op!(test_softsign, Softsign {}, |x: &f32| x / (1. + x.abs()));
     test_unary_op!(
         test_sqrt,
         Sqrt {},
