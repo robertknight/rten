@@ -169,6 +169,7 @@ class OperatorType(object):
     MeanVarianceNormalization = 159
     Hardmax = 160
     SpaceToDepth = 161
+    Compress = 162
 
 
 class RNNDirection(object):
@@ -277,6 +278,7 @@ class OperatorAttrs(object):
     LpNormalizationAttrs = 65
     MeanVarianceNormalizationAttrs = 66
     SpaceToDepthAttrs = 67
+    CompressAttrs = 68
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -416,6 +418,8 @@ def OperatorAttrsCreator(unionType, table):
         return MeanVarianceNormalizationAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.SpaceToDepthAttrs:
         return SpaceToDepthAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.CompressAttrs:
+        return CompressAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -1185,6 +1189,90 @@ class CastLikeAttrsT(object):
         CastLikeAttrsStart(builder)
         castLikeAttrs = CastLikeAttrsEnd(builder)
         return castLikeAttrs
+
+
+class CompressAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = CompressAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsCompressAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def CompressAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # CompressAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # CompressAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return None
+
+def CompressAttrsStart(builder):
+    builder.StartObject(1)
+
+def CompressAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, None)
+
+def CompressAttrsEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import Optional
+except:
+    pass
+
+class CompressAttrsT(object):
+
+    # CompressAttrsT
+    def __init__(
+        self,
+        axis = None,
+    ):
+        self.axis = axis  # type: Optional[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        compressAttrs = CompressAttrs()
+        compressAttrs.Init(buf, pos)
+        return cls.InitFromObj(compressAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, compressAttrs):
+        x = CompressAttrsT()
+        x._UnPack(compressAttrs)
+        return x
+
+    # CompressAttrsT
+    def _UnPack(self, compressAttrs):
+        if compressAttrs is None:
+            return
+        self.axis = compressAttrs.Axis()
+
+    # CompressAttrsT
+    def Pack(self, builder):
+        CompressAttrsStart(builder)
+        CompressAttrsAddAxis(builder, self.axis)
+        compressAttrs = CompressAttrsEnd(builder)
+        return compressAttrs
 
 
 class ConcatAttrs(object):
@@ -7818,7 +7906,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT', 'BitShiftAttrsT', 'GlobalLpPoolAttrsT', 'LpNormalizationAttrsT', 'MeanVarianceNormalizationAttrsT', 'SpaceToDepthAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT', 'BitShiftAttrsT', 'GlobalLpPoolAttrsT', 'LpNormalizationAttrsT', 'MeanVarianceNormalizationAttrsT', 'SpaceToDepthAttrsT', 'CompressAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 

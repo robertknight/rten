@@ -148,6 +148,7 @@ impl OnnxOpRegistry {
         register_op!(Ceil);
         register_op!(Celu);
         register_op!(Clip);
+        register_op!(Compress);
         register_op!(Concat);
         register_op!(ConcatFromSequence);
         register_op!(Conv);
@@ -894,6 +895,10 @@ impl_read_op!(Clip, |attrs: &Attrs| {
     Ok(ParsedOp::new(ops::Clip {}).with_inputs(const_inputs))
 });
 
+impl_read_op!(Compress, |attrs: &Attrs| {
+    let axis: Option<isize> = attrs.get_as_int("axis")?;
+    Ok(ops::Compress { axis })
+});
 impl_read_op!(Concat, |attrs: &Attrs| {
     let axis = attrs.require("axis")?.cast_int()?;
     Ok(ops::Concat { axis })

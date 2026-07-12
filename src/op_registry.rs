@@ -233,6 +233,7 @@ pub mod op_types {
     declare_op!(Ceil);
     declare_op!(Celu);
     declare_op!(Clip);
+    declare_op!(Compress);
     declare_op!(Concat);
     declare_op!(ConcatFromSequence);
     declare_op!(Conv);

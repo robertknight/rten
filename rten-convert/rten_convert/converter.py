@@ -417,6 +417,10 @@ def op_node_from_onnx_operator(
             attr_reader.generate_input_from_attr(1, "min", "float")
             attr_reader.generate_input_from_attr(2, "max", "float")
 
+        case "Compress":
+            attrs = sg.CompressAttrsT()
+            attrs.axis = attr_reader.get_attr("axis", "int", None)
+
         case "Concat":
             attrs = sg.ConcatAttrsT()
             attrs.axis = attr_reader.require_attr("axis", "int")

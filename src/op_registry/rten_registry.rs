@@ -118,6 +118,7 @@ impl RtenOpRegistry {
         register_op!(Ceil);
         register_op!(Celu);
         register_op!(Clip);
+        register_op!(Compress);
         register_op!(Concat);
         register_op!(ConcatFromSequence);
         register_op!(Conv);
@@ -521,6 +522,15 @@ impl_read_op!(Celu, attrs_as_elu_attrs, |attrs: sg::EluAttrs| {
     })
 });
 impl_read_op!(Clip);
+impl_read_op!(
+    Compress,
+    attrs_as_compress_attrs,
+    |attrs: sg::CompressAttrs| {
+        Ok(ops::Compress {
+            axis: attrs.axis().map(|axis| axis as isize),
+        })
+    }
+);
 impl_read_op!(Concat, attrs_as_concat_attrs, axis);
 impl_read_op!(
     ConcatFromSequence,

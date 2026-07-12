@@ -21,6 +21,85 @@ use crate::value::{Value, ValueView};
 
 const INVALID_INDEX_ERR: OpError = OpError::InvalidValue("Entry in `indices` is out of range");
 
+/// Select elements or slices of `input` for which `condition` is true.
+///
+/// If `axis` is given, slices along that axis are selected, otherwise the
+/// input is flattened and individual elements are selected. `condition` may
+/// be shorter than the size of the selected axis.
+pub fn compress<T: Copy + Default>(
+    pool: &BufferPool,
+    input: TensorView<T>,
+    condition: NdTensorView<i32, 1>,
+    axis: Option<isize>,
+) -> Result<Tensor<T>, OpError> {
+    match axis {
+        Some(axis) => {
+            let resolved_axis = resolve_axis(input.ndim(), axis)?;
+            if condition.size(0) > input.size(resolved_axis) {
+                return Err(OpError::InvalidValue(
+                    "`condition` is longer than the selected axis",
+                ));
+            }
+            let indices: Tensor<i32> = condition
+                .iter()
+                .enumerate()
+                .filter(|(_i, c)| **c != 0)
+                .map(|(i, _c)| i as i32)
+                .collect();
+            gather(pool, input, axis, indices.view())
+        }
+        None => {
+            if condition.size(0) > input.len() {
+                return Err(OpError::InvalidValue(
+                    "`condition` is longer than the flattened input",
+                ));
+            }
+            let data: Vec<T> = input
+                .iter()
+                .zip(condition.iter())
+                .filter(|(_x, c)| **c != 0)
+                .map(|(x, _c)| *x)
+                .collect();
+            let len = data.len();
+            Ok(Tensor::from_data(&[len], data))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Compress {
+    pub axis: Option<isize>,
+}
+
+impl Operator for Compress {
+    fn name(&self) -> &str {
+        "Compress"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let input = inputs.require(0)?;
+        let condition: NdTensorView<i32, 1> = inputs.require_as(1)?;
+        map_value_view!(input, input, {
+            compress(ctx.pool(), input, condition, self.axis).into_op_result()
+        })
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // The output shape depends on the number of true values in the
+        // `condition` input, so it cannot be inferred from input shapes.
+        None
+    }
+}
+
 /// Trait for random-access to 1D slices.
 trait GetItem {
     type Item;
@@ -864,9 +943,40 @@ mod tests {
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, OperatorExt};
     use crate::ops::{
-        ReverseSequence, ScatterReduction, gather, gather_elements, gather_nd, scatter_elements,
-        scatter_nd,
+        ReverseSequence, ScatterReduction, compress, gather, gather_elements, gather_nd,
+        scatter_elements, scatter_nd,
     };
+
+    #[test]
+    fn test_compress() {
+        let pool = BufferPool::new();
+        let input = Tensor::from([[1., 2.], [3., 4.], [5., 6.]]);
+
+        // Select rows (axis 0). `condition` is shorter than the axis.
+        let condition = Tensor::from([0, 1]);
+        let result = compress(&pool, input.view(), condition.nd_view::<1>(), Some(0)).unwrap();
+        assert_eq!(result, Tensor::from([[3., 4.]]));
+
+        // Select columns (axis -1).
+        let condition = Tensor::from([1, 0]);
+        let result = compress(&pool, input.view(), condition.nd_view::<1>(), Some(-1)).unwrap();
+        assert_eq!(result, Tensor::from([[1.], [3.], [5.]]));
+
+        // Flattened selection (no axis).
+        let condition = Tensor::from([0, 1, 1, 0, 1]);
+        let result = compress(&pool, input.view(), condition.nd_view::<1>(), None).unwrap();
+        assert_eq!(result, Tensor::from([2., 3., 5.]));
+
+        // Condition longer than the selected axis.
+        let condition = Tensor::from([1, 1, 1, 1]);
+        let result = compress(&pool, input.view(), condition.nd_view::<1>(), Some(0));
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue(
+                "`condition` is longer than the selected axis"
+            ))
+        );
+    }
 
     #[test]
     fn test_gather_scalar_index() {

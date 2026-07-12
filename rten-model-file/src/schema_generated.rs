@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 161;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 162;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 162] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 163] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -180,6 +180,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 162] = [
     OperatorType::MeanVarianceNormalization,
     OperatorType::Hardmax,
     OperatorType::SpaceToDepth,
+    OperatorType::Compress,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -349,9 +350,10 @@ impl OperatorType {
     pub const MeanVarianceNormalization: Self = Self(159);
     pub const Hardmax: Self = Self(160);
     pub const SpaceToDepth: Self = Self(161);
+    pub const Compress: Self = Self(162);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 161;
+    pub const ENUM_MAX: u8 = 162;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -515,6 +517,7 @@ impl OperatorType {
         Self::MeanVarianceNormalization,
         Self::Hardmax,
         Self::SpaceToDepth,
+        Self::Compress,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -681,6 +684,7 @@ impl OperatorType {
             Self::MeanVarianceNormalization => Some("MeanVarianceNormalization"),
             Self::Hardmax => Some("Hardmax"),
             Self::SpaceToDepth => Some("SpaceToDepth"),
+            Self::Compress => Some("Compress"),
             _ => None,
         }
     }
@@ -1316,13 +1320,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 67;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 68;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 68] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 69] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1391,6 +1395,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 68] = [
     OperatorAttrs::LpNormalizationAttrs,
     OperatorAttrs::MeanVarianceNormalizationAttrs,
     OperatorAttrs::SpaceToDepthAttrs,
+    OperatorAttrs::CompressAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1466,9 +1471,10 @@ impl OperatorAttrs {
     pub const LpNormalizationAttrs: Self = Self(65);
     pub const MeanVarianceNormalizationAttrs: Self = Self(66);
     pub const SpaceToDepthAttrs: Self = Self(67);
+    pub const CompressAttrs: Self = Self(68);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 67;
+    pub const ENUM_MAX: u8 = 68;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1538,6 +1544,7 @@ impl OperatorAttrs {
         Self::LpNormalizationAttrs,
         Self::MeanVarianceNormalizationAttrs,
         Self::SpaceToDepthAttrs,
+        Self::CompressAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1610,6 +1617,7 @@ impl OperatorAttrs {
             Self::LpNormalizationAttrs => Some("LpNormalizationAttrs"),
             Self::MeanVarianceNormalizationAttrs => Some("MeanVarianceNormalizationAttrs"),
             Self::SpaceToDepthAttrs => Some("SpaceToDepthAttrs"),
+            Self::CompressAttrs => Some("CompressAttrs"),
             _ => None,
         }
     }
@@ -3424,6 +3432,112 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> CastLikeAttrsBuilder<'a, 'b, 
 impl ::core::fmt::Debug for CastLikeAttrs<'_> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         let mut ds = f.debug_struct("CastLikeAttrs");
+        ds.finish()
+    }
+}
+pub enum CompressAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct CompressAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for CompressAttrs<'a> {
+    type Inner = CompressAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> CompressAttrs<'a> {
+    pub const VT_AXIS: ::flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        CompressAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args CompressAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<CompressAttrs<'bldr>> {
+        let mut builder = CompressAttrsBuilder::new(_fbb);
+        if let Some(x) = args.axis {
+            builder.add_axis(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axis(&self) -> Option<i32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<i32>(CompressAttrs::VT_AXIS, None) }
+    }
+}
+
+impl ::flatbuffers::Verifiable for CompressAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<i32>("axis", Self::VT_AXIS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct CompressAttrsArgs {
+    pub axis: Option<i32>,
+}
+impl<'a> Default for CompressAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        CompressAttrsArgs { axis: None }
+    }
+}
+
+pub struct CompressAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> CompressAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_axis(&mut self, axis: i32) {
+        self.fbb_
+            .push_slot_always::<i32>(CompressAttrs::VT_AXIS, axis);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> CompressAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        CompressAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<CompressAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for CompressAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("CompressAttrs");
+        ds.field("axis", &self.axis());
         ds.finish()
     }
 }
@@ -12877,6 +12991,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_compress_attrs(&self) -> Option<CompressAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::CompressAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { CompressAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -12956,6 +13085,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::LpNormalizationAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<LpNormalizationAttrs>>("OperatorAttrs::LpNormalizationAttrs", pos),
           OperatorAttrs::MeanVarianceNormalizationAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<MeanVarianceNormalizationAttrs>>("OperatorAttrs::MeanVarianceNormalizationAttrs", pos),
           OperatorAttrs::SpaceToDepthAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<SpaceToDepthAttrs>>("OperatorAttrs::SpaceToDepthAttrs", pos),
+          OperatorAttrs::CompressAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<CompressAttrs>>("OperatorAttrs::CompressAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -13706,6 +13836,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::SpaceToDepthAttrs => {
                 if let Some(x) = self.attrs_as_space_to_depth_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::CompressAttrs => {
+                if let Some(x) = self.attrs_as_compress_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

@@ -82,8 +82,8 @@ pub(crate) use {
     einsum::Einsum,
     embedding::RotaryEmbedding,
     gather::{
-        Gather, GatherElements, GatherND, ReverseSequence, Scatter, ScatterElements, ScatterND,
-        ScatterReduction,
+        Compress, Gather, GatherElements, GatherND, ReverseSequence, Scatter, ScatterElements,
+        ScatterND, ScatterReduction,
     },
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
     grid_sample::GridSample,
@@ -153,7 +153,7 @@ pub use concat::{concat, tile};
 pub use conv::{conv, conv_integer};
 pub use conv_transpose::conv_transpose;
 pub use einsum::einsum;
-pub use gather::{gather, gather_elements, gather_nd, scatter_elements, scatter_nd};
+pub use gather::{compress, gather, gather_elements, gather_nd, scatter_elements, scatter_nd};
 pub use generate::{constant_of_shape, onehot, range};
 pub use layout::{
     DepthToSpaceMode, depth_to_space, expand, flatten, reshape, space_to_depth, squeeze,
