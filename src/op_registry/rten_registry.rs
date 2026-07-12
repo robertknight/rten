@@ -208,6 +208,7 @@ impl RtenOpRegistry {
         register_op!(Scatter);
         register_op!(ScatterElements);
         register_op!(ScatterND);
+        register_op!(Selu);
         register_op!(SequenceAt);
         register_op!(SequenceEmpty);
         register_op!(SequenceErase);
@@ -1102,6 +1103,12 @@ impl ReadOp for ops::Shape {
     }
 }
 
+impl_read_op!(Selu, attrs_as_selu_attrs, |attrs: sg::SeluAttrs| {
+    Ok(ops::Selu {
+        alpha: attrs.alpha(),
+        gamma: attrs.gamma(),
+    })
+});
 impl_read_op!(Sigmoid);
 impl_read_op!(Sign);
 impl_read_op!(Sin);

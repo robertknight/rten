@@ -162,6 +162,7 @@ enum OperatorType: ubyte {
   Mish,
   ThresholdedRelu,
   Celu,
+  Selu,
 }
 
 enum RNNDirection: ubyte {
@@ -276,6 +277,7 @@ union OperatorAttrs {
   AttentionAttrs,
   CumSumAttrs,
   LpNormalizationAttrs,
+  SeluAttrs,
 }
 
 table ArgMaxAttrs {
@@ -633,6 +635,11 @@ table ReverseSequenceAttrs {
 table DFTAttrs {
   inverse:bool = false;
   onesided:bool = false;
+}
+
+table SeluAttrs {
+  alpha:float = 1.6732632;
+  gamma:float = 1.0507009;
 }
 
 table TopKAttrs {
