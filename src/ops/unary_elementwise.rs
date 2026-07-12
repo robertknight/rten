@@ -241,6 +241,15 @@ declare_operator!(Atanh);
 impl_operator!(Atanh, [FloatTensor]);
 impl_get_kernel!(Atanh, f32, |val: f32| val.atanh());
 
+declare_operator!(BitwiseNot);
+impl_operator!(BitwiseNot, [Int32Tensor, Int8Tensor, UInt8Tensor]);
+
+impl<T: Copy + std::ops::Not<Output = T>> GetKernel<T> for BitwiseNot {
+    fn get_kernel(&self) -> impl UnaryKernel<T> + Send + Sync {
+        |val: T| !val
+    }
+}
+
 declare_operator!(Ceil);
 impl_operator!(Ceil, [FloatTensor]);
 impl_operator_fn!(Ceil, ceil, cfg_test);
@@ -842,10 +851,10 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Celu, Cos, Cosh, Elu, Exp, Gelu, IsInf, IsNaN,
-        Log, Mish, Neg, Not, PRelu, Reciprocal, Relu, Selu, Shrink, Sigmoid, Sign, Silu, Sin, Sinh,
-        Softplus, Softsign, Sqrt, Swish, Tan, Tanh, ThresholdedRelu, ceil, clip, clip_in_place,
-        erf, floor, hard_sigmoid, hard_swish, leaky_relu, round,
+        Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, BitwiseNot, Celu, Cos, Cosh, Elu, Exp, Gelu,
+        IsInf, IsNaN, Log, Mish, Neg, Not, PRelu, Reciprocal, Relu, Selu, Shrink, Sigmoid, Sign,
+        Silu, Sin, Sinh, Softplus, Softsign, Sqrt, Swish, Tan, Tanh, ThresholdedRelu, ceil, clip,
+        clip_in_place, erf, floor, hard_sigmoid, hard_swish, leaky_relu, round,
     };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, Operator, OperatorExt};
@@ -961,6 +970,12 @@ mod tests {
         Tensor::from([1.0, 1.5, 2.0, 5.0, 100.0])
     );
     test_unary_op!(test_asinh, Asinh {}, |x: &f32| x.asinh());
+    test_unary_op!(
+        test_bitwise_not,
+        BitwiseNot {},
+        |&x: &i32| !x,
+        Tensor::from([0, 1, -1, 0x00ff00ff, i32::MIN, i32::MAX])
+    );
     test_unary_op!(test_atanh, Atanh {}, |x: &f32| x.atanh());
 
     #[test]

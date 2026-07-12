@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 147;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 148;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 148] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 149] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -166,6 +166,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 148] = [
     OperatorType::Celu,
     OperatorType::Selu,
     OperatorType::Shrink,
+    OperatorType::BitwiseNot,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -321,9 +322,10 @@ impl OperatorType {
     pub const Celu: Self = Self(145);
     pub const Selu: Self = Self(146);
     pub const Shrink: Self = Self(147);
+    pub const BitwiseNot: Self = Self(148);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 147;
+    pub const ENUM_MAX: u8 = 148;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -473,6 +475,7 @@ impl OperatorType {
         Self::Celu,
         Self::Selu,
         Self::Shrink,
+        Self::BitwiseNot,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -625,6 +628,7 @@ impl OperatorType {
             Self::Celu => Some("Celu"),
             Self::Selu => Some("Selu"),
             Self::Shrink => Some("Shrink"),
+            Self::BitwiseNot => Some("BitwiseNot"),
             _ => None,
         }
     }

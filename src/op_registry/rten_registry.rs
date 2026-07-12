@@ -107,6 +107,7 @@ impl RtenOpRegistry {
         register_op!(Attention);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
+        register_op!(BitwiseNot);
         register_op!(Cast);
         register_op!(CastLike);
         register_op!(Ceil);
@@ -478,6 +479,7 @@ impl_read_op!(
     attrs_as_cast_like_attrs,
     |_attrs: sg::CastLikeAttrs| { Ok(ops::CastLike {}) }
 );
+impl_read_op!(BitwiseNot);
 impl_read_op!(Ceil);
 impl_read_op!(Celu, attrs_as_elu_attrs, |attrs: sg::EluAttrs| {
     Ok(ops::Celu {
