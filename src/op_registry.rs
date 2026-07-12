@@ -320,6 +320,7 @@ pub mod op_types {
     declare_op!(Scatter);
     declare_op!(ScatterElements);
     declare_op!(ScatterND);
+    declare_op!(Selu);
     declare_op!(SequenceAt);
     declare_op!(SequenceEmpty);
     declare_op!(SequenceErase);
