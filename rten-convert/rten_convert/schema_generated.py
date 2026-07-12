@@ -163,6 +163,7 @@ class OperatorType(object):
     BitwiseOr = 153
     BitwiseXor = 154
     BitShift = 155
+    BitCast = 156
 
 
 class RNNDirection(object):
