@@ -140,6 +140,7 @@ impl OnnxOpRegistry {
         register_op!(BitwiseAnd);
         register_op!(BitwiseNot);
         register_op!(BitwiseOr);
+        register_op!(BitwiseXor);
         register_op!(Cast);
         register_op!(CastLike);
         register_op!(Ceil);
@@ -849,6 +850,7 @@ impl_read_op!(CastLike);
 impl_read_op!(BitwiseAnd);
 impl_read_op!(BitwiseNot);
 impl_read_op!(BitwiseOr);
+impl_read_op!(BitwiseXor);
 impl_read_op!(Ceil);
 impl_read_op!(Celu, |attrs: &Attrs| {
     let alpha = attrs.get_as("alpha").unwrap_or(1.0);

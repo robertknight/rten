@@ -70,8 +70,8 @@ pub(crate) use random::{
 pub(crate) use {
     attention::{AddSoftmax, Attention, GroupedQueryAttentionMatMul, RepeatInterleave},
     binary_elementwise::{
-        Add, And, BitwiseAnd, BitwiseOr, Div, Equal, Greater, GreaterOrEqual, Less, LessOrEqual,
-        Mod, Mul, Or, Pow, Sub, Where, Xor,
+        Add, And, BitwiseAnd, BitwiseOr, BitwiseXor, Div, Equal, Greater, GreaterOrEqual, Less,
+        LessOrEqual, Mod, Mul, Or, Pow, Sub, Where, Xor,
     },
     compute_shape::{ComputeShape, SymbolInfo},
     concat::{Concat, Tile},

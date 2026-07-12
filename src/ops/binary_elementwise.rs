@@ -655,6 +655,7 @@ macro_rules! bitwise_binary_op {
 
 bitwise_binary_op!(BitwiseAnd, |x, y| x & y);
 bitwise_binary_op!(BitwiseOr, |x, y| x | y);
+bitwise_binary_op!(BitwiseXor, |x, y| x ^ y);
 
 /// Check the RHS input of a Div / Mod op for zeros.
 ///
@@ -1350,8 +1351,8 @@ mod tests {
 
     use super::fast_broadcast_cycles_repeats;
     use super::{
-        Add, BitwiseAnd, BitwiseOr, DivMode, add, add_in_place, and, div, div_in_place, equal,
-        greater, greater_or_equal, less, less_or_equal, mod_op, mul, mul_in_place, or, pow,
+        Add, BitwiseAnd, BitwiseOr, BitwiseXor, DivMode, add, add_in_place, and, div, div_in_place,
+        equal, greater, greater_or_equal, less, less_or_equal, mod_op, mul, mul_in_place, or, pow,
         pow_in_place, sub, sub_in_place, where_op, xor,
     };
     use crate::buffer_pool::BufferPool;
@@ -1580,6 +1581,15 @@ mod tests {
         let b = Tensor::from([0x00ffi32, -1, 0b0110]);
         let expected = Tensor::from([0x0fffi32, -1, 0b1110]);
         let result: Tensor<i32> = BitwiseOr {}.run_simple((a.view(), b.view())).unwrap();
+        assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn test_bitwise_xor() {
+        let a = Tensor::from([0x0f0fi32, -1, 0b1010]);
+        let b = Tensor::from([0x00ffi32, -1, 0b0110]);
+        let expected = Tensor::from([0x0ff0i32, 0, 0b1100]);
+        let result: Tensor<i32> = BitwiseXor {}.run_simple((a.view(), b.view())).unwrap();
         assert_eq!(&result, &expected);
     }
 

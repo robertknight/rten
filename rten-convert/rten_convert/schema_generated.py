@@ -158,6 +158,7 @@ class OperatorType(object):
     BitwiseNot = 148
     BitwiseAnd = 149
     BitwiseOr = 150
+    BitwiseXor = 151
 
 
 class RNNDirection(object):

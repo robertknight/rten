@@ -164,6 +164,7 @@ enum OperatorType: ubyte {
   BitwiseNot,
   BitwiseAnd,
   BitwiseOr,
+  BitwiseXor,
 }
 
 enum RNNDirection: ubyte {
