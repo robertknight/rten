@@ -222,6 +222,7 @@ pub mod op_types {
     declare_op!(Atan);
     declare_op!(AveragePool);
     declare_op!(BatchNormalization);
+    declare_op!(BitwiseAnd);
     declare_op!(BitwiseNot);
     declare_op!(Cast);
     declare_op!(CastLike);
