@@ -1,5 +1,7 @@
 use rten_simd::ops::{BitOps, FloatOps, NumOps};
-use rten_simd::{Isa, Simd, SimdIterable, SimdOp};
+use rten_simd::{Isa, Simd, SimdIterable, SimdOp, SimdUnaryOp};
+
+use crate::Exp;
 
 /// Computes the sum of a sequence of numbers.
 ///
@@ -127,11 +129,48 @@ impl SimdOp for SumSquareSub<'_> {
     }
 }
 
+/// Compute the sum of `exp(x - offset)` over the input.
+///
+/// Subtracting a constant (typically the maximum of the input) before
+/// exponentiating avoids overflow. This is used to compute log-sum-exp
+/// reductions as `offset + ln(sum(exp(x - offset)))`.
+pub struct SumExpSub<'a> {
+    input: &'a [f32],
+    offset: f32,
+}
+
+impl<'a> SumExpSub<'a> {
+    pub fn new(input: &'a [f32], offset: f32) -> Self {
+        SumExpSub { input, offset }
+    }
+}
+
+impl SimdOp for SumExpSub<'_> {
+    type Output = f32;
+
+    #[inline(always)]
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let ops = isa.f32();
+        let offset_vec = ops.splat(self.offset);
+
+        let vec_sum = self.input.simd_iter(ops).fold_unroll::<4>(
+            ops.zero(),
+            |sum, x| {
+                let exp = Exp::apply(isa, ops.sub(x, offset_vec));
+                ops.add(sum, exp)
+            },
+            |sum, x| ops.add(sum, x),
+        );
+
+        vec_sum.to_array().into_iter().sum()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ulp::assert_ulp_diff_le;
 
-    use super::{Sum, SumAbs, SumSquare, SumSquareSub};
+    use super::{Sum, SumAbs, SumExpSub, SumSquare, SumSquareSub};
     use rten_simd::SimdOp;
 
     // Chosen to not be a multiple of vector size, so that tail handling is
@@ -172,6 +211,15 @@ mod tests {
             .map(|x| (x as f64 - mean as f64) * (x as f64 - mean as f64))
             .sum();
         let sum = SumSquareSub::new(&xs, mean).dispatch();
+        assert_ulp_diff_le!(sum, expected_sum as f32, 2.0);
+    }
+
+    #[test]
+    fn test_sum_exp_sub() {
+        let xs: Vec<f32> = (0..LEN).map(|i| i as f32 * 0.1).collect();
+        let max = xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let expected_sum: f64 = xs.iter().copied().map(|x| (x as f64 - max as f64).exp()).sum();
+        let sum = SumExpSub::new(&xs, max).dispatch();
         assert_ulp_diff_le!(sum, expected_sum as f32, 2.0);
     }
 }

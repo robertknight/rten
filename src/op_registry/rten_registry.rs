@@ -197,6 +197,7 @@ impl RtenOpRegistry {
         register_op!(ReduceL1);
         register_op!(ReduceL2);
         register_op!(ReduceLogSum);
+        register_op!(ReduceLogSumExp);
         register_op!(ReduceMax);
         register_op!(ReduceMean);
         register_op!(ReduceMin);
@@ -976,6 +977,7 @@ impl_read_op!(Reciprocal);
 impl_read_op!(ReduceL1, attrs_as_reduce_mean_attrs, reduce_axes);
 impl_read_op!(ReduceL2, attrs_as_reduce_mean_attrs, reduce_axes);
 impl_read_op!(ReduceLogSum, attrs_as_reduce_mean_attrs, reduce_axes);
+impl_read_op!(ReduceLogSumExp, attrs_as_reduce_mean_attrs, reduce_axes);
 impl_read_op!(ReduceMax, attrs_as_reduce_mean_attrs, reduce_axes);
 impl_read_op!(ReduceMean, attrs_as_reduce_mean_attrs, reduce_axes);
 impl_read_op!(ReduceMin, attrs_as_reduce_mean_attrs, reduce_axes);

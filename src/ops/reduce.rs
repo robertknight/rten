@@ -686,6 +686,73 @@ impl Operator for ReduceLogSum {
 
 impl_infer_shapes_for_reduce_op!(ReduceLogSum);
 
+pub fn reduce_log_sum_exp(
+    pool: &BufferPool,
+    input: TensorView,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+) -> Result<Tensor, OpError> {
+    struct LogSumExpKernel {}
+    impl ReduceKernel<f32> for LogSumExpKernel {
+        fn reduce_slice(&self, slice: &[f32]) -> f32 {
+            // Subtract the maximum before exponentiating to avoid overflow.
+            let max = slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            if !max.is_finite() {
+                // Reduction over an empty set yields log(0) = -inf. If the
+                // maximum is +/- infinity the result is the maximum.
+                return max;
+            }
+            let exp_sum = vecmath::SumExpSub::new(slice, max).dispatch();
+            max + exp_sum.ln()
+        }
+    }
+
+    reduce(pool, input, axes, keep_dims, &LogSumExpKernel {})
+}
+
+#[derive(Debug)]
+pub struct ReduceLogSumExp {
+    pub axes: Option<Vec<i32>>,
+    pub keep_dims: bool,
+    pub noop_with_empty_axes: bool,
+}
+
+impl Operator for ReduceLogSumExp {
+    fn name(&self) -> &str {
+        "ReduceLogSumExp"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let input = inputs.require(0)?;
+        let axes = get_axes(inputs, &self.axes)?;
+
+        if is_none_or_empty(axes.as_deref()) && self.noop_with_empty_axes {
+            // This operator is defined as `Log(ReduceSum(Exp(x)))`, so if the
+            // reduction is skipped the result is `log(exp(x)) = x`.
+            return input.to_owned_in(ctx.pool()).into_op_result();
+        }
+
+        map_value_view!(input, input, [FloatTensor], {
+            reduce_log_sum_exp(ctx.pool(), input, axes.as_deref(), self.keep_dims).into_op_result()
+        })
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+}
+
+impl_infer_shapes_for_reduce_op!(ReduceLogSumExp);
+
 struct OptimizedL1ReduceKernel;
 impl ReduceKernel<f32> for OptimizedL1ReduceKernel {
     fn reduce_slice(&self, slice: &[f32]) -> f32 {
@@ -1290,10 +1357,10 @@ mod tests {
     use crate::buffer_pool::BufferPool;
     use crate::operator::{Operator, OperatorExt};
     use crate::ops::{
-        OpError, ReduceL1, ReduceL2, ReduceLogSum, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
-        ReduceSum, ReduceSumSquare, arg_max, arg_min, cum_sum, nonzero, reduce_l1, reduce_l2,
-        reduce_log_sum, reduce_max, reduce_mean, reduce_min, reduce_prod, reduce_sum,
-        reduce_sum_square, topk,
+        OpError, ReduceL1, ReduceL2, ReduceLogSum, ReduceLogSumExp, ReduceMax, ReduceMean,
+        ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, arg_max, arg_min, cum_sum, nonzero,
+        reduce_l1, reduce_l2, reduce_log_sum, reduce_log_sum_exp, reduce_max, reduce_mean,
+        reduce_min, reduce_prod, reduce_sum, reduce_sum_square, topk,
     };
 
     #[test]
@@ -1529,6 +1596,7 @@ mod tests {
             op_case!(ReduceL1),
             op_case!(ReduceL2),
             op_case!(ReduceLogSum),
+            op_case!(ReduceLogSumExp),
             op_case!(ReduceMax),
             op_case!(ReduceMean),
             op_case!(ReduceMin),
@@ -1946,6 +2014,32 @@ mod tests {
         // Reduction over an empty set yields log(0).
         let input = Tensor::<f32>::from_data(&[0], vec![]);
         let result = reduce_log_sum(&pool, input.view(), Some(&[0]), false).unwrap();
+        assert_eq!(result.item(), Some(&f32::NEG_INFINITY));
+    }
+
+    #[test]
+    fn test_reduce_log_sum_exp() {
+        let pool = BufferPool::new();
+
+        let input = Tensor::from([[1., 2., 3.], [4., 5., 6.]]);
+        let result = reduce_log_sum_exp(&pool, input.view(), Some(&[1]), false).unwrap();
+        let exp = input.map(|x| x.exp());
+        let expected = Tensor::from([
+            (exp[[0, 0]] + exp[[0, 1]] + exp[[0, 2]]).ln(),
+            (exp[[1, 0]] + exp[[1, 1]] + exp[[1, 2]]).ln(),
+        ]);
+        expect_equal(&result, &expected).unwrap();
+
+        // Large values which would overflow if the input was exponentiated
+        // without first subtracting the maximum.
+        let input = Tensor::from([100., 100.]);
+        let result = reduce_log_sum_exp(&pool, input.view(), Some(&[0]), false).unwrap();
+        let expected = Tensor::from_scalar(100. + 2f32.ln());
+        expect_equal(&result, &expected).unwrap();
+
+        // Reduction over an empty set yields log(0).
+        let input = Tensor::<f32>::from_data(&[0], vec![]);
+        let result = reduce_log_sum_exp(&pool, input.view(), Some(&[0]), false).unwrap();
         assert_eq!(result.item(), Some(&f32::NEG_INFINITY));
     }
 

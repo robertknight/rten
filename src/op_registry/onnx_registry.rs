@@ -228,6 +228,7 @@ impl OnnxOpRegistry {
         register_op!(ReduceL1);
         register_op!(ReduceL2);
         register_op!(ReduceLogSum);
+        register_op!(ReduceLogSumExp);
         register_op!(ReduceMax);
         register_op!(ReduceMean);
         register_op!(ReduceMin);
@@ -1645,6 +1646,7 @@ macro_rules! impl_read_op_for_reduce_op {
 impl_read_op_for_reduce_op!(ReduceL1);
 impl_read_op_for_reduce_op!(ReduceL2);
 impl_read_op_for_reduce_op!(ReduceLogSum);
+impl_read_op_for_reduce_op!(ReduceLogSumExp);
 impl_read_op_for_reduce_op!(ReduceMax);
 impl_read_op_for_reduce_op!(ReduceMean);
 impl_read_op_for_reduce_op!(ReduceMin);

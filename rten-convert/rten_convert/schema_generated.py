@@ -162,6 +162,7 @@ class OperatorType(object):
     BitShift = 152
     BitCast = 153
     ReduceLogSum = 154
+    ReduceLogSumExp = 155
 
 
 class RNNDirection(object):

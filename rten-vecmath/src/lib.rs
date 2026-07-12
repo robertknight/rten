@@ -128,7 +128,7 @@ pub use tanh::Tanh;
 pub use min_max::{MaxNum, MinMax, MinNum};
 pub use normalize::{Normalize, NormalizeOptions};
 pub use softmax::Softmax;
-pub use sum::{Sum, SumAbs, SumSquare, SumSquareSub};
+pub use sum::{Sum, SumAbs, SumExpSub, SumSquare, SumSquareSub};
 
 // Conversion functions.
 pub use convert::{F16ToF32, F32ToF16};
