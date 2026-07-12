@@ -478,6 +478,10 @@ def op_node_from_onnx_operator(
             )
             read_pads(attr_reader, attrs)
 
+        case "CumProd":
+            attr_reader.check_attr("exclusive", "int", 0)
+            attr_reader.check_attr("reverse", "int", 0)
+
         case "CumSum":
             attr_reader.check_attr("exclusive", "int", 0)
             attr_reader.check_attr("reverse", "int", 0)

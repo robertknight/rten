@@ -156,6 +156,7 @@ impl OnnxOpRegistry {
         register_op!(ConvTranspose);
         register_op!(Cos);
         register_op!(Cosh);
+        register_op!(CumProd);
         register_op!(CumSum);
         register_op!(DFT, feature = "fft");
         register_op!(DequantizeLinear);
@@ -1085,6 +1086,11 @@ impl_read_op!(ConvTranspose, |attrs: &Attrs| {
 
 impl_read_op!(Cos);
 impl_read_op!(Cosh);
+impl_read_op!(CumProd, |attrs: &Attrs| {
+    attrs.check_eq("exclusive", 0)?;
+    attrs.check_eq("reverse", 0)?;
+    Ok(ops::CumProd {})
+});
 impl_read_op!(CumSum, |attrs: &Attrs| {
     attrs.check_eq("exclusive", 0)?;
     attrs.check_eq("reverse", 0)?;

@@ -268,6 +268,65 @@ impl Operator for CumSum {
     }
 }
 
+pub fn cum_prod<T: Copy + Identities + std::ops::MulAssign>(
+    pool: &BufferPool,
+    input: TensorView<T>,
+    axis: isize,
+) -> Result<Tensor<T>, OpError> {
+    let resolved_axis = resolve_axis(input.ndim(), axis)?;
+    let mut output = Tensor::uninit_in(pool, input.shape());
+
+    let mut n_init = 0;
+    if !input.is_empty() {
+        for (in_slice, out_slice) in input
+            .lanes(resolved_axis)
+            .zip(output.lanes_mut(resolved_axis))
+        {
+            let mut cum_prod = T::one();
+            for (x, y) in in_slice.zip(out_slice) {
+                cum_prod *= *x;
+                y.write(cum_prod);
+                n_init += 1;
+            }
+        }
+    }
+
+    assert!(n_init == output.len());
+    let output = unsafe { output.assume_init() };
+
+    Ok(output)
+}
+
+#[derive(Debug)]
+pub struct CumProd {}
+
+impl Operator for CumProd {
+    fn name(&self) -> &str {
+        "CumProd"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let input = inputs.require(0)?;
+        let axis: i32 = inputs.require_as(1)?;
+        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
+            cum_prod(ctx.pool(), input, axis as isize).into_op_result()
+        })
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&rten_shape_inference::UnaryOp)
+    }
+}
+
 /// Return the indices of nonzero elements in `input` as a `(dim, index)` tensor.
 pub fn nonzero<T: Default + PartialEq>(pool: &BufferPool, input: TensorView<T>) -> Tensor<i32> {
     // Special case for scalar inputs.
@@ -1356,6 +1415,7 @@ mod tests {
 
     use crate::buffer_pool::BufferPool;
     use crate::operator::{Operator, OperatorExt};
+    use crate::ops::{CumProd, cum_prod};
     use crate::ops::{
         OpError, ReduceL1, ReduceL2, ReduceLogSum, ReduceLogSumExp, ReduceMax, ReduceMean,
         ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, arg_max, arg_min, cum_sum, nonzero,
@@ -1474,6 +1534,38 @@ mod tests {
         let max_idx = arg_max(&pool, probs.view(), 0, false /* keep_dims */).unwrap();
         assert_eq!(min_idx.item(), Some(&2));
         assert_eq!(max_idx.item(), Some(&2));
+    }
+
+    #[test]
+    fn test_cum_prod() {
+        let pool = BufferPool::new();
+
+        // Cumulative product along axis 0.
+        let input = Tensor::from([1., 2., 3., 4.]);
+        let result = cum_prod(&pool, input.view(), 0).unwrap();
+        let expected = Tensor::from([1., 2., 6., 24.]);
+        expect_equal(&result, &expected).unwrap();
+
+        // 2D tensor, cumulative product along each axis.
+        let input = Tensor::from([[1., 2.], [3., 4.]]);
+        let result = cum_prod(&pool, input.view(), 0).unwrap();
+        let expected = Tensor::from([[1., 2.], [3., 8.]]);
+        expect_equal(&result, &expected).unwrap();
+
+        let result = cum_prod(&pool, input.view(), 1).unwrap();
+        let expected = Tensor::from([[1., 2.], [3., 12.]]);
+        expect_equal(&result, &expected).unwrap();
+
+        // Integer input, via the operator interface.
+        let input = Tensor::from([1, 2, 3, 4]);
+        let axis = Tensor::from(0);
+        let result: Tensor<i32> = CumProd {}.run_simple((input.view(), axis.view())).unwrap();
+        assert_eq!(result, Tensor::from([1, 2, 6, 24]));
+
+        // Invalid axis.
+        let input = Tensor::from([1., 2., 3.]);
+        let result = cum_prod(&pool, input.view(), 2);
+        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
     }
 
     #[test]

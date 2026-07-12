@@ -99,8 +99,9 @@ pub(crate) use {
     pooling::{AveragePool, GlobalAveragePool, GlobalMaxPool, MaxPool},
     quantize::{DequantizeLinear, DynamicQuantizeLinear, QuantizeLinear},
     reduce::{
-        ArgMax, ArgMin, CumSum, NonZero, ReduceL1, ReduceL2, ReduceLogSum, ReduceLogSumExp,
-        ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, TopK,
+        ArgMax, ArgMin, CumProd, CumSum, NonZero, ReduceL1, ReduceL2, ReduceLogSum,
+        ReduceLogSumExp, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare,
+        TopK,
     },
     resize::{Resize, Upsample},
     rnn::{GRU, LSTM},
@@ -166,8 +167,9 @@ pub use quantize::{dequantize_linear, dynamic_quantize_linear, quantize_linear};
 pub use fft::{dft, stft};
 
 pub use reduce::{
-    arg_max, arg_min, cum_sum, nonzero, reduce_l1, reduce_l2, reduce_log_sum, reduce_log_sum_exp,
-    reduce_max, reduce_mean, reduce_min, reduce_prod, reduce_sum, reduce_sum_square, topk,
+    arg_max, arg_min, cum_prod, cum_sum, nonzero, reduce_l1, reduce_l2, reduce_log_sum,
+    reduce_log_sum_exp, reduce_max, reduce_mean, reduce_min, reduce_prod, reduce_sum,
+    reduce_sum_square, topk,
 };
 pub use resize::{CoordTransformMode, NearestMode, ResizeMode, ResizeTarget, resize, resize_image};
 pub use rnn::{Direction, gru, lstm};

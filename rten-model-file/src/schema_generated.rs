@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 155;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 156;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 156] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 157] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -174,6 +174,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 156] = [
     OperatorType::BitCast,
     OperatorType::ReduceLogSum,
     OperatorType::ReduceLogSumExp,
+    OperatorType::CumProd,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -337,9 +338,10 @@ impl OperatorType {
     pub const BitCast: Self = Self(153);
     pub const ReduceLogSum: Self = Self(154);
     pub const ReduceLogSumExp: Self = Self(155);
+    pub const CumProd: Self = Self(156);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 155;
+    pub const ENUM_MAX: u8 = 156;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -497,6 +499,7 @@ impl OperatorType {
         Self::BitCast,
         Self::ReduceLogSum,
         Self::ReduceLogSumExp,
+        Self::CumProd,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -657,6 +660,7 @@ impl OperatorType {
             Self::BitCast => Some("BitCast"),
             Self::ReduceLogSum => Some("ReduceLogSum"),
             Self::ReduceLogSumExp => Some("ReduceLogSumExp"),
+            Self::CumProd => Some("CumProd"),
             _ => None,
         }
     }
