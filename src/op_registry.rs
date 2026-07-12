@@ -321,6 +321,7 @@ pub mod op_types {
     declare_op!(GreaterOrEqual);
     declare_op!(GridSample);
     declare_op!(GRU);
+    declare_op!(HammingWindow, onnx_only);
     declare_op!(HannWindow, onnx_only);
     declare_op!(Hardmax, onnx_only);
     declare_op!(HardSigmoid);
