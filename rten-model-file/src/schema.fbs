@@ -171,6 +171,7 @@ enum OperatorType: ubyte {
   BitShift,
   BitCast,
   CumProd,
+  GlobalLpPool,
 }
 
 enum RNNDirection: ubyte {
@@ -288,6 +289,7 @@ union OperatorAttrs {
   SeluAttrs,
   ShrinkAttrs,
   BitShiftAttrs,
+  GlobalLpPoolAttrs,
 }
 
 table ArgMaxAttrs {
@@ -437,6 +439,10 @@ table LpNormalizationAttrs {
 
 table LoopAttrs {
   body:Graph;
+}
+
+table GlobalLpPoolAttrs {
+  p:uint = 2;
 }
 
 table GatherAttrs {
