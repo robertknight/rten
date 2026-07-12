@@ -164,6 +164,7 @@ enum OperatorType: ubyte {
   Celu,
   Selu,
   Shrink,
+  BitwiseNot,
 }
 
 enum RNNDirection: ubyte {
