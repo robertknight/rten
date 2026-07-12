@@ -107,6 +107,7 @@ impl RtenOpRegistry {
         register_op!(Attention);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
+        register_op!(Bernoulli, feature = "random");
         register_op!(BitCast);
         register_op!(BitShift);
         register_op!(BitwiseAnd);
@@ -492,6 +493,20 @@ impl_read_op!(
     CastLike,
     attrs_as_cast_like_attrs,
     |_attrs: sg::CastLikeAttrs| { Ok(ops::CastLike {}) }
+);
+#[cfg(feature = "random")]
+impl_read_op!(
+    Bernoulli,
+    attrs_as_bernoulli_attrs,
+    |attrs: sg::BernoulliAttrs| {
+        Ok(ops::Bernoulli {
+            dtype: attrs
+                .dtype()
+                .map(|dt| convert_dtype("dtype", dt))
+                .transpose()?,
+            seed: attrs.seed(),
+        })
+    }
 );
 impl_read_op!(BitCast, attrs_as_cast_attrs, |attrs: sg::CastAttrs| {
     let to = convert_dtype("to", attrs.to())?;
