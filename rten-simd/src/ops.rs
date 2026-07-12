@@ -17,6 +17,7 @@
 use std::mem::MaybeUninit;
 
 use crate::elem::Elem;
+use crate::f16;
 use crate::simd::{Mask, Simd};
 
 /// Entry point for performing SIMD operations using a particular Instruction
@@ -65,8 +66,21 @@ pub unsafe trait Isa: Copy {
     /// SIMD vector with `u32` elements.
     type U32: Simd<Elem = u32, Isa = Self, Mask = Self::M32>;
 
+    /// SIMD vector with `f16` elements.
+    type F16: Simd<Elem = f16, Isa = Self, Mask = Self::M16>;
+
     /// Operations on SIMD vectors with `f32` elements.
-    fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>;
+    fn f32(
+        self,
+    ) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>
+    + NarrowSaturate<f32, f16, Output = Self::F16>;
+
+    /// Operations on SIMD vectors with `f16` elements.
+    ///
+    /// Only bit-level operations ([`BitOps`]) plus conversion to `f32` (via
+    /// [`Extend`]) are supported. Conversion from `f32` is available via the
+    /// [`NarrowSaturate`] implementation returned by [`f32`](Isa::f32).
+    fn f16(self) -> impl Extend<f16, Output = Self::F32, Simd = Self::F16>;
 
     /// Operations on SIMD vectors with `i32` elements.
     fn i32(
@@ -186,6 +200,7 @@ where
     /// operations on vectors containing elements of type `Self`.
     fn bit_ops<I: Isa>(isa: I) -> impl BitOps<Self, Simd = Self::Simd<I>>;
 }
+impl_get_ops!(GetBitOps, bit_ops, BitOps, f16);
 impl_get_ops!(GetBitOps, bit_ops, BitOps, f32);
 impl_get_ops!(GetBitOps, bit_ops, BitOps, i16);
 impl_get_ops!(GetBitOps, bit_ops, BitOps, i32);
@@ -210,6 +225,7 @@ macro_rules! impl_getsimd {
         }
     };
 }
+impl_getsimd!(f16, F16);
 impl_getsimd!(f32, F32);
 impl_getsimd!(i16, I16);
 impl_getsimd!(i32, I32);
@@ -644,8 +660,9 @@ pub trait SignedIntOps<T: Elem>: IntOps<T> {
 
 /// Widen lanes to a type with twice the width.
 ///
-/// For integer types, the extended type has the same signed-ness.
-pub trait Extend<T: Elem>: NumOps<T> {
+/// For integer types, the extended type has the same signed-ness. For `f16`,
+/// the extended type is `f32`.
+pub trait Extend<T: Elem>: BitOps<T> {
     /// SIMD vector type with elements that have twice the bit-width of
     /// those in `Self::SIMD`.
     type Output;
@@ -714,6 +731,7 @@ pub trait NarrowSaturate<T: Elem, U: Elem>: NumOps<T> {
 #[cfg(test)]
 mod tests {
     use crate::elem::WrappingAdd;
+    use crate::f16;
     use crate::ops::{
         BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
         SignedIntOps, ToFloat,
@@ -1512,6 +1530,79 @@ mod tests {
 
             let expected = isa.f32().splat(42.0);
             assert_simd_eq!(y, expected);
+        });
+    }
+
+    #[test]
+    fn test_f16_bit_ops() {
+        test_simd_op!(isa, {
+            let ops = isa.f16();
+
+            // Load / store round trip across several vectors.
+            let src: Vec<f16> = (0..ops.len() * 2)
+                .map(|i| f16::from_f32(i as f32))
+                .collect();
+            let mut dst = vec![f16::default(); src.len()];
+            for (s, d) in src.chunks(ops.len()).zip(dst.chunks_mut(ops.len())) {
+                let v = ops.load(s);
+                ops.store(v, d);
+            }
+            assert_eq!(dst, src);
+
+            // Splat
+            let val = f16::from_f32(2.5);
+            let splatted = ops.splat(val).to_array();
+            assert!(splatted.as_ref().iter().all(|&x| x == val));
+
+            // Bitwise ops
+            let zeros = ops.zero();
+            let ones = ops.not(zeros);
+            assert_eq!(
+                ops.and(ones, zeros).to_array().as_ref(),
+                zeros.to_array().as_ref()
+            );
+            assert_eq!(
+                ops.or(zeros, ones).to_array().as_ref(),
+                ones.to_array().as_ref()
+            );
+            assert_eq!(
+                ops.xor(ones, ones).to_array().as_ref(),
+                zeros.to_array().as_ref()
+            );
+        });
+    }
+
+    #[test]
+    fn test_f16_f32_conversion() {
+        use crate::f16;
+
+        test_simd_op!(isa, {
+            let f32_ops = isa.f32();
+            let f16_ops = isa.f16();
+
+            let n = f32_ops.len() * 2;
+            let src: Vec<f32> = (0..n).map(|i| (i as f32) * 0.25 - 3.0).collect();
+
+            // f32 -> f16
+            let lo = f32_ops.load(&src[..f32_ops.len()]);
+            let hi = f32_ops.load(&src[f32_ops.len()..]);
+            let half = f32_ops.narrow_saturate(lo, hi);
+
+            let expected: Vec<f16> = src.iter().map(|&x| f16::from_f32(x)).collect();
+            assert_eq!(half.to_array().as_ref(), expected.as_slice());
+
+            // f16 -> f32
+            let (back_lo, back_hi) = f16_ops.extend(half);
+            let expected_lo: Vec<f32> = expected[..f32_ops.len()]
+                .iter()
+                .map(|h| h.to_f32())
+                .collect();
+            let expected_hi: Vec<f32> = expected[f32_ops.len()..]
+                .iter()
+                .map(|h| h.to_f32())
+                .collect();
+            assert_eq!(back_lo.to_array().as_ref(), expected_lo.as_slice());
+            assert_eq!(back_hi.to_array().as_ref(), expected_hi.as_slice());
         });
     }
 }

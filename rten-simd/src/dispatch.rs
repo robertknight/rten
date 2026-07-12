@@ -41,6 +41,7 @@ pub fn dispatch<Op: SimdOp>(op: Op) -> Op::Output {
             #[target_feature(enable = "avx512vl")]
             #[target_feature(enable = "avx512bw")]
             #[target_feature(enable = "avx512dq")]
+            #[target_feature(enable = "f16c")]
             unsafe fn dispatch_avx512<Op: SimdOp>(isa: impl Isa, op: Op) -> Op::Output {
                 op.eval(isa)
             }
@@ -57,6 +58,7 @@ pub fn dispatch<Op: SimdOp>(op: Op) -> Op::Output {
         #[target_feature(enable = "avx2")]
         #[target_feature(enable = "avx")]
         #[target_feature(enable = "fma")]
+        #[target_feature(enable = "f16c")]
         unsafe fn dispatch_avx2<Op: SimdOp>(isa: impl Isa, op: Op) -> Op::Output {
             op.eval(isa)
         }
