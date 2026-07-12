@@ -46,7 +46,7 @@ impl<'a, T: Elem> SliceWriter<'a, T> {
 mod tests {
     use std::mem::MaybeUninit;
 
-    use crate::ops::NumOps;
+    use crate::ops::BitOps;
     use crate::{Isa, SimdOp, SliceWriter};
 
     #[test]

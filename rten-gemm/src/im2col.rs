@@ -2,7 +2,7 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_base::byte_cast::{AsBytes, cast_uninit_mut_slice};
-use rten_simd::ops::{MaskOps, NumOps};
+use rten_simd::ops::{BitOps, MaskOps, NumOps};
 use rten_simd::{Isa, Mask, Simd};
 use rten_tensor::{NdTensorView, Storage};
 

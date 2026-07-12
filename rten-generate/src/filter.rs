@@ -3,7 +3,7 @@
 //! This module defines the [`LogitsFilter`] trait implemented by all filters,
 //! plus convenience functions to simplify implementing filters.
 
-use rten_simd::ops::{MaskOps, NumOps};
+use rten_simd::ops::{BitOps, MaskOps, NumOps};
 use rten_simd::{Isa, Simd, SimdIterable, SimdOp};
 use rten_vecmath::Softmax;
 

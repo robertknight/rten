@@ -262,7 +262,7 @@ impl<T: Elem, O: NumOps<T>> std::iter::FusedIterator for IterPad<'_, T, O> {}
 mod tests {
     use super::SimdIterable;
     use crate::dispatch::test_simd_op;
-    use crate::ops::NumOps;
+    use crate::ops::{BitOps, NumOps};
     use crate::{Isa, Simd, SimdOp};
 
     // f32 vector length, chosen to exercise main and tail loops for all ISAs.

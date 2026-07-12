@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 
 use rten_simd::functional::{simd_apply, simd_map};
-use rten_simd::ops::{FloatOps, NumOps};
+use rten_simd::ops::{BitOps, FloatOps, NumOps};
 use rten_simd::span::SrcDest;
 use rten_simd::{Isa, Simd, SimdIterable, SimdOp, SimdUnaryOp};
 

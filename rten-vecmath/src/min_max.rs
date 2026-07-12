@@ -1,4 +1,4 @@
-use rten_simd::ops::NumOps;
+use rten_simd::ops::{BitOps, NumOps};
 use rten_simd::{Isa, Simd, SimdIterable, SimdOp};
 
 /// Compute the minimum and maximum values in a slice of floats.

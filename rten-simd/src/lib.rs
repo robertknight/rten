@@ -187,7 +187,7 @@
 //! ```
 //! use std::iter::Sum;
 //! use rten_simd::{Isa, Simd, SimdIterable, SimdOp};
-//! use rten_simd::ops::{GetNumOps, NumOps};
+//! use rten_simd::ops::{BitOps, GetNumOps, NumOps};
 //!
 //! struct SimdSum<'a, T>(&'a [T]);
 //!

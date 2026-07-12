@@ -3,7 +3,7 @@
 #![allow(clippy::approx_constant)]
 
 use rten_base::hint::unlikely;
-use rten_simd::ops::{FloatOps, MaskOps, NumOps};
+use rten_simd::ops::{BitOps, FloatOps, MaskOps, NumOps};
 use rten_simd::{Isa, Simd, SimdUnaryOp};
 
 // Values taken from the XNNPACK vsin implementation that was used as a
