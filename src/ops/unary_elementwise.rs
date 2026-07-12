@@ -757,10 +757,10 @@ impl_operator!(Tanh, [FloatTensor]);
 impl_operator_fn!(Tanh, tanh);
 impl_get_kernel!(Tanh, f32, SimdKernel(vecmath::Tanh {}));
 
-#[cfg(feature = "onnx_format")]
+#[cfg(feature = "contrib")]
 pub use contrib::BiasGelu;
 
-#[cfg(feature = "onnx_format")]
+#[cfg(feature = "contrib")]
 mod contrib;
 
 #[cfg(test)]

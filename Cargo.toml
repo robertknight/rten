@@ -93,10 +93,12 @@ serde_json = { workspace = true }
 crate-type = ["lib", "cdylib"]
 
 [features]
-default = ["onnx_format", "rten_format"]
+default = ["contrib", "onnx_format", "rten_format"]
 
 # Enable all features that affect supported operators
 all-ops = ["fft", "random"]
+# Enable non-standard "contrib" operators from ONNX Runtime.
+contrib = ["onnx_format"]
 # Enables FFT operators (DFT, STFT etc.)
 fft = ["dep:rustfft"]
 # Enable loading models using memory mapping

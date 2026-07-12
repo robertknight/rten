@@ -149,6 +149,8 @@
 //! # Crate features
 //!
 //!  - **all-ops** - Enables all operators which are not enabled by default
+//!  - **contrib** (enabled by default) - Enables supported non-standard [contrib
+//!    operators][contrib_operators] from ONNX Runtime. Enables **onnx_format**.
 //!  - **fft** - Enables FFT operators
 //!  - **mmap** - Enable loading models with memory mapping via [`Model::load_mmap`]
 //!  - **onnx_format** (enabled by default) - Enables support for loading `.onnx` models.
@@ -158,6 +160,7 @@
 //!
 //! At least one of the **onnx_format** or **rten_format** features must be enabled.
 //!
+//! [contrib_operators]: https://onnxruntime.ai/docs/reference/operators/ContribOperators.html
 //! [security]: crate::docs::security
 //! [model_formats]: https://github.com/robertknight/rten/blob/main/docs/model-formats.md
 //! [onnx_operators]: https://onnx.ai/onnx/operators/

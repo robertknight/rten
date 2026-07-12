@@ -243,10 +243,10 @@ impl Operator for RotaryEmbedding {
     }
 }
 
-#[cfg(feature = "onnx_format")]
+#[cfg(feature = "contrib")]
 pub use contrib::RotaryEmbeddingMicrosoft;
 
-#[cfg(feature = "onnx_format")]
+#[cfg(feature = "contrib")]
 mod contrib;
 
 #[cfg(test)]

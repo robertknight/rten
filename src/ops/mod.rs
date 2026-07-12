@@ -123,7 +123,7 @@ pub(crate) use {
 // are supported.
 //
 // See https://onnxruntime.ai/docs/reference/operators/ContribOperators.html.
-#[cfg(feature = "onnx_format")]
+#[cfg(feature = "contrib")]
 pub(crate) use {
     attention::{GroupQueryAttention, MultiHeadAttention},
     embedding::RotaryEmbeddingMicrosoft,
