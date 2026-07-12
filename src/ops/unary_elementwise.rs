@@ -687,6 +687,23 @@ impl Operator for PRelu {
     }
 }
 
+#[derive(Debug)]
+pub struct Selu {
+    pub alpha: f32,
+    pub gamma: f32,
+}
+
+impl_operator!(Selu, [FloatTensor]);
+
+impl GetKernel<f32> for Selu {
+    fn get_kernel(&self) -> impl UnaryKernel<f32> + Send + Sync {
+        SimdKernel(vecmath::Selu {
+            alpha: self.alpha,
+            gamma: self.gamma,
+        })
+    }
+}
+
 declare_operator!(Sigmoid);
 impl_operator!(Sigmoid, [FloatTensor]);
 impl_operator_fn!(Sigmoid, sigmoid);
@@ -809,9 +826,9 @@ mod tests {
 
     use super::{
         Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Celu, Cos, Cosh, Elu, Exp, Gelu, IsInf, IsNaN,
-        Log, Mish, Neg, Not, PRelu, Reciprocal, Relu, Sigmoid, Sign, Silu, Sin, Sinh, Softplus,
-        Softsign, Sqrt, Swish, Tan, Tanh, ThresholdedRelu, ceil, clip, clip_in_place, erf, floor,
-        hard_sigmoid, hard_swish, leaky_relu, round,
+        Log, Mish, Neg, Not, PRelu, Reciprocal, Relu, Selu, Sigmoid, Sign, Silu, Sin, Sinh,
+        Softplus, Softsign, Sqrt, Swish, Tan, Tanh, ThresholdedRelu, ceil, clip, clip_in_place,
+        erf, floor, hard_sigmoid, hard_swish, leaky_relu, round,
     };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, Operator, OperatorExt};
@@ -1227,6 +1244,21 @@ mod tests {
         );
     }
 
+    test_unary_op!(
+        test_selu,
+        Selu {
+            alpha: 1.6732632,
+            gamma: 1.0507009,
+        },
+        |&x: &f32| {
+            if x > 0. {
+                1.0507009 * x
+            } else {
+                1.0507009 * 1.6732632 * (x.exp() - 1.)
+            }
+        },
+        Tensor::from([-2., -0.5, 0., 0.5, 2.])
+    );
     test_unary_op!(test_sign, Sign {}, |x: &f32| x.signum());
 
     fn reference_sigmoid(x: f32) -> f32 {

@@ -236,6 +236,7 @@ impl OnnxOpRegistry {
         register_op!(Scatter);
         register_op!(ScatterElements);
         register_op!(ScatterND);
+        register_op!(Selu);
         register_op!(SequenceAt);
         register_op!(SequenceConstruct);
         register_op!(SequenceEmpty);
@@ -1810,6 +1811,11 @@ impl_read_op!(Shape, |attrs: &Attrs| {
     Ok(ops::Shape { start, end })
 });
 
+impl_read_op!(Selu, |attrs: &Attrs| {
+    let alpha = attrs.get_as("alpha").unwrap_or(1.6732632);
+    let gamma = attrs.get_as("gamma").unwrap_or(1.0507009);
+    Ok(ops::Selu { alpha, gamma })
+});
 impl_read_op!(Sigmoid);
 impl_read_op!(Sign);
 

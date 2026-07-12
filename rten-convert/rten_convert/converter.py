@@ -776,6 +776,11 @@ def op_node_from_onnx_operator(
             if dtype is not None:
                 attrs.dtype = convert_data_type(dtype)
 
+        case "Selu":
+            attrs = sg.SeluAttrsT()
+            attrs.alpha = attr_reader.get_attr("alpha", "float", 1.6732632)
+            attrs.gamma = attr_reader.get_attr("gamma", "float", 1.0507009)
+
         case "Shape":
             attrs = sg.ShapeAttrsT()
             start = attr_reader.get_attr("start", "int", None)

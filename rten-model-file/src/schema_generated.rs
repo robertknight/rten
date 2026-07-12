@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 145;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 146;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 146] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 147] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -164,6 +164,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 146] = [
     OperatorType::Mish,
     OperatorType::ThresholdedRelu,
     OperatorType::Celu,
+    OperatorType::Selu,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -317,9 +318,10 @@ impl OperatorType {
     pub const Mish: Self = Self(143);
     pub const ThresholdedRelu: Self = Self(144);
     pub const Celu: Self = Self(145);
+    pub const Selu: Self = Self(146);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 145;
+    pub const ENUM_MAX: u8 = 146;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -467,6 +469,7 @@ impl OperatorType {
         Self::Mish,
         Self::ThresholdedRelu,
         Self::Celu,
+        Self::Selu,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -617,6 +620,7 @@ impl OperatorType {
             Self::Mish => Some("Mish"),
             Self::ThresholdedRelu => Some("ThresholdedRelu"),
             Self::Celu => Some("Celu"),
+            Self::Selu => Some("Selu"),
             _ => None,
         }
     }
@@ -1252,13 +1256,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 60;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 61;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 61] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 62] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1320,6 +1324,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 61] = [
     OperatorAttrs::UpsampleAttrs,
     OperatorAttrs::RotaryEmbeddingAttrs,
     OperatorAttrs::AttentionAttrs,
+    OperatorAttrs::SeluAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1388,9 +1393,10 @@ impl OperatorAttrs {
     pub const UpsampleAttrs: Self = Self(58);
     pub const RotaryEmbeddingAttrs: Self = Self(59);
     pub const AttentionAttrs: Self = Self(60);
+    pub const SeluAttrs: Self = Self(61);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 60;
+    pub const ENUM_MAX: u8 = 61;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1453,6 +1459,7 @@ impl OperatorAttrs {
         Self::UpsampleAttrs,
         Self::RotaryEmbeddingAttrs,
         Self::AttentionAttrs,
+        Self::SeluAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1518,6 +1525,7 @@ impl OperatorAttrs {
             Self::UpsampleAttrs => Some("UpsampleAttrs"),
             Self::RotaryEmbeddingAttrs => Some("RotaryEmbeddingAttrs"),
             Self::AttentionAttrs => Some("AttentionAttrs"),
+            Self::SeluAttrs => Some("SeluAttrs"),
             _ => None,
         }
     }
@@ -10361,6 +10369,138 @@ impl ::core::fmt::Debug for DFTAttrs<'_> {
         ds.finish()
     }
 }
+pub enum SeluAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct SeluAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for SeluAttrs<'a> {
+    type Inner = SeluAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> SeluAttrs<'a> {
+    pub const VT_ALPHA: ::flatbuffers::VOffsetT = 4;
+    pub const VT_GAMMA: ::flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        SeluAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args SeluAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<SeluAttrs<'bldr>> {
+        let mut builder = SeluAttrsBuilder::new(_fbb);
+        builder.add_gamma(args.gamma);
+        builder.add_alpha(args.alpha);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn alpha(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(SeluAttrs::VT_ALPHA, Some(1.6732632))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn gamma(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(SeluAttrs::VT_GAMMA, Some(1.0507009))
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for SeluAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<f32>("alpha", Self::VT_ALPHA, false)?
+            .visit_field::<f32>("gamma", Self::VT_GAMMA, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct SeluAttrsArgs {
+    pub alpha: f32,
+    pub gamma: f32,
+}
+impl<'a> Default for SeluAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        SeluAttrsArgs {
+            alpha: 1.6732632,
+            gamma: 1.0507009,
+        }
+    }
+}
+
+pub struct SeluAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SeluAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_alpha(&mut self, alpha: f32) {
+        self.fbb_
+            .push_slot::<f32>(SeluAttrs::VT_ALPHA, alpha, 1.6732632);
+    }
+    #[inline]
+    pub fn add_gamma(&mut self, gamma: f32) {
+        self.fbb_
+            .push_slot::<f32>(SeluAttrs::VT_GAMMA, gamma, 1.0507009);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> SeluAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        SeluAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<SeluAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for SeluAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("SeluAttrs");
+        ds.field("alpha", &self.alpha());
+        ds.field("gamma", &self.gamma());
+        ds.finish()
+    }
+}
 pub enum TopKAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -11747,6 +11887,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_selu_attrs(&self) -> Option<SeluAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::SeluAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { SeluAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -11819,6 +11974,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::UpsampleAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<UpsampleAttrs>>("OperatorAttrs::UpsampleAttrs", pos),
           OperatorAttrs::RotaryEmbeddingAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<RotaryEmbeddingAttrs>>("OperatorAttrs::RotaryEmbeddingAttrs", pos),
           OperatorAttrs::AttentionAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<AttentionAttrs>>("OperatorAttrs::AttentionAttrs", pos),
+          OperatorAttrs::SeluAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<SeluAttrs>>("OperatorAttrs::SeluAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -12499,6 +12655,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::AttentionAttrs => {
                 if let Some(x) = self.attrs_as_attention_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::SeluAttrs => {
+                if let Some(x) = self.attrs_as_selu_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

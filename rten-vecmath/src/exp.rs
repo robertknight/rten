@@ -322,13 +322,34 @@ impl SimdUnaryOp<f32> for Mish {
     }
 }
 
+/// Computes the SELU activation function.
+///
+/// Computes `gamma * x` if `x > 0` else `gamma * alpha * (exp(x) - 1)`.
+pub struct Selu {
+    pub alpha: f32,
+    pub gamma: f32,
+}
+
+impl SimdUnaryOp<f32> for Selu {
+    #[inline(always)]
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
+        let ops = isa.f32();
+        let x_pos = ops.gt(x, ops.zero());
+        let x_exp = ops.mul(
+            ops.splat(self.alpha),
+            ops.sub(Exp::apply(isa, x), ops.splat(1.)),
+        );
+        ops.mul(ops.splat(self.gamma), ops.select(x, x_exp, x_pos))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_simd::SimdUnaryOp;
 
     use super::{EXP_LOWER_CUTOFF, ReducedRangeExp};
     use crate::testing::{AllF32s, Tolerance, UnaryOpTester, arange, benchmark_op};
-    use crate::{Celu, Elu, Exp, Mish, Sigmoid, Silu, Swish};
+    use crate::{Celu, Elu, Exp, Mish, Selu, Sigmoid, Silu, Swish};
 
     // Maximum error of `Exp` compared to Rust standard library implementation.
     const MAX_EXP_ERROR_ULPS: f32 = 1.0;
@@ -374,6 +395,27 @@ mod tests {
             // Mish is computed via a different formulation than the reference,
             // with slightly different rounding.
             tolerance: Tolerance::Absolute(1e-5),
+        };
+        test.run();
+    }
+
+    #[test]
+    fn test_selu() {
+        let alpha = 1.6732632;
+        let gamma = 1.0507009;
+        let test = UnaryOpTester {
+            reference: |x: f32| {
+                if x > 0. {
+                    gamma * x
+                } else {
+                    gamma * alpha * (x.exp() - 1.)
+                }
+            },
+            simd: Selu { alpha, gamma },
+            range: arange(-6., 6., 0.001),
+            // For `x` near zero, the 1 ULP error of `Exp` is amplified by
+            // cancellation in `exp(x) - 1`, so an absolute tolerance is used.
+            tolerance: Tolerance::Absolute(1e-6),
         };
         test.run();
     }
