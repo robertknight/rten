@@ -163,6 +163,7 @@ enum OperatorType: ubyte {
   Shrink,
   BitwiseNot,
   BitwiseAnd,
+  BitwiseOr,
 }
 
 enum RNNDirection: ubyte {

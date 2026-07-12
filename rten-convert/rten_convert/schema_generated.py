@@ -157,6 +157,7 @@ class OperatorType(object):
     Shrink = 147
     BitwiseNot = 148
     BitwiseAnd = 149
+    BitwiseOr = 150
 
 
 class RNNDirection(object):
