@@ -42,7 +42,8 @@ pub use generate::{ConstantOfShape, OneHot, Range};
 pub use grid_sample::GridSample;
 pub use identity::Identity;
 pub use layout::{
-    DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
+    DepthToSpace, Expand, Flatten, Reshape, Shape, Size, SpaceToDepth, Squeeze, Transpose,
+    Unsqueeze,
 };
 pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use non_max_suppression::NonMaxSuppression;
