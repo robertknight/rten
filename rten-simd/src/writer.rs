@@ -1,7 +1,7 @@
 use std::mem::{MaybeUninit, transmute};
 
 use crate::Elem;
-use crate::ops::NumOps;
+use crate::ops::BitOps;
 
 /// Utility for incrementally filling an uninitialized slice, one SIMD vector
 /// at a time.
@@ -20,7 +20,7 @@ impl<'a, T: Elem> SliceWriter<'a, T> {
     /// of SIMD vector `xs`.
     ///
     /// Panics if the slice does not have space for `ops.len()` elements.
-    pub fn write_vec<O: NumOps<T>>(&mut self, ops: O, xs: O::Simd) {
+    pub fn write_vec<O: BitOps<T>>(&mut self, ops: O, xs: O::Simd) {
         let written = ops.store_uninit(xs, &mut self.buf[self.n_init..]);
         self.n_init += written.len();
     }

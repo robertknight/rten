@@ -475,9 +475,8 @@ pub unsafe trait BitOps<T: Elem>: Copy {
     /// Store `N` vectors into consecutive sub-slices of `xs`, returning the
     /// initialized portion.
     ///
-    /// This is the batched counterpart of [`store_uninit`](Self::store_uninit),
-    /// storing several vectors after a single length check. The destination is
-    /// uninitialized, as with `store_uninit`, since stores initialize memory.
+    /// This can be faster than [`store_uninit`](Self::store_uninit) when
+    /// storing several vectors as it only performs a single bounds check.
     ///
     /// Panics if `xs.len() < self.len() * N`.
     #[inline(always)]
@@ -489,10 +488,9 @@ pub unsafe trait BitOps<T: Elem>: Copy {
         let v_len = self.len();
         let total = v_len * N;
 
-        // Bounds-check the whole batch up front. The panic message is a static
-        // string with no arguments. A formatted message was observed to spill
-        // its arguments to the stack for the (cold) panic path on each call,
-        // pessimizing tight loops.
+        // Bounds-check the whole batch up front. The panic message is kept
+        // simple with no arguments. Adding arguments was observed to cause
+        // stack writes, slowing down calls to this function in hot loops.
         assert!(
             xs.len() >= total,
             "slice length too short for SIMD vector array"
