@@ -175,6 +175,7 @@ enum OperatorType: ubyte {
   MeanVarianceNormalization,
   Hardmax,
   SpaceToDepth,
+  Compress,
 }
 
 enum RNNDirection: ubyte {
@@ -295,6 +296,7 @@ union OperatorAttrs {
   GlobalLpPoolAttrs,
   MeanVarianceNormalizationAttrs,
   SpaceToDepthAttrs,
+  CompressAttrs,
 }
 
 table ArgMaxAttrs {
@@ -333,6 +335,10 @@ table CastAttrs {
 }
 
 table CastLikeAttrs {}
+
+table CompressAttrs {
+  axis:int = null;
+}
 
 table ConcatAttrs {
   axis:int;
