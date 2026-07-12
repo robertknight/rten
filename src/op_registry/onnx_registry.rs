@@ -137,6 +137,7 @@ impl OnnxOpRegistry {
         register_op!(Attention);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
+        register_op!(Bernoulli, feature = "random");
         register_op!(BitCast);
         register_op!(BitShift);
         register_op!(BitwiseAnd);
@@ -830,6 +831,13 @@ impl_read_op!(AveragePool, |attrs: &Attrs| {
         padding,
         strides,
     })
+});
+
+#[cfg(feature = "random")]
+impl_read_op!(Bernoulli, |attrs: &Attrs| {
+    let dtype = attrs.get("dtype").map(|v| v.as_dtype()).transpose()?;
+    let seed = attrs.get_as("seed");
+    Ok(ops::Bernoulli { dtype, seed })
 });
 
 impl_read_op!(BatchNormalization, |attrs: &Attrs| {

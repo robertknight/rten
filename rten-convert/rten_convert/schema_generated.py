@@ -170,6 +170,7 @@ class OperatorType(object):
     Hardmax = 160
     SpaceToDepth = 161
     Compress = 162
+    Bernoulli = 163
 
 
 class RNNDirection(object):
@@ -279,6 +280,7 @@ class OperatorAttrs(object):
     MeanVarianceNormalizationAttrs = 66
     SpaceToDepthAttrs = 67
     CompressAttrs = 68
+    BernoulliAttrs = 69
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -420,6 +422,8 @@ def OperatorAttrsCreator(unionType, table):
         return SpaceToDepthAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.CompressAttrs:
         return CompressAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.BernoulliAttrs:
+        return BernoulliAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -962,6 +966,104 @@ class BatchNormalizationAttrsT(object):
         BatchNormalizationAttrsAddEpsilon(builder, self.epsilon)
         batchNormalizationAttrs = BatchNormalizationAttrsEnd(builder)
         return batchNormalizationAttrs
+
+
+class BernoulliAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = BernoulliAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsBernoulliAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def BernoulliAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # BernoulliAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # BernoulliAttrs
+    def Dtype(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
+        return None
+
+    # BernoulliAttrs
+    def Seed(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return None
+
+def BernoulliAttrsStart(builder):
+    builder.StartObject(2)
+
+def BernoulliAttrsAddDtype(builder, dtype):
+    builder.PrependUint8Slot(0, dtype, None)
+
+def BernoulliAttrsAddSeed(builder, seed):
+    builder.PrependFloat32Slot(1, seed, None)
+
+def BernoulliAttrsEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import Optional
+except:
+    pass
+
+class BernoulliAttrsT(object):
+
+    # BernoulliAttrsT
+    def __init__(
+        self,
+        dtype = None,
+        seed = None,
+    ):
+        self.dtype = dtype  # type: Optional[int]
+        self.seed = seed  # type: Optional[float]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        bernoulliAttrs = BernoulliAttrs()
+        bernoulliAttrs.Init(buf, pos)
+        return cls.InitFromObj(bernoulliAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, bernoulliAttrs):
+        x = BernoulliAttrsT()
+        x._UnPack(bernoulliAttrs)
+        return x
+
+    # BernoulliAttrsT
+    def _UnPack(self, bernoulliAttrs):
+        if bernoulliAttrs is None:
+            return
+        self.dtype = bernoulliAttrs.Dtype()
+        self.seed = bernoulliAttrs.Seed()
+
+    # BernoulliAttrsT
+    def Pack(self, builder):
+        BernoulliAttrsStart(builder)
+        BernoulliAttrsAddDtype(builder, self.dtype)
+        BernoulliAttrsAddSeed(builder, self.seed)
+        bernoulliAttrs = BernoulliAttrsEnd(builder)
+        return bernoulliAttrs
 
 
 class BitShiftAttrs(object):
@@ -7906,7 +8008,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT', 'BitShiftAttrsT', 'GlobalLpPoolAttrsT', 'LpNormalizationAttrsT', 'MeanVarianceNormalizationAttrsT', 'SpaceToDepthAttrsT', 'CompressAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT', 'BitShiftAttrsT', 'GlobalLpPoolAttrsT', 'LpNormalizationAttrsT', 'MeanVarianceNormalizationAttrsT', 'SpaceToDepthAttrsT', 'CompressAttrsT', 'BernoulliAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 

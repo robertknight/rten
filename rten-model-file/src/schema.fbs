@@ -176,6 +176,7 @@ enum OperatorType: ubyte {
   Hardmax,
   SpaceToDepth,
   Compress,
+  Bernoulli,
 }
 
 enum RNNDirection: ubyte {
@@ -296,6 +297,7 @@ union OperatorAttrs {
   MeanVarianceNormalizationAttrs,
   SpaceToDepthAttrs,
   CompressAttrs,
+  BernoulliAttrs,
 }
 
 table ArgMaxAttrs {
@@ -323,6 +325,11 @@ table BatchNormalizationAttrs {
 enum BitShiftDirection: ubyte {
   LEFT,
   RIGHT,
+}
+
+table BernoulliAttrs {
+  dtype:DataType = null;
+  seed:float = null;
 }
 
 table BitShiftAttrs {

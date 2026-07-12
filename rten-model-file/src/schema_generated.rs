@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 162;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 163;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 163] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 164] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -181,6 +181,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 163] = [
     OperatorType::Hardmax,
     OperatorType::SpaceToDepth,
     OperatorType::Compress,
+    OperatorType::Bernoulli,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -351,9 +352,10 @@ impl OperatorType {
     pub const Hardmax: Self = Self(160);
     pub const SpaceToDepth: Self = Self(161);
     pub const Compress: Self = Self(162);
+    pub const Bernoulli: Self = Self(163);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 162;
+    pub const ENUM_MAX: u8 = 163;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -518,6 +520,7 @@ impl OperatorType {
         Self::Hardmax,
         Self::SpaceToDepth,
         Self::Compress,
+        Self::Bernoulli,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -685,6 +688,7 @@ impl OperatorType {
             Self::Hardmax => Some("Hardmax"),
             Self::SpaceToDepth => Some("SpaceToDepth"),
             Self::Compress => Some("Compress"),
+            Self::Bernoulli => Some("Bernoulli"),
             _ => None,
         }
     }
@@ -1320,13 +1324,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 68;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 69;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 69] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 70] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1396,6 +1400,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 69] = [
     OperatorAttrs::MeanVarianceNormalizationAttrs,
     OperatorAttrs::SpaceToDepthAttrs,
     OperatorAttrs::CompressAttrs,
+    OperatorAttrs::BernoulliAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1472,9 +1477,10 @@ impl OperatorAttrs {
     pub const MeanVarianceNormalizationAttrs: Self = Self(66);
     pub const SpaceToDepthAttrs: Self = Self(67);
     pub const CompressAttrs: Self = Self(68);
+    pub const BernoulliAttrs: Self = Self(69);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 68;
+    pub const ENUM_MAX: u8 = 69;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1545,6 +1551,7 @@ impl OperatorAttrs {
         Self::MeanVarianceNormalizationAttrs,
         Self::SpaceToDepthAttrs,
         Self::CompressAttrs,
+        Self::BernoulliAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1618,6 +1625,7 @@ impl OperatorAttrs {
             Self::MeanVarianceNormalizationAttrs => Some("MeanVarianceNormalizationAttrs"),
             Self::SpaceToDepthAttrs => Some("SpaceToDepthAttrs"),
             Self::CompressAttrs => Some("CompressAttrs"),
+            Self::BernoulliAttrs => Some("BernoulliAttrs"),
             _ => None,
         }
     }
@@ -3123,6 +3131,134 @@ impl ::core::fmt::Debug for BatchNormalizationAttrs<'_> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         let mut ds = f.debug_struct("BatchNormalizationAttrs");
         ds.field("epsilon", &self.epsilon());
+        ds.finish()
+    }
+}
+pub enum BernoulliAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct BernoulliAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for BernoulliAttrs<'a> {
+    type Inner = BernoulliAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> BernoulliAttrs<'a> {
+    pub const VT_DTYPE: ::flatbuffers::VOffsetT = 4;
+    pub const VT_SEED: ::flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        BernoulliAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args BernoulliAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<BernoulliAttrs<'bldr>> {
+        let mut builder = BernoulliAttrsBuilder::new(_fbb);
+        if let Some(x) = args.seed {
+            builder.add_seed(x);
+        }
+        if let Some(x) = args.dtype {
+            builder.add_dtype(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn dtype(&self) -> Option<DataType> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<DataType>(BernoulliAttrs::VT_DTYPE, None) }
+    }
+    #[inline]
+    pub fn seed(&self) -> Option<f32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<f32>(BernoulliAttrs::VT_SEED, None) }
+    }
+}
+
+impl ::flatbuffers::Verifiable for BernoulliAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<DataType>("dtype", Self::VT_DTYPE, false)?
+            .visit_field::<f32>("seed", Self::VT_SEED, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct BernoulliAttrsArgs {
+    pub dtype: Option<DataType>,
+    pub seed: Option<f32>,
+}
+impl<'a> Default for BernoulliAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        BernoulliAttrsArgs {
+            dtype: None,
+            seed: None,
+        }
+    }
+}
+
+pub struct BernoulliAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> BernoulliAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_dtype(&mut self, dtype: DataType) {
+        self.fbb_
+            .push_slot_always::<DataType>(BernoulliAttrs::VT_DTYPE, dtype);
+    }
+    #[inline]
+    pub fn add_seed(&mut self, seed: f32) {
+        self.fbb_
+            .push_slot_always::<f32>(BernoulliAttrs::VT_SEED, seed);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> BernoulliAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        BernoulliAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<BernoulliAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for BernoulliAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("BernoulliAttrs");
+        ds.field("dtype", &self.dtype());
+        ds.field("seed", &self.seed());
         ds.finish()
     }
 }
@@ -13006,6 +13142,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_bernoulli_attrs(&self) -> Option<BernoulliAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::BernoulliAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { BernoulliAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -13086,6 +13237,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::MeanVarianceNormalizationAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<MeanVarianceNormalizationAttrs>>("OperatorAttrs::MeanVarianceNormalizationAttrs", pos),
           OperatorAttrs::SpaceToDepthAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<SpaceToDepthAttrs>>("OperatorAttrs::SpaceToDepthAttrs", pos),
           OperatorAttrs::CompressAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<CompressAttrs>>("OperatorAttrs::CompressAttrs", pos),
+          OperatorAttrs::BernoulliAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<BernoulliAttrs>>("OperatorAttrs::BernoulliAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -13846,6 +13998,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::CompressAttrs => {
                 if let Some(x) = self.attrs_as_compress_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::BernoulliAttrs => {
+                if let Some(x) = self.attrs_as_bernoulli_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

@@ -222,6 +222,7 @@ pub mod op_types {
     declare_op!(Atan);
     declare_op!(AveragePool);
     declare_op!(BatchNormalization);
+    declare_op!(Bernoulli, feature = "random");
     declare_op!(BitCast);
     declare_op!(BitShift);
     declare_op!(BitwiseAnd);

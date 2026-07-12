@@ -382,6 +382,13 @@ def op_node_from_onnx_operator(
             # is unsupported.
             attr_reader.ignore_attr("momentum")
 
+        case "Bernoulli":
+            attrs = sg.BernoulliAttrsT()
+            dtype = attr_reader.get_attr("dtype", "int", None)
+            if dtype is not None:
+                attrs.dtype = convert_data_type(dtype)
+            attrs.seed = attr_reader.get_attr("seed", "float", None)
+
         case "BitCast":
             attrs = sg.CastAttrsT()
             to = attr_reader.require_attr("to", "int")

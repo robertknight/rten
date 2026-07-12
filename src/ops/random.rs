@@ -298,6 +298,67 @@ impl_infer_shapes!(
 );
 
 #[derive(Debug)]
+pub struct Bernoulli {
+    /// Output data type. If `None`, the output has the same type as the input.
+    pub dtype: Option<DataType>,
+
+    /// Random seed. See [`RandomUniform::seed`].
+    pub seed: Option<f32>,
+}
+
+impl Operator for Bernoulli {
+    fn name(&self) -> &str {
+        "Bernoulli"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn is_deterministic(&self) -> bool {
+        false
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input: TensorView<f32> = ctx.inputs().require_as(0)?;
+        let mut rng = rng_from_seed(self.seed);
+        let mut draw = |p: &f32| rng.f32() < *p;
+
+        match self.dtype.unwrap_or(DataType::Float) {
+            DataType::Float => {
+                let data: Vec<f32> = input.iter().map(|p| f32::from(u8::from(draw(p)))).collect();
+                Tensor::from_data(input.shape(), data).into_op_result()
+            }
+            DataType::Int32 => {
+                let data: Vec<i32> = input.iter().map(|p| i32::from(draw(p))).collect();
+                Tensor::from_data(input.shape(), data).into_op_result()
+            }
+            DataType::Int8 => {
+                let data: Vec<i8> = input.iter().map(|p| i8::from(draw(p))).collect();
+                Tensor::from_data(input.shape(), data).into_op_result()
+            }
+            DataType::UInt8 => {
+                let data: Vec<u8> = input.iter().map(|p| u8::from(draw(p))).collect();
+                Tensor::from_data(input.shape(), data).into_op_result()
+            }
+        }
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some(
+            [OutputType::Fixed(ValueType::Tensor(
+                self.dtype.unwrap_or(DataType::Float),
+            ))]
+            .into(),
+        )
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+}
+
+#[derive(Debug)]
 pub struct Dropout {
     pub seed: Option<i32>,
 }
@@ -405,7 +466,8 @@ mod tests {
     use crate::ops::operators::{FloatOperators, Operators};
 
     use super::{
-        Dropout, Multinomial, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike,
+        Bernoulli, Dropout, Multinomial, RandomNormal, RandomNormalLike, RandomUniform,
+        RandomUniformLike,
     };
 
     #[test]
@@ -741,6 +803,46 @@ mod tests {
         };
         let output: Tensor<i32> = op.run_simple(input.view()).unwrap();
         assert_eq!(output.shape(), &[0, 4]);
+    }
+
+    #[test]
+    fn test_bernoulli() {
+        use crate::value::DataType;
+
+        // Draws respect the per-element probabilities. With a large sample
+        // size the frequency of ones should be close to the probability.
+        let probs = Tensor::full(&[100, 100], 0.3);
+        let op = Bernoulli {
+            dtype: None,
+            seed: Some(0.5),
+        };
+        let output: Tensor<f32> = op.run_simple(probs.view()).unwrap();
+        assert_eq!(output.shape(), &[100, 100]);
+        assert!(output.iter().all(|&x| x == 0. || x == 1.));
+        let ones_ratio = output.iter().filter(|&&x| x == 1.).count() as f32 / output.len() as f32;
+        assert!(
+            (ones_ratio - 0.3).abs() < 0.05,
+            "ones ratio {ones_ratio} too far from probability 0.3"
+        );
+
+        // Probabilities of 0 and 1 produce deterministic draws.
+        let probs = Tensor::from([0., 1., 0., 1.]);
+        let op = Bernoulli {
+            dtype: Some(DataType::Int32),
+            seed: None,
+        };
+        let output: Tensor<i32> = op.run_simple(probs.view()).unwrap();
+        assert_eq!(output, Tensor::from([0, 1, 0, 1]));
+
+        // A fixed seed produces repeatable draws.
+        let probs = Tensor::full(&[100], 0.5);
+        let op = Bernoulli {
+            dtype: None,
+            seed: Some(1.0),
+        };
+        let a: Tensor<f32> = op.run_simple(probs.view()).unwrap();
+        let b: Tensor<f32> = op.run_simple(probs.view()).unwrap();
+        assert_eq!(a, b);
     }
 
     #[test]
