@@ -167,6 +167,7 @@ class OperatorType(object):
     CumProd = 157
     GlobalLpPool = 158
     MeanVarianceNormalization = 159
+    Hardmax = 160
 
 
 class RNNDirection(object):
