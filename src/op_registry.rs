@@ -262,6 +262,7 @@ pub mod op_types {
     declare_op!(AveragePool);
     declare_op!(BatchNormalization);
     declare_op!(BitCast, onnx_only);
+    declare_op!(BitwiseAnd, onnx_only);
     declare_op!(BitwiseNot, onnx_only);
     declare_op!(Cast);
     declare_op!(CastLike);
