@@ -154,6 +154,7 @@ class OperatorType(object):
     ReduceLogSumExp = 144
     Softsign = 145
     Mish = 146
+    ThresholdedRelu = 147
 
 
 class RNNDirection(object):
