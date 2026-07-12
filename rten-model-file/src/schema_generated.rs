@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 144;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 145;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 145] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 146] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -163,6 +163,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 145] = [
     OperatorType::LpNormalization,
     OperatorType::ReduceLogSum,
     OperatorType::ReduceLogSumExp,
+    OperatorType::Softsign,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -315,9 +316,10 @@ impl OperatorType {
     pub const LpNormalization: Self = Self(142);
     pub const ReduceLogSum: Self = Self(143);
     pub const ReduceLogSumExp: Self = Self(144);
+    pub const Softsign: Self = Self(145);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 144;
+    pub const ENUM_MAX: u8 = 145;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -464,6 +466,7 @@ impl OperatorType {
         Self::LpNormalization,
         Self::ReduceLogSum,
         Self::ReduceLogSumExp,
+        Self::Softsign,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -613,6 +616,7 @@ impl OperatorType {
             Self::LpNormalization => Some("LpNormalization"),
             Self::ReduceLogSum => Some("ReduceLogSum"),
             Self::ReduceLogSumExp => Some("ReduceLogSumExp"),
+            Self::Softsign => Some("Softsign"),
             _ => None,
         }
     }
