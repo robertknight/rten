@@ -264,6 +264,7 @@ pub mod op_types {
     declare_op!(BitCast, onnx_only);
     declare_op!(BitwiseAnd, onnx_only);
     declare_op!(BitwiseNot, onnx_only);
+    declare_op!(BitwiseOr, onnx_only);
     declare_op!(Cast);
     declare_op!(CastLike);
     declare_op!(Ceil);
